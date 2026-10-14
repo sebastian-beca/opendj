@@ -36,6 +36,8 @@ mod files;
 mod inbox;
 #[cfg(target_os = "macos")]
 mod mac_menu;
+#[cfg(target_os = "macos")]
+mod mac_titlebar;
 mod prefs;
 mod settings;
 mod smooth;
@@ -241,6 +243,11 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
     });
 }
 
+/// The top bar's height in points, as in main.slint; the macOS title bar
+/// is made this tall.
+#[cfg(target_os = "macos")]
+const TOP_BAR_HEIGHT: f64 = 52.0;
+
 /// Seconds of audio shown across the scrolling waveform at normal speed.
 const VISIBLE_SECONDS: f64 = 10.0;
 
@@ -289,7 +296,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let library = if samples { sample_library() } else { saved };
     let app = AppWindow::new()?;
     #[cfg(target_os = "macos")]
-    app.set_traffic_light_inset(76.0);
+    {
+        use slint::winit_030::{EventResult, WinitWindowAccessor};
+        app.set_traffic_light_inset(76.0);
+        // The traffic lights, centred in the top bar after anything that
+        // might have moved them back.
+        app.window().on_winit_window_event(|window, event| {
+            use slint::winit_030::winit::event::WindowEvent;
+            if !matches!(
+                event,
+                WindowEvent::CursorMoved { .. } | WindowEvent::RedrawRequested
+            ) {
+                window
+                    .with_winit_window(|w| mac_titlebar::center_traffic_lights(w, TOP_BAR_HEIGHT));
+            }
+            EventResult::Propagate
+        });
+    }
     // Pro or Player, as last picked.
     app.set_layout(settings::number("layout", 0.0).clamp(0.0, 1.0) as i32);
     app.on_layout_changed(|layout| settings::set("layout", serde_json::json!(layout)));

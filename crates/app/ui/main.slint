@@ -51,8 +51,8 @@ component LinkButton inherits Rectangle {
     border-radius: 10px;
     border-width: 1px;
     border-color: on ? Theme.accent : transparent;
-    height: 32px;
-    y: 4px;
+    height: 36px;
+    y: 8px;
     horizontal-stretch: 0;
     HorizontalLayout {
         padding-left: 12px;
@@ -78,9 +78,9 @@ component LinkButton inherits Rectangle {
 component SettingsButton inherits Rectangle {
     background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2e2e32 : Theme.panel-raised;
     border-radius: 10px;
-    width: 32px;
-    height: 32px;
-    y: 4px;
+    width: 36px;
+    height: 36px;
+    y: 8px;
     horizontal-stretch: 0;
     // A gear: eight teeth round a ring, and the hole.
     Path {
@@ -111,8 +111,8 @@ component LayoutPill inherits Rectangle {
     callback changed-to(layout: int);
     background: ta.has-hover ? #3a3a3d : Theme.panel-raised;
     border-radius: 10px;
-    height: 32px;
-    y: 4px;
+    height: 36px;
+    y: 8px;
     horizontal-stretch: 0;
     HorizontalLayout {
         padding-left: 12px;
@@ -131,8 +131,8 @@ component LayoutPill inherits Rectangle {
 component Pill inherits Rectangle {
     background: Theme.panel-raised;
     border-radius: 10px;
-    height: 32px;
-    y: 4px;
+    height: 36px;
+    y: 8px;
     horizontal-stretch: 0;
     HorizontalLayout {
         padding-left: 12px;
@@ -293,7 +293,10 @@ export component AppWindow inherits Window {
 
             // Top bar: pill-shaped groups on a dark strip, app name in the middle.
             Rectangle {
-                height: 40px;
+                // A tall bar; on macOS the title bar is made the same
+                // height (TOP_BAR_HEIGHT in main.rs) so the traffic lights
+                // sit in the middle.
+                height: 52px;
                 // The top bar moves the window, as a title bar would: on macOS
                 // the real one is hidden.
                 TouchArea {
