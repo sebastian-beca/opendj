@@ -1,0 +1,105 @@
+name: Release
+
+# Pushing a tag such as v0.1.0 builds the macOS and Linux downloads and
+# publishes them as a GitHub release. On a pull request that changes the
+# packaging, the same builds run without publishing.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/bundle-*.sh
+  workflow_dispatch:
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)" >> "$GITHUB_OUTPUT"
+          fi
+
+  macos:
+    # One app for both Apple Silicon and Intel Macs.
+    needs: version
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          cargo build --release -p opendj --target aarch64-apple-darwin
+          cargo build --release -p opendj --target x86_64-apple-darwin
+          mkdir -p dist
+          lipo -create -output dist/opendj \
+            target/aarch64-apple-darwin/release/opendj \
+            target/x86_64-apple-darwin/release/opendj
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+      - run: |
+          scripts/bundle-macos.sh dist/opendj "${{ needs.version.outputs.version }}"
+          mv dist/opendj-macos.zip "dist/openDJ-${{ needs.version.outputs.version }}-macos.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: dist/openDJ-*-macos.zip
+
+  linux:
+    # Built on the oldest supported Ubuntu, so the binary runs on any distro
+    # with glibc 2.35 or newer.
+    needs: version
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig-dev libxkbcommon-dev libasound2-dev cmake libclang-dev imagemagick
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p opendj
+      - run: scripts/bundle-linux.sh target/release/opendj "${{ needs.version.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: |
+            dist/*.tar.gz
+            dist/*.AppImage
+
+  windows:
+    # Not released yet: shows how far a Windows build gets.
+    needs: version
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p opendj
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [version, macos, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: openDJ ${{ needs.version.outputs.version }}
+          body_path: docs/release-notes.md
+          files: dist/*
