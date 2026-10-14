@@ -1,0 +1,1895 @@
+// Browser: folder tree, track list and a side panel (Automix / Sidelist).
+// Plain rows, lilac selection, rounded sidebar items.
+import { LineEdit, ListView, ScrollView } from "std-widgets.slint";
+import { Theme, EdgeLine } from "theme.slint";
+
+export struct Folder {
+    name: string,
+    depth: int,
+    // 0 = leaf, 1 = collapsed, 2 = expanded
+    children: int,
+    // 0 = collection, 1 = list folder, 2 = playlist, 3 = smart list, 4 = liked songs,
+    // 5 = history session, 6 = Bandcamp (in the stores list), and in Files
+    // 1 = folder, 7 = drive, 8 = pinned folder, 9 = cloud drive
+    kind: int,
+    // One of the DJ's own lists or folders: it can be renamed, deleted and
+    // (a list) have tracks dropped on it.
+    editable: bool,
+}
+
+export struct TrackRow {
+    title: string,
+    artist: string,
+    album: string,
+    genre: string,
+    length: string,
+    bpm: string,
+    key: string,
+    rating: int,
+    // -1 = not loaded, 0/1 = loaded on deck A/B
+    deck: int,
+    // False for a Spotify track that isn't in the collection, so can't play.
+    available: bool,
+    // In the library, but its file is not on disk (moved or deleted).
+    missing: bool,
+    // Album art thumbnail, once found.
+    cover: image,
+    has-cover: bool,
+    // The colour the DJ gave the track, shown as a strip at the row's edge.
+    color: color,
+    has-color: bool,
+    // A store result rather than a track: what activating it does, shown
+    // as a button ("Buy", "Search", "Get"). Empty for tracks.
+    action: string,
+}
+
+export struct SideRow {
+    // A section heading in the Linked tab ("Linked", "Played with")
+    // instead of a track, when not empty.
+    heading: string,
+    title: string,
+    artist: string,
+    bpm: string,
+    key: string,
+    length: string,
+    cover: image,
+    has-cover: bool,
+}
+
+// Dragging tracks from the list onto a deck. The payload names the rows
+// dragged, `first` to `last` (a deck takes the first); files dragged in
+// from Finder or a file manager are accepted too.
+export global TrackDrag {
+    // True while a track from the list is being dragged, so every deck can
+    // show that it accepts drops.
+    in-out property <bool> active;
+    pure callback payload(first: int, last: int) -> data-transfer;
+    pure callback accepts(data: data-transfer) -> bool;
+    callback drop(deck: int, data: data-transfer);
+    // Dropped on the side panel's list, to go in before `index`.
+    callback drop-side(index: int, data: data-transfer);
+}
+
+// Editing the library: lists and folders, ratings and colours.
+export global LibraryEdit {
+    // Names of the lists a track can be added to, for the track menu.
+    in property <[string]> lists;
+    // The selected node is one of the DJ's lists, so a track can be taken out.
+    in property <bool> in-list;
+    // Track colours the menu offers, in order.
+    out property <[color]> colors: [#ff3b30, #ff9500, #ffcc00, #34c759, #5ac8fa, #007aff, #af52de, #ff2d55];
+    // Makes a list (0) or folder (1) and returns its row in the tree.
+    callback create(kind: int) -> int;
+    callback rename(index: int, name: string);
+    callback delete(index: int);
+    pure callback accepts-drop(index: int, data: data-transfer) -> bool;
+    callback drop(index: int, data: data-transfer);
+    callback set-rating(row: int, rating: int);
+    // An index into `colors`, or -1 for none.
+    callback set-color(row: int, color: int);
+    // The rows `first` to `last`, the tracks picked with shift-click.
+    callback add-to-list(first: int, last: int, list: int);
+    callback remove-from-list(row: int);
+    callback add-to-automix(first: int, last: int);
+    // The sidebar switched between the library and the history.
+    callback show-history(history: bool);
+    // A search can be saved as a smart list (the collection is the saved library).
+    in property <bool> can-save-search;
+    // The selected smart list's search, shown above the list; empty otherwise.
+    in property <string> rule;
+    // Saves a search as a smart list, selects it and returns its row in the tree.
+    callback save-search(text: string) -> int;
+    // Set to a row of the tree to have the tree ask for that list's name.
+    in-out property <int> name-row: -1;
+    // The search of the smart list at a row of the tree, and changing it.
+    pure callback rule-at(index: int) -> string;
+    callback set-rule(index: int, text: string);
+}
+
+// The Files source: folders on the computer.
+export global FilesUi {
+    // Listings include the files in subfolders.
+    in-out property <bool> recursive;
+    // "Finder" on macOS, "file manager" elsewhere.
+    in property <string> file-manager: "Finder";
+    // What adding a folder to the collection is doing.
+    in property <string> status;
+    callback set-recursive(on: bool);
+    // Pins the folder at a row of the tree, or unpins it.
+    callback pin(index: int);
+    callback add-folder(index: int);
+    callback reveal-folder(index: int);
+    callback add-track(row: int);
+    callback reveal-track(row: int);
+    // The track at a row of the list is in the collection (not only in Files).
+    pure callback in-collection(row: int) -> bool;
+    // The track at a row of the list is a file on disk.
+    pure callback has-file(row: int) -> bool;
+}
+
+// The stores source: switching to it from elsewhere, its search box, and
+// the purchase inbox.
+export global StoreUi {
+    // The source picked in the rail, so the app can switch to the stores.
+    in-out property <int> source;
+    // Whether the streaming services and stores can be used. While false,
+    // every source but the collection and Files shows "Coming soon".
+    in property <bool> services;
+    // The text in the list's search box, so the app can fill it in.
+    in-out property <string> search-text;
+    in property <bool> inbox-on;
+    // 0 = move into Purchased, 1 = copy there, 2 = leave where it downloaded.
+    in property <int> inbox-mode;
+    in property <string> inbox-status;
+    callback set-inbox(on: bool);
+    callback set-inbox-mode(mode: int);
+    // "Find in stores" on a track's menu.
+    callback find(row: int);
+}
+
+// A line of a popup menu.
+component MenuLine inherits Rectangle {
+    in property <string> text;
+    in property <color> text-color: Theme.text;
+    callback clicked();
+    height: 26px;
+    border-radius: 4px;
+    background: ta.has-hover ? #3a3a3d : transparent;
+    Text { x: 10px; width: parent.width - 16px; text: root.text; color: root.text-color; font-size: 13px; vertical-alignment: center; overflow: elide; }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+component MenuBackground inherits Rectangle {
+    background: Theme.panel-raised;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 12px;
+    drop-shadow-color: #000000a0;
+}
+
+component MenuSeparator inherits Rectangle {
+    height: 9px;
+    Rectangle { height: 1px; background: Theme.border; }
+}
+
+// Right-click menu on a track: rating, colour, and lists.
+component TrackMenu inherits PopupWindow {
+    in property <int> track-row;
+    // The last row picked with shift-click, when the menu is for several.
+    in property <int> track-last: track-row;
+    in property <int> rating;
+    width: 230px;
+    close-policy: close-on-click-outside;
+    MenuBackground {}
+    VerticalLayout {
+        padding: 6px;
+        spacing: 2px;
+        HorizontalLayout {
+            height: 28px;
+            padding-left: 10px;
+            spacing: 2px;
+            Text { text: "Rating"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 60px; }
+            for n in [1, 2, 3, 4, 5]: Rectangle {
+                width: 22px;
+                Text { text: n <= rating ? "★" : "☆"; color: #ffd60a; font-size: 16px; }
+                TouchArea {
+                    clicked => {
+                        LibraryEdit.set-rating(track-row, n == rating ? 0 : n);
+                        root.close();
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            height: 28px;
+            padding-left: 10px;
+            spacing: 4px;
+            Text { text: "Colour"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 56px; }
+            for c[i] in LibraryEdit.colors: Rectangle {
+                width: 14px;
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle { height: 14px; border-radius: 7px; background: c; }
+                }
+                TouchArea {
+                    clicked => {
+                        LibraryEdit.set-color(track-row, i);
+                        root.close();
+                    }
+                }
+            }
+            Rectangle {
+                width: 14px;
+                Text { text: "✕"; color: Theme.text-dim; font-size: 11px; }
+                TouchArea {
+                    clicked => {
+                        LibraryEdit.set-color(track-row, -1);
+                        root.close();
+                    }
+                }
+            }
+        }
+        MenuSeparator {}
+        if StoreUi.services: MenuLine {
+            text: "Find in stores";
+            clicked => {
+                StoreUi.find(track-row);
+                root.close();
+            }
+        }
+        MenuLine {
+            text: "Add to Automix";
+            clicked => {
+                LibraryEdit.add-to-automix(track-row, track-last);
+                root.close();
+            }
+        }
+        if StoreUi.source == 1 && !FilesUi.in-collection(track-row): MenuLine {
+            text: "Add to Collection";
+            clicked => {
+                FilesUi.add-track(track-row);
+                root.close();
+            }
+        }
+        if FilesUi.has-file(track-row): MenuLine {
+            text: "Show in " + FilesUi.file-manager;
+            clicked => {
+                FilesUi.reveal-track(track-row);
+                root.close();
+            }
+        }
+        MenuSeparator {}
+        if LibraryEdit.lists.length > 0: Text { x: 10px; height: 20px; text: "Add to list"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+        if LibraryEdit.lists.length == 0: Text { x: 10px; height: 24px; text: "Make a list with + to add tracks to it."; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+        ScrollView {
+            height: min(LibraryEdit.lists.length * 26px, 260px);
+            VerticalLayout {
+                for name[i] in LibraryEdit.lists: MenuLine {
+                    text: name;
+                    clicked => {
+                        LibraryEdit.add-to-list(track-row, track-last, i);
+                        root.close();
+                    }
+                }
+            }
+        }
+        if LibraryEdit.in-list: MenuSeparator {}
+        if LibraryEdit.in-list: MenuLine {
+            text: "Remove from this list";
+            clicked => {
+                LibraryEdit.remove-from-list(track-row);
+                root.close();
+            }
+        }
+    }
+}
+
+// Monochrome glyph per node kind.
+component FolderIcon inherits Rectangle {
+    in property <int> kind;
+    width: 18px;
+    height: 18px;
+    if kind == 1: Rectangle {
+        // Folder: tab and body.
+        Rectangle { x: 1px; y: 3px; width: 7px; height: 3px; border-radius: 1px; background: Theme.text; }
+        Rectangle { x: 1px; y: 5px; width: 16px; height: 11px; border-radius: 2px; background: Theme.text; }
+    }
+    // Drive: a flat box with a light.
+    if kind == 7: Rectangle {
+        Rectangle { x: 1px; y: 5px; width: 16px; height: 9px; border-radius: 2px; border-width: 1.5px; border-color: Theme.text; }
+        Rectangle { x: 12px; y: 8.5px; width: 2.5px; height: 2.5px; border-radius: 1.25px; background: Theme.text; }
+    }
+    // Bandcamp, in the stores list.
+    if kind == 6: Image { width: 18px; height: 18px; source: @image-url("icons/bandcamp.png"); }
+    // Cloud drive: a cloud outline.
+    if kind == 9: Path {
+        width: 18px;
+        height: 18px;
+        viewbox-width: 18;
+        viewbox-height: 18;
+        stroke: Theme.text;
+        stroke-width: 1.5px;
+        fill: transparent;
+        commands: "M 5 14 A 3 3 0 0 1 4.6 8 A 4.5 4.5 0 0 1 13 6.8 A 3.6 3.6 0 0 1 13.6 14 Z";
+    }
+    if kind != 1 && kind != 6 && kind != 7 && kind != 9: Text {
+        text: kind == 0 ? "♫" : kind == 3 ? "✦" : kind == 4 ? "♥" : kind == 5 ? "◷" : kind == 8 ? "★" : "≡";
+        color: Theme.text;
+        font-size: kind == 2 ? 18px : 14px;
+        font-weight: 700;
+    }
+}
+
+// A short centred note where content will go.
+component Placeholder inherits Rectangle {
+    in property <string> title;
+    in property <string> text;
+    VerticalLayout {
+        alignment: center;
+        spacing: 6px;
+        padding: 16px;
+        Text { text: title; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; }
+        Text { text: text; color: Theme.text-dim; font-size: 13px; horizontal-alignment: center; wrap: word-wrap; }
+    }
+}
+
+// Icon for a music source in the rail: the collection,
+// files, and the streaming services.
+component SourceIcon inherits Rectangle {
+    // 0 = collection, 1 = files, 2 = Spotify, 3 = TIDAL, 4 = Apple Music,
+    // 5 = Bandcamp, 6 = Beatport, 7 = OneLibrary, 8 = SoundCloud,
+    // 9 = shopping (the other stores)
+    in property <int> kind;
+    width: 30px;
+    height: 30px;
+    border-radius: kind == 2 ? 15px : 7px;
+    clip: kind == 3 || kind == 4 || kind == 6 || kind == 8;
+    background: kind == 0 ? transparent
+        : kind == 1 ? transparent
+        : kind == 2 ? transparent
+        : kind == 3 ? #000000
+        : kind == 5 || kind == 6 ? transparent
+        : kind == 7 ? #000000
+        : kind == 8 ? #ff5500
+        : kind == 9 ? transparent
+        : @linear-gradient(180deg, #fc5c7d 0%, #fa2d48 100%);
+    border-width: kind == 3 || kind == 7 ? 1px : 0px;
+    border-color: Theme.border;
+    // Collection: openDJ's own logo.
+    if kind == 0: Image { width: 30px; height: 30px; source: @image-url("icons/opendj.svg"); }
+    // Files: a folder.
+    if kind == 1: Image { width: 30px; height: 30px; source: @image-url("icons/files.png"); }
+    // Spotify: its own logo, unaltered as its brand rules ask.
+    if kind == 2: Image { width: 30px; height: 30px; source: @image-url("icons/spotify.png"); }
+    // TIDAL: its own logo.
+    if kind == 3: Image { width: 30px; height: 30px; source: @image-url("icons/tidal.png"); }
+    // Apple Music: its own logo, cropped to the button.
+    if kind == 4: Image { width: 30px; height: 30px; source: @image-url("icons/applemusic.png"); }
+    // Bandcamp: its logo.
+    if kind == 5: Image { width: 30px; height: 30px; source: @image-url("icons/bandcamp.png"); }
+    // Beatport: its own logo.
+    if kind == 6: Image { width: 30px; height: 30px; source: @image-url("icons/beatport.png"); }
+    // OneLibrary: its white logo on black.
+    if kind == 7: Image { width: 22px; height: 22px; source: @image-url("icons/onelibrary.svg"); }
+    // SoundCloud: its own logo.
+    if kind == 8: Image { width: 30px; height: 30px; source: @image-url("icons/soundcloud.png"); }
+    // Shopping, the other stores: a cart.
+    if kind == 9: Image { width: 30px; height: 30px; source: @image-url("icons/shopping.png"); }
+}
+
+// An on/off switch, as in macOS.
+component Switch inherits Rectangle {
+    in property <bool> on;
+    callback toggled();
+    width: 34px;
+    height: 20px;
+    border-radius: 10px;
+    background: on ? Theme.accent : #48484a;
+    Rectangle {
+        x: on ? 16px : 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: #ffffff;
+    }
+    TouchArea { mouse-cursor: pointer; clicked => { toggled(); } }
+}
+
+// The column of music sources down the left edge. The "..."
+// under them picks which sources are shown; the collection always is.
+component SourceRail inherits Rectangle {
+    in-out property <int> source;
+    in-out property <[bool]> shown;
+    callback picked(source: int);
+    callback shown-changed(source: int, on: bool);
+    property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Shopping"];
+    width: 52px;
+    background: Theme.panel;
+    rail := VerticalLayout {
+        padding: 5px;
+        alignment: start;
+        // Hidden sources fold to nothing; each shown one carries its own gap.
+        for name[i] in names: Rectangle {
+            height: shown[i] ? 48px : 0px;
+            visible: shown[i];
+            Rectangle {
+                y: 0;
+                height: 42px;
+                border-radius: 8px;
+                background: i == source ? #3a3a3d : (sta.has-hover ? #262629 : transparent);
+                SourceIcon { kind: i; }
+                sta := TouchArea { clicked => { source = i; picked(i); } }
+            }
+        }
+        more := Rectangle {
+            height: 30px;
+            border-radius: 8px;
+            background: mta.has-hover ? #262629 : transparent;
+            Text { text: "•••"; color: mta.has-hover ? Theme.text : Theme.text-dim; font-size: 11px; letter-spacing: 1px; }
+            mta := TouchArea { mouse-cursor: pointer; clicked => { menu.show(); } }
+        }
+    }
+    menu := PopupWindow {
+        x: root.width + 4px;
+        y: max(4px, rail.y + more.y + more.height - self.height);
+        width: 240px;
+        height: list.preferred-height;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: #2a2a2d;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000080;
+        }
+        list := VerticalLayout {
+            padding: 8px;
+            spacing: 2px;
+            for name[i] in names: HorizontalLayout {
+                visible: i > 0;
+                height: i > 0 ? 40px : 0px;
+                padding-left: 6px;
+                padding-right: 6px;
+                spacing: 10px;
+                VerticalLayout { alignment: center; SourceIcon { kind: i; } }
+                Text { text: name; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
+                VerticalLayout {
+                    alignment: center;
+                    Switch {
+                        on: shown[i];
+                        toggled => {
+                            shown[i] = !shown[i];
+                            shown-changed(i, shown[i]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Tab icons over the sidebar: the music library and the history.
+component LibraryTabIcon inherits Path {
+    in property <bool> history;
+    in property <color> color;
+    width: 20px;
+    height: 20px;
+    viewbox-width: 20;
+    viewbox-height: 20;
+    fill: transparent;
+    stroke: color;
+    stroke-width: 1.6px;
+    // History: a clock face and hands. Library: a list with a note.
+    commands: history
+        ? "M 10 2 A 8 8 0 1 1 9.99 2 Z M 10 5.5 L 10 10 L 13 12"
+        : "M 2 4 L 12 4 M 2 9 L 12 9 M 2 14 L 8 14 M 15 15.5 L 15 3.5 L 18.5 5 M 15 15.5 A 2 2 0 1 1 14.99 15.5";
+}
+
+// The purchase inbox, under the stores: what it's doing, on or off, and
+// what it does with what arrives.
+component InboxPanel inherits Rectangle {
+    property <[string]> modes: ["Move", "Copy", "Leave"];
+    border-radius: Theme.radius;
+    background: #232326;
+    height: layout.preferred-height;
+    layout := VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: "Purchase inbox"; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+            // On/off switch.
+            Rectangle {
+                width: 34px;
+                height: 20px;
+                border-radius: 10px;
+                background: StoreUi.inbox-on ? #30c158 : #48484a;
+                Rectangle {
+                    x: StoreUi.inbox-on ? 16px : 2px;
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 8px;
+                    background: #ffffff;
+                }
+                TouchArea { mouse-cursor: pointer; clicked => { StoreUi.set-inbox(!StoreUi.inbox-on); } }
+            }
+        }
+        Text { text: StoreUi.inbox-status; color: Theme.text-dim; font-size: 11px; wrap: word-wrap; }
+        HorizontalLayout {
+            spacing: 4px;
+            for m[i] in modes: Rectangle {
+                height: 22px;
+                border-radius: 5px;
+                background: i == StoreUi.inbox-mode ? #3a3a3d : (mta.has-hover ? #2c2c2f : transparent);
+                border-width: 1px;
+                border-color: Theme.border;
+                Text { text: m; color: i == StoreUi.inbox-mode ? Theme.text : Theme.text-dim; font-size: 11px; }
+                mta := TouchArea { mouse-cursor: pointer; clicked => { StoreUi.set-inbox-mode(i); } }
+            }
+        }
+        Text {
+            text: StoreUi.inbox-mode == 0 ? "Purchases move into Purchased in your music folder."
+                : StoreUi.inbox-mode == 1 ? "Purchases are copied into Purchased; downloads stay put."
+                : "Purchases are added where they downloaded.";
+            color: Theme.text-dim;
+            font-size: 11px;
+            wrap: word-wrap;
+        }
+    }
+}
+
+// Signing in to Spotify, shown in the sidebar until connected.
+component SpotifyConnect inherits Rectangle {
+    in-out property <string> client-id;
+    in property <string> status;
+    callback connect(client-id: string);
+    VerticalLayout {
+        alignment: center;
+        spacing: 10px;
+        padding: 14px;
+        HorizontalLayout { alignment: center; SourceIcon { kind: 2; } }
+        Text { text: "Connect Spotify"; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; }
+        Text {
+            text: "See your playlists and liked songs here. Tracks that are also in your collection can be played.";
+            color: Theme.text-dim; font-size: 13px; horizontal-alignment: center; wrap: word-wrap;
+        }
+        LineEdit { text <=> client-id; placeholder-text: "Client ID of your Spotify app"; }
+        Rectangle {
+            height: 32px;
+            border-radius: 16px;
+            background: cta.pressed ? #1db954 : #1ed760;
+            Text { text: "Sign in with Spotify"; color: #000000; font-size: 13px; font-weight: 700; }
+            cta := TouchArea { clicked => { connect(client-id); } }
+        }
+        if status != "": Text { text: status; color: Theme.text; font-size: 13px; horizontal-alignment: center; wrap: word-wrap; }
+        Text {
+            text: "First time? Create an app at developer.spotify.com with the redirect URI http://127.0.0.1:8898/callback, then paste its client ID above.";
+            color: Theme.text-dim; font-size: 12px; horizontal-alignment: center; wrap: word-wrap;
+        }
+    }
+}
+
+// Under the Files tree: whether listings include subfolders, and what
+// adding a folder to the collection did.
+component FilesOptions inherits VerticalLayout {
+    padding-left: 8px;
+    spacing: 4px;
+    Rectangle {
+        height: 28px;
+        HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 4px;
+                    border-width: 1.5px;
+                    border-color: FilesUi.recursive ? Theme.accent : Theme.text-dim;
+                    background: FilesUi.recursive ? Theme.accent : transparent;
+                    if FilesUi.recursive: Text { text: "✓"; color: #000000; font-size: 11px; font-weight: 700; }
+                }
+            }
+            Text { text: "Include subfolders"; color: Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+        }
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                FilesUi.recursive = !FilesUi.recursive;
+                FilesUi.set-recursive(FilesUi.recursive);
+            }
+        }
+    }
+    if FilesUi.status != "": Text { text: FilesUi.status; color: Theme.text-dim; font-size: 12px; wrap: word-wrap; }
+}
+
+component FolderTree inherits Rectangle {
+    in property <[Folder]> folders;
+    in property <int> current;
+    // A controller's browse knob is moving through folders, not tracks.
+    in property <bool> focused;
+    // Which source the rail has selected; only the collection has lists yet.
+    in property <int> source;
+    in-out property <int> tab;
+    in property <bool> spotify-connected;
+    in property <string> spotify-user;
+    in property <string> spotify-status;
+    in-out property <string> spotify-client-id;
+    callback select(index: int);
+    callback toggle(index: int);
+    callback spotify-connect(client-id: string);
+    callback spotify-disconnect();
+    // The node being named, and the name typed so far.
+    property <int> rename-index: -1;
+    property <string> rename-text;
+    // The popup edits a smart list's search rather than a name.
+    property <bool> editing-rule;
+    // A search just saved as a smart list: ask what to call it.
+    property <int> name-row: LibraryEdit.name-row;
+    changed name-row => {
+        if name-row >= 0 {
+            rename-index = name-row;
+            rename-text = "";
+            editing-rule = false;
+            LibraryEdit.name-row = -1;
+            rename-popup.show();
+        }
+    }
+    // The node the right-click menu is for, and where it opens.
+    property <int> menu-index;
+    property <string> menu-name;
+    property <int> menu-kind;
+    property <length> menu-y;
+    folder-menu := PopupWindow {
+        x: 40px;
+        y: menu-y;
+        width: 170px;
+        close-policy: close-on-click-outside;
+        MenuBackground {}
+        VerticalLayout {
+            padding: 6px;
+            MenuLine {
+                text: "Rename…";
+                clicked => {
+                    rename-index = menu-index;
+                    rename-text = menu-name;
+                    editing-rule = false;
+                    folder-menu.close();
+                    rename-popup.show();
+                }
+            }
+            if menu-kind == 3: MenuLine {
+                text: "Edit search…";
+                clicked => {
+                    rename-index = menu-index;
+                    rename-text = LibraryEdit.rule-at(menu-index);
+                    editing-rule = true;
+                    folder-menu.close();
+                    rename-popup.show();
+                }
+            }
+            MenuLine {
+                text: menu-kind == 1 ? "Delete folder and its lists" : "Delete list";
+                text-color: #ff6b5e;
+                clicked => {
+                    LibraryEdit.delete(menu-index);
+                    folder-menu.close();
+                }
+            }
+        }
+    }
+
+    // Right-click menu on a folder in Files.
+    files-menu := PopupWindow {
+        x: 40px;
+        y: menu-y;
+        width: 200px;
+        close-policy: close-on-click-outside;
+        MenuBackground {}
+        VerticalLayout {
+            padding: 6px;
+            MenuLine {
+                text: menu-kind == 8 ? "Unpin" : "Pin to top";
+                clicked => {
+                    FilesUi.pin(menu-index);
+                    files-menu.close();
+                }
+            }
+            MenuLine {
+                text: "Add to Collection";
+                clicked => {
+                    FilesUi.add-folder(menu-index);
+                    files-menu.close();
+                }
+            }
+            MenuLine {
+                text: "Show in " + FilesUi.file-manager;
+                clicked => {
+                    FilesUi.reveal-folder(menu-index);
+                    files-menu.close();
+                }
+            }
+        }
+    }
+
+    background: Theme.panel;
+    width: 270px;
+    rename-popup := PopupWindow {
+        x: 8px;
+        y: 76px;
+        width: parent.width - 16px;
+        close-policy: close-on-click-outside;
+        MenuBackground {}
+        VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+            Text { text: editing-rule ? "Search" : "Name"; color: Theme.text-dim; font-size: 12px; }
+            name-edit := LineEdit {
+                text <=> rename-text;
+                placeholder-text: editing-rule ? "bpm:120-128 ~key:8A" : "Untitled";
+                accepted(t) => {
+                    if editing-rule { LibraryEdit.set-rule(rename-index, t); }
+                    else if t != "" { LibraryEdit.rename(rename-index, t); }
+                    rename-popup.close();
+                }
+                init => { self.focus(); }
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 6px;
+                MenuLine {
+                    width: 70px;
+                    text: "Cancel";
+                    clicked => { rename-popup.close(); }
+                }
+                MenuLine {
+                    width: 60px;
+                    text: "OK";
+                    text-color: Theme.accent;
+                    clicked => {
+                        if editing-rule { LibraryEdit.set-rule(rename-index, rename-text); }
+                        else if rename-text != "" { LibraryEdit.rename(rename-index, rename-text); }
+                        rename-popup.close();
+                    }
+                }
+            }
+        }
+    }
+    VerticalLayout {
+        padding: 8px;
+        padding-top: 0px;
+        spacing: 6px;
+        // Library and history tabs, underlined in orange when selected.
+        HorizontalLayout {
+            height: 38px;
+            for history[i] in [false, true]: Rectangle {
+                LibraryTabIcon { history: history; color: i == tab ? Theme.accent : Theme.text-dim; }
+                Rectangle {
+                    y: parent.height - 2px;
+                    height: 2px;
+                    background: i == tab ? Theme.accent : transparent;
+                }
+                TouchArea {
+                    clicked => {
+                        if tab != i {
+                            tab = i;
+                            LibraryEdit.show-history(i == 1);
+                        }
+                    }
+                }
+            }
+        }
+        EdgeLine { left: 8px; right: 8px; }
+        if tab == 1 && folders.length == 0: Placeholder {
+            vertical-stretch: 1;
+            title: "History";
+            text: "Tracks you play will be listed here, one list per session.";
+        }
+        if tab == 0 && source == 2 && StoreUi.services && !spotify-connected: SpotifyConnect {
+            vertical-stretch: 1;
+            client-id <=> spotify-client-id;
+            status: spotify-status;
+            connect(id) => { spotify-connect(id); }
+        }
+        if tab == 0 && source >= 2 && (!StoreUi.services || (source != 2 && source != 5 && source != 9)): Placeholder {
+            vertical-stretch: 1;
+            title: ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Shopping"][source];
+            text: "Coming soon.";
+        }
+        if (tab == 0 && (source == 0 || source == 1 || (StoreUi.services && (source == 5 || source == 9 || (source == 2 && spotify-connected))))) || (tab == 1 && folders.length > 0): VerticalLayout {
+            spacing: 6px;
+            HorizontalLayout {
+                padding-left: 8px;
+                height: 26px;
+                Text { text: tab == 1 ? "Sessions" : source == 1 ? "Folders" : source == 0 ? "Playlists" : ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Shopping"][source]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                // New list or folder.
+                if source == 0 && tab == 0: Rectangle {
+                    width: 26px;
+                    Text { text: "+"; color: pta.has-hover ? Theme.accent : Theme.text; font-size: 20px; vertical-alignment: center; }
+                    pta := TouchArea { mouse-cursor: pointer; clicked => { add-menu.show(); } }
+                    add-menu := PopupWindow {
+                        x: -150px;
+                        y: 26px;
+                        width: 170px;
+                        close-policy: close-on-click-outside;
+                        MenuBackground {}
+                        VerticalLayout {
+                            padding: 6px;
+                            MenuLine {
+                                text: "New list";
+                                clicked => {
+                                    rename-index = LibraryEdit.create(0);
+                                    rename-text = "";
+                                    editing-rule = false;
+                                    add-menu.close();
+                                    rename-popup.show();
+                                }
+                            }
+                            MenuLine {
+                                text: "New folder";
+                                clicked => {
+                                    rename-index = LibraryEdit.create(1);
+                                    rename-text = "";
+                                    editing-rule = false;
+                                    add-menu.close();
+                                    rename-popup.show();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            ListView {
+                for f[i] in folders: Rectangle {
+                    height: 34px;
+                    border-radius: Theme.radius;
+                    background: drop.has-drag ? Theme.selection.transparentize(0.4) : i == current ? (focused ? Theme.selection : #3a3a3d) : (ta.has-hover ? #232326 : transparent);
+                    ta := TouchArea {
+                        clicked => { select(i); }
+                        double-clicked => { toggle(i); }
+                        pointer-event(e) => {
+                            if (f.editable || source == 1) && tab == 0 && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                                menu-index = i;
+                                menu-name = f.name;
+                                menu-kind = f.kind;
+                                menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
+                                if source == 1 { files-menu.show(); } else { folder-menu.show(); }
+                            }
+                        }
+                    }
+                    // Tracks dragged from the list onto one of the DJ's lists join it.
+                    drop := DropArea {
+                        can-drop(e) => { f.editable && f.kind == 2 && LibraryEdit.accepts-drop(i, e.data) ? DragAction.copy : DragAction.none }
+                        dropped(e) => {
+                            LibraryEdit.drop(i, e.data);
+                            TrackDrag.active = false;
+                            DragAction.copy
+                        }
+                    }
+                    HorizontalLayout {
+                        padding-left: 4px + f.depth * 16px;
+                        spacing: 8px;
+                        Rectangle {
+                            width: 12px;
+                            // Disclosure arrow, drawn so every font shows it the same:
+                            // right when closed, down when open, as in Finder.
+                            if f.children > 0: Path {
+                                width: 10px;
+                                height: 10px;
+                                viewbox-width: 10;
+                                viewbox-height: 10;
+                                stroke: Theme.text-dim;
+                                stroke-width: 1.6px;
+                                stroke-line-cap: round;
+                                fill: transparent;
+                                commands: f.children == 2 ? "M 2 3.5 L 5 6.5 L 8 3.5" : "M 3.5 2 L 6.5 5 L 3.5 8";
+                            }
+                            TouchArea { clicked => { toggle(i); } }
+                        }
+                        VerticalLayout { alignment: center; FolderIcon { kind: f.kind; } }
+                        Text { text: f.name; color: i == current && focused ? Theme.on-selection : Theme.text; font-size: 15px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                    }
+                }
+            }
+            if StoreUi.services && (source == 5 || source == 9): InboxPanel {}
+            if source == 1 && tab == 0: FilesOptions {}
+            if StoreUi.services && source == 2: HorizontalLayout {
+                height: 28px;
+                padding-left: 8px;
+                spacing: 8px;
+                Text { text: "Signed in as " + spotify-user; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                Text {
+                    text: "Sign out"; color: Theme.accent; font-size: 12px; vertical-alignment: center;
+                    TouchArea { clicked => { spotify-disconnect(); } }
+                }
+            }
+        }
+    }
+}
+
+component HeaderCell inherits Rectangle {
+    in property <string> text;
+    in property <int> column;
+    in property <int> sort-column;
+    in property <bool> ascending;
+    in property <TextHorizontalAlignment> align: left;
+    callback sort(column: int);
+    Text {
+        width: 100%;
+        text: root.text + (column == sort-column ? (ascending ? " ▲" : " ▼") : "");
+        color: Theme.text;
+        font-size: 13px;
+        font-weight: column == sort-column ? 600 : 500;
+        horizontal-alignment: align;
+        overflow: elide;
+    }
+    // Column separator in the list header.
+    Rectangle { x: -5px; width: 1px; height: 14px; background: Theme.border; }
+    TouchArea { clicked => { sort(column); } }
+}
+
+component TrackList inherits Rectangle {
+    in property <[TrackRow]> rows;
+    in property <int> sort-column;
+    in property <bool> ascending;
+    in-out property <int> current: -1;
+    in property <string> folder-name;
+    // Total length of the listed tracks, e.g. "3h 56m".
+    in property <string> duration;
+    // Shown instead of the list when a source has nothing to list yet.
+    in property <string> empty-title;
+    // The list is store results, not songs.
+    in property <bool> results;
+    in property <string> empty-text;
+    callback sort(column: int);
+    callback search(text: string);
+    callback activate(row: int);
+
+    // Text in the search box; the filter button lights while there is some.
+    property <string> search-text <=> StoreUi.search-text;
+    // The row the track menu was opened on, and where.
+    property <int> menu-row;
+    property <int> menu-last;
+    property <int> menu-rating;
+    property <length> menu-x;
+    property <length> menu-y;
+    track-menu := TrackMenu {
+        x: min(menu-x, root.width - 240px);
+        y: min(menu-y, root.height - 200px);
+        track-row: menu-row;
+        track-last: menu-last;
+        rating: menu-rating;
+    }
+    property <length> row-height: 32px;
+    // Shift-click picks every row from `anchor` to the one clicked. The
+    // range holds while `range-end` is still the current row; moving the
+    // selection another way (arrows, a controller) drops back to one row.
+    property <int> anchor: -1;
+    property <int> range-end: -1;
+    property <bool> ranged: anchor >= 0 && range-end == current && anchor != current;
+    property <int> first-picked: ranged ? min(anchor, current) : current;
+    property <int> last-picked: ranged ? max(anchor, current) : current;
+    property <bool> shift-held;
+    function pick(i: int) {
+        anchor = i;
+        range-end = i;
+        current = i;
+    }
+    function extend(i: int) {
+        if anchor < 0 || !(range-end == current) {
+            anchor = current;
+        }
+        range-end = i;
+        current = i;
+    }
+    // Keep the selection in view when a controller moves it.
+    changed current => {
+        if current >= 0 {
+            if current * row-height + lv.content-y < 0 {
+                lv.content-y = -current * row-height;
+            } else if (current + 1) * row-height + lv.content-y > lv.visible-height {
+                lv.content-y = lv.visible-height - (current + 1) * row-height;
+            }
+        }
+    }
+
+    // Column widths
+    property <length> w-art: 26px;
+    property <length> w-deck: 22px;
+    property <length> w-rating: 64px;
+    property <length> w-artist: 170px;
+    property <length> w-length: 60px;
+    property <length> w-bpm: 56px;
+    property <length> w-key: 44px;
+    property <length> w-genre: 110px;
+
+    background: Theme.panel;
+    VerticalLayout {
+        padding: 6px;
+        spacing: 4px;
+        HorizontalLayout {
+            spacing: 10px;
+            height: 32px;
+            padding-left: 6px;
+            Text { text: folder-name; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; }
+            if empty-title == "": Text { text: rows.length + (results ? (rows.length == 1 ? " Result" : " Results") : (rows.length == 1 ? " Song" : " Songs")); color: Theme.text-dim; font-size: 14px; vertical-alignment: center; }
+            Text { text: duration; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
+            // A smart list's search, so it's clear why these tracks are here.
+            Text {
+                text: LibraryEdit.rule != "" && empty-title == "" ? "· " + LibraryEdit.rule : "";
+                color: Theme.accent;
+                font-size: 13px;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                overflow: elide;
+            }
+            LineEdit {
+                width: 240px;
+                placeholder-text: "Search " + folder-name;
+                text <=> search-text;
+                edited(t) => { search(t); }
+            }
+            // Save the search as a smart list.
+            if search-text != "" && LibraryEdit.can-save-search: Rectangle {
+                width: 44px;
+                Text {
+                    text: "Save";
+                    color: sta.has-hover ? Theme.text : Theme.accent;
+                    font-size: 13px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+                sta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        LibraryEdit.name-row = LibraryEdit.save-search(search-text);
+                        search-text = "";
+                        search("");
+                    }
+                }
+            }
+            // How to search: Mixxx's syntax.
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 22px;
+                    height: 22px;
+                    border-radius: 11px;
+                    border-width: 1.5px;
+                    border-color: hta.has-hover ? Theme.text-dim : Theme.border;
+                    Text { text: "?"; color: Theme.text-dim; font-size: 13px; font-weight: 600; }
+                    hta := TouchArea { mouse-cursor: pointer; clicked => { help.show(); } }
+                    help := PopupWindow {
+                        x: -400px;
+                        y: 28px;
+                        width: 430px;
+                        close-policy: close-on-click-outside;
+                        MenuBackground {}
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 5px;
+                            Text { text: "Search"; color: Theme.text; font-size: 14px; font-weight: 600; }
+                            for line in [
+                                ["daft punk", "words in any field"],
+                                ["artist:\"daft punk\"", "one field; also title, album, genre, comment, grouping, tag, location"],
+                                ["title:=glue  album:\"\"", "whole field; empty field"],
+                                ["bpm:120-128  rating:>=4", "numbers: > >= < <= and ranges"],
+                                ["duration:>6m  played:0", "length; times played"],
+                                ["added:<7d  added:>=2026-01-31", "days or weeks ago, or a date"],
+                                ["~key:8A  ~bpm:124", "keys that mix; tempo within 6%"],
+                                ["~deck", "mixes with the track playing"],
+                                ["color:red  is:duplicate  is:missing", "colour; duplicates; missing files"],
+                                ["-genre:techno", "leave out"],
+                                ["glue | daft", "either"],
+                            ]: HorizontalLayout {
+                                spacing: 10px;
+                                Text { text: line[0]; color: Theme.accent; font-size: 12px; width: 215px; wrap: word-wrap; }
+                                Text { text: line[1]; color: Theme.text-dim; font-size: 12px; horizontal-stretch: 1; wrap: word-wrap; }
+                            }
+                            Text { text: "Save turns a search into a smart list."; color: Theme.text-dim; font-size: 12px; }
+                        }
+                    }
+                }
+            }
+            // Filter: lit while the list is filtered; click to clear it.
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 28px;
+                    height: 28px;
+                    border-radius: 14px;
+                    border-width: 1.5px;
+                    border-color: search-text != "" ? Theme.accent : (fta.has-hover ? Theme.text-dim : Theme.border);
+                    Path {
+                        width: 16px;
+                        height: 16px;
+                        viewbox-width: 20;
+                        viewbox-height: 20;
+                        stroke: search-text != "" ? Theme.accent : Theme.text-dim;
+                        stroke-width: 2.2px;
+                        stroke-line-cap: round;
+                        fill: transparent;
+                        commands: "M 4 5.5 L 16 5.5 M 6.5 10 L 13.5 10 M 9 14.5 L 11 14.5";
+                    }
+                    fta := TouchArea {
+                        clicked => {
+                            search-text = "";
+                            search("");
+                        }
+                    }
+                }
+            }
+        }
+        // Column headers
+        HorizontalLayout {
+            height: 24px;
+            spacing: 8px;
+            padding-left: 6px;
+            padding-right: 14px;
+            Rectangle { width: w-art; }
+            Rectangle { width: w-deck; }
+            HeaderCell { width: w-rating; text: "Rating"; column: 7; sort-column: sort-column; ascending: ascending; sort(c) => { sort(c); } }
+            HeaderCell { horizontal-stretch: 1; text: "Title"; column: 1; sort-column: sort-column; ascending: ascending; sort(c) => { sort(c); } }
+            HeaderCell { width: w-artist; text: "Artist"; column: 0; sort-column: sort-column; ascending: ascending; sort(c) => { sort(c); } }
+            HeaderCell { width: w-length; text: "Length"; column: 6; sort-column: sort-column; ascending: ascending; align: right; sort(c) => { sort(c); } }
+            HeaderCell { width: w-bpm; text: "Bpm"; column: 4; sort-column: sort-column; ascending: ascending; align: right; sort(c) => { sort(c); } }
+            HeaderCell { width: w-key; text: "Key"; column: 5; sort-column: sort-column; ascending: ascending; sort(c) => { sort(c); } }
+            HeaderCell { width: w-genre; text: "Genre"; column: 3; sort-column: sort-column; ascending: ascending; sort(c) => { sort(c); } }
+        }
+        EdgeLine { left: 6px; right: 6px; }
+        if empty-title != "": Placeholder {
+            vertical-stretch: 1;
+            title: empty-title;
+            text: empty-text;
+        }
+        lv := ListView {
+            vertical-stretch: empty-title != "" ? 0 : 1;
+            visible: empty-title == "";
+            for r[i] in rows: Rectangle {
+                height: row-height;
+                property <bool> selected: i >= first-picked && i <= last-picked;
+                border-radius: 4px;
+                // Rows alternate darker and lighter.
+                background: selected ? Theme.selection : rta.has-hover ? #2a2a2e : mod(i, 2) == 1 ? #ffffff0b : transparent;
+                DragArea {
+                    // Picked rows go together; any other row goes alone.
+                    data: selected ? TrackDrag.payload(first-picked, last-picked) : TrackDrag.payload(i, i);
+                    allow-copy: true;
+                    changed dragging => {
+                        TrackDrag.active = self.dragging;
+                        if self.dragging && !selected { pick(i); }
+                    }
+                    rta := TouchArea {
+                        clicked => {
+                            if shift-held {
+                                extend(i);
+                            } else {
+                                pick(i);
+                            }
+                        }
+                        double-clicked => { pick(i); activate(i); }
+                        pointer-event(e) => {
+                            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                                shift-held = e.modifiers.shift;
+                            }
+                            if r.available && r.action == "" && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                                if !selected { pick(i); }
+                                menu-row = selected ? first-picked : i;
+                                menu-last = selected ? last-picked : i;
+                                menu-rating = r.rating;
+                                menu-x = self.mouse-x;
+                                menu-y = self.absolute-position.y - root.absolute-position.y + self.mouse-y;
+                                track-menu.show();
+                            }
+                        }
+                    }
+                }
+                if r.has-color: Rectangle {
+                    x: 0px;
+                    width: 3px;
+                    height: parent.height - 8px;
+                    border-radius: 1.5px;
+                    background: r.color;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    padding-left: 6px;
+                    // Album art, first.
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: w-art;
+                            height: w-art;
+                            border-radius: 3px;
+                            clip: true;
+                            background: #2a2a2e;
+                            if !r.has-cover: Text { text: "♪"; color: Theme.text-dim; font-size: 12px; }
+                            if r.has-cover: Image { width: parent.width; height: parent.height; source: r.cover; image-fit: cover; }
+                        }
+                    }
+                    Rectangle {
+                        width: w-deck;
+                        // A Spotify track that isn't in the collection: a hollow green ring.
+                        if r.missing: Text {
+                            text: "!";
+                            color: #ff9f0a;
+                            font-size: 14px;
+                            font-weight: 700;
+                        }
+                        if !r.available && r.action == "": Rectangle {
+                            width: 10px;
+                            height: 10px;
+                            border-radius: 5px;
+                            border-width: 1.5px;
+                            border-color: #1ed760;
+                        }
+                        if r.deck >= 0: Rectangle {
+                            width: 16px;
+                            height: 16px;
+                            border-radius: 4px;
+                            background: selected ? #00000040 : Theme.deck-color(r.deck);
+                            Text { text: r.deck == 0 ? "A" : "B"; color: #fff; font-size: 10px; font-weight: 700; }
+                        }
+                    }
+                    if r.action == "": Text { width: w-rating; text: r.rating == 0 ? "" : stars(r.rating); color: selected ? Theme.on-selection : #ffd60a; font-size: 12px; vertical-alignment: center; }
+                    // A store result's button: buy, search the store, or download.
+                    if r.action != "": Rectangle {
+                        width: w-rating;
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                height: 20px;
+                                width: 54px;
+                                border-radius: 10px;
+                                background: ata.has-hover ? Theme.accent.brighter(0.15) : Theme.accent;
+                                Text { text: r.action; color: #000000; font-size: 11px; font-weight: 700; }
+                                ata := TouchArea { mouse-cursor: pointer; clicked => { current = i; activate(i); } }
+                            }
+                        }
+                    }
+                    Text { horizontal-stretch: 1; text: r.title; color: selected ? Theme.on-selection : r.deck >= 0 ? Theme.deck-color(r.deck) : (r.available && !r.missing) || r.action != "" ? Theme.text : Theme.text-dim; font-size: 15px; vertical-alignment: center; overflow: elide; }
+                    Text { width: w-artist; text: r.artist; color: selected ? Theme.on-selection : (r.available && !r.missing) || r.action != "" ? Theme.text : Theme.text-dim; font-size: 15px; vertical-alignment: center; overflow: elide; }
+                    Text { width: w-length; text: r.length; color: selected ? Theme.on-selection : (r.available && !r.missing) || r.action != "" ? Theme.text : Theme.text-dim; font-size: 15px; vertical-alignment: center; horizontal-alignment: right; }
+                    Text { width: w-bpm; text: r.bpm; color: selected ? Theme.on-selection : Theme.text; font-size: 15px; vertical-alignment: center; horizontal-alignment: right; }
+                    Text { width: w-key; text: r.key; color: selected ? Theme.on-selection : Theme.key; font-size: 15px; vertical-alignment: center; }
+                    Text { width: w-genre; text: r.genre; color: selected ? Theme.on-selection-dim : Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
+                }
+            }
+        }
+    }
+
+    pure function stars(n: int) -> string {
+        n == 1 ? "★" : n == 2 ? "★★" : n == 3 ? "★★★" : n == 4 ? "★★★★" : "★★★★★"
+    }
+}
+
+// Starts and stops Automix: a play triangle and the word, green while on.
+component AutomixButton inherits Rectangle {
+    in property <bool> on;
+    callback clicked();
+    property <color> green: #30c158;
+    width: 92px;
+    height: 22px;
+    border-radius: 11px;
+    background: on ? (ta.pressed ? green.darker(0.2) : ta.has-hover ? green.brighter(0.1) : green)
+        : ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.panel-raised;
+    border-width: on ? 0px : 1px;
+    border-color: green.with-alpha(0.6);
+    HorizontalLayout {
+        alignment: center;
+        spacing: 5px;
+        Path {
+            width: 9px;
+            height: 22px;
+            viewbox-width: 9;
+            viewbox-height: 22;
+            fill: on ? #000000 : green;
+            commands: on ? "M 0 6.5 L 3 6.5 L 3 15.5 L 0 15.5 Z M 5.5 6.5 L 8.5 6.5 L 8.5 15.5 L 5.5 15.5 Z" : "M 0.5 6 L 8.5 11 L 0.5 16 Z";
+        }
+        Text { text: "AUTOMIX"; color: on ? #000000 : Theme.text; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+    }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+// A small flat button with a word on it.
+component SmallButton inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+    width: label.preferred-width + 16px;
+    height: 22px;
+    y: 1px;
+    border-radius: 4px;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.panel-raised;
+    label := Text { text: root.text; color: Theme.text; font-size: 12px; font-weight: 500; }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+// A line of a dropdown: a choice, or a heading over the choices below it.
+struct Choice {
+    text: string,
+    header: bool,
+    value: int,
+}
+
+// A labelled field showing the current choice; clicking opens the choices.
+component Dropdown inherits Rectangle {
+    in property <string> label;
+    in property <string> text;
+    in property <[Choice]> choices;
+    in property <int> current;
+    callback picked(value: int);
+    height: 26px;
+    border-radius: Theme.radius;
+    background: ta.has-hover ? #2a2a2e : Theme.control;
+    border-width: 1px;
+    border-color: Theme.border;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 6px;
+        Text { text: label; color: Theme.text-dim; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; vertical-alignment: center; }
+        Text { horizontal-stretch: 1; text: root.text; color: Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; overflow: elide; }
+        Path {
+            width: 8px;
+            height: 5px;
+            y: (parent.height - self.height) / 2;
+            commands: "M 0 0 L 4 4.5 L 8 0";
+            stroke: Theme.text-dim;
+            stroke-width: 1.5px;
+            fill: transparent;
+        }
+    }
+    ta := TouchArea { clicked => { menu.show(); } }
+    menu := PopupWindow {
+        x: 0px;
+        y: root.height + 2px;
+        width: root.width;
+        close-policy: close-on-click-outside;
+        MenuBackground {}
+        VerticalLayout {
+            padding: 6px;
+            for c in choices: Rectangle {
+                height: c.header ? 22px : 26px;
+                border-radius: 4px;
+                background: c.header ? transparent : c.value == current ? Theme.accent.with-alpha(0.35) : ita.has-hover ? #3a3a3d : transparent;
+                Text {
+                    x: c.header ? 6px : 12px;
+                    width: parent.width - self.x - 6px;
+                    text: c.text;
+                    color: c.header ? Theme.text-dim : Theme.text;
+                    font-size: c.header ? 10px : 13px;
+                    font-weight: c.header || c.value == current ? 600 : 400;
+                    letter-spacing: c.header ? 0.5px : 0px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                ita := TouchArea {
+                    enabled: !c.header;
+                    clicked => {
+                        picked(c.value);
+                        menu.close();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// One line of the track info: a small grey label and the value
+// lays them out.
+component InfoLine inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+    height: 30px;
+    spacing: 8px;
+    Text { width: 80px; text: label; color: Theme.label; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; vertical-alignment: center; }
+    Text { horizontal-stretch: 1; text: value == "" ? "–" : value; color: Theme.text; font-size: 14px; vertical-alignment: center; overflow: elide; }
+}
+
+// Track info for the track selected in the library.
+component InfoView inherits VerticalLayout {
+    in property <TrackRow> track;
+    in property <bool> has-track;
+    padding: 6px;
+    spacing: 6px;
+    HorizontalLayout {
+        height: 30px;
+        Text { text: "Info"; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; }
+        Text { text: "  Selected track"; color: Theme.label; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+    }
+    if !has-track: Placeholder {
+        vertical-stretch: 1;
+        title: "No track selected";
+        text: "Click a track in the library to see its info.";
+    }
+    if has-track: HorizontalLayout {
+        spacing: 12px;
+        height: 72px;
+        Rectangle {
+            width: 72px;
+            border-radius: 4px;
+            clip: true;
+            background: Theme.control;
+            if track.has-cover: Image { width: parent.width; height: parent.height; source: track.cover; image-fit: cover; }
+            if !track.has-cover: Text { text: "♪"; color: Theme.text-dim; font-size: 28px; }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 6px;
+            Text { text: track.title; color: Theme.text; font-size: 16px; font-weight: 600; overflow: elide; }
+            HorizontalLayout {
+                spacing: 14px;
+                Text { text: track.bpm == "" ? "" : track.bpm + " BPM"; color: Theme.text-dim; font-size: 13px; }
+                Text { text: track.key; color: Theme.key; font-size: 13px; font-weight: 600; }
+                Text { text: track.length; color: Theme.text-dim; font-size: 13px; horizontal-stretch: 1; }
+            }
+        }
+    }
+    if has-track: EdgeLine { left: 6px; right: 6px; }
+    if has-track: VerticalLayout {
+        InfoLine { label: "TITLE"; value: track.title; }
+        InfoLine { label: "ARTIST"; value: track.artist; }
+        InfoLine { label: "ALBUM"; value: track.album; }
+        InfoLine { label: "GENRE"; value: track.genre; }
+        InfoLine { label: "TIME"; value: track.length; }
+        InfoLine { label: "BPM"; value: track.bpm; }
+        InfoLine { label: "KEY"; value: track.key; }
+        InfoLine { label: "RATING"; value: track.rating > 0 ? ["★", "★★", "★★★", "★★★★", "★★★★★"][min(track.rating, 5) - 1] : ""; }
+        if track.has-color: HorizontalLayout {
+            height: 30px;
+            spacing: 8px;
+            Text { width: 80px; text: "COLOR"; color: Theme.label; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; vertical-alignment: center; }
+            Rectangle { width: 14px; height: 14px; y: 8px; border-radius: 7px; background: track.color; }
+            Rectangle { horizontal-stretch: 1; }
+        }
+    }
+    if has-track: Rectangle { vertical-stretch: 1; }
+}
+
+component SidePanel inherits Rectangle {
+    in property <[SideRow]> rows;
+    in property <string> total;
+    in-out property <int> tab: 0;
+    // The "i" tab: info on the track selected in the library, shown over
+    // the Automix and Sidelist lists.
+    in property <TrackRow> info-track;
+    in property <bool> has-info-track;
+    property <bool> show-info: false;
+    callback activate(row: int);
+    // Takes out the rows `first` to `last`.
+    callback remove(first: int, last: int);
+    in property <bool> automix-on;
+    in property <string> automix-status;
+    in property <int> automix-length;
+    in property <int> automix-style;
+    callback automix-toggle();
+    callback automix-mix-now();
+    callback automix-skip();
+    callback automix-set-length(index: int);
+    callback automix-set-style(index: int);
+    // The row picked with a click, for Delete and the right-click menu;
+    // shift-click picks every row from `anchor` to it, as in the track list.
+    property <int> selected: -1;
+    property <int> anchor: -1;
+    property <int> range-end: -1;
+    property <bool> ranged: anchor >= 0 && range-end == selected && anchor != selected;
+    property <int> first-picked: ranged ? min(anchor, selected) : selected;
+    property <int> last-picked: ranged ? max(anchor, selected) : selected;
+    property <bool> shift-held;
+    function pick(i: int) {
+        anchor = i;
+        range-end = i;
+        selected = i;
+    }
+    function extend(i: int) {
+        if anchor < 0 || !(range-end == selected) {
+            anchor = selected;
+        }
+        range-end = i;
+        selected = i;
+    }
+    // Where a row was just removed, so the one taking its place gets selected.
+    property <int> removed-at: -1;
+    property <length> row-height: 56px;
+    // Where a dragged track would go in, while one is over the list.
+    property <int> drop-at: drop.has-drag ? max(0, min(rows.length, round((drag-y - lv.content-y) / row-height))) : -1;
+    property <length> drag-y;
+    property <length> menu-y;
+    changed rows => {
+        selected = removed-at >= 0 && rows.length > 0 ? min(removed-at, rows.length - 1) : -1;
+        removed-at = -1;
+    }
+    changed tab => { selected = -1; }
+    // Takes out the picked rows.
+    function remove-picked() {
+        removed-at = first-picked;
+        remove(first-picked, last-picked);
+    }
+    background: Theme.panel;
+    width: 340px;
+    keys := FocusScope {
+        width: parent.width;
+        height: parent.height;
+        key-pressed(e) => {
+            if selected >= 0 && selected < rows.length && (e.text == Key.Delete || e.text == Key.Backspace) {
+                remove-picked();
+                return accept;
+            }
+            if e.text == Key.UpArrow && selected > 0 {
+                selected -= 1;
+                return accept;
+            }
+            if e.text == Key.DownArrow && selected < rows.length - 1 {
+                selected += 1;
+                return accept;
+            }
+            if e.text == Key.Return && selected >= 0 {
+                activate(selected);
+                return accept;
+            }
+            reject
+        }
+        VerticalLayout {
+            padding: 6px;
+            spacing: 4px;
+            HorizontalLayout {
+                height: 30px;
+                spacing: 8px;
+                Text { text: ["Automix", "Sidelist", "Linked"][tab]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; }
+                Text { text: total; color: Theme.label; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                if tab == 0: VerticalLayout {
+                    alignment: center;
+                    AutomixButton {
+                        on: automix-on;
+                        clicked => { automix-toggle(); }
+                    }
+                }
+            }
+            if tab == 0: VerticalLayout {
+                spacing: 4px;
+                HorizontalLayout {
+                    spacing: 6px;
+                    Dropdown {
+                        horizontal-stretch: 1;
+                        label: "LENGTH";
+                        text: ["12 s", "15 s", "30 s", "16 bars", "32 bars"][automix-length];
+                        current: automix-length;
+                        choices: [
+                            { text: "TIME", header: true, value: -1 },
+                            { text: "12 seconds", value: 0 },
+                            { text: "15 seconds", value: 1 },
+                            { text: "30 seconds", value: 2 },
+                            { text: "BARS", header: true, value: -1 },
+                            { text: "16 bars", value: 3 },
+                            { text: "32 bars", value: 4 },
+                        ];
+                        picked(i) => { automix-set-length(i); }
+                    }
+                    Dropdown {
+                        horizontal-stretch: 1;
+                        label: "STYLE";
+                        text: ["Smooth", "Bass swap", "Filter", "Cut"][automix-style];
+                        current: automix-style;
+                        choices: [
+                            { text: "Smooth", value: 0 },
+                            { text: "Bass swap", value: 1 },
+                            { text: "Filter", value: 2 },
+                            { text: "Cut", value: 3 },
+                        ];
+                        picked(i) => { automix-set-style(i); }
+                    }
+                }
+                // Always there, so the list below doesn't move when the status comes and goes.
+                HorizontalLayout {
+                    height: 24px;
+                    spacing: 6px;
+                    Text {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        text: automix-status;
+                        color: automix-on ? Theme.text : Theme.text-dim;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    if automix-on: SmallButton { text: "Mix now"; clicked => { automix-mix-now(); } }
+                    if automix-on: SmallButton { text: "Skip"; clicked => { automix-skip(); } }
+                }
+            }
+            EdgeLine { left: 6px; right: 6px; }
+            Rectangle {
+                vertical-stretch: 1;
+                border-radius: 4px;
+                border-width: drop.has-drag ? 2px : TrackDrag.active ? 1px : 0px;
+                border-color: drop.has-drag ? #30c158 : #30c15880;
+                lv := ListView {
+                    for r[i] in rows: Rectangle {
+                        height: r.heading != "" ? 30px : row-height;
+                        // A section heading in the Linked tab.
+                        if r.heading != "": Text {
+                            x: 8px;
+                            text: r.heading;
+                            color: Theme.label;
+                            font-size: 12px;
+                            font-weight: 700;
+                            letter-spacing: 0.4px;
+                            vertical-alignment: center;
+                        }
+                        border-radius: 4px;
+                        // Lilac while focused, a darker lilac otherwise.
+                        property <bool> picked: i >= first-picked && i <= last-picked;
+                        background: picked ? (keys.has-focus ? Theme.selection : #5a4d80) : sta.has-hover ? #1f1f22 : transparent;
+                        sta := TouchArea {
+                            enabled: r.heading == "";
+                            clicked => {
+                                if shift-held {
+                                    extend(i);
+                                } else {
+                                    pick(i);
+                                }
+                                keys.focus();
+                            }
+                            double-clicked => { pick(i); activate(i); }
+                            pointer-event(e) => {
+                                if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                                    shift-held = e.modifiers.shift;
+                                }
+                                if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                                    if !picked { pick(i); }
+                                    keys.focus();
+                                    menu-y = self.absolute-position.y - root.absolute-position.y + self.mouse-y;
+                                    row-menu.show();
+                                }
+                            }
+                        }
+                        // Cover, then two lines: title and tempo; artist, key and length.
+                        if r.heading == "": HorizontalLayout {
+                            padding: 4px;
+                            spacing: 10px;
+                            Rectangle {
+                                width: row-height - 8px;
+                                border-radius: 3px;
+                                clip: true;
+                                background: #2a2a2e;
+                                if !r.has-cover: Text { text: "♪"; color: Theme.text-dim; font-size: 18px; }
+                                if r.has-cover: Image { width: parent.width; height: parent.height; source: r.cover; image-fit: cover; }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: center;
+                                spacing: 2px;
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Text { horizontal-stretch: 1; text: r.title; color: (i >= first-picked && i <= last-picked) && keys.has-focus ? Theme.on-selection : Theme.text; font-size: 14px; font-weight: 500; overflow: elide; }
+                                    Text { text: r.bpm == "" ? "" : r.bpm + " BPM"; color: (i >= first-picked && i <= last-picked) && keys.has-focus ? Theme.on-selection : Theme.text; font-size: 14px; font-weight: 500; }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    property <color> dim: (i >= first-picked && i <= last-picked) ? (keys.has-focus ? Theme.on-selection-dim : #ffffffc0) : Theme.text-dim;
+                                    Text { horizontal-stretch: 1; text: r.artist; color: dim; font-size: 13px; overflow: elide; }
+                                    Text { text: r.key; color: (i >= first-picked && i <= last-picked) ? (keys.has-focus ? Theme.on-selection : #ffffff) : Theme.key; font-size: 13px; font-weight: 500; }
+                                    Text { text: r.length; color: dim; font-size: 13px; }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Where a dropped track goes in.
+                if drop-at >= 0 && tab != 2: Rectangle {
+                    x: 4px;
+                    y: max(0px, min(parent.height - 2px, drop-at * row-height + lv.content-y - 1px));
+                    width: parent.width - 8px;
+                    height: 2px;
+                    background: #30c158;
+                }
+                if rows.length == 0: Text {
+                    x: 8px;
+                    width: parent.width - 16px;
+                    text: tab == 0 ? "Empty. Drag tracks here, or right-click a track and choose Add to Automix."
+                        : tab == 1 ? "Empty. Drag tracks here."
+                        : total == "" ? "Select a track in the library to see the tracks linked to it and those played next to it."
+                        : "Nothing linked yet. Drag tracks here to link them to this one; tracks played next to it in your history show up here too.";
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                    horizontal-alignment: center;
+                }
+                drop := DropArea {
+                    can-drop(e) => {
+                        drag-y = e.position.y;
+                        TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none
+                    }
+                    dropped(e) => {
+                        TrackDrag.drop-side(max(0, min(rows.length, round((e.position.y - lv.content-y) / row-height))), e.data);
+                        TrackDrag.active = false;
+                        DragAction.copy
+                    }
+                }
+            }
+            Rectangle {
+                height: 30px;
+                background: Theme.control;
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.border;
+                HorizontalLayout {
+                    padding: 2px;
+                    spacing: 2px;
+                    for t[i] in ["Automix", "Sidelist", "Linked"]: Rectangle {
+                        horizontal-stretch: 1;
+                        border-radius: Theme.radius - 2px;
+                        background: i == tab && !show-info ? Theme.panel-raised.brighter(0.3) : transparent;
+                        Text { text: t; color: i == tab && !show-info ? Theme.text : Theme.text-dim; font-size: 13px; font-weight: 600; }
+                        TouchArea {
+                            clicked => {
+                                tab = i;
+                                show-info = false;
+                            }
+                        }
+                    }
+                    Rectangle {
+                        width: 44px;
+                        border-radius: Theme.radius - 2px;
+                        background: show-info ? Theme.panel-raised.brighter(0.3) : transparent;
+                        Text { text: "i"; color: show-info ? Theme.text : Theme.text-dim; font-size: 15px; font-weight: 700; }
+                        TouchArea { clicked => { show-info = true; } }
+                    }
+                }
+            }
+        }
+    }
+    // Covers the lists, leaving the tabs at the bottom.
+    if show-info: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height - 40px;
+        background: Theme.panel;
+        TouchArea { }
+        InfoView { width: parent.width; height: parent.height; track: info-track; has-track: has-info-track; }
+    }
+    row-menu := PopupWindow {
+        x: 20px;
+        y: min(menu-y, root.height - 70px);
+        width: 180px;
+        close-policy: close-on-click-outside;
+        MenuBackground {}
+        VerticalLayout {
+            padding: 6px;
+            spacing: 2px;
+            MenuLine {
+                text: "Load on a free deck";
+                clicked => {
+                    activate(selected);
+                    row-menu.close();
+                }
+            }
+            MenuLine {
+                text: tab == 2 ? "Unlink" : "Remove";
+                text-color: #ff6961;
+                clicked => {
+                    remove-picked();
+                    row-menu.close();
+                }
+            }
+        }
+    }
+}
+
+export component Browser inherits HorizontalLayout {
+    in property <[Folder]> folders;
+    in property <int> current-folder;
+    in property <[TrackRow]> rows;
+    in property <int> sort-column;
+    in property <bool> ascending;
+    in-out property <int> current-row <=> list.current;
+    in property <[SideRow]> side-rows;
+    in property <string> side-total;
+    in-out property <int> side-tab;
+    in property <string> folder-name;
+    in property <string> folder-duration;
+    in property <bool> folders-focused;
+    in property <bool> spotify-connected;
+    in property <string> spotify-user;
+    in property <string> spotify-status;
+    in-out property <string> spotify-client-id;
+    // Shown instead of a Spotify playlist's rows while it loads or fails.
+    in property <string> list-notice;
+    callback select-source(source: int);
+    callback spotify-connect(client-id: string);
+    callback spotify-disconnect();
+    callback select-folder(index: int);
+    callback toggle-folder(index: int);
+    callback sort(column: int);
+    callback search(text: string);
+    callback activate(row: int);
+    callback side-activate(row: int);
+    callback side-remove(first: int, last: int);
+    in property <bool> automix-on;
+    in property <string> automix-status;
+    in property <int> automix-length;
+    in property <int> automix-style;
+    callback automix-toggle();
+    callback automix-mix-now();
+    callback automix-skip();
+    callback automix-set-length(index: int);
+    callback automix-set-style(index: int);
+    property <int> source <=> StoreUi.source;
+    property <int> library-tab;
+    property <[string]> source-names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Shopping"];
+    // Which sources the rail shows, by index; picked under its "...".
+    in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true];
+    callback source-shown-changed(source: int, on: bool);
+    in property <bool> side-visible: true;
+    // Square panels split by thin black lines.
+    spacing: 1px;
+    // Sources with a list of their own: the collection, Files, the stores,
+    // and Spotify once signed in.
+    property <bool> listing: source == 0 || source == 1 || (StoreUi.services && (source == 5 || source == 9 || (source == 2 && spotify-connected)));
+    SourceRail {
+        source <=> source;
+        shown <=> sources-shown;
+        picked(s) => { select-source(s); }
+        shown-changed(s, on) => {
+            // Hiding the source on show goes back to the collection.
+            if !on && s == source {
+                source = 0;
+                select-source(0);
+            }
+            source-shown-changed(s, on);
+        }
+    }
+    FolderTree {
+        folders: folders;
+        current: current-folder;
+        focused: folders-focused;
+        source: source;
+        tab <=> library-tab;
+        spotify-connected: spotify-connected;
+        spotify-user: spotify-user;
+        spotify-status: spotify-status;
+        spotify-client-id <=> spotify-client-id;
+        select(i) => { select-folder(i); }
+        toggle(i) => { toggle-folder(i); }
+        spotify-connect(id) => { spotify-connect(id); }
+        spotify-disconnect => { spotify-disconnect(); }
+    }
+    list := TrackList {
+        horizontal-stretch: 1;
+        rows: listing ? rows : [];
+        results: StoreUi.services && (source == 5 || source == 9);
+        sort-column: sort-column;
+        ascending: ascending;
+        folder-name: listing ? folder-name : source-names[source];
+        duration: listing ? folder-duration : "";
+        empty-title: source == 0 ? "" : listing ? (list-notice != "" ? " " : "") : source-names[source];
+        empty-text: !StoreUi.services && source >= 2 ? "Coming soon."
+            : source == 2 && !spotify-connected ? "Sign in on the left to see your playlists here."
+            : listing ? list-notice
+            : source-names[source] + " isn't connected yet.";
+        sort(c) => { sort(c); }
+        search(t) => { search(t); }
+        activate(r) => { activate(r); }
+    }
+    // Shown and hidden from the footer's right-hand button.
+    if side-visible: SidePanel {
+        has-info-track: current-row >= 0 && current-row < rows.length;
+        info-track: current-row >= 0 && current-row < rows.length ? rows[current-row] : { };
+        rows: side-rows;
+        total: side-total;
+        tab <=> side-tab;
+        activate(r) => { side-activate(r); }
+        remove(first, last) => { side-remove(first, last); }
+        automix-on: automix-on;
+        automix-status: automix-status;
+        automix-length: automix-length;
+        automix-style: automix-style;
+        automix-toggle => { automix-toggle(); }
+        automix-mix-now => { automix-mix-now(); }
+        automix-skip => { automix-skip(); }
+        automix-set-length(i) => { automix-set-length(i); }
+        automix-set-style(i) => { automix-set-style(i); }
+    }
+}

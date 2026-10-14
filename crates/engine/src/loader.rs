@@ -1,0 +1,510 @@
+//! Loads tracks off the audio thread, the way Mixxx does: a track goes on its
+//! deck as soon as its file is opened, and plays while the rest decodes. The
+//! waveform fills in as the audio is analysed, and the tempo and beat grid
+//! follow when the analysis is done. Results are cached on disk, so a track
+//! loaded again has its waveform and tempo at once.
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+use crate::analysis::{analyse, Analyser, Analysis};
+use crate::beats::BeatGrid;
+use crate::beats::GridEdit;
+use crate::cache;
+use crate::cover::{self, Cover};
+use crate::decode::{decode, Decoder};
+use crate::engine::{Command, EngineInput, Returned};
+use crate::stems::{self, StemSource};
+use crate::synth;
+use crate::track::{Audio, Source, Track};
+use crate::{LoadedTracks, NUM_DECKS};
+
+/// How often a growing waveform is handed to the UI while analysing.
+const WAVEFORM_UPDATE: Duration = Duration::from_millis(200);
+
+/// Produces the playable copy of `track` in one go: audio, waveform, tempo
+/// and first beat.
+pub fn prepare(track: &Track) -> Result<Track, String> {
+    let audio = match &track.source {
+        Source::Synth { seed } => synth::render(track, *seed),
+        Source::File(path) => decode(path)?,
+    };
+    let hint = (track.bpm > 0.0).then_some(track.bpm);
+    let analysis = analyse(&audio, hint);
+    if let Some(l) = analysis.loudness {
+        audio.set_loudness(l);
+    }
+    Ok(analysed(track, Arc::new(audio), analysis))
+}
+
+/// `track` with its audio and analysis.
+fn analysed(track: &Track, audio: Arc<Audio>, analysis: Analysis) -> Track {
+    // A key from the file's tags wins, as the tempo from tags does.
+    let key = match (&track.source, analysis.key) {
+        (Source::File(_), Some(k)) if track.key.is_empty() => k.camelot(),
+        _ => track.key.clone(),
+    };
+    let mut t = Track {
+        key,
+        duration: audio.duration(),
+        waveform: Arc::new(analysis.waveform),
+        audio: Some(audio),
+        ..track.clone()
+    };
+    with_grid(
+        &mut t,
+        track,
+        &analysis.grid,
+        analysis.bpm,
+        analysis.first_beat,
+    );
+    t
+}
+
+/// Gives `t` the beat grid it should play with: a grid from the library is
+/// kept as the DJ left it, the synthesiser knows exactly where its beats
+/// are, and anything else takes the analysis.
+fn with_grid(t: &mut Track, base: &Track, grid: &BeatGrid, bpm: f64, first_beat: f64) {
+    if base.info.fixed_grid {
+        return;
+    }
+    match base.source {
+        Source::Synth { .. } => t.bpm = bpm,
+        Source::File(_) if !grid.is_empty() => t.set_grid(grid.clone()),
+        Source::File(_) => {
+            t.bpm = bpm;
+            t.first_beat = first_beat;
+        }
+    }
+}
+
+pub(crate) struct LoadRequest {
+    pub deck: usize,
+    pub track: Arc<Track>,
+}
+
+/// What the loading threads share.
+struct Shared {
+    input: Mutex<EngineInput>,
+    loaded: LoadedTracks,
+    /// Counts load requests per deck; a load that is no longer the latest stops.
+    generation: [AtomicU64; NUM_DECKS],
+}
+
+/// Whether two copies of a track share their audio, i.e. are the same load.
+fn same_load(a: &Track, b: &Track) -> bool {
+    match (&a.audio, &b.audio) {
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        _ => false,
+    }
+}
+
+impl Shared {
+    fn send(&self, cmd: Command) {
+        Self::send_locked(&mut self.input.lock().unwrap(), cmd, &self.loaded);
+    }
+
+    fn send_locked(input: &mut EngineInput, mut cmd: Command, loaded: &LoadedTracks) {
+        // The queue only fills if the audio callback has stalled; wait it out.
+        while let Err(c) = input.send(cmd) {
+            cmd = c;
+            std::thread::sleep(Duration::from_millis(5));
+            Self::collect_locked(input, loaded);
+        }
+    }
+
+    /// Frees tracks the engine is done with, and takes ejected tracks off the
+    /// list the UI shows (unless a newer track has already replaced them).
+    fn collect(&self) {
+        Self::collect_locked(&mut self.input.lock().unwrap(), &self.loaded);
+    }
+
+    fn collect_locked(input: &mut EngineInput, loaded: &LoadedTracks) {
+        for r in input.collect_garbage() {
+            match r {
+                Returned::Ejected { deck, track } => {
+                    let mut l = loaded.write().unwrap();
+                    if l[deck].as_ref().is_some_and(|t| same_load(t, &track)) {
+                        l[deck] = None;
+                    }
+                }
+                Returned::GridEdit {
+                    deck,
+                    track,
+                    edit,
+                    seconds,
+                } => {
+                    if let Some(t) = edit_grid(loaded, deck, &track, edit, seconds) {
+                        Self::send_locked(input, Command::Regrid { deck, track: t }, loaded);
+                    }
+                }
+                Returned::Done(_) => {}
+            }
+        }
+    }
+
+    /// Puts `track` on its deck, unless a newer load for the deck has started.
+    fn put_on_deck(&self, deck: usize, generation: u64, track: Arc<Track>) -> bool {
+        // Holding the engine's queue keeps loads reaching it in order. (Always
+        // take the queue before the list of loaded tracks, never the reverse.)
+        let mut input = self.input.lock().unwrap();
+        if !self.is_latest(deck, generation) {
+            return false;
+        }
+        self.loaded.write().unwrap()[deck] = Some(track.clone());
+        Self::send_locked(&mut input, Command::Load { deck, track }, &self.loaded);
+        true
+    }
+
+    /// Replaces the UI's copy of a track already on `deck` with a newer one
+    /// (a fuller waveform, or the finished analysis). False if the deck has
+    /// moved on.
+    fn update(&self, deck: usize, track: &Arc<Track>) -> bool {
+        let mut l = self.loaded.write().unwrap();
+        match &l[deck] {
+            Some(t) if same_load(t, track) => {
+                l[deck] = Some(track.clone());
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Changes the UI's copy of the track loaded as `load` on `deck`, if it
+    /// is still there.
+    fn modify(&self, deck: usize, load: &Track, change: impl FnOnce(&mut Track)) {
+        let mut l = self.loaded.write().unwrap();
+        if let Some(t) = l[deck].as_ref().filter(|t| same_load(t, load)) {
+            let mut t = (**t).clone();
+            change(&mut t);
+            l[deck] = Some(Arc::new(t));
+        }
+    }
+
+    fn is_latest(&self, deck: usize, generation: u64) -> bool {
+        self.generation[deck].load(Ordering::Acquire) == generation
+    }
+}
+
+/// Grids replaced by edits, newest last, per deck, for undo. Cleared when
+/// another track is loaded.
+static UNDO: Mutex<[Vec<(usize, BeatGrid)>; NUM_DECKS]> =
+    Mutex::new([const { Vec::new() }; NUM_DECKS]);
+
+/// Most edits kept for undo per deck.
+const UNDO_DEPTH: usize = 64;
+
+/// Applies a beat grid edit to the track loaded on `deck`, if it is still
+/// `track`. The edited grid is the DJ's from now on: re-analysis keeps it.
+fn edit_grid(
+    loaded: &LoadedTracks,
+    deck: usize,
+    track: &Track,
+    edit: GridEdit,
+    seconds: f64,
+) -> Option<Arc<Track>> {
+    let mut l = loaded.write().unwrap();
+    let current = l[deck].as_ref().filter(|t| same_load(t, track))?.clone();
+    let mut undo = UNDO.lock().unwrap();
+    let history = &mut undo[deck];
+    history.retain(|(id, _)| *id == current.id);
+    let grid = match edit {
+        GridEdit::Undo => history.pop()?.1,
+        _ => {
+            let before = current.beat_grid();
+            if before.is_empty() {
+                return None;
+            }
+            let after = before.edited(edit, seconds);
+            if after == before {
+                return None;
+            }
+            history.push((current.id, before));
+            if history.len() > UNDO_DEPTH {
+                history.remove(0);
+            }
+            after
+        }
+    };
+    let mut t = (*current).clone();
+    t.set_grid(grid);
+    t.info.fixed_grid = true;
+    let t = Arc::new(t);
+    l[deck] = Some(t.clone());
+    Some(t)
+}
+
+/// Decodes the stems from `source` and gives them to `audio` once they are
+/// all decoded, so a deck switches to them with nothing missing. Stops if
+/// `keep_going` turns false.
+pub(crate) fn load_stems(
+    audio: &Audio,
+    source: &StemSource,
+    keep_going: impl Fn() -> bool,
+) -> Result<(), String> {
+    let stems = stems::Decode::open(source)?.run(&keep_going)?;
+    if keep_going() && !audio.set_stems(stems) {
+        return Err("the stems don't match the track's sample rate".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn run(requests: Receiver<LoadRequest>, input: EngineInput, loaded: LoadedTracks) {
+    let shared = Arc::new(Shared {
+        input: Mutex::new(input),
+        loaded,
+        generation: Default::default(),
+    });
+    loop {
+        shared.collect();
+        // Short enough that an ejected deck empties on screen promptly.
+        let req = match requests.recv_timeout(Duration::from_millis(50)) {
+            Ok(r) => r,
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => return,
+        };
+        let generation = shared.generation[req.deck].fetch_add(1, Ordering::AcqRel) + 1;
+        let shared = shared.clone();
+        // One thread per load, so loading one deck never waits for another.
+        let spawned = std::thread::Builder::new()
+            .name(format!("load-deck-{}", req.deck + 1))
+            .spawn(move || {
+                if let Err(e) = load(&shared, req.deck, generation, &req.track) {
+                    eprintln!("could not load track: {e}");
+                }
+            });
+        if let Err(e) = spawned {
+            eprintln!("could not start loading a track: {e}");
+        }
+    }
+}
+
+/// Loads `base` on `deck`: on the deck as soon as the file is open, then
+/// decoded and analysed, with the UI and engine kept up to date.
+fn load(shared: &Shared, deck: usize, generation: u64, base: &Track) -> Result<(), String> {
+    let latest = || shared.is_latest(deck, generation);
+    let path = match &base.source {
+        Source::File(p) => Some(p.as_path()),
+        Source::Synth { .. } => None,
+    };
+    let cached = path.and_then(cache::load);
+    let mut decoder = None;
+    let audio = match (&base.source, path) {
+        (Source::Synth { seed }, _) => Arc::new(synth::render(base, *seed)),
+        (_, Some(path)) => {
+            let d = Decoder::open(path)?;
+            if d.length_known() {
+                let audio = d.audio().clone();
+                decoder = Some(d);
+                audio
+            } else {
+                // Without a length the overview can't be laid out; decode first.
+                d.run(|_| latest())?
+            }
+        }
+        (Source::File(_), None) => unreachable!(),
+    };
+
+    // A cached loudness levels the track from the moment it is loaded.
+    if let Some(l) = cached.as_ref().and_then(|c| c.loudness) {
+        audio.set_loudness(l);
+    }
+    let mut analyser = cached
+        .is_none()
+        .then(|| Analyser::new(audio.sample_rate, audio.len()));
+    let waveform = match &cached {
+        Some(c) => c.waveform.clone(),
+        None => analyser.as_ref().unwrap().waveform(),
+    };
+    let mut first = Track {
+        key: match cached.as_ref().and_then(|c| c.key) {
+            Some(k) if base.key.is_empty() => k.camelot(),
+            _ => base.key.clone(),
+        },
+        duration: audio.duration(),
+        waveform: Arc::new(waveform),
+        audio: Some(audio.clone()),
+        ..base.clone()
+    };
+    match &cached {
+        Some(c) => with_grid(&mut first, base, &c.grid, c.bpm, c.first_beat),
+        // Unknown until analysed; the beat grid starts at zero meanwhile.
+        None if !base.info.fixed_grid && matches!(base.source, Source::File(_)) => {
+            first.first_beat = 0.0
+        }
+        None => {}
+    }
+    let first = Arc::new(first);
+    if !shared.put_on_deck(deck, generation, first.clone()) {
+        return Ok(());
+    }
+
+    // Album art is looked up alongside decoding, so neither waits for the other.
+    let cover: OnceLock<Arc<Cover>> = OnceLock::new();
+    let with_cover = |t: Track| match cover.get() {
+        Some(c) => Track {
+            cover: Some(c.clone()),
+            ..t
+        },
+        None => t,
+    };
+    let analysis = std::thread::scope(|scope| -> Result<Analysis, String> {
+        if let Some(source) = path.and_then(stems::find) {
+            let audio = audio.clone();
+            scope.spawn(move || {
+                if let Err(e) = load_stems(&audio, &source, latest) {
+                    eprintln!("could not load stems: {e}");
+                }
+            });
+        }
+        if let Some(path) = path {
+            scope.spawn(|| {
+                if let Some(c) = cover::find(path, &base.album) {
+                    let c = cover.get_or_init(|| Arc::new(c));
+                    shared.modify(deck, &first, |t| t.cover = Some(c.clone()));
+                }
+            });
+        }
+
+        // Feeds the analyser the chunks decoded since it last ran, and now
+        // and then shows the UI the waveform so far.
+        let mut fed = 0;
+        let mut last_update = Instant::now();
+        let mut feed = |audio: &Audio, analyser: &mut Option<Analyser>| {
+            let Some(a) = analyser.as_mut() else { return };
+            for chunk in audio.decoded_chunks().skip(fed) {
+                a.feed(chunk);
+                fed += 1;
+            }
+            if last_update.elapsed() >= WAVEFORM_UPDATE {
+                last_update = Instant::now();
+                let partial = Arc::new(with_cover(Track {
+                    waveform: Arc::new(a.waveform()),
+                    ..(*first).clone()
+                }));
+                shared.update(deck, &partial);
+            }
+        };
+        if let Some(d) = decoder {
+            d.run(|audio| {
+                feed(audio, &mut analyser);
+                latest()
+            })?;
+        }
+        if let Some(a) = analyser.as_mut() {
+            // The last, partial chunk only appears once decoding is done.
+            for chunk in audio.decoded_chunks().skip(fed) {
+                a.feed(chunk);
+            }
+        }
+        Ok(match (cached, analyser) {
+            (Some(c), _) => c,
+            (None, Some(a)) => {
+                let hint = (base.bpm > 0.0).then_some(base.bpm);
+                let analysis = a.finish(hint);
+                if let Some(path) = path {
+                    cache::store(path, &analysis);
+                }
+                analysis
+            }
+            (None, None) => unreachable!("an analyser runs whenever nothing is cached"),
+        })
+    })?;
+    if let Some(l) = analysis.loudness {
+        audio.set_loudness(l);
+    }
+    if !latest() {
+        return Ok(());
+    }
+    let done = Arc::new(with_cover(analysed(base, audio, analysis)));
+    if shared.update(deck, &done) {
+        shared.send(Command::Analysed { deck, track: done });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::decode::tests::write_wav;
+    use crate::engine::Engine;
+    use mixxx_control::ControlRegistry;
+    use std::sync::mpsc;
+
+    /// Runs the engine like an audio callback until `done` holds.
+    fn run_until(engine: &mut Engine, mut done: impl FnMut() -> bool) {
+        let mut buf = vec![0.0f32; 512 * 2];
+        let start = Instant::now();
+        while !done() {
+            assert!(start.elapsed() < Duration::from_secs(60), "timed out");
+            engine.process(&mut buf, 2);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn plays_before_analysis_then_reloads_from_cache() {
+        let dir = std::env::temp_dir().join(format!("opendj-loader-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        cache::TEST_DIR.set(dir.join("cache")).unwrap();
+        let path = dir.join("beats.wav");
+        let audio = synth::render_with(124.0, 0.25, 40.0, 9);
+        let samples: Vec<i16> = audio
+            .decoded_chunks()
+            .flatten()
+            .flat_map(|f| f.map(|v| (v * 32_000.0) as i16))
+            .collect();
+        write_wav(&path, audio.sample_rate, 2, &samples);
+        let track = Arc::new(Track {
+            bpm: 0.0,
+            first_beat: 0.0,
+            source: Source::File(path),
+            ..(*synth::sample_library()[0]).clone()
+        });
+
+        let reg = ControlRegistry::new();
+        let (mut engine, input) = Engine::new(&reg, 48_000.0);
+        let loaded: LoadedTracks = Default::default();
+        let (requests, rx) = mpsc::channel();
+        {
+            let loaded = loaded.clone();
+            std::thread::spawn(move || run(rx, input, loaded));
+        }
+        let deck = |l: &LoadedTracks| l.read().unwrap()[0].clone();
+        let bpm = reg.get("[Channel1]", "bpm").unwrap();
+
+        // On the deck straight away, tempo unknown; then analysed.
+        requests
+            .send(LoadRequest {
+                deck: 0,
+                track: track.clone(),
+            })
+            .unwrap();
+        let mut first = None;
+        run_until(&mut engine, || {
+            first = first.take().or_else(|| deck(&loaded));
+            first.is_some()
+        });
+        assert_eq!(first.unwrap().bpm, 0.0);
+        run_until(&mut engine, || (bpm.get() - 124.0).abs() < 0.05);
+        let analysed = deck(&loaded).unwrap();
+        assert!((analysed.first_beat - 0.25).abs() < 0.02);
+        assert!(analysed.audio.as_ref().unwrap().is_complete());
+        let cue = reg.get("[Channel1]", "cue_point").unwrap();
+        assert_eq!(cue.get(), analysed.first_beat);
+
+        // Loaded again: the cached tempo and waveform come with it.
+        requests.send(LoadRequest { deck: 0, track }).unwrap();
+        run_until(&mut engine, || {
+            deck(&loaded).is_some_and(|t| {
+                !Arc::ptr_eq(t.audio.as_ref().unwrap(), analysed.audio.as_ref().unwrap())
+            })
+        });
+        let again = deck(&loaded).unwrap();
+        assert_eq!(again.bpm, analysed.bpm);
+        assert_eq!(again.waveform.levels, analysed.waveform.levels);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}

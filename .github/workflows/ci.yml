@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system libraries
+        # mesa-vulkan-drivers provides lavapipe, a software Vulkan driver, so the
+        # waveform shader test runs on CI machines without a GPU. cmake and
+        # libclang build Ableton Link.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig-dev libxkbcommon-dev libasound2-dev mesa-vulkan-drivers cmake libclang-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  dependencies:
+    # Known vulnerabilities in dependencies, and licences that can't ship in a
+    # GPL app (see deny.toml).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories licenses sources
+
+  macos-app:
+    # Builds an unsigned openDJ.app for Apple Silicon and attaches it to the run,
+    # so the app can be tried without installing Rust.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p opendj
+      - name: Bundle openDJ.app
+        run: |
+          app=dist/openDJ.app/Contents
+          mkdir -p "$app/MacOS" "$app/Resources"
+          cp target/release/opendj "$app/MacOS/"
+          cp -R res/controllers "$app/Resources/controllers"
+          icons=dist/openDJ.iconset
+          mkdir -p "$icons"
+          for size in 16 32 128 256 512; do
+            sips -z $size $size res/macos/opendj-1024.png --out "$icons/icon_${size}x${size}.png" >/dev/null
+            sips -z $((size * 2)) $((size * 2)) res/macos/opendj-1024.png --out "$icons/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$icons" -o "$app/Resources/openDJ.icns"
+          cat > "$app/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>openDJ</string>
+            <key>CFBundleDisplayName</key><string>openDJ</string>
+            <key>CFBundleIdentifier</key><string>io.github.sebastian-beca.opendj</string>
+            <key>CFBundleExecutable</key><string>opendj</string>
+            <key>CFBundleIconFile</key><string>openDJ</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>0.1.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+            <key>NSLocalNetworkUsageDescription</key><string>Ableton Link shares tempo and beat with other music apps on your network.</string>
+          </dict>
+          </plist>
+          PLIST
+          codesign --force --deep --sign - dist/openDJ.app
+          cd dist && ditto -c -k --keepParent openDJ.app opendj-macos.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opendj-macos
+          path: dist/opendj-macos.zip

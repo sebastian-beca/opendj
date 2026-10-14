@@ -1,0 +1,957 @@
+//! What a controller script can reach: controls (with Mixxx's `_set_default`
+//! style shortcuts and soft takeover), MIDI output, timers and the
+//! scratch/brake filters. Script natives and MIDI input both go through here.
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use mixxx_control::{Behavior, ConfigKey, ControlHandle, ControlRegistry};
+
+/// Shortcut controls Mixxx adds next to every knob, e.g. `pregain_set_default`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Sub {
+    SetDefault,
+    SetZero,
+    SetOne,
+    SetMinusOne,
+    Up,
+    Down,
+    UpSmall,
+    DownSmall,
+    Toggle,
+    MinusToggle,
+}
+
+const SUBS: [(&str, Sub); 10] = [
+    ("_set_default", Sub::SetDefault),
+    ("_set_zero", Sub::SetZero),
+    ("_set_one", Sub::SetOne),
+    ("_set_minus_one", Sub::SetMinusOne),
+    ("_up_small", Sub::UpSmall),
+    ("_down_small", Sub::DownSmall),
+    ("_up", Sub::Up),
+    ("_down", Sub::Down),
+    ("_minus_toggle", Sub::MinusToggle),
+    ("_toggle", Sub::Toggle),
+];
+
+/// Controls whose writes are steps to apply rather than positions: two
+/// identical steps arriving between polls must both count, so writes add up
+/// and whoever acts on them takes the total and sets it back to 0.
+const RELATIVE: [&str; 8] = [
+    "jog",
+    "beatjump",
+    "MoveVertical",
+    "MoveHorizontal",
+    "MoveFocus",
+    "ScrollVertical",
+    "SelectTrackKnob",
+    "SelectPlaylist",
+];
+
+/// One-shot library actions. Each press is counted, so presses arriving
+/// faster than the UI polls are not lost; the UI performs them and subtracts
+/// what it handled. Only applies to the free controls the UI creates.
+const ACTIONS: [&str; 17] = [
+    "LoadSelectedTrack",
+    "LoadSelectedTrackAndPlay",
+    "LoadSelectedIntoFirstStopped",
+    "SelectNextTrack",
+    "SelectPrevTrack",
+    "SelectNextPlaylist",
+    "SelectPrevPlaylist",
+    "MoveUp",
+    "MoveDown",
+    "MoveLeft",
+    "MoveRight",
+    "MoveFocusForward",
+    "MoveFocusBackward",
+    "GoToItem",
+    "AutoDjAddBottom",
+    "AutoDjAddTop",
+    "ToggleSelectedSidebarItem",
+];
+
+fn is_action(h: &ControlHandle) -> bool {
+    h.behavior() == Behavior::Free && ACTIONS.contains(&h.key().item.as_str())
+}
+
+#[derive(Clone)]
+pub(crate) enum Target {
+    Control(ControlHandle),
+    Sub(ControlHandle, Sub),
+}
+
+impl Target {
+    pub(crate) fn get(&self) -> f64 {
+        match self {
+            Target::Control(h) => h.get(),
+            Target::Sub(..) => 0.0,
+        }
+    }
+
+    pub(crate) fn parameter(&self) -> f64 {
+        match self {
+            Target::Control(h) => h.get_parameter(),
+            Target::Sub(..) => 0.0,
+        }
+    }
+
+    fn handle(&self) -> &ControlHandle {
+        match self {
+            Target::Control(h) | Target::Sub(h, _) => h,
+        }
+    }
+
+    /// The value a 0..1 parameter stands for on this control.
+    pub(crate) fn value_for_parameter(&self, p: f64) -> f64 {
+        let h = self.handle();
+        let (min, max) = h.range();
+        let d = h.default_value();
+        match h.behavior() {
+            Behavior::Free => p,
+            Behavior::CenteredOnDefault => {
+                let p = p.clamp(0.0, 1.0);
+                if p <= 0.5 {
+                    min + (d - min) * p * 2.0
+                } else {
+                    d + (max - d) * (p - 0.5) * 2.0
+                }
+            }
+            _ => min + (max - min) * p.clamp(0.0, 1.0),
+        }
+    }
+
+    pub(crate) fn parameter_for_value(&self, v: f64) -> f64 {
+        let h = self.handle();
+        let (min, max) = h.range();
+        let d = h.default_value();
+        match h.behavior() {
+            Behavior::Free => v,
+            Behavior::CenteredOnDefault => {
+                if v <= d {
+                    if d > min {
+                        0.5 * (v - min) / (d - min)
+                    } else {
+                        0.5
+                    }
+                } else if max > d {
+                    0.5 + 0.5 * (v - d) / (max - d)
+                } else {
+                    0.5
+                }
+            }
+            _ if max > min => (v - min) / (max - min),
+            _ => 0.0,
+        }
+    }
+
+    /// Writes a value as a script would with `engine.setValue`.
+    pub(crate) fn set(&self, v: f64) {
+        match self {
+            Target::Control(h) => {
+                if is_action(h) {
+                    if v > 0.0 {
+                        h.set(h.get() + 1.0);
+                    }
+                } else if RELATIVE.contains(&h.key().item.as_str()) {
+                    h.set(h.get() + v);
+                } else {
+                    h.set(v);
+                }
+            }
+            Target::Sub(h, sub) => {
+                if v > 0.0 {
+                    apply_sub(h, *sub);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn default_value(&self) -> f64 {
+        match self {
+            Target::Control(h) => h.default_value(),
+            Target::Sub(..) => 0.0,
+        }
+    }
+
+    pub(crate) fn is_potmeter(&self) -> bool {
+        matches!(self, Target::Control(h) if matches!(h.behavior(), Behavior::Linear | Behavior::CenteredOnDefault))
+    }
+
+    /// Writes a value arriving from a mapped MIDI message, the way Mixxx's
+    /// `setValueFromMidi` does for each kind of control.
+    pub(crate) fn set_from_midi(&self, note_off: bool, midi: f64) {
+        let pressed = !(note_off || midi == 0.0);
+        match self {
+            Target::Sub(h, sub) => {
+                if pressed {
+                    apply_sub(h, *sub);
+                }
+            }
+            Target::Control(h) => match h.behavior() {
+                Behavior::Toggle => {
+                    if pressed {
+                        h.toggle();
+                    }
+                }
+                Behavior::Push => h.set_bool(pressed),
+                Behavior::Linear | Behavior::CenteredOnDefault => {
+                    h.set_parameter(potmeter_parameter(midi))
+                }
+                Behavior::Free if is_action(h) => {
+                    if pressed {
+                        h.set(h.get() + 1.0);
+                    }
+                }
+                Behavior::Free if RELATIVE.contains(&h.key().item.as_str()) => {
+                    h.set(h.get() + midi)
+                }
+                Behavior::Free => h.set(midi / 127.0),
+                Behavior::Indicator => h.set_parameter(midi / 127.0),
+            },
+        }
+    }
+
+    /// The control's value as a 0..127 MIDI value, for relative options.
+    pub(crate) fn midi_parameter(&self) -> f64 {
+        match self {
+            Target::Sub(..) => 0.0,
+            Target::Control(h) => match h.behavior() {
+                Behavior::Linear | Behavior::CenteredOnDefault => {
+                    let p = h.get_parameter();
+                    if p > 0.5 {
+                        p * 126.0 + 1.0
+                    } else {
+                        p * 128.0
+                    }
+                }
+                Behavior::Free => h.get(),
+                _ => h.get_parameter() * 127.0,
+            },
+        }
+    }
+}
+
+/// Mixxx's potmeter MIDI curve: 64 is exactly the centre.
+fn potmeter_parameter(midi: f64) -> f64 {
+    if midi > 64.0 {
+        (midi - 1.0) / 126.0
+    } else {
+        midi / 128.0
+    }
+}
+
+fn apply_sub(h: &ControlHandle, sub: Sub) {
+    let step = |d: f64| h.set_parameter(h.get_parameter() + d);
+    match sub {
+        Sub::SetDefault => h.reset(),
+        Sub::SetZero => h.set(0.0),
+        Sub::SetOne => h.set(1.0),
+        Sub::SetMinusOne => h.set(-1.0),
+        Sub::Up => step(0.1),
+        Sub::Down => step(-0.1),
+        Sub::UpSmall => step(0.01),
+        Sub::DownSmall => step(-0.01),
+        Sub::Toggle => h.set(if h.get() > 0.0 { 0.0 } else { 1.0 }),
+        Sub::MinusToggle => h.set(if h.get() < 0.0 { 0.0 } else { -1.0 }),
+    }
+}
+
+/// Mixxx's soft takeover: after a knob was moved elsewhere (on screen, or
+/// another layer), ignore the hardware until it reaches the current value.
+struct SoftTakeover {
+    time: Option<Instant>,
+    prev: f64,
+    /// Set by `softTakeoverIgnoreNextValue` and initially.
+    ignore_next: bool,
+}
+
+const TAKEOVER_THRESHOLD: f64 = 3.0 / 128.0;
+const TAKEOVER_OVERRIDE: Duration = Duration::from_millis(50);
+
+impl SoftTakeover {
+    fn new() -> Self {
+        Self {
+            time: None,
+            prev: 0.0,
+            ignore_next: true,
+        }
+    }
+
+    fn will_ignore(&self, current: f64, new: f64, now: Instant) -> bool {
+        let Some(time) = self.time else { return true };
+        if self.ignore_next {
+            return true;
+        }
+        if now < time + TAKEOVER_OVERRIDE {
+            return false;
+        }
+        let difference = current - new;
+        let prev_diff = current - self.prev;
+        if difference.is_sign_negative() != prev_diff.is_sign_negative() {
+            return false;
+        }
+        !(difference.abs() <= TAKEOVER_THRESHOLD || prev_diff.abs() <= TAKEOVER_THRESHOLD)
+    }
+
+    fn ignore(&mut self, current: f64, new: f64) -> bool {
+        let now = Instant::now();
+        let ignore = if self.ignore_next {
+            self.ignore_next = false;
+            // The first value after enabling (or after a jump) is dropped so
+            // the control does not leap; afterwards the usual rules apply.
+            self.time = Some(now - TAKEOVER_OVERRIDE * 4);
+            true
+        } else {
+            self.will_ignore(current, new, now)
+        };
+        if !ignore {
+            self.time = Some(now);
+        }
+        self.prev = new;
+        ignore
+    }
+}
+
+/// Mixxx's alpha-beta filter, which turns jog wheel ticks into a smooth
+/// playback speed.
+#[derive(Default)]
+struct AlphaBeta {
+    dt: f64,
+    x: f64,
+    v: f64,
+    alpha: f64,
+    beta: f64,
+}
+
+impl AlphaBeta {
+    fn init(&mut self, dt: f64, v: f64, alpha: f64, beta: f64) {
+        *self = Self {
+            dt,
+            x: 0.0,
+            v,
+            alpha,
+            beta,
+        };
+    }
+
+    fn observation(&mut self, dx: f64) {
+        let predicted_x = self.x + self.dt * self.v;
+        let residual = dx - predicted_x;
+        self.x = predicted_x + residual * self.alpha;
+        self.v += residual * self.beta / self.dt;
+        self.x -= dx;
+    }
+}
+
+const SCRATCH_DT: f64 = 0.001;
+const BRAKE_RAMP_TO: f64 = 0.01;
+const MAX_DECKS: usize = 8;
+
+#[derive(Default)]
+struct Scratch {
+    /// Running at 1 kHz (Mixxx's scratch timer).
+    active: bool,
+    dx: f64,
+    accumulator: f64,
+    ramp: bool,
+    ramp_to: f64,
+    brake: bool,
+    spinback: bool,
+    soft_start: bool,
+    last_movement: Option<Instant>,
+    filter: AlphaBeta,
+}
+
+struct Watch {
+    control: ControlHandle,
+    version: u32,
+}
+
+struct Timer {
+    due: Instant,
+    interval: Duration,
+    one_shot: bool,
+}
+
+pub(crate) struct Host {
+    pub(crate) registry: Arc<ControlRegistry>,
+    pub(crate) name: String,
+    /// Script errors, kept for the UI and tests.
+    pub(crate) errors: Vec<String>,
+    /// MIDI messages waiting to be sent.
+    pub(crate) sent: Vec<Vec<u8>>,
+    watches: Vec<Option<Watch>>,
+    /// Controls `engine.trigger` named since the last poll. As in Mixxx, their
+    /// connections run later, not inside the script call that triggered them.
+    triggered: Vec<ConfigKey>,
+    /// Messages bound to a script function in the mapping XML; Mixxx gives
+    /// these no `midi.makeInputHandler` callbacks.
+    pub(crate) script_bound: HashSet<(u8, u8)>,
+    /// How many `midi.makeInputHandler` callbacks each message has.
+    input_handlers: HashMap<(u8, u8), u32>,
+    timers: BTreeMap<u32, Timer>,
+    next_timer: u32,
+    soft: HashMap<(String, String), SoftTakeover>,
+    scratch: Vec<Scratch>,
+    scratch_tick: Instant,
+}
+
+pub(crate) fn deck_group(deck: usize) -> String {
+    format!("[Channel{deck}]")
+}
+
+impl Host {
+    pub(crate) fn new(registry: Arc<ControlRegistry>, name: String) -> Self {
+        Self {
+            registry,
+            name,
+            errors: Vec::new(),
+            sent: Vec::new(),
+            watches: Vec::new(),
+            triggered: Vec::new(),
+            script_bound: HashSet::new(),
+            input_handlers: HashMap::new(),
+            timers: BTreeMap::new(),
+            next_timer: 1,
+            soft: HashMap::new(),
+            scratch: (0..=MAX_DECKS).map(|_| Scratch::default()).collect(),
+            scratch_tick: Instant::now(),
+        }
+    }
+
+    pub(crate) fn log(&self, message: &str) {
+        eprintln!("[{}] {message}", self.name);
+    }
+
+    pub(crate) fn error(&mut self, message: &str) {
+        eprintln!("[{}] error: {message}", self.name);
+        if self.errors.len() < 100 {
+            self.errors.push(message.to_string());
+        }
+    }
+
+    /// Finds a control by name. Shortcut names (`rate_set_default`) resolve
+    /// to their base control; names nothing implements become free controls
+    /// so scripts can still keep state in them, as they do in Mixxx.
+    pub(crate) fn resolve(&self, group: &str, key: &str) -> Target {
+        let group = match group {
+            "[Main]" => "[Master]",
+            g => g,
+        };
+        if let Some(h) = self.registry.get(group, key) {
+            return Target::Control(h);
+        }
+        for (suffix, sub) in SUBS {
+            if let Some(base) = key.strip_suffix(suffix) {
+                if let Some(h) = self.registry.get(group, base) {
+                    return Target::Sub(h, sub);
+                }
+            }
+        }
+        Target::Control(self.registry.free(group, key))
+    }
+
+    /// Script writes. Values for knobs with soft takeover enabled may be dropped.
+    pub(crate) fn set_value(&mut self, group: &str, key: &str, v: f64) {
+        let t = self.resolve(group, key);
+        if self.soft_ignores(group, key, &t, t.parameter_for_value(v)) {
+            return;
+        }
+        t.set(v);
+    }
+
+    pub(crate) fn set_parameter(&mut self, group: &str, key: &str, p: f64) {
+        let t = self.resolve(group, key);
+        if self.soft_ignores(group, key, &t, p) {
+            return;
+        }
+        let v = t.value_for_parameter(p);
+        t.set(v);
+    }
+
+    /// Whether soft takeover drops this write; `p` is the new parameter.
+    pub(crate) fn soft_ignores(&mut self, group: &str, key: &str, t: &Target, p: f64) -> bool {
+        match self.soft.get_mut(&(group.to_string(), key.to_string())) {
+            Some(st) => st.ignore(t.parameter(), p),
+            None => false,
+        }
+    }
+
+    pub(crate) fn soft_takeover(&mut self, group: &str, key: &str, enable: bool) {
+        let k = (group.to_string(), key.to_string());
+        if !enable {
+            self.soft.remove(&k);
+        } else if !self.soft.contains_key(&k) && self.resolve(group, key).is_potmeter() {
+            self.soft.insert(k, SoftTakeover::new());
+        }
+    }
+
+    pub(crate) fn soft_takeover_ignore_next(&mut self, group: &str, key: &str) {
+        if let Some(st) = self.soft.get_mut(&(group.to_string(), key.to_string())) {
+            st.ignore_next = true;
+        }
+    }
+
+    pub(crate) fn soft_takeover_will_ignore(&self, group: &str, key: &str, p: f64) -> bool {
+        match self.soft.get(&(group.to_string(), key.to_string())) {
+            Some(st) => st.will_ignore(self.resolve(group, key).parameter(), p, Instant::now()),
+            None => false,
+        }
+    }
+
+    pub(crate) fn watch(&mut self, group: &str, key: &str) -> u32 {
+        let control = match self.resolve(group, key) {
+            Target::Control(h) | Target::Sub(h, _) => h,
+        };
+        let version = control.version();
+        self.watches.push(Some(Watch { control, version }));
+        self.watches.len() as u32
+    }
+
+    pub(crate) fn unwatch(&mut self, id: u32) {
+        if let Some(w) = self.watches.get_mut(id.wrapping_sub(1) as usize) {
+            *w = None;
+        }
+    }
+
+    pub(crate) fn add_input_handlers(&mut self, status: u8, control: u8, delta: i32) {
+        let n = self.input_handlers.entry((status, control)).or_insert(0);
+        *n = n.saturating_add_signed(delta);
+        if *n == 0 {
+            self.input_handlers.remove(&(status, control));
+        }
+    }
+
+    pub(crate) fn has_input_handlers(&self, status: u8, control: u8) -> bool {
+        self.input_handlers.contains_key(&(status, control))
+    }
+
+    /// Queues the connections to a control to run on the next poll.
+    pub(crate) fn trigger(&mut self, group: &str, key: &str) {
+        let key = match self.resolve(group, key) {
+            Target::Control(h) | Target::Sub(h, _) => h.key().clone(),
+        };
+        if !self.triggered.contains(&key) {
+            self.triggered.push(key);
+        }
+    }
+
+    /// Connections whose control changed or was triggered since the last
+    /// call, with values.
+    pub(crate) fn changed_watches(&mut self) -> Vec<(u32, f64)> {
+        let triggered = std::mem::take(&mut self.triggered);
+        let mut out = Vec::new();
+        for (i, w) in self.watches.iter_mut().enumerate() {
+            if let Some(w) = w {
+                let v = w.control.version();
+                if v != w.version || triggered.contains(w.control.key()) {
+                    w.version = v;
+                    out.push((i as u32 + 1, w.control.get()));
+                }
+            }
+        }
+        out
+    }
+
+    pub(crate) fn timer_start(&mut self, ms: f64, one_shot: bool) -> u32 {
+        let id = self.next_timer;
+        self.next_timer += 1;
+        // Mixxx takes the interval as a 32-bit int and raises it to 20 ms;
+        // Infinity converts to 0 there, so it gets 20 ms too.
+        let ms = if ms.is_finite() {
+            ms.clamp(20.0, i32::MAX as f64)
+        } else {
+            20.0
+        };
+        let interval = Duration::from_secs_f64(ms / 1000.0);
+        self.timers.insert(
+            id,
+            Timer {
+                due: Instant::now() + interval,
+                interval,
+                one_shot,
+            },
+        );
+        id
+    }
+
+    pub(crate) fn timer_stop(&mut self, id: u32) {
+        self.timers.remove(&id);
+    }
+
+    /// Timers that are due, rescheduling repeating ones.
+    pub(crate) fn due_timers(&mut self, now: Instant) -> Vec<u32> {
+        let due: Vec<u32> = self
+            .timers
+            .iter()
+            .filter(|(_, t)| t.due <= now)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &due {
+            let t = self.timers.get_mut(id).unwrap();
+            if t.one_shot {
+                self.timers.remove(id);
+            } else {
+                t.due += t.interval;
+                if t.due < now {
+                    t.due = now + t.interval;
+                }
+            }
+        }
+        due
+    }
+
+    /// When the controller next needs attention.
+    pub(crate) fn next_deadline(&self) -> Option<Instant> {
+        let timer = self.timers.values().map(|t| t.due).min();
+        let scratch = self
+            .scratch
+            .iter()
+            .any(|s| s.active)
+            .then(|| self.scratch_tick + Duration::from_millis(1));
+        match (timer, scratch) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    fn control(&self, deck: usize, key: &str) -> ControlHandle {
+        match self.resolve(&deck_group(deck), key) {
+            Target::Control(h) | Target::Sub(h, _) => h,
+        }
+    }
+
+    fn deck_rate(&self, deck: usize) -> f64 {
+        let rate = 1.0 + self.control(deck, "rate").get() * self.control(deck, "rateRange").get();
+        if self.control(deck, "reverse").get_bool() {
+            -rate
+        } else {
+            rate
+        }
+    }
+
+    fn deck_ok(deck: f64) -> Option<usize> {
+        (deck >= 1.0 && deck <= MAX_DECKS as f64).then_some(deck as usize)
+    }
+
+    pub(crate) fn scratch_enable(
+        &mut self,
+        deck: f64,
+        intervals_per_rev: f64,
+        rpm: f64,
+        alpha: f64,
+        beta: f64,
+        ramp: bool,
+    ) {
+        let Some(d) = Self::deck_ok(deck) else { return };
+        let per_second = rpm * intervals_per_rev / 60.0;
+        if per_second == 0.0 {
+            self.log("Invalid rpm or intervalsPerRev supplied to scratchEnable");
+            return;
+        }
+        let enable = self.control(d, "scratch2_enable");
+        let mut v0 = 0.0;
+        if ramp {
+            if enable.get_bool() {
+                v0 = self.control(d, "scratch2").get();
+            } else if self.control(d, "play").get_bool() {
+                v0 = self.deck_rate(d);
+            }
+        }
+        let s = &mut self.scratch[d];
+        s.dx = 1.0 / per_second;
+        s.accumulator = 0.0;
+        s.ramp = false;
+        s.brake = false;
+        if alpha != 0.0 && beta != 0.0 {
+            s.filter.init(SCRATCH_DT, v0, alpha, beta);
+        } else {
+            s.filter.init(SCRATCH_DT, v0, 1.0 / 8.0, (1.0 / 8.0) / 32.0);
+        }
+        self.start_scratch_timer(d);
+        enable.set_bool(true);
+    }
+
+    fn start_scratch_timer(&mut self, d: usize) {
+        if !self.scratch.iter().any(|s| s.active) {
+            self.scratch_tick = Instant::now();
+        }
+        self.scratch[d].active = true;
+    }
+
+    pub(crate) fn scratch_tick(&mut self, deck: f64, interval: f64) {
+        let Some(d) = Self::deck_ok(deck) else { return };
+        let s = &mut self.scratch[d];
+        s.last_movement = Some(Instant::now());
+        s.accumulator += interval;
+    }
+
+    pub(crate) fn scratch_disable(&mut self, deck: f64, ramp: bool) {
+        let Some(d) = Self::deck_ok(deck) else { return };
+        let mut ramp_to = 0.0;
+        if !ramp {
+            self.control(d, "scratch2_enable").set_bool(false);
+        } else if self.control(d, "play").get_bool() {
+            ramp_to = self.deck_rate(d);
+        }
+        let s = &mut self.scratch[d];
+        s.ramp_to = ramp_to;
+        s.last_movement = Some(Instant::now());
+        s.ramp = true;
+    }
+
+    pub(crate) fn is_scratching(&self, deck: f64) -> bool {
+        Self::deck_ok(deck).is_some_and(|d| self.control(d, "scratch2_enable").get_bool())
+    }
+
+    /// `engine.brake`, `engine.spinback` and `engine.softStart`, which Mixxx
+    /// runs through the same filter as scratching.
+    pub(crate) fn ramp(&mut self, deck: f64, kind: &str, activate: bool, factor: f64, rate: f64) {
+        let Some(d) = Self::deck_ok(deck) else { return };
+        let mut factor = factor;
+        if factor > 1.0 {
+            factor = (factor - 1.0) / 10.0 + 1.0;
+        }
+        let (alpha, beta) = (1.0 / 512.0, (1.0 / 512.0) / 1024.0 * factor);
+        let enable = self.control(d, "scratch2_enable");
+        if kind == "softStart" {
+            enable.set_bool(activate);
+            let mut v0 = 0.0;
+            let ramp_to = self.deck_rate(d);
+            let s = &mut self.scratch[d];
+            s.soft_start = activate;
+            s.active = false;
+            if !activate {
+                return;
+            }
+            if s.brake || s.spinback {
+                s.brake = false;
+                s.spinback = false;
+                v0 = s.filter.v;
+            }
+            s.ramp_to = ramp_to;
+            s.filter.init(SCRATCH_DT, v0, alpha, beta);
+            s.ramp = true;
+            self.control(d, "play").set_bool(true);
+            self.control(d, "scratch2").set(v0);
+            self.start_scratch_timer(d);
+            return;
+        }
+        enable.set_bool(activate);
+        if !activate {
+            let s = &mut self.scratch[d];
+            s.brake = false;
+            s.spinback = false;
+            s.active = false;
+            return;
+        }
+        let rate = if kind == "spinback" { rate } else { rate.abs() };
+        let v0 = if rate < -BRAKE_RAMP_TO {
+            let s = &mut self.scratch[d];
+            s.spinback = true;
+            s.brake = false;
+            s.ramp_to = -BRAKE_RAMP_TO;
+            rate
+        } else if rate > BRAKE_RAMP_TO {
+            let deck_rate = self.deck_rate(d);
+            let s = &mut self.scratch[d];
+            if s.spinback || s.brake {
+                return;
+            }
+            s.brake = true;
+            s.spinback = false;
+            s.ramp_to = BRAKE_RAMP_TO;
+            if s.soft_start {
+                s.soft_start = false;
+                s.filter.v
+            } else {
+                deck_rate
+            }
+        } else {
+            let s = &mut self.scratch[d];
+            s.brake = false;
+            s.spinback = false;
+            s.active = false;
+            self.control(d, "play").set_bool(false);
+            return;
+        };
+        self.control(d, "scratch2").set(v0);
+        let s = &mut self.scratch[d];
+        s.filter.init(SCRATCH_DT, v0, alpha, beta);
+        s.ramp = true;
+        self.start_scratch_timer(d);
+    }
+
+    pub(crate) fn ramp_active(&self, deck: f64, kind: &str) -> bool {
+        Self::deck_ok(deck).is_some_and(|d| {
+            let s = &self.scratch[d];
+            match kind {
+                "brake" => s.brake,
+                "spinback" => s.spinback,
+                _ => s.soft_start,
+            }
+        })
+    }
+
+    /// Runs the 1 kHz scratch filters for the time that has passed.
+    pub(crate) fn process_scratch(&mut self, now: Instant) {
+        if !self.scratch.iter().any(|s| s.active) {
+            self.scratch_tick = now;
+            return;
+        }
+        let elapsed = now.saturating_duration_since(self.scratch_tick);
+        let ticks = (elapsed.as_secs_f64() / SCRATCH_DT) as u32;
+        if ticks == 0 {
+            return;
+        }
+        self.scratch_tick += Duration::from_secs_f64(ticks as f64 * SCRATCH_DT);
+        // After a stall, catch up a little but don't spin for long.
+        for _ in 0..ticks.min(50) {
+            for d in 1..=MAX_DECKS {
+                if self.scratch[d].active {
+                    self.scratch_step(d, now);
+                }
+            }
+        }
+    }
+
+    fn scratch_step(&mut self, d: usize, now: Instant) {
+        let playing = self.control(d, "play").get_bool();
+        let loaded = self.control(d, "track_loaded").get_bool();
+        let s = &mut self.scratch[d];
+        let idle = s
+            .last_movement
+            .is_none_or(|t| now.saturating_duration_since(t) >= Duration::from_millis(1));
+        // Ramping after the wheel was let go, or a soft start: steer towards
+        // the target speed; otherwise follow the wheel.
+        if s.soft_start || (s.ramp && idle) {
+            s.filter.observation(s.ramp_to * SCRATCH_DT);
+        } else {
+            s.filter.observation(s.dx * s.accumulator);
+        }
+        let rate = s.filter.v;
+        s.accumulator = 0.0;
+        let done = (s.ramp && (s.ramp_to - rate).abs() <= 0.00001)
+            || (s.brake && rate < s.ramp_to)
+            || ((s.spinback || s.soft_start) && rate > s.ramp_to)
+            || ((s.brake || s.soft_start) && !playing)
+            || !loaded;
+        let stop = done && (s.brake || s.spinback);
+        if done {
+            s.ramp = false;
+            s.active = false;
+            s.dx = 0.0;
+            s.brake = false;
+            s.spinback = false;
+            s.soft_start = false;
+        }
+        let scratch2 = self.control(d, "scratch2");
+        scratch2.set(rate);
+        if stop {
+            scratch2.set(0.0);
+            self.control(d, "play").set_bool(false);
+        }
+        if done {
+            self.control(d, "scratch2_enable").set_bool(false);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn host() -> Host {
+        let reg = ControlRegistry::new();
+        reg.create(
+            "[Channel1]",
+            "pregain",
+            1.0,
+            0.0,
+            4.0,
+            Behavior::CenteredOnDefault,
+        );
+        reg.create("[Channel1]", "rate", 0.0, -1.0, 1.0, Behavior::Linear);
+        reg.create("[Channel1]", "rateRange", 0.08, 0.0, 1.0, Behavior::Linear);
+        reg.toggle("[Channel1]", "play");
+        reg.indicator("[Channel1]", "track_loaded", 1.0).set(1.0);
+        reg.toggle("[Channel1]", "scratch2_enable");
+        reg.create(
+            "[Channel1]",
+            "scratch2",
+            0.0,
+            -100.0,
+            100.0,
+            Behavior::Linear,
+        );
+        Host::new(reg, "test".into())
+    }
+
+    #[test]
+    fn shortcut_names_act_on_the_base_control() {
+        let mut h = host();
+        h.set_value("[Channel1]", "pregain", 3.0);
+        h.set_value("[Channel1]", "pregain_set_default", 1.0);
+        assert_eq!(h.resolve("[Channel1]", "pregain").get(), 1.0);
+        h.set_value("[Channel1]", "rate_set_one", 1.0);
+        assert_eq!(h.resolve("[Channel1]", "rate").get(), 1.0);
+        h.set_value("[Channel1]", "rate_down", 1.0);
+        assert!((h.resolve("[Channel1]", "rate").get() - 0.8).abs() < 1e-9);
+        // Unknown names keep what scripts store in them.
+        h.set_value("[EffectRack1_EffectUnit1]", "show_focus", 1.0);
+        assert_eq!(
+            h.resolve("[EffectRack1_EffectUnit1]", "show_focus").get(),
+            1.0
+        );
+        // Relative controls add up.
+        h.set_value("[Library]", "MoveVertical", 1.0);
+        h.set_value("[Library]", "MoveVertical", 1.0);
+        assert_eq!(h.resolve("[Library]", "MoveVertical").get(), 2.0);
+    }
+
+    #[test]
+    fn soft_takeover_waits_for_the_knob_to_catch_up() {
+        let mut h = host();
+        h.soft_takeover("[Channel1]", "pregain", true);
+        // The first value is always dropped.
+        h.set_parameter("[Channel1]", "pregain", 0.1);
+        assert_eq!(h.resolve("[Channel1]", "pregain").get(), 1.0);
+        // Still well below the knob's position on screen: ignored.
+        std::thread::sleep(Duration::from_millis(60));
+        h.set_parameter("[Channel1]", "pregain", 0.2);
+        assert_eq!(h.resolve("[Channel1]", "pregain").get(), 1.0);
+        // Close to the current value: taken from here on.
+        h.set_parameter("[Channel1]", "pregain", 0.49);
+        assert!(h.resolve("[Channel1]", "pregain").get() < 1.0);
+        h.set_parameter("[Channel1]", "pregain", 0.7);
+        assert!(h.resolve("[Channel1]", "pregain").get() > 1.0);
+    }
+
+    #[test]
+    fn scratch_ticks_become_speed() {
+        let mut h = host();
+        h.scratch_enable(1.0, 128.0, 33.0 + 1.0 / 3.0, 1.0 / 8.0, 1.0 / 256.0, false);
+        assert!(h.is_scratching(1.0));
+        // One revolution per 1.8 s is normal speed; feed that for 300 ms.
+        let start = Instant::now();
+        let per_ms = 128.0 * (100.0 / 3.0) / 60.0 / 1000.0;
+        for ms in 1..=300u64 {
+            h.scratch_tick(1.0, per_ms);
+            h.process_scratch(start + Duration::from_millis(ms));
+        }
+        let speed = h.resolve("[Channel1]", "scratch2").get();
+        assert!((speed - 1.0).abs() < 0.1, "{speed}");
+        // Backwards.
+        for ms in 301..=600u64 {
+            h.scratch_tick(1.0, -per_ms);
+            h.process_scratch(start + Duration::from_millis(ms));
+        }
+        let speed = h.resolve("[Channel1]", "scratch2").get();
+        assert!((speed + 1.0).abs() < 0.1, "{speed}");
+        h.scratch_disable(1.0, false);
+        assert!(!h.is_scratching(1.0));
+    }
+}

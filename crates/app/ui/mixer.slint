@@ -1,0 +1,439 @@
+// Centre mixer: EQ columns on the outside (kills are on
+// controllers only), gain and channel
+// faders in the middle with the main meter between them, crossfader below.
+// Dark knobs with white pointers, ticked faders.
+import { Theme, EdgeLine } from "theme.slint";
+import { Caption, Controls, ControlButton, ControlFader, ControlKnob, CueHeadphones, StereoMeter } from "controls.slint";
+
+// One output route in the settings table.
+export struct OutputRow {
+    // 0 master, 1 headphones, 2 booth
+    role: int,
+    // Index into AudioSettings.devices (0 is the system default), or -1
+    // for a device that isn't connected now.
+    device: int,
+    device-name: string,
+    // Channel pair: 0 is ch 1 & 2.
+    pair: int,
+    pairs: [string],
+    status: string,
+    ok: bool,
+}
+
+// The audio settings: the output routes table, and
+// the connected controllers.
+export global AudioSettings {
+    in property <[OutputRow]> rows;
+    in property <[string]> devices;
+    in property <string> controllers: "None";
+    callback refresh();
+    callback set-role(row: int, role: int);
+    callback set-device(row: int, device: int);
+    callback set-pair(row: int, pair: int);
+    callback add();
+    callback remove(row: int);
+}
+
+// A small field that shows a choice and opens a list to change it. Long
+// lists scroll.
+export component MenuField inherits Rectangle {
+    in property <string> text;
+    in property <[string]> choices;
+    in property <int> chosen;
+    in property <length> menu-width: 220px;
+    callback opening();
+    callback picked(index: int);
+    height: 26px;
+    background: ta.has-hover ? #2a2a2e : Theme.control;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.border;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 6px;
+        spacing: 4px;
+        Text { text: root.text; color: Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+        Path {
+            width: 8px;
+            height: 5px;
+            y: (parent.height - self.height) / 2;
+            commands: "M 0 0 L 4 4.5 L 8 0";
+            stroke: Theme.text-dim;
+            stroke-width: 1.5px;
+            fill: transparent;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.opening();
+            menu.show();
+        }
+    }
+    menu := PopupWindow {
+        x: 0px;
+        y: root.height + 2px;
+        width: menu-width;
+        height: min(choices.length * 26px, 390px) + 12px;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #000000a0;
+        }
+        Flickable {
+            x: 6px;
+            y: 6px;
+            width: parent.width - 12px;
+            height: parent.height - 12px;
+            content-height: choices.length * 26px;
+            // Opens with the chosen item in view.
+            content-y: max(min(0px, self.height / 2 - (chosen + 0.5) * 26px), self.height - self.content-height);
+            VerticalLayout {
+                spacing: 0px;
+                for c[i] in choices: Rectangle {
+                    height: 26px;
+                    border-radius: 4px;
+                    background: i == chosen ? Theme.accent.with-alpha(0.35) : ita.has-hover ? #3a3a3d : transparent;
+                    Text { x: 8px; width: parent.width - 16px; text: c; color: Theme.text; font-size: 13px; font-weight: i == chosen ? 600 : 400; overflow: elide; }
+                    ita := TouchArea {
+                        clicked => {
+                            root.picked(i);
+                            menu.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The output routes table: a row per mix with
+// its device and channel pair, and + to add one.
+export component OutputsTable inherits VerticalLayout {
+    // Wider fields, for the settings window.
+    in property <bool> roomy;
+    spacing: roomy ? 8px : 6px;
+    for row[r] in AudioSettings.rows: VerticalLayout {
+        spacing: 2px;
+        HorizontalLayout {
+            spacing: 3px;
+            MenuField {
+                width: roomy ? 120px : 78px;
+                text: ["Master", "Phones", "Booth"][row.role];
+                choices: ["Master", "Headphones", "Booth"];
+                chosen: row.role;
+                menu-width: 140px;
+                picked(i) => { AudioSettings.set-role(r, i); }
+            }
+            MenuField {
+                horizontal-stretch: 1;
+                text: row.device-name;
+                choices: AudioSettings.devices;
+                chosen: row.device;
+                menu-width: 260px;
+                opening => { AudioSettings.refresh(); }
+                picked(i) => { AudioSettings.set-device(r, i); }
+            }
+            MenuField {
+                width: roomy ? 90px : 62px;
+                text: row.pairs[row.pair];
+                choices: row.pairs;
+                chosen: row.pair;
+                menu-width: 110px;
+                picked(i) => { AudioSettings.set-pair(r, i); }
+            }
+            Rectangle {
+                width: 20px;
+                // Drawn, as ✕ is missing from some fonts.
+                Path {
+                    width: 9px;
+                    height: 9px;
+                    viewbox-width: 10;
+                    viewbox-height: 10;
+                    commands: "M 1 1 L 9 9 M 9 1 L 1 9";
+                    stroke: xta.has-hover ? Theme.text : Theme.text-dim;
+                    stroke-width: 1.5px;
+                    fill: transparent;
+                }
+                xta := TouchArea { mouse-cursor: pointer; clicked => { AudioSettings.remove(r); } }
+            }
+        }
+        Text { text: row.status; color: row.ok ? Theme.text-dim : #ff9f0a; font-size: 10px; overflow: elide; x: 4px; }
+    }
+    HorizontalLayout {
+        alignment: end;
+        Rectangle {
+            width: 26px;
+            height: 22px;
+            border-radius: Theme.radius;
+            background: ata.has-hover ? #2a2a2e : Theme.control;
+            border-width: 1px;
+            border-color: Theme.border;
+            Text { text: "+"; color: Theme.text; font-size: 15px; }
+            ata := TouchArea { mouse-cursor: pointer; clicked => { AudioSettings.add(); } }
+        }
+    }
+}
+
+// The settings page: outputs, controllers and the headphone and booth levels.
+component SettingsPage inherits VerticalLayout {
+    spacing: 6px;
+    Caption { text: "OUTPUTS"; horizontal-alignment: left; }
+    OutputsTable { }
+    EdgeLine { left: 8px; right: 8px; }
+    HorizontalLayout {
+        spacing: 8px;
+        Caption { text: "CONTROLLERS"; vertical-alignment: center; }
+        Text { text: AudioSettings.controllers; color: Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+    }
+    EdgeLine { left: 8px; right: 8px; }
+    HorizontalLayout {
+        alignment: space-around;
+        ControlKnob { group: "[Master]"; key: "headMix"; label: "CUE MIX"; bipolar: true; size: 32px; }
+        ControlKnob { group: "[Master]"; key: "headGain"; label: "CUE LEVEL"; bipolar: true; size: 32px; }
+        ControlKnob { group: "[Master]"; key: "booth_gain"; label: "BOOTH"; bipolar: true; size: 32px; }
+    }
+    Rectangle { vertical-stretch: 1; }
+}
+
+// The MIXER / SETTINGS switch at the top of the mixer's centre panel.
+component MixerTabs inherits Rectangle {
+    in-out property <int> tab;
+    height: 24px;
+    background: Theme.control;
+    border-bottom-left-radius: Theme.radius;
+    border-bottom-right-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.border;
+    HorizontalLayout {
+        padding: 2px;
+        spacing: 2px;
+        for t[i] in ["MIXER", "SETTINGS"]: Rectangle {
+            horizontal-stretch: 1;
+            background: i == tab ? Theme.panel-raised.brighter(0.3) : transparent;
+            border-radius: Theme.radius - 2px;
+            Text { text: t; color: i == tab ? Theme.text : Theme.text-dim; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
+            TouchArea {
+                clicked => {
+                    if i == 1 {
+                        AudioSettings.refresh();
+                    }
+                    tab = i;
+                }
+            }
+        }
+    }
+}
+
+// What the four knobs down each side of the mixer control, picked from the
+// menu between the gain knobs.
+export global MixerMode {
+    // 0 EQ (high, mid, low, filter), 1 stem volumes, 2 sculpt as on
+    // PlayDifferently's Model 1 (low-pass, sculpt frequency and cut/boost,
+    // high-pass).
+    in-out property <int> mode: 0;
+    out property <[string]> names: ["EQ", "STEMS", "SCULPT"];
+}
+
+// A mixer knob, centred in its grid cell.
+export component Knob inherits HorizontalLayout {
+    in property <string> group;
+    in property <string> key;
+    in property <string> label;
+    in property <color> tint: Theme.text;
+    // Where the knob's arc starts: the centre for EQs, an end for filters
+    // and volumes.
+    in property <float> origin: 0.5;
+    in property <int> look: 0;
+    in property <length> size: 30px;
+    alignment: center;
+    ControlKnob { group: group; key: key; label: label; bipolar: true; origin: origin; look: look; size: size; tint: tint; }
+}
+
+// One of the four knobs down a side of the mixer (`place` 0 is the top), as
+// MixerMode says.
+export component SideKnob inherits Rectangle {
+    in property <int> deck;
+    in property <int> place;
+    in property <length> size: 30px;
+    property <string> ch: "[Channel" + (deck + 1) + "]";
+    property <string> eq: "[EqualizerRack1_" + ch + "_Effect1]";
+    property <string> sculpt: "[Sculpt_" + ch + "]";
+    // Stems top to bottom: hi-hats (stem 5, split
+    // from the drums), vocals, kick (the rest of the drums) and bass. The
+    // melody stem has no knob here; its pad is on the STEMS page.
+    property <string> stem: "[Channel" + (deck + 1) + "_Stem" + [5, 4, 1, 2][place] + "]";
+    property <int> stem-count-index: Controls.resolve(ch, "stem_count");
+    property <bool> has-stems: Controls.value(stem-count-index, Controls.tick) > 0;
+    property <int> mode: MixerMode.mode;
+    // Dimmed in stems mode while the track has no stems.
+    opacity: mode == 1 && !has-stems ? 0.4 : 1;
+    HorizontalLayout {
+        alignment: center;
+        if mode == 0: Knob {
+            size: size;
+            group: place == 3 ? "[QuickEffectRack1_" + ch + "]" : eq;
+            key: ["parameter3", "parameter2", "parameter1", "super1"][place];
+            label: ["HIGH", "MID", "LOW", "FILTER"][place];
+        }
+        if mode == 1: Knob {
+            size: size;
+            group: stem;
+            key: "volume";
+            label: ["HIHAT", "VOCAL", "KICK", "BASS"][place];
+        }
+        if mode == 2: Knob {
+            size: size;
+            group: sculpt;
+            key: ["lpf", "freq", "gain", "hpf"][place];
+            label: ["LPF", "FREQ", "CUT/BOOST", "HPF"][place];
+            origin: [1, 0.5, 0.5, 0][place];
+            look: place == 1 || place == 2 ? 1 : 2;
+        }
+    }
+}
+
+// The knob mode menu, in the tab row right of MIXER / SETTINGS.
+export component ModeMenu inherits Rectangle {
+    height: 24px;
+    // Just the name and an arrow, with no box round them.
+    HorizontalLayout {
+        alignment: center;
+        spacing: 3px;
+        Text { text: MixerMode.names[MixerMode.mode]; color: ta.has-hover ? Theme.text : Theme.label; font-size: 9px; font-weight: 700; vertical-alignment: center; }
+        Path {
+            width: 6px;
+            height: 4px;
+            y: (parent.height - self.height) / 2;
+            commands: "M 0 0 L 3 3.5 L 6 0";
+            stroke: ta.has-hover ? Theme.text : Theme.text-dim;
+            stroke-width: 1.2px;
+            fill: transparent;
+        }
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { menu.show(); } }
+    menu := PopupWindow {
+        x: (root.width - 96px) / 2;
+        y: root.height + 2px;
+        width: 96px;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #000000a0;
+        }
+        VerticalLayout {
+            padding: 5px;
+            for name[i] in MixerMode.names: Rectangle {
+                height: 24px;
+                border-radius: 4px;
+                background: i == MixerMode.mode ? Theme.accent.with-alpha(0.35) : ita.has-hover ? #3a3a3d : transparent;
+                Text { x: 8px; text: name; color: Theme.text; font-size: 12px; font-weight: i == MixerMode.mode ? 700 : 500; vertical-alignment: center; height: parent.height; }
+                ita := TouchArea {
+                    clicked => {
+                        MixerMode.mode = i;
+                        menu.close();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A channel down the middle of the mixer: gain (smaller than the EQs, as
+// on most mixers), the fader, and headphone cue under it.
+component Channel inherits VerticalLayout {
+    in property <string> group;
+    in property <color> tint;
+    spacing: 6px;
+    Knob { group: group; key: "pregain"; label: "GAIN"; size: 24px; }
+    HorizontalLayout {
+        alignment: center;
+        vertical-stretch: 1;
+        ControlFader { group: group; key: "volume"; tint: tint; ticks: 11; width: 36px; }
+    }
+    HorizontalLayout { alignment: center; CueHeadphones { group: group; tint: tint; } }
+}
+
+// A master section knob beside the crossfader, as wide as a side column.
+component SideRowKnob inherits HorizontalLayout {
+    in property <string> key;
+    in property <string> label;
+    width: 48px;
+    Knob { group: "[Master]"; key: key; label: label; size: 24px; }
+}
+
+// The four knobs down one side, spread over the mixer's height.
+component SideColumn inherits VerticalLayout {
+    in property <int> deck;
+    width: 48px;
+    alignment: space-around;
+    for place in 4: SideKnob { deck: deck; place: place; }
+}
+
+// The channels: four knobs down the outsides (EQ, stems or
+// sculpt; see MixerMode), and between them gain, the channel faders with
+// the meters between them, and headphone cue.
+component ChannelGrid inherits HorizontalLayout {
+    SideColumn { deck: 0; }
+    HorizontalLayout {
+        horizontal-stretch: 1;
+        alignment: space-around;
+        Channel { group: "[Channel1]"; tint: Theme.deck1; }
+        // Level with the faders: below the gain knobs, above the cue buttons.
+        HorizontalLayout {
+            spacing: 4px;
+            padding-top: 56px;
+            padding-bottom: 34px;
+            StereoMeter { group: "[Channel1]"; }
+            StereoMeter { group: "[Channel2]"; }
+        }
+        Channel { group: "[Channel2]"; tint: Theme.deck2; }
+    }
+    SideColumn { deck: 1; }
+}
+
+export component Mixer inherits Rectangle {
+    in-out property <int> tab: 0;
+    background: Theme.panel;
+    width: 282px;
+    VerticalLayout {
+        padding: 8px;
+        // The tabs hang from the top edge of the panel.
+        padding-top: 0px;
+        spacing: 6px;
+        // The tabs over the middle, and the knob mode menu to their right.
+        HorizontalLayout {
+            Rectangle { width: 48px; }
+            HorizontalLayout {
+                horizontal-stretch: 1;
+                padding-left: 5px;
+                padding-right: 5px;
+                MixerTabs { tab <=> root.tab; }
+            }
+            Rectangle {
+                width: 48px;
+                if tab == 0: ModeMenu { width: parent.width; }
+            }
+        }
+        if tab == 1: SettingsPage { vertical-stretch: 1; }
+        if tab == 0: ChannelGrid { vertical-stretch: 1; }
+        // Along the bottom edge, as on a hardware mixer: headphone level,
+        // the crossfader, and master volume.
+        if tab == 0: HorizontalLayout {
+            SideRowKnob { key: "headGain"; label: "PHONES"; }
+            Rectangle {
+                horizontal-stretch: 1;
+                ControlFader { x: 8px; y: (parent.height - self.height) / 2; width: parent.width - 16px; group: "[Master]"; key: "crossfader"; vertical: false; center-mark: true; ticks: 9; height: 28px; }
+            }
+            SideRowKnob { key: "gain"; label: "MASTER"; }
+        }
+    }
+}

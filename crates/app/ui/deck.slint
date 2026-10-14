@@ -1,0 +1,1382 @@
+// A deck: a header with cover, title,
+// overview and tempo, then FX and pads on the outer side, loop controls, the
+// jog circle and the pitch fader towards the mixer. Deck B is mirrored.
+// Large artwork, flat dark controls, white pointers.
+import { TrackDrag } from "library.slint";
+import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
+import { Caption, ControlButton, ControlFader, ControlKnob, Controls } from "controls.slint";
+
+// A line of the key menu: a key shift and the key it gives.
+export struct KeyItem {
+    shift: int,
+    // e.g. "-1  Em"
+    text: string,
+    // Mixes with the other deck's key.
+    compatible: bool,
+    // The shift in use.
+    current: bool,
+}
+
+export struct DeckInfo {
+    loaded: bool,
+    title: string,
+    artist: string,
+    initials: string,
+    // album art, when the track has any
+    cover: image,
+    has-cover: bool,
+    bpm: string,
+    rate: string,
+    range: string,
+    key: string,
+    elapsed: string,
+    remaining: string,
+    // Remaining time in whole seconds, for the deck header.
+    remaining-seconds: string,
+    // The key shift in semitones, e.g. "-1"; empty when not shifted.
+    key-shift: string,
+    // Shifts from -3 to +3, and the full menu from -6 to +6.
+    key-menu: [KeyItem],
+    key-menu-all: [KeyItem],
+    total: string,
+    // Track length in seconds, for the minute dots on the overview.
+    duration: float,
+    loop-size: string,
+    // How many tempo sections the beat grid has (1 for a steady tempo).
+    grid-sections: int,
+    // The loaded track's stems (none without stems), and how separating
+    // it into stems is going ("" when it isn't).
+    stem-names: [string],
+    stem-colors: [color],
+    stem-status: string,
+    // The last separation failed; the button tries again.
+    stem-failed: bool,
+    // Whether the track can be separated (a file, with no stems yet).
+    can-separate: bool,
+    // 0..1 through the track
+    progress: float,
+    effects: [string],
+}
+
+component Arc inherits Path {
+    in property <angle> from;
+    in property <angle> to;
+    in property <float> r: 46;
+    viewbox-width: 100;
+    viewbox-height: 100;
+    stroke-width: 4px;
+    // Three segments keep each arc below 180 degrees.
+    property <angle> step: (to - from) / 3;
+    MoveTo { x: 50 + r * sin(from); y: 50 - r * cos(from); }
+    ArcTo { radius-x: r; radius-y: r; sweep: true; x: 50 + r * sin(from + step); y: 50 - r * cos(from + step); }
+    ArcTo { radius-x: r; radius-y: r; sweep: true; x: 50 + r * sin(from + 2 * step); y: 50 - r * cos(from + 2 * step); }
+    ArcTo { radius-x: r; radius-y: r; sweep: true; x: 50 + r * sin(to); y: 50 - r * cos(to); }
+}
+
+// A line of the beat grid menu that presses one control.
+component GridMenuItem inherits Rectangle {
+    in property <string> group;
+    in property <string> key;
+    in property <string> text;
+    height: 26px;
+    border-radius: 4px;
+    background: ta.has-hover ? #3a3a3d : transparent;
+    Text { x: 10px; text: root.text; color: Theme.text; font-size: 13px; vertical-alignment: center; }
+    ta := TouchArea {
+        clicked => {
+            Controls.set-value(Controls.resolve(group, key), 1);
+            Controls.set-value(Controls.resolve(group, key), 0);
+        }
+    }
+}
+
+// A pair of small buttons in the beat grid menu, e.g. earlier and later.
+component GridNudge inherits HorizontalLayout {
+    in property <string> group;
+    in property <string> label;
+    in property <string> less-key;
+    in property <string> more-key;
+    in property <string> less-text;
+    in property <string> more-text;
+    height: 26px;
+    spacing: 4px;
+    padding-left: 10px;
+    Text { text: label; color: Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+    ControlButton { group: group; key: less-key; text: less-text; momentary: true; font-size: 13px; width: 44px; }
+    ControlButton { group: group; key: more-key; text: more-text; momentary: true; font-size: 13px; width: 44px; }
+}
+
+// Beat grid editing, opened from the tempo on the jog: move the grid,
+// adjust the tempo, and add or remove tempo sections for tracks whose
+// tempo drifts.
+component GridMenu inherits PopupWindow {
+    in property <string> group;
+    in property <DeckInfo> info;
+    width: 240px;
+    close-policy: close-on-click-outside;
+    Rectangle {
+        background: Theme.panel-raised;
+        border-radius: Theme.radius;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: #000000a0;
+    }
+    VerticalLayout {
+        padding: 6px;
+        spacing: 2px;
+        Text {
+            height: 24px;
+            x: 10px;
+            text: info.grid-sections > 1 ? "Beat grid: " + info.grid-sections + " tempo sections" : "Beat grid: steady tempo";
+            color: Theme.text-dim;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+        GridMenuItem { group: group; key: "beats_translate_curpos"; text: "Put a beat here"; }
+        GridNudge { group: group; label: "Move grid"; less-key: "beats_translate_earlier"; more-key: "beats_translate_later"; less-text: "‹"; more-text: "›"; }
+        GridNudge { group: group; label: "Tempo here"; less-key: "beats_adjust_slower"; more-key: "beats_adjust_faster"; less-text: "−"; more-text: "+"; }
+        GridNudge { group: group; label: "Tempo × ½ / × 2"; less-key: "beats_scale_half"; more-key: "beats_scale_double"; less-text: "½"; more-text: "2"; }
+        Rectangle { height: 9px; Rectangle { height: 1px; background: Theme.border; } }
+        GridMenuItem { group: group; key: "beats_section_add"; text: "New tempo section from here"; }
+        if info.grid-sections > 1: GridMenuItem { group: group; key: "beats_section_remove"; text: "Remove this tempo section"; }
+        Rectangle { height: 9px; Rectangle { height: 1px; background: Theme.border; } }
+        GridMenuItem { group: group; key: "beats_undo_adjustment"; text: "Undo"; }
+    }
+}
+
+// The jog: a black platter with the progress ring on its rim,
+// a coloured sticker that turns with the record, and a grey centre with the
+// rate, tempo, and elapsed and remaining time.
+export component Jog inherits Rectangle {
+    in property <string> group;
+    in property <DeckInfo> info;
+    // Rotation of the sticker, one turn per 1.8 s like a 33 rpm record.
+    in property <angle> spin;
+    in property <color> tint;
+    // Just the platter, progress ring and sticker, with no text (the
+    // Player layout's small jogs).
+    in property <bool> plain: false;
+    // Sized by the deck: it fills the space above the transport buttons.
+    width: 104px;
+    height: 104px;
+    property <float> scale: self.width / 104px;
+    // The last hot cue pressed colours the sticker; the deck colour until then.
+    property <int> last-cue: Controls.value(Controls.resolve(group, "hotcue_focus"), Controls.tick);
+    property <color> sticker: last-cue >= 1 ? Theme.hotcues[last-cue - 1] : tint;
+    property <length> centre: 70px * scale;
+    Rectangle {
+        border-radius: self.width / 2;
+        background: #0a0a0b;
+        border-width: 1px;
+        border-color: #000000;
+    }
+    Arc { width: parent.width; height: parent.height; from: 0deg; to: 359.9deg; stroke: #232326; stroke-width: 3px; }
+    if info.progress > 0.002: Arc {
+        width: parent.width;
+        height: parent.height;
+        from: 0deg;
+        to: info.progress * 359.9deg;
+        stroke: tint;
+        stroke-width: 3px;
+    }
+    // The sticker: a short, wide bar between the centre and the rim.
+    if info.loaded: Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 100;
+        viewbox-height: 100;
+        stroke: sticker;
+        stroke-width: 5px * scale;
+        MoveTo { x: 50 + 35.5 * sin(spin); y: 50 - 35.5 * cos(spin); }
+        LineTo { x: 50 + 47 * sin(spin); y: 50 - 47 * cos(spin); }
+    }
+    Rectangle {
+        width: centre;
+        height: centre;
+        border-radius: self.width / 2;
+        background: #2a2a2d;
+        border-width: 1px;
+        border-color: #00000000;
+    }
+    // The small jogs carry the openDJ mark in light grey instead of text.
+    if plain: Image {
+        source: @image-url("icons/opendj-mark.svg");
+        colorize: #a1a1a6;
+        width: centre * 0.62;
+        height: self.width / 1.6;
+    }
+    // Placed by hand rather than in a layout: their size follows the jog's,
+    // and a layout would feed that back into the jog's own size. Everything
+    // is centred; the app's font has digits all one width (SF on macOS,
+    // Inter Tabular elsewhere), so the numbers don't jitter as they change.
+    if !plain: Text {
+        y: parent.height / 2 - 27px * scale;
+        height: 9px * scale;
+        width: parent.width;
+        text: info.rate;
+        color: #9e9ea3;
+        font-size: 7.5px * scale;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    // Click the tempo to edit the beat grid. A grid whose tempo changes
+    // within the track shows a small dot beside it.
+    if !plain: Text {
+        y: parent.height / 2 - 19px * scale;
+        height: 20px * scale;
+        width: parent.width;
+        text: info.loaded ? info.bpm : "--";
+        color: bta.has-hover && info.loaded ? Theme.accent : Theme.text;
+        font-size: 16px * scale;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        bta := TouchArea {
+            mouse-cursor: info.loaded ? pointer : default;
+            clicked => {
+                if info.loaded {
+                    grid-menu.show();
+                }
+            }
+        }
+    }
+    if !plain && info.grid-sections > 1: Rectangle {
+        x: parent.width / 2 + 27px * scale;
+        y: parent.height / 2 - 11px * scale;
+        width: 4px * scale;
+        height: 4px * scale;
+        border-radius: 2px * scale;
+        background: tint;
+    }
+    grid-menu := GridMenu { group: group; info: info; x: (parent.width - 240px) / 2; y: parent.height / 2; }
+    if !plain: Rectangle {
+        x: (parent.width - 44px * scale) / 2;
+        y: parent.height / 2 + 3px * scale;
+        width: 44px * scale;
+        height: 1px;
+        background: #48484c;
+    }
+    // Elapsed over remaining, right-aligned to each other so the digits
+    // line up, and centred in the jog as one block.
+    if !plain: VerticalLayout {
+        x: (parent.width - self.preferred-width) / 2;
+        y: parent.height / 2 + 5px * scale;
+        width: self.preferred-width;
+        Text {
+            height: 10px * scale;
+            text: info.loaded ? info.elapsed : "00:00.0";
+            color: #9e9ea3;
+            font-size: 8.5px * scale;
+            font-weight: 500;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+        Text {
+            height: 10px * scale;
+            text: "-" + (info.loaded ? info.remaining : "00:00.0");
+            color: Theme.text;
+            font-size: 8.5px * scale;
+            font-weight: 600;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Album art, large; without any, the deck colour with the
+// artist's initials.
+component Cover inherits Rectangle {
+    in property <color> tint;
+    in property <DeckInfo> info;
+    width: 96px;
+    height: 96px;
+    border-radius: 4px;
+    clip: true;
+    background: info.loaded ? @linear-gradient(135deg, tint 0%, tint.darker(0.6) 55%, #101012 100%) : Theme.control;
+    border-width: info.loaded ? 0px : 1px;
+    border-color: Theme.border;
+    if !info.has-cover: Text { text: info.loaded ? info.initials : "♪"; color: info.loaded ? #ffffffe0 : Theme.text-dim; font-size: 32px; font-weight: 700; }
+    if info.has-cover: Image {
+        width: parent.width;
+        height: parent.height;
+        source: info.cover;
+        image-fit: cover;
+    }
+}
+
+// A bare + or − beside the key: no button, the sign lights on hover.
+component KeyStep inherits Rectangle {
+    in property <string> group;
+    in property <string> key;
+    in property <string> text;
+    property <int> index: Controls.resolve(group, key);
+    width: 14px;
+    height: 13px;
+    Text { text: root.text; color: ta.pressed ? Theme.accent : ta.has-hover ? Theme.text : Theme.text-dim; font-size: 14px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center; }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            Controls.set-value(index, 1);
+            Controls.set-value(index, 0);
+        }
+    }
+}
+
+component KeyBox inherits VerticalLayout {
+    in property <string> group;
+    in property <DeckInfo> info;
+    in property <color> tint;
+    property <bool> more;
+    property <int> pitch-index: Controls.resolve(group, "pitch");
+    width: 72px;
+    alignment: center;
+    HorizontalLayout {
+        alignment: center;
+        spacing: 2px;
+        // Key up a semitone above, down below, to the left of the key.
+        VerticalLayout {
+            alignment: center;
+            KeyStep { group: group; key: "pitch_up"; text: "+"; }
+            KeyStep { group: group; key: "pitch_down"; text: "−"; }
+        }
+        // Click to switch every key display between Camelot and notes.
+        Text {
+            text: info.loaded ? info.key : "--";
+            // A shifted key is shown in the accent colour.
+            color: info.key-shift != "" ? Theme.accent : Theme.key;
+            font-size: 18px;
+            font-weight: 600;
+            vertical-alignment: center;
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => { KeyNotation.camelot = !KeyNotation.camelot; }
+            }
+        }
+        if info.key-shift != "": Text { text: info.key-shift; color: Theme.accent; font-size: 10px; font-weight: 600; vertical-alignment: top; }
+        // Opens the key menu.
+        Rectangle {
+            width: 14px;
+            Path {
+                width: 10px;
+                height: 10px;
+                viewbox-width: 10;
+                viewbox-height: 10;
+                stroke: kta.has-hover ? Theme.text : Theme.text-dim;
+                stroke-width: 1.5px;
+                fill: transparent;
+                commands: "M 1.5 3.5 L 5 7 L 8.5 3.5";
+            }
+            kta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    if info.key-menu.length > 0 {
+                        more = false;
+                        menu.show();
+                    }
+                }
+            }
+        }
+    }
+    // Key shifts with the key each gives.
+    menu := PopupWindow {
+        x: 0px;
+        y: 30px;
+        width: 210px;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #000000a0;
+        }
+        VerticalLayout {
+            padding: 6px;
+            spacing: 0px;
+            for item in more ? info.key-menu-all : info.key-menu: Rectangle {
+                height: 26px;
+                border-radius: 4px;
+                background: ita.has-hover ? #3a3a3d : transparent;
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    spacing: 6px;
+                    Text { width: 14px; text: item.current ? "✓" : ""; color: Theme.text; font-size: 13px; vertical-alignment: center; }
+                    Text { text: item.text; color: Theme.text; font-size: 13px; vertical-alignment: center; }
+                    Text { text: item.compatible ? "(compatible)" : ""; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+                }
+                ita := TouchArea {
+                    clicked => {
+                        Controls.set-value(pitch-index, item.shift);
+                        menu.close();
+                    }
+                }
+            }
+            if !more: Rectangle {
+                height: 26px;
+                border-radius: 4px;
+                background: mta.has-hover ? #3a3a3d : transparent;
+                Text { x: 26px; text: "More…"; color: Theme.text; font-size: 13px; }
+                mta := TouchArea { clicked => { more = true; } }
+            }
+            Rectangle { height: 9px; Rectangle { height: 1px; background: Theme.border; } }
+            Rectangle {
+                height: 26px;
+                border-radius: 4px;
+                background: sta.has-hover ? #3a3a3d : transparent;
+                Text { x: 26px; text: "Match key to the other deck"; color: Theme.text; font-size: 13px; }
+                sta := TouchArea {
+                    clicked => {
+                        Controls.set-value(Controls.resolve(group, "sync_key"), 1);
+                        Controls.set-value(Controls.resolve(group, "sync_key"), 0);
+                        menu.close();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Remaining time and total length, then the key with its + and − shifts, on
+// the right of both decks.
+component TimeKey inherits HorizontalLayout {
+    in property <string> group;
+    in property <DeckInfo> info;
+    in property <color> tint;
+    spacing: 12px;
+    VerticalLayout {
+        alignment: center;
+        Text { text: info.loaded ? "-" + info.remaining-seconds : "-0:00"; color: Theme.text; font-size: 26px; font-weight: 500; horizontal-alignment: right; }
+        Text { text: info.loaded ? info.total : ""; color: Theme.text-dim; font-size: 12px; horizontal-alignment: right; }
+    }
+    EdgeVLine { top: 6px; bottom: 6px; line-color: #2c2c2f; }
+    KeyBox { group: group; info: info; tint: tint; }
+}
+
+// Deck header: big artwork on the outer edge, title and artist, the remaining
+// time and key, and the overview waveform underneath.
+export component Header inherits Rectangle {
+    in property <int> deck;
+    in property <DeckInfo> info;
+    in property <image> overview;
+    in property <bool> mirrored;
+    in property <string> group;
+    out property <length> overview-width: ov.width;
+    out property <length> overview-height: ov.height;
+    property <color> tint: Theme.deck-color(deck);
+    property <int> scrub-index: Controls.resolve(group, "scrub_position");
+    property <int> scrub-enable-index: Controls.resolve(group, "scrub_enable");
+    property <int> position-index: Controls.resolve(group, "playposition");
+    // Where a press on the overview started, and whether it became a drag.
+    property <length> press-x;
+    property <bool> scrubbing;
+    height: 108px;
+    // Cover, title, info and overview share one black box.
+    background: Theme.well;
+
+    HorizontalLayout {
+        padding: 6px;
+        spacing: 10px;
+        if !mirrored: Cover { tint: tint; info: info; }
+        VerticalLayout {
+            spacing: 6px;
+            horizontal-stretch: 1;
+            // Title, artist and BPM on the left, time and key on the right, on both decks.
+            HorizontalLayout {
+                spacing: 12px;
+                height: 52px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    spacing: 2px;
+                    Text { text: info.loaded ? info.title : "Empty deck"; color: Theme.text; font-size: 20px; font-weight: 500; overflow: elide; }
+                    Text {
+                        text: info.loaded ? info.artist + "   |   " + info.bpm : "Drop a track here or double-click one in the browser";
+                        color: Theme.text-dim;
+                        font-size: 14px;
+                        overflow: elide;
+                    }
+                }
+                TimeKey { group: group; info: info; tint: tint; }
+            }
+            // Out to the header's edge on the side away from the cover.
+            EdgeLine { left: mirrored ? 6px : 0px; right: mirrored ? 0px : 6px; line-color: #2c2c2f; }
+            // Overview waveform, rendered on the GPU. Click to jump; drag to
+            // move through the track, the deck gliding after the pointer and
+            // playing what it passes.
+            ov := Rectangle {
+                vertical-stretch: 1;
+                background: Theme.well;
+                // No border-radius here: a rounded clip renders into a cached
+                // layer, which would freeze the GPU-updated image.
+                clip: true;
+                Image { width: parent.width; height: parent.height; source: overview; image-fit: fill; }
+                // A dot at every minute along the bottom.
+                if info.loaded && info.duration > 60: Rectangle {
+                    for m in floor((info.duration - 1) / 60): Rectangle {
+                        x: parent.width * (m + 1) * 60 / info.duration - 1.5px;
+                        y: parent.height - 5px;
+                        width: 3px;
+                        height: 3px;
+                        border-radius: 1.5px;
+                        background: #ffffffb0;
+                    }
+                }
+                TouchArea {
+                    mouse-cursor: ew-resize;
+                    pointer-event(e) => {
+                        if e.button != PointerEventButton.left {
+                            return;
+                        }
+                        // A click jumps straight there, silently; dragging
+                        // glides through the audio.
+                        if e.kind == PointerEventKind.down {
+                            press-x = self.mouse-x;
+                            scrubbing = false;
+                            Controls.set-value(position-index, clamp(self.mouse-x / self.width, 0, 1));
+                        } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                            if scrubbing {
+                                Controls.set-value(scrub-enable-index, 0);
+                            }
+                            scrubbing = false;
+                        }
+                    }
+                    moved => {
+                        if self.pressed {
+                            if !scrubbing && abs(self.mouse-x - press-x) > 4px {
+                                scrubbing = true;
+                                Controls.set-value(scrub-index, clamp(self.mouse-x / self.width, 0, 1));
+                                Controls.set-value(scrub-enable-index, 1);
+                            }
+                            if scrubbing {
+                                Controls.set-value(scrub-index, clamp(self.mouse-x / self.width, 0, 1));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if mirrored: Cover { tint: tint; info: info; }
+    }
+}
+
+// The effects every slot can hold, in loaded_effect order (1 = the first);
+// set once from the engine's list.
+// Deck actions that aren't controls.
+export global DeckActions {
+    // Separates the track on `deck` into stems in the background.
+    callback separate-stems(deck: int);
+}
+
+export global EffectList {
+    in property <[string]> names;
+}
+
+// One effect slot: clicking the name turns the effect on
+// and off, the arrow beside it opens the list to pick another, the knob is
+// the effect's main control and the switch beside it its length in beats.
+component FxSlot inherits HorizontalLayout {
+    in property <int> deck;
+    in property <int> slot;
+    in property <string> name;
+    property <color> tint: Theme.deck-color(deck);
+    property <string> fx: "[EffectRack1_EffectUnit" + (deck + 1) + "_Effect" + (slot + 1) + "]";
+    property <int> enabled-index: Controls.resolve(fx, "enabled");
+    property <int> loaded-index: Controls.resolve(fx, "loaded_effect");
+    property <bool> on: Controls.value(enabled-index, Controls.tick) > 0;
+    property <int> loaded: Controls.value(loaded-index, Controls.tick);
+    property <int> beats-index: Controls.resolve(fx, "beats");
+    property <float> beats: Controls.value(beats-index, Controls.tick);
+    spacing: 0px;
+    height: 22px;
+    // The name turns the effect on and off; the arrow at its right end opens
+    // the effect list.
+    arrow := Rectangle {
+        horizontal-stretch: 1;
+        min-width: 0px;
+        preferred-width: 0px;
+        background: on ? tint : nta.pressed || ata.pressed ? Theme.control-pressed : nta.has-hover || ata.has-hover ? #1d1d20 : Theme.control;
+        border-radius: Theme.radius;
+        border-width: 1px;
+        border-color: on ? tint : Theme.border;
+        Text { x: 10px; width: parent.width - 34px; text: name == "" ? "No effect" : name; color: on ? #ffffff : name == "" ? Theme.text-dim : Theme.text; font-size: 12px; font-weight: on ? 700 : 500; overflow: elide; }
+        nta := TouchArea {
+            x: 0px;
+            width: parent.width - 24px;
+            mouse-cursor: pointer;
+            clicked => {
+                if name != "" {
+                    Controls.toggle(enabled-index);
+                }
+            }
+        }
+        Path {
+            x: parent.width - 18px;
+            width: 10px;
+            height: 10px;
+            viewbox-width: 10;
+            viewbox-height: 10;
+            stroke: on ? #ffffff : ata.has-hover ? Theme.text : Theme.text-dim;
+            stroke-width: 1.5px;
+            fill: transparent;
+            commands: "M 1.5 3.5 L 5 7 L 8.5 3.5";
+        }
+        ata := TouchArea {
+            x: parent.width - 24px;
+            width: 24px;
+            mouse-cursor: pointer;
+            clicked => { menu.show(); }
+        }
+    }
+    Rectangle { width: 6px; }
+    ControlKnob { group: fx; key: "meta"; size: 22px; }
+    Rectangle { width: 6px; }
+    // The effect's length, halved and doubled from 1/16 to 4 beats; blank
+    // for effects that have none. Just wide enough for "‹ 1/16 ›", leaving
+    // the rest to the effect name.
+    Rectangle {
+        width: 66px;
+        HorizontalLayout {
+            visible: beats > 0;
+            Rectangle {
+                width: 16px;
+                Path {
+                    width: 7px;
+                    height: 12px;
+                    viewbox-width: 7;
+                    viewbox-height: 12;
+                    commands: "M 6 1 L 1 6 L 6 11";
+                    stroke: beats > 0 && lta.has-hover ? Theme.text : Theme.text-dim;
+                    stroke-width: 1.5px;
+                    fill: transparent;
+                }
+                lta := TouchArea {
+                    clicked => {
+                        if beats > 0 {
+                            Controls.set-value(beats-index, beats / 2);
+                        }
+                    }
+                }
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: beats <= 0 ? "–" : beats < 1 ? "1/" + round(1 / beats) : round(beats);
+                color: beats > 0 ? Theme.text : Theme.text-dim;
+                font-size: 12px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                width: 16px;
+                Path {
+                    width: 7px;
+                    height: 12px;
+                    viewbox-width: 7;
+                    viewbox-height: 12;
+                    commands: "M 1 1 L 6 6 L 1 11";
+                    stroke: beats > 0 && rta.has-hover ? Theme.text : Theme.text-dim;
+                    stroke-width: 1.5px;
+                    fill: transparent;
+                }
+                rta := TouchArea {
+                    clicked => {
+                        if beats > 0 {
+                            Controls.set-value(beats-index, beats * 2);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // The effects to pick from, opening to the right of the slot. Picking one loads it and turns it on.
+    menu := PopupWindow {
+        x: arrow.x + arrow.width + 4px;
+        y: 0px;
+        width: 190px;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #000000a0;
+        }
+        VerticalLayout {
+            padding: 6px;
+            spacing: 0px;
+            for e[i] in EffectList.names: Rectangle {
+                property <bool> current: loaded == i + 1;
+                height: 26px;
+                border-radius: 4px;
+                background: current ? tint.with-alpha(0.35) : eta.has-hover ? #3a3a3d : transparent;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    Text { text: e; color: Theme.text; font-size: 12px; font-weight: current ? 700 : 400; vertical-alignment: center; horizontal-stretch: 1; }
+                }
+                eta := TouchArea {
+                    clicked => {
+                        if current {
+                            Controls.toggle(enabled-index);
+                        } else {
+                            Controls.set-value(loaded-index, i + 1);
+                            Controls.set-value(enabled-index, 1);
+                        }
+                        menu.close();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Effects assigned to this deck, one slot per row.
+component FxRows inherits VerticalLayout {
+    in property <int> deck;
+    in property <[string]> names;
+    spacing: 4px;
+    for name[i] in names: FxSlot { deck: deck; slot: i; name: name; }
+}
+
+struct Pad {
+    key: string,
+    light: string,
+    text: string,
+}
+
+// A Pad FX pad: hold it to put an effect on the deck.
+// It loads the effect into the first slot of the deck's pad FX unit (unit 3
+// for deck A, 4 for deck B), turns it on and routes the unit to the deck;
+// letting go turns it off again.
+struct PadEffect {
+    // loaded_effect: 1 Echo, 2 Reverb, 3 Filter, 4 Flanger, 5 Bitcrusher, 6 Phaser
+    effect: int,
+    // Where the effect's meta knob sits while held.
+    meta: float,
+    text: string,
+}
+
+component PadFxButton inherits Rectangle {
+    in property <int> deck;
+    in property <PadEffect> fx;
+    in property <color> tint;
+    property <string> unit: "[EffectRack1_EffectUnit" + (deck + 3) + "]";
+    property <string> slot: "[EffectRack1_EffectUnit" + (deck + 3) + "_Effect1]";
+    property <bool> held: touch.pressed;
+    background: held ? tint.with-alpha(0.25) : touch.has-hover ? #1d1d20 : Theme.control;
+    Text { text: fx.text; color: held ? tint : Theme.text; font-size: 12px; font-weight: 700; }
+    touch := TouchArea {
+        pointer-event(e) => {
+            if e.button != PointerEventButton.left {
+                return;
+            }
+            if e.kind == PointerEventKind.down {
+                Controls.set-value(Controls.resolve(slot, "loaded_effect"), fx.effect);
+                Controls.set-value(Controls.resolve(slot, "meta"), fx.meta);
+                Controls.set-value(Controls.resolve(unit, "mix"), 1);
+                Controls.set-value(Controls.resolve(unit, "enabled"), 1);
+                Controls.set-value(Controls.resolve(unit, "group_[Channel" + (deck + 1) + "]_enable"), 1);
+                Controls.set-value(Controls.resolve(slot, "enabled"), 1);
+            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                Controls.set-value(Controls.resolve(slot, "enabled"), 0);
+            }
+        }
+    }
+}
+
+// A stem's pad: lit in the stem's colour while it plays; a click mutes it.
+component StemPad inherits Rectangle {
+    in property <string> group;
+    in property <string> text;
+    in property <color> tint;
+    property <int> mute-index: Controls.resolve(group, "mute");
+    property <bool> on: Controls.value(mute-index, Controls.tick) == 0;
+    background: ta.pressed ? Theme.control-pressed : on ? tint.with-alpha(0.22) : Theme.control;
+    Text {
+        text: root.text;
+        font-size: 12px;
+        font-weight: 700;
+        color: on ? tint : Theme.text-dim;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    ta := TouchArea { clicked => { Controls.toggle(mute-index); } }
+}
+
+// A stem's volume: drag across; a double click sets it back to full.
+component StemLevel inherits Rectangle {
+    in property <string> group;
+    in property <color> tint;
+    property <int> index: Controls.resolve(group, "volume");
+    property <float> level: Controls.value(index, Controls.tick);
+    background: Theme.control;
+    clip: true;
+    Rectangle {
+        x: 0;
+        width: parent.width * clamp(level, 0, 1);
+        background: tint.with-alpha(0.45);
+    }
+    Text {
+        text: round(level * 100) + "%";
+        font-size: 11px;
+        color: Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea {
+        mouse-cursor: ew-resize;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                Controls.set-value(index, clamp(self.mouse-x / self.width, 0, 1));
+            }
+        }
+        moved => {
+            if self.pressed {
+                Controls.set-value(index, clamp(self.mouse-x / self.width, 0, 1));
+            }
+        }
+        double-clicked => { Controls.set-value(index, 1); }
+    }
+}
+
+// One cell of the pad grid: flat, lit in its colour while its light is on.
+component PadCell inherits Rectangle {
+    in property <string> group;
+    in property <string> key;
+    in property <string> light-key: key;
+    in property <string> text;
+    in property <color> tint;
+    property <int> index: Controls.resolve(group, key);
+    property <bool> lit: Controls.value(Controls.resolve(group, light-key), Controls.tick) > 0;
+    background: touch.pressed ? Theme.control-pressed : lit ? tint.with-alpha(0.18) : touch.has-hover ? #1d1d20 : Theme.control;
+    Text { text: root.text; color: lit ? tint : Theme.text; font-size: 12px; font-weight: 700; overflow: elide; }
+    touch := TouchArea {
+        pointer-event(e) => {
+            if e.button != PointerEventButton.left {
+                return;
+            }
+            if e.kind == PointerEventKind.down {
+                Controls.set-value(index, 1);
+            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                Controls.set-value(index, 0);
+            }
+        }
+    }
+}
+
+// A hot cue: a small play triangle and the cue's time in
+// its colour, or "+" while it isn't set (pressing sets it).
+component HotcueCell inherits Rectangle {
+    in property <string> group;
+    in property <int> number;
+    in property <color> tint;
+    property <int> index: Controls.resolve(group, "hotcue_" + number + "_activate");
+    property <bool> set: Controls.value(Controls.resolve(group, "hotcue_" + number + "_enabled"), Controls.tick) > 0;
+    property <float> seconds: Controls.value(Controls.resolve(group, "hotcue_" + number + "_position"), Controls.tick);
+    property <int> minutes: floor(seconds / 60);
+    property <int> secs: floor(mod(seconds, 60));
+    property <string> time: (minutes < 10 ? "0" : "") + minutes + ":" + (secs < 10 ? "0" : "") + secs;
+    background: touch.pressed ? (set ? tint.with-alpha(0.3) : Theme.control-pressed)
+        : touch.has-hover ? #1d1d20 : Theme.control;
+    if set: HorizontalLayout {
+        alignment: center;
+        spacing: 5px;
+        Path {
+            width: 7px;
+            height: 8px;
+            y: (parent.height - self.height) / 2;
+            viewbox-width: 7;
+            viewbox-height: 8;
+            fill: tint;
+            commands: "M 0 0 L 7 4 L 0 8 Z";
+        }
+        Text {
+            text: time;
+            color: tint;
+            font-family: "Inter Tabular";
+            font-size: 12px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+    if !set: Text { text: "+"; color: Theme.text-dim; font-size: 15px; font-weight: 400; }
+    touch := TouchArea {
+        pointer-event(e) => {
+            if e.button != PointerEventButton.left {
+                return;
+            }
+            if e.kind == PointerEventKind.down {
+                Controls.set-value(index, 1);
+            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                Controls.set-value(index, 0);
+            }
+        }
+    }
+}
+
+// A line in the menu of pad panels.
+component PanelMenuItem inherits Rectangle {
+    in property <string> text;
+    in property <bool> current;
+    callback picked();
+    height: 24px;
+    background: ta.has-hover ? Theme.panel-raised.brighter(0.3) : transparent;
+    border-radius: 4px;
+    Text {
+        x: 10px;
+        text: root.text;
+        color: current ? Theme.accent : Theme.text;
+        font-size: 11px;
+        font-weight: 600;
+        vertical-alignment: center;
+    }
+    ta := TouchArea { clicked => { root.picked(); } }
+}
+
+// The pad tabs: four of them, each showing one panel. Right-click a tab to
+// put a different panel in it.
+component PadTabs inherits Rectangle {
+    in property <[string]> names;
+    in-out property <[int]> slots;
+    in-out property <int> selected;
+    property <int> menu-tab;
+    // Square tabs on top of the pad grid, split by the same black lines:
+    // the open one is lit like the pads, the others sit back darker.
+    height: 23px;
+    background: #000000;
+    HorizontalLayout {
+        padding: 1px;
+        padding-bottom: 0px;
+        spacing: 1px;
+        for panel[i] in slots: Rectangle {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            preferred-width: 0px;
+            background: i == selected ? Theme.panel-raised : Theme.well;
+            Text { text: names[panel]; color: i == selected ? Theme.text : Theme.text-dim; font-size: 10px; font-weight: 600; overflow: elide; }
+            TouchArea {
+                pointer-event(e) => {
+                    if e.kind != PointerEventKind.down {
+                        return;
+                    }
+                    if e.button == PointerEventButton.left {
+                        selected = i;
+                    } else if e.button == PointerEventButton.right {
+                        menu-tab = i;
+                        menu.show();
+                    }
+                }
+            }
+        }
+    }
+    menu := PopupWindow {
+        x: root.width / slots.length * menu-tab;
+        y: root.height + 2px;
+        width: 130px;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 8px;
+            drop-shadow-color: #00000080;
+        }
+        VerticalLayout {
+            padding: 4px;
+            for name[p] in names: PanelMenuItem {
+                text: name;
+                current: slots[menu-tab] == p;
+                picked => {
+                    slots[menu-tab] = p;
+                    selected = menu-tab;
+                }
+            }
+        }
+    }
+}
+
+// Pad grid with pages: a grid of flat cells split by thin
+// black lines. Four tabs hold the hot cues, Pad FX, beat jump and sampler;
+// a right-click on a tab swaps in another panel, such as stems.
+component Pads inherits VerticalLayout {
+    in property <int> deck;
+    in property <string> group;
+    in property <DeckInfo> info;
+    // Which tab is open, and the panel each of the four tabs shows.
+    in-out property <int> tab: 0;
+    in-out property <[int]> slots: [0, 1, 2, 3];
+    property <int> page: slots[tab];
+    property <color> tint: Theme.deck-color(deck);
+    property <[Pad]> jumps: [
+        { key: "beatjump_1_backward", light: "beatjump_1_backward", text: "‹ 1" },
+        { key: "beatjump_4_backward", light: "beatjump_4_backward", text: "‹ 4" },
+        { key: "beatjump_16_backward", light: "beatjump_16_backward", text: "‹ 16" },
+        { key: "beatjump_32_backward", light: "beatjump_32_backward", text: "‹ 32" },
+        { key: "beatjump_1_forward", light: "beatjump_1_forward", text: "1 ›" },
+        { key: "beatjump_4_forward", light: "beatjump_4_forward", text: "4 ›" },
+        { key: "beatjump_16_forward", light: "beatjump_16_forward", text: "16 ›" },
+        { key: "beatjump_32_forward", light: "beatjump_32_forward", text: "32 ›" },
+    ];
+    property <[PadEffect]> pad-fx: [
+        { effect: 1, meta: 0.6, text: "ECHO" },
+        { effect: 2, meta: 0.7, text: "REVERB" },
+        { effect: 3, meta: 0.2, text: "LOW PASS" },
+        { effect: 3, meta: 0.8, text: "HIGH PASS" },
+        { effect: 4, meta: 0.7, text: "FLANGER" },
+        { effect: 6, meta: 0.7, text: "PHASER" },
+        { effect: 5, meta: 0.7, text: "CRUSH" },
+        { effect: 1, meta: 1.0, text: "ECHO MAX" },
+    ];
+    property <[string]> samples: ["Kick", "Snare", "Clap", "Hat", "Horn", "Siren", "Laser", "Crash"];
+    // The tabs sit right on the grid.
+    spacing: 0px;
+    PadTabs { names: ["HOT CUES", "PAD FX", "BEAT JUMP", "SAMPLER", "STEMS"]; slots <=> slots; selected <=> tab; }
+    // The black background shows through the 1px gaps as the grid lines.
+    Rectangle {
+        vertical-stretch: 1;
+        background: #000000;
+        border-width: 1px;
+        border-color: #000000;
+        VerticalLayout {
+            padding: 1px;
+            spacing: 1px;
+            for row in [0, 1]: HorizontalLayout {
+                spacing: 1px;
+                // Taller when there's room, filling the space under FX and loop.
+                min-height: 26px;
+                vertical-stretch: 1;
+                if page == 0: HorizontalLayout {
+                    spacing: 1px;
+                    horizontal-stretch: 1;
+                    for i in 4: HotcueCell {
+                        group: group;
+                        number: row * 4 + i + 1;
+                        tint: Theme.hotcues[row * 4 + i];
+                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    }
+                }
+                if page == 1: HorizontalLayout {
+                    spacing: 1px;
+                    horizontal-stretch: 1;
+                    for i in 4: PadFxButton { deck: deck; fx: pad-fx[row * 4 + i]; tint: tint; horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
+                }
+                if page == 2: HorizontalLayout {
+                    spacing: 1px;
+                    horizontal-stretch: 1;
+                    for i in 4: PadCell {
+                        group: group;
+                        key: jumps[row * 4 + i].key;
+                        text: jumps[row * 4 + i].text;
+                        tint: tint;
+                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    }
+                }
+                if page == 3: HorizontalLayout {
+                    spacing: 1px;
+                    horizontal-stretch: 1;
+                    for i in 4: PadCell {
+                        group: "[Sampler" + (row * 4 + i + 1) + "]";
+                        key: "cue_gotoandplay";
+                        light-key: "play_indicator";
+                        text: samples[row * 4 + i];
+                        tint: Theme.hotcues[row * 4 + i];
+                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    }
+                }
+                if page == 4 && info.stem-names.length > 0: HorizontalLayout {
+                    spacing: 1px;
+                    horizontal-stretch: 1;
+                    for name[i] in info.stem-names: Rectangle {
+                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                        property <string> stem-group: "[Channel" + (deck + 1) + "_Stem" + (i + 1) + "]";
+                        if row == 0: StemPad { group: stem-group; text: name; tint: info.stem-colors[i]; }
+                        if row == 1: StemLevel { group: stem-group; tint: info.stem-colors[i]; }
+                    }
+                }
+                if page == 4 && info.stem-names.length == 0 && row == 0: Rectangle {
+                    horizontal-stretch: 1;
+                    background: !info.can-separate || (info.stem-status != "" && !info.stem-failed) ? Theme.control
+                        : sep.pressed ? Theme.control-pressed : sep.has-hover ? #1d1d20 : Theme.control;
+                    Text {
+                        text: !info.loaded ? "No track loaded"
+                            : info.can-separate && info.stem-failed ? "TRY AGAIN"
+                            : info.can-separate && info.stem-status == "" ? "SEPARATE STEMS"
+                            : info.can-separate ? "Separating…" : "No stems";
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: info.can-separate && (info.stem-status == "" || info.stem-failed) ? tint : Theme.text-dim;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    sep := TouchArea {
+                        enabled: info.can-separate && (info.stem-status == "" || info.stem-failed);
+                        clicked => { DeckActions.separate-stems(deck); }
+                    }
+                }
+                if page == 4 && info.stem-names.length == 0 && row == 1: Rectangle {
+                    horizontal-stretch: 1;
+                    background: Theme.control;
+                    Text {
+                        width: parent.width - 8px;
+                        text: info.stem-status != "" ? info.stem-status
+                            : info.can-separate ? "Splits drums, bass, other and vocals with Demucs" : "";
+                        font-size: 11px;
+                        color: Theme.text-dim;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// One press-and-release part of a LoopStepper.
+component StepperPart inherits Rectangle {
+    in property <int> index;
+    in property <string> text;
+    in property <length> font-size;
+    in property <color> label-color: Theme.text;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #1d1d20 : transparent;
+    Text { text: root.text; color: root.label-color; font-size: root.font-size; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.button != PointerEventButton.left {
+                return;
+            }
+            if e.kind == PointerEventKind.down {
+                Controls.set-value(index, 1);
+            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                Controls.set-value(index, 0);
+            }
+        }
+    }
+}
+
+// The loop control: one box with halve on the left, the loop length in
+// the middle (press to loop, again to stop; green while looping) and double
+// on the right.
+component LoopStepper inherits Rectangle {
+    in property <string> group;
+    in property <DeckInfo> info;
+    property <int> activate-index: Controls.resolve(group, "beatloop_activate");
+    property <int> halve-index: Controls.resolve(group, "loop_halve");
+    property <int> double-index: Controls.resolve(group, "loop_double");
+    property <int> enabled-index: Controls.resolve(group, "loop_enabled");
+    property <bool> looping: Controls.value(enabled-index, Controls.tick) > 0;
+    border-radius: Theme.radius;
+    background: Theme.control;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+    HorizontalLayout {
+        StepperPart { width: 26px; index: halve-index; text: "‹"; font-size: 18px; }
+        Rectangle { width: 1px; background: Theme.border; }
+        StepperPart { horizontal-stretch: 1; index: activate-index; text: info.loop-size; font-size: 15px; label-color: looping ? Theme.loop : Theme.text; }
+        Rectangle { width: 1px; background: Theme.border; }
+        StepperPart { width: 26px; index: double-index; text: "›"; font-size: 18px; }
+    }
+}
+
+// Loop controls: the loop length box (see LoopStepper) with its label.
+// Manual loops (in / out) are to come.
+component LoopSection inherits VerticalLayout {
+    in property <string> group;
+    in property <DeckInfo> info;
+    in property <color> tint;
+    width: 104px;
+    spacing: 4px;
+    alignment: start;
+    Text { text: "LOOP"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; horizontal-alignment: center; }
+    LoopStepper { group: group; info: info; height: 28px; }
+    // A loop of any length: IN on the nearest beat lights grey while the
+    // waveform marks the loop out; OUT closes it, and it turns lilac.
+    HorizontalLayout {
+        spacing: 4px;
+        height: 26px;
+        ControlButton { group: group; key: "loop_in"; light-key: "loop_in_pending"; text: "IN"; momentary: true; tint: #d1d1d6; font-size: 12px; horizontal-stretch: 1; }
+        ControlButton { group: group; key: "loop_out"; light-key: "loop_enabled"; text: "OUT"; momentary: true; tint: Theme.lilac; font-size: 12px; horizontal-stretch: 1; }
+    }
+}
+
+component Pitch inherits VerticalLayout {
+    in property <string> group;
+    in property <DeckInfo> info;
+    in property <color> tint;
+    width: 56px;
+    spacing: 4px;
+    Text { text: info.rate; color: Theme.text; font-size: 12px; font-weight: 500; horizontal-alignment: center; }
+    ControlFader { group: group; key: "rate"; inverted: true; center-mark: true; ticks: 9; tint: tint; vertical-stretch: 1; }
+    HorizontalLayout {
+        spacing: 2px;
+        ControlButton { group: group; key: "rate_perm_down_small"; text: "−"; momentary: true; tint: tint; font-size: 15px; height: 22px; horizontal-stretch: 1; }
+        ControlButton { group: group; key: "rate_perm_up_small"; text: "+"; momentary: true; tint: tint; font-size: 15px; height: 22px; horizontal-stretch: 1; }
+    }
+    // Under the tempo fader, level with play and CUE under the jog.
+    Rectangle { height: 4px; }
+    ControlButton { group: group; key: "sync_enabled"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 14px; height: 36px; }
+}
+
+// Play and pause in one button showing ▶: it fills with the deck colour
+// while playing and its background blinks while stopped, like a CDJ's.
+export component PlayButton inherits Rectangle {
+    in property <string> group;
+    in property <color> tint;
+    property <int> index: Controls.resolve(group, "play");
+    property <bool> playing: Controls.value(index, Controls.tick) > 0;
+    property <bool> blink;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: playing ? tint : Theme.border;
+    background: playing ? tint : touch.pressed ? Theme.control-pressed : blink ? tint.with-alpha(0.28) : Theme.control;
+    animate background { duration: 120ms; }
+    Timer {
+        interval: 500ms;
+        running: !playing;
+        triggered => { blink = !blink; }
+    }
+    Path {
+        width: 16px;
+        height: 18px;
+        viewbox-width: 16;
+        viewbox-height: 18;
+        fill: playing ? #ffffff : Theme.text;
+        commands: "M 1 1 L 15 9 L 1 17 Z";
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { Controls.set-value(index, playing ? 0 : 1); }
+    }
+}
+
+// Play and CUE side by side under the jog, play on the left; SYNC is under
+// the tempo fader (see Pitch).
+component Transport inherits HorizontalLayout {
+    in property <string> group;
+    in property <color> tint;
+    spacing: 6px;
+    height: 36px;
+    PlayButton { group: group; tint: tint; width: 70px; }
+    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: Theme.cue; font-size: 14px; width: 70px; }
+}
+
+// A thin line between sections of a deck.
+// Dividers in the deck body. Its 8px padding is bridged so each line runs
+// panel edge to panel edge: a full-height one from the top of the body to
+// the bottom, the one beside FX from the top down to the line under it.
+component VDivider inherits Rectangle {
+    in property <length> top: 8px;
+    in property <length> bottom: 8px;
+    width: 17px;
+    EdgeVLine { x: 8px; height: parent.height; top: top; bottom: bottom; }
+}
+
+component HDivider inherits Rectangle {
+    height: 9px;
+    EdgeLine { y: 4px; width: parent.width; left: 8px; right: 8px; }
+}
+
+// The jog, with play and CUE under it.
+component PlaySection inherits VerticalLayout {
+    in property <string> group;
+    in property <DeckInfo> info;
+    in property <color> tint;
+    in property <angle> spin;
+    spacing: 8px;
+    width: 172px;
+    // The jog fills the space down to the buttons.
+    Rectangle {
+        vertical-stretch: 1;
+        Jog {
+            group: group;
+            info: info;
+            tint: tint;
+            spin: spin;
+            width: min(parent.width, parent.height);
+            height: self.width;
+        }
+    }
+    HorizontalLayout {
+        alignment: center;
+        Transport { group: group; tint: tint; }
+    }
+}
+
+export component Deck inherits Rectangle {
+    in property <int> deck;
+    in property <DeckInfo> info;
+    in property <image> overview;
+    in property <bool> mirrored: false;
+    // Set from the renderer each frame, so the jog marker turns smoothly.
+    in property <angle> spin;
+    out property <length> overview-width: header.overview-width;
+    out property <length> overview-height: header.overview-height;
+    property <string> group: "[Channel" + (deck + 1) + "]";
+    property <color> tint: Theme.deck-color(deck);
+    // Square panels split by thin black lines.
+    VerticalLayout {
+        spacing: 1px;
+
+        header := Header { deck: deck; info: info; overview: overview; mirrored: mirrored; group: group; }
+
+        Rectangle {
+            background: Theme.panel;
+            vertical-stretch: 1;
+            // Four sections split by thin lines: FX and loop side
+            // by side with the pads underneath, then the play section (jog,
+            // transport and tempo). Deck B is the mirror image.
+            HorizontalLayout {
+                padding: 8px;
+                spacing: 0px;
+                if mirrored: Pitch { group: group; info: info; tint: tint; }
+                if mirrored: Rectangle { width: 12px; }
+                if mirrored: PlaySection { group: group; info: info; tint: tint; spin: spin; }
+                if mirrored: VDivider { }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 0px;
+                    HorizontalLayout {
+                        spacing: 0px;
+                        if mirrored: LoopSection { group: group; info: info; tint: tint; }
+                        if mirrored: VDivider { bottom: 4px; }
+                        FxRows { deck: deck; names: info.effects; horizontal-stretch: 1; alignment: start; }
+                        if !mirrored: VDivider { bottom: 4px; }
+                        if !mirrored: LoopSection { group: group; info: info; tint: tint; }
+                    }
+                    HDivider { }
+                    Pads { deck: deck; group: group; info: info; vertical-stretch: 1; }
+                }
+                if !mirrored: VDivider { }
+                if !mirrored: PlaySection { group: group; info: info; tint: tint; spin: spin; }
+                if !mirrored: Rectangle { width: 12px; }
+                if !mirrored: Pitch { group: group; info: info; tint: tint; }
+            }
+        }
+    }
+
+    // Drop target for tracks dragged from the browser. While any drag is in
+    // flight every deck shows a faint outline; the one under the cursor lights up.
+    drop := DropArea {
+        can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
+        dropped(e) => {
+            TrackDrag.drop(deck, e.data);
+            TrackDrag.active = false;
+            DragAction.copy
+        }
+    }
+    if TrackDrag.active || drop.has-drag: Rectangle {
+        border-radius: Theme.radius + 2px;
+        border-width: drop.has-drag ? 3px : 2px;
+        border-color: drop.has-drag ? tint : tint.transparentize(0.55);
+        background: drop.has-drag ? tint.transparentize(0.9) : transparent;
+    }
+}

@@ -1,0 +1,400 @@
+//! Track metadata, decoded audio and waveform summaries.
+
+use std::fmt;
+use std::path::PathBuf;
+
+use crate::beats::BeatGrid;
+use crate::cover::Cover;
+use crate::loudness::Loudness;
+use crate::stems::Stems;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
+
+/// Slices per second of audio in the finest level of a waveform summary.
+pub const WAVEFORM_RATE: f64 = 1000.0;
+
+/// One waveform slice: the peak of the low, mid and high bands and of the
+/// whole signal, then their RMS in the same order. Each is the square root of
+/// the level relative to the track's loudest peak, scaled to 0..255, which
+/// keeps detail in quiet passages.
+pub type WaveformBin = [u8; 8];
+
+/// A track's waveform summary at several resolutions.
+#[derive(Clone, Debug, Default)]
+pub struct Waveform {
+    /// Slices per second in `levels[0]`.
+    pub bins_per_second: f64,
+    /// `levels[0]` is the full resolution; each further level merges pairs of
+    /// slices of the one before (peaks by maximum, RMS by power), down to a
+    /// single slice (see [`Waveform::from_finest`]). Zoomed-out views read a coarser level instead of
+    /// scanning thousands of slices per pixel.
+    pub levels: Vec<Vec<WaveformBin>>,
+}
+
+impl Waveform {
+    /// A waveform from its finest level; each coarser level merges pairs of
+    /// slices of the one before, keeping the larger peak and the mean power.
+    pub fn from_finest(bins_per_second: f64, finest: Vec<WaveformBin>) -> Self {
+        // Bins hold the square root of the level; power is its square.
+        let power = |b: u8| (b as f32 / 255.0).powi(4);
+        let unpower = |p: f32| (p.sqrt().sqrt() * 255.0).round() as u8;
+        let mut levels = vec![finest];
+        while levels.last().unwrap().len() > 1 {
+            let next = levels
+                .last()
+                .unwrap()
+                .chunks(2)
+                .map(|c| {
+                    let (a, b) = (c[0], *c.last().unwrap());
+                    std::array::from_fn(|k| {
+                        if k < 4 {
+                            a[k].max(b[k])
+                        } else {
+                            unpower((power(a[k]) + power(b[k])) * 0.5)
+                        }
+                    })
+                })
+                .collect();
+            levels.push(next);
+        }
+        Waveform {
+            bins_per_second,
+            levels,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.levels.first().is_none_or(|l| l.is_empty())
+    }
+}
+
+/// Where a track's audio comes from.
+#[derive(Clone, Debug)]
+pub enum Source {
+    /// Generated on load by [`crate::synth`], for the built-in sample library.
+    Synth {
+        seed: u64,
+    },
+    File(PathBuf),
+}
+
+/// Frames per chunk of [`Audio`] (about 1.5 s at 44.1 kHz).
+const CHUNK: usize = 1 << 16;
+
+/// One chunk of decoded frames, set once when it has been decoded.
+type Chunk = OnceLock<Box<[[f32; 2]]>>;
+
+/// Decoded stereo audio at the file's own sample rate.
+///
+/// A track can play while it is still being decoded, as in Mixxx: an
+/// [`AudioWriter`] fills it in order, one chunk at a time, and frames that
+/// aren't decoded yet read as silence. Decoding runs hundreds of times faster
+/// than playback, so in practice only a seek far ahead in the first second
+/// after loading can land on them.
+pub struct Audio {
+    pub sample_rate: u32,
+    chunks: Box<[Chunk]>,
+    /// Frames in the track: the decoder's estimate until decoding finishes.
+    len: AtomicUsize,
+    /// Frames decoded so far.
+    decoded: AtomicUsize,
+    complete: AtomicBool,
+    /// The track split into stems, when it has them; set once they start
+    /// decoding, possibly while the track is already playing.
+    stems: OnceLock<Arc<Stems>>,
+    /// How loud the track is, once analysed; auto gain levels it.
+    loudness: OnceLock<Loudness>,
+}
+
+impl Audio {
+    /// Audio that is already fully decoded.
+    pub fn from_frames(sample_rate: u32, frames: Vec<[f32; 2]>) -> Self {
+        let (audio, mut writer) = Audio::writer(sample_rate, frames.len());
+        writer.extend(&frames);
+        drop(writer.finish());
+        Arc::try_unwrap(audio).unwrap_or_else(|_| unreachable!("the writer is gone"))
+    }
+
+    /// Empty audio of about `expected_frames` frames, and the writer that fills
+    /// it. Frames beyond one chunk past the estimate are dropped.
+    pub fn writer(sample_rate: u32, expected_frames: usize) -> (Arc<Audio>, AudioWriter) {
+        let chunks = (0..expected_frames / CHUNK + 2)
+            .map(|_| OnceLock::new())
+            .collect();
+        let audio = Arc::new(Audio {
+            sample_rate,
+            chunks,
+            len: AtomicUsize::new(expected_frames),
+            decoded: AtomicUsize::new(0),
+            complete: AtomicBool::new(false),
+            stems: OnceLock::new(),
+            loudness: OnceLock::new(),
+        });
+        let writer = AudioWriter {
+            audio: audio.clone(),
+            buf: Vec::with_capacity(CHUNK),
+            chunk: 0,
+        };
+        (audio, writer)
+    }
+
+    pub fn len(&self) -> usize {
+        self.len.load(Ordering::Acquire)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Frames decoded so far; all of them once [`Audio::is_complete`].
+    pub fn decoded(&self) -> usize {
+        self.decoded.load(Ordering::Acquire)
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.complete.load(Ordering::Acquire)
+    }
+
+    /// Frame `i`, or silence if it isn't decoded yet or is past the end.
+    #[inline]
+    pub fn frame(&self, i: usize) -> [f32; 2] {
+        self.chunks
+            .get(i / CHUNK)
+            .and_then(OnceLock::get)
+            .and_then(|c| c.get(i % CHUNK))
+            .copied()
+            .unwrap_or([0.0; 2])
+    }
+
+    /// The decoded frames, in order, as chunks.
+    pub fn decoded_chunks(&self) -> impl Iterator<Item = &[[f32; 2]]> {
+        self.chunks.iter().map_while(|c| c.get().map(|c| &c[..]))
+    }
+
+    pub fn duration(&self) -> f64 {
+        self.len() as f64 / self.sample_rate as f64
+    }
+
+    /// The track's stems, if it has them.
+    pub fn stems(&self) -> Option<&Arc<Stems>> {
+        self.stems.get()
+    }
+
+    /// How loud the track is, once it has been analysed.
+    pub fn loudness(&self) -> Option<Loudness> {
+        self.loudness.get().copied()
+    }
+
+    /// Sets how loud the track is; the first measurement stays.
+    pub fn set_loudness(&self, loudness: Loudness) {
+        let _ = self.loudness.set(loudness);
+    }
+
+    /// Gives the audio its stems, which must be at its sample rate. False if
+    /// it already has stems or the rate differs.
+    pub fn set_stems(&self, stems: Arc<Stems>) -> bool {
+        stems.sample_rate == self.sample_rate && self.stems.set(stems).is_ok()
+    }
+}
+
+impl fmt::Debug for Audio {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Audio({} frames @ {} Hz)", self.len(), self.sample_rate)
+    }
+}
+
+/// Fills an [`Audio`] while it may already be playing.
+pub struct AudioWriter {
+    audio: Arc<Audio>,
+    buf: Vec<[f32; 2]>,
+    chunk: usize,
+}
+
+impl AudioWriter {
+    pub fn push(&mut self, frame: [f32; 2]) {
+        self.buf.push(frame);
+        if self.buf.len() == CHUNK {
+            self.flush();
+        }
+    }
+
+    pub fn extend(&mut self, frames: &[[f32; 2]]) {
+        for &f in frames {
+            self.push(f);
+        }
+    }
+
+    /// The audio being written.
+    pub fn audio(&self) -> &Arc<Audio> {
+        &self.audio
+    }
+
+    /// Publishes the frames buffered so far as a chunk.
+    fn flush(&mut self) {
+        if self.buf.is_empty() {
+            return;
+        }
+        let frames = std::mem::replace(&mut self.buf, Vec::with_capacity(CHUNK));
+        let n = frames.len();
+        if let Some(slot) = self.audio.chunks.get(self.chunk) {
+            let _ = slot.set(frames.into_boxed_slice());
+            self.chunk += 1;
+            let decoded = self.audio.decoded.fetch_add(n, Ordering::AcqRel) + n;
+            // Play on past the estimate while frames keep coming.
+            self.audio.len.fetch_max(decoded, Ordering::AcqRel);
+        }
+    }
+
+    /// Publishes the last frames and sets the audio's true length.
+    pub fn finish(mut self) -> Arc<Audio> {
+        self.flush();
+        let a = &self.audio;
+        a.len
+            .store(a.decoded.load(Ordering::Acquire), Ordering::Release);
+        a.complete.store(true, Ordering::Release);
+        self.audio
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Track {
+    pub id: usize,
+    pub artist: String,
+    pub title: String,
+    pub album: String,
+    pub genre: String,
+    /// 0..5 stars.
+    pub rating: u8,
+    /// Tempo from tags or analysis; 0 when unknown until the track is analysed.
+    pub bpm: f64,
+    pub key: String,
+    pub duration: f64,
+    /// Offset of the first beat in seconds.
+    pub first_beat: f64,
+    /// Where every beat falls, when the tempo changes within the track or
+    /// the grid was edited; empty means a steady `bpm` from `first_beat`.
+    /// Set it with [`Track::set_grid`], which keeps `bpm` and `first_beat`
+    /// in step.
+    pub grid: BeatGrid,
+    pub source: Source,
+    /// Band peaks and RMS for drawing, as Mixxx's analyzer produces for its
+    /// RGB waveforms. Empty until the track is loaded and analysed.
+    pub waveform: Arc<Waveform>,
+    /// Set on the copy of the track that is loaded on a deck.
+    pub audio: Option<Arc<Audio>>,
+    /// Album art, looked up when the track is loaded on a deck.
+    pub cover: Option<Arc<Cover>>,
+    /// What the library knows beyond the file's tags.
+    pub info: LibraryInfo,
+}
+
+/// A track's details from the library: what the DJ set, or brought in.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LibraryInfo {
+    pub comment: String,
+    /// The track's grouping, e.g. "11 YOGA".
+    pub grouping: String,
+    /// Words the DJ tagged the track with, e.g. hashtags ("#uplifting", "#synth").
+    pub labels: Vec<String>,
+    /// Colour as 0xRRGGBB.
+    pub color: Option<u32>,
+    pub play_count: u32,
+    pub hotcues: Vec<Hotcue>,
+    /// The tempo and first beat came from the library and are kept, rather
+    /// than replaced by this app's analysis.
+    pub fixed_grid: bool,
+    /// When the track joined the library, as a Unix time (0 if unknown).
+    pub added: i64,
+    /// The library has the track but its file is not on disk.
+    pub missing: bool,
+}
+
+/// A saved hot cue.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hotcue {
+    /// From 0: hot cue 1 is number 0.
+    pub number: usize,
+    pub seconds: f64,
+    pub name: String,
+}
+
+impl Track {
+    /// The length of a beat at the main tempo.
+    pub fn beat_length(&self) -> f64 {
+        if self.bpm > 0.0 {
+            60.0 / self.bpm
+        } else {
+            0.5
+        }
+    }
+
+    /// Sets the beat grid, and the main tempo and first beat from it.
+    pub fn set_grid(&mut self, grid: BeatGrid) {
+        if !grid.is_empty() {
+            self.bpm = grid.main_bpm(if self.duration > 0.0 {
+                self.duration
+            } else {
+                f64::MAX
+            });
+            self.first_beat = grid.first_beat();
+        }
+        self.grid = grid;
+    }
+
+    /// The beat grid as a list of markers: the stored one, or the steady
+    /// tempo from the first beat. Empty when the tempo is unknown.
+    pub fn beat_grid(&self) -> BeatGrid {
+        if !self.grid.is_empty() || self.bpm <= 0.0 {
+            self.grid.clone()
+        } else {
+            BeatGrid::constant(self.bpm, self.first_beat)
+        }
+    }
+
+    /// The beat number at `seconds` (0 at the first beat). The lookups below
+    /// don't allocate, so the audio thread uses them.
+    pub fn beat_at(&self, seconds: f64) -> f64 {
+        if !self.grid.is_empty() {
+            self.grid.beat_at(seconds)
+        } else {
+            (seconds - self.first_beat) / self.beat_length()
+        }
+    }
+
+    /// When beat number `beat` falls.
+    pub fn seconds_at(&self, beat: f64) -> f64 {
+        if !self.grid.is_empty() {
+            self.grid.seconds_at(beat)
+        } else {
+            self.first_beat + beat * self.beat_length()
+        }
+    }
+
+    /// The tempo at `seconds`; 0 when unknown.
+    pub fn bpm_at(&self, seconds: f64) -> f64 {
+        if !self.grid.is_empty() {
+            self.grid.bpm_at(seconds)
+        } else {
+            self.bpm
+        }
+    }
+
+    /// The length of the beat at `seconds`.
+    pub fn beat_length_at(&self, seconds: f64) -> f64 {
+        match self.bpm_at(seconds) {
+            b if b > 0.0 => 60.0 / b,
+            _ => 0.5,
+        }
+    }
+
+    /// The beat nearest `seconds`, or the one at or before it with `floor`.
+    pub fn snap(&self, seconds: f64, floor: bool) -> f64 {
+        let b = self.beat_at(seconds);
+        self.seconds_at(if floor { (b + 1e-6).floor() } else { b.round() })
+    }
+
+    /// `seconds` moved by `beats` beats along the grid.
+    pub fn beats_from(&self, seconds: f64, beats: f64) -> f64 {
+        self.seconds_at(self.beat_at(seconds) + beats)
+    }
+}

@@ -1,0 +1,19 @@
+[package]
+name = "mixxx-engine"
+description = "Audio engine: decks, mixer and output, driven through Mixxx controls"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mixxx-control = { path = "../control" }
+cpal = "0.18"
+symphonia = { version = "0.6", features = ["all"] }
+lofty = "0.25"
+rtrb = "0.4"
+flate2 = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+rustfft = "6"
+signalsmith-stretch = "0.1"
+serde_json = "1"
+rusty_link = "0.4"

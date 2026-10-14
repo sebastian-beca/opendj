@@ -1,0 +1,427 @@
+// Widgets bound to Mixxx controls by name, e.g. `ControlKnob { group: "[Channel1]"; key: "pregain"; }`.
+//
+// A widget resolves its name to an index once; reads go through `Controls.tick`,
+// which the app bumps every frame, so values refresh without per-control wiring.
+import { Theme } from "theme.slint";
+
+export global Controls {
+    in property <int> tick;
+    pure callback resolve(group: string, key: string) -> int;
+    // 0..1 widget position (knobs, faders)
+    pure callback parameter(index: int, tick: int) -> float;
+    // raw control value (buttons, meters)
+    pure callback value(index: int, tick: int) -> float;
+    callback set-parameter(index: int, parameter: float);
+    callback set-value(index: int, value: float);
+    callback toggle(index: int);
+    callback reset(index: int);
+}
+
+// Small uppercase caption used under knobs and above sections.
+// Quieter than the controls it names.
+export component Caption inherits Text {
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    color: #6e6e73;
+    horizontal-alignment: center;
+}
+
+// Part of a circle in a 100 x 100 box, clockwise from `from` to `to` (or
+// back, when `to` is smaller). Angles are from twelve o'clock.
+component KnobArc inherits Path {
+    in property <angle> from;
+    in property <angle> to;
+    in property <float> r: 46;
+    viewbox-width: 100;
+    viewbox-height: 100;
+    fill: transparent;
+    stroke-line-cap: round;
+    // Three segments keep each one below 180 degrees.
+    property <angle> step: (to - from) / 3;
+    property <bool> clockwise: to >= from;
+    MoveTo { x: 50 + r * sin(from); y: 50 - r * cos(from); }
+    ArcTo { radius-x: r; radius-y: r; sweep: clockwise; x: 50 + r * sin(from + step); y: 50 - r * cos(from + step); }
+    ArcTo { radius-x: r; radius-y: r; sweep: clockwise; x: 50 + r * sin(from + 2 * step); y: 50 - r * cos(from + 2 * step); }
+    ArcTo { radius-x: r; radius-y: r; sweep: clockwise; x: 50 + r * sin(to); y: 50 - r * cos(to); }
+}
+
+// A round knob (see below).
+export component ControlKnob inherits Rectangle {
+    in property <string> group;
+    in property <string> key;
+    in property <string> label;
+    // Pointer colour. Defaults to white; big knobs use the deck colour.
+    in property <color> tint: Theme.text;
+    in property <length> size: 34px;
+    // Centre detent (EQs, filter): marks the default position above the knob.
+    in property <bool> bipolar: false;
+    property <int> index: Controls.resolve(group, key);
+    property <float> param: Controls.parameter(index, Controls.tick);
+    property <float> drag-start;
+    property <angle> value-angle: -135deg + param * 270deg;
+
+    width: size + 8px;
+    height: size + (label == "" ? 6px : 20px);
+
+    // A grey cap with a light pointer line, and a blue
+    // arc round its rim from `origin` (the centre for EQs) to where it points.
+    in property <float> origin: bipolar ? 0.5 : 0;
+    // 0 the grey cap; as on the Model 1's sculpt section, 1 a white
+    // cap (sculpt) and 2 a black cap ringed in white (contour filters).
+    in property <int> look: 0;
+    property <angle> origin-angle: -135deg + origin * 270deg;
+    // Soft shadow, then the cap.
+    Rectangle {
+        x: 4px;
+        y: 4px;
+        width: size;
+        height: size;
+        border-radius: self.width / 2;
+        background: #050506;
+    }
+    cap := Rectangle {
+        x: 4px;
+        y: 3px;
+        width: size;
+        height: size;
+        border-radius: self.width / 2;
+        background: look == 1
+            ? (touch.has-hover ? @linear-gradient(180deg, #ffffff 0%, #d4d4d8 100%) : @linear-gradient(180deg, #f2f2f4 0%, #c8c8cc 100%))
+            : look == 2
+            ? (touch.has-hover ? #1c1c1e : #0e0e10)
+            : touch.has-hover
+            ? @linear-gradient(180deg, #505055 0%, #303034 100%)
+            : @linear-gradient(180deg, #46464b 0%, #2a2a2e 100%);
+        border-width: look == 2 ? max(2px, size / 12) : 1px;
+        border-color: look == 2 ? #e4e4e8 : #141416;
+    }
+    // Hidden at the origin, where the arc would be a dot.
+    if abs(param - origin) > 0.004: KnobArc {
+        x: 4px + 1px;
+        y: 3px + 1px;
+        width: size - 2px;
+        height: size - 2px;
+        from: origin-angle;
+        to: value-angle;
+        stroke: Theme.knob-arc;
+        stroke-width: max(2px, size / 11);
+    }
+    // Pointer line from near the centre to the rim.
+    Path {
+        x: cap.x;
+        y: cap.y;
+        width: cap.width;
+        height: cap.height;
+        viewbox-width: 100;
+        viewbox-height: 100;
+        stroke: look == 1 ? #1c1c1e : root.tint == Theme.text ? #e4e4e8 : root.tint;
+        stroke-width: max(1.5px, size / 14);
+        stroke-line-cap: round;
+        MoveTo { x: 50 + 8 * sin(value-angle); y: 50 - 8 * cos(value-angle); }
+        LineTo { x: 50 + 40 * sin(value-angle); y: 50 - 40 * cos(value-angle); }
+    }
+    if bipolar && origin == 0.5: Rectangle {
+        x: 4px + size / 2 - 1px;
+        y: 0px;
+        width: 2px;
+        height: 2px;
+        border-radius: 1px;
+        background: Theme.text-dim;
+    }
+
+    // Wider than the knob, so longer labels fit under it.
+    if label != "": Caption {
+        y: size + 6px;
+        x: (parent.width - self.width) / 2;
+        width: 80px;
+        text: label;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: ns-resize;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                drag-start = param;
+            }
+        }
+        moved => {
+            Controls.set-parameter(index, max(0, min(1, drag-start + (self.pressed-y - self.mouse-y) / 160px)));
+        }
+        double-clicked => {
+            Controls.reset(index);
+        }
+        scroll-event(e) => {
+            Controls.set-parameter(index, max(0, min(1, param + (e.delta-y > 0 ? 0.02 : -0.02))));
+            accept
+        }
+    }
+}
+
+// Flat dark button with a thin border. When its light is on, the label and
+// border take the tint.
+export component ControlButton inherits Rectangle {
+    in property <string> group;
+    in property <string> key;
+    in property <string> text;
+    in property <color> tint: Theme.accent;
+    // Momentary: on while held (cue, hotcues). Otherwise toggles on click.
+    in property <bool> momentary: false;
+    // Read a different control for the light than the one pressed (e.g. hotcue_N_enabled).
+    in property <string> light-key: key;
+    in property <length> font-size: Theme.font-normal;
+    // Fill the whole button with the tint when lit (sync, keylock) instead of tinting the label.
+    in property <bool> fill-when-lit: false;
+    // Draw a headphone icon instead of the text, for headphone cue (PFL).
+    in property <bool> headphones: false;
+    // Or a filled icon: SVG path commands in a 20 x 20 box. Glyphs like ❚❚
+    // are missing from some system fonts, so icons are drawn.
+    in property <string> icon;
+    // The icon while lit, e.g. pause on a playing deck's play button. (A
+    // Path doesn't redraw when its commands change, so each icon is its own.)
+    in property <string> lit-icon: icon;
+    property <color> label-color: lit ? (fill-when-lit ? #ffffff : root.tint) : Theme.text;
+    property <int> index: Controls.resolve(group, key);
+    property <int> light-index: Controls.resolve(group, light-key);
+    property <bool> lit: Controls.value(light-index, Controls.tick) > 0;
+
+    preferred-width: 28px;
+    preferred-height: 22px;
+    border-radius: Theme.radius;
+    background: lit && fill-when-lit ? root.tint
+        : touch.pressed ? Theme.control-pressed
+        : lit ? root.tint.with-alpha(0.14)
+        : touch.has-hover ? #1d1d20 : Theme.control;
+    border-width: 1px;
+    border-color: lit ? root.tint : Theme.border;
+
+    if !headphones && icon == "": Text {
+        text: root.text;
+        font-size: root.font-size;
+        font-weight: 700;
+        color: label-color;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if icon != "" && !lit: Path {
+        width: 18px;
+        height: 18px;
+        viewbox-width: 20;
+        viewbox-height: 20;
+        fill: label-color;
+        commands: icon;
+    }
+    if icon != "" && lit: Path {
+        width: 18px;
+        height: 18px;
+        viewbox-width: 20;
+        viewbox-height: 20;
+        fill: label-color;
+        commands: lit-icon;
+    }
+    // Headband and ear cups.
+    if headphones: Path {
+        width: 18px;
+        height: 18px;
+        viewbox-width: 20;
+        viewbox-height: 20;
+        stroke: label-color;
+        stroke-width: 1.8px;
+        fill: transparent;
+        commands: "M 4 13 L 4 10 A 6 6 0 0 1 16 10 L 16 13";
+    }
+    if headphones: Path {
+        width: 18px;
+        height: 18px;
+        viewbox-width: 20;
+        viewbox-height: 20;
+        fill: label-color;
+        commands: "M 1.6 14 A 2.9 2.9 0 1 0 7.4 14 A 2.9 2.9 0 1 0 1.6 14 Z M 12.6 14 A 2.9 2.9 0 1 0 18.4 14 A 2.9 2.9 0 1 0 12.6 14 Z";
+    }
+
+    touch := TouchArea {
+        pointer-event(e) => {
+            if e.button != PointerEventButton.left {
+                return;
+            }
+            if momentary {
+                if e.kind == PointerEventKind.down {
+                    Controls.set-value(index, 1);
+                } else if e.kind == PointerEventKind.up {
+                    Controls.set-value(index, 0);
+                }
+            } else if e.kind == PointerEventKind.down {
+                Controls.toggle(index);
+            }
+        }
+    }
+}
+
+// Fader with tick marks either side of a dark slot and a grey metal-look cap.
+export component ControlFader inherits Rectangle {
+    in property <string> group;
+    in property <string> key;
+    in property <bool> vertical: true;
+    // Rate faders are drawn with "faster" at the bottom, like on hardware.
+    in property <bool> inverted: false;
+    in property <bool> center-mark: false;
+    in property <color> tint: Theme.accent;
+    in property <int> ticks: 9;
+    property <int> index: Controls.resolve(group, key);
+    property <float> param: Controls.parameter(index, Controls.tick);
+    property <float> pos: inverted ? 1 - param : param;
+    property <float> drag-start;
+    property <length> handle: vertical ? 16px : 14px;
+    // Length of the travel, between the handle's end positions.
+    property <length> travel: (vertical ? self.height : self.width) - handle;
+
+    preferred-width: vertical ? 28px : 60px;
+    preferred-height: vertical ? 60px : 28px;
+
+    // Tick marks
+    for i in ticks: Rectangle {
+        property <length> along: handle / 2 + travel * i / (ticks - 1);
+        property <bool> major: i == 0 || i == ticks - 1 || (center-mark && i * 2 == ticks - 1);
+        x: vertical ? 0px : along;
+        y: vertical ? along : 0px;
+        width: vertical ? root.width : 1px;
+        height: vertical ? 1px : root.height;
+        background: major ? #55555a : Theme.tick;
+    }
+    // Slot
+    Rectangle {
+        x: vertical ? (parent.width - 4px) / 2 : handle / 2;
+        y: vertical ? handle / 2 : (parent.height - 4px) / 2;
+        width: vertical ? 4px : travel;
+        height: vertical ? travel : 4px;
+        border-radius: 2px;
+        background: #050506;
+        border-width: 1px;
+        border-color: #2a2a2d;
+    }
+    // Handle
+    Rectangle {
+        x: vertical ? 2px : pos * travel;
+        y: vertical ? (1 - pos) * travel : 2px;
+        width: vertical ? parent.width - 4px : handle;
+        height: vertical ? handle : parent.height - 4px;
+        border-radius: 4px;
+        background: vertical
+            ? @linear-gradient(180deg, #b0b0b5 0%, #8a8a8f 45%, #5f5f64 100%)
+            : @linear-gradient(90deg, #b0b0b5 0%, #8a8a8f 45%, #5f5f64 100%);
+        border-width: 1px;
+        border-color: touch.pressed ? root.tint : #2a2a2d;
+        drop-shadow-blur: 4px;
+        drop-shadow-color: #000000a0;
+        Rectangle {
+            width: vertical ? parent.width - 8px : 1px;
+            height: vertical ? 1px : parent.height - 8px;
+            background: #2a2a2d;
+        }
+    }
+    touch := TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                drag-start = pos;
+            }
+        }
+        moved => {
+            if vertical {
+                Controls.set-parameter(index, to-param(inverted, drag-start + (self.pressed-y - self.mouse-y) / travel));
+            } else {
+                Controls.set-parameter(index, to-param(inverted, drag-start + (self.mouse-x - self.pressed-x) / travel));
+            }
+        }
+        double-clicked => {
+            Controls.reset(index);
+        }
+        // Scrolling over the fader moves it, no click needed: up moves a
+        // fader up and the crossfader right; a sideways swipe moves the
+        // crossfader too. Small steps follow a trackpad smoothly; a mouse
+        // wheel's notch moves it at most 5%.
+        scroll-event(e) => {
+            let d = vertical ? e.delta-y : (abs(e.delta-x / 1px) > abs(e.delta-y / 1px) ? -e.delta-x : e.delta-y);
+            Controls.set-parameter(index, to-param(inverted, pos + max(-0.05, min(0.05, d / 400px))));
+            accept
+        }
+    }
+
+    function to-param(inv: bool, p: float) -> float {
+        let c = max(0, min(1, p));
+        inv ? 1 - c : c
+    }
+}
+
+// Segmented level meter: green, then yellow, then red at the top.
+// Headphone cue (PFL) as a bare headphone icon: grey when off, green when on.
+export component CueHeadphones inherits Rectangle {
+    in property <string> group;
+    // The fill while on: the deck's colour.
+    in property <color> tint: Theme.accent;
+    property <int> index: Controls.resolve(group, "pfl");
+    property <bool> lit: Controls.value(index, Controls.tick) > 0;
+    property <color> icon-color: lit ? #ffffff : touch.has-hover ? Theme.text : Theme.text-dim;
+    // A button as wide as a channel fader, lit while cueing.
+    width: 36px;
+    height: 22px;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: lit ? root.tint : Theme.border;
+    background: lit ? root.tint : touch.pressed ? Theme.control-pressed : Theme.control;
+    // Headband, mirrored about x = 10.
+    Path {
+        width: 16px;
+        height: 16px;
+        viewbox-width: 20;
+        viewbox-height: 20;
+        stroke: icon-color;
+        stroke-width: 1.6px;
+        fill: transparent;
+        commands: "M 4.5 12 L 4.5 10 A 5.5 5.5 0 0 1 15.5 10 L 15.5 12";
+    }
+    // Round ear cups.
+    Path {
+        width: 16px;
+        height: 16px;
+        viewbox-width: 20;
+        viewbox-height: 20;
+        fill: icon-color;
+        commands: "M 1.6 14 A 2.9 2.9 0 1 0 7.4 14 A 2.9 2.9 0 1 0 1.6 14 Z M 12.6 14 A 2.9 2.9 0 1 0 18.4 14 A 2.9 2.9 0 1 0 12.6 14 Z";
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { Controls.set-value(index, lit ? 0 : 1); }
+    }
+}
+
+export component VuMeter inherits Rectangle {
+    in property <string> group;
+    in property <string> key: "VuMeter";
+    in property <bool> vertical: true;
+    in property <int> segments: 16;
+    property <int> index: Controls.resolve(group, key);
+    property <float> level: Controls.value(index, Controls.tick);
+    property <length> gap: 1px;
+    property <length> seg: ((vertical ? self.height : self.width) - gap * (segments - 1)) / segments;
+
+    min-width: 3px;
+    min-height: 3px;
+    for i in segments: Rectangle {
+        // Segment 0 is the quietest: at the bottom (vertical) or left.
+        property <float> at: (i + 0.5) / segments;
+        x: vertical ? 0px : i * (seg + gap);
+        y: vertical ? root.height - (i + 1) * seg - i * gap : 0px;
+        width: vertical ? root.width : seg;
+        height: vertical ? seg : root.height;
+        border-radius: 1px;
+        background: level < at ? #2c2c2f : (at > 0.9 ? #ff453a : (at > 0.72 ? #ffd60a : #30d158));
+    }
+}
+
+// A stereo meter: left and right side by side.
+export component StereoMeter inherits HorizontalLayout {
+    in property <string> group;
+    spacing: 1px;
+    VuMeter { group: group; key: "VuMeterL"; width: 4px; }
+    VuMeter { group: group; key: "VuMeterR"; width: 4px; }
+}

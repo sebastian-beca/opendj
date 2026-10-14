@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = ["crates/control", "crates/engine", "crates/controllers", "crates/waveform", "crates/library", "crates/plugins", "crates/app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-2.0-or-later"
+
+# Decoding, analysis and synthesis are far too slow unoptimised, even in tests.
+[profile.dev.package.mixxx-engine]
+opt-level = 2
+
+[profile.dev.package.symphonia-core]
+opt-level = 2
+
+[profile.dev.package.symphonia-bundle-mp3]
+opt-level = 2
+
+[profile.dev.package.symphonia-bundle-flac]
+opt-level = 2
+
+[profile.dev.package.signalsmith-stretch]
+opt-level = 2
