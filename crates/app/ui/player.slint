@@ -1,0 +1,128 @@
+// The Player layout: one short row, so the browser gets more room. The
+// decks are just their headers (cover, title, time, key and overview); the
+// middle holds the basics: on each outer side a small text-free jog over
+// play, CUE and SYNC, then the EQs in a 2 x 2 grid, gain over the channel
+// fader, and the meters in the centre. No pads, FX, loops, tempo faders or
+// crossfader.
+import { TrackDrag } from "library.slint";
+import { Theme } from "theme.slint";
+import { ControlButton, ControlFader, StereoMeter } from "controls.slint";
+import { DeckInfo, Header, Jog, PlayButton } from "deck.slint";
+import { Knob, ModeMenu, SideKnob } from "mixer.slint";
+
+export component PlayerDeck inherits Rectangle {
+    in property <int> deck;
+    in property <DeckInfo> info;
+    in property <image> overview;
+    in property <bool> mirrored: false;
+    out property <length> overview-width: header.overview-width;
+    out property <length> overview-height: header.overview-height;
+    property <color> tint: Theme.deck-color(deck);
+
+    // As in Pro: the row is the track block's height.
+    header := Header {
+        width: parent.width;
+        height: parent.height;
+        deck: deck;
+        info: info;
+        overview: overview;
+        mirrored: mirrored;
+        group: "[Channel" + (deck + 1) + "]";
+    }
+
+    // Tracks dragged from the browser load here, as on the Pro deck.
+    drop := DropArea {
+        can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
+        dropped(e) => {
+            TrackDrag.drop(deck, e.data);
+            TrackDrag.active = false;
+            DragAction.copy
+        }
+    }
+    if TrackDrag.active || drop.has-drag: Rectangle {
+        border-radius: Theme.radius + 2px;
+        border-width: drop.has-drag ? 3px : 2px;
+        border-color: drop.has-drag ? tint : tint.transparentize(0.55);
+        background: drop.has-drag ? tint.transparentize(0.9) : transparent;
+    }
+}
+
+// A small jog with play, CUE and SYNC under it, all three the same size.
+component PlayerTransport inherits VerticalLayout {
+    in property <int> deck;
+    in property <DeckInfo> info;
+    in property <angle> spin;
+    property <string> group: "[Channel" + (deck + 1) + "]";
+    property <color> tint: Theme.deck-color(deck);
+    alignment: center;
+    spacing: 6px;
+    HorizontalLayout {
+        alignment: center;
+        Jog { group: group; info: info; tint: tint; spin: spin; plain: true; width: 58px; height: 58px; }
+    }
+    HorizontalLayout {
+        spacing: 4px;
+        height: 26px;
+        PlayButton { group: group; tint: tint; width: 42px; }
+        ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: Theme.cue; font-size: 11px; width: 42px; }
+        ControlButton { group: group; key: "sync_enabled"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 11px; width: 42px; }
+    }
+}
+
+// One deck's half of the middle, from the outer edge in: jog and buttons,
+// the four EQ knobs in a 2 x 2 grid (or stems or sculpt, as the menu says),
+// and gain over the channel fader. Deck B's is the mirror image.
+component PlayerChannel inherits HorizontalLayout {
+    in property <int> deck;
+    in property <DeckInfo> info;
+    in property <angle> spin;
+    property <string> group: "[Channel" + (deck + 1) + "]";
+    property <bool> right: deck == 1;
+    spacing: 10px;
+    if !right: PlayerTransport { deck: deck; info: info; spin: spin; }
+    if right: VerticalLayout {
+        spacing: 4px;
+        Knob { group: group; key: "pregain"; size: 20px; }
+        ControlFader { group: group; key: "volume"; tint: Theme.deck-color(deck); ticks: 9; width: 32px; vertical-stretch: 1; }
+    }
+    // HIGH and MID over LOW and FILTER.
+    VerticalLayout {
+        alignment: center;
+        for row in 2: HorizontalLayout {
+            SideKnob { deck: deck; place: row * 2; size: 22px; width: 42px; }
+            SideKnob { deck: deck; place: row * 2 + 1; size: 22px; width: 42px; }
+        }
+    }
+    if !right: VerticalLayout {
+        spacing: 4px;
+        Knob { group: group; key: "pregain"; size: 20px; }
+        ControlFader { group: group; key: "volume"; tint: Theme.deck-color(deck); ticks: 9; width: 32px; vertical-stretch: 1; }
+    }
+    if right: PlayerTransport { deck: deck; info: info; spin: spin; }
+}
+
+export component PlayerMixer inherits Rectangle {
+    in property <[DeckInfo]> decks;
+    in property <angle> spin-1;
+    in property <angle> spin-2;
+    background: Theme.panel;
+    HorizontalLayout {
+        padding: 6px;
+        spacing: 10px;
+        PlayerChannel { deck: 0; info: decks[0]; spin: spin-1; }
+        // The knob mode menu over the two channel meters.
+        VerticalLayout {
+            spacing: 4px;
+            ModeMenu { width: 34px; }
+            HorizontalLayout {
+                alignment: center;
+                spacing: 4px;
+                padding-top: 6px;
+                vertical-stretch: 1;
+                StereoMeter { group: "[Channel1]"; }
+                StereoMeter { group: "[Channel2]"; }
+            }
+        }
+        PlayerChannel { deck: 1; info: decks[1]; spin: spin-2; }
+    }
+}

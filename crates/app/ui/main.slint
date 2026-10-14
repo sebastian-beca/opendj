@@ -1,0 +1,461 @@
+import { Palette } from "std-widgets.slint";
+import { Theme, KeyNotation } from "theme.slint";
+import { Controls, VuMeter, ControlKnob } from "controls.slint";
+import { Deck, DeckInfo, KeyItem, EffectList, DeckActions } from "deck.slint";
+import { Mixer, AudioSettings, OutputRow } from "mixer.slint";
+import { PlayerDeck, PlayerMixer } from "player.slint";
+import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi } from "library.slint";
+import { Preferences, PreferencesOverlay, PrefItem } from "preferences.slint";
+
+export { Theme, Controls, DeckActions, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, Preferences, PrefItem }
+
+// Scrolling waveform, rendered on the GPU into `source`.
+component Waveform inherits Rectangle {
+    in property <image> source;
+    background: Theme.well;
+    clip: true;
+    Image { width: parent.width; height: parent.height; source: source; image-fit: fill; }
+}
+
+// An icon button in the footer, lit while its panel is open or expanded.
+// The icons are drawn (SVG path commands in a 20 x 20 box).
+component FooterButton inherits Rectangle {
+    in property <string> icon;
+    // Drawn instead of `icon` while lit. (A Path doesn't redraw when its
+    // commands change, so each icon is its own.)
+    in property <string> lit-icon: icon;
+    in property <bool> lit;
+    callback clicked();
+    property <color> ink: lit ? Theme.accent : ta.has-hover ? Theme.text : Theme.text-dim;
+    width: 34px;
+    height: 26px;
+    border-radius: 5px;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2a2e : transparent;
+    if !lit: Path { width: 18px; height: 18px; viewbox-width: 20; viewbox-height: 20; stroke: ink; stroke-width: 1.5px; fill: transparent; commands: icon; }
+    if lit: Path { width: 18px; height: 18px; viewbox-width: 20; viewbox-height: 20; stroke: ink; stroke-width: 1.5px; fill: transparent; commands: lit-icon; }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+// Rounded group in the top bar.
+// Ableton Link: a click turns it on and off; while on it shows the
+// session's tempo, the deck it follows and how many other apps are in it.
+component LinkButton inherits Rectangle {
+    property <int> enabled-index: Controls.resolve("[Link]", "enabled");
+    property <int> peers-index: Controls.resolve("[Link]", "num_peers");
+    property <int> bpm-index: Controls.resolve("[Link]", "bpm");
+    property <bool> on: Controls.value(enabled-index, Controls.tick) > 0;
+    property <int> peers: Controls.value(peers-index, Controls.tick);
+    property <float> bpm: Controls.value(bpm-index, Controls.tick);
+    property <int> master: Controls.value(Controls.resolve("[Link]", "master_deck"), Controls.tick);
+    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : Theme.panel-raised;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: on ? Theme.accent : transparent;
+    height: 32px;
+    y: 4px;
+    horizontal-stretch: 0;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+        Text { text: "LINK"; color: on ? Theme.accent : Theme.text-dim; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+        if on: Text {
+            text: (bpm > 0 ? (round(bpm * 10) / 10) + " BPM  ·  " : "")
+                + (master == 1 ? "Deck A  ·  " : master == 2 ? "Deck B  ·  " : "")
+                + (peers == 1 ? "1 peer" : peers + " peers");
+            color: Theme.text;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { Controls.toggle(enabled-index); }
+    }
+}
+
+// Opens the settings: the gear at the right of the top bar.
+component SettingsButton inherits Rectangle {
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2e2e32 : Theme.panel-raised;
+    border-radius: 10px;
+    width: 32px;
+    height: 32px;
+    y: 4px;
+    horizontal-stretch: 0;
+    // A gear: eight teeth round a ring, and the hole.
+    Path {
+        width: 18px;
+        height: 18px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        fill: transparent;
+        stroke: Preferences.open ? Theme.knob-arc : Theme.text;
+        stroke-width: 1.7px;
+        commands: "M 9.68 4.34 L 9.75 1.74 L 14.25 1.74 L 14.32 4.34 L 15.77 4.94 L 17.66 3.16 L 20.84 6.34 L 19.06 8.23 L 19.66 9.68 L 22.26 9.75 L 22.26 14.25 L 19.66 14.32 L 19.06 15.77 L 20.84 17.66 L 17.66 20.84 L 15.77 19.06 L 14.32 19.66 L 14.25 22.26 L 9.75 22.26 L 9.68 19.66 L 8.23 19.06 L 6.34 20.84 L 3.16 17.66 L 4.94 15.77 L 4.34 14.32 L 1.74 14.25 L 1.74 9.75 L 4.34 9.68 L 4.94 8.23 L 3.16 6.34 L 6.34 3.16 L 8.23 4.94 Z M 8.5 12 A 3.5 3.5 0 1 0 15.5 12 A 3.5 3.5 0 1 0 8.5 12";
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            if Preferences.open {
+                Preferences.open = false;
+            } else {
+                Preferences.show(Preferences.page);
+            }
+        }
+    }
+}
+
+// The layout pill: PRO or PLAYER, and a click switches to the other.
+component LayoutPill inherits Rectangle {
+    in-out property <int> layout;
+    callback changed-to(layout: int);
+    background: ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    border-radius: 10px;
+    height: 32px;
+    y: 4px;
+    horizontal-stretch: 0;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        Text { text: layout == 1 ? "PLAYER" : "PRO"; color: Theme.text; font-size: 12px; font-weight: 600; letter-spacing: 0.5px; vertical-alignment: center; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            layout = 1 - layout;
+            changed-to(layout);
+        }
+    }
+}
+
+component Pill inherits Rectangle {
+    background: Theme.panel-raised;
+    border-radius: 10px;
+    height: 32px;
+    y: 4px;
+    horizontal-stretch: 0;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 10px;
+        @children
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "openDJ";
+    icon: @image-url("icons/opendj.svg");
+    preferred-width: 1680px;
+    preferred-height: 1050px;
+    min-width: 1280px;
+    min-height: 800px;
+    background: #000000;
+    default-font-family: Theme.font-family;
+
+    in property <[DeckInfo]> decks: [{}, {}];
+    in property <image> waveform-1;
+    in property <image> waveform-2;
+    in property <image> overview-1;
+    in property <image> overview-2;
+    in property <angle> spin-1;
+    in property <angle> spin-2;
+    in property <string> clock;
+    in property <bool> folders-focused;
+
+    in property <[Folder]> folders;
+    in property <int> current-folder;
+    in property <string> folder-name;
+    in property <string> folder-duration;
+    in property <bool> spotify-connected;
+    in property <string> spotify-user;
+    in property <string> spotify-status;
+    in-out property <string> spotify-client-id;
+    in property <string> list-notice;
+    in property <[TrackRow]> tracks;
+    in property <int> sort-column: 1;
+    in property <bool> sort-ascending: true;
+    in-out property <int> current-track <=> browser.current-row;
+    in property <[SideRow]> side-rows;
+    in property <string> side-total;
+    in-out property <int> side-tab <=> browser.side-tab;
+    // Footer toggles: the library over the decks, and the side panel.
+    in-out property <bool> library-expanded: false;
+    in-out property <bool> side-panel-visible: true;
+    in property <bool> automix-on;
+    in property <string> automix-status;
+    in property <int> automix-length;
+    in property <int> automix-style;
+    // 0 Pro (the full decks and mixer), 1 Player (a compact row of the basics).
+    in-out property <int> layout: 0;
+    callback layout-changed(layout: int);
+
+    // Physical sizes the GPU textures should be rendered at.
+    // Room on the left of the top bar for macOS's window buttons.
+    in property <length> traffic-light-inset: 0px;
+    callback drag-window();
+    callback zoom-window();
+    out property <length> waveform-width: wf1.width;
+    out property <length> waveform-height: wf1.height;
+    // From whichever layout's deck A is showing.
+    out property <length> overview-width: compact ? player-a.overview-width : deck-a.overview-width;
+    out property <length> overview-height: compact ? player-a.overview-height : deck-a.overview-height;
+    // The Player row shows in the Player layout, and in either layout while
+    // the footer button has the library expanded (then with no waveforms).
+    property <bool> compact: layout == 1 || library-expanded;
+
+    callback select-source(source: int);
+    // Which sources the library rail shows, by index.
+    in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true];
+    callback source-shown-changed(source: int, on: bool);
+    callback spotify-connect(client-id: string);
+    callback spotify-disconnect();
+    callback select-folder(index: int);
+    callback toggle-folder(index: int);
+    callback sort(column: int);
+    callback search(text: string);
+    callback activate-track(row: int);
+    callback load-track(deck: int, row: int);
+    callback side-activate(row: int);
+    callback side-remove(first: int, last: int);
+    callback automix-toggle();
+    callback automix-mix-now();
+    callback automix-skip();
+    callback automix-set-length(index: int);
+    callback automix-set-style(index: int);
+
+    init => {
+        Palette.color-scheme = ColorScheme.dark;
+        keys.focus();
+    }
+
+    // Back to the shortcuts when settings close, so ⌘, opens them again.
+    property <bool> settings-open: Preferences.open;
+    changed settings-open => {
+        if !settings-open {
+            keys.focus();
+        }
+    }
+
+    // The master deck: the deck playing; with
+    // both playing, the one that started first; when it stops while the
+    // other plays, the other. With neither playing it stays the last one,
+    // so the space bar resumes it. 0 is deck A, 1 deck B.
+    property <int> play-a-index: Controls.resolve("[Channel1]", "play");
+    property <int> play-b-index: Controls.resolve("[Channel2]", "play");
+    property <bool> playing-a: Controls.value(play-a-index, Controls.tick) > 0;
+    property <bool> playing-b: Controls.value(play-b-index, Controls.tick) > 0;
+    property <int> master-deck: 0;
+    changed playing-a => {
+        if playing-a && !playing-b {
+            master-deck = 0;
+        } else if !playing-a && playing-b {
+            master-deck = 1;
+        }
+    }
+    changed playing-b => {
+        if playing-b && !playing-a {
+            master-deck = 1;
+        } else if !playing-b && playing-a {
+            master-deck = 0;
+        }
+    }
+
+    // Shortcuts no focused field took: ⌘, opens settings (Ctrl+, on
+    // Linux), Esc closes them, and the space bar pauses or resumes the
+    // master deck.
+    keys := FocusScope {
+        key-pressed(e) => {
+            if e.text == " " && !Preferences.open && !e.modifiers.control && !e.modifiers.meta && !e.modifiers.alt {
+                if master-deck == 0 {
+                    Controls.set-value(play-a-index, playing-a ? 0 : 1);
+                } else {
+                    Controls.set-value(play-b-index, playing-b ? 0 : 1);
+                }
+                return accept;
+            }
+            if e.text == "," && e.modifiers.control {
+                if Preferences.open {
+                    Preferences.open = false;
+                } else {
+                    Preferences.show(Preferences.page);
+                }
+                return accept;
+            }
+            if e.text == Key.Escape && Preferences.open {
+                Preferences.open = false;
+                return accept;
+            }
+            reject
+        }
+        VerticalLayout {
+            // The window's black shows between the panels as thin lines.
+            spacing: 1px;
+
+            // Top bar: pill-shaped groups on a dark strip, app name in the middle.
+            Rectangle {
+                height: 40px;
+                // The top bar moves the window, as a title bar would: on macOS
+                // the real one is hidden.
+                TouchArea {
+                    pointer-event(e) => {
+                        if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                            drag-window();
+                        }
+                    }
+                    double-clicked => { zoom-window(); }
+                }
+                // The logo and name, centred on the window whatever the pills' widths.
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("icons/opendj-mark.svg"); width: 32px; height: 20px; }
+                    }
+                    Text { text: "openDJ"; color: Theme.text; font-family: Theme.brand-font; font-size: 21px; vertical-alignment: center; }
+                }
+                HorizontalLayout {
+                    padding-left: 4px + traffic-light-inset;
+                    padding-right: 4px;
+                    spacing: 10px;
+                    LayoutPill { layout <=> root.layout; changed-to(l) => { layout-changed(l); } }
+                    LinkButton { }
+                    Rectangle { horizontal-stretch: 1; }
+                    Pill {
+                        // Only shown here: the master volume is in the mixer,
+                        // so the bar can always be dragged to move the window.
+                        Text { text: "MASTER"; color: Theme.text-dim; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; vertical-alignment: center; }
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 2px;
+                            VuMeter { group: "[Master]"; key: "VuMeterL"; width: 120px; height: 4px; vertical: false; segments: 24; }
+                            VuMeter { group: "[Master]"; key: "VuMeterR"; width: 120px; height: 4px; vertical: false; segments: 24; }
+                        }
+                        Text { text: clock; color: Theme.text; font-size: 14px; font-weight: 500; vertical-alignment: center; }
+                    }
+                    SettingsButton { }
+                }
+            }
+
+            // Scrolling waveforms, deck A above deck B
+            Rectangle {
+                // Not rounded or clipped: that renders into a cached layer, which
+                // would freeze the GPU-updated waveform images. Folded away while
+                // the library is expanded.
+                height: library-expanded ? 0px : 144px;
+                visible: !library-expanded;
+                background: Theme.well;
+                // Thin grey lines above, between and below the two waveforms.
+                VerticalLayout {
+                    spacing: 0px;
+                    Rectangle { height: 1px; background: Theme.border; }
+                    wf1 := Waveform { source: waveform-1; vertical-stretch: 1; }
+                    Rectangle { height: 1px; background: Theme.border; }
+                    Waveform { source: waveform-2; vertical-stretch: 1; }
+                    Rectangle { height: 1px; background: Theme.border; }
+                }
+            }
+
+            // Decks and mixer
+            // Split by thin black lines.
+            // In Player, folded away (rather than removed, so the overview
+            // sizes the renderer reads stay valid) for the compact row below.
+            HorizontalLayout {
+                spacing: 1px;
+                height: library-expanded || layout == 1 ? 0px : 316px;
+                visible: !library-expanded && layout == 0;
+                // The decks share the room equally whatever they show: sized by
+                // their contents, a changing time or title would nudge the
+                // mixer sideways every frame.
+                deck-a := Deck { deck: 0; info: decks[0]; spin: spin-1; overview: overview-1; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
+                Mixer { }
+                Deck { deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
+            }
+
+            // Player: the deck headers either side of the basics, in one short row.
+            HorizontalLayout {
+                spacing: 1px;
+                height: compact ? 108px : 0px;
+                visible: compact;
+                player-a := PlayerDeck { deck: 0; info: decks[0]; overview: overview-1; horizontal-stretch: 1; min-width: 330px; }
+                PlayerMixer { decks: decks; spin-1: spin-1; spin-2: spin-2; }
+                PlayerDeck { deck: 1; info: decks[1]; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 330px; }
+            }
+
+            browser := Browser {
+                vertical-stretch: 1;
+                folders: folders;
+                current-folder: current-folder;
+                folders-focused: folders-focused;
+                folder-name: folder-name;
+                folder-duration: folder-duration;
+                spotify-connected: spotify-connected;
+                spotify-user: spotify-user;
+                spotify-status: spotify-status;
+                spotify-client-id <=> spotify-client-id;
+                list-notice: list-notice;
+                select-source(s) => { select-source(s); }
+                sources-shown <=> sources-shown;
+                source-shown-changed(s, on) => { source-shown-changed(s, on); }
+                spotify-connect(id) => { spotify-connect(id); }
+                spotify-disconnect => { spotify-disconnect(); }
+                rows: tracks;
+                sort-column: sort-column;
+                ascending: sort-ascending;
+                side-rows: side-rows;
+                side-total: side-total;
+                select-folder(i) => { select-folder(i); }
+                toggle-folder(i) => { toggle-folder(i); }
+                sort(c) => { sort(c); }
+                search(t) => { search(t); }
+                activate(r) => { activate-track(r); }
+                side-activate(r) => { side-activate(r); }
+                side-remove(first, last) => { side-remove(first, last); }
+                automix-on: automix-on;
+                automix-status: automix-status;
+                automix-length: automix-length;
+                automix-style: automix-style;
+                automix-toggle => { automix-toggle(); }
+                automix-mix-now => { automix-mix-now(); }
+                automix-skip => { automix-skip(); }
+                automix-set-length(i) => { automix-set-length(i); }
+                automix-set-style(i) => { automix-set-style(i); }
+                side-visible: side-panel-visible;
+            }
+
+            // Footer: on the left, expand the library, leaving just the
+            // Player row above it; on the right, show or hide the side panel.
+            Rectangle {
+                height: 36px;
+                background: Theme.panel;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    alignment: space-between;
+                    FooterButton {
+                        y: 5px;
+                        lit: library-expanded;
+                        // A screen with an arrow pointing up, or down to fold back.
+                        icon: "M 2 4 L 18 4 L 18 16 L 2 16 Z M 10 13 L 10 7 M 7 10 L 10 7 L 13 10";
+                        lit-icon: "M 2 4 L 18 4 L 18 16 L 2 16 Z M 10 7 L 10 13 M 7 10 L 10 13 L 13 10";
+                        clicked => { library-expanded = !library-expanded; }
+                    }
+                    FooterButton {
+                        y: 5px;
+                        lit: side-panel-visible;
+                        // A list.
+                        icon: "M 6 5 L 18 5 M 6 10 L 18 10 M 6 15 L 18 15 M 2 5 L 3 5 M 2 10 L 3 10 M 2 15 L 3 15";
+                        clicked => { side-panel-visible = !side-panel-visible; }
+                    }
+                }
+            }
+        }
+
+        // Inside the shortcuts' scope, so Esc reaches it from the search box.
+        if Preferences.open: PreferencesOverlay {
+            width: root.width;
+            height: root.height;
+            init => { self.focus-search(); }
+        }
+    }
+}

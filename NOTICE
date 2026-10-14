@@ -1,0 +1,26 @@
+openDJ is a Rust application compatible with Mixxx (https://mixxx.org).
+
+Its control names, data formats and behaviour follow Mixxx, which is
+Copyright (C) 2001-2026 Mixxx Development Team and licensed under the
+GNU General Public License, version 2 or later. Files that port Mixxx
+code or maths say so in their header and keep that licence.
+
+The controller mappings and scripts in res/controllers are copied from
+Mixxx unchanged and keep their authors' copyright notices; see
+res/controllers/README.md.
+
+openDJ is not affiliated with or endorsed by the Mixxx project.
+
+The Inter typeface in crates/app/ui/fonts is Copyright (c) 2016-2023 The
+Inter Project Authors and is licensed under the SIL Open Font License 1.1
+(see crates/app/ui/fonts/OFL.txt). It is bundled into the application as
+a separate font, not as part of the GPL-licensed code.
+
+The user interface is built with Slint (https://slint.dev), Copyright
+SixtyFPS GmbH, used under the GNU General Public License, version 3.
+Because of that, built copies of the application are distributed under
+GPL-3.0, which the "or later" in this project's licence allows. The
+source files of this project remain GPL-2.0-or-later.
+
+Ableton Link is Copyright Ableton AG and is used under the GNU General
+Public License, version 2 or later.

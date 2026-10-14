@@ -1,0 +1,251 @@
+//! Plugins extend the app at a few fixed points:
+//!
+//! - [`StoreSearch`]: search a store and send the DJ to its page to buy a
+//!   track (or, for a download add-on, fetch it into the inbox). No plugin
+//!   ever takes payment or plays audio.
+//! - [`InboxHint`]: recognise files from a store when they land in the
+//!   purchase inbox (see [`inbox`]).
+//! - [`LibraryImport`]: bring in the library of another DJ app at start, as
+//!   an add-on built into the app.
+//!
+//! Plugins are compiled in for now ([`builtin`]); each runs on a thread of
+//! its own in the app, so a slow store never holds up the UI or the audio.
+
+use std::path::{Path, PathBuf};
+
+pub mod bandcamp;
+pub mod inbox;
+pub mod links;
+
+/// What a plugin is and which web hosts it talks to, as Settings shows it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Manifest {
+    /// Stable id, e.g. "bandcamp".
+    pub id: &'static str,
+    /// Name shown to the DJ, e.g. "Bandcamp".
+    pub name: &'static str,
+    /// Hosts the plugin contacts; empty for one that only opens links.
+    pub hosts: &'static [&'static str],
+    /// A download add-on rather than a store: its files are filed under
+    /// "Downloaded" instead of "Purchased".
+    pub downloads: bool,
+}
+
+pub trait Plugin: Send {
+    fn manifest(&self) -> &Manifest;
+    fn store(&mut self) -> Option<&mut dyn StoreSearch> {
+        None
+    }
+    fn inbox(&self) -> Option<&dyn InboxHint> {
+        None
+    }
+}
+
+/// What the DJ searched for: free text, and the artist and title when the
+/// search came from a track ("Find in store").
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StoreQuery {
+    pub text: String,
+    pub artist: Option<String>,
+    pub title: Option<String>,
+}
+
+impl StoreQuery {
+    pub fn text(text: &str) -> Self {
+        Self {
+            text: text.trim().to_string(),
+            ..Self::default()
+        }
+    }
+
+    /// A search for one track.
+    pub fn track(artist: &str, title: &str) -> Self {
+        let (artist, title) = (artist.trim(), title.trim());
+        Self {
+            text: [artist, title]
+                .iter()
+                .filter(|s| !s.is_empty())
+                .copied()
+                .collect::<Vec<_>>()
+                .join(" "),
+            artist: Some(artist.to_string()).filter(|s| !s.is_empty()),
+            title: Some(title.to_string()).filter(|s| !s.is_empty()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItemKind {
+    Track,
+    Release,
+    Artist,
+    Label,
+    /// A file someone offers on a download network.
+    File,
+}
+
+/// One search result.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StoreItem {
+    pub kind: ItemKind,
+    /// The store's name, as its manifest gives it.
+    pub store: String,
+    pub artist: String,
+    pub title: String,
+    /// The release a track is on, or details of a file (format, size).
+    pub release: String,
+    /// Length in seconds, when known.
+    pub duration: f64,
+    pub artwork_url: Option<String>,
+    /// The page to buy it on; opened in the browser.
+    pub page_url: Option<String>,
+    /// For a download add-on: what to pass back to [`StoreSearch::download`].
+    pub download: Option<String>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum PluginError {
+    /// The store couldn't be reached, or said no.
+    Network(String),
+    /// The store answered with something we don't understand (it may have
+    /// changed its site).
+    Format(String),
+    /// The plugin doesn't do this (e.g. a store we only link to).
+    NotSupported,
+}
+
+impl std::fmt::Display for PluginError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PluginError::Network(e) => write!(f, "{e}"),
+            PluginError::Format(e) => write!(f, "unexpected answer: {e}"),
+            PluginError::NotSupported => write!(f, "not supported"),
+        }
+    }
+}
+
+pub trait StoreSearch: Send {
+    /// Results to show in the app. Stores we only link to return
+    /// [`PluginError::NotSupported`] and are offered by [`Self::search_url`].
+    fn search(&mut self, query: &StoreQuery) -> Result<Vec<StoreItem>, PluginError>;
+
+    /// The store's own search page for this query, opened in the browser
+    /// when in-app results aren't available.
+    fn search_url(&self, query: &StoreQuery) -> Option<String>;
+
+    /// Fetches a result into `dir` (the purchase inbox). Only download
+    /// add-ons do this.
+    fn download(&mut self, _item: &StoreItem, _dir: &Path) -> Result<(), PluginError> {
+        Err(PluginError::NotSupported)
+    }
+}
+
+/// A file that arrived in the inbox, with what its tags say.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InboxFile {
+    pub path: PathBuf,
+    pub artist: String,
+    pub title: String,
+    pub album: String,
+    pub comment: String,
+    /// The name of the zip it came out of, if any.
+    pub archive: Option<String>,
+}
+
+impl InboxFile {
+    pub fn file_name(&self) -> String {
+        self.path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
+}
+
+pub trait InboxHint {
+    /// How sure (0..1) the plugin is that the file came from its store.
+    fn recognise(&self, file: &InboxFile) -> f32;
+}
+
+/// Another app's library that comes into the collection at start: its
+/// tracks with their tags, ratings, colours, grids and cues. An add-on;
+/// none come with the app.
+pub trait LibraryImport: Send {
+    /// A short, stable name, kept as the source of the tracks it brings in.
+    fn id(&self) -> &str;
+    /// The library file to read, if there is one on this computer.
+    fn database(&self) -> Option<PathBuf>;
+    /// Reads the tracks in `database`, local files only.
+    fn read(&self, database: &Path) -> Result<Vec<mixxx_engine::Track>, String>;
+}
+
+/// The plugins that come with the app: Bandcamp, then the stores we link to.
+pub fn builtin() -> Vec<Box<dyn Plugin>> {
+    let mut out: Vec<Box<dyn Plugin>> = vec![Box::new(bandcamp::Bandcamp::new())];
+    out.extend(
+        links::STORES
+            .iter()
+            .map(|s| Box::new(links::LinkStore(s)) as Box<dyn Plugin>),
+    );
+    out
+}
+
+/// The User-Agent plugins send, so stores can see who is asking.
+pub const USER_AGENT: &str = concat!(
+    "openDJ/",
+    env!("CARGO_PKG_VERSION"),
+    " (+https://github.com/sebastian-beca/opendj)"
+);
+
+/// Percent-encodes text for a URL query.
+pub fn encode(text: &str) -> String {
+    let mut out = String::new();
+    for b in text.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Only web pages are opened from a result: no `file:` or other schemes.
+pub fn is_web_url(url: &str) -> bool {
+    url.starts_with("https://") || url.starts_with("http://")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encodes_queries() {
+        assert_eq!(encode("Daft Punk & co/é"), "Daft+Punk+%26+co%2F%C3%A9");
+    }
+
+    #[test]
+    fn track_query_joins_artist_and_title() {
+        let q = StoreQuery::track(" Bonobo ", "Kerala");
+        assert_eq!(q.text, "Bonobo Kerala");
+        assert_eq!(q.artist.as_deref(), Some("Bonobo"));
+        let q = StoreQuery::track("", "Kerala");
+        assert_eq!(q.text, "Kerala");
+        assert_eq!(q.artist, None);
+    }
+
+    #[test]
+    fn builtin_has_bandcamp_first() {
+        let p = builtin();
+        assert_eq!(p[0].manifest().id, "bandcamp");
+        assert!(p.len() > 1);
+    }
+
+    #[test]
+    fn only_web_urls() {
+        assert!(is_web_url("https://x.bandcamp.com/track/y"));
+        assert!(!is_web_url("file:///etc/passwd"));
+        assert!(!is_web_url("javascript:alert(1)"));
+    }
+}

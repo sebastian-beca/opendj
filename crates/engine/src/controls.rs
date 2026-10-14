@@ -1,0 +1,593 @@
+//! Engine controls, created under Mixxx's names so skins and mappings written
+//! for Mixxx find them: `[Channel1],play`, `[Master],crossfader`, ...
+
+use crate::beats::GridEdit;
+use mixxx_control::{Behavior, ConfigKey, ControlHandle, ControlRegistry};
+
+pub const NUM_DECKS: usize = 2;
+pub const NUM_HOTCUES: usize = 8;
+pub const NUM_EFFECT_UNITS: usize = 4;
+pub const EFFECTS_PER_UNIT: usize = 3;
+
+pub fn deck_group(deck: usize) -> String {
+    format!("[Channel{}]", deck + 1)
+}
+
+pub fn eq_group(deck: usize) -> String {
+    format!("[EqualizerRack1_[Channel{}]_Effect1]", deck + 1)
+}
+
+pub fn quick_effect_group(deck: usize) -> String {
+    format!("[QuickEffectRack1_[Channel{}]]", deck + 1)
+}
+
+/// The Model 1-style sculpt filters (see [`crate::dsp::Sculpt`]).
+pub fn sculpt_group(deck: usize) -> String {
+    format!("[Sculpt_[Channel{}]]", deck + 1)
+}
+
+pub fn effect_unit_group(unit: usize) -> String {
+    format!("[EffectRack1_EffectUnit{}]", unit + 1)
+}
+
+pub fn effect_group(unit: usize, effect: usize) -> String {
+    format!("[EffectRack1_EffectUnit{}_Effect{}]", unit + 1, effect + 1)
+}
+
+pub(crate) struct Hotcue {
+    pub(crate) activate: ControlHandle,
+    pub(crate) clear: ControlHandle,
+    pub(crate) enabled: ControlHandle,
+    /// Mixxx 2.4's hotcue_N_status: 0 empty, 1 set, 2 active (held).
+    pub(crate) status: ControlHandle,
+    pub(crate) position: ControlHandle,
+    pub(crate) goto_play: ControlHandle,
+    pub(crate) goto_stop: ControlHandle,
+    /// Presses of activate, gotoandplay and gotoandstop.
+    pub(crate) edges: [Edge; 3],
+}
+
+/// One stem's controls, `[ChannelN_StemM]` as in Mixxx 2.6.
+pub(crate) struct StemControls {
+    pub(crate) volume: ControlHandle,
+    pub(crate) mute: ControlHandle,
+    /// 0xRRGGBB, or -1 with no stem.
+    pub(crate) color: ControlHandle,
+}
+
+pub fn stem_group(deck: usize, stem: usize) -> String {
+    format!("[Channel{}_Stem{}]", deck + 1, stem + 1)
+}
+
+pub(crate) struct DeckControls {
+    /// Stems in the loaded track (0 without stems).
+    pub(crate) stem_count: ControlHandle,
+    pub(crate) stems: [StemControls; crate::stems::MAX_STEMS],
+    pub(crate) play: ControlHandle,
+    pub(crate) pfl: ControlHandle,
+    pub(crate) cue_default: ControlHandle,
+    /// CUP: seeks to the cue point (or sets it when stopped), plays on release.
+    pub(crate) cue_play: ControlHandle,
+    pub(crate) cue_point: ControlHandle,
+    /// What CUE does when stopped, as Mixxx's `cue_mode`: 3 (Numark) only
+    /// sets and returns to the cue point; the others also play while CUE is
+    /// held at the cue point.
+    pub(crate) cue_mode: ControlHandle,
+    pub(crate) sync_enabled: ControlHandle,
+    pub(crate) rate: ControlHandle,
+    pub(crate) rate_range: ControlHandle,
+    pub(crate) playposition: ControlHandle,
+    pub(crate) volume: ControlHandle,
+    pub(crate) pregain: ControlHandle,
+    /// The auto gain applied to the deck's track, as a factor (Mixxx's
+    /// ReplayGain control of the same name).
+    pub(crate) replaygain: ControlHandle,
+    pub(crate) vu: ControlHandle,
+    pub(crate) vu_lr: [ControlHandle; 2],
+    pub(crate) track_loaded: ControlHandle,
+    pub(crate) bpm: ControlHandle,
+    pub(crate) duration: ControlHandle,
+    pub(crate) beat_active: ControlHandle,
+    pub(crate) loop_enabled: ControlHandle,
+    pub(crate) loop_start: ControlHandle,
+    pub(crate) loop_end: ControlHandle,
+    /// Lit from loop_in until loop_out closes the loop (or another loop
+    /// starts): the loop is being marked out.
+    pub(crate) loop_in_pending: ControlHandle,
+    pub(crate) beatloop_size: ControlHandle,
+    pub(crate) quantize: ControlHandle,
+    /// beatloop_N_enabled lights, by loop size in beats.
+    pub(crate) beatloop_lights: Vec<(f64, ControlHandle)>,
+    pub(crate) pushes: Vec<Push>,
+    pub(crate) eq: [ControlHandle; 3],
+    pub(crate) eq_kill: [ControlHandle; 3],
+    pub(crate) filter: ControlHandle,
+    pub(crate) quick_enabled: ControlHandle,
+    /// `[Sculpt_[ChannelN]]` hpf, freq, gain and lpf.
+    pub(crate) sculpt: [ControlHandle; 4],
+    pub(crate) hotcues: Vec<Hotcue>,
+    /// Mixxx's hotcue_focus: the last hot cue pressed (1-based), -1 for none.
+    pub(crate) hotcue_focus: ControlHandle,
+    /// Speed while scratch2_enable is on, in multiples of normal speed.
+    pub(crate) scratch2: ControlHandle,
+    pub(crate) scratch2_enable: ControlHandle,
+    /// Dragging on the overview: while `scrub_enable` is on the deck glides
+    /// to `scrub_position` (0..1 through the track), playing what it passes.
+    pub(crate) scrub_enable: ControlHandle,
+    pub(crate) scrub_position: ControlHandle,
+    /// Jog wheel movement since the engine last looked; the engine zeroes it.
+    pub(crate) jog: ControlHandle,
+    /// Fast seek speed while non-zero, in multiples of normal speed.
+    pub(crate) rate_search: ControlHandle,
+    /// rate_temp_up, rate_temp_down, rate_temp_up_small, rate_temp_down_small.
+    pub(crate) rate_temp: [ControlHandle; 4],
+    pub(crate) reverse: ControlHandle,
+    pub(crate) reverseroll: ControlHandle,
+    pub(crate) slip_enabled: ControlHandle,
+    pub(crate) mute: ControlHandle,
+    pub(crate) play_indicator: ControlHandle,
+    pub(crate) cue_indicator: ControlHandle,
+    pub(crate) peak: ControlHandle,
+    pub(crate) beatjump_size: ControlHandle,
+    /// Set to N to jump N beats; the engine zeroes it.
+    pub(crate) beatjump: ControlHandle,
+    /// Set to N to multiply the loop length by N; the engine zeroes it.
+    pub(crate) loop_scale: ControlHandle,
+    pub(crate) eject: ControlHandle,
+    pub(crate) beatsync: ControlHandle,
+    /// beatlooproll_N_activate by size, plus beatlooproll_activate as size 0
+    /// (meaning beatloop_size). Each loops while held.
+    pub(crate) rolls: Vec<(f64, ControlHandle, Edge)>,
+    pub(crate) keylock: ControlHandle,
+    /// Key shift in semitones on top of the file's key (Mixxx's `pitch`;
+    /// `pitch_adjust` is the same control here).
+    pub(crate) pitch: ControlHandle,
+    /// The key being played and the file's key, as Mixxx numbers keys.
+    pub(crate) key: ControlHandle,
+    pub(crate) file_key: ControlHandle,
+    pub(crate) sync_key: ControlHandle,
+    pub(crate) sync_key_edge: Edge,
+}
+
+impl DeckControls {
+    pub(crate) fn create(reg: &ControlRegistry, deck: usize) -> Self {
+        let g = deck_group(deck);
+        let g = g.as_str();
+        let eqg = eq_group(deck);
+        let qg = quick_effect_group(deck);
+        alias(reg, g, "peak_indicator", g, "PeakIndicator");
+        alias(reg, g, "vu_meter", g, "VuMeter");
+        alias(reg, g, "vu_meter_left", g, "VuMeterL");
+        alias(reg, g, "vu_meter_right", g, "VuMeterR");
+        reg.indicator(g, "playposition_seconds", 3600.0);
+        alias(reg, g, "pitch_adjust", g, "pitch");
+        // Chain presets are not implemented: the empty preset and the filter,
+        // which is always loaded.
+        reg.create(&qg, "loaded_chain_preset", 1.0, -1.0, 64.0, Behavior::Free);
+        reg.indicator(&qg, "num_chain_presets", 64.0).set(2.0);
+        reg.push(&qg, "next_chain_preset");
+        reg.push(&qg, "prev_chain_preset");
+        // The EQ slot says how many knobs and kills it has, as Mixxx's does;
+        // mappings that build their EQ knobs from these find none otherwise.
+        reg.indicator(&eqg, "num_parameters", 3.0).set(3.0);
+        reg.indicator(&eqg, "num_button_parameters", 3.0).set(3.0);
+        let hotcues = (1..=NUM_HOTCUES)
+            .map(|n| Hotcue {
+                activate: reg.push(g, &format!("hotcue_{n}_activate")),
+                clear: reg.push(g, &format!("hotcue_{n}_clear")),
+                enabled: reg.indicator(g, &format!("hotcue_{n}_enabled"), 1.0),
+                status: reg.indicator(g, &format!("hotcue_{n}_status"), 2.0),
+                position: reg.indicator(g, &format!("hotcue_{n}_position"), 3600.0),
+                goto_play: reg.push(g, &format!("hotcue_{n}_gotoandplay")),
+                goto_stop: reg.push(g, &format!("hotcue_{n}_gotoandstop")),
+                edges: [Edge::default(); 3],
+            })
+            .collect();
+        let mut rolls: Vec<_> = BEATLOOP_SIZES
+            .iter()
+            .map(|&size| {
+                let key = format!("beatlooproll_{}_activate", size_name(size));
+                (size, reg.push(g, &key), Edge::default())
+            })
+            .collect();
+        rolls.push((0.0, reg.push(g, "beatlooproll_activate"), Edge::default()));
+        Self {
+            stem_count: reg.indicator(g, "stem_count", 4.0),
+            stems: std::array::from_fn(|s| {
+                let sg = stem_group(deck, s);
+                let color = reg.create(&sg, "color", -1.0, -1.0, 16_777_215.0, Behavior::Indicator);
+                StemControls {
+                    // Up to +6 dB, so the mixer's stem knobs centre on full volume.
+                    volume: reg.create(&sg, "volume", 1.0, 0.0, 2.0, Behavior::CenteredOnDefault),
+                    mute: reg.toggle(&sg, "mute"),
+                    color,
+                }
+            }),
+            play: reg.toggle(g, "play"),
+            pfl: reg.toggle(g, "pfl"),
+            cue_default: reg.push(g, "cue_default"),
+            cue_play: reg.push(g, "cue_play"),
+            cue_point: reg.indicator(g, "cue_point", 3600.0),
+            cue_mode: reg.create(g, "cue_mode", 1.0, 0.0, 5.0, Behavior::Free),
+            sync_enabled: reg.toggle(g, "sync_enabled"),
+            rate: reg.create(g, "rate", 0.0, -1.0, 1.0, Behavior::Linear),
+            rate_range: reg.create(g, "rateRange", 0.08, 0.01, 1.0, Behavior::Linear),
+            playposition: reg.create(g, "playposition", 0.0, 0.0, 1.0, Behavior::Linear),
+            volume: reg.create(g, "volume", 1.0, 0.0, 1.0, Behavior::Linear),
+            pregain: reg.create(g, "pregain", 1.0, 0.0, 4.0, Behavior::CenteredOnDefault),
+            replaygain: reg.indicator(g, "replaygain", 16.0),
+            vu: reg.indicator(g, "VuMeter", 1.0),
+            vu_lr: ["L", "R"].map(|s| reg.indicator(g, &format!("VuMeter{s}"), 1.0)),
+            track_loaded: reg.indicator(g, "track_loaded", 1.0),
+            bpm: reg.indicator(g, "bpm", 300.0),
+            duration: reg.indicator(g, "duration", 3600.0),
+            beat_active: reg.indicator(g, "beat_active", 1.0),
+            loop_enabled: reg.toggle(g, "loop_enabled"),
+            // Mixxx reports these in samples; this engine uses seconds.
+            loop_start: reg.indicator(g, "loop_start_position", 3600.0),
+            loop_end: reg.indicator(g, "loop_end_position", 3600.0),
+            loop_in_pending: reg.indicator(g, "loop_in_pending", 1.0),
+            beatloop_size: reg.create(g, "beatloop_size", 4.0, 1.0 / 32.0, 512.0, Behavior::Linear),
+            quantize: {
+                let q = reg.toggle(g, "quantize");
+                q.set_bool(true);
+                q
+            },
+            beatloop_lights: BEATLOOP_SIZES
+                .iter()
+                .map(|&size| {
+                    (
+                        size,
+                        reg.indicator(g, &format!("beatloop_{}_enabled", size_name(size)), 1.0),
+                    )
+                })
+                .collect(),
+            pushes: deck_pushes(reg, g),
+            eq: [1, 2, 3].map(|n| {
+                reg.create(
+                    &eqg,
+                    &format!("parameter{n}"),
+                    1.0,
+                    0.0,
+                    4.0,
+                    Behavior::CenteredOnDefault,
+                )
+            }),
+            eq_kill: [1, 2, 3].map(|n| reg.toggle(&eqg, &format!("button_parameter{n}"))),
+            filter: reg.create(&qg, "super1", 0.5, 0.0, 1.0, Behavior::Linear),
+            sculpt: {
+                let sg = sculpt_group(deck);
+                [("hpf", 0.0), ("freq", 0.5), ("gain", 0.5), ("lpf", 1.0)]
+                    .map(|(k, v)| reg.create(&sg, k, v, 0.0, 1.0, Behavior::Linear))
+            },
+            quick_enabled: {
+                let e = reg.toggle(&qg, "enabled");
+                e.set_bool(true);
+                e
+            },
+            hotcues,
+            hotcue_focus: reg.create(
+                g,
+                "hotcue_focus",
+                -1.0,
+                -1.0,
+                NUM_HOTCUES as f64,
+                Behavior::Free,
+            ),
+            scratch2: reg.create(g, "scratch2", 0.0, -100.0, 100.0, Behavior::Free),
+            scratch2_enable: reg.toggle(g, "scratch2_enable"),
+            scrub_enable: reg.toggle(g, "scrub_enable"),
+            scrub_position: reg.create(g, "scrub_position", 0.0, 0.0, 1.0, Behavior::Linear),
+            jog: reg.create(g, "jog", 0.0, -1000.0, 1000.0, Behavior::Free),
+            rate_search: reg.create(g, "rateSearch", 0.0, -300.0, 300.0, Behavior::Free),
+            rate_temp: ["up", "down", "up_small", "down_small"]
+                .map(|k| reg.push(g, &format!("rate_temp_{k}"))),
+            reverse: reg.toggle(g, "reverse"),
+            reverseroll: reg.push(g, "reverseroll"),
+            slip_enabled: reg.toggle(g, "slip_enabled"),
+            mute: reg.toggle(g, "mute"),
+            play_indicator: reg.indicator(g, "play_indicator", 1.0),
+            cue_indicator: reg.indicator(g, "cue_indicator", 1.0),
+            peak: reg.indicator(g, "PeakIndicator", 1.0),
+            beatjump_size: reg.create(g, "beatjump_size", 4.0, 1.0 / 32.0, 512.0, Behavior::Linear),
+            beatjump: reg.create(g, "beatjump", 0.0, -512.0, 512.0, Behavior::Free),
+            loop_scale: reg.create(g, "loop_scale", 0.0, 0.0, 64.0, Behavior::Free),
+            eject: reg.push(g, "eject"),
+            beatsync: reg.push(g, "beatsync"),
+            rolls,
+            keylock: reg.toggle(g, "keylock"),
+            pitch: reg.create(g, "pitch", 0.0, -6.0, 6.0, Behavior::Linear),
+            key: reg.indicator(g, "key", 24.0),
+            file_key: reg.indicator(g, "file_key", 24.0),
+            sync_key: reg.push(g, "sync_key"),
+            sync_key_edge: Edge::default(),
+        }
+    }
+}
+
+/// Loop sizes with their own pads (Mixxx `beatloop_N_activate`).
+pub const BEATLOOP_SIZES: [f64; 8] = [0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0];
+/// Beat jump sizes with their own buttons (Mixxx `beatjump_N_forward` / `_backward`).
+pub const BEATJUMP_SIZES: [f64; 6] = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
+
+/// Formats a beat count the way Mixxx control names do: `0.5`, `1`, `16`.
+pub fn size_name(size: f64) -> String {
+    if size.fract() == 0.0 {
+        format!("{}", size as i64)
+    } else {
+        format!("{size}")
+    }
+}
+
+/// What a momentary button does when pressed.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Action {
+    BeatLoop(f64),
+    BeatLoopToggle,
+    LoopHalve,
+    LoopDouble,
+    LoopIn,
+    LoopOut,
+    Reloop,
+    BeatJump(f64),
+    /// Jumps beatjump_size beats in the given direction (+1 or -1).
+    BeatJumpSized(f64),
+    /// Nudges the tempo by a fraction of normal speed (0.001 = 0.1%).
+    RateStep(f64),
+    /// Seeks to the start; `Some(play)` also starts or stops playback.
+    Start(Option<bool>),
+    End,
+    /// Seeks to the cue point, then plays or stops.
+    CueGoto(bool),
+    ReloopAndStop,
+    /// Changes the loaded track's beat grid at the play position.
+    Grid(GridEdit),
+    /// Shifts the key by this many semitones.
+    KeyStep(f64),
+    KeyReset,
+}
+
+pub(crate) struct Push {
+    pub(crate) control: ControlHandle,
+    pub(crate) edge: Edge,
+    pub(crate) action: Action,
+}
+
+pub(crate) fn deck_pushes(reg: &ControlRegistry, g: &str) -> Vec<Push> {
+    let mut v = vec![
+        ("beatloop_activate".to_string(), Action::BeatLoopToggle),
+        ("loop_halve".into(), Action::LoopHalve),
+        ("loop_double".into(), Action::LoopDouble),
+        ("loop_in".into(), Action::LoopIn),
+        ("loop_out".into(), Action::LoopOut),
+        ("reloop_toggle".into(), Action::Reloop),
+        ("rate_perm_up_small".into(), Action::RateStep(0.001)),
+        ("rate_perm_down_small".into(), Action::RateStep(-0.001)),
+        // Mixxx's default coarse permanent rate step is 0.5%.
+        ("rate_perm_up".into(), Action::RateStep(0.005)),
+        ("rate_perm_down".into(), Action::RateStep(-0.005)),
+        ("beatjump_forward".into(), Action::BeatJumpSized(1.0)),
+        ("beatjump_backward".into(), Action::BeatJumpSized(-1.0)),
+        ("start".into(), Action::Start(None)),
+        ("start_play".into(), Action::Start(Some(true))),
+        ("start_stop".into(), Action::Start(Some(false))),
+        ("end".into(), Action::End),
+        ("cue_gotoandplay".into(), Action::CueGoto(true)),
+        ("cue_gotoandstop".into(), Action::CueGoto(false)),
+        ("reloop_andstop".into(), Action::ReloopAndStop),
+        (
+            "beats_translate_curpos".into(),
+            Action::Grid(GridEdit::BeatHere),
+        ),
+        (
+            "beats_translate_earlier".into(),
+            Action::Grid(GridEdit::Shift(-0.005)),
+        ),
+        (
+            "beats_translate_later".into(),
+            Action::Grid(GridEdit::Shift(0.005)),
+        ),
+        (
+            "beats_adjust_faster".into(),
+            Action::Grid(GridEdit::Tempo(0.01)),
+        ),
+        (
+            "beats_adjust_slower".into(),
+            Action::Grid(GridEdit::Tempo(-0.01)),
+        ),
+        ("beats_undo_adjustment".into(), Action::Grid(GridEdit::Undo)),
+        // Not in Mixxx: tempo sections and halving or doubling.
+        (
+            "beats_section_add".into(),
+            Action::Grid(GridEdit::AddSection),
+        ),
+        (
+            "beats_section_remove".into(),
+            Action::Grid(GridEdit::RemoveSection),
+        ),
+        (
+            "beats_scale_half".into(),
+            Action::Grid(GridEdit::Scale(0.5)),
+        ),
+        (
+            "beats_scale_double".into(),
+            Action::Grid(GridEdit::Scale(2.0)),
+        ),
+        ("pitch_up".into(), Action::KeyStep(1.0)),
+        ("pitch_down".into(), Action::KeyStep(-1.0)),
+        ("pitch_up_small".into(), Action::KeyStep(0.1)),
+        ("pitch_down_small".into(), Action::KeyStep(-0.1)),
+        ("reset_key".into(), Action::KeyReset),
+    ];
+    for size in BEATLOOP_SIZES {
+        // _activate here already turns off a loop of the same size, as _toggle does.
+        for suffix in ["activate", "toggle"] {
+            v.push((
+                format!("beatloop_{}_{suffix}", size_name(size)),
+                Action::BeatLoop(size),
+            ));
+        }
+    }
+    for size in BEATJUMP_SIZES {
+        v.push((
+            format!("beatjump_{}_forward", size_name(size)),
+            Action::BeatJump(size),
+        ));
+        v.push((
+            format!("beatjump_{}_backward", size_name(size)),
+            Action::BeatJump(-size),
+        ));
+    }
+    v.into_iter()
+        .map(|(key, action)| Push {
+            control: reg.push(g, &key),
+            edge: Edge::default(),
+            action,
+        })
+        .collect()
+}
+
+pub(crate) struct MasterControls {
+    pub(crate) crossfader: ControlHandle,
+    pub(crate) gain: ControlHandle,
+    pub(crate) head_gain: ControlHandle,
+    pub(crate) head_mix: ControlHandle,
+    /// Booth output level, on channels 5/6 of the main device.
+    pub(crate) booth_gain: ControlHandle,
+    /// Headphones hear the cue on the left and the main mix on the right,
+    /// both in mono.
+    pub(crate) head_split: ControlHandle,
+    /// The crossfader's curve: 0 smooth (constant power), 1 linear, 2 a
+    /// sharp cut at the ends for scratching.
+    pub(crate) xfader_shape: ControlHandle,
+    pub(crate) xfader_reverse: ControlHandle,
+    pub(crate) balance: ControlHandle,
+    pub(crate) vu: ControlHandle,
+    pub(crate) vu_l: ControlHandle,
+    pub(crate) vu_r: ControlHandle,
+    /// PeakIndicator, PeakIndicatorL and PeakIndicatorR.
+    pub(crate) peak: [ControlHandle; 3],
+    /// Auto gain: levels every track to `auto_gain_target` LUFS.
+    pub(crate) auto_gain: ControlHandle,
+    pub(crate) auto_gain_target: ControlHandle,
+}
+
+pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
+    for g in ["[Master]", "[App]"] {
+        reg.indicator(g, "num_decks", 4.0).set(NUM_DECKS as f64);
+        reg.indicator(g, "num_samplers", 64.0);
+    }
+    for g in ["[Master]", "[Main]"] {
+        for (new, old) in [
+            ("peak_indicator", "PeakIndicator"),
+            ("peak_indicator_left", "PeakIndicatorL"),
+            ("peak_indicator_right", "PeakIndicatorR"),
+            ("vu_meter", "VuMeter"),
+            ("vu_meter_left", "VuMeterL"),
+            ("vu_meter_right", "VuMeterR"),
+        ] {
+            alias(reg, g, new, "[Master]", old);
+        }
+    }
+    // Off: a track can't be loaded onto a deck that is playing.
+    reg.create(
+        "[Controls]",
+        "AllowTrackLoadToPlayingDeck",
+        0.0,
+        0.0,
+        1.0,
+        Behavior::Free,
+    );
+    MasterControls {
+        balance: reg.create("[Master]", "balance", 0.0, -1.0, 1.0, Behavior::Linear),
+        vu: reg.indicator("[Master]", "VuMeter", 1.0),
+        peak: ["", "L", "R"].map(|s| reg.indicator("[Master]", &format!("PeakIndicator{s}"), 1.0)),
+        crossfader: reg.create("[Master]", "crossfader", 0.0, -1.0, 1.0, Behavior::Linear),
+        gain: reg.create(
+            "[Master]",
+            "gain",
+            1.0,
+            0.0,
+            5.0,
+            Behavior::CenteredOnDefault,
+        ),
+        head_gain: reg.create(
+            "[Master]",
+            "headGain",
+            1.0,
+            0.0,
+            5.0,
+            Behavior::CenteredOnDefault,
+        ),
+        head_mix: reg.create("[Master]", "headMix", 0.0, -1.0, 1.0, Behavior::Linear),
+        booth_gain: reg.create(
+            "[Master]",
+            "booth_gain",
+            1.0,
+            0.0,
+            5.0,
+            Behavior::CenteredOnDefault,
+        ),
+        head_split: reg.toggle("[Master]", "headSplit"),
+        xfader_shape: reg.create(
+            "[Mixer Profile]",
+            "xFaderShape",
+            0.0,
+            0.0,
+            2.0,
+            Behavior::Free,
+        ),
+        xfader_reverse: reg.toggle("[Mixer Profile]", "xFaderReverse"),
+        vu_l: reg.indicator("[Master]", "VuMeterL", 1.0),
+        vu_r: reg.indicator("[Master]", "VuMeterR", 1.0),
+        // Mixxx keeps its ReplayGain switch in the [ReplayGain] group too.
+        auto_gain: reg.create(
+            "[ReplayGain]",
+            "ReplayGainEnabled",
+            1.0,
+            0.0,
+            1.0,
+            Behavior::Toggle,
+        ),
+        auto_gain_target: reg.create(
+            "[ReplayGain]",
+            "target_lufs",
+            DEFAULT_AUTO_GAIN_TARGET,
+            -30.0,
+            0.0,
+            Behavior::Free,
+        ),
+    }
+}
+
+/// The loudness auto gain levels tracks to by default, in LUFS: where
+/// streaming services level music, about 6 dB below a typical club master.
+pub const DEFAULT_AUTO_GAIN_TARGET: f64 = -14.0;
+
+/// Mixxx 2.4 renamed the meters (`VuMeter` is now `vu_meter`, ...); mappings
+/// use both names.
+fn alias(reg: &ControlRegistry, group: &str, key: &str, target_group: &str, target: &str) {
+    reg.insert_alias(
+        ConfigKey::new(group, key),
+        ConfigKey::new(target_group, target),
+    );
+}
+
+/// Detects presses of a momentary control. Also catches a press and release that
+/// both happened between two ticks, which a plain "was it down" check would miss.
+#[derive(Default, Clone, Copy)]
+pub(crate) struct Edge {
+    down: bool,
+    version: u32,
+}
+
+impl Edge {
+    pub(crate) fn pressed(&mut self, c: &ControlHandle) -> bool {
+        let (down, version) = (c.get_bool(), c.version());
+        let changes = version.wrapping_sub(self.version);
+        let pressed = (down && !self.down) || (!down && changes >= 2);
+        self.down = down;
+        self.version = version;
+        pressed
+    }
+}

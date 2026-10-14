@@ -1,0 +1,755 @@
+//! Library search, in Mixxx's search syntax so DJs coming from Mixxx can type
+//! what they already know, plus a few additions. Smart lists are saved
+//! searches, so the same text drives both.
+//!
+//! - Plain words match the artist, title, album, genre, comment, grouping
+//!   and tags; `"two words"` matches a phrase.
+//! - `field:value` searches one field: `artist:`, `title:`, `album:`,
+//!   `genre:`, `comment:`, `grouping:`, `tag:`, `key:`, `location:`.
+//!   `field:=value` matches the whole field, `field:""` an empty one.
+//! - Numbers: `bpm:`, `rating:`, `played:` and `duration:` take a value,
+//!   `>`, `>=`, `<`, `<=` or a range `a-b`; durations as `3:30`, `5m` or seconds.
+//!   `added:` takes days or weeks ago (`added:<7d`, `added:<2w`) or a date
+//!   (`added:>=2026-01-31`).
+//! - `~key:8A` finds keys that mix with 8A, `~bpm:124` tempos within 6%
+//!   (also at half or double tempo). `~deck` finds tracks that mix with the
+//!   track playing now, by key and tempo.
+//! - `color:red` (or orange, yellow, green, cyan, blue, purple, pink),
+//!   `is:missing`, `is:duplicate`, `is:played`, `is:cued`.
+//! - `-` in front of any term excludes it. Terms must all match; `|` or `OR`
+//!   between groups of terms matches either.
+
+use std::collections::HashSet;
+use std::path::Path;
+
+use mixxx_engine::key::Key;
+use mixxx_engine::{Source, Track};
+
+/// Tempos within this fraction count as close for `~bpm` and `~deck`.
+const BPM_TOLERANCE: f64 = 0.06;
+
+/// Track colours by name, as the track menu offers them (0xRRGGBB).
+pub const COLOR_NAMES: [(&str, u32); 8] = [
+    ("red", 0xff3b30),
+    ("orange", 0xff9500),
+    ("yellow", 0xffcc00),
+    ("green", 0x34c759),
+    ("cyan", 0x5ac8fa),
+    ("blue", 0x007aff),
+    ("purple", 0xaf52de),
+    ("pink", 0xff2d55),
+];
+
+/// A parsed search: any one of the alternatives matches, and an alternative
+/// matches when all its terms do.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Query {
+    alternatives: Vec<Vec<Term>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct Term {
+    negated: bool,
+    test: Test,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TextField {
+    Artist,
+    Title,
+    Album,
+    Genre,
+    Comment,
+    Grouping,
+    Tag,
+    Key,
+    Location,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NumberField {
+    Bpm,
+    Rating,
+    Played,
+    Duration,
+    /// Days since the track was added.
+    AddedDaysAgo,
+    /// When the track was added, as a Unix time.
+    AddedAt,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Compare {
+    Eq(f64),
+    Lt(f64),
+    Le(f64),
+    Gt(f64),
+    Ge(f64),
+    Range(f64, f64),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Flag {
+    Missing,
+    Duplicate,
+    Played,
+    Cued,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum Test {
+    /// Lowercased text found in any of the searchable text fields.
+    Anywhere(String),
+    Contains(TextField, String),
+    Exactly(TextField, String),
+    Empty(TextField),
+    Number(NumberField, Compare),
+    KeyIs(Key),
+    KeyMixes(Key),
+    BpmNear(f64),
+    MixesWithDeck,
+    Color(Option<u32>),
+    Is(Flag),
+    /// A term that can't be understood matches nothing, so a typo shows an
+    /// empty list rather than everything.
+    Never,
+}
+
+/// What a search compares tracks against besides the tracks themselves.
+#[derive(Default)]
+pub struct Context<'a> {
+    /// Now, as a Unix time.
+    pub now: i64,
+    /// The tempo and key of the track playing now, for `~deck`.
+    pub deck: Option<(f64, Option<Key>)>,
+    /// That track's id, which `~deck` leaves out.
+    pub deck_track: Option<usize>,
+    /// Ids of tracks that are in the library more than once.
+    pub duplicates: Option<&'a HashSet<usize>>,
+}
+
+/// A track's text fields lowercased once, so searching while typing stays
+/// fast in a large library.
+#[derive(Clone, Debug, Default)]
+pub struct Indexed {
+    artist: String,
+    title: String,
+    album: String,
+    genre: String,
+    comment: String,
+    grouping: String,
+    tags: String,
+    location: String,
+}
+
+impl Indexed {
+    pub fn new(t: &Track) -> Self {
+        let lower = |s: &str| s.to_lowercase();
+        Indexed {
+            artist: lower(&t.artist),
+            title: lower(&t.title),
+            album: lower(&t.album),
+            genre: lower(&t.genre),
+            comment: lower(&t.info.comment),
+            grouping: lower(&t.info.grouping),
+            tags: lower(&t.info.labels.join(" ")),
+            location: match &t.source {
+                Source::File(p) => lower(&p.to_string_lossy()),
+                Source::Synth { .. } => String::new(),
+            },
+        }
+    }
+}
+
+impl Query {
+    pub fn parse(text: &str) -> Query {
+        let mut alternatives = vec![Vec::new()];
+        for word in split(text) {
+            if word == "|" || word == "OR" {
+                alternatives.push(Vec::new());
+                continue;
+            }
+            if let Some(term) = parse_term(&word) {
+                alternatives.last_mut().unwrap().push(term);
+            }
+        }
+        alternatives.retain(|a| !a.is_empty());
+        Query { alternatives }
+    }
+
+    /// Whether the search has nothing in it, so everything matches.
+    pub fn is_empty(&self) -> bool {
+        self.alternatives.is_empty()
+    }
+
+    /// Whether the search asks for missing files, which are otherwise left
+    /// out of every list but their own.
+    pub fn wants_missing(&self) -> bool {
+        self.alternatives
+            .iter()
+            .flatten()
+            .any(|t| !t.negated && t.test == Test::Is(Flag::Missing))
+    }
+
+    /// Whether the search needs the track playing now.
+    pub fn uses_deck(&self) -> bool {
+        self.alternatives
+            .iter()
+            .flatten()
+            .any(|t| t.test == Test::MixesWithDeck)
+    }
+
+    pub fn matches(&self, track: &Track, text: &Indexed, cx: &Context) -> bool {
+        self.is_empty()
+            || self.alternatives.iter().any(|terms| {
+                terms
+                    .iter()
+                    .all(|t| t.matches(track, text, cx) != t.negated)
+            })
+    }
+}
+
+/// Splits a search into words, keeping quoted text (`artist:"daft punk"`)
+/// together. Quotes are kept so an empty `""` can be told apart.
+fn split(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut word = String::new();
+    let mut quoted = false;
+    for c in text.chars() {
+        match c {
+            '"' => {
+                quoted = !quoted;
+                word.push(c);
+            }
+            c if c.is_whitespace() && !quoted => {
+                if !word.is_empty() {
+                    out.push(std::mem::take(&mut word));
+                }
+            }
+            c => word.push(c),
+        }
+    }
+    if !word.is_empty() {
+        out.push(word);
+    }
+    out
+}
+
+fn unquote(s: &str) -> String {
+    s.trim_matches('"').to_string()
+}
+
+fn parse_term(word: &str) -> Option<Term> {
+    let (negated, word) = match word.strip_prefix('-') {
+        Some(rest) if !rest.is_empty() => (true, rest),
+        _ => (false, word),
+    };
+    let test = parse_test(word)?;
+    Some(Term { negated, test })
+}
+
+fn parse_test(word: &str) -> Option<Test> {
+    if word.eq_ignore_ascii_case("~deck") {
+        return Some(Test::MixesWithDeck);
+    }
+    let Some((name, value)) = word.split_once(':').filter(|(n, _)| !n.contains('"')) else {
+        let text = unquote(word).to_lowercase();
+        return (!text.is_empty()).then_some(Test::Anywhere(text));
+    };
+    let name = name.to_ascii_lowercase();
+    let text_field = match name.as_str() {
+        "artist" => Some(TextField::Artist),
+        "title" => Some(TextField::Title),
+        "album" => Some(TextField::Album),
+        "genre" => Some(TextField::Genre),
+        "comment" => Some(TextField::Comment),
+        "grouping" => Some(TextField::Grouping),
+        "tag" | "tags" | "label" => Some(TextField::Tag),
+        "location" | "path" => Some(TextField::Location),
+        _ => None,
+    };
+    if let Some(field) = text_field {
+        if value == "\"\"" {
+            return Some(Test::Empty(field));
+        }
+        if let Some(exact) = value.strip_prefix('=') {
+            return Some(Test::Exactly(field, unquote(exact).to_lowercase()));
+        }
+        let v = unquote(value).to_lowercase();
+        return (!v.is_empty()).then_some(Test::Contains(field, v));
+    }
+    let v = unquote(value);
+    Some(match name.as_str() {
+        "key" if v.is_empty() && value == "\"\"" => Test::Empty(TextField::Key),
+        "key" => match Key::parse(&v) {
+            Some(k) => Test::KeyIs(k),
+            None if v.is_empty() => return None,
+            None => Test::Contains(TextField::Key, v.to_lowercase()),
+        },
+        "~key" => Key::parse(&v).map_or(Test::Never, Test::KeyMixes),
+        "~bpm" => v
+            .parse::<f64>()
+            .ok()
+            .filter(|b| *b > 0.0)
+            .map_or(Test::Never, Test::BpmNear),
+        "bpm" => number(&v, NumberField::Bpm, plain)?,
+        "rating" => number(&v, NumberField::Rating, plain)?,
+        "played" | "plays" => number(&v, NumberField::Played, plain)?,
+        "duration" | "length" => number(&v, NumberField::Duration, seconds)?,
+        "added" => added(&v)?,
+        "color" | "colour" => {
+            if value == "\"\"" {
+                Test::Color(None)
+            } else {
+                let name = v.to_ascii_lowercase();
+                COLOR_NAMES
+                    .iter()
+                    .find(|(n, _)| *n == name)
+                    .map_or(Test::Never, |&(_, c)| Test::Color(Some(c)))
+            }
+        }
+        "is" => match v.to_ascii_lowercase().as_str() {
+            "missing" => Test::Is(Flag::Missing),
+            "duplicate" | "dupe" | "duplicates" => Test::Is(Flag::Duplicate),
+            "played" => Test::Is(Flag::Played),
+            "cued" => Test::Is(Flag::Cued),
+            "" => return None,
+            _ => Test::Never,
+        },
+        // Not a field: search for the text as typed (a title with a colon).
+        _ => Test::Anywhere(unquote(word).to_lowercase()),
+    })
+}
+
+fn plain(s: &str) -> Option<f64> {
+    s.trim().replace(',', ".").parse().ok()
+}
+
+/// A duration: "3:30", "5m", "4m30s", "90s" or "240".
+fn seconds(s: &str) -> Option<f64> {
+    let s = s.trim().to_ascii_lowercase();
+    if let Some((m, sec)) = s.split_once(':') {
+        return Some(plain(m)? * 60.0 + plain(sec)?);
+    }
+    if let Some((m, rest)) = s.split_once('m') {
+        let sec = rest.trim_end_matches('s');
+        return Some(plain(m)? * 60.0 + if sec.is_empty() { 0.0 } else { plain(sec)? });
+    }
+    plain(s.trim_end_matches('s'))
+}
+
+/// `>5`, `<=3`, `120-130` or `128`, read with `read`.
+fn compare(v: &str, read: fn(&str) -> Option<f64>) -> Option<Compare> {
+    let v = v.trim();
+    for (op, make) in [
+        (">=", Compare::Ge as fn(f64) -> Compare),
+        ("<=", Compare::Le),
+        (">", Compare::Gt),
+        ("<", Compare::Lt),
+        ("=", Compare::Eq),
+    ] {
+        if let Some(rest) = v.strip_prefix(op) {
+            return read(rest).map(make);
+        }
+    }
+    if let Some((a, b)) = v.split_once('-') {
+        if let (Some(a), Some(b)) = (read(a), read(b)) {
+            return Some(Compare::Range(a.min(b), a.max(b)));
+        }
+    }
+    read(v).map(Compare::Eq)
+}
+
+fn number(v: &str, field: NumberField, read: fn(&str) -> Option<f64>) -> Option<Test> {
+    if v.is_empty() {
+        return None;
+    }
+    Some(compare(v, read).map_or(Test::Never, |c| Test::Number(field, c)))
+}
+
+/// `added:<7d` (less than 7 days ago), `added:>2w`, `added:>=2026-01-31`.
+fn added(v: &str) -> Option<Test> {
+    if v.is_empty() {
+        return None;
+    }
+    let ago = |s: &str| {
+        let s = s.trim().to_ascii_lowercase();
+        if let Some(d) = s.strip_suffix('d') {
+            plain(d)
+        } else if let Some(w) = s.strip_suffix('w') {
+            plain(w).map(|w| w * 7.0)
+        } else {
+            None
+        }
+    };
+    if let Some(c) = compare(v, ago) {
+        return Some(Test::Number(NumberField::AddedDaysAgo, c));
+    }
+    Some(compare(v, date).map_or(Test::Never, |c| Test::Number(NumberField::AddedAt, c)))
+}
+
+/// A date as YYYY-MM-DD, as the Unix time it starts (UTC).
+fn date(s: &str) -> Option<f64> {
+    let mut parts = s.trim().splitn(3, '-');
+    let y: i64 = parts.next()?.parse().ok()?;
+    let m: i64 = parts.next()?.parse().ok()?;
+    let d: i64 = parts.next()?.parse().ok()?;
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    // Days from the civil date (Howard Hinnant's algorithm).
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some((days * 86_400) as f64)
+}
+
+impl Compare {
+    /// Whether `x` passes. An equal match on a whole number (`bpm:128`)
+    /// takes anything that rounds to it.
+    fn test(self, x: f64) -> bool {
+        match self {
+            Compare::Eq(v) if v.fract() == 0.0 => (x - v).abs() < 0.5,
+            Compare::Eq(v) => (x - v).abs() < 0.05,
+            Compare::Lt(v) => x < v,
+            Compare::Le(v) => x <= v,
+            Compare::Gt(v) => x > v,
+            Compare::Ge(v) => x >= v,
+            Compare::Range(a, b) => x >= a && x <= b,
+        }
+    }
+}
+
+/// Whether two tempos are within the tolerance, directly or at half or
+/// double tempo.
+pub fn tempos_mix(a: f64, b: f64) -> bool {
+    a > 0.0
+        && b > 0.0
+        && [1.0, 2.0, 0.5]
+            .iter()
+            .any(|f| ((a * f - b) / b).abs() <= BPM_TOLERANCE)
+}
+
+impl Term {
+    fn matches(&self, t: &Track, text: &Indexed, cx: &Context) -> bool {
+        let field = |f: TextField| -> &str {
+            match f {
+                TextField::Artist => &text.artist,
+                TextField::Title => &text.title,
+                TextField::Album => &text.album,
+                TextField::Genre => &text.genre,
+                TextField::Comment => &text.comment,
+                TextField::Grouping => &text.grouping,
+                TextField::Tag => &text.tags,
+                TextField::Key => "",
+                TextField::Location => &text.location,
+            }
+        };
+        let key = || Key::parse(&t.key);
+        match &self.test {
+            Test::Anywhere(s) => [
+                &text.artist,
+                &text.title,
+                &text.album,
+                &text.genre,
+                &text.comment,
+                &text.grouping,
+                &text.tags,
+            ]
+            .iter()
+            .any(|f| f.contains(s.as_str())),
+            Test::Contains(TextField::Key, s) => t.key.to_lowercase().contains(s.as_str()),
+            Test::Contains(TextField::Tag, s) => t.info.labels.iter().any(|l| {
+                l.to_lowercase()
+                    .trim_start_matches('#')
+                    .contains(s.trim_start_matches('#'))
+            }),
+            Test::Contains(f, s) => field(*f).contains(s.as_str()),
+            Test::Exactly(TextField::Key, s) => t.key.to_lowercase() == *s,
+            Test::Exactly(TextField::Tag, s) => t
+                .info
+                .labels
+                .iter()
+                .any(|l| l.to_lowercase().trim_start_matches('#') == s.trim_start_matches('#')),
+            Test::Exactly(f, s) => field(*f) == s,
+            Test::Empty(TextField::Key) => t.key.trim().is_empty(),
+            Test::Empty(f) => field(*f).trim().is_empty(),
+            Test::Number(f, c) => {
+                let x = match f {
+                    NumberField::Bpm => t.bpm,
+                    NumberField::Rating => t.rating as f64,
+                    NumberField::Played => t.info.play_count as f64,
+                    NumberField::Duration => t.duration,
+                    NumberField::AddedDaysAgo if t.info.added <= 0 => return false,
+                    NumberField::AddedDaysAgo => (cx.now - t.info.added) as f64 / 86_400.0,
+                    NumberField::AddedAt if t.info.added <= 0 => return false,
+                    NumberField::AddedAt => t.info.added as f64,
+                };
+                // A date matches the whole day: >=, < and = compare days.
+                if *f == NumberField::AddedAt {
+                    let day = (x / 86_400.0).floor() * 86_400.0;
+                    return match *c {
+                        Compare::Eq(v) => day == v,
+                        Compare::Gt(v) => day > v,
+                        Compare::Le(v) => day <= v,
+                        other => other.test(day),
+                    };
+                }
+                c.test(x)
+            }
+            Test::KeyIs(k) => key() == Some(*k),
+            Test::KeyMixes(k) => key().is_some_and(|own| own.compatible(*k)),
+            Test::BpmNear(b) => tempos_mix(t.bpm, *b),
+            Test::MixesWithDeck => match cx.deck {
+                _ if cx.deck_track == Some(t.id) => false,
+                Some((bpm, k)) => {
+                    let key_ok = match (k, key()) {
+                        (Some(a), Some(b)) => a.compatible(b),
+                        // Without keys, tempo alone decides.
+                        _ => true,
+                    };
+                    key_ok && (bpm <= 0.0 || tempos_mix(t.bpm, bpm))
+                }
+                None => false,
+            },
+            Test::Color(c) => t.info.color == *c,
+            Test::Is(Flag::Missing) => t.info.missing,
+            Test::Is(Flag::Duplicate) => cx.duplicates.is_some_and(|d| d.contains(&t.id)),
+            Test::Is(Flag::Played) => t.info.play_count > 0,
+            Test::Is(Flag::Cued) => !t.info.hotcues.is_empty(),
+            Test::Never => false,
+        }
+    }
+}
+
+/// A title or artist reduced to what identifies the song: lowercase,
+/// without punctuation, "the", or a trailing "(Original Mix)".
+fn normalized(s: &str) -> String {
+    let lower = s.to_lowercase();
+    let lower = lower
+        .replace("(original mix)", "")
+        .replace("(original)", "")
+        .replace("original mix", "");
+    let words: Vec<String> = lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty() && *w != "the")
+        .map(str::to_string)
+        .collect();
+    words.join(" ")
+}
+
+/// Ids of tracks that are in the library more than once: the same artist
+/// and title (ignoring case, punctuation and "Original Mix") with lengths
+/// within 3 seconds, or the same file. Missing files are not counted.
+pub fn duplicates<'a>(tracks: impl IntoIterator<Item = &'a Track>) -> HashSet<usize> {
+    let mut groups: std::collections::HashMap<(String, String), Vec<&Track>> = Default::default();
+    for t in tracks {
+        if t.info.missing || t.title.trim().is_empty() {
+            continue;
+        }
+        groups
+            .entry((normalized(&t.artist), normalized(&t.title)))
+            .or_default()
+            .push(t);
+    }
+    let mut out = HashSet::new();
+    for group in groups.values().filter(|g| g.len() > 1) {
+        for (i, a) in group.iter().enumerate() {
+            let twin = group.iter().enumerate().any(|(j, b)| {
+                i != j
+                    && (a.duration <= 0.0
+                        || b.duration <= 0.0
+                        || (a.duration - b.duration).abs() <= 3.0)
+            });
+            if twin {
+                out.insert(a.id);
+            }
+        }
+    }
+    out
+}
+
+/// Whether a track's file is on disk. Built-in sample tracks always are.
+pub fn file_exists(t: &Track) -> bool {
+    match &t.source {
+        Source::File(p) => Path::exists(p),
+        Source::Synth { .. } => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mixxx_engine::Hotcue;
+    use std::path::PathBuf;
+
+    fn track(id: usize, artist: &str, title: &str, bpm: f64, key: &str) -> Track {
+        let mut t = std::sync::Arc::unwrap_or_clone(mixxx_engine::sample_library().remove(0));
+        t.id = id;
+        t.artist = artist.into();
+        t.title = title.into();
+        t.album = "Album".into();
+        t.genre = "House".into();
+        t.bpm = bpm;
+        t.key = key.into();
+        t.duration = 300.0;
+        t.rating = 0;
+        t.source = Source::File(PathBuf::from(format!("/music/{artist} - {title}.mp3")));
+        t
+    }
+
+    fn find(tracks: &[Track], q: &str) -> Vec<usize> {
+        find_with(
+            tracks,
+            q,
+            &Context {
+                now: 1_800_000_000,
+                ..Default::default()
+            },
+        )
+    }
+
+    fn find_with(tracks: &[Track], q: &str, cx: &Context) -> Vec<usize> {
+        let q = Query::parse(q);
+        tracks
+            .iter()
+            .filter(|t| q.matches(t, &Indexed::new(t), cx))
+            .map(|t| t.id)
+            .collect()
+    }
+
+    fn library() -> Vec<Track> {
+        let mut a = track(1, "Daft Punk", "One More Time", 123.0, "8A");
+        a.rating = 5;
+        a.info.play_count = 3;
+        a.info.labels = vec!["#vocal".into(), "#peak".into()];
+        a.info.color = Some(0xff3b30);
+        a.info.added = 1_800_000_000 - 2 * 86_400;
+        let mut b = track(2, "Moodymann", "Shades of Jae", 118.0, "Dm");
+        b.genre = "Deep House".into();
+        b.duration = 420.0;
+        b.info.comment = "warm up".into();
+        b.info.added = 1_800_000_000 - 40 * 86_400;
+        let mut c = track(3, "Bicep", "Glue", 130.0, "9A");
+        c.album = String::new();
+        c.info.hotcues = vec![Hotcue {
+            number: 0,
+            seconds: 1.0,
+            name: String::new(),
+        }];
+        let d = track(
+            4,
+            "Floating Points",
+            "Silhouettes (I, II & III)",
+            62.0,
+            "3B",
+        );
+        vec![a, b, c, d]
+    }
+
+    #[test]
+    fn words_fields_and_negation() {
+        let lib = library();
+        assert_eq!(find(&lib, ""), [1, 2, 3, 4]);
+        assert_eq!(find(&lib, "daft"), [1]);
+        assert_eq!(find(&lib, "house"), [1, 2, 3, 4]);
+        assert_eq!(find(&lib, "genre:deep"), [2]);
+        assert_eq!(find(&lib, "-genre:deep"), [1, 3, 4]);
+        assert_eq!(find(&lib, "artist:\"daft punk\" time"), [1]);
+        assert_eq!(find(&lib, "\"one more\""), [1]);
+        assert_eq!(find(&lib, "title:=glue"), [3]);
+        assert_eq!(find(&lib, "title:=glu"), Vec::<usize>::new());
+        assert_eq!(find(&lib, "album:\"\""), [3]);
+        assert_eq!(find(&lib, "-album:\"\""), [1, 2, 4]);
+        assert_eq!(find(&lib, "warm"), [2]);
+        assert_eq!(find(&lib, "tag:vocal"), [1]);
+        assert_eq!(find(&lib, "tag:#peak"), [1]);
+        assert_eq!(find(&lib, "location:bicep"), [3]);
+        // A colon that isn't a field is just text.
+        assert_eq!(find(&lib, "re:edit"), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn numbers_ranges_and_or() {
+        let lib = library();
+        assert_eq!(find(&lib, "bpm:123"), [1]);
+        assert_eq!(find(&lib, "bpm:120-130"), [1, 3]);
+        assert_eq!(find(&lib, "bpm:>=123"), [1, 3]);
+        assert_eq!(find(&lib, "bpm:<100"), [4]);
+        assert_eq!(find(&lib, "rating:>=4"), [1]);
+        assert_eq!(find(&lib, "played:0"), [2, 3, 4]);
+        assert_eq!(find(&lib, "duration:>6m"), [2]);
+        assert_eq!(find(&lib, "duration:<5:01"), [1, 3, 4]);
+        assert_eq!(find(&lib, "bpm:118 | bpm:130"), [2, 3]);
+        assert_eq!(find(&lib, "glue OR daft"), [1, 3]);
+        assert_eq!(find(&lib, "added:<7d"), [1]);
+        assert_eq!(find(&lib, "added:>4w"), [2]);
+        // 1_800_000_000 is 2027-01-15; track 1 was added 2027-01-13.
+        assert_eq!(find(&lib, "added:>=2027-01-13"), [1]);
+        assert_eq!(find(&lib, "added:2027-01-13"), [1]);
+        // Something that can't be read finds nothing rather than everything.
+        assert_eq!(find(&lib, "bpm:fast"), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn keys_tempos_colours_and_flags() {
+        let lib = library();
+        assert_eq!(find(&lib, "key:8A"), [1]);
+        assert_eq!(find(&lib, "key:Am"), [1]);
+        // Dm is 7A; it mixes with 8A, and so does 9A.
+        assert_eq!(find(&lib, "~key:8A"), [1, 2, 3]);
+        assert_eq!(find(&lib, "~bpm:125"), [1, 2, 3, 4]);
+        // 62 BPM is 124 at double tempo.
+        assert_eq!(find(&lib, "~bpm:130"), [1, 3, 4]);
+        assert_eq!(find(&lib, "color:red"), [1]);
+        assert_eq!(find(&lib, "color:\"\""), [2, 3, 4]);
+        assert_eq!(find(&lib, "is:played"), [1]);
+        assert_eq!(find(&lib, "is:cued"), [3]);
+        let cx = Context {
+            now: 0,
+            deck: Some((128.0, Key::parse("8A"))),
+            deck_track: None,
+            duplicates: None,
+        };
+        assert_eq!(find_with(&lib, "~deck", &cx), [1, 3]);
+        let playing_3 = Context {
+            deck_track: Some(3),
+            ..cx
+        };
+        assert_eq!(
+            find_with(&lib, "~deck", &playing_3),
+            [1],
+            "not the track itself"
+        );
+        assert_eq!(find_with(&lib, "~deck -artist:bicep", &cx), [1]);
+        assert!(find(&lib, "~deck").is_empty(), "nothing playing");
+    }
+
+    #[test]
+    fn finds_duplicates_and_missing_files() {
+        let mut lib = library();
+        let mut again = track(5, "Daft Punk", "One More Time (Original Mix)", 123.0, "8A");
+        again.duration = 301.5;
+        let mut edit = track(6, "Bicep", "Glue", 130.0, "9A");
+        edit.duration = 200.0;
+        let mut gone = track(7, "Daft punk", "One more time", 123.0, "8A");
+        gone.info.missing = true;
+        lib.extend([again, edit, gone]);
+        let dupes = duplicates(&lib);
+        let mut ids: Vec<_> = dupes.iter().copied().collect();
+        ids.sort();
+        assert_eq!(ids, [1, 5], "a different length is a different edit");
+        let cx = Context {
+            duplicates: Some(&dupes),
+            ..Default::default()
+        };
+        assert_eq!(find_with(&lib, "is:duplicate", &cx), [1, 5]);
+        assert_eq!(find(&lib, "is:missing"), [7]);
+        assert!(Query::parse("is:missing artist:daft").wants_missing());
+        assert!(!Query::parse("-is:missing").wants_missing());
+    }
+}

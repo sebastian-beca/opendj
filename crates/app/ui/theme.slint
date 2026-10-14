@@ -1,0 +1,87 @@
+// Colours and sizes for the default skin. A skin restyles the app by changing these.
+// Near-black panels, flat dark controls with thin
+// borders, Electric Lilac as the accent, Apple system colours elsewhere and a SF-like typeface (Inter, bundled).
+import "fonts/InterTabular-Regular.otf";
+import "fonts/InterTabular-Medium.otf";
+import "fonts/InterTabular-SemiBold.otf";
+import "fonts/InterTabular-Bold.otf";
+import "fonts/ZenDots-Regular.ttf";
+
+export global Theme {
+    // The bundled Inter Tabular, or the system font on macOS (see ui_font.rs).
+    in-out property <string> font-family: "Inter Tabular";
+    // The openDJ wordmark.
+    out property <string> brand-font: "Zen Dots";
+    out property <color> background: #0e0e10;
+    out property <color> panel: #1a1a1c;
+    out property <color> panel-raised: #232326;
+    out property <color> control: #161618;
+    out property <color> control-pressed: #2c2c2f;
+    out property <color> border: #353538;
+    out property <color> separator: #28282b;
+    out property <color> text: #f2f2f7;
+    out property <color> text-dim: #8e8e93;
+    out property <color> label: #98989d;
+    out property <color> knob: #1b1b1d;
+    out property <color> knob-rim: #4a4a4f;
+    // The lit part of the ring round mixer knobs.
+    out property <color> knob-arc: #0a84ff;
+    out property <color> knob-ring: #3a3a3e;
+    out property <color> fader-handle: #8e8e93;
+    out property <color> tick: #3e3e42;
+    // Electric Lilac, openDJ's own colour: the logo, the accent and the
+    // library highlight.
+    out property <color> lilac: #b69cff;
+    out property <color> accent: root.lilac;
+    out property <color> selection: root.lilac;
+    // Text on the lilac highlight: the logo's ink.
+    out property <color> on-selection: #151329;
+    out property <color> on-selection-dim: #151329b0;
+    out property <color> deck1: #0a84ff;
+    out property <color> deck2: #ff453a;
+    out property <color> play: #f2f2f7;
+    out property <color> cue: #ff9f0a;
+    out property <color> sync: #8e8e93;
+    out property <color> loop: root.lilac;
+    out property <color> key: #8e7cff;
+    out property <color> danger: #ff453a;
+    out property <color> well: #0d0d0e;
+    out property <length> radius: 6px;
+    out property <length> font-small: 10px;
+    out property <length> font-normal: 13px;
+    out property <length> font-large: 17px;
+    out property <length> font-xl: 24px;
+
+    // Apple system colours for hotcues. Same order as the waveform shader.
+    out property <[color]> hotcues: [#ff453a, #ff9f0a, #0a84ff, #ffd60a, #30d158, #bf5af2, #ff375f, #64d2ff];
+
+    public pure function deck-color(deck: int) -> color {
+        deck == 0 ? root.deck1 : root.deck2
+    }
+}
+
+// How keys are written everywhere: Camelot ("8A") or notes ("Am").
+// Clicking a deck's key switches it.
+export global KeyNotation {
+    in-out property <bool> camelot: true;
+}
+
+// Thin black dividers that run edge to edge across their panel: each is
+// drawn past its own box by `left` and `right` (or `top` and `bottom`) to
+// cover the panel's padding, so no line stops short.
+export component EdgeLine inherits Rectangle {
+    in property <length> left;
+    in property <length> right;
+    // Black between grey panels; grey inside a black box.
+    in property <color> line-color: #000000;
+    height: 1px;
+    Rectangle { x: -left; width: parent.width + left + right; height: 1px; background: root.line-color; }
+}
+
+export component EdgeVLine inherits Rectangle {
+    in property <length> top;
+    in property <length> bottom;
+    in property <color> line-color: #000000;
+    width: 1px;
+    Rectangle { y: -top; width: 1px; height: parent.height + top + bottom; background: root.line-color; }
+}
