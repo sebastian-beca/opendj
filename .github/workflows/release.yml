@@ -102,4 +102,7 @@ jobs:
         with:
           name: openDJ ${{ needs.version.outputs.version }}
           body_path: docs/release-notes.md
+          # A tag such as v0.2.0-beta.1 makes a pre-release, for testers;
+          # the README's download link skips those.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: dist/*
