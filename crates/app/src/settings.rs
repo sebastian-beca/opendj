@@ -139,6 +139,36 @@ pub fn set_hidden_sources(names: Vec<String>) {
     save(|v| v["hidden_sources"] = json!(names));
 }
 
+/// A plugin source's saved searches (see [`crate::sources`]), oldest first:
+/// what was typed, how it was read and which copies to prefer.
+pub fn source_searches(source: &str) -> Vec<(String, String, String)> {
+    load()["source_searches"][source]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| {
+                    let text = s["text"].as_str()?.to_string();
+                    let field = |k: &str| s[k].as_str().unwrap_or_default().to_string();
+                    Some((text, field("kind"), field("prefer")))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn set_source_searches(source: &str, searches: &[(String, String, String)]) {
+    let list: Vec<Value> = searches
+        .iter()
+        .map(|(text, kind, prefer)| json!({ "text": text, "kind": kind, "prefer": prefer }))
+        .collect();
+    save(|v| {
+        if !v["source_searches"].is_object() {
+            v["source_searches"] = json!({});
+        }
+        v["source_searches"][source] = json!(list);
+    });
+}
+
 /// A saved number, or `default`.
 pub fn number(key: &str, default: f64) -> f64 {
     load()[key].as_f64().unwrap_or(default)
