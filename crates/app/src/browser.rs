@@ -644,7 +644,7 @@ impl Browser {
     ) -> Rc<RefCell<Self>> {
         let inbox_settings = crate::settings::inbox();
         let (inbox_on, inbox_mode) = (inbox_settings.on, inbox_settings.mode);
-        let stores = Stores::start(stores::plugins());
+        let stores = Stores::start(stores::configured());
         let store_count = stores.stores.len();
         let nodes = sample_tree(library.len());
         let b = Rc::new(RefCell::new(Self {
@@ -685,7 +685,7 @@ impl Browser {
                 inbox_settings,
                 library_path,
                 mixxx_engine::scan::default_music_dir(),
-                stores::plugins(),
+                stores::configured(),
             ),
             collection_stale: false,
             tree: COLLECTION,

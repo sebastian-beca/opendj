@@ -11,6 +11,7 @@ use std::sync::Arc;
 use mixxx_control::ControlRegistry;
 use mixxx_controllers::{Controllers, MappingChoice, Port};
 use mixxx_engine::{analysis, cache, deck_group, DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS};
+use mixxx_plugins::{Plugin, SettingKind};
 use serde_json::json;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
@@ -34,6 +35,7 @@ const OUTPUTS: i32 = 4;
 const LEVELS: i32 = 5;
 const NOTE: i32 = 6;
 const SEGMENTED: i32 = 8;
+const TEXT: i32 = 9;
 
 /// Tempo fader ranges, as fractions of normal speed.
 const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
@@ -134,6 +136,10 @@ pub struct Prefs {
     cache_note: String,
     /// The devices shown on the controllers page.
     ports: Vec<Port>,
+    /// Plugins with a page of their own, after the built-in pages.
+    plugins: Vec<Box<dyn Plugin>>,
+    /// Tells the rest of the app a plugin's settings changed, by its id.
+    plugin_changed: Box<dyn Fn(&str)>,
 }
 
 impl Prefs {
@@ -142,8 +148,21 @@ impl Prefs {
         registry: Arc<ControlRegistry>,
         controllers: Option<Rc<Controllers>>,
         rescan: Box<dyn Fn()>,
+        plugin_changed: Box<dyn Fn(&str)>,
     ) -> Rc<RefCell<Prefs>> {
         let (chosen_tx, chosen_rx) = mpsc::channel();
+        let plugins: Vec<Box<dyn Plugin>> = crate::stores::configured()
+            .into_iter()
+            .filter(|p| !p.settings().is_empty())
+            .collect();
+        let g = app.global::<Preferences>();
+        let mut pages: Vec<SharedString> = slint::Model::iter(&g.get_pages()).collect();
+        pages.extend(
+            plugins
+                .iter()
+                .map(|p| SharedString::from(p.manifest().name)),
+        );
+        g.set_pages(ModelRc::new(VecModel::from(pages)));
         let prefs = Rc::new(RefCell::new(Prefs {
             app: app.as_weak(),
             registry,
@@ -154,8 +173,9 @@ impl Prefs {
             library_note: String::new(),
             cache_note: String::new(),
             ports: Vec::new(),
+            plugins,
+            plugin_changed,
         }));
-        let g = app.global::<Preferences>();
         let p = prefs.clone();
         g.on_changed(move || p.borrow_mut().shown());
         let p = prefs.clone();
@@ -164,6 +184,8 @@ impl Prefs {
         g.on_picked(move |id, i| p.borrow_mut().picked(&id, i.max(0) as usize));
         let p = prefs.clone();
         g.on_pressed(move |id| p.borrow_mut().pressed(&id));
+        let p = prefs.clone();
+        g.on_typed(move |id, text| p.borrow_mut().typed(&id, &text));
         prefs
     }
 
@@ -211,7 +233,7 @@ impl Prefs {
             self.page(&app, g.get_page())
         } else {
             let words: Vec<&str> = query.split_whitespace().collect();
-            (AUDIO..=FEEDBACK)
+            (AUDIO..FEEDBACK + 1 + self.plugins.len() as i32)
                 .flat_map(|p| {
                     let name = slint::Model::row_data(&pages, p as usize).unwrap_or_default();
                     self.page(&app, p).into_iter().map(move |mut item| {
@@ -391,6 +413,7 @@ impl Prefs {
                 ),
                 ]
             }
+            p if p > FEEDBACK => self.plugin_page((p - FEEDBACK - 1) as usize),
             FEEDBACK => vec![
                 item(
                     "",
@@ -632,6 +655,50 @@ impl Prefs {
             _ => return,
         }
         self.refresh();
+    }
+
+    /// Plugin `index`'s page: its own rows, ids `plugin:<index>:<key>`.
+    fn plugin_page(&self, index: usize) -> Vec<PrefItem> {
+        let Some(plugin) = self.plugins.get(index) else {
+            return Vec::new();
+        };
+        let config = settings::plugin_config(plugin.manifest().id);
+        plugin
+            .settings()
+            .into_iter()
+            .map(|s| {
+                let id = format!("plugin:{index}:{}", s.key);
+                match s.kind {
+                    SettingKind::Note => item(&id, NOTE, &s.title, &s.detail),
+                    kind => PrefItem {
+                        value: config.get(s.key).into(),
+                        on: kind == SettingKind::Secret,
+                        ..item(&id, TEXT, &s.title, &s.detail)
+                    },
+                }
+            })
+            .collect()
+    }
+
+    /// The DJ typed in a plugin's text field. The page isn't filled again,
+    /// so the field keeps its place while typing.
+    fn typed(&mut self, id: &str, text: &str) {
+        let mut parts = id.splitn(3, ':');
+        let (Some("plugin"), Some(index), Some(key)) = (parts.next(), parts.next(), parts.next())
+        else {
+            return;
+        };
+        let Some(plugin) = index
+            .parse()
+            .ok()
+            .and_then(|i: usize| self.plugins.get_mut(i))
+        else {
+            return;
+        };
+        let plugin_id = plugin.manifest().id;
+        settings::set_plugin_value(plugin_id, key, text);
+        plugin.configure(&settings::plugin_config(plugin_id));
+        (self.plugin_changed)(plugin_id);
     }
 
     fn pressed(&mut self, id: &str) {
