@@ -7,6 +7,8 @@
 //!   purchase inbox (see [`inbox`]).
 //! - [`LibraryImport`]: bring in the library of another DJ app at start, as
 //!   an add-on built into the app.
+//! - [`source::SearchSource`]: a source of its own in the rail, with saved
+//!   searches and downloads, for an add-on that fetches files.
 //!
 //! Plugins are compiled in for now ([`builtin`]); each runs on a thread of
 //! its own in the app, so a slow store never holds up the UI or the audio.
@@ -16,6 +18,7 @@ use std::path::{Path, PathBuf};
 pub mod bandcamp;
 pub mod inbox;
 pub mod links;
+pub mod source;
 
 /// What a plugin is and which web hosts it talks to, as Settings shows it.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,6 +40,10 @@ pub trait Plugin: Send {
         None
     }
     fn inbox(&self) -> Option<&dyn InboxHint> {
+        None
+    }
+    /// A source of its own in the rail (see [`source`]).
+    fn source(&mut self) -> Option<&mut dyn source::SearchSource> {
         None
     }
 }

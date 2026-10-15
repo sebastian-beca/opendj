@@ -97,6 +97,20 @@ const SOURCE_NAMES: [&str; 10] = [
     "Shopping",
 ];
 
+/// Every source in the rail: the built-in ones, then add-ons' own (see
+/// [`crate::sources`]).
+fn all_source_names() -> Vec<String> {
+    SOURCE_NAMES
+        .iter()
+        .map(|n| n.to_string())
+        .chain(
+            crate::sources::source_plugins()
+                .into_iter()
+                .map(|(_, info)| info.name.to_string()),
+        )
+        .collect()
+}
+
 /// A source's tree while another source is shown.
 struct Parked {
     nodes: Vec<Node>,
@@ -887,7 +901,8 @@ impl Browser {
         app.on_select_source(move |s| w(Box::new(move |b| b.select_source(s))));
         // The sources the rail shows, by name so new ones appear by default.
         let hidden = crate::settings::hidden_sources();
-        let shown: Vec<bool> = SOURCE_NAMES
+        let names = all_source_names();
+        let shown: Vec<bool> = names
             .iter()
             .map(|n| !hidden.iter().any(|h| h == n))
             .collect();
@@ -896,7 +911,7 @@ impl Browser {
         app.on_source_shown_changed(move |_, _| {
             let Some(app) = weak.upgrade() else { return };
             let shown = app.get_sources_shown();
-            let hidden = SOURCE_NAMES
+            let hidden = names
                 .iter()
                 .zip(shown.iter())
                 .filter(|(_, on)| !on)
@@ -1347,7 +1362,7 @@ impl Browser {
     }
 
     /// A track the inbox added to the library joins the list in memory.
-    fn add_imported(&mut self, track: Track) {
+    pub fn add_imported(&mut self, track: Track) {
         if self.index_of.contains_key(&track.id) {
             return;
         }

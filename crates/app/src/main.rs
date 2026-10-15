@@ -42,6 +42,7 @@ mod mac_titlebar;
 mod prefs;
 mod settings;
 mod smooth;
+mod sources;
 mod spotify;
 mod stores;
 mod ui_font;
@@ -365,6 +366,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         engine.clone(),
         &registry,
     );
+    let sources = sources::Sources::install(&app, library_path.clone());
     let automix = Rc::new(RefCell::new(automix::AutoMix::new(&registry)));
     {
         let a = automix.clone();
@@ -494,6 +496,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 browser.borrow_mut().poll_controllers(&app);
                 browser.borrow_mut().poll_spotify(&app);
                 browser.borrow_mut().poll_stores(&app);
+                for track in sources.borrow_mut().poll() {
+                    browser.borrow_mut().add_imported(track);
+                }
                 browser.borrow_mut().poll_art();
                 browser.borrow_mut().poll_files();
                 prefs.borrow_mut().poll();

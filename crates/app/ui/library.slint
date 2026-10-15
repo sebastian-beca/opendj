@@ -2,6 +2,7 @@
 // Plain rows, lilac selection, rounded sidebar items.
 import { LineEdit, ListView, ScrollView } from "std-widgets.slint";
 import { Theme, EdgeLine } from "theme.slint";
+import { SourceUi, SearchesPanel, SourceResults } from "sources.slint";
 
 export struct Folder {
     name: string,
@@ -422,6 +423,20 @@ component SourceRail inherits Rectangle {
                 sta := TouchArea { clicked => { source = i; picked(i); } }
             }
         }
+        // Sources from add-ons, numbered on from the built-in ones.
+        for p[j] in SourceUi.sources: Rectangle {
+            property <int> i: names.length + j;
+            height: shown[i] ? 48px : 0px;
+            visible: shown[i];
+            Rectangle {
+                y: 0;
+                height: 42px;
+                border-radius: 8px;
+                background: i == source ? #3a3a3d : (pta.has-hover ? #262629 : transparent);
+                Image { width: 30px; height: 30px; source: p.icon; }
+                pta := TouchArea { clicked => { source = i; picked(i); } }
+            }
+        }
         more := Rectangle {
             height: 30px;
             border-radius: 8px;
@@ -455,6 +470,25 @@ component SourceRail inherits Rectangle {
                 spacing: 10px;
                 VerticalLayout { alignment: center; SourceIcon { kind: i; } }
                 Text { text: name; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
+                VerticalLayout {
+                    alignment: center;
+                    Switch {
+                        on: shown[i];
+                        toggled => {
+                            shown[i] = !shown[i];
+                            shown-changed(i, shown[i]);
+                        }
+                    }
+                }
+            }
+            for p[j] in SourceUi.sources: HorizontalLayout {
+                property <int> i: names.length + j;
+                height: 40px;
+                padding-left: 6px;
+                padding-right: 6px;
+                spacing: 10px;
+                VerticalLayout { alignment: center; Image { width: 30px; height: 30px; source: p.icon; } }
+                Text { text: p.name; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
                 VerticalLayout {
                     alignment: center;
                     Switch {
@@ -1841,7 +1875,13 @@ export component Browser inherits HorizontalLayout {
             source-shown-changed(s, on);
         }
     }
-    FolderTree {
+    // An add-on's source: its searches and results instead.
+    property <bool> plugin-source: source >= source-names.length;
+    property <int> plugin-index: source - source-names.length;
+    if plugin-source: SearchesPanel {
+        source-name: plugin-index < SourceUi.sources.length ? SourceUi.sources[plugin-index].name : "";
+    }
+    if !plugin-source: FolderTree {
         folders: folders;
         current: current-folder;
         focused: folders-focused;
@@ -1856,22 +1896,32 @@ export component Browser inherits HorizontalLayout {
         spotify-connect(id) => { spotify-connect(id); }
         spotify-disconnect => { spotify-disconnect(); }
     }
-    list := TrackList {
+    Rectangle {
         horizontal-stretch: 1;
-        rows: listing ? rows : [];
-        results: StoreUi.services && (source == 5 || source == 9);
-        sort-column: sort-column;
-        ascending: ascending;
-        folder-name: listing ? folder-name : source-names[source];
-        duration: listing ? folder-duration : "";
-        empty-title: source == 0 ? "" : listing ? (list-notice != "" ? " " : "") : source-names[source];
-        empty-text: !StoreUi.services && source >= 2 ? "Coming soon."
-            : source == 2 && !spotify-connected ? "Sign in on the left to see your playlists here."
-            : listing ? list-notice
-            : source-names[source] + " isn't connected yet.";
-        sort(c) => { sort(c); }
-        search(t) => { search(t); }
-        activate(r) => { activate(r); }
+        list := TrackList {
+            visible: !plugin-source;
+            width: 100%;
+            height: 100%;
+            rows: listing ? rows : [];
+            results: StoreUi.services && (source == 5 || source == 9);
+            sort-column: sort-column;
+            ascending: ascending;
+            folder-name: listing ? folder-name : source-names[source];
+            duration: listing ? folder-duration : "";
+            empty-title: source == 0 ? "" : listing ? (list-notice != "" ? " " : "") : source-names[source];
+            empty-text: !StoreUi.services && source >= 2 ? "Coming soon."
+                : source == 2 && !spotify-connected ? "Sign in on the left to see your playlists here."
+                : listing ? list-notice
+                : source-names[source] + " isn't connected yet.";
+            sort(c) => { sort(c); }
+            search(t) => { search(t); }
+            activate(r) => { activate(r); }
+        }
+        if plugin-source: SourceResults {
+            width: 100%;
+            height: 100%;
+            hint: plugin-index < SourceUi.sources.length ? SourceUi.sources[plugin-index].hint : "";
+        }
     }
     // Shown and hidden from the footer's right-hand button.
     if side-visible: SidePanel {
