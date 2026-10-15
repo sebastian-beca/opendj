@@ -1,0 +1,23 @@
+name: Suggest a feature
+description: Something you'd like openDJ to do, or do differently.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: How would you use it?
+      description: What you're trying to do in a set helps us get it right.
+  - type: input
+    id: version
+    attributes:
+      label: openDJ version
+  - type: input
+    id: system
+    attributes:
+      label: Computer

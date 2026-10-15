@@ -33,6 +33,15 @@ controllers aren't supported yet.
 Streaming services and music stores are coming soon, we hope as library add-ons.
 For now, openDJ plays the music on your computer.
 
+## Beta testing
+
+openDJ is in beta, and feedback of any kind helps: bugs, ideas, or just how
+it felt to use. In the app, **Settings → Feedback** has links to report a
+problem or suggest a feature, with your version already filled in, and opens
+the folder with your logs to attach. You can also
+[open an issue](https://github.com/sebastian-beca/opendj/issues/new/choose)
+directly.
+
 ## Building from source
 
 Needs a recent stable Rust, CMake and a C++ compiler. On Linux you also need:
