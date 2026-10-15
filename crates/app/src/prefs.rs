@@ -24,6 +24,7 @@ const LIBRARY: i32 = 2;
 const ANALYSIS: i32 = 3;
 const DECKS: i32 = 4;
 const MIXER: i32 = 5;
+const FEEDBACK: i32 = 6;
 
 const SWITCH: i32 = 0;
 const MENU: i32 = 1;
@@ -210,7 +211,7 @@ impl Prefs {
             self.page(&app, g.get_page())
         } else {
             let words: Vec<&str> = query.split_whitespace().collect();
-            (AUDIO..=MIXER)
+            (AUDIO..=FEEDBACK)
                 .flat_map(|p| {
                     let name = slint::Model::row_data(&pages, p as usize).unwrap_or_default();
                     self.page(&app, p).into_iter().map(move |mut item| {
@@ -390,6 +391,45 @@ impl Prefs {
                 ),
                 ]
             }
+            FEEDBACK => vec![
+                item(
+                    "",
+                    NOTE,
+                    "",
+                    &format!(
+                        "openDJ {} is a beta. Problems, ideas and comments all help; \
+                         each link opens a form on GitHub with your version filled in.",
+                        crate::diagnostics::VERSION
+                    ),
+                ),
+                PrefItem {
+                    action: "Report…".into(),
+                    ..item(
+                        "report_bug",
+                        BUTTON,
+                        "Report a problem",
+                        "Something broke, crashed or didn't do what you expected.",
+                    )
+                },
+                PrefItem {
+                    action: "Suggest…".into(),
+                    ..item(
+                        "suggest_feature",
+                        BUTTON,
+                        "Suggest a feature",
+                        "Something you'd like openDJ to do, or do differently.",
+                    )
+                },
+                PrefItem {
+                    action: "Show".into(),
+                    ..item(
+                        "show_logs",
+                        BUTTON,
+                        "Logs and crash reports",
+                        "Attach these to a problem report. They stay on your computer unless you do.",
+                    )
+                },
+            ],
             _ => Vec::new(),
         }
     }
@@ -601,6 +641,20 @@ impl Prefs {
                 (self.rescan)();
                 self.library_note =
                     "Updating… new tracks appear in the library as they are found.".into();
+            }
+            "report_bug" => {
+                crate::spotify::open_in_browser(&crate::diagnostics::issue_url("bug_report.yml"));
+            }
+            "suggest_feature" => {
+                crate::spotify::open_in_browser(&crate::diagnostics::issue_url(
+                    "feature_request.yml",
+                ));
+            }
+            "show_logs" => {
+                if let Some(dir) = crate::diagnostics::logs_dir() {
+                    let _ = std::fs::create_dir_all(&dir);
+                    crate::files::reveal(&dir);
+                }
             }
             "clear_cache" => {
                 let n = cache::clear_analysis();

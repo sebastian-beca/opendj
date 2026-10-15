@@ -1,0 +1,40 @@
+name: Report a problem
+description: Something broke, crashed or didn't do what you expected.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: And what did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we make it happen?
+      description: The steps, as far as you know them. "It happens sometimes" is fine too.
+  - type: input
+    id: version
+    attributes:
+      label: openDJ version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Computer
+      placeholder: macOS aarch64, or Linux x86_64 (Ubuntu 24.04)
+  - type: input
+    id: controller
+    attributes:
+      label: Controller and audio interface, if any
+      placeholder: e.g. a two-deck MIDI controller, built-in audio
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or crash report
+      description: >
+        In openDJ, open Settings → Feedback → Logs and crash reports, and drag
+        opendj.log (and any crash-….txt) here.

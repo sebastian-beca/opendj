@@ -23,4 +23,4 @@ openDJ reads your `~/Music` folder. MIDI controllers that Mixxx supports load th
 - No Windows build yet.
 - Streaming services and stores are coming soon.
 
-Please report bugs in [Issues](https://github.com/sebastian-beca/opendj/issues).
+Found a bug or have an idea? Use Settings → Feedback in the app, or [open an issue](https://github.com/sebastian-beca/opendj/issues/new/choose).
