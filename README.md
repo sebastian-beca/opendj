@@ -42,6 +42,27 @@ the folder with your logs to attach. You can also
 [open an issue](https://github.com/sebastian-beca/opendj/issues/new/choose)
 directly.
 
+What testers get:
+
+- **Credit.** Everyone whose report or idea makes it into a release is thanked
+  by name in its release notes and listed below.
+- **A vote.** Give a 👍 to the
+  [feature requests](https://github.com/sebastian-beca/opendj/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement+sort%3Areactions-%2B1-desc)
+  you want most; the most wanted are built first.
+- **Your controller first.** If your controller doesn't work right,
+  [tell us which one](https://github.com/sebastian-beca/opendj/issues/new?template=controller.yml)
+  and testers' controllers are fixed before anything else.
+- **Early builds.** Test builds come out as
+  [pre-releases](https://github.com/sebastian-beca/opendj/releases) before
+  each version. Watch the repository (Watch → Custom → Releases) to hear
+  about them.
+
+### Beta testers
+
+Thank you to everyone who has helped test openDJ:
+
+- *Your name here: send a report or an idea.*
+
 ## Building from source
 
 Needs a recent stable Rust, CMake and a C++ compiler. On Linux you also need:
