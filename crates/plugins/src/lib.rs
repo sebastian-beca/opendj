@@ -9,10 +9,13 @@
 //!   an add-on built into the app.
 //! - [`source::SearchSource`]: a source of its own in the rail, with saved
 //!   searches and downloads, for an add-on that fetches files.
+//! - [`Plugin::settings`]: a page of its own in Settings, for a sign-in or
+//!   anything else the DJ fills in once.
 //!
 //! Plugins are compiled in for now ([`builtin`]); each runs on a thread of
 //! its own in the app, so a slow store never holds up the UI or the audio.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub mod bandcamp;
@@ -45,6 +48,64 @@ pub trait Plugin: Send {
     /// A source of its own in the rail (see [`source`]).
     fn source(&mut self) -> Option<&mut dyn source::SearchSource> {
         None
+    }
+    /// What the plugin's page in Settings shows, in order; none gives it no
+    /// page. Asked each time the page is shown, so a note can say how
+    /// things stand now.
+    fn settings(&self) -> Vec<Setting> {
+        Vec::new()
+    }
+    /// What the DJ filled in on the plugin's page, given when the plugin is
+    /// made and again whenever a value changes.
+    fn configure(&mut self, _config: &PluginConfig) {}
+}
+
+/// One row on a plugin's page in Settings.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Setting {
+    /// Names the value in [`PluginConfig::values`]; unused for a note.
+    pub key: &'static str,
+    pub kind: SettingKind,
+    pub title: String,
+    pub detail: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SettingKind {
+    /// A line of text, such as a user name.
+    Text,
+    /// A password: typed hidden.
+    Secret,
+    /// Text only, such as whether the plugin is signed in.
+    Note,
+}
+
+impl Setting {
+    pub fn new(key: &'static str, kind: SettingKind, title: &str, detail: &str) -> Self {
+        Setting {
+            key,
+            kind,
+            title: title.into(),
+            detail: detail.into(),
+        }
+    }
+}
+
+/// A plugin's saved settings.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PluginConfig {
+    /// What was filled in, by [`Setting::key`]; a value never filled in is
+    /// missing.
+    pub values: BTreeMap<String, String>,
+    /// A folder of the plugin's own in the app's config folder, for files
+    /// it keeps between runs.
+    pub dir: Option<PathBuf>,
+}
+
+impl PluginConfig {
+    /// A value, or "" when it was never filled in.
+    pub fn get(&self, key: &str) -> &str {
+        self.values.get(key).map(String::as_str).unwrap_or_default()
     }
 }
 

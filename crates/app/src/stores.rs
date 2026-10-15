@@ -15,6 +15,16 @@ pub fn plugins() -> Vec<Box<dyn Plugin>> {
     mixxx_plugins::builtin()
 }
 
+/// [`plugins`], each told what the DJ filled in on its page in Settings.
+pub fn configured() -> Vec<Box<dyn Plugin>> {
+    let mut all = plugins();
+    for p in &mut all {
+        let id = p.manifest().id;
+        p.configure(&crate::settings::plugin_config(id));
+    }
+    all
+}
+
 /// The importer add-ons the app was built with (see
 /// [`mixxx_plugins::LibraryImport`]); none by default.
 pub fn importers() -> Vec<Box<dyn LibraryImport>> {
