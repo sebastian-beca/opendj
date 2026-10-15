@@ -8,6 +8,7 @@ use mixxx_engine::key::Key;
 use mixxx_engine::scan::default_music_dir;
 use mixxx_engine::{AudioSetup, Role, Route};
 use mixxx_plugins::inbox::Mode;
+use mixxx_plugins::PluginConfig;
 use serde_json::{json, Value};
 
 /// Where openDJ keeps its settings: `OPENDJ_CONFIG`, else
@@ -291,6 +292,35 @@ pub fn set_inbox_on(on: bool) {
 
 pub fn set_inbox_mode(mode: Mode) {
     save(|v| v["inbox_mode"] = json!(mode.name()));
+}
+
+/// What the DJ filled in on a plugin's page in Settings, and the plugin's
+/// own folder in the config folder.
+pub fn plugin_config(id: &str) -> PluginConfig {
+    let values = load()["plugins"][id]
+        .as_object()
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
+                .collect()
+        })
+        .unwrap_or_default();
+    PluginConfig {
+        values,
+        dir: config_dir().map(|d| d.join("plugins").join(id)),
+    }
+}
+
+pub fn set_plugin_value(id: &str, key: &str, value: &str) {
+    save(|v| {
+        if !v["plugins"].is_object() {
+            v["plugins"] = json!({});
+        }
+        if !v["plugins"][id].is_object() {
+            v["plugins"][id] = json!({});
+        }
+        v["plugins"][id][key] = json!(value);
+    });
 }
 
 fn save(change: impl FnOnce(&mut Value)) {

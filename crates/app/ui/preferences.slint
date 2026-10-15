@@ -14,7 +14,8 @@ export struct PrefItem {
     id: string,
     // 0 switch, 1 menu, 2 button, 3 file or folder with a Choose button,
     // 4 the output routes table, 5 headphone and booth level knobs, 6 a
-    // note, 7 a heading, 8 segmented buttons.
+    // note, 7 a heading, 8 segmented buttons, 9 a text field (hidden
+    // typing when `on`, for a password).
     kind: int,
     title: string,
     detail: string,
@@ -34,12 +35,14 @@ export global Preferences {
     in-out property <int> page;
     in-out property <string> query;
     in property <[PrefItem]> items;
-    out property <[string]> pages: ["Audio", "Controllers", "Library", "Analysis", "Decks", "Mixer", "Feedback"];
+    // The app adds a page for each plugin with settings after these.
+    in-out property <[string]> pages: ["Audio", "Controllers", "Library", "Analysis", "Decks", "Mixer", "Feedback"];
     // The page or the search changed: the app fills `items` again.
     callback changed();
     callback toggled(id: string, on: bool);
     callback picked(id: string, index: int);
     callback pressed(id: string);
+    callback typed(id: string, text: string);
 
     public function show(p: int) {
         page = p;
@@ -62,12 +65,14 @@ component PageIcon inherits Path {
     stroke-width: 1.7px;
     // Audio: a speaker. Controllers: a two-deck controller. Library: a
     // list with a note. Analysis: a waveform. Decks:
-    // a platter. Mixer: three faders. Feedback: a speech bubble.
+    // a platter. Mixer: three faders. Feedback: a speech bubble. A
+    // plugin's page: a plug.
     commands: kind == 0 ? "M 3 9 L 7 9 L 12 5 L 12 19 L 7 15 L 3 15 Z M 15.5 9 Q 17.5 12 15.5 15 M 18 6.5 Q 21.5 12 18 17.5"
         : kind == 1 ? "M 2 7 L 22 7 L 22 17 L 2 17 Z M 4.5 12 A 2.5 2.5 0 1 0 9.5 12 A 2.5 2.5 0 1 0 4.5 12 M 14.5 12 A 2.5 2.5 0 1 0 19.5 12 A 2.5 2.5 0 1 0 14.5 12 M 12 9.5 L 12 14.5"
         : kind == 2 ? "M 3 5 L 15 5 M 3 10 L 15 10 M 3 15 L 10 15 M 18 18 L 18 7 L 22 8.5 M 18 18 A 2 2 0 1 1 17.99 18"
         : kind == 3 ? "M 3 10 L 3 14 M 6 7 L 6 17 M 9 4 L 9 20 M 12 8 L 12 16 M 15 5 L 15 19 M 18 9 L 18 15 M 21 11 L 21 13"
         : kind == 4 ? "M 3 12 A 9 9 0 1 0 21 12 A 9 9 0 1 0 3 12 M 9.5 12 A 2.5 2.5 0 1 0 14.5 12 A 2.5 2.5 0 1 0 9.5 12"
+        : kind >= 7 ? "M 9 3 L 9 8 M 15 3 L 15 8 M 6 8 L 18 8 L 18 11 A 6 6 0 0 1 6 11 Z M 12 17 L 12 21"
         : kind == 6 ? "M 4 5 L 20 5 L 20 16 L 11 16 L 6 20 L 6 16 L 4 16 Z M 8 9 L 16 9 M 8 12 L 13 12"
         : "M 6 3 L 6 12 M 6 16 L 6 21 M 12 3 L 12 6 M 12 10 L 12 21 M 18 3 L 18 9 M 18 13 L 18 21 M 4 12 L 8 12 L 8 16 L 4 16 Z M 10 6 L 14 6 L 14 10 L 10 10 Z M 16 9 L 20 9 L 20 13 L 16 13 Z";
 }
@@ -147,6 +152,29 @@ component Segmented inherits Rectangle {
     }
 }
 
+// A line of text the DJ types, such as a user name or a password; each
+// change is saved at once.
+component TextField inherits Rectangle {
+    in property <PrefItem> item;
+    width: 260px;
+    height: 28px;
+    border-radius: Theme.radius;
+    background: Theme.well;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.knob-arc : Theme.separator;
+    input := TextInput {
+        x: 8px;
+        width: parent.width - 16px;
+        text: item.value;
+        input-type: item.on ? InputType.password : InputType.text;
+        color: Theme.text;
+        font-size: 13px;
+        vertical-alignment: center;
+        single-line: true;
+        edited => { Preferences.typed(item.id, self.text); }
+    }
+}
+
 // One setting: its name and a line on what it does on the left, the
 // control on the right.
 component PrefRow inherits Rectangle {
@@ -192,6 +220,10 @@ component PrefRow inherits Rectangle {
             if item.kind == 2: VerticalLayout {
                 alignment: center;
                 Button { text: item.action; clicked => { Preferences.pressed(item.id); } }
+            }
+            if item.kind == 9: VerticalLayout {
+                alignment: center;
+                TextField { item: item; }
             }
             if item.kind == 8: VerticalLayout {
                 alignment: center;

@@ -411,6 +411,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         registry.clone(),
         controllers.clone(),
         Box::new(move || sync_library(library_path.clone(), scan_tx.clone())),
+        {
+            let sources = sources.clone();
+            Box::new(move |id| sources.borrow_mut().configure(id))
+        },
     );
 
     let decks = Rc::new(Decks::new(&registry));
