@@ -1,0 +1,3 @@
+# Mixxx controller scripts, bundled unchanged: keep them out of the
+# language statistics so GitHub shows the project as Rust.
+res/controllers/** linguist-vendored
