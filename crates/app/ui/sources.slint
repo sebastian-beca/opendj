@@ -1,0 +1,705 @@
+// Sources that come from add-ons (see sources.rs): saved searches on the
+// left, a search box over the list, and results with a download for each.
+import { LineEdit, ListView } from "std-widgets.slint";
+import { Theme, EdgeLine } from "theme.slint";
+
+// A plugin source in the rail.
+export struct SourceTab {
+    name: string,
+    icon: image,
+    // What its search box suggests.
+    hint: string,
+}
+
+// A saved search in the panel.
+export struct SearchItem {
+    name: string,
+    // "Searching… 7 so far", "24 tracks · 6 albums".
+    sub: string,
+    // 0 = auto, 1 = track, 2 = album, 3 = artist, 4 = playlist link
+    kind: int,
+    busy: bool,
+}
+
+// A row of results.
+export struct FoundRow {
+    // 0 = a heading ("Albums", or a playlist's song), 1 = a folder, 2 = a file
+    kind: int,
+    // 1 for a file shown inside its folder.
+    depth: int,
+    checked: bool,
+    // A folder whose files are shown.
+    open: bool,
+    title: string,
+    // A file's artist; a folder's artist, year and track count.
+    artist: string,
+    number: string,
+    length: string,
+    format: string,
+    quality: string,
+    size: string,
+    from: string,
+    // 0 = not downloaded, 1 = queued, 2 = downloading, 3 = done, 4 = failed
+    state: int,
+    progress: float,
+    // Why a download failed.
+    note: string,
+}
+
+export struct QueueLine {
+    text: string,
+    progress: float,
+}
+
+export global SourceUi {
+    in property <[SourceTab]> sources;
+    in property <[SearchItem]> searches;
+    // The search shown; -1 is the Downloads list.
+    in property <int> current-search: -1;
+    // Under Downloads in the panel: "3 active".
+    in property <string> downloads-line;
+    in property <[FoundRow]> rows;
+    in property <string> title;
+    in property <string> summary;
+    // Shown instead of rows: "Searching…", "Nothing found.", an error.
+    in property <string> notice;
+    // 0 = everything, 1 = tracks, 2 = albums.
+    in property <int> filter;
+    in property <bool> lossless-only;
+    in property <int> selected-count;
+    in property <string> selected-summary;
+    in property <[QueueLine]> queue;
+    // Anything was downloaded this session.
+    in property <bool> queue-shown;
+    // The search is a playlist's: its results come in a group per song.
+    in property <bool> grouped;
+    in property <string> queue-title;
+    in property <string> queue-folder;
+    // How the search box's text will be searched, a line per search.
+    in property <[string]> preview;
+    // Opens the search box.
+    in-out property <bool> dialog-open;
+    callback describe(text: string, kind: int, prefer: int);
+    callback search(text: string, kind: int, prefer: int);
+    callback select-search(index: int);
+    callback remove-search(index: int);
+    callback search-again(index: int);
+    callback check(row: int, shift: bool);
+    callback toggle-open(row: int);
+    // A row's button: download it, or try a failed one again.
+    callback download(row: int);
+    callback download-selected();
+    callback clear-selection();
+    // Ticks the best copy of each song of a playlist.
+    callback pick-best();
+    callback set-filter(filter: int);
+    callback set-lossless-only(on: bool);
+}
+
+component Line inherits Rectangle {
+    in property <string> text;
+    in property <color> text-color: Theme.text;
+    callback clicked();
+    height: 30px;
+    border-radius: 5px;
+    background: ta.has-hover ? #3a3a3d : transparent;
+    Text { x: 10px; text: root.text; color: root.text-color; font-size: 13px; vertical-alignment: center; }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+component Menu inherits Rectangle {
+    background: #2a2a2d;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 12px;
+    drop-shadow-color: #00000080;
+}
+
+// What a search looks for, drawn: a magnifier, a record, or a list.
+component KindIcon inherits Path {
+    in property <int> kind;
+    in property <color> color: Theme.text-dim;
+    width: 16px;
+    height: 16px;
+    viewbox-width: 16;
+    viewbox-height: 16;
+    stroke: color;
+    stroke-width: 1.5px;
+    stroke-line-cap: round;
+    fill: transparent;
+    commands: kind == 2 ? "M 8 2 A 6 6 0 1 1 7.99 2 Z M 8 6.5 A 1.5 1.5 0 1 1 7.99 6.5 Z"
+        : kind == 4 ? "M 2.5 4 L 13.5 4 M 2.5 8 L 13.5 8 M 2.5 12 L 9.5 12"
+        : "M 7 2.5 A 4.5 4.5 0 1 1 6.99 2.5 Z M 10.3 10.3 L 14 14";
+}
+
+// A pill to pick one of a few.
+component Pill inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked();
+    height: 24px;
+    width: label.preferred-width + 20px;
+    border-radius: 12px;
+    background: on ? Theme.accent : (ta.has-hover ? #333336 : #2a2a2d);
+    label := Text { text: root.text; color: on ? Theme.on-selection : Theme.text-dim; font-size: 12px; font-weight: on ? 600 : 400; }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+component Bar inherits Rectangle {
+    in property <float> progress;
+    height: 4px;
+    border-radius: 2px;
+    background: #3a3a3d;
+    Rectangle {
+        x: 0;
+        width: parent.width * clamp(progress, 0, 1);
+        height: parent.height;
+        border-radius: 2px;
+        background: Theme.accent;
+    }
+}
+
+// Left of the results: the source's saved searches, a + for a new one,
+// everything downloaded, and what's downloading now.
+export component SearchesPanel inherits Rectangle {
+    in property <string> source-name;
+    property <int> menu-index;
+    property <length> menu-y;
+    width: 270px;
+    background: Theme.panel;
+    search-menu := PopupWindow {
+        x: 40px;
+        y: menu-y;
+        width: 170px;
+        close-policy: close-on-click-outside;
+        Menu {}
+        VerticalLayout {
+            padding: 6px;
+            Line {
+                text: "Search again";
+                clicked => {
+                    SourceUi.search-again(menu-index);
+                    search-menu.close();
+                }
+            }
+            Line {
+                text: "Remove";
+                text-color: #ff6b5e;
+                clicked => {
+                    SourceUi.remove-search(menu-index);
+                    search-menu.close();
+                }
+            }
+        }
+    }
+    VerticalLayout {
+        padding: 8px;
+        padding-top: 0px;
+        spacing: 6px;
+        HorizontalLayout {
+            height: 38px;
+            padding-left: 8px;
+            Text { text: source-name; color: Theme.text-dim; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+        }
+        EdgeLine { left: 8px; right: 8px; }
+        HorizontalLayout {
+            padding-left: 8px;
+            height: 26px;
+            Text { text: "Searches"; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+            Rectangle {
+                width: 26px;
+                border-radius: 5px;
+                background: pta.has-hover ? Theme.accent : transparent;
+                Text { text: "+"; color: pta.has-hover ? Theme.on-selection : Theme.text; font-size: 20px; vertical-alignment: center; }
+                pta := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.dialog-open = true; } }
+            }
+        }
+        // Everything downloaded from this source.
+        Rectangle {
+            height: 34px;
+            border-radius: Theme.radius;
+            background: SourceUi.current-search == -1 ? #3a3a3d : (dta.has-hover ? #232326 : transparent);
+            dta := TouchArea { clicked => { SourceUi.select-search(-1); } }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 10px;
+                Path {
+                    width: 16px;
+                    height: 16px;
+                    viewbox-width: 16;
+                    viewbox-height: 16;
+                    stroke: Theme.text-dim;
+                    stroke-width: 1.5px;
+                    stroke-line-cap: round;
+                    fill: transparent;
+                    commands: "M 8 2 L 8 11 M 4 7.5 L 8 11.5 L 12 7.5 M 3 14 L 13 14";
+                }
+                Text { text: "Downloads"; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
+                Text { text: SourceUi.downloads-line; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
+            }
+        }
+        if SourceUi.searches.length == 0: Text {
+            text: "Press + to search.";
+            color: Theme.text-dim;
+            font-size: 13px;
+            horizontal-alignment: center;
+        }
+        ListView {
+            vertical-stretch: 1;
+            for s[i] in SourceUi.searches: Rectangle {
+                height: 46px;
+                border-radius: Theme.radius;
+                background: i == SourceUi.current-search ? #3a3a3d : (ta.has-hover ? #232326 : transparent);
+                ta := TouchArea {
+                    clicked => { SourceUi.select-search(i); }
+                    pointer-event(e) => {
+                        if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                            menu-index = i;
+                            menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
+                            search-menu.show();
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 8px;
+                    spacing: 10px;
+                    Rectangle {
+                        width: 16px;
+                        // A search still going pulses.
+                        if s.busy: Rectangle {
+                            width: 8px;
+                            height: 8px;
+                            border-radius: 4px;
+                            background: Theme.accent;
+                            opacity: 0.35 + 0.65 * abs(sin(animation-tick() / 1ms * 0.25deg));
+                        }
+                        if !s.busy: KindIcon { kind: s.kind; }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 1px;
+                        Text { text: s.name; color: Theme.text; font-size: 14px; overflow: elide; }
+                        Text { text: s.sub; color: Theme.text-dim; font-size: 11px; overflow: elide; }
+                    }
+                }
+            }
+        }
+        // What's downloading.
+        if SourceUi.queue-shown: Rectangle {
+            border-radius: Theme.radius;
+            background: #232326;
+            height: q.preferred-height;
+            q := VerticalLayout {
+                padding: 10px;
+                spacing: 4px;
+                HorizontalLayout {
+                    Text { text: SourceUi.queue.length > 0 ? "Downloading" : "Downloaded"; color: Theme.text; font-size: 13px; font-weight: 600; horizontal-stretch: 1; }
+                    Text { text: SourceUi.queue-title; color: Theme.text-dim; font-size: 12px; }
+                }
+                for line in SourceUi.queue: VerticalLayout {
+                    spacing: 3px;
+                    padding-top: 3px;
+                    Text {
+                        text: line.text + (line.progress > 0 ? " · " + round(line.progress * 100) + "%" : "");
+                        color: Theme.text-dim;
+                        font-size: 11px;
+                        overflow: elide;
+                    }
+                    Bar { progress: line.progress; }
+                }
+                Text { text: SourceUi.queue-folder; color: Theme.text-dim; font-size: 11px; wrap: word-wrap; }
+            }
+        }
+    }
+}
+
+// The search box, over the results: one field, how it will be read, and
+// what kind of search it is when the DJ knows better.
+component SearchBox inherits Rectangle {
+    in property <string> hint;
+    in-out property <string> text;
+    in-out property <int> kind;
+    in-out property <int> prefer;
+    callback cancel();
+    callback go();
+    width: 600px;
+    height: box.preferred-height;
+    border-radius: 10px;
+    background: #232327;
+    border-width: 1px;
+    border-color: #3a3a40;
+    drop-shadow-blur: 30px;
+    drop-shadow-color: #000000a0;
+    // Clicks inside don't reach the backdrop.
+    TouchArea {}
+    box := VerticalLayout {
+        padding: 18px;
+        spacing: 12px;
+        Text { text: "New search"; color: Theme.text; font-size: 16px; font-weight: 600; }
+        field := LineEdit {
+            height: 38px;
+            font-size: 15px;
+            placeholder-text: hint;
+            text <=> root.text;
+            edited(t) => { SourceUi.describe(t, kind, prefer); }
+            accepted => { go(); }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            for k[i] in ["Auto", "Track", "Album", "Artist", "Playlist link"]: Pill {
+                text: k;
+                on: i == kind;
+                clicked => {
+                    kind = i;
+                    SourceUi.describe(text, kind, prefer);
+                }
+            }
+        }
+        // How the text will be searched.
+        Rectangle {
+            border-radius: 6px;
+            background: #1a1a1d;
+            height: lines.preferred-height;
+            lines := VerticalLayout {
+                padding: 10px;
+                spacing: 3px;
+                if text == "": Text { text: "Type an artist, a title or both (Artist - Title), an album, or paste a playlist link."; color: Theme.text-dim; font-size: 12px; wrap: word-wrap; }
+                if text != "": VerticalLayout {
+                    spacing: 3px;
+                    for l in SourceUi.preview: Text { text: l; color: Theme.text; font-size: 12px; wrap: word-wrap; }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            Text { text: "Prefer"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+            for p[i] in ["Lossless", "MP3 320", "Any"]: VerticalLayout {
+                alignment: center;
+                Pill {
+                    text: p;
+                    on: i == prefer;
+                    clicked => {
+                        prefer = i;
+                        SourceUi.describe(text, kind, prefer);
+                    }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Rectangle {
+                width: 84px;
+                height: 32px;
+                border-radius: 6px;
+                background: cta.has-hover ? #38383c : #2d2d33;
+                Text { text: "Cancel"; color: Theme.text; font-size: 13px; font-weight: 600; }
+                cta := TouchArea { mouse-cursor: pointer; clicked => { cancel(); } }
+            }
+            Rectangle {
+                width: 96px;
+                height: 32px;
+                border-radius: 6px;
+                background: text == "" ? #4a4458 : (sta.has-hover ? Theme.accent.brighter(0.15) : Theme.accent);
+                Text { text: "Search"; color: Theme.on-selection; font-size: 13px; font-weight: 700; }
+                sta := TouchArea { mouse-cursor: pointer; clicked => { go(); } }
+            }
+        }
+    }
+    public function focus-field() {
+        field.focus();
+    }
+}
+
+// A result's button: download, how far it's got, or try again.
+component RowButton inherits Rectangle {
+    in property <FoundRow> r;
+    callback clicked();
+    width: 96px;
+    VerticalLayout {
+        alignment: center;
+        if r.state == 2: VerticalLayout {
+            spacing: 3px;
+            Text { text: round(r.progress * 100) + "%"; color: Theme.text-dim; font-size: 11px; horizontal-alignment: right; }
+            Bar { progress: r.progress; }
+        }
+        if r.state != 2: HorizontalLayout {
+            alignment: end;
+            Rectangle {
+                height: 22px;
+                width: label.preferred-width + 20px;
+                border-radius: 11px;
+                border-width: r.state == 0 ? 0px : 1px;
+                border-color: r.state == 3 ? #2d6a43 : r.state == 4 ? #6a2d2d : #48484c;
+                background: r.state == 0 ? (ta.has-hover ? Theme.accent.brighter(0.15) : Theme.accent) : transparent;
+                label := Text {
+                    text: r.state == 0 ? (r.kind == 1 ? "↓ Album" : "↓") : r.state == 1 ? "Queued" : r.state == 3 ? "✓ Added" : "Retry";
+                    color: r.state == 0 ? Theme.on-selection : r.state == 3 ? #30d158 : r.state == 4 ? #ff6b5e : Theme.text-dim;
+                    font-size: 11px;
+                    font-weight: 700;
+                }
+                ta := TouchArea {
+                    mouse-cursor: r.state == 0 || r.state == 4 ? pointer : default;
+                    clicked => { clicked(); }
+                }
+            }
+        }
+    }
+}
+
+component Check inherits Rectangle {
+    in property <bool> on;
+    callback toggled(shift: bool);
+    width: 22px;
+    property <bool> shift;
+    Rectangle {
+        width: 15px;
+        height: 15px;
+        border-radius: 3px;
+        border-width: 1.5px;
+        border-color: on ? Theme.accent : #6a6a72;
+        background: on ? Theme.accent : transparent;
+        if on: Text { text: "✓"; color: Theme.on-selection; font-size: 11px; font-weight: 800; }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                shift = e.modifiers.shift;
+            }
+        }
+        clicked => { toggled(shift); }
+    }
+}
+
+// The results of the search picked on the left, or every download.
+export component SourceResults inherits Rectangle {
+    in property <string> hint;
+    property <bool> want-dialog: SourceUi.dialog-open;
+    property <string> dialog-text;
+    property <int> dialog-kind;
+    property <int> dialog-prefer;
+    changed want-dialog => {
+        if want-dialog {
+            dialog-text = "";
+            dialog-kind = 0;
+        }
+    }
+    background: Theme.panel;
+    property <length> w-artist: 170px;
+    property <length> w-length: 50px;
+    property <length> w-format: 54px;
+    property <length> w-quality: 74px;
+    property <length> w-size: 62px;
+    property <length> w-from: 110px;
+    VerticalLayout {
+        padding: 6px;
+        spacing: 4px;
+        HorizontalLayout {
+            spacing: 10px;
+            height: 32px;
+            padding-left: 6px;
+            Text { text: SourceUi.title; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; overflow: elide; }
+            Text { text: SourceUi.summary; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+            if SourceUi.current-search >= 0: HorizontalLayout {
+                spacing: 6px;
+                if SourceUi.grouped: VerticalLayout {
+                    alignment: center;
+                    Pill { text: "Tick best of each"; clicked => { SourceUi.pick-best(); } }
+                }
+                if !SourceUi.grouped: HorizontalLayout {
+                    spacing: 6px;
+                    for f[i] in ["All", "Tracks", "Albums"]: VerticalLayout {
+                    alignment: center;
+                        Pill { text: f; on: i == SourceUi.filter; clicked => { SourceUi.set-filter(i); } }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Pill { text: "Lossless only"; on: SourceUi.lossless-only; clicked => { SourceUi.set-lossless-only(!SourceUi.lossless-only); } }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Pill { text: "Search again"; clicked => { SourceUi.search-again(SourceUi.current-search); } }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                Pill { text: "+ New search"; clicked => { SourceUi.dialog-open = true; } }
+            }
+        }
+        HorizontalLayout {
+            height: 24px;
+            spacing: 8px;
+            padding-left: 6px;
+            padding-right: 14px;
+            Rectangle { width: 22px; }
+            Rectangle { width: 16px; }
+            Text { horizontal-stretch: 1; text: "Title"; color: Theme.text; font-size: 13px; font-weight: 500; }
+            Text { width: w-artist; text: "Artist"; color: Theme.text; font-size: 13px; font-weight: 500; }
+            Text { width: w-length; text: "Length"; color: Theme.text; font-size: 13px; font-weight: 500; horizontal-alignment: right; }
+            Text { width: w-format; text: "Format"; color: Theme.text; font-size: 13px; font-weight: 500; }
+            Text { width: w-quality; text: "Quality"; color: Theme.text; font-size: 13px; font-weight: 500; }
+            Text { width: w-size; text: "Size"; color: Theme.text; font-size: 13px; font-weight: 500; horizontal-alignment: right; }
+            Text { width: w-from; text: "From"; color: Theme.text; font-size: 13px; font-weight: 500; }
+            Rectangle { width: 96px; }
+        }
+        EdgeLine { left: 6px; right: 6px; }
+        if SourceUi.notice != "": Rectangle {
+            vertical-stretch: 1;
+            Text { text: SourceUi.notice; color: Theme.text-dim; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; width: min(parent.width - 40px, 460px); }
+        }
+        ListView {
+            vertical-stretch: SourceUi.notice != "" ? 0 : 1;
+            visible: SourceUi.notice == "";
+            for r[i] in SourceUi.rows: Rectangle {
+                height: r.kind == 0 ? 30px : r.kind == 1 ? 48px : 32px;
+                border-radius: 4px;
+                background: r.kind == 1 ? (ta.has-hover ? #2e2e33 : #26262a)
+                    : r.kind == 0 ? transparent
+                    : r.checked ? #4a3f6e
+                    : ta.has-hover ? #2a2a2e : mod(i, 2) == 1 ? #ffffff0b : transparent;
+                ta := TouchArea {
+                    clicked => {
+                        if r.kind == 1 { SourceUi.toggle-open(i); }
+                    }
+                    double-clicked => {
+                        if r.kind == 2 && r.state == 0 { SourceUi.download(i); }
+                    }
+                }
+                if r.kind == 0: Text {
+                    x: 8px;
+                    text: r.title;
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    font-weight: 600;
+                    letter-spacing: 0.5px;
+                    vertical-alignment: center;
+                }
+                if r.kind != 0: HorizontalLayout {
+                    spacing: 8px;
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    // Only a search's results can be ticked, not the Downloads list.
+                    Check {
+                        visible: SourceUi.current-search >= 0;
+                        on: r.checked;
+                        toggled(shift) => { SourceUi.check(i, shift); }
+                    }
+                    Rectangle {
+                        width: 16px;
+                        // A folder's disclosure arrow; a file's number in its folder.
+                        if r.kind == 1: Path {
+                            width: 10px;
+                            height: 10px;
+                            viewbox-width: 10;
+                            viewbox-height: 10;
+                            stroke: Theme.text-dim;
+                            stroke-width: 1.6px;
+                            stroke-line-cap: round;
+                            fill: transparent;
+                            commands: r.open ? "M 2 3.5 L 5 6.5 L 8 3.5" : "M 3.5 2 L 6.5 5 L 3.5 8";
+                        }
+                        if r.kind == 2: Text { text: r.depth > 0 ? r.number : "♪"; color: Theme.text-dim; font-size: 12px; }
+                    }
+                    if r.kind == 1: VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        Text { text: r.title; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
+                        Text { text: r.artist; color: Theme.text-dim; font-size: 12px; overflow: elide; }
+                    }
+                    if r.kind == 2: Text {
+                        horizontal-stretch: 1;
+                        text: r.title;
+                        color: Theme.text;
+                        font-size: 15px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    Text { width: w-artist; text: r.kind == 2 ? r.artist : ""; color: Theme.text; font-size: 15px; vertical-alignment: center; overflow: elide; }
+                    Text { width: w-length; text: r.length; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-alignment: right; }
+                    Rectangle {
+                        width: w-format;
+                        if r.format != "": Rectangle {
+                            x: 0;
+                            width: ft.preferred-width + 12px;
+                            height: 18px;
+                            border-radius: 4px;
+                            background: #2d2d33;
+                            ft := Text { text: r.format; color: r.format == "FLAC" || r.format == "WAV" || r.format == "AIFF" || r.format == "ALAC" ? #cfc4ff : #bbbbbb; font-size: 11px; font-weight: 700; }
+                        }
+                    }
+                    Text { width: w-quality; text: r.quality; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
+                    Text { width: w-size; text: r.size; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; horizontal-alignment: right; }
+                    // Who shares it, or why its download failed.
+                    Text { width: w-from; text: r.state == 4 && r.note != "" ? r.note : r.from; color: r.state == 4 ? #ff6b5e : Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
+                    RowButton { r: r; clicked => { SourceUi.download(i); } }
+                }
+            }
+        }
+        // Ticked rows download together.
+        if SourceUi.selected-count > 0: Rectangle {
+            height: 44px;
+            border-radius: 6px;
+            background: #2a2533;
+            border-width: 1px;
+            border-color: #4a3f6e;
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 10px;
+                spacing: 12px;
+                Text { text: SourceUi.selected-count + " selected"; color: Theme.text; font-size: 14px; font-weight: 600; vertical-alignment: center; }
+                Text { text: SourceUi.selected-summary; color: Theme.text-dim; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        height: 28px;
+                        width: dl.preferred-width + 28px;
+                        border-radius: 14px;
+                        background: dta.has-hover ? Theme.accent.brighter(0.15) : Theme.accent;
+                        dl := Text { text: "↓ Download selected"; color: Theme.on-selection; font-size: 13px; font-weight: 700; }
+                        dta := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.download-selected(); } }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Pill { text: "Clear"; clicked => { SourceUi.clear-selection(); } }
+                }
+            }
+        }
+    }
+
+    // The search box, over the results with the list dimmed behind it.
+    if SourceUi.dialog-open: Rectangle {
+        background: #00000090;
+        // Clicking the backdrop cancels.
+        TouchArea { clicked => { SourceUi.dialog-open = false; } }
+        FocusScope {
+            key-pressed(e) => {
+                if e.text == Key.Escape {
+                    SourceUi.dialog-open = false;
+                    return accept;
+                }
+                reject
+            }
+            sb := SearchBox {
+                x: (root.width - self.width) / 2;
+                y: max(10px, min(60px, (root.height - self.height) / 2));
+                width: min(600px, root.width - 20px);
+                hint: hint;
+                text <=> dialog-text;
+                kind <=> dialog-kind;
+                prefer <=> dialog-prefer;
+                init => { self.focus-field(); }
+                cancel => { SourceUi.dialog-open = false; }
+                go => {
+                    if dialog-text != "" {
+                        SourceUi.search(dialog-text, dialog-kind, dialog-prefer);
+                        SourceUi.dialog-open = false;
+                    }
+                }
+            }
+        }
+    }
+}
