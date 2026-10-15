@@ -262,6 +262,23 @@ impl Worker {
     }
 }
 
+/// Adds a file a source add-on downloaded (already filed where it belongs)
+/// to the library and its Inbox list, as from `store`.
+pub fn add_download(library: &Path, path: &Path, store: &str) -> Result<Track, String> {
+    let mut db = Library::open(library).map_err(|e| e.to_string())?;
+    let (_, mut track) = describe(path, None);
+    if let Ok(Some(same)) = db.find_same(&track.artist, &track.title, track.duration) {
+        return Err(format!("already in the library as track {same}"));
+    }
+    track.source = Source::File(path.to_path_buf());
+    let track = db.add_purchase(&track, store).map_err(|e| e.to_string())?;
+    if let Ok(list) = db.inbox_list() {
+        let _ = db.add_to_playlist(list, &[track.id]);
+    }
+    let _ = db.log_inbox(path, "imported", Some(track.id));
+    Ok(track)
+}
+
 /// The folder an "imported: <path>" outcome put its file in.
 fn db_path_dir(outcome: &str) -> Option<PathBuf> {
     let path = outcome.strip_prefix("imported: ")?;
