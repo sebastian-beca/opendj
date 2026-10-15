@@ -32,6 +32,7 @@ slint::include_modules!();
 mod art;
 mod automix;
 mod browser;
+mod diagnostics;
 mod files;
 mod inbox;
 #[cfg(target_os = "macos")]
@@ -252,6 +253,7 @@ const TOP_BAR_HEIGHT: f64 = 52.0;
 const VISIBLE_SECONDS: f64 = 10.0;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    diagnostics::install();
     let backend =
         slint::BackendSelector::new().require_wgpu_30(slint::wgpu_30::WGPUConfiguration::default());
     // On macOS the app draws under a hidden title bar: only
