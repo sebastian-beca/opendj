@@ -23,6 +23,9 @@ slint = { version = "~1.18", features = ["unstable-wgpu-30", "unstable-fontique-
 ureq = { version = "3", features = ["json"] }
 write-fonts = "0.50"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSButton", "NSControl", "NSMenu", "NSMenuItem", "NSResponder", "NSView", "NSWindow"] }
