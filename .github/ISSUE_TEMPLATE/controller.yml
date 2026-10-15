@@ -1,0 +1,35 @@
+name: My controller doesn't work
+description: A MIDI controller isn't recognised, or some of its buttons, knobs or lights don't work.
+labels: [controller]
+body:
+  - type: input
+    id: controller
+    attributes:
+      label: Controller
+      description: Make and model.
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What doesn't work?
+      description: Not recognised at all, or which buttons, knobs, jog wheels or lights misbehave.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: openDJ version
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Computer
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        Settings → Feedback → Logs and crash reports, then drag opendj.log here.
+        It lists the MIDI ports openDJ saw and which mapping it picked.
