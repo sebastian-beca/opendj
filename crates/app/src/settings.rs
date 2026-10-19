@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use mixxx_controllers::MappingChoice;
 use mixxx_engine::key::Key;
 use mixxx_engine::scan::default_music_dir;
-use mixxx_engine::{AudioSetup, Role, Route};
+use mixxx_engine::{AudioSetup, RecordFormat, RecordSettings, Role, Route};
 use mixxx_plugins::inbox::Mode;
 use mixxx_plugins::PluginConfig;
 use serde_json::{json, Value};
@@ -78,6 +78,27 @@ pub fn automix_style() -> usize {
 
 pub fn set_automix_style(i: usize) {
     save(|v| v["automix_style"] = json!(i));
+}
+
+/// Where mixes are recorded, and in what format.
+pub fn recording() -> RecordSettings {
+    let v = load();
+    let d = RecordSettings::default();
+    RecordSettings {
+        dir: v["recording_folder"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or(d.dir),
+        format: v["recording_format"]
+            .as_str()
+            .and_then(RecordFormat::from_name)
+            .unwrap_or(d.format),
+        bits: match v["recording_bits"].as_u64() {
+            Some(16) => 16,
+            _ => d.bits,
+        },
+    }
 }
 
 /// The output routes chosen last time. Settings from before routes are
