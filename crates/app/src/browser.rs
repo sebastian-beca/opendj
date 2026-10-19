@@ -25,6 +25,8 @@ use mixxx_library::Wanted;
 use mixxx_plugins::inbox::Mode;
 use mixxx_plugins::{ItemKind, StoreItem, StoreQuery};
 
+mod info;
+
 use crate::art::Art;
 use crate::files::{self, Found, Place};
 use crate::inbox::Inbox;
@@ -392,6 +394,8 @@ pub struct Browser {
     /// Each deck's hot cues: enabled, position and a saved loop's end.
     hotcues: [Vec<(ControlHandle, ControlHandle, ControlHandle)>; NUM_DECKS],
     watch: [CueWatch; NUM_DECKS],
+    /// The side panel's Info tab.
+    info: info::InfoState,
 }
 
 /// The Files source: the folder listed and the thread reading it.
@@ -771,6 +775,7 @@ impl Browser {
                     .collect()
             }),
             watch: Default::default(),
+            info: info::InfoState::new(registry),
         }));
         b.borrow_mut().set_library(library);
         app.global::<KeyNotation>().set_camelot(b.borrow().camelot);
@@ -1027,6 +1032,7 @@ impl Browser {
         app.on_spotify_disconnect(move || w(Box::new(|b| b.spotify.send(Request::Disconnect))));
         Self::install_editing(app, &b);
         Self::install_files(app, &b);
+        Self::install_info(app, &b);
         b
     }
 
@@ -1894,6 +1900,9 @@ impl Browser {
             crate::settings::set_camelot_keys(camelot);
             self.refresh_rows();
             self.refresh_side();
+            if let Some(app) = self.app.upgrade() {
+                self.refresh_info(&app);
+            }
         }
     }
 
@@ -2468,7 +2477,7 @@ impl Browser {
             .upgrade()
             .map(|a| a.get_side_tab())
             .unwrap_or(0)
-            .clamp(0, LINKED_TAB as i32) as usize
+            .clamp(0, info::INFO_TAB as i32) as usize
     }
 
     /// Loads onto a deck that is not playing, preferring deck A.
@@ -2666,7 +2675,8 @@ impl Browser {
     /// Called every frame with what is on the decks; refreshes the A/B markers
     /// and the side panel when they change.
     pub fn set_loaded(&mut self, app: &AppWindow, loaded: [Option<usize>; NUM_DECKS]) {
-        let tab = app.get_side_tab().clamp(0, LINKED_TAB as i32) as usize;
+        let tab = app.get_side_tab().clamp(0, info::INFO_TAB as i32) as usize;
+        self.poll_info(app, tab);
         // The Linked tab follows the track selected in the list.
         let selected = usize::try_from(app.get_current_track())
             .ok()
@@ -3189,6 +3199,9 @@ impl Browser {
         let tab = self.side_tab();
         if tab == LINKED_TAB {
             self.refresh_linked(&app);
+            return;
+        }
+        if tab == info::INFO_TAB {
             return;
         }
         let ids = &self.side[tab];

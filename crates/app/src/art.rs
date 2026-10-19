@@ -75,6 +75,14 @@ impl Art {
         None
     }
 
+    /// Drops the track's thumbnail, so it is read again (after its cover
+    /// changed).
+    pub fn forget(&self, track: &Track) {
+        if let Some(key) = Self::key(track) {
+            self.images.borrow_mut().remove(&key);
+        }
+    }
+
     /// Takes in covers found since the last call; true if any arrived.
     pub fn poll(&mut self) -> bool {
         let mut any = false;

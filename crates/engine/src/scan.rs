@@ -132,6 +132,13 @@ pub fn read_track(id: usize, path: &Path) -> Track {
             .and_then(|b| b.trim().replace(',', ".").parse::<f64>().ok())
             .filter(|b| (40.0..=250.0).contains(b))
             .unwrap_or(0.0);
+        let more = crate::tags::fields_of(tag);
+        track.rating = more.rating;
+        track.info.remix = more.remix;
+        track.info.year = more.year;
+        track.info.track_number = more.track_number;
+        track.info.grouping = more.grouping;
+        track.info.comment = more.comment;
     }
     track
 }
