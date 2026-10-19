@@ -639,7 +639,7 @@ mod tests {
         c.info.hotcues = vec![Hotcue {
             number: 0,
             seconds: 1.0,
-            name: String::new(),
+            ..Default::default()
         }];
         let d = track(
             4,

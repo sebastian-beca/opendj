@@ -48,7 +48,10 @@ pub use effects::{
     effect_name, parameter_names, AVAILABLE_EFFECTS, DEFAULT_EFFECTS, MAX_BUTTON_PARAMETERS,
     MAX_PARAMETERS,
 };
-pub use output::{default_output_device, output_devices, AudioSetup, OutputDevice, Role, Route};
+pub use output::{
+    default_output_device, output_devices, AudioSetup, OutputDevice, Role, Route, BUFFER_SIZES,
+    SAMPLE_RATES,
+};
 pub use recorder::{RecordFormat, RecordSettings, Recorder};
 pub use synth::sample_library;
 pub use track::{Audio, Hotcue, LibraryInfo, Source, Track, Waveform, WaveformBin, WAVEFORM_RATE};

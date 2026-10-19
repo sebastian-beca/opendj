@@ -14,7 +14,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{FromSample, SampleFormat, SizedSample};
+use cpal::{BufferSize, FromSample, SampleFormat, SizedSample, SupportedBufferSize};
 
 use crate::engine::Engine;
 
@@ -59,10 +59,17 @@ pub struct Route {
     pub pair: u16,
 }
 
-/// The routes in use, in the order the settings show them.
+/// The routes in use, in the order the settings show them, and how the
+/// devices run.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AudioSetup {
     pub routes: Vec<Route>,
+    /// The rate to run at, if the clock device can; else the device's own.
+    /// Read when the engine starts.
+    pub sample_rate: Option<u32>,
+    /// Frames per audio callback, within what each device allows; else the
+    /// device's default. Smaller is less delay but more risk of dropouts.
+    pub buffer_frames: Option<u32>,
 }
 
 impl Default for AudioSetup {
@@ -74,9 +81,16 @@ impl Default for AudioSetup {
                 device: String::new(),
                 pair: 0,
             }],
+            sample_rate: None,
+            buffer_frames: None,
         }
     }
 }
+
+/// Sample rates offered in the settings.
+pub const SAMPLE_RATES: [u32; 4] = [44_100, 48_000, 88_200, 96_000];
+/// Buffer sizes offered in the settings, in frames.
+pub const BUFFER_SIZES: [u32; 6] = [64, 128, 256, 512, 1024, 2048];
 
 /// An output device and how many channels it can play.
 #[derive(Clone, Debug, PartialEq)]
@@ -144,14 +158,22 @@ fn clock_device(setup: &AudioSetup) -> &str {
         .map_or("", |r| r.device.as_str())
 }
 
-/// The sample rate the engine runs at: the clock device's own.
+/// The sample rate the engine runs at: the one chosen if the clock device
+/// can play it, else the clock device's own.
 pub(crate) fn sample_rate(setup: &AudioSetup) -> f64 {
     if no_audio() {
         return 44_100.0;
     }
-    find(clock_device(setup))
-        .or_else(|| find(""))
-        .and_then(|d| d.default_output_config().ok())
+    let Some(device) = find(clock_device(setup)).or_else(|| find("")) else {
+        return 44_100.0;
+    };
+    if let Some(rate) = setup.sample_rate {
+        if config_at(&device, rate as f64, 1).is_some() {
+            return rate as f64;
+        }
+    }
+    device
+        .default_output_config()
         .map_or(44_100.0, |c| c.sample_rate() as f64)
 }
 
@@ -261,6 +283,7 @@ impl Outputs {
             return Err("OPENDJ_NO_AUDIO is set".into());
         }
         let khz = self.rate / 1000.0;
+        let buffer = setup.buffer_frames;
         let clock = find(clock_device(setup))
             .or_else(|| find(""))
             .ok_or("no output device")?;
@@ -335,7 +358,7 @@ impl Outputs {
             let pairs: Vec<(usize, usize)> =
                 d.routes.iter().enumerate().map(|(k, r)| (k, r.1)).collect();
             let mut frame = [0.0f32; MIX_CHANNELS];
-            match stream(&d.device, &config, move |data: &mut [f32]| {
+            match stream(&d.device, &config, buffer, move |data: &mut [f32]| {
                 let frames = data.len() / channels;
                 // Keep at most two buffers queued: drop the oldest beyond that.
                 let excess = rx.slots().saturating_sub(frames * width * 2) / width * width;
@@ -392,8 +415,11 @@ impl Outputs {
         let engine = self.engine.clone();
         let mut mix = vec![0.0f32; 16_384 * MIX_CHANNELS];
         let mut feeds = feeds;
-        self.streams
-            .push(stream(&d.device, &config, move |data: &mut [f32]| {
+        self.streams.push(stream(
+            &d.device,
+            &config,
+            buffer,
+            move |data: &mut [f32]| {
                 let frames = data.len() / channels;
                 if mix.len() < frames * MIX_CHANNELS {
                     mix.resize(frames * MIX_CHANNELS, 0.0);
@@ -417,8 +443,15 @@ impl Outputs {
                         }
                     }
                 }
-            })?);
-        self.main_status = format!("{clock_name} · {khz} kHz");
+            },
+        )?);
+        self.main_status = match buffer_frames(&config, buffer) {
+            BufferSize::Fixed(n) => format!(
+                "{clock_name} · {khz} kHz · {n} samples ({:.1} ms)",
+                n as f64 / self.rate * 1000.0
+            ),
+            BufferSize::Default => format!("{clock_name} · {khz} kHz"),
+        };
         Ok(())
     }
 
@@ -456,18 +489,47 @@ impl Outputs {
     }
 }
 
-/// Opens and starts an output stream that `fill` renders in f32.
+/// The buffer size to ask `config`'s device for: `frames` within its range.
+fn buffer_frames(config: &cpal::SupportedStreamConfig, frames: Option<u32>) -> BufferSize {
+    match (frames, config.buffer_size()) {
+        (None, _) => BufferSize::Default,
+        (Some(n), &SupportedBufferSize::Range { min, max }) => BufferSize::Fixed(n.clamp(min, max)),
+        (Some(n), SupportedBufferSize::Unknown) => BufferSize::Fixed(n),
+    }
+}
+
+/// Opens and starts an output stream that `fill` renders in f32, with
+/// buffers of `frames` if the device takes them, else its default.
 fn stream(
     device: &cpal::Device,
     config: &cpal::SupportedStreamConfig,
+    frames: Option<u32>,
     fill: impl FnMut(&mut [f32]) + Send + 'static,
 ) -> Result<cpal::Stream, String> {
-    let stream = match config.sample_format() {
-        SampleFormat::F32 => build::<f32>(device, config, fill),
-        SampleFormat::I16 => build::<i16>(device, config, fill),
-        SampleFormat::I32 => build::<i32>(device, config, fill),
-        SampleFormat::U16 => build::<u16>(device, config, fill),
-        other => return Err(format!("unsupported sample format {other:?}")),
+    let fill = Arc::new(Mutex::new(fill));
+    let open = |size: BufferSize| {
+        let fill = fill.clone();
+        // Only this stream's callback locks it, so it never waits.
+        let fill = move |data: &mut [f32]| {
+            if let Ok(mut f) = fill.try_lock() {
+                f(data)
+            }
+        };
+        match config.sample_format() {
+            SampleFormat::F32 => build::<f32>(device, config, size, fill),
+            SampleFormat::I16 => build::<i16>(device, config, size, fill),
+            SampleFormat::I32 => build::<i32>(device, config, size, fill),
+            SampleFormat::U16 => build::<u16>(device, config, size, fill),
+            other => Err(format!("unsupported sample format {other:?}")),
+        }
+    };
+    let size = buffer_frames(config, frames);
+    let stream = match open(size) {
+        Err(e) if size != BufferSize::Default => {
+            eprintln!("audio output: {size:?} refused ({e}); using the device's default");
+            open(BufferSize::Default)
+        }
+        other => other,
     }?;
     stream.play().map_err(|e| e.to_string())?;
     Ok(stream)
@@ -476,6 +538,7 @@ fn stream(
 fn build<T>(
     device: &cpal::Device,
     config: &cpal::SupportedStreamConfig,
+    buffer_size: BufferSize,
     mut fill: impl FnMut(&mut [f32]) + Send + 'static,
 ) -> Result<cpal::Stream, String>
 where
@@ -486,7 +549,10 @@ where
     let mut scratch = vec![0.0f32; 16_384 * channels];
     device
         .build_output_stream::<T, _, _>(
-            config.config(),
+            cpal::StreamConfig {
+                buffer_size,
+                ..config.config()
+            },
             move |data: &mut [T], _| {
                 if scratch.len() < data.len() {
                     scratch.resize(data.len(), 0.0);
