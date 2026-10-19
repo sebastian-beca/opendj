@@ -116,6 +116,39 @@ fn entry(path: &Path) -> Option<PathBuf> {
     Some(analysis_dir()?.join(format!("{h:016x}")))
 }
 
+/// Where `path`'s analysis is kept now, to hand to [`tags_rewritten`]
+/// after rewriting its tags.
+pub(crate) fn before_retag(path: &Path) -> Option<PathBuf> {
+    entry(path)
+}
+
+/// Moves the analysis and separated stems of `path` to where they belong
+/// now that its tags were rewritten (which changes its size and time), so
+/// neither is worked out again. `old` is what [`before_retag`] gave.
+pub(crate) fn tags_rewritten(path: &Path, old: Option<PathBuf>) {
+    let (Some(old), Some(new)) = (old, entry(path)) else {
+        return;
+    };
+    if old == new {
+        return;
+    }
+    let _ = fs::rename(&old, &new);
+    let stems = |entry: &Path| -> Option<PathBuf> {
+        Some(
+            entry
+                .parent()?
+                .parent()?
+                .join("stems")
+                .join(entry.file_name()?),
+        )
+    };
+    if let (Some(from), Some(to)) = (stems(&old), stems(&new)) {
+        if from.exists() {
+            let _ = fs::rename(from, to);
+        }
+    }
+}
+
 /// Where the stems separated from `path` are kept.
 pub(crate) fn stems_dir(path: &Path) -> Option<PathBuf> {
     let analysis = entry(path)?;
