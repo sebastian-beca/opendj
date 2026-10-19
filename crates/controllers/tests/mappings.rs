@@ -278,6 +278,17 @@ fn ddj_flx4_mixer_pads_and_eq_modes() {
     c.poll(Instant::now());
     let out = c.take_output();
     assert!(out.iter().any(|m| m[..] == [0x97, 0x00, 0x7F]), "{out:x?}");
+    // 1/2X and 2X press loop_halve / loop_double, so the loop size box
+    // follows even with no loop on.
+    c.receive(&[0x90, 0x51, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "loop_halve"), 1.0);
+    c.receive(&[0x90, 0x51, 0x00]);
+    assert_eq!(get(&reg, "[Channel1]", "loop_halve"), 0.0);
+    c.receive(&[0x90, 0x53, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "loop_double"), 1.0);
+    // RELOOP/EXIT starts a new loop of the set size (or ends one).
+    c.receive(&[0x90, 0x4D, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "beatloop_activate"), 1.0);
     // Pad mode buttons ask deck 2 to show the beat jump pads.
     c.receive(&[0x91, 0x20, 0x7F]);
     assert_eq!(get(&reg, "[Channel2]", "pad_panel"), 2.0);
