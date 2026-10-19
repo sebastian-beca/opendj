@@ -637,12 +637,20 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                     let Some(database) = importer.database() else {
                         continue;
                     };
-                    match db.import(importer.id(), &database, |p| importer.read(p)) {
+                    let groups = settings::import_groups(importer.as_ref());
+                    // Turning a kind of list on or off brings the lists in again.
+                    let stamp = format!("{}|{}", importer.stamp(&database), groups.join(","));
+                    match db.import(importer.id(), importer.title(), &stamp, || {
+                        importer.read(&database, &groups)
+                    }) {
                         Ok(Some(r)) => eprintln!(
-                            "{}: {} tracks added, {} updated",
+                            "{}: {} tracks added, {} updated; {} lists, folders and \
+                             sessions ({} entries without a file here left out)",
                             importer.id(),
                             r.added,
-                            r.updated
+                            r.updated,
+                            r.lists,
+                            r.unmatched
                         ),
                         Ok(None) => {}
                         Err(e) => eprintln!("can't import {}: {e}", database.display()),

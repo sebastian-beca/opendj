@@ -690,7 +690,7 @@ impl Prefs {
         } else {
             self.cache_note.clone()
         };
-        vec![
+        let mut items = vec![
             PrefItem {
                 value: show(settings::music_folder(), "None").into(),
                 action: "Choose…".into(),
@@ -733,11 +733,49 @@ impl Prefs {
                      Settings › Developers.",
                 )
             },
-        ]
+        ];
+        // What each importer add-on brings in besides the tracks.
+        for importer in crate::stores::importers() {
+            let groups = importer.list_groups();
+            if groups.is_empty() {
+                continue;
+            }
+            let chosen = settings::import_groups(importer.as_ref());
+            let title = importer.title().to_string();
+            items.push(item(
+                "",
+                HEADING,
+                &format!("FROM {}", title.to_uppercase()),
+                "",
+            ));
+            items.push(item(
+                "",
+                NOTE,
+                "",
+                &format!(
+                    "Lists come into a {title} folder and are made again whenever they \
+                     change in {title}, so make changes to them there."
+                ),
+            ));
+            for g in groups {
+                items.push(switch(
+                    &settings::import_group_key(importer.id(), g.id),
+                    g.title,
+                    g.detail,
+                    chosen.contains(&g.id),
+                ));
+            }
+        }
+        items
     }
 
     fn toggled(&mut self, id: &str, on: bool) {
         settings::set(id, json!(on));
+        if id.starts_with("import:") {
+            // Brings the lists in again with the new choice.
+            (self.rescan)();
+            self.library_note = "Updating the lists brought in…".into();
+        }
         match id {
             "keylock_default" if on => self.each_deck("keylock", 1.0),
             "quantize" => self.each_deck("quantize", f(on)),

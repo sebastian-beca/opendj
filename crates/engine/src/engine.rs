@@ -2015,6 +2015,7 @@ mod tests {
             seconds: 2.0,
             name: String::new(),
             end: Some(4.0),
+            color: None,
         }];
         load(&mut input, 0, Arc::new(t));
         run(&mut engine, 0.02);
