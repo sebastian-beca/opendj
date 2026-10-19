@@ -19,5 +19,9 @@ additional-css = ["theme/opendj.css"]
 additional-js = ["theme/opendj.js"]
 no-section-label = true
 
+[output.html.fold]
+enable = true
+level = 1
+
 [output.html.search]
 limit-results = 20
