@@ -1,2 +1,4 @@
 dist/
 .bin/
+book/src/SUMMARY.md
+book/src/controllers/

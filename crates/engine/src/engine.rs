@@ -20,6 +20,7 @@ use crate::effects::{EffectRack, MAIN, TARGETS};
 use crate::key::Key;
 use crate::keyshift::{transpose_factor, KeyShifter};
 use crate::link::{phase_error, Link, Moment};
+use crate::preview::{Preview, PreviewInput};
 use crate::recorder::{self, Feed, RecordTap};
 use crate::sampler::Samplers;
 use crate::stems::{Stems, MAX_STEMS};
@@ -151,6 +152,9 @@ struct Deck {
     eq_gains: [f32; 3],
     /// The pregain knob times the auto gain, reached at the end of the last buffer.
     pregain: f32,
+    /// The gain knob was set from the loaded track's own gain, so the next
+    /// track without one puts it back to unity.
+    track_gain: bool,
     /// The auto gain alone, as of the last buffer.
     auto_gain: f32,
     volume: f32,
@@ -784,6 +788,9 @@ pub struct Engine {
     /// Copies the master out while recording.
     record: RecordTap,
     record_feed: Option<Feed>,
+    /// Plays a track into the headphones for the info panel.
+    preview: Preview,
+    preview_input: Option<PreviewInput>,
 }
 
 /// How far (in beats) Link's beat may drift from the master deck's before
@@ -825,6 +832,7 @@ impl Engine {
             sculpt: Sculpt::new(sample_rate),
             eq_gains: [1.0; 3],
             pregain: 1.0,
+            track_gain: false,
             auto_gain: 1.0,
             volume: 1.0,
             quick: 1.0,
@@ -839,6 +847,7 @@ impl Engine {
         });
         let fx = EffectRack::new(registry, sample_rate);
         let samplers = Samplers::new(registry, sample_rate);
+        let (preview, preview_input) = Preview::new(registry, sample_rate);
         let (commands_tx, commands) = rtrb::RingBuffer::new(QUEUE);
         let (returned, returned_rx) = rtrb::RingBuffer::new(QUEUE * 2);
         let (record, record_feed) = recorder::tap(sample_rate);
@@ -849,6 +858,8 @@ impl Engine {
                 link_master: None,
                 record,
                 record_feed: Some(record_feed),
+                preview,
+                preview_input: Some(preview_input),
                 sample_rate,
                 decks,
                 master,
@@ -879,6 +890,11 @@ impl Engine {
         self.record_feed.take()
     }
 
+    /// The other end of the preview player's queues; there is only one.
+    pub(crate) fn take_preview_input(&mut self) -> Option<PreviewInput> {
+        self.preview_input.take()
+    }
+
     fn apply_commands(&mut self) {
         while let Ok(cmd) = self.commands.pop() {
             match cmd {
@@ -897,6 +913,15 @@ impl Engine {
                         h.end_position.set(-1.0);
                     }
                     d.c.hotcue_focus.set(-1.0);
+                    // The track's own gain, set in its info.
+                    if let Some(db) = track.info.gain_db {
+                        d.c.pregain
+                            .set(10f64.powf(db as f64 / 20.0).clamp(0.0, 4.0));
+                        d.track_gain = true;
+                    } else if d.track_gain {
+                        d.c.pregain.set(1.0);
+                        d.track_gain = false;
+                    }
                     // Hot cues and saved loops from the library.
                     for cue in &track.info.hotcues {
                         if let Some(h) = d.c.hotcues.get(cue.number) {
@@ -1100,6 +1125,7 @@ impl Engine {
             }
         }
         self.samplers.update();
+        self.preview.update();
         // Tempo-synced effects on the main mix follow the first playing deck.
         let main_beat = self
             .decks
@@ -1373,6 +1399,10 @@ impl Engine {
                 main[0] += s[0] * g;
                 main[1] += s[1] * g;
             }
+            // The preview player is for the headphones only.
+            let preview = self.preview.next();
+            cue[0] += preview[0];
+            cue[1] += preview[1];
             let samples = self.samplers.next();
             main[0] += samples[0];
             main[1] += samples[1];
@@ -1481,6 +1511,7 @@ impl Engine {
             self.master.peak[c + 1].set_bool(self.master_peak_hold[c] > 0.0);
         }
         self.samplers.publish();
+        self.preview.publish();
         self.master.peak[0].set_bool(self.master_peak_hold.iter().any(|&h| h > 0.0));
         self.master.vu_l.set(self.master_vu[0] as f64);
         self.master.vu_r.set(self.master_vu[1] as f64);

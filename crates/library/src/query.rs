@@ -512,12 +512,18 @@ impl Term {
                     NumberField::AddedDaysAgo => (cx.now - t.info.added) as f64 / 86_400.0,
                     NumberField::AddedAt if t.info.added <= 0 => return false,
                     NumberField::AddedAt => t.info.added as f64,
-                    NumberField::Year if t.info.year == 0 => return false,
-                    NumberField::Year => t.info.year as f64,
-                    NumberField::PlayedDaysAgo if t.info.last_played <= 0 => return false,
-                    NumberField::PlayedDaysAgo => (cx.now - t.info.last_played) as f64 / 86_400.0,
-                    NumberField::PlayedAt if t.info.last_played <= 0 => return false,
-                    NumberField::PlayedAt => t.info.last_played as f64,
+                    // The year starts the field ("1997", "1997-05-02").
+                    NumberField::Year => match t.info.year.get(..4).and_then(|y| y.parse().ok()) {
+                        Some(y) => y,
+                        None => return false,
+                    },
+                    NumberField::PlayedDaysAgo | NumberField::PlayedAt => {
+                        match t.info.last_played.filter(|&p| p > 0) {
+                            None => return false,
+                            Some(p) if *f == NumberField::PlayedAt => p as f64,
+                            Some(p) => (cx.now - p) as f64 / 86_400.0,
+                        }
+                    }
                 };
                 // A date matches the whole day: >=, < and = compare days.
                 if matches!(f, NumberField::AddedAt | NumberField::PlayedAt) {
@@ -664,9 +670,9 @@ mod tests {
         b.duration = 420.0;
         b.info.comment = "warm up".into();
         b.info.added = 1_800_000_000 - 40 * 86_400;
-        b.info.year = 1997;
+        b.info.year = "1997".into();
         b.info.label = "KDJ".into();
-        b.info.last_played = 1_800_000_000 - 3 * 86_400;
+        b.info.last_played = Some(1_800_000_000 - 3 * 86_400);
         let mut c = track(3, "Bicep", "Glue", 130.0, "9A");
         c.album = String::new();
         c.info.hotcues = vec![Hotcue {

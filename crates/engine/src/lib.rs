@@ -26,17 +26,20 @@ pub mod link;
 pub mod loader;
 pub mod loudness;
 mod output;
+pub mod preview;
 pub mod recorder;
 pub mod sampler;
 pub mod scan;
 pub mod stems;
 pub mod synth;
+pub mod tags;
 pub mod track;
 mod visual;
 
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use mixxx_control::ControlRegistry;
 
@@ -75,6 +78,19 @@ pub struct AudioEngine {
     visual: Arc<VisualPositions>,
     output: RefCell<output::Outputs>,
     recorder: Recorder,
+    preview: Arc<Mutex<preview::PreviewInput>>,
+    /// Counts preview requests, so a file still decoding for an earlier
+    /// one stops.
+    preview_generation: Arc<AtomicU64>,
+}
+
+/// Creates every engine control in `registry` without starting audio, for
+/// tools that only need to know which controls exist.
+pub fn create_controls(registry: &Arc<ControlRegistry>) {
+    let rate = 44_100.0;
+    let (mut engine, _input) = engine::Engine::new(registry, rate);
+    let feed = engine.take_record_feed().expect("record feed");
+    Recorder::new(registry, rate, feed, LoadedTracks::default());
 }
 
 impl AudioEngine {
@@ -84,6 +100,7 @@ impl AudioEngine {
         let rate = output::sample_rate(setup);
         let (mut engine, input) = engine::Engine::new(&registry, rate);
         let feed = engine.take_record_feed().expect("record feed");
+        let preview = engine.take_preview_input().expect("preview input");
         let visual = engine.visual_positions();
         link::watch(engine.link_handle(), Arc::downgrade(&registry));
         let output = output::Outputs::new(engine, setup);
@@ -105,6 +122,55 @@ impl AudioEngine {
             visual,
             output: RefCell::new(output),
             recorder,
+            preview: Arc::new(Mutex::new(preview)),
+            preview_generation: Arc::default(),
+        }
+    }
+
+    /// Puts `track` in the preview player (`[PreviewDeck1]`, heard in the
+    /// headphones only) at its start, playing if `play`, or empties it. The
+    /// file is opened and decoded in the background; it plays while decoding.
+    pub fn preview(&self, track: Option<&Track>, play: bool) {
+        let generation = self.preview_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let Some(track) = track else {
+            if let Ok(mut p) = self.preview.lock() {
+                p.send(None, false);
+            }
+            return;
+        };
+        let source = track.source.clone();
+        let base = track.clone();
+        let input = self.preview.clone();
+        let current = self.preview_generation.clone();
+        let spawned = std::thread::Builder::new()
+            .name("preview".into())
+            .spawn(move || {
+                let latest = || current.load(Ordering::Acquire) == generation;
+                let send = |audio: Arc<Audio>| {
+                    if latest() {
+                        if let Ok(mut p) = input.lock() {
+                            p.send(Some(audio), play);
+                        }
+                    }
+                };
+                match &source {
+                    Source::Synth { seed } => send(Arc::new(synth::render(&base, *seed))),
+                    Source::File(path) => match decode::Decoder::open(path) {
+                        Ok(d) if d.length_known() => {
+                            send(d.audio().clone());
+                            let _ = d.run(|_| latest());
+                        }
+                        Ok(d) => {
+                            if let Ok(audio) = d.run(|_| latest()) {
+                                send(audio);
+                            }
+                        }
+                        Err(e) => eprintln!("can't preview {}: {e}", path.display()),
+                    },
+                }
+            });
+        if let Err(e) = spawned {
+            eprintln!("could not start the preview: {e}");
         }
     }
 

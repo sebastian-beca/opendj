@@ -31,9 +31,11 @@ pub const ID_BASE: usize = 1_000_000;
 /// 3 added purchases: `tracks.store` and `store_url`, `wanted`, `inbox_log`.
 /// 4 added saved loops: `cues.end_seconds`.
 /// 5 added `tracks.key_source`.
-/// 6 added the details other DJ apps keep (year, label, composer…, gain),
+/// 6 added the track info panel's fields: `tracks.remix`, `year`,
+/// `track_number`, `user1`, `user2` and `gain`.
+/// 7 added `tracks.disc_number`, `label`, `composer`, `remixer` and `isrc`,
 /// `markers`, and `playlists.source` for lists brought in from another app.
-const VERSION: i32 = 6;
+const VERSION: i32 = 7;
 
 /// The smart lists a new library starts with: name and search.
 const STARTER_SMART_LISTS: [(&str, &str); 6] = [
@@ -139,23 +141,28 @@ CREATE TABLE IF NOT EXISTS inbox_log (
 ";
 
 /// Columns added to `tracks` after version 1: name and definition.
-const ADDED_COLUMNS: [(&str, &str); 12] = [
+const ADDED_COLUMNS: [(&str, &str); 14] = [
     ("store", "store TEXT NOT NULL DEFAULT ''"),
     ("store_url", "store_url TEXT"),
     // Where the key came from: 'analysis', 'tags', or another app's name;
     // NULL when not known (keys from before version 4).
     ("key_source", "key_source TEXT"),
-    // What other DJ apps keep beyond artist, title, album and genre, so
-    // nothing they hold is lost on the way in (version 6).
-    ("year", "year INTEGER NOT NULL DEFAULT 0"),
+    ("remix", "remix TEXT NOT NULL DEFAULT ''"),
+    ("year", "year TEXT NOT NULL DEFAULT ''"),
     ("track_number", "track_number INTEGER NOT NULL DEFAULT 0"),
+    // VirtualDJ's User 1 and User 2: the DJ's own tags. `labels` holds
+    // their words together, for searching.
+    ("user1", "user1 TEXT NOT NULL DEFAULT ''"),
+    ("user2", "user2 TEXT NOT NULL DEFAULT ''"),
+    // The DJ's gain for the track in dB; NULL for none.
+    ("gain", "gain REAL"),
+    // What other DJ apps keep beyond these, so nothing they hold is lost
+    // on the way in (version 7).
     ("disc_number", "disc_number INTEGER NOT NULL DEFAULT 0"),
     ("label", "label TEXT NOT NULL DEFAULT ''"),
     ("composer", "composer TEXT NOT NULL DEFAULT ''"),
     ("remixer", "remixer TEXT NOT NULL DEFAULT ''"),
-    ("mix", "mix TEXT NOT NULL DEFAULT ''"),
     ("isrc", "isrc TEXT NOT NULL DEFAULT ''"),
-    ("gain_db", "gain_db REAL"),
 ];
 
 /// Tracks the DJ linked as going well together: `track` links to `linked`. Created on every open rather than by
@@ -169,6 +176,26 @@ CREATE TABLE IF NOT EXISTS track_links (
 );
 CREATE INDEX IF NOT EXISTS track_links_linked ON track_links(linked);
 ";
+
+/// Stores the tags a scan reads beyond the basic ones (`?1` is the row),
+/// for tracks whose tags come from their files. A rating in the tags fills
+/// in one the library doesn't have.
+const TAG_EXTRAS: &str = "
+UPDATE tracks SET remix = ?2, year = ?3, track_number = ?4, grouping = ?5, comment = ?6,
+       rating = CASE WHEN ?7 > 0 THEN ?7 ELSE rating END
+WHERE id = ?1 AND source IN ('scan', 'file', 'purchase')";
+
+fn tag_extras(row: i64, t: &Track) -> impl rusqlite::Params + '_ {
+    (
+        row,
+        t.info.remix.as_str(),
+        t.info.year.as_str(),
+        t.info.track_number as i64,
+        t.info.grouping.as_str(),
+        t.info.comment.as_str(),
+        t.rating as i64,
+    )
+}
 
 /// A list, folder or history session.
 #[derive(Clone, Debug, PartialEq)]
@@ -441,8 +468,8 @@ impl Library {
         let mut q = self.db.prepare(
             "SELECT id, path, artist, title, album, genre, duration, bpm, key, rating, color,
                     comment, grouping, labels, play_count, grid, added, key_source,
-                    year, track_number, disc_number, label, composer, remixer, mix, isrc,
-                    last_played, gain_db
+                    remix, year, track_number, user1, user2, gain, last_played,
+                    disc_number, label, composer, remixer, isrc
              FROM tracks ORDER BY id",
         )?;
         let rows = q.query_map([], |r| {
@@ -482,16 +509,18 @@ impl Library {
                         added: r.get(16)?,
                         missing: false,
                         key_detected: key_source.map(|s| s == "analysis"),
-                        year: r.get::<_, i64>(18)?.max(0) as u32,
-                        track_number: r.get::<_, i64>(19)?.max(0) as u32,
-                        disc_number: r.get::<_, i64>(20)?.max(0) as u32,
-                        label: r.get(21)?,
-                        composer: r.get(22)?,
-                        remixer: r.get(23)?,
-                        mix: r.get(24)?,
-                        isrc: r.get(25)?,
-                        last_played: r.get::<_, Option<i64>>(26)?.unwrap_or(0),
-                        gain_db: r.get::<_, Option<f64>>(27)?.map(|g| g as f32),
+                        remix: r.get(18)?,
+                        year: r.get(19)?,
+                        track_number: r.get::<_, i64>(20)?.max(0) as u32,
+                        user1: r.get(21)?,
+                        user2: r.get(22)?,
+                        gain_db: r.get::<_, Option<f64>>(23)?.map(|g| g as f32),
+                        last_played: r.get(24)?,
+                        disc_number: r.get::<_, i64>(25)?.max(0) as u32,
+                        label: r.get(26)?,
+                        composer: r.get(27)?,
+                        remixer: r.get(28)?,
+                        isrc: r.get(29)?,
                         markers: Vec::new(),
                     },
                 },
@@ -533,6 +562,7 @@ impl Library {
                         duration = ?6, file_mtime = ?7
                  WHERE id = ?1 AND source IN ('scan', 'file', 'purchase')",
             )?;
+            let mut extras = tx.prepare(TAG_EXTRAS)?;
             for t in scanned {
                 let Source::File(path) = &t.source else {
                     continue;
@@ -558,6 +588,7 @@ impl Library {
                             "scan",
                             now()
                         ])?;
+                        extras.execute(tag_extras(tx.last_insert_rowid(), t))?;
                         set_details(&tx, tx.last_insert_rowid(), &t.info, true)?;
                         report.added += 1;
                     }
@@ -566,6 +597,7 @@ impl Library {
                             id, t.artist, t.title, t.album, t.genre, t.duration, stamp
                         ])? > 0
                         {
+                            extras.execute(tag_extras(id, t))?;
                             set_details(&tx, id, &t.info, true)?;
                             report.updated += 1;
                         }
@@ -630,6 +662,7 @@ impl Library {
                  ON CONFLICT(path) DO NOTHING",
             )?;
             let mut find = tx.prepare("SELECT id FROM tracks WHERE path = ?1")?;
+            let mut extras = tx.prepare(TAG_EXTRAS)?;
             for track in tracks {
                 let Source::File(path) = &track.source else {
                     out.push(track.clone());
@@ -651,6 +684,7 @@ impl Library {
                 ])?;
                 let id: i64 = find.query_row([&p], |r| r.get(0))?;
                 if added > 0 {
+                    extras.execute(tag_extras(id, track))?;
                     set_details(&tx, id, &track.info, true)?;
                 }
                 out.push(Track {
@@ -739,6 +773,51 @@ impl Library {
 
     pub fn set_comment(&self, id: usize, comment: &str) -> Result<(), Error> {
         self.update(id, "comment", comment)
+    }
+
+    /// Saves what the DJ edited in the track info panel: the tags, rating,
+    /// the User 1 and 2 tags and the gain. A key typed in counts as the
+    /// DJ's own, so analysis leaves it alone.
+    pub fn save_info(&self, id: usize, t: &Track) -> Result<(), Error> {
+        let Some(row) = row_id(id) else { return Ok(()) };
+        let labels: Vec<&str> = t
+            .info
+            .user1
+            .split_whitespace()
+            .chain(t.info.user2.split_whitespace())
+            .collect();
+        self.db.execute(
+            "UPDATE tracks SET title = ?2, artist = ?3, remix = ?4, album = ?5, year = ?6,
+                    genre = ?7, track_number = ?8, grouping = ?9, key = ?10,
+                    key_source = CASE WHEN key = ?10 THEN key_source ELSE 'user' END,
+                    rating = ?11, user1 = ?12, user2 = ?13, labels = ?14, comment = ?15,
+                    gain = ?16, file_mtime = ?17
+             WHERE id = ?1",
+            params![
+                row,
+                t.title,
+                t.artist,
+                t.info.remix,
+                t.album,
+                t.info.year,
+                t.genre,
+                t.info.track_number as i64,
+                t.info.grouping,
+                t.key,
+                t.rating.min(5) as i64,
+                t.info.user1,
+                t.info.user2,
+                labels.join(" "),
+                t.info.comment,
+                t.info.gain_db.map(f64::from),
+                match &t.source {
+                    // The tags were just written, so a scan needn't read them again.
+                    Source::File(path) => mtime(path),
+                    Source::Synth { .. } => 0,
+                },
+            ],
+        )?;
+        Ok(())
     }
 
     fn update(&self, id: usize, column: &str, value: impl rusqlite::ToSql) -> Result<(), Error> {
@@ -1070,6 +1149,7 @@ impl Library {
         let row: i64 = self
             .db
             .query_row("SELECT id FROM tracks WHERE path = ?1", [&p], |r| r.get(0))?;
+        self.db.execute(TAG_EXTRAS, tag_extras(row, track))?;
         let (artist, title) = (simplify(&track.artist), simplify(&track.title));
         let wanted: Vec<(i64, String, String, String)> = self
             .db
@@ -1187,7 +1267,10 @@ fn import_tracks(
                 play_count = MAX(play_count, ?11), source = ?14,
                 duration = CASE WHEN ?12 > 0 THEN ?12 ELSE duration END,
                 key = CASE WHEN ?13 != '' THEN ?13 ELSE key END,
-                key_source = CASE WHEN ?13 != '' THEN ?14 ELSE key_source END
+                key_source = CASE WHEN ?13 != '' THEN ?14 ELSE key_source END,
+                remix = CASE WHEN ?15 != '' THEN ?15 ELSE remix END,
+                user1 = CASE WHEN ?16 != '' THEN ?16 ELSE user1 END,
+                user2 = CASE WHEN ?17 != '' THEN ?17 ELSE user2 END
          WHERE id = ?1",
     )?;
     let mut set_grid = tx.prepare(
@@ -1199,7 +1282,7 @@ fn import_tracks(
     let mut set_dates = tx.prepare(
         "UPDATE tracks SET added = COALESCE(?2, added),
                 last_played = NULLIF(MAX(COALESCE(last_played, 0), COALESCE(?3, 0)), 0),
-                gain_db = COALESCE(?4, gain_db)
+                gain = COALESCE(?4, gain)
          WHERE id = ?1",
     )?;
     let mut clear_markers =
@@ -1246,7 +1329,10 @@ fn import_tracks(
             t.info.play_count as i64,
             t.duration,
             t.key,
-            source
+            source,
+            t.info.remix,
+            t.info.user1,
+            t.info.user2
         ])?;
         let grid = t.beat_grid();
         if t.info.fixed_grid && !grid.is_empty() {
@@ -1273,7 +1359,7 @@ fn import_tracks(
         set_dates.execute(params![
             id,
             (t.info.added > 0).then_some(t.info.added),
-            (t.info.last_played > 0).then_some(t.info.last_played),
+            t.info.last_played,
             t.info.gain_db.map(f64::from)
         ])?;
         clear_markers.execute(params![id, source])?;
@@ -1296,30 +1382,27 @@ fn import_tracks(
 /// `overwrite` off, empty values leave what is there.
 fn set_details(tx: &Connection, id: i64, info: &LibraryInfo, overwrite: bool) -> Result<(), Error> {
     let sql = if overwrite {
-        "UPDATE tracks SET year = ?2, track_number = ?3, disc_number = ?4, label = ?5,
-                composer = ?6, remixer = ?7, mix = ?8, isrc = ?9
+        "UPDATE tracks SET disc_number = ?4, label = ?5, composer = ?6, remixer = ?7, isrc = ?8
          WHERE id = ?1"
     } else {
         "UPDATE tracks SET
-                year = CASE WHEN ?2 > 0 THEN ?2 ELSE year END,
+                year = CASE WHEN ?2 != '' THEN ?2 ELSE year END,
                 track_number = CASE WHEN ?3 > 0 THEN ?3 ELSE track_number END,
                 disc_number = CASE WHEN ?4 > 0 THEN ?4 ELSE disc_number END,
                 label = CASE WHEN ?5 != '' THEN ?5 ELSE label END,
                 composer = CASE WHEN ?6 != '' THEN ?6 ELSE composer END,
                 remixer = CASE WHEN ?7 != '' THEN ?7 ELSE remixer END,
-                mix = CASE WHEN ?8 != '' THEN ?8 ELSE mix END,
-                isrc = CASE WHEN ?9 != '' THEN ?9 ELSE isrc END
+                isrc = CASE WHEN ?8 != '' THEN ?8 ELSE isrc END
          WHERE id = ?1"
     };
     tx.prepare_cached(sql)?.execute(params![
         id,
-        info.year as i64,
+        info.year,
         info.track_number as i64,
         info.disc_number as i64,
         info.label,
         info.composer,
         info.remixer,
-        info.mix,
         info.isrc
     ])?;
     Ok(())
@@ -1461,6 +1544,40 @@ mod tests {
         assert_eq!(lib.tracks(|p| p.ends_with("a.mp3")).unwrap().len(), 1);
     }
 
+    #[test]
+    fn keeps_the_info_panels_fields() {
+        let mut lib = Library::in_memory().unwrap();
+        let mut scanned = file_track("/m/a.mp3", "A");
+        scanned.info.remix = "Club Mix".into();
+        scanned.info.year = "1998".into();
+        scanned.info.track_number = 4;
+        scanned.info.grouping = "3 JNY".into();
+        scanned.rating = 3;
+        lib.sync(std::slice::from_ref(&scanned)).unwrap();
+        let mut t = lib.tracks(|_| true).unwrap().remove(0);
+        assert_eq!(t.info.remix, "Club Mix");
+        assert_eq!(t.info.year, "1998");
+        assert_eq!(t.info.track_number, 4);
+        assert_eq!(t.info.grouping, "3 JNY");
+        assert_eq!(t.rating, 3);
+        assert_eq!(t.info.gain_db, None);
+
+        t.title = "Edited".into();
+        t.key = "8A".into();
+        t.info.user1 = "#uplifting".into();
+        t.info.user2 = "#synth #vox".into();
+        t.info.gain_db = Some(-2.5);
+        lib.save_info(t.id, &t).unwrap();
+        let back = lib.tracks(|_| true).unwrap().remove(0);
+        assert_eq!(back.title, "Edited");
+        assert_eq!(back.info.user1, "#uplifting");
+        assert_eq!(back.info.user2, "#synth #vox");
+        assert_eq!(back.info.labels, ["#uplifting", "#synth", "#vox"]);
+        assert_eq!(back.info.gain_db, Some(-2.5));
+        // A key the DJ typed in is theirs, not analysis's.
+        assert_eq!(back.info.key_detected, Some(false));
+    }
+
     fn imported_track(path: &str) -> Track {
         let mut t = file_track(path, "Imported");
         t.rating = 4;
@@ -1573,10 +1690,10 @@ mod tests {
             .create_playlist("Mine", None, PlaylistKind::List)
             .unwrap();
         let mut b = imported_track("/m/b.mp3");
-        b.info.year = 1999;
+        b.info.year = "1999".into();
         b.info.label = "Warp".into();
         b.info.added = 1_600_000_000;
-        b.info.last_played = 1_700_000_000;
+        b.info.last_played = Some(1_700_000_000);
         b.info.hotcues[0].color = Some(0x00ff00);
         b.info.hotcues.push(Hotcue {
             number: mixxx_engine::MEMORY_CUE,
@@ -1637,10 +1754,13 @@ mod tests {
             .into_iter()
             .find(|t| t.title == "Imported")
             .unwrap();
-        assert_eq!((t.info.year, t.info.label.as_str()), (1999, "Warp"));
+        assert_eq!(
+            (t.info.year.as_str(), t.info.label.as_str()),
+            ("1999", "Warp")
+        );
         assert_eq!(
             (t.info.added, t.info.last_played),
-            (1_600_000_000, 1_700_000_000)
+            (1_600_000_000, Some(1_700_000_000))
         );
         assert_eq!(t.info.hotcues.len(), 2);
         assert_eq!(t.info.hotcues[0].color, Some(0x00ff00));

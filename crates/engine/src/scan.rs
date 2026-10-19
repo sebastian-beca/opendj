@@ -133,8 +133,6 @@ pub fn read_track(id: usize, path: &Path) -> Track {
                 .to_string()
         };
         let info = &mut track.info;
-        info.year = tag.date().map_or(0, |d| d.year as u32);
-        info.track_number = tag.track().unwrap_or(0);
         info.disc_number = tag.disk().unwrap_or(0);
         info.label = item(ItemKey::Label);
         if info.label.is_empty() {
@@ -142,7 +140,6 @@ pub fn read_track(id: usize, path: &Path) -> Track {
         }
         info.composer = item(ItemKey::Composer);
         info.remixer = item(ItemKey::Remixer);
-        info.mix = item(ItemKey::TrackSubtitle);
         info.isrc = item(ItemKey::Isrc);
         track.bpm = tag
             .get_string(ItemKey::Bpm)
@@ -150,6 +147,13 @@ pub fn read_track(id: usize, path: &Path) -> Track {
             .and_then(|b| b.trim().replace(',', ".").parse::<f64>().ok())
             .filter(|b| (40.0..=250.0).contains(b))
             .unwrap_or(0.0);
+        let more = crate::tags::fields_of(tag);
+        track.rating = more.rating;
+        track.info.remix = more.remix;
+        track.info.year = more.year;
+        track.info.track_number = more.track_number;
+        track.info.grouping = more.grouping;
+        track.info.comment = more.comment;
     }
     track
 }

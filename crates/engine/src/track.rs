@@ -311,23 +311,29 @@ pub struct LibraryInfo {
     /// detector may replace it; false for keys from tags or another app.
     /// None when not known (libraries from before this was kept).
     pub key_detected: Option<bool>,
-    /// Release year, 0 if unknown.
-    pub year: u32,
-    /// Track and disc number on the release, 0 if unknown.
+    /// The remixer or mix name, e.g. "Club Mix".
+    pub remix: String,
+    /// The year, or a full date, as the tags give it.
+    pub year: String,
+    /// Its number on the album; 0 for none.
     pub track_number: u32,
+    /// VirtualDJ's User 1 and User 2 fields: the DJ's own tags, such as
+    /// moods ("#uplifting") and instruments ("#synth #vox").
+    pub user1: String,
+    pub user2: String,
+    /// A gain the DJ set for this track, in dB; the deck's gain knob is set
+    /// to it when the track loads.
+    pub gain_db: Option<f32>,
+    /// When it was last played, as a Unix time.
+    pub last_played: Option<i64>,
+    /// Its disc on the release; 0 for none.
     pub disc_number: u32,
     /// Record label.
     pub label: String,
     pub composer: String,
+    /// Who remixed it, where the tags keep that apart from the mix name.
     pub remixer: String,
-    /// The mix or version name kept apart from the title ("Extended Mix"),
-    /// as rekordbox's subtitle and ID3's TIT3.
-    pub mix: String,
     pub isrc: String,
-    /// When the track was last played, as a Unix time (0 if never).
-    pub last_played: i64,
-    /// A gain the DJ (or another app) set for this track, in dB.
-    pub gain_db: Option<f32>,
     /// Named sections, phrases and mix points, in time order.
     pub markers: Vec<Marker>,
 }
