@@ -286,8 +286,10 @@ export component Jog inherits Rectangle {
 }
 
 // Album art, large; without any, the deck colour with the
-// artist's initials.
+// artist's initials. Picking it up drags the deck's track to another deck,
+// the side panel or one of the DJ's lists.
 component Cover inherits Rectangle {
+    in property <int> deck;
     in property <color> tint;
     in property <DeckInfo> info;
     width: 96px;
@@ -303,6 +305,12 @@ component Cover inherits Rectangle {
         height: parent.height;
         source: info.cover;
         image-fit: cover;
+    }
+    if info.loaded: DragArea {
+        data: TrackDrag.deck-payload(deck);
+        allow-copy: true;
+        changed dragging => { TrackDrag.active = self.dragging; }
+        TouchArea { mouse-cursor: grab; }
     }
 }
 
@@ -480,7 +488,7 @@ export component Header inherits Rectangle {
     HorizontalLayout {
         padding: 6px;
         spacing: 10px;
-        if !mirrored: Cover { tint: tint; info: info; }
+        if !mirrored: Cover { deck: deck; tint: tint; info: info; }
         VerticalLayout {
             spacing: 6px;
             horizontal-stretch: 1;
@@ -559,7 +567,7 @@ export component Header inherits Rectangle {
                 }
             }
         }
-        if mirrored: Cover { tint: tint; info: info; }
+        if mirrored: Cover { deck: deck; tint: tint; info: info; }
     }
 }
 
