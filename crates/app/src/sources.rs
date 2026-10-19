@@ -7,7 +7,7 @@
 //! never holds up the UI or the audio.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
@@ -16,7 +16,7 @@ use mixxx_engine::Track;
 use mixxx_plugins::inbox::safe_name;
 use mixxx_plugins::source::{
     megabytes, DownloadUpdate, Found, Prefer, Progress, QueryKind, SearchSource, Snapshot,
-    SourceInfo, SourceQuery,
+    SourceInfo, SourceQuery, DOWNLOAD_FOLDER,
 };
 use mixxx_plugins::{Plugin, PluginConfig, PluginError};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
@@ -322,7 +322,8 @@ pub struct Sources {
     /// The row ticked last, for shift-click.
     anchor: Option<usize>,
     rows: Vec<Row>,
-    /// Where downloads go: `<music>/Downloaded/<source>/`.
+    /// The music folder; downloads go to `Downloaded/<source>/` in it
+    /// unless the source's settings name a folder.
     music: Option<PathBuf>,
     list: Rc<VecModel<FoundRow>>,
     /// A copy of each source for the UI thread, to describe queries
@@ -814,7 +815,14 @@ impl Sources {
     /// Downloads results of the shown search: folders whole, and files
     /// that aren't in a folder also being downloaded.
     fn download_keys(&mut self, keys: Vec<String>) {
-        let (Some(s), Some(i), Some(music)) = (self.shown, self.search, self.music.clone()) else {
+        let (Some(s), Some(i)) = (self.shown, self.search) else {
+            return;
+        };
+        let Some(dir) = download_dir(
+            self.sources[s].id,
+            self.sources[s].info.name,
+            self.music.as_deref(),
+        ) else {
             return;
         };
         let source = &mut self.sources[s];
@@ -856,9 +864,6 @@ impl Sources {
                 progress: Progress::Queued,
             });
         }
-        let dir = music
-            .join("Downloaded")
-            .join(safe_name(source.info.name, "Downloads"));
         let _ = source
             .requests
             .send(Request::Download(search.local, items, dir));
@@ -938,13 +943,6 @@ impl Sources {
             .collect();
         ui.set_queue(ModelRc::new(VecModel::from(queue)));
         ui.set_queue_title(format!("{done} of {}", source.downloads.len()).into());
-        ui.set_queue_folder(
-            format!(
-                "Downloads go to Downloaded/{} in your music folder.",
-                source.info.name
-            )
-            .into(),
-        );
 
         let (rows, list) = match self.current() {
             Some((_, search)) => self.result_rows(source, search),
@@ -1103,6 +1101,24 @@ fn place(searches: &[Search], added: u64) -> usize {
         .unwrap_or(searches.len())
 }
 
+/// Where a source's downloads go: its download folder setting, else
+/// `<music>/Downloaded/<source>`.
+fn download_dir(id: &str, name: &str, music: Option<&Path>) -> Option<PathBuf> {
+    let config = crate::settings::plugin_config(id);
+    folder_or_default(config.get(DOWNLOAD_FOLDER), name, music)
+}
+
+fn folder_or_default(set: &str, name: &str, music: Option<&Path>) -> Option<PathBuf> {
+    let set = set.trim();
+    if set.is_empty() {
+        return music.map(|m| m.join("Downloaded").join(safe_name(name, "Downloads")));
+    }
+    match set.strip_prefix("~/").or((set == "~").then_some("")) {
+        Some(rest) => std::env::var_os("HOME").map(|h| PathBuf::from(h).join(rest)),
+        None => Some(PathBuf::from(set)),
+    }
+}
+
 /// Queued or running.
 fn is_active(p: &Progress) -> bool {
     matches!(p, Progress::Queued | Progress::Running(_))
@@ -1254,6 +1270,25 @@ mod tests {
             error: None,
             open: HashSet::new(),
         }
+    }
+
+    #[test]
+    fn download_folders() {
+        let music = Path::new("/m");
+        assert_eq!(
+            folder_or_default("", "Soulseek", Some(music)),
+            Some(PathBuf::from("/m/Downloaded/Soulseek"))
+        );
+        assert_eq!(folder_or_default(" ", "Soulseek", None), None);
+        assert_eq!(
+            folder_or_default("/data/slsk", "Soulseek", None),
+            Some(PathBuf::from("/data/slsk"))
+        );
+        let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+        assert_eq!(
+            folder_or_default("~/Music/In", "Soulseek", None),
+            Some(home.join("Music/In"))
+        );
     }
 
     #[test]

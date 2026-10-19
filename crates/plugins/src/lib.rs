@@ -78,6 +78,9 @@ pub enum SettingKind {
     Secret,
     /// Text only, such as whether the plugin is signed in.
     Note,
+    /// A folder, picked with the system's dialog. Its detail says what an
+    /// empty one means.
+    Folder,
 }
 
 impl Setting {
