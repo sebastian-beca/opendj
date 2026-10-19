@@ -10,6 +10,9 @@ all-features = true
 ignore = [
     { id = "RUSTSEC-2024-0436", reason = "paste, unmaintained, pulled in by other crates" },
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser, unmaintained, pulled in by the font stack" },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant, unmaintained, pulled in by Slint's accessibility (zbus)" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names, unmaintained, pulled in by Slint's accessibility (zbus)" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive, unmaintained, pulled in by Slint's accessibility (zbus)" },
 ]
 
 [licenses]
