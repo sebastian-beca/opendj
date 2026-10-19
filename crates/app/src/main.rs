@@ -32,6 +32,7 @@ slint::include_modules!();
 mod art;
 mod automix;
 mod browser;
+mod coverart;
 mod diagnostics;
 mod files;
 mod inbox;
