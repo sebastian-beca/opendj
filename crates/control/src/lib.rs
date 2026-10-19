@@ -271,6 +271,13 @@ impl ControlRegistry {
         keys.sort();
         keys
     }
+
+    /// The names that resolve to another control, sorted; see [`Self::insert_alias`].
+    pub fn alias_keys(&self) -> Vec<ConfigKey> {
+        let mut keys: Vec<_> = self.aliases.read().unwrap().keys().cloned().collect();
+        keys.sort();
+        keys
+    }
 }
 
 #[cfg(test)]

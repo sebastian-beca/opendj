@@ -439,7 +439,7 @@ struct RowData<'a> {
 }
 
 /// Mixxx's library controls, which controller mappings use to browse and load.
-struct LibraryControls {
+pub(crate) struct LibraryControls {
     /// Steps up (negative) or down (positive) through the focused list.
     steps: Vec<(ControlHandle, f64)>,
     focus: [ControlHandle; 3],
@@ -452,7 +452,7 @@ struct LibraryControls {
 }
 
 impl LibraryControls {
-    fn create(reg: &ControlRegistry) -> Self {
+    pub(crate) fn create(reg: &ControlRegistry) -> Self {
         let lib = |k: &str| reg.free("[Library]", k);
         let playlist = |k: &str| reg.free("[Playlist]", k);
         Self {

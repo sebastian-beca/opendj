@@ -80,6 +80,15 @@ pub struct AudioEngine {
     preview_generation: Arc<AtomicU64>,
 }
 
+/// Creates every engine control in `registry` without starting audio, for
+/// tools that only need to know which controls exist.
+pub fn create_controls(registry: &Arc<ControlRegistry>) {
+    let rate = 44_100.0;
+    let (mut engine, _input) = engine::Engine::new(registry, rate);
+    let feed = engine.take_record_feed().expect("record feed");
+    Recorder::new(registry, rate, feed, LoadedTracks::default());
+}
+
 impl AudioEngine {
     /// Creates all engine controls in `registry` and starts audio output to
     /// the devices `setup` names. The engine runs at the main device's rate.
