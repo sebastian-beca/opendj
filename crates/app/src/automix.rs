@@ -34,7 +34,11 @@ pub enum Length {
     Bars(f64),
 }
 
-pub const LENGTHS: [Length; 5] = [
+/// The first, 0 s, is no mix at all: the next track starts from its very
+/// beginning the moment the playing one ends, for albums that play through
+/// gaplessly.
+pub const LENGTHS: [Length; 6] = [
+    Length::Seconds(0.0),
     Length::Seconds(12.0),
     Length::Seconds(15.0),
     Length::Seconds(30.0),
@@ -190,6 +194,9 @@ pub struct AutoMix {
     glide: Option<Glide>,
     length: usize,
     style: usize,
+    /// How long the last UI frame took, in seconds, for timing gapless
+    /// changeovers.
+    frame: f64,
     /// A note for the panel when Automix stops by itself or can't start.
     note: String,
 }
@@ -254,6 +261,7 @@ impl AutoMix {
             glide: None,
             length,
             style,
+            frame: 1.0 / 60.0,
             note: String::new(),
         }
     }
@@ -286,6 +294,9 @@ impl AutoMix {
 
     /// Runs Automix for one UI frame, `dt` seconds after the last one.
     pub fn tick(&mut self, host: &mut dyn Host, tracks: &[Option<Arc<Track>>; NUM_DECKS], dt: f64) {
+        if dt > 0.0 {
+            self.frame = dt.min(0.1);
+        }
         let on = self.enabled.get_bool();
         match (&self.phase, on) {
             (Phase::Off, true) => self.start(host, tracks),
@@ -366,7 +377,7 @@ impl AutoMix {
                 beat_match: false,
             });
         } else {
-            self.glide_to(side(live));
+            self.glide_to(self.side(live));
             self.phase = Phase::Playing { live, next: None };
         }
     }
@@ -410,7 +421,7 @@ impl AutoMix {
                 match next {
                     None => self.stop("Add tracks to the Automix list first."),
                     Some(Next { cued: true, .. }) => {
-                        self.glide_to(side(deck));
+                        self.glide_to(self.side(deck));
                         let d = &self.decks[deck];
                         if d.volume.get() < 0.05 {
                             d.volume.set(1.0);
@@ -463,7 +474,8 @@ impl AutoMix {
         if self.skip_next.pressed() && host.queued() > 0 {
             next = None;
         }
-        let ended = self.remaining(live, tracks) < 0.3;
+        // A gapless track plays to its very last frame.
+        let ended = self.remaining(live, tracks) < if self.gapless() { 1e-3 } else { 0.3 };
         if ended || !self.decks[live].play.get_bool() {
             if !ended {
                 self.stop("Stopped: the deck was paused.");
@@ -487,10 +499,21 @@ impl AutoMix {
             return;
         };
         let pos = self.position(live, tracks);
-        let end = tracks[live].as_deref().map_or(pos, sound_end);
+        let end = tracks[live].as_deref().map_or(pos, |t| self.end_of(t));
         let len = self.length_on(live, tracks);
-        let style = STYLES[self.style];
-        let mut start = (end - len).max(0.0);
+        let gapless = self.gapless();
+        let style = if gapless {
+            Style::Smooth
+        } else {
+            STYLES[self.style]
+        };
+        // Gapless, the next track starts within half a frame of the end.
+        let lead = if gapless {
+            0.5 * self.frame * self.decks[live].speed().max(0.1)
+        } else {
+            0.0
+        };
+        let mut start = (end - len - lead).max(0.0);
         if let (Length::Bars(_), Some(t)) = (LENGTHS[self.length], tracks[live].as_deref()) {
             if t.bpm > 0.0 {
                 // Start on a bar of the outgoing track.
@@ -503,7 +526,11 @@ impl AutoMix {
             self.phase = Phase::Playing { live, next };
             return;
         }
-        let (start, mut end) = if now || pos > start + 0.5 {
+        let (start, mut end) = if gapless && !now {
+            // The outgoing track plays out on its own, with the crossfader
+            // in the centre so both decks are heard in full.
+            (start.min(pos), end)
+        } else if now || pos > start + 0.5 {
             (pos, (pos + len).min(end.max(pos + 1.0)))
         } else {
             (start, (start + len).min(end.max(start + 1.0)))
@@ -561,7 +588,12 @@ impl AutoMix {
         };
         if !next.cued {
             if let Some(t) = tracks[deck].as_deref().filter(|t| t.id == next.id) {
-                if let Some(start) = sound_start(t).filter(|_| t.duration > 0.0) {
+                let start = if self.gapless() {
+                    Some(0.0)
+                } else {
+                    sound_start(t)
+                };
+                if let Some(start) = start.filter(|_| t.duration > 0.0) {
                     let d = &self.decks[deck];
                     d.play.set_bool(false);
                     d.playposition.set(start / t.duration);
@@ -591,7 +623,7 @@ impl AutoMix {
             to.beatsync.set(0.0);
         }
         // Even a cut slides, over the one beat it lasts.
-        let x = m.xfade_from + (side(m.to) - m.xfade_from) * p;
+        let x = m.xfade_from + (self.side(m.to) - m.xfade_from) * p;
         self.crossfader.set(x);
         m.xfade_set = self.crossfader.get();
         match m.style {
@@ -611,7 +643,7 @@ impl AutoMix {
     /// Automix moved put back.
     fn finish(&mut self, m: &Mix) {
         self.restore(m);
-        self.glide_to(side(m.to));
+        self.glide_to(self.side(m.to));
     }
 
     fn restore(&self, m: &Mix) {
@@ -632,7 +664,33 @@ impl AutoMix {
     fn remaining(&self, deck: usize, tracks: &[Option<Arc<Track>>; NUM_DECKS]) -> f64 {
         tracks[deck]
             .as_deref()
-            .map_or(0.0, |t| sound_end(t) - self.position(deck, tracks))
+            .map_or(0.0, |t| self.end_of(t) - self.position(deck, tracks))
+    }
+
+    /// Whether the 0 s length is chosen: tracks follow each other with no mix.
+    fn gapless(&self) -> bool {
+        LENGTHS[self.length] == Length::Seconds(0.0)
+    }
+
+    /// Where Automix takes `t` to end: where its sound ends, or for gapless
+    /// playback its last frame, so nothing is cut off.
+    fn end_of(&self, t: &Track) -> f64 {
+        if self.gapless() {
+            t.duration
+        } else {
+            sound_end(t)
+        }
+    }
+
+    /// Where the crossfader rests while `deck` plays: on its side, or in the
+    /// centre for gapless playback, so the next track is heard the moment it
+    /// starts.
+    fn side(&self, deck: usize) -> f64 {
+        if self.gapless() {
+            0.0
+        } else {
+            side(deck)
+        }
     }
 
     /// The chosen mix length, in seconds of `deck`'s track.
@@ -748,7 +806,7 @@ mod tests {
             let reg = ControlRegistry::new();
             let (engine, input) = Engine::new(&reg, SR);
             let mut automix = AutoMix::new(&reg);
-            automix.length = 0;
+            automix.length = 1;
             automix.style = 0;
             Self {
                 reg,
@@ -788,6 +846,41 @@ mod tests {
         fn loaded_id(&self, d: usize) -> Option<usize> {
             self.host.tracks[d].as_ref().map(|t| t.id)
         }
+    }
+
+    #[test]
+    fn zero_seconds_plays_tracks_back_to_back() {
+        let mut r = Rig::new(vec![track(0, 10.0), track(1, 10.0), track(2, 10.0)]);
+        r.automix.length = 0;
+        r.ctl("[AutoDJ]", "enabled").set(1.0);
+        r.run(2.0);
+        assert!(r.deck(0, "play").get_bool());
+        assert_eq!(r.xfade(), 0.0, "crossfader rests in the centre");
+        assert_eq!(
+            r.deck(1, "playposition").get(),
+            0.0,
+            "next track cued at its very start"
+        );
+
+        // Frame by frame up to deck A's end: deck B starts within a frame of
+        // it, and deck A plays to its last frame.
+        let mut left_when_b_started = None;
+        let mut a_stopped_at = None;
+        for _ in 0..(10.0 * FPS) as usize {
+            r.run(1.0 / FPS);
+            if left_when_b_started.is_none() && r.deck(1, "play").get_bool() {
+                left_when_b_started = Some((1.0 - r.deck(0, "playposition").get()) * 10.0);
+            }
+            if a_stopped_at.is_none() && !r.deck(0, "play").get_bool() {
+                a_stopped_at = Some(r.deck(0, "playposition").get());
+            }
+        }
+        let left = left_when_b_started.expect("deck B started");
+        assert!(left < 1.0 / FPS, "deck B started {left} s before the end");
+        assert_eq!(a_stopped_at, Some(1.0), "deck A played to its last frame");
+        assert!(r.deck(1, "play").get_bool());
+        assert_eq!(r.xfade(), 0.0, "no crossfade");
+        assert_eq!(r.loaded_id(0), Some(1002), "the next track waits on deck A");
     }
 
     #[test]
