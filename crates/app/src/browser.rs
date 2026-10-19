@@ -511,12 +511,24 @@ impl crate::automix::Host for AutomixHost<'_> {
 }
 
 const ROW_PAYLOAD: &str = "opendj-row:";
+/// Rows of a side panel tab: `opendj-side:<tab>:<rows>`.
+const SIDE_PAYLOAD: &str = "opendj-side:";
+/// The track on a deck, picked up by its cover: `opendj-deck:<deck>`.
+const DECK_PAYLOAD: &str = "opendj-deck:";
 
-/// The list rows a drag carries, first to last: one row, or a shift-picked
-/// range written as `first-last`.
-fn dropped_rows(data: &DataTransfer) -> Option<(usize, usize)> {
-    let text = data.plain_text().ok()?;
-    let rows = text.strip_prefix(ROW_PAYLOAD)?;
+/// Where a drag from inside the app comes from.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Dragged {
+    /// Rows of the track list, first to last.
+    Rows(usize, usize),
+    /// Rows of a side panel tab, first to last.
+    Side(usize, usize, usize),
+    /// The track loaded on a deck.
+    Deck(usize),
+}
+
+/// One row, or a shift-picked range written as `first-last`.
+fn parse_rows(rows: &str) -> Option<(usize, usize)> {
     match rows.split_once('-') {
         Some((first, last)) => {
             let (first, last) = (first.parse().ok()?, last.parse().ok()?);
@@ -526,9 +538,40 @@ fn dropped_rows(data: &DataTransfer) -> Option<(usize, usize)> {
     }
 }
 
-/// The first row a drag carries, which is the one a deck loads.
-fn dropped_row(data: &DataTransfer) -> Option<usize> {
-    dropped_rows(data).map(|(first, _)| first)
+fn parse_dragged(text: &str) -> Option<Dragged> {
+    if let Some(rows) = text.strip_prefix(ROW_PAYLOAD) {
+        let (first, last) = parse_rows(rows)?;
+        Some(Dragged::Rows(first, last))
+    } else if let Some(rest) = text.strip_prefix(SIDE_PAYLOAD) {
+        let (tab, rows) = rest.split_once(':')?;
+        let (first, last) = parse_rows(rows)?;
+        Some(Dragged::Side(tab.parse().ok()?, first, last))
+    } else {
+        let deck = text.strip_prefix(DECK_PAYLOAD)?.parse().ok()?;
+        (deck < NUM_DECKS).then_some(Dragged::Deck(deck))
+    }
+}
+
+/// What a drag from inside the app carries, if it is one.
+fn dragged(data: &DataTransfer) -> Option<Dragged> {
+    parse_dragged(&data.plain_text().ok()?)
+}
+
+/// Moves `list[first..=last]` to go in before `at` (an index into the list
+/// as it was), keeping their order.
+fn move_block<T>(list: &mut Vec<T>, first: usize, last: usize, at: usize) {
+    let len = list.len();
+    if first >= len {
+        return;
+    }
+    let last = last.min(len - 1);
+    let at = at.min(len);
+    if (first..=last + 1).contains(&at) {
+        return;
+    }
+    let block: Vec<T> = list.drain(first..=last).collect();
+    let at = if at > last { at - block.len() } else { at };
+    list.splice(at..at, block);
 }
 
 fn dropped_file(data: &DataTransfer) -> Option<PathBuf> {
@@ -837,17 +880,39 @@ impl Browser {
             };
             DataTransfer::from(SharedString::from(format!("{ROW_PAYLOAD}{rows}")))
         });
-        drag.on_accepts(|data| dropped_row(&data).is_some() || dropped_file(&data).is_some());
+        drag.on_side_payload(|tab, first, last| {
+            let rows = if last > first {
+                format!("{first}-{last}")
+            } else {
+                first.to_string()
+            };
+            DataTransfer::from(SharedString::from(format!("{SIDE_PAYLOAD}{tab}:{rows}")))
+        });
+        drag.on_deck_payload(|deck| {
+            DataTransfer::from(SharedString::from(format!("{DECK_PAYLOAD}{deck}")))
+        });
+        drag.on_accepts(|data| dragged(&data).is_some() || dropped_file(&data).is_some());
         let w = with.clone();
         drag.on_drop(move |deck, data| w(Box::new(move |b| b.load_dropped(deck as usize, &data))));
         let w = with.clone();
         drag.on_drop_side(move |index, data| {
             w(Box::new(move |b| {
+                let tab = b.side_tab();
+                let at = index.max(0) as usize;
+                // Rows dragged within their own list move there.
+                if let Some(Dragged::Side(from, first, last)) = dragged(&data) {
+                    if from == tab {
+                        if tab != LINKED_TAB {
+                            move_block(&mut b.side[tab], first, last, at);
+                            b.refresh_side();
+                        }
+                        return;
+                    }
+                }
                 let ids = b.dropped_tracks(&data);
                 if ids.is_empty() {
                     return;
                 }
-                let tab = b.side_tab();
                 if tab == LINKED_TAB {
                     for id in ids {
                         b.link(id);
@@ -855,7 +920,7 @@ impl Browser {
                     return;
                 }
                 let list = &mut b.side[tab];
-                let at = (index.max(0) as usize).min(list.len());
+                let at = at.min(list.len());
                 list.splice(at..at, ids);
                 b.refresh_side();
             }))
@@ -1079,12 +1144,15 @@ impl Browser {
         edit.on_rename(move |i, name| w(&|b| b.rename_node(i as usize, &name)));
         let w = with.clone();
         edit.on_delete(move |i| w(&|b| b.delete_node(i as usize)));
-        edit.on_accepts_drop(|_, data| dropped_row(&data).is_some());
+        edit.on_accepts_drop(|_, data| dragged(&data).is_some());
         let w = with.clone();
         edit.on_drop(move |i, data| {
             w(&|b| {
-                if let Some((first, last)) = dropped_rows(&data) {
-                    b.add_rows_to_node(first, last, i as usize);
+                if dragged(&data).is_some() {
+                    let ids = b.dropped_tracks(&data);
+                    if let Some(list) = b.playlist_at(i as usize) {
+                        b.add_to_playlist(&ids, list);
+                    }
                 }
             })
         });
@@ -2166,21 +2234,20 @@ impl Browser {
         self.reload_tree(None);
     }
 
-    fn add_rows_to_node(&mut self, first: usize, last: usize, node_row: usize) {
-        if let Some(id) = self.playlist_at(node_row) {
-            self.add_rows_to_playlist(first, last, id);
-        }
-    }
-
     /// Adds the tracks of rows `first..=last`, in order, to a playlist.
     fn add_rows_to_playlist(&mut self, first: usize, last: usize, playlist: i64) {
         let indices: Vec<usize> = (first..=last.min(self.rows.len().saturating_sub(1)))
             .filter_map(|row| self.rows.get(row).copied().flatten())
             .collect();
+        self.add_to_playlist(&indices, playlist);
+    }
+
+    /// Adds library tracks (indices into `library`), in order, to a playlist.
+    fn add_to_playlist(&mut self, indices: &[usize], playlist: i64) {
         if indices.is_empty() {
             return;
         }
-        self.adopt(&indices);
+        self.adopt(indices);
         let ids: Vec<_> = indices.iter().map(|&i| self.library[i].id).collect();
         if let Some(db) = &mut self.db {
             if let Err(e) = db.add_to_playlist(playlist, &ids) {
@@ -2406,6 +2473,10 @@ impl Browser {
         if deck >= NUM_DECKS {
             return;
         }
+        // A deck's own cover dropped back on it changes nothing.
+        if dragged(data) == Some(Dragged::Deck(deck)) {
+            return;
+        }
         if let Some(id) = self.dropped_track(data) {
             self.engine.load_track(deck, self.library[id].clone());
         }
@@ -2425,16 +2496,35 @@ impl Browser {
     /// The library tracks a drop carries: the rows of the list it names, or
     /// an audio file from outside.
     fn dropped_tracks(&mut self, data: &DataTransfer) -> Vec<usize> {
-        match dropped_rows(data) {
-            Some((first, last)) => self.playable_rows(first, last),
+        match dragged(data) {
+            Some(Dragged::Rows(first, last)) => self.playable_rows(first, last),
+            Some(Dragged::Side(tab, first, last)) => {
+                let ids: Vec<usize> = self
+                    .side_ids_of(tab)
+                    .into_iter()
+                    .skip(first)
+                    .take(last + 1 - first)
+                    .flatten()
+                    .collect();
+                self.adopt(&ids);
+                ids
+            }
+            Some(Dragged::Deck(deck)) => self.deck_track(deck).into_iter().collect(),
             None => self.dropped_track(data).into_iter().collect(),
         }
     }
 
-    /// The library track a drop carries: a row of the list, or an audio file
-    /// from outside, which joins the library.
+    /// The library track loaded on `deck`.
+    fn deck_track(&self, deck: usize) -> Option<usize> {
+        self.index_of
+            .get(&self.loaded.get(deck).copied().flatten()?)
+            .copied()
+    }
+
+    /// The library track a drop carries: the first of the rows it names, a
+    /// deck's track, or an audio file from outside, which joins the library.
     fn dropped_track(&mut self, data: &DataTransfer) -> Option<usize> {
-        if let Some(row) = dropped_row(data) {
+        if let Some(Dragged::Rows(row, _)) = dragged(data) {
             match self.rows.get(row) {
                 Some(&Some(id)) if self.playable(id) => {
                     self.adopt(&[id]);
@@ -2442,6 +2532,8 @@ impl Browser {
                 }
                 _ => None,
             }
+        } else if dragged(data).is_some() {
+            self.dropped_tracks(data).first().copied()
         } else if let Some(path) = dropped_file(data) {
             // A file from outside the collection joins the library so the
             // deck markers and reloading work as for any other track.
@@ -3131,9 +3223,18 @@ impl Browser {
 
     /// The side panel's rows as library indices, `None` for a heading.
     fn side_ids(&self) -> Vec<Option<usize>> {
-        match self.side_tab() {
+        self.side_ids_of(self.side_tab())
+    }
+
+    /// The tracks of a side panel tab, `None` for the Linked tab's headings.
+    fn side_ids_of(&self, tab: usize) -> Vec<Option<usize>> {
+        match tab {
             LINKED_TAB => self.linked.clone(),
-            tab => self.side[tab].iter().map(|&i| Some(i)).collect(),
+            tab => self
+                .side
+                .get(tab)
+                .map(|l| l.iter().map(|&i| Some(i)).collect())
+                .unwrap_or_default(),
         }
     }
 
@@ -3268,5 +3369,51 @@ mod total_time_tests {
         assert_eq!(total_time(2_520.0), "42m");
         assert_eq!(total_time(3_600.0), "1h 0m");
         assert_eq!(total_time(0.0), "0m");
+    }
+}
+
+#[cfg(test)]
+mod drag_tests {
+    use super::{move_block, parse_dragged, Dragged};
+
+    #[test]
+    fn reads_what_a_drag_carries() {
+        assert_eq!(parse_dragged("opendj-row:3"), Some(Dragged::Rows(3, 3)));
+        assert_eq!(parse_dragged("opendj-row:2-5"), Some(Dragged::Rows(2, 5)));
+        assert_eq!(
+            parse_dragged("opendj-side:0:1-2"),
+            Some(Dragged::Side(0, 1, 2))
+        );
+        assert_eq!(
+            parse_dragged("opendj-side:1:4"),
+            Some(Dragged::Side(1, 4, 4))
+        );
+        assert_eq!(parse_dragged("opendj-deck:1"), Some(Dragged::Deck(1)));
+        assert_eq!(parse_dragged("opendj-deck:9"), None);
+        assert_eq!(parse_dragged("opendj-row:5-2"), None);
+        assert_eq!(parse_dragged("hello"), None);
+    }
+
+    #[test]
+    fn moves_rows_within_a_list() {
+        let moved = |first, last, at| {
+            let mut v = vec![0, 1, 2, 3, 4];
+            move_block(&mut v, first, last, at);
+            v
+        };
+        assert_eq!(moved(3, 3, 0), [3, 0, 1, 2, 4], "up to the top");
+        assert_eq!(moved(0, 0, 5), [1, 2, 3, 4, 0], "down to the end");
+        assert_eq!(
+            moved(1, 2, 4),
+            [0, 3, 1, 2, 4],
+            "a picked range moves together"
+        );
+        assert_eq!(moved(1, 2, 2), [0, 1, 2, 3, 4], "dropped on itself");
+        assert_eq!(moved(1, 2, 3), [0, 1, 2, 3, 4], "just below itself");
+        assert_eq!(
+            moved(4, 9, 0),
+            [4, 0, 1, 2, 3],
+            "range past the end is clipped"
+        );
     }
 }
