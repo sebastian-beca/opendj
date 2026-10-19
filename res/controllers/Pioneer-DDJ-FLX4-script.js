@@ -181,7 +181,8 @@ PioneerDDJFLX4.alpha = 1.0/8;
 PioneerDDJFLX4.beta = PioneerDDJFLX4.alpha/32;
 
 // Multiplier for fast seek through track using SHIFT+JOGWHEEL
-PioneerDDJFLX4.fastSeekScale = 150;
+// openDJ: half of Mixxx's 150, which searched too fast.
+PioneerDDJFLX4.fastSeekScale = 75;
 PioneerDDJFLX4.bendScale = 0.8;
 
 PioneerDDJFLX4.tempoRanges = [0.06, 0.10, 0.16, 0.25];
@@ -547,15 +548,15 @@ PioneerDDJFLX4.loopToggle = function(value, group, control) {
 //
 
 PioneerDDJFLX4.cueLoopCallLeft = function(_channel, _control, value, _status, group) {
-    if (value) {
-        engine.setValue(group, "loop_scale", 0.5);
-    }
+    // openDJ: loop_halve rather than loop_scale, so the loop size box on
+    // screen follows, and sets the next loop's size when none is on.
+    engine.setValue(group, "loop_halve", value ? 1 : 0);
 };
 
 PioneerDDJFLX4.cueLoopCallRight = function(_channel, _control, value, _status, group) {
-    if (value) {
-        engine.setValue(group, "loop_scale", 2.0);
-    }
+    // openDJ: loop_double rather than loop_scale, so the loop size box on
+    // screen follows, and sets the next loop's size when none is on.
+    engine.setValue(group, "loop_double", value ? 1 : 0);
 };
 
 //
