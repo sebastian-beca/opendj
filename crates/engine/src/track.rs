@@ -313,13 +313,15 @@ pub struct LibraryInfo {
     pub key_detected: Option<bool>,
 }
 
-/// A saved hot cue.
-#[derive(Clone, Debug, PartialEq)]
+/// A saved hot cue, or a saved loop when it has an end.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Hotcue {
     /// From 0: hot cue 1 is number 0.
     pub number: usize,
     pub seconds: f64,
     pub name: String,
+    /// Where a saved loop ends; `seconds` is where it starts.
+    pub end: Option<f64>,
 }
 
 impl Track {

@@ -194,8 +194,8 @@ component SettingsPage inherits VerticalLayout {
     HorizontalLayout {
         alignment: space-around;
         ControlKnob { group: "[Master]"; key: "headMix"; label: "CUE MIX"; bipolar: true; size: 32px; }
-        ControlKnob { group: "[Master]"; key: "headGain"; label: "CUE LEVEL"; bipolar: true; size: 32px; }
-        ControlKnob { group: "[Master]"; key: "booth_gain"; label: "BOOTH"; bipolar: true; size: 32px; }
+        ControlKnob { group: "[Master]"; key: "headGain"; label: "CUE LEVEL"; size: 32px; }
+        ControlKnob { group: "[Master]"; key: "booth_gain"; label: "BOOTH"; size: 32px; }
     }
     Rectangle { vertical-stretch: 1; }
 }
@@ -367,7 +367,7 @@ component SideRowKnob inherits HorizontalLayout {
     in property <string> key;
     in property <string> label;
     width: 48px;
-    Knob { group: "[Master]"; key: key; label: label; size: 24px; }
+    Knob { group: "[Master]"; key: key; label: label; origin: 0; size: 24px; }
 }
 
 // The four knobs down one side, spread over the mixer's height.

@@ -389,7 +389,8 @@ pub struct Browser {
     /// Lists tracks can be added to, as offered in the track menu.
     menu_lists: Vec<i64>,
     /// Hot cue controls per deck: enabled and position.
-    hotcues: [Vec<(ControlHandle, ControlHandle)>; NUM_DECKS],
+    /// Each deck's hot cues: enabled, position and a saved loop's end.
+    hotcues: [Vec<(ControlHandle, ControlHandle, ControlHandle)>; NUM_DECKS],
     watch: [CueWatch; NUM_DECKS],
 }
 
@@ -765,7 +766,7 @@ impl Browser {
                                 .get(&deck_group(d), &format!("hotcue_{n}_{k}"))
                                 .expect("hotcue control")
                         };
-                        (c("enabled"), c("position"))
+                        (c("enabled"), c("position"), c("endposition"))
                     })
                     .collect()
             }),
@@ -2378,9 +2379,10 @@ impl Browser {
                 let now: Vec<Hotcue> = self.hotcues[d]
                     .iter()
                     .enumerate()
-                    .filter(|(_, (enabled, _))| enabled.get_bool())
-                    .map(|(n, (_, pos))| {
+                    .filter(|(_, (enabled, _, _))| enabled.get_bool())
+                    .map(|(n, (_, pos, end))| {
                         let seconds = pos.get();
+                        let end = Some(end.get()).filter(|&e| e > seconds);
                         // Keep a cue's name while it stays where it was.
                         let name = w
                             .saved
@@ -2392,6 +2394,7 @@ impl Browser {
                             number: n,
                             seconds,
                             name,
+                            end,
                         }
                     })
                     .collect();

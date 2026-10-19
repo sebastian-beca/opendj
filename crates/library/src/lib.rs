@@ -28,8 +28,9 @@ pub const ID_BASE: usize = 1_000_000;
 /// The schema version this code writes (`PRAGMA user_version`).
 /// 2 added smart lists: `playlists.query`, kind 3.
 /// 3 added purchases: `tracks.store` and `store_url`, `wanted`, `inbox_log`.
-/// 4 added `tracks.key_source`.
-const VERSION: i32 = 4;
+/// 4 added saved loops: `cues.end_seconds`.
+/// 5 added `tracks.key_source`.
+const VERSION: i32 = 5;
 
 /// The smart lists a new library starts with: name and search.
 const STARTER_SMART_LISTS: [(&str, &str); 6] = [
@@ -77,6 +78,8 @@ CREATE TABLE IF NOT EXISTS cues (
     seconds REAL NOT NULL,
     name TEXT NOT NULL DEFAULT '',
     color INTEGER,
+    -- Where a saved loop ends; NULL for a plain cue.
+    end_seconds REAL,
     -- 'user', or another app's name for imported cues.
     source TEXT NOT NULL,
     PRIMARY KEY (track_id, number)
@@ -272,6 +275,12 @@ impl Library {
             if !has_query {
                 db.execute_batch("ALTER TABLE playlists ADD COLUMN query TEXT")?;
             }
+            let has_loop_ends = db
+                .prepare("SELECT 1 FROM pragma_table_info('cues') WHERE name = 'end_seconds'")?
+                .exists([])?;
+            if !has_loop_ends {
+                db.execute_batch("ALTER TABLE cues ADD COLUMN end_seconds REAL")?;
+            }
             for (name, definition) in ADDED_COLUMNS {
                 let has = db
                     .prepare("SELECT 1 FROM pragma_table_info('tracks') WHERE name = ?1")?
@@ -280,7 +289,7 @@ impl Library {
                     db.execute_batch(&format!("ALTER TABLE tracks ADD COLUMN {definition}"))?;
                 }
             }
-            if version < 4 {
+            if version < 5 {
                 // Keys brought in from another app came from there.
                 db.execute_batch(
                     "UPDATE tracks SET key_source = source
@@ -335,9 +344,9 @@ impl Library {
     pub fn all_tracks(&self, exists: impl Fn(&Path) -> bool) -> Result<Vec<Track>, Error> {
         let mut cues: HashMap<i64, Vec<Hotcue>> = HashMap::new();
         {
-            let mut q = self
-                .db
-                .prepare("SELECT track_id, number, seconds, name FROM cues ORDER BY number")?;
+            let mut q = self.db.prepare(
+                "SELECT track_id, number, seconds, name, end_seconds FROM cues ORDER BY number",
+            )?;
             let rows = q.query_map([], |r| {
                 Ok((
                     r.get::<_, i64>(0)?,
@@ -345,6 +354,7 @@ impl Library {
                         number: r.get::<_, i64>(1)? as usize,
                         seconds: r.get(2)?,
                         name: r.get(3)?,
+                        end: r.get(4)?,
                     },
                 ))
             })?;
@@ -597,16 +607,16 @@ impl Library {
         Ok(())
     }
 
-    /// Replaces a track's hot cues with the DJ's.
+    /// Replaces a track's hot cues and saved loops with the DJ's.
     pub fn save_cues(&mut self, id: usize, cues: &[Hotcue]) -> Result<(), Error> {
         let Some(row) = row_id(id) else { return Ok(()) };
         let tx = self.db.transaction()?;
         tx.execute("DELETE FROM cues WHERE track_id = ?1", [row])?;
         for c in cues {
             tx.execute(
-                "INSERT INTO cues (track_id, number, seconds, name, source)
-                 VALUES (?1, ?2, ?3, ?4, 'user')",
-                params![row, c.number as i64, c.seconds, c.name],
+                "INSERT INTO cues (track_id, number, seconds, name, end_seconds, source)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'user')",
+                params![row, c.number as i64, c.seconds, c.name, c.end],
             )?;
         }
         tx.commit()
@@ -1079,8 +1089,8 @@ fn import_tracks(
         tx.prepare("SELECT COUNT(*) FROM cues WHERE track_id = ?1 AND source = 'user'")?;
     let mut clear_cues = tx.prepare("DELETE FROM cues WHERE track_id = ?1")?;
     let mut add_cue = tx.prepare(
-        "INSERT OR REPLACE INTO cues (track_id, number, seconds, name, color, source)
-         VALUES (?1, ?2, ?3, ?4, NULL, ?5)",
+        "INSERT OR REPLACE INTO cues (track_id, number, seconds, name, color, end_seconds, source)
+         VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6)",
     )?;
     for t in tracks {
         let Source::File(path) = &t.source else {
@@ -1125,7 +1135,14 @@ fn import_tracks(
         if mine == 0 {
             clear_cues.execute([id])?;
             for c in &t.info.hotcues {
-                add_cue.execute(params![id, c.number as i64, c.seconds, c.name, source])?;
+                add_cue.execute(params![
+                    id,
+                    c.number as i64,
+                    c.seconds,
+                    c.name,
+                    c.end,
+                    source
+                ])?;
             }
         }
     }
@@ -1188,6 +1205,7 @@ mod tests {
                 number: 0,
                 seconds: 32.0,
                 name: "Drop".into(),
+                end: None,
             }],
             fixed_grid: true,
             ..Default::default()
@@ -1232,11 +1250,20 @@ mod tests {
         lib.save_grid(b.id, &grid, 124.0).unwrap();
         lib.save_cues(
             b.id,
-            &[Hotcue {
-                number: 2,
-                seconds: 10.0,
-                name: String::new(),
-            }],
+            &[
+                Hotcue {
+                    number: 2,
+                    seconds: 10.0,
+                    name: String::new(),
+                    end: None,
+                },
+                Hotcue {
+                    number: 3,
+                    seconds: 20.0,
+                    name: "Break loop".into(),
+                    end: Some(24.0),
+                },
+            ],
         )
         .unwrap();
         lib.db.execute("DELETE FROM meta", []).unwrap();
@@ -1249,6 +1276,9 @@ mod tests {
             .unwrap();
         assert_eq!(b.grid, grid);
         assert_eq!(b.info.hotcues[0].number, 2);
+        assert_eq!(b.info.hotcues[0].end, None);
+        // A saved loop keeps its end.
+        assert_eq!(b.info.hotcues[1].end, Some(24.0));
         // An unchanged file isn't read again.
         assert!(lib
             .import("other", db, |_| panic!("read again"))
@@ -1320,8 +1350,8 @@ mod tests {
     }
 
     #[test]
-    fn a_version_3_library_marks_imported_keys() {
-        let path = std::env::temp_dir().join(format!("opendj-lib-v3-{}.db", std::process::id()));
+    fn a_version_4_library_marks_imported_keys() {
+        let path = std::env::temp_dir().join(format!("opendj-lib-v4-{}.db", std::process::id()));
         {
             let mut lib = Library::open(&path).unwrap();
             let mut t = file_track("/m/a.mp3", "A");
@@ -1331,7 +1361,7 @@ mod tests {
                 .execute_batch(
                     "UPDATE tracks SET key_source = NULL;
                      UPDATE tracks SET source = 'virtualdj', key = '7A' WHERE path = '/m/b.mp3';
-                     PRAGMA user_version = 3",
+                     PRAGMA user_version = 4",
                 )
                 .unwrap();
         }
@@ -1384,6 +1414,31 @@ mod tests {
         assert!(!all[0].info.missing && all[1].info.missing);
         assert!(all[0].info.added > 0, "the date it was added is kept");
         assert_eq!(lib.tracks(|p| p.ends_with("a.mp3")).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_version_3_library_gains_saved_loops() {
+        let path = std::env::temp_dir().join(format!("opendj-v3-{}.sqlite", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        {
+            let db = Connection::open(&path).unwrap();
+            db.execute_batch(&SCHEMA.replace("    end_seconds REAL,\n", ""))
+                .unwrap();
+            db.execute_batch("PRAGMA user_version = 3").unwrap();
+        }
+        let mut lib = Library::open(&path).unwrap();
+        lib.sync(&[file_track("/m/a.mp3", "A")]).unwrap();
+        let id = lib.tracks(|_| true).unwrap()[0].id;
+        let saved = Hotcue {
+            number: 0,
+            seconds: 8.0,
+            name: String::new(),
+            end: Some(16.0),
+        };
+        lib.save_cues(id, std::slice::from_ref(&saved)).unwrap();
+        assert_eq!(lib.tracks(|_| true).unwrap()[0].info.hotcues, [saved]);
+        drop(lib);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
