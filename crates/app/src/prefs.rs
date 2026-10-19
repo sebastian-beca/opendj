@@ -11,8 +11,8 @@ use std::sync::Arc;
 use mixxx_control::ControlRegistry;
 use mixxx_controllers::{Controllers, MappingChoice, Port};
 use mixxx_engine::{
-    analysis, cache, deck_group, RecordFormat, Recorder, BUFFER_SIZES, DEFAULT_AUTO_GAIN_TARGET,
-    NUM_DECKS, SAMPLE_RATES,
+    analysis, cache, deck_group, key, RecordFormat, Recorder, BUFFER_SIZES,
+    DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES,
 };
 use mixxx_plugins::{Plugin, SettingKind};
 use serde_json::json;
@@ -118,6 +118,12 @@ pub fn apply_saved(registry: &ControlRegistry) {
     );
     let (lo, hi) = bpm_range();
     analysis::set_bpm_range(lo, hi);
+    key::set_detector(key_detector());
+}
+
+fn key_detector() -> key::Detector {
+    let id = settings::number("key_detector", 0.0) as u8;
+    key::Detector::from_id(id).unwrap_or_default()
 }
 
 fn f(on: bool) -> f64 {
@@ -351,6 +357,17 @@ impl Prefs {
                             MENU,
                             "BPM range",
                             "Where tempos are looked for in newly analysed tracks.",
+                        )
+                    },
+                    PrefItem {
+                        choices: strings(&["Standard", "Neural"]),
+                        chosen: key_detector().id() as i32,
+                        ..item(
+                            "key_detector",
+                            SEGMENTED,
+                            "Key detection",
+                            "Neural is more accurate, mostly on electronic music, but slower. \
+                             Keys from tags stay.",
                         )
                     },
                     PrefItem {
@@ -741,6 +758,13 @@ impl Prefs {
                 settings::set("bpm_min", json!(lo));
                 settings::set("bpm_max", json!(hi));
                 analysis::set_bpm_range(lo, hi);
+            }
+            "key_detector" => {
+                let Some(&d) = key::Detector::ALL.get(index) else {
+                    return;
+                };
+                settings::set("key_detector", json!(d.id()));
+                key::set_detector(d);
             }
             "key_notation" => {
                 if let Some(app) = self.app.upgrade() {

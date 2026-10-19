@@ -122,11 +122,10 @@ pub fn read_track(id: usize, path: &Path) -> Track {
         track.artist = text(tag.artist()).unwrap_or_default();
         track.album = text(tag.album()).unwrap_or_default();
         track.genre = text(tag.genre()).unwrap_or_default();
-        track.key = tag
-            .get_string(ItemKey::InitialKey)
-            .unwrap_or_default()
-            .trim()
-            .to_string();
+        track.key = tag_key(tag);
+        if !track.key.is_empty() {
+            track.info.key_detected = Some(false);
+        }
         track.bpm = tag
             .get_string(ItemKey::Bpm)
             .or_else(|| tag.get_string(ItemKey::IntegerBpm))
@@ -135,6 +134,21 @@ pub fn read_track(id: usize, path: &Path) -> Track {
             .unwrap_or(0.0);
     }
     track
+}
+
+fn tag_key(tag: &lofty::tag::Tag) -> String {
+    tag.get_string(ItemKey::InitialKey)
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+/// The key the file's tags give, or "" for none.
+pub fn read_key(path: &Path) -> String {
+    lofty::read_from_path(path)
+        .ok()
+        .and_then(|f| f.primary_tag().or_else(|| f.first_tag()).map(tag_key))
+        .unwrap_or_default()
 }
 
 /// The comment tag, where stores leave notes such as Bandcamp's

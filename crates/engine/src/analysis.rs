@@ -1,5 +1,5 @@
 //! Track analysis: the 3-band waveform summary, tempo, beat phase and key
-//! (see [`crate::key`]).
+//! (see [`crate::key`] and [`crate::keynet`]).
 //!
 //! The tempo detector works on an onset envelope (rises in bass energy and
 //! overall level, 200 per second). It picks the strongest autocorrelation lag
@@ -16,7 +16,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::beats::{BeatGrid, GridMarker};
 use crate::dsp::Isolator;
-use crate::key::{Key, KeyDetector};
+use crate::key::{self, Detector, Key, KeyDetector};
+use crate::keynet::Spectrogram;
 use crate::loudness::{Loudness, LoudnessMeter};
 use crate::track::{Audio, Waveform, WAVEFORM_RATE};
 
@@ -27,6 +28,8 @@ pub struct Analysis {
     pub waveform: Waveform,
     /// Detected key, None for silence.
     pub key: Option<Key>,
+    /// The detector that found `key`.
+    pub key_detector: Detector,
     pub bpm: f64,
     pub first_beat: f64,
     /// The beat grid: steady at `bpm` from `first_beat`, or sections at
@@ -85,6 +88,31 @@ pub fn analyse(audio: &Audio, bpm_hint: Option<f64>) -> Analysis {
     a.finish(bpm_hint)
 }
 
+/// The key of decoded `audio` by `detector`, for a track whose other
+/// analysis is already known.
+pub fn detect_key(audio: &Audio, detector: Detector) -> Option<Key> {
+    let sr = audio.sample_rate.max(1) as f64;
+    let standard = || {
+        let mut eq = Isolator::new(sr);
+        let mut key = KeyDetector::new(sr);
+        for f in audio.decoded_chunks().flatten() {
+            let [lo, mid, _] = eq.split(*f);
+            key.push((lo[0] + lo[1] + mid[0] + mid[1]) * 0.5);
+        }
+        key.key()
+    };
+    match detector {
+        Detector::Standard => standard(),
+        Detector::Neural => {
+            let mut s = Spectrogram::new(sr);
+            for f in audio.decoded_chunks().flatten() {
+                s.push((f[0] + f[1]) * 0.5);
+            }
+            s.key().or_else(standard)
+        }
+    }
+}
+
 /// Analyses audio a piece at a time as it is decoded, so the waveform can be
 /// drawn while the rest of the track is still being read.
 pub struct Analyser {
@@ -92,6 +120,8 @@ pub struct Analyser {
     slice_len: f64,
     eq: Isolator,
     key: KeyDetector,
+    /// The neural detector's input, when it is the one chosen.
+    neural: Option<Spectrogram>,
     loudness: LoudnessMeter,
     slices: Vec<Slice>,
     energy: Vec<[f32; 2]>,
@@ -113,6 +143,7 @@ impl Analyser {
             slice_len,
             eq: Isolator::new(sr),
             key: KeyDetector::new(sr),
+            neural: (key::detector() == Detector::Neural).then(|| Spectrogram::new(sr)),
             loudness: LoudnessMeter::new(sr),
             slices: vec![Slice::default(); slices],
             energy: vec![[0.0; 2]; bins],
@@ -142,6 +173,9 @@ impl Analyser {
             self.loudness.push(*f);
             let [lo, mid, hi] = self.eq.split(*f);
             self.key.push((lo[0] + lo[1] + mid[0] + mid[1]) * 0.5);
+            if let Some(n) = self.neural.as_mut() {
+                n.push((f[0] + f[1]) * 0.5);
+            }
             let bands = [lo, mid, hi, *f];
             let slice = &mut self.slices[s];
             for (k, x) in bands.iter().enumerate() {
@@ -207,9 +241,19 @@ impl Analyser {
         } else {
             (bpm, first_beat)
         };
+        let key_detector = match self.neural {
+            Some(_) => Detector::Neural,
+            None => Detector::Standard,
+        };
+        // Audio too short for the network gets the standard detector's key.
+        let key = self
+            .neural
+            .and_then(Spectrogram::key)
+            .or_else(|| self.key.key());
         Analysis {
             waveform,
-            key: self.key.key(),
+            key,
+            key_detector,
             bpm,
             first_beat,
             grid,
