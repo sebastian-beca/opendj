@@ -894,11 +894,15 @@ component PadCell inherits Rectangle {
 
 // A hot cue: a small play triangle and the cue's time in
 // its colour, or "+" while it isn't set (pressing sets it).
+// Shift + press deletes a set cue, as on controllers.
 component HotcueCell inherits Rectangle {
     in property <string> group;
     in property <int> number;
     in property <color> tint;
     property <int> index: Controls.resolve(group, "hotcue_" + number + "_activate");
+    property <int> clear-index: Controls.resolve(group, "hotcue_" + number + "_clear");
+    // The press under way is deleting the cue rather than playing it.
+    property <bool> clearing;
     property <bool> set: Controls.value(Controls.resolve(group, "hotcue_" + number + "_enabled"), Controls.tick) > 0;
     property <float> seconds: Controls.value(Controls.resolve(group, "hotcue_" + number + "_position"), Controls.tick);
     // A saved loop (hotcue type 4, as in Mixxx) shows a loop instead of a play mark.
@@ -944,9 +948,22 @@ component HotcueCell inherits Rectangle {
                 return;
             }
             if e.kind == PointerEventKind.down {
-                Controls.set-value(index, 1);
+                if e.modifiers.shift {
+                    // An empty pad does nothing, rather than setting a cue.
+                    clearing = true;
+                    if set {
+                        Controls.set-value(clear-index, 1);
+                    }
+                } else {
+                    Controls.set-value(index, 1);
+                }
             } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
-                Controls.set-value(index, 0);
+                if clearing {
+                    clearing = false;
+                    Controls.set-value(clear-index, 0);
+                } else {
+                    Controls.set-value(index, 0);
+                }
             }
         }
     }

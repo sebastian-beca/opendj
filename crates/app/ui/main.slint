@@ -236,6 +236,44 @@ component LayoutPill inherits Rectangle {
     }
 }
 
+// Shows or hides the large scrolling waveforms above the decks, lit
+// while they show. Hidden, the room goes to the browser.
+component WaveformsButton inherits Rectangle {
+    in-out property <bool> on;
+    callback changed-to(on: bool);
+    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: on ? Theme.accent : transparent;
+    height: 36px;
+    y: 8px;
+    horizontal-stretch: 0;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 7px;
+        // A small waveform.
+        Path {
+            width: 16px;
+            height: 12px;
+            y: (parent.height - self.height) / 2;
+            viewbox-width: 16;
+            viewbox-height: 12;
+            stroke: on ? Theme.accent : Theme.text-dim;
+            stroke-width: 1.5px;
+            commands: "M 1 5 L 1 7 M 4 3 L 4 9 M 7 0.5 L 7 11.5 M 10 2 L 10 10 M 13 4 L 13 8 M 15.5 5.5 L 15.5 6.5";
+        }
+        Text { text: "WAVEFORMS"; color: on ? Theme.accent : Theme.text-dim; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            on = !on;
+            changed-to(on);
+        }
+    }
+}
+
 component Pill inherits Rectangle {
     background: Theme.panel-raised;
     border-radius: 10px;
@@ -298,6 +336,9 @@ export component AppWindow inherits Window {
     // 0 Pro (the full decks and mixer), 1 Player (a compact row of the basics).
     in-out property <int> layout: 0;
     callback layout-changed(layout: int);
+    // The large scrolling waveforms above the decks, from the top bar button.
+    in-out property <bool> waveforms-visible: true;
+    callback waveforms-visible-changed(on: bool);
 
     // Physical sizes the GPU textures should be rendered at.
     // Room on the left of the top bar for macOS's window buttons.
@@ -432,6 +473,7 @@ export component AppWindow inherits Window {
                     padding-right: 4px;
                     spacing: 10px;
                     LayoutPill { layout <=> root.layout; changed-to(l) => { layout-changed(l); } }
+                    WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
                     LinkButton { }
                     Rectangle { horizontal-stretch: 1; }
                     RecordButton { }
@@ -455,9 +497,9 @@ export component AppWindow inherits Window {
             Rectangle {
                 // Not rounded or clipped: that renders into a cached layer, which
                 // would freeze the GPU-updated waveform images. Folded away while
-                // the library is expanded.
-                height: library-expanded ? 0px : 144px;
-                visible: !library-expanded;
+                // the library is expanded or the top bar button hides them.
+                height: library-expanded || !waveforms-visible ? 0px : 144px;
+                visible: !library-expanded && waveforms-visible;
                 background: Theme.well;
                 // Thin grey lines above, between and below the two waveforms.
                 VerticalLayout {
