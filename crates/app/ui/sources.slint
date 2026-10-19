@@ -75,6 +75,10 @@ export global SourceUi {
     in property <bool> grouped;
     in property <string> queue-title;
     in property <string> queue-folder;
+    // Downloads queued or running, finished or failed, and failed.
+    in property <int> active-count;
+    in property <int> finished-count;
+    in property <int> failed-count;
     // How the search box's text will be searched, a line per search.
     in property <[string]> preview;
     // Opens the search box.
@@ -83,12 +87,19 @@ export global SourceUi {
     callback search(text: string, kind: int, prefer: int);
     callback select-search(index: int);
     callback remove-search(index: int);
+    callback clear-searches();
     callback search-again(index: int);
     callback check(row: int, shift: bool);
     callback toggle-open(row: int);
     // A row's button: download it, or try a failed one again.
     callback download(row: int);
     callback download-selected();
+    // The Downloads list: take a row off (stopping it), try the failed
+    // again, clear what's finished, stop everything going.
+    callback remove-download(row: int);
+    callback retry-failed();
+    callback clear-finished();
+    callback cancel-downloads();
     callback clear-selection();
     // Ticks the best copy of each song of a playlist.
     callback pick-best();
@@ -191,6 +202,14 @@ export component SearchesPanel inherits Rectangle {
                     search-menu.close();
                 }
             }
+            Line {
+                text: "Clear all searches";
+                text-color: #ff6b5e;
+                clicked => {
+                    SourceUi.clear-searches();
+                    search-menu.close();
+                }
+            }
         }
     }
     VerticalLayout {
@@ -207,6 +226,13 @@ export component SearchesPanel inherits Rectangle {
             padding-left: 8px;
             height: 26px;
             Text { text: "Searches"; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+            if SourceUi.searches.length > 0: Rectangle {
+                width: clear-text.preferred-width + 12px;
+                border-radius: 5px;
+                background: cta.has-hover ? #232326 : transparent;
+                clear-text := Text { text: "Clear all"; color: cta.has-hover ? #ff6b5e : Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+                cta := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.clear-searches(); } }
+            }
             Rectangle {
                 width: 26px;
                 border-radius: 5px;
@@ -288,16 +314,38 @@ export component SearchesPanel inherits Rectangle {
             }
         }
         // What's downloading.
+        // Clicking it opens the whole Downloads list in the browser.
         if SourceUi.queue-shown: Rectangle {
             border-radius: Theme.radius;
-            background: #232326;
+            background: qta.has-hover ? #2a2a2e : #232326;
             height: q.preferred-height;
+            qta := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.select-search(-1); } }
             q := VerticalLayout {
                 padding: 10px;
                 spacing: 4px;
                 HorizontalLayout {
-                    Text { text: SourceUi.queue.length > 0 ? "Downloading" : "Downloaded"; color: Theme.text; font-size: 13px; font-weight: 600; horizontal-stretch: 1; }
-                    Text { text: SourceUi.queue-title; color: Theme.text-dim; font-size: 12px; }
+                    spacing: 6px;
+                    Text { text: SourceUi.queue.length > 0 ? "Downloading" : "Downloaded"; color: Theme.text; font-size: 13px; font-weight: 600; horizontal-stretch: 1; vertical-alignment: center; }
+                    Text { text: SourceUi.queue-title; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+                    // Opens the whole Downloads list in the browser.
+                    Rectangle {
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 4px;
+                        background: ota.has-hover ? Theme.accent : transparent;
+                        Path {
+                            width: 12px;
+                            height: 12px;
+                            viewbox-width: 12;
+                            viewbox-height: 12;
+                            stroke: ota.has-hover ? Theme.on-selection : Theme.text-dim;
+                            stroke-width: 1.4px;
+                            stroke-line-cap: round;
+                            fill: transparent;
+                            commands: "M 7 1.5 L 10.5 1.5 L 10.5 5 M 10.5 1.5 L 5.5 6.5 M 9 7.5 L 9 10.5 L 1.5 10.5 L 1.5 3 L 4.5 3";
+                        }
+                        ota := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.select-search(-1); } }
+                    }
                 }
                 for line in SourceUi.queue: VerticalLayout {
                     spacing: 3px;
@@ -524,6 +572,21 @@ export component SourceResults inherits Rectangle {
                     Pill { text: "Search again"; clicked => { SourceUi.search-again(SourceUi.current-search); } }
                 }
             }
+            if SourceUi.current-search == -1: HorizontalLayout {
+                spacing: 6px;
+                if SourceUi.failed-count > 0: VerticalLayout {
+                    alignment: center;
+                    Pill { text: "Retry failed"; clicked => { SourceUi.retry-failed(); } }
+                }
+                if SourceUi.finished-count > 0: VerticalLayout {
+                    alignment: center;
+                    Pill { text: "Clear finished"; clicked => { SourceUi.clear-finished(); } }
+                }
+                if SourceUi.active-count > 0: VerticalLayout {
+                    alignment: center;
+                    Pill { text: "Cancel all"; clicked => { SourceUi.cancel-downloads(); } }
+                }
+            }
             VerticalLayout {
                 alignment: center;
                 Pill { text: "+ New search"; clicked => { SourceUi.dialog-open = true; } }
@@ -543,7 +606,7 @@ export component SourceResults inherits Rectangle {
             Text { width: w-quality; text: "Quality"; color: Theme.text; font-size: 13px; font-weight: 500; }
             Text { width: w-size; text: "Size"; color: Theme.text; font-size: 13px; font-weight: 500; horizontal-alignment: right; }
             Text { width: w-from; text: "From"; color: Theme.text; font-size: 13px; font-weight: 500; }
-            Rectangle { width: 96px; }
+            Rectangle { width: SourceUi.current-search == -1 ? 126px : 96px; }
         }
         EdgeLine { left: 6px; right: 6px; }
         if SourceUi.notice != "": Rectangle {
@@ -635,6 +698,16 @@ export component SourceResults inherits Rectangle {
                     // Who shares it, or why its download failed.
                     Text { width: w-from; text: r.state == 4 && r.note != "" ? r.note : r.from; color: r.state == 4 ? #ff6b5e : Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
                     RowButton { r: r; clicked => { SourceUi.download(i); } }
+                    // On the Downloads list: take it off, stopping it if it's going.
+                    if SourceUi.current-search == -1: Rectangle {
+                        width: 22px;
+                        height: 22px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: 11px;
+                        background: xta.has-hover ? #3a3a3d : transparent;
+                        Text { text: "×"; color: xta.has-hover ? #ff6b5e : Theme.text-dim; font-size: 16px; }
+                        xta := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.remove-download(i); } }
+                    }
                 }
             }
         }
