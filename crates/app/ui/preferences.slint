@@ -200,7 +200,9 @@ component PrefRow inherits Rectangle {
                 spacing: 3px;
                 if searching: Text { text: item.page-name; color: Theme.knob-arc; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
                 if item.title != "": Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; overflow: elide; }
-                if item.detail != "": Text { text: item.detail; color: Theme.text-dim; font-size: 12px; overflow: elide; }
+                // Add-on pages (notes and text fields) wrap: their help is longer.
+                if item.detail != "" && item.kind != 6 && item.kind != 9: Text { text: item.detail; color: Theme.text-dim; font-size: 12px; overflow: elide; }
+                if item.detail != "" && (item.kind == 6 || item.kind == 9): Text { text: item.detail; color: Theme.text-dim; font-size: 12px; wrap: word-wrap; }
             }
             if item.kind == 0: VerticalLayout {
                 alignment: center;

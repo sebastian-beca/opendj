@@ -217,6 +217,11 @@ impl Prefs {
     /// Called every frame: picks up chosen paths and plugged-in devices.
     pub fn poll(&mut self) {
         while let Ok((id, path)) = self.chosen_rx.try_recv() {
+            if id.starts_with("plugin:") {
+                self.typed(&id, &path.to_string_lossy());
+                self.refresh();
+                continue;
+            }
             settings::set(&id, json!(path.to_string_lossy()));
             if id == "recording_folder" {
                 self.recorder.configure(settings::recording());
@@ -835,6 +840,14 @@ impl Prefs {
                 let id = format!("plugin:{index}:{}", s.key);
                 match s.kind {
                     SettingKind::Note => item(&id, NOTE, &s.title, &s.detail),
+                    SettingKind::Folder => PrefItem {
+                        value: match config.get(s.key) {
+                            "" => "Default".into(),
+                            set => set.into(),
+                        },
+                        action: "Choose…".into(),
+                        ..item(&id, PATH, &s.title, &s.detail)
+                    },
                     kind => PrefItem {
                         value: config.get(s.key).into(),
                         on: kind == SettingKind::Secret,
@@ -867,6 +880,10 @@ impl Prefs {
     }
 
     fn pressed(&mut self, id: &str) {
+        if id.starts_with("plugin:") {
+            choose(id, "Choose a folder", true, self.chosen_tx.clone());
+            return;
+        }
         match id {
             "music_folder" => choose(id, "Choose your music folder", true, self.chosen_tx.clone()),
             "recording_folder" => choose(
