@@ -415,6 +415,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let sources = sources.clone();
             Box::new(move |id| sources.borrow_mut().configure(id))
         },
+        {
+            let engine = engine.clone();
+            Box::new(move || engine.set_outputs(&settings::audio_setup()))
+        },
     );
 
     let decks = Rc::new(Decks::new(&registry));
