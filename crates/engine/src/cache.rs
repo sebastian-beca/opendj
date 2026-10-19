@@ -17,7 +17,7 @@ use flate2::Compression;
 
 use crate::analysis::Analysis;
 use crate::beats::{BeatGrid, GridMarker};
-use crate::key::Key;
+use crate::key::{Detector, Key};
 use crate::loudness::Loudness;
 use crate::track::{Waveform, WaveformBin};
 
@@ -155,7 +155,10 @@ fn encode(a: &Analysis) -> Vec<u8> {
     out.extend_from_slice(&a.bpm.to_le_bytes());
     out.extend_from_slice(&a.first_beat.to_le_bytes());
     out.extend_from_slice(&a.waveform.bins_per_second.to_le_bytes());
-    out.extend_from_slice(&a.key.map_or(u64::MAX, |k| k.index() as u64).to_le_bytes());
+    // The key's index (0xff for none), and above it the detector's number;
+    // entries from before there was a choice of detector say u64::MAX.
+    let key = a.key.map_or(0xff, |k| k.index() as u64) | (a.key_detector.id() as u64) << 8;
+    out.extend_from_slice(&key.to_le_bytes());
     let (lufs, peak) = a
         .loudness
         .map_or((f64::NAN, f64::NAN), |l| (l.lufs as f64, l.peak as f64));
@@ -188,9 +191,13 @@ fn decode(data: &[u8]) -> Option<Analysis> {
     let bpm = f64::from_le_bytes(num()?);
     let first_beat = f64::from_le_bytes(num()?);
     let bins_per_second = f64::from_le_bytes(num()?);
-    let key = u8::try_from(u64::from_le_bytes(num()?))
-        .ok()
-        .and_then(Key::from_index);
+    let (key, key_detector) = match u64::from_le_bytes(num()?) {
+        u64::MAX => (None, Detector::Standard),
+        v => (
+            Key::from_index((v & 0xff) as u8),
+            Detector::from_id((v >> 8) as u8)?,
+        ),
+    };
     let lufs = f64::from_le_bytes(num()?);
     let peak = f64::from_le_bytes(num()?);
     let loudness = (lufs.is_finite() && peak.is_finite()).then_some(Loudness {
@@ -210,6 +217,7 @@ fn decode(data: &[u8]) -> Option<Analysis> {
     (finest.len() == len && len > 0).then(|| Analysis {
         waveform: Waveform::from_finest(bins_per_second, finest),
         key,
+        key_detector,
         bpm,
         first_beat,
         grid: BeatGrid::new(grid),
@@ -229,7 +237,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let track = dir.join("track.wav");
         fs::write(&track, b"first version").unwrap();
-        let a = analyse(&synth::render_with(124.0, 0.2, 20.0, 1), None);
+        let mut a = analyse(&synth::render_with(124.0, 0.2, 20.0, 1), None);
 
         let data = encode(&a);
         let b = decode(&data).unwrap();
@@ -239,6 +247,15 @@ mod tests {
         assert_eq!(b.waveform.levels, a.waveform.levels);
         assert_eq!(b.grid, a.grid);
         assert!(decode(&data[..data.len() - 3]).is_none());
+
+        // Which detector found the key, and keys from before there was a choice.
+        a.key_detector = Detector::Neural;
+        let b = decode(&encode(&a)).unwrap();
+        assert_eq!((b.key, b.key_detector), (a.key, Detector::Neural));
+        let mut old = encode(&a);
+        old[32..40].copy_from_slice(&u64::MAX.to_le_bytes());
+        let b = decode(&old).unwrap();
+        assert_eq!((b.key, b.key_detector), (None, Detector::Standard));
 
         let first = entry(&track).unwrap();
         fs::write(&track, b"second, longer version").unwrap();
