@@ -74,12 +74,17 @@ pub fn set_automix_style(i: usize) {
     save(|v| v["automix_style"] = json!(i));
 }
 
-/// The output routes chosen last time. Settings from before routes are
-/// read too: the main device, and a headphone device or automatic 3/4.
+/// The output routes chosen last time, with the sample rate and buffer
+/// size. Settings from before routes are read too: the main device, and a
+/// headphone device or automatic 3/4.
 pub fn audio_setup() -> AudioSetup {
     let v = load();
+    let sample_rate = v["sample_rate"].as_u64().map(|r| r as u32);
+    let buffer_frames = v["buffer_frames"].as_u64().map(|n| n as u32);
     if let Some(list) = v["outputs"].as_array() {
         return AudioSetup {
+            sample_rate,
+            buffer_frames,
             routes: list
                 .iter()
                 .filter_map(|r| {
@@ -111,7 +116,11 @@ pub fn audio_setup() -> AudioSetup {
             pair: 1,
         }),
     }
-    AudioSetup { routes }
+    AudioSetup {
+        routes,
+        sample_rate,
+        buffer_frames,
+    }
 }
 
 pub fn set_audio_setup(setup: &AudioSetup) {

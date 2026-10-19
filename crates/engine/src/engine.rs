@@ -12,8 +12,10 @@ use std::time::{Duration, Instant};
 use mixxx_control::ControlRegistry;
 
 use crate::beats::GridEdit;
-use crate::controls::{create_global_controls, Action, DeckControls, Edge, MasterControls};
-use crate::dsp::{Isolator, Sculpt, SweepFilter};
+use crate::controls::{
+    create_global_controls, Action, DeckControls, Edge, MasterControls, HOTCUE_CUE, HOTCUE_LOOP,
+};
+use crate::dsp::{Isolator, Limiter, Sculpt, SweepFilter};
 use crate::effects::{EffectRack, MAIN, TARGETS};
 use crate::key::Key;
 use crate::keyshift::{transpose_factor, KeyShifter};
@@ -252,6 +254,8 @@ impl Deck {
         for h in &self.c.hotcues {
             h.enabled.set_bool(false);
             h.status.set(0.0);
+            h.kind.set(0.0);
+            h.end_position.set(-1.0);
         }
         self.c.hotcue_focus.set(-1.0);
         Some(track)
@@ -314,22 +318,51 @@ impl Deck {
             let goto_play = edges[1].pressed(&hc.goto_play);
             let goto_stop = edges[2].pressed(&hc.goto_stop);
             let (set, position) = (hc.enabled.get_bool(), hc.position.get());
+            let saved_loop = (set && hc.kind.get() == HOTCUE_LOOP)
+                .then(|| hc.end_position.get())
+                .filter(|&end| end > position);
             self.c.hotcues[h].edges = edges;
             if activate || (set && (goto_play || goto_stop)) {
                 self.c.hotcue_focus.set((h + 1) as f64);
             }
             if activate {
-                if set {
-                    self.set_seconds(position);
-                } else {
-                    let at = self.seconds();
-                    let snapped = if track.bpm > 0.0 {
-                        track.snap(at, false)
-                    } else {
-                        at
-                    };
-                    self.c.hotcues[h].position.set(snapped.max(0.0));
-                    self.c.hotcues[h].enabled.set_bool(true);
+                match saved_loop {
+                    // Pressing the loop that is playing turns it off, as in Mixxx.
+                    Some(end)
+                        if self.c.loop_enabled.get_bool()
+                            && (self.loop_start - position).abs() < 1e-3
+                            && (self.loop_end - end).abs() < 1e-3 =>
+                    {
+                        self.c.loop_enabled.set_bool(false)
+                    }
+                    Some(end) => {
+                        self.loop_in_pending = false;
+                        self.loop_start = position;
+                        self.loop_end = end;
+                        self.c.loop_enabled.set_bool(true);
+                        self.set_seconds(position);
+                    }
+                    None if set => self.set_seconds(position),
+                    None => {
+                        let hc = &self.c.hotcues[h];
+                        // An empty pad pressed while a loop plays saves the loop.
+                        if self.c.loop_enabled.get_bool() && self.loop_end > self.loop_start {
+                            hc.position.set(self.loop_start.max(0.0));
+                            hc.end_position.set(self.loop_end);
+                            hc.kind.set(HOTCUE_LOOP);
+                        } else {
+                            let at = self.seconds();
+                            let snapped = if track.bpm > 0.0 {
+                                track.snap(at, false)
+                            } else {
+                                at
+                            };
+                            hc.position.set(snapped.max(0.0));
+                            hc.end_position.set(-1.0);
+                            hc.kind.set(HOTCUE_CUE);
+                        }
+                        hc.enabled.set_bool(true);
+                    }
                 }
             }
             if set && (goto_play || goto_stop) {
@@ -339,6 +372,8 @@ impl Deck {
             let hc = &self.c.hotcues[h];
             if hc.clear.get_bool() {
                 hc.enabled.set_bool(false);
+                hc.kind.set(0.0);
+                hc.end_position.set(-1.0);
             }
             hc.status
                 .set(match (hc.enabled.get_bool(), hc.activate.get_bool()) {
@@ -671,22 +706,9 @@ pub(crate) fn read<F: Frames + ?Sized>(audio: &F, pos: f64) -> [f32; 2] {
     y
 }
 
-/// Where the master's soft limiter starts: -0.3 dBFS, so mastered tracks
-/// that peak just under full scale pass untouched.
-pub(crate) const LIMIT_KNEE: f32 = 0.966;
-
-/// Shapes levels above [`LIMIT_KNEE`] smoothly towards full scale instead of
-/// clipping them; below the knee the signal is untouched.
-#[inline]
-fn soft_limit(v: f32) -> f32 {
-    let over = v.abs() - LIMIT_KNEE;
-    if over > 0.0 {
-        let room = 1.0 - LIMIT_KNEE;
-        v.signum() * (LIMIT_KNEE + room * (over / room).tanh())
-    } else {
-        v
-    }
-}
+/// The master limiter's ceiling: -0.5 dBFS, a little room for the peaks
+/// between samples that a DAC or an MP3 encoder can make.
+pub(crate) const LIMIT_CEILING: f32 = 0.944;
 
 /// How fast a playing deck's auto gain moves to a new value, in dB per second.
 const AUTO_GAIN_GLIDE_DB: f32 = 6.0;
@@ -753,6 +775,7 @@ pub struct Engine {
     master_gain: f32,
     balance: f32,
     xfade: [f32; NUM_DECKS],
+    limiter: Limiter,
     visual: Arc<VisualPositions>,
     link: Link,
     /// The deck Link follows, while Link is on.
@@ -767,6 +790,10 @@ impl Engine {
     /// Creates all engine controls in `registry`.
     pub fn new(registry: &ControlRegistry, sample_rate: f64) -> (Self, EngineInput) {
         let master = create_global_controls(registry);
+        // The rate the engine runs at, as Mixxx's [App],samplerate.
+        registry
+            .indicator("[App]", "samplerate", 384_000.0)
+            .set(sample_rate);
         let decks = std::array::from_fn(|d| Deck {
             c: DeckControls::create(registry, d),
             track: None,
@@ -827,6 +854,7 @@ impl Engine {
                 master_gain: 1.0,
                 balance: 0.0,
                 xfade: [1.0; NUM_DECKS],
+                limiter: Limiter::new(sample_rate, LIMIT_CEILING),
             },
             EngineInput {
                 commands: commands_tx,
@@ -853,13 +881,22 @@ impl Engine {
                     d.c.loop_in_pending.set_bool(false);
                     for h in &d.c.hotcues {
                         h.enabled.set_bool(false);
+                        h.kind.set(0.0);
+                        h.end_position.set(-1.0);
                     }
                     d.c.hotcue_focus.set(-1.0);
-                    // Hot cues saved in an imported library.
+                    // Hot cues and saved loops from the library.
                     for cue in &track.info.hotcues {
                         if let Some(h) = d.c.hotcues.get(cue.number) {
                             if cue.seconds >= 0.0 && cue.seconds < track.duration {
                                 h.position.set(cue.seconds);
+                                match cue.end.filter(|&end| end > cue.seconds) {
+                                    Some(end) => {
+                                        h.end_position.set(end.min(track.duration));
+                                        h.kind.set(HOTCUE_LOOP);
+                                    }
+                                    None => h.kind.set(HOTCUE_CUE),
+                                }
                                 h.enabled.set_bool(true);
                             }
                         }
@@ -1125,7 +1162,7 @@ impl Engine {
             let ratio = sr / self.sample_rate;
             let playing = d.c.play.get_bool() && d.audio.is_some();
             let auto_target = match d.audio.as_ref().and_then(|a| a.loudness()) {
-                Some(l) if auto_gain_on => l.gain(auto_gain_target, LIMIT_KNEE),
+                Some(l) if auto_gain_on => l.gain(auto_gain_target, LIMIT_CEILING),
                 _ => 1.0,
             };
             // A playing deck glides to a new auto gain (its analysis just
@@ -1332,11 +1369,15 @@ impl Engine {
             let booth = main.map(|v| (v * booth_gain).clamp(-1.0, 1.0));
             let mg = lerp(master);
             let bal = balance_gains(lerp(balance));
+            let mut hot = [0.0; 2];
             for c in 0..2 {
-                // Soft limit instead of hard clipping when the mix runs hot.
-                let v = main[c] * mg;
-                master_clip[c] |= v.abs() > 1.0;
-                main[c] = soft_limit(v) * bal[c];
+                hot[c] = main[c] * mg;
+                master_clip[c] |= hot[c].abs() > 1.0;
+            }
+            // Limited rather than clipped when the mix runs hot.
+            let limited = self.limiter.process(hot);
+            for c in 0..2 {
+                main[c] = limited[c] * bal[c];
                 master_peak[c] = master_peak[c].max(main[c].abs());
             }
             let o = &mut out[f * channels..(f + 1) * channels];
@@ -1442,6 +1483,7 @@ mod tests {
     use super::*;
     use crate::loader::prepare;
     use crate::synth;
+    use crate::track::Hotcue;
     use crate::AVAILABLE_EFFECTS;
 
     const SR: f64 = 48_000.0;
@@ -1694,15 +1736,18 @@ mod tests {
     }
 
     #[test]
-    fn soft_limit_leaves_levels_below_the_knee_alone() {
-        for v in [0.0, 0.5, -0.9, LIMIT_KNEE, -LIMIT_KNEE] {
-            assert_eq!(soft_limit(v), v);
-        }
-        for v in [0.98f32, 1.2, 3.0, -5.0] {
-            let y = soft_limit(v);
-            assert!(y.abs() > LIMIT_KNEE && y.abs() <= 1.0 && y.signum() == v.signum());
-        }
-        assert!(soft_limit(1.0) > soft_limit(0.98));
+    fn a_hot_mix_is_limited_to_the_ceiling() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 4.0));
+        run(&mut engine, 0.02);
+        let c = |k: &str| reg.get("[Channel1]", k).unwrap();
+        c("pregain").set(4.0);
+        c("play").set_bool(true);
+        let peak = run(&mut engine, 1.0);
+        assert!(
+            peak <= LIMIT_CEILING && peak > LIMIT_CEILING * 0.9,
+            "{peak}"
+        );
     }
 
     /// The strongest frequency between 300 and 700 Hz in the left channel.
@@ -1871,6 +1916,70 @@ mod tests {
         };
         let diff = (phase(0) - phase(1)).rem_euclid(1.0);
         assert!(diff.min(1.0 - diff) < 0.01, "{} vs {}", phase(0), phase(1));
+    }
+
+    #[test]
+    fn an_empty_hot_cue_saves_the_playing_loop() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 10.0));
+        run(&mut engine, 0.02);
+        let c = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let press = |k: &str| {
+            c(k).set_bool(true);
+            c(k).set_bool(false);
+        };
+        c("play").set_bool(true);
+        run(&mut engine, 0.5);
+        press("beatloop_4_activate");
+        run(&mut engine, 0.02);
+        let (start, end) = (engine.decks[0].loop_start, engine.decks[0].loop_end);
+        assert!(c("loop_enabled").get_bool() && end > start);
+
+        press("hotcue_2_activate");
+        run(&mut engine, 0.02);
+        assert_eq!(c("hotcue_2_type").get(), HOTCUE_LOOP);
+        assert_eq!(c("hotcue_2_position").get(), start);
+        assert_eq!(c("hotcue_2_endposition").get(), end);
+        // The loop goes on playing.
+        assert!(c("loop_enabled").get_bool());
+
+        // Later, the saved loop brings the loop back from elsewhere.
+        press("reloop_toggle");
+        run(&mut engine, 0.02);
+        assert!(!c("loop_enabled").get_bool());
+        press("hotcue_2_activate");
+        run(&mut engine, 0.02);
+        let d = &engine.decks[0];
+        assert!(c("loop_enabled").get_bool());
+        assert_eq!((d.loop_start, d.loop_end), (start, end));
+        assert!(d.seconds() >= start && d.seconds() < end);
+        // Pressing it again while it plays turns it off.
+        press("hotcue_2_activate");
+        run(&mut engine, 0.02);
+        assert!(!c("loop_enabled").get_bool());
+
+        // A plain cue set with no loop playing stays a cue.
+        press("hotcue_3_activate");
+        run(&mut engine, 0.02);
+        assert_eq!(c("hotcue_3_type").get(), HOTCUE_CUE);
+        assert_eq!(c("hotcue_3_endposition").get(), -1.0);
+
+        // Saved loops come back with the track.
+        let mut t = (*short_track(120.0, 10.0)).clone();
+        t.info.hotcues = vec![Hotcue {
+            number: 4,
+            seconds: 2.0,
+            name: String::new(),
+            end: Some(4.0),
+        }];
+        load(&mut input, 0, Arc::new(t));
+        run(&mut engine, 0.02);
+        assert_eq!(c("hotcue_2_type").get(), 0.0);
+        assert_eq!(c("hotcue_5_type").get(), HOTCUE_LOOP);
+        assert_eq!(c("hotcue_5_endposition").get(), 4.0);
+        press("hotcue_5_activate");
+        run(&mut engine, 0.02);
+        assert!(c("loop_enabled").get_bool());
     }
 
     #[test]

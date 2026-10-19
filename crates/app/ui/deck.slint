@@ -880,6 +880,8 @@ component HotcueCell inherits Rectangle {
     property <int> index: Controls.resolve(group, "hotcue_" + number + "_activate");
     property <bool> set: Controls.value(Controls.resolve(group, "hotcue_" + number + "_enabled"), Controls.tick) > 0;
     property <float> seconds: Controls.value(Controls.resolve(group, "hotcue_" + number + "_position"), Controls.tick);
+    // A saved loop (hotcue type 4, as in Mixxx) shows a loop instead of a play mark.
+    property <bool> is-loop: Controls.value(Controls.resolve(group, "hotcue_" + number + "_type"), Controls.tick) == 4;
     property <int> minutes: floor(seconds / 60);
     property <int> secs: floor(mod(seconds, 60));
     property <string> time: (minutes < 10 ? "0" : "") + minutes + ":" + (secs < 10 ? "0" : "") + secs;
@@ -888,7 +890,7 @@ component HotcueCell inherits Rectangle {
     if set: HorizontalLayout {
         alignment: center;
         spacing: 5px;
-        Path {
+        if !is-loop: Path {
             width: 7px;
             height: 8px;
             y: (parent.height - self.height) / 2;
@@ -896,6 +898,14 @@ component HotcueCell inherits Rectangle {
             viewbox-height: 8;
             fill: tint;
             commands: "M 0 0 L 7 4 L 0 8 Z";
+        }
+        if is-loop: Rectangle {
+            width: 11px;
+            height: 7px;
+            y: (parent.height - self.height) / 2;
+            border-width: 1.5px;
+            border-radius: 3.5px;
+            border-color: tint;
         }
         Text {
             text: time;
