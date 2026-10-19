@@ -231,13 +231,17 @@ impl Network {
             }
             let bias = r
                 .take(out * 4)?
-                .chunks_exact(4)
-                .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| f32::from_le_bytes(*b))
                 .collect();
             let weights = r
                 .take(out * inp * kh * kw * 2)?
-                .chunks_exact(2)
-                .map(|b| f16_to_f32(u16::from_le_bytes([b[0], b[1]])))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|b| f16_to_f32(u16::from_le_bytes(*b)))
                 .collect();
             layers.push(Conv {
                 out,
