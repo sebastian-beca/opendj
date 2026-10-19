@@ -326,6 +326,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Pro or Player, as last picked.
     app.set_layout(settings::number("layout", 0.0).clamp(0.0, 1.0) as i32);
     app.on_layout_changed(|layout| settings::set("layout", serde_json::json!(layout)));
+    // The large waveforms, shown or hidden from the top bar.
+    app.set_waveforms_visible(settings::flag("waveforms_visible", true));
+    app.on_waveforms_visible_changed(|on| {
+        settings::set("waveforms_visible", serde_json::json!(on))
+    });
     {
         use slint::winit_030::WinitWindowAccessor;
         let weak = app.as_weak();
