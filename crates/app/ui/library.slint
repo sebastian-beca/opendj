@@ -57,14 +57,19 @@ export struct SideRow {
     has-cover: bool,
 }
 
-// Dragging tracks from the list onto a deck. The payload names the rows
-// dragged, `first` to `last` (a deck takes the first); files dragged in
+// Dragging tracks between the list, the side panel, the decks and the
+// DJ's lists. The payload names the rows dragged, `first` to `last` (a deck
+// takes the first), or the deck whose cover was picked up; files dragged in
 // from Finder or a file manager are accepted too.
 export global TrackDrag {
     // True while a track from the list is being dragged, so every deck can
     // show that it accepts drops.
     in-out property <bool> active;
     pure callback payload(first: int, last: int) -> data-transfer;
+    // Rows of the side panel's tab `tab`.
+    pure callback side-payload(tab: int, first: int, last: int) -> data-transfer;
+    // The track on a deck, picked up by its cover.
+    pure callback deck-payload(deck: int) -> data-transfer;
     pure callback accepts(data: data-transfer) -> bool;
     callback drop(deck: int, data: data-transfer);
     // Dropped on the side panel's list, to go in before `index`.
@@ -1588,16 +1593,18 @@ component SidePanel inherits Rectangle {
                     Dropdown {
                         horizontal-stretch: 1;
                         label: "LENGTH";
-                        text: ["12 s", "15 s", "30 s", "16 bars", "32 bars"][automix-length];
+                        text: ["0 s", "12 s", "15 s", "30 s", "16 bars", "32 bars"][automix-length];
                         current: automix-length;
                         choices: [
                             { text: "TIME", header: true, value: -1 },
-                            { text: "12 seconds", value: 0 },
-                            { text: "15 seconds", value: 1 },
-                            { text: "30 seconds", value: 2 },
+                            // No mix: each track plays to its end and the next starts at once.
+                            { text: "0 seconds (gapless)", value: 0 },
+                            { text: "12 seconds", value: 1 },
+                            { text: "15 seconds", value: 2 },
+                            { text: "30 seconds", value: 3 },
                             { text: "BARS", header: true, value: -1 },
-                            { text: "16 bars", value: 3 },
-                            { text: "32 bars", value: 4 },
+                            { text: "16 bars", value: 4 },
+                            { text: "32 bars", value: 5 },
                         ];
                         picked(i) => { automix-set-length(i); }
                     }
@@ -1655,26 +1662,36 @@ component SidePanel inherits Rectangle {
                         // Lilac while focused, a darker lilac otherwise.
                         property <bool> picked: i >= first-picked && i <= last-picked;
                         background: picked ? (keys.has-focus ? Theme.selection : #5a4d80) : sta.has-hover ? #1f1f22 : transparent;
-                        sta := TouchArea {
-                            enabled: r.heading == "";
-                            clicked => {
-                                if shift-held {
-                                    extend(i);
-                                } else {
-                                    pick(i);
-                                }
-                                keys.focus();
+                        // Picked rows go together, onto a deck, a list in
+                        // the tree, or elsewhere in this list to reorder it.
+                        DragArea {
+                            data: picked ? TrackDrag.side-payload(tab, first-picked, last-picked) : TrackDrag.side-payload(tab, i, i);
+                            allow-copy: true;
+                            changed dragging => {
+                                TrackDrag.active = self.dragging;
+                                if self.dragging && !picked { pick(i); }
                             }
-                            double-clicked => { pick(i); activate(i); }
-                            pointer-event(e) => {
-                                if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
-                                    shift-held = e.modifiers.shift;
-                                }
-                                if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
-                                    if !picked { pick(i); }
+                            sta := TouchArea {
+                                enabled: r.heading == "";
+                                clicked => {
+                                    if shift-held {
+                                        extend(i);
+                                    } else {
+                                        pick(i);
+                                    }
                                     keys.focus();
-                                    menu-y = self.absolute-position.y - root.absolute-position.y + self.mouse-y;
-                                    row-menu.show();
+                                }
+                                double-clicked => { pick(i); activate(i); }
+                                pointer-event(e) => {
+                                    if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                                        shift-held = e.modifiers.shift;
+                                    }
+                                    if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                                        if !picked { pick(i); }
+                                        keys.focus();
+                                        menu-y = self.absolute-position.y - root.absolute-position.y + self.mouse-y;
+                                        row-menu.show();
+                                    }
                                 }
                             }
                         }
