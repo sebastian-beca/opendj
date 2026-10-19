@@ -57,13 +57,19 @@ pub fn set_camelot_keys(on: bool) {
 }
 
 /// The Automix mix length and style picked last time, as indices into
-/// [`crate::automix::LENGTHS`] and [`crate::automix::STYLES`].
+/// [`crate::automix::LENGTHS`] and [`crate::automix::STYLES`]. The length
+/// is saved under a new name since 0 s went in first; an older
+/// `automix_length` is moved up one to match.
 pub fn automix_length() -> usize {
-    load()["automix_length"].as_u64().unwrap_or(1) as usize
+    let v = load();
+    match v["automix_mix_length"].as_u64() {
+        Some(i) => i as usize,
+        None => v["automix_length"].as_u64().map_or(2, |i| i as usize + 1),
+    }
 }
 
 pub fn set_automix_length(i: usize) {
-    save(|v| v["automix_length"] = json!(i));
+    save(|v| v["automix_mix_length"] = json!(i));
 }
 
 pub fn automix_style() -> usize {
