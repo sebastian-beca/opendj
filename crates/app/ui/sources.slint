@@ -74,7 +74,6 @@ export global SourceUi {
     // The search is a playlist's: its results come in a group per song.
     in property <bool> grouped;
     in property <string> queue-title;
-    in property <string> queue-folder;
     // Downloads queued or running, finished or failed, and failed.
     in property <int> active-count;
     in property <int> finished-count;
@@ -358,7 +357,6 @@ export component SearchesPanel inherits Rectangle {
                     }
                     Bar { progress: line.progress; }
                 }
-                Text { text: SourceUi.queue-folder; color: Theme.text-dim; font-size: 11px; wrap: word-wrap; }
             }
         }
     }

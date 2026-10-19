@@ -200,6 +200,11 @@ pub trait SearchSource: Send {
     }
 }
 
+/// The key of a source plugin's setting for where its downloads go. Left
+/// empty, they go to `Downloaded/<source name>` in the music folder. `~`
+/// at the start is the home folder.
+pub const DOWNLOAD_FOLDER: &str = "download_folder";
+
 /// A size as the list shows it: "40 MB", "1.2 GB".
 pub fn megabytes(bytes: u64) -> String {
     match bytes {
