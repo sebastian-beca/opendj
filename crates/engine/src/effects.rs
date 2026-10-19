@@ -178,17 +178,12 @@ fn time_parameter(kind: Kind) -> Option<(usize, i32, i32, bool)> {
 }
 
 /// The parameters the meta knob drives, as Mixxx's linked parameters do:
-/// meta 0 is subtle and 1 strong, except Filter, which is neutral at 0.5 and
-/// sweeps low-pass below it and high-pass above.
+/// meta 0 is subtle and 1 strong. The knob is unipolar, so Filter is neutral
+/// at 0 and turning up sweeps its high-pass.
 fn link(kind: Kind, meta: f64) -> [Option<f64>; MAX_PARAMETERS] {
     match kind {
         Kind::Echo | Kind::Reverb => [None, None, None, Some(meta)],
-        Kind::Filter => [
-            Some((meta * 2.0).min(1.0)),
-            None,
-            Some((meta * 2.0 - 1.0).max(0.0)),
-            None,
-        ],
+        Kind::Filter => [Some(1.0), None, Some(meta), None],
         Kind::Flanger | Kind::Phaser | Kind::Gate => [None, Some(meta), None, None],
         Kind::Bitcrusher => [Some(1.0 - 0.8 * meta), Some(1.0 - 0.95 * meta), None, None],
         // Turning up rolls shorter slices; brakes and echo-outs get longer.
@@ -232,7 +227,7 @@ impl SlotControls {
         reg.indicator(g, "num_button_parameters", MAX_BUTTON_PARAMETERS as f64);
         let mut s = Self {
             enabled: reg.toggle(g, "enabled"),
-            meta: reg.create(g, "meta", 0.5, 0.0, 1.0, Behavior::Linear),
+            meta: reg.create(g, "meta", 0.0, 0.0, 1.0, Behavior::Linear),
             beats: reg.create(g, "beats", 1.0, 0.0, 4.0, Behavior::Linear),
             beats_seen: f64::NAN,
             params: std::array::from_fn(|k| {
@@ -398,7 +393,7 @@ impl UnitControls {
                 r
             }
         });
-        let super1 = reg.create(g, "super1", 0.5, 0.0, 1.0, Behavior::Linear);
+        let super1 = reg.create(g, "super1", 0.0, 0.0, 1.0, Behavior::Linear);
         Self {
             enabled: {
                 let e = reg.toggle(g, "enabled");
