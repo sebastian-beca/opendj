@@ -51,7 +51,7 @@ fn embedded(path: &Path) -> Option<Vec<u8>> {
 }
 
 /// An image file in the same folder that belongs with the track.
-fn beside(path: &Path, album: &str) -> Option<std::path::PathBuf> {
+pub fn beside(path: &Path, album: &str) -> Option<std::path::PathBuf> {
     let images: Vec<_> = std::fs::read_dir(path.parent()?)
         .ok()?
         .filter_map(|e| e.ok().map(|e| e.path()))

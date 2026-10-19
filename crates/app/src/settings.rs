@@ -221,6 +221,16 @@ pub fn number(key: &str, default: f64) -> f64 {
     load()[key].as_f64().unwrap_or(default)
 }
 
+/// The DJ's Discogs personal access token, which lets the cover search
+/// look on Discogs; empty for none.
+pub fn discogs_token() -> String {
+    load()["discogs_token"].as_str().unwrap_or("").to_string()
+}
+
+pub fn set_discogs_token(token: &str) {
+    save(|v| v["discogs_token"] = json!(token.trim()));
+}
+
 /// A saved switch, or `default`.
 pub fn flag(key: &str, default: bool) -> bool {
     load()[key].as_bool().unwrap_or(default)

@@ -721,6 +721,18 @@ impl Prefs {
                 action: "Clear".into(),
                 ..item("clear_cache", BUTTON, "Analysis cache", &cache_detail)
             },
+            item("cover_art", HEADING, "COVER ART", ""),
+            PrefItem {
+                value: settings::discogs_token().into(),
+                on: true,
+                ..item(
+                    "discogs_token",
+                    TEXT,
+                    "Discogs token",
+                    "Lets cover search look on Discogs too. Make one on discogs.com under \
+                     Settings › Developers.",
+                )
+            },
         ]
     }
 
@@ -861,6 +873,10 @@ impl Prefs {
     /// The DJ typed in a plugin's text field. The page isn't filled again,
     /// so the field keeps its place while typing.
     fn typed(&mut self, id: &str, text: &str) {
+        if id == "discogs_token" {
+            settings::set_discogs_token(text);
+            return;
+        }
         let mut parts = id.splitn(3, ':');
         let (Some("plugin"), Some(index), Some(key)) = (parts.next(), parts.next(), parts.next())
         else {

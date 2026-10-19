@@ -1,0 +1,566 @@
+// The side panel's Info tab: the track selected in the library (or on a
+// deck), its tags and the library's own fields, editable in place, with a
+// preview player for the headphones and a cover art search.
+import { Theme, EdgeLine } from "theme.slint";
+
+// One line of the info list.
+export struct InfoField {
+    // What the line is, for `TrackInfo.edit` ("title", "artist", ...).
+    id: string,
+    label: string,
+    value: string,
+    // 0 text to edit, 1 text to read, 2 rating (value "0" to "5"),
+    // 3 a section heading, 4 text to read with a button (`action`).
+    kind: int,
+    // Shown greyed in an empty field.
+    hint: string,
+    action: string,
+}
+
+// A cover the search found.
+export struct CoverChoice {
+    image: image,
+    source: string,
+    // "599x535"
+    size: string,
+}
+
+export global TrackInfo {
+    in property <bool> has-track;
+    // Its file can take tags: a local file that is on disk.
+    in property <bool> editable;
+    in property <string> title;
+    in property <string> artist;
+    in property <string> bpm;
+    in property <string> key;
+    in property <string> length;
+    in property <image> cover;
+    in property <bool> has-cover;
+    in property <[InfoField]> fields;
+    // What the panel shows: 0 the track selected in the list, 1 deck A, 2 deck B.
+    in-out property <int> subject;
+    callback set-subject(subject: int);
+    callback edit(id: string, value: string);
+    callback reveal();
+    // Something went wrong saving, shown under the list until the next edit.
+    in property <string> status;
+
+    // The preview player, heard in the headphones.
+    in property <bool> preview-playing;
+    // 0 to 1, and the time played.
+    in property <float> preview-position;
+    in property <string> preview-time;
+    callback preview-toggle();
+    callback preview-seek(position: float);
+
+    // The cover art dialog.
+    in-out property <bool> cover-open;
+    in property <[CoverChoice]> covers;
+    in property <bool> cover-searching;
+    callback find-covers();
+    // Saves cover `index` into the track's tags.
+    callback save-cover(index: int);
+}
+
+// Side panel tab icons, drawn in a 20 x 20 box.
+export component SideTabIcon inherits Path {
+    // 0 Automix, 1 Sidelist, 2 Linked, 3 Info.
+    in property <int> tab;
+    in property <color> ink;
+    width: 20px;
+    height: 20px;
+    viewbox-width: 20;
+    viewbox-height: 20;
+    fill: transparent;
+    stroke: ink;
+    stroke-width: 1.7px;
+    // Automix: two arrows chasing round, as a playlist that plays itself.
+    // Sidelist: a bulleted list. Linked: two chain links. Info: "i" in a ring.
+    commands: tab == 0 ? "M 3.5 9 A 6.5 6.5 0 0 1 15.2 5.2 M 15.5 1.8 L 15.5 5.5 L 11.8 5.5 M 16.5 11 A 6.5 6.5 0 0 1 4.8 14.8 M 4.5 18.2 L 4.5 14.5 L 8.2 14.5"
+        : tab == 1 ? "M 3 4.5 L 4 4.5 M 7 4.5 L 17.5 4.5 M 3 10 L 4 10 M 7 10 L 17.5 10 M 3 15.5 L 4 15.5 M 7 15.5 L 17.5 15.5"
+        : tab == 2 ? "M 8.5 11.5 A 3.5 3.5 0 0 0 13.4 11.6 L 16.4 8.6 A 3.5 3.5 0 0 0 11.4 3.6 L 9.9 5.1 M 11.5 8.5 A 3.5 3.5 0 0 0 6.6 8.4 L 3.6 11.4 A 3.5 3.5 0 0 0 8.6 16.4 L 10.1 14.9"
+        : "M 10 2 A 8 8 0 1 1 9.99 2 Z M 10 8.8 L 10 14.5 M 10 5.6 L 10 5.9";
+}
+
+// A word button with a thin border.
+component TextButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    callback clicked();
+    width: label.preferred-width + 20px;
+    height: 24px;
+    border-radius: 5px;
+    background: !enabled ? Theme.panel-raised : primary ? (ta.pressed ? Theme.accent.darker(0.2) : ta.has-hover ? Theme.accent.brighter(0.1) : Theme.accent)
+        : ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.panel-raised;
+    border-width: primary ? 0px : 1px;
+    border-color: Theme.border;
+    label := Text {
+        text: root.text;
+        color: !enabled ? Theme.text-dim : primary ? Theme.on-selection : Theme.text;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A value that turns into a text field on click; Return or clicking
+// elsewhere saves it.
+component EditLine inherits Rectangle {
+    in property <string> value;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    callback commit(text: string);
+    height: 26px;
+    border-radius: 4px;
+    background: input.has-focus ? Theme.well : hover.has-hover && enabled ? #ffffff0c : transparent;
+    border-width: input.has-focus ? 1px : 0px;
+    border-color: Theme.accent;
+    // Typing breaks the binding to `value`; a new track puts it back.
+    changed value => { input.text = value; }
+    hover := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: text;
+        clicked => { input.focus(); }
+    }
+    if input.text == "" && !input.has-focus: Text {
+        x: 6px;
+        width: parent.width - 12px;
+        text: hint;
+        color: Theme.text-dim.with-alpha(0.6);
+        font-size: 13px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    input := TextInput {
+        x: 6px;
+        width: parent.width - 12px;
+        text: value;
+        enabled: root.enabled;
+        read-only: !root.enabled;
+        single-line: true;
+        color: Theme.text;
+        selection-background-color: Theme.selection;
+        selection-foreground-color: Theme.on-selection;
+        font-size: 13px;
+        vertical-alignment: center;
+        accepted => {
+            if self.text != value { commit(self.text); }
+            self.clear-focus();
+        }
+        changed has-focus => {
+            if !self.has-focus && self.text != value { commit(self.text); }
+        }
+    }
+}
+
+// Five stars to click; clicking the rating given takes it off.
+component Stars inherits HorizontalLayout {
+    in property <int> rating;
+    in property <bool> enabled: true;
+    callback rate(stars: int);
+    spacing: 2px;
+    alignment: start;
+    property <int> hovered: -1;
+    for i in 5: Rectangle {
+        width: 20px;
+        height: 26px;
+        property <bool> lit: hovered >= 0 ? i <= hovered : i < rating;
+        Text {
+            text: lit ? "★" : "☆";
+            color: lit ? Theme.accent : Theme.text-dim;
+            font-size: 16px;
+        }
+        ta := TouchArea {
+            enabled: root.enabled;
+            changed has-hover => {
+                if self.has-hover { hovered = i; } else if hovered == i { hovered = -1; }
+            }
+            clicked => { rate(rating == i + 1 ? 0 : i + 1); }
+        }
+    }
+}
+
+component InfoRow inherits Rectangle {
+    in property <InfoField> field;
+    in property <bool> editable;
+    min-height: field.kind == 3 ? 34px : 30px;
+    if field.kind == 3: Text {
+        x: 4px;
+        y: parent.height - self.height - 4px;
+        text: field.label;
+        color: Theme.text-dim;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.6px;
+    }
+    if field.kind != 3: HorizontalLayout {
+        spacing: 6px;
+        Text {
+            width: 86px;
+            text: field.label;
+            color: Theme.label;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.4px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if field.kind == 0: EditLine {
+            horizontal-stretch: 1;
+            y: 2px;
+            value: field.value;
+            hint: field.hint;
+            enabled: editable;
+            commit(text) => { TrackInfo.edit(field.id, text); }
+        }
+        if field.kind == 1 || field.kind == 4: Text {
+            horizontal-stretch: 1;
+            text: field.value == "" ? "–" : field.value;
+            color: Theme.text;
+            font-size: 13px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if field.kind == 4: VerticalLayout {
+            alignment: center;
+            TextButton {
+                text: field.action;
+                clicked => { TrackInfo.reveal(); }
+            }
+        }
+        if field.kind == 2: Stars {
+            horizontal-stretch: 1;
+            rating: field.value.to-float();
+            enabled: editable;
+            rate(n) => { TrackInfo.edit(field.id, n); }
+        }
+    }
+}
+
+// The play button and a bar to seek with, for the preview player.
+component PreviewBar inherits HorizontalLayout {
+    spacing: 10px;
+    height: 28px;
+    Rectangle {
+        width: 28px;
+        border-radius: 14px;
+        background: play.pressed ? Theme.control-pressed : play.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.panel-raised;
+        Path {
+            width: 12px;
+            height: 12px;
+            viewbox-width: 12;
+            viewbox-height: 12;
+            fill: TrackInfo.preview-playing ? Theme.accent : Theme.text;
+            commands: TrackInfo.preview-playing ? "M 1.5 1 L 4.5 1 L 4.5 11 L 1.5 11 Z M 7.5 1 L 10.5 1 L 10.5 11 L 7.5 11 Z" : "M 2.5 0.5 L 11 6 L 2.5 11.5 Z";
+        }
+        play := TouchArea { clicked => { TrackInfo.preview-toggle(); } }
+    }
+    bar := Rectangle {
+        horizontal-stretch: 1;
+        Rectangle {
+            y: (parent.height - self.height) / 2;
+            height: 3px;
+            border-radius: 1.5px;
+            background: Theme.border;
+        }
+        Rectangle {
+            x: 0px;
+            y: (parent.height - self.height) / 2;
+            width: parent.width * TrackInfo.preview-position;
+            height: 3px;
+            border-radius: 1.5px;
+            background: Theme.accent;
+        }
+        Rectangle {
+            x: parent.width * TrackInfo.preview-position - self.width / 2;
+            y: (parent.height - self.height) / 2;
+            width: seek.has-hover || seek.pressed ? 11px : 0px;
+            height: self.width;
+            border-radius: self.width / 2;
+            background: Theme.text;
+        }
+        seek := TouchArea {
+            function to(x: length) {
+                TrackInfo.preview-seek(max(0, min(1, x / parent.width)));
+            }
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                    to(self.mouse-x);
+                }
+            }
+            moved => {
+                if self.pressed { to(self.mouse-x); }
+            }
+        }
+    }
+    Text {
+        text: TrackInfo.preview-time;
+        color: Theme.text-dim;
+        font-size: 11px;
+        vertical-alignment: center;
+    }
+}
+
+// Covers found for the track, to pick one and save it to the tags.
+component CoverDialog inherits Rectangle {
+    property <int> picked: -1;
+    background: Theme.panel-raised;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 24px;
+    drop-shadow-color: #000000c0;
+    TouchArea { }
+    VerticalLayout {
+        padding: 14px;
+        spacing: 10px;
+        HorizontalLayout {
+            height: 24px;
+            Text {
+                horizontal-stretch: 1;
+                text: "Cover Art";
+                color: Theme.text;
+                font-size: 15px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                width: 24px;
+                border-radius: 12px;
+                background: close.has-hover ? Theme.control-pressed : transparent;
+                Text { text: "✕"; color: Theme.text-dim; font-size: 13px; }
+                close := TouchArea { clicked => { TrackInfo.cover-open = false; } }
+            }
+        }
+        Flickable {
+            height: 196px;
+            content-width: max(self.width, choices.preferred-width);
+            choices := HorizontalLayout {
+                spacing: 12px;
+                alignment: start;
+                for c[i] in TrackInfo.covers: Rectangle {
+                    width: 150px;
+                    border-radius: 6px;
+                    background: i == picked ? Theme.accent.with-alpha(0.18) : pick.has-hover ? #ffffff0a : transparent;
+                    border-width: i == picked ? 2px : 0px;
+                    border-color: Theme.accent;
+                    VerticalLayout {
+                        padding: 6px;
+                        spacing: 4px;
+                        Rectangle {
+                            height: 138px;
+                            background: Theme.well;
+                            clip: true;
+                            Image { width: parent.width; height: parent.height; source: c.image; image-fit: contain; }
+                        }
+                        Text { text: c.source; color: Theme.text; font-size: 12px; font-weight: 600; horizontal-alignment: center; }
+                        Text { text: c.size; color: Theme.text-dim; font-size: 11px; horizontal-alignment: center; }
+                    }
+                    pick := TouchArea {
+                        clicked => { picked = i; }
+                        double-clicked => {
+                            TrackInfo.save-cover(i);
+                        }
+                    }
+                }
+                if TrackInfo.covers.length == 0: Text {
+                    width: 400px;
+                    text: TrackInfo.cover-searching ? "Looking for covers…" : "No covers found. Check the artist and album, then search again.";
+                    color: Theme.text-dim;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                horizontal-stretch: 1;
+                text: TrackInfo.cover-searching && TrackInfo.covers.length > 0 ? "Still looking…" : "";
+                color: Theme.text-dim;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+            TextButton {
+                text: "Search again";
+                enabled: !TrackInfo.cover-searching;
+                clicked => {
+                    picked = -1;
+                    TrackInfo.find-covers();
+                }
+            }
+            TextButton {
+                text: "Save to Tag";
+                primary: true;
+                enabled: picked >= 0 && picked < TrackInfo.covers.length && TrackInfo.editable;
+                clicked => { TrackInfo.save-cover(picked); }
+            }
+        }
+    }
+}
+
+// The Info tab's content.
+export component InfoPanel inherits Rectangle {
+    property <length> menu-y;
+    if !TrackInfo.has-track: VerticalLayout {
+        alignment: center;
+        padding: 20px;
+        spacing: 6px;
+        Text { text: "No track"; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; }
+        Text {
+            text: TrackInfo.subject == 0 ? "Click a track in the library to see its info." : "Nothing is loaded on that deck.";
+            color: Theme.text-dim;
+            font-size: 12px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+    }
+    VerticalLayout {
+        padding: 6px;
+        padding-top: 2px;
+        spacing: 8px;
+        // What the panel follows: the selection or a deck.
+        HorizontalLayout {
+            height: 30px;
+            spacing: 6px;
+            Text { text: "Info"; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; }
+            Rectangle {
+                width: subject-text.preferred-width + 26px;
+                border-radius: 4px;
+                background: subject-ta.has-hover ? #ffffff10 : transparent;
+                subject-text := Text {
+                    x: 6px;
+                    text: ["Selected", "Deck A", "Deck B"][TrackInfo.subject] + "  ▾";
+                    color: Theme.text-dim;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+                subject-ta := TouchArea { clicked => { subject-menu.show(); } }
+                subject-menu := PopupWindow {
+                    y: parent.height + 2px;
+                    width: 140px;
+                    Rectangle {
+                        background: Theme.panel-raised;
+                        border-radius: Theme.radius;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        drop-shadow-blur: 12px;
+                        drop-shadow-color: #000000a0;
+                    }
+                    VerticalLayout {
+                        padding: 6px;
+                        for s[i] in ["Selected track", "Deck A", "Deck B"]: Rectangle {
+                            height: 26px;
+                            border-radius: 4px;
+                            background: sta.has-hover ? #3a3a3d : transparent;
+                            Text {
+                                x: 10px;
+                                text: s;
+                                color: i == TrackInfo.subject ? Theme.accent : Theme.text;
+                                font-size: 13px;
+                                vertical-alignment: center;
+                            }
+                            sta := TouchArea { clicked => { TrackInfo.set-subject(i); } }
+                        }
+                    }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if TrackInfo.has-track: HorizontalLayout {
+            spacing: 12px;
+            height: 72px;
+            art := Rectangle {
+                width: 72px;
+                border-radius: 4px;
+                clip: true;
+                background: Theme.control;
+                border-width: art-ta.has-hover && !TrackInfo.has-cover ? 1px : 0px;
+                border-color: Theme.border;
+                if TrackInfo.has-cover: Image { width: parent.width; height: parent.height; source: TrackInfo.cover; image-fit: cover; }
+                if !TrackInfo.has-cover: Text { text: "♪"; color: Theme.text-dim; font-size: 28px; }
+                // Right-click (or click, when there is none) looks for a cover.
+                art-ta := TouchArea {
+                    clicked => {
+                        if !TrackInfo.has-cover {
+                            TrackInfo.cover-open = true;
+                            TrackInfo.find-covers();
+                        }
+                    }
+                    pointer-event(e) => {
+                        if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                            TrackInfo.cover-open = true;
+                            TrackInfo.find-covers();
+                        }
+                    }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: 6px;
+                Text { text: TrackInfo.title; color: Theme.text; font-size: 16px; font-weight: 600; overflow: elide; }
+                Text { text: TrackInfo.artist; color: Theme.text-dim; font-size: 13px; overflow: elide; }
+                HorizontalLayout {
+                    spacing: 14px;
+                    Text { text: TrackInfo.bpm == "" ? "" : TrackInfo.bpm + " BPM"; color: Theme.text-dim; font-size: 13px; }
+                    Text { text: TrackInfo.key; color: Theme.key; font-size: 13px; font-weight: 600; }
+                    Text { text: TrackInfo.length; color: Theme.text-dim; font-size: 13px; horizontal-stretch: 1; }
+                }
+            }
+        }
+        if TrackInfo.has-track: PreviewBar { }
+        if TrackInfo.has-track: EdgeLine { left: 0px; right: 0px; }
+        if TrackInfo.has-track: Rectangle {
+            vertical-stretch: 1;
+            list := Flickable {
+                width: parent.width - 8px;
+                x: 0px;
+                content-height: rows.preferred-height;
+                rows := VerticalLayout {
+                    width: parent.width;
+                    padding-bottom: 12px;
+                    alignment: start;
+                    for f in TrackInfo.fields: InfoRow { field: f; editable: TrackInfo.editable; }
+                    if TrackInfo.status != "": Text {
+                        text: TrackInfo.status;
+                        color: Theme.danger;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+            // A thin scroll bar, while there is more to see.
+            if list.content-height > list.height: Rectangle {
+                x: parent.width - 4px;
+                width: 4px;
+                property <float> shown: list.height / list.content-height;
+                height: max(24px, list.height * shown);
+                y: -list.content-y / (list.content-height - list.height) * (list.height - self.height);
+                border-radius: 2px;
+                background: #ffffff40;
+            }
+        }
+    }
+    // Over the panel and to its left, so three covers fit side by side.
+    property <bool> cover-open: TrackInfo.cover-open;
+    changed cover-open => {
+        if cover-open { cover-dialog.show(); } else { cover-dialog.close(); }
+    }
+    // Still open from before the tab was left.
+    init => {
+        if cover-open { cover-dialog.show(); }
+    }
+    cover-dialog := PopupWindow {
+        x: root.width - self.width - 4px;
+        y: 110px;
+        width: 520px;
+        height: 290px;
+        close-policy: no-auto-close;
+        CoverDialog { }
+    }
+}
