@@ -9,13 +9,15 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use crate::analysis::{analyse, Analyser, Analysis};
+use crate::analysis::{analyse, detect_key, Analyser, Analysis};
 use crate::beats::BeatGrid;
 use crate::beats::GridEdit;
 use crate::cache;
 use crate::cover::{self, Cover};
 use crate::decode::{decode, Decoder};
 use crate::engine::{Command, EngineInput, Returned};
+use crate::key;
+use crate::scan;
 use crate::stems::{self, StemSource};
 use crate::synth;
 use crate::track::{Audio, Source, Track};
@@ -36,18 +38,45 @@ pub fn prepare(track: &Track) -> Result<Track, String> {
     if let Some(l) = analysis.loudness {
         audio.set_loudness(l);
     }
-    Ok(analysed(track, Arc::new(audio), analysis))
+    let detected = key_is_detected(track);
+    Ok(analysed(track, Arc::new(audio), analysis, detected))
 }
 
-/// `track` with its audio and analysis.
-fn analysed(track: &Track, audio: Arc<Audio>, analysis: Analysis) -> Track {
-    // A key from the file's tags wins, as the tempo from tags does.
-    let key = match (&track.source, analysis.key) {
-        (Source::File(_), Some(k)) if track.key.is_empty() => k.camelot(),
-        _ => track.key.clone(),
+/// Whether `track`'s key is for analysis to find: it has none, or an
+/// earlier analysis found it. A key from tags or another app stays.
+fn key_is_detected(track: &Track) -> bool {
+    let Source::File(path) = &track.source else {
+        return false;
+    };
+    if track.key.is_empty() {
+        return true;
+    }
+    match track.info.key_detected {
+        Some(d) => d,
+        // Not recorded: a key the file's tags don't carry came from analysis.
+        None => scan::read_key(path).is_empty(),
+    }
+}
+
+/// `track` with its audio and analysis. Unless `detected` (see
+/// [`key_is_detected`]), its own key wins, as the tempo from tags does.
+fn analysed(track: &Track, audio: Arc<Audio>, analysis: Analysis, detected: bool) -> Track {
+    let mut info = track.info.clone();
+    let key = match analysis.key {
+        Some(k) if detected => {
+            info.key_detected = Some(true);
+            k.camelot()
+        }
+        _ => {
+            if !track.key.is_empty() && info.key_detected.is_none() {
+                info.key_detected = Some(detected);
+            }
+            track.key.clone()
+        }
     };
     let mut t = Track {
         key,
+        info,
         duration: audio.duration(),
         waveform: Arc::new(analysis.waveform),
         audio: Some(audio),
@@ -290,6 +319,10 @@ fn load(shared: &Shared, deck: usize, generation: u64, base: &Track) -> Result<(
         Source::Synth { .. } => None,
     };
     let cached = path.and_then(cache::load);
+    let detected = key_is_detected(base);
+    // A key found by another detector is found again once the audio is in.
+    let detector = key::detector();
+    let redetect = detected && cached.as_ref().is_some_and(|c| c.key_detector != detector);
     let mut decoder = None;
     let audio = match (&base.source, path) {
         (Source::Synth { seed }, _) => Arc::new(synth::render(base, *seed)),
@@ -320,7 +353,7 @@ fn load(shared: &Shared, deck: usize, generation: u64, base: &Track) -> Result<(
     };
     let mut first = Track {
         key: match cached.as_ref().and_then(|c| c.key) {
-            Some(k) if base.key.is_empty() => k.camelot(),
+            Some(k) if detected && !redetect => k.camelot(),
             _ => base.key.clone(),
         },
         duration: audio.duration(),
@@ -400,6 +433,14 @@ fn load(shared: &Shared, deck: usize, generation: u64, base: &Track) -> Result<(
             }
         }
         Ok(match (cached, analyser) {
+            (Some(mut c), _) if redetect => {
+                c.key = detect_key(&audio, detector).or(c.key);
+                c.key_detector = detector;
+                if let Some(path) = path {
+                    cache::store(path, &c);
+                }
+                c
+            }
             (Some(c), _) => c,
             (None, Some(a)) => {
                 let hint = (base.bpm > 0.0).then_some(base.bpm);
@@ -418,7 +459,7 @@ fn load(shared: &Shared, deck: usize, generation: u64, base: &Track) -> Result<(
     if !latest() {
         return Ok(());
     }
-    let done = Arc::new(with_cover(analysed(base, audio, analysis)));
+    let done = Arc::new(with_cover(analysed(base, audio, analysis, detected)));
     if shared.update(deck, &done) {
         shared.send(Command::Analysed { deck, track: done });
     }
@@ -430,6 +471,7 @@ mod tests {
     use super::*;
     use crate::decode::tests::write_wav;
     use crate::engine::Engine;
+    use crate::key::Key;
     use mixxx_control::ControlRegistry;
     use std::sync::mpsc;
 
@@ -442,6 +484,39 @@ mod tests {
             engine.process(&mut buf, 2);
             std::thread::sleep(Duration::from_millis(1));
         }
+    }
+
+    #[test]
+    fn keys_from_tags_stay_and_detected_keys_follow_the_analysis() {
+        let audio = Arc::new(synth::render_with(124.0, 0.25, 4.0, 3));
+        let analysis = || Analysis {
+            key: Key::parse("8A"),
+            ..analyse(&audio, None)
+        };
+        let mut t = Track {
+            key: "3B".into(),
+            source: Source::File("/nowhere/track.mp3".into()),
+            ..(*synth::sample_library()[0]).clone()
+        };
+        t.info.key_detected = Some(false);
+        assert!(!key_is_detected(&t));
+        let kept = analysed(&t, audio.clone(), analysis(), false);
+        assert_eq!(
+            (kept.key.as_str(), kept.info.key_detected),
+            ("3B", Some(false))
+        );
+
+        t.info.key_detected = Some(true);
+        assert!(key_is_detected(&t));
+        let found = analysed(&t, audio.clone(), analysis(), true);
+        assert_eq!(
+            (found.key.as_str(), found.info.key_detected),
+            ("8A", Some(true))
+        );
+
+        // Not recorded, and the file has no key tag: analysis found it.
+        t.info.key_detected = None;
+        assert!(key_is_detected(&t));
     }
 
     #[test]

@@ -307,6 +307,10 @@ pub struct LibraryInfo {
     pub added: i64,
     /// The library has the track but its file is not on disk.
     pub missing: bool,
+    /// Whether `key` was found by this app's analysis, so a different key
+    /// detector may replace it; false for keys from tags or another app.
+    /// None when not known (libraries from before this was kept).
+    pub key_detected: Option<bool>,
 }
 
 /// A saved hot cue.

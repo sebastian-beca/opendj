@@ -28,7 +28,8 @@ pub const ID_BASE: usize = 1_000_000;
 /// The schema version this code writes (`PRAGMA user_version`).
 /// 2 added smart lists: `playlists.query`, kind 3.
 /// 3 added purchases: `tracks.store` and `store_url`, `wanted`, `inbox_log`.
-const VERSION: i32 = 3;
+/// 4 added `tracks.key_source`.
+const VERSION: i32 = 4;
 
 /// The smart lists a new library starts with: name and search.
 const STARTER_SMART_LISTS: [(&str, &str); 6] = [
@@ -120,9 +121,12 @@ CREATE TABLE IF NOT EXISTS inbox_log (
 ";
 
 /// Columns added to `tracks` after version 1: name and definition.
-const ADDED_COLUMNS: [(&str, &str); 2] = [
+const ADDED_COLUMNS: [(&str, &str); 3] = [
     ("store", "store TEXT NOT NULL DEFAULT ''"),
     ("store_url", "store_url TEXT"),
+    // Where the key came from: 'analysis', 'tags', or another app's name;
+    // NULL when not known (keys from before version 4).
+    ("key_source", "key_source TEXT"),
 ];
 
 /// Tracks the DJ linked as going well together: `track` links to `linked`. Created on every open rather than by
@@ -276,6 +280,14 @@ impl Library {
                     db.execute_batch(&format!("ALTER TABLE tracks ADD COLUMN {definition}"))?;
                 }
             }
+            if version < 4 {
+                // Keys brought in from another app came from there.
+                db.execute_batch(
+                    "UPDATE tracks SET key_source = source
+                     WHERE key != '' AND key_source IS NULL
+                       AND source NOT IN ('scan', 'file', 'purchase')",
+                )?;
+            }
             db.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
         }
         db.execute_batch(LINKS_SCHEMA)?;
@@ -343,7 +355,7 @@ impl Library {
         }
         let mut q = self.db.prepare(
             "SELECT id, path, artist, title, album, genre, duration, bpm, key, rating, color,
-                    comment, grouping, labels, play_count, grid, added
+                    comment, grouping, labels, play_count, grid, added, key_source
              FROM tracks ORDER BY id",
         )?;
         let rows = q.query_map([], |r| {
@@ -351,6 +363,7 @@ impl Library {
             let path: String = r.get(1)?;
             let grid: Option<String> = r.get(15)?;
             let labels: String = r.get(13)?;
+            let key_source: Option<String> = r.get(17)?;
             Ok((
                 id,
                 PathBuf::from(path),
@@ -381,6 +394,7 @@ impl Library {
                         fixed_grid: false,
                         added: r.get(16)?,
                         missing: false,
+                        key_detected: key_source.map(|s| s == "analysis"),
                     },
                 },
             ))
@@ -411,8 +425,9 @@ impl Library {
             let mut find = tx.prepare("SELECT id, file_mtime FROM tracks WHERE path = ?1")?;
             let mut insert = tx.prepare(
                 "INSERT INTO tracks (path, artist, title, album, genre, duration, bpm, key,
-                                     rating, file_mtime, source, added)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                                     rating, file_mtime, source, added, key_source)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+                         CASE WHEN ?8 != '' THEN 'tags' END)",
             )?;
             let mut retag = tx.prepare(
                 "UPDATE tracks SET artist = ?2, title = ?3, album = ?4, genre = ?5,
@@ -503,8 +518,9 @@ impl Library {
         {
             let mut insert = tx.prepare(
                 "INSERT INTO tracks (path, artist, title, album, genre, duration, bpm, key,
-                                     rating, file_mtime, source, added)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'file', ?11)
+                                     rating, file_mtime, source, added, key_source)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'file', ?11,
+                         CASE WHEN ?8 != '' THEN 'tags' END)
                  ON CONFLICT(path) DO NOTHING",
             )?;
             let mut find = tx.prepare("SELECT id FROM tracks WHERE path = ?1")?;
@@ -539,12 +555,20 @@ impl Library {
     }
 
     /// Stores what analysing a track found, unless its grid came from
-    /// elsewhere (an import, or the DJ's own edits).
+    /// elsewhere (an import, or the DJ's own edits). The key is marked as
+    /// found by analysis when [`LibraryInfo::key_detected`] says so.
     pub fn save_analysis(&self, id: usize, track: &Track) -> Result<(), Error> {
         let Some(row) = row_id(id) else { return Ok(()) };
         let grid = track.beat_grid();
+        let key_source = track
+            .info
+            .key_detected
+            .map(|d| if d { "analysis" } else { "tags" });
         self.db.execute(
             "UPDATE tracks SET key = ?3, duration = ?4,
+                    key_source = CASE ?6 WHEN 'analysis' THEN 'analysis'
+                                         WHEN 'tags' THEN COALESCE(key_source, 'tags')
+                                         ELSE key_source END,
                     bpm = CASE WHEN grid_source IS NULL OR grid_source = 'analysis'
                                THEN ?2 ELSE bpm END,
                     grid = CASE WHEN grid_source IS NULL OR grid_source = 'analysis'
@@ -556,7 +580,8 @@ impl Library {
                 track.bpm,
                 track.key,
                 track.duration,
-                (!grid.is_empty()).then(|| grid.to_text())
+                (!grid.is_empty()).then(|| grid.to_text()),
+                key_source
             ],
         )?;
         Ok(())
@@ -905,8 +930,9 @@ impl Library {
         let p = path_text(path);
         self.db.execute(
             "INSERT INTO tracks (path, artist, title, album, genre, duration, bpm, key, rating,
-                                 file_mtime, source, store, added)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, 'purchase', ?10, ?11)
+                                 file_mtime, source, store, added, key_source)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, 'purchase', ?10, ?11,
+                     CASE WHEN ?8 != '' THEN 'tags' END)
              ON CONFLICT(path) DO NOTHING",
             params![
                 p,
@@ -1041,7 +1067,8 @@ fn import_tracks(
                 color = ?7, comment = ?8, grouping = ?9, labels = ?10,
                 play_count = MAX(play_count, ?11), source = ?14,
                 duration = CASE WHEN ?12 > 0 THEN ?12 ELSE duration END,
-                key = CASE WHEN ?13 != '' THEN ?13 ELSE key END
+                key = CASE WHEN ?13 != '' THEN ?13 ELSE key END,
+                key_source = CASE WHEN ?13 != '' THEN ?14 ELSE key_source END
          WHERE id = ?1",
     )?;
     let mut set_grid = tx.prepare(
@@ -1237,6 +1264,7 @@ mod tests {
         assert!(!a.info.fixed_grid);
         a.set_grid(BeatGrid::constant(126.0, 0.1));
         a.key = "8A".into();
+        a.info.key_detected = Some(true);
         lib.save_analysis(a.id, &a).unwrap();
         lib.set_rating(a.id, 5).unwrap();
         lib.set_color(a.id, Some(0x00ff00)).unwrap();
@@ -1244,6 +1272,7 @@ mod tests {
         let a2 = lib.tracks(|_| true).unwrap().remove(0);
         assert!(a2.info.fixed_grid);
         assert_eq!((a2.bpm, a2.key.as_str(), a2.rating), (126.0, "8A", 5));
+        assert_eq!(a2.info.key_detected, Some(true));
         assert_eq!(a2.info.color, Some(0x00ff00));
         assert_eq!(a2.info.comment, "opener");
         // A user grid isn't replaced by a later analysis.
@@ -1255,6 +1284,70 @@ mod tests {
             lib.tracks(|_| true).unwrap()[0].grid,
             BeatGrid::constant(125.0, 0.0)
         );
+    }
+
+    #[test]
+    fn keys_remember_where_they_came_from() {
+        let mut lib = Library::in_memory().unwrap();
+        let mut tagged = file_track("/m/tagged.mp3", "Tagged");
+        tagged.key = "5A".into();
+        lib.sync(&[tagged, file_track("/m/bare.mp3", "Bare")])
+            .unwrap();
+        let found = |lib: &Library| -> Vec<Option<bool>> {
+            let tracks = lib.tracks(|_| true).unwrap();
+            tracks.iter().map(|t| t.info.key_detected).collect()
+        };
+        assert_eq!(found(&lib), [Some(false), None]);
+
+        // Analysis keeps the tagged key as the tags' own.
+        let tracks = lib.tracks(|_| true).unwrap();
+        let mut t = tracks[0].clone();
+        t.info.key_detected = Some(false);
+        lib.save_analysis(t.id, &t).unwrap();
+        let mut b = tracks[1].clone();
+        b.key = "9B".into();
+        b.info.key_detected = Some(true);
+        lib.save_analysis(b.id, &b).unwrap();
+        assert_eq!(found(&lib), [Some(false), Some(true)]);
+
+        // Another app's key is that app's.
+        let mut imported = imported_track("/m/bare.mp3");
+        imported.key = "1A".into();
+        let tx = lib.db.transaction().unwrap();
+        import_tracks(&tx, "virtualdj", &[imported], &mut SyncReport::default()).unwrap();
+        tx.commit().unwrap();
+        assert_eq!(found(&lib), [Some(false), Some(false)]);
+    }
+
+    #[test]
+    fn a_version_3_library_marks_imported_keys() {
+        let path = std::env::temp_dir().join(format!("opendj-lib-v3-{}.db", std::process::id()));
+        {
+            let mut lib = Library::open(&path).unwrap();
+            let mut t = file_track("/m/a.mp3", "A");
+            t.key = "4B".into();
+            lib.sync(&[t, file_track("/m/b.mp3", "B")]).unwrap();
+            lib.db
+                .execute_batch(
+                    "UPDATE tracks SET key_source = NULL;
+                     UPDATE tracks SET source = 'virtualdj', key = '7A' WHERE path = '/m/b.mp3';
+                     PRAGMA user_version = 3",
+                )
+                .unwrap();
+        }
+        let lib = Library::open(&path).unwrap();
+        let keys: Vec<Option<bool>> = lib
+            .tracks(|_| true)
+            .unwrap()
+            .iter()
+            .map(|t| t.info.key_detected)
+            .collect();
+        // A scanned key could be from tags or analysis; that's checked on load.
+        assert_eq!(keys, [None, Some(false)]);
+        drop(lib);
+        for end in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{end}", path.display()));
+        }
     }
 
     #[test]

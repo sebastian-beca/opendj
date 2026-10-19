@@ -19,6 +19,7 @@ pub mod dsp;
 mod effects;
 pub mod engine;
 pub mod key;
+pub mod keynet;
 mod keyshift;
 pub mod link;
 pub mod loader;

@@ -32,3 +32,7 @@ source files of this project remain GPL-2.0-or-later.
 
 Ableton Link is Copyright Ableton AG and is used under the GNU General
 Public License, version 2 or later.
+
+The neural key detector's weights (crates/engine/models/keynet.bin) come
+from openkeyscan-analyzer, Copyright (c) 2025 Alexander Sommer, under the
+MIT licence; see crates/engine/models/README.md.
