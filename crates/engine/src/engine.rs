@@ -2137,8 +2137,10 @@ mod tests {
                     .unwrap()
                     .set_bool(true);
                 reg.get(unit, "mix").unwrap().set(mix);
-                // Unit 3 slot 3 holds the Bitcrusher.
+                // Unit 3 slot 3 holds the Bitcrusher; meta starts at 0, which
+                // leaves it clean, so turn it up.
                 let slot = "[EffectRack1_EffectUnit3_Effect3]";
+                reg.get(slot, "meta").unwrap().set(0.5);
                 reg.get(slot, "enabled").unwrap().set_bool(true);
             }
         };
@@ -2159,9 +2161,9 @@ mod tests {
         for n in 1..=3 {
             assert_eq!(slot(n, "meta").get(), 0.9);
         }
-        // Slot 3 holds the Filter: meta above the centre sweeps its high-pass.
+        // Slot 3 holds the Filter: turning meta up sweeps its high-pass.
         assert_eq!(slot(3, "parameter1").get(), 1.0);
-        assert!((slot(3, "parameter3").get() - 0.8).abs() < 1e-9);
+        assert!((slot(3, "parameter3").get() - 0.9).abs() < 1e-9);
         assert_eq!(slot(3, "num_parameters").get(), 3.0);
 
         assert_eq!(slot(1, "loaded_effect").get(), 1.0);
