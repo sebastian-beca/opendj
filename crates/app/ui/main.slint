@@ -75,6 +75,53 @@ component LinkButton inherits Rectangle {
     }
 }
 
+// Records the mix: a red dot that pulses while recording, with the time.
+// [Recording],toggle_recording starts and stops, as in Mixxx, so
+// controller mappings can use it too.
+component RecordButton inherits Rectangle {
+    property <int> toggle-index: Controls.resolve("[Recording]", "toggle_recording");
+    property <bool> on: Controls.value(Controls.resolve("[Recording]", "status"), Controls.tick) > 1;
+    property <float> seconds: Controls.value(Controls.resolve("[Recording]", "duration"), Controls.tick);
+    property <int> hours: floor(seconds / 3600);
+    property <int> minutes: mod(floor(seconds / 60), 60);
+    property <int> secs: mod(floor(seconds), 60);
+    background: ta.pressed ? Theme.control-pressed : on ? #e5484d.with-alpha(0.16) : ta.has-hover ? #2e2e32 : Theme.panel-raised;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: on ? #e5484d : transparent;
+    height: 36px;
+    y: 8px;
+    horizontal-stretch: 0;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 10px;
+                height: 10px;
+                border-radius: 5px;
+                background: on ? #e5484d : Theme.text-dim;
+                // A slow blink while recording.
+                opacity: on && mod(animation-tick() / 1ms, 1400) > 900 ? 0.35 : 1.0;
+            }
+        }
+        Text {
+            text: on ? (hours > 0 ? hours + ":" : "") + (minutes < 10 && hours > 0 ? "0" : "") + minutes + ":" + (secs < 10 ? "0" : "") + secs : "REC";
+            color: on ? Theme.text : Theme.text-dim;
+            font-size: on ? 13px : 11px;
+            font-weight: on ? 500 : 700;
+            letter-spacing: on ? 0px : 0.5px;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { Controls.set-value(toggle-index, 1); }
+    }
+}
+
 // Opens the settings: the gear at the right of the top bar.
 component SettingsButton inherits Rectangle {
     background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2e2e32 : Theme.panel-raised;
@@ -325,6 +372,7 @@ export component AppWindow inherits Window {
                     LayoutPill { layout <=> root.layout; changed-to(l) => { layout-changed(l); } }
                     LinkButton { }
                     Rectangle { horizontal-stretch: 1; }
+                    RecordButton { }
                     Pill {
                         // Only shown here: the master volume is in the mixer,
                         // so the bar can always be dragged to move the window.

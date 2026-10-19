@@ -20,6 +20,7 @@ use crate::effects::{EffectRack, MAIN, TARGETS};
 use crate::key::Key;
 use crate::keyshift::{transpose_factor, KeyShifter};
 use crate::link::{phase_error, Link, Moment};
+use crate::recorder::{self, Feed, RecordTap};
 use crate::sampler::Samplers;
 use crate::stems::{Stems, MAX_STEMS};
 use crate::track::{Audio, Track};
@@ -780,6 +781,9 @@ pub struct Engine {
     link: Link,
     /// The deck Link follows, while Link is on.
     link_master: Option<usize>,
+    /// Copies the master out while recording.
+    record: RecordTap,
+    record_feed: Option<Feed>,
 }
 
 /// How far (in beats) Link's beat may drift from the master deck's before
@@ -837,11 +841,14 @@ impl Engine {
         let samplers = Samplers::new(registry, sample_rate);
         let (commands_tx, commands) = rtrb::RingBuffer::new(QUEUE);
         let (returned, returned_rx) = rtrb::RingBuffer::new(QUEUE * 2);
+        let (record, record_feed) = recorder::tap(sample_rate);
         (
             Self {
                 visual: Arc::default(),
                 link: Link::new(registry),
                 link_master: None,
+                record,
+                record_feed: Some(record_feed),
                 sample_rate,
                 decks,
                 master,
@@ -865,6 +872,11 @@ impl Engine {
 
     pub fn sample_rate(&self) -> f64 {
         self.sample_rate
+    }
+
+    /// The other end of the recording tap; there is only one.
+    pub(crate) fn take_record_feed(&mut self) -> Option<Feed> {
+        self.record_feed.take()
     }
 
     fn apply_commands(&mut self) {
@@ -1475,6 +1487,7 @@ impl Engine {
         self.master
             .vu
             .set(self.master_vu[0].max(self.master_vu[1]) as f64);
+        self.record.push(out, channels);
     }
 }
 
