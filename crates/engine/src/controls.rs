@@ -84,6 +84,11 @@ pub(crate) struct DeckControls {
     pub(crate) sync_enabled: ControlHandle,
     pub(crate) rate: ControlHandle,
     pub(crate) rate_range: ControlHandle,
+    /// Mixxx's `rate_dir`: which way the tempo fader changes the speed. `rate`
+    /// is where the fader is (+1 at the top); the speed is
+    /// `1 + rate * rateRange * rate_dir`. -1, the app's default, slows the
+    /// deck down as the fader goes up, as on Pioneer players.
+    pub(crate) rate_dir: ControlHandle,
     pub(crate) playposition: ControlHandle,
     pub(crate) volume: ControlHandle,
     pub(crate) pregain: ControlHandle,
@@ -168,6 +173,10 @@ impl DeckControls {
         alias(reg, g, "vu_meter_left", g, "VuMeterL");
         alias(reg, g, "vu_meter_right", g, "VuMeterR");
         reg.indicator(g, "playposition_seconds", 3600.0);
+        // A pad panel a controller's pad mode buttons ask the deck to show
+        // (0 hot cues, 1 pad FX, 2 beat jump, 3 sampler, 4 stems); the
+        // skin shows it and sets this back to -1.
+        reg.create(g, "pad_panel", -1.0, -1.0, 16.0, Behavior::Free);
         alias(reg, g, "pitch_adjust", g, "pitch");
         // Chain presets are not implemented: the empty preset and the filter,
         // which is always loaded.
@@ -229,6 +238,7 @@ impl DeckControls {
             sync_enabled: reg.toggle(g, "sync_enabled"),
             rate: reg.create(g, "rate", 0.0, -1.0, 1.0, Behavior::Linear),
             rate_range: reg.create(g, "rateRange", 0.08, 0.01, 1.0, Behavior::Linear),
+            rate_dir: reg.create(g, "rate_dir", 1.0, -1.0, 1.0, Behavior::Free),
             playposition: reg.create(g, "playposition", 0.0, 0.0, 1.0, Behavior::Linear),
             volume: reg.create(g, "volume", 1.0, 0.0, 1.0, Behavior::Linear),
             pregain: reg.create(g, "pregain", 1.0, 0.0, 4.0, Behavior::CenteredOnDefault),
@@ -506,6 +516,9 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
             alias(reg, g, new, "[Master]", old);
         }
     }
+    // What the four knobs down each side of the mixer control: 0 EQ and
+    // filter, 1 stem volumes, 2 sculpt. Controllers' EQ knobs follow it.
+    reg.create("[Mixer]", "knob_mode", 0.0, 0.0, 2.0, Behavior::Free);
     // Off: a track can't be loaded onto a deck that is playing.
     reg.create(
         "[Controls]",
