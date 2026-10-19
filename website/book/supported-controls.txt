@@ -818,6 +818,11 @@
 [Playlist],SelectPrevPlaylist
 [Playlist],SelectPrevTrack
 [Playlist],SelectTrackKnob
+[PreviewDeck1],duration
+[PreviewDeck1],play
+[PreviewDeck1],playposition
+[PreviewDeck1],track_loaded
+[PreviewDeck1],volume
 [QuickEffectRack1_[Channel1]],enabled
 [QuickEffectRack1_[Channel1]],loaded_chain_preset
 [QuickEffectRack1_[Channel1]],next_chain_preset
