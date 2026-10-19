@@ -2118,7 +2118,9 @@ impl Browser {
             tree.push(Node::new("Smart Lists", 0, KIND_FOLDER, Contents::Folder));
             tree.extend(smart.into_iter().map(|p| smart_node(p, 1)));
         }
-        // Newest session first.
+        // Newest session first, sessions brought in from other apps among
+        // the DJ's own.
+        sessions.sort_by_key(|p| (p.created, p.id));
         for p in sessions.iter().rev() {
             let mut n = Node::new(p.name.clone(), 0, KIND_HISTORY, Contents::Playlist(p.id));
             n.history = true;
@@ -2376,28 +2378,32 @@ impl Browser {
                 .track
                 .is_some_and(|(_, at)| at.elapsed() > std::time::Duration::from_millis(500));
             if settled {
-                let now: Vec<Hotcue> = self.hotcues[d]
+                let pads = self.hotcues[d].len();
+                let mut now: Vec<Hotcue> = self.hotcues[d]
                     .iter()
                     .enumerate()
                     .filter(|(_, (enabled, _, _))| enabled.get_bool())
                     .map(|(n, (_, pos, end))| {
                         let seconds = pos.get();
                         let end = Some(end.get()).filter(|&e| e > seconds);
-                        // Keep a cue's name while it stays where it was.
-                        let name = w
+                        // Keep a cue's name and colour while it stays where
+                        // it was.
+                        let kept = w
                             .saved
                             .iter()
-                            .find(|c| c.number == n && (c.seconds - seconds).abs() < 1e-6)
-                            .map(|c| c.name.clone())
-                            .unwrap_or_default();
+                            .find(|c| c.number == n && (c.seconds - seconds).abs() < 1e-6);
                         Hotcue {
                             number: n,
                             seconds,
-                            name,
+                            name: kept.map(|c| c.name.clone()).unwrap_or_default(),
                             end,
+                            color: kept.and_then(|c| c.color),
                         }
                     })
                     .collect();
+                // Cues the deck has no pad for (memory cues, and hot cues
+                // past the last pad) stay as they were.
+                now.extend(w.saved.iter().filter(|c| c.number >= pads).cloned());
                 if now != w.saved {
                     w.saved = now.clone();
                     if let Some(db) = &mut self.db {
