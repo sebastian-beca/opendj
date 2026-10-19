@@ -40,7 +40,66 @@ KEY_LABELS = {
     "headGain": "Headphone volume",
     "gain": "Main volume",
     "balance": "Balance",
+    "play": "Play/pause",
+    "cue_default": "Cue",
+    "cue_gotoandplay": "Jump to the cue point and play",
+    "cue_gotoandstop": "Jump to the cue point and stop",
+    "start_play": "Play from the start",
+    "start_stop": "Stop and go back to the start",
+    "stop": "Stop",
+    "sync_enabled": "Sync",
+    "beatsync": "Sync once",
+    "pfl": "Headphone cue",
+    "keylock": "Key lock",
+    "quantize": "Quantize",
+    "reverse": "Play backwards",
+    "eject": "Eject the track",
+    "LoadSelectedTrack": "Load the selected track",
+    "MoveVertical": "Scroll the library",
+    "ScrollVertical": "Scroll the library by pages",
+    "MoveFocus": "Move between the library and its sidebar",
+    "MoveFocusForward": "Move between the library and its sidebar",
+    "GoToItem": "Open the selected item",
+    "SelectNextTrack": "Select the next track",
+    "SelectPrevTrack": "Select the previous track",
+    "enabled": "Turn on or off",
+    "fwd": "Fast forward",
+    "back": "Rewind",
+    "rate_temp_up": "Nudge faster",
+    "rate_temp_down": "Nudge slower",
+    "rate_perm_up": "Tempo up a step",
+    "rate_perm_down": "Tempo down a step",
+    "loop_in": "Loop in",
+    "loop_out": "Loop out",
+    "reloop_exit": "Loop on or off",
+    "reloop_toggle": "Loop on or off",
+    "loop_halve": "Halve the loop",
+    "loop_double": "Double the loop",
+    "bpm_tap": "Tap the tempo",
+    "filterLowKill": "Kill the lows",
+    "filterMidKill": "Kill the mids",
+    "filterHighKill": "Kill the highs",
+    "beats_translate_curpos": "Move the beat grid to here",
 }
+NUMBERED_LABELS = [
+    (re.compile(r"hotcue_(\d+)_activate"), "Hot cue {}"),
+    (re.compile(r"hotcue_(\d+)_clear"), "Clear hot cue {}"),
+    (re.compile(r"beatloop_([\d.]+)_toggle"), "Loop {} beats"),
+    (re.compile(r"beatjump_([\d.]+)_forward"), "Jump {} beats forward"),
+    (re.compile(r"beatjump_([\d.]+)_backward"), "Jump {} beats back"),
+]
+
+
+def key_label(group, key):
+    if group == "[AutoDJ]" and key == "enabled":
+        return "Automix on or off"
+    if key in KEY_LABELS and not (key == "enabled" and "Effect" not in group):
+        return KEY_LABELS[key]
+    for pattern, label in NUMBERED_LABELS:
+        m = pattern.fullmatch(key)
+        if m:
+            return label.format(m.group(1))
+    return None
 
 
 def group_section(group):
@@ -108,6 +167,7 @@ class Mapping:
         self.undescribed = 0
         self.mapped = 0
         self.missing = 0
+        self.scripted = 0
         controls = root.find(".//controls")
         children = list(controls) if controls is not None else []
         sections = [c for c in children if c.tag is ET.Comment and SECTION.match(c.text or "")]
@@ -124,6 +184,7 @@ class Mapping:
             key = (child.findtext("key") or "").strip()
             scripted = "." in key or child.find("options/Script-Binding") is not None
             unsupported = False
+            self.scripted += scripted
             if not scripted and supported is not None:
                 self.mapped += 1
                 if f"{group},{key}" not in supported:
@@ -138,13 +199,16 @@ class Mapping:
             if re.search(r"\bLSB\b", action):
                 continue
             action = re.sub(r"\s*\bMSB\b", "", action).strip()
-            if GESTURE.match(action) or not action:
+            if GESTURE.match(action) or not action or action == key:
                 if re.match(r"shift\b", DECK.sub("", name).strip(), re.I):
                     action = "Hold for the actions in the SHIFT column"
-                elif key in KEY_LABELS:
-                    action = KEY_LABELS[key]
+                elif key_label(group, key):
+                    action = key_label(group, key)
                 elif not scripted:
                     action = f"`{group} {key}`"
+            if not action:
+                self.undescribed += 1
+                continue
             where = section if sections else group_section(group)
             self.rows.append((where, name, shift, action, unsupported))
 
@@ -196,9 +260,12 @@ class Mapping:
             out += [md(self.description), ""]
         if self.mapped:
             works = self.mapped - self.missing
-            out += [f"openDJ supports **{works} of {self.mapped}** of the controls this mapping "
-                    "sets directly. The rest of the mapping runs as a script.", ""]
-            if self.missing:
+            line = (f"openDJ supports **{works} of the {self.mapped}** controls this mapping "
+                    "sets directly.")
+            if self.scripted:
+                line += " The rest of the mapping runs as a script, which isn't counted here."
+            out += [line, ""]
+            if self.missing and self.documented:
                 out += ["Lines marked *Not in openDJ yet* don't do anything yet.", ""]
         if not self.documented:
             out += ["This mapping doesn't describe its controls one by one, so there's no "
