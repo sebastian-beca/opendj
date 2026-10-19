@@ -18,7 +18,7 @@ use mixxx_plugins::source::{
     megabytes, DownloadUpdate, Found, Prefer, Progress, QueryKind, SearchSource, Snapshot,
     SourceInfo, SourceQuery,
 };
-use mixxx_plugins::{Plugin, PluginError};
+use mixxx_plugins::{Plugin, PluginConfig, PluginError};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 use crate::{AppWindow, FoundRow, QueueLine, SearchItem, SourceTab, SourceUi, StoreUi};
@@ -34,7 +34,7 @@ const LOSSLESS: [&str; 5] = ["FLAC", "WAV", "AIFF", "ALAC", "APE"];
 
 /// The plugins with a source of their own, and what each is called.
 pub fn source_plugins() -> Vec<(Box<dyn Plugin>, SourceInfo)> {
-    crate::stores::plugins()
+    crate::stores::configured()
         .into_iter()
         .filter_map(|mut p| {
             let info = p.source()?.info();
@@ -49,6 +49,8 @@ enum Request {
     OpenFolder(u64, Box<Found>),
     Download(u64, Vec<Found>, PathBuf),
     Retry(String),
+    /// The DJ changed the plugin's settings.
+    Configure(PluginConfig),
 }
 
 enum Event {
@@ -72,16 +74,17 @@ fn run(
     rx: Receiver<Request>,
     tx: Sender<Event>,
 ) {
-    let Some(source) = plugin.source() else {
+    let Some(name) = plugin.source().map(|s| s.info().name) else {
         return;
     };
-    let name = source.info().name;
     let mut ids: HashMap<u64, String> = HashMap::new();
     let mut active: HashSet<u64> = HashSet::new();
     let mut last = Instant::now();
     loop {
         match rx.recv_timeout(TICK) {
+            Ok(Request::Configure(config)) => plugin.configure(&config),
             Ok(request) => {
+                let source = plugin.source().expect("a source");
                 if !handle(source, index, request, &mut ids, &mut active, &tx) {
                     return;
                 }
@@ -93,6 +96,7 @@ fn run(
             continue;
         }
         last = Instant::now();
+        let source = plugin.source().expect("a source");
         for local in active.clone() {
             let Some(id) = ids.get(&local) else { continue };
             let event = match source.results(id) {
@@ -186,6 +190,7 @@ fn handle(
                 }
             }
         }
+        Request::Configure(_) => None,
         Request::Retry(key) => match source.retry(&key) {
             Ok(()) => None,
             Err(e) => Some(Event::Download(
@@ -244,6 +249,8 @@ struct Download {
 
 /// One plugin source: its searches and downloads.
 struct Source {
+    /// The plugin's id, as its settings are saved under.
+    id: &'static str,
     info: SourceInfo,
     requests: Sender<Request>,
     searches: Vec<Search>,
@@ -314,6 +321,7 @@ impl Sources {
             .into_iter()
             .enumerate()
             .map(|(index, (plugin, info))| {
+                let id = plugin.manifest().id;
                 let (requests, rx) = channel();
                 let (tx, library) = (tx.clone(), library.clone());
                 std::thread::Builder::new()
@@ -321,6 +329,7 @@ impl Sources {
                     .spawn(move || run(plugin, index, library, rx, tx))
                     .expect("spawn source thread");
                 Source {
+                    id,
                     info,
                     requests,
                     searches: Vec::new(),
@@ -428,6 +437,17 @@ impl Sources {
 
     /// Takes in what the sources have done, and follows the rail. Called
     /// every frame; returns tracks that joined the library.
+    /// The DJ changed plugin `id`'s settings: its source hears of it.
+    pub fn configure(&mut self, id: &str) {
+        let config = crate::settings::plugin_config(id);
+        for source in self.sources.iter().filter(|s| s.id == id) {
+            let _ = source.requests.send(Request::Configure(config.clone()));
+        }
+        for p in self.describers.iter_mut().filter(|p| p.manifest().id == id) {
+            p.configure(&config);
+        }
+    }
+
     pub fn poll(&mut self) -> Vec<Track> {
         let mut imported = Vec::new();
         let mut changed = false;
@@ -436,6 +456,9 @@ impl Sources {
             match event {
                 Event::Found(s, local, snap) => {
                     if let Some(search) = self.search_mut(s, local) {
+                        // Results mean it's working, whatever went wrong
+                        // before.
+                        search.error = None;
                         // Opened folders keep the files read for them.
                         let mut items = snap.items;
                         for item in items.iter_mut().filter(|i| i.folder) {
