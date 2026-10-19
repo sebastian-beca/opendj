@@ -10,7 +10,9 @@ use std::sync::Arc;
 
 use mixxx_control::ControlRegistry;
 use mixxx_controllers::{Controllers, MappingChoice, Port};
-use mixxx_engine::{analysis, cache, deck_group, DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS};
+use mixxx_engine::{
+    analysis, cache, deck_group, RecordFormat, Recorder, DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS,
+};
 use mixxx_plugins::{Plugin, SettingKind};
 use serde_json::json;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
@@ -34,6 +36,7 @@ const PATH: i32 = 3;
 const OUTPUTS: i32 = 4;
 const LEVELS: i32 = 5;
 const NOTE: i32 = 6;
+const HEADING: i32 = 7;
 const SEGMENTED: i32 = 8;
 const TEXT: i32 = 9;
 
@@ -52,6 +55,14 @@ const BPM_RANGES: [(f64, f64); 5] = [
 /// (preview while held) and Numark's (set and return only).
 const CUE_MODES: [f64; 2] = [0.0, 3.0];
 /// Auto gain targets offered, in LUFS.
+/// The recording formats offered, as (format, bits).
+const RECORD_FORMATS: [(RecordFormat, u16, &str); 4] = [
+    (RecordFormat::Wav, 24, "WAV · 24-bit"),
+    (RecordFormat::Wav, 16, "WAV · 16-bit"),
+    (RecordFormat::Flac, 24, "FLAC · 24-bit"),
+    (RecordFormat::Flac, 16, "FLAC · 16-bit"),
+];
+
 const AUTO_GAIN_TARGETS: [f64; 7] = [-8.0, -10.0, -12.0, -14.0, -16.0, -18.0, -23.0];
 
 /// Applies the saved choices to the engine's controls, at start.
@@ -128,6 +139,7 @@ pub struct Prefs {
     controllers: Option<Rc<Controllers>>,
     /// Updates the library from the music folder.
     rescan: Box<dyn Fn()>,
+    recorder: Recorder,
     /// Paths picked in the system's file dialogs, by setting.
     chosen_tx: Sender<(String, PathBuf)>,
     chosen_rx: Receiver<(String, PathBuf)>,
@@ -147,6 +159,7 @@ impl Prefs {
         app: &AppWindow,
         registry: Arc<ControlRegistry>,
         controllers: Option<Rc<Controllers>>,
+        recorder: Recorder,
         rescan: Box<dyn Fn()>,
         plugin_changed: Box<dyn Fn(&str)>,
     ) -> Rc<RefCell<Prefs>> {
@@ -168,6 +181,7 @@ impl Prefs {
             registry,
             controllers,
             rescan,
+            recorder,
             chosen_tx,
             chosen_rx,
             library_note: String::new(),
@@ -193,7 +207,11 @@ impl Prefs {
     pub fn poll(&mut self) {
         while let Ok((id, path)) = self.chosen_rx.try_recv() {
             settings::set(&id, json!(path.to_string_lossy()));
-            self.library_note = "Rescan to bring in tracks from there.".into();
+            if id == "recording_folder" {
+                self.recorder.configure(settings::recording());
+            } else {
+                self.library_note = "Rescan to bring in tracks from there.".into();
+            }
             self.refresh();
         }
         let Some(app) = self.app.upgrade() else {
@@ -241,7 +259,7 @@ impl Prefs {
                         item
                     })
                 })
-                .filter(|item| item.kind != NOTE && !item.title.is_empty())
+                .filter(|item| item.kind != NOTE && item.kind != HEADING && !item.title.is_empty())
                 .filter(|item| {
                     let text =
                         format!("{} {} {}", item.title, item.detail, item.page_name).to_lowercase();
@@ -267,6 +285,42 @@ impl Prefs {
                     "Headphones and booth",
                     "Cue mix blends the cue with the master in the headphones.",
                 ),
+                item("recording", HEADING, "RECORDING", ""),
+                {
+                    let r = settings::recording();
+                    PrefItem {
+                        choices: strings(&RECORD_FORMATS.map(|f| f.2)),
+                        chosen: RECORD_FORMATS
+                            .iter()
+                            .position(|f| (f.0, f.1) == (r.format, r.bits))
+                            .unwrap_or(0) as i32,
+                        ..item(
+                            "recording_format",
+                            MENU,
+                            "Format",
+                            "FLAC is lossless and about half the size of WAV.",
+                        )
+                    }
+                },
+                PrefItem {
+                    value: settings::recording().dir.display().to_string().into(),
+                    action: "Choose…".into(),
+                    ..item(
+                        "recording_folder",
+                        PATH,
+                        "Recordings folder",
+                        "Each mix is saved with a .cue tracklist and a log of every control move.",
+                    )
+                },
+                PrefItem {
+                    action: "Show".into(),
+                    ..item(
+                        "show_recordings",
+                        BUTTON,
+                        "Show recordings",
+                        "Opens the folder, with the last recording selected.",
+                    )
+                },
             ],
             CONTROLLERS => self.controllers_page(),
             LIBRARY => self.library_page(),
@@ -648,6 +702,14 @@ impl Prefs {
                 settings::set("auto_gain_target", json!(target));
                 self.set("[ReplayGain]", "target_lufs", target);
             }
+            "recording_format" => {
+                let Some(&(format, bits, _)) = RECORD_FORMATS.get(index) else {
+                    return;
+                };
+                settings::set("recording_format", json!(format.name()));
+                settings::set("recording_bits", json!(bits));
+                self.recorder.configure(settings::recording());
+            }
             "xfader_shape" => {
                 settings::set("xfader_shape", json!(index));
                 self.set("[Mixer Profile]", "xFaderShape", index as f64);
@@ -704,6 +766,20 @@ impl Prefs {
     fn pressed(&mut self, id: &str) {
         match id {
             "music_folder" => choose(id, "Choose your music folder", true, self.chosen_tx.clone()),
+            "recording_folder" => choose(
+                id,
+                "Choose where to save recordings",
+                true,
+                self.chosen_tx.clone(),
+            ),
+            "show_recordings" => {
+                let dir = settings::recording().dir;
+                let _ = std::fs::create_dir_all(&dir);
+                match self.recorder.file().filter(|f| f.exists()) {
+                    Some(file) => crate::files::reveal(&file),
+                    None => crate::files::reveal(&dir),
+                };
+            }
             "rescan" => {
                 (self.rescan)();
                 self.library_note =
