@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use mixxx_engine::beats::BeatGrid;
-use mixxx_engine::{Hotcue, LibraryInfo, Source, Track};
+use mixxx_engine::import::{ImportedLibrary, ImportedList, ImportedListKind};
+use mixxx_engine::{Hotcue, LibraryInfo, Marker, MarkerKind, Source, Track};
 use rusqlite::{params, Connection, OptionalExtension};
 
 pub use rusqlite::Error;
@@ -30,7 +31,9 @@ pub const ID_BASE: usize = 1_000_000;
 /// 3 added purchases: `tracks.store` and `store_url`, `wanted`, `inbox_log`.
 /// 4 added saved loops: `cues.end_seconds`.
 /// 5 added `tracks.key_source`.
-const VERSION: i32 = 5;
+/// 6 added the details other DJ apps keep (year, label, composer…, gain),
+/// `markers`, and `playlists.source` for lists brought in from another app.
+const VERSION: i32 = 6;
 
 /// The smart lists a new library starts with: name and search.
 const STARTER_SMART_LISTS: [(&str, &str); 6] = [
@@ -102,6 +105,18 @@ CREATE TABLE IF NOT EXISTS playlist_tracks (
     PRIMARY KEY (playlist_id, position)
 );
 CREATE INDEX IF NOT EXISTS playlist_tracks_track ON playlist_tracks(track_id);
+-- Named sections, phrases and mix points. kind: 'section', 'phrase' or
+-- 'automix'; source as for cues.
+CREATE TABLE IF NOT EXISTS markers (
+    track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    seconds REAL NOT NULL,
+    end_seconds REAL,
+    name TEXT NOT NULL DEFAULT '',
+    color INTEGER,
+    source TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS markers_track ON markers(track_id);
 -- Tracks the DJ went to buy (clicked Buy on a store result), until a file
 -- that matches arrives in the purchase inbox.
 CREATE TABLE IF NOT EXISTS wanted (
@@ -124,12 +139,23 @@ CREATE TABLE IF NOT EXISTS inbox_log (
 ";
 
 /// Columns added to `tracks` after version 1: name and definition.
-const ADDED_COLUMNS: [(&str, &str); 3] = [
+const ADDED_COLUMNS: [(&str, &str); 12] = [
     ("store", "store TEXT NOT NULL DEFAULT ''"),
     ("store_url", "store_url TEXT"),
     // Where the key came from: 'analysis', 'tags', or another app's name;
     // NULL when not known (keys from before version 4).
     ("key_source", "key_source TEXT"),
+    // What other DJ apps keep beyond artist, title, album and genre, so
+    // nothing they hold is lost on the way in (version 6).
+    ("year", "year INTEGER NOT NULL DEFAULT 0"),
+    ("track_number", "track_number INTEGER NOT NULL DEFAULT 0"),
+    ("disc_number", "disc_number INTEGER NOT NULL DEFAULT 0"),
+    ("label", "label TEXT NOT NULL DEFAULT ''"),
+    ("composer", "composer TEXT NOT NULL DEFAULT ''"),
+    ("remixer", "remixer TEXT NOT NULL DEFAULT ''"),
+    ("mix", "mix TEXT NOT NULL DEFAULT ''"),
+    ("isrc", "isrc TEXT NOT NULL DEFAULT ''"),
+    ("gain_db", "gain_db REAL"),
 ];
 
 /// Tracks the DJ linked as going well together: `track` links to `linked`. Created on every open rather than by
@@ -153,6 +179,12 @@ pub struct Playlist {
     pub kind: PlaylistKind,
     /// A smart list's search (see [`query`]).
     pub query: Option<String>,
+    /// When it was made, or for a history session when it started (Unix
+    /// time).
+    pub created: i64,
+    /// The app it was brought in from, for lists an import keeps up to date;
+    /// None for the DJ's own.
+    pub source: Option<String>,
 }
 
 /// A track the DJ went to buy and hasn't received yet.
@@ -208,6 +240,11 @@ impl PlaylistKind {
 pub struct SyncReport {
     pub added: usize,
     pub updated: usize,
+    /// Lists, folders and history sessions brought in.
+    pub lists: usize,
+    /// List entries left out because the library doesn't have their file
+    /// (streamed tracks, files that have gone).
+    pub unmatched: usize,
 }
 
 pub struct Library {
@@ -281,6 +318,13 @@ impl Library {
             if !has_loop_ends {
                 db.execute_batch("ALTER TABLE cues ADD COLUMN end_seconds REAL")?;
             }
+            // The app a list was brought in from; NULL for the DJ's own.
+            let has_list_source = db
+                .prepare("SELECT 1 FROM pragma_table_info('playlists') WHERE name = 'source'")?
+                .exists([])?;
+            if !has_list_source {
+                db.execute_batch("ALTER TABLE playlists ADD COLUMN source TEXT")?;
+            }
             for (name, definition) in ADDED_COLUMNS {
                 let has = db
                     .prepare("SELECT 1 FROM pragma_table_info('tracks') WHERE name = ?1")?
@@ -345,7 +389,7 @@ impl Library {
         let mut cues: HashMap<i64, Vec<Hotcue>> = HashMap::new();
         {
             let mut q = self.db.prepare(
-                "SELECT track_id, number, seconds, name, end_seconds FROM cues ORDER BY number",
+                "SELECT track_id, number, seconds, name, end_seconds, color FROM cues ORDER BY number",
             )?;
             let rows = q.query_map([], |r| {
                 Ok((
@@ -355,6 +399,7 @@ impl Library {
                         seconds: r.get(2)?,
                         name: r.get(3)?,
                         end: r.get(4)?,
+                        color: r.get::<_, Option<i64>>(5)?.map(|c| c as u32),
                     },
                 ))
             })?;
@@ -363,9 +408,41 @@ impl Library {
                 cues.entry(id).or_default().push(cue);
             }
         }
+        let mut markers: HashMap<i64, Vec<Marker>> = HashMap::new();
+        {
+            let mut q = self.db.prepare(
+                "SELECT track_id, kind, seconds, end_seconds, name, color FROM markers
+                 ORDER BY track_id, seconds",
+            )?;
+            let rows = q.query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, f64>(2)?,
+                    r.get::<_, Option<f64>>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, Option<i64>>(5)?,
+                ))
+            })?;
+            for row in rows {
+                let (id, kind, seconds, end, name, color) = row?;
+                let Some(kind) = MarkerKind::from_name(&kind) else {
+                    continue;
+                };
+                markers.entry(id).or_default().push(Marker {
+                    kind,
+                    seconds,
+                    end,
+                    name,
+                    color: color.map(|c| c as u32),
+                });
+            }
+        }
         let mut q = self.db.prepare(
             "SELECT id, path, artist, title, album, genre, duration, bpm, key, rating, color,
-                    comment, grouping, labels, play_count, grid, added, key_source
+                    comment, grouping, labels, play_count, grid, added, key_source,
+                    year, track_number, disc_number, label, composer, remixer, mix, isrc,
+                    last_played, gain_db
              FROM tracks ORDER BY id",
         )?;
         let rows = q.query_map([], |r| {
@@ -405,6 +482,17 @@ impl Library {
                         added: r.get(16)?,
                         missing: false,
                         key_detected: key_source.map(|s| s == "analysis"),
+                        year: r.get::<_, i64>(18)?.max(0) as u32,
+                        track_number: r.get::<_, i64>(19)?.max(0) as u32,
+                        disc_number: r.get::<_, i64>(20)?.max(0) as u32,
+                        label: r.get(21)?,
+                        composer: r.get(22)?,
+                        remixer: r.get(23)?,
+                        mix: r.get(24)?,
+                        isrc: r.get(25)?,
+                        last_played: r.get::<_, Option<i64>>(26)?.unwrap_or(0),
+                        gain_db: r.get::<_, Option<f64>>(27)?.map(|g| g as f32),
+                        markers: Vec::new(),
                     },
                 },
             ))
@@ -415,6 +503,7 @@ impl Library {
             t.info.missing = !exists(&path);
             t.source = Source::File(path);
             t.info.hotcues = cues.remove(&id).unwrap_or_default();
+            t.info.markers = markers.remove(&id).unwrap_or_default();
             if let Some(g) = grid.map(|g| BeatGrid::from_text(&g)) {
                 if !g.is_empty() {
                     t.set_grid(g);
@@ -469,6 +558,7 @@ impl Library {
                             "scan",
                             now()
                         ])?;
+                        set_details(&tx, tx.last_insert_rowid(), &t.info, true)?;
                         report.added += 1;
                     }
                     Some((id, old)) if old != stamp => {
@@ -476,6 +566,7 @@ impl Library {
                             id, t.artist, t.title, t.album, t.genre, t.duration, stamp
                         ])? > 0
                         {
+                            set_details(&tx, id, &t.info, true)?;
                             report.updated += 1;
                         }
                     }
@@ -487,29 +578,34 @@ impl Library {
         Ok(report)
     }
 
-    /// Brings in another app's library, read from `database` (`source` names
-    /// the app), unless that file hasn't changed since last time. Its tags,
+    /// Brings in another app's library (`source` names the app, `title` is
+    /// what the DJ calls it), unless `stamp` is the same as last time: the
+    /// importer makes it from its files' modification times and the DJ's
+    /// choices, so it changes whenever there is something new. Its tags,
     /// ratings and colours win, as the other app is where they were set; its
-    /// grids and cues fill in what the DJ hasn't edited here. `read` is only
-    /// called when the file has changed. Returns what changed, or `None` when
-    /// it was left alone.
+    /// grids and cues fill in what the DJ hasn't edited here. Its lists are
+    /// made again in a folder named `title`, replacing the ones brought in
+    /// last time. `read` is only called when something has changed. Returns
+    /// what changed, or `None` when it was left alone.
     pub fn import(
         &mut self,
         source: &str,
-        database: &Path,
-        read: impl FnOnce(&Path) -> Result<Vec<Track>, String>,
+        title: &str,
+        stamp: &str,
+        read: impl FnOnce() -> Result<ImportedLibrary, String>,
     ) -> Result<Option<SyncReport>, String> {
         let key = format!("import_stamp:{source}");
-        let stamp = format!("{}:{}", path_text(database), mtime(database));
-        if self.meta(&key).as_deref() == Some(stamp.as_str()) {
+        if self.meta(&key).as_deref() == Some(stamp) {
             return Ok(None);
         }
-        let tracks = read(database)?;
+        let imported = read()?;
         let mut report = SyncReport::default();
         let tx = self.db.transaction().map_err(|e| e.to_string())?;
-        import_tracks(&tx, source, &tracks, &mut report).map_err(|e| e.to_string())?;
+        import_tracks(&tx, source, &imported.tracks, &mut report).map_err(|e| e.to_string())?;
+        import_lists(&tx, source, title, &imported.lists, &mut report)
+            .map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
-        self.set_meta(&key, &stamp).map_err(|e| e.to_string())?;
+        self.set_meta(&key, stamp).map_err(|e| e.to_string())?;
         Ok(Some(report))
     }
 
@@ -540,7 +636,7 @@ impl Library {
                     continue;
                 };
                 let p = path_text(path);
-                insert.execute(params![
+                let added = insert.execute(params![
                     p,
                     track.artist,
                     track.title,
@@ -554,6 +650,9 @@ impl Library {
                     now()
                 ])?;
                 let id: i64 = find.query_row([&p], |r| r.get(0))?;
+                if added > 0 {
+                    set_details(&tx, id, &track.info, true)?;
+                }
                 out.push(Track {
                     id: track_id(id),
                     ..track.clone()
@@ -614,9 +713,16 @@ impl Library {
         tx.execute("DELETE FROM cues WHERE track_id = ?1", [row])?;
         for c in cues {
             tx.execute(
-                "INSERT INTO cues (track_id, number, seconds, name, end_seconds, source)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'user')",
-                params![row, c.number as i64, c.seconds, c.name, c.end],
+                "INSERT INTO cues (track_id, number, seconds, name, end_seconds, color, source)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'user')",
+                params![
+                    row,
+                    c.number as i64,
+                    c.seconds,
+                    c.name,
+                    c.end,
+                    c.color.map(|c| c as i64)
+                ],
             )?;
         }
         tx.commit()
@@ -647,9 +753,10 @@ impl Library {
     /// The tree of lists, folders and history sessions, parents before
     /// children, siblings in order.
     pub fn playlists(&self) -> Result<Vec<Playlist>, Error> {
-        let mut q = self
-            .db
-            .prepare("SELECT id, parent, name, kind, query FROM playlists ORDER BY position, id")?;
+        let mut q = self.db.prepare(
+            "SELECT id, parent, name, kind, query, created, source FROM playlists
+                 ORDER BY position, id",
+        )?;
         let all: Vec<Playlist> = q
             .query_map([], |r| {
                 Ok(Playlist {
@@ -658,6 +765,8 @@ impl Library {
                     name: r.get(2)?,
                     kind: PlaylistKind::from_i64(r.get(3)?),
                     query: r.get(4)?,
+                    created: r.get(5)?,
+                    source: r.get(6)?,
                 })
             })?
             .collect::<Result<_, _>>()?;
@@ -1087,10 +1196,22 @@ fn import_tracks(
     )?;
     let mut user_cues =
         tx.prepare("SELECT COUNT(*) FROM cues WHERE track_id = ?1 AND source = 'user'")?;
+    let mut set_dates = tx.prepare(
+        "UPDATE tracks SET added = COALESCE(?2, added),
+                last_played = NULLIF(MAX(COALESCE(last_played, 0), COALESCE(?3, 0)), 0),
+                gain_db = COALESCE(?4, gain_db)
+         WHERE id = ?1",
+    )?;
+    let mut clear_markers =
+        tx.prepare("DELETE FROM markers WHERE track_id = ?1 AND source = ?2")?;
+    let mut add_marker = tx.prepare(
+        "INSERT INTO markers (track_id, kind, seconds, end_seconds, name, color, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )?;
     let mut clear_cues = tx.prepare("DELETE FROM cues WHERE track_id = ?1")?;
     let mut add_cue = tx.prepare(
         "INSERT OR REPLACE INTO cues (track_id, number, seconds, name, color, end_seconds, source)
-         VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6)",
+         VALUES (?1, ?2, ?3, ?4, ?7, ?5, ?6)",
     )?;
     for t in tracks {
         let Source::File(path) = &t.source else {
@@ -1141,9 +1262,159 @@ fn import_tracks(
                     c.seconds,
                     c.name,
                     c.end,
-                    source
+                    source,
+                    c.color.map(|c| c as i64)
                 ])?;
             }
+        }
+        set_details(tx, id, &t.info, false)?;
+        // When it joined the other app's library, and when it was last
+        // played there.
+        set_dates.execute(params![
+            id,
+            (t.info.added > 0).then_some(t.info.added),
+            (t.info.last_played > 0).then_some(t.info.last_played),
+            t.info.gain_db.map(f64::from)
+        ])?;
+        clear_markers.execute(params![id, source])?;
+        for m in &t.info.markers {
+            add_marker.execute(params![
+                id,
+                m.kind.name(),
+                m.seconds,
+                m.end,
+                m.name,
+                m.color.map(|c| c as i64),
+                source
+            ])?;
+        }
+    }
+    Ok(())
+}
+
+/// Stores the details beyond artist, title, album and genre. With
+/// `overwrite` off, empty values leave what is there.
+fn set_details(tx: &Connection, id: i64, info: &LibraryInfo, overwrite: bool) -> Result<(), Error> {
+    let sql = if overwrite {
+        "UPDATE tracks SET year = ?2, track_number = ?3, disc_number = ?4, label = ?5,
+                composer = ?6, remixer = ?7, mix = ?8, isrc = ?9
+         WHERE id = ?1"
+    } else {
+        "UPDATE tracks SET
+                year = CASE WHEN ?2 > 0 THEN ?2 ELSE year END,
+                track_number = CASE WHEN ?3 > 0 THEN ?3 ELSE track_number END,
+                disc_number = CASE WHEN ?4 > 0 THEN ?4 ELSE disc_number END,
+                label = CASE WHEN ?5 != '' THEN ?5 ELSE label END,
+                composer = CASE WHEN ?6 != '' THEN ?6 ELSE composer END,
+                remixer = CASE WHEN ?7 != '' THEN ?7 ELSE remixer END,
+                mix = CASE WHEN ?8 != '' THEN ?8 ELSE mix END,
+                isrc = CASE WHEN ?9 != '' THEN ?9 ELSE isrc END
+         WHERE id = ?1"
+    };
+    tx.prepare_cached(sql)?.execute(params![
+        id,
+        info.year as i64,
+        info.track_number as i64,
+        info.disc_number as i64,
+        info.label,
+        info.composer,
+        info.remixer,
+        info.mix,
+        info.isrc
+    ])?;
+    Ok(())
+}
+
+/// Makes another app's lists again, in a folder named `title` at the top,
+/// in place of those brought in last time. History sessions go to the
+/// history tab, as the DJ's own do.
+fn import_lists(
+    tx: &rusqlite::Transaction,
+    source: &str,
+    title: &str,
+    lists: &[ImportedList],
+    report: &mut SyncReport,
+) -> Result<(), Error> {
+    // Deleting the folder takes everything in it along.
+    tx.execute("DELETE FROM playlists WHERE source = ?1", [source])?;
+    if lists.is_empty() {
+        return Ok(());
+    }
+    let mut insert = tx.prepare(
+        "INSERT INTO playlists (parent, name, kind, position, created, query, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )?;
+    let mut make = |parent: Option<i64>,
+                    name: &str,
+                    kind: PlaylistKind,
+                    position: i64,
+                    created: i64,
+                    query: Option<&str>|
+     -> Result<i64, Error> {
+        insert.execute(params![
+            parent,
+            name,
+            kind.to_i64(),
+            position,
+            created,
+            query,
+            source
+        ])?;
+        Ok(tx.last_insert_rowid())
+    };
+    // After the DJ's own lists.
+    let last: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(position), -1) + 1 FROM playlists WHERE parent IS NULL",
+        [],
+        |r| r.get(0),
+    )?;
+    let top = make(None, title, PlaylistKind::Folder, last, now(), None)?;
+    report.lists += 1;
+    let mut folders: HashMap<Vec<String>, i64> = HashMap::new();
+    let mut find = tx.prepare("SELECT id FROM tracks WHERE path = ?1")?;
+    let mut add = tx.prepare(
+        "INSERT INTO playlist_tracks (playlist_id, position, track_id, played_at)
+         VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    for (i, list) in lists.iter().enumerate() {
+        let mut parent = top;
+        for depth in 1..=list.folders.len() {
+            let path = list.folders[..depth].to_vec();
+            parent = match folders.get(&path) {
+                Some(&id) => id,
+                None => {
+                    let id = make(
+                        Some(parent),
+                        &path[depth - 1],
+                        PlaylistKind::Folder,
+                        i as i64,
+                        now(),
+                        None,
+                    )?;
+                    report.lists += 1;
+                    folders.insert(path, id);
+                    id
+                }
+            };
+        }
+        let (kind, created, query) = match &list.kind {
+            ImportedListKind::List => (PlaylistKind::List, now(), None),
+            ImportedListKind::History { started } => (PlaylistKind::History, *started, None),
+            ImportedListKind::Smart { query } => (PlaylistKind::Smart, now(), Some(query.as_str())),
+        };
+        let id = make(Some(parent), &list.name, kind, i as i64, created, query)?;
+        report.lists += 1;
+        let mut position = 0;
+        for e in &list.entries {
+            let row: Option<i64> = find
+                .query_row([path_text(&e.path)], |r| r.get(0))
+                .optional()?;
+            let Some(row) = row else {
+                report.unmatched += 1;
+                continue;
+            };
+            add.execute(params![id, position, row, e.played_at.unwrap_or(created)])?;
+            position += 1;
         }
     }
     Ok(())
@@ -1206,6 +1477,7 @@ mod tests {
                 seconds: 32.0,
                 name: "Drop".into(),
                 end: None,
+                color: None,
             }],
             fixed_grid: true,
             ..Default::default()
@@ -1218,10 +1490,14 @@ mod tests {
         let mut lib = Library::in_memory().unwrap();
         let scanned = [file_track("/m/a.mp3", "A"), file_track("/m/b.mp3", "B")];
         lib.sync(&scanned).unwrap();
-        let db = Path::new("/nowhere/library.xml");
         let other = vec![imported_track("/m/b.mp3"), imported_track("/m/c.mp3")];
-        let read = |_: &Path| Ok(other.clone());
-        let report = lib.import("other", db, read).unwrap().unwrap();
+        let read = || {
+            Ok(ImportedLibrary {
+                tracks: other.clone(),
+                lists: Vec::new(),
+            })
+        };
+        let report = lib.import("other", "Other", "1", read).unwrap().unwrap();
         assert_eq!((report.added, report.updated), (1, 1));
         let tracks = lib.tracks(|_| true).unwrap();
         assert_eq!(tracks.len(), 3);
@@ -1256,18 +1532,20 @@ mod tests {
                     seconds: 10.0,
                     name: String::new(),
                     end: None,
+                    color: None,
                 },
                 Hotcue {
                     number: 3,
                     seconds: 20.0,
                     name: "Break loop".into(),
                     end: Some(24.0),
+                    color: None,
                 },
             ],
         )
         .unwrap();
         lib.db.execute("DELETE FROM meta", []).unwrap();
-        assert!(lib.import("other", db, read).unwrap().is_some());
+        assert!(lib.import("other", "Other", "1", read).unwrap().is_some());
         let b = lib
             .tracks(|_| true)
             .unwrap()
@@ -1281,9 +1559,135 @@ mod tests {
         assert_eq!(b.info.hotcues[1].end, Some(24.0));
         // An unchanged file isn't read again.
         assert!(lib
-            .import("other", db, |_| panic!("read again"))
+            .import("other", "Other", "1", || panic!("read again"))
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn imports_details_markers_and_lists() {
+        use mixxx_engine::import::ImportedEntry;
+        let mut lib = Library::in_memory().unwrap();
+        lib.sync(&[file_track("/m/a.mp3", "A")]).unwrap();
+        let mine = lib
+            .create_playlist("Mine", None, PlaylistKind::List)
+            .unwrap();
+        let mut b = imported_track("/m/b.mp3");
+        b.info.year = 1999;
+        b.info.label = "Warp".into();
+        b.info.added = 1_600_000_000;
+        b.info.last_played = 1_700_000_000;
+        b.info.hotcues[0].color = Some(0x00ff00);
+        b.info.hotcues.push(Hotcue {
+            number: mixxx_engine::MEMORY_CUE,
+            seconds: 5.0,
+            ..Default::default()
+        });
+        b.info.markers = vec![Marker {
+            kind: MarkerKind::Section,
+            seconds: 100.0,
+            end: None,
+            name: "Break 1".into(),
+            color: None,
+        }];
+        let entry = |p: &str, at| ImportedEntry {
+            path: PathBuf::from(p),
+            played_at: at,
+        };
+        let lists = vec![
+            ImportedList {
+                folders: vec!["Sets".into(), "2023".into()],
+                name: "Friday".into(),
+                kind: ImportedListKind::List,
+                entries: vec![
+                    entry("/m/b.mp3", None),
+                    entry("netsearch://td1", None),
+                    entry("/m/a.mp3", None),
+                ],
+            },
+            ImportedList {
+                folders: Vec::new(),
+                name: "2023-11-13".into(),
+                kind: ImportedListKind::History {
+                    started: 1_699_900_000,
+                },
+                entries: vec![entry("/m/b.mp3", Some(1_699_928_555))],
+            },
+            ImportedList {
+                folders: vec!["Filters".into()],
+                name: "Old ones".into(),
+                kind: ImportedListKind::Smart {
+                    query: "year:<2000".into(),
+                },
+                entries: Vec::new(),
+            },
+        ];
+        let read = || {
+            Ok(ImportedLibrary {
+                tracks: vec![b.clone()],
+                lists: lists.clone(),
+            })
+        };
+        let report = lib.import("vdj", "VirtualDJ", "1", read).unwrap().unwrap();
+        // VirtualDJ, Sets, 2023, Friday, the session, Filters, Old ones.
+        assert_eq!((report.lists, report.unmatched), (7, 1));
+        let t = lib
+            .tracks(|_| true)
+            .unwrap()
+            .into_iter()
+            .find(|t| t.title == "Imported")
+            .unwrap();
+        assert_eq!((t.info.year, t.info.label.as_str()), (1999, "Warp"));
+        assert_eq!(
+            (t.info.added, t.info.last_played),
+            (1_600_000_000, 1_700_000_000)
+        );
+        assert_eq!(t.info.hotcues.len(), 2);
+        assert_eq!(t.info.hotcues[0].color, Some(0x00ff00));
+        assert!(t.info.hotcues[1].is_memory());
+        assert_eq!(t.info.markers[0].name, "Break 1");
+
+        let tree = lib.playlists().unwrap();
+        let names: Vec<&str> = tree.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            names[names.len() - 8..],
+            [
+                "Mine",
+                "VirtualDJ",
+                "Sets",
+                "2023",
+                "Friday",
+                "2023-11-13",
+                "Filters",
+                "Old ones"
+            ]
+        );
+        let friday = tree.iter().find(|p| p.name == "Friday").unwrap();
+        assert_eq!(friday.source.as_deref(), Some("vdj"));
+        assert_eq!(lib.playlist_tracks(friday.id).unwrap(), [t.id, ID_BASE + 1]);
+        let session = tree
+            .iter()
+            .find(|p| p.kind == PlaylistKind::History)
+            .unwrap();
+        assert_eq!(session.created, 1_699_900_000);
+        let smart = tree
+            .iter()
+            .find(|p| p.kind == PlaylistKind::Smart && p.name == "Old ones");
+        assert_eq!(smart.unwrap().query.as_deref(), Some("year:<2000"));
+
+        // Importing again replaces the lists brought in last time, and
+        // leaves the DJ's own alone.
+        let fewer = || {
+            Ok(ImportedLibrary {
+                tracks: vec![b.clone()],
+                lists: lists[..1].to_vec(),
+            })
+        };
+        lib.import("vdj", "VirtualDJ", "2", fewer).unwrap().unwrap();
+        let tree = lib.playlists().unwrap();
+        assert!(tree.iter().any(|p| p.id == mine));
+        assert_eq!(tree.iter().filter(|p| p.name == "Friday").count(), 1);
+        assert!(!tree.iter().any(|p| p.name == "Old ones"));
     }
 
     #[test]
@@ -1422,7 +1826,9 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         {
             let db = Connection::open(&path).unwrap();
-            db.execute_batch(&SCHEMA.replace("    end_seconds REAL,\n", ""))
+            // The cues table before saved loops; markers came later still.
+            let schema = SCHEMA.replacen("    end_seconds REAL,\n", "", 1);
+            db.execute_batch(&schema[..schema.find("-- Named sections").unwrap()])
                 .unwrap();
             db.execute_batch("PRAGMA user_version = 3").unwrap();
         }
@@ -1434,6 +1840,7 @@ mod tests {
             seconds: 8.0,
             name: String::new(),
             end: Some(16.0),
+            color: None,
         };
         lib.save_cues(id, std::slice::from_ref(&saved)).unwrap();
         assert_eq!(lib.tracks(|_| true).unwrap()[0].info.hotcues, [saved]);

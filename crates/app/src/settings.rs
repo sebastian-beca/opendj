@@ -226,6 +226,26 @@ pub fn flag(key: &str, default: bool) -> bool {
     load()[key].as_bool().unwrap_or(default)
 }
 
+/// The setting that says whether an importer brings in one kind of list.
+pub fn import_group_key(importer: &str, group: &str) -> String {
+    format!("import:{importer}:{group}")
+}
+
+/// The kinds of lists the DJ wants `importer` to bring in, by id.
+pub fn import_groups(importer: &dyn mixxx_plugins::LibraryImport) -> Vec<&'static str> {
+    let v = load();
+    importer
+        .list_groups()
+        .into_iter()
+        .filter(|g| {
+            v[import_group_key(importer.id(), g.id).as_str()]
+                .as_bool()
+                .unwrap_or(g.on_by_default)
+        })
+        .map(|g| g.id)
+        .collect()
+}
+
 /// A saved path, if one was chosen.
 pub fn path_of(key: &str) -> Option<PathBuf> {
     load()[key]

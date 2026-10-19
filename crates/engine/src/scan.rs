@@ -126,6 +126,24 @@ pub fn read_track(id: usize, path: &Path) -> Track {
         if !track.key.is_empty() {
             track.info.key_detected = Some(false);
         }
+        let item = |k: ItemKey| {
+            tag.get_string(k)
+                .map(str::trim)
+                .unwrap_or_default()
+                .to_string()
+        };
+        let info = &mut track.info;
+        info.year = tag.date().map_or(0, |d| d.year as u32);
+        info.track_number = tag.track().unwrap_or(0);
+        info.disc_number = tag.disk().unwrap_or(0);
+        info.label = item(ItemKey::Label);
+        if info.label.is_empty() {
+            info.label = item(ItemKey::Publisher);
+        }
+        info.composer = item(ItemKey::Composer);
+        info.remixer = item(ItemKey::Remixer);
+        info.mix = item(ItemKey::TrackSubtitle);
+        info.isrc = item(ItemKey::Isrc);
         track.bpm = tag
             .get_string(ItemKey::Bpm)
             .or_else(|| tag.get_string(ItemKey::IntegerBpm))
