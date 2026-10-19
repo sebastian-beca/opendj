@@ -10,6 +10,10 @@ all-features = true
 ignore = [
     { id = "RUSTSEC-2024-0436", reason = "paste, unmaintained, pulled in by other crates" },
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser, unmaintained, pulled in by the font stack" },
+    # Merged into zbus 6; Slint's accessibility stack (accesskit, atspi) still uses zbus 5.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant, unmaintained, pulled in by Slint via zbus 5" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names, unmaintained, pulled in by Slint via zbus 5" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive, unmaintained, pulled in by Slint via zbus 5" },
 ]
 
 [licenses]
