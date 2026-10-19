@@ -87,6 +87,12 @@ impl EngineInput {
 const JOG_SECONDS: f64 = 0.01;
 /// Seconds over which a jog movement is spread, so a turning wheel bends smoothly.
 const JOG_SPREAD: f64 = 0.05;
+/// Jog speeds above this many times normal speed are a fast search (SHIFT +
+/// jog on Pioneer controllers): the deck goes quiet, as in rekordbox.
+const JOG_SEARCH_SPEED: f64 = 8.0;
+/// How long a deck stays quiet after its last fast-search jog, in seconds,
+/// so it doesn't flutter between wheel steps.
+const JOG_SEARCH_HOLD: f64 = 0.15;
 /// How long a clip lights a PeakIndicator, in seconds.
 const PEAK_HOLD: f32 = 0.5;
 /// Rate offsets of rate_temp_up, _down, _up_small and _down_small while held
@@ -127,6 +133,8 @@ struct Deck {
     velocity: f64,
     /// Jog movement still to be applied, in track seconds.
     jog_pending: f64,
+    /// Seconds the deck stays quiet for after a fast-search jog.
+    search_quiet: f64,
     /// While slipping (slip mode, reverseroll, a loop roll): where playback
     /// would have been without it, in source frames.
     slip: Option<f64>,
@@ -609,6 +617,7 @@ impl Deck {
 
     /// The speed to reach by the end of this buffer of `dt` seconds.
     fn target_velocity(&mut self, dt: f64) -> f64 {
+        self.search_quiet = (self.search_quiet - dt).max(0.0);
         if self.audio.is_none() {
             self.jog_pending = 0.0;
             return 0.0;
@@ -645,7 +654,11 @@ impl Deck {
         if self.jog_pending.abs() < 1e-7 {
             self.jog_pending = 0.0;
         }
-        moved / dt
+        let speed = moved / dt;
+        if speed.abs() > JOG_SEARCH_SPEED {
+            self.search_quiet = JOG_SEARCH_HOLD;
+        }
+        speed
     }
 }
 
@@ -835,6 +848,7 @@ impl Engine {
             grid_edit: None,
             velocity: 0.0,
             jog_pending: 0.0,
+            search_quiet: 0.0,
             slip: None,
             rolling: false,
             was_playing: false,
@@ -1344,7 +1358,15 @@ impl Engine {
                 loop_frames,
                 eq_from: d.eq_gains,
                 eq_to,
-                pre: (d.pregain, pregain * auto_gain),
+                // A fast jog search plays silently; the ramp avoids clicks.
+                pre: (
+                    d.pregain,
+                    if d.search_quiet > 0.0 {
+                        0.0
+                    } else {
+                        pregain * auto_gain
+                    },
+                ),
                 quick: (
                     d.quick,
                     if d.c.quick_enabled.get_bool() {
@@ -2375,9 +2397,27 @@ mod tests {
         ctl("playposition").set(0.2);
         run(&mut engine, 0.02);
         ctl("jog").set(20.0);
-        run(&mut engine, 0.5);
+        assert!(run(&mut engine, 0.5) > 0.01, "a nudge is heard");
         assert_eq!(ctl("jog").get(), 0.0);
         assert!((seconds() - 2.2).abs() < 0.01, "{}", seconds());
+
+        // A fast search (SHIFT + jog) moves on silently, then sound returns.
+        ctl("play").set_bool(true);
+        run(&mut engine, 0.2);
+        let before = seconds();
+        let mut quiet = 0.0f32;
+        for i in 0..4 {
+            ctl("jog").set(75.0);
+            let peak = run(&mut engine, 0.02);
+            // The first buffer fades out.
+            if i > 0 {
+                quiet = quiet.max(peak);
+            }
+        }
+        assert!(seconds() > before + 1.5, "{} -> {}", before, seconds());
+        assert!(quiet < 1e-3, "silent while searching: {quiet}");
+        run(&mut engine, 0.3);
+        assert!(run(&mut engine, 0.2) > 0.01, "heard again after searching");
     }
 
     #[test]
