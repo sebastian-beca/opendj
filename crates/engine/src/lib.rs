@@ -24,6 +24,7 @@ pub mod link;
 pub mod loader;
 pub mod loudness;
 mod output;
+pub mod recorder;
 pub mod sampler;
 pub mod scan;
 pub mod stems;
@@ -48,6 +49,7 @@ pub use effects::{
     MAX_PARAMETERS,
 };
 pub use output::{default_output_device, output_devices, AudioSetup, OutputDevice, Role, Route};
+pub use recorder::{RecordFormat, RecordSettings, Recorder};
 pub use synth::sample_library;
 pub use track::{Audio, Hotcue, LibraryInfo, Source, Track, Waveform, WaveformBin, WAVEFORM_RATE};
 pub use visual::VisualPositions;
@@ -64,6 +66,7 @@ pub struct AudioEngine {
     loaded: LoadedTracks,
     visual: Arc<VisualPositions>,
     output: RefCell<output::Outputs>,
+    recorder: Recorder,
 }
 
 impl AudioEngine {
@@ -71,12 +74,14 @@ impl AudioEngine {
     /// the devices `setup` names. The engine runs at the main device's rate.
     pub fn start(registry: Arc<ControlRegistry>, setup: &AudioSetup) -> Self {
         let rate = output::sample_rate(setup);
-        let (engine, input) = engine::Engine::new(&registry, rate);
+        let (mut engine, input) = engine::Engine::new(&registry, rate);
+        let feed = engine.take_record_feed().expect("record feed");
         let visual = engine.visual_positions();
         link::watch(engine.link_handle(), Arc::downgrade(&registry));
         let output = output::Outputs::new(engine, setup);
 
         let loaded: LoadedTracks = Arc::new(RwLock::new(Default::default()));
+        let recorder = Recorder::new(&registry, rate, feed, loaded.clone());
         let (requests, rx) = mpsc::channel();
         {
             let loaded = loaded.clone();
@@ -91,6 +96,7 @@ impl AudioEngine {
             loaded,
             visual,
             output: RefCell::new(output),
+            recorder,
         }
     }
 
@@ -104,8 +110,14 @@ impl AudioEngine {
         if on(&deck_group(deck), "play") && !on("[Controls]", "AllowTrackLoadToPlayingDeck") {
             return false;
         }
+        self.recorder.track_loaded(deck, &track);
         let _ = self.requests.send(loader::LoadRequest { deck, track });
         true
+    }
+
+    /// Records the master mix; see [`recorder`].
+    pub fn recorder(&self) -> &Recorder {
+        &self.recorder
     }
 
     pub fn loaded_tracks(&self) -> LoadedTracks {
