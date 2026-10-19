@@ -255,6 +255,10 @@ const TOP_BAR_HEIGHT: f64 = 52.0;
 const VISIBLE_SECONDS: f64 = 10.0;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().nth(1).as_deref() == Some("--list-controls") {
+        list_controls();
+        return Ok(());
+    }
     diagnostics::install();
     let backend =
         slint::BackendSelector::new().require_wgpu_30(slint::wgpu_30::WGPUConfiguration::default());
@@ -658,6 +662,22 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
 /// A MIDI port's device name: ALSA ports read "DDJ-FLX4:DDJ-FLX4 MIDI 1 24:0".
 fn short_port_name(port: &str) -> &str {
     port.split(':').next().unwrap_or(port)
+}
+
+/// Prints every control openDJ has, aliases included, as sorted `[Group],key`
+/// lines. The website's controller pages use this list to mark mapping lines
+/// that don't do anything in openDJ yet (website/book/supported-controls.txt).
+fn list_controls() {
+    let registry = ControlRegistry::new();
+    mixxx_engine::create_controls(&registry);
+    browser::LibraryControls::create(&registry);
+    automix::AutoMix::new(&registry);
+    let mut keys = registry.keys();
+    keys.extend(registry.alias_keys());
+    keys.sort();
+    for k in keys {
+        println!("{},{}", k.group, k.item);
+    }
 }
 
 /// Connects the `Controls` global used by every skin widget to the registry.

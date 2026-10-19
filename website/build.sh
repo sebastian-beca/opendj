@@ -22,5 +22,6 @@ if ! command -v mdbook >/dev/null 2>&1; then
   export PATH="$PWD/.bin:$PATH"
 fi
 
+python3 tools/controllers.py ../res/controllers book
 mdbook build book
 echo "Built $(find dist -type f | wc -l) files into website/dist"

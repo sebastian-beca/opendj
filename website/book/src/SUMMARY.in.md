@@ -10,6 +10,7 @@
 - [Layouts](guide/layouts.md)
 - [Automix](guide/automix.md)
 - [Controllers](guide/controllers.md)
+<!-- controllers -->
 - [Stems](guide/stems.md)
 - [Ableton Link](guide/link.md)
 - [Keyboard shortcuts](guide/shortcuts.md)
