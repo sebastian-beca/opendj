@@ -171,6 +171,7 @@
 [Channel1],loop_scale
 [Channel1],loop_start_position
 [Channel1],mute
+[Channel1],pad_panel
 [Channel1],peak_indicator
 [Channel1],pfl
 [Channel1],pitch
@@ -188,6 +189,7 @@
 [Channel1],rate
 [Channel1],rateRange
 [Channel1],rateSearch
+[Channel1],rate_dir
 [Channel1],rate_perm_down
 [Channel1],rate_perm_down_small
 [Channel1],rate_perm_up
@@ -400,6 +402,7 @@
 [Channel2],loop_scale
 [Channel2],loop_start_position
 [Channel2],mute
+[Channel2],pad_panel
 [Channel2],peak_indicator
 [Channel2],pfl
 [Channel2],pitch
@@ -417,6 +420,7 @@
 [Channel2],rate
 [Channel2],rateRange
 [Channel2],rateSearch
+[Channel2],rate_dir
 [Channel2],rate_perm_down
 [Channel2],rate_perm_down_small
 [Channel2],rate_perm_up
@@ -777,6 +781,7 @@
 [Library],MoveUp
 [Library],MoveVertical
 [Library],ScrollVertical
+[Library],ShowLinked
 [Link],bpm
 [Link],enabled
 [Link],master_deck
@@ -812,12 +817,18 @@
 [Master],vu_meter_right
 [Mixer Profile],xFaderReverse
 [Mixer Profile],xFaderShape
+[Mixer],knob_mode
 [Playlist],LoadSelectedIntoFirstStopped
 [Playlist],SelectNextPlaylist
 [Playlist],SelectNextTrack
 [Playlist],SelectPrevPlaylist
 [Playlist],SelectPrevTrack
 [Playlist],SelectTrackKnob
+[PreviewDeck1],duration
+[PreviewDeck1],play
+[PreviewDeck1],playposition
+[PreviewDeck1],track_loaded
+[PreviewDeck1],volume
 [QuickEffectRack1_[Channel1]],enabled
 [QuickEffectRack1_[Channel1]],loaded_chain_preset
 [QuickEffectRack1_[Channel1]],next_chain_preset

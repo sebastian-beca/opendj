@@ -262,7 +262,7 @@ export component ControlFader inherits Rectangle {
     in property <string> group;
     in property <string> key;
     in property <bool> vertical: true;
-    // Rate faders are drawn with "faster" at the bottom, like on hardware.
+    // Puts the control's minimum at the top (or right) end.
     in property <bool> inverted: false;
     in property <bool> center-mark: false;
     in property <color> tint: Theme.accent;

@@ -53,7 +53,7 @@ const RELATIVE: [&str; 8] = [
 /// One-shot library actions. Each press is counted, so presses arriving
 /// faster than the UI polls are not lost; the UI performs them and subtracts
 /// what it handled. Only applies to the free controls the UI creates.
-const ACTIONS: [&str; 17] = [
+const ACTIONS: [&str; 18] = [
     "LoadSelectedTrack",
     "LoadSelectedTrackAndPlay",
     "LoadSelectedIntoFirstStopped",
@@ -71,6 +71,8 @@ const ACTIONS: [&str; 17] = [
     "AutoDjAddBottom",
     "AutoDjAddTop",
     "ToggleSelectedSidebarItem",
+    // openDJ's own: opens the Linked tab of the side panel.
+    "ShowLinked",
 ];
 
 fn is_action(h: &ControlHandle) -> bool {
@@ -441,6 +443,11 @@ impl Host {
             "[Main]" => "[Master]",
             g => g,
         };
+        if let Some((g, k)) = self.mixer_knob(group, key) {
+            if let Some(h) = self.registry.get(&g, k) {
+                return Target::Control(h);
+            }
+        }
         if let Some(h) = self.registry.get(group, key) {
             return Target::Control(h);
         }
@@ -452,6 +459,42 @@ impl Host {
             }
         }
         Target::Control(self.registry.free(group, key))
+    }
+
+    /// Where an EQ or filter knob goes while the mixer's side knobs are
+    /// switched to stems or sculpt (`[Mixer],knob_mode` 1 or 2): the knob in
+    /// the same place on screen, so a controller's high, mid, low and filter
+    /// knobs work whatever the mixer shows.
+    fn mixer_knob(&self, group: &str, key: &str) -> Option<(String, &'static str)> {
+        let place = if let Some(rest) = group.strip_prefix("[EqualizerRack1_[Channel") {
+            let deck = rest.strip_suffix("]_Effect1]")?;
+            let place = match key {
+                "parameter3" => 0,
+                "parameter2" => 1,
+                "parameter1" => 2,
+                _ => return None,
+            };
+            (deck, place)
+        } else {
+            let rest = group.strip_prefix("[QuickEffectRack1_[Channel")?;
+            if key != "super1" {
+                return None;
+            }
+            (rest.strip_suffix("]]")?, 3)
+        };
+        let (deck, place) = place;
+        deck.parse::<usize>().ok()?;
+        let mode = self.registry.get("[Mixer]", "knob_mode")?.get();
+        if mode == 1.0 {
+            // Top to bottom: hi-hats, vocals, kick and bass, as on screen.
+            let stem = [5, 4, 1, 2][place];
+            Some((format!("[Channel{deck}_Stem{stem}]"), "volume"))
+        } else if mode == 2.0 {
+            let key = ["lpf", "freq", "gain", "hpf"][place];
+            Some((format!("[Sculpt_[Channel{deck}]]"), key))
+        } else {
+            None
+        }
     }
 
     /// Script writes. Values for knobs with soft takeover enabled may be dropped.
@@ -625,7 +668,13 @@ impl Host {
     }
 
     fn deck_rate(&self, deck: usize) -> f64 {
-        let rate = 1.0 + self.control(deck, "rate").get() * self.control(deck, "rateRange").get();
+        let dir = if self.control(deck, "rate_dir").get() < 0.0 {
+            -1.0
+        } else {
+            1.0
+        };
+        let rate =
+            1.0 + self.control(deck, "rate").get() * self.control(deck, "rateRange").get() * dir;
         if self.control(deck, "reverse").get_bool() {
             -rate
         } else {

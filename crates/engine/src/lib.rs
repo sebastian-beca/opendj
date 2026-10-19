@@ -66,9 +66,20 @@ pub use visual::VisualPositions;
 /// replaced with fuller versions (more waveform, then tempo and first beat).
 pub type LoadedTracks = Arc<RwLock<[Option<Arc<Track>>; NUM_DECKS]>>;
 
+/// Messages for the person at the decks, such as why a track didn't load,
+/// oldest first. The UI shows and empties them.
+pub type Alerts = Arc<Mutex<Vec<String>>>;
+
+pub(crate) fn alert(alerts: &Alerts, message: String) {
+    if let Ok(mut a) = alerts.lock() {
+        a.push(message);
+    }
+}
+
 /// Handle to the running engine. Dropping it stops playback.
 pub struct AudioEngine {
     registry: Arc<ControlRegistry>,
+    alerts: Alerts,
     requests: Sender<loader::LoadRequest>,
     loaded: LoadedTracks,
     visual: Arc<VisualPositions>,
@@ -104,15 +115,17 @@ impl AudioEngine {
         let loaded: LoadedTracks = Arc::new(RwLock::new(Default::default()));
         let recorder = Recorder::new(&registry, rate, feed, loaded.clone());
         let (requests, rx) = mpsc::channel();
+        let alerts = Alerts::default();
         {
-            let loaded = loaded.clone();
+            let (loaded, alerts) = (loaded.clone(), alerts.clone());
             std::thread::Builder::new()
                 .name("track-loader".into())
-                .spawn(move || loader::run(rx, input, loaded))
+                .spawn(move || loader::run(rx, input, loaded, alerts))
                 .expect("spawn track loader");
         }
         Self {
             registry,
+            alerts,
             requests,
             loaded,
             visual,
@@ -178,6 +191,14 @@ impl AudioEngine {
         let on =
             |group: &str, key: &str| self.registry.get(group, key).is_some_and(|c| c.get_bool());
         if on(&deck_group(deck), "play") && !on("[Controls]", "AllowTrackLoadToPlayingDeck") {
+            alert(
+                &self.alerts,
+                format!(
+                    "Deck {} is playing, so the track wasn't loaded. Stop the deck first, \
+                     or turn off Protect playing decks in Settings.",
+                    deck + 1
+                ),
+            );
             return false;
         }
         self.recorder.track_loaded(deck, &track);
@@ -188,6 +209,14 @@ impl AudioEngine {
     /// Records the master mix; see [`recorder`].
     pub fn recorder(&self) -> &Recorder {
         &self.recorder
+    }
+
+    /// Alerts since the last call, oldest first.
+    pub fn take_alerts(&self) -> Vec<String> {
+        self.alerts
+            .lock()
+            .map(|mut a| std::mem::take(&mut *a))
+            .unwrap_or_default()
     }
 
     pub fn loaded_tracks(&self) -> LoadedTracks {

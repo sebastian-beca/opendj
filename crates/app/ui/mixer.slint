@@ -339,6 +339,8 @@ export component ModeMenu inherits Rectangle {
                 ita := TouchArea {
                     clicked => {
                         MixerMode.mode = i;
+                        // Controllers' EQ knobs follow the mode.
+                        Controls.set-value(Controls.resolve("[Mixer]", "knob_mode"), i);
                         menu.close();
                     }
                 }

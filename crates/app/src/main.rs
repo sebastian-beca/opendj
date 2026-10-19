@@ -325,7 +325,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     // Pro or Player, as last picked.
     app.set_layout(settings::number("layout", 0.0).clamp(0.0, 1.0) as i32);
-    app.on_layout_changed(|layout| settings::set("layout", serde_json::json!(layout)));
+    // `[Skin],layout` lets controllers switch it too (the DDJ-FLX4's
+    // SHIFT + right LOAD, VIEW): 0 Pro, 1 Player.
+    let layout_control = registry.create(
+        "[Skin]",
+        "layout",
+        app.get_layout() as f64,
+        0.0,
+        1.0,
+        mixxx_control::Behavior::Toggle,
+    );
+    {
+        let layout_control = layout_control.clone();
+        app.on_layout_changed(move |layout| {
+            layout_control.set(layout as f64);
+            settings::set("layout", serde_json::json!(layout));
+        });
+    }
     {
         use slint::winit_030::WinitWindowAccessor;
         let weak = app.as_weak();
@@ -495,6 +511,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let timer = slint::Timer::default();
     let covers: RefCell<[CoverImage; NUM_DECKS]> = Default::default();
     let last_tick = Cell::new(Instant::now());
+    // When the alert on screen goes away.
+    let alert_until: Cell<Option<Instant>> = Cell::new(None);
+    let alert_engine = engine.clone();
+    let layout_version = Cell::new(layout_control.version());
     {
         let app_weak = app.as_weak();
         timer.start(
@@ -506,6 +526,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 app.global::<Controls>()
                     .set_tick(app.global::<Controls>().get_tick().wrapping_add(1));
+                // Only when a controller moved it since the last look.
+                let layout = layout_control.get() as i32;
+                if layout_version.replace(layout_control.version()) != layout_control.version()
+                    && layout != app.get_layout()
+                {
+                    app.set_layout(layout);
+                    settings::set("layout", serde_json::json!(layout));
+                }
+                // The newest alert shows for a while; a click closes it.
+                if let Some(message) = alert_engine.take_alerts().pop() {
+                    app.set_alert(message.into());
+                    alert_until.set(Some(Instant::now() + ALERT_SECONDS));
+                } else if alert_until.get().is_some_and(|t| Instant::now() >= t) {
+                    alert_until.set(None);
+                    app.set_alert("".into());
+                }
                 if let Ok(scanned) = scan_rx.try_recv() {
                     browser.borrow_mut().set_library(scanned);
                 }
@@ -754,6 +790,16 @@ mod time_tests {
     }
 }
 
+/// How long an alert stays on screen.
+const ALERT_SECONDS: Duration = Duration::from_secs(8);
+
+/// A deck's playing speed from its tempo fader (`rate`), range and
+/// direction, as the engine works it out.
+pub(crate) fn speed(rate: &ControlHandle, range: &ControlHandle, dir: &ControlHandle) -> f64 {
+    let dir = if dir.get() < 0.0 { -1.0 } else { 1.0 };
+    1.0 + rate.get() * range.get() * dir
+}
+
 pub(crate) fn fmt_time(seconds: f64) -> String {
     // Round to tenths first, so 479.96 s reads 8:00.0 rather than 7:60.0.
     let tenths = (seconds.max(0.0) * 10.0).round() as u64;
@@ -788,6 +834,7 @@ struct DeckHandles {
     playposition: ControlHandle,
     rate: ControlHandle,
     rate_range: ControlHandle,
+    rate_dir: ControlHandle,
     bpm: ControlHandle,
     cue_point: ControlHandle,
     loop_enabled: ControlHandle,
@@ -834,6 +881,7 @@ impl Decks {
                 playposition: c("playposition"),
                 rate: c("rate"),
                 rate_range: c("rateRange"),
+                rate_dir: c("rate_dir"),
                 bpm: c("bpm"),
                 cue_point: c("cue_point"),
                 loop_enabled: c("loop_enabled"),
@@ -876,7 +924,7 @@ impl Decks {
         let Some(file) = Key::from_mixxx_number(h.file_key.get()) else {
             return Vec::new();
         };
-        let speed = 1.0 + h.rate.get() * h.rate_range.get();
+        let speed = speed(&h.rate, &h.rate_range, &h.rate_dir);
         let base = file.playing(0.0, speed, h.keylock.get_bool());
         let other = Key::from_mixxx_number(self.0[1 - deck].key.get());
         let current = h.pitch.get().round() as i32;
@@ -907,7 +955,11 @@ impl Decks {
                 .collect(),
         );
         let range = format!("±{:.0}%", h.rate_range.get() * 100.0).into();
-        let rate = format!("{:+.1}%", h.rate.get() * h.rate_range.get() * 100.0).into();
+        let rate = format!(
+            "{:+.1}%",
+            (speed(&h.rate, &h.rate_range, &h.rate_dir) - 1.0) * 100.0
+        )
+        .into();
         let Some(t) = track else {
             return DeckInfo {
                 rate,
@@ -1016,7 +1068,7 @@ impl Decks {
             play_seconds,
             // Show more of the track when it plays faster, so synced decks'
             // beats are the same distance apart on screen.
-            visible_seconds: VISIBLE_SECONDS * (1.0 + h.rate.get() * h.rate_range.get()),
+            visible_seconds: VISIBLE_SECONDS * speed(&h.rate, &h.rate_range, &h.rate_dir),
             duration: t.duration,
             grid: if t.grid.is_empty() {
                 steady_grid(t.bpm, t.first_beat)

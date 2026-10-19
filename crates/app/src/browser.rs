@@ -448,6 +448,8 @@ pub(crate) struct LibraryControls {
     load: [ControlHandle; NUM_DECKS],
     load_and_play: [ControlHandle; NUM_DECKS],
     add_to_automix: [ControlHandle; 2],
+    /// Opens the Linked tab (the DDJ-FLX4's SHIFT + left LOAD).
+    show_linked: ControlHandle,
     folder_steps: [(ControlHandle, f64); 2],
 }
 
@@ -477,6 +479,7 @@ impl LibraryControls {
                 reg.free(&deck_group(d), "LoadSelectedTrackAndPlay")
             }),
             add_to_automix: [lib("AutoDjAddBottom"), lib("AutoDjAddTop")],
+            show_linked: lib("ShowLinked"),
             folder_steps: [
                 (playlist("SelectNextPlaylist"), 1.0),
                 (playlist("SelectPrevPlaylist"), -1.0),
@@ -2576,6 +2579,10 @@ impl Browser {
     /// Acts on library controls set by controller mappings: browsing,
     /// switching between folders and tracks, loading. Called every frame.
     pub fn poll_controllers(&mut self, app: &AppWindow) {
+        if take(&self.lib.show_linked) > 0.0 {
+            app.set_side_panel_visible(true);
+            app.set_side_tab(LINKED_TAB as i32);
+        }
         let mut steps: f64 = self.lib.steps.iter().map(|(c, sign)| take(c) * sign).sum();
         if self.lib.focus.iter().map(take).sum::<f64>() != 0.0 {
             self.folders_focused = !self.folders_focused;

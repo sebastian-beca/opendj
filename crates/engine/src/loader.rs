@@ -120,6 +120,7 @@ struct Shared {
     loaded: LoadedTracks,
     /// Counts load requests per deck; a load that is no longer the latest stops.
     generation: [AtomicU64; NUM_DECKS],
+    alerts: crate::Alerts,
 }
 
 /// Whether two copies of a track share their audio, i.e. are the same load.
@@ -280,11 +281,17 @@ pub(crate) fn load_stems(
     Ok(())
 }
 
-pub(crate) fn run(requests: Receiver<LoadRequest>, input: EngineInput, loaded: LoadedTracks) {
+pub(crate) fn run(
+    requests: Receiver<LoadRequest>,
+    input: EngineInput,
+    loaded: LoadedTracks,
+    alerts: crate::Alerts,
+) {
     let shared = Arc::new(Shared {
         input: Mutex::new(input),
         loaded,
         generation: Default::default(),
+        alerts,
     });
     loop {
         shared.collect();
@@ -302,6 +309,15 @@ pub(crate) fn run(requests: Receiver<LoadRequest>, input: EngineInput, loaded: L
             .spawn(move || {
                 if let Err(e) = load(&shared, req.deck, generation, &req.track) {
                     eprintln!("could not load track: {e}");
+                    let name = if req.track.title.is_empty() {
+                        "The track".to_string()
+                    } else {
+                        format!("“{}”", req.track.title)
+                    };
+                    crate::alert(
+                        &shared.alerts,
+                        format!("{name} couldn't be loaded on deck {}: {e}", req.deck + 1),
+                    );
                 }
             });
         if let Err(e) = spawned {
@@ -545,7 +561,7 @@ mod tests {
         let (requests, rx) = mpsc::channel();
         {
             let loaded = loaded.clone();
-            std::thread::spawn(move || run(rx, input, loaded));
+            std::thread::spawn(move || run(rx, input, loaded, Default::default()));
         }
         let deck = |l: &LoadedTracks| l.read().unwrap()[0].clone();
         let bpm = reg.get("[Channel1]", "bpm").unwrap();
