@@ -6,6 +6,7 @@
 //! Audio arrives at the analyser's full rate; the low and mid bands (below
 //! about 2.5 kHz) are mixed to mono and decimated to around 11 kHz first.
 
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
 use rustfft::num_complex::Complex32;
@@ -197,6 +198,45 @@ impl Key {
             minor: i >= 12,
         })
     }
+}
+
+/// Which detector finds the keys of newly analysed tracks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Detector {
+    /// The chromagram detector below: fast, and needs no model.
+    #[default]
+    Standard,
+    /// The neural network in [`crate::keynet`]: more accurate, slower.
+    Neural,
+}
+
+impl Detector {
+    pub const ALL: [Detector; 2] = [Detector::Standard, Detector::Neural];
+
+    /// Its number in the analysis cache and the settings.
+    pub fn id(self) -> u8 {
+        match self {
+            Detector::Standard => 0,
+            Detector::Neural => 1,
+        }
+    }
+
+    pub fn from_id(id: u8) -> Option<Detector> {
+        Detector::ALL.into_iter().find(|d| d.id() == id)
+    }
+}
+
+static DETECTOR: AtomicU8 = AtomicU8::new(0);
+
+/// The detector tracks are analysed with, unless changed with [`set_detector`].
+pub fn detector() -> Detector {
+    Detector::from_id(DETECTOR.load(Ordering::Relaxed)).unwrap_or_default()
+}
+
+/// Sets the detector for tracks analysed from now on. Tracks whose key an
+/// earlier analysis found get it again from this one when next loaded.
+pub fn set_detector(d: Detector) {
+    DETECTOR.store(d.id(), Ordering::Relaxed);
 }
 
 pub struct KeyDetector {

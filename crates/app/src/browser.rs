@@ -2715,12 +2715,14 @@ impl Browser {
             // differs from the library's was edited on the deck.
             let analysed = !t.info.fixed_grid && !t.grid.is_empty() && t.grid != entry.grid;
             let edited = t.info.fixed_grid && t.grid != entry.grid && !t.grid.is_empty();
-            if !(analysed || edited || entry.bpm != t.bpm || entry.key != t.key) {
+            let key_changed = entry.key != t.key || entry.info.key_detected != t.info.key_detected;
+            if !(analysed || edited || entry.bpm != t.bpm || key_changed) {
                 continue;
             }
             let mut e = (**entry).clone();
             e.bpm = t.bpm;
             e.key = t.key.clone();
+            e.info.key_detected = t.info.key_detected;
             if analysed || edited {
                 e.set_grid(t.grid.clone());
                 e.info.fixed_grid = true;
