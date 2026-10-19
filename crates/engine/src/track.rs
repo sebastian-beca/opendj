@@ -326,17 +326,80 @@ pub struct LibraryInfo {
     pub gain_db: Option<f32>,
     /// When it was last played, as a Unix time.
     pub last_played: Option<i64>,
+    /// Its disc on the release; 0 for none.
+    pub disc_number: u32,
+    /// Record label.
+    pub label: String,
+    pub composer: String,
+    /// Who remixed it, where the tags keep that apart from the mix name.
+    pub remixer: String,
+    pub isrc: String,
+    /// Named sections, phrases and mix points, in time order.
+    pub markers: Vec<Marker>,
 }
+
+/// Hot cues numbered from here up are memory cues: rekordbox's unnumbered
+/// cues, which mark a place on the waveform but have no pad.
+pub const MEMORY_CUE: usize = 1000;
 
 /// A saved hot cue, or a saved loop when it has an end.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Hotcue {
-    /// From 0: hot cue 1 is number 0.
+    /// From 0: hot cue 1 is number 0. Numbers from [`MEMORY_CUE`] up are
+    /// memory cues.
     pub number: usize,
     pub seconds: f64,
     pub name: String,
     /// Where a saved loop ends; `seconds` is where it starts.
     pub end: Option<f64>,
+    /// Colour as 0xRRGGBB, when one was set.
+    pub color: Option<u32>,
+}
+
+impl Hotcue {
+    pub fn is_memory(&self) -> bool {
+        self.number >= MEMORY_CUE
+    }
+}
+
+/// A point or stretch of a track that isn't a cue: a named section, a
+/// phrase, or a point another app's Automix mixes at.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Marker {
+    pub kind: MarkerKind,
+    pub seconds: f64,
+    /// Where a section ends, when it has a length.
+    pub end: Option<f64>,
+    /// "Break 1", a phrase such as "Chorus", or a mix point such as
+    /// "fadeStart".
+    pub name: String,
+    pub color: Option<u32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MarkerKind {
+    /// A part of the track the DJ named (VirtualDJ's remix points).
+    Section,
+    /// A phrase from analysis (rekordbox's Intro, Verse, Chorus…).
+    Phrase,
+    /// Where Automix starts, fades or cuts (VirtualDJ's automix points).
+    Automix,
+}
+
+impl MarkerKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Section => "section",
+            Self::Phrase => "phrase",
+            Self::Automix => "automix",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        [Self::Section, Self::Phrase, Self::Automix]
+            .into_iter()
+            .find(|k| k.name() == name)
+    }
 }
 
 impl Track {

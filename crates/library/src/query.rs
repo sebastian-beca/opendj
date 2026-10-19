@@ -5,12 +5,13 @@
 //! - Plain words match the artist, title, album, genre, comment, grouping
 //!   and tags; `"two words"` matches a phrase.
 //! - `field:value` searches one field: `artist:`, `title:`, `album:`,
-//!   `genre:`, `comment:`, `grouping:`, `tag:`, `key:`, `location:`.
+//!   `genre:`, `comment:`, `grouping:`, `tag:`, `key:`, `location:`,
+//!   `publisher:` (the record label), `composer:`, `remixer:`.
 //!   `field:=value` matches the whole field, `field:""` an empty one.
-//! - Numbers: `bpm:`, `rating:`, `played:` and `duration:` take a value,
+//! - Numbers: `bpm:`, `rating:`, `played:`, `year:` and `duration:` take a value,
 //!   `>`, `>=`, `<`, `<=` or a range `a-b`; durations as `3:30`, `5m` or seconds.
 //!   `added:` takes days or weeks ago (`added:<7d`, `added:<2w`) or a date
-//!   (`added:>=2026-01-31`).
+//!   (`added:>=2026-01-31`); `lastplayed:` the same for the last play.
 //! - `~key:8A` finds keys that mix with 8A, `~bpm:124` tempos within 6%
 //!   (also at half or double tempo). `~deck` finds tracks that mix with the
 //!   track playing now, by key and tempo.
@@ -64,6 +65,9 @@ enum TextField {
     Tag,
     Key,
     Location,
+    Publisher,
+    Composer,
+    Remixer,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +80,11 @@ enum NumberField {
     AddedDaysAgo,
     /// When the track was added, as a Unix time.
     AddedAt,
+    Year,
+    /// Days since the track was last played.
+    PlayedDaysAgo,
+    /// When the track was last played, as a Unix time.
+    PlayedAt,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -140,6 +149,9 @@ pub struct Indexed {
     grouping: String,
     tags: String,
     location: String,
+    publisher: String,
+    composer: String,
+    remixer: String,
 }
 
 impl Indexed {
@@ -157,6 +169,9 @@ impl Indexed {
                 Source::File(p) => lower(&p.to_string_lossy()),
                 Source::Synth { .. } => String::new(),
             },
+            publisher: lower(&t.info.label),
+            composer: lower(&t.info.composer),
+            remixer: lower(&t.info.remixer),
         }
     }
 }
@@ -266,6 +281,9 @@ fn parse_test(word: &str) -> Option<Test> {
         "grouping" => Some(TextField::Grouping),
         "tag" | "tags" | "label" => Some(TextField::Tag),
         "location" | "path" => Some(TextField::Location),
+        "publisher" | "recordlabel" => Some(TextField::Publisher),
+        "composer" => Some(TextField::Composer),
+        "remixer" => Some(TextField::Remixer),
         _ => None,
     };
     if let Some(field) = text_field {
@@ -296,7 +314,9 @@ fn parse_test(word: &str) -> Option<Test> {
         "rating" => number(&v, NumberField::Rating, plain)?,
         "played" | "plays" => number(&v, NumberField::Played, plain)?,
         "duration" | "length" => number(&v, NumberField::Duration, seconds)?,
-        "added" => added(&v)?,
+        "year" => number(&v, NumberField::Year, plain)?,
+        "added" => added(&v, NumberField::AddedDaysAgo, NumberField::AddedAt)?,
+        "lastplayed" => added(&v, NumberField::PlayedDaysAgo, NumberField::PlayedAt)?,
         "color" | "colour" => {
             if value == "\"\"" {
                 Test::Color(None)
@@ -367,8 +387,9 @@ fn number(v: &str, field: NumberField, read: fn(&str) -> Option<f64>) -> Option<
     Some(compare(v, read).map_or(Test::Never, |c| Test::Number(field, c)))
 }
 
-/// `added:<7d` (less than 7 days ago), `added:>2w`, `added:>=2026-01-31`.
-fn added(v: &str) -> Option<Test> {
+/// `added:<7d` (less than 7 days ago), `added:>2w`, `added:>=2026-01-31`;
+/// `days_ago` and `at` are the fields compared.
+fn added(v: &str, days_ago: NumberField, at: NumberField) -> Option<Test> {
     if v.is_empty() {
         return None;
     }
@@ -383,9 +404,9 @@ fn added(v: &str) -> Option<Test> {
         }
     };
     if let Some(c) = compare(v, ago) {
-        return Some(Test::Number(NumberField::AddedDaysAgo, c));
+        return Some(Test::Number(days_ago, c));
     }
-    Some(compare(v, date).map_or(Test::Never, |c| Test::Number(NumberField::AddedAt, c)))
+    Some(compare(v, date).map_or(Test::Never, |c| Test::Number(at, c)))
 }
 
 /// A date as YYYY-MM-DD, as the Unix time it starts (UTC).
@@ -447,6 +468,9 @@ impl Term {
                 TextField::Tag => &text.tags,
                 TextField::Key => "",
                 TextField::Location => &text.location,
+                TextField::Publisher => &text.publisher,
+                TextField::Composer => &text.composer,
+                TextField::Remixer => &text.remixer,
             }
         };
         let key = || Key::parse(&t.key);
@@ -488,9 +512,21 @@ impl Term {
                     NumberField::AddedDaysAgo => (cx.now - t.info.added) as f64 / 86_400.0,
                     NumberField::AddedAt if t.info.added <= 0 => return false,
                     NumberField::AddedAt => t.info.added as f64,
+                    // The year starts the field ("1997", "1997-05-02").
+                    NumberField::Year => match t.info.year.get(..4).and_then(|y| y.parse().ok()) {
+                        Some(y) => y,
+                        None => return false,
+                    },
+                    NumberField::PlayedDaysAgo | NumberField::PlayedAt => {
+                        match t.info.last_played.filter(|&p| p > 0) {
+                            None => return false,
+                            Some(p) if *f == NumberField::PlayedAt => p as f64,
+                            Some(p) => (cx.now - p) as f64 / 86_400.0,
+                        }
+                    }
                 };
                 // A date matches the whole day: >=, < and = compare days.
-                if *f == NumberField::AddedAt {
+                if matches!(f, NumberField::AddedAt | NumberField::PlayedAt) {
                     let day = (x / 86_400.0).floor() * 86_400.0;
                     return match *c {
                         Compare::Eq(v) => day == v,
@@ -634,6 +670,9 @@ mod tests {
         b.duration = 420.0;
         b.info.comment = "warm up".into();
         b.info.added = 1_800_000_000 - 40 * 86_400;
+        b.info.year = "1997".into();
+        b.info.label = "KDJ".into();
+        b.info.last_played = Some(1_800_000_000 - 3 * 86_400);
         let mut c = track(3, "Bicep", "Glue", 130.0, "9A");
         c.album = String::new();
         c.info.hotcues = vec![Hotcue {
@@ -691,6 +730,9 @@ mod tests {
         // 1_800_000_000 is 2027-01-15; track 1 was added 2027-01-13.
         assert_eq!(find(&lib, "added:>=2027-01-13"), [1]);
         assert_eq!(find(&lib, "added:2027-01-13"), [1]);
+        assert_eq!(find(&lib, "year:<2000"), [2]);
+        assert_eq!(find(&lib, "publisher:kdj"), [2]);
+        assert_eq!(find(&lib, "lastplayed:<7d"), [2]);
         // Something that can't be read finds nothing rather than everything.
         assert_eq!(find(&lib, "bpm:fast"), Vec::<usize>::new());
     }

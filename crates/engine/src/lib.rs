@@ -18,6 +18,7 @@ pub mod decode;
 pub mod dsp;
 mod effects;
 pub mod engine;
+pub mod import;
 pub mod key;
 pub mod keynet;
 mod keyshift;
@@ -58,7 +59,10 @@ pub use output::{
 };
 pub use recorder::{RecordFormat, RecordSettings, Recorder};
 pub use synth::sample_library;
-pub use track::{Audio, Hotcue, LibraryInfo, Source, Track, Waveform, WaveformBin, WAVEFORM_RATE};
+pub use track::{
+    Audio, Hotcue, LibraryInfo, Marker, MarkerKind, Source, Track, Waveform, WaveformBin,
+    MEMORY_CUE, WAVEFORM_RATE,
+};
 pub use visual::VisualPositions;
 
 /// The tracks currently loaded on each deck, with their audio, readable by the
