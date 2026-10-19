@@ -9,7 +9,7 @@ MDBOOK_VERSION=0.4.52
 
 rm -rf dist
 mkdir -p dist
-cp -R index.html style.css main.js _headers assets tutorials dist/
+cp -R index.html 404.html style.css main.js _headers assets tutorials dist/
 
 if ! command -v mdbook >/dev/null 2>&1; then
   case "$(uname -s)" in
