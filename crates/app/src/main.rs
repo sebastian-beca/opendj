@@ -276,6 +276,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         registry.clone(),
         &settings::audio_setup(),
     ));
+    engine.recorder().configure(settings::recording());
+    let recorder = engine.recorder().clone();
     // The saved library, with the tracks it had last time; the built-in
     // samples until there is anything in it.
     let library_path = settings::config_dir().map(|d| mixxx_library::default_path(&d));
@@ -410,6 +412,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &app,
         registry.clone(),
         controllers.clone(),
+        engine.recorder().clone(),
         Box::new(move || sync_library(library_path.clone(), scan_tx.clone())),
         {
             let sources = sources.clone();
@@ -589,6 +592,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     app.run()?;
+    // Finishes the files, with the cue sheet, if the DJ quits mid-recording.
+    recorder.stop();
     Ok(())
 }
 
