@@ -1062,14 +1062,15 @@ component Pads inherits VerticalLayout {
     in-out property <[int]> slots: [0, 1, 2, 3];
     property <int> page: slots[tab];
     property <color> tint: Theme.deck-color(deck);
+    // Back and forward in pairs, as on the DDJ-FLX4's BEAT JUMP pads.
     property <[Pad]> jumps: [
-        { key: "beatjump_1_backward", light: "beatjump_1_backward", text: "‹ 1" },
         { key: "beatjump_4_backward", light: "beatjump_4_backward", text: "‹ 4" },
-        { key: "beatjump_16_backward", light: "beatjump_16_backward", text: "‹ 16" },
-        { key: "beatjump_32_backward", light: "beatjump_32_backward", text: "‹ 32" },
-        { key: "beatjump_1_forward", light: "beatjump_1_forward", text: "1 ›" },
         { key: "beatjump_4_forward", light: "beatjump_4_forward", text: "4 ›" },
+        { key: "beatjump_8_backward", light: "beatjump_8_backward", text: "‹ 8" },
+        { key: "beatjump_8_forward", light: "beatjump_8_forward", text: "8 ›" },
+        { key: "beatjump_16_backward", light: "beatjump_16_backward", text: "‹ 16" },
         { key: "beatjump_16_forward", light: "beatjump_16_forward", text: "16 ›" },
+        { key: "beatjump_32_backward", light: "beatjump_32_backward", text: "‹ 32" },
         { key: "beatjump_32_forward", light: "beatjump_32_forward", text: "32 ›" },
     ];
     property <[PadEffect]> pad-fx: [
@@ -1083,6 +1084,28 @@ component Pads inherits VerticalLayout {
         { effect: 1, meta: 1.0, text: "ECHO MAX" },
     ];
     property <[string]> samples: ["Kick", "Snare", "Clap", "Hat", "Horn", "Siren", "Laser", "Crash"];
+    // A controller's pad mode buttons ask for a panel through `pad_panel`:
+    // open the tab that shows it, or put it in the open tab.
+    property <int> panel-index: Controls.resolve(group, "pad_panel");
+    property <int> requested: Controls.value(panel-index, Controls.tick);
+    changed requested => {
+        if requested < 0 || requested >= 5 {
+            return;
+        }
+        let wanted = requested;
+        Controls.set-value(panel-index, -1);
+        if slots[0] == wanted {
+            tab = 0;
+        } else if slots[1] == wanted {
+            tab = 1;
+        } else if slots[2] == wanted {
+            tab = 2;
+        } else if slots[3] == wanted {
+            tab = 3;
+        } else {
+            slots[tab] = wanted;
+        }
+    }
     // The tabs sit right on the grid.
     spacing: 0px;
     PadTabs { names: ["HOT CUES", "PAD FX", "BEAT JUMP", "SAMPLER", "STEMS"]; slots <=> slots; selected <=> tab; }
@@ -1263,7 +1286,7 @@ component Pitch inherits VerticalLayout {
     width: 56px;
     spacing: 4px;
     Text { text: info.rate; color: Theme.text; font-size: 12px; font-weight: 500; horizontal-alignment: center; }
-    ControlFader { group: group; key: "rate"; inverted: true; center-mark: true; ticks: 9; tint: tint; vertical-stretch: 1; }
+    ControlFader { group: group; key: "rate"; center-mark: true; ticks: 9; tint: tint; vertical-stretch: 1; }
     HorizontalLayout {
         spacing: 2px;
         ControlButton { group: group; key: "rate_perm_down_small"; text: "−"; momentary: true; tint: tint; font-size: 15px; height: 22px; horizontal-stretch: 1; }

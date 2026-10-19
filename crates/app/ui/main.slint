@@ -319,6 +319,8 @@ export component AppWindow inherits Window {
     in property <string> spotify-status;
     in-out property <string> spotify-client-id;
     in property <string> list-notice;
+    // Why something didn't happen, such as a track that couldn't be loaded.
+    in-out property <string> alert;
     in property <[TrackRow]> tracks;
     in property <int> sort-column: 1;
     in property <bool> sort-ascending: true;
@@ -605,6 +607,29 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+        }
+
+        if alert != "": Rectangle {
+            x: (root.width - self.width) / 2;
+            y: 64px;
+            width: min(560px, root.width - 40px);
+            height: alert-text.preferred-height + 24px;
+            background: Theme.panel-raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.lilac;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #000000a0;
+            alert-text := Text {
+                x: 14px;
+                width: parent.width - 28px;
+                text: alert;
+                color: Theme.text;
+                font-size: 13px;
+                wrap: word-wrap;
+                vertical-alignment: center;
+            }
+            TouchArea { clicked => { alert = ""; } }
         }
 
         // Inside the shortcuts' scope, so Esc reaches it from the search box.

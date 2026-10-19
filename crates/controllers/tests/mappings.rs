@@ -250,3 +250,58 @@ fn input_handlers_get_their_messages() {
     assert_eq!(get(&reg, "[Channel1]", "pregain"), 1.0);
     assert_eq!(c.errors(), Vec::<String>::new());
 }
+
+#[test]
+fn ddj_flx4_mixer_pads_and_eq_modes() {
+    let (reg, mut c) = load("Pioneer-DDJ-FLX4.midi.xml");
+    settle(&mut c, 50);
+    // Tempo fader pushed from the middle to the top: rate +1, which
+    // rate_dir turns into slower (soft takeover wants it moved, not set).
+    for msb in (0..=0x40).rev() {
+        c.receive(&[0xB0, 0x00, msb]);
+        c.receive(&[0xB0, 0x20, 0x00]);
+    }
+    assert_eq!(get(&reg, "[Channel1]", "rate"), 1.0);
+    // Master and headphones level, and the headphones mix.
+    for (msb, lsb, key) in [(0x08, 0x28, "gain"), (0x0D, 0x2D, "headGain")] {
+        c.receive(&[0xB6, msb, 0x40]);
+        c.receive(&[0xB6, lsb, 0x00]);
+        let v = get(&reg, "[Master]", key);
+        assert!((v - 0.5).abs() < 0.01, "{key} {v}");
+    }
+    c.receive(&[0xB6, 0x0C, 0x00]);
+    c.receive(&[0xB6, 0x2C, 0x00]);
+    assert_eq!(get(&reg, "[Master]", "headMix"), -1.0);
+    // Hot cue LEDs follow hotcue_N_status.
+    c.take_output();
+    reg.get("[Channel1]", "hotcue_1_status").unwrap().set(1.0);
+    c.poll(Instant::now());
+    let out = c.take_output();
+    assert!(out.iter().any(|m| m[..] == [0x97, 0x00, 0x7F]), "{out:x?}");
+    // Pad mode buttons ask deck 2 to show the beat jump pads.
+    c.receive(&[0x91, 0x20, 0x7F]);
+    assert_eq!(get(&reg, "[Channel2]", "pad_panel"), 2.0);
+    // SHIFT + left LOAD asks for the Linked tab; each press counts.
+    reg.free("[Library]", "ShowLinked");
+    c.receive(&[0x96, 0x58, 0x7F]);
+    c.receive(&[0x96, 0x58, 0x00]);
+    assert_eq!(get(&reg, "[Library]", "ShowLinked"), 1.0);
+    // In stems mode the low EQ knob turns the kick stem.
+    reg.get("[Mixer]", "knob_mode").unwrap().set(1.0);
+    c.receive(&[0xB0, 0x0F, 0x10]);
+    c.receive(&[0xB0, 0x2F, 0x00]);
+    let kick = reg
+        .get("[Channel1_Stem1]", "volume")
+        .unwrap()
+        .get_parameter();
+    assert!((kick - 0.125).abs() < 0.01, "kick {kick}");
+    reg.get("[Mixer]", "knob_mode").unwrap().set(2.0);
+    c.receive(&[0xB6, 0x17, 0x40]);
+    c.receive(&[0xB6, 0x37, 0x00]);
+    let hpf = reg
+        .get("[Sculpt_[Channel1]]", "hpf")
+        .unwrap()
+        .get_parameter();
+    assert!((hpf - 0.5).abs() < 0.01, "hpf {hpf}");
+    assert_eq!(c.errors(), Vec::<String>::new());
+}

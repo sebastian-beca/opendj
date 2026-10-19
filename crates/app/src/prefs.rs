@@ -81,6 +81,7 @@ pub fn apply_saved(registry: &ControlRegistry) {
             "rateRange",
             settings::number("rate_range", DEFAULT_RATE_RANGE),
         );
+        set(&g, "rate_dir", rate_dir());
         set(&g, "quantize", f(settings::flag("quantize", true)));
         if settings::flag("keylock_default", false) {
             set(&g, "keylock", 1.0);
@@ -416,6 +417,17 @@ impl Prefs {
                             MENU,
                             "Tempo fader range",
                             "How far the tempo fader changes the speed, either way.",
+                        )
+                    },
+                    PrefItem {
+                        choices: strings(&["Up slows down", "Up speeds up"]),
+                        chosen: if settings::flag("tempo_up_faster", false) { 1 } else { 0 },
+                        ..item(
+                            "tempo_direction",
+                            SEGMENTED,
+                            "Tempo fader direction",
+                            "Which way the tempo faders, on screen and on controllers, speed \
+                             the deck up. Pioneer players slow down as the fader goes up.",
                         )
                     },
                     switch(
@@ -833,6 +845,10 @@ impl Prefs {
                 settings::set("cue_mode", json!(mode));
                 self.each_deck("cue_mode", mode);
             }
+            "tempo_direction" => {
+                settings::set("tempo_up_faster", json!(index == 1));
+                self.each_deck("rate_dir", rate_dir());
+            }
             "rate_range" => {
                 let Some(&range) = RATE_RANGES.get(index) else {
                     return;
@@ -995,6 +1011,16 @@ impl Prefs {
         for d in 0..NUM_DECKS {
             self.set(&deck_group(d), key, value);
         }
+    }
+}
+
+/// The decks' `rate_dir`: -1 unless the tempo faders are set to speed up
+/// as they go up.
+fn rate_dir() -> f64 {
+    if settings::flag("tempo_up_faster", false) {
+        1.0
+    } else {
+        -1.0
     }
 }
 
