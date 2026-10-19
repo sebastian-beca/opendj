@@ -192,6 +192,12 @@ pub trait SearchSource: Send {
     fn retry(&mut self, _key: &str) -> Result<(), PluginError> {
         Err(PluginError::NotSupported)
     }
+
+    /// Stops a download that's queued or running. Files it already wrote
+    /// stay.
+    fn cancel(&mut self, _key: &str) -> Result<(), PluginError> {
+        Err(PluginError::NotSupported)
+    }
 }
 
 /// A size as the list shows it: "40 MB", "1.2 GB".

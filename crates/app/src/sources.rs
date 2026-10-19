@@ -49,6 +49,7 @@ enum Request {
     OpenFolder(u64, Box<Found>),
     Download(u64, Vec<Found>, PathBuf),
     Retry(String),
+    Cancel(String),
     /// The DJ changed the plugin's settings.
     Configure(PluginConfig),
 }
@@ -191,6 +192,12 @@ fn handle(
             }
         }
         Request::Configure(_) => None,
+        Request::Cancel(key) => {
+            if let Err(e) = source.cancel(&key) {
+                eprintln!("can't cancel {key}: {e}");
+            }
+            None
+        }
         Request::Retry(key) => match source.retry(&key) {
             Ok(()) => None,
             Err(e) => Some(Event::Download(
@@ -212,6 +219,8 @@ fn handle(
 struct Search {
     local: u64,
     query: SourceQuery,
+    /// When the DJ added it (Unix milliseconds); the newest is listed first.
+    added: u64,
     items: Vec<Found>,
     done: bool,
     note: String,
@@ -247,6 +256,13 @@ struct Download {
     progress: Progress,
 }
 
+/// Now, in Unix milliseconds.
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
 /// One plugin source: its searches and downloads.
 struct Source {
     /// The plugin's id, as its settings are saved under.
@@ -271,6 +287,7 @@ impl Source {
                     s.query.text.clone(),
                     s.query.kind.name().to_string(),
                     s.query.prefer.name().to_string(),
+                    s.added,
                 )
             })
             .collect();
@@ -357,13 +374,13 @@ impl Sources {
         // Saved searches run again when the app starts.
         for s in 0..me.sources.len() {
             let saved = crate::settings::source_searches(me.sources[s].info.name);
-            for (text, kind, prefer) in saved {
+            for (text, kind, prefer, added) in saved {
                 let query = SourceQuery {
                     text,
                     kind: QueryKind::from_name(&kind),
                     prefer: Prefer::from_name(&prefer),
                 };
-                me.start(s, query);
+                me.start(s, query, added);
             }
         }
         let ui = app.global::<SourceUi>();
@@ -400,6 +417,8 @@ impl Sources {
         let w = with.clone();
         ui.on_remove_search(move |i| w(Box::new(move |s| s.remove(i))));
         let w = with.clone();
+        ui.on_clear_searches(move || w(Box::new(|s| s.clear_searches())));
+        let w = with.clone();
         ui.on_search_again(move |i| w(Box::new(move |s| s.again(i))));
         let w = with.clone();
         ui.on_check(move |row, shift| w(Box::new(move |s| s.check(row as usize, shift))));
@@ -407,6 +426,14 @@ impl Sources {
         ui.on_toggle_open(move |row| w(Box::new(move |s| s.toggle_open(row as usize))));
         let w = with.clone();
         ui.on_download(move |row| w(Box::new(move |s| s.download_row(row as usize))));
+        let w = with.clone();
+        ui.on_remove_download(move |row| w(Box::new(move |s| s.remove_download(row as usize))));
+        let w = with.clone();
+        ui.on_retry_failed(move || w(Box::new(|s| s.retry_failed())));
+        let w = with.clone();
+        ui.on_clear_finished(move || w(Box::new(|s| s.clear_finished())));
+        let w = with.clone();
+        ui.on_cancel_downloads(move || w(Box::new(|s| s.cancel_downloads())));
         let w = with.clone();
         ui.on_download_selected(move || w(Box::new(|s| s.download_selected())));
         let w = with.clone();
@@ -506,7 +533,9 @@ impl Sources {
                 .filter(|&s| s < self.sources.len());
             if shown != self.shown {
                 self.shown = shown;
-                self.search = shown.and_then(|s| self.sources[s].searches.len().checked_sub(1));
+                self.search = shown
+                    .filter(|&s| !self.sources[s].searches.is_empty())
+                    .map(|_| 0);
                 self.checked.clear();
                 changed = true;
             }
@@ -525,21 +554,30 @@ impl Sources {
             .find(|x| x.local == local)
     }
 
-    fn start(&mut self, s: usize, query: SourceQuery) {
+    /// Starts a search and lists it by when it was added, newest first;
+    /// returns its place in the list.
+    fn start(&mut self, s: usize, query: SourceQuery, added: u64) -> usize {
         self.next_local += 1;
         let local = self.next_local;
         let _ = self.sources[s]
             .requests
             .send(Request::Start(local, query.clone()));
-        self.sources[s].searches.push(Search {
-            local,
-            query,
-            items: Vec::new(),
-            done: false,
-            note: String::new(),
-            error: None,
-            open: HashSet::new(),
-        });
+        let searches = &mut self.sources[s].searches;
+        let at = place(searches, added);
+        searches.insert(
+            at,
+            Search {
+                local,
+                query,
+                added,
+                items: Vec::new(),
+                done: false,
+                note: String::new(),
+                error: None,
+                open: HashSet::new(),
+            },
+        );
+        at
     }
 
     fn describe(&mut self, query: &SourceQuery) {
@@ -561,9 +599,9 @@ impl Sources {
         if query.text.trim().is_empty() {
             return;
         }
-        self.start(s, query);
+        let at = self.start(s, query, now());
         self.sources[s].save();
-        self.search = Some(self.sources[s].searches.len() - 1);
+        self.search = Some(at);
         self.checked.clear();
         self.refresh();
     }
@@ -588,10 +626,23 @@ impl Sources {
         let _ = source.requests.send(Request::Stop(gone.local));
         source.save();
         self.search = match self.search {
-            Some(x) if x == i => source.searches.len().checked_sub(1),
+            Some(x) if x == i => (!source.searches.is_empty()).then_some(0),
             Some(x) if x > i => Some(x - 1),
             other => other,
         };
+        self.refresh();
+    }
+
+    /// Removes every search of the source shown. Downloads stay.
+    fn clear_searches(&mut self) {
+        let Some(s) = self.shown else { return };
+        let source = &mut self.sources[s];
+        for gone in source.searches.drain(..) {
+            let _ = source.requests.send(Request::Stop(gone.local));
+        }
+        source.save();
+        self.search = None;
+        self.checked.clear();
         self.refresh();
     }
 
@@ -689,6 +740,54 @@ impl Sources {
             Some(_) => {}
             None => self.download_keys(vec![key]),
         }
+    }
+
+    /// Takes a row off the Downloads list, stopping it if it's still going.
+    /// Files already downloaded stay.
+    fn remove_download(&mut self, row: usize) {
+        let (Some(s), Some(Row::Download(d))) = (self.shown, self.rows.get(row).cloned()) else {
+            return;
+        };
+        let source = &mut self.sources[s];
+        if d >= source.downloads.len() {
+            return;
+        }
+        let gone = source.downloads.remove(d);
+        if is_active(&gone.progress) {
+            let _ = source.requests.send(Request::Cancel(gone.key));
+        }
+        self.refresh();
+    }
+
+    /// Tries every failed download of the source shown again.
+    fn retry_failed(&mut self) {
+        let Some(s) = self.shown else { return };
+        let source = &mut self.sources[s];
+        for d in &mut source.downloads {
+            if matches!(d.progress, Progress::Failed(_)) {
+                d.progress = Progress::Queued;
+                let _ = source.requests.send(Request::Retry(d.key.clone()));
+            }
+        }
+        self.refresh();
+    }
+
+    /// Takes finished and failed downloads off the list.
+    fn clear_finished(&mut self) {
+        let Some(s) = self.shown else { return };
+        self.sources[s].downloads.retain(|d| is_active(&d.progress));
+        self.refresh();
+    }
+
+    /// Stops every download still going, and takes them off the list.
+    fn cancel_downloads(&mut self) {
+        let Some(s) = self.shown else { return };
+        let source = &mut self.sources[s];
+        for d in source.downloads.iter().filter(|d| is_active(&d.progress)) {
+            let _ = source.requests.send(Request::Cancel(d.key.clone()));
+        }
+        source.downloads.retain(|d| !is_active(&d.progress));
+        self.refresh();
     }
 
     /// Ticks the first (best) copy found for each song of a playlist.
@@ -809,9 +908,12 @@ impl Sources {
         ui.set_lossless_only(self.lossless_only);
         let count =
             |f: fn(&Progress) -> bool| source.downloads.iter().filter(|d| f(&d.progress)).count();
-        let active = count(|p| matches!(p, Progress::Queued | Progress::Running(_)));
+        let active = count(is_active);
         let done = count(|p| matches!(p, Progress::Done(_)));
         let failed = count(|p| matches!(p, Progress::Failed(_)));
+        ui.set_active_count(active as i32);
+        ui.set_finished_count((done + failed) as i32);
+        ui.set_failed_count(failed as i32);
         ui.set_downloads_line(
             match (active, failed) {
                 (0, 0) if done == 0 => String::new(),
@@ -992,6 +1094,20 @@ impl Sources {
     }
 }
 
+/// Where a search added at `added` goes in a list kept newest first: after
+/// any added at the same time, so a list read back keeps its order.
+fn place(searches: &[Search], added: u64) -> usize {
+    searches
+        .iter()
+        .position(|x| x.added < added)
+        .unwrap_or(searches.len())
+}
+
+/// Queued or running.
+fn is_active(p: &Progress) -> bool {
+    matches!(p, Progress::Queued | Progress::Running(_))
+}
+
 fn query(text: &str, kind: i32, prefer: i32) -> SourceQuery {
     SourceQuery {
         text: text.trim().to_string(),
@@ -1131,12 +1247,28 @@ mod tests {
         Search {
             local: 1,
             query: SourceQuery::default(),
+            added: 0,
             items,
             done,
             note: String::new(),
             error: None,
             open: HashSet::new(),
         }
+    }
+
+    #[test]
+    fn newest_searches_first() {
+        let list: Vec<Search> = [30, 20, 20, 10]
+            .into_iter()
+            .map(|added| Search {
+                added,
+                ..search(vec![], true)
+            })
+            .collect();
+        assert_eq!(place(&list, 40), 0);
+        assert_eq!(place(&list, 20), 3);
+        assert_eq!(place(&list, 5), 4);
+        assert_eq!(place(&[], 5), 0);
     }
 
     #[test]
