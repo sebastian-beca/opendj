@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use mixxx_control::{ControlHandle, ControlRegistry};
 
@@ -30,9 +30,16 @@ pub struct Controller {
     /// The first half of a 14-bit pair, waiting for the second.
     fourteen_bit: Vec<(Input, u8)>,
     outputs: Vec<OutputState>,
-    /// `OPENDJ_MIDI_DEBUG` set: log incoming messages.
+    /// When to send every LED again. Some controllers (the DDJ-FLX4) ignore
+    /// what arrives while they are still starting up, so the states sent
+    /// with `init` are repeated once they're ready.
+    resend_at: Option<Instant>,
+    /// `OPENDJ_MIDI_DEBUG` set: log messages both ways.
     debug: bool,
 }
+
+/// How long after loading a mapping its LEDs are sent again.
+const RESEND_AFTER: Duration = Duration::from_millis(1500);
 
 /// Mixxx's `computeValue`: applies a binding's options to a 7-bit value.
 fn compute_value(options: Options, prev: f64, value: f64) -> f64 {
@@ -154,6 +161,7 @@ impl Controller {
             prefixes,
             fourteen_bit: Vec::new(),
             outputs,
+            resend_at: Some(Instant::now() + RESEND_AFTER),
             debug: std::env::var_os("OPENDJ_MIDI_DEBUG").is_some(),
         };
         let id = serde_str(&c.name);
@@ -282,6 +290,13 @@ impl Controller {
                 self.script.fire_connection(id, value);
             }
         }
+        if self.resend_at.is_some_and(|t| now >= t) {
+            self.resend_at = None;
+            for o in &mut self.outputs {
+                o.version = None;
+                o.last = None;
+            }
+        }
         let mut h = self.host.borrow_mut();
         for o in &mut self.outputs {
             let v = o.control.version();
@@ -308,12 +323,21 @@ impl Controller {
     }
 
     pub fn next_deadline(&self) -> Option<Instant> {
-        self.host.borrow().next_deadline()
+        match (self.host.borrow().next_deadline(), self.resend_at) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     /// MIDI messages to send to the device, oldest first.
     pub fn take_output(&mut self) -> Vec<Vec<u8>> {
-        std::mem::take(&mut self.host.borrow_mut().sent)
+        let out = std::mem::take(&mut self.host.borrow_mut().sent);
+        if self.debug {
+            for m in &out {
+                eprintln!("{} <- {m:02X?}", self.name);
+            }
+        }
+        out
     }
 
     /// Calls the scripts' `shutdown` functions (they usually turn LEDs off).

@@ -77,6 +77,26 @@
                     <Normal/>
                 </options>
             </control>
+            <control>
+                <description>LOAD (DECK1) +SHIFT - press - Show the tracks linked to the selected one (openDJ)</description>
+                <group>[Library]</group>
+                <key>ShowLinked</key>
+                <status>0x96</status>
+                <midino>0x58</midino>
+                <options>
+                    <Normal/>
+                </options>
+            </control>
+            <control>
+                <description>LOAD (DECK2) +SHIFT - press - VIEW: switch between the Pro and Player layouts (openDJ)</description>
+                <group>[Skin]</group>
+                <key>layout</key>
+                <status>0x96</status>
+                <midino>0x59</midino>
+                <options>
+                    <Normal/>
+                </options>
+            </control>
             <!-- BROWSER Section END -->
 
             <!--
@@ -896,6 +916,49 @@
                 <midino>0x54</midino>
                 <options>
                     <normal/>
+                </options>
+            </control>
+
+            <!-- openDJ: MASTER LEVEL and HEADPHONES LEVEL, on the numbers Pioneer's
+                 DDJ-400 and DDJ-SB3 use for them, so the knobs on screen follow. -->
+            <control>
+                <description>MASTER LEVEL - rotate - Main gain</description>
+                <group>[Master]</group>
+                <key>gain</key>
+                <status>0xB6</status>
+                <midino>0x08</midino>
+                <options>
+                    <fourteen-bit-msb/>
+                </options>
+            </control>
+            <control>
+                <description>MASTER LEVEL - rotate - Main gain</description>
+                <group>[Master]</group>
+                <key>gain</key>
+                <status>0xB6</status>
+                <midino>0x28</midino>
+                <options>
+                    <fourteen-bit-lsb/>
+                </options>
+            </control>
+            <control>
+                <description>HEADPHONES LEVEL - rotate - Headphone gain</description>
+                <group>[Master]</group>
+                <key>headGain</key>
+                <status>0xB6</status>
+                <midino>0x0D</midino>
+                <options>
+                    <fourteen-bit-msb/>
+                </options>
+            </control>
+            <control>
+                <description>HEADPHONES LEVEL - rotate - Headphone gain</description>
+                <group>[Master]</group>
+                <key>headGain</key>
+                <status>0xB6</status>
+                <midino>0x2D</midino>
+                <options>
+                    <fourteen-bit-lsb/>
                 </options>
             </control>
 

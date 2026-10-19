@@ -196,7 +196,16 @@ impl Deck {
     }
 
     fn speed(&self) -> f64 {
-        1.0 + self.c.rate.get() * self.c.rate_range.get()
+        1.0 + self.c.rate.get() * self.c.rate_range.get() * self.rate_dir()
+    }
+
+    /// -1 or 1; see `rate_dir`.
+    fn rate_dir(&self) -> f64 {
+        if self.c.rate_dir.get() < 0.0 {
+            -1.0
+        } else {
+            1.0
+        }
     }
 
     /// Normal playing speed, including temporary rate changes while held.
@@ -495,6 +504,7 @@ impl Deck {
                 }
                 Action::RateStep(step) => {
                     let range = self.c.rate_range.get();
+                    let step = step * self.rate_dir();
                     self.c.rate.set(self.c.rate.get() + step / range);
                 }
                 Action::Start(play) => {
@@ -608,8 +618,9 @@ impl Deck {
             return self.scrub_velocity(dt);
         }
         if self.c.scratch2_enable.get_bool() {
-            self.jog_pending = 0.0;
-            return self.c.scratch2.get();
+            // Jog still counts while the wheel is touched: mappings such as
+            // the DDJ-FLX4's send SHIFT + turn as fast `jog` steps.
+            return self.c.scratch2.get() + self.jog_step(dt);
         }
         let search = self.c.rate_search.get();
         if search != 0.0 {
@@ -624,12 +635,17 @@ impl Deck {
             v = -v;
         }
         // A jog movement bends the speed while playing and scrubs while stopped.
+        v + self.jog_step(dt)
+    }
+
+    /// The speed that moves on a share of the pending jog this buffer.
+    fn jog_step(&mut self, dt: f64) -> f64 {
         let moved = self.jog_pending * (dt / JOG_SPREAD).min(1.0);
         self.jog_pending -= moved;
         if self.jog_pending.abs() < 1e-7 {
             self.jog_pending = 0.0;
         }
-        v + moved / dt
+        moved / dt
     }
 }
 
@@ -780,6 +796,8 @@ pub struct Engine {
     master_gain: f32,
     balance: f32,
     xfade: [f32; NUM_DECKS],
+    /// Seconds played, for blinking indicators.
+    clock: f64,
     limiter: Limiter,
     visual: Arc<VisualPositions>,
     link: Link,
@@ -872,6 +890,7 @@ impl Engine {
                 master_gain: 1.0,
                 balance: 0.0,
                 xfade: [1.0; NUM_DECKS],
+                clock: 0.0,
                 limiter: Limiter::new(sample_rate, LIMIT_CEILING),
             },
             EngineInput {
@@ -1048,10 +1067,20 @@ impl Engine {
             }
             // Tempos where each deck is, so a deck whose tempo drifts keeps
             // the other in step all the way through.
-            let target = self.decks[other].effective_bpm();
-            let range = self.decks[i].c.rate_range.get();
             let here = mine.bpm_at(self.decks[i].seconds());
-            self.decks[i].c.rate.set((target / here - 1.0) / range);
+            // Half or double the other tempo when that is closer, as other
+            // DJ software does: 153 BPM syncs to 160 against 80.
+            let theirs = self.decks[other].effective_bpm();
+            let target = [theirs, theirs * 2.0, theirs / 2.0]
+                .into_iter()
+                .min_by(|a, b| (a / here).ln().abs().total_cmp(&(b / here).ln().abs()))
+                .unwrap_or(theirs);
+            let range = self.decks[i].c.rate_range.get();
+            let dir = self.decks[i].rate_dir();
+            self.decks[i]
+                .c
+                .rate
+                .set((target / here - 1.0) / range * dir);
             if just_synced || once {
                 let other_phase = self.decks[other].beat_phase();
                 let d = &mut self.decks[i];
@@ -1455,6 +1484,10 @@ impl Engine {
         self.fx.finish();
 
         // Remember where the ramps ended, and publish positions and meters.
+        self.clock += dt;
+        // On for half a second, off for half a second, as Mixxx blinks
+        // play and cue on controllers.
+        let blink = self.clock.rem_euclid(1.0) < 0.5;
         for (i, d) in self.decks.iter_mut().enumerate() {
             let p = &plans[i];
             d.eq_gains = p.eq_to;
@@ -1466,7 +1499,10 @@ impl Engine {
             if ended[i] {
                 d.c.play.set_bool(false);
             }
-            d.c.play_indicator.set_bool(d.c.play.get_bool());
+            // Paused with a track: play blinks, as on Pioneer players.
+            let paused = !d.c.play.get_bool() && d.track.is_some();
+            d.c.play_indicator
+                .set_bool(d.c.play.get_bool() || (paused && blink));
             d.peak_hold = if deck_peak[i].iter().any(|&p| p > 1.0) {
                 PEAK_HOLD
             } else {
@@ -1489,8 +1525,11 @@ impl Engine {
             }
             self.visual.publish(i, d.seconds(), d.velocity, buffer_end);
             let at_cue = (d.seconds() - d.c.cue_point.get()).abs() < 0.01;
+            // Lit while held or paused at the cue point; paused anywhere
+            // else it blinks, since pressing it there sets a new cue point.
+            let playing = d.c.play.get_bool();
             d.c.cue_indicator
-                .set_bool((!d.c.play.get_bool() && at_cue) || d.c.cue_default.get_bool());
+                .set_bool((!playing && (at_cue || blink)) || d.c.cue_default.get_bool());
             let phase = track.beat_at(d.seconds()).rem_euclid(1.0);
             d.c.beat_active.set_bool(p.moving && phase < 0.15);
             for ((vu, peak), control) in d.vu.iter_mut().zip(deck_peak[i]).zip(&d.c.vu_lr) {
@@ -1815,6 +1854,28 @@ mod tests {
     }
 
     #[test]
+    fn rate_dir_sets_which_way_the_tempo_fader_goes() {
+        let (reg, mut engine, mut input) = setup();
+        let c = |k: &str| reg.get("[Channel1]", k).unwrap();
+        load(&mut input, 0, tone_track(440.0, "Am"));
+        run(&mut engine, 0.05);
+        // Pioneer's way: the fader at the top (+1) slows the deck by the range.
+        c("rate_dir").set(-1.0);
+        c("rate").set(1.0);
+        c("play").set_bool(true);
+        let from = c("playposition").get() * c("duration").get();
+        run(&mut engine, 1.0);
+        let moved = c("playposition").get() * c("duration").get() - from;
+        assert!((moved - 0.92).abs() < 0.02, "{moved}");
+        // "+" still speeds up: the fader moves down.
+        c("rate").set(0.0);
+        c("rate_perm_up").set_bool(true);
+        run(&mut engine, 0.02);
+        c("rate_perm_up").set_bool(false);
+        assert!(c("rate").get() < 0.0);
+    }
+
+    #[test]
     fn key_lock_and_key_shift() {
         let (reg, mut engine, mut input) = setup();
         let c = |k: &str| reg.get("[Channel1]", k).unwrap();
@@ -1960,6 +2021,20 @@ mod tests {
         };
         let diff = (phase(0) - phase(1)).rem_euclid(1.0);
         assert!(diff.min(1.0 - diff) < 0.01, "{} vs {}", phase(0), phase(1));
+    }
+
+    #[test]
+    fn sync_matches_double_tempo_when_closer() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(80.0, 10.0));
+        load(&mut input, 1, short_track(153.0, 10.0));
+        run(&mut engine, 0.02);
+        reg.get("[Channel2]", "sync_enabled")
+            .unwrap()
+            .set_bool(true);
+        run(&mut engine, 0.02);
+        let bpm2 = reg.get("[Channel2]", "bpm").unwrap().get();
+        assert!((bpm2 - 160.0).abs() < 0.01, "{bpm2}");
     }
 
     #[test]

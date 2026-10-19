@@ -194,15 +194,16 @@ PioneerDDJFLX4.loopAdjustOut = [false, false];
 PioneerDDJFLX4.loopAdjustMultiply = 50;
 
 // Beatjump pad (beatjump_size values)
+// openDJ: 4, 8, 16 and 32 beats back and forward, as on the deck's screen.
 PioneerDDJFLX4.beatjumpSizeForPad = {
-    0x20: -1, // PAD 1
-    0x21: 1,  // PAD 2
-    0x22: -2, // PAD 3
-    0x23: 2,  // PAD 4
-    0x24: -4, // PAD 5
-    0x25: 4,  // PAD 6
-    0x26: -8, // PAD 7
-    0x27: 8   // PAD 8
+    0x20: -4,  // PAD 1
+    0x21: 4,   // PAD 2
+    0x22: -8,  // PAD 3
+    0x23: 8,   // PAD 4
+    0x24: -16, // PAD 5
+    0x25: 16,  // PAD 6
+    0x26: -32, // PAD 7
+    0x27: 32   // PAD 8
 };
 
 // Stems (KEYBOARD) pads mode status for deck 1 and 2, without or with SHIFT pressed
@@ -283,6 +284,10 @@ PioneerDDJFLX4.init = function() {
 
     PioneerDDJFLX4.setLoopButtonLights(0x90, 0x7F);
     PioneerDDJFLX4.setLoopButtonLights(0x91, 0x7F);
+
+    // openDJ: the controller starts in HOT CUE mode; light its button.
+    PioneerDDJFLX4.toggleLight(PioneerDDJFLX4.lights.deck1.hotcueMode, true);
+    PioneerDDJFLX4.toggleLight(PioneerDDJFLX4.lights.deck2.hotcueMode, true);
 
     engine.makeConnection("[Channel1]", "loop_enabled", PioneerDDJFLX4.loopToggle);
     engine.makeConnection("[Channel2]", "loop_enabled", PioneerDDJFLX4.loopToggle);
@@ -560,11 +565,11 @@ PioneerDDJFLX4.cueLoopCallRight = function(_channel, _control, value, _status, g
 // press of the same button.
 //
 
+// openDJ: a press turns sync on, as the SYNC button on screen does, and
+// another turns it off.
 PioneerDDJFLX4.syncPressed = function(channel, control, value, status, group) {
-    if (engine.getValue(group, "sync_enabled") && value > 0) {
-        engine.setValue(group, "sync_enabled", 0);
-    } else {
-        engine.setValue(group, "beatsync", value);
+    if (value > 0) {
+        script.toggleControl(group, "sync_enabled");
     }
 };
 
@@ -741,8 +746,36 @@ PioneerDDJFLX4.samplerPlayOutputCallbackFunction = function(value, group, _contr
     }
 };
 
+// openDJ: the pad panel each pad mode button opens on the deck's screen
+// (see the deck's `pad_panel` control). Modes openDJ has no panel for are left out.
+PioneerDDJFLX4.padPanelForMode = {
+    0x1B: 0, // HOT CUE: hot cues
+    0x69: 4, // KEYBOARD (SHIFT + HOT CUE): stems, as this mapping uses it
+    0x1E: 1, // PAD FX1: pad FX
+    0x6B: 1, // PAD FX2: pad FX
+    0x20: 2, // BEAT JUMP: beat jump
+    0x22: 3, // SAMPLER: sampler
+};
+
+// openDJ: turns off a deck's pad mode button lights.
+PioneerDDJFLX4.padModeLightsOff = function(deck) {
+    ["hotcueMode", "keyboardMode", "padFX1Mode", "padFX2Mode", "beatJumpMode",
+        "beatLoopMode", "samplerMode", "keyShiftMode"].forEach(function(mode) {
+        PioneerDDJFLX4.toggleLight(deck[mode], false);
+    });
+};
+
 PioneerDDJFLX4.padModeKeyPressed = function(_channel, _control, value, _status, _group) {
     const deck = (_status === 0x90 ? PioneerDDJFLX4.lights.deck1 : PioneerDDJFLX4.lights.deck2);
+
+    if (value && _control in PioneerDDJFLX4.padPanelForMode) {
+        engine.setValue(_status === 0x90 ? "[Channel1]" : "[Channel2]", "pad_panel",
+            PioneerDDJFLX4.padPanelForMode[_control]);
+    }
+    // openDJ: only the chosen mode stays lit.
+    if (value) {
+        PioneerDDJFLX4.padModeLightsOff(deck);
+    }
 
     if (_control === 0x1B) {
         PioneerDDJFLX4.toggleLight(deck.hotcueMode, true);

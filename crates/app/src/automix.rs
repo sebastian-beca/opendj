@@ -78,6 +78,7 @@ struct DeckHandles {
     volume: ControlHandle,
     rate: ControlHandle,
     rate_range: ControlHandle,
+    rate_dir: ControlHandle,
     beatsync: ControlHandle,
     eq_low: ControlHandle,
     filter: ControlHandle,
@@ -96,6 +97,7 @@ impl DeckHandles {
             volume: get(&g, "volume"),
             rate: get(&g, "rate"),
             rate_range: get(&g, "rateRange"),
+            rate_dir: get(&g, "rate_dir"),
             beatsync: get(&g, "beatsync"),
             eq_low: get(&eq_group(deck), "parameter1"),
             filter: get(&quick_effect_group(deck), "super1"),
@@ -103,7 +105,7 @@ impl DeckHandles {
     }
 
     fn speed(&self) -> f64 {
-        1.0 + self.rate.get() * self.rate_range.get()
+        crate::speed(&self.rate, &self.rate_range, &self.rate_dir)
     }
 }
 
