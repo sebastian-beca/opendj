@@ -11,7 +11,8 @@ use std::sync::Arc;
 use mixxx_control::ControlRegistry;
 use mixxx_controllers::{Controllers, MappingChoice, Port};
 use mixxx_engine::{
-    analysis, cache, deck_group, RecordFormat, Recorder, DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS,
+    analysis, cache, deck_group, RecordFormat, Recorder, BUFFER_SIZES, DEFAULT_AUTO_GAIN_TARGET,
+    NUM_DECKS, SAMPLE_RATES,
 };
 use mixxx_plugins::{Plugin, SettingKind};
 use serde_json::json;
@@ -152,6 +153,8 @@ pub struct Prefs {
     plugins: Vec<Box<dyn Plugin>>,
     /// Tells the rest of the app a plugin's settings changed, by its id.
     plugin_changed: Box<dyn Fn(&str)>,
+    /// Opens the outputs again with the saved audio settings.
+    audio_changed: Box<dyn Fn()>,
 }
 
 impl Prefs {
@@ -162,6 +165,7 @@ impl Prefs {
         recorder: Recorder,
         rescan: Box<dyn Fn()>,
         plugin_changed: Box<dyn Fn(&str)>,
+        audio_changed: Box<dyn Fn()>,
     ) -> Rc<RefCell<Prefs>> {
         let (chosen_tx, chosen_rx) = mpsc::channel();
         let plugins: Vec<Box<dyn Plugin>> = crate::stores::configured()
@@ -189,6 +193,7 @@ impl Prefs {
             ports: Vec::new(),
             plugins,
             plugin_changed,
+            audio_changed,
         }));
         let p = prefs.clone();
         g.on_changed(move || p.borrow_mut().shown());
@@ -285,6 +290,8 @@ impl Prefs {
                     "Headphones and booth",
                     "Cue mix blends the cue with the master in the headphones.",
                 ),
+                self.sample_rate_item(),
+                self.buffer_item(),
                 item("recording", HEADING, "RECORDING", ""),
                 {
                     let r = settings::recording();
@@ -511,6 +518,65 @@ impl Prefs {
         }
     }
 
+    /// The rate the engine runs at now.
+    fn running_rate(&self) -> f64 {
+        self.registry
+            .get("[App]", "samplerate")
+            .map_or(44_100.0, |c| c.get())
+    }
+
+    fn sample_rate_item(&self) -> PrefItem {
+        let running = self.running_rate();
+        let chosen = settings::audio_setup().sample_rate;
+        let mut names = vec!["Device default".to_string()];
+        names.extend(
+            SAMPLE_RATES
+                .iter()
+                .map(|&r| format!("{} kHz", r as f64 / 1000.0)),
+        );
+        let detail = match chosen {
+            Some(r) if r as f64 != running => format!(
+                "Runs at {} kHz now; {} kHz from the next start, if the device plays it.",
+                running / 1000.0,
+                r as f64 / 1000.0
+            ),
+            _ => format!(
+                "Runs at {} kHz now. A change applies the next time openDJ starts.",
+                running / 1000.0
+            ),
+        };
+        PrefItem {
+            choices: strings(&names),
+            chosen: chosen
+                .and_then(|r| SAMPLE_RATES.iter().position(|&x| x == r))
+                .map_or(0, |i| i + 1) as i32,
+            ..item("sample_rate", MENU, "Sample rate", &detail)
+        }
+    }
+
+    fn buffer_item(&self) -> PrefItem {
+        let running = self.running_rate();
+        let mut names = vec!["Device default".to_string()];
+        names.extend(
+            BUFFER_SIZES
+                .iter()
+                .map(|&n| format!("{n} samples · {:.1} ms", n as f64 / running * 1000.0)),
+        );
+        let chosen = settings::audio_setup().buffer_frames;
+        PrefItem {
+            choices: strings(&names),
+            chosen: chosen
+                .and_then(|n| BUFFER_SIZES.iter().position(|&x| x == n))
+                .map_or(0, |i| i + 1) as i32,
+            ..item(
+                "buffer_frames",
+                MENU,
+                "Buffer size",
+                "Smaller reacts faster to the controls; larger is safer from dropouts on a busy computer.",
+            )
+        }
+    }
+
     fn controllers_page(&mut self) -> Vec<PrefItem> {
         let Some(c) = &self.controllers else {
             return vec![item(
@@ -713,6 +779,19 @@ impl Prefs {
             "xfader_shape" => {
                 settings::set("xfader_shape", json!(index));
                 self.set("[Mixer Profile]", "xFaderShape", index as f64);
+            }
+            // The first choice, Device default, clears the setting.
+            "sample_rate" => {
+                let rate = index.checked_sub(1).and_then(|i| SAMPLE_RATES.get(i));
+                settings::set("sample_rate", json!(rate));
+            }
+            "buffer_frames" => {
+                let frames = index.checked_sub(1).and_then(|i| BUFFER_SIZES.get(i));
+                settings::set("buffer_frames", json!(frames));
+                (self.audio_changed)();
+                if let Some(app) = self.app.upgrade() {
+                    app.global::<AudioSettings>().invoke_refresh();
+                }
             }
             _ => return,
         }
