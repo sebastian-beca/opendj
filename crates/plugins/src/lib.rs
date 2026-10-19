@@ -18,6 +18,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+pub use mixxx_engine::import::{ImportedLibrary, ListGroup};
+
 pub mod bandcamp;
 pub mod inbox;
 pub mod links;
@@ -238,15 +240,35 @@ pub trait InboxHint {
 }
 
 /// Another app's library that comes into the collection at start: its
-/// tracks with their tags, ratings, colours, grids and cues. An add-on;
-/// none come with the app.
+/// tracks with their tags, ratings, colours, grids and cues, and the
+/// playlists, folders and history it keeps. An add-on; none come with the
+/// app.
 pub trait LibraryImport: Send {
     /// A short, stable name, kept as the source of the tracks it brings in.
     fn id(&self) -> &str;
+    /// The app's name, for the DJ: the folder its lists go in, and its
+    /// heading in Settings > Library.
+    fn title(&self) -> &str;
     /// The library file to read, if there is one on this computer.
     fn database(&self) -> Option<PathBuf>;
-    /// Reads the tracks in `database`, local files only.
-    fn read(&self, database: &Path) -> Result<Vec<mixxx_engine::Track>, String>;
+    /// The kinds of lists it can bring in, each of which the DJ can turn
+    /// on or off.
+    fn list_groups(&self) -> Vec<ListGroup> {
+        Vec::new()
+    }
+    /// Changes whenever the library (or anything else `read` looks at) has:
+    /// by default, the database's modification time.
+    fn stamp(&self, database: &Path) -> String {
+        let modified = std::fs::metadata(database)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_secs());
+        format!("{}:{modified}", database.display())
+    }
+    /// Reads the tracks in `database` (local files only), and the lists in
+    /// `groups` (ids from [`LibraryImport::list_groups`]).
+    fn read(&self, database: &Path, groups: &[&str]) -> Result<ImportedLibrary, String>;
 }
 
 /// The plugins that come with the app: Bandcamp, then the stores we link to.

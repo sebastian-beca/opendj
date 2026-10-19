@@ -165,6 +165,19 @@ export component Jog inherits Rectangle {
     property <int> last-cue: Controls.value(Controls.resolve(group, "hotcue_focus"), Controls.tick);
     property <color> sticker: last-cue >= 1 ? Theme.hotcues[last-cue - 1] : tint;
     property <length> centre: 70px * scale;
+    property <int> jog-index: Controls.resolve(group, "jog");
+    // Scrolling over the jog nudges the track in fine steps: up runs it
+    // forward, down back, playing or paused.
+    TouchArea {
+        scroll-event(e) => {
+            if !info.loaded || e.delta-y == 0 {
+                return reject;
+            }
+            // One jog unit is 10 ms of track, so a pixel of scroll is 1 ms.
+            Controls.set-value(jog-index, Controls.value(jog-index, Controls.tick) + e.delta-y / 1px * 0.1);
+            accept
+        }
+    }
     Rectangle {
         border-radius: self.width / 2;
         background: #0a0a0b;
@@ -881,11 +894,15 @@ component PadCell inherits Rectangle {
 
 // A hot cue: a small play triangle and the cue's time in
 // its colour, or "+" while it isn't set (pressing sets it).
+// Shift + press deletes a set cue, as on controllers.
 component HotcueCell inherits Rectangle {
     in property <string> group;
     in property <int> number;
     in property <color> tint;
     property <int> index: Controls.resolve(group, "hotcue_" + number + "_activate");
+    property <int> clear-index: Controls.resolve(group, "hotcue_" + number + "_clear");
+    // The press under way is deleting the cue rather than playing it.
+    property <bool> clearing;
     property <bool> set: Controls.value(Controls.resolve(group, "hotcue_" + number + "_enabled"), Controls.tick) > 0;
     property <float> seconds: Controls.value(Controls.resolve(group, "hotcue_" + number + "_position"), Controls.tick);
     // A saved loop (hotcue type 4, as in Mixxx) shows a loop instead of a play mark.
@@ -931,9 +948,22 @@ component HotcueCell inherits Rectangle {
                 return;
             }
             if e.kind == PointerEventKind.down {
-                Controls.set-value(index, 1);
+                if e.modifiers.shift {
+                    // An empty pad does nothing, rather than setting a cue.
+                    clearing = true;
+                    if set {
+                        Controls.set-value(clear-index, 1);
+                    }
+                } else {
+                    Controls.set-value(index, 1);
+                }
             } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
-                Controls.set-value(index, 0);
+                if clearing {
+                    clearing = false;
+                    Controls.set-value(clear-index, 0);
+                } else {
+                    Controls.set-value(index, 0);
+                }
             }
         }
     }

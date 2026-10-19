@@ -11,12 +11,71 @@ export { SourceUi, SourceTab, SearchItem, FoundRow, QueueLine } from "sources.sl
 export { TrackInfo, InfoField, CoverChoice } from "info.slint";
 export { Theme, Controls, DeckActions, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, Preferences, PrefItem }
 
-// Scrolling waveform, rendered on the GPU into `source`.
+// A bar line on a scrolling waveform: where it is across the waveform (0 at
+// the left edge, 1 at the right) and its number, from 1.
+export struct BarMark {
+    x: float,
+    number: int,
+}
+
+// Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
+// the track under the pointer, like a hand on a record, and drag left or
+// right to move through it, hearing what passes, to set cues and grids by
+// ear. Letting go carries on as before, playing or paused.
 component Waveform inherits Rectangle {
     in property <image> source;
+    in property <string> group;
+    // Bar numbers, each just right of its bar line at the top.
+    in property <[BarMark]> bars;
+    // Must match the app's VISIBLE_SECONDS: the track seconds the waveform
+    // shows across its width at normal speed.
+    property <float> visible-seconds: 10 * (1 + Controls.value(rate-index, Controls.tick) * Controls.value(range-index, Controls.tick));
+    property <int> rate-index: Controls.resolve(group, "rate");
+    property <int> range-index: Controls.resolve(group, "rateRange");
+    property <int> position-index: Controls.resolve(group, "playposition");
+    property <int> duration-index: Controls.resolve(group, "duration");
+    property <int> scrub-index: Controls.resolve(group, "scrub_position");
+    property <int> scrub-enable-index: Controls.resolve(group, "scrub_enable");
+    property <float> press-position;
+    property <bool> holding;
     background: Theme.well;
     clip: true;
     Image { width: parent.width; height: parent.height; source: source; image-fit: fill; }
+    for bar in bars: Text {
+        x: bar.x * parent.width + 3px;
+        y: 1px;
+        text: bar.number;
+        color: #ffffffd0;
+        font-size: 11px;
+        font-weight: 600;
+    }
+    TouchArea {
+        mouse-cursor: Controls.value(duration-index, Controls.tick) > 0 ? ew-resize : default;
+        pointer-event(e) => {
+            if e.button != PointerEventButton.left {
+                return;
+            }
+            if e.kind == PointerEventKind.down {
+                holding = Controls.value(duration-index, Controls.tick) > 0;
+                if holding {
+                    press-position = Controls.value(position-index, Controls.tick);
+                    Controls.set-value(scrub-index, press-position);
+                    Controls.set-value(scrub-enable-index, 1);
+                }
+            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                if holding {
+                    Controls.set-value(scrub-enable-index, 0);
+                }
+                holding = false;
+            }
+        }
+        moved => {
+            if self.pressed && holding {
+                // Dragging right pulls earlier audio under the playhead.
+                Controls.set-value(scrub-index, clamp(press-position - (self.mouse-x - self.pressed-x) / self.width * visible-seconds / Controls.value(duration-index, Controls.tick), 0, 1));
+            }
+        }
+    }
 }
 
 // An icon button in the footer, lit while its panel is open or expanded.
@@ -177,6 +236,44 @@ component LayoutPill inherits Rectangle {
     }
 }
 
+// Shows or hides the large scrolling waveforms above the decks, lit
+// while they show. Hidden, the room goes to the browser.
+component WaveformsButton inherits Rectangle {
+    in-out property <bool> on;
+    callback changed-to(on: bool);
+    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: on ? Theme.accent : transparent;
+    height: 36px;
+    y: 8px;
+    horizontal-stretch: 0;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 7px;
+        // A small waveform.
+        Path {
+            width: 16px;
+            height: 12px;
+            y: (parent.height - self.height) / 2;
+            viewbox-width: 16;
+            viewbox-height: 12;
+            stroke: on ? Theme.accent : Theme.text-dim;
+            stroke-width: 1.5px;
+            commands: "M 1 5 L 1 7 M 4 3 L 4 9 M 7 0.5 L 7 11.5 M 10 2 L 10 10 M 13 4 L 13 8 M 15.5 5.5 L 15.5 6.5";
+        }
+        Text { text: "WAVEFORMS"; color: on ? Theme.accent : Theme.text-dim; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            on = !on;
+            changed-to(on);
+        }
+    }
+}
+
 component Pill inherits Rectangle {
     background: Theme.panel-raised;
     border-radius: 10px;
@@ -204,6 +301,8 @@ export component AppWindow inherits Window {
     in property <[DeckInfo]> decks: [{}, {}];
     in property <image> waveform-1;
     in property <image> waveform-2;
+    in property <[BarMark]> bars-1;
+    in property <[BarMark]> bars-2;
     in property <image> overview-1;
     in property <image> overview-2;
     in property <angle> spin-1;
@@ -239,6 +338,9 @@ export component AppWindow inherits Window {
     // 0 Pro (the full decks and mixer), 1 Player (a compact row of the basics).
     in-out property <int> layout: 0;
     callback layout-changed(layout: int);
+    // The large scrolling waveforms above the decks, from the top bar button.
+    in-out property <bool> waveforms-visible: true;
+    callback waveforms-visible-changed(on: bool);
 
     // Physical sizes the GPU textures should be rendered at.
     // Room on the left of the top bar for macOS's window buttons.
@@ -373,6 +475,7 @@ export component AppWindow inherits Window {
                     padding-right: 4px;
                     spacing: 10px;
                     LayoutPill { layout <=> root.layout; changed-to(l) => { layout-changed(l); } }
+                    WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
                     LinkButton { }
                     Rectangle { horizontal-stretch: 1; }
                     RecordButton { }
@@ -396,17 +499,17 @@ export component AppWindow inherits Window {
             Rectangle {
                 // Not rounded or clipped: that renders into a cached layer, which
                 // would freeze the GPU-updated waveform images. Folded away while
-                // the library is expanded.
-                height: library-expanded ? 0px : 144px;
-                visible: !library-expanded;
+                // the library is expanded or the top bar button hides them.
+                height: library-expanded || !waveforms-visible ? 0px : 144px;
+                visible: !library-expanded && waveforms-visible;
                 background: Theme.well;
                 // Thin grey lines above, between and below the two waveforms.
                 VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    wf1 := Waveform { source: waveform-1; vertical-stretch: 1; }
+                    wf1 := Waveform { source: waveform-1; group: "[Channel1]"; bars: bars-1; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-2; vertical-stretch: 1; }
+                    Waveform { source: waveform-2; group: "[Channel2]"; bars: bars-2; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
                 }
             }
