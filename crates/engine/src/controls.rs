@@ -34,6 +34,10 @@ pub fn effect_group(unit: usize, effect: usize) -> String {
     format!("[EffectRack1_EffectUnit{}_Effect{}]", unit + 1, effect + 1)
 }
 
+/// hotcue_N_type values, as in Mixxx.
+pub(crate) const HOTCUE_CUE: f64 = 1.0;
+pub(crate) const HOTCUE_LOOP: f64 = 4.0;
+
 pub(crate) struct Hotcue {
     pub(crate) activate: ControlHandle,
     pub(crate) clear: ControlHandle,
@@ -41,6 +45,10 @@ pub(crate) struct Hotcue {
     /// Mixxx 2.4's hotcue_N_status: 0 empty, 1 set, 2 active (held).
     pub(crate) status: ControlHandle,
     pub(crate) position: ControlHandle,
+    /// A saved loop's end, -1 for a plain cue (Mixxx's hotcue_N_endposition).
+    pub(crate) end_position: ControlHandle,
+    /// Mixxx's hotcue_N_type: 0 empty, [`HOTCUE_CUE`] or [`HOTCUE_LOOP`].
+    pub(crate) kind: ControlHandle,
     pub(crate) goto_play: ControlHandle,
     pub(crate) goto_stop: ControlHandle,
     /// Presses of activate, gotoandplay and gotoandstop.
@@ -178,6 +186,15 @@ impl DeckControls {
                 enabled: reg.indicator(g, &format!("hotcue_{n}_enabled"), 1.0),
                 status: reg.indicator(g, &format!("hotcue_{n}_status"), 2.0),
                 position: reg.indicator(g, &format!("hotcue_{n}_position"), 3600.0),
+                end_position: reg.create(
+                    g,
+                    &format!("hotcue_{n}_endposition"),
+                    -1.0,
+                    -1.0,
+                    3600.0,
+                    Behavior::Indicator,
+                ),
+                kind: reg.indicator(g, &format!("hotcue_{n}_type"), 8.0),
                 goto_play: reg.push(g, &format!("hotcue_{n}_gotoandplay")),
                 goto_stop: reg.push(g, &format!("hotcue_{n}_gotoandstop")),
                 edges: [Edge::default(); 3],
@@ -503,31 +520,10 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
         vu: reg.indicator("[Master]", "VuMeter", 1.0),
         peak: ["", "L", "R"].map(|s| reg.indicator("[Master]", &format!("PeakIndicator{s}"), 1.0)),
         crossfader: reg.create("[Master]", "crossfader", 0.0, -1.0, 1.0, Behavior::Linear),
-        gain: reg.create(
-            "[Master]",
-            "gain",
-            1.0,
-            0.0,
-            5.0,
-            Behavior::CenteredOnDefault,
-        ),
-        head_gain: reg.create(
-            "[Master]",
-            "headGain",
-            1.0,
-            0.0,
-            5.0,
-            Behavior::CenteredOnDefault,
-        ),
+        gain: reg.create("[Master]", "gain", 1.0, 0.0, 1.0, Behavior::Linear),
+        head_gain: reg.create("[Master]", "headGain", 1.0, 0.0, 1.0, Behavior::Linear),
         head_mix: reg.create("[Master]", "headMix", 0.0, -1.0, 1.0, Behavior::Linear),
-        booth_gain: reg.create(
-            "[Master]",
-            "booth_gain",
-            1.0,
-            0.0,
-            5.0,
-            Behavior::CenteredOnDefault,
-        ),
+        booth_gain: reg.create("[Master]", "booth_gain", 1.0, 0.0, 1.0, Behavior::Linear),
         head_split: reg.toggle("[Master]", "headSplit"),
         xfader_shape: reg.create(
             "[Mixer Profile]",

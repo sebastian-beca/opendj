@@ -338,9 +338,115 @@ impl Sculpt {
     }
 }
 
+/// A look-ahead peak limiter for the master mix, with both channels linked.
+///
+/// The audio is delayed by the look-ahead, so the gain can come down before
+/// a peak arrives: every sample leaves at or below the ceiling, with no
+/// clipping and no waveshaping distortion. The gain dips smoothly over the
+/// look-ahead and recovers over [`Limiter::RELEASE`].
+pub struct Limiter {
+    ceiling: f32,
+    /// The gain each of the last `look` samples needs, for the minimum.
+    needed: Vec<f32>,
+    /// The released gain of the last `look` samples, averaged for the output.
+    released: Vec<f32>,
+    sum: f64,
+    /// The input, `look - 1` samples back.
+    delay: Vec<[f32; 2]>,
+    at: usize,
+    delay_at: usize,
+    gain: f32,
+    release: f32,
+}
+
+impl Limiter {
+    /// How far ahead the limiter looks, in seconds.
+    pub const LOOK_AHEAD: f64 = 0.0015;
+    /// Time constant for the gain to recover after a peak, in seconds.
+    pub const RELEASE: f64 = 0.08;
+
+    pub fn new(sample_rate: f64, ceiling: f32) -> Self {
+        let look = ((Self::LOOK_AHEAD * sample_rate).round() as usize).max(2);
+        Self {
+            ceiling,
+            needed: vec![1.0; look],
+            released: vec![1.0; look],
+            sum: look as f64,
+            delay: vec![[0.0; 2]; look - 1],
+            at: 0,
+            delay_at: 0,
+            gain: 1.0,
+            release: (1.0 - (-1.0 / (Self::RELEASE * sample_rate)).exp()) as f32,
+        }
+    }
+
+    /// The gain applied to the sample leaving now, 1 when nothing is limited.
+    pub fn gain(&self) -> f32 {
+        (self.sum / self.released.len() as f64) as f32
+    }
+
+    pub fn process(&mut self, x: [f32; 2]) -> [f32; 2] {
+        let peak = x[0].abs().max(x[1].abs());
+        self.needed[self.at] = if peak > self.ceiling {
+            self.ceiling / peak
+        } else {
+            1.0
+        };
+        let held = self.needed.iter().copied().fold(1.0f32, f32::min);
+        // Down at once, back up slowly.
+        self.gain = if held < self.gain {
+            held
+        } else {
+            self.gain + (held - self.gain) * self.release
+        };
+        self.sum += (self.gain - self.released[self.at]) as f64;
+        self.released[self.at] = self.gain;
+        self.at = (self.at + 1) % self.needed.len();
+        if self.at == 0 {
+            // Keep the running sum from drifting.
+            self.sum = self.released.iter().map(|&g| g as f64).sum();
+        }
+        let out = std::mem::replace(&mut self.delay[self.delay_at], x);
+        self.delay_at = (self.delay_at + 1) % self.delay.len();
+        let g = self.gain();
+        // The average can sit a rounding error above the gain needed.
+        out.map(|v| (v * g).clamp(-self.ceiling, self.ceiling))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn limiter_holds_peaks_under_the_ceiling_and_leaves_quiet_audio_alone() {
+        const SR: f64 = 48_000.0;
+        let ceiling = 0.944;
+        let mut lim = Limiter::new(SR, ceiling);
+        let look = (Limiter::LOOK_AHEAD * SR).round() as usize;
+        let tone = |i: usize, amp: f32| {
+            let v = amp * (2.0 * PI * 220.0 * i as f64 / SR).sin() as f32;
+            [v, -v]
+        };
+        // Quiet audio passes unchanged, only delayed.
+        let quiet: Vec<[f32; 2]> = (0..4800).map(|i| tone(i, 0.5)).collect();
+        let out: Vec<[f32; 2]> = quiet.iter().map(|&x| lim.process(x)).collect();
+        for i in look..out.len() {
+            assert!((out[i][0] - quiet[i + 1 - look][0]).abs() < 1e-6);
+        }
+        // A burst at +6 dB over full scale comes out at the ceiling at most.
+        let mut max = 0.0f32;
+        for i in 0..9600 {
+            let y = lim.process(tone(i, 2.0));
+            max = max.max(y[0].abs()).max(y[1].abs());
+        }
+        assert!(max <= ceiling + 1e-6 && max > ceiling * 0.95, "{max}");
+        // And the gain recovers once the burst is over.
+        for i in 0..48_000 {
+            lim.process(tone(i, 0.5));
+        }
+        assert!(lim.gain() > 0.99, "{}", lim.gain());
+    }
 
     /// RMS of a sine at `freq` after the sculpt, skipping the first 0.1 s.
     fn sculpted(freq: f32, knobs: [f64; 4]) -> f32 {
