@@ -1,0 +1,343 @@
+//! Looking for a track's album art, for the cover dialog of the track info
+//! panel: the picture in its tags, an image in its folder, and covers found
+//! online through public APIs (MusicBrainz with the Cover Art Archive,
+//! iTunes Search, and Discogs when the DJ gave a Discogs token). Each source
+//! runs on its own thread and reports covers as it finds them.
+
+use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::time::Duration;
+
+use mixxx_engine::{cover, tags};
+use mixxx_plugins::{encode, USER_AGENT};
+use serde_json::Value;
+
+/// An online source: the image links it has for what is wanted.
+type Finder = fn(&Wanted) -> Vec<String>;
+
+/// Covers each online source offers at most.
+const PER_SOURCE: usize = 3;
+/// Longest side of the picture shown in the dialog.
+const THUMB: u32 = 240;
+
+/// What a search is for.
+#[derive(Clone, Debug, Default)]
+pub struct Wanted {
+    pub path: Option<PathBuf>,
+    pub artist: String,
+    pub album: String,
+    pub title: String,
+    pub discogs_token: String,
+}
+
+/// A cover found: where, the image file's bytes, and its size.
+pub struct Found {
+    pub source: String,
+    pub data: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    /// Scaled down for showing, RGBA.
+    pub thumb: cover::Cover,
+}
+
+pub enum Event {
+    Found(Found),
+    /// Every source has answered.
+    Done,
+}
+
+/// Starts looking; covers arrive on the returned channel, then `Done`.
+pub fn search(wanted: Wanted) -> Receiver<Event> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::Builder::new()
+        .name("cover-search".into())
+        .spawn(move || {
+            std::thread::scope(|s| {
+                let w = &wanted;
+                let local = tx.clone();
+                s.spawn(move || {
+                    if let Some(path) = &w.path {
+                        if let Some(data) = tags::embedded_cover(path) {
+                            send(&local, "Tag", data);
+                        }
+                        if let Some(file) = cover::beside(path, &w.album) {
+                            if let Ok(data) = std::fs::read(file) {
+                                send(&local, "Folder", data);
+                            }
+                        }
+                    }
+                });
+                let online: [(&str, Finder); 3] = [
+                    ("Cover Art Archive", cover_art_archive),
+                    ("iTunes", itunes),
+                    ("Discogs", discogs),
+                ];
+                for (name, find) in online {
+                    let tx = tx.clone();
+                    s.spawn(move || {
+                        for url in find(w).into_iter().take(PER_SOURCE) {
+                            if let Some(data) = download(&url, w) {
+                                send(&tx, name, data);
+                            }
+                        }
+                    });
+                }
+            });
+            let _ = tx.send(Event::Done);
+        })
+        .expect("spawn cover search");
+    rx
+}
+
+fn send(tx: &Sender<Event>, source: &str, data: Vec<u8>) {
+    let Ok(image) = image::load_from_memory(&data) else {
+        return;
+    };
+    let (width, height) = (image.width(), image.height());
+    let small = if width.max(height) > THUMB {
+        image.thumbnail(THUMB, THUMB)
+    } else {
+        image
+    };
+    let rgba = small.to_rgba8();
+    let _ = tx.send(Event::Found(Found {
+        source: source.into(),
+        data,
+        width,
+        height,
+        thumb: cover::Cover {
+            width: rgba.width(),
+            height: rgba.height(),
+            rgba: rgba.into_raw(),
+        },
+    }));
+}
+
+fn agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(12)))
+        .user_agent(USER_AGENT)
+        .build()
+        .into()
+}
+
+fn get_json(url: &str, auth: Option<&str>) -> Option<Value> {
+    let mut req = agent().get(url).header("Accept", "application/json");
+    if let Some(a) = auth {
+        req = req.header("Authorization", a);
+    }
+    req.call().ok()?.body_mut().read_json().ok()
+}
+
+fn download(url: &str, w: &Wanted) -> Option<Vec<u8>> {
+    let mut req = agent().get(url);
+    if url.contains("discogs.com") && !w.discogs_token.is_empty() {
+        req = req.header(
+            "Authorization",
+            &format!("Discogs token={}", w.discogs_token),
+        );
+    }
+    req.call()
+        .ok()?
+        .body_mut()
+        .with_config()
+        .limit(20 << 20)
+        .read_to_vec()
+        .ok()
+}
+
+/// What to search the album by: its name, or the track's title for a
+/// single.
+fn release(w: &Wanted) -> &str {
+    if w.album.trim().is_empty() {
+        w.title.trim()
+    } else {
+        w.album.trim()
+    }
+}
+
+/// Lucene's special characters, escaped for MusicBrainz's search.
+fn lucene(text: &str) -> String {
+    text.chars()
+        .flat_map(|c| {
+            let special = "+-&|!(){}[]^\"~*?:\\/".contains(c);
+            special.then_some('\\').into_iter().chain(Some(c))
+        })
+        .collect()
+}
+
+fn cover_art_archive(w: &Wanted) -> Vec<String> {
+    let title = release(w);
+    if title.is_empty() {
+        return Vec::new();
+    }
+    let mut query = format!("release:\"{}\"", lucene(title));
+    if !w.artist.trim().is_empty() {
+        query += &format!(" AND artist:\"{}\"", lucene(w.artist.trim()));
+    }
+    let url = format!(
+        "https://musicbrainz.org/ws/2/release/?fmt=json&limit=10&query={}",
+        encode(&query)
+    );
+    get_json(&url, None)
+        .map(|v| cover_art_archive_urls(&v))
+        .unwrap_or_default()
+}
+
+/// One cover per release group (an album's editions share theirs), best
+/// matches first.
+fn cover_art_archive_urls(v: &Value) -> Vec<String> {
+    let mut groups: Vec<&str> = Vec::new();
+    for r in v["releases"].as_array().into_iter().flatten() {
+        if r["score"].as_i64().unwrap_or(100) < 80 {
+            continue;
+        }
+        if let Some(id) = r["release-group"]["id"].as_str() {
+            if !groups.contains(&id) {
+                groups.push(id);
+            }
+        }
+    }
+    groups
+        .into_iter()
+        .map(|id| format!("https://coverartarchive.org/release-group/{id}/front-1200"))
+        .collect()
+}
+
+fn itunes(w: &Wanted) -> Vec<String> {
+    let term = format!("{} {}", w.artist.trim(), release(w));
+    if term.trim().is_empty() {
+        return Vec::new();
+    }
+    let entity = if w.album.trim().is_empty() {
+        "song"
+    } else {
+        "album"
+    };
+    let url = format!(
+        "https://itunes.apple.com/search?media=music&entity={entity}&limit={PER_SOURCE}&term={}",
+        encode(term.trim())
+    );
+    get_json(&url, None)
+        .map(|v| itunes_urls(&v))
+        .unwrap_or_default()
+}
+
+/// The artwork links, asked for at 1200 pixels instead of 100.
+fn itunes_urls(v: &Value) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for r in v["results"].as_array().into_iter().flatten() {
+        if let Some(url) = r["artworkUrl100"].as_str() {
+            let big = url.replace("100x100bb", "1200x1200bb");
+            if !out.contains(&big) {
+                out.push(big);
+            }
+        }
+    }
+    out
+}
+
+fn discogs(w: &Wanted) -> Vec<String> {
+    // Discogs only answers searches with a token.
+    if w.discogs_token.trim().is_empty() || release(w).is_empty() {
+        return Vec::new();
+    }
+    let mut url = format!(
+        "https://api.discogs.com/database/search?type=release&per_page=10&release_title={}",
+        encode(release(w))
+    );
+    if !w.artist.trim().is_empty() {
+        url += &format!("&artist={}", encode(w.artist.trim()));
+    }
+    let auth = format!("Discogs token={}", w.discogs_token.trim());
+    get_json(&url, Some(&auth))
+        .map(|v| discogs_urls(&v))
+        .unwrap_or_default()
+}
+
+fn discogs_urls(v: &Value) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for r in v["results"].as_array().into_iter().flatten() {
+        // Releases without art point at a placeholder ("spacer.gif").
+        if let Some(url) = r["cover_image"].as_str().filter(|u| !u.ends_with(".gif")) {
+            if !out.iter().any(|o| o == url) {
+                out.push(url.to_string());
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn reads_musicbrainz_answers() {
+        let v = json!({"releases": [
+            {"id": "r1", "score": 100, "release-group": {"id": "g1"}},
+            {"id": "r2", "score": 98, "release-group": {"id": "g1"}},
+            {"id": "r3", "score": 90, "release-group": {"id": "g2"}},
+            {"id": "r4", "score": 40, "release-group": {"id": "g3"}},
+        ]});
+        assert_eq!(
+            cover_art_archive_urls(&v),
+            [
+                "https://coverartarchive.org/release-group/g1/front-1200",
+                "https://coverartarchive.org/release-group/g2/front-1200"
+            ]
+        );
+    }
+
+    #[test]
+    fn reads_itunes_and_discogs_answers() {
+        let v = json!({"resultCount": 2, "results": [
+            {"artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/a/100x100bb.jpg"},
+            {"artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/a/100x100bb.jpg"},
+        ]});
+        assert_eq!(
+            itunes_urls(&v),
+            ["https://is1-ssl.mzstatic.com/image/thumb/a/1200x1200bb.jpg"]
+        );
+        let v = json!({"results": [
+            {"cover_image": "https://i.discogs.com/a.jpeg"},
+            {"cover_image": "https://st.discogs.com/images/spacer.gif"},
+        ]});
+        assert_eq!(discogs_urls(&v), ["https://i.discogs.com/a.jpeg"]);
+    }
+
+    #[test]
+    fn escapes_searches() {
+        assert_eq!(lucene("AC/DC: Live!"), "AC\\/DC\\: Live\\!");
+        let w = Wanted {
+            title: "Single".into(),
+            ..Default::default()
+        };
+        assert_eq!(release(&w), "Single");
+    }
+
+    #[test]
+    fn finds_the_tag_and_folder_covers() {
+        let dir = std::env::temp_dir().join(format!("opendj-coverart-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("song.mp3");
+        std::fs::write(&path, b"not really audio").unwrap();
+        image::RgbaImage::from_pixel(600, 500, image::Rgba([1, 2, 3, 255]))
+            .save(dir.join("cover.png"))
+            .unwrap();
+        let rx = search(Wanted {
+            path: Some(path),
+            ..Default::default()
+        });
+        let mut found = Vec::new();
+        for e in rx {
+            match e {
+                Event::Found(f) => found.push((f.source, f.width, f.height, f.thumb.width)),
+                Event::Done => break,
+            }
+        }
+        assert_eq!(found, [("Folder".to_string(), 600, 500, 240)]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}

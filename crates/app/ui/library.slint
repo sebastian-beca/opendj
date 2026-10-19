@@ -3,6 +3,7 @@
 import { LineEdit, ListView, ScrollView } from "std-widgets.slint";
 import { Theme, EdgeLine } from "theme.slint";
 import { SourceUi, SearchesPanel, SourceResults } from "sources.slint";
+import { InfoPanel, SideTabIcon, TrackInfo } from "info.slint";
 
 export struct Folder {
     name: string,
@@ -1416,86 +1417,12 @@ component Dropdown inherits Rectangle {
     }
 }
 
-// One line of the track info: a small grey label and the value
-// lays them out.
-component InfoLine inherits HorizontalLayout {
-    in property <string> label;
-    in property <string> value;
-    height: 30px;
-    spacing: 8px;
-    Text { width: 80px; text: label; color: Theme.label; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; vertical-alignment: center; }
-    Text { horizontal-stretch: 1; text: value == "" ? "–" : value; color: Theme.text; font-size: 14px; vertical-alignment: center; overflow: elide; }
-}
-
-// Track info for the track selected in the library.
-component InfoView inherits VerticalLayout {
-    in property <TrackRow> track;
-    in property <bool> has-track;
-    padding: 6px;
-    spacing: 6px;
-    HorizontalLayout {
-        height: 30px;
-        Text { text: "Info"; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; }
-        Text { text: "  Selected track"; color: Theme.label; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
-    }
-    if !has-track: Placeholder {
-        vertical-stretch: 1;
-        title: "No track selected";
-        text: "Click a track in the library to see its info.";
-    }
-    if has-track: HorizontalLayout {
-        spacing: 12px;
-        height: 72px;
-        Rectangle {
-            width: 72px;
-            border-radius: 4px;
-            clip: true;
-            background: Theme.control;
-            if track.has-cover: Image { width: parent.width; height: parent.height; source: track.cover; image-fit: cover; }
-            if !track.has-cover: Text { text: "♪"; color: Theme.text-dim; font-size: 28px; }
-        }
-        VerticalLayout {
-            alignment: center;
-            spacing: 6px;
-            Text { text: track.title; color: Theme.text; font-size: 16px; font-weight: 600; overflow: elide; }
-            HorizontalLayout {
-                spacing: 14px;
-                Text { text: track.bpm == "" ? "" : track.bpm + " BPM"; color: Theme.text-dim; font-size: 13px; }
-                Text { text: track.key; color: Theme.key; font-size: 13px; font-weight: 600; }
-                Text { text: track.length; color: Theme.text-dim; font-size: 13px; horizontal-stretch: 1; }
-            }
-        }
-    }
-    if has-track: EdgeLine { left: 6px; right: 6px; }
-    if has-track: VerticalLayout {
-        InfoLine { label: "TITLE"; value: track.title; }
-        InfoLine { label: "ARTIST"; value: track.artist; }
-        InfoLine { label: "ALBUM"; value: track.album; }
-        InfoLine { label: "GENRE"; value: track.genre; }
-        InfoLine { label: "TIME"; value: track.length; }
-        InfoLine { label: "BPM"; value: track.bpm; }
-        InfoLine { label: "KEY"; value: track.key; }
-        InfoLine { label: "RATING"; value: track.rating > 0 ? ["★", "★★", "★★★", "★★★★", "★★★★★"][min(track.rating, 5) - 1] : ""; }
-        if track.has-color: HorizontalLayout {
-            height: 30px;
-            spacing: 8px;
-            Text { width: 80px; text: "COLOR"; color: Theme.label; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; vertical-alignment: center; }
-            Rectangle { width: 14px; height: 14px; y: 8px; border-radius: 7px; background: track.color; }
-            Rectangle { horizontal-stretch: 1; }
-        }
-    }
-    if has-track: Rectangle { vertical-stretch: 1; }
-}
-
 component SidePanel inherits Rectangle {
     in property <[SideRow]> rows;
     in property <string> total;
+    // 0 Automix, 1 Sidelist, 2 Linked, 3 Info (the selected track's
+    // details, see info.slint).
     in-out property <int> tab: 0;
-    // The "i" tab: info on the track selected in the library, shown over
-    // the Automix and Sidelist lists.
-    in property <TrackRow> info-track;
-    in property <bool> has-info-track;
-    property <bool> show-info: false;
     callback activate(row: int);
     // Takes out the rows `first` to `last`.
     callback remove(first: int, last: int);
@@ -1548,9 +1475,42 @@ component SidePanel inherits Rectangle {
     }
     background: Theme.panel;
     width: 340px;
+    // The tabs, as icons along the top, the one shown underlined.
+    tab-bar := Rectangle {
+        y: 0px;
+        height: 40px;
+        HorizontalLayout {
+            for name[i] in ["Automix", "Sidelist", "Linked", "Info"]: Rectangle {
+                horizontal-stretch: 1;
+                property <bool> on: i == tab;
+                background: tta.has-hover && !on ? #ffffff08 : transparent;
+                SideTabIcon {
+                    tab: i;
+                    ink: on ? Theme.accent : tta.has-hover ? Theme.text : Theme.text-dim;
+                }
+                Rectangle {
+                    y: parent.height - self.height;
+                    height: 2px;
+                    background: on ? Theme.accent : transparent;
+                }
+                tta := TouchArea { clicked => { tab = i; } }
+            }
+        }
+        Rectangle {
+            y: parent.height - 1px;
+            height: 1px;
+            background: Theme.separator;
+        }
+    }
+    if tab == 3: InfoPanel {
+        y: tab-bar.height;
+        height: parent.height - tab-bar.height;
+    }
     keys := FocusScope {
+        y: tab-bar.height;
         width: parent.width;
-        height: parent.height;
+        height: parent.height - tab-bar.height;
+        visible: tab < 3;
         key-pressed(e) => {
             if selected >= 0 && selected < rows.length && (e.text == Key.Delete || e.text == Key.Backspace) {
                 remove-picked();
@@ -1759,47 +1719,7 @@ component SidePanel inherits Rectangle {
                     }
                 }
             }
-            Rectangle {
-                height: 30px;
-                background: Theme.control;
-                border-radius: Theme.radius;
-                border-width: 1px;
-                border-color: Theme.border;
-                HorizontalLayout {
-                    padding: 2px;
-                    spacing: 2px;
-                    for t[i] in ["Automix", "Sidelist", "Linked"]: Rectangle {
-                        horizontal-stretch: 1;
-                        border-radius: Theme.radius - 2px;
-                        background: i == tab && !show-info ? Theme.panel-raised.brighter(0.3) : transparent;
-                        Text { text: t; color: i == tab && !show-info ? Theme.text : Theme.text-dim; font-size: 13px; font-weight: 600; }
-                        TouchArea {
-                            clicked => {
-                                tab = i;
-                                show-info = false;
-                            }
-                        }
-                    }
-                    Rectangle {
-                        width: 44px;
-                        border-radius: Theme.radius - 2px;
-                        background: show-info ? Theme.panel-raised.brighter(0.3) : transparent;
-                        Text { text: "i"; color: show-info ? Theme.text : Theme.text-dim; font-size: 15px; font-weight: 700; }
-                        TouchArea { clicked => { show-info = true; } }
-                    }
-                }
-            }
         }
-    }
-    // Covers the lists, leaving the tabs at the bottom.
-    if show-info: Rectangle {
-        x: 0px;
-        y: 0px;
-        width: parent.width;
-        height: parent.height - 40px;
-        background: Theme.panel;
-        TouchArea { }
-        InfoView { width: parent.width; height: parent.height; track: info-track; has-track: has-info-track; }
     }
     row-menu := PopupWindow {
         x: 20px;
@@ -1942,8 +1862,6 @@ export component Browser inherits HorizontalLayout {
     }
     // Shown and hidden from the footer's right-hand button.
     if side-visible: SidePanel {
-        has-info-track: current-row >= 0 && current-row < rows.length;
-        info-track: current-row >= 0 && current-row < rows.length ? rows[current-row] : { };
         rows: side-rows;
         total: side-total;
         tab <=> side-tab;

@@ -165,6 +165,19 @@ export component Jog inherits Rectangle {
     property <int> last-cue: Controls.value(Controls.resolve(group, "hotcue_focus"), Controls.tick);
     property <color> sticker: last-cue >= 1 ? Theme.hotcues[last-cue - 1] : tint;
     property <length> centre: 70px * scale;
+    property <int> jog-index: Controls.resolve(group, "jog");
+    // Scrolling over the jog nudges the track in fine steps: up runs it
+    // forward, down back, playing or paused.
+    TouchArea {
+        scroll-event(e) => {
+            if !info.loaded || e.delta-y == 0 {
+                return reject;
+            }
+            // One jog unit is 10 ms of track, so a pixel of scroll is 1 ms.
+            Controls.set-value(jog-index, Controls.value(jog-index, Controls.tick) + e.delta-y / 1px * 0.1);
+            accept
+        }
+    }
     Rectangle {
         border-radius: self.width / 2;
         background: #0a0a0b;

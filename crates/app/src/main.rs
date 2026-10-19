@@ -21,8 +21,8 @@ use mixxx_engine::{
 };
 use mixxx_library::Library;
 use mixxx_waveform::{
-    steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, Style, WaveformRenderer, WaveformView,
-    GRID_SECTIONS,
+    bar_labels, steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, Style, WaveformRenderer,
+    WaveformView, GRID_SECTIONS,
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use smooth::SmoothClock;
@@ -32,6 +32,7 @@ slint::include_modules!();
 mod art;
 mod automix;
 mod browser;
+mod coverart;
 mod diagnostics;
 mod files;
 mod inbox;
@@ -251,9 +252,14 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
 const TOP_BAR_HEIGHT: f64 = 52.0;
 
 /// Seconds of audio shown across the scrolling waveform at normal speed.
+/// Dragging the waveform (`Waveform` in main.slint) uses the same figure.
 const VISIBLE_SECONDS: f64 = 10.0;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().nth(1).as_deref() == Some("--list-controls") {
+        list_controls();
+        return Ok(());
+    }
     diagnostics::install();
     let backend =
         slint::BackendSelector::new().require_wgpu_30(slint::wgpu_30::WGPUConfiguration::default());
@@ -463,6 +469,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         clocks: Default::default(),
                         moving: false,
                         images_set: false,
+                        bars: Default::default(),
+                        redraw: false,
                     });
                 }
                 (slint::RenderingState::BeforeRendering, _) => {
@@ -474,11 +482,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     gpu.render(&app, &decks, &tracks, &visual);
                 }
                 (slint::RenderingState::AfterRendering, _) => {
-                    // While a deck moves, draw again as soon as the display
+                    // While a deck moves, or the bar numbers changed as this
+                    // frame was drawn, draw again as soon as the display
                     // can show it, rather than on the UI timer, which beats
                     // against the display's refresh and makes motion uneven.
-                    let moving = gpu.borrow().as_ref().is_some_and(|g| g.moving);
-                    if let (true, Some(app)) = (moving, app_weak.upgrade()) {
+                    let again = gpu
+                        .borrow_mut()
+                        .as_mut()
+                        .is_some_and(|g| g.moving || std::mem::take(&mut g.redraw));
+                    if let (true, Some(app)) = (again, app_weak.upgrade()) {
                         app.window().request_redraw();
                     }
                 }
@@ -665,6 +677,22 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
 /// A MIDI port's device name: ALSA ports read "DDJ-FLX4:DDJ-FLX4 MIDI 1 24:0".
 fn short_port_name(port: &str) -> &str {
     port.split(':').next().unwrap_or(port)
+}
+
+/// Prints every control openDJ has, aliases included, as sorted `[Group],key`
+/// lines. The website's controller pages use this list to mark mapping lines
+/// that don't do anything in openDJ yet (website/book/supported-controls.txt).
+fn list_controls() {
+    let registry = ControlRegistry::new();
+    mixxx_engine::create_controls(&registry);
+    browser::LibraryControls::create(&registry);
+    automix::AutoMix::new(&registry);
+    let mut keys = registry.keys();
+    keys.extend(registry.alias_keys());
+    keys.sort();
+    for k in keys {
+        println!("{},{}", k.group, k.item);
+    }
 }
 
 /// Connects the `Controls` global used by every skin widget to the registry.
@@ -1069,6 +1097,10 @@ struct Gpu {
     /// Whether a deck was moving in the last frame drawn.
     moving: bool,
     images_set: bool,
+    /// The bar numbers shown over each deck's scrolling waveform.
+    bars: [Rc<VecModel<BarMark>>; NUM_DECKS],
+    /// Whether the UI changed while drawing and needs another frame.
+    redraw: bool,
 }
 
 impl Gpu {
@@ -1125,6 +1157,23 @@ impl Gpu {
             } else {
                 app.set_spin_2(spin);
             }
+            // Bar numbers over the scrolling waveform, from 1 at the track's
+            // first bar, when bars are at least 28 points apart.
+            let bars = match (&frame, track) {
+                (Some(f), Some(t)) => {
+                    bar_labels(f, ww as f64, first_bar_beat(t), 28.0 * scale as f64)
+                }
+                _ => Vec::new(),
+            };
+            let marks: Vec<BarMark> = bars
+                .iter()
+                .map(|b| BarMark {
+                    x: b.x as f32,
+                    number: b.bar as i32,
+                })
+                .collect();
+            // Rows set while drawing show from the next frame, so ask for one.
+            self.redraw |= set_rows(&self.bars[d], marks);
             for view in [&mut self.scrolling[d], &mut self.overview[d]] {
                 view.set_track(&self.device, &self.renderer, gpu_track.as_ref());
                 view.render(
@@ -1140,6 +1189,8 @@ impl Gpu {
             let img = |v: &WaveformView| {
                 slint::Image::try_from(v.texture()).expect("import waveform texture")
             };
+            app.set_bars_1(ModelRc::from(self.bars[0].clone()));
+            app.set_bars_2(ModelRc::from(self.bars[1].clone()));
             app.set_waveform_1(img(&self.scrolling[0]));
             app.set_waveform_2(img(&self.scrolling[1]));
             app.set_overview_1(img(&self.overview[0]));
@@ -1147,6 +1198,39 @@ impl Gpu {
             self.images_set = true;
         }
     }
+}
+
+/// The beat number of the track's first bar: the first bar line at or
+/// after its start, on the grid the waveform draws (bar lines every fourth
+/// beat from beat 0).
+fn first_bar_beat(t: &Track) -> f64 {
+    let at_start = if t.grid.is_empty() {
+        if t.bpm <= 0.0 {
+            return 0.0;
+        }
+        -t.first_beat * t.bpm / 60.0
+    } else {
+        t.grid.beat_at(0.0)
+    };
+    // A hair of tolerance so a bar right at the start is bar 1.
+    (at_start / 4.0 - 1e-6).ceil() * 4.0
+}
+
+/// Replaces a model's rows with `rows`, changing rows in place where it can
+/// so the UI keeps its items. Returns whether anything changed.
+fn set_rows<T: Clone + PartialEq + 'static>(model: &VecModel<T>, rows: Vec<T>) -> bool {
+    if model.row_count() != rows.len() {
+        model.set_vec(rows);
+        return true;
+    }
+    let mut changed = false;
+    for (i, row) in rows.into_iter().enumerate() {
+        if model.row_data(i).as_ref() != Some(&row) {
+            model.set_row_data(i, row);
+            changed = true;
+        }
+    }
+    changed
 }
 
 /// A loop length in beats, as the loop box shows it: 4, 2.5 or 1/8.

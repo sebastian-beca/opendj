@@ -26,6 +26,12 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - name: Website's list of supported controls is up to date
+        # The docs' controller pages mark the mapping lines openDJ doesn't
+        # support from this list. Regenerate it with the command below.
+        run: |
+          cargo run -q -p opendj -- --list-controls > /tmp/controls.txt
+          diff -u website/book/supported-controls.txt /tmp/controls.txt
 
   dependencies:
     # Known vulnerabilities in dependencies, and licences that can't ship in a
