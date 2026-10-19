@@ -80,6 +80,62 @@ pub fn steady_grid(bpm: f64, first_beat: f64) -> [Option<GridSection>; GRID_SECT
     g
 }
 
+/// A bar line on the scrolling waveform and its number, for the UI to
+/// label. `x` is across the view, 0 at the left edge and 1 at the right.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BarLabel {
+    pub x: f64,
+    pub bar: i64,
+}
+
+/// The bar lines a scrolling waveform `width` pixels wide shows for `f`,
+/// numbered from 1 at beat `first_bar_beat` (a multiple of 4: the first bar
+/// of the track). Earlier bars, and bars closer together than `min_gap`
+/// pixels, get no number.
+pub fn bar_labels(f: &Frame, width: f64, first_bar_beat: f64, min_gap: f64) -> Vec<BarLabel> {
+    let mut out = Vec::new();
+    if width <= 0.0 || f.visible_seconds <= 0.0 {
+        return out;
+    }
+    // The play position snapped to whole pixels, as the waveform is drawn.
+    let per_px = f.visible_seconds / width;
+    let play = (f.play_seconds / per_px).round() * per_px;
+    let (lo, hi) = (
+        play - f.visible_seconds / 2.0,
+        play + f.visible_seconds / 2.0,
+    );
+    let sections: Vec<&GridSection> = f.grid.iter().map_while(|g| g.as_ref()).collect();
+    for (k, s) in sections.iter().enumerate() {
+        if s.bpm <= 0.0 {
+            break;
+        }
+        let beat_len = 60.0 / s.bpm;
+        if 4.0 * beat_len / per_px < min_gap {
+            continue;
+        }
+        // The first section's beats run back to the start of the track.
+        let from = if k == 0 { lo } else { lo.max(s.seconds) };
+        let to = sections.get(k + 1).map_or(hi, |n| hi.min(n.seconds));
+        let to = to.min(f.duration);
+        let mut n = ((from.max(0.0) - s.seconds) / beat_len - 1e-6).ceil();
+        loop {
+            let at = s.seconds + n * beat_len;
+            if at >= to {
+                break;
+            }
+            let beat = (s.beat + n).round();
+            if beat >= first_bar_beat && (beat - first_bar_beat).rem_euclid(4.0) == 0.0 {
+                out.push(BarLabel {
+                    x: (at - lo) / f.visible_seconds,
+                    bar: ((beat - first_bar_beat) / 4.0) as i64 + 1,
+                });
+            }
+            n += 1.0;
+        }
+    }
+    out
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Params {
