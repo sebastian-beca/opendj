@@ -169,25 +169,35 @@ pub fn set_hidden_sources(names: Vec<String>) {
 
 /// A plugin source's saved searches (see [`crate::sources`]), oldest first:
 /// what was typed, how it was read and which copies to prefer.
-pub fn source_searches(source: &str) -> Vec<(String, String, String)> {
+/// A saved search: its text, kind, preference, and when it was added (Unix
+/// milliseconds).
+pub type SavedSearch = (String, String, String, u64);
+
+/// A source's saved searches. Ones saved before searches had a time get
+/// their place in the list instead, oldest first as they were kept then.
+pub fn source_searches(source: &str) -> Vec<SavedSearch> {
     load()["source_searches"][source]
         .as_array()
         .map(|a| {
             a.iter()
-                .filter_map(|s| {
+                .enumerate()
+                .filter_map(|(i, s)| {
                     let text = s["text"].as_str()?.to_string();
                     let field = |k: &str| s[k].as_str().unwrap_or_default().to_string();
-                    Some((text, field("kind"), field("prefer")))
+                    let added = s["added"].as_u64().unwrap_or(i as u64);
+                    Some((text, field("kind"), field("prefer"), added))
                 })
                 .collect()
         })
         .unwrap_or_default()
 }
 
-pub fn set_source_searches(source: &str, searches: &[(String, String, String)]) {
+pub fn set_source_searches(source: &str, searches: &[SavedSearch]) {
     let list: Vec<Value> = searches
         .iter()
-        .map(|(text, kind, prefer)| json!({ "text": text, "kind": kind, "prefer": prefer }))
+        .map(|(text, kind, prefer, added)| {
+            json!({ "text": text, "kind": kind, "prefer": prefer, "added": added })
+        })
         .collect();
     save(|v| {
         if !v["source_searches"].is_object() {
