@@ -19,7 +19,8 @@ use serde_json::json;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use crate::{
-    settings, short_port_name, AppWindow, AudioSettings, KeyNotation, PrefItem, Preferences,
+    settings, short_port_name, AppWindow, AudioSettings, ImportWizard, KeyNotation, PrefItem,
+    Preferences,
 };
 
 const AUDIO: i32 = 0;
@@ -143,7 +144,7 @@ fn bpm_range() -> (f64, f64) {
 
 /// Setting up an import from another DJ app, on the Library page: the step
 /// shown and the choices so far, saved when the DJ presses Import.
-struct ImportWizard {
+struct WizardState {
     importer: String,
     /// 0 finds the database, 1 picks the lists, 2 says whose tags win.
     step: usize,
@@ -154,9 +155,9 @@ struct ImportWizard {
     theirs_win: bool,
 }
 
-impl ImportWizard {
+impl WizardState {
     fn new(importer: &dyn LibraryImport) -> Self {
-        let mut w = ImportWizard {
+        let mut w = WizardState {
             importer: importer.id().to_string(),
             step: 0,
             database: None,
@@ -206,7 +207,7 @@ pub struct Prefs {
     /// Opens the outputs again with the saved audio settings.
     audio_changed: Box<dyn Fn()>,
     /// The import being set up, if any.
-    wizard: Option<ImportWizard>,
+    wizard: Option<WizardState>,
     /// The import whose Remove was pressed once, waiting for a second press.
     removing: Option<String>,
 }
@@ -350,6 +351,7 @@ impl Prefs {
                 .collect()
         };
         g.set_items(ModelRc::new(VecModel::from(items)));
+        show_wizard(&app, self.wizard.as_ref());
     }
 
     fn page(&mut self, app: &AppWindow, page: i32) -> Vec<PrefItem> {
@@ -817,14 +819,10 @@ impl Prefs {
                 &format!("FROM {}", title.to_uppercase()),
                 "",
             ));
-            match &self.wizard {
-                Some(w) if w.importer == importer.id() => {
-                    items.extend(wizard_rows(importer.as_ref(), w));
-                }
-                _ if settings::import_enabled(importer.id()) => {
-                    items.extend(self.import_rows(importer.as_ref()));
-                }
-                _ => items.push(PrefItem {
+            if settings::import_enabled(importer.id()) {
+                items.extend(self.import_rows(importer.as_ref()));
+            } else {
+                items.push(PrefItem {
                     action: "Set up…".into(),
                     ..item(
                         &format!("import_start:{}", importer.id()),
@@ -835,7 +833,7 @@ impl Prefs {
                              up to date."
                         ),
                     )
-                }),
+                });
             }
         }
         items
@@ -899,7 +897,7 @@ impl Prefs {
     /// Returns false for ids that aren't the importers'.
     fn import_pressed(&mut self, id: &str) -> bool {
         if let Some(i) = id.strip_prefix("import_start:").and_then(importer) {
-            self.wizard = Some(ImportWizard::new(i.as_ref()));
+            self.wizard = Some(WizardState::new(i.as_ref()));
         } else if let Some(i) = id.strip_prefix("import_stop:").and_then(importer) {
             settings::set(&settings::import_enabled_key(i.id()), json!(false));
         } else if let Some(i) = id.strip_prefix("import_remove:").and_then(importer) {
@@ -959,7 +957,7 @@ impl Prefs {
     }
 
     /// Saves the wizard's choices and brings the library in.
-    fn finish_wizard(&mut self, w: ImportWizard) {
+    fn finish_wizard(&mut self, w: WizardState) {
         let Some(i) = importer(&w.importer) else {
             return;
         };
@@ -1318,73 +1316,74 @@ fn theirs_row(id: &str, title: &str, theirs_win: bool) -> PrefItem {
             id,
             SEGMENTED,
             "When tags differ",
-            "Whose titles, ratings and colours a track keeps. Your grids and cues stay.",
+            "Whose titles, ratings and colours a track keeps.",
         )
     }
 }
 
 /// The step of the import wizard shown, with its buttons.
-fn wizard_rows(importer: &dyn LibraryImport, w: &ImportWizard) -> Vec<PrefItem> {
+fn wizard_rows(importer: &dyn LibraryImport, w: &WizardState) -> Vec<PrefItem> {
     let title = importer.title();
-    let step = |n: usize, what: &str| item("", NOTE, "", &format!("Step {n} of 3 · {what}"));
-    let mut rows = match w.step {
+    match w.step {
         0 => vec![
-            step(1, &format!("Find your {title} library")),
             PrefItem {
                 value: show(w.database.clone(), "Not found").into(),
                 action: "Choose…".into(),
-                ..item(
-                    "import_wizard_db",
-                    PATH,
-                    &format!("{title} database"),
-                    &w.preview,
-                )
+                ..item("import_wizard_db", PATH, &format!("{title} database"), "")
             },
+            item("", NOTE, "", &w.preview),
         ],
-        1 => {
-            let mut rows = vec![step(2, "Choose which lists come across")];
-            for g in importer.list_groups() {
-                rows.push(switch(
+        1 => importer
+            .list_groups()
+            .into_iter()
+            .map(|g| {
+                switch(
                     &format!("import_wizard_group:{}", g.id),
                     g.title,
                     g.detail,
                     w.groups.contains(&g.id),
-                ));
-            }
-            rows
-        }
+                )
+            })
+            .collect(),
         _ => vec![
-            step(3, "Choose whose tags win"),
             theirs_row("import_wizard_theirs", title, w.theirs_win),
+            item(
+                "",
+                NOTE,
+                "",
+                &format!(
+                    "Grids and cues you edit in openDJ stay either way. Import brings it in \
+                     now. openDJ checks {title}'s files each time it starts and brings in \
+                     what changed; you can change these choices in Settings › Library."
+                ),
+            ),
         ],
-    };
-    let ready = w.database.is_some();
-    rows.push(PrefItem {
-        action: if w.step < 2 { "Next" } else { "Import" }.into(),
-        ..item(
-            "import_wizard_next",
-            BUTTON,
-            if w.step < 2 { "" } else { "Import" },
-            if !ready {
-                "Choose the database to go on."
-            } else if w.step < 2 {
-                ""
-            } else {
-                "openDJ brings it in now, and again whenever it changes."
-            },
-        )
-    });
-    if w.step > 0 {
-        rows.push(PrefItem {
-            action: "Back".into(),
-            ..item("import_wizard_back", BUTTON, "", "")
-        });
     }
-    rows.push(PrefItem {
-        action: "Cancel".into(),
-        ..item("import_wizard_cancel", BUTTON, "", "")
-    });
-    rows
+}
+
+/// Shows the import wizard's dialog, or hides it.
+fn show_wizard(app: &AppWindow, w: Option<&WizardState>) {
+    let g = app.global::<ImportWizard>();
+    let Some((w, importer)) = w.and_then(|w| Some((w, importer(&w.importer)?))) else {
+        g.set_open(false);
+        return;
+    };
+    let title = importer.title();
+    let step = match w.step {
+        0 => format!("Find your {title} library"),
+        1 => "Choose which lists come across".to_string(),
+        _ => "Choose whose tags win when they differ".to_string(),
+    };
+    g.set_title(format!("Import from {title}").into());
+    g.set_step(format!("Step {} of 3 · {step}", w.step + 1).into());
+    g.set_items(ModelRc::new(VecModel::from(wizard_rows(
+        importer.as_ref(),
+        w,
+    ))));
+    g.set_next_label(if w.step < 2 { "Next" } else { "Import" }.into());
+    g.set_can_next(w.database.is_some());
+    g.set_can_back(w.step > 0);
+    g.set_open(true);
 }
 
 fn choose(id: &str, prompt: &str, folder: bool, tx: Sender<(String, PathBuf)>) {
