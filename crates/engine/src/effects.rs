@@ -14,9 +14,10 @@ use std::f32::consts::{PI, TAU};
 use mixxx_control::{Behavior, ControlHandle, ControlRegistry};
 
 use crate::controls::{
-    deck_group, effect_group, effect_unit_group, Edge, BEAT_FX_UNIT, EFFECTS_PER_UNIT, NUM_DECKS,
-    NUM_EFFECT_UNITS,
+    deck_group, effect_group, effect_unit_group, Edge, BEAT_FX_UNIT, EFFECTS_PER_UNIT, MIC_FX_UNIT,
+    NUM_DECKS, NUM_EFFECT_UNITS,
 };
+use crate::inputs::{input_group, MICROPHONE, NUM_INPUTS};
 
 /// Mixxx's built-in effects that this engine implements, in `loaded_effect` order.
 pub const AVAILABLE_EFFECTS: [&str; 12] = [
@@ -49,6 +50,7 @@ pub const DEFAULT_EFFECTS: [[usize; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS] = [
     [0; 3],
     [0; 3],
     [0; 3],
+    [2, 1, 3],
 ];
 
 /// How long a released effect's tail rings on, in beats (see `release`).
@@ -69,9 +71,22 @@ pub fn parameter_names(loaded_effect: f64) -> &'static [&'static str] {
     Kind::from_loaded(loaded_effect).map_or(&[], |k| MANIFESTS[k as usize].names)
 }
 
-/// Signal paths an effect unit can be routed to: the decks, then the main mix.
-pub(crate) const TARGETS: usize = NUM_DECKS + 1;
+/// Signal paths an effect unit can be routed to: the decks, the main mix,
+/// then the microphone and auxiliary inputs.
+pub(crate) const TARGETS: usize = NUM_DECKS + 1 + NUM_INPUTS;
 pub(crate) const MAIN: usize = NUM_DECKS;
+
+/// The target of input `input` (see [`crate::inputs`]).
+pub(crate) const fn input_target(input: usize) -> usize {
+    MAIN + 1 + input
+}
+
+/// Whether `unit` can process `target`: the microphone's unit only the
+/// inputs, the others only the decks and the main mix. Instances are only
+/// made for these pairs, which keeps the rack's memory down.
+fn routable(unit: usize, target: usize) -> bool {
+    (unit == MIC_FX_UNIT) == (target > MAIN)
+}
 
 /// Longest echo, in seconds; it sizes every instance's buffer.
 const ECHO_MAX_SECONDS: f32 = 2.0;
@@ -243,11 +258,16 @@ impl SlotControls {
         reg.indicator(g, "num_button_parameters", MAX_BUTTON_PARAMETERS as f64);
         let mut s = Self {
             enabled: reg.toggle(g, "enabled"),
-            // The Beat FX starts half way, so turning it on is heard at once.
+            // The Beat FX and the mic's effects start half way, so turning
+            // them on is heard at once.
             meta: reg.create(
                 g,
                 "meta",
-                if unit == BEAT_FX_UNIT { 0.5 } else { 0.0 },
+                if unit == BEAT_FX_UNIT || unit == MIC_FX_UNIT {
+                    0.5
+                } else {
+                    0.0
+                },
                 0.0,
                 1.0,
                 Behavior::Linear,
@@ -377,7 +397,8 @@ struct UnitControls {
     enabled: ControlHandle,
     mix: ControlHandle,
     super1: ControlHandle,
-    /// group_[ChannelN]_enable for each deck, then group_[Master]_enable.
+    /// group_[ChannelN]_enable for each deck, group_[Master]_enable, then
+    /// group_[Microphone]_enable and group_[Auxiliary1]_enable.
     routes: [ControlHandle; TARGETS],
     super_seen: u32,
     /// The unit's own tempo, from `bpm_tap`; 0 follows each target's tempo.
@@ -413,11 +434,20 @@ impl UnitControls {
         reg.push(g, "next_chain_preset");
         reg.push(g, "prev_chain_preset");
         reg.create(g, "chain_preset_selector", 0.0, -64.0, 64.0, Behavior::Free);
-        // The headphones are stored only.
+        // The headphones are stored only, as are targets the unit can't be
+        // routed to.
         reg.toggle(g, "group_[Headphone]_enable");
         let routes = std::array::from_fn(|t| {
             if t == MAIN {
                 reg.toggle(g, "group_[Master]_enable")
+            } else if t > MAIN {
+                let input = t - MAIN - 1;
+                let r = reg.toggle(g, &format!("group_{}_enable", input_group(input)));
+                // The microphone's unit starts on the microphone.
+                if unit == MIC_FX_UNIT && input == MICROPHONE {
+                    r.set_bool(true);
+                }
+                r
             } else {
                 let r = reg.toggle(g, &format!("group_{}_enable", deck_group(t)));
                 // Each deck's unit starts on its deck, as the decks show; the
@@ -616,6 +646,8 @@ pub(crate) struct EffectRack {
     slots: [[SlotControls; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS],
     /// Indexed by [`EffectRack::index`].
     instances: Vec<Instance>,
+    /// Each (unit, slot, target)'s instance, if the unit can be routed there.
+    index: [[[Option<u16>; TARGETS]; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS],
     /// Unit mix at the start and end of this buffer.
     mix: [(f32, f32); NUM_EFFECT_UNITS],
     /// Whether a unit has any slot sounding on a target this buffer.
@@ -625,7 +657,17 @@ pub(crate) struct EffectRack {
 impl EffectRack {
     pub(crate) fn new(reg: &ControlRegistry, sample_rate: f64) -> Self {
         let sample_rate = sample_rate as f32;
-        let n = NUM_EFFECT_UNITS * EFFECTS_PER_UNIT * TARGETS;
+        let mut n = 0;
+        let index = std::array::from_fn(|u| {
+            std::array::from_fn(|_| {
+                std::array::from_fn(|t| {
+                    routable(u, t).then(|| {
+                        n += 1;
+                        n as u16 - 1
+                    })
+                })
+            })
+        });
         let units: [UnitControls; NUM_EFFECT_UNITS] =
             std::array::from_fn(|u| UnitControls::create(reg, u));
         reg.indicator("[Master]", "num_effectsavailable", KINDS.len() as f64)
@@ -641,12 +683,14 @@ impl EffectRack {
                 std::array::from_fn(|s| SlotControls::create(reg, u, s))
             }),
             instances: (0..n).map(|_| Instance::new(sample_rate)).collect(),
+            index,
             active: [[false; TARGETS]; NUM_EFFECT_UNITS],
         }
     }
 
-    fn index(unit: usize, slot: usize, target: usize) -> usize {
-        (unit * EFFECTS_PER_UNIT + slot) * TARGETS + target
+    fn instance(&mut self, unit: usize, slot: usize, target: usize) -> Option<&mut Instance> {
+        let i = self.index[unit][slot][target]?;
+        Some(&mut self.instances[i as usize])
     }
 
     /// Reads the controls once per buffer. `beat_seconds` is each target's
@@ -682,7 +726,10 @@ impl EffectRack {
                 let enabled = on && slot.enabled.get_bool();
                 let params = slot.params.each_ref().map(|p| p.get() as f32);
                 for (t, &routed) in routed.iter().enumerate() {
-                    let inst = &mut self.instances[Self::index(u, s, t)];
+                    let Some(i) = self.index[u][s][t] else {
+                        continue;
+                    };
+                    let inst = &mut self.instances[i as usize];
                     if releasing && inst.gain > 0.0 {
                         // The tail takes over from the effect at once.
                         inst.release = RELEASE_BEATS * (beat_seconds[t] as f32) * self.sample_rate;
@@ -727,7 +774,9 @@ impl EffectRack {
             let mut wet = x;
             let mut tails = [0.0f32; 2];
             for s in 0..EFFECTS_PER_UNIT {
-                let inst = &mut self.instances[Self::index(u, s, target)];
+                let Some(inst) = self.instance(u, s, target) else {
+                    continue;
+                };
                 if !inst.active() {
                     continue;
                 }

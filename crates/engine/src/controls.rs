@@ -7,8 +7,9 @@ use mixxx_control::{Behavior, ConfigKey, ControlHandle, ControlRegistry};
 pub const NUM_DECKS: usize = 4;
 pub const NUM_HOTCUES: usize = 8;
 /// Units 1 to 4 are the decks' effects, 5 the Beat FX (see
-/// [`BEAT_FX_UNIT`]) and 6 to 9 the decks' pad FX (see [`pad_fx_unit`]).
-pub const NUM_EFFECT_UNITS: usize = 9;
+/// [`BEAT_FX_UNIT`]), 6 to 9 the decks' pad FX (see [`pad_fx_unit`]) and 10
+/// the microphone's (see [`MIC_FX_UNIT`]).
+pub const NUM_EFFECT_UNITS: usize = 10;
 /// The Beat FX unit, `[EffectRack1_EffectUnit5]`, as on Pioneer mixers: one
 /// effect in its first slot, sent to any of the decks.
 pub const BEAT_FX_UNIT: usize = 4;
@@ -16,6 +17,11 @@ pub const BEAT_FX_UNIT: usize = 4;
 pub const fn pad_fx_unit(deck: usize) -> usize {
     BEAT_FX_UNIT + 1 + deck
 }
+/// The microphone and auxiliary inputs' own unit, the last one (now
+/// `[EffectRack1_EffectUnit10]`), so effects on the voice leave the decks'
+/// alone. The other units can't be routed to the inputs, nor this one to
+/// the decks. The UI reads its number from `EffectList.mic-unit`.
+pub const MIC_FX_UNIT: usize = NUM_EFFECT_UNITS - 1;
 pub const EFFECTS_PER_UNIT: usize = 3;
 
 pub fn deck_group(deck: usize) -> String {
@@ -604,7 +610,13 @@ pub const DEFAULT_AUTO_GAIN_TARGET: f64 = -14.0;
 
 /// Mixxx 2.4 renamed the meters (`VuMeter` is now `vu_meter`, ...); mappings
 /// use both names.
-fn alias(reg: &ControlRegistry, group: &str, key: &str, target_group: &str, target: &str) {
+pub(crate) fn alias(
+    reg: &ControlRegistry,
+    group: &str,
+    key: &str,
+    target_group: &str,
+    target: &str,
+) {
     reg.insert_alias(
         ConfigKey::new(group, key),
         ConfigKey::new(target_group, target),

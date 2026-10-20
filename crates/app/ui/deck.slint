@@ -635,17 +635,21 @@ export global DeckActions {
 
 export global EffectList {
     in property <[string]> names;
+    // The microphone's effect unit, from 0 (MIC_FX_UNIT).
+    in property <int> mic-unit: 5;
 }
 
 // One effect slot: clicking the name turns the effect on
 // and off, the arrow beside it opens the list to pick another, the knob is
 // the effect's main control and the switch beside it its length in beats.
-component FxSlot inherits HorizontalLayout {
+export component FxSlot inherits HorizontalLayout {
     in property <int> deck;
     in property <int> slot;
     in property <string> name;
-    property <color> tint: Theme.deck-color(deck);
-    property <string> fx: "[EffectRack1_EffectUnit" + (deck + 1) + "_Effect" + (slot + 1) + "]";
+    // The effect unit, from 0: the deck's own unless set.
+    in property <int> unit: deck;
+    in property <color> tint: Theme.deck-color(deck);
+    property <string> fx: "[EffectRack1_EffectUnit" + (unit + 1) + "_Effect" + (slot + 1) + "]";
     property <int> enabled-index: Controls.resolve(fx, "enabled");
     property <int> loaded-index: Controls.resolve(fx, "loaded_effect");
     property <bool> on: Controls.value(enabled-index, Controls.tick) > 0;

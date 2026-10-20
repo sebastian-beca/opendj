@@ -395,6 +395,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map(|&n| SharedString::from(n))
                 .collect::<Vec<_>>(),
         )));
+    app.global::<EffectList>()
+        .set_mic_unit(mixxx_engine::MIC_FX_UNIT as i32);
     {
         let engine = engine.clone();
         app.global::<DeckActions>().on_separate_stems(move |deck| {
@@ -466,6 +468,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             let engine = engine.clone();
             Box::new(move || engine.set_outputs(&settings::audio_setup()))
+        },
+        prefs::InputHooks {
+            changed: {
+                let engine = engine.clone();
+                Box::new(move || engine.set_inputs(&settings::audio_setup()))
+            },
+            status: {
+                let engine = engine.clone();
+                Box::new(move || engine.input_status())
+            },
         },
     );
 

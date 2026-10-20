@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use mixxx_controllers::MappingChoice;
 use mixxx_engine::key::Key;
 use mixxx_engine::scan::default_music_dir;
-use mixxx_engine::{AudioSetup, RecordFormat, RecordSettings, Role, Route};
+use mixxx_engine::{AudioSetup, InputRole, InputRoute, RecordFormat, RecordSettings, Role, Route};
 use mixxx_library::query::FieldNames;
 use mixxx_plugins::inbox::Mode;
 use mixxx_plugins::PluginConfig;
@@ -109,8 +109,23 @@ pub fn audio_setup() -> AudioSetup {
     let v = load();
     let sample_rate = v["sample_rate"].as_u64().map(|r| r as u32);
     let buffer_frames = v["buffer_frames"].as_u64().map(|n| n as u32);
+    let inputs = v["inputs"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|r| {
+                    Some(InputRoute {
+                        role: InputRole::from_name(r["role"].as_str()?)?,
+                        device: r["device"].as_str().unwrap_or_default().to_string(),
+                        channel: r["channel"].as_u64().unwrap_or(0) as u16,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     if let Some(list) = v["outputs"].as_array() {
         return AudioSetup {
+            inputs,
             sample_rate,
             buffer_frames,
             routes: list
@@ -146,6 +161,7 @@ pub fn audio_setup() -> AudioSetup {
     }
     AudioSetup {
         routes,
+        inputs,
         sample_rate,
         buffer_frames,
     }
@@ -157,6 +173,11 @@ pub fn set_audio_setup(setup: &AudioSetup) {
             .routes
             .iter()
             .map(|r| json!({ "role": r.role.name(), "device": r.device, "pair": r.pair }))
+            .collect();
+        v["inputs"] = setup
+            .inputs
+            .iter()
+            .map(|r| json!({ "role": r.role.name(), "device": r.device, "channel": r.channel }))
             .collect();
     });
 }
