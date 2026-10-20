@@ -377,6 +377,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map(|&n| SharedString::from(n))
                 .collect::<Vec<_>>(),
         )));
+    app.global::<EffectList>()
+        .set_mic_unit(mixxx_engine::MIC_FX_UNIT as i32);
     {
         let engine = engine.clone();
         app.global::<DeckActions>().on_separate_stems(move |deck| {

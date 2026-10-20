@@ -3225,9 +3225,11 @@ mod tests {
     #[test]
     fn the_microphone_has_its_own_effects() {
         let (reg, mut engine, mut input) = setup();
-        let unit = |k: &str| reg.get("[EffectRack1_EffectUnit6]", k).unwrap();
+        let mic_unit = crate::effect_unit_group(crate::MIC_FX_UNIT);
+        let unit = |k: &str| reg.get(&mic_unit, k).unwrap();
         // The second slot starts with Echo; it is routed to the mic.
-        let echo = |k: &str| reg.get("[EffectRack1_EffectUnit6_Effect2]", k).unwrap();
+        let echo_slot = crate::effect_group(crate::MIC_FX_UNIT, 1);
+        let echo = |k: &str| reg.get(&echo_slot, k).unwrap();
         assert_eq!(echo("loaded_effect").get(), 1.0);
         assert!(unit("group_[Microphone]_enable").get_bool());
         let (feed, mut tx) = mic_feed();
