@@ -449,6 +449,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let engine = engine.clone();
             Box::new(move || engine.set_outputs(&settings::audio_setup()))
         },
+        prefs::InputHooks {
+            changed: {
+                let engine = engine.clone();
+                Box::new(move || engine.set_inputs(&settings::audio_setup()))
+            },
+            status: {
+                let engine = engine.clone();
+                Box::new(move || engine.input_status())
+            },
+        },
     );
 
     let decks = Rc::new(Decks::new(&registry));
