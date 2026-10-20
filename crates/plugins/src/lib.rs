@@ -257,6 +257,13 @@ pub trait LibraryImport: Send {
     fn list_groups(&self) -> Vec<ListGroup> {
         Vec::new()
     }
+    /// What [`LibraryImport::read`] would bring in from `database`, as a
+    /// line for the DJ, before they choose to import it. Empty when the
+    /// importer can't say.
+    fn preview(&self, database: &Path) -> Result<String, String> {
+        let _ = database;
+        Ok(String::new())
+    }
     /// Changes whenever the library (or anything else `read` looks at) has:
     /// by default, the database's modification time.
     fn stamp(&self, database: &Path) -> String {

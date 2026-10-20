@@ -52,6 +52,21 @@ export global Preferences {
     }
 }
 
+// Setting up an import from another DJ app, in a dialog over Settings. Its
+// rows work like a settings page's, through Preferences' callbacks; its
+// buttons press "import_wizard_next", "import_wizard_back" and
+// "import_wizard_cancel".
+export global ImportWizard {
+    in property <bool> open;
+    in property <string> title;
+    // "Step 1 of 3 · Find your VirtualDJ library".
+    in property <string> step;
+    in property <[PrefItem]> items;
+    in property <string> next-label: "Next";
+    in property <bool> can-next: true;
+    in property <bool> can-back;
+}
+
 // Line icons on a 24-unit grid.
 component PageIcon inherits Path {
     in property <int> kind;
@@ -105,13 +120,16 @@ component Switch inherits Rectangle {
 
 component Button inherits Rectangle {
     in property <string> text;
+    // The step a dialog's Next or Import takes, in the accent colour.
+    in property <bool> primary;
     callback clicked();
     height: 26px;
     min-width: 72px;
     border-radius: Theme.radius;
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2e2e32 : Theme.panel-raised;
+    background: primary ? (ta.pressed ? Theme.knob-arc.darker(0.3) : Theme.knob-arc)
+        : ta.pressed ? Theme.control-pressed : ta.has-hover ? #2e2e32 : Theme.panel-raised;
     border-width: 1px;
-    border-color: Theme.border;
+    border-color: primary ? Theme.knob-arc : Theme.border;
     HorizontalLayout {
         padding-left: 12px;
         padding-right: 12px;
@@ -331,6 +349,78 @@ component CloseButton inherits Rectangle {
     }
 }
 
+// The import wizard: a dialog over Settings, with its steps' rows and
+// Back, Cancel and Next along the bottom.
+component ImportWizardDialog inherits Rectangle {
+    background: #00000080;
+    // Clicks outside the dialog do nothing, as it waits on an answer.
+    TouchArea { }
+    Rectangle {
+        width: min(560px, root.width - 64px);
+        height: min(440px, root.height - 64px);
+        border-radius: 12px;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 40px;
+        drop-shadow-color: #000000c0;
+        clip: true;
+        VerticalLayout {
+            padding: 22px;
+            padding-bottom: 18px;
+            spacing: 6px;
+            HorizontalLayout {
+                Text {
+                    text: ImportWizard.title;
+                    color: Theme.text;
+                    font-size: 18px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    CloseButton { clicked => { Preferences.pressed("import_wizard_cancel"); } }
+                }
+            }
+            Text { text: ImportWizard.step; color: Theme.text-dim; font-size: 12px; }
+            Rectangle { height: 6px; }
+            Flickable {
+                vertical-stretch: 1;
+                content-height: rows.preferred-height;
+                rows := VerticalLayout {
+                    width: parent.width;
+                    alignment: start;
+                    for item in ImportWizard.items: PrefRow { item: item; }
+                }
+            }
+            HorizontalLayout {
+                padding-top: 12px;
+                spacing: 8px;
+                if ImportWizard.can-back: Button {
+                    text: "Back";
+                    clicked => { Preferences.pressed("import_wizard_back"); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Button {
+                    text: "Cancel";
+                    clicked => { Preferences.pressed("import_wizard_cancel"); }
+                }
+                Button {
+                    text: ImportWizard.next-label;
+                    primary: true;
+                    opacity: ImportWizard.can-next ? 1 : 0.4;
+                    clicked => {
+                        if ImportWizard.can-next {
+                            Preferences.pressed("import_wizard_next");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component PreferencesOverlay inherits Rectangle {
     property <bool> searching: Preferences.query != "";
     // The dimmed app behind; a click there closes settings.
@@ -430,6 +520,7 @@ export component PreferencesOverlay inherits Rectangle {
             }
         }
     }
+    if ImportWizard.open: ImportWizardDialog { }
     public function focus-search() {
         search.focus-input();
     }
