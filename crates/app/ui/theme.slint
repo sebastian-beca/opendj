@@ -39,6 +39,8 @@ export global Theme {
     out property <color> on-selection-dim: #151329b0;
     out property <color> deck1: #0a84ff;
     out property <color> deck2: #ff453a;
+    out property <color> deck3: #30d158;
+    out property <color> deck4: #ffd60a;
     out property <color> play: #f2f2f7;
     out property <color> cue: #ff9f0a;
     out property <color> sync: #8e8e93;
@@ -56,7 +58,7 @@ export global Theme {
     out property <[color]> hotcues: [#ff453a, #ff9f0a, #0a84ff, #ffd60a, #30d158, #bf5af2, #ff375f, #64d2ff];
 
     public pure function deck-color(deck: int) -> color {
-        deck == 0 ? root.deck1 : root.deck2
+        deck == 0 ? root.deck1 : deck == 1 ? root.deck2 : deck == 2 ? root.deck3 : root.deck4
     }
 }
 

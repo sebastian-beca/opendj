@@ -45,9 +45,9 @@ use mixxx_control::ControlRegistry;
 
 pub use beats::{BeatGrid, GridMarker};
 pub use controls::{
-    deck_group, effect_group, effect_unit_group, eq_group, quick_effect_group, size_name,
-    stem_group, BEATJUMP_SIZES, BEATLOOP_SIZES, BEAT_FX_UNIT, DEFAULT_AUTO_GAIN_TARGET,
-    EFFECTS_PER_UNIT, NUM_DECKS, NUM_EFFECT_UNITS, NUM_HOTCUES,
+    deck_group, default_orientation, effect_group, effect_unit_group, eq_group, pad_fx_unit,
+    quick_effect_group, size_name, stem_group, BEATJUMP_SIZES, BEATLOOP_SIZES, BEAT_FX_UNIT,
+    DEFAULT_AUTO_GAIN_TARGET, EFFECTS_PER_UNIT, NUM_DECKS, NUM_EFFECT_UNITS, NUM_HOTCUES,
 };
 pub use effects::{
     effect_name, parameter_names, AVAILABLE_EFFECTS, DEFAULT_EFFECTS, MAX_BUTTON_PARAMETERS,
