@@ -89,7 +89,9 @@ pub fn beside(path: &Path, album: &str) -> Option<std::path::PathBuf> {
         .cloned()
 }
 
-fn decode(data: &[u8], size: u32) -> Option<Cover> {
+/// Decodes an image file's bytes into a cover of at most `size` pixels on
+/// its longest side.
+pub fn decode(data: &[u8], size: u32) -> Option<Cover> {
     let img = image::load_from_memory(data).ok()?;
     let img = if img.width().max(img.height()) > size {
         img.thumbnail(size, size)
