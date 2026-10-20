@@ -72,8 +72,21 @@ pub fn parse(
     exists: impl Fn(&Path) -> bool,
     file_tags: impl Fn(&Path) -> Option<Track>,
 ) -> Result<Import, String> {
-    let doc = roxmltree::Document::parse(text).map_err(|e| e.to_string())?;
     let mut out = Import::default();
+    super::parse_xml(text, |doc| {
+        songs(doc, first_id, exists, file_tags, &mut out)
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+fn songs(
+    doc: &roxmltree::Document,
+    first_id: usize,
+    exists: impl Fn(&Path) -> bool,
+    file_tags: impl Fn(&Path) -> Option<Track>,
+    out: &mut Import,
+) {
     for song in doc
         .root_element()
         .children()
@@ -103,7 +116,6 @@ pub fn parse(
         }
         out.tracks.push(Arc::new(track));
     }
-    Ok(out)
 }
 
 fn path_of(t: &Track) -> PathBuf {
@@ -380,6 +392,26 @@ mod tests {
  <Song FilePath="/Users/x/Library/Application Support/VirtualDJ/Cache/c.vdjcache" FileSize="1"><Tags Title="Cached" /></Song>
  <Song FilePath="/music/gone.mp3" FileSize="1"><Tags Title="Gone" /></Song>
 </VirtualDJ_Database>"##;
+
+    #[test]
+    fn reads_a_song_with_an_attribute_written_twice() {
+        let db = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!-- a <Song FilePath="x" FilePath="y"> in a comment stays -->
+<VirtualDJ_Database Version="2026">
+ <Song FilePath="/music/a.flac" FileSize="1" FilePath='/music/b.flac'><Tags Title="A &gt; B" Title="C" /></Song>
+ <Song FilePath="/music/c.flac" FileSize="1"><Tags Title="C" /></Song>
+</VirtualDJ_Database>"#;
+        let out = parse(db, 0, |_| true, |_| None).unwrap();
+        let paths: Vec<_> = out.tracks.iter().map(|t| path_of(t)).collect();
+        assert_eq!(
+            paths,
+            [
+                PathBuf::from("/music/a.flac"),
+                PathBuf::from("/music/c.flac")
+            ]
+        );
+        assert_eq!(out.tracks[0].title, "A > B");
+    }
 
     #[test]
     fn imports_local_tracks_with_their_grid_cues_and_tags() {

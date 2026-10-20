@@ -262,8 +262,15 @@ enum Folder {
 /// A `.vdjfolder` file: `<VirtualFolder>` with a `<song path=…>` per song,
 /// or `<FilterFolder filter="…">`.
 fn vdj_folder(text: &str) -> Option<Folder> {
-    let doc = roxmltree::Document::parse(text.trim_start_matches('\u{feff}')).ok()?;
-    let root = doc.root_element();
+    let mut out = None;
+    super::parse_xml(text.trim_start_matches('\u{feff}'), |doc| {
+        out = folder(doc.root_element());
+    })
+    .ok()?;
+    out
+}
+
+fn folder(root: roxmltree::Node) -> Option<Folder> {
     if root.has_tag_name("FilterFolder") {
         return Some(Folder::Filter(root.attribute("filter")?.trim().to_string()));
     }
