@@ -660,6 +660,7 @@ impl Browser {
             ui.set_status(format!("Couldn't save the cover: {e}").into());
             return;
         }
+        let data = found.data.clone();
         ui.set_status(SharedString::new());
         ui.set_cover_open(false);
         self.adopt(&[i]);
@@ -670,7 +671,11 @@ impl Browser {
                 eprintln!("can't save the track: {e}");
             }
         }
-        self.art.forget(&t);
+        // Every list showing the track, and any deck it's on, shows the
+        // new cover at once.
+        self.art.set(&t, &data);
+        let cover = cover::decode(&data, cover::COVER_SIZE).map(Arc::new);
+        self.engine.set_cover(path, cover);
         self.read_info_cover();
         self.refresh_rows();
         self.refresh_side();

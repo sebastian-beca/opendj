@@ -75,11 +75,12 @@ impl Art {
         None
     }
 
-    /// Drops the track's thumbnail, so it is read again (after its cover
-    /// changed).
-    pub fn forget(&self, track: &Track) {
+    /// Shows `data`, an image file's bytes, as the track's thumbnail from
+    /// now on (after its cover changed).
+    pub fn set(&self, track: &Track, data: &[u8]) {
         if let Some(key) = Self::key(track) {
-            self.images.borrow_mut().remove(&key);
+            let image = cover::decode(data, THUMB_SIZE).map(|c| image(&c));
+            self.images.borrow_mut().insert(key, image);
         }
     }
 
@@ -87,16 +88,19 @@ impl Art {
     pub fn poll(&mut self) -> bool {
         let mut any = false;
         while let Ok((key, cover)) = self.found.try_recv() {
-            if let Some(c) = cover {
-                let pixels = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
-                    &c.rgba, c.width, c.height,
-                );
-                self.images
-                    .borrow_mut()
-                    .insert(key, Some(slint::Image::from_rgba8(pixels)));
+            let Some(c) = cover else { continue };
+            // Only while still looked for: a cover set since then is newer.
+            if let Some(slot @ None) = self.images.borrow_mut().get_mut(&key) {
+                *slot = Some(image(&c));
                 any = true;
             }
         }
         any
     }
+}
+
+fn image(c: &Cover) -> slint::Image {
+    let pixels =
+        slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(&c.rgba, c.width, c.height);
+    slint::Image::from_rgba8(pixels)
 }

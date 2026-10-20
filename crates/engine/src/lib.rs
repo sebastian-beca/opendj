@@ -223,6 +223,23 @@ impl AudioEngine {
             .unwrap_or_default()
     }
 
+    /// Shows `cover` as the album art of every deck with the file at
+    /// `path` loaded, after the file's cover was changed.
+    pub fn set_cover(&self, path: &std::path::Path, cover: Option<Arc<cover::Cover>>) {
+        let mut loaded = self.loaded.write().unwrap();
+        for slot in loaded.iter_mut() {
+            if let Some(t) = slot
+                .as_ref()
+                .filter(|t| matches!(&t.source, Source::File(p) if p == path))
+            {
+                *slot = Some(Arc::new(Track {
+                    cover: cover.clone(),
+                    ..(**t).clone()
+                }));
+            }
+        }
+    }
+
     pub fn loaded_tracks(&self) -> LoadedTracks {
         self.loaded.clone()
     }
