@@ -5,8 +5,8 @@
 //!   ever takes payment or plays audio.
 //! - [`InboxHint`]: recognise files from a store when they land in the
 //!   purchase inbox (see [`inbox`]).
-//! - [`LibraryImport`]: bring in the library of another DJ app at start, as
-//!   an add-on built into the app.
+//! - [`LibraryImport`]: bring in the library of another DJ app at start
+//!   ([`importers`]).
 //! - [`source::SearchSource`]: a source of its own in the rail, with saved
 //!   searches and downloads, for an add-on that fetches files.
 //! - [`Plugin::settings`]: a page of its own in Settings, for a sign-in or
@@ -24,6 +24,7 @@ pub mod bandcamp;
 pub mod inbox;
 pub mod links;
 pub mod source;
+pub mod virtualdj;
 
 /// What a plugin is and which web hosts it talks to, as Settings shows it.
 #[derive(Clone, Debug, PartialEq)]
@@ -241,8 +242,8 @@ pub trait InboxHint {
 
 /// Another app's library that comes into the collection at start: its
 /// tracks with their tags, ratings, colours, grids and cues, and the
-/// playlists, folders and history it keeps. An add-on; none come with the
-/// app.
+/// playlists, folders and history it keeps. VirtualDJ's comes with the app
+/// ([`importers`]).
 pub trait LibraryImport: Send {
     /// A short, stable name, kept as the source of the tracks it brings in.
     fn id(&self) -> &str;
@@ -280,6 +281,12 @@ pub fn builtin() -> Vec<Box<dyn Plugin>> {
             .map(|s| Box::new(links::LinkStore(s)) as Box<dyn Plugin>),
     );
     out
+}
+
+/// The other DJ apps whose libraries openDJ can bring in. Each is off until
+/// the DJ turns it on in Settings > Library.
+pub fn importers() -> Vec<Box<dyn LibraryImport>> {
+    vec![Box::new(virtualdj::VirtualDj)]
 }
 
 /// The User-Agent plugins send, so stores can see who is asking.

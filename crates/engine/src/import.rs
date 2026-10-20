@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::track::Track;
 
-/// Another app's library, as read by an importer add-on.
+/// Another app's library, as read by an importer.
 #[derive(Debug, Default)]
 pub struct ImportedLibrary {
     /// Local files only, with what the app knows about them.
