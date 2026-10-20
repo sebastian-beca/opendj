@@ -272,6 +272,13 @@ fn ddj_flx4_mixer_pads_and_eq_modes() {
     c.receive(&[0xB6, 0x0C, 0x00]);
     c.receive(&[0xB6, 0x2C, 0x00]);
     assert_eq!(get(&reg, "[Master]", "headMix"), -1.0);
+    // Its centre detent is half cue, half main.
+    for msb in 0x01..=0x40 {
+        c.receive(&[0xB6, 0x0C, msb]);
+        c.receive(&[0xB6, 0x2C, 0x00]);
+    }
+    let centre = get(&reg, "[Master]", "headMix");
+    assert!(centre.abs() < 0.01, "centre {centre}");
     // Hot cue LEDs follow hotcue_N_status.
     c.take_output();
     reg.get("[Channel1]", "hotcue_1_status").unwrap().set(1.0);

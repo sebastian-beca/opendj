@@ -1362,8 +1362,10 @@ impl Engine {
         let auto_gain_target = self.master.auto_gain_target.get() as f32;
         let balance_target = self.master.balance.get() as f32;
         let head_gain = self.master.head_gain.get() as f32;
-        // headMix: -1 = cue only, +1 = main only.
-        let mix = (self.master.head_mix.get() as f32 + 1.0) * 0.5;
+        // headMix: -1 = cue only, +1 = main only. Constant power, as in
+        // Mixxx, so the centre plays both equally loud.
+        let mix = (self.master.head_mix.get() as f32 + 1.0) * std::f32::consts::FRAC_PI_4;
+        let (cue_mix, main_mix) = (mix.cos(), mix.sin());
         let booth_gain = self.master.booth_gain.get() as f32;
         let head_split = self.master.head_split.get_bool();
 
@@ -1653,7 +1655,7 @@ impl Engine {
                 } else {
                     for c in 0..2 {
                         o[2 + c] =
-                            ((cue[c] * (1.0 - mix) + main[c] * mix) * head_gain).clamp(-1.0, 1.0);
+                            ((cue[c] * cue_mix + main[c] * main_mix) * head_gain).clamp(-1.0, 1.0);
                     }
                 }
             }
