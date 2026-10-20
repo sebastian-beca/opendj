@@ -305,14 +305,15 @@ component Cover inherits Rectangle {
     in property <int> deck;
     in property <color> tint;
     in property <DeckInfo> info;
-    width: 96px;
-    height: 96px;
+    in property <length> size: 96px;
+    width: size;
+    height: size;
     border-radius: 4px;
     clip: true;
     background: info.loaded ? @linear-gradient(135deg, tint 0%, tint.darker(0.6) 55%, #101012 100%) : Theme.control;
     border-width: info.loaded ? 0px : 1px;
     border-color: Theme.border;
-    if !info.has-cover: Text { text: info.loaded ? info.initials : "♪"; color: info.loaded ? #ffffffe0 : Theme.text-dim; font-size: 32px; font-weight: 700; }
+    if !info.has-cover: Text { text: info.loaded ? info.initials : "♪"; color: info.loaded ? #ffffffe0 : Theme.text-dim; font-size: size / 3; font-weight: 700; }
     if info.has-cover: Image {
         width: parent.width;
         height: parent.height;
@@ -467,13 +468,15 @@ component TimeKey inherits HorizontalLayout {
     in property <string> group;
     in property <DeckInfo> info;
     in property <color> tint;
+    // Off in the 4-Deck strips, which show the time beside the overview.
+    in property <bool> show-time: true;
     spacing: 12px;
-    VerticalLayout {
+    if show-time: VerticalLayout {
         alignment: center;
         Text { text: info.loaded ? "-" + info.remaining-seconds : "-0:00"; color: Theme.text; font-size: 26px; font-weight: 500; horizontal-alignment: right; }
         Text { text: info.loaded ? info.total : ""; color: Theme.text-dim; font-size: 12px; horizontal-alignment: right; }
     }
-    EdgeVLine { top: 6px; bottom: 6px; line-color: #2c2c2f; }
+    if show-time: EdgeVLine { top: 6px; bottom: 6px; line-color: #2c2c2f; }
     KeyBox { group: group; info: info; tint: tint; }
 }
 
@@ -485,6 +488,12 @@ export component Header inherits Rectangle {
     in property <image> overview;
     in property <bool> mirrored;
     in property <string> group;
+    // The 4-Deck strips' header: the deck number, a small cover, smaller
+    // type, and the time beside the overview.
+    in property <bool> compact: false;
+    // The deck number lit: a two-deck controller's side is on this deck.
+    in property <bool> number-lit: false;
+    callback number-clicked();
     out property <length> overview-width: ov.width;
     out property <length> overview-height: ov.height;
     property <color> tint: Theme.deck-color(deck);
@@ -494,42 +503,61 @@ export component Header inherits Rectangle {
     // Where a press on the overview started, and whether it became a drag.
     property <length> press-x;
     property <bool> scrubbing;
-    height: 108px;
+    height: compact ? 92px : 108px;
     // Cover, title, info and overview share one black box.
     background: Theme.well;
 
     HorizontalLayout {
         padding: 6px;
-        spacing: 10px;
-        if !mirrored: Cover { deck: deck; tint: tint; info: info; }
+        spacing: compact ? 8px : 10px;
+        if compact: VerticalLayout {
+            alignment: start;
+            Rectangle {
+                width: 26px;
+                height: 26px;
+                border-radius: 4px;
+                background: number-lit ? tint : nta.pressed ? Theme.control-pressed : Theme.control;
+                border-width: 1px;
+                border-color: tint;
+                Text { text: deck + 1; color: number-lit ? #000000 : Theme.text; font-size: 15px; font-weight: 700; }
+                nta := TouchArea { mouse-cursor: pointer; clicked => { number-clicked(); } }
+            }
+        }
+        if !mirrored: VerticalLayout {
+            alignment: start;
+            Cover { deck: deck; tint: tint; info: info; size: compact ? 40px : 96px; }
+        }
         VerticalLayout {
             spacing: 6px;
             horizontal-stretch: 1;
             // Title, artist and BPM on the left, time and key on the right, on both decks.
             HorizontalLayout {
-                spacing: 12px;
-                height: 52px;
+                spacing: compact ? 8px : 12px;
+                height: compact ? 40px : 52px;
                 VerticalLayout {
                     horizontal-stretch: 1;
                     alignment: center;
                     spacing: 2px;
-                    Text { text: info.loaded ? info.title : "Empty deck"; color: Theme.text; font-size: 20px; font-weight: 500; overflow: elide; }
+                    Text { text: info.loaded ? info.title : "Empty deck"; color: Theme.text; font-size: compact ? 15px : 20px; font-weight: 500; overflow: elide; }
                     Text {
-                        text: info.loaded ? info.artist + "   |   " + info.bpm : "Drop a track here or double-click one in the browser";
+                        text: info.loaded ? (compact ? info.artist : info.artist + "   |   " + info.bpm) : compact ? "Drop a track here" : "Drop a track here or double-click one in the browser";
                         color: Theme.text-dim;
-                        font-size: 14px;
+                        font-size: compact ? 12px : 14px;
                         overflow: elide;
                     }
                 }
-                TimeKey { group: group; info: info; tint: tint; }
+                TimeKey { group: group; info: info; tint: tint; show-time: !compact; }
             }
             // Out to the header's edge on the side away from the cover.
             EdgeLine { left: mirrored ? 6px : 0px; right: mirrored ? 0px : 6px; line-color: #2c2c2f; }
             // Overview waveform, rendered on the GPU. Click to jump; drag to
             // move through the track, the deck gliding after the pointer and
             // playing what it passes.
+            HorizontalLayout {
+            vertical-stretch: 1;
+            spacing: 8px;
             ov := Rectangle {
-                vertical-stretch: 1;
+                horizontal-stretch: 1;
                 background: Theme.well;
                 // No border-radius here: a rounded clip renders into a cached
                 // layer, which would freeze the GPU-updated image.
@@ -579,8 +607,21 @@ export component Header inherits Rectangle {
                     }
                 }
             }
+            if compact: Text {
+                text: info.loaded ? "-" + info.remaining-seconds : "-0:00";
+                color: Theme.text;
+                font-size: 20px;
+                font-weight: 500;
+                vertical-alignment: center;
+                horizontal-alignment: right;
+                min-width: 64px;
+            }
+            }
         }
-        if mirrored: Cover { deck: deck; tint: tint; info: info; }
+        if mirrored: VerticalLayout {
+            alignment: start;
+            Cover { deck: deck; tint: tint; info: info; size: compact ? 40px : 96px; }
+        }
     }
 }
 
@@ -762,7 +803,7 @@ export component FxSlot inherits HorizontalLayout {
 }
 
 // Effects assigned to this deck, one slot per row.
-component FxRows inherits VerticalLayout {
+export component FxRows inherits VerticalLayout {
     in property <int> deck;
     in property <[string]> names;
     spacing: 4px;
@@ -776,8 +817,8 @@ struct Pad {
 }
 
 // A Pad FX pad: hold it to put an effect on the deck.
-// It loads the effect into the first slot of the deck's pad FX unit (unit 3
-// for deck A, 4 for deck B), turns it on and routes the unit to the deck;
+// It loads the effect into the first slot of the deck's pad FX unit (units
+// 6 to 9 for decks 1 to 4), turns it on and routes the unit to the deck;
 // letting go turns it off again.
 struct PadEffect {
     // loaded_effect: 1 Echo, 2 Reverb, 3 Filter, 4 Flanger, 5 Bitcrusher, 6 Phaser
@@ -791,8 +832,8 @@ component PadFxButton inherits Rectangle {
     in property <int> deck;
     in property <PadEffect> fx;
     in property <color> tint;
-    property <string> unit: "[EffectRack1_EffectUnit" + (deck + 3) + "]";
-    property <string> slot: "[EffectRack1_EffectUnit" + (deck + 3) + "_Effect1]";
+    property <string> unit: "[EffectRack1_EffectUnit" + (deck + 6) + "]";
+    property <string> slot: "[EffectRack1_EffectUnit" + (deck + 6) + "_Effect1]";
     property <bool> held: touch.pressed;
     background: held ? tint.with-alpha(0.25) : touch.has-hover ? #1d1d20 : Theme.control;
     Text { text: fx.text; color: held ? tint : Theme.text; font-size: 12px; font-weight: 700; }
@@ -1057,7 +1098,7 @@ component PadTabs inherits Rectangle {
 // Pad grid with pages: a grid of flat cells split by thin
 // black lines. Four tabs hold the hot cues, Pad FX, beat jump and sampler;
 // a right-click on a tab swaps in another panel, such as stems.
-component Pads inherits VerticalLayout {
+export component Pads inherits VerticalLayout {
     in property <int> deck;
     in property <string> group;
     in property <DeckInfo> info;
@@ -1240,7 +1281,7 @@ component StepperPart inherits Rectangle {
 // The loop control: one box with halve on the left, the loop length in
 // the middle (press to loop, again to stop; green while looping) and double
 // on the right.
-component LoopStepper inherits Rectangle {
+export component LoopStepper inherits Rectangle {
     in property <string> group;
     in property <DeckInfo> info;
     property <int> activate-index: Controls.resolve(group, "beatloop_activate");
@@ -1264,7 +1305,7 @@ component LoopStepper inherits Rectangle {
 
 // Loop controls: the loop length box (see LoopStepper) with its label.
 // Manual loops (in / out) are to come.
-component LoopSection inherits VerticalLayout {
+export component LoopSection inherits VerticalLayout {
     in property <string> group;
     in property <DeckInfo> info;
     in property <color> tint;
