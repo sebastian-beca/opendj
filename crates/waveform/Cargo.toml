@@ -10,6 +10,7 @@ license.workspace = true
 # both render with the same wgpu::Device.
 wgpu = { version = "30", default-features = false, features = ["wgsl"] }
 bytemuck = { version = "1", features = ["derive"] }
+ab_glyph = "0.2"
 
 [dev-dependencies]
 wgpu = { version = "30", features = ["vulkan", "wgsl"] }
