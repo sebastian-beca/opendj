@@ -25,10 +25,17 @@ pub fn configured() -> Vec<Box<dyn Plugin>> {
     all
 }
 
-/// The importer add-ons the app was built with (see
-/// [`mixxx_plugins::LibraryImport`]); none by default.
+/// The other DJ apps whose libraries the app can bring in (see
+/// [`mixxx_plugins::LibraryImport`]), turned on or not.
 pub fn importers() -> Vec<Box<dyn LibraryImport>> {
-    Vec::new()
+    mixxx_plugins::importers()
+}
+
+/// The importers the DJ turned on in Settings > Library.
+pub fn enabled_importers() -> Vec<Box<dyn LibraryImport>> {
+    let mut all = importers();
+    all.retain(|i| crate::settings::import_enabled(i.id()));
+    all
 }
 
 enum Request {
