@@ -12,6 +12,79 @@ use mixxx_engine::import::ImportedListKind;
 pub mod database;
 pub mod lists;
 
+/// Parses one of VirtualDJ's XML files. VirtualDJ sometimes writes an
+/// attribute twice on one element, which XML doesn't allow, so on that
+/// error the file is read again keeping only the first of each.
+fn parse_xml(text: &str, f: impl FnOnce(&roxmltree::Document)) -> Result<(), roxmltree::Error> {
+    match roxmltree::Document::parse(text) {
+        Ok(doc) => f(&doc),
+        Err(roxmltree::Error::DuplicatedAttribute(..)) => f(&roxmltree::Document::parse(
+            &without_repeated_attributes(text),
+        )?),
+        Err(e) => return Err(e),
+    }
+    Ok(())
+}
+
+/// `text` with any attribute that repeats within a tag removed, keeping the
+/// first. Comments, CDATA and processing instructions are left as they are.
+fn without_repeated_attributes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(lt) = rest.find('<') {
+        out.push_str(&rest[..lt]);
+        rest = &rest[lt..];
+        let skip_to = |rest: &str, open: &str, close: &str| {
+            rest.starts_with(open)
+                .then(|| rest.find(close).map_or(rest.len(), |i| i + close.len()))
+        };
+        if let Some(end) = skip_to(rest, "<!--", "-->")
+            .or_else(|| skip_to(rest, "<![CDATA[", "]]>"))
+            .or_else(|| skip_to(rest, "<?", "?>"))
+            .or_else(|| skip_to(rest, "<!", ">"))
+            .or_else(|| skip_to(rest, "</", ">"))
+        {
+            out.push_str(&rest[..end]);
+            rest = &rest[end..];
+            continue;
+        }
+        // A start tag: its name, then each `name="value"`.
+        let name_end = rest[1..]
+            .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+            .map_or(rest.len(), |i| i + 1);
+        out.push_str(&rest[..name_end]);
+        rest = &rest[name_end..];
+        let mut seen: Vec<&str> = Vec::new();
+        loop {
+            let ws = rest.len() - rest.trim_start().len();
+            let after = &rest[ws..];
+            let Some(eq) = after.find('=') else { break };
+            let attr = after[..eq].trim();
+            if attr.is_empty()
+                || attr.contains(['>', '/', '<'])
+                || attr.contains(char::is_whitespace)
+            {
+                break;
+            }
+            let value = after[eq + 1..].trim_start();
+            let Some(quote) = value.chars().next().filter(|c| *c == '"' || *c == '\'') else {
+                break;
+            };
+            let Some(close) = value[1..].find(quote) else {
+                break;
+            };
+            let end = after.len() - value.len() + 1 + close + 1;
+            if !seen.contains(&attr) {
+                seen.push(attr);
+                out.push_str(&rest[..ws + end]);
+            }
+            rest = &after[end..];
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// VirtualDJ's `database.xml` and its lists, read whenever they have
 /// changed since last time.
 pub struct VirtualDj;

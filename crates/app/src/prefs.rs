@@ -151,6 +151,8 @@ struct WizardState {
     database: Option<PathBuf>,
     /// What the database holds, or why it can't be read.
     preview: String,
+    /// Whether `database` could be read; Next waits for one that can.
+    readable: bool,
     groups: Vec<&'static str>,
     theirs_win: bool,
 }
@@ -162,6 +164,7 @@ impl WizardState {
             step: 0,
             database: None,
             preview: String::new(),
+            readable: false,
             groups: settings::import_groups(importer),
             theirs_win: settings::import_theirs_win(importer.id()),
         };
@@ -181,7 +184,8 @@ impl WizardState {
                 Err(e) => format!("Can't read it: {e}"),
             },
         };
-        self.database = database.filter(|_| !self.preview.starts_with("Can't"));
+        self.readable = !self.preview.starts_with("Can't");
+        self.database = database;
     }
 }
 
@@ -937,7 +941,7 @@ impl Prefs {
             let Some(w) = &mut self.wizard else {
                 return true;
             };
-            if w.database.is_none() {
+            if w.database.is_none() || !w.readable {
                 return true;
             }
             if w.step < 2 {
@@ -1381,7 +1385,7 @@ fn show_wizard(app: &AppWindow, w: Option<&WizardState>) {
         w,
     ))));
     g.set_next_label(if w.step < 2 { "Next" } else { "Import" }.into());
-    g.set_can_next(w.database.is_some());
+    g.set_can_next(w.database.is_some() && w.readable);
     g.set_can_back(w.step > 0);
     g.set_open(true);
 }
