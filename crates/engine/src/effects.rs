@@ -46,6 +46,10 @@ pub const DEFAULT_EFFECTS: [[usize; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS] = [
     [1, 6, 5],
     [2, 4, 3],
     [1, 0, 0],
+    [0; 3],
+    [0; 3],
+    [0; 3],
+    [0; 3],
     [2, 1, 3],
 ];
 
@@ -430,11 +434,8 @@ impl UnitControls {
         reg.push(g, "next_chain_preset");
         reg.push(g, "prev_chain_preset");
         reg.create(g, "chain_preset_selector", 0.0, -64.0, 64.0, Behavior::Free);
-        // Decks this engine does not have, and the headphones, are stored
-        // only, as are targets the unit can't be routed to.
-        for ch in NUM_DECKS..4 {
-            reg.toggle(g, &format!("group_{}_enable", deck_group(ch)));
-        }
+        // The headphones are stored only, as are targets the unit can't be
+        // routed to.
         reg.toggle(g, "group_[Headphone]_enable");
         let routes = std::array::from_fn(|t| {
             if t == MAIN {
@@ -449,9 +450,10 @@ impl UnitControls {
                 r
             } else {
                 let r = reg.toggle(g, &format!("group_{}_enable", deck_group(t)));
-                // Unit 1 starts on deck 1 and unit 2 on deck 2, as the decks
-                // show; the Beat FX on both.
-                if t == unit || unit == BEAT_FX_UNIT {
+                // Each deck's unit starts on its deck, as the decks show; the
+                // Beat FX on decks 1 and 2. Pad FX units are routed when
+                // their pads are held.
+                if t == unit || (unit == BEAT_FX_UNIT && t < 2) {
                     r.set_bool(true);
                 }
                 r

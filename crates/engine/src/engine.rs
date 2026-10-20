@@ -1128,11 +1128,11 @@ impl Engine {
             std::array::from_fn(|i| self.decks[i].c.sync_enabled.get_bool());
         self.pick_sync_leader(synced);
         for i in 0..NUM_DECKS {
-            let other = 1 - i;
+            let other = self.sync_target(i);
             // sync_key: shift the key to the other deck's, or its relative.
             let d = &mut self.decks[i];
             if d.c.sync_key_edge.pressed(&d.c.sync_key) {
-                let theirs = Key::from_mixxx_number(self.decks[other].c.key.get());
+                let theirs = other.and_then(|o| Key::from_mixxx_number(self.decks[o].c.key.get()));
                 let d = &self.decks[i];
                 if let (Some(mine), Some(theirs)) = (d.file_key, theirs) {
                     let unshifted = mine.playing(0.0, d.speed(), d.c.keylock.get_bool());
@@ -1148,6 +1148,9 @@ impl Engine {
             // Set again below while following.
             d.sync_speed = None;
             d.sync_bend = 0.0;
+            let Some(other) = other else {
+                continue;
+            };
             let (Some(mine), Some(theirs)) =
                 (self.decks[i].track.clone(), self.decks[other].track.clone())
             else {
@@ -1225,23 +1228,40 @@ impl Engine {
         }
     }
 
-    /// The deck synced decks follow. With one deck synced it follows the
-    /// other; with both, the leader is the one that has been playing
-    /// longest, handing over when it stops, as Link's master deck does.
+    /// The deck synced decks follow. With one deck synced it follows a
+    /// playing deck among the others; with more, the leader is the synced
+    /// deck that has been playing longest, handing over when it stops, as
+    /// Link's master deck does.
     fn pick_sync_leader(&mut self, synced: [bool; NUM_DECKS]) {
+        let count = synced.iter().filter(|&&s| s).count();
+        if count == 0 {
+            self.sync_leader = None;
+            return;
+        }
+        let candidate = |k: usize| if count == 1 { !synced[k] } else { synced[k] };
         let playing =
             |d: &Deck| d.c.play.get_bool() && d.track.as_ref().is_some_and(|t| t.bpm > 0.0);
-        self.sync_leader = match synced {
-            [true, true] => self
-                .sync_leader
-                .filter(|&k| playing(&self.decks[k]))
-                .or_else(|| (0..NUM_DECKS).find(|&i| playing(&self.decks[i])))
-                .or(self.sync_leader)
-                .or(Some(0)),
-            [true, false] => Some(1),
-            [false, true] => Some(0),
-            [false, false] => None,
-        };
+        let current = self.sync_leader.filter(|&k| candidate(k));
+        self.sync_leader = current
+            .filter(|&k| playing(&self.decks[k]))
+            .or_else(|| (0..NUM_DECKS).find(|&k| candidate(k) && playing(&self.decks[k])))
+            .or(current)
+            .or_else(|| (0..NUM_DECKS).find(|&k| candidate(k) && self.decks[k].track.is_some()))
+            .or_else(|| (0..NUM_DECKS).find(|&k| candidate(k)));
+    }
+
+    /// The deck `deck` syncs to: the leader, or else a playing deck, or
+    /// else any deck with a track.
+    fn sync_target(&self, deck: usize) -> Option<usize> {
+        let has_bpm = |d: &Deck| d.track.as_ref().is_some_and(|t| t.bpm > 0.0);
+        self.sync_leader
+            .filter(|&k| k != deck)
+            .or_else(|| {
+                (0..NUM_DECKS).find(|&k| {
+                    k != deck && has_bpm(&self.decks[k]) && self.decks[k].c.play.get_bool()
+                })
+            })
+            .or_else(|| (0..NUM_DECKS).find(|&k| k != deck && has_bpm(&self.decks[k])))
     }
 
     /// With quantize on, or on a synced deck, a deck that jumps (hot cue,
@@ -1250,7 +1270,9 @@ impl Engine {
     /// from where it was going, as in Mixxx.
     fn land_in_phase(&mut self, moved: [bool; NUM_DECKS]) {
         for (i, moved) in moved.into_iter().enumerate() {
-            let other = 1 - i;
+            let Some(other) = self.sync_target(i) else {
+                continue;
+            };
             let (d, l) = (&self.decks[i], &self.decks[other]);
             let wanted = d.c.quantize.get_bool() || d.following;
             if !moved || !wanted || !d.c.play.get_bool() || !l.c.play.get_bool() || d.nudging() {
@@ -1379,7 +1401,15 @@ impl Engine {
         if self.master.xfader_reverse.get_bool() {
             x = -x;
         }
-        let xfade_target = xfader_gains(x, self.master.xfader_shape.get() as u8);
+        let sides = xfader_gains(x, self.master.xfader_shape.get() as u8);
+        // Each deck follows the side it is assigned to; thru decks skip the
+        // crossfader.
+        let xfade_target: [f32; NUM_DECKS] =
+            std::array::from_fn(|i| match self.decks[i].c.orientation.get().round() as i32 {
+                0 => sides[0],
+                2 => sides[1],
+                _ => 1.0,
+            });
         let master_target = self.master.gain.get() as f32;
         let auto_gain_on = self.master.auto_gain.get_bool();
         let auto_gain_target = self.master.auto_gain_target.get() as f32;
@@ -2992,6 +3022,51 @@ mod tests {
         // Scratch: both full until the last few percent of travel.
         assert!(close(xfader_gains(0.85, 2), [1.0, 1.0]));
         assert!(xfader_gains(0.97, 2)[0] < 0.7);
+    }
+
+    #[test]
+    fn decks_follow_their_crossfader_side() {
+        // Deck 3 starts on the left, deck 4 on the right.
+        let loud = |orientation: Option<f64>, crossfader: f64| {
+            let (reg, mut engine, mut input) = setup();
+            load(&mut input, 2, short_track(124.0, 4.0));
+            if let Some(o) = orientation {
+                reg.get("[Channel3]", "orientation").unwrap().set(o);
+            }
+            reg.get("[Master]", "crossfader").unwrap().set(crossfader);
+            run(&mut engine, 0.01);
+            reg.get("[Channel3]", "play").unwrap().set_bool(true);
+            let out = record(&mut engine, 0.5);
+            out.iter().map(|x| x.abs()).fold(0.0, f32::max) > 0.01
+        };
+        assert_eq!(reg_default_orientation(), [0.0, 2.0, 0.0, 2.0]);
+        assert!(loud(None, -1.0));
+        assert!(!loud(None, 1.0), "deck 3 is on the left");
+        assert!(loud(Some(2.0), 1.0));
+        assert!(!loud(Some(2.0), -1.0));
+        // Thru: the crossfader leaves it alone.
+        assert!(loud(Some(1.0), -1.0) && loud(Some(1.0), 1.0));
+    }
+
+    fn reg_default_orientation() -> [f64; 4] {
+        let (reg, _engine, _input) = setup();
+        std::array::from_fn(|d| reg.get(&crate::deck_group(d), "orientation").unwrap().get())
+    }
+
+    #[test]
+    fn deck_3_syncs_to_the_playing_deck_4() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 2, short_track(124.0, 10.0));
+        load(&mut input, 3, short_track(128.0, 10.0));
+        run(&mut engine, 0.02);
+        reg.get("[Channel4]", "play").unwrap().set_bool(true);
+        reg.get("[Channel3]", "sync_enabled")
+            .unwrap()
+            .set_bool(true);
+        run(&mut engine, 0.05);
+        let bpm3 = reg.get("[Channel3]", "bpm").unwrap().get();
+        assert!((bpm3 - 128.0).abs() < 0.01, "{bpm3}");
+        assert_eq!(engine.sync_leader, Some(3));
     }
 
     #[test]

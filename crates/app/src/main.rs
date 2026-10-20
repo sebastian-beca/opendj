@@ -251,6 +251,9 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
 #[cfg(target_os = "macos")]
 const TOP_BAR_HEIGHT: f64 = 52.0;
 
+/// The 4-Deck layout's value of `layout` (0 is 2-Deck, 1 Simple).
+const FOUR_DECK_LAYOUT: i32 = 2;
+
 /// Seconds of audio shown across the scrolling waveform at normal speed.
 /// Dragging the waveform (`Waveform` in main.slint) uses the same figure.
 const VISIBLE_SECONDS: f64 = 10.0;
@@ -324,23 +327,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             EventResult::Propagate
         });
     }
-    // Pro or Player, as last picked.
-    app.set_layout(settings::number("layout", 0.0).clamp(0.0, 1.0) as i32);
+    // 2-Deck, Simple or 4-Deck, as last picked.
+    app.set_layout(settings::number("layout", 0.0).clamp(0.0, FOUR_DECK_LAYOUT as f64) as i32);
     // `[Skin],layout` lets controllers switch it too (the DDJ-FLX4's
-    // SHIFT + right LOAD, VIEW): 0 Pro, 1 Player.
+    // SHIFT + right LOAD, VIEW): 0 2-Deck, 1 Simple, 2 4-Deck. VIEW toggles,
+    // so from 4-Deck it goes to 2-Deck.
     let layout_control = registry.create(
         "[Skin]",
         "layout",
         app.get_layout() as f64,
         0.0,
-        1.0,
+        FOUR_DECK_LAYOUT as f64,
         mixxx_control::Behavior::Toggle,
     );
+    // The deck 3 and 4 switches for two-deck controllers (see
+    // mixxx_controllers::LAYER_KEYS): clicking a strip's deck number in
+    // 4-Deck moves that side over. Outside 4-Deck they go back to decks 1
+    // and 2, which are the ones showing.
+    let layers =
+        mixxx_controllers::LAYER_KEYS.map(|k| registry.toggle(mixxx_controllers::LAYER_GROUP, k));
+    let reset_layers = move |layout: i32| {
+        if layout != FOUR_DECK_LAYOUT {
+            layers.iter().for_each(|l| l.set_bool(false));
+        }
+    };
+    reset_layers(app.get_layout());
     {
         let layout_control = layout_control.clone();
+        let reset_layers = reset_layers.clone();
         app.on_layout_changed(move |layout| {
             layout_control.set(layout as f64);
             settings::set("layout", serde_json::json!(layout));
+            reset_layers(layout);
         });
     }
     // The large waveforms, shown or hidden from the top bar.
@@ -496,8 +514,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         device: device.clone(),
                         queue: queue.clone(),
                         renderer,
-                        scrolling: [make(Mode::Scrolling), make(Mode::Scrolling)],
-                        overview: [make(Mode::Overview), make(Mode::Overview)],
+                        scrolling: std::array::from_fn(|_| make(Mode::Scrolling)),
+                        overview: std::array::from_fn(|_| make(Mode::Overview)),
                         tracks: Default::default(),
                         clocks: Default::default(),
                         moving: false,
@@ -551,6 +569,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     app.set_layout(layout);
                     settings::set("layout", serde_json::json!(layout));
+                    reset_layers(layout);
                 }
                 // The newest alert shows for a while; a click closes it.
                 if let Some(message) = alert_engine.take_alerts().pop() {
@@ -592,7 +611,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let camelot = app.global::<KeyNotation>().get_camelot();
                 let mut b = browser.borrow_mut();
                 b.set_camelot(camelot);
-                b.set_loaded(&app, [0, 1].map(|d| tracks[d].as_ref().map(|t| t.id)));
+                b.set_decks_shown(if app.get_layout() == FOUR_DECK_LAYOUT {
+                    4
+                } else {
+                    2
+                });
+                b.set_loaded(
+                    &app,
+                    std::array::from_fn(|d| tracks[d].as_ref().map(|t| t.id)),
+                );
                 b.learn_analysis(&tracks);
                 b.keep(&tracks, 0.016);
                 let mut host = browser::AutomixHost {
@@ -976,7 +1003,8 @@ impl Decks {
         };
         let speed = speed(&h.rate, &h.rate_range, &h.rate_dir);
         let base = file.playing(0.0, speed, h.keylock.get_bool());
-        let other = Key::from_mixxx_number(self.0[1 - deck].key.get());
+        // The deck it pairs with: 1 with 2, 3 with 4.
+        let other = Key::from_mixxx_number(self.0[deck ^ 1].key.get());
         let current = h.pitch.get().round() as i32;
         (-range..=range)
             .map(|shift| {
@@ -1202,6 +1230,7 @@ impl Gpu {
         let now = Instant::now();
         let mut changed = !self.images_set;
         self.moving = false;
+        let four = app.get_layout() == FOUR_DECK_LAYOUT;
         for (d, track) in tracks.iter().enumerate() {
             changed |= self.scrolling[d].resize(&self.device, ww, wh);
             changed |= self.overview[d].resize(&self.device, ow, oh);
@@ -1236,10 +1265,15 @@ impl Gpu {
             // turns once every 1.8 s.
             let spin = (play_seconds / 1.8).rem_euclid(1.0) as f32 * 360.0;
             let spin = if track.is_some() { spin } else { 0.0 };
-            if d == 0 {
-                app.set_spin_1(spin);
-            } else {
-                app.set_spin_2(spin);
+            match d {
+                0 => app.set_spin_1(spin),
+                1 => app.set_spin_2(spin),
+                // Decks 3 and 4 have no jog.
+                _ => {}
+            }
+            // Decks 3 and 4 show only in 4-Deck.
+            if d >= 2 && !four {
+                continue;
             }
             for view in [&mut self.scrolling[d], &mut self.overview[d]] {
                 view.set_track(&self.device, &self.renderer, gpu_track.as_ref());
@@ -1258,8 +1292,12 @@ impl Gpu {
             };
             app.set_waveform_1(img(&self.scrolling[0]));
             app.set_waveform_2(img(&self.scrolling[1]));
+            app.set_waveform_3(img(&self.scrolling[2]));
+            app.set_waveform_4(img(&self.scrolling[3]));
             app.set_overview_1(img(&self.overview[0]));
             app.set_overview_2(img(&self.overview[1]));
+            app.set_overview_3(img(&self.overview[2]));
+            app.set_overview_4(img(&self.overview[3]));
             self.images_set = true;
         }
     }

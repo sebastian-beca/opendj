@@ -4,17 +4,21 @@
 use crate::beats::GridEdit;
 use mixxx_control::{Behavior, ConfigKey, ControlHandle, ControlRegistry};
 
-pub const NUM_DECKS: usize = 2;
+pub const NUM_DECKS: usize = 4;
 pub const NUM_HOTCUES: usize = 8;
-/// Units 1 and 2 are the decks' effects, 3 and 4 their pad FX, 5 the
-/// Beat FX (see [`BEAT_FX_UNIT`]) and 6 the microphone's (see
-/// [`MIC_FX_UNIT`]).
-pub const NUM_EFFECT_UNITS: usize = 6;
+/// Units 1 to 4 are the decks' effects, 5 the Beat FX (see
+/// [`BEAT_FX_UNIT`]), 6 to 9 the decks' pad FX (see [`pad_fx_unit`]) and 10
+/// the microphone's (see [`MIC_FX_UNIT`]).
+pub const NUM_EFFECT_UNITS: usize = 10;
 /// The Beat FX unit, `[EffectRack1_EffectUnit5]`, as on Pioneer mixers: one
-/// effect in its first slot, sent to deck 1, deck 2 or both.
+/// effect in its first slot, sent to any of the decks.
 pub const BEAT_FX_UNIT: usize = 4;
+/// The unit a deck's Pad FX pads load their effect into.
+pub const fn pad_fx_unit(deck: usize) -> usize {
+    BEAT_FX_UNIT + 1 + deck
+}
 /// The microphone and auxiliary inputs' own unit, the last one (now
-/// `[EffectRack1_EffectUnit6]`), so effects on the voice leave the decks'
+/// `[EffectRack1_EffectUnit10]`), so effects on the voice leave the decks'
 /// alone. The other units can't be routed to the inputs, nor this one to
 /// the decks. The UI reads its number from `EffectList.mic-unit`.
 pub const MIC_FX_UNIT: usize = NUM_EFFECT_UNITS - 1;
@@ -22,6 +26,15 @@ pub const EFFECTS_PER_UNIT: usize = 3;
 
 pub fn deck_group(deck: usize) -> String {
     format!("[Channel{}]", deck + 1)
+}
+
+/// Where a deck starts on the crossfader: odd decks left, even decks right.
+pub fn default_orientation(deck: usize) -> f64 {
+    if deck.is_multiple_of(2) {
+        0.0
+    } else {
+        2.0
+    }
 }
 
 pub fn eq_group(deck: usize) -> String {
@@ -84,6 +97,9 @@ pub(crate) struct DeckControls {
     pub(crate) stems: [StemControls; crate::stems::MAX_STEMS],
     pub(crate) play: ControlHandle,
     pub(crate) pfl: ControlHandle,
+    /// Mixxx's crossfader assignment: 0 left, 1 thru (not faded), 2 right.
+    /// Decks 1 and 3 start on the left, 2 and 4 on the right.
+    pub(crate) orientation: ControlHandle,
     pub(crate) cue_default: ControlHandle,
     /// CUP: seeks to the cue point (or sets it when stopped), plays on release.
     pub(crate) cue_play: ControlHandle,
@@ -242,6 +258,14 @@ impl DeckControls {
             }),
             play: reg.toggle(g, "play"),
             pfl: reg.toggle(g, "pfl"),
+            orientation: reg.create(
+                g,
+                "orientation",
+                default_orientation(deck),
+                0.0,
+                2.0,
+                Behavior::Free,
+            ),
             cue_default: reg.push(g, "cue_default"),
             cue_play: reg.push(g, "cue_play"),
             cue_point: reg.indicator(g, "cue_point", 3600.0),
