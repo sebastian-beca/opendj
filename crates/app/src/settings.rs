@@ -236,6 +236,16 @@ pub fn flag(key: &str, default: bool) -> bool {
     load()[key].as_bool().unwrap_or(default)
 }
 
+/// The setting that says whether an importer runs at all; off until the DJ
+/// turns it on.
+pub fn import_enabled_key(importer: &str) -> String {
+    format!("import:{importer}")
+}
+
+pub fn import_enabled(importer: &str) -> bool {
+    flag(&import_enabled_key(importer), false)
+}
+
 /// The setting that says whether an importer brings in one kind of list.
 pub fn import_group_key(importer: &str, group: &str) -> String {
     format!("import:{importer}:{group}")

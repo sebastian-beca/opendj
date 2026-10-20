@@ -645,12 +645,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Brings the library up to date in the background: new and changed files
-/// in the music folder, and the library of any importer add-on whose file
-/// has changed since last time. The tracks as saved are then sent to `tx`,
+/// in the music folder, and the library of any app the DJ imports from whose
+/// files have changed since last time. The tracks as saved are then sent to `tx`,
 /// for the browser to show.
 fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<Arc<Track>>>) {
     let music = settings::music_folder().filter(|d| d.is_dir());
-    let importers = stores::importers();
+    let importers = stores::enabled_importers();
     if music.is_none() && importers.is_empty() {
         return;
     }
