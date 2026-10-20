@@ -3351,6 +3351,7 @@ dependencies = [
 name = "mixxx-waveform"
 version = "0.2.0"
 dependencies = [
+ "ab_glyph",
  "bytemuck",
  "pollster",
  "wgpu",
