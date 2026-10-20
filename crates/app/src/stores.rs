@@ -5,14 +5,36 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
-use mixxx_plugins::{LibraryImport, Plugin, PluginError, StoreItem, StoreQuery};
+use mixxx_plugins::{remote, LibraryImport, Plugin, PluginError, StoreItem, StoreQuery};
 
 /// How long typing has to pause before a store is asked.
 const DEBOUNCE: Duration = Duration::from_millis(400);
 
-/// The plugins the app has: the built-in stores.
+/// The plugins the app has: the built-in stores, then the add-on programs
+/// in the `addons` folder of the app's config folder (and any named in
+/// `OPENDJ_ADDONS`).
 pub fn plugins() -> Vec<Box<dyn Plugin>> {
-    mixxx_plugins::builtin()
+    let mut all = mixxx_plugins::builtin();
+    all.extend(addons());
+    all
+}
+
+/// Where add-on programs are installed.
+pub fn addons_dir() -> Option<PathBuf> {
+    crate::settings::config_dir().map(|d| d.join("addons"))
+}
+
+fn addons() -> Vec<Box<dyn Plugin>> {
+    let mut out: Vec<Box<dyn Plugin>> = Vec::new();
+    for program in remote::programs(addons_dir().as_deref()) {
+        match remote::RemotePlugin::new(&program) {
+            // An add-on compiled in as well wins.
+            Ok(p) if out.iter().any(|o| o.manifest().id == p.manifest().id) => {}
+            Ok(p) => out.push(Box::new(p)),
+            Err(e) => eprintln!("add-on {} not loaded: {e}", program.display()),
+        }
+    }
+    out
 }
 
 /// [`plugins`], each told what the DJ filled in on its page in Settings.
