@@ -12,8 +12,9 @@
 //! - [`Plugin::settings`]: a page of its own in Settings, for a sign-in or
 //!   anything else the DJ fills in once.
 //!
-//! Plugins are compiled in for now ([`builtin`]); each runs on a thread of
-//! its own in the app, so a slow store never holds up the UI or the audio.
+//! Plugins are compiled in ([`builtin`]) or are add-on programs of their own
+//! ([`remote`]); each runs on a thread of its own in the app, so a slow
+//! store never holds up the UI or the audio.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -23,6 +24,7 @@ pub use mixxx_engine::import::{ImportedLibrary, ListGroup};
 pub mod bandcamp;
 pub mod inbox;
 pub mod links;
+pub mod remote;
 pub mod source;
 pub mod virtualdj;
 
