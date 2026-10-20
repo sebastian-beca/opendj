@@ -13,10 +13,11 @@ pub const NUM_EFFECT_UNITS: usize = 6;
 /// The Beat FX unit, `[EffectRack1_EffectUnit5]`, as on Pioneer mixers: one
 /// effect in its first slot, sent to deck 1, deck 2 or both.
 pub const BEAT_FX_UNIT: usize = 4;
-/// The microphone and auxiliary inputs' own unit, `[EffectRack1_EffectUnit6]`,
-/// so effects on the voice leave the decks' alone. The other units can't
-/// be routed to the inputs, nor this one to the decks.
-pub const MIC_FX_UNIT: usize = 5;
+/// The microphone and auxiliary inputs' own unit, the last one (now
+/// `[EffectRack1_EffectUnit6]`), so effects on the voice leave the decks'
+/// alone. The other units can't be routed to the inputs, nor this one to
+/// the decks. The UI reads its number from `EffectList.mic-unit`.
+pub const MIC_FX_UNIT: usize = NUM_EFFECT_UNITS - 1;
 pub const EFFECTS_PER_UNIT: usize = 3;
 
 pub fn deck_group(deck: usize) -> String {

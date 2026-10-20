@@ -605,10 +605,10 @@ component InputStrip inherits VerticalLayout {
 // One of the microphone effect unit's slots, as a deck's FX row.
 component MicFxSlot inherits HorizontalLayout {
     in property <int> slot;
-    property <int> loaded: Controls.value(Controls.resolve("[EffectRack1_EffectUnit6_Effect" + (slot + 1) + "]", "loaded_effect"), Controls.tick);
+    property <int> loaded: Controls.value(Controls.resolve("[EffectRack1_EffectUnit" + (EffectList.mic-unit + 1) + "_Effect" + (slot + 1) + "]", "loaded_effect"), Controls.tick);
     FxSlot {
         horizontal-stretch: 1;
-        unit: 5;
+        unit: EffectList.mic-unit;
         slot: slot;
         tint: Theme.mic;
         name: loaded > 0 && loaded <= EffectList.names.length ? EffectList.names[loaded - 1] : "";
@@ -616,7 +616,7 @@ component MicFxSlot inherits HorizontalLayout {
 }
 
 // The MIC page: the microphone and auxiliary inputs side by side, then the
-// microphone's own effect unit ([EffectRack1_EffectUnit6]), which the
+// microphone's own effect unit (EffectList.mic-unit), which the
 // decks' effects never touch. AUX sends the auxiliary input through it too.
 component InputsPage inherits VerticalLayout {
     spacing: 6px;
@@ -634,7 +634,7 @@ component InputsPage inherits VerticalLayout {
         HorizontalLayout {
             spacing: 4px;
             Caption { text: "MIC FX"; vertical-alignment: center; horizontal-alignment: left; horizontal-stretch: 1; }
-            ControlButton { group: "[EffectRack1_EffectUnit6]"; key: "group_[Auxiliary1]_enable"; text: "AUX"; tint: Theme.accent; width: 34px; height: 18px; font-size: 9px; }
+            ControlButton { group: "[EffectRack1_EffectUnit" + (EffectList.mic-unit + 1) + "]"; key: "group_[Auxiliary1]_enable"; text: "AUX"; tint: Theme.accent; width: 34px; height: 18px; font-size: 9px; }
         }
         for i in 3: MicFxSlot { slot: i; }
     }

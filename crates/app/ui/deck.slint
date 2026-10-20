@@ -594,6 +594,8 @@ export global DeckActions {
 
 export global EffectList {
     in property <[string]> names;
+    // The microphone's effect unit, from 0 (MIC_FX_UNIT).
+    in property <int> mic-unit: 5;
 }
 
 // One effect slot: clicking the name turns the effect on
