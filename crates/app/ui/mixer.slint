@@ -4,7 +4,7 @@
 // Dark knobs with white pointers, ticked faders.
 import { Theme, EdgeLine } from "theme.slint";
 import { Caption, Controls, ControlButton, ControlFader, ControlKnob, CueHeadphones, StereoMeter } from "controls.slint";
-import { EffectList } from "deck.slint";
+import { EffectList, FxSlot } from "deck.slint";
 
 // One output route in the settings table.
 export struct OutputRow {
@@ -358,9 +358,9 @@ component MixerTabs inherits Rectangle {
     HorizontalLayout {
         padding: 2px;
         spacing: 2px;
-        // Tab numbers: 0 MIXER, 2 FX, 1 SETTINGS.
-        for t[i] in ["MIXER", "FX", "SETTINGS"]: Rectangle {
-            property <int> n: i == 0 ? 0 : i == 1 ? 2 : 1;
+        // Tab numbers: 0 MIXER, 2 FX, 3 MIC, 1 SETTINGS.
+        for t[i] in ["MIXER", "FX", "MIC", "SETTINGS"]: Rectangle {
+            property <int> n: [0, 2, 3, 1][i];
             horizontal-stretch: 1;
             background: n == tab ? Theme.panel-raised.brighter(0.3) : transparent;
             border-radius: Theme.radius - 2px;
@@ -550,6 +550,96 @@ component ChannelGrid inherits HorizontalLayout {
     SideColumn { deck: 1; }
 }
 
+// One input on the MIC page: ON and headphone cue along the top, gain and
+// EQ beside its fader and meter. Dimmed with no device chosen
+// for it in the settings.
+component InputStrip inherits VerticalLayout {
+    in property <string> group;
+    in property <string> name;
+    // talkover for the microphone, main_mix for the auxiliary input.
+    in property <string> on-key;
+    in property <color> tint;
+    property <string> eq: "[EqualizerRack1_" + group + "_Effect1]";
+    property <bool> configured: Controls.value(Controls.resolve(group, "input_configured"), Controls.tick) > 0;
+    spacing: 6px;
+    HorizontalLayout {
+        spacing: 4px;
+        Caption { text: name; vertical-alignment: center; horizontal-alignment: left; horizontal-stretch: 1; }
+        ControlButton { group: group; key: on-key; text: "ON"; tint: tint; fill-when-lit: true; width: 34px; height: 22px; font-size: 10px; }
+        CueHeadphones { group: group; tint: tint; width: 30px; }
+    }
+    if !configured: Text {
+        text: "Choose an input in Settings";
+        color: Theme.text-dim;
+        font-size: 9px;
+        horizontal-alignment: center;
+        overflow: elide;
+    }
+    HorizontalLayout {
+        vertical-stretch: 1;
+        spacing: 2px;
+        opacity: configured ? 1 : 0.4;
+        VerticalLayout {
+            alignment: space-around;
+            GridLayout {
+                spacing: 4px;
+                Row {
+                    Knob { group: group; key: "pregain"; label: "GAIN"; size: 20px; }
+                    Knob { group: eq; key: "parameter3"; label: "HIGH"; size: 20px; }
+                }
+                Row {
+                    Knob { group: eq; key: "parameter2"; label: "MID"; size: 20px; }
+                    Knob { group: eq; key: "parameter1"; label: "LOW"; size: 20px; }
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            ControlFader { group: group; key: "volume"; tint: tint; ticks: 9; width: 26px; }
+        }
+        HorizontalLayout { padding-top: 4px; padding-bottom: 4px; StereoMeter { group: group; } }
+    }
+}
+
+// One of the microphone effect unit's slots, as a deck's FX row.
+component MicFxSlot inherits HorizontalLayout {
+    in property <int> slot;
+    property <int> loaded: Controls.value(Controls.resolve("[EffectRack1_EffectUnit6_Effect" + (slot + 1) + "]", "loaded_effect"), Controls.tick);
+    FxSlot {
+        horizontal-stretch: 1;
+        unit: 5;
+        slot: slot;
+        tint: Theme.mic;
+        name: loaded > 0 && loaded <= EffectList.names.length ? EffectList.names[loaded - 1] : "";
+    }
+}
+
+// The MIC page: the microphone and auxiliary inputs side by side, then the
+// microphone's own effect unit ([EffectRack1_EffectUnit6]), which the
+// decks' effects never touch. AUX sends the auxiliary input through it too.
+component InputsPage inherits VerticalLayout {
+    spacing: 6px;
+    padding-top: 2px;
+    HorizontalLayout {
+        vertical-stretch: 1;
+        spacing: 8px;
+        InputStrip { group: "[Microphone]"; name: "MIC"; on-key: "talkover"; tint: Theme.mic; horizontal-stretch: 1; }
+        Rectangle { width: 1px; background: Theme.border; }
+        InputStrip { group: "[Auxiliary1]"; name: "AUX"; on-key: "main_mix"; tint: Theme.accent; horizontal-stretch: 1; }
+    }
+    EdgeLine { left: 8px; right: 8px; }
+    VerticalLayout {
+        spacing: 3px;
+        HorizontalLayout {
+            spacing: 4px;
+            Caption { text: "MIC FX"; vertical-alignment: center; horizontal-alignment: left; horizontal-stretch: 1; }
+            ControlButton { group: "[EffectRack1_EffectUnit6]"; key: "group_[Auxiliary1]_enable"; text: "AUX"; tint: Theme.accent; width: 34px; height: 18px; font-size: 9px; }
+        }
+        for i in 3: MicFxSlot { slot: i; }
+    }
+}
+
 export component Mixer inherits Rectangle {
     in-out property <int> tab: 0;
     background: Theme.panel;
@@ -575,6 +665,7 @@ export component Mixer inherits Rectangle {
         }
         if tab == 1: SettingsPage { vertical-stretch: 1; }
         if tab == 2: BeatFxPage { vertical-stretch: 1; }
+        if tab == 3: InputsPage { vertical-stretch: 1; }
         if tab == 0: ChannelGrid { vertical-stretch: 1; }
         // Along the bottom edge, as on a hardware mixer: headphone level,
         // the crossfader, and master volume.

@@ -19,6 +19,7 @@ pub mod dsp;
 mod effects;
 pub mod engine;
 pub mod import;
+pub mod inputs;
 pub mod key;
 pub mod keynet;
 mod keyshift;
@@ -47,15 +48,15 @@ pub use beats::{BeatGrid, GridMarker};
 pub use controls::{
     deck_group, effect_group, effect_unit_group, eq_group, quick_effect_group, size_name,
     stem_group, BEATJUMP_SIZES, BEATLOOP_SIZES, BEAT_FX_UNIT, DEFAULT_AUTO_GAIN_TARGET,
-    EFFECTS_PER_UNIT, NUM_DECKS, NUM_EFFECT_UNITS, NUM_HOTCUES,
+    EFFECTS_PER_UNIT, MIC_FX_UNIT, NUM_DECKS, NUM_EFFECT_UNITS, NUM_HOTCUES,
 };
 pub use effects::{
     effect_name, parameter_names, AVAILABLE_EFFECTS, DEFAULT_EFFECTS, MAX_BUTTON_PARAMETERS,
     MAX_PARAMETERS,
 };
 pub use output::{
-    default_output_device, output_devices, AudioSetup, OutputDevice, Role, Route, BUFFER_SIZES,
-    SAMPLE_RATES,
+    channel_names, default_output_device, input_devices, output_devices, AudioSetup, InputRole,
+    InputRoute, OutputDevice, Role, Route, BUFFER_SIZES, SAMPLE_RATES,
 };
 pub use recorder::{RecordFormat, RecordSettings, Recorder};
 pub use synth::sample_library;
@@ -249,9 +250,22 @@ impl AudioEngine {
         self.visual.clone()
     }
 
-    /// Switches the outputs to the routes `setup` lists.
+    /// Switches the outputs to the routes `setup` lists, and the inputs to
+    /// its inputs.
     pub fn set_outputs(&self, setup: &AudioSetup) {
         self.output.borrow_mut().configure(setup);
+    }
+
+    /// Switches the microphone and auxiliary inputs to the devices `setup`
+    /// lists, leaving the outputs playing.
+    pub fn set_inputs(&self, setup: &AudioSetup) {
+        self.output.borrow_mut().configure_inputs(setup);
+    }
+
+    /// Each input's state, by [`InputRole::index`]: its device and format,
+    /// what is wrong with it, or empty when it has none.
+    pub fn input_status(&self) -> Vec<String> {
+        self.output.borrow().input_status.to_vec()
     }
 
     /// Separates `track` into stems with Demucs in the background (see

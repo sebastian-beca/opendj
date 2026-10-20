@@ -10,9 +10,10 @@ use std::sync::Arc;
 
 use mixxx_control::ControlRegistry;
 use mixxx_controllers::{Controllers, MappingChoice, Port};
+use mixxx_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use mixxx_engine::{
-    analysis, cache, deck_group, key, RecordFormat, Recorder, BUFFER_SIZES,
-    DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES,
+    analysis, cache, channel_names, deck_group, input_devices, key, InputRole, InputRoute,
+    RecordFormat, Recorder, BUFFER_SIZES, DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES,
 };
 use mixxx_library::query;
 use mixxx_plugins::{LibraryImport, Plugin, SettingKind};
@@ -68,6 +69,14 @@ const RECORD_FORMATS: [(RecordFormat, u16, &str); 4] = [
 
 const AUTO_GAIN_TARGETS: [f64; 7] = [-8.0, -10.0, -12.0, -14.0, -16.0, -18.0, -23.0];
 
+/// How far ducking turns the music down, in dB, as offered.
+const DUCK_DB: [f64; 4] = [6.0, 12.0, 18.0, 24.0];
+
+/// `[Master],duckStrength` for ducking by `db`.
+fn duck_strength(db: f64) -> f64 {
+    1.0 - 10f64.powf(-db / 20.0)
+}
+
 /// Applies the saved choices to the engine's controls, at start.
 pub fn apply_saved(registry: &ControlRegistry) {
     let set = |group: &str, key: &str, value: f64| {
@@ -108,6 +117,16 @@ pub fn apply_saved(registry: &ControlRegistry) {
         "[Master]",
         "headSplit",
         f(settings::flag("head_split", false)),
+    );
+    set(
+        "[Master]",
+        "talkover_ducking",
+        settings::number("talkover_ducking", DUCK_AUTO),
+    );
+    set(
+        "[Master]",
+        "duckStrength",
+        settings::number("duck_strength", DEFAULT_DUCK_STRENGTH),
     );
     set(
         "[ReplayGain]",
@@ -211,13 +230,25 @@ pub struct Prefs {
     plugin_changed: Box<dyn Fn(&str)>,
     /// Opens the outputs again with the saved audio settings.
     audio_changed: Box<dyn Fn()>,
+    /// Opens the inputs again with the saved audio settings, and tells
+    /// each input's state (see [`mixxx_engine::AudioEngine::input_status`]).
+    inputs: InputHooks,
+    /// What each input's menu offered last, by [`InputRole::index`].
+    input_choices: [Vec<Option<InputRoute>>; 2],
     /// The import being set up, if any.
     wizard: Option<WizardState>,
     /// The import whose Remove was pressed once, waiting for a second press.
     removing: Option<String>,
 }
 
+/// What the settings window needs from the engine for its inputs.
+pub struct InputHooks {
+    pub changed: Box<dyn Fn()>,
+    pub status: Box<dyn Fn() -> Vec<String>>,
+}
+
 impl Prefs {
+    #[allow(clippy::too_many_arguments)]
     pub fn install(
         app: &AppWindow,
         registry: Arc<ControlRegistry>,
@@ -226,6 +257,7 @@ impl Prefs {
         rescan: Box<dyn Fn()>,
         plugin_changed: Box<dyn Fn(&str)>,
         audio_changed: Box<dyn Fn()>,
+        inputs: InputHooks,
     ) -> Rc<RefCell<Prefs>> {
         let (chosen_tx, chosen_rx) = mpsc::channel();
         let plugins: Vec<Box<dyn Plugin>> = crate::stores::configured()
@@ -254,6 +286,8 @@ impl Prefs {
             plugins,
             plugin_changed,
             audio_changed,
+            inputs,
+            input_choices: Default::default(),
             wizard: None,
             removing: None,
         }));
@@ -376,6 +410,37 @@ impl Prefs {
                 ),
                 self.sample_rate_item(),
                 self.buffer_item(),
+                item("inputs", HEADING, "INPUTS", ""),
+                self.input_item(InputRole::Microphone),
+                self.input_item(InputRole::Auxiliary),
+                PrefItem {
+                    choices: strings(&["Off", "Auto", "Manual"]),
+                    chosen: settings::number("talkover_ducking", DUCK_AUTO) as i32,
+                    ..item(
+                        "talkover_ducking",
+                        SEGMENTED,
+                        "Talkover ducking",
+                        "Auto turns the music down while you talk into the mic; \
+                         Manual whenever the mic is on.",
+                    )
+                },
+                {
+                    let strength = settings::number("duck_strength", DEFAULT_DUCK_STRENGTH);
+                    let names: Vec<String> = DUCK_DB.iter().map(|d| format!("-{d} dB")).collect();
+                    PrefItem {
+                        choices: strings(&names),
+                        chosen: DUCK_DB
+                            .iter()
+                            .position(|&d| (duck_strength(d) - strength).abs() < 1e-3)
+                            .unwrap_or(1) as i32,
+                        ..item(
+                            "duck_strength",
+                            MENU,
+                            "Ducking depth",
+                            "How far the music goes down under the mic.",
+                        )
+                    }
+                },
                 item("recording", HEADING, "RECORDING", ""),
                 {
                     let r = settings::recording();
@@ -657,6 +722,74 @@ impl Prefs {
                 .and_then(|r| SAMPLE_RATES.iter().position(|&x| x == r))
                 .map_or(0, |i| i + 1) as i32,
             ..item("sample_rate", MENU, "Sample rate", &detail)
+        }
+    }
+
+    /// The menu choosing `role`'s device and channels: None, then each
+    /// input device's channels (pairs for the auxiliary input).
+    fn input_item(&mut self, role: InputRole) -> PrefItem {
+        let saved = settings::audio_setup()
+            .inputs
+            .into_iter()
+            .find(|r| r.role == role);
+        let width = role.channels();
+        let mut names = vec!["None".to_string()];
+        let mut choices = vec![None];
+        for d in input_devices() {
+            for channel in (0..d.channels).step_by(width as usize) {
+                if channel + width > d.channels {
+                    break;
+                }
+                names.push(format!("{} · {}", d.name, channel_names(channel, width)));
+                choices.push(Some(InputRoute {
+                    role,
+                    device: d.name.clone(),
+                    channel,
+                }));
+            }
+        }
+        if let Some(r) = &saved {
+            if !choices.contains(&Some(r.clone())) {
+                let device = if r.device.is_empty() {
+                    "System default"
+                } else {
+                    &r.device
+                };
+                names.push(format!(
+                    "{device} · {} (not connected)",
+                    channel_names(r.channel, width)
+                ));
+                choices.push(Some(r.clone()));
+            }
+        }
+        let chosen = choices.iter().position(|c| *c == saved).unwrap_or(0);
+        self.input_choices[role.index()] = choices;
+        let status = (self.inputs.status)()
+            .get(role.index())
+            .cloned()
+            .unwrap_or_default();
+        let (id, title, detail) = match role {
+            InputRole::Microphone => (
+                "microphone_input",
+                "Microphone",
+                "One channel of an input device. Turn it on with MIC; its effects are on the mixer's MIC page.",
+            ),
+            InputRole::Auxiliary => (
+                "auxiliary_input",
+                "Auxiliary",
+                "A pair of channels, such as a turntable, a phone or another mixer, mixed in with the decks.",
+            ),
+        };
+        // While a device is chosen, the row says how it is going.
+        let detail = if saved.is_some() && !status.is_empty() {
+            status
+        } else {
+            detail.to_string()
+        };
+        PrefItem {
+            choices: strings(&names),
+            chosen: chosen as i32,
+            ..item(id, MENU, title, &detail)
         }
     }
 
@@ -1158,6 +1291,33 @@ impl Prefs {
             "xfader_shape" => {
                 settings::set("xfader_shape", json!(index));
                 self.set("[Mixer Profile]", "xFaderShape", index as f64);
+            }
+            "microphone_input" | "auxiliary_input" => {
+                let role = if id == "microphone_input" {
+                    InputRole::Microphone
+                } else {
+                    InputRole::Auxiliary
+                };
+                let Some(choice) = self.input_choices[role.index()].get(index).cloned() else {
+                    return;
+                };
+                let mut setup = settings::audio_setup();
+                setup.inputs.retain(|r| r.role != role);
+                setup.inputs.extend(choice);
+                settings::set_audio_setup(&setup);
+                (self.inputs.changed)();
+            }
+            "talkover_ducking" => {
+                settings::set("talkover_ducking", json!(index));
+                self.set("[Master]", "talkover_ducking", index as f64);
+            }
+            "duck_strength" => {
+                let Some(&db) = DUCK_DB.get(index) else {
+                    return;
+                };
+                let strength = duck_strength(db);
+                settings::set("duck_strength", json!(strength));
+                self.set("[Master]", "duckStrength", strength);
             }
             // The first choice, Device default, clears the setting.
             "sample_rate" => {
