@@ -213,7 +213,88 @@ component SettingsButton inherits Rectangle {
     }
 }
 
-// The layout pill: PRO or PLAYER, and a click switches to the other.
+// A small picture of a layout, after djay's: 0 two decks side by side,
+// 1 Simple (one wide strip), 2 four decks, 3 Automix (a play arrow
+// between lines).
+component LayoutIcon inherits Rectangle {
+    in property <int> kind;
+    in property <color> tint: Theme.text;
+    width: 22px;
+    height: 16px;
+    if kind != 3: Rectangle {
+        border-width: 1.5px;
+        border-color: tint;
+        border-radius: 2px;
+    }
+    if kind == 0: HorizontalLayout {
+        padding: 3.5px;
+        spacing: 2px;
+        Rectangle { background: tint; border-radius: 1px; }
+        Rectangle { background: tint; border-radius: 1px; }
+    }
+    if kind == 1: VerticalLayout {
+        padding-left: 3.5px;
+        padding-right: 3.5px;
+        alignment: center;
+        Rectangle { height: 4px; background: tint; border-radius: 1px; }
+    }
+    if kind == 2: HorizontalLayout {
+        padding: 3.5px;
+        spacing: 1.5px;
+        for _ in 4: Rectangle { background: tint; border-radius: 0.5px; }
+    }
+    if kind == 3: Path {
+        width: 22px;
+        height: 16px;
+        viewbox-width: 22;
+        viewbox-height: 16;
+        stroke: tint;
+        stroke-width: 1.5px;
+        commands: "M 2 2 L 20 2 M 2 14 L 20 14 M 2 8 L 7 8 M 15 8 L 20 8";
+    }
+    if kind == 3: Path {
+        width: 22px;
+        height: 16px;
+        viewbox-width: 22;
+        viewbox-height: 16;
+        fill: tint;
+        commands: "M 8.5 4.5 L 14 8 L 8.5 11.5 Z";
+    }
+}
+
+// One layout in the layout menu; ones still to come are greyed out.
+component LayoutItem inherits Rectangle {
+    in property <int> kind;
+    in property <string> text;
+    in property <bool> current;
+    in property <bool> enabled: true;
+    callback picked();
+    height: 32px;
+    border-radius: 6px;
+    background: enabled && ta.has-hover ? Theme.panel-raised.brighter(0.3) : transparent;
+    property <color> tint: !enabled ? Theme.text-dim.with-alpha(0.5) : current ? Theme.accent : Theme.text;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 10px;
+        VerticalLayout { alignment: center; LayoutIcon { kind: kind; tint: tint; } }
+        Text { text: root.text; color: tint; font-size: 13px; font-weight: 500; vertical-alignment: center; horizontal-stretch: 1; }
+        if !enabled: Text { text: "Soon"; color: Theme.text-dim.with-alpha(0.5); font-size: 10px; vertical-alignment: center; }
+        if current: Text { text: "✓"; color: Theme.accent; font-size: 13px; vertical-alignment: center; }
+    }
+    ta := TouchArea {
+        mouse-cursor: enabled ? pointer : default;
+        clicked => {
+            if enabled {
+                root.picked();
+            }
+        }
+    }
+}
+
+// The layout button: the current layout's icon and name, opening a menu of
+// layouts. 0 is 2-Deck and 1 is Simple (the stored values); 4-Deck and
+// Automix are still to come.
 component LayoutPill inherits Rectangle {
     in-out property <int> layout;
     callback changed-to(layout: int);
@@ -224,14 +305,35 @@ component LayoutPill inherits Rectangle {
     horizontal-stretch: 0;
     HorizontalLayout {
         padding-left: 12px;
-        padding-right: 12px;
-        Text { text: layout == 1 ? "PLAYER" : "PRO"; color: Theme.text; font-size: 12px; font-weight: 600; letter-spacing: 0.5px; vertical-alignment: center; }
+        padding-right: 10px;
+        spacing: 8px;
+        VerticalLayout { alignment: center; LayoutIcon { kind: layout; } }
+        Text { text: layout == 1 ? "Simple" : "2-Deck"; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+        Text { text: "⌄"; color: Theme.text-dim; font-size: 13px; vertical-alignment: center; }
     }
     ta := TouchArea {
         mouse-cursor: pointer;
-        clicked => {
-            layout = 1 - layout;
-            changed-to(layout);
+        clicked => { menu.show(); }
+    }
+    menu := PopupWindow {
+        y: root.height + 6px;
+        width: 180px;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000080;
+        }
+        VerticalLayout {
+            padding: 6px;
+            spacing: 2px;
+            Text { text: "LAYOUT"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; x: 10px; height: 22px; vertical-alignment: center; }
+            LayoutItem { kind: 0; text: "2-Deck"; current: layout == 0; picked => { layout = 0; changed-to(0); } }
+            LayoutItem { kind: 2; text: "4-Deck"; enabled: false; }
+            LayoutItem { kind: 3; text: "Automix"; enabled: false; }
+            LayoutItem { kind: 1; text: "Simple"; current: layout == 1; picked => { layout = 1; changed-to(1); } }
         }
     }
 }
