@@ -296,6 +296,33 @@ fn ddj_flx4_mixer_pads_and_eq_modes() {
     // RELOOP/EXIT starts a new loop of the set size (or ends one).
     c.receive(&[0x90, 0x4D, 0x7F]);
     assert_eq!(get(&reg, "[Channel1]", "beatloop_activate"), 1.0);
+    // BEAT FX: FX SELECT steps the Beat FX unit's effect, BEAT < > halve
+    // and double its length, ON/OFF turns it on, SHIFT + ON/OFF releases it.
+    let fx = "[EffectRack1_EffectUnit5_Effect1]";
+    let first = get(&reg, fx, "loaded_effect");
+    c.receive(&[0x94, 0x63, 0x7F]);
+    c.receive(&[0x94, 0x63, 0x00]);
+    let pushed = reg.get(fx, "next_effect").unwrap();
+    assert!(
+        pushed.version() > 0 && !pushed.get_bool(),
+        "next_effect pressed: {first}"
+    );
+    reg.get(fx, "beats").unwrap().set(0.25);
+    c.receive(&[0x94, 0x4B, 0x7F]);
+    assert_eq!(get(&reg, fx, "beats"), 0.5);
+    c.receive(&[0x94, 0x4A, 0x7F]);
+    c.receive(&[0x94, 0x4A, 0x7F]);
+    assert_eq!(get(&reg, fx, "beats"), 0.125);
+    for v in 0..=0x40 {
+        c.receive(&[0xB4, 0x02, v]);
+    }
+    assert!((get(&reg, fx, "meta") - 0.5).abs() < 0.01);
+    c.receive(&[0x94, 0x47, 0x7F]);
+    assert_eq!(get(&reg, fx, "enabled"), 1.0);
+    let release = reg.get("[EffectRack1_EffectUnit5]", "release").unwrap();
+    let before = release.version();
+    c.receive(&[0x94, 0x43, 0x7F]);
+    assert!(release.version() > before, "SHIFT + ON/OFF releases");
     // Pad mode buttons ask deck 2 to show the beat jump pads.
     c.receive(&[0x91, 0x20, 0x7F]);
     assert_eq!(get(&reg, "[Channel2]", "pad_panel"), 2.0);

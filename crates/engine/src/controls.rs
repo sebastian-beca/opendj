@@ -6,7 +6,12 @@ use mixxx_control::{Behavior, ConfigKey, ControlHandle, ControlRegistry};
 
 pub const NUM_DECKS: usize = 2;
 pub const NUM_HOTCUES: usize = 8;
-pub const NUM_EFFECT_UNITS: usize = 4;
+/// Units 1 and 2 are the decks' effects, 3 and 4 their pad FX, and 5 the
+/// Beat FX (see [`BEAT_FX_UNIT`]).
+pub const NUM_EFFECT_UNITS: usize = 5;
+/// The Beat FX unit, `[EffectRack1_EffectUnit5]`, as on Pioneer mixers: one
+/// effect in its first slot, sent to deck 1, deck 2 or both.
+pub const BEAT_FX_UNIT: usize = 4;
 pub const EFFECTS_PER_UNIT: usize = 3;
 
 pub fn deck_group(deck: usize) -> String {

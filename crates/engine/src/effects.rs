@@ -14,7 +14,7 @@ use std::f32::consts::{PI, TAU};
 use mixxx_control::{Behavior, ControlHandle, ControlRegistry};
 
 use crate::controls::{
-    deck_group, effect_group, effect_unit_group, Edge, EFFECTS_PER_UNIT, NUM_DECKS,
+    deck_group, effect_group, effect_unit_group, Edge, BEAT_FX_UNIT, EFFECTS_PER_UNIT, NUM_DECKS,
     NUM_EFFECT_UNITS,
 };
 
@@ -40,7 +40,14 @@ pub const MAX_BUTTON_PARAMETERS: usize = 2;
 
 /// The effects each slot starts with, as `loaded_effect` values.
 pub const DEFAULT_EFFECTS: [[usize; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS] =
-    [[1, 2, 3], [4, 5, 6], [1, 6, 5], [2, 4, 3]];
+    [[1, 2, 3], [4, 5, 6], [1, 6, 5], [2, 4, 3], [1, 0, 0]];
+
+/// How long a released effect's tail rings on, in beats (see `release`).
+const RELEASE_BEATS: f32 = 8.0;
+/// Taps further apart than this, in seconds, start a new tap tempo.
+const TAP_GAP: f64 = 2.0;
+/// Tap intervals averaged into the tapped tempo.
+const TAPS: usize = 4;
 
 /// The name of the effect a `loaded_effect` value refers to: 1 is the first of
 /// [`AVAILABLE_EFFECTS`], 0 means the slot is empty ("").
@@ -227,7 +234,15 @@ impl SlotControls {
         reg.indicator(g, "num_button_parameters", MAX_BUTTON_PARAMETERS as f64);
         let mut s = Self {
             enabled: reg.toggle(g, "enabled"),
-            meta: reg.create(g, "meta", 0.0, 0.0, 1.0, Behavior::Linear),
+            // The Beat FX starts half way, so turning it on is heard at once.
+            meta: reg.create(
+                g,
+                "meta",
+                if unit == BEAT_FX_UNIT { 0.5 } else { 0.0 },
+                0.0,
+                1.0,
+                Behavior::Linear,
+            ),
             beats: reg.create(g, "beats", 1.0, 0.0, 4.0, Behavior::Linear),
             beats_seen: f64::NAN,
             params: std::array::from_fn(|k| {
@@ -356,6 +371,19 @@ struct UnitControls {
     /// group_[ChannelN]_enable for each deck, then group_[Master]_enable.
     routes: [ControlHandle; TARGETS],
     super_seen: u32,
+    /// The unit's own tempo, from `bpm_tap`; 0 follows each target's tempo.
+    bpm: ControlHandle,
+    /// Pushes: `bpm_tap` taps a tempo, `bpm_auto` goes back to following the
+    /// decks, and `release` turns the unit's effects off and lets their
+    /// tails (echoes, reverb) ring out instead of cutting them.
+    tap: ControlHandle,
+    auto: ControlHandle,
+    release: ControlHandle,
+    edges: [Edge; 3],
+    /// When the last tap came, on the engine clock, and the intervals before it.
+    last_tap: f64,
+    intervals: [f64; TAPS],
+    taps: usize,
 }
 
 impl UnitControls {
@@ -386,8 +414,9 @@ impl UnitControls {
                 reg.toggle(g, "group_[Master]_enable")
             } else {
                 let r = reg.toggle(g, &format!("group_{}_enable", deck_group(t)));
-                // Unit 1 starts on deck 1 and unit 2 on deck 2, as the decks show.
-                if t == unit {
+                // Unit 1 starts on deck 1 and unit 2 on deck 2, as the decks
+                // show; the Beat FX on both.
+                if t == unit || unit == BEAT_FX_UNIT {
                     r.set_bool(true);
                 }
                 r
@@ -404,6 +433,36 @@ impl UnitControls {
             super_seen: super1.version(),
             super1,
             routes,
+            bpm: reg.create(g, "bpm", 0.0, 0.0, 300.0, Behavior::Free),
+            tap: reg.push(g, "bpm_tap"),
+            auto: reg.push(g, "bpm_auto"),
+            release: reg.push(g, "release"),
+            edges: [Edge::default(); 3],
+            last_tap: f64::NEG_INFINITY,
+            intervals: [0.0; TAPS],
+            taps: 0,
+        }
+    }
+
+    /// Takes in `bpm_tap` and `bpm_auto` presses; `now` is the engine clock
+    /// in seconds.
+    fn update_tempo(&mut self, now: f64) {
+        if self.edges[1].pressed(&self.auto) {
+            self.bpm.set(0.0);
+            self.taps = 0;
+        }
+        if self.edges[0].pressed(&self.tap) {
+            let gap = now - self.last_tap;
+            self.last_tap = now;
+            if gap > TAP_GAP || gap <= 0.0 {
+                self.taps = 0;
+                return;
+            }
+            self.intervals.rotate_right(1);
+            self.intervals[0] = gap;
+            self.taps = (self.taps + 1).min(TAPS);
+            let mean = self.intervals[..self.taps].iter().sum::<f64>() / self.taps as f64;
+            self.bpm.set((60.0 / mean).clamp(40.0, 300.0));
         }
     }
 }
@@ -422,6 +481,9 @@ struct Instance {
     /// Output level reached at the end of the last buffer, and this buffer's goal.
     gain: f32,
     target: f32,
+    /// Samples left of a released tail (see `release`), and its full length.
+    release: f32,
+    release_len: f32,
     mem: Box<[f32]>,
     echo: Echo,
     reverb: Reverb,
@@ -448,6 +510,8 @@ impl Instance {
             kind: None,
             gain: 0.0,
             target: 0.0,
+            release: 0.0,
+            release_len: 0.0,
             mem: vec![0.0; size].into_boxed_slice(),
             echo,
             reverb,
@@ -465,7 +529,20 @@ impl Instance {
     }
 
     fn active(&self) -> bool {
-        self.gain > 0.0 || self.target > 0.0
+        self.gain > 0.0 || self.target > 0.0 || self.release > 0.0
+    }
+
+    /// The tail of a released effect: what it plays with no more input,
+    /// fading out over the last quarter of the release.
+    #[inline]
+    fn tail(&mut self) -> [f32; 2] {
+        let fade = (self.release / (0.25 * self.release_len)).min(1.0);
+        self.release -= 1.0;
+        if self.release <= 0.0 {
+            self.release = 0.0;
+        }
+        let y = self.process([0.0; 2]);
+        [y[0] * fade, y[1] * fade]
     }
 
     /// Clears the loaded effect's state so it starts silent, without old tails.
@@ -566,10 +643,15 @@ impl EffectRack {
     }
 
     /// Reads the controls once per buffer. `beat_seconds` is each target's
-    /// beat length, for tempo-synced effects.
-    pub(crate) fn prepare(&mut self, beat_seconds: [f64; TARGETS]) {
+    /// beat length, for tempo-synced effects; `now` is the engine clock in
+    /// seconds, for tap tempo.
+    pub(crate) fn prepare(&mut self, beat_seconds: [f64; TARGETS], now: f64) {
         for u in 0..NUM_EFFECT_UNITS {
             let unit = &mut self.units[u];
+            unit.update_tempo(now);
+            let bpm = unit.bpm.get();
+            let beat_seconds = beat_seconds.map(|b| if bpm > 0.0 { 60.0 / bpm } else { b });
+            let release = unit.edges[2].pressed(&unit.release);
             let version = unit.super1.version();
             if version != unit.super_seen {
                 // super1 drives every slot's meta knob, as Mixxx's linked super knob does.
@@ -586,17 +668,28 @@ impl EffectRack {
             for s in 0..EFFECTS_PER_UNIT {
                 let slot = &mut self.slots[u][s];
                 let kind = slot.update();
+                let releasing = release && slot.enabled.get_bool();
+                if releasing {
+                    slot.enabled.set_bool(false);
+                }
                 let enabled = on && slot.enabled.get_bool();
                 let params = slot.params.each_ref().map(|p| p.get() as f32);
                 for (t, &routed) in routed.iter().enumerate() {
                     let inst = &mut self.instances[Self::index(u, s, t)];
+                    if releasing && inst.gain > 0.0 {
+                        // The tail takes over from the effect at once.
+                        inst.release = RELEASE_BEATS * (beat_seconds[t] as f32) * self.sample_rate;
+                        inst.release_len = inst.release;
+                        inst.gain = 0.0;
+                    }
                     // Switch effects only once the old one has faded out.
-                    if inst.kind != kind && inst.gain == 0.0 {
+                    if inst.kind != kind && inst.gain == 0.0 && inst.release == 0.0 {
                         inst.kind = kind;
                     }
                     let on = enabled && routed && inst.kind == kind && kind.is_some();
                     inst.target = if on { 1.0 } else { 0.0 };
                     if inst.gain == 0.0 && on {
+                        inst.release = 0.0;
                         inst.reset();
                     }
                     if inst.active() {
@@ -625,9 +718,16 @@ impl EffectRack {
                 continue;
             }
             let mut wet = x;
+            let mut tails = [0.0f32; 2];
             for s in 0..EFFECTS_PER_UNIT {
                 let inst = &mut self.instances[Self::index(u, s, target)];
                 if !inst.active() {
+                    continue;
+                }
+                if inst.release > 0.0 {
+                    let y = inst.tail();
+                    tails[0] += y[0];
+                    tails[1] += y[1];
                     continue;
                 }
                 let g = inst.gain + (inst.target - inst.gain) * r;
@@ -642,7 +742,7 @@ impl EffectRack {
             let (a, b) = self.mix[u];
             let m = a + (b - a) * r;
             for c in 0..2 {
-                x[c] += (wet[c] - x[c]) * m;
+                x[c] += (wet[c] - x[c]) * m + tails[c] * m;
             }
         }
         x
@@ -1590,6 +1690,66 @@ mod tests {
         set("loaded_effect", 2.0);
         slot.update();
         assert_eq!(get("beats"), 0.0);
+    }
+
+    #[test]
+    fn beat_fx_taps_a_tempo_and_releases_into_its_tail() {
+        let reg = ControlRegistry::new();
+        let mut rack = EffectRack::new(&reg, SR as f64);
+        let unit = |k: &str| reg.get("[EffectRack1_EffectUnit5]", k).unwrap();
+        let slot = |k: &str| reg.get("[EffectRack1_EffectUnit5_Effect1]", k).unwrap();
+        let beats = [0.5; TARGETS];
+        // Routed to both decks, with Echo loaded.
+        assert!(unit("group_[Channel1]_enable").get_bool());
+        assert!(unit("group_[Channel2]_enable").get_bool());
+        assert_eq!(slot("loaded_effect").get(), 1.0);
+
+        // Taps half a second apart: 120 BPM; AUTO goes back to the decks.
+        for i in 0..4 {
+            unit("bpm_tap").set(1.0);
+            rack.prepare(beats, i as f64 * 0.5);
+            unit("bpm_tap").set(0.0);
+            rack.prepare(beats, i as f64 * 0.5 + 0.01);
+        }
+        assert!((unit("bpm").get() - 120.0).abs() < 1e-6);
+        unit("bpm_auto").set(1.0);
+        rack.prepare(beats, 3.0);
+        unit("bpm_auto").set(0.0);
+        assert_eq!(unit("bpm").get(), 0.0);
+
+        // Echo on deck 1, then released: the deck plays dry again with the
+        // echoes of what came before ringing on, and later they end.
+        let buffer = |rack: &mut EffectRack, input: f32, now: f64| {
+            rack.prepare(beats, now);
+            let out: Vec<f32> = (0..480)
+                .map(|i| {
+                    let v = input * tone(i);
+                    rack.process(0, [v, v], (i + 1) as f32 / 480.0)[0]
+                })
+                .collect();
+            rack.finish();
+            out
+        };
+        slot("meta").set(0.8);
+        slot("enabled").set_bool(true);
+        for i in 0..100 {
+            buffer(&mut rack, 1.0, 4.0 + i as f64 * 0.01);
+        }
+        unit("release").set(1.0);
+        let released = buffer(&mut rack, 0.0, 5.0);
+        unit("release").set(0.0);
+        assert!(!slot("enabled").get_bool(), "release turns the effect off");
+        let mut later = Vec::new();
+        for i in 0..50 {
+            later.extend(buffer(&mut rack, 0.0, 5.01 + i as f64 * 0.01));
+        }
+        assert!(rms(&released) + rms(&later) > 0.01, "the echoes ring on");
+        // Eight beats at 120 BPM is 4 s: well after that, silence.
+        let mut end = Vec::new();
+        for i in 0..500 {
+            end = buffer(&mut rack, 0.0, 6.0 + i as f64 * 0.01);
+        }
+        assert!(rms(&end) < 1e-6, "the tail ends: {}", rms(&end));
     }
 
     #[test]
