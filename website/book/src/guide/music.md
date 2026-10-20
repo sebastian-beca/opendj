@@ -80,3 +80,23 @@ stay.
 
 Search matches titles, artists, BPM and key. The **?** next to the search box
 lists everything search understands.
+
+## Filters
+
+The filter bar above the track list narrows it down with chips, as djay Pro
+does. Click a chip to pick values: tick a few genres, a trip stage or some
+tags, type a BPM range, or turn on **Near the playing track** (BPM) or
+**Mixes with the playing track** (Key) so the list follows what's playing.
+Chips work together with each other and with the search, and **Clear**
+empties them all. **+** adds any other field, and **Keep on the bar** pins
+it there. The filter button next to search shows or hides the bar, and
+**Save** keeps the search and the chips as a smart list.
+
+## Your own fields
+
+Name grouping and your tag fields in **Settings › Library › Your fields**,
+for example Trip Stage, Mood and Instrument, and add as many tag fields as
+you need. VirtualDJ's User 1 and User 2 come in as the first two. Each name
+works as a search word too (`mood:uplifting`, `tripstage:"4 peak"`), and so
+does each number (`tag1:uplifting`). The `#` in front of a tag is optional
+when searching.

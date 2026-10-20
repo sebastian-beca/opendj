@@ -317,10 +317,11 @@ pub struct LibraryInfo {
     pub year: String,
     /// Its number on the album; 0 for none.
     pub track_number: u32,
-    /// VirtualDJ's User 1 and User 2 fields: the DJ's own tags, such as
-    /// moods ("#uplifting") and instruments ("#synth #vox").
-    pub user1: String,
-    pub user2: String,
+    /// The DJ's own tag fields, from Tag 1 up: words such as moods
+    /// ("#uplifting") in one and instruments ("#synth #vox") in another.
+    /// VirtualDJ's User 1 and User 2 are the first two. What each field is
+    /// called is the DJ's choice (see the app's settings).
+    pub user_tags: Vec<String>,
     /// A gain the DJ set for this track, in dB; the deck's gain knob is set
     /// to it when the track loads.
     pub gain_db: Option<f32>,
@@ -336,6 +337,30 @@ pub struct LibraryInfo {
     pub isrc: String,
     /// Named sections, phrases and mix points, in time order.
     pub markers: Vec<Marker>,
+}
+
+impl LibraryInfo {
+    /// Tag field `i` (from 0), empty when the track has none there.
+    pub fn user_tag(&self, i: usize) -> &str {
+        self.user_tags.get(i).map_or("", String::as_str)
+    }
+
+    /// Sets tag field `i` (from 0), making room for it.
+    pub fn set_user_tag(&mut self, i: usize, words: String) {
+        if self.user_tags.len() <= i {
+            self.user_tags.resize(i + 1, String::new());
+        }
+        self.user_tags[i] = words;
+    }
+
+    /// The words of every tag field, as `labels` keeps them for searching.
+    pub fn user_words(&self) -> Vec<String> {
+        self.user_tags
+            .iter()
+            .flat_map(|f| f.split_whitespace())
+            .map(str::to_string)
+            .collect()
+    }
 }
 
 /// Hot cues numbered from here up are memory cues: rekordbox's unnumbered
