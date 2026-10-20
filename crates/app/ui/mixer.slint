@@ -4,6 +4,7 @@
 // Dark knobs with white pointers, ticked faders.
 import { Theme, EdgeLine } from "theme.slint";
 import { Caption, Controls, ControlButton, ControlFader, ControlKnob, CueHeadphones, StereoMeter } from "controls.slint";
+import { EffectList } from "deck.slint";
 
 // One output route in the settings table.
 export struct OutputRow {
@@ -200,7 +201,152 @@ component SettingsPage inherits VerticalLayout {
     Rectangle { vertical-stretch: 1; }
 }
 
-// The MIXER / SETTINGS switch at the top of the mixer's centre panel.
+// A flat button for the Beat FX page: pressed, it pushes `key` (sets it
+// and lets go, as a controller button does).
+component FxPush inherits Rectangle {
+    in property <string> group;
+    in property <string> key;
+    in property <string> text;
+    in property <bool> lit;
+    in property <color> tint: Theme.accent;
+    in property <length> font-size: 11px;
+    property <int> index: Controls.resolve(group, key);
+    callback clicked();
+    height: 26px;
+    border-radius: Theme.radius;
+    background: lit ? tint : ta.pressed ? Theme.control-pressed : ta.has-hover ? #1d1d20 : Theme.control;
+    border-width: 1px;
+    border-color: lit ? tint : Theme.border;
+    Text { text: root.text; color: lit ? #ffffff : Theme.text; font-size: root.font-size; font-weight: 700; letter-spacing: 0.3px; }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            if key != "" {
+                Controls.set-value(index, 1);
+                Controls.set-value(index, 0);
+            }
+            root.clicked();
+        }
+    }
+}
+
+// The Beat FX, as on a Pioneer mixer: one effect sent to deck 1, deck 2 or
+// both, with its length in beats (from the decks' tempo, or tapped), a
+// LEVEL/DEPTH knob, ON/OFF, and RELEASE to turn it off letting its tail ring
+// out. The DDJ-FLX4's BEAT FX section drives the same controls.
+component BeatFxPage inherits VerticalLayout {
+    property <string> unit: "[EffectRack1_EffectUnit5]";
+    property <string> slot: "[EffectRack1_EffectUnit5_Effect1]";
+    property <int> ch1-index: Controls.resolve(unit, "group_[Channel1]_enable");
+    property <int> ch2-index: Controls.resolve(unit, "group_[Channel2]_enable");
+    property <bool> ch1: Controls.value(ch1-index, Controls.tick) > 0;
+    property <bool> ch2: Controls.value(ch2-index, Controls.tick) > 0;
+    property <int> loaded-index: Controls.resolve(slot, "loaded_effect");
+    property <int> loaded: Controls.value(loaded-index, Controls.tick);
+    property <int> beats-index: Controls.resolve(slot, "beats");
+    property <float> beats: Controls.value(beats-index, Controls.tick);
+    property <int> bpm-index: Controls.resolve(unit, "bpm");
+    property <float> bpm: Controls.value(bpm-index, Controls.tick);
+    property <int> on-index: Controls.resolve(slot, "enabled");
+    property <bool> on: Controls.value(on-index, Controls.tick) > 0;
+    spacing: 8px;
+    padding-top: 4px;
+    HorizontalLayout {
+        spacing: 4px;
+        Caption { text: "BEAT FX"; vertical-alignment: center; horizontal-alignment: left; horizontal-stretch: 1; }
+        for c[i] in ["1", "2", "1&2"]: FxPush {
+            width: 40px;
+            height: 22px;
+            text: c;
+            lit: i == 0 ? ch1 && !ch2 : i == 1 ? ch2 && !ch1 : ch1 && ch2;
+            clicked => {
+                Controls.set-value(ch1-index, i != 1 ? 1 : 0);
+                Controls.set-value(ch2-index, i != 0 ? 1 : 0);
+            }
+        }
+    }
+    // The effect, stepped through as FX SELECT does.
+    HorizontalLayout {
+        spacing: 4px;
+        FxPush { width: 30px; group: slot; key: "prev_effect"; text: "‹"; font-size: 16px; }
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 26px;
+            border-radius: Theme.radius;
+            background: Theme.control;
+            border-width: 1px;
+            border-color: Theme.border;
+            Text {
+                text: loaded > 0 && loaded <= EffectList.names.length ? EffectList.names[loaded - 1] : "No effect";
+                color: loaded > 0 ? Theme.text : Theme.text-dim;
+                font-size: 13px;
+                font-weight: 700;
+            }
+        }
+        FxPush { width: 30px; group: slot; key: "next_effect"; text: "›"; font-size: 16px; }
+    }
+    // Its length in beats, and the tempo the beats come from.
+    HorizontalLayout {
+        spacing: 4px;
+        FxPush {
+            width: 30px;
+            text: "‹";
+            font-size: 16px;
+            clicked => {
+                if beats > 1 / 16 {
+                    Controls.set-value(beats-index, beats / 2);
+                }
+            }
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 26px;
+            border-radius: Theme.radius;
+            background: Theme.control;
+            border-width: 1px;
+            border-color: Theme.border;
+            Text {
+                text: beats <= 0 ? "–" : beats < 1 ? "1/" + round(1 / beats) : round(beats);
+                color: beats > 0 ? Theme.text : Theme.text-dim;
+                font-size: 13px;
+                font-weight: 700;
+            }
+        }
+        FxPush {
+            width: 30px;
+            text: "›";
+            font-size: 16px;
+            clicked => {
+                if beats > 0 && beats < 4 {
+                    Controls.set-value(beats-index, beats * 2);
+                }
+            }
+        }
+        Rectangle { width: 4px; }
+        FxPush { width: 44px; group: unit; key: "bpm_auto"; text: "AUTO"; lit: bpm <= 0; }
+        FxPush { width: 52px; group: unit; key: "bpm_tap"; text: bpm > 0 ? round(bpm) : "TAP"; lit: bpm > 0; }
+    }
+    HorizontalLayout {
+        alignment: space-around;
+        ControlKnob { group: slot; key: "meta"; label: "LEVEL/DEPTH"; size: 40px; }
+        VerticalLayout {
+            spacing: 4px;
+            alignment: center;
+            FxPush {
+                width: 96px;
+                height: 32px;
+                text: "ON/OFF";
+                lit: on;
+                font-size: 12px;
+                clicked => { Controls.toggle(on-index); }
+            }
+            FxPush { width: 96px; group: unit; key: "release"; text: "RELEASE"; }
+        }
+    }
+    Rectangle { vertical-stretch: 1; }
+}
+
+// The MIXER / FX / SETTINGS switch at the top of the mixer's centre panel.
 component MixerTabs inherits Rectangle {
     in-out property <int> tab;
     height: 24px;
@@ -212,17 +358,19 @@ component MixerTabs inherits Rectangle {
     HorizontalLayout {
         padding: 2px;
         spacing: 2px;
-        for t[i] in ["MIXER", "SETTINGS"]: Rectangle {
+        // Tab numbers: 0 MIXER, 2 FX, 1 SETTINGS.
+        for t[i] in ["MIXER", "FX", "SETTINGS"]: Rectangle {
+            property <int> n: i == 0 ? 0 : i == 1 ? 2 : 1;
             horizontal-stretch: 1;
-            background: i == tab ? Theme.panel-raised.brighter(0.3) : transparent;
+            background: n == tab ? Theme.panel-raised.brighter(0.3) : transparent;
             border-radius: Theme.radius - 2px;
-            Text { text: t; color: i == tab ? Theme.text : Theme.text-dim; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
+            Text { text: t; color: n == tab ? Theme.text : Theme.text-dim; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
             TouchArea {
                 clicked => {
-                    if i == 1 {
+                    if n == 1 {
                         AudioSettings.refresh();
                     }
-                    tab = i;
+                    tab = n;
                 }
             }
         }
@@ -426,6 +574,7 @@ export component Mixer inherits Rectangle {
             }
         }
         if tab == 1: SettingsPage { vertical-stretch: 1; }
+        if tab == 2: BeatFxPage { vertical-stretch: 1; }
         if tab == 0: ChannelGrid { vertical-stretch: 1; }
         // Along the bottom edge, as on a hardware mixer: headphone level,
         // the crossfader, and master volume.

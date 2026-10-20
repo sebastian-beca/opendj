@@ -1343,13 +1343,16 @@ impl Engine {
             .find(|d| d.c.play.get_bool() && d.track.as_ref().is_some_and(|t| t.bpm > 0.0))
             .unwrap_or(&self.decks[0])
             .beat_seconds();
-        self.fx.prepare(std::array::from_fn(|t| {
-            if t == MAIN {
-                main_beat
-            } else {
-                self.decks[t].beat_seconds()
-            }
-        }));
+        self.fx.prepare(
+            std::array::from_fn(|t| {
+                if t == MAIN {
+                    main_beat
+                } else {
+                    self.decks[t].beat_seconds()
+                }
+            }),
+            self.clock,
+        );
         debug_assert_eq!(TARGETS, NUM_DECKS + 1);
 
         let mut x = self.master.crossfader.get() as f32;
