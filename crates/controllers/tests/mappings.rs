@@ -91,6 +91,59 @@ fn ddj_flx4() {
 }
 
 #[test]
+fn ddj_flx4_left_side_moves_to_deck_3() {
+    let (reg, mut c) = load("Pioneer-DDJ-FLX4.midi.xml");
+    settle(&mut c, 10);
+    c.take_output();
+    reg.get("[Controller]", "deck3").unwrap().set(1.0);
+    c.poll(Instant::now());
+
+    // Play and the channel fader on the left now drive deck 3.
+    c.receive(&[0x90, 0x0B, 0x7F]);
+    c.receive(&[0x90, 0x0B, 0x00]);
+    assert_eq!(get(&reg, "[Channel3]", "play"), 1.0);
+    assert_eq!(get(&reg, "[Channel1]", "play"), 0.0);
+    c.receive(&[0xB0, 0x13, 0x20]);
+    c.receive(&[0xB0, 0x33, 0x00]);
+    let v = get(&reg, "[Channel3]", "volume");
+    assert!((v - 0.25).abs() < 0.02, "deck 3 volume {v}");
+    // The play LED follows deck 3.
+    reg.get("[Channel3]", "play_indicator").unwrap().set(1.0);
+    c.poll(Instant::now());
+    let out = c.take_output();
+    assert!(
+        out.iter().any(|m| m[..] == [0x90, 0x0B, 0x7F]),
+        "play LED lit for deck 3: {out:x?}"
+    );
+
+    // Back on deck 1, whose play LED is dark.
+    reg.get("[Controller]", "deck3").unwrap().set(0.0);
+    c.poll(Instant::now());
+    let out = c.take_output();
+    assert!(
+        !out.iter().any(|m| m[..] == [0x90, 0x0B, 0x7F]),
+        "play LED back to deck 1: {out:x?}"
+    );
+    c.receive(&[0x90, 0x0B, 0x7F]);
+    c.receive(&[0x90, 0x0B, 0x00]);
+    assert_eq!(get(&reg, "[Channel1]", "play"), 1.0);
+    assert_eq!(c.errors(), Vec::<String>::new());
+}
+
+#[test]
+fn four_deck_mappings_ignore_the_deck_switches() {
+    let (reg, mut c) = load("Allen and Heath Xone K2.midi.xml");
+    settle(&mut c, 50);
+    if let Some(l) = reg.get("[Controller]", "deck3") {
+        l.set(1.0);
+    }
+    c.receive(&[0xBD, 0x10, 0x00]);
+    c.receive(&[0xBD, 0x10, 0x01]);
+    c.poll(Instant::now());
+    assert!(get(&reg, "[Channel1]", "volume") < 0.05);
+}
+
+#[test]
 fn xone_k2() {
     let (reg, mut c) = load("Allen and Heath Xone K2.midi.xml");
     settle(&mut c, 50);

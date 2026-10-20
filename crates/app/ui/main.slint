@@ -4,6 +4,7 @@ import { Controls, VuMeter, ControlKnob } from "controls.slint";
 import { Deck, DeckInfo, KeyItem, EffectList, DeckActions } from "deck.slint";
 import { Mixer, AudioSettings, OutputRow } from "mixer.slint";
 import { PlayerDeck, PlayerMixer } from "player.slint";
+import { DeckStrip, FourDeckCenter } from "fourdeck.slint";
 import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, ColumnUi, ListColumn } from "library.slint";
 import { Preferences, PreferencesOverlay, PrefItem, ImportWizard } from "preferences.slint";
 
@@ -278,8 +279,8 @@ component LayoutItem inherits Rectangle {
 }
 
 // The layout button: the current layout's icon and name, opening a menu of
-// layouts. 0 is 2-Deck and 1 is Simple (the stored values); 4-Deck and
-// Automix are still to come.
+// layouts. 0 is 2-Deck, 1 Simple and 2 4-Deck (the stored values); Automix
+// is still to come.
 component LayoutPill inherits Rectangle {
     in-out property <int> layout;
     callback changed-to(layout: int);
@@ -293,7 +294,7 @@ component LayoutPill inherits Rectangle {
         padding-right: 10px;
         spacing: 8px;
         VerticalLayout { alignment: center; LayoutIcon { kind: layout; } }
-        Text { text: layout == 1 ? "Simple" : "2-Deck"; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+        Text { text: layout == 1 ? "Simple" : layout == 2 ? "4-Deck" : "2-Deck"; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
         Text { text: "⌄"; color: Theme.text-dim; font-size: 13px; vertical-alignment: center; }
     }
     ta := TouchArea {
@@ -316,7 +317,7 @@ component LayoutPill inherits Rectangle {
             spacing: 2px;
             Text { text: "LAYOUT"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; x: 10px; height: 22px; vertical-alignment: center; }
             LayoutItem { kind: 0; text: "2-Deck"; current: layout == 0; picked => { layout = 0; changed-to(0); } }
-            LayoutItem { kind: 2; text: "4-Deck"; enabled: false; }
+            LayoutItem { kind: 2; text: "4-Deck"; current: layout == 2; picked => { layout = 2; changed-to(2); } }
             LayoutItem { kind: 3; text: "Automix"; enabled: false; }
             LayoutItem { kind: 1; text: "Simple"; current: layout == 1; picked => { layout = 1; changed-to(1); } }
         }
@@ -385,11 +386,15 @@ export component AppWindow inherits Window {
     background: #000000;
     default-font-family: Theme.font-family;
 
-    in property <[DeckInfo]> decks: [{}, {}];
+    in property <[DeckInfo]> decks: [{}, {}, {}, {}];
     in property <image> waveform-1;
     in property <image> waveform-2;
+    in property <image> waveform-3;
+    in property <image> waveform-4;
     in property <image> overview-1;
     in property <image> overview-2;
+    in property <image> overview-3;
+    in property <image> overview-4;
     in property <angle> spin-1;
     in property <angle> spin-2;
     in property <string> clock;
@@ -420,7 +425,8 @@ export component AppWindow inherits Window {
     in property <string> automix-status;
     in property <int> automix-length;
     in property <int> automix-style;
-    // 0 Pro (the full decks and mixer), 1 Player (a compact row of the basics).
+    // 0 Pro (the full decks and mixer), 1 Player (a compact row of the
+    // basics), 2 four decks in strips.
     in-out property <int> layout: 0;
     callback layout-changed(layout: int);
     // The large scrolling waveforms above the decks, from the top bar button.
@@ -432,11 +438,14 @@ export component AppWindow inherits Window {
     in property <length> traffic-light-inset: 0px;
     callback drag-window();
     callback zoom-window();
-    out property <length> waveform-width: wf1.width;
-    out property <length> waveform-height: wf1.height;
+    out property <length> waveform-width: waveforms.width;
+    // Two waveforms, or four in 4-Deck, share the room between the lines.
+    out property <length> waveform-height: max(1px, (waveforms.height - (wave-rows + 1) * 1px) / wave-rows);
+    property <int> wave-rows: four ? 4 : 2;
     // From whichever layout's deck A is showing.
-    out property <length> overview-width: compact ? player-a.overview-width : deck-a.overview-width;
-    out property <length> overview-height: compact ? player-a.overview-height : deck-a.overview-height;
+    out property <length> overview-width: four ? strip-1.overview-width : compact ? player-a.overview-width : deck-a.overview-width;
+    out property <length> overview-height: four ? strip-1.overview-height : compact ? player-a.overview-height : deck-a.overview-height;
+    property <bool> four: layout == 2 && !library-expanded;
     // The Player row shows in the Player layout, and in either layout while
     // the footer button has the library expanded (then with no waveforms).
     property <bool> compact: layout == 1 || library-expanded;
@@ -475,28 +484,34 @@ export component AppWindow inherits Window {
     }
 
     // The master deck: the deck playing; with
-    // both playing, the one that started first; when it stops while the
-    // other plays, the other. With neither playing it stays the last one,
-    // so the space bar resumes it. 0 is deck A, 1 deck B.
-    property <int> play-a-index: Controls.resolve("[Channel1]", "play");
-    property <int> play-b-index: Controls.resolve("[Channel2]", "play");
-    property <bool> playing-a: Controls.value(play-a-index, Controls.tick) > 0;
-    property <bool> playing-b: Controls.value(play-b-index, Controls.tick) > 0;
+    // more than one playing, the one that started first; when it stops while
+    // another plays, that one. With none playing it stays the last one,
+    // so the space bar resumes it. 0 is deck 1.
+    property <[int]> play-index: [
+        Controls.resolve("[Channel1]", "play"),
+        Controls.resolve("[Channel2]", "play"),
+        Controls.resolve("[Channel3]", "play"),
+        Controls.resolve("[Channel4]", "play"),
+    ];
+    property <bool> playing-1: Controls.value(play-index[0], Controls.tick) > 0;
+    property <bool> playing-2: Controls.value(play-index[1], Controls.tick) > 0;
+    property <bool> playing-3: Controls.value(play-index[2], Controls.tick) > 0;
+    property <bool> playing-4: Controls.value(play-index[3], Controls.tick) > 0;
+    property <[bool]> playing: [playing-1, playing-2, playing-3, playing-4];
     property <int> master-deck: 0;
-    changed playing-a => {
-        if playing-a && !playing-b {
-            master-deck = 0;
-        } else if !playing-a && playing-b {
-            master-deck = 1;
+    function playing-changed(deck: int) {
+        if playing[deck] {
+            if !playing[master-deck] {
+                master-deck = deck;
+            }
+        } else if deck == master-deck {
+            master-deck = playing[0] ? 0 : playing[1] ? 1 : playing[2] ? 2 : playing[3] ? 3 : deck;
         }
     }
-    changed playing-b => {
-        if playing-b && !playing-a {
-            master-deck = 1;
-        } else if !playing-b && playing-a {
-            master-deck = 0;
-        }
-    }
+    changed playing-1 => { playing-changed(0); }
+    changed playing-2 => { playing-changed(1); }
+    changed playing-3 => { playing-changed(2); }
+    changed playing-4 => { playing-changed(3); }
 
     // Shortcuts no focused field took: ⌘, opens settings (Ctrl+, on
     // Linux), Esc closes them, and the space bar pauses or resumes the
@@ -504,11 +519,7 @@ export component AppWindow inherits Window {
     keys := FocusScope {
         key-pressed(e) => {
             if e.text == " " && !Preferences.open && !e.modifiers.control && !e.modifiers.meta && !e.modifiers.alt {
-                if master-deck == 0 {
-                    Controls.set-value(play-a-index, playing-a ? 0 : 1);
-                } else {
-                    Controls.set-value(play-b-index, playing-b ? 0 : 1);
-                }
+                Controls.set-value(play-index[master-deck], playing[master-deck] ? 0 : 1);
                 return accept;
             }
             if e.text == "," && e.modifiers.control {
@@ -580,21 +591,34 @@ export component AppWindow inherits Window {
                 }
             }
 
-            // Scrolling waveforms, deck A above deck B
-            Rectangle {
+            // Scrolling waveforms, deck A above deck B; in 4-Deck all four,
+            // in the strips' order 3, 1, 2, 4.
+            waveforms := Rectangle {
                 // Not rounded or clipped: that renders into a cached layer, which
                 // would freeze the GPU-updated waveform images. Folded away while
                 // the library is expanded or the top bar button hides them.
-                height: library-expanded || !waveforms-visible ? 0px : 144px;
+                height: library-expanded || !waveforms-visible ? 0px : four ? 213px : 144px;
                 visible: !library-expanded && waveforms-visible;
                 background: Theme.well;
-                // Thin grey lines above, between and below the two waveforms.
-                VerticalLayout {
+                // Thin grey lines above, between and below the waveforms.
+                if !four: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    wf1 := Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
                     Waveform { source: waveform-2; group: "[Channel2]"; vertical-stretch: 1; }
+                    Rectangle { height: 1px; background: Theme.border; }
+                }
+                if four: VerticalLayout {
+                    spacing: 0px;
+                    Rectangle { height: 1px; background: Theme.border; }
+                    Waveform { source: waveform-3; group: "[Channel3]"; vertical-stretch: 1; }
+                    Rectangle { height: 1px; background: Theme.border; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; }
+                    Rectangle { height: 1px; background: Theme.border; }
+                    Waveform { source: waveform-2; group: "[Channel2]"; vertical-stretch: 1; }
+                    Rectangle { height: 1px; background: Theme.border; }
+                    Waveform { source: waveform-4; group: "[Channel4]"; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
                 }
             }
@@ -605,7 +629,7 @@ export component AppWindow inherits Window {
             // sizes the renderer reads stay valid) for the compact row below.
             HorizontalLayout {
                 spacing: 1px;
-                height: library-expanded || layout == 1 ? 0px : 316px;
+                height: library-expanded || layout != 0 ? 0px : 316px;
                 visible: !library-expanded && layout == 0;
                 // The decks share the room equally whatever they show: sized by
                 // their contents, a changing time or title would nudge the
@@ -613,6 +637,20 @@ export component AppWindow inherits Window {
                 deck-a := Deck { deck: 0; info: decks[0]; spin: spin-1; overview: overview-1; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
                 Mixer { }
                 Deck { deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
+            }
+
+            // 4-Deck: four strips, decks 3, 1, 2 and 4, with the crossfader
+            // between 1 and 2. Folded away, like the 2-Deck row, in the
+            // other layouts.
+            HorizontalLayout {
+                spacing: 1px;
+                height: four ? 446px : 0px;
+                visible: four;
+                DeckStrip { deck: 2; info: decks[2]; overview: overview-3; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
+                strip-1 := DeckStrip { deck: 0; info: decks[0]; overview: overview-1; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
+                FourDeckCenter { }
+                DeckStrip { deck: 1; info: decks[1]; overview: overview-2; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
+                DeckStrip { deck: 3; info: decks[3]; overview: overview-4; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
             }
 
             // Player: the deck headers either side of the basics, in one short row.

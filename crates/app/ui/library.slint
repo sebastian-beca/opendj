@@ -29,7 +29,7 @@ export struct TrackRow {
     bpm: string,
     key: string,
     rating: int,
-    // -1 = not loaded, 0/1 = loaded on deck A/B
+    // -1 = not loaded, else the deck it is loaded on (0 is deck 1)
     deck: int,
     // False for a Spotify track that isn't in the collection, so can't play.
     available: bool,
@@ -1433,7 +1433,7 @@ component TrackList inherits Rectangle {
                             height: 16px;
                             border-radius: 4px;
                             background: selected ? #00000040 : Theme.deck-color(r.deck);
-                            Text { text: r.deck == 0 ? "A" : "B"; color: #fff; font-size: 10px; font-weight: 700; }
+                            Text { text: r.deck + 1; color: #fff; font-size: 10px; font-weight: 700; }
                         }
                     }
                     // A store result's button: buy, search the store, or download.

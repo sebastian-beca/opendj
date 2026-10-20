@@ -36,6 +36,8 @@ pub struct Controller {
     resend_at: Option<Instant>,
     /// `OPENDJ_MIDI_DEBUG` set: log messages both ways.
     debug: bool,
+    /// The deck 3 and 4 switches as the outputs last resolved them.
+    layers: [bool; 2],
 }
 
 /// How long after loading a mapping its LEDs are sent again.
@@ -125,9 +127,27 @@ impl Controller {
             .collect();
         let script = Script::new(host.clone(), &mapping.settings)?;
         let mut prefixes = Vec::new();
+        // A mapping that never names deck 3 or 4 was written for two decks:
+        // the deck 3 and 4 switches move its sides over.
+        let names_decks_3_4 = |text: &str| text.contains("Channel3") || text.contains("Channel4");
+        let mut four_decks = mapping
+            .inputs
+            .values()
+            .flatten()
+            .map(|i| &i.group)
+            .chain(mapping.outputs.iter().map(|o| &o.group))
+            .any(|g| names_decks_3_4(g));
+        let mut sources = Vec::new();
         for file in &mapping.scripts {
             let source = std::fs::read_to_string(&file.path)
                 .map_err(|e| format!("{}: {e}", file.path.display()))?;
+            four_decks |= names_decks_3_4(&source);
+            sources.push((file, source));
+        }
+        if !four_decks {
+            host.borrow_mut().enable_layers();
+        }
+        for (file, source) in sources {
             let label = file
                 .path
                 .file_name()
@@ -163,6 +183,7 @@ impl Controller {
             outputs,
             resend_at: Some(Instant::now() + RESEND_AFTER),
             debug: std::env::var_os("OPENDJ_MIDI_DEBUG").is_some(),
+            layers: [false; 2],
         };
         let id = serde_str(&c.name);
         for p in c.prefixes.clone() {
@@ -298,6 +319,17 @@ impl Controller {
             }
         }
         let mut h = self.host.borrow_mut();
+        // A side switched decks: the LEDs follow the other deck.
+        let layers = h.layer_state();
+        if layers != self.layers {
+            self.layers = layers;
+            for o in &mut self.outputs {
+                o.control = match h.resolve(&o.output.group, &o.output.key) {
+                    Target::Control(c) | Target::Sub(c, _) => c,
+                };
+                o.version = None;
+            }
+        }
         for o in &mut self.outputs {
             let v = o.control.version();
             if o.version == Some(v) {

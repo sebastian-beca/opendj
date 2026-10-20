@@ -368,9 +368,17 @@ struct Scratch {
 }
 
 struct Watch {
+    group: String,
+    key: String,
     control: ControlHandle,
     version: u32,
 }
+
+/// `[Controller],deck3` and `deck4`: while on, a two-deck controller's left
+/// side plays deck 3 instead of 1, and its right side deck 4 instead of 2,
+/// as a deck select button does on four-deck controllers.
+pub const LAYER_GROUP: &str = "[Controller]";
+pub const LAYER_KEYS: [&str; 2] = ["deck3", "deck4"];
 
 struct Timer {
     due: Instant,
@@ -399,6 +407,11 @@ pub(crate) struct Host {
     soft: HashMap<(String, String), SoftTakeover>,
     scratch: Vec<Scratch>,
     scratch_tick: Instant,
+    /// The deck 3 and 4 switches, for a mapping written for two decks; a
+    /// mapping that names decks 3 or 4 itself has none.
+    layers: Option<[ControlHandle; 2]>,
+    /// The switches as the watches last resolved them.
+    layers_seen: [bool; 2],
 }
 
 pub(crate) fn deck_group(deck: usize) -> String {
@@ -421,7 +434,41 @@ impl Host {
             soft: HashMap::new(),
             scratch: (0..=MAX_DECKS).map(|_| Scratch::default()).collect(),
             scratch_tick: Instant::now(),
+            layers: None,
+            layers_seen: [false; 2],
         }
+    }
+
+    /// Lets the deck 3 and 4 switches redirect this controller's decks.
+    pub(crate) fn enable_layers(&mut self) {
+        self.layers = Some(LAYER_KEYS.map(|k| self.registry.toggle(LAYER_GROUP, k)));
+    }
+
+    /// Which of the deck 3 and 4 switches are on.
+    pub(crate) fn layer_state(&self) -> [bool; 2] {
+        match &self.layers {
+            Some(l) => [l[0].get_bool(), l[1].get_bool()],
+            None => [false; 2],
+        }
+    }
+
+    /// `group` with deck 1 or 2 swapped for 3 or 4 when that side is
+    /// switched over: `[Channel1]`, its EQ and filter racks and its stems.
+    fn layered<'a>(&self, group: &'a str) -> std::borrow::Cow<'a, str> {
+        let mut out = std::borrow::Cow::Borrowed(group);
+        for (side, on) in self.layer_state().into_iter().enumerate() {
+            if !on {
+                continue;
+            }
+            let (from, to) = (side + 1, side + 3);
+            for end in ["]", "_"] {
+                let a = format!("[Channel{from}{end}");
+                if out.contains(&a) {
+                    out = std::borrow::Cow::Owned(out.replace(&a, &format!("[Channel{to}{end}")));
+                }
+            }
+        }
+        out
     }
 
     pub(crate) fn log(&self, message: &str) {
@@ -439,7 +486,8 @@ impl Host {
     /// to their base control; names nothing implements become free controls
     /// so scripts can still keep state in them, as they do in Mixxx.
     pub(crate) fn resolve(&self, group: &str, key: &str) -> Target {
-        let group = match group {
+        let group = self.layered(group);
+        let group = match group.as_ref() {
             "[Main]" => "[Master]",
             g => g,
         };
@@ -550,7 +598,12 @@ impl Host {
             Target::Control(h) | Target::Sub(h, _) => h,
         };
         let version = control.version();
-        self.watches.push(Some(Watch { control, version }));
+        self.watches.push(Some(Watch {
+            group: group.to_string(),
+            key: key.to_string(),
+            control,
+            version,
+        }));
         self.watches.len() as u32
     }
 
@@ -586,11 +639,32 @@ impl Host {
     /// call, with values.
     pub(crate) fn changed_watches(&mut self) -> Vec<(u32, f64)> {
         let triggered = std::mem::take(&mut self.triggered);
+        // A side switched decks: every connection now follows the other
+        // deck, and fires so the LEDs show it.
+        let layers = self.layer_state();
+        let switched = layers != self.layers_seen;
+        if switched {
+            self.layers_seen = layers;
+            let resolved: Vec<Option<ControlHandle>> = self
+                .watches
+                .iter()
+                .map(|w| {
+                    w.as_ref().map(|w| match self.resolve(&w.group, &w.key) {
+                        Target::Control(h) | Target::Sub(h, _) => h,
+                    })
+                })
+                .collect();
+            for (w, c) in self.watches.iter_mut().zip(resolved) {
+                if let (Some(w), Some(c)) = (w, c) {
+                    w.control = c;
+                }
+            }
+        }
         let mut out = Vec::new();
         for (i, w) in self.watches.iter_mut().enumerate() {
             if let Some(w) = w {
                 let v = w.control.version();
-                if v != w.version || triggered.contains(w.control.key()) {
+                if switched || v != w.version || triggered.contains(w.control.key()) {
                     w.version = v;
                     out.push((i as u32 + 1, w.control.get()));
                 }

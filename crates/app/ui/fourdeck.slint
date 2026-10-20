@@ -1,0 +1,200 @@
+// The 4-Deck layout, after djay Pro's Four Decks: four strips side by side,
+// decks 3, 1, 2 and 4 from the left, each with its header, a small mixer
+// channel, transport, tempo, pads and FX. The crossfader, master and
+// headphones sit in a narrow column between decks 1 and 2.
+// A two-deck controller (the DDJ-FLX4) plays decks 1 and 2 until a strip's
+// deck number is clicked: then that side plays deck 3 or 4.
+import { TrackDrag } from "library.slint";
+import { Theme } from "theme.slint";
+import { ControlButton, ControlFader, Controls, CueHeadphones, StereoMeter } from "controls.slint";
+import { DeckInfo, FxRows, Header, LoopStepper, Pads, PlayButton } from "deck.slint";
+import { AudioSettings, Knob, ModeMenu, SideKnob } from "mixer.slint";
+
+// Which side of the crossfader a deck is on, as Mixxx's `orientation`:
+// 0 left, 1 thru (not faded), 2 right. Click to pick, as in djay.
+component CrossfaderAssign inherits Rectangle {
+    in property <int> deck;
+    property <string> group: "[Channel" + (deck + 1) + "]";
+    property <int> index: Controls.resolve(group, "orientation");
+    property <int> side: Controls.value(index, Controls.tick);
+    property <[string]> names: ["LEFT", "THRU", "RIGHT"];
+    width: 64px;
+    HorizontalLayout {
+        alignment: start;
+        spacing: 3px;
+        Text {
+            text: names[side];
+            color: side == 0 ? Theme.cue : side == 2 ? Theme.lilac : Theme.text-dim;
+            font-size: 12px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        Path {
+            width: 8px;
+            height: 5px;
+            y: (parent.height - self.height) / 2;
+            commands: "M 0 0 L 4 4 L 8 0";
+            stroke: ta.has-hover ? Theme.text : Theme.text-dim;
+            stroke-width: 1.4px;
+            fill: transparent;
+        }
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { menu.show(); } }
+    menu := PopupWindow {
+        x: 0px;
+        y: root.height + 4px;
+        width: 220px;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: Theme.radius + 4px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #000000a0;
+        }
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+            Text { text: "Deck " + (deck + 1); color: Theme.text; font-size: 15px; font-weight: 700; }
+            Text { text: "Crossfader Assignment"; color: Theme.text-dim; font-size: 12px; }
+            HorizontalLayout {
+                height: 28px;
+                spacing: 1px;
+                for name[i] in ["Left", "Thru", "Right"]: Rectangle {
+                    horizontal-stretch: 1;
+                    border-radius: 4px;
+                    background: i == side ? Theme.accent : ita.has-hover ? #3a3a3d : Theme.control;
+                    Text { text: name; color: i == side ? Theme.on-selection : Theme.text; font-size: 12px; font-weight: 600; }
+                    ita := TouchArea {
+                        clicked => {
+                            Controls.set-value(index, i);
+                            menu.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// One deck's strip.
+export component DeckStrip inherits Rectangle {
+    in property <int> deck;
+    in property <DeckInfo> info;
+    in property <image> overview;
+    out property <length> overview-width: header.overview-width;
+    out property <length> overview-height: header.overview-height;
+    property <string> group: "[Channel" + (deck + 1) + "]";
+    property <color> tint: Theme.deck-color(deck);
+    // A two-deck controller's left side plays deck 1 or 3, its right side
+    // deck 2 or 4, as `[Controller],deck3` and `deck4` say. Clicking a deck's
+    // number moves that side to it; the number is lit on the deck the side
+    // plays while a controller is connected.
+    property <int> layer-index: Controls.resolve("[Controller]", Math.mod(deck, 2) == 0 ? "deck3" : "deck4");
+    property <bool> layer-on: Controls.value(layer-index, Controls.tick) > 0;
+    property <bool> controller-here: AudioSettings.controllers != "None" && (deck >= 2) == layer-on;
+    VerticalLayout {
+        spacing: 1px;
+        header := Header {
+            deck: deck;
+            info: info;
+            overview: overview;
+            group: group;
+            compact: true;
+            number-lit: controller-here;
+            number-clicked => { Controls.set-value(layer-index, deck >= 2 ? 1 : 0); }
+        }
+        Rectangle {
+            background: Theme.panel;
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding: 6px;
+                spacing: 6px;
+                // The channel: EQs (or stems or sculpt), gain, fader, meter
+                // and headphone cue.
+                HorizontalLayout {
+                    height: 74px;
+                    spacing: 4px;
+                    for place in 4: SideKnob { deck: deck; place: [2, 1, 0, 3][place]; size: 26px; horizontal-stretch: 1; min-width: 36px; }
+                    VerticalLayout {
+                        alignment: space-between;
+                        Knob { group: group; key: "pregain"; label: "GAIN"; size: 20px; }
+                        CueHeadphones { group: group; tint: tint; width: 30px; }
+                    }
+                    ControlFader { group: group; key: "volume"; tint: tint; ticks: 7; width: 24px; }
+                    StereoMeter { group: group; }
+                }
+                // Play, CUE and the loop.
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 6px;
+                    PlayButton { group: group; tint: tint; width: 48px; }
+                    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: Theme.cue; font-size: 13px; width: 64px; }
+                    LoopStepper { group: group; info: info; horizontal-stretch: 1; }
+                }
+                // Crossfader side, SYNC and the tempo with fine + and −.
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 6px;
+                    CrossfaderAssign { deck: deck; }
+                    ControlButton { group: group; key: "sync_enabled"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 12px; width: 60px; }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        Text { text: info.loaded ? info.bpm : "--"; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; }
+                        Text { text: info.rate; color: Theme.text-dim; font-size: 10px; horizontal-alignment: center; }
+                    }
+                    ControlButton { group: group; key: "rate_perm_down_small"; text: "−"; momentary: true; tint: tint; font-size: 15px; width: 26px; }
+                    ControlButton { group: group; key: "rate_perm_up_small"; text: "+"; momentary: true; tint: tint; font-size: 15px; width: 26px; }
+                }
+                Pads { deck: deck; group: group; info: info; vertical-stretch: 1; min-height: 77px; }
+                FxRows { deck: deck; names: info.effects; }
+            }
+        }
+    }
+
+    // Tracks dragged from the browser load here, as on the other layouts.
+    drop := DropArea {
+        can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
+        dropped(e) => {
+            TrackDrag.drop(deck, e.data);
+            TrackDrag.active = false;
+            DragAction.copy
+        }
+    }
+    if TrackDrag.active || drop.has-drag: Rectangle {
+        border-radius: Theme.radius + 2px;
+        border-width: drop.has-drag ? 3px : 2px;
+        border-color: drop.has-drag ? tint : tint.transparentize(0.55);
+        background: drop.has-drag ? tint.transparentize(0.9) : transparent;
+    }
+}
+
+// Between decks 1 and 2: the knob mode, master and headphones, and the
+// crossfader.
+export component FourDeckCenter inherits Rectangle {
+    background: Theme.panel;
+    width: 150px;
+    VerticalLayout {
+        padding: 8px;
+        spacing: 10px;
+        ModeMenu { }
+        HorizontalLayout {
+            alignment: space-around;
+            Knob { group: "[Master]"; key: "gain"; label: "MASTER"; origin: 0; size: 28px; }
+        }
+        HorizontalLayout {
+            alignment: space-around;
+            Knob { group: "[Master]"; key: "headGain"; label: "PHONES"; origin: 0; size: 24px; }
+            Knob { group: "[Master]"; key: "headMix"; label: "CUE MIX"; size: 24px; }
+        }
+        HorizontalLayout {
+            alignment: center;
+            spacing: 4px;
+            vertical-stretch: 1;
+            StereoMeter { group: "[Master]"; }
+        }
+        ControlFader { group: "[Master]"; key: "crossfader"; vertical: false; center-mark: true; ticks: 9; height: 28px; }
+    }
+}

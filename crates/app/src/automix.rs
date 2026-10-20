@@ -207,6 +207,9 @@ pub struct AutoMix {
     note: String,
 }
 
+/// Automix mixes between decks 1 and 2, whatever the layout.
+const AUTOMIX_DECKS: usize = 2;
+
 fn side(deck: usize) -> f64 {
     if deck == 0 {
         -1.0
@@ -336,7 +339,7 @@ impl AutoMix {
     fn start(&mut self, host: &mut dyn Host, tracks: &[Option<Arc<Track>>; NUM_DECKS]) {
         self.note.clear();
         self.glide = None;
-        let playing: Vec<usize> = (0..NUM_DECKS)
+        let playing: Vec<usize> = (0..AUTOMIX_DECKS)
             .filter(|&d| self.decks[d].play.get_bool() && tracks[d].is_some())
             .collect();
         if playing.is_empty() {

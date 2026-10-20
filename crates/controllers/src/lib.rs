@@ -16,6 +16,7 @@ mod script;
 use std::path::PathBuf;
 
 pub use controller::Controller;
+pub use host::{LAYER_GROUP, LAYER_KEYS};
 pub use manager::{
     device_key, list_mappings, match_mapping, ConnectedController, Controllers, MappingChoice, Port,
 };

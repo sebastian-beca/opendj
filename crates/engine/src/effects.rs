@@ -39,8 +39,17 @@ pub const MAX_PARAMETERS: usize = 4;
 pub const MAX_BUTTON_PARAMETERS: usize = 2;
 
 /// The effects each slot starts with, as `loaded_effect` values.
-pub const DEFAULT_EFFECTS: [[usize; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS] =
-    [[1, 2, 3], [4, 5, 6], [1, 6, 5], [2, 4, 3], [1, 0, 0]];
+pub const DEFAULT_EFFECTS: [[usize; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS] = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [1, 6, 5],
+    [2, 4, 3],
+    [1, 0, 0],
+    [0; 3],
+    [0; 3],
+    [0; 3],
+    [0; 3],
+];
 
 /// How long a released effect's tail rings on, in beats (see `release`).
 const RELEASE_BEATS: f32 = 8.0;
@@ -404,19 +413,17 @@ impl UnitControls {
         reg.push(g, "next_chain_preset");
         reg.push(g, "prev_chain_preset");
         reg.create(g, "chain_preset_selector", 0.0, -64.0, 64.0, Behavior::Free);
-        // Decks this engine does not have, and the headphones, are stored only.
-        for ch in NUM_DECKS..4 {
-            reg.toggle(g, &format!("group_{}_enable", deck_group(ch)));
-        }
+        // The headphones are stored only.
         reg.toggle(g, "group_[Headphone]_enable");
         let routes = std::array::from_fn(|t| {
             if t == MAIN {
                 reg.toggle(g, "group_[Master]_enable")
             } else {
                 let r = reg.toggle(g, &format!("group_{}_enable", deck_group(t)));
-                // Unit 1 starts on deck 1 and unit 2 on deck 2, as the decks
-                // show; the Beat FX on both.
-                if t == unit || unit == BEAT_FX_UNIT {
+                // Each deck's unit starts on its deck, as the decks show; the
+                // Beat FX on decks 1 and 2. Pad FX units are routed when
+                // their pads are held.
+                if t == unit || (unit == BEAT_FX_UNIT && t < 2) {
                     r.set_bool(true);
                 }
                 r

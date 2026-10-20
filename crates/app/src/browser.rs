@@ -339,6 +339,9 @@ pub struct Browser {
     rows: Vec<Option<usize>>,
     /// Ids (not indices) of the tracks on each deck.
     loaded: [Option<usize>; NUM_DECKS],
+    /// The decks the layout shows: 4 in 4-Deck, else 2. "Load on a free
+    /// deck" picks among these.
+    decks_shown: usize,
     side: [Vec<usize>; 2],
     shown_side_tab: usize,
     /// The Linked tab: the track selected in the list (an index into
@@ -717,6 +720,7 @@ impl Browser {
             ascending: true,
             rows: Vec::new(),
             loaded: [None; NUM_DECKS],
+            decks_shown: 2,
             side: [Vec::new(), Vec::new()],
             shown_side_tab: 0,
             linked_to: None,
@@ -2699,9 +2703,13 @@ impl Browser {
         if !self.playable(id) {
             return;
         }
-        if let Some(deck) = (0..NUM_DECKS).find(|&d| !self.play[d].get_bool()) {
+        if let Some(deck) = (0..self.decks_shown).find(|&d| !self.play[d].get_bool()) {
             self.engine.load_track(deck, self.library[id].clone());
         }
+    }
+
+    pub fn set_decks_shown(&mut self, decks: usize) {
+        self.decks_shown = decks.clamp(2, NUM_DECKS);
     }
 
     /// Called every frame with what is on the decks; refreshes the A/B markers
