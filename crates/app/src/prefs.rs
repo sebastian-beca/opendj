@@ -746,20 +746,31 @@ impl Prefs {
                 )
             },
         ];
-        // What each importer add-on brings in besides the tracks.
+        // Other DJ apps' libraries, and which of their lists come in.
         for importer in crate::stores::importers() {
-            let groups = importer.list_groups();
-            if groups.is_empty() {
-                continue;
-            }
-            let chosen = settings::import_groups(importer.as_ref());
             let title = importer.title().to_string();
+            let on = settings::import_enabled(importer.id());
             items.push(item(
                 "",
                 HEADING,
                 &format!("FROM {}", title.to_uppercase()),
                 "",
             ));
+            items.push(switch(
+                &settings::import_enabled_key(importer.id()),
+                &format!("Import from {title}"),
+                &format!(
+                    "Brings in {title}'s tracks with their cues, loops, grids and tags each \
+                     time openDJ starts, when something there has changed. {title}'s files \
+                     are only read."
+                ),
+                on,
+            ));
+            let groups = importer.list_groups();
+            if !on || groups.is_empty() {
+                continue;
+            }
+            let chosen = settings::import_groups(importer.as_ref());
             items.push(item(
                 "",
                 NOTE,
@@ -784,9 +795,9 @@ impl Prefs {
     fn toggled(&mut self, id: &str, on: bool) {
         settings::set(id, json!(on));
         if id.starts_with("import:") {
-            // Brings the lists in again with the new choice.
+            // Brings the library and its lists in again with the new choice.
             (self.rescan)();
-            self.library_note = "Updating the lists brought in…".into();
+            self.library_note = "Updating what comes in from other apps…".into();
         }
         match id {
             "keylock_default" if on => self.each_deck("keylock", 1.0),

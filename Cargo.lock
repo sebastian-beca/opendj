@@ -3341,6 +3341,7 @@ name = "mixxx-plugins"
 version = "0.1.0"
 dependencies = [
  "mixxx-engine",
+ "roxmltree",
  "serde_json",
  "ureq",
  "zip",
