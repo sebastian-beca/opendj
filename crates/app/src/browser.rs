@@ -25,7 +25,10 @@ use mixxx_library::Wanted;
 use mixxx_plugins::inbox::Mode;
 use mixxx_plugins::{ItemKind, StoreItem, StoreQuery};
 
+mod filters;
 mod info;
+
+pub use filters::DEFAULT_PINNED;
 
 use crate::art::Art;
 use crate::files::{self, Found, Place};
@@ -396,6 +399,8 @@ pub struct Browser {
     watch: [CueWatch; NUM_DECKS],
     /// The side panel's Info tab.
     info: info::InfoState,
+    /// The filter bar.
+    filter: filters::FilterState,
 }
 
 /// The Files source: the folder listed and the thread reading it.
@@ -779,6 +784,7 @@ impl Browser {
             }),
             watch: Default::default(),
             info: info::InfoState::new(registry),
+            filter: filters::FilterState::new(),
         }));
         b.borrow_mut().set_library(library);
         app.global::<KeyNotation>().set_camelot(b.borrow().camelot);
@@ -1036,6 +1042,7 @@ impl Browser {
         Self::install_editing(app, &b);
         Self::install_files(app, &b);
         Self::install_info(app, &b);
+        Self::install_filters(app, &b);
         b
     }
 
@@ -1208,15 +1215,17 @@ impl Browser {
     /// Saves a search as a smart list at the top level (under "Smart
     /// Lists"), named after the search, and selects it. Returns its row.
     fn save_search(&mut self, text: &str) -> i32 {
-        let text = text.trim();
+        let text = query::and_text(text.trim(), &self.filter.saved_text());
         if text.is_empty() || !self.saved() || self.tree != COLLECTION || self.history_tab {
             return -1;
         }
         let Some(db) = &self.db else { return -1 };
         let name: String = text.chars().take(40).collect();
-        match db.create_smart_list(&name, None, text) {
+        match db.create_smart_list(&name, None, &text) {
             Ok(id) => {
                 self.search.clear();
+                self.filter.clear_all();
+                self.refresh_filter_ui();
                 self.reload_tree(Some(id));
                 self.visible_nodes
                     .iter()
@@ -2711,6 +2720,12 @@ impl Browser {
             self.refresh_rows();
         } else if self.update_reference() && self.follows_deck() {
             self.refresh_rows();
+            self.refresh_filter_ui();
+        }
+        // Grouping or a tag field renamed in Settings.
+        let names = query::field_names();
+        if names != self.filter.names {
+            self.field_names_changed(names);
         }
         for ((pending, now), play) in self.play_when_loaded.iter_mut().zip(loaded).zip(&self.play) {
             if pending.is_some() && *pending == now {
@@ -2925,7 +2940,8 @@ impl Browser {
 
     /// Whether the list shown depends on the track playing now.
     fn follows_deck(&self) -> bool {
-        Query::parse(&self.search).uses_deck()
+        self.filter.filters.follows_deck()
+            || Query::parse(&self.search).uses_deck()
             || self.nodes.get(self.current_node).is_some_and(
                 |n| matches!(&n.contents, Contents::Query(q) if Query::parse(q).uses_deck()),
             )
@@ -3095,17 +3111,20 @@ impl Browser {
             self.refresh_store_rows();
             return;
         }
-        // Collection tracks are searched with the full syntax; Spotify
-        // tracks the collection doesn't have, by their names.
-        let q = Query::parse(&self.search);
+        // Collection tracks are searched with the full syntax, filters
+        // included; Spotify tracks the collection doesn't have, by their
+        // names, and only while nothing is filtered.
+        let q = Query::parse(&self.full_search());
         let cx = self.context();
         let needle = self.search.to_lowercase();
+        let filtering = self.filtering();
         let mut data: Vec<RowData> = self
             .row_data()
             .into_iter()
             .filter(|r| match r.local {
                 _ if q.is_empty() => true,
                 Some(id) => q.matches(&self.library[id], &self.indexed[id], &cx),
+                None if filtering => false,
                 None => [r.title, &r.artist, r.album]
                     .iter()
                     .any(|t| t.to_lowercase().contains(&needle)),

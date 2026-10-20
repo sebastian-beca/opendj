@@ -7,6 +7,7 @@ use mixxx_controllers::MappingChoice;
 use mixxx_engine::key::Key;
 use mixxx_engine::scan::default_music_dir;
 use mixxx_engine::{AudioSetup, RecordFormat, RecordSettings, Role, Route};
+use mixxx_library::query::FieldNames;
 use mixxx_plugins::inbox::Mode;
 use mixxx_plugins::PluginConfig;
 use serde_json::{json, Value};
@@ -433,6 +434,80 @@ pub fn set_plugin_value(id: &str, key: &str, value: &str) {
         }
         v["plugins"][id][key] = json!(value);
     });
+}
+
+fn strings(v: &Value) -> Option<Vec<String>> {
+    v.as_array().map(|a| {
+        a.iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect()
+    })
+}
+
+/// What the DJ calls grouping and their tag fields ("Trip Stage", "Mood",
+/// "Instrument"); Grouping, Tag 1 and Tag 2 until they choose.
+pub fn field_names() -> FieldNames {
+    let v = load();
+    let d = FieldNames::default();
+    FieldNames {
+        grouping: v["grouping_name"]
+            .as_str()
+            .filter(|s| !s.trim().is_empty())
+            .map_or(d.grouping, String::from),
+        tags: strings(&v["tag_fields"])
+            .filter(|t| !t.is_empty())
+            .map(|t| {
+                // A name left empty goes by its number.
+                t.into_iter()
+                    .enumerate()
+                    .map(|(i, n)| match n.trim() {
+                        "" => format!("Tag {}", i + 1),
+                        n => n.to_string(),
+                    })
+                    .collect()
+            })
+            .unwrap_or(d.tags),
+    }
+}
+
+pub fn set_field_names(names: &FieldNames) {
+    save(|v| {
+        v["grouping_name"] = json!(names.grouping);
+        v["tag_fields"] = json!(names.tags);
+    });
+}
+
+/// The filter chips kept on the bar, by field.
+pub fn filter_pinned() -> Vec<String> {
+    strings(&load()["filter_pinned"]).unwrap_or_else(|| {
+        crate::browser::DEFAULT_PINNED
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    })
+}
+
+pub fn set_filter_pinned(pinned: &[String]) {
+    save(|v| v["filter_pinned"] = json!(pinned));
+}
+
+/// How close a tempo must be when the BPM chip follows the playing track,
+/// as an index into the tolerances offered.
+pub fn filter_tolerance() -> usize {
+    load()["filter_tolerance"].as_u64().unwrap_or(4) as usize
+}
+
+pub fn set_filter_tolerance(i: usize) {
+    save(|v| v["filter_tolerance"] = json!(i));
+}
+
+/// Whether the filter bar shows above the track list.
+pub fn filters_visible() -> bool {
+    flag("filters_visible", true)
+}
+
+pub fn set_filters_visible(on: bool) {
+    save(|v| v["filters_visible"] = json!(on));
 }
 
 fn save(change: impl FnOnce(&mut Value)) {
