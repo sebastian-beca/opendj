@@ -30,6 +30,7 @@ struct Params {
     grid_start: vec4<f32>,             // where each tempo section starts, in slices
     grid_beat: vec4<f32>,              // its beat length in slices
     grid_index: vec4<f32>,             // its first beat's place in the bar (0 = bar line)
+    grid_bar: vec4<f32>,               // the number of the bar its first beat is in (1 = the first)
     level_offset: array<vec4<u32>, 4>, // first texel of each level
     level_len: array<vec4<u32>, 4>,    // slices in each level
 };
@@ -54,6 +55,21 @@ const AMBER = vec3<f32>(0.91, 0.70, 0.23);
 const LOOP_LILAC = vec3<f32>(0.714, 0.612, 1.0);
 const LOOP_MARKING = vec3<f32>(0.82, 0.82, 0.84);
 const CUE_ORANGE = vec3<f32>(1.0, 0.6, 0.1);
+
+// Digits 0 to 9 in a 5 x 7 pixel font, seven rows each, top first; bit 4 is
+// the leftmost pixel.
+const DIGITS = array<u32, 70>(
+    0x0Eu, 0x11u, 0x11u, 0x11u, 0x11u, 0x11u, 0x0Eu,
+    0x04u, 0x0Cu, 0x04u, 0x04u, 0x04u, 0x04u, 0x0Eu,
+    0x0Eu, 0x11u, 0x01u, 0x02u, 0x04u, 0x08u, 0x1Fu,
+    0x1Fu, 0x02u, 0x04u, 0x02u, 0x01u, 0x11u, 0x0Eu,
+    0x02u, 0x06u, 0x0Au, 0x12u, 0x1Fu, 0x02u, 0x02u,
+    0x1Fu, 0x10u, 0x1Eu, 0x01u, 0x01u, 0x11u, 0x0Eu,
+    0x06u, 0x08u, 0x10u, 0x1Eu, 0x11u, 0x11u, 0x0Eu,
+    0x1Fu, 0x01u, 0x02u, 0x04u, 0x08u, 0x08u, 0x08u,
+    0x0Eu, 0x11u, 0x11u, 0x0Eu, 0x11u, 0x11u, 0x0Eu,
+    0x0Eu, 0x11u, 0x11u, 0x0Fu, 0x01u, 0x02u, 0x0Cu,
+);
 
 struct Slice {
     peak: vec4<f32>,
@@ -171,6 +187,57 @@ fn band_color(s: Slice) -> vec3<f32> {
     return c / max(max(c.r, max(c.g, c.b)), 0.35);
 }
 
+// Coverage of pixel (x, y) by the number of the bar whose line is the last
+// one at or before it: drawn just right of the line along the top. Drawn
+// here rather than by the UI so it moves with the waveform, on whole pixels.
+fn bar_number(x: f32, y: f32, k: f32, sec: u32) -> f32 {
+    let beat_len = p.grid_beat[sec];
+    // Only where bars are far enough apart for their numbers.
+    if (beat_len <= 0.0 || 4.0 * beat_len / p.bins_per_pixel < 28.0 * k) {
+        return 0.0;
+    }
+    let cell = max(round(1.5 * k), 1.0);
+    let row = i32(floor((y - floor(2.0 * k)) / cell));
+    if (row < 0 || row > 6) {
+        return 0.0;
+    }
+    let start = p.grid_start[sec];
+    let n = floor((column_bin(x) - start) / beat_len);
+    let index = i32(p.grid_index[sec]);
+    let m = n - f32(((i32(n) + index) % 4 + 4) % 4);
+    let at = start + m * beat_len;
+    // The first section's bars run back to the start of the track; later
+    // ones begin at their section.
+    if (at < 0.0 || at >= f32(p.num_bins) || (sec > 0u && at < start - 0.001 * beat_len)) {
+        return 0.0;
+    }
+    let bar = i32(p.grid_bar[sec]) + (i32(m) + index) / 4;
+    if (bar < 1) {
+        return 0.0;
+    }
+    let col = i32(floor((x - (floor(bin_x(at)) + 1.0 + floor(2.0 * k))) / cell));
+    if (col < 0) {
+        return 0.0;
+    }
+    var digits = 1;
+    var place = 1;
+    while (bar / (place * 10) > 0) {
+        digits = digits + 1;
+        place = place * 10;
+    }
+    // Five columns per digit and one between.
+    let which = col / 6;
+    let dc = col % 6;
+    if (which >= digits || dc == 5) {
+        return 0.0;
+    }
+    for (var i = 0; i < which; i = i + 1) {
+        place = place / 10;
+    }
+    let digit = (bar / place) % 10;
+    return f32((DIGITS[digit * 7 + row] >> u32(4 - dc)) & 1u);
+}
+
 @fragment
 fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let x = frag.x;
@@ -255,6 +322,7 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         let tick = clamp(6.0 * k - edge + 0.5, 0.0, 1.0);
         color = over(color, vec3<f32>(0.85), beat_a * tick * 0.8);
         color = over(color, AMBER, bar_a * clamp(10.0 * k - edge + 0.5, 0.0, 1.0));
+        color = over(color, vec3<f32>(1.0), bar_number(x, y, k, sec) * 0.85);
     }
 
     // Loop edges.
