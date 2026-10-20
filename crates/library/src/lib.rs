@@ -274,6 +274,17 @@ pub struct SyncReport {
     pub unmatched: usize,
 }
 
+/// What [`Library::remove_import`] took out.
+#[derive(Debug, Default, PartialEq)]
+pub struct RemovedImport {
+    /// Lists and history sessions.
+    pub lists: usize,
+    /// Tracks only the other app had.
+    pub tracks: usize,
+    /// Tracks kept, as the DJ has them too.
+    pub kept: usize,
+}
+
 pub struct Library {
     db: Connection,
 }
@@ -626,6 +637,20 @@ impl Library {
         stamp: &str,
         read: impl FnOnce() -> Result<ImportedLibrary, String>,
     ) -> Result<Option<SyncReport>, String> {
+        self.import_with(source, title, stamp, true, read)
+    }
+
+    /// [`Library::import`], where `theirs_win` says whether the other app's
+    /// tags, ratings and colours replace what the library has; without it
+    /// they only fill in what is empty here.
+    pub fn import_with(
+        &mut self,
+        source: &str,
+        title: &str,
+        stamp: &str,
+        theirs_win: bool,
+        read: impl FnOnce() -> Result<ImportedLibrary, String>,
+    ) -> Result<Option<SyncReport>, String> {
         let key = format!("import_stamp:{source}");
         if self.meta(&key).as_deref() == Some(stamp) {
             return Ok(None);
@@ -633,12 +658,68 @@ impl Library {
         let imported = read()?;
         let mut report = SyncReport::default();
         let tx = self.db.transaction().map_err(|e| e.to_string())?;
-        import_tracks(&tx, source, &imported.tracks, &mut report).map_err(|e| e.to_string())?;
+        import_tracks(&tx, source, &imported.tracks, theirs_win, &mut report)
+            .map_err(|e| e.to_string())?;
         import_lists(&tx, source, title, &imported.lists, &mut report)
             .map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
         self.set_meta(&key, stamp).map_err(|e| e.to_string())?;
         Ok(Some(report))
+    }
+
+    /// Takes out what another app's import brought in: its lists, folders and
+    /// history, its cues, grids and markers, and the tracks only it had.
+    /// Tracks the DJ keeps (in their own lists, or for which `keep` says
+    /// yes, such as files in the music folder) stay, and get their tags read
+    /// from the file again at the next scan. Turning the import on again
+    /// brings everything back in.
+    pub fn remove_import(
+        &mut self,
+        source: &str,
+        keep: impl Fn(&Path) -> bool,
+    ) -> Result<RemovedImport, Error> {
+        let tx = self.db.transaction()?;
+        let mut out = RemovedImport {
+            lists: tx.execute(
+                "DELETE FROM playlists WHERE source = ?1 AND kind != 1",
+                [source],
+            )?,
+            ..Default::default()
+        };
+        tx.execute("DELETE FROM playlists WHERE source = ?1", [source])?;
+        tx.execute("DELETE FROM markers WHERE source = ?1", [source])?;
+        tx.execute("DELETE FROM cues WHERE source = ?1", [source])?;
+        tx.execute(
+            "UPDATE tracks SET grid = NULL, grid_source = NULL WHERE grid_source = ?1",
+            [source],
+        )?;
+        let tracks: Vec<(i64, String, bool)> = tx
+            .prepare(
+                "SELECT id, path, EXISTS (SELECT 1 FROM playlist_tracks p WHERE p.track_id = tracks.id)
+                 FROM tracks WHERE source = ?1",
+            )?
+            .query_map([source], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<Result<_, _>>()?;
+        for (id, path, listed) in tracks {
+            if listed || keep(Path::new(&path)) {
+                tx.execute(
+                    "UPDATE tracks SET source = 'scan', file_mtime = 0,
+                            key_source = CASE WHEN key_source = ?2 THEN NULL ELSE key_source END
+                     WHERE id = ?1",
+                    params![id, source],
+                )?;
+                out.kept += 1;
+            } else {
+                tx.execute("DELETE FROM tracks WHERE id = ?1", [id])?;
+                out.tracks += 1;
+            }
+        }
+        tx.execute(
+            "DELETE FROM meta WHERE key = ?1",
+            [format!("import_stamp:{source}")],
+        )?;
+        tx.commit()?;
+        Ok(out)
     }
 
     /// Adds one file (dropped in from outside the collection), returning the
@@ -1256,14 +1337,23 @@ fn import_tracks(
     tx: &rusqlite::Transaction,
     source: &str,
     tracks: &[Track],
+    theirs_win: bool,
     report: &mut SyncReport,
 ) -> Result<(), Error> {
     let mut find = tx.prepare("SELECT id, grid_source FROM tracks WHERE path = ?1")?;
     let mut insert =
         tx.prepare("INSERT INTO tracks (path, file_mtime, source, added) VALUES (?1, ?2, ?4, ?3)")?;
     let mut set = tx.prepare(
-        "UPDATE tracks SET artist = ?2, title = ?3, album = ?4, genre = ?5, rating = ?6,
-                color = ?7, comment = ?8, grouping = ?9, labels = ?10,
+        "UPDATE tracks SET
+                artist = CASE WHEN ?18 OR artist = '' THEN ?2 ELSE artist END,
+                title = CASE WHEN ?18 OR title = '' THEN ?3 ELSE title END,
+                album = CASE WHEN ?18 OR album = '' THEN ?4 ELSE album END,
+                genre = CASE WHEN ?18 OR genre = '' THEN ?5 ELSE genre END,
+                rating = CASE WHEN ?18 OR rating = 0 THEN ?6 ELSE rating END,
+                color = CASE WHEN ?18 OR color IS NULL THEN ?7 ELSE color END,
+                comment = CASE WHEN ?18 OR comment = '' THEN ?8 ELSE comment END,
+                grouping = CASE WHEN ?18 OR grouping = '' THEN ?9 ELSE grouping END,
+                labels = CASE WHEN ?18 OR labels = '' THEN ?10 ELSE labels END,
                 play_count = MAX(play_count, ?11), source = ?14,
                 duration = CASE WHEN ?12 > 0 THEN ?12 ELSE duration END,
                 key = CASE WHEN ?13 != '' THEN ?13 ELSE key END,
@@ -1332,7 +1422,8 @@ fn import_tracks(
             source,
             t.info.remix,
             t.info.user1,
-            t.info.user2
+            t.info.user2,
+            theirs_win
         ])?;
         let grid = t.beat_grid();
         if t.info.fixed_grid && !grid.is_empty() {
@@ -1682,6 +1773,86 @@ mod tests {
     }
 
     #[test]
+    fn removes_an_import_and_keeps_the_djs_tracks() {
+        let mut lib = Library::in_memory().unwrap();
+        let read = || {
+            Ok(ImportedLibrary {
+                tracks: vec![
+                    imported_track("/m/kept.mp3"),
+                    imported_track("/m/listed.mp3"),
+                    imported_track("/vdj/only.mp3"),
+                ],
+                lists: vec![ImportedList {
+                    folders: Vec::new(),
+                    name: "Friday".into(),
+                    kind: ImportedListKind::List,
+                    entries: Vec::new(),
+                }],
+            })
+        };
+        lib.import("vdj", "VirtualDJ", "1", read).unwrap().unwrap();
+        let listed = lib
+            .tracks(|_| true)
+            .unwrap()
+            .into_iter()
+            .find(|t| matches!(&t.source, Source::File(p) if p == Path::new("/m/listed.mp3")))
+            .unwrap();
+        let mine = lib
+            .create_playlist("Mine", None, PlaylistKind::List)
+            .unwrap();
+        lib.add_to_playlist(mine, &[listed.id]).unwrap();
+
+        let removed = lib
+            .remove_import("vdj", |p| p == Path::new("/m/kept.mp3"))
+            .unwrap();
+        assert_eq!(
+            removed,
+            RemovedImport {
+                lists: 1,
+                tracks: 1,
+                kept: 2
+            }
+        );
+        let names: Vec<String> = lib
+            .playlists()
+            .unwrap()
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+        assert!(names.contains(&"Mine".to_string()));
+        assert!(!names.iter().any(|n| n == "VirtualDJ" || n == "Friday"));
+        let tracks = lib.tracks(|_| true).unwrap();
+        assert_eq!(tracks.len(), 2);
+        assert!(tracks.iter().all(|t| t.info.hotcues.is_empty()));
+        // The import can come back in.
+        assert!(lib.import("vdj", "VirtualDJ", "1", read).unwrap().is_some());
+    }
+
+    #[test]
+    fn an_import_can_leave_the_djs_tags_alone() {
+        let mut lib = Library::in_memory().unwrap();
+        lib.sync(&[file_track("/m/a.mp3", "Mine")]).unwrap();
+        let mut theirs = imported_track("/m/a.mp3");
+        theirs.title = "Theirs".into();
+        let read = || {
+            Ok(ImportedLibrary {
+                tracks: vec![theirs.clone()],
+                lists: Vec::new(),
+            })
+        };
+        lib.import_with("vdj", "VirtualDJ", "1", false, read)
+            .unwrap()
+            .unwrap();
+        let t = &lib.tracks(|_| true).unwrap()[0];
+        // The title stays; the rating, which was empty here, comes in.
+        assert_eq!((t.title.as_str(), t.rating), ("Mine", 4));
+        lib.import_with("vdj", "VirtualDJ", "2", true, read)
+            .unwrap()
+            .unwrap();
+        assert_eq!(lib.tracks(|_| true).unwrap()[0].title, "Theirs");
+    }
+
+    #[test]
     fn imports_details_markers_and_lists() {
         use mixxx_engine::import::ImportedEntry;
         let mut lib = Library::in_memory().unwrap();
@@ -1868,7 +2039,14 @@ mod tests {
         let mut imported = imported_track("/m/bare.mp3");
         imported.key = "1A".into();
         let tx = lib.db.transaction().unwrap();
-        import_tracks(&tx, "virtualdj", &[imported], &mut SyncReport::default()).unwrap();
+        import_tracks(
+            &tx,
+            "virtualdj",
+            &[imported],
+            true,
+            &mut SyncReport::default(),
+        )
+        .unwrap();
         tx.commit().unwrap();
         assert_eq!(found(&lib), [Some(false), Some(false)]);
     }

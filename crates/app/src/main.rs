@@ -651,15 +651,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<Arc<Track>>>) {
     let music = settings::music_folder().filter(|d| d.is_dir());
     let importers = stores::enabled_importers();
-    if music.is_none() && importers.is_empty() {
+    // Imports the DJ removed in Settings, to take out before anything else.
+    let removed: Vec<String> = stores::importers()
+        .iter()
+        .map(|i| i.id().to_string())
+        .filter(|id| settings::flag(&settings::import_remove_key(id), false))
+        .collect();
+    if music.is_none() && importers.is_empty() && removed.is_empty() {
         return;
     }
     std::thread::spawn(move || {
+        let music_folder = music.clone();
         let scanned = music.map_or_else(Vec::new, |d| scan(&d, SAMPLE_LIBRARY_SIZE));
         let synced = library_path
             .as_deref()
             .map(|path| -> Result<Vec<Track>, String> {
                 let mut db = Library::open(path).map_err(|e| e.to_string())?;
+                for id in &removed {
+                    // Files in the music folder stay, as a scan would bring them in again.
+                    let keep = |p: &Path| music_folder.as_ref().is_some_and(|m| p.starts_with(m));
+                    match db.remove_import(id, keep) {
+                        Ok(r) => eprintln!(
+                            "{id}: import removed: {} lists, {} tracks; {} tracks kept",
+                            r.lists, r.tracks, r.kept
+                        ),
+                        Err(e) => eprintln!("can't remove the {id} import: {e}"),
+                    }
+                    settings::set(&settings::import_remove_key(id), serde_json::json!(false));
+                }
                 let scanned: Vec<Track> = scanned.iter().map(|t| (**t).clone()).collect();
                 let report = db.sync(&scanned).map_err(|e| e.to_string())?;
                 if report.added + report.updated > 0 {
@@ -669,13 +688,18 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                     );
                 }
                 for importer in &importers {
-                    let Some(database) = importer.database() else {
+                    let Some(database) = settings::import_database(importer.as_ref()) else {
                         continue;
                     };
                     let groups = settings::import_groups(importer.as_ref());
-                    // Turning a kind of list on or off brings the lists in again.
-                    let stamp = format!("{}|{}", importer.stamp(&database), groups.join(","));
-                    match db.import(importer.id(), importer.title(), &stamp, || {
+                    let theirs = settings::import_theirs_win(importer.id());
+                    // Changing what comes in, or whose tags win, brings it in again.
+                    let stamp = format!(
+                        "{}|{}|{theirs}",
+                        importer.stamp(&database),
+                        groups.join(",")
+                    );
+                    match db.import_with(importer.id(), importer.title(), &stamp, theirs, || {
                         importer.read(&database, &groups)
                     }) {
                         Ok(Some(r)) => eprintln!(

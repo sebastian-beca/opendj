@@ -5,7 +5,7 @@
 # User guide
 
 - [Install](guide/install.md)
-- [Your music](guide/music.md)
+- [Your library](guide/music.md)
 - [Decks and mixer](guide/decks.md)
 - [Layouts](guide/layouts.md)
 - [Automix](guide/automix.md)
