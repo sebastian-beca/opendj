@@ -266,7 +266,7 @@ impl AudioEngine {
     /// Each input's state, by [`InputRole::index`]: its device and format,
     /// what is wrong with it, or empty when it has none.
     pub fn input_status(&self) -> Vec<String> {
-        self.output.borrow().input_status.to_vec()
+        self.output.borrow().input_status()
     }
 
     /// Separates `track` into stems with Demucs in the background (see

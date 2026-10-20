@@ -34,6 +34,7 @@ cat > "$app/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>$version</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>openDJ plays your microphone and other inputs through the mixer.</string>
   <key>NSLocalNetworkUsageDescription</key><string>Ableton Link shares tempo and beat with other music apps on your network.</string>
 </dict>
 </plist>
