@@ -1,6 +1,6 @@
 //! The real-time part: runs inside the audio callback, reads controls, plays
-//! the decks through the EQ, filter and effect units, mixes them and updates
-//! the meters.
+//! the decks through the EQ, filter and effect units, mixes them with the
+//! microphone and auxiliary inputs and updates the meters.
 //!
 //! Nothing here allocates or locks. Tracks arrive over a wait-free queue and
 //! replaced or ejected tracks go back over another, so they are freed off this
@@ -16,7 +16,8 @@ use crate::controls::{
     create_global_controls, Action, DeckControls, Edge, MasterControls, HOTCUE_CUE, HOTCUE_LOOP,
 };
 use crate::dsp::{Isolator, Limiter, Sculpt, SweepFilter};
-use crate::effects::{EffectRack, MAIN, TARGETS};
+use crate::effects::{input_target, EffectRack, MAIN, TARGETS};
+use crate::inputs::{Ducker, Input, InputFeed, AUXILIARY, MICROPHONE, NUM_INPUTS};
 use crate::key::Key;
 use crate::keyshift::{transpose_factor, KeyShifter};
 use crate::link::{phase_error, Link, Moment};
@@ -803,7 +804,7 @@ fn soften_scrub(s: [f32; 2], speed: f64, sr: f64, state: &mut [f32; 2]) -> [f32;
 /// proportion as the speed rises.
 const SCRUB_TONE_HZ: f64 = 12_000.0;
 
-fn meter(peak: f32) -> f32 {
+pub(crate) fn meter(peak: f32) -> f32 {
     if peak <= 1e-4 {
         0.0
     } else {
@@ -847,6 +848,10 @@ pub struct Engine {
     /// Plays a track into the headphones for the info panel.
     preview: Preview,
     preview_input: Option<PreviewInput>,
+    /// The microphone and auxiliary inputs, and the ducking of the music
+    /// under the microphone.
+    inputs: [Input; NUM_INPUTS],
+    ducker: Ducker,
 }
 
 /// How far (in beats) Link's beat may drift from the master deck's before
@@ -933,8 +938,12 @@ impl Engine {
         let (commands_tx, commands) = rtrb::RingBuffer::new(QUEUE);
         let (returned, returned_rx) = rtrb::RingBuffer::new(QUEUE * 2);
         let (record, record_feed) = recorder::tap(sample_rate);
+        let inputs = std::array::from_fn(|i| Input::new(registry, i, sample_rate));
+        let ducker = Ducker::new(registry, sample_rate);
         (
             Self {
+                inputs,
+                ducker,
                 visual: Arc::default(),
                 link: Link::new(registry),
                 link_master: None,
@@ -972,6 +981,13 @@ impl Engine {
     /// The other end of the recording tap; there is only one.
     pub(crate) fn take_record_feed(&mut self) -> Option<Feed> {
         self.record_feed.take()
+    }
+
+    /// Plays input `input` (see [`crate::inputs`]) from `feed`, or from
+    /// nothing. Returns the feed it played before, to be dropped off the
+    /// audio thread.
+    pub(crate) fn set_input(&mut self, input: usize, feed: Option<InputFeed>) -> Option<InputFeed> {
+        self.inputs[input].set_feed(feed)
     }
 
     /// The other end of the preview player's queues; there is only one.
@@ -1345,7 +1361,7 @@ impl Engine {
             .beat_seconds();
         self.fx.prepare(
             std::array::from_fn(|t| {
-                if t == MAIN {
+                if t >= MAIN {
                     main_beat
                 } else {
                     self.decks[t].beat_seconds()
@@ -1353,7 +1369,11 @@ impl Engine {
             }),
             self.clock,
         );
-        debug_assert_eq!(TARGETS, NUM_DECKS + 1);
+        debug_assert_eq!(TARGETS, NUM_DECKS + 1 + NUM_INPUTS);
+        for (i, input) in self.inputs.iter_mut().enumerate() {
+            input.render(frames, &mut self.fx, input_target(i), dt as f32);
+        }
+        let duck = self.ducker.settings();
 
         let mut x = self.master.crossfader.get() as f32;
         if self.master.xfader_reverse.get_bool() {
@@ -1629,7 +1649,31 @@ impl Engine {
             let samples = self.samplers.next();
             main[0] += samples[0];
             main[1] += samples[1];
+            // The auxiliary input joins the music; the microphone is added
+            // after the main mix's effects, which leave the voice alone, and
+            // the music ducks under it.
+            let aux = &self.inputs[AUXILIARY];
+            let a = aux.buf[f];
+            let ga = lerp(aux.level_ramp);
+            let mic = &self.inputs[MICROPHONE];
+            let m = mic.buf[f];
+            let gm = lerp(mic.level_ramp);
+            let ducked = self.ducker.next(duck, mic.live && gm > 0.0, m);
+            for c in 0..2 {
+                main[c] = (main[c] + a[c] * ga) * ducked;
+            }
+            if aux.pfl {
+                cue[0] += a[0];
+                cue[1] += a[1];
+            }
             main = self.fx.process(MAIN, main, r);
+            for c in 0..2 {
+                main[c] += m[c] * gm;
+            }
+            if mic.pfl {
+                cue[0] += m[0];
+                cue[1] += m[1];
+            }
             // The booth hears the main mix before the main level, at its own.
             let booth = main.map(|v| (v * booth_gain).clamp(-1.0, 1.0));
             let mg = lerp(master);
@@ -1807,8 +1851,12 @@ mod tests {
 
     /// A track of a steady sine tone in `key`.
     fn tone_track(hz: f64, key: &str) -> Arc<Track> {
-        let mut t = (*short_track(120.0, 4.0)).clone();
-        let frames = (0..(SR * 4.0) as usize)
+        long_tone_track(hz, key, 4.0)
+    }
+
+    fn long_tone_track(hz: f64, key: &str, seconds: f64) -> Arc<Track> {
+        let mut t = (*short_track(120.0, seconds)).clone();
+        let frames = (0..(SR * seconds) as usize)
             .map(|i| {
                 let v = (2.0 * std::f64::consts::PI * hz * i as f64 / SR).sin() as f32 * 0.5;
                 [v, v]
@@ -3059,5 +3107,176 @@ mod tests {
         println!("10 s of audio, 36 effect instances on: {elapsed:.3} s, {factor:.0}x realtime");
         assert!(peak.is_finite() && peak > 0.01);
         assert!(factor > 2.0, "{factor}x realtime");
+    }
+
+    /// An input device for tests: the engine's feed, and the end to fill.
+    fn mic_feed() -> (InputFeed, rtrb::Producer<f32>) {
+        let (tx, rx) = rtrb::RingBuffer::new(48_000);
+        let period = Arc::new(std::sync::atomic::AtomicUsize::new(512));
+        (InputFeed { rx, period }, tx)
+    }
+
+    /// Runs the engine for `seconds` with `voice(frame)` coming into the
+    /// microphone a buffer at a time, as a device does; returns the output.
+    fn talk(
+        engine: &mut Engine,
+        tx: &mut rtrb::Producer<f32>,
+        seconds: f64,
+        voice: impl Fn(usize) -> f32,
+    ) -> Vec<f32> {
+        let mut out = Vec::new();
+        let mut buf = vec![0.0f32; 512 * 2];
+        let mut n = 0;
+        for _ in 0..(seconds * SR / 512.0).ceil() as usize {
+            for _ in 0..512 {
+                let v = voice(n);
+                n += 1;
+                let _ = tx.push(v);
+                let _ = tx.push(v);
+            }
+            engine.process(&mut buf, 2);
+            out.extend_from_slice(&buf);
+        }
+        out
+    }
+
+    fn sine(hz: f64, level: f32) -> impl Fn(usize) -> f32 {
+        move |n| (2.0 * std::f64::consts::PI * hz * n as f64 / SR).sin() as f32 * level
+    }
+
+    fn peak(x: &[f32]) -> f32 {
+        x.iter().fold(0.0, |p, v| p.max(v.abs()))
+    }
+
+    /// The level of `hz` in the left channel of `interleaved`.
+    fn level_at(interleaved: &[f32], hz: f64) -> f64 {
+        let x: Vec<f32> = interleaved.iter().step_by(2).copied().collect();
+        let w = 2.0 * std::f64::consts::PI * hz / SR;
+        let (re, im) = x.iter().enumerate().fold((0.0, 0.0), |(re, im), (i, &v)| {
+            (
+                re + v as f64 * (w * i as f64).cos(),
+                im + v as f64 * (w * i as f64).sin(),
+            )
+        });
+        2.0 * (re * re + im * im).sqrt() / x.len() as f64
+    }
+
+    #[test]
+    fn the_microphone_is_heard_while_talkover_is_on() {
+        let (reg, mut engine, _input) = setup();
+        let mic = |k: &str| reg.get("[Microphone]", k).unwrap();
+        assert!(!mic("input_configured").get_bool());
+        let (feed, mut tx) = mic_feed();
+        assert!(engine.set_input(MICROPHONE, Some(feed)).is_none());
+        assert!(mic("input_configured").get_bool());
+        // Off: nothing in the main mix, though the meter shows the voice.
+        let off = talk(&mut engine, &mut tx, 0.3, sine(1000.0, 0.5));
+        assert!(peak(&off) < 1e-4, "{}", peak(&off));
+        assert!(mic("VuMeter").get() > 0.8);
+        // On: the voice plays at its level.
+        mic("talkover").set_bool(true);
+        let on = talk(&mut engine, &mut tx, 0.3, sine(1000.0, 0.5));
+        let level = level_at(&on[on.len() / 2..], 1000.0);
+        assert!((level - 0.5).abs() < 0.03, "{level}");
+        // Its fader, gain and kills apply.
+        mic("volume").set(0.5);
+        mic("pregain").set(0.5);
+        let quieter = talk(&mut engine, &mut tx, 0.3, sine(1000.0, 0.5));
+        let level = level_at(&quieter[quieter.len() / 2..], 1000.0);
+        assert!((level - 0.125).abs() < 0.01, "{level}");
+        reg.get("[EqualizerRack1_[Microphone]_Effect1]", "button_parameter2")
+            .unwrap()
+            .set_bool(true);
+        let killed = talk(&mut engine, &mut tx, 0.3, sine(1000.0, 0.5));
+        assert!(level_at(&killed[killed.len() / 2..], 1000.0) < 0.01);
+        // Without a device it goes quiet and says so.
+        assert!(engine.set_input(MICROPHONE, None).is_some());
+        assert!(!mic("input_configured").get_bool());
+    }
+
+    #[test]
+    fn the_music_ducks_under_the_microphone() {
+        let (reg, mut engine, mut input) = setup();
+        let deck = |k: &str| reg.get("[Channel1]", k).unwrap();
+        load(&mut input, 0, long_tone_track(440.0, "Am", 10.0));
+        run(&mut engine, 0.05);
+        deck("play").set_bool(true);
+        let (feed, mut tx) = mic_feed();
+        engine.set_input(MICROPHONE, Some(feed));
+        reg.get("[Microphone]", "talkover").unwrap().set_bool(true);
+        let quiet = talk(&mut engine, &mut tx, 0.5, |_| 0.0);
+        let music = level_at(&quiet[quiet.len() / 2..], 440.0);
+        assert!(music > 0.3, "{music}");
+        // Auto (the default): talking takes the music 12 dB down.
+        let talking = talk(&mut engine, &mut tx, 0.5, sine(1000.0, 0.3));
+        let ducked = level_at(&talking[talking.len() / 2..], 440.0);
+        assert!((ducked / music - 0.25).abs() < 0.03, "{}", ducked / music);
+        // It comes back up once the DJ stops talking.
+        let after = talk(&mut engine, &mut tx, 3.0, |_| 0.0);
+        let back = level_at(&after[after.len() - 24_000 * 2..], 440.0);
+        assert!((back / music - 1.0).abs() < 0.03, "{}", back / music);
+        // Off: talking leaves the music alone.
+        reg.get("[Master]", "talkover_ducking").unwrap().set(0.0);
+        let talking = talk(&mut engine, &mut tx, 0.5, sine(1000.0, 0.3));
+        let level = level_at(&talking[talking.len() / 2..], 440.0);
+        assert!((level / music - 1.0).abs() < 0.03, "{}", level / music);
+    }
+
+    #[test]
+    fn the_microphone_has_its_own_effects() {
+        let (reg, mut engine, mut input) = setup();
+        let mic_unit = crate::effect_unit_group(crate::MIC_FX_UNIT);
+        let unit = |k: &str| reg.get(&mic_unit, k).unwrap();
+        // The second slot starts with Echo; it is routed to the mic.
+        let echo_slot = crate::effect_group(crate::MIC_FX_UNIT, 1);
+        let echo = |k: &str| reg.get(&echo_slot, k).unwrap();
+        assert_eq!(echo("loaded_effect").get(), 1.0);
+        assert!(unit("group_[Microphone]_enable").get_bool());
+        let (feed, mut tx) = mic_feed();
+        engine.set_input(MICROPHONE, Some(feed));
+        reg.get("[Microphone]", "talkover").unwrap().set_bool(true);
+        reg.get("[Master]", "talkover_ducking").unwrap().set(0.0);
+        // A word, then silence: the dry mic stops with it.
+        let word = |n: usize| if n < 4800 { sine(1000.0, 0.5)(n) } else { 0.0 };
+        let dry = talk(&mut engine, &mut tx, 1.2, word);
+        assert!(peak(&dry[14_400..]) < 1e-3);
+        // With the echo on, it repeats.
+        echo("enabled").set_bool(true);
+        let wet = talk(&mut engine, &mut tx, 1.2, word);
+        assert!(peak(&wet[14_400..]) > 0.1, "{}", peak(&wet[14_400..]));
+
+        // The decks' sound doesn't change, even routed to this unit: it only
+        // takes the inputs.
+        echo("enabled").set_bool(false);
+        load(&mut input, 0, tone_track(440.0, "Am"));
+        run(&mut engine, 0.05);
+        reg.get("[Channel1]", "play").unwrap().set_bool(true);
+        talk(&mut engine, &mut tx, 1.0, |_| 0.0);
+        let before = talk(&mut engine, &mut tx, 0.3, |_| 0.0);
+        unit("group_[Channel1]_enable").set_bool(true);
+        let after = talk(&mut engine, &mut tx, 0.3, |_| 0.0);
+        let (a, b) = (level_at(&before, 440.0), level_at(&after, 440.0));
+        assert!((a - b).abs() < 0.01, "{a} {b}");
+        // Nor do the decks' units reach the mic.
+        assert!(reg
+            .get("[EffectRack1_EffectUnit1]", "group_[Microphone]_enable")
+            .is_some());
+    }
+
+    #[test]
+    fn the_auxiliary_input_joins_the_music() {
+        let (reg, mut engine, _input) = setup();
+        let aux = |k: &str| reg.get("[Auxiliary1]", k).unwrap();
+        // On from the start, and under Mixxx 2.3's name too.
+        assert!(aux("main_mix").get_bool());
+        assert!(aux("master").get_bool());
+        let (feed, mut tx) = mic_feed();
+        engine.set_input(AUXILIARY, Some(feed));
+        let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
+        let level = level_at(&out[out.len() / 2..], 500.0);
+        assert!((level - 0.4).abs() < 0.03, "{level}");
+        aux("main_mix").set_bool(false);
+        let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
+        assert!(peak(&out[out.len() / 2..]) < 1e-4);
     }
 }
