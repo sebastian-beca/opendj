@@ -44,6 +44,37 @@ export struct TrackRow {
     // A store result rather than a track: what activating it does, shown
     // as a button ("Buy", "Search", "Get"). Empty for tracks.
     action: string,
+    // What each column in `ColumnUi.columns` shows, in the same order.
+    cells: [string],
+}
+
+// One of the track list's columns. kind: 0 text, 1 the title (takes the
+// room left), 2 rating stars, 3 key, 4 quieter text, 5 tag words.
+export struct ListColumn {
+    id: int,
+    label: string,
+    width: length,
+    right: bool,
+    kind: int,
+}
+
+// The track list's columns: right-click the header to pick them, drag a
+// column's right edge to resize it, drag its heading to move it.
+export global ColumnUi {
+    in property <[ListColumn]> columns;
+    // How wide the columns need the list to be, with room for the title.
+    in property <length> min-width;
+    // Every column the header's menu offers, and which are shown.
+    in property <[string]> all;
+    in property <[bool]> all-shown;
+    callback toggle(index: int);
+    callback reset();
+    // `column` is an index into `columns`.
+    callback resize(column: int, width: length);
+    // A resize finished: keep the widths.
+    callback resized();
+    // A heading dropped at `x` along a header `header` wide.
+    callback move(column: int, x: length, header: length);
 }
 
 export struct SideRow {
@@ -956,11 +987,23 @@ component HeaderCell inherits Rectangle {
     in property <int> sort-column;
     in property <bool> ascending;
     in property <TextHorizontalAlignment> align: left;
+    // The title takes the room left, so it has no edge to drag.
+    in property <bool> resizable: true;
+    // Where this heading is in `ColumnUi.columns`.
+    in property <int> index;
+    // The whole header, for working out where a heading is dropped.
+    in property <length> header-x;
+    in property <length> header-width;
     callback sort(column: int);
+    callback menu(x: length, y: length);
+    property <bool> moving;
+    // A click sorts only when it started on this heading and didn't resize it.
+    property <bool> armed;
+    property <length> press-width;
     Text {
         width: 100%;
         text: root.text + (column == sort-column ? (ascending ? " ▲" : " ▼") : "");
-        color: Theme.text;
+        color: moving ? Theme.accent : Theme.text;
         font-size: 13px;
         font-weight: column == sort-column ? 600 : 500;
         horizontal-alignment: align;
@@ -968,7 +1011,57 @@ component HeaderCell inherits Rectangle {
     }
     // Column separator in the list header.
     Rectangle { x: -5px; width: 1px; height: 14px; background: Theme.border; }
-    TouchArea { clicked => { sort(column); } }
+    // Click to sort, drag to move, right-click for the column menu.
+    ta := TouchArea {
+        mouse-cursor: moving ? MouseCursor.grabbing : MouseCursor.default;
+        moved => {
+            if self.pressed && abs(self.mouse-x - self.pressed-x) > 8px {
+                moving = true;
+            }
+        }
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.right {
+                menu(self.absolute-position.x - header-x + self.mouse-x, self.mouse-y);
+            }
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                armed = true;
+                press-width = root.width;
+            }
+            if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                if moving {
+                    moving = false;
+                    ColumnUi.move(index, self.absolute-position.x - header-x + self.mouse-x, header-width);
+                } else if armed && self.has-hover && root.width == press-width {
+                    sort(column);
+                }
+                armed = false;
+            }
+        }
+    }
+    // Drag the right edge to resize.
+    if resizable: Rectangle {
+        x: parent.width - 3px;
+        width: 8px;
+        property <length> start-width;
+        property <length> start-x;
+        rta := TouchArea {
+            mouse-cursor: col-resize;
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                    start-width = root.width;
+                    start-x = self.absolute-position.x + self.mouse-x;
+                }
+                if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                    ColumnUi.resized();
+                }
+            }
+            moved => {
+                if self.pressed {
+                    ColumnUi.resize(index, start-width + (self.absolute-position.x + self.mouse-x - start-x));
+                }
+            }
+        }
+    }
 }
 
 component TrackList inherits Rectangle {
@@ -1036,15 +1129,49 @@ component TrackList inherits Rectangle {
         }
     }
 
-    // Column widths
+    // The album art and deck badge before the columns, and a store
+    // result's button.
     property <length> w-art: 26px;
     property <length> w-deck: 22px;
-    property <length> w-rating: 64px;
-    property <length> w-artist: 170px;
-    property <length> w-length: 60px;
-    property <length> w-bpm: 56px;
-    property <length> w-key: 44px;
-    property <length> w-genre: 110px;
+    property <length> w-action: 58px;
+    // The list's width: the panel's, or more when the columns need it
+    // (then it scrolls sideways).
+    property <length> list-width: max(lv.visible-width, ColumnUi.min-width + (results ? w-action + 8px : 0px));
+    // Right-click on the header: which columns to show.
+    property <length> column-menu-x;
+    column-menu := PopupWindow {
+        x: min(column-menu-x, root.width - 220px);
+        y: 66px;
+        width: 210px;
+        close-policy: close-on-click-outside;
+        MenuBackground {}
+        VerticalLayout {
+            padding: 6px;
+            spacing: 1px;
+            Text { x: 10px; height: 24px; text: "Columns"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+            ScrollView {
+                height: min(ColumnUi.all.length * 26px, 420px);
+                VerticalLayout {
+                    for name[i] in ColumnUi.all: Rectangle {
+                        height: 26px;
+                        border-radius: 4px;
+                        background: cta.has-hover ? #3a3a3d : transparent;
+                        Text { x: 10px; width: 18px; text: i < ColumnUi.all-shown.length && ColumnUi.all-shown[i] ? "✓" : ""; color: Theme.accent; font-size: 13px; vertical-alignment: center; }
+                        Text { x: 30px; text: name; color: name == "Title" ? Theme.text-dim : Theme.text; font-size: 13px; vertical-alignment: center; }
+                        cta := TouchArea { clicked => { ColumnUi.toggle(i); } }
+                    }
+                }
+            }
+            MenuSeparator {}
+            MenuLine {
+                text: "Reset columns";
+                clicked => {
+                    ColumnUi.reset();
+                    column-menu.close();
+                }
+            }
+        }
+    }
 
     background: Theme.panel;
     VerticalLayout {
@@ -1174,21 +1301,41 @@ component TrackList inherits Rectangle {
             }
         }
         if FilterUi.shown && !results: FilterBar {}
-        // Column headers
-        HorizontalLayout {
+        // Column headers, scrolled sideways with the list when the columns
+        // are wider than it.
+        Rectangle {
+            height: 24px;
+            clip: true;
+        header := HorizontalLayout {
+            x: lv.content-x;
+            width: list-width;
             height: 24px;
             spacing: 8px;
             padding-left: 6px;
             padding-right: 14px;
             Rectangle { width: w-art; }
             Rectangle { width: w-deck; }
-            HeaderCell { width: w-rating; text: "Rating"; column: 7; sort-column: sort-column; ascending: ascending; sort(c) => { sort(c); } }
-            HeaderCell { horizontal-stretch: 1; text: "Title"; column: 1; sort-column: sort-column; ascending: ascending; sort(c) => { sort(c); } }
-            HeaderCell { width: w-artist; text: "Artist"; column: 0; sort-column: sort-column; ascending: ascending; sort(c) => { sort(c); } }
-            HeaderCell { width: w-length; text: "Length"; column: 6; sort-column: sort-column; ascending: ascending; align: right; sort(c) => { sort(c); } }
-            HeaderCell { width: w-bpm; text: "Bpm"; column: 4; sort-column: sort-column; ascending: ascending; align: right; sort(c) => { sort(c); } }
-            HeaderCell { width: w-key; text: "Key"; column: 5; sort-column: sort-column; ascending: ascending; sort(c) => { sort(c); } }
-            HeaderCell { width: w-genre; text: "Genre"; column: 3; sort-column: sort-column; ascending: ascending; sort(c) => { sort(c); } }
+            if results: Rectangle { width: w-action; }
+            for col[c] in ColumnUi.columns: HeaderCell {
+                horizontal-stretch: col.kind == 1 ? 1 : 0;
+                min-width: col.kind == 1 ? 60px : col.width;
+                max-width: col.kind == 1 ? 100000px : col.width;
+                text: col.label;
+                column: col.id;
+                index: c;
+                resizable: col.kind != 1;
+                align: col.right ? right : left;
+                sort-column: sort-column;
+                ascending: ascending;
+                header-x: header.absolute-position.x;
+                header-width: header.width;
+                sort(id) => { sort(id); }
+                menu(x, y) => {
+                    column-menu-x = x + lv.content-x;
+                    column-menu.show();
+                }
+            }
+        }
         }
         EdgeLine { left: 6px; right: 6px; }
         if empty-title != "": Placeholder {
@@ -1199,7 +1346,9 @@ component TrackList inherits Rectangle {
         lv := ListView {
             vertical-stretch: empty-title != "" ? 0 : 1;
             visible: empty-title == "";
+            content-width: list-width;
             for r[i] in rows: Rectangle {
+                width: list-width;
                 height: row-height;
                 property <bool> selected: i >= first-picked && i <= last-picked;
                 border-radius: 4px;
@@ -1248,6 +1397,8 @@ component TrackList inherits Rectangle {
                 HorizontalLayout {
                     spacing: 8px;
                     padding-left: 6px;
+                    // As the header, so the columns line up.
+                    padding-right: 14px;
                     // Album art, first.
                     VerticalLayout {
                         alignment: center;
@@ -1285,11 +1436,10 @@ component TrackList inherits Rectangle {
                             Text { text: r.deck == 0 ? "A" : "B"; color: #fff; font-size: 10px; font-weight: 700; }
                         }
                     }
-                    if r.action == "": Text { width: w-rating; text: r.rating == 0 ? "" : stars(r.rating); color: selected ? Theme.on-selection : #ffd60a; font-size: 12px; vertical-alignment: center; }
                     // A store result's button: buy, search the store, or download.
-                    if r.action != "": Rectangle {
-                        width: w-rating;
-                        VerticalLayout {
+                    if results: Rectangle {
+                        width: w-action;
+                        if r.action != "": VerticalLayout {
                             alignment: center;
                             Rectangle {
                                 height: 20px;
@@ -1301,12 +1451,39 @@ component TrackList inherits Rectangle {
                             }
                         }
                     }
-                    Text { horizontal-stretch: 1; text: r.title; color: selected ? Theme.on-selection : r.deck >= 0 ? Theme.deck-color(r.deck) : (r.available && !r.missing) || r.action != "" ? Theme.text : Theme.text-dim; font-size: 15px; vertical-alignment: center; overflow: elide; }
-                    Text { width: w-artist; text: r.artist; color: selected ? Theme.on-selection : (r.available && !r.missing) || r.action != "" ? Theme.text : Theme.text-dim; font-size: 15px; vertical-alignment: center; overflow: elide; }
-                    Text { width: w-length; text: r.length; color: selected ? Theme.on-selection : (r.available && !r.missing) || r.action != "" ? Theme.text : Theme.text-dim; font-size: 15px; vertical-alignment: center; horizontal-alignment: right; }
-                    Text { width: w-bpm; text: r.bpm; color: selected ? Theme.on-selection : Theme.text; font-size: 15px; vertical-alignment: center; horizontal-alignment: right; }
-                    Text { width: w-key; text: r.key; color: selected ? Theme.on-selection : Theme.key; font-size: 15px; vertical-alignment: center; }
-                    Text { width: w-genre; text: r.genre; color: selected ? Theme.on-selection-dim : Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
+                    for col[c] in ColumnUi.columns: Rectangle {
+                        horizontal-stretch: col.kind == 1 ? 1 : 0;
+                        min-width: col.kind == 1 ? 60px : col.width;
+                        max-width: col.kind == 1 ? 100000px : col.width;
+                        property <color> plain: selected ? Theme.on-selection : (r.available && !r.missing) || r.action != "" ? Theme.text : Theme.text-dim;
+                        if col.kind == 2: Text {
+                            width: 100%;
+                            text: r.rating == 0 ? "" : stars(r.rating);
+                            color: selected ? Theme.on-selection : #ffd60a;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                        if col.kind == 1: Text {
+                            width: 100%;
+                            text: r.title;
+                            color: selected ? Theme.on-selection : r.deck >= 0 ? Theme.deck-color(r.deck) : plain;
+                            font-size: 15px;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        if col.kind == 0 || col.kind >= 3: Text {
+                            width: 100%;
+                            text: c < r.cells.length ? r.cells[c] : "";
+                            color: col.kind == 3 ? (selected ? Theme.on-selection : Theme.key)
+                                : col.kind == 5 ? (selected ? Theme.on-selection : Theme.accent)
+                                : col.kind == 4 ? (selected ? Theme.on-selection-dim : Theme.text-dim)
+                                : plain;
+                            font-size: col.kind >= 4 ? 14px : 15px;
+                            vertical-alignment: center;
+                            horizontal-alignment: col.right ? right : left;
+                            overflow: elide;
+                        }
+                    }
                 }
             }
         }

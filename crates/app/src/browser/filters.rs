@@ -547,6 +547,8 @@ impl Browser {
     pub(super) fn field_names_changed(&mut self, names: FieldNames) {
         let f = &mut self.filter;
         f.fields = fields(&names);
+        self.column_names_changed(&names);
+        let f = &mut self.filter;
         f.names = names;
         // Fields that are gone can't filter.
         let ids: HashSet<String> = f.fields.iter().map(|x| x.id.clone()).collect();

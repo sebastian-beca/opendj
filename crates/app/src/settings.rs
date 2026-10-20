@@ -501,6 +501,32 @@ pub fn set_filter_tolerance(i: usize) {
     save(|v| v["filter_tolerance"] = json!(i));
 }
 
+/// The track list's columns, in order, as (column id, width); empty for
+/// the default set.
+pub fn columns() -> Vec<(i32, f32)> {
+    load()["columns"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|c| {
+                    Some((
+                        c["id"].as_i64()? as i32,
+                        c["width"].as_f64().unwrap_or(0.0) as f32,
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn set_columns(columns: &[(i32, f32)]) {
+    let list: Vec<Value> = columns
+        .iter()
+        .map(|(id, width)| json!({ "id": id, "width": width }))
+        .collect();
+    save(|v| v["columns"] = json!(list));
+}
+
 /// Whether the filter bar shows above the track list.
 pub fn filters_visible() -> bool {
     flag("filters_visible", true)

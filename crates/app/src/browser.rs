@@ -25,6 +25,7 @@ use mixxx_library::Wanted;
 use mixxx_plugins::inbox::Mode;
 use mixxx_plugins::{ItemKind, StoreItem, StoreQuery};
 
+mod columns;
 mod filters;
 mod info;
 
@@ -401,6 +402,8 @@ pub struct Browser {
     info: info::InfoState,
     /// The filter bar.
     filter: filters::FilterState,
+    /// The track list's columns.
+    columns: columns::ColumnState,
 }
 
 /// The Files source: the folder listed and the thread reading it.
@@ -785,6 +788,7 @@ impl Browser {
             watch: Default::default(),
             info: info::InfoState::new(registry),
             filter: filters::FilterState::new(),
+            columns: columns::ColumnState::new(&crate::settings::field_names()),
         }));
         b.borrow_mut().set_library(library);
         app.global::<KeyNotation>().set_camelot(b.borrow().camelot);
@@ -1043,6 +1047,7 @@ impl Browser {
         Self::install_files(app, &b);
         Self::install_info(app, &b);
         Self::install_filters(app, &b);
+        Self::install_columns(app, &b);
         b
     }
 
@@ -1482,6 +1487,7 @@ impl Browser {
     /// The list while the stores are shown: the selected store's results
     /// (or all of them), with links to each store's own search.
     fn refresh_store_rows(&mut self) {
+        let ids = self.columns.ids();
         let selected = self
             .nodes
             .get(self.current_node)
@@ -1603,7 +1609,7 @@ impl Browser {
                         "Buy",
                     ),
                 };
-                TrackRow {
+                let row = TrackRow {
                     title: title.into(),
                     artist: artist.into(),
                     genre: detail.into(),
@@ -1616,6 +1622,10 @@ impl Browser {
                     available: false,
                     action: action.into(),
                     ..Default::default()
+                };
+                TrackRow {
+                    cells: columns::row_cells(&ids, &row, None),
+                    ..row
                 }
             })
             .collect();
@@ -3135,16 +3145,26 @@ impl Browser {
         let keep_order =
             (self.current_playlist().is_some() || self.tree == FILES) && self.sort_column < 0;
         if !keep_order {
+            let library = &self.library;
             data.sort_by(|a, b| {
+                use std::cmp::Ordering;
                 let o = match self.sort_column {
-                    0 => a.artist.cmp(&b.artist),
-                    1 => a.title.cmp(b.title),
-                    2 => a.album.cmp(b.album),
-                    3 => a.genre.cmp(b.genre),
-                    4 => a.bpm.total_cmp(&b.bpm),
-                    5 => a.key.cmp(b.key),
-                    6 => a.duration.total_cmp(&b.duration),
-                    _ => a.rating.cmp(&b.rating),
+                    columns::ARTIST => a.artist.cmp(&b.artist),
+                    columns::TITLE_ID => a.title.cmp(b.title),
+                    columns::ALBUM => a.album.cmp(b.album),
+                    columns::GENRE => a.genre.cmp(b.genre),
+                    columns::BPM => a.bpm.total_cmp(&b.bpm),
+                    columns::KEY_ID => a.key.cmp(b.key),
+                    columns::LENGTH => a.duration.total_cmp(&b.duration),
+                    columns::RATING_ID => a.rating.cmp(&b.rating),
+                    // What only the collection knows: Spotify tracks it
+                    // doesn't have go last.
+                    id => match (a.local, b.local) {
+                        (Some(x), Some(y)) => columns::compare(id, &library[x], &library[y]),
+                        (Some(_), None) => Ordering::Less,
+                        (None, Some(_)) => Ordering::Greater,
+                        (None, None) => Ordering::Equal,
+                    },
                 };
                 if self.ascending {
                     o
@@ -3155,12 +3175,13 @@ impl Browser {
         }
         let art = &self.art;
         let library = &self.library;
+        let ids = self.columns.ids();
         let rows: Vec<TrackRow> = data
             .iter()
             .map(|r| {
                 let cover = r.local.and_then(|id| art.get(&library[id]));
                 let color = r.local.and_then(|id| library[id].info.color);
-                TrackRow {
+                let row = TrackRow {
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
                     title: r.title.into(),
@@ -3192,6 +3213,11 @@ impl Browser {
                         })
                         .unwrap_or_default(),
                     action: SharedString::new(),
+                    cells: Default::default(),
+                };
+                TrackRow {
+                    cells: columns::row_cells(&ids, &row, r.local.map(|id| &*library[id])),
+                    ..row
                 }
             })
             .collect();
