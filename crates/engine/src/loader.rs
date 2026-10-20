@@ -195,7 +195,17 @@ impl Shared {
         let mut l = self.loaded.write().unwrap();
         match &l[deck] {
             Some(t) if same_load(t, track) => {
-                l[deck] = Some(track.clone());
+                // A cover found or changed (see `AudioEngine::set_cover`)
+                // since `track` was made stays.
+                l[deck] = Some(match &t.cover {
+                    Some(c) if !track.cover.as_ref().is_some_and(|n| Arc::ptr_eq(c, n)) => {
+                        Arc::new(Track {
+                            cover: Some(c.clone()),
+                            ..(**track).clone()
+                        })
+                    }
+                    _ => track.clone(),
+                });
                 true
             }
             _ => false,
