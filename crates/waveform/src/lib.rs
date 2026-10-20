@@ -102,7 +102,8 @@ struct Params {
     num_levels: u32,
     style: u32,
     scale: f32,
-    _pad: f32,
+    /// How far the digit atlas's distance field reaches, in atlas pixels.
+    spread: f32,
     low_color: [f32; 4],
     mid_color: [f32; 4],
     high_color: [f32; 4],
@@ -112,6 +113,8 @@ struct Params {
     grid_beat: [f32; 4],
     grid_index: [f32; 4],
     grid_bar: [f32; 4],
+    /// The digit atlas: cell width and height, advance and digit height, in atlas pixels.
+    digit: [f32; 4],
     level_offset: [[u32; 4]; 4],
     level_len: [[u32; 4]; 4],
 }
@@ -145,10 +148,11 @@ pub struct WaveformRenderer {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     max_rows: u32,
+    digits: DigitAtlas,
 }
 
 impl WaveformRenderer {
-    pub fn new(device: &wgpu::Device) -> Self {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("waveform"),
             source: wgpu::ShaderSource::Wgsl(include_str!("waveform.wgsl").into()),
@@ -174,6 +178,22 @@ impl WaveformRenderer {
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
             ],
@@ -212,6 +232,7 @@ impl WaveformRenderer {
             pipeline,
             layout,
             max_rows: device.limits().max_texture_dimension_2d,
+            digits: DigitAtlas::new(device, queue),
         }
     }
 }
@@ -415,7 +436,7 @@ impl WaveformView {
                 Style::Bands => 1,
             },
             scale,
-            _pad: 0.0,
+            spread: DIGIT_SPREAD,
             low_color: self.palette.low,
             mid_color: self.palette.mid,
             high_color: self.palette.high,
@@ -425,6 +446,7 @@ impl WaveformView {
             grid_beat: [0.0; 4],
             grid_index: [0.0; 4],
             grid_bar: [0.0; 4],
+            digit: renderer.digits.metrics,
             level_offset: track.map_or([[0; 4]; 4], |t| t.level_offset),
             level_len: track.map_or([[0; 4]; 4], |t| t.level_len),
         };
@@ -435,13 +457,9 @@ impl WaveformView {
             };
             params.bins_per_pixel = bins_per_pixel as f32;
             let play_bin = f.play_seconds * bins_per_second;
-            params.play_bin = match self.mode {
-                // Scroll by whole pixels, as Mixxx does: each pixel column then
-                // always shows the same slices, so the waveform moves as one
-                // picture instead of shimmering as columns are resampled.
-                Mode::Scrolling => (play_bin / bins_per_pixel).round() * bins_per_pixel,
-                Mode::Overview => play_bin,
-            } as f32;
+            // Not rounded to whole pixels: the shader keeps each column on the
+            // same slices and moves the picture smoothly between pixels.
+            params.play_bin = play_bin as f32;
             for (k, section) in f.grid.iter().map_while(|g| g.as_ref()).enumerate() {
                 if section.bpm <= 0.0 {
                     break;
@@ -567,6 +585,150 @@ fn bind_group(
                 binding: 1,
                 resource: wgpu::BindingResource::TextureView(&view),
             },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(&renderer.digits.view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::Sampler(&renderer.digits.sampler),
+            },
         ],
     })
+}
+
+/// The font the bar numbers are drawn in (tabular, so every digit is as wide).
+const DIGIT_FONT: &[u8] = include_bytes!("../../app/ui/fonts/InterTabular-SemiBold.otf");
+/// The size the digits are rasterized at; the distance field keeps their
+/// edges sharp at any size and position on screen.
+const DIGIT_PX: f32 = 64.0;
+/// How far the distance field reaches either side of an edge, in atlas pixels.
+const DIGIT_SPREAD: f32 = 6.0;
+
+/// The digits 0 to 9 side by side in one texture, as a signed distance
+/// field: 0.5 on a glyph's edge, more inside, less outside.
+struct DigitAtlas {
+    view: wgpu::TextureView,
+    sampler: wgpu::Sampler,
+    /// Cell width and height, advance and digit height, in atlas pixels.
+    metrics: [f32; 4],
+}
+
+impl DigitAtlas {
+    fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        let (cell_w, cell_h, data, advance, height) = digit_field();
+        let width = cell_w * 10;
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("waveform digits"),
+            size: wgpu::Extent3d {
+                width: width as u32,
+                height: cell_h as u32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        // Rows padded to the 256 bytes a texture upload needs.
+        let row = width.next_multiple_of(256);
+        let mut padded = vec![0u8; row * cell_h];
+        for y in 0..cell_h {
+            padded[y * row..y * row + width].copy_from_slice(&data[y * width..(y + 1) * width]);
+        }
+        queue.write_texture(
+            texture.as_image_copy(),
+            &padded,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(row as u32),
+                rows_per_image: Some(cell_h as u32),
+            },
+            wgpu::Extent3d {
+                width: width as u32,
+                height: cell_h as u32,
+                depth_or_array_layers: 1,
+            },
+        );
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("waveform digits"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        Self {
+            view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
+            sampler,
+            metrics: [cell_w as f32, cell_h as f32, advance, height],
+        }
+    }
+}
+
+/// Rasterizes the digits and turns them into a distance field: the cell
+/// size, the field (rows of `10 * cell_w` bytes), the advance and the digit
+/// height. Each cell has the digit's pen position `DIGIT_SPREAD` pixels in
+/// from its left and its top `DIGIT_SPREAD` pixels down.
+fn digit_field() -> (usize, usize, Vec<u8>, f32, f32) {
+    use ab_glyph::{Font, FontRef, PxScale, ScaleFont};
+    let font = FontRef::try_from_slice(DIGIT_FONT).expect("digit font");
+    let scaled = font.as_scaled(PxScale::from(DIGIT_PX));
+    let glyphs: Vec<_> = ('0'..='9')
+        .map(|c| {
+            scaled.outline_glyph(
+                scaled
+                    .glyph_id(c)
+                    .with_scale_and_position(DIGIT_PX, ab_glyph::point(0.0, scaled.ascent())),
+            )
+        })
+        .collect();
+    let advance = scaled.h_advance(scaled.glyph_id('0'));
+    let bounds = glyphs.iter().flatten().map(|g| g.px_bounds());
+    let (top, bottom) = bounds.fold((f32::MAX, f32::MIN), |(t, b), r| {
+        (t.min(r.min.y), b.max(r.max.y))
+    });
+    let pad = DIGIT_SPREAD as usize;
+    let cell_w = advance.ceil() as usize + 2 * pad;
+    let cell_h = (bottom - top).ceil() as usize + 2 * pad;
+    // Coverage first, digit by digit.
+    let width = cell_w * 10;
+    let mut cover = vec![0f32; width * cell_h];
+    for (d, g) in glyphs.iter().enumerate() {
+        let Some(g) = g else { continue };
+        let r = g.px_bounds();
+        g.draw(|x, y, c| {
+            let cx = r.min.x + x as f32 + DIGIT_SPREAD;
+            let cy = r.min.y - top + y as f32 + DIGIT_SPREAD;
+            if cx >= 0.0 && (cx as usize) < cell_w && cy >= 0.0 && (cy as usize) < cell_h {
+                cover[cy as usize * width + d * cell_w + cx as usize] = c;
+            }
+        });
+    }
+    // Then the distance to the nearest pixel on the other side of the edge,
+    // within the spread, signed (inside positive) and mapped to 0..1.
+    let reach = pad as i64;
+    let mut field = vec![0u8; width * cell_h];
+    for y in 0..cell_h as i64 {
+        for x in 0..width as i64 {
+            let inside = cover[y as usize * width + x as usize] >= 0.5;
+            let mut best = DIGIT_SPREAD;
+            for dy in -reach..=reach {
+                for dx in -reach..=reach {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if nx < 0 || ny < 0 || nx >= width as i64 || ny >= cell_h as i64 {
+                        continue;
+                    }
+                    if (cover[ny as usize * width + nx as usize] >= 0.5) != inside {
+                        let dist = ((dx * dx + dy * dy) as f32).sqrt() - 0.5;
+                        best = best.min(dist);
+                    }
+                }
+            }
+            let signed = if inside { best } else { -best };
+            let v = 0.5 + signed / (2.0 * DIGIT_SPREAD);
+            field[y as usize * width + x as usize] = (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+        }
+    }
+    (cell_w, cell_h, field, advance, bottom - top)
 }

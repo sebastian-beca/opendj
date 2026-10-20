@@ -77,7 +77,7 @@ fn renders_scrolling_and_overview() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let renderer = WaveformRenderer::new(&device);
+    let renderer = WaveformRenderer::new(&device, &queue);
     let base = (0..100_000)
         .map(|i| [(i % 255) as u8, 120, 60, 200, (i % 200) as u8, 80, 40, 150])
         .collect();
@@ -127,7 +127,7 @@ fn long_tracks_fall_back_to_a_coarser_level() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let renderer = WaveformRenderer::new(&device);
+    let renderer = WaveformRenderer::new(&device, &queue);
     let seconds = 3600.0;
     let base = vec![[200u8, 100, 50, 220, 150, 70, 30, 160]; (seconds * 1000.0) as usize];
     let track = Arc::new(GpuTrack::new(
@@ -170,7 +170,7 @@ fn draws_beat_grid() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let renderer = WaveformRenderer::new(&device);
+    let renderer = WaveformRenderer::new(&device, &queue);
     // Silent track, so only the grid and markers show.
     let track = Arc::new(GpuTrack::new(
         &device,
@@ -184,8 +184,10 @@ fn draws_beat_grid() {
     let mut view = WaveformView::new(&device, Mode::Scrolling, w, h);
     view.set_track(&device, &renderer, Some(&track));
     let frame = Frame {
-        // A quarter beat past a bar, so the playhead doesn't cover a bar line.
-        play_seconds: 40.25,
+        // A quarter beat past a bar, so the playhead doesn't cover a bar line,
+        // less half a pixel so the lines fall on pixel centres (scrolling,
+        // lines are not snapped to pixels).
+        play_seconds: 40.25 - 0.5 * 8.0 / 640.0,
         visible_seconds: 8.0,
         duration: 200.0,
         first_bar_beat: 0.0,
@@ -224,7 +226,7 @@ fn draws_bar_numbers() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let renderer = WaveformRenderer::new(&device);
+    let renderer = WaveformRenderer::new(&device, &queue);
     let track = Arc::new(GpuTrack::new(
         &device,
         &queue,
