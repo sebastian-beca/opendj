@@ -80,6 +80,7 @@ struct DeckHandles {
     rate_range: ControlHandle,
     rate_dir: ControlHandle,
     beatsync: ControlHandle,
+    loop_enabled: ControlHandle,
     eq_low: ControlHandle,
     filter: ControlHandle,
 }
@@ -99,6 +100,7 @@ impl DeckHandles {
             rate_range: get(&g, "rateRange"),
             rate_dir: get(&g, "rate_dir"),
             beatsync: get(&g, "beatsync"),
+            loop_enabled: get(&g, "loop_enabled"),
             eq_low: get(&eq_group(deck), "parameter1"),
             filter: get(&quick_effect_group(deck), "super1"),
         }
@@ -161,6 +163,8 @@ struct Mix {
     /// into a deck that is already playing).
     start_incoming: bool,
     beat_match: bool,
+    /// How far through the mix it has got, from 0 to 1.
+    progress: f64,
 }
 
 enum Phase {
@@ -361,6 +365,7 @@ impl AutoMix {
         let other = 1 - live;
         if self.decks[other].play.get_bool() {
             // Fade the other deck out, then carry on from the live one.
+            self.decks[other].loop_enabled.set_bool(false);
             let pos = self.position(other, tracks);
             let len = self
                 .length_on(other, tracks)
@@ -377,6 +382,7 @@ impl AutoMix {
                 saved_filter: self.decks.each_ref().map(|d| d.filter.get()),
                 start_incoming: false,
                 beat_match: false,
+                progress: 0.0,
             });
         } else {
             self.glide_to(self.side(live));
@@ -550,6 +556,9 @@ impl AutoMix {
                 _ => false,
             };
         self.glide = None;
+        // A loop would keep the outgoing track from ever reaching the mix's
+        // end, and each jump back would pull the crossfader back with it.
+        self.decks[live].loop_enabled.set_bool(false);
         let x = self.crossfader.get();
         let mut m = Mix {
             from: live,
@@ -563,6 +572,7 @@ impl AutoMix {
             saved_filter: self.decks.each_ref().map(|d| d.filter.get()),
             start_incoming: true,
             beat_match,
+            progress: 0.0,
         };
         self.apply(&mut m, tracks);
         self.phase = Phase::Mixing(m);
@@ -609,7 +619,12 @@ impl AutoMix {
     /// Moves the controls to where the mix is now.
     fn apply(&mut self, m: &mut Mix, tracks: &[Option<Arc<Track>>; NUM_DECKS]) {
         let pos = self.position(m.from, tracks);
-        let p = ((pos - m.start) / (m.end - m.start).max(1e-3)).clamp(0.0, 1.0);
+        // Never backwards: a jump back on the outgoing deck (a loop the user
+        // turns on again, a hot cue) holds the mix rather than undoing it.
+        let p = ((pos - m.start) / (m.end - m.start).max(1e-3))
+            .clamp(0.0, 1.0)
+            .max(m.progress);
+        m.progress = p;
         let (from, to) = (&self.decks[m.from], &self.decks[m.to]);
         if m.start_incoming {
             m.start_incoming = false;
@@ -1007,5 +1022,35 @@ mod tests {
         assert!(x > -1.0 && x < 0.9, "part way after a frame: {x}");
         r.run(2.0);
         assert_eq!(r.xfade(), 1.0);
+    }
+
+    #[test]
+    fn a_loop_on_the_outgoing_deck_plays_out() {
+        let mut r = Rig::new(vec![track(0, 20.0), track(1, 20.0)]);
+        r.ctl("[AutoDJ]", "enabled").set(1.0);
+        r.run(2.0);
+        r.deck(0, "beatloop_4_activate").set(1.0);
+        r.run(0.1);
+        assert!(r.deck(0, "loop_enabled").get_bool());
+        r.automix.fade_now.control.set(1.0);
+        r.run(0.1);
+        assert!(
+            !r.deck(0, "loop_enabled").get_bool(),
+            "the loop is let go when the mix starts"
+        );
+        // The crossfader only ever moves towards deck B, and gets there.
+        let mut last = r.xfade();
+        for _ in 0..(14.0 * FPS) as usize {
+            r.run(1.0 / FPS);
+            let x = r.xfade();
+            assert!(x >= last, "crossfader went back from {last} to {x}");
+            last = x;
+        }
+        assert_eq!(r.xfade(), 1.0);
+        assert!(
+            !r.deck(0, "play").get_bool(),
+            "deck A stopped after the mix"
+        );
+        assert!(r.deck(1, "play").get_bool());
     }
 }
