@@ -439,7 +439,7 @@ impl Prefs {
                     switch(
                         "quantize",
                         "Quantize",
-                        "Hot cues, loops and beat jumps snap to the nearest beat.",
+                        "Loops snap to the beat, and play, CUE, hot cues and jumps land in step with the other playing deck.",
                         settings::flag("quantize", true),
                     ),
                     switch(

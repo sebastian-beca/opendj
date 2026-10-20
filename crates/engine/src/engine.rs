@@ -145,6 +145,23 @@ struct Deck {
     eject_edge: Edge,
     sync_edge: Edge,
     was_synced: bool,
+    /// Followed a synced leader last buffer.
+    following: bool,
+    /// While following a sync leader: the speed that matches it, which may
+    /// go past the tempo fader's range.
+    sync_speed: Option<f64>,
+    /// Extra speed, as a fraction, that bends a synced deck back onto the
+    /// leader's beat.
+    sync_bend: f64,
+    /// The synced tempo is the leader's times this (½, 1 or 2), picked when
+    /// sync starts and kept while the same two tracks play, so it can't flip.
+    sync_ratio: f64,
+    /// The two tracks (by address) `sync_ratio` was picked for.
+    sync_pair: (usize, usize),
+    /// Beats a synced deck stays ahead of its leader, set by nudging either.
+    phase_offset: f64,
+    /// The rate sync last wrote, to tell a fader move from it.
+    rate_written: f64,
     eq: Isolator,
     filter: SweepFilter,
     sculpt: Sculpt,
@@ -196,7 +213,8 @@ impl Deck {
     }
 
     fn speed(&self) -> f64 {
-        1.0 + self.c.rate.get() * self.c.rate_range.get() * self.rate_dir()
+        self.sync_speed
+            .unwrap_or_else(|| 1.0 + self.c.rate.get() * self.c.rate_range.get() * self.rate_dir())
     }
 
     /// -1 or 1; see `rate_dir`.
@@ -214,7 +232,19 @@ impl Deck {
             .filter(|(c, _)| c.get_bool())
             .map(|(_, r)| r)
             .sum();
-        self.speed() + temp
+        self.speed() * (1.0 + self.sync_bend) + temp
+    }
+
+    /// Being moved by hand (jog, pitch bend, scratching, searching), which
+    /// sync leaves alone.
+    fn nudging(&self) -> bool {
+        self.jog_pending != 0.0
+            || self.c.rate_temp.iter().any(|c| c.get_bool())
+            || self.c.scratch2_enable.get_bool()
+            || self.c.scrub_enable.get_bool()
+            || self.c.rate_search.get() != 0.0
+            || self.c.reverse.get_bool()
+            || self.c.reverseroll.get_bool()
     }
 
     /// The tempo at the play position, as playing.
@@ -230,13 +260,6 @@ impl Deck {
             Some(t) if t.bpm > 0.0 => 60.0 / self.effective_bpm().max(1.0),
             _ => 0.5,
         }
-    }
-
-    /// Where the play position is between beats, 0..1.
-    fn beat_phase(&self) -> f64 {
-        self.track
-            .as_ref()
-            .map_or(0.0, |t| t.beat_at(self.seconds()).rem_euclid(1.0))
     }
 
     /// Jumps by `seconds`, taking an active loop along.
@@ -803,6 +826,8 @@ pub struct Engine {
     link: Link,
     /// The deck Link follows, while Link is on.
     link_master: Option<usize>,
+    /// The deck synced decks follow.
+    sync_leader: Option<usize>,
     /// Copies the master out while recording.
     record: RecordTap,
     record_feed: Option<Feed>,
@@ -814,6 +839,24 @@ pub struct Engine {
 /// How far (in beats) Link's beat may drift from the master deck's before
 /// it is pulled back.
 const LINK_PHASE_TOLERANCE: f64 = 0.01;
+
+/// The most a synced deck bends its speed, as a fraction, to catch up with
+/// its leader's beat.
+const SYNC_MAX_BEND: f64 = 0.03;
+
+/// Half, the same or double the leader's tempo, whichever is closest to
+/// `own`, as other DJ software does: 153 BPM syncs to 160 against 80.
+fn sync_ratio(leader: f64, own: f64) -> f64 {
+    [1.0, 2.0, 0.5]
+        .into_iter()
+        .min_by(|a, b| {
+            (leader * a / own)
+                .ln()
+                .abs()
+                .total_cmp(&(leader * b / own).ln().abs())
+        })
+        .unwrap_or(1.0)
+}
 
 impl Engine {
     /// Creates all engine controls in `registry`.
@@ -845,6 +888,13 @@ impl Engine {
             eject_edge: Edge::default(),
             sync_edge: Edge::default(),
             was_synced: false,
+            following: false,
+            sync_speed: None,
+            sync_bend: 0.0,
+            sync_ratio: 1.0,
+            sync_pair: (0, 0),
+            phase_offset: 0.0,
+            rate_written: 0.0,
             eq: Isolator::new(sample_rate),
             filter: SweepFilter::new(sample_rate),
             sculpt: Sculpt::new(sample_rate),
@@ -874,6 +924,7 @@ impl Engine {
                 visual: Arc::default(),
                 link: Link::new(registry),
                 link_master: None,
+                sync_leader: None,
                 record,
                 record_feed: Some(record_feed),
                 preview,
@@ -1033,13 +1084,19 @@ impl Engine {
         self.link.handle()
     }
 
-    /// A synced deck follows the other deck's tempo, and snaps to its beat
-    /// phase once; beatsync does both once. With Link on, the master deck
-    /// also leads the Link session (see [`Engine::lead_link`]).
+    /// A synced deck follows its leader's tempo, at half or double when
+    /// that is closer to its own, and stays on the leader's beat: drift is
+    /// caught up by bending the speed a little, never by jumping, and a
+    /// nudge by hand moves where it sits against the beat. Turning sync on
+    /// while playing, or beatsync, lines the beats up at once. With Link on,
+    /// the master deck also leads the Link session (see [`Engine::lead_link`]).
     fn sync(&mut self, link: Option<Moment>) {
         if let Some(m) = link {
             self.lead_link(m);
         }
+        let synced: [bool; NUM_DECKS] =
+            std::array::from_fn(|i| self.decks[i].c.sync_enabled.get_bool());
+        self.pick_sync_leader(synced);
         for i in 0..NUM_DECKS {
             let other = 1 - i;
             // sync_key: shift the key to the other deck's, or its relative.
@@ -1052,41 +1109,147 @@ impl Engine {
                     d.c.pitch.set(unshifted.shift_to_match(theirs) as f64);
                 }
             }
-            let synced = self.decks[i].c.sync_enabled.get_bool();
-            let just_synced = synced && !self.decks[i].was_synced;
-            self.decks[i].was_synced = synced;
+            let just_synced = synced[i] && !self.decks[i].was_synced;
+            let following = synced[i] && self.sync_leader != Some(i);
             let d = &mut self.decks[i];
+            d.was_synced = synced[i];
+            let was_following = std::mem::replace(&mut d.following, following);
             let once = d.sync_edge.pressed(&d.c.beatsync);
+            // Set again below while following.
+            d.sync_speed = None;
+            d.sync_bend = 0.0;
             let (Some(mine), Some(theirs)) =
                 (self.decks[i].track.clone(), self.decks[other].track.clone())
             else {
                 continue;
             };
-            if !(synced || once) || mine.bpm <= 0.0 || theirs.bpm <= 0.0 {
+            if !(following || once) || mine.bpm <= 0.0 || theirs.bpm <= 0.0 {
                 continue;
+            }
+            let pair = (Arc::as_ptr(&mine) as usize, Arc::as_ptr(&theirs) as usize);
+            let fresh = just_synced || once || !was_following || self.decks[i].sync_pair != pair;
+            // With both decks synced, a move of the follower's fader moves
+            // the leader, so either fader sets the tempo.
+            if following && synced[other] && !fresh {
+                let d = &self.decks[i];
+                let rate = d.c.rate.get();
+                if (rate - d.rate_written).abs() > 1e-9 {
+                    let range = d.c.rate_range.get() * d.rate_dir();
+                    let wanted = mine.bpm_at(d.seconds()) * (1.0 + rate * range);
+                    let l = &self.decks[other];
+                    let at = theirs.bpm_at(l.seconds());
+                    let range = l.c.rate_range.get() * l.rate_dir();
+                    l.c.rate.set((wanted / d.sync_ratio / at - 1.0) / range);
+                }
             }
             // Tempos where each deck is, so a deck whose tempo drifts keeps
             // the other in step all the way through.
             let here = mine.bpm_at(self.decks[i].seconds());
-            // Half or double the other tempo when that is closer, as other
-            // DJ software does: 153 BPM syncs to 160 against 80.
-            let theirs = self.decks[other].effective_bpm();
-            let target = [theirs, theirs * 2.0, theirs / 2.0]
-                .into_iter()
-                .min_by(|a, b| (a / here).ln().abs().total_cmp(&(b / here).ln().abs()))
-                .unwrap_or(theirs);
-            let range = self.decks[i].c.rate_range.get();
-            let dir = self.decks[i].rate_dir();
-            self.decks[i]
-                .c
-                .rate
-                .set((target / here - 1.0) / range * dir);
-            if just_synced || once {
-                let other_phase = self.decks[other].beat_phase();
-                let d = &mut self.decks[i];
-                let beats = mine.beat_at(d.seconds()).floor();
-                d.set_seconds(mine.seconds_at(beats + other_phase));
+            let leader_bpm = self.decks[other].effective_bpm();
+            let (leader_beat, leader_moving, leader_nudged) = {
+                let l = &self.decks[other];
+                (
+                    theirs.beat_at(l.seconds()),
+                    l.c.play.get_bool(),
+                    l.nudging(),
+                )
+            };
+            let d = &mut self.decks[i];
+            if fresh {
+                d.sync_pair = pair;
+                d.sync_ratio = sync_ratio(leader_bpm, here);
+                d.phase_offset = 0.0;
             }
+            let speed = leader_bpm * d.sync_ratio / here;
+            let range = d.c.rate_range.get() * d.rate_dir();
+            d.c.rate.set((speed - 1.0) / range);
+            d.rate_written = d.c.rate.get();
+            d.sync_speed = following.then_some(speed);
+
+            let beat = mine.beat_at(d.seconds());
+            let target = leader_beat * d.sync_ratio;
+            // Beats this deck is behind where it belongs (negative: ahead).
+            let behind = phase_error(target + d.phase_offset, beat);
+            let playing = d.c.play.get_bool();
+            if once || (just_synced && playing) {
+                // Lands on the nearest beat in phase, half a beat at most
+                // away (a beat on, at the very start of the track).
+                let to = mine.seconds_at(beat + behind);
+                let to = if to < 0.0 {
+                    mine.seconds_at(beat + behind + 1.0)
+                } else {
+                    to
+                };
+                d.set_seconds(to);
+                d.sync_bend = 0.0;
+            } else if !following || !playing || !leader_moving {
+                d.sync_bend = 0.0;
+            } else if d.nudging() || leader_nudged {
+                d.phase_offset = phase_error(beat, target);
+                d.sync_bend = 0.0;
+            } else {
+                // Closes the gap over about a beat, never faster than
+                // SYNC_MAX_BEND, which is too little to hear.
+                d.sync_bend = behind.clamp(-SYNC_MAX_BEND, SYNC_MAX_BEND);
+            }
+        }
+    }
+
+    /// The deck synced decks follow. With one deck synced it follows the
+    /// other; with both, the leader is the one that has been playing
+    /// longest, handing over when it stops, as Link's master deck does.
+    fn pick_sync_leader(&mut self, synced: [bool; NUM_DECKS]) {
+        let playing =
+            |d: &Deck| d.c.play.get_bool() && d.track.as_ref().is_some_and(|t| t.bpm > 0.0);
+        self.sync_leader = match synced {
+            [true, true] => self
+                .sync_leader
+                .filter(|&k| playing(&self.decks[k]))
+                .or_else(|| (0..NUM_DECKS).find(|&i| playing(&self.decks[i])))
+                .or(self.sync_leader)
+                .or(Some(0)),
+            [true, false] => Some(1),
+            [false, true] => Some(0),
+            [false, false] => None,
+        };
+    }
+
+    /// With quantize on, or on a synced deck, a deck that jumps (hot cue,
+    /// CUE, beat jump, a click on the overview) or starts while the other
+    /// deck plays lands on the same part of the beat, at most half a beat
+    /// from where it was going, as in Mixxx.
+    fn land_in_phase(&mut self, moved: [bool; NUM_DECKS]) {
+        for (i, moved) in moved.into_iter().enumerate() {
+            let other = 1 - i;
+            let (d, l) = (&self.decks[i], &self.decks[other]);
+            let wanted = d.c.quantize.get_bool() || d.following;
+            if !moved || !wanted || !d.c.play.get_bool() || !l.c.play.get_bool() || d.nudging() {
+                continue;
+            }
+            let (Some(mine), Some(theirs)) = (&d.track, &l.track) else {
+                continue;
+            };
+            if mine.bpm <= 0.0 || theirs.bpm <= 0.0 {
+                continue;
+            }
+            let (ratio, offset) = if d.following {
+                (d.sync_ratio, d.phase_offset)
+            } else {
+                (sync_ratio(l.effective_bpm(), d.effective_bpm()), 0.0)
+            };
+            let beat = mine.beat_at(d.seconds());
+            let mut to = beat + phase_error(theirs.beat_at(l.seconds()) * ratio + offset, beat);
+            // A start before the track or a jump into a loop stays inside it.
+            let looping = d.c.loop_enabled.get_bool() && d.loop_end > d.loop_start;
+            let first = if looping { d.loop_start - 1e-6 } else { 0.0 };
+            if mine.seconds_at(to) < first {
+                to += 1.0;
+            }
+            let to = mine.seconds_at(to);
+            if looping && !(d.loop_start - 1e-6..d.loop_end).contains(&to) {
+                continue;
+            }
+            self.decks[i].set_seconds(to);
         }
     }
 
@@ -1142,8 +1305,11 @@ impl Engine {
         self.eject();
         let link = self.link.begin(frames, self.sample_rate);
         self.sync(link);
+        let mut moved = [false; NUM_DECKS];
         for (deck, d) in self.decks.iter_mut().enumerate() {
+            let before = d.pos;
             d.handle_controls();
+            moved[deck] = d.pos != before || (!d.was_playing && d.c.play.get_bool());
             if let (Some((edit, seconds)), Some(track)) = (d.grid_edit.take(), &d.track) {
                 let _ = self.returned.push(Returned::GridEdit {
                     deck,
@@ -1153,6 +1319,7 @@ impl Engine {
                 });
             }
         }
+        self.land_in_phase(moved);
         self.samplers.update();
         self.preview.update();
         // Tempo-synced effects on the main mix follow the first playing deck.
@@ -2035,6 +2202,206 @@ mod tests {
         run(&mut engine, 0.02);
         let bpm2 = reg.get("[Channel2]", "bpm").unwrap().get();
         assert!((bpm2 - 160.0).abs() < 0.01, "{bpm2}");
+    }
+
+    /// How far apart the two decks' beats are, in beats (0 to 0.5).
+    fn phase_gap(engine: &Engine) -> f64 {
+        let beat = |i: usize| {
+            let d = &engine.decks[i];
+            d.track.as_ref().unwrap().beat_at(d.seconds())
+        };
+        phase_error(beat(0), beat(1)).abs()
+    }
+
+    fn press(reg: &ControlRegistry, group: &str, key: &str) {
+        let c = reg.get(group, key).unwrap();
+        c.set_bool(true);
+        c.set_bool(false);
+    }
+
+    #[test]
+    fn a_deck_synced_while_stopped_starts_in_phase() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(124.0, 30.0));
+        load(&mut input, 1, short_track(128.0, 30.0));
+        run(&mut engine, 0.02);
+        let c = |d: &str, k: &str| reg.get(d, k).unwrap();
+        c("[Channel1]", "play").set_bool(true);
+        run(&mut engine, 1.0);
+        c("[Channel2]", "sync_enabled").set_bool(true);
+        run(&mut engine, 0.79);
+        c("[Channel2]", "play").set_bool(true);
+        run(&mut engine, 0.05);
+        assert!(phase_gap(&engine) < 0.01, "{}", phase_gap(&engine));
+        assert!((c("[Channel2]", "bpm").get() - 124.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn quantize_starts_an_unsynced_deck_in_phase() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(124.0, 30.0));
+        load(&mut input, 1, short_track(124.0, 30.0));
+        run(&mut engine, 0.02);
+        reg.get("[Channel1]", "play").unwrap().set_bool(true);
+        run(&mut engine, 1.13);
+        reg.get("[Channel2]", "play").unwrap().set_bool(true);
+        run(&mut engine, 0.05);
+        assert!(phase_gap(&engine) < 0.01, "{}", phase_gap(&engine));
+
+        // With quantize off, it starts where it is.
+        reg.get("[Channel2]", "play").unwrap().set_bool(false);
+        reg.get("[Channel2]", "quantize").unwrap().set_bool(false);
+        run(&mut engine, 0.37);
+        reg.get("[Channel2]", "play").unwrap().set_bool(true);
+        run(&mut engine, 0.05);
+        assert!(phase_gap(&engine) > 0.1, "{}", phase_gap(&engine));
+    }
+
+    #[test]
+    fn a_hot_cue_on_a_synced_deck_lands_in_phase() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(124.0, 30.0));
+        load(&mut input, 1, short_track(128.0, 30.0));
+        run(&mut engine, 0.02);
+        for d in ["[Channel1]", "[Channel2]"] {
+            reg.get(d, "play").unwrap().set_bool(true);
+        }
+        reg.get("[Channel2]", "sync_enabled")
+            .unwrap()
+            .set_bool(true);
+        run(&mut engine, 0.5);
+        reg.get("[Channel2]", "quantize").unwrap().set_bool(false);
+        press(&reg, "[Channel2]", "hotcue_3_activate");
+        run(&mut engine, 1.33);
+        press(&reg, "[Channel2]", "hotcue_3_activate");
+        run(&mut engine, 0.05);
+        assert!(phase_gap(&engine) < 0.01, "{}", phase_gap(&engine));
+    }
+
+    #[test]
+    fn either_fader_moves_both_synced_decks() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(124.0, 30.0));
+        load(&mut input, 1, short_track(128.0, 30.0));
+        run(&mut engine, 0.02);
+        let c = |d: &str, k: &str| reg.get(d, k).unwrap();
+        c("[Channel1]", "play").set_bool(true);
+        run(&mut engine, 0.1);
+        c("[Channel2]", "play").set_bool(true);
+        for d in ["[Channel1]", "[Channel2]"] {
+            c(d, "sync_enabled").set_bool(true);
+        }
+        run(&mut engine, 0.1);
+        let bpm = |d: &str| c(d, "bpm").get();
+        assert!(
+            (bpm("[Channel2]") - 124.0).abs() < 0.01,
+            "{}",
+            bpm("[Channel2]")
+        );
+        // Deck 1 leads; its fader moves both.
+        c("[Channel1]", "rate").set(0.5);
+        run(&mut engine, 0.1);
+        assert!(
+            (bpm("[Channel1]") - 128.96).abs() < 0.01,
+            "{}",
+            bpm("[Channel1]")
+        );
+        assert!(
+            (bpm("[Channel2]") - 128.96).abs() < 0.01,
+            "{}",
+            bpm("[Channel2]")
+        );
+        // So does the follower's.
+        c("[Channel2]", "rate").set(0.0);
+        run(&mut engine, 0.1);
+        assert!(
+            (bpm("[Channel1]") - 128.0).abs() < 0.01,
+            "{}",
+            bpm("[Channel1]")
+        );
+        assert!(
+            (bpm("[Channel2]") - 128.0).abs() < 0.01,
+            "{}",
+            bpm("[Channel2]")
+        );
+    }
+
+    #[test]
+    fn sync_goes_past_the_fader_range_and_halves() {
+        for (leader, own, want) in [
+            (120.0, 132.0, 120.0),
+            (140.0, 70.0, 70.0),
+            (80.0, 113.0, 80.0),
+        ] {
+            let (reg, mut engine, mut input) = setup();
+            load(&mut input, 0, short_track(leader, 10.0));
+            load(&mut input, 1, short_track(own, 10.0));
+            run(&mut engine, 0.02);
+            reg.get("[Channel2]", "sync_enabled")
+                .unwrap()
+                .set_bool(true);
+            run(&mut engine, 0.05);
+            let bpm = reg.get("[Channel2]", "bpm").unwrap().get();
+            assert!((bpm - want).abs() < 0.01, "{leader} vs {own}: {bpm}");
+        }
+    }
+
+    #[test]
+    fn sync_catches_up_drift_without_jumping() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(124.0, 30.0));
+        load(&mut input, 1, short_track(128.0, 30.0));
+        run(&mut engine, 0.02);
+        for d in ["[Channel1]", "[Channel2]"] {
+            reg.get(d, "play").unwrap().set_bool(true);
+        }
+        reg.get("[Channel2]", "sync_enabled")
+            .unwrap()
+            .set_bool(true);
+        run(&mut engine, 0.5);
+        assert!(phase_gap(&engine) < 0.01);
+        // Something knocks deck 2 a fifth of a beat late.
+        let beat = 60.0 / 128.0;
+        let d = &mut engine.decks[1];
+        d.pos -= 0.2 * beat * d.source_rate();
+        assert!(phase_gap(&engine) > 0.19);
+        let mut last = engine.decks[1].seconds();
+        for _ in 0..(10.0 * SR / 512.0) as usize {
+            run(&mut engine, 512.0 / SR);
+            let now = engine.decks[1].seconds();
+            let step = (now - last) / (512.0 / SR);
+            assert!(step > 0.9 && step < 1.0 + SYNC_MAX_BEND, "{step}");
+            last = now;
+        }
+        assert!(phase_gap(&engine) < 0.01, "{}", phase_gap(&engine));
+    }
+
+    #[test]
+    fn a_nudge_on_a_synced_deck_is_kept() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(124.0, 30.0));
+        load(&mut input, 1, short_track(128.0, 30.0));
+        run(&mut engine, 0.02);
+        for d in ["[Channel1]", "[Channel2]"] {
+            reg.get(d, "play").unwrap().set_bool(true);
+        }
+        reg.get("[Channel2]", "sync_enabled")
+            .unwrap()
+            .set_bool(true);
+        run(&mut engine, 0.5);
+        let bend = reg.get("[Channel2]", "rate_temp_up").unwrap();
+        bend.set_bool(true);
+        run(&mut engine, 1.0);
+        bend.set_bool(false);
+        run(&mut engine, 0.05);
+        let nudged = phase_gap(&engine);
+        assert!(nudged > 0.05, "{nudged}");
+        run(&mut engine, 5.0);
+        assert!(
+            (phase_gap(&engine) - nudged).abs() < 0.01,
+            "{} vs {nudged}",
+            phase_gap(&engine)
+        );
     }
 
     #[test]
