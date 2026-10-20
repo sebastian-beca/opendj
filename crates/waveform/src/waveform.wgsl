@@ -21,7 +21,7 @@ struct Params {
     num_levels: u32,
     style: u32,               // 0 = RGB (colour by frequency), 1 = stacked bands
     scale: f32,               // physical pixels per logical pixel
-    _pad: f32,
+    spread: f32,              // how far the digit atlas's distance field reaches, in atlas pixels
     low_color: vec4<f32>,
     mid_color: vec4<f32>,
     high_color: vec4<f32>,
@@ -31,12 +31,16 @@ struct Params {
     grid_beat: vec4<f32>,              // its beat length in slices
     grid_index: vec4<f32>,             // its first beat's place in the bar (0 = bar line)
     grid_bar: vec4<f32>,               // the number of the bar its first beat is in (1 = the first)
+    digit: vec4<f32>,                  // digit atlas: cell width, cell height, advance, digit height
     level_offset: array<vec4<u32>, 4>, // first texel of each level
     level_len: array<vec4<u32>, 4>,    // slices in each level
 };
 
 @group(0) @binding(0) var<uniform> p: Params;
 @group(0) @binding(1) var bins: texture_2d<f32>;
+// Digits 0 to 9 side by side as a signed distance field (0.5 on the edge).
+@group(0) @binding(2) var digits_atlas: texture_2d<f32>;
+@group(0) @binding(3) var digits_sampler: sampler;
 const ROW: u32 = 2048u;
 
 // Hotcue colours, matching the pads in the skin.
@@ -55,21 +59,6 @@ const AMBER = vec3<f32>(0.91, 0.70, 0.23);
 const LOOP_LILAC = vec3<f32>(0.714, 0.612, 1.0);
 const LOOP_MARKING = vec3<f32>(0.82, 0.82, 0.84);
 const CUE_ORANGE = vec3<f32>(1.0, 0.6, 0.1);
-
-// Digits 0 to 9 in a 5 x 7 pixel font, seven rows each, top first; bit 4 is
-// the leftmost pixel.
-const DIGITS = array<u32, 70>(
-    0x0Eu, 0x11u, 0x11u, 0x11u, 0x11u, 0x11u, 0x0Eu,
-    0x04u, 0x0Cu, 0x04u, 0x04u, 0x04u, 0x04u, 0x0Eu,
-    0x0Eu, 0x11u, 0x01u, 0x02u, 0x04u, 0x08u, 0x1Fu,
-    0x1Fu, 0x02u, 0x04u, 0x02u, 0x01u, 0x11u, 0x0Eu,
-    0x02u, 0x06u, 0x0Au, 0x12u, 0x1Fu, 0x02u, 0x02u,
-    0x1Fu, 0x10u, 0x1Eu, 0x01u, 0x01u, 0x11u, 0x0Eu,
-    0x06u, 0x08u, 0x10u, 0x1Eu, 0x11u, 0x11u, 0x0Eu,
-    0x1Fu, 0x01u, 0x02u, 0x04u, 0x08u, 0x08u, 0x08u,
-    0x0Eu, 0x11u, 0x11u, 0x0Eu, 0x11u, 0x11u, 0x0Eu,
-    0x0Eu, 0x11u, 0x11u, 0x0Fu, 0x01u, 0x02u, 0x0Cu,
-);
 
 struct Slice {
     peak: vec4<f32>,
@@ -140,6 +129,24 @@ fn sample_range(a: f32, b: f32) -> Slice {
     return Slice(peak, sqrt(power / max(total, 1e-6)));
 }
 
+// The audio under the pixel at slice `bin`. Scrolling, columns are fixed to
+// the track (column i covers slices i to i + 1 times bins_per_pixel), so each
+// always shows the same slices and nothing shimmers, and a pixel blends the
+// two columns it falls between, so the picture glides between pixels
+// instead of stepping a whole pixel at a time.
+fn column(bin: f32) -> Slice {
+    let w = p.bins_per_pixel;
+    if (p.mode != 0u) {
+        return sample_range(bin - 0.5 * w, bin + 0.5 * w);
+    }
+    let c = bin / w - 0.5;
+    let i = floor(c);
+    let t = c - i;
+    let s0 = sample_range(i * w, (i + 1.0) * w);
+    let s1 = sample_range((i + 1.0) * w, (i + 2.0) * w);
+    return Slice(mix(s0.peak, s1.peak, t), mix(s0.rms, s1.rms, t));
+}
+
 fn column_bin(x: f32) -> f32 {
     if (p.mode == 0u) {
         return p.play_bin + (x - p.size.x * 0.5) * p.bins_per_pixel;
@@ -159,10 +166,11 @@ fn fill(edge: f32, d: f32) -> f32 {
 }
 
 // Coverage of a pixel by a vertical line `half_w` pixels either side of `at`.
-// Thin lines snap to the nearest pixel centre so they stay crisp instead of
-// smearing across two half-lit columns.
+// On the overview, thin lines snap to the nearest pixel centre so they stay
+// crisp instead of smearing across two half-lit columns; scrolling, they
+// glide between pixels with the waveform.
 fn line(x: f32, at: f32, half_w: f32) -> f32 {
-    let c = select(at, floor(at) + 0.5, half_w <= 0.5);
+    let c = select(at, floor(at) + 0.5, half_w <= 0.5 && p.mode == 1u);
     return clamp(half_w + 0.5 - abs(x - c), 0.0, 1.0);
 }
 
@@ -189,16 +197,18 @@ fn band_color(s: Slice) -> vec3<f32> {
 
 // Coverage of pixel (x, y) by the number of the bar whose line is the last
 // one at or before it: drawn just right of the line along the top. Drawn
-// here rather than by the UI so it moves with the waveform, on whole pixels.
+// here rather than by the UI so it moves with the waveform; the digits come
+// from a distance field, so they stay sharp between pixels.
 fn bar_number(x: f32, y: f32, k: f32, sec: u32) -> f32 {
     let beat_len = p.grid_beat[sec];
     // Only where bars are far enough apart for their numbers.
     if (beat_len <= 0.0 || 4.0 * beat_len / p.bins_per_pixel < 28.0 * k) {
         return 0.0;
     }
-    let cell = max(round(1.5 * k), 1.0);
-    let row = i32(floor((y - floor(2.0 * k)) / cell));
-    if (row < 0 || row > 6) {
+    // Atlas pixels per screen pixel, for digits 8 points tall.
+    let s = p.digit.w / (8.0 * k);
+    let ay = (y - 3.0 * k) * s + p.spread;
+    if (ay < 0.0 || ay > p.digit.y) {
         return 0.0;
     }
     let start = p.grid_start[sec];
@@ -215,8 +225,8 @@ fn bar_number(x: f32, y: f32, k: f32, sec: u32) -> f32 {
     if (bar < 1) {
         return 0.0;
     }
-    let col = i32(floor((x - (floor(bin_x(at)) + 1.0 + floor(2.0 * k))) / cell));
-    if (col < 0) {
+    let ax = (x - bin_x(at) - 3.0 * k) * s;
+    if (ax < 0.0) {
         return 0.0;
     }
     var digits = 1;
@@ -225,17 +235,20 @@ fn bar_number(x: f32, y: f32, k: f32, sec: u32) -> f32 {
         digits = digits + 1;
         place = place * 10;
     }
-    // Five columns per digit and one between.
-    let which = col / 6;
-    let dc = col % 6;
-    if (which >= digits || dc == 5) {
+    let which = i32(floor(ax / p.digit.z));
+    if (which >= digits) {
         return 0.0;
     }
     for (var i = 0; i < which; i = i + 1) {
         place = place / 10;
     }
     let digit = (bar / place) % 10;
-    return f32((DIGITS[digit * 7 + row] >> u32(4 - dc)) & 1u);
+    let gx = ax - f32(which) * p.digit.z + p.spread;
+    let uv = vec2<f32>((f32(digit) * p.digit.x + gx) / (10.0 * p.digit.x), ay / p.digit.y);
+    let field = textureSampleLevel(digits_atlas, digits_sampler, uv, 0.0).r;
+    // The field's distance from the edge, in screen pixels.
+    let dist = (field - 0.5) * 2.0 * p.spread / s;
+    return clamp(dist + 0.5, 0.0, 1.0);
 }
 
 @fragment
@@ -288,7 +301,7 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
 
     // The waveform.
     if (has_track) {
-        let s = sample_range(bin - 0.5 * p.bins_per_pixel, bin + 0.5 * p.bins_per_pixel);
+        let s = column(bin);
         if (p.style == 0u) {
             let c = band_color(s);
             let peak_h = height(s.peak.w) * span;

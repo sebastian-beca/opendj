@@ -474,7 +474,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     slint::RenderingState::RenderingSetup,
                     slint::GraphicsAPI::WGPU30 { device, queue, .. },
                 ) => {
-                    let renderer = WaveformRenderer::new(device);
+                    let renderer = WaveformRenderer::new(device, queue);
                     let make = |mode| {
                         let mut v = WaveformView::new(device, mode, 1, 1);
                         v.set_style(style);
