@@ -92,6 +92,13 @@ empties them all. **+** adds any other field, and **Keep on the bar** pins
 it there. The filter button next to search shows or hides the bar, and
 **Save** keeps the search and the chips as a smart list.
 
+## Columns
+
+Right-click any column heading to choose which columns the list shows, your
+own fields included, or **Reset columns** to go back to the default. Drag a
+heading's right edge to make it wider or narrower, and drag the heading itself
+to move it. Click a heading to sort by it. openDJ remembers your columns.
+
 ## Your own fields
 
 Name grouping and your tag fields in **Settings › Library › Your fields**,
