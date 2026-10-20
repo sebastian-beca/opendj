@@ -1,0 +1,406 @@
+// The filter bar above the track list, as djay Pro has: a chip per field
+// showing what it's set to, "+" to add another field, and a popup to pick
+// values. The app turns the chips into search text.
+import { LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export struct FilterChip {
+    // The field: "genre", "tag1", "bpm".
+    field: string,
+    label: string,
+    // What it's set to, or "--".
+    value: string,
+    active: bool,
+    pinned: bool,
+    // 0 pick values, 1 tag words (any or all), 2 tempo, 3 key.
+    kind: int,
+}
+
+export struct FilterChoice {
+    label: string,
+    count: int,
+    on: bool,
+    swatch: color,
+    has-swatch: bool,
+}
+
+export global FilterUi {
+    // The bar shows above the list.
+    in-out property <bool> shown: true;
+    // Some chip narrows the list.
+    in property <bool> any-active;
+    in property <[FilterChip]> chips;
+    // Fields not on the bar, for "+": names and ids.
+    in property <[string]> addable;
+    in property <[string]> addable-ids;
+    // The chip whose popup is open, and what it offers.
+    in property <int> editing: -1;
+    in property <[FilterChoice]> choices;
+    in-out property <string> choice-search;
+    in property <bool> match-all;
+    // Tempo or key follows the playing track, and what that is now.
+    in property <bool> follow;
+    in property <string> follow-note;
+    in-out property <string> bpm-low;
+    in-out property <string> bpm-high;
+    in property <int> tolerance;
+    in property <[string]> tolerances: ["±2%", "±4%", "±6%", "±8%", "±10%"];
+    callback set-shown(on: bool);
+    // Puts a field on the bar; returns its chip.
+    callback add(field: string) -> int;
+    callback edit(chip: int);
+    callback toggle(choice: int);
+    callback search-choices(text: string);
+    callback set-match-all(on: bool);
+    callback set-follow(on: bool);
+    callback set-bpm(low: string, high: string);
+    callback set-tolerance(i: int);
+    callback set-pinned(chip: int, on: bool);
+    callback clear(chip: int);
+    callback clear-all();
+}
+
+component PopupBackground inherits Rectangle {
+    background: Theme.panel-raised;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 16px;
+    drop-shadow-color: #000000b0;
+}
+
+component Toggle inherits Rectangle {
+    in property <bool> on;
+    callback toggled();
+    width: 34px;
+    height: 20px;
+    border-radius: 10px;
+    background: on ? Theme.accent : #48484a;
+    Rectangle {
+        x: on ? 16px : 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: #ffffff;
+    }
+    TouchArea { mouse-cursor: pointer; clicked => { toggled(); } }
+}
+
+// A row of buttons, one lit: Any / All, the tempo tolerances.
+component Segments inherits Rectangle {
+    in property <[string]> items;
+    in property <int> chosen;
+    callback picked(i: int);
+    height: 24px;
+    border-radius: 6px;
+    background: Theme.control;
+    border-width: 1px;
+    border-color: Theme.border;
+    HorizontalLayout {
+        padding: 2px;
+        spacing: 2px;
+        for s[i] in items: Rectangle {
+            border-radius: 4px;
+            background: i == chosen ? Theme.accent : sta.has-hover ? #2c2c2f : transparent;
+            Text { text: s; color: i == chosen ? Theme.on-selection : Theme.text; font-size: 12px; font-weight: 600; }
+            sta := TouchArea { mouse-cursor: pointer; clicked => { picked(i); } }
+        }
+    }
+}
+
+// A picked value: a small lilac box with a tick.
+component Check inherits Rectangle {
+    in property <bool> on;
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border-width: on ? 0px : 1.5px;
+    border-color: Theme.text-dim;
+    background: on ? Theme.accent : transparent;
+    if on: Path {
+        width: 10px;
+        height: 10px;
+        viewbox-width: 10;
+        viewbox-height: 10;
+        stroke: Theme.on-selection;
+        stroke-width: 1.8px;
+        stroke-line-cap: round;
+        fill: transparent;
+        commands: "M 1.5 5.2 L 4 7.6 L 8.6 2.4";
+    }
+}
+
+component Chip inherits Rectangle {
+    in property <FilterChip> chip;
+    callback clicked();
+    callback cleared();
+    height: 26px;
+    border-radius: 13px;
+    background: cta.has-hover ? #2c2c2f : Theme.control;
+    border-width: 1px;
+    border-color: chip.active ? Theme.accent : Theme.border;
+    HorizontalLayout {
+        padding-left: 11px;
+        padding-right: chip.active ? 4px : 9px;
+        spacing: 6px;
+        Text {
+            text: chip.label;
+            color: Theme.text-dim;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+        Text {
+            text: chip.value;
+            color: chip.active ? Theme.accent : Theme.text;
+            font-size: 13px;
+            font-weight: 600;
+            vertical-alignment: center;
+            max-width: 150px;
+            overflow: elide;
+        }
+        if !chip.active: Text { text: "▾"; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
+        // Clears the chip, without opening it.
+        if chip.active: Rectangle {
+            width: 18px;
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    height: 18px;
+                    border-radius: 9px;
+                    background: xta.has-hover ? #ffffff26 : transparent;
+                    Text { text: "✕"; color: Theme.accent; font-size: 10px; }
+                }
+            }
+            xta := TouchArea { mouse-cursor: pointer; clicked => { cleared(); } }
+        }
+    }
+    cta := TouchArea {
+        // Under the ✕, so the ✕ gets its own clicks.
+        z: -1;
+        mouse-cursor: pointer;
+        clicked => { clicked(); }
+    }
+}
+
+export component FilterBar inherits Rectangle {
+    height: 34px;
+    // Where the open popup hangs from.
+    property <length> popup-x;
+    property <FilterChip> chip: FilterUi.editing >= 0 && FilterUi.editing < FilterUi.chips.length ? FilterUi.chips[FilterUi.editing] : { kind: -1 };
+
+    function open(i: int, x: length) {
+        FilterUi.edit(i);
+        popup-x = min(x, root.width - 290px);
+        editor.show();
+    }
+
+    HorizontalLayout {
+        padding-left: 6px;
+        spacing: 8px;
+        Text {
+            text: "Filter";
+            color: Theme.text;
+            font-size: 14px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+        for c[i] in FilterUi.chips: VerticalLayout {
+            alignment: center;
+            Chip {
+                chip: c;
+                clicked => { open(i, self.absolute-position.x - root.absolute-position.x); }
+                cleared => { FilterUi.clear(i); }
+            }
+        }
+        // Add a field.
+        VerticalLayout {
+            alignment: center;
+            plus := Rectangle {
+                width: 34px;
+                height: 26px;
+                border-radius: 13px;
+                background: pta.has-hover ? #3a3a3d : #2c2c2f;
+                Text { text: "+"; color: Theme.text; font-size: 17px; font-weight: 500; }
+                pta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { add-menu.show(); }
+                }
+                add-menu := PopupWindow {
+                    x: 0px;
+                    y: 32px;
+                    width: 210px;
+                    close-policy: close-on-click-outside;
+                    PopupBackground {}
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 1px;
+                        Text { text: "Add Filter"; color: Theme.text; font-size: 15px; font-weight: 700; height: 30px; vertical-alignment: center; x: 8px; }
+                        ScrollView {
+                            height: min(FilterUi.addable.length * 28px, 360px);
+                            VerticalLayout {
+                                for name[i] in FilterUi.addable: Rectangle {
+                                    height: 28px;
+                                    border-radius: 5px;
+                                    background: ata.has-hover ? #3a3a3d : transparent;
+                                    Text { x: 10px; text: name; color: Theme.text; font-size: 13px; vertical-alignment: center; }
+                                    ata := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            add-menu.close();
+                                            open(FilterUi.add(FilterUi.addable-ids[i]), plus.absolute-position.x - root.absolute-position.x);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if FilterUi.addable.length == 0: Text { x: 8px; height: 26px; text: "Every field is on the bar."; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+                    }
+                }
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        if FilterUi.any-active: Rectangle {
+            width: 50px;
+            Text {
+                text: "Clear";
+                color: clta.has-hover ? Theme.text : Theme.accent;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            clta := TouchArea { mouse-cursor: pointer; clicked => { FilterUi.clear-all(); } }
+        }
+    }
+
+    // A chip's values.
+    editor := PopupWindow {
+        x: popup-x;
+        y: 32px;
+        width: 280px;
+        close-policy: close-on-click-outside;
+        PopupBackground {}
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+            HorizontalLayout {
+                height: 24px;
+                Text { text: chip.label; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                if chip.active: Text {
+                    text: "Clear";
+                    color: ecta.has-hover ? Theme.text : Theme.accent;
+                    font-size: 13px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    ecta := TouchArea { mouse-cursor: pointer; clicked => { FilterUi.clear(FilterUi.editing); } }
+                }
+            }
+            // Tempo: a range, or near the playing track.
+            if chip.kind == 2: HorizontalLayout {
+                spacing: 8px;
+                height: 30px;
+                LineEdit {
+                    width: 112px;
+                    placeholder-text: "From";
+                    text <=> FilterUi.bpm-low;
+                    edited(t) => { FilterUi.set-bpm(t, FilterUi.bpm-high); }
+                }
+                Text { text: "–"; color: Theme.text-dim; vertical-alignment: center; }
+                LineEdit {
+                    width: 112px;
+                    placeholder-text: "To";
+                    text <=> FilterUi.bpm-high;
+                    edited(t) => { FilterUi.set-bpm(FilterUi.bpm-low, t); }
+                }
+            }
+            if chip.kind == 2 || chip.kind == 3: HorizontalLayout {
+                spacing: 10px;
+                height: 24px;
+                Text {
+                    text: chip.kind == 2 ? "Near the playing track" : "Mixes with the playing track";
+                    color: Theme.text;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Toggle { on: FilterUi.follow; toggled => { FilterUi.set-follow(!FilterUi.follow); } }
+                }
+            }
+            if chip.kind == 2 && FilterUi.follow: Segments {
+                items: FilterUi.tolerances;
+                chosen: FilterUi.tolerance;
+                picked(i) => { FilterUi.set-tolerance(i); }
+            }
+            if (chip.kind == 2 || chip.kind == 3) && FilterUi.follow: Text {
+                text: FilterUi.follow-note;
+                color: Theme.text-dim;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            // Tags: a track needs any of the words picked, or all of them.
+            if chip.kind == 1: HorizontalLayout {
+                spacing: 10px;
+                Text { text: "Match"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+                Segments {
+                    horizontal-stretch: 1;
+                    items: ["Any", "All"];
+                    chosen: FilterUi.match-all ? 1 : 0;
+                    picked(i) => { FilterUi.set-match-all(i == 1); }
+                }
+            }
+            if chip.kind != 2 && (FilterUi.choices.length > 12 || FilterUi.choice-search != ""): LineEdit {
+                placeholder-text: "Find " + chip.label;
+                text <=> FilterUi.choice-search;
+                edited(t) => { FilterUi.search-choices(t); }
+            }
+            if chip.kind != 2: ScrollView {
+                height: min(max(FilterUi.choices.length, 1) * 28px, 308px);
+                VerticalLayout {
+                    for c[i] in FilterUi.choices: Rectangle {
+                        height: 28px;
+                        border-radius: 5px;
+                        background: ota.has-hover ? #3a3a3d : transparent;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 8px;
+                            spacing: 8px;
+                            VerticalLayout { alignment: center; Check { on: c.on; } }
+                            if c.has-swatch: VerticalLayout {
+                                alignment: center;
+                                Rectangle { width: 12px; height: 12px; border-radius: 6px; background: c.swatch; }
+                            }
+                            Text {
+                                text: c.label;
+                                color: c.label == "(none)" ? Theme.text-dim : chip.kind == 1 ? Theme.accent : Theme.text;
+                                font-size: 13px;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                                overflow: elide;
+                            }
+                            Text { text: c.count > 0 ? c.count : ""; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+                        }
+                        ota := TouchArea { mouse-cursor: pointer; clicked => { FilterUi.toggle(i); } }
+                    }
+                    if FilterUi.choices.length == 0: Text {
+                        height: 28px;
+                        x: 6px;
+                        text: FilterUi.choice-search != "" ? "Nothing matches." : "Nothing in this list to pick.";
+                        color: Theme.text-dim;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+            Rectangle { height: 1px; background: Theme.border; }
+            HorizontalLayout {
+                spacing: 10px;
+                height: 24px;
+                Text { text: "Keep on the bar"; color: Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+                VerticalLayout {
+                    alignment: center;
+                    Toggle { on: chip.pinned; toggled => { FilterUi.set-pinned(FilterUi.editing, !chip.pinned); } }
+                }
+            }
+        }
+    }
+}

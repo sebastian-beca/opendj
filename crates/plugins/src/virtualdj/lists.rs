@@ -454,10 +454,10 @@ fn field(words: &[String]) -> Option<(&'static str, Kind, usize)> {
         ("days since played", "lastplayed", Kind::DaysAgo),
         ("days since firstseen", "added", Kind::DaysAgo),
         ("play count", "played", Kind::Number),
-        ("user 1", "tag", Kind::Text),
-        ("user 2", "tag", Kind::Text),
-        ("user1", "tag", Kind::Text),
-        ("user2", "tag", Kind::Text),
+        ("user 1", "tag1", Kind::Text),
+        ("user 2", "tag2", Kind::Text),
+        ("user1", "tag1", Kind::Text),
+        ("user2", "tag2", Kind::Text),
         ("nbplay", "played", Kind::Number),
         ("playcount", "played", Kind::Number),
         ("genre", "genre", Kind::Text),
@@ -601,7 +601,7 @@ mod tests {
             t("stars >= 4 or year < 1990"),
             Some("rating:>=4 | year:<1990".into())
         );
-        assert_eq!(t("user 2 contains #synth"), Some("tag:#synth".into()));
+        assert_eq!(t("user 2 contains #synth"), Some("tag2:#synth".into()));
         assert_eq!(t("genre isnot techno"), Some("-genre:=techno".into()));
         assert_eq!(t("key is Am"), Some("key:Am".into()));
         assert_eq!(t("group by User 2"), None);

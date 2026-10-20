@@ -140,6 +140,7 @@ fn heading(label: &str) -> InfoField {
 
 /// The info list for `t`, in the order the DJ reads it.
 fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
+    let names = query::field_names();
     let text = |id: &str, label: &str, value: &str| field(id, label, value, TEXT);
     let mut out = vec![
         text("title", "TRACK", &t.title),
@@ -157,7 +158,7 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
                 String::new()
             },
         ),
-        text("grouping", "GROUPING", &t.info.grouping),
+        text("grouping", &names.grouping.to_uppercase(), &t.info.grouping),
         text(
             "bpm",
             "BPM",
@@ -179,14 +180,19 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
             ..text("gain", "GAIN", &gain_text(t.info.gain_db))
         },
         field("rating", "RATING", t.rating.to_string(), RATING),
-        InfoField {
-            hint: "#mood".into(),
-            ..text("user1", "USER TAGS 1", &t.info.user1)
-        },
-        InfoField {
-            hint: "#instrument".into(),
-            ..text("user2", "USER TAGS 2", &t.info.user2)
-        },
+    ];
+    // The DJ's tag fields, by the names they gave them.
+    for (i, name) in names.tags.iter().enumerate() {
+        out.push(InfoField {
+            hint: "words, with spaces between".into(),
+            ..text(
+                &format!("tag{}", i + 1),
+                &name.to_uppercase(),
+                t.info.user_tag(i),
+            )
+        });
+    }
+    out.extend([
         text("comment", "COMMENT", &t.info.comment),
         heading("STATS"),
         field("", "DURATION", short_time(t.duration), READ),
@@ -198,7 +204,7 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
             t.info.last_played.map(date_text).unwrap_or_default(),
             READ,
         ),
-    ];
+    ]);
     if let Source::File(path) = &t.source {
         out.push(heading("FILE"));
         let f = if t.info.missing || is_cloud_only(path) {
@@ -292,8 +298,14 @@ fn apply(t: &mut Track, id: &str, value: &str) -> Result<(), String> {
         "genre" => t.genre = v,
         "grouping" => t.info.grouping = v,
         "comment" => t.info.comment = v,
-        "user1" => t.info.user1 = v,
-        "user2" => t.info.user2 = v,
+        tag if tag.starts_with("tag") => match tag[3..].parse::<usize>() {
+            Ok(n) if n >= 1 => {
+                t.info.set_user_tag(n - 1, v);
+                // As the library saves them, for `tag:` searches.
+                t.info.labels = t.info.user_words();
+            }
+            _ => return Err(format!("No field {tag}.")),
+        },
         "key" => t.key = v,
         "track_number" => {
             t.info.track_number = if v.is_empty() {
@@ -762,6 +774,9 @@ mod tests {
         assert_eq!(t.info.gain_db, None);
         assert!(apply(&mut t, "gain", "40").is_err());
         apply(&mut t, "rating", "4").unwrap();
+        apply(&mut t, "tag3", "#dusk").unwrap();
+        assert_eq!(t.info.user_tags[2], "#dusk");
+        assert!(apply(&mut t, "tag0", "x").is_err());
         assert_eq!(t.rating, 4);
         apply(&mut t, "bpm", "124").unwrap();
         assert_eq!(t.bpm, 124.0);
@@ -780,21 +795,8 @@ mod tests {
         assert_eq!(
             &labels[..15],
             [
-                "TRACK",
-                "ARTIST",
-                "REMIX",
-                "ALBUM",
-                "YEAR",
-                "GENRE",
-                "TRACK #",
-                "GROUPING",
-                "BPM",
-                "KEY",
-                "GAIN",
-                "RATING",
-                "USER TAGS 1",
-                "USER TAGS 2",
-                "COMMENT"
+                "TRACK", "ARTIST", "REMIX", "ALBUM", "YEAR", "GENRE", "TRACK #", "GROUPING", "BPM",
+                "KEY", "GAIN", "RATING", "TAG 1", "TAG 2", "COMMENT"
             ]
         );
         assert_eq!(f[8].value, "100");

@@ -328,8 +328,7 @@ fn song_track(id: usize, path: PathBuf, song: roxmltree::Node) -> Track {
             composer: attr(tags, "Composer"),
             remixer: attr(tags, "Remixer"),
             remix,
-            user1: attr(tags, "User1"),
-            user2: attr(tags, "User2"),
+            user_tags: vec![attr(tags, "User1"), attr(tags, "User2")],
             added: number(infos, "FirstSeen").unwrap_or(0.0) as i64,
             last_played: number(infos, "LastPlay")
                 .filter(|p| *p > 0.0)
@@ -491,7 +490,7 @@ mod tests {
         assert_eq!((i.label.as_str(), i.composer.as_str()), ("Warp", "C"));
         assert_eq!(i.remix, "Club Mix");
         assert_eq!(
-            (i.user1.as_str(), i.user2.as_str()),
+            (i.user_tag(0), i.user_tag(1)),
             ("#uplifting", "#synth #vox")
         );
         assert_eq!(

@@ -14,6 +14,7 @@ use mixxx_engine::{
     analysis, cache, deck_group, key, RecordFormat, Recorder, BUFFER_SIZES,
     DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES,
 };
+use mixxx_library::query;
 use mixxx_plugins::{LibraryImport, Plugin, SettingKind};
 use serde_json::json;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
@@ -801,6 +802,53 @@ impl Prefs {
                 action: "Clear".into(),
                 ..item("clear_cache", BUTTON, "Analysis cache", &cache_detail)
             },
+            item("", HEADING, "YOUR FIELDS", ""),
+            item(
+                "",
+                NOTE,
+                "",
+                "Name grouping and your tag fields for what you use them for, such as Trip Stage, \
+                 Mood or Instrument. Each name is also a search word (mood:uplifting) and a \
+                 filter on the bar above the track list.",
+            ),
+        ];
+        let names = settings::field_names();
+        items.push(PrefItem {
+            value: names.grouping.clone().into(),
+            ..item("grouping_name", TEXT, "Grouping", "")
+        });
+        for (i, name) in names.tags.iter().enumerate() {
+            items.push(PrefItem {
+                value: name.clone().into(),
+                ..item(
+                    &format!("tag_name:{i}"),
+                    TEXT,
+                    &format!("Tag {}", i + 1),
+                    &format!("Search with tag{}: or {}:", i + 1, query::keyword(name)),
+                )
+            });
+        }
+        items.push(PrefItem {
+            action: "Add".into(),
+            ..item(
+                "add_tag_field",
+                BUTTON,
+                "Add a tag field",
+                "Another set of words to tag tracks with.",
+            )
+        });
+        if names.tags.len() > 1 {
+            items.push(PrefItem {
+                action: "Remove".into(),
+                ..item(
+                    "remove_tag_field",
+                    BUTTON,
+                    &format!("Remove {}", names.tags.last().map_or("", String::as_str)),
+                    "Its tags stay on your tracks, and come back if you add the field again.",
+                )
+            });
+        }
+        items.extend([
             item("cover_art", HEADING, "COVER ART", ""),
             PrefItem {
                 value: settings::discogs_token().into(),
@@ -813,7 +861,7 @@ impl Prefs {
                      Settings › Developers.",
                 )
             },
-        ];
+        ]);
         // Other DJ apps' libraries: set up in a few steps, then what comes in.
         for importer in crate::stores::importers() {
             let title = importer.title().to_string();
@@ -1167,6 +1215,19 @@ impl Prefs {
             settings::set_discogs_token(text);
             return;
         }
+        if id == "grouping_name" || id.starts_with("tag_name:") {
+            let mut names = settings::field_names();
+            match id
+                .strip_prefix("tag_name:")
+                .and_then(|i| i.parse::<usize>().ok())
+            {
+                Some(i) if i < names.tags.len() => names.tags[i] = text.to_string(),
+                Some(_) => return,
+                None => names.grouping = text.to_string(),
+            }
+            set_field_names(names);
+            return;
+        }
         let mut parts = id.splitn(3, ':');
         let (Some("plugin"), Some(index), Some(key)) = (parts.next(), parts.next(), parts.next())
         else {
@@ -1228,6 +1289,15 @@ impl Prefs {
                     crate::files::reveal(&dir);
                 }
             }
+            "add_tag_field" | "remove_tag_field" => {
+                let mut names = settings::field_names();
+                if id == "add_tag_field" {
+                    names.tags.push(format!("Tag {}", names.tags.len() + 1));
+                } else if names.tags.len() > 1 {
+                    names.tags.pop();
+                }
+                set_field_names(names);
+            }
             "clear_cache" => {
                 let n = cache::clear_analysis();
                 self.cache_note = format!(
@@ -1261,6 +1331,12 @@ fn rate_dir() -> f64 {
     } else {
         -1.0
     }
+}
+
+/// Keeps what the DJ calls their fields; the browser picks it up.
+fn set_field_names(names: query::FieldNames) {
+    settings::set_field_names(&names);
+    query::set_field_names(settings::field_names());
 }
 
 fn item(id: &str, kind: i32, title: &str, detail: &str) -> PrefItem {
