@@ -4,6 +4,7 @@ import { LineEdit, ListView, ScrollView } from "std-widgets.slint";
 import { Theme, EdgeLine } from "theme.slint";
 import { SourceUi, SearchesPanel, SourceResults } from "sources.slint";
 import { InfoPanel, SideTabIcon, TrackInfo } from "info.slint";
+import { FilterBar, FilterUi } from "filters.slint";
 
 export struct Folder {
     name: string,
@@ -1072,7 +1073,7 @@ component TrackList inherits Rectangle {
                 edited(t) => { search(t); }
             }
             // Save the search as a smart list.
-            if search-text != "" && LibraryEdit.can-save-search: Rectangle {
+            if (search-text != "" || FilterUi.any-active) && LibraryEdit.can-save-search: Rectangle {
                 width: 44px;
                 Text {
                     text: "Save";
@@ -1114,6 +1115,7 @@ component TrackList inherits Rectangle {
                             for line in [
                                 ["daft punk", "words in any field"],
                                 ["artist:\"daft punk\"", "one field; also title, album, genre, comment, grouping, tag, location"],
+                                ["mood:uplifting  tag2:synth", "your tag fields, by name or number (Settings › Library)"],
                                 ["title:=glue  album:\"\"", "whole field; empty field"],
                                 ["bpm:120-128  rating:>=4", "numbers: > >= < <= and ranges"],
                                 ["duration:>6m  played:0", "length; times played"],
@@ -1133,35 +1135,45 @@ component TrackList inherits Rectangle {
                     }
                 }
             }
-            // Filter: lit while the list is filtered; click to clear it.
+            // Filter: shows or hides the filter bar; lit while the list
+            // is narrowed by a search or a filter.
             VerticalLayout {
                 alignment: center;
                 Rectangle {
+                    property <bool> lit: search-text != "" || FilterUi.any-active;
                     width: 28px;
                     height: 28px;
                     border-radius: 14px;
                     border-width: 1.5px;
-                    border-color: search-text != "" ? Theme.accent : (fta.has-hover ? Theme.text-dim : Theme.border);
+                    background: FilterUi.shown && !results ? #ffffff14 : transparent;
+                    border-color: lit ? Theme.accent : (fta.has-hover ? Theme.text-dim : Theme.border);
                     Path {
                         width: 16px;
                         height: 16px;
                         viewbox-width: 20;
                         viewbox-height: 20;
-                        stroke: search-text != "" ? Theme.accent : Theme.text-dim;
+                        stroke: lit ? Theme.accent : Theme.text-dim;
                         stroke-width: 2.2px;
                         stroke-line-cap: round;
                         fill: transparent;
                         commands: "M 4 5.5 L 16 5.5 M 6.5 10 L 13.5 10 M 9 14.5 L 11 14.5";
                     }
                     fta := TouchArea {
+                        mouse-cursor: pointer;
                         clicked => {
-                            search-text = "";
-                            search("");
+                            // Store results have no filters: clear the search.
+                            if results {
+                                search-text = "";
+                                search("");
+                            } else {
+                                FilterUi.set-shown(!FilterUi.shown);
+                            }
                         }
                     }
                 }
             }
         }
+        if FilterUi.shown && !results: FilterBar {}
         // Column headers
         HorizontalLayout {
             height: 24px;
