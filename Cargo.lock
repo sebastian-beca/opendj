@@ -3295,11 +3295,11 @@ dependencies = [
 
 [[package]]
 name = "mixxx-control"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "mixxx-controllers"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "midir",
  "mixxx-control",
@@ -3310,7 +3310,7 @@ dependencies = [
 
 [[package]]
 name = "mixxx-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "cpal",
@@ -3330,7 +3330,7 @@ dependencies = [
 
 [[package]]
 name = "mixxx-library"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "mixxx-engine",
  "rusqlite",
@@ -3338,7 +3338,7 @@ dependencies = [
 
 [[package]]
 name = "mixxx-plugins"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "mixxx-engine",
  "roxmltree",
@@ -3349,7 +3349,7 @@ dependencies = [
 
 [[package]]
 name = "mixxx-waveform"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bytemuck",
  "pollster",
@@ -3953,7 +3953,7 @@ dependencies = [
 
 [[package]]
 name = "opendj"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
