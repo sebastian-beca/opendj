@@ -246,6 +246,32 @@ pub fn import_enabled(importer: &str) -> bool {
     flag(&import_enabled_key(importer), false)
 }
 
+/// The database an importer reads: the one the DJ picked in the import
+/// wizard, else the one the app keeps where it usually does.
+pub fn import_database(importer: &dyn mixxx_plugins::LibraryImport) -> Option<PathBuf> {
+    path_of(&import_database_key(importer.id())).or_else(|| importer.database())
+}
+
+pub fn import_database_key(importer: &str) -> String {
+    format!("import_database:{importer}")
+}
+
+/// Whether the other app's tags, ratings and colours replace the library's,
+/// or only fill in what is empty; they replace them unless the DJ says.
+pub fn import_theirs_win(importer: &str) -> bool {
+    flag(&import_theirs_key(importer), true)
+}
+
+pub fn import_theirs_key(importer: &str) -> String {
+    format!("import_theirs:{importer}")
+}
+
+/// Set when the DJ removes an import; the next library update takes it
+/// out and clears it.
+pub fn import_remove_key(importer: &str) -> String {
+    format!("import_remove:{importer}")
+}
+
 /// The setting that says whether an importer brings in one kind of list.
 pub fn import_group_key(importer: &str, group: &str) -> String {
     format!("import:{importer}:{group}")

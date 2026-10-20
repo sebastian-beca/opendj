@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use crate::{ImportedLibrary, LibraryImport, ListGroup};
+use mixxx_engine::import::ImportedListKind;
 
 pub mod database;
 pub mod lists;
@@ -55,6 +56,41 @@ impl LibraryImport for VirtualDj {
             }
         }
         format!("{}:{newest}", database.display())
+    }
+
+    fn preview(&self, database: &Path) -> Result<String, String> {
+        let import = database::import(database, 0, Path::exists, |_| None)?;
+        let home = database.parent().unwrap_or(Path::new("."));
+        let all: Vec<&str> = lists::groups().iter().map(|g| g.id).collect();
+        let found = lists::read(home, &all, &mut lists::Skipped::default());
+        let count = |f: fn(&ImportedListKind) -> bool| found.iter().filter(|l| f(&l.kind)).count();
+        let n = |count: usize, one: &str, many: &str| {
+            format!("{count} {}", if count == 1 { one } else { many })
+        };
+        let mut out = format!(
+            "{}, {}, {} and {}.",
+            n(import.tracks.len(), "track", "tracks"),
+            n(
+                count(|k| matches!(k, ImportedListKind::List)),
+                "list",
+                "lists"
+            ),
+            n(
+                count(|k| matches!(k, ImportedListKind::Smart { .. })),
+                "filter folder",
+                "filter folders"
+            ),
+            n(
+                count(|k| matches!(k, ImportedListKind::History { .. })),
+                "day of history",
+                "days of history"
+            ),
+        );
+        let left_out = import.streaming + import.cached + import.missing;
+        if left_out > 0 {
+            out += &format!(" {left_out} streamed or missing files stay out.");
+        }
+        Ok(out)
     }
 
     fn read(&self, database: &Path, groups: &[&str]) -> Result<ImportedLibrary, String> {
