@@ -359,16 +359,16 @@ component LayoutPill inherits Rectangle {
             padding: 6px;
             spacing: 2px;
             Text { text: "LAYOUT"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; x: 10px; height: 22px; vertical-alignment: center; }
+            LayoutItem { kind: 1; text: "Simple"; current: layout == 1; picked => { layout = 1; changed-to(1); } }
             LayoutItem { kind: 0; text: "2-Deck"; current: layout == 0; picked => { layout = 0; changed-to(0); } }
             LayoutItem { kind: 2; text: "4-Deck"; current: layout == 2; picked => { layout = 2; changed-to(2); } }
             LayoutItem { kind: 3; text: "Automix"; enabled: false; }
-            LayoutItem { kind: 1; text: "Simple"; current: layout == 1; picked => { layout = 1; changed-to(1); } }
         }
     }
 }
 
-// Shows or hides the large scrolling waveforms above the decks, lit
-// while they show. Hidden, the room goes to the browser.
+// Shows or hides the large scrolling waveforms above the decks: just a
+// waveform icon, lit while they show. Hidden, the room goes to the browser.
 component WaveformsButton inherits Rectangle {
     in-out property <bool> on;
     callback changed-to(on: bool);
@@ -394,7 +394,6 @@ component WaveformsButton inherits Rectangle {
             stroke-width: 1.5px;
             commands: "M 1 5 L 1 7 M 4 3 L 4 9 M 7 0.5 L 7 11.5 M 10 2 L 10 10 M 13 4 L 13 8 M 15.5 5.5 L 15.5 6.5";
         }
-        Text { text: "WAVEFORMS"; color: on ? Theme.accent : Theme.text-dim; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
     }
     ta := TouchArea {
         mouse-cursor: pointer;
