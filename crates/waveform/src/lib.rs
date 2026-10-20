@@ -42,6 +42,9 @@ pub struct Frame {
     /// Seconds of audio across the full width (scrolling mode only).
     pub visible_seconds: f64,
     pub duration: f64,
+    /// The beat number of the track's first bar, numbered 1 on the scrolling
+    /// waveform; a multiple of 4, as bar lines fall every fourth beat from 0.
+    pub first_bar_beat: f64,
     /// The beat grid's sections around the view, earliest first.
     pub grid: [Option<GridSection>; GRID_SECTIONS],
     pub cue: Option<f64>,
@@ -80,62 +83,6 @@ pub fn steady_grid(bpm: f64, first_beat: f64) -> [Option<GridSection>; GRID_SECT
     g
 }
 
-/// A bar line on the scrolling waveform and its number, for the UI to
-/// label. `x` is across the view, 0 at the left edge and 1 at the right.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct BarLabel {
-    pub x: f64,
-    pub bar: i64,
-}
-
-/// The bar lines a scrolling waveform `width` pixels wide shows for `f`,
-/// numbered from 1 at beat `first_bar_beat` (a multiple of 4: the first bar
-/// of the track). Earlier bars, and bars closer together than `min_gap`
-/// pixels, get no number.
-pub fn bar_labels(f: &Frame, width: f64, first_bar_beat: f64, min_gap: f64) -> Vec<BarLabel> {
-    let mut out = Vec::new();
-    if width <= 0.0 || f.visible_seconds <= 0.0 {
-        return out;
-    }
-    // The play position snapped to whole pixels, as the waveform is drawn.
-    let per_px = f.visible_seconds / width;
-    let play = (f.play_seconds / per_px).round() * per_px;
-    let (lo, hi) = (
-        play - f.visible_seconds / 2.0,
-        play + f.visible_seconds / 2.0,
-    );
-    let sections: Vec<&GridSection> = f.grid.iter().map_while(|g| g.as_ref()).collect();
-    for (k, s) in sections.iter().enumerate() {
-        if s.bpm <= 0.0 {
-            break;
-        }
-        let beat_len = 60.0 / s.bpm;
-        if 4.0 * beat_len / per_px < min_gap {
-            continue;
-        }
-        // The first section's beats run back to the start of the track.
-        let from = if k == 0 { lo } else { lo.max(s.seconds) };
-        let to = sections.get(k + 1).map_or(hi, |n| hi.min(n.seconds));
-        let to = to.min(f.duration);
-        let mut n = ((from.max(0.0) - s.seconds) / beat_len - 1e-6).ceil();
-        loop {
-            let at = s.seconds + n * beat_len;
-            if at >= to {
-                break;
-            }
-            let beat = (s.beat + n).round();
-            if beat >= first_bar_beat && (beat - first_bar_beat).rem_euclid(4.0) == 0.0 {
-                out.push(BarLabel {
-                    x: (at - lo) / f.visible_seconds,
-                    bar: ((beat - first_bar_beat) / 4.0) as i64 + 1,
-                });
-            }
-            n += 1.0;
-        }
-    }
-    out
-}
-
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Params {
@@ -164,6 +111,7 @@ struct Params {
     grid_start: [f32; 4],
     grid_beat: [f32; 4],
     grid_index: [f32; 4],
+    grid_bar: [f32; 4],
     level_offset: [[u32; 4]; 4],
     level_len: [[u32; 4]; 4],
 }
@@ -476,6 +424,7 @@ impl WaveformView {
             grid_start: [0.0; 4],
             grid_beat: [0.0; 4],
             grid_index: [0.0; 4],
+            grid_bar: [0.0; 4],
             level_offset: track.map_or([[0; 4]; 4], |t| t.level_offset),
             level_len: track.map_or([[0; 4]; 4], |t| t.level_len),
         };
@@ -501,6 +450,7 @@ impl WaveformView {
                 params.grid_beat[k] = to_bin(60.0 / section.bpm);
                 // Only the bar position matters, which keeps the float exact.
                 params.grid_index[k] = section.beat.rem_euclid(4.0) as f32;
+                params.grid_bar[k] = ((section.beat - f.first_bar_beat) / 4.0).floor() as f32 + 1.0;
                 params.grid_count = k as u32 + 1;
             }
             params.cue_bin = f.cue.map(to_bin).unwrap_or(-1.0);

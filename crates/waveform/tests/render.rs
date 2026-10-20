@@ -98,6 +98,7 @@ fn renders_scrolling_and_overview() {
                 play_seconds: 30.0,
                 visible_seconds: 8.0,
                 duration: 100.0,
+                first_bar_beat: 0.0,
                 grid: steady_grid(124.0, 0.1),
                 cue: Some(10.0),
                 loop_range: Some((28.0, 32.0)),
@@ -143,6 +144,7 @@ fn long_tracks_fall_back_to_a_coarser_level() {
         play_seconds: 3000.0,
         visible_seconds: 8.0,
         duration: seconds,
+        first_bar_beat: 0.0,
         grid: steady_grid(0.0, 0.0),
         cue: None,
         loop_range: None,
@@ -186,6 +188,7 @@ fn draws_beat_grid() {
         play_seconds: 40.25,
         visible_seconds: 8.0,
         duration: 200.0,
+        first_bar_beat: 0.0,
         grid: steady_grid(120.0, 0.0),
         cue: None,
         loop_range: None,
@@ -211,4 +214,62 @@ fn draws_beat_grid() {
         (4..=5).contains(&lines),
         "expected 4 or 5 bar lines, got {lines} at {amber:?}"
     );
+}
+
+/// Bar numbers are drawn right of each bar line at the top: bar 21 at 40 s
+/// (beat 80) at 120 bpm with the first bar at 0 s.
+#[test]
+fn draws_bar_numbers() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let renderer = WaveformRenderer::new(&device);
+    let track = Arc::new(GpuTrack::new(
+        &device,
+        &queue,
+        &renderer,
+        1,
+        &levels(vec![[0; 8]; 200_000]),
+        1000.0,
+    ));
+    let (w, h) = (640u32, 64u32);
+    let mut view = WaveformView::new(&device, Mode::Scrolling, w, h);
+    view.set_track(&device, &renderer, Some(&track));
+    let frame = Frame {
+        // 2 s before the bar at 40 s, so its line is three quarters across.
+        play_seconds: 38.0,
+        visible_seconds: 8.0,
+        duration: 200.0,
+        first_bar_beat: 0.0,
+        grid: steady_grid(120.0, 0.0),
+        cue: None,
+        loop_range: None,
+        loop_marking: None,
+        hotcues: [None; 8],
+        gain: 1.0,
+    };
+    view.render(&device, &queue, &renderer, Some(&frame), 1.0);
+    let data = read_back(&device, &queue, &view);
+    // White pixels in the digits' rows (below the beat ticks), right of the
+    // line at x = 480: "21" is two digits, 11 columns of 2 pixels, from x = 483.
+    let white = |x: u32, y: u32| {
+        let i = ((y * w + x) * 4) as usize;
+        data[i] > 180 && data[i + 1] > 180 && data[i + 2] > 180
+    };
+    let lit: Vec<u32> = (470..520)
+        .filter(|&x| (8..16).any(|y| white(x, y)))
+        .collect();
+    assert!(!lit.is_empty(), "no bar number drawn");
+    assert!(
+        *lit.first().unwrap() >= 482 && *lit.last().unwrap() <= 505,
+        "bar number out of place: {lit:?}"
+    );
+    // Below the beat ticks, nothing between one bar's number and the next
+    // bar line (bars are 160 pixels apart; the playhead is at 320).
+    let stray: Vec<(u32, u32)> = (350..470)
+        .flat_map(|x| (8..16).map(move |y| (x, y)))
+        .filter(|&(x, y)| white(x, y))
+        .collect();
+    assert!(stray.is_empty(), "stray pixels: {stray:?}");
 }
