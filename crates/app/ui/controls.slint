@@ -425,3 +425,101 @@ export component StereoMeter inherits HorizontalLayout {
     VuMeter { group: group; key: "VuMeterL"; width: 4px; }
     VuMeter { group: group; key: "VuMeterR"; width: 4px; }
 }
+
+// A tooltip shown above everything else (see HoverTipView in the main
+// window): a title and a line or two, next to the point it was asked for.
+export global HoverTip {
+    in-out property <bool> shown;
+    in-out property <string> title;
+    in-out property <string> body;
+    // Where it goes, in window coordinates: its top left corner, or its
+    // top right one when right-aligned.
+    in-out property <bool> right-aligned;
+    in-out property <length> x;
+    in-out property <length> y;
+}
+
+export component HoverTipView inherits Rectangle {
+    if HoverTip.shown: Rectangle {
+        x: HoverTip.x - root.absolute-position.x - (HoverTip.right-aligned ? self.width : 0px);
+        y: HoverTip.y - root.absolute-position.y;
+        width: tip.preferred-width;
+        height: tip.preferred-height;
+        background: #0b0b0c;
+        border-radius: 4px;
+        border-width: 1px;
+        border-color: #6a6a70;
+        drop-shadow-blur: 8px;
+        drop-shadow-color: #000000a0;
+        tip := VerticalLayout {
+            padding: 8px;
+            spacing: 2px;
+            Text { text: HoverTip.title; color: Theme.text; font-size: 12px; font-weight: 700; }
+            Text { text: HoverTip.body; color: Theme.text-dim; font-size: 12px; }
+        }
+    }
+}
+
+// Pitch reset, VirtualDJ's triangle beside the tempo fader: click and the
+// tempo glides back to 0%, click again to stop where it is, double-click
+// for 0% at once. Lit while gliding; points towards the fader.
+export component PitchReset inherits Rectangle {
+    in property <string> group;
+    in property <color> tint: Theme.accent;
+    in property <bool> points-left: false;
+    property <int> index: Controls.resolve(group, "rate_reset");
+    property <int> rate-index: Controls.resolve(group, "rate");
+    property <bool> lit: Controls.value(index, Controls.tick) > 0;
+    property <bool> tip-mine;
+    // A click just now: another one soon is a double-click.
+    property <bool> armed;
+    width: 12px;
+    height: 16px;
+    Path {
+        width: 8px;
+        height: 10px;
+        viewbox-width: 8;
+        viewbox-height: 10;
+        fill: lit ? root.tint : touch.has-hover ? Theme.text : Theme.text-dim;
+        commands: points-left ? "M 8 0 L 0 5 L 8 10 Z" : "M 0 0 L 8 5 L 0 10 Z";
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        // Double-clicks are counted here: TouchArea's double-clicked
+        // misses some when the first click lights the triangle.
+        clicked => {
+            if armed {
+                armed = false;
+                Controls.set-value(index, 0);
+                Controls.set-value(rate-index, 0);
+            } else {
+                armed = true;
+                Controls.toggle(index);
+            }
+        }
+        changed has-hover => {
+            if !self.has-hover && tip-mine {
+                tip-mine = false;
+                HoverTip.shown = false;
+            }
+        }
+    }
+    Timer {
+        interval: 400ms;
+        running: armed;
+        triggered => { armed = false; }
+    }
+    Timer {
+        interval: 600ms;
+        running: touch.has-hover && !tip-mine;
+        triggered => {
+            tip-mine = true;
+            HoverTip.title = "PITCH RESET";
+            HoverTip.body = "Slowly bring the pitch back to 0%. Click again to stop.\nDouble-click to bring it back immediately";
+            HoverTip.right-aligned = points-left;
+            HoverTip.x = root.absolute-position.x + (points-left ? root.width : 0px);
+            HoverTip.y = root.absolute-position.y + root.height + 6px;
+            HoverTip.shown = true;
+        }
+    }
+}

@@ -212,6 +212,8 @@
 [Channel1],rate_perm_down_small
 [Channel1],rate_perm_up
 [Channel1],rate_perm_up_small
+[Channel1],rate_reset
+[Channel1],rate_set_zero
 [Channel1],rate_temp_down
 [Channel1],rate_temp_down_small
 [Channel1],rate_temp_up
@@ -444,6 +446,8 @@
 [Channel2],rate_perm_down_small
 [Channel2],rate_perm_up
 [Channel2],rate_perm_up_small
+[Channel2],rate_reset
+[Channel2],rate_set_zero
 [Channel2],rate_temp_down
 [Channel2],rate_temp_down_small
 [Channel2],rate_temp_up
@@ -676,6 +680,8 @@
 [Channel3],rate_perm_down_small
 [Channel3],rate_perm_up
 [Channel3],rate_perm_up_small
+[Channel3],rate_reset
+[Channel3],rate_set_zero
 [Channel3],rate_temp_down
 [Channel3],rate_temp_down_small
 [Channel3],rate_temp_up
@@ -908,6 +914,8 @@
 [Channel4],rate_perm_down_small
 [Channel4],rate_perm_up
 [Channel4],rate_perm_up_small
+[Channel4],rate_reset
+[Channel4],rate_set_zero
 [Channel4],rate_temp_down
 [Channel4],rate_temp_down_small
 [Channel4],rate_temp_up
