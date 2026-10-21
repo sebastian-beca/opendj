@@ -675,6 +675,12 @@ impl Prefs {
                         "Something you'd like openDJ to do, or do differently.",
                     )
                 },
+                switch(
+                    "update_check",
+                    "Check for updates",
+                    "Looks for a new version on GitHub when openDJ starts. Nothing is sent but the request.",
+                    settings::flag("update_check", true),
+                ),
                 PrefItem {
                     action: "Show".into(),
                     ..item(
