@@ -81,7 +81,12 @@ jobs:
           xcrun notarytool submit dist/opendj-macos.zip --wait \
             --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
           # Staple the ticket so the app opens offline too, then zip it again.
-          xcrun stapler staple dist/openDJ.app
+          # Apple's ticket server can lag or drop the connection, so retry.
+          for attempt in 1 2 3 4 5; do
+            xcrun stapler staple dist/openDJ.app && break
+            [ "$attempt" = 5 ] && exit 1
+            sleep 30
+          done
           rm dist/opendj-macos.zip
           (cd dist && ditto -c -k --keepParent openDJ.app opendj-macos.zip)
       - run: |
