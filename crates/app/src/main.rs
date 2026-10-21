@@ -47,6 +47,7 @@ mod sources;
 mod spotify;
 mod stores;
 mod ui_font;
+mod update;
 
 /// Fills the master and headphone output menus and switches devices when
 /// one is picked. The menus list the devices present when they open.
@@ -543,6 +544,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })?;
     }
 
+    // A newer release: checked once per start, offered while nothing plays.
+    let update_check = update::check();
+    let update: Rc<RefCell<Option<update::Release>>> = Default::default();
+    let installing: Rc<RefCell<Option<std::sync::mpsc::Receiver<update::Progress>>>> =
+        Default::default();
+    // Installed and waiting for the decks to stop before restarting.
+    let update_ready = Cell::new(false);
+    let play_controls: Vec<ControlHandle> = (0..NUM_DECKS)
+        .filter_map(|d| registry.get(&deck_group(d), "play"))
+        .collect();
+    {
+        let update = update.clone();
+        let installing = installing.clone();
+        let weak = app.as_weak();
+        app.on_update_download(move || {
+            let Some(release) = update.borrow().clone() else {
+                return;
+            };
+            if release.asset.is_none() {
+                spotify::open_in_browser(&release.url);
+            } else if installing.borrow().is_none() {
+                if let Some(app) = weak.upgrade() {
+                    app.set_update_status("Starting…".into());
+                }
+                *installing.borrow_mut() = Some(update::install(release));
+            }
+        });
+    }
+    {
+        let update = update.clone();
+        let weak = app.as_weak();
+        app.on_update_dismiss(move || {
+            if let Some(r) = update.borrow_mut().take() {
+                update::dismiss(&r.version);
+            }
+            if let Some(app) = weak.upgrade() {
+                app.set_update_version("".into());
+            }
+        });
+    }
+
     let start = Instant::now();
     let timer = slint::Timer::default();
     let covers: RefCell<[CoverImage; NUM_DECKS]> = Default::default();
@@ -578,6 +620,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else if alert_until.get().is_some_and(|t| Instant::now() >= t) {
                     alert_until.set(None);
                     app.set_alert("".into());
+                }
+                if let Ok(release) = update_check.try_recv() {
+                    app.set_update_action(
+                        if release.asset.is_some() {
+                            "Install & restart"
+                        } else {
+                            "Download"
+                        }
+                        .into(),
+                    );
+                    *update.borrow_mut() = Some(release);
+                }
+                let progress = installing
+                    .borrow()
+                    .as_ref()
+                    .and_then(|rx| rx.try_recv().ok());
+                match progress {
+                    Some(update::Progress::Status(s)) => app.set_update_status(s.into()),
+                    Some(update::Progress::Done) => update_ready.set(true),
+                    Some(update::Progress::Failed(message)) => {
+                        installing.take();
+                        // The button opens the release page from now on.
+                        if let Some(r) = update.borrow_mut().as_mut() {
+                            r.asset = None;
+                        }
+                        app.set_update_status("".into());
+                        app.set_update_action("Download".into());
+                        app.set_alert(message.into());
+                        alert_until.set(Some(Instant::now() + ALERT_SECONDS));
+                    }
+                    None => {}
+                }
+                let playing = play_controls.iter().any(|c| c.get() > 0.5);
+                if update_ready.get() {
+                    if playing {
+                        app.set_update_status("Restarts when the decks stop".into());
+                    } else {
+                        update_ready.set(false);
+                        update::relaunch();
+                        let _ = slint::quit_event_loop();
+                    }
+                }
+                // Never pops up mid-set; an install under way stays in view.
+                let shown = match &*update.borrow() {
+                    Some(r) if !playing || installing.borrow().is_some() => r.version.clone(),
+                    _ => String::new(),
+                };
+                if app.get_update_version() != shown.as_str() {
+                    app.set_update_version(shown.into());
                 }
                 if let Ok(scanned) = scan_rx.try_recv() {
                     browser.borrow_mut().set_library(scanned);

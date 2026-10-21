@@ -453,6 +453,15 @@ export component AppWindow inherits Window {
     in property <string> list-notice;
     // Why something didn't happen, such as a track that couldn't be loaded.
     in-out property <string> alert;
+    // A newer release on GitHub, shown at the top right until dismissed;
+    // the app hides it while a deck plays.
+    in-out property <string> update-version;
+    // "Install & restart" when openDJ can update itself, else "Download".
+    in property <string> update-action: "Download";
+    // While installing: "Downloading…" and so on, in place of the buttons.
+    in property <string> update-status;
+    callback update-download();
+    callback update-dismiss();
     in property <[TrackRow]> tracks;
     in property <int> sort-column: 1;
     in property <bool> sort-ascending: true;
@@ -771,6 +780,61 @@ export component AppWindow inherits Window {
                         icon: "M 6 5 L 18 5 M 6 10 L 18 10 M 6 15 L 18 15 M 2 5 L 3 5 M 2 10 L 3 10 M 2 15 L 3 15";
                         clicked => { side-panel-visible = !side-panel-visible; }
                     }
+                }
+            }
+        }
+
+        if update-version != "": Rectangle {
+            x: root.width - self.width - 16px;
+            y: 64px;
+            width: update-row.preferred-width;
+            height: 40px;
+            background: Theme.panel-raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.lilac;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #000000a0;
+            update-row := HorizontalLayout {
+                padding-left: 14px;
+                padding-right: update-status == "" ? 6px : 14px;
+                spacing: 12px;
+                Text {
+                    text: "openDJ " + update-version + " is available";
+                    color: Theme.text;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+                if update-status != "": Text {
+                    text: update-status;
+                    color: Theme.text-dim;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+                if update-status == "": VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: action-text.preferred-width + 22px;
+                        height: 26px;
+                        background: action-touch.has-hover ? Theme.lilac.brighter(0.15) : Theme.lilac;
+                        border-radius: 13px;
+                        action-text := Text {
+                            text: update-action;
+                            color: #000000;
+                            font-size: 12px;
+                            font-weight: 600;
+                        }
+                        action-touch := TouchArea { clicked => { update-download(); } }
+                    }
+                }
+                if update-status == "": Rectangle {
+                    width: 24px;
+                    Text {
+                        text: "✕";
+                        color: dismiss-touch.has-hover ? Theme.text : Theme.text-dim;
+                        font-size: 12px;
+                    }
+                    dismiss-touch := TouchArea { clicked => { update-dismiss(); } }
                 }
             }
         }
