@@ -1,7 +1,7 @@
 // Browser: folder tree, track list and a side panel (Automix / Sidelist).
 // Plain rows, lilac selection, rounded sidebar items.
 import { LineEdit, ListView, ScrollView } from "std-widgets.slint";
-import { Theme, EdgeLine } from "theme.slint";
+import { Theme, EdgeLine, CloseIcon } from "theme.slint";
 import { SourceUi, SearchesPanel, SourceResults } from "sources.slint";
 import { InfoPanel, SideTabIcon, TrackInfo } from "info.slint";
 import { FilterBar, FilterUi } from "filters.slint";
@@ -264,7 +264,7 @@ component TrackMenu inherits PopupWindow {
             }
             Rectangle {
                 width: 14px;
-                Text { text: "✕"; color: Theme.text-dim; font-size: 11px; }
+                CloseIcon { size: 8px; }
                 TouchArea {
                     clicked => {
                         LibraryEdit.set-color(track-row, -1);

@@ -89,3 +89,18 @@ export component EdgeVLine inherits Rectangle {
     width: 1px;
     Rectangle { y: -top; width: 1px; height: parent.height + top + bottom; background: root.line-color; }
 }
+
+// Close / clear cross. Drawn, as ✕ is missing from the app's fonts and the
+// fallback glyph comes out as stacked lines.
+export component CloseIcon inherits Path {
+    in property <length> size: 10px;
+    in property <color> color: Theme.text-dim;
+    width: size;
+    height: size;
+    viewbox-width: 10;
+    viewbox-height: 10;
+    commands: "M 1 1 L 9 9 M 9 1 L 1 9";
+    stroke: color;
+    stroke-width: 1.5px;
+    fill: transparent;
+}

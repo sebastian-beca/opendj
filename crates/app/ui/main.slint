@@ -1,5 +1,5 @@
 import { Palette } from "std-widgets.slint";
-import { Theme, KeyNotation } from "theme.slint";
+import { Theme, KeyNotation, CloseIcon } from "theme.slint";
 import { Controls, VuMeter, ControlKnob, HoverTipView } from "controls.slint";
 import { Deck, DeckInfo, KeyItem, EffectList, DeckActions } from "deck.slint";
 import { Mixer, AudioSettings, OutputRow } from "mixer.slint";
@@ -829,11 +829,7 @@ export component AppWindow inherits Window {
                 }
                 if update-status == "": Rectangle {
                     width: 24px;
-                    Text {
-                        text: "✕";
-                        color: dismiss-touch.has-hover ? Theme.text : Theme.text-dim;
-                        font-size: 12px;
-                    }
+                    CloseIcon { size: 9px; color: dismiss-touch.has-hover ? Theme.text : Theme.text-dim; }
                     dismiss-touch := TouchArea { clicked => { update-dismiss(); } }
                 }
             }

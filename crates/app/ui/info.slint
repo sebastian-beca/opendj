@@ -1,7 +1,7 @@
 // The side panel's Info tab: the track selected in the library (or on a
 // deck), its tags and the library's own fields, editable in place, with a
 // preview player for the headphones and a cover art search.
-import { Theme, EdgeLine } from "theme.slint";
+import { Theme, EdgeLine, CloseIcon } from "theme.slint";
 
 // One line of the info list.
 export struct InfoField {
@@ -332,7 +332,7 @@ component CoverDialog inherits Rectangle {
                 width: 24px;
                 border-radius: 12px;
                 background: close.has-hover ? Theme.control-pressed : transparent;
-                Text { text: "✕"; color: Theme.text-dim; font-size: 13px; }
+                CloseIcon { size: 10px; color: close.has-hover ? Theme.text : Theme.text-dim; }
                 close := TouchArea { clicked => { TrackInfo.cover-open = false; } }
             }
         }
