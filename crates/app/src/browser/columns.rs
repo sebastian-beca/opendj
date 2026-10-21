@@ -45,6 +45,8 @@ pub const LABEL: i32 = 14;
 pub const REMIX: i32 = 15;
 pub const COMPOSER: i32 = 16;
 pub const TRACK_NUMBER: i32 = 17;
+/// Basic preparation for the collection: tags, rating, tempo and key.
+pub const PREP: i32 = 18;
 /// Tag field `i` (from 0) is column `TAGS + i`.
 pub const TAGS: i32 = 100;
 
@@ -86,6 +88,7 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
     out.extend([
         d(YEAR, "Year", 48.0, true, DIM),
         d(TRACK_NUMBER, "Track #", 52.0, true, DIM),
+        d(PREP, "Prep", 52.0, false, TEXT),
         d(PLAYED, "Plays", 48.0, true, DIM),
         d(ADDED, "Added", 86.0, false, DIM),
         d(LAST_PLAYED, "Last Played", 86.0, false, DIM),
@@ -225,6 +228,7 @@ pub fn cell(id: i32, t: &Track, camelot: bool) -> String {
         REMIX => i.remix.clone(),
         COMPOSER => i.composer.clone(),
         TRACK_NUMBER => number(i.track_number),
+        PREP => prep_dots(t),
         KEY_ID => crate::settings::show_key(&t.key, camelot),
         id if id >= TAGS => i
             .user_tag((id - TAGS) as usize)
@@ -234,6 +238,16 @@ pub fn cell(id: i32, t: &Track, camelot: bool) -> String {
             .join("  "),
         _ => String::new(),
     }
+}
+
+/// A dot for each part of basic preparation, filled when done: tags
+/// (artist and title), rating, tempo and key.
+pub fn prep_dots(t: &Track) -> String {
+    let p = mixxx_library::stages::Prep::of(t);
+    [p.tags, p.rating, p.analysed]
+        .iter()
+        .map(|&done| if done { '●' } else { '○' })
+        .collect()
 }
 
 /// A row's cells for the columns `ids`: what the row already holds for
@@ -267,6 +281,7 @@ pub fn compare(id: i32, a: &Track, b: &Track) -> Ordering {
         ADDED => x.added.cmp(&y.added),
         LAST_PLAYED => x.last_played.cmp(&y.last_played),
         TRACK_NUMBER => x.track_number.cmp(&y.track_number),
+        PREP => prep_count(a).cmp(&prep_count(b)),
         KEY_ID => key_order(&a.key).cmp(&key_order(&b.key)),
         _ => {
             let (s, t) = (cell(id, a, true), cell(id, b, true));
@@ -277,6 +292,14 @@ pub fn compare(id: i32, a: &Track, b: &Track) -> Ordering {
             }
         }
     }
+}
+
+fn prep_count(t: &Track) -> usize {
+    let p = mixxx_library::stages::Prep::of(t);
+    [p.tags, p.rating, p.analysed]
+        .iter()
+        .filter(|d| **d)
+        .count()
 }
 
 /// Keys in Camelot order (1A, 1B, 2A …), unknown keys last.
