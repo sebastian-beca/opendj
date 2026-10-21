@@ -51,13 +51,6 @@ pub(super) fn stage_nodes(folders: &Folders) -> Vec<Node> {
     nodes
 }
 
-/// Whether `t` is at `stage` (and in the subfolder `dir`, when given).
-pub(super) fn at_stage(t: &Track, stage: Stage, dir: Option<&Path>) -> bool {
-    t.info.stage == stage.name()
-        && !is_browsed(t)
-        && dir.is_none_or(|d| file_path(t).is_some_and(|p| p.starts_with(d)))
-}
-
 /// The name of the list a triage crate's tracks join in the collection:
 /// the folder's name without a trailing " STG" ("Yoga STG" goes to "Yoga").
 fn crate_list_name(folder: &str) -> &str {
@@ -142,6 +135,32 @@ impl Browser {
         });
         let w = with.clone();
         edit.on_undo_stage(move || w(&|b| b.undo_stage()));
+    }
+
+    /// Whether `t` is at `stage` (and headed for the subfolder `dir`, when
+    /// given: where its file is, or will be once its move is made).
+    pub(super) fn at_stage(&self, t: &Track, stage: Stage, dir: Option<&Path>) -> bool {
+        t.info.stage == stage.name()
+            && !is_browsed(t)
+            && dir.is_none_or(|d| {
+                self.pending_moves
+                    .get(&t.id)
+                    .map(PathBuf::as_path)
+                    .or_else(|| file_path(t))
+                    .is_some_and(|p| p.starts_with(d))
+            })
+    }
+
+    /// Reads which files are waiting to move, and where to.
+    pub(super) fn read_pending_moves(&mut self) {
+        self.pending_moves = self
+            .db
+            .as_ref()
+            .and_then(|db| db.pending_moves().ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| (m.track, m.to))
+            .collect();
     }
 
     /// The stage a row of the tree stands for, and its subfolder.
@@ -277,6 +296,7 @@ impl Browser {
             self.indexed[*i] = Indexed::new(&t);
             self.library[*i] = Arc::new(t);
         }
+        self.read_pending_moves();
         let label = change_label(stage, crate_name.as_deref());
         let n = picked.len();
         self.undo = Some((
@@ -323,6 +343,7 @@ impl Browser {
             }
         };
         let by_id: HashMap<usize, Track> = tracks.into_iter().map(|t| (t.id, t)).collect();
+        self.read_pending_moves();
         for i in 0..self.library.len() {
             let Some(saved) = by_id.get(&self.library[i].id) else {
                 continue;
@@ -373,7 +394,7 @@ impl Browser {
         let triage: Vec<Arc<Track>> = self
             .library
             .iter()
-            .filter(|t| at_stage(t, Stage::Triage, None) && AnalysisQueue::needs(t))
+            .filter(|t| self.at_stage(t, Stage::Triage, None) && AnalysisQueue::needs(t))
             .cloned()
             .collect();
         self.analysis.add(&triage);
