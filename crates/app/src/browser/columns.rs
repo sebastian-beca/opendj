@@ -9,7 +9,7 @@ use std::rc::Rc;
 use mixxx_engine::key::Key;
 use mixxx_engine::Track;
 use mixxx_library::query::FieldNames;
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 use super::Browser;
 use crate::{settings, AppWindow, ColumnUi, ListColumn, TrackRow};
@@ -172,24 +172,28 @@ impl Layout {
         }
     }
 
+    /// Where a column dropped at `x` along the header goes among the columns
+    /// as they are now (before the first whose middle is right of `x`), and
+    /// where that slot starts, given the title's width.
+    pub fn slot(&self, x: f32, title_width: f32, spacing: f32) -> (usize, f32) {
+        let mut left = 0.0;
+        for (i, (id, w)) in self.shown.iter().enumerate() {
+            let w = if *id == TITLE_ID { title_width } else { *w };
+            if x < left + w / 2.0 {
+                return (i, left);
+            }
+            left += w + spacing;
+        }
+        (self.shown.len(), left)
+    }
+
     /// Moves the column at `from` to where `x` falls along the header,
     /// given the title's width (it takes the room the others leave).
     pub fn move_to(&mut self, from: usize, x: f32, title_width: f32, spacing: f32) {
         if from >= self.shown.len() {
             return;
         }
-        // Where it goes among the columns as they are now: before the
-        // first whose middle is right of `x`.
-        let mut left = 0.0;
-        let mut to = self.shown.len();
-        for (i, (id, w)) in self.shown.iter().enumerate() {
-            let w = if *id == TITLE_ID { title_width } else { *w };
-            if x < left + w / 2.0 {
-                to = i;
-                break;
-            }
-            left += w + spacing;
-        }
+        let (to, _) = self.slot(x, title_width, spacing);
         let c = self.shown.remove(from);
         let to = if to > from { to - 1 } else { to };
         self.shown.insert(to.min(self.shown.len()), c);
@@ -314,6 +318,29 @@ impl ColumnState {
     pub fn ids(&self) -> Vec<i32> {
         self.layout.shown.iter().map(|(id, _)| *id).collect()
     }
+
+    /// How wide the list must be for the columns, with room for the title.
+    fn min_width(&self) -> f32 {
+        let fixed: f32 = self
+            .layout
+            .shown
+            .iter()
+            .map(|&(id, w)| if id == TITLE_ID { TITLE_ROOM } else { w } + SPACING)
+            .sum();
+        HEADER_LEAD + HEADER_TRAIL + fixed
+    }
+
+    /// The title's width in a header `header` wide: the room the others leave.
+    fn title_width(&self, header: f32) -> f32 {
+        let others: f32 = self
+            .layout
+            .shown
+            .iter()
+            .filter(|(id, _)| *id != TITLE_ID)
+            .map(|(_, w)| w + SPACING)
+            .sum();
+        (header - HEADER_LEAD - HEADER_TRAIL - others).max(60.0)
+    }
 }
 
 /// How the header lays out: padding before the columns, the album art and
@@ -355,25 +382,50 @@ impl Browser {
         ui.on_resize(move |i, width| {
             w(&|b| {
                 // Only the widths change: the rows stay as they are, and the
-                // layout is kept once the drag ends.
-                b.columns.layout.resize(i.max(0) as usize, width);
-                b.refresh_column_ui();
+                // layout is kept once the drag ends. The column is changed in
+                // place, since a new list would rebuild the heading being
+                // dragged and drop the drag.
+                let i = i.max(0) as usize;
+                b.columns.layout.resize(i, width);
+                let Some(app) = b.app.upgrade() else {
+                    return;
+                };
+                let ui = app.global::<ColumnUi>();
+                let model = ui.get_columns();
+                if let (Some(mut col), Some(&(_, width))) =
+                    (model.row_data(i), b.columns.layout.shown.get(i))
+                {
+                    col.width = width;
+                    model.set_row_data(i, col);
+                }
+                ui.set_min_width(b.columns.min_width());
             })
         });
         let w = with.clone();
         ui.on_resized(move || w(&|b| settings::set_columns(&b.columns.layout.shown)));
         let w = with.clone();
+        ui.on_drag(move |i, x, header| {
+            w(&|b| {
+                // Mark where the heading would land, unless it stays put.
+                let c = &b.columns;
+                let (to, left) = c
+                    .layout
+                    .slot(x - HEADER_LEAD, c.title_width(header), SPACING);
+                let from = i.max(0) as usize;
+                let at = if to == from || to == from + 1 {
+                    -1.0
+                } else {
+                    HEADER_LEAD + left - SPACING / 2.0
+                };
+                if let Some(app) = b.app.upgrade() {
+                    app.global::<ColumnUi>().set_drop_x(at);
+                }
+            })
+        });
+        let w = with.clone();
         ui.on_move(move |i, x, header| {
             w(&|b| {
-                let others: f32 = b
-                    .columns
-                    .layout
-                    .shown
-                    .iter()
-                    .filter(|(id, _)| *id != TITLE_ID)
-                    .map(|(_, w)| w + SPACING)
-                    .sum();
-                let title = (header - HEADER_LEAD - HEADER_TRAIL - others).max(60.0);
+                let title = b.columns.title_width(header);
                 b.columns
                     .layout
                     .move_to(i.max(0) as usize, x - HEADER_LEAD, title, SPACING);
@@ -419,11 +471,7 @@ impl Browser {
                 })
             })
             .collect();
-        let fixed: f32 = shown
-            .iter()
-            .map(|c| if c.kind == TITLE { TITLE_ROOM } else { c.width } + SPACING)
-            .sum();
-        ui.set_min_width(HEADER_LEAD + HEADER_TRAIL + fixed);
+        ui.set_min_width(c.min_width());
         ui.set_columns(ModelRc::new(VecModel::from(shown)));
         let labels: Vec<SharedString> = c.defs.iter().map(|d| d.label.clone().into()).collect();
         ui.set_all(ModelRc::new(VecModel::from(labels)));
