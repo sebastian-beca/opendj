@@ -926,7 +926,7 @@ component FolderTree inherits Rectangle {
                 for f[i] in folders: Rectangle {
                     height: 34px;
                     border-radius: Theme.radius;
-                    background: drop.has-drag ? Theme.selection.transparentize(0.4) : i == current ? Theme.selection : (ta.has-hover ? #232326 : transparent);
+                    background: drop.has-drag ? Theme.selection.transparentize(0.4) : i == current ? (focused ? Theme.selection : Theme.selection-idle) : (ta.has-hover ? #232326 : transparent);
                     ta := TouchArea {
                         clicked => { select(i); }
                         double-clicked => { toggle(i); }
@@ -1096,6 +1096,8 @@ component HeaderCell inherits Rectangle {
 
 component TrackList inherits Rectangle {
     in property <[TrackRow]> rows;
+    // Its selection is lilac while it has focus, gray while the folders do.
+    in property <bool> focused: true;
     in property <int> sort-column;
     in property <bool> ascending;
     in-out property <int> current: -1;
@@ -1110,6 +1112,8 @@ component TrackList inherits Rectangle {
     callback sort(column: int);
     callback search(text: string);
     callback activate(row: int);
+    // Clicked, so its selection turns lilac and the folders' gray.
+    callback took-focus();
 
     // Text in the search box; the filter button lights while there is some.
     property <string> search-text <=> StoreUi.search-text;
@@ -1140,6 +1144,7 @@ component TrackList inherits Rectangle {
         anchor = i;
         range-end = i;
         current = i;
+        took-focus();
     }
     function extend(i: int) {
         if anchor < 0 || !(range-end == current) {
@@ -1367,7 +1372,7 @@ component TrackList inherits Rectangle {
                 property <bool> selected: i >= first-picked && i <= last-picked;
                 border-radius: 4px;
                 // Rows alternate darker and lighter.
-                background: selected ? Theme.selection : rta.has-hover ? #2a2a2e : mod(i, 2) == 1 ? Theme.row-alt : Theme.row;
+                background: selected ? (focused ? Theme.selection : Theme.selection-idle) : rta.has-hover ? #2a2a2e : mod(i, 2) == 1 ? Theme.row-alt : Theme.row;
                 DragArea {
                     // Picked rows go together; any other row goes alone.
                     data: selected ? TrackDrag.payload(first-picked, last-picked) : TrackDrag.payload(i, i);
@@ -1997,7 +2002,7 @@ export component Browser inherits HorizontalLayout {
     in-out property <int> side-tab;
     in property <string> folder-name;
     in property <string> folder-duration;
-    in property <bool> folders-focused;
+    in-out property <bool> folders-focused;
     in property <bool> spotify-connected;
     in property <string> spotify-user;
     in property <string> spotify-status;
@@ -2064,7 +2069,10 @@ export component Browser inherits HorizontalLayout {
         spotify-user: spotify-user;
         spotify-status: spotify-status;
         spotify-client-id <=> spotify-client-id;
-        select(i) => { select-folder(i); }
+        select(i) => {
+            folders-focused = true;
+            select-folder(i);
+        }
         toggle(i) => { toggle-folder(i); }
         spotify-connect(id) => { spotify-connect(id); }
         spotify-disconnect => { spotify-disconnect(); }
@@ -2072,6 +2080,7 @@ export component Browser inherits HorizontalLayout {
     Rectangle {
         horizontal-stretch: 1;
         list := TrackList {
+            focused: !folders-focused;
             visible: !plugin-source;
             width: 100%;
             height: 100%;
@@ -2089,6 +2098,7 @@ export component Browser inherits HorizontalLayout {
             sort(c) => { sort(c); }
             search(t) => { search(t); }
             activate(r) => { activate(r); }
+            took-focus => { folders-focused = false; }
         }
         if plugin-source: SourceResults {
             width: 100%;
