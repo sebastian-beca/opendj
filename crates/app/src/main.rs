@@ -390,7 +390,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     install_audio_settings(&app, engine.clone());
 
-    bind_controls(&app, registry.clone());
+    let controls_version = bind_controls(&app, registry.clone());
     app.global::<EffectList>()
         .set_names(ModelRc::new(VecModel::from(
             AVAILABLE_EFFECTS
@@ -595,6 +595,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let alert_until: Cell<Option<Instant>> = Cell::new(None);
     let alert_engine = engine.clone();
     let layout_version = Cell::new(layout_control.version());
+    // What the screen last showed, to redraw only when something changed.
+    let shown_controls = Cell::new(u64::MAX);
+    let shown_tracks: RefCell<[Option<Arc<Track>>; NUM_DECKS]> = Default::default();
+    let shown_positions: Cell<[f64; NUM_DECKS]> = Cell::new([f64::NAN; NUM_DECKS]);
+    let deck_rows = Rc::new(VecModel::from(vec![DeckInfo::default(); NUM_DECKS]));
+    app.set_decks(ModelRc::from(deck_rows.clone()));
+    let positions = engine.visual_positions();
     {
         let app_weak = app.as_weak();
         timer.start(
@@ -604,8 +611,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let Some(app) = app_weak.upgrade() else {
                     return;
                 };
+                // The skin reads controls through `tick`; moving it makes
+                // every one of them look again, so only when one changed.
+                let version = controls_version();
+                let controls_changed = shown_controls.replace(version) != version;
+                if controls_changed {
+                    app.global::<Controls>()
+                        .set_tick(app.global::<Controls>().get_tick().wrapping_add(1));
+                }
                 app.global::<Controls>()
-                    .set_tick(app.global::<Controls>().get_tick().wrapping_add(1));
+                    .set_blink(start.elapsed().as_millis() / 500 % 2 == 1);
                 // Only when a controller moved it since the last look.
                 let layout = layout_control.get() as i32;
                 if layout_version.replace(layout_control.version()) != layout_control.version()
@@ -726,23 +741,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 automix.borrow_mut().tick(&mut host, &tracks, dt.min(0.1));
                 automix.borrow().show(&app, b.automix_len(), &tracks);
                 drop(b);
-                app.set_decks(ModelRc::new(VecModel::from(
-                    (0..NUM_DECKS)
-                        .map(|d| {
-                            let track = tracks[d].as_deref();
-                            let mut info = decks.info(d, track, camelot);
-                            if let Some(image) = covers.borrow_mut()[d].get(track) {
-                                info.cover = image;
-                                info.has_cover = true;
-                            }
-                            info
-                        })
-                        .collect::<Vec<_>>(),
-                )));
+                // Row by row and only when it differs: a whole new model
+                // would make everything on the decks lay out and draw again.
+                for (d, track) in tracks.iter().enumerate() {
+                    let track = track.as_deref();
+                    let mut info = decks.info(d, track, camelot);
+                    if let Some(image) = covers.borrow_mut()[d].get(track) {
+                        info.cover = image;
+                        info.has_cover = true;
+                    }
+                    if !deck_rows
+                        .row_data(d)
+                        .is_some_and(|old| same_deck_info(&old, &info))
+                    {
+                        deck_rows.set_row_data(d, info);
+                    }
+                }
                 let t = start.elapsed().as_secs();
-                app.set_clock(format!("{:02}:{:02}", t / 60 % 60, t % 60).into());
-                // Redraw every tick so the waveforms keep moving.
-                app.window().request_redraw();
+                let clock = format!("{:02}:{:02}", t / 60 % 60, t % 60);
+                if app.get_clock() != clock.as_str() {
+                    app.set_clock(clock.into());
+                }
+                // The waveforms are drawn outside Slint, so it can't tell
+                // when they change: redraw when a deck moved, a track or its
+                // waveform changed, or a control did (cues, loops, zoom).
+                // While a deck plays, each frame asks for the next itself.
+                let now = Instant::now();
+                let at: [f64; NUM_DECKS] = std::array::from_fn(|d| positions.position(d, now).0);
+                let moved = at != shown_positions.replace(at);
+                let mut shown = shown_tracks.borrow_mut();
+                let loaded_changed = shown.iter().zip(tracks.iter()).any(|(a, b)| match (a, b) {
+                    (Some(a), Some(b)) => !Arc::ptr_eq(a, b),
+                    (None, None) => false,
+                    _ => true,
+                });
+                if loaded_changed {
+                    *shown = tracks.clone();
+                }
+                if controls_changed || moved || loaded_changed {
+                    app.window().request_redraw();
+                }
             },
         );
     }
@@ -932,7 +970,10 @@ struct Resolved {
     by_name: HashMap<(String, String), i32>,
 }
 
-fn bind_controls(app: &AppWindow, registry: Arc<ControlRegistry>) {
+/// Hooks the skin's controls up to the registry. Returns a count that goes
+/// up whenever any control the skin shows changes, so the UI only looks
+/// again (and redraws) when something did.
+fn bind_controls(app: &AppWindow, registry: Arc<ControlRegistry>) -> impl Fn() -> u64 {
     let handles: Rc<RefCell<Resolved>> = Default::default();
     let controls = app.global::<Controls>();
     let get = {
@@ -984,6 +1025,12 @@ fn bind_controls(app: &AppWindow, registry: Arc<ControlRegistry>) {
             c.reset()
         }
     });
+    move || {
+        let h = handles.borrow();
+        // Each version only goes up, so their sum moves when any one does;
+        // a newly resolved control adds to it too.
+        h.handles.iter().map(|c| c.version() as u64).sum::<u64>() + h.handles.len() as u64
+    }
 }
 
 #[cfg(test)]
@@ -1326,6 +1373,34 @@ impl CoverImage {
             }
         }
     }
+}
+
+/// Whether two deck infos show the same. Their lists are new models each
+/// time, which never compare equal, so they are compared by their rows; and
+/// Slint never finds two empty images equal, so those are compared by size.
+fn same_deck_info(old: &DeckInfo, new: &DeckInfo) -> bool {
+    fn same<T: Clone + PartialEq + 'static>(a: &ModelRc<T>, b: &ModelRc<T>) -> bool {
+        a.row_count() == b.row_count() && a.iter().eq(b.iter())
+    }
+    let lists_same = same(&old.key_menu, &new.key_menu)
+        && same(&old.key_menu_all, &new.key_menu_all)
+        && same(&old.stem_names, &new.stem_names)
+        && same(&old.stem_colors, &new.stem_colors)
+        && same(&old.effects, &new.effects);
+    let no_cover = |i: &slint::Image| i.size() == Default::default();
+    let covers_same = old.cover == new.cover || (no_cover(&old.cover) && no_cover(&new.cover));
+    // Everything else, with the lists and covers (compared above) the same.
+    let blank = slint::Image::from_rgba8(slint::SharedPixelBuffer::new(1, 1));
+    let rest = |i: &DeckInfo| DeckInfo {
+        key_menu: Default::default(),
+        key_menu_all: Default::default(),
+        stem_names: Default::default(),
+        stem_colors: Default::default(),
+        effects: Default::default(),
+        cover: blank.clone(),
+        ..i.clone()
+    };
+    lists_same && covers_same && rest(old) == rest(new)
 }
 
 struct Gpu {
