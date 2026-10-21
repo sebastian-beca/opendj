@@ -112,13 +112,41 @@ the VirtualDJ folder and history, VirtualDJ's cues, grids and markers, and
 the tracks only VirtualDJ had. Tracks in your own lists or music folder
 stay.
 
-## Keeping it tidy
+## Library Health
 
-- Keep your files in one music folder, and point openDJ at it.
-- Move or rename files with openDJ closed, then let it rescan. The
-  **Missing files** smart list shows tracks whose file has gone.
-- **Duplicates** shows tracks that appear more than once.
-- Load a new track once before a set, so it is analysed and ready.
+**Library Health**, under All Tracks in the collection, checks the whole
+library for what needs fixing. Its page has one line per check, with how
+many tracks it finds; **Review** lists them, and the bar above the list
+fixes them all at once. To fix only some, pick them (shift-click for a
+range) and right-click.
+
+| Check | Finds | Fixes |
+|---|---|---|
+| Not music | Audiobooks, podcasts and spoken word: Apple Books and Podcasts folders, `.m4b` files, genres such as Audiobook, "(Unabridged)" albums, and chapters (several tracks in one folder sharing a title) | Remove from library, It's music |
+| Strays | Files outside your Inbox, Triage and Collection folders | Move to Triage, Remove from library |
+| Duplicates | The same track more than once | Review for now |
+| Not analyzed | No tempo or key | Analyze, in the background |
+| Missing info | No artist, title, album, year or genre | Fill from file name (`Artist - Title.mp3`), written to the file too |
+| No cover | No picture in the file's tags or its folder | Find one from the track's info panel |
+| No rating | No stars | Rate them in the list |
+| Missing files | The file isn't where the library expects it | Find files (looks for the same file name in your stage folders and music folder), Remove from library |
+| Long tracks | Over 20 minutes: recorded sets and long pieces | Tag as #mix |
+
+**Ignore for** in the right-click menu tells a check to leave a track
+alone. A track that isn't music is left out of the other checks, so an
+audiobook doesn't also show up as missing its cover.
+
+**Remove from library** keeps the file where it is. The track no longer
+shows, and a rescan or a VirtualDJ import doesn't bring it back; adding the
+file again does, and so does **Bring back** at the bottom of the page.
+
+Each check is also a search: `is:notmusic`, `is:stray`, `is:unanalyzed`,
+`is:noinfo`, `is:nocover`, `is:unrated`, `is:missing`, `is:long` and
+`is:duplicate`.
+
+Covers are looked for in the background, and a file is looked at again
+only when it changes. On a Mac, files that iCloud has taken off the disk
+are skipped, so the check doesn't download your whole collection.
 
 ## Search
 

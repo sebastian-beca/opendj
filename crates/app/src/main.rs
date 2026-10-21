@@ -33,6 +33,7 @@ mod analysis_queue;
 mod art;
 mod automix;
 mod browser;
+mod cover_scan;
 mod coverart;
 mod diagnostics;
 mod files;
@@ -682,6 +683,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 browser.borrow_mut().poll_art();
                 browser.borrow_mut().poll_analysis();
+                browser.borrow_mut().poll_covers();
                 browser.borrow_mut().poll_files();
                 prefs.borrow_mut().poll();
                 if let Some(c) = &controllers {

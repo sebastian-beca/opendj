@@ -196,6 +196,42 @@ export global FilesUi {
 
 // The stores source: switching to it from elsewhere, its search box, and
 // the purchase inbox.
+// One check on the Library Health page.
+export struct HealthCard {
+    title: string,
+    about: string,
+    // Tracks it finds; -1 while it is still looking.
+    count: int,
+    // More on what it found, e.g. "29 without artist or title".
+    detail: string,
+    fixes: [string],
+    // The fixes the track menu offers (indices into `fixes`): those its
+    // stage lines don't already.
+    menu-fixes: [int],
+}
+
+// Library Health: the checks' page and the bar over a check's tracks.
+export global HealthUi {
+    // The Library Health node is selected: its page shows instead of the list.
+    in property <bool> overview;
+    // The check whose tracks are listed (an index into `cards`), or -1.
+    in property <int> check: -1;
+    in property <[HealthCard]> cards;
+    // What the last fix did.
+    in property <string> status;
+    // Tracks taken out of the library, which can be brought back.
+    in property <int> removed;
+    // Shows a check's tracks.
+    callback review(check: int);
+    // Runs fix `action` of the listed check on rows `first` to `last`, or on
+    // every listed track when `first` is -1.
+    callback fix(action: int, first: int, last: int);
+    // The listed check leaves these rows alone from now on.
+    callback ignore(first: int, last: int);
+    // Brings back every track taken out of the library.
+    callback restore();
+}
+
 export global StoreUi {
     // The source picked in the rail, so the app can switch to the stores.
     in-out property <int> source;
@@ -358,6 +394,24 @@ component TrackMenu inherits PopupWindow {
                 root.close();
             }
         }
+        if HealthUi.check >= 0 && HealthUi.check < HealthUi.cards.length: VerticalLayout {
+            spacing: 2px;
+            MenuSeparator {}
+            for j in HealthUi.cards[HealthUi.check].menu-fixes: MenuLine {
+                text: HealthUi.cards[HealthUi.check].fixes[j];
+                clicked => {
+                    HealthUi.fix(j, track-row, track-last);
+                    root.close();
+                }
+            }
+            MenuLine {
+                text: "Ignore for " + HealthUi.cards[HealthUi.check].title;
+                clicked => {
+                    HealthUi.ignore(track-row, track-last);
+                    root.close();
+                }
+            }
+        }
         if StoreUi.source == 1 && !FilesUi.in-collection(track-row): MenuLine {
             text: "Add to Collection";
             clicked => {
@@ -427,7 +481,7 @@ component FolderIcon inherits Rectangle {
         commands: "M 5 14 A 3 3 0 0 1 4.6 8 A 4.5 4.5 0 0 1 13 6.8 A 3.6 3.6 0 0 1 13.6 14 Z";
     }
     if kind != 1 && kind != 6 && kind != 7 && kind != 9: Text {
-        text: kind == 0 ? "♫" : kind == 3 ? "✦" : kind == 4 ? "♥" : kind == 5 ? "◷" : kind == 8 ? "★" : kind == 10 ? "↓" : kind == 11 ? "◐" : "≡";
+        text: kind == 0 ? "♫" : kind == 3 ? "✦" : kind == 4 ? "♥" : kind == 5 ? "◷" : kind == 8 ? "★" : kind == 10 ? "↓" : kind == 11 ? "◐" : kind == 12 ? "✚" : kind == 13 ? "◦" : "≡";
         color: Theme.text;
         font-size: kind == 2 ? 18px : 14px;
         font-weight: 700;
@@ -1155,6 +1209,162 @@ component HeaderCell inherits Rectangle {
     }
 }
 
+component HealthButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    callback clicked();
+    width: label.preferred-width + 20px;
+    height: 26px;
+    border-radius: 13px;
+    background: primary
+        ? (ta.has-hover ? Theme.accent.brighter(0.15) : Theme.accent)
+        : (ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.panel-raised);
+    label := Text {
+        text: root.text;
+        color: primary ? #000000 : Theme.text;
+        font-size: 12px;
+        font-weight: 600;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The Library Health page: one row per check with its count, what it looks
+// for, a button to see its tracks, and fixes for all of them at once.
+component HealthPanel inherits Rectangle {
+    background: Theme.browser;
+    ScrollView {
+        VerticalLayout {
+            padding: 16px;
+            spacing: 10px;
+            alignment: start;
+            Text { text: "Library Health"; color: Theme.text; font-size: 18px; font-weight: 700; }
+            Text {
+                text: "Each check finds tracks that need something. Review shows them in the list, where you can fix them all at once, or pick some and right-click.";
+                color: Theme.text-dim;
+                font-size: 13px;
+                wrap: word-wrap;
+            }
+            if HealthUi.status != "": Text { text: HealthUi.status; color: Theme.accent; font-size: 13px; wrap: word-wrap; }
+            for c[i] in HealthUi.cards: Rectangle {
+                height: 64px;
+                border-radius: 8px;
+                background: Theme.panel;
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 12px;
+                    spacing: 14px;
+                    Text {
+                        width: 64px;
+                        text: c.count < 0 ? "…" : c.count;
+                        color: c.count > 0 ? Theme.text : Theme.text-dim;
+                        font-size: 22px;
+                        font-weight: 700;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        horizontal-stretch: 1;
+                        Text { text: c.title; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
+                        Text { text: c.detail != "" ? c.about + " " + c.detail : c.about; color: Theme.text-dim; font-size: 12px; overflow: elide; }
+                    }
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        VerticalLayout {
+                            alignment: center;
+                            HealthButton {
+                                text: c.count > 0 ? "Review" : "Show";
+                                primary: c.count > 0;
+                                clicked => { HealthUi.review(i); }
+                            }
+                        }
+                    }
+                }
+            }
+            if HealthUi.removed > 0: Rectangle {
+                height: 52px;
+                border-radius: 8px;
+                background: Theme.panel;
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 12px;
+                    spacing: 14px;
+                    Text {
+                        width: 64px;
+                        text: HealthUi.removed;
+                        color: Theme.text-dim;
+                        font-size: 22px;
+                        font-weight: 700;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "Removed from the library. Their files are still where they were.";
+                        color: Theme.text-dim;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        HealthButton {
+                            text: "Bring back";
+                            clicked => { HealthUi.restore(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Over a check's tracks: what it looks for, and its fixes for every track
+// listed (right-click for only some).
+component HealthBar inherits Rectangle {
+    in property <HealthCard> card;
+    in property <int> listed;
+    height: 44px;
+    background: Theme.panel;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+        Text {
+            horizontal-stretch: 1;
+            text: HealthUi.status != "" ? HealthUi.status : card.about;
+            color: HealthUi.status != "" ? Theme.accent : Theme.text-dim;
+            font-size: 13px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if listed > 0: HorizontalLayout {
+            spacing: 8px;
+            for f[j] in card.fixes: VerticalLayout {
+                alignment: center;
+                HealthButton {
+                    text: f + (listed > 1 ? " (" + listed + ")" : "");
+                    primary: j == 0;
+                    clicked => { HealthUi.fix(j, -1, -1); }
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            HealthButton {
+                text: "All checks";
+                clicked => { HealthUi.review(-1); }
+            }
+        }
+    }
+}
+
 component TrackList inherits Rectangle {
     in property <[TrackRow]> rows;
     // Its selection is lilac while it has focus, gray while the folders do.
@@ -1594,6 +1804,7 @@ component TrackList inherits Rectangle {
                 ["~key:8A  ~bpm:124", "keys that mix; tempo within 6%"],
                 ["~deck", "mixes with the track playing"],
                 ["color:red  is:duplicate  is:missing", "colour; duplicates; missing files"],
+                ["is:notmusic  is:nocover  is:unrated", "Library Health's checks"],
                 ["-genre:techno", "leave out"],
                 ["glue | daft", "either"],
             ]: HorizontalLayout {
@@ -2138,13 +2349,23 @@ export component Browser inherits HorizontalLayout {
         spotify-connect(id) => { spotify-connect(id); }
         spotify-disconnect => { spotify-disconnect(); }
     }
+    // The Library Health page, or the bar over one check's tracks.
+    property <bool> health-page: source == 0 && HealthUi.overview;
+    property <bool> health-bar: source == 0 && HealthUi.check >= 0 && HealthUi.check < HealthUi.cards.length;
     Rectangle {
         horizontal-stretch: 1;
+        if health-bar: HealthBar {
+            y: 0;
+            height: 44px;
+            card: HealthUi.cards[HealthUi.check];
+            listed: rows.length;
+        }
         list := TrackList {
             focused: !folders-focused;
-            visible: !plugin-source;
+            visible: !plugin-source && !health-page;
+            y: health-bar ? 45px : 0;
             width: 100%;
-            height: 100%;
+            height: parent.height - self.y;
             rows: listing ? rows : [];
             results: StoreUi.services && (source == 5 || source == 9);
             sort-column: sort-column;
@@ -2160,6 +2381,10 @@ export component Browser inherits HorizontalLayout {
             search(t) => { search(t); }
             activate(r) => { activate(r); }
             took-focus => { folders-focused = false; }
+        }
+        if health-page: HealthPanel {
+            width: 100%;
+            height: 100%;
         }
         if plugin-source: SourceResults {
             width: 100%;
