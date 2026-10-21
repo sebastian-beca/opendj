@@ -116,6 +116,11 @@ pub(crate) struct DeckControls {
     /// `1 + rate * rateRange * rate_dir`. -1, the app's default, slows the
     /// deck down as the fader goes up, as on Pioneer players.
     pub(crate) rate_dir: ControlHandle,
+    /// Pitch reset: while on, the tempo glides back to 0% and the control
+    /// turns itself off when it gets there.
+    pub(crate) rate_reset: ControlHandle,
+    /// Puts the tempo at 0% at once (Mixxx's `rate_set_zero`).
+    pub(crate) rate_set_zero: ControlHandle,
     pub(crate) playposition: ControlHandle,
     pub(crate) volume: ControlHandle,
     pub(crate) pregain: ControlHandle,
@@ -274,6 +279,8 @@ impl DeckControls {
             rate: reg.create(g, "rate", 0.0, -1.0, 1.0, Behavior::Linear),
             rate_range: reg.create(g, "rateRange", 0.08, 0.01, 1.0, Behavior::Linear),
             rate_dir: reg.create(g, "rate_dir", 1.0, -1.0, 1.0, Behavior::Free),
+            rate_reset: reg.toggle(g, "rate_reset"),
+            rate_set_zero: reg.push(g, "rate_set_zero"),
             playposition: reg.create(g, "playposition", 0.0, 0.0, 1.0, Behavior::Linear),
             volume: reg.create(g, "volume", 1.0, 0.0, 1.0, Behavior::Linear),
             pregain: reg.create(g, "pregain", 1.0, 0.0, 4.0, Behavior::CenteredOnDefault),

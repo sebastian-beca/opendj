@@ -1,6 +1,6 @@
 import { Palette } from "std-widgets.slint";
 import { Theme, KeyNotation } from "theme.slint";
-import { Controls, VuMeter, ControlKnob } from "controls.slint";
+import { Controls, VuMeter, ControlKnob, HoverTipView } from "controls.slint";
 import { Deck, DeckInfo, KeyItem, EffectList, DeckActions } from "deck.slint";
 import { Mixer, AudioSettings, OutputRow } from "mixer.slint";
 import { PlayerDeck, PlayerMixer } from "player.slint";
@@ -861,6 +861,8 @@ export component AppWindow inherits Window {
             }
             TouchArea { clicked => { alert = ""; } }
         }
+
+        HoverTipView { width: root.width; height: root.height; }
 
         // Inside the shortcuts' scope, so Esc reaches it from the search box.
         if Preferences.open: PreferencesOverlay {

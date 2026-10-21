@@ -4,7 +4,7 @@
 // Large artwork, flat dark controls, white pointers.
 import { TrackDrag } from "library.slint";
 import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
-import { Caption, ControlButton, ControlFader, ControlKnob, Controls } from "controls.slint";
+import { Caption, ControlButton, ControlFader, ControlKnob, Controls, PitchReset } from "controls.slint";
 
 // A line of the key menu: a key shift and the key it gives.
 export struct KeyItem {
@@ -1328,10 +1328,25 @@ component Pitch inherits VerticalLayout {
     in property <string> group;
     in property <DeckInfo> info;
     in property <color> tint;
+    // Deck B: pitch reset goes on the fader's right, its outer side.
+    in property <bool> mirrored;
     width: 56px;
     spacing: 4px;
     Text { text: info.rate; color: Theme.text; font-size: 12px; font-weight: 500; horizontal-alignment: center; }
-    ControlFader { group: group; key: "rate"; center-mark: true; ticks: 9; tint: tint; vertical-stretch: 1; }
+    // Pitch reset on the outer side, level with 0%.
+    HorizontalLayout {
+        vertical-stretch: 1;
+        spacing: 1px;
+        if !mirrored: VerticalLayout {
+            alignment: center;
+            PitchReset { group: group; tint: tint; }
+        }
+        ControlFader { group: group; key: "rate"; center-mark: true; ticks: 9; tint: tint; horizontal-stretch: 1; }
+        if mirrored: VerticalLayout {
+            alignment: center;
+            PitchReset { group: group; tint: tint; points-left: true; }
+        }
+    }
     HorizontalLayout {
         spacing: 2px;
         ControlButton { group: group; key: "rate_perm_down_small"; text: "−"; momentary: true; tint: tint; font-size: 15px; height: 22px; horizontal-stretch: 1; }
@@ -1453,7 +1468,7 @@ export component Deck inherits Rectangle {
             HorizontalLayout {
                 padding: 8px;
                 spacing: 0px;
-                if mirrored: Pitch { group: group; info: info; tint: tint; }
+                if mirrored: Pitch { group: group; info: info; tint: tint; mirrored: true; }
                 if mirrored: Rectangle { width: 12px; }
                 if mirrored: PlaySection { group: group; info: info; tint: tint; spin: spin; }
                 if mirrored: VDivider { }
