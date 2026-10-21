@@ -46,6 +46,10 @@ jobs:
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Keep the build cache when signing or notarizing fails, so a re-run
+          # doesn't compile everything again.
+          cache-on-failure: true
       - run: |
           cargo build --release -p opendj --target aarch64-apple-darwin
           cargo build --release -p opendj --target x86_64-apple-darwin
