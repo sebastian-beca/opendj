@@ -21,6 +21,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 pub use rusqlite::Error;
 
+pub mod health;
 mod moves;
 pub mod query;
 pub mod stages;
@@ -435,6 +436,7 @@ impl Library {
         }
         db.execute_batch(LINKS_SCHEMA)?;
         db.execute_batch(MOVES_SCHEMA)?;
+        db.execute_batch(health::HEALTH_SCHEMA)?;
         let lib = Library { db };
         if version < 2 {
             lib.add_starter_smart_lists()?;
@@ -534,7 +536,7 @@ impl Library {
                     comment, grouping, labels, play_count, grid, added, key_source,
                     remix, year, track_number, user1, user2, gain, last_played,
                     disc_number, label, composer, remixer, isrc, user_more, stage
-             FROM tracks ORDER BY id",
+             FROM tracks WHERE id NOT IN (SELECT track_id FROM removed) ORDER BY id",
         )?;
         let rows = q.query_map([], |r| {
             let id: i64 = r.get(0)?;
@@ -817,6 +819,8 @@ impl Library {
                     now()
                 ])?;
                 let id: i64 = find.query_row([&p], |r| r.get(0))?;
+                // Added again by hand: a track taken out comes back.
+                tx.execute("DELETE FROM removed WHERE track_id = ?1", [id])?;
                 if added > 0 {
                     extras.execute(tag_extras(id, track))?;
                     set_details(&tx, id, &track.info, true)?;

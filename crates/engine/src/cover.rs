@@ -40,6 +40,12 @@ pub fn find_sized(path: &Path, album: &str, size: u32) -> Option<Cover> {
         .or_else(|| decode(&std::fs::read(beside(path, album)?).ok()?, size))
 }
 
+/// Whether the file at `path` has album art (in its tags or its folder),
+/// without decoding it.
+pub fn has_cover(path: &Path, album: &str) -> bool {
+    embedded(path).is_some() || beside(path, album).is_some()
+}
+
 fn embedded(path: &Path) -> Option<Vec<u8>> {
     let file = lofty::read_from_path(path).ok()?;
     let pictures: Vec<_> = file.tags().iter().flat_map(|t| t.pictures()).collect();
