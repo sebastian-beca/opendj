@@ -20,7 +20,10 @@
 //!   track playing now, by key and tempo.
 //! - `color:red` (or orange, yellow, green, cyan, blue, purple, pink),
 //!   `is:missing`, `is:duplicate`, `is:played`, `is:cued`, `is:prepped`
-//!   (artist, title, rating, tempo and key all there).
+//!   (artist, title, rating, tempo and key all there), and Library
+//!   Health's checks: `is:notmusic`, `is:stray`, `is:unanalyzed`,
+//!   `is:noinfo`, `is:nocover`, `is:unrated`, `is:long` (see
+//!   [`crate::health`]).
 //! - `stage:inbox`, `stage:triage`, `stage:collection` (see
 //!   [`crate::stages`]); `stage:none` for tracks outside the stage folders.
 //! - `-` in front of any term excludes it. Terms must all match; `|` or `OR`
@@ -163,6 +166,8 @@ enum Flag {
     Played,
     Cued,
     Prepped,
+    /// A Library Health check (see [`crate::health`]).
+    Health(crate::health::Check),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -197,6 +202,8 @@ pub struct Context<'a> {
     pub deck_track: Option<usize>,
     /// Ids of tracks that are in the library more than once.
     pub duplicates: Option<&'a HashSet<usize>>,
+    /// What Library Health's checks go by (`is:notmusic` and the like).
+    pub health: Option<&'a crate::health::Facts>,
 }
 
 /// A track's text fields lowercased once, so searching while typing stays
@@ -432,7 +439,8 @@ fn parse_test(word: &str) -> Option<Test> {
             "cued" => Test::Is(Flag::Cued),
             "prepped" | "ready" => Test::Is(Flag::Prepped),
             "" => return None,
-            _ => Test::Never,
+            other => crate::health::Check::from_name(other)
+                .map_or(Test::Never, |c| Test::Is(Flag::Health(c))),
         },
         "stage" => match v.to_ascii_lowercase().as_str() {
             "none" => Test::Stage(String::new()),
@@ -703,6 +711,14 @@ impl Term {
             Test::Is(Flag::Played) => t.info.play_count > 0,
             Test::Is(Flag::Cued) => !t.info.hotcues.is_empty(),
             Test::Is(Flag::Prepped) => crate::stages::Prep::of(t).done(),
+            Test::Is(Flag::Health(check)) => {
+                let none = HashSet::new();
+                let duplicates = cx.duplicates.unwrap_or(&none);
+                match cx.health {
+                    Some(facts) => facts.finds(*check, t, duplicates),
+                    None => crate::health::Facts::default().finds(*check, t, duplicates),
+                }
+            }
             Test::Stage(s) => t.info.stage == *s,
             Test::Never => false,
         }
@@ -935,11 +951,14 @@ mod tests {
         assert_eq!(find(&lib, "color:\"\""), [2, 3, 4]);
         assert_eq!(find(&lib, "is:played"), [1]);
         assert_eq!(find(&lib, "is:cued"), [3]);
+        assert_eq!(find(&lib, "is:unrated"), find(&lib, "rating:0"));
+        assert!(find(&lib, "is:nosuchcheck").is_empty());
         let cx = Context {
             now: 0,
             deck: Some((128.0, Key::parse("8A"))),
             deck_track: None,
             duplicates: None,
+            health: None,
         };
         assert_eq!(find_with(&lib, "~deck", &cx), [1, 3]);
         let playing_3 = Context {
