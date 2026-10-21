@@ -1,7 +1,7 @@
 // Sources that come from add-ons (see sources.rs): saved searches on the
 // left, a search box over the list, and results with a download for each.
 import { LineEdit, ListView } from "std-widgets.slint";
-import { Theme, EdgeLine } from "theme.slint";
+import { Theme, EdgeLine, CloseIcon } from "theme.slint";
 
 // A plugin source in the rail.
 export struct SourceTab {
@@ -659,7 +659,7 @@ export component SourceResults inherits Rectangle {
                         y: (parent.height - self.height) / 2;
                         border-radius: 11px;
                         background: xta.has-hover ? #3a3a3d : transparent;
-                        Text { text: "×"; color: xta.has-hover ? #ff6b5e : Theme.text-dim; font-size: 16px; }
+                        CloseIcon { size: 9px; color: xta.has-hover ? #ff6b5e : Theme.text-dim; }
                         xta := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.remove-download(i); } }
                     }
                 }

@@ -2,7 +2,7 @@
 // controllers only), gain and channel
 // faders in the middle with the main meter between them, crossfader below.
 // Dark knobs with white pointers, ticked faders.
-import { Theme, EdgeLine } from "theme.slint";
+import { Theme, EdgeLine, CloseIcon } from "theme.slint";
 import { Caption, Controls, ControlButton, ControlFader, ControlKnob, CueHeadphones, StereoMeter } from "controls.slint";
 import { EffectList, FxSlot } from "deck.slint";
 
@@ -149,17 +149,7 @@ export component OutputsTable inherits VerticalLayout {
             }
             Rectangle {
                 width: 20px;
-                // Drawn, as ✕ is missing from some fonts.
-                Path {
-                    width: 9px;
-                    height: 9px;
-                    viewbox-width: 10;
-                    viewbox-height: 10;
-                    commands: "M 1 1 L 9 9 M 9 1 L 1 9";
-                    stroke: xta.has-hover ? Theme.text : Theme.text-dim;
-                    stroke-width: 1.5px;
-                    fill: transparent;
-                }
+                CloseIcon { size: 9px; color: xta.has-hover ? Theme.text : Theme.text-dim; }
                 xta := TouchArea { mouse-cursor: pointer; clicked => { AudioSettings.remove(r); } }
             }
         }
