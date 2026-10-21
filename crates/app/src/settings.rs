@@ -548,15 +548,6 @@ pub fn set_columns(columns: &[(i32, f32)]) {
     save(|v| v["columns"] = json!(list));
 }
 
-/// Whether the filter bar shows above the track list.
-pub fn filters_visible() -> bool {
-    flag("filters_visible", true)
-}
-
-pub fn set_filters_visible(on: bool) {
-    save(|v| v["filters_visible"] = json!(on));
-}
-
 fn save(change: impl FnOnce(&mut Value)) {
     let Some(path) = path() else { return };
     let mut v = load();

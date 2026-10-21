@@ -333,7 +333,9 @@ impl FilterState {
 impl Browser {
     pub(super) fn install_filters(app: &AppWindow, b: &Rc<RefCell<Self>>) {
         let ui = app.global::<FilterUi>();
-        ui.set_shown(settings::filters_visible());
+        // The bar starts hidden; the filter button lights up while chips
+        // narrow the list.
+        ui.set_shown(false);
         let weak = Rc::downgrade(b);
         let with = move |f: &dyn Fn(&mut Browser)| {
             if let Some(b) = weak.upgrade() {
@@ -343,7 +345,6 @@ impl Browser {
         {
             let app = app.as_weak();
             ui.on_set_shown(move |on| {
-                settings::set_filters_visible(on);
                 if let Some(app) = app.upgrade() {
                     app.global::<FilterUi>().set_shown(on);
                 }
