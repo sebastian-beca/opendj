@@ -97,7 +97,8 @@ hidden and lights up while filters are on), and
 
 Right-click any column heading to choose which columns the list shows, your
 own fields included, or **Reset columns** to go back to the default. Drag a
-heading's right edge to make it wider or narrower, and drag the heading itself
+heading's right edge to make it wider or narrower (the title fills any spare room,
+so dragging its edge then resizes the next column), and drag the heading itself
 to move it. Click a heading to sort by it. openDJ remembers your columns.
 
 ## Your own fields
