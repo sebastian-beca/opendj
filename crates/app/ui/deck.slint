@@ -1358,23 +1358,20 @@ component Pitch inherits VerticalLayout {
 }
 
 // Play and pause in one button showing ▶: it fills with the deck colour
-// while playing and its background blinks while stopped, like a CDJ's.
+// while playing and its background blinks while a track waits, like a CDJ's.
 export component PlayButton inherits Rectangle {
     in property <string> group;
     in property <color> tint;
     property <int> index: Controls.resolve(group, "play");
     property <bool> playing: Controls.value(index, Controls.tick) > 0;
-    property <bool> blink;
+    property <bool> loaded: Controls.value(Controls.resolve(group, "track_loaded"), Controls.tick) > 0;
+    // Only with a track to play. A plain on and off, as on a CDJ: fading
+    // each blink would keep the window redrawing most of the time.
+    property <bool> blink: loaded && Controls.blink;
     border-radius: Theme.radius;
     border-width: 1px;
     border-color: playing ? tint : Theme.border;
     background: playing ? tint : touch.pressed ? Theme.control-pressed : blink ? tint.with-alpha(0.28) : Theme.control;
-    animate background { duration: 120ms; }
-    Timer {
-        interval: 500ms;
-        running: !playing;
-        triggered => { blink = !blink; }
-    }
     Path {
         width: 16px;
         height: 18px;
