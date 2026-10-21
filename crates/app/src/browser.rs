@@ -2613,6 +2613,8 @@ impl Browser {
             app.set_side_tab(LINKED_TAB as i32);
         }
         let mut steps: f64 = self.lib.steps.iter().map(|(c, sign)| take(c) * sign).sum();
+        // Clicking a folder or a track moves the focus too.
+        self.folders_focused = app.get_folders_focused();
         if self.lib.focus.iter().map(take).sum::<f64>() != 0.0 {
             self.folders_focused = !self.folders_focused;
             app.set_folders_focused(self.folders_focused);

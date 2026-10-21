@@ -41,7 +41,10 @@ export global Theme {
     // library highlight.
     out property <color> lilac: #b69cff;
     out property <color> accent: root.lilac;
-    out property <color> selection: root.lilac;
+    // The library highlight: a darker lilac so white text reads on it.
+    out property <color> selection: #8c72d9;
+    // The highlight in whichever list (folders or tracks) doesn't have focus.
+    out property <color> selection-idle: #4a4a4d;
     // Text on the lilac highlight: the logo's ink.
     out property <color> on-selection: #151329;
     out property <color> on-selection-dim: #151329b0;
