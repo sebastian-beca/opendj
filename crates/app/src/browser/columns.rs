@@ -189,7 +189,7 @@ impl Layout {
     }
 
     /// Moves the column at `from` to where `x` falls along the header,
-    /// given the title's width (it takes the room the others leave).
+    /// given the title's width.
     pub fn move_to(&mut self, from: usize, x: f32, title_width: f32, spacing: f32) {
         if from >= self.shown.len() {
             return;
@@ -331,22 +331,13 @@ impl ColumnState {
         HEADER_LEAD + HEADER_TRAIL + fixed
     }
 
-    /// The title's width in a header `header` wide: the room the others leave.
-    fn title_width(&self, header: f32) -> f32 {
-        let others: f32 = self
-            .layout
-            .shown
-            .iter()
-            .filter(|(id, _)| *id != TITLE_ID)
-            .map(|(_, w)| w + SPACING)
-            .sum();
-        let own = self
-            .layout
+    /// The title's width: like the others, it keeps its own.
+    fn title_width(&self) -> f32 {
+        self.layout
             .shown
             .iter()
             .find(|(id, _)| *id == TITLE_ID)
-            .map_or(TITLE_ROOM, |&(id, w)| shown_width(id, w));
-        (header - HEADER_LEAD - HEADER_TRAIL - others).max(own)
+            .map_or(TITLE_ROOM, |&(id, w)| shown_width(id, w))
     }
 }
 
@@ -355,8 +346,7 @@ impl ColumnState {
 const HEADER_LEAD: f32 = 6.0 + 26.0 + 8.0 + 22.0 + 8.0;
 const HEADER_TRAIL: f32 = 14.0;
 const SPACING: f32 = 8.0;
-/// The title's width until it's resized; it also takes any room the other
-/// columns leave.
+/// The title's width until it's resized.
 const TITLE_ROOM: f32 = 220.0;
 
 /// A column's width as laid out: the title's is unset (0) until resized.
@@ -421,13 +411,11 @@ impl Browser {
         let w = with.clone();
         ui.on_resized(move || w(&|b| settings::set_columns(&b.columns.layout.shown)));
         let w = with.clone();
-        ui.on_drag(move |i, x, header| {
+        ui.on_drag(move |i, x, _header| {
             w(&|b| {
                 // Mark where the heading would land, unless it stays put.
                 let c = &b.columns;
-                let (to, left) = c
-                    .layout
-                    .slot(x - HEADER_LEAD, c.title_width(header), SPACING);
+                let (to, left) = c.layout.slot(x - HEADER_LEAD, c.title_width(), SPACING);
                 let from = i.max(0) as usize;
                 let at = if to == from || to == from + 1 {
                     -1.0
@@ -440,9 +428,9 @@ impl Browser {
             })
         });
         let w = with.clone();
-        ui.on_move(move |i, x, header| {
+        ui.on_move(move |i, x, _header| {
             w(&|b| {
-                let title = b.columns.title_width(header);
+                let title = b.columns.title_width();
                 b.columns
                     .layout
                     .move_to(i.max(0) as usize, x - HEADER_LEAD, title, SPACING);
