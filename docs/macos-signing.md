@@ -55,3 +55,12 @@ submission id; `xcrun notarytool log <id> --apple-id … --team-id …` says why
 - Entitlements in `res/macos/opendj.entitlements`: only
   `com.apple.security.device.audio-input`, so microphone and line inputs keep
   working under the hardened runtime.
+
+## In-app updates
+
+openDJ checks GitHub's latest release when it starts (Settings → Feedback →
+Check for updates). The macOS app installs an update itself only if the
+download matches GitHub's checksum, passes Gatekeeper (notarized) and is
+signed by the same Team ID as the running app, so every release must be
+signed and notarized for updates to keep working. Builds older than the
+updater (0.2.0 and before) need one manual download.
