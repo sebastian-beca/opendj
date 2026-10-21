@@ -137,6 +137,9 @@ pub struct Snapshot {
     pub done: bool,
     /// A line about the search as a whole, e.g. "18 of 22 found".
     pub note: String,
+    /// A name to list the search by when its query isn't one, e.g. a
+    /// playlist's name for its link. Empty keeps the query.
+    pub title: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
