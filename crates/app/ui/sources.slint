@@ -1,6 +1,7 @@
 // Sources that come from add-ons (see sources.rs): saved searches on the
 // left, a search box over the list, and results with a download for each.
-import { LineEdit, ListView } from "std-widgets.slint";
+import { LineEdit } from "std-widgets.slint";
+import { ListView } from "scroll.slint";
 import { Theme, EdgeLine, CloseIcon } from "theme.slint";
 
 // A plugin source in the rail.
@@ -576,7 +577,7 @@ export component SourceResults inherits Rectangle {
                 background: r.kind == 1 ? (ta.has-hover ? #2e2e33 : #26262a)
                     : r.kind == 0 ? transparent
                     : r.checked ? #4a3f6e
-                    : ta.has-hover ? #2a2a2e : mod(i, 2) == 1 ? #ffffff0b : transparent;
+                    : ta.has-hover ? #2a2a2e : mod(i, 2) == 1 ? Theme.row-alt : Theme.row;
                 ta := TouchArea {
                     clicked => {
                         if r.kind == 1 { SourceUi.toggle-open(i); }

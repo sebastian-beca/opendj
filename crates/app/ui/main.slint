@@ -440,7 +440,7 @@ export component AppWindow inherits Window {
     in property <angle> spin-1;
     in property <angle> spin-2;
     in property <string> clock;
-    in property <bool> folders-focused;
+    in-out property <bool> folders-focused;
 
     in property <[Folder]> folders;
     in property <int> current-folder;
@@ -719,7 +719,7 @@ export component AppWindow inherits Window {
                 vertical-stretch: 1;
                 folders: folders;
                 current-folder: current-folder;
-                folders-focused: folders-focused;
+                folders-focused <=> folders-focused;
                 folder-name: folder-name;
                 folder-duration: folder-duration;
                 spotify-connected: spotify-connected;

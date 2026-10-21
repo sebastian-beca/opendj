@@ -15,6 +15,14 @@ export global Theme {
     out property <color> background: #0e0e10;
     out property <color> panel: #1a1a1c;
     out property <color> panel-raised: #232326;
+    // The library browser's background, and its rows, which alternate
+    // between two tones.
+    out property <color> browser: #101112;
+    // Scrollbar thumbs, and while under the pointer or dragged.
+    out property <color> scroll-thumb: #ffffff40;
+    out property <color> scroll-thumb-active: #ffffff80;
+    out property <color> row: #161819;
+    out property <color> row-alt: #101112;
     out property <color> control: #161618;
     out property <color> control-pressed: #2c2c2f;
     out property <color> border: #353538;
@@ -33,10 +41,16 @@ export global Theme {
     // library highlight.
     out property <color> lilac: #b69cff;
     out property <color> accent: root.lilac;
-    out property <color> selection: root.lilac;
+    // The library highlight: a darker lilac so white text reads on it.
+    out property <color> selection: #8c72d9;
+    // The highlight in whichever list (folders or tracks) doesn't have focus.
+    out property <color> selection-idle: #4a4a4d;
     // Text on the lilac highlight: the logo's ink.
     out property <color> on-selection: #151329;
     out property <color> on-selection-dim: #151329b0;
+    // Text on a lilac track row in the library browser.
+    out property <color> on-row-selection: #ffffff;
+    out property <color> on-row-selection-dim: #ffffffb0;
     out property <color> deck1: #0a84ff;
     out property <color> deck2: #ff453a;
     out property <color> deck3: #30d158;
