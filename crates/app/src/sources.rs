@@ -224,12 +224,24 @@ struct Search {
     items: Vec<Found>,
     done: bool,
     note: String,
+    /// What the source calls it, e.g. a playlist's name; empty for none.
+    title: String,
     error: Option<String>,
     /// Folders the DJ has opened, by key.
     open: HashSet<String>,
 }
 
 impl Search {
+    /// What the search is listed by: the source's name for it, else the
+    /// query.
+    fn name(&self) -> &str {
+        if self.title.is_empty() {
+            &self.query.text
+        } else {
+            &self.title
+        }
+    }
+
     fn find(&self, key: &str) -> Option<&Found> {
         self.items.iter().find_map(|f| {
             if f.key == key {
@@ -499,6 +511,9 @@ impl Sources {
                         search.items = items;
                         search.done = snap.done;
                         search.note = snap.note;
+                        if !snap.title.is_empty() {
+                            search.title = snap.title;
+                        }
                     }
                 }
                 Event::SearchFailed(s, local, error) => {
@@ -574,6 +589,7 @@ impl Sources {
                 items: Vec::new(),
                 done: false,
                 note: String::new(),
+                title: String::new(),
                 error: None,
                 open: HashSet::new(),
             },
@@ -886,7 +902,7 @@ impl Sources {
             .searches
             .iter()
             .map(|search| SearchItem {
-                name: search.query.text.as_str().into(),
+                name: search.name().into(),
                 sub: search_line(search).into(),
                 kind: if search.items.iter().any(|f| !f.group.is_empty()) {
                     QueryKind::ALL
@@ -950,7 +966,7 @@ impl Sources {
         };
         let (title, summary, notice) = match self.current() {
             Some((_, search)) => (
-                search.query.text.clone(),
+                search.name().to_string(),
                 search_line(search),
                 match (&search.error, search.done, search.items.is_empty()) {
                     (Some(e), _, _) => e.clone(),
@@ -1267,6 +1283,7 @@ mod tests {
             items,
             done,
             note: String::new(),
+            title: String::new(),
             error: None,
             open: HashSet::new(),
         }
@@ -1289,6 +1306,15 @@ mod tests {
             folder_or_default("~/Music/In", "Soulseek", None),
             Some(home.join("Music/In"))
         );
+    }
+
+    #[test]
+    fn listed_by_the_sources_name() {
+        let mut s = search(vec![], true);
+        s.query.text = "https://open.spotify.com/playlist/x".into();
+        assert_eq!(s.name(), "https://open.spotify.com/playlist/x");
+        s.title = "Psy chill".into();
+        assert_eq!(s.name(), "Psy chill");
     }
 
     #[test]
