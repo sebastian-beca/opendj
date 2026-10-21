@@ -149,6 +149,19 @@ pub(crate) fn tags_rewritten(path: &Path, old: Option<PathBuf>) {
     }
 }
 
+/// Where `path`'s analysis is kept now, to hand to [`file_moved`] once the
+/// file has moved.
+pub fn before_move(path: &Path) -> Option<PathBuf> {
+    entry(path)
+}
+
+/// Moves the analysis and stems of a file that moved to `path` (the cache
+/// is keyed by path), so neither is worked out again. `old` is what
+/// [`before_move`] gave for its old path.
+pub fn file_moved(path: &Path, old: Option<PathBuf>) {
+    tags_rewritten(path, old)
+}
+
 /// Where the stems separated from `path` are kept.
 pub(crate) fn stems_dir(path: &Path) -> Option<PathBuf> {
     let analysis = entry(path)?;

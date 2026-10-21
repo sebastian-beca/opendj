@@ -386,6 +386,35 @@ pub fn music_folder() -> Option<PathBuf> {
     path_of("music_folder").or_else(default_music_dir)
 }
 
+/// The stage folders (see [`mixxx_library::stages`]): any number of inbox
+/// folders, one triage folder and one collection folder.
+pub fn stage_folders() -> mixxx_library::stages::Folders {
+    mixxx_library::stages::Folders {
+        inbox: paths(STAGE_INBOX),
+        triage: path_of(STAGE_TRIAGE),
+        collection: path_of(STAGE_COLLECTION),
+    }
+}
+
+pub const STAGE_INBOX: &str = "stage_inbox";
+pub const STAGE_TRIAGE: &str = "stage_triage";
+pub const STAGE_COLLECTION: &str = "stage_collection";
+/// Whether openDJ moves files between the stage folders. Off until the DJ
+/// turns it on, as another app may still point at where they are; moves
+/// wait in a queue meanwhile.
+pub const MOVE_FILES: &str = "move_files";
+/// Whether a file going from the inbox to triage is renamed "Artist -
+/// Title (Remix)".
+pub const RENAME_TO_TRIAGE: &str = "rename_to_triage";
+
+pub fn move_files() -> bool {
+    flag(MOVE_FILES, false)
+}
+
+pub fn rename_to_triage() -> bool {
+    flag(RENAME_TO_TRIAGE, true)
+}
+
 /// The purchase inbox: whether it's on, the folder it watches, and what it
 /// does with what arrives (see [`mixxx_plugins::inbox::Mode`]).
 pub struct InboxSettings {

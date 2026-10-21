@@ -337,6 +337,10 @@ pub struct LibraryInfo {
     pub isrc: String,
     /// Named sections, phrases and mix points, in time order.
     pub markers: Vec<Marker>,
+    /// Where the track is on its way into the collection: "inbox",
+    /// "triage", "collection", "dismissed" (passed over in the inbox), or
+    /// empty when the DJ hasn't set up the stage folders.
+    pub stage: String,
 }
 
 impl LibraryInfo {

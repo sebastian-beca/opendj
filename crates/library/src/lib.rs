@@ -21,7 +21,11 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 pub use rusqlite::Error;
 
+mod moves;
 pub mod query;
+pub mod stages;
+
+pub use moves::{Change, FileMove, MoveReport};
 
 /// Library track ids start here, clear of the built-in sample tracks.
 pub const ID_BASE: usize = 1_000_000;
@@ -36,7 +40,8 @@ pub const ID_BASE: usize = 1_000_000;
 /// 7 added `tracks.disc_number`, `label`, `composer`, `remixer` and `isrc`,
 /// `markers`, and `playlists.source` for lists brought in from another app.
 /// 8 added `tracks.user_more`: tag fields from Tag 3 up.
-const VERSION: i32 = 8;
+/// 9 added `tracks.stage` (see [`stages`]).
+const VERSION: i32 = 9;
 
 /// The smart lists a new library starts with: name and search.
 const STARTER_SMART_LISTS: [(&str, &str); 6] = [
@@ -142,7 +147,7 @@ CREATE TABLE IF NOT EXISTS inbox_log (
 ";
 
 /// Columns added to `tracks` after version 1: name and definition.
-const ADDED_COLUMNS: [(&str, &str); 15] = [
+const ADDED_COLUMNS: [(&str, &str); 16] = [
     ("store", "store TEXT NOT NULL DEFAULT ''"),
     ("store_url", "store_url TEXT"),
     // Where the key came from: 'analysis', 'tags', or another app's name;
@@ -166,6 +171,8 @@ const ADDED_COLUMNS: [(&str, &str); 15] = [
     ("isrc", "isrc TEXT NOT NULL DEFAULT ''"),
     // The DJ's tag fields after the first two, one per line (version 8).
     ("user_more", "user_more TEXT NOT NULL DEFAULT ''"),
+    // Inbox, triage or collection, as `Stage::name`; empty for none (version 9).
+    ("stage", "stage TEXT NOT NULL DEFAULT ''"),
 ];
 
 /// Tracks the DJ linked as going well together: `track` links to `linked`. Created on every open rather than by
@@ -178,6 +185,27 @@ CREATE TABLE IF NOT EXISTS track_links (
     PRIMARY KEY (track, linked)
 );
 CREATE INDEX IF NOT EXISTS track_links_linked ON track_links(linked);
+";
+
+/// Files moved between the stage folders, and the stage changes that go
+/// with them. A move waits (`done` NULL) while the DJ keeps file moves
+/// off; `undone` is set when it was taken back. Changes made together
+/// share a `batch`, which is undone as one. Created on every open, as
+/// [`LINKS_SCHEMA`] is.
+const MOVES_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS file_moves (
+    id INTEGER PRIMARY KEY,
+    batch INTEGER NOT NULL,
+    track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    from_path TEXT NOT NULL,
+    to_path TEXT NOT NULL,
+    from_stage TEXT NOT NULL,
+    to_stage TEXT NOT NULL,
+    queued INTEGER NOT NULL,
+    done INTEGER,
+    undone INTEGER
+);
+CREATE INDEX IF NOT EXISTS file_moves_track ON file_moves(track_id);
 ";
 
 /// Stores the tags a scan reads beyond the basic ones (`?1` is the row),
@@ -406,6 +434,7 @@ impl Library {
             db.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
         }
         db.execute_batch(LINKS_SCHEMA)?;
+        db.execute_batch(MOVES_SCHEMA)?;
         let lib = Library { db };
         if version < 2 {
             lib.add_starter_smart_lists()?;
@@ -504,7 +533,7 @@ impl Library {
             "SELECT id, path, artist, title, album, genre, duration, bpm, key, rating, color,
                     comment, grouping, labels, play_count, grid, added, key_source,
                     remix, year, track_number, user1, user2, gain, last_played,
-                    disc_number, label, composer, remixer, isrc, user_more
+                    disc_number, label, composer, remixer, isrc, user_more, stage
              FROM tracks ORDER BY id",
         )?;
         let rows = q.query_map([], |r| {
@@ -556,6 +585,7 @@ impl Library {
                         remixer: r.get(28)?,
                         isrc: r.get(29)?,
                         markers: Vec::new(),
+                        stage: r.get(31)?,
                     },
                 },
             ))
@@ -1620,7 +1650,7 @@ mod tests {
     use super::*;
     use mixxx_engine::beats::GridMarker;
 
-    fn file_track(path: &str, title: &str) -> Track {
+    pub(crate) fn file_track(path: &str, title: &str) -> Track {
         Track {
             id: 0,
             artist: "Artist".into(),

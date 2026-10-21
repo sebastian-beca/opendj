@@ -328,6 +328,24 @@ impl Prefs {
                 self.refresh();
                 continue;
             }
+            if id == "stage_inbox_add" {
+                let mut inbox = settings::paths(settings::STAGE_INBOX);
+                if !inbox.contains(&path) {
+                    inbox.push(path);
+                }
+                let inbox: Vec<String> = inbox
+                    .iter()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect();
+                settings::set(settings::STAGE_INBOX, json!(inbox));
+                self.stages_changed();
+                continue;
+            }
+            if id == settings::STAGE_TRIAGE || id == settings::STAGE_COLLECTION {
+                settings::set(&id, json!(path.to_string_lossy()));
+                self.stages_changed();
+                continue;
+            }
             settings::set(&id, json!(path.to_string_lossy()));
             if id == "recording_folder" {
                 self.recorder.configure(settings::recording());
@@ -350,6 +368,14 @@ impl Prefs {
                 self.refresh();
             }
         }
+    }
+
+    /// The stage folders changed: the library is updated, which finds what
+    /// is in them and gives tracks their stage.
+    fn stages_changed(&mut self) {
+        (self.rescan)();
+        self.library_note = "Updating… tracks in the stage folders get their stage.".into();
+        self.refresh();
     }
 
     /// A page was opened or the search changed.
@@ -892,6 +918,78 @@ impl Prefs {
         items
     }
 
+    /// Settings › Library › Stages: the inbox folders, the triage and
+    /// collection folders, and what happens to files between them.
+    fn stage_items(&self) -> Vec<PrefItem> {
+        let folders = settings::stage_folders();
+        let mut items = vec![
+            item("", HEADING, "STAGES", ""),
+            item(
+                "",
+                NOTE,
+                "",
+                "New music lands in the Inbox. Send what you like to Triage to prepare it \
+                 (tags, cover, rating, tempo and key), then add it to the Collection. \
+                 Subfolders of the Triage folder are triage crates.",
+            ),
+        ];
+        for (i, dir) in folders.inbox.iter().enumerate() {
+            items.push(PrefItem {
+                value: dir.to_string_lossy().into_owned().into(),
+                action: "Remove".into(),
+                ..item(
+                    &format!("stage_inbox_remove:{i}"),
+                    PATH,
+                    if i == 0 { "Inbox folders" } else { "" },
+                    "",
+                )
+            });
+        }
+        items.push(PrefItem {
+            action: "Add…".into(),
+            ..item(
+                "stage_inbox_add",
+                BUTTON,
+                if folders.inbox.is_empty() { "Inbox folders" } else { "Add an inbox folder" },
+                "Downloads, a Soulseek folder, where purchases land: anything new there shows up in the Inbox.",
+            )
+        });
+        items.push(PrefItem {
+            value: show(folders.triage.clone(), "None").into(),
+            action: "Choose…".into(),
+            ..item(
+                settings::STAGE_TRIAGE,
+                PATH,
+                "Triage folder",
+                "Where tracks you are preparing are kept.",
+            )
+        });
+        items.push(PrefItem {
+            value: show(folders.collection.clone(), "None").into(),
+            action: "Choose…".into(),
+            ..item(
+                settings::STAGE_COLLECTION,
+                PATH,
+                "Collection folder",
+                "Where prepared tracks are kept. Its subfolders (such as Albums) stay as they are.",
+            )
+        });
+        items.push(switch(
+            settings::MOVE_FILES,
+            "Move files",
+            "Moves files into these folders as tracks change stage. Leave it off while another \
+             app such as VirtualDJ still uses them: moves wait, and happen when you turn it on.",
+            settings::move_files(),
+        ));
+        items.push(switch(
+            settings::RENAME_TO_TRIAGE,
+            "Rename files sent to Triage",
+            "Names them \"Artist - Title (Remix)\" from their tags.",
+            settings::rename_to_triage(),
+        ));
+        items
+    }
+
     fn library_page(&mut self) -> Vec<PrefItem> {
         let env_note = |var: &str| {
             if std::env::var_os(var).is_some() {
@@ -941,6 +1039,9 @@ impl Prefs {
                 action: "Clear".into(),
                 ..item("clear_cache", BUTTON, "Analysis cache", &cache_detail)
             },
+        ];
+        items.extend(self.stage_items());
+        items.extend([
             item("", HEADING, "YOUR FIELDS", ""),
             item(
                 "",
@@ -950,7 +1051,7 @@ impl Prefs {
                  Mood or Instrument. Each name is also a search word (mood:uplifting) and a \
                  filter on the bar above the track list.",
             ),
-        ];
+        ]);
         let names = settings::field_names();
         items.push(PrefItem {
             value: names.grouping.clone().into(),
@@ -1192,6 +1293,11 @@ impl Prefs {
             return;
         }
         settings::set(id, json!(on));
+        if id == settings::MOVE_FILES && on {
+            // The library update makes the moves that were waiting.
+            (self.rescan)();
+            self.library_note = "Moving files that were waiting…".into();
+        }
         if id.starts_with("import:") {
             // Brings the library and its lists in again with the new choice.
             (self.rescan)();
@@ -1420,7 +1526,38 @@ impl Prefs {
             choose(id, "Choose a folder", true, self.chosen_tx.clone());
             return;
         }
+        if let Some(i) = id
+            .strip_prefix("stage_inbox_remove:")
+            .and_then(|i| i.parse::<usize>().ok())
+        {
+            let mut inbox = settings::paths(settings::STAGE_INBOX);
+            if i < inbox.len() {
+                inbox.remove(i);
+            }
+            let inbox: Vec<String> = inbox
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect();
+            settings::set(settings::STAGE_INBOX, json!(inbox));
+            self.stages_changed();
+            return;
+        }
         match id {
+            "stage_inbox_add" => choose(
+                id,
+                "Choose a folder to watch for new music",
+                true,
+                self.chosen_tx.clone(),
+            ),
+            settings::STAGE_TRIAGE => {
+                choose(id, "Choose the Triage folder", true, self.chosen_tx.clone())
+            }
+            settings::STAGE_COLLECTION => choose(
+                id,
+                "Choose the Collection folder",
+                true,
+                self.chosen_tx.clone(),
+            ),
             "music_folder" => choose(id, "Choose your music folder", true, self.chosen_tx.clone()),
             "recording_folder" => choose(
                 id,
