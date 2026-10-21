@@ -991,8 +991,13 @@ component HeaderCell inherits Rectangle {
     in property <int> sort-column;
     in property <bool> ascending;
     in property <TextHorizontalAlignment> align: left;
-    // The title takes the room left, so it has no edge to drag.
     in property <bool> resizable: true;
+    // The title also takes the room the others leave. While it does,
+    // dragging its edge resizes the column after it, `next-width` wide.
+    in property <bool> is-title;
+    in property <length> next-width: -1px;
+    // The list is wider than the columns need, so the title is stretched.
+    in property <bool> fills;
     // Where this heading is in `ColumnUi.columns`.
     in property <int> index;
     // The whole header, for working out where a heading is dropped.
@@ -1046,17 +1051,25 @@ component HeaderCell inherits Rectangle {
             }
         }
     }
-    // Drag the right edge to resize.
+    // Drag the right edge to resize. The handle spans the gap to the next
+    // heading, and a lilac line shows while it's hovered or dragged.
     if resizable: Rectangle {
-        x: parent.width - 3px;
-        width: 8px;
+        x: parent.width - 4px;
+        width: 12px;
         property <length> start-width;
         property <length> start-x;
+        property <bool> resize-next;
+        Rectangle {
+            x: 3px;
+            width: 2px;
+            background: rta.has-hover || rta.pressed ? Theme.accent : transparent;
+        }
         rta := TouchArea {
             mouse-cursor: col-resize;
             pointer-event(e) => {
                 if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
-                    start-width = root.width;
+                    resize-next = is-title && fills && next-width >= 0;
+                    start-width = resize-next ? next-width : root.width;
                     start-x = self.absolute-position.x + self.mouse-x;
                 }
                 if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
@@ -1065,7 +1078,11 @@ component HeaderCell inherits Rectangle {
             }
             moved => {
                 if self.pressed {
-                    ColumnUi.resize(index, start-width + (self.absolute-position.x + self.mouse-x - start-x));
+                    if resize-next {
+                        ColumnUi.resize(index + 1, start-width - (self.absolute-position.x + self.mouse-x - start-x));
+                    } else {
+                        ColumnUi.resize(index, start-width + (self.absolute-position.x + self.mouse-x - start-x));
+                    }
                 }
             }
         }
@@ -1301,12 +1318,14 @@ component TrackList inherits Rectangle {
             if results: Rectangle { width: w-action; }
             for col[c] in ColumnUi.columns: HeaderCell {
                 horizontal-stretch: col.kind == 1 ? 1 : 0;
-                min-width: col.kind == 1 ? 60px : col.width;
+                min-width: col.width;
                 max-width: col.kind == 1 ? 100000px : col.width;
                 text: col.label;
                 column: col.id;
                 index: c;
-                resizable: col.kind != 1;
+                is-title: col.kind == 1;
+                fills: lv.visible-width > ColumnUi.min-width + (results ? w-action + 8px : 0px);
+                next-width: c + 1 < ColumnUi.columns.length ? ColumnUi.columns[c + 1].width : -1px;
                 align: col.right ? right : left;
                 sort-column: sort-column;
                 ascending: ascending;
@@ -1443,7 +1462,7 @@ component TrackList inherits Rectangle {
                     }
                     for col[c] in ColumnUi.columns: Rectangle {
                         horizontal-stretch: col.kind == 1 ? 1 : 0;
-                        min-width: col.kind == 1 ? 60px : col.width;
+                        min-width: col.width;
                         max-width: col.kind == 1 ? 100000px : col.width;
                         property <color> plain: selected ? Theme.on-selection : (r.available && !r.missing) || r.action != "" ? Theme.text : Theme.text-dim;
                         if col.kind == 2: Text {
