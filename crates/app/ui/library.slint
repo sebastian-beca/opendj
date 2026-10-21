@@ -1362,7 +1362,7 @@ component TrackList inherits Rectangle {
                 property <bool> selected: i >= first-picked && i <= last-picked;
                 border-radius: 4px;
                 // Rows alternate darker and lighter.
-                background: selected ? Theme.selection : rta.has-hover ? #2a2a2e : mod(i, 2) == 1 ? #ffffff0b : transparent;
+                background: selected ? Theme.selection : rta.has-hover ? #2a2a2e : mod(i, 2) == 1 ? Theme.row-alt : Theme.row;
                 DragArea {
                     // Picked rows go together; any other row goes alone.
                     data: selected ? TrackDrag.payload(first-picked, last-picked) : TrackDrag.payload(i, i);
