@@ -992,12 +992,6 @@ component HeaderCell inherits Rectangle {
     in property <bool> ascending;
     in property <TextHorizontalAlignment> align: left;
     in property <bool> resizable: true;
-    // The title also takes the room the others leave. While it does,
-    // dragging its edge resizes the column after it, `next-width` wide.
-    in property <bool> is-title;
-    in property <length> next-width: -1px;
-    // The list is wider than the columns need, so the title is stretched.
-    in property <bool> fills;
     // Where this heading is in `ColumnUi.columns`.
     in property <int> index;
     // The whole header, for working out where a heading is dropped.
@@ -1058,7 +1052,6 @@ component HeaderCell inherits Rectangle {
         width: 12px;
         property <length> start-width;
         property <length> start-x;
-        property <bool> resize-next;
         Rectangle {
             x: 3px;
             width: 2px;
@@ -1068,8 +1061,7 @@ component HeaderCell inherits Rectangle {
             mouse-cursor: col-resize;
             pointer-event(e) => {
                 if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
-                    resize-next = is-title && fills && next-width >= 0;
-                    start-width = resize-next ? next-width : root.width;
+                    start-width = root.width;
                     start-x = self.absolute-position.x + self.mouse-x;
                 }
                 if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
@@ -1078,11 +1070,7 @@ component HeaderCell inherits Rectangle {
             }
             moved => {
                 if self.pressed {
-                    if resize-next {
-                        ColumnUi.resize(index + 1, start-width - (self.absolute-position.x + self.mouse-x - start-x));
-                    } else {
-                        ColumnUi.resize(index, start-width + (self.absolute-position.x + self.mouse-x - start-x));
-                    }
+                    ColumnUi.resize(index, start-width + (self.absolute-position.x + self.mouse-x - start-x));
                 }
             }
         }
@@ -1317,15 +1305,12 @@ component TrackList inherits Rectangle {
             Rectangle { width: w-deck; }
             if results: Rectangle { width: w-action; }
             for col[c] in ColumnUi.columns: HeaderCell {
-                horizontal-stretch: col.kind == 1 ? 1 : 0;
+                horizontal-stretch: 0;
                 min-width: col.width;
-                max-width: col.kind == 1 ? 100000px : col.width;
+                max-width: col.width;
                 text: col.label;
                 column: col.id;
                 index: c;
-                is-title: col.kind == 1;
-                fills: lv.visible-width > ColumnUi.min-width + (results ? w-action + 8px : 0px);
-                next-width: c + 1 < ColumnUi.columns.length ? ColumnUi.columns[c + 1].width : -1px;
                 align: col.right ? right : left;
                 sort-column: sort-column;
                 ascending: ascending;
@@ -1337,6 +1322,8 @@ component TrackList inherits Rectangle {
                     column-menu.show();
                 }
             }
+            // Every column keeps its width; spare room stays at the end.
+            Rectangle { horizontal-stretch: 1; }
         }
         // Where a dragged heading will land.
         if ColumnUi.drop-x >= 0: Rectangle {
@@ -1461,9 +1448,9 @@ component TrackList inherits Rectangle {
                         }
                     }
                     for col[c] in ColumnUi.columns: Rectangle {
-                        horizontal-stretch: col.kind == 1 ? 1 : 0;
+                        horizontal-stretch: 0;
                         min-width: col.width;
-                        max-width: col.kind == 1 ? 100000px : col.width;
+                        max-width: col.width;
                         property <color> plain: selected ? Theme.on-selection : (r.available && !r.missing) || r.action != "" ? Theme.text : Theme.text-dim;
                         if col.kind == 2: Text {
                             width: 100%;
@@ -1493,6 +1480,7 @@ component TrackList inherits Rectangle {
                             overflow: elide;
                         }
                     }
+                    Rectangle { horizontal-stretch: 1; }
                 }
             }
         }
