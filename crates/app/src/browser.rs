@@ -17,6 +17,7 @@ use mixxx_control::{ControlHandle, ControlRegistry};
 use mixxx_engine::key::Key;
 use mixxx_engine::scan::{is_audio, read_track};
 use mixxx_engine::{deck_group, AudioEngine, Hotcue, Track, NUM_DECKS, NUM_HOTCUES};
+use mixxx_library::health::{Check, Facts};
 use mixxx_library::query::{self, Context, Indexed, Query};
 use mixxx_library::stages::{Folders, Stage};
 use mixxx_library::{Library, PlaylistKind};
@@ -28,6 +29,7 @@ use mixxx_plugins::{ItemKind, StoreItem, StoreQuery};
 
 mod columns;
 mod filters;
+mod health;
 mod info;
 mod staging;
 
@@ -35,14 +37,15 @@ pub use filters::DEFAULT_PINNED;
 
 use crate::analysis_queue::AnalysisQueue;
 use crate::art::Art;
+use crate::cover_scan::CoverScan;
 use crate::files::{self, Found, Place};
 use crate::inbox::Inbox;
 use crate::settings::show_key;
 use crate::spotify::{self, open_in_browser, Event, Request, Spotify, SpotifyTrack};
 use crate::stores::{self, Stores};
 use crate::{
-    fmt_time, AppWindow, FilesUi, Folder, KeyNotation, LibraryEdit, SideRow, StoreUi, TrackDrag,
-    TrackRow,
+    fmt_time, AppWindow, FilesUi, Folder, HealthUi, KeyNotation, LibraryEdit, SideRow, StoreUi,
+    TrackDrag, TrackRow,
 };
 
 /// Sources in the rail that have a tree of their own.
@@ -88,6 +91,9 @@ enum Contents {
     /// The tracks at a stage (see [`mixxx_library::stages`]), or only those
     /// in one subfolder of its folder (a triage crate).
     Stage(Stage, Option<PathBuf>),
+    /// Library Health's page, or the tracks one of its checks finds (see
+    /// [`mixxx_library::health`]).
+    Health(Option<Check>),
 }
 
 /// Whether the streaming services and stores (Spotify, Bandcamp, the other
@@ -312,6 +318,9 @@ const KIND_CLOUD: i32 = 9;
 /// The inbox and triage stages; the collection stage is drawn as kind 0.
 const KIND_INBOX: i32 = 10;
 const KIND_TRIAGE: i32 = 11;
+/// Library Health, and one of its checks.
+const KIND_HEALTH: i32 = 12;
+const KIND_CHECK: i32 = 13;
 
 /// Track colours offered in the track menu, as in `LibraryEdit.colors`.
 const COLORS: [u32; 8] = [
@@ -426,6 +435,14 @@ pub struct Browser {
     /// Where files whose moves are waiting (file moves off) will go, by
     /// track id, so they show in the stage subfolder they're headed for.
     pending_moves: HashMap<usize, PathBuf>,
+    /// What Library Health's checks go by.
+    health: Facts,
+    /// Looks for covers in the background, for the "No cover" check.
+    cover_scan: CoverScan,
+    /// What the last Library Health fix did.
+    health_status: String,
+    /// How many tracks have been taken out of the library.
+    removed: usize,
 }
 
 /// The Files source: the folder listed and the thread reading it.
@@ -816,6 +833,10 @@ impl Browser {
             analysis: AnalysisQueue::start(),
             undo: None,
             pending_moves: HashMap::new(),
+            health: Facts::default(),
+            cover_scan: CoverScan::start(),
+            health_status: String::new(),
+            removed: 0,
         }));
         b.borrow_mut().set_library(library);
         app.global::<KeyNotation>().set_camelot(b.borrow().camelot);
@@ -848,6 +869,7 @@ impl Browser {
             w(Box::new(move |b| {
                 if let Some(&n) = b.visible_nodes.get(i as usize) {
                     b.current_node = n;
+                    b.health_status.clear();
                     if let Some(app) = b.app.upgrade() {
                         app.set_current_track(-1);
                     }
@@ -1245,6 +1267,7 @@ impl Browser {
         let w = with.clone();
         edit.on_set_rule(move |i, text| w(&|b| b.set_rule(i as usize, &text)));
         Self::install_staging(&edit, &with);
+        Self::install_health(&app.global::<HealthUi>(), &with);
     }
 
     /// Saves a search as a smart list at the top level (under "Smart
@@ -2078,6 +2101,7 @@ impl Browser {
         self.folders = crate::settings::stage_folders();
         self.read_pending_moves();
         self.queue_triage_analysis();
+        self.refresh_health();
         let tree = self.collection_tree();
         if self.tree == COLLECTION {
             self.nodes = tree;
@@ -2149,6 +2173,7 @@ impl Browser {
         } else {
             vec![Node::new("Collection", 0, 0, Contents::All)]
         };
+        tree.extend(health::health_nodes());
         let playlists = self
             .db
             .as_ref()
@@ -2895,6 +2920,7 @@ impl Browser {
                             .iter()
                             .filter(|t| !t.info.missing && self.at_stage(t, *stage, dir.as_deref()))
                             .count() as i32,
+                        Contents::Health(Some(check)) => self.health_count(*check) as i32,
                         _ => -1,
                     },
                 }
@@ -2937,6 +2963,7 @@ impl Browser {
             };
             edit.set_rule(rule.into());
             self.refresh_stage_ui(&edit);
+            self.refresh_health_ui();
             app.set_folders(ModelRc::new(VecModel::from(folders)));
             let current = self
                 .visible_nodes
@@ -2973,6 +3000,7 @@ impl Browser {
             deck: self.deck_ref,
             deck_track: self.deck_track,
             duplicates: Some(&self.duplicates),
+            health: Some(&self.health),
         }
     }
 
@@ -3070,6 +3098,8 @@ impl Browser {
                 .filter(|&t| self.at_stage(&self.library[t], *stage, dir.as_deref()))
                 .collect(),
             Contents::Query(q) => self.search(&Query::parse(q), None),
+            Contents::Health(Some(check)) => self.health_tracks(*check),
+            Contents::Health(None) => Vec::new(),
             Contents::Grouping(g) => all()
                 .into_iter()
                 .filter(|&t| self.library[t].info.grouping == *g)

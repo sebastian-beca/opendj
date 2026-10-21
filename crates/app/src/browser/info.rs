@@ -261,7 +261,7 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
 }
 
 /// The tags of `t` as they go in its file.
-fn tag_fields(t: &Track) -> TagFields {
+pub(super) fn tag_fields(t: &Track) -> TagFields {
     TagFields {
         title: t.title.clone(),
         artist: t.artist.clone(),
