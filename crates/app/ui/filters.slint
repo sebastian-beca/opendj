@@ -2,7 +2,7 @@
 // showing what it's set to, "+" to add another field, and a popup to pick
 // values. The app turns the chips into search text.
 import { LineEdit, ScrollView } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, CloseIcon } from "theme.slint";
 
 export struct FilterChip {
     // The field: "genre", "tag1", "bpm".
@@ -168,7 +168,7 @@ component Chip inherits Rectangle {
                     height: 18px;
                     border-radius: 9px;
                     background: xta.has-hover ? #ffffff26 : transparent;
-                    Text { text: "✕"; color: Theme.accent; font-size: 10px; }
+                    CloseIcon { size: 7px; color: Theme.accent; }
                 }
             }
             xta := TouchArea { mouse-cursor: pointer; clicked => { cleared(); } }
