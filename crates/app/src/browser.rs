@@ -2736,9 +2736,14 @@ impl Browser {
             self.loaded = loaded;
             self.update_reference();
             self.refresh_rows();
-        } else if self.update_reference() && self.follows_deck() {
+            self.refresh_side();
+        } else if self.update_reference() {
+            // Keys light up when they mix with the track playing now.
             self.refresh_rows();
-            self.refresh_filter_ui();
+            self.refresh_side();
+            if self.follows_deck() {
+                self.refresh_filter_ui();
+            }
         }
         // Grouping or a tag field renamed in Settings.
         let names = query::field_names();
@@ -2954,6 +2959,14 @@ impl Browser {
         self.deck_track = track;
         self.deck_ref = reference;
         changed
+    }
+
+    /// Whether a key mixes harmonically with the track playing now's.
+    fn mixes_with_deck(&self, key: &str) -> bool {
+        self.deck_ref
+            .and_then(|(_, k)| k)
+            .zip(Key::parse(key))
+            .is_some_and(|(a, b)| a.compatible(b))
     }
 
     /// Whether the list shown depends on the track playing now.
@@ -3203,6 +3216,7 @@ impl Browser {
                         SharedString::new()
                     },
                     key: show_key(r.key, self.camelot).into(),
+                    key_match: self.mixes_with_deck(r.key),
                     rating: r.rating as i32,
                     deck: r
                         .local
@@ -3286,6 +3300,7 @@ impl Browser {
                         SharedString::new()
                     },
                     key: show_key(&t.key, self.camelot).into(),
+                    key_match: self.mixes_with_deck(&t.key),
                     length: short_time(t.duration),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
@@ -3366,6 +3381,7 @@ impl Browser {
                         SharedString::new()
                     },
                     key: show_key(&t.key, self.camelot).into(),
+                    key_match: self.mixes_with_deck(&t.key),
                     length: short_time(t.duration),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),

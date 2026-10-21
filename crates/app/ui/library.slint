@@ -46,6 +46,8 @@ export struct TrackRow {
     action: string,
     // What each column in `ColumnUi.columns` shows, in the same order.
     cells: [string],
+    // Its key mixes harmonically with the track playing now.
+    key-match: bool,
 }
 
 // One of the track list's columns. kind: 0 text, 1 the title (takes the
@@ -92,6 +94,8 @@ export struct SideRow {
     length: string,
     cover: image,
     has-cover: bool,
+    // Its key mixes harmonically with the track playing now.
+    key-match: bool,
 }
 
 // Dragging tracks between the list, the side panel, the decks and the
@@ -448,7 +452,7 @@ component SourceRail inherits Rectangle {
     callback shown-changed(source: int, on: bool);
     property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Shopping"];
     width: 52px;
-    background: Theme.panel;
+    background: Theme.browser;
     rail := VerticalLayout {
         padding: 5px;
         alignment: start;
@@ -790,7 +794,7 @@ component FolderTree inherits Rectangle {
         }
     }
 
-    background: Theme.panel;
+    background: Theme.browser;
     width: 270px;
     rename-popup := PopupWindow {
         x: 8px;
@@ -921,7 +925,7 @@ component FolderTree inherits Rectangle {
                 for f[i] in folders: Rectangle {
                     height: 34px;
                     border-radius: Theme.radius;
-                    background: drop.has-drag ? Theme.selection.transparentize(0.4) : i == current ? (focused ? Theme.selection : #3a3a3d) : (ta.has-hover ? #232326 : transparent);
+                    background: drop.has-drag ? Theme.selection.transparentize(0.4) : i == current ? Theme.selection : (ta.has-hover ? #232326 : transparent);
                     ta := TouchArea {
                         clicked => { select(i); }
                         double-clicked => { toggle(i); }
@@ -965,7 +969,7 @@ component FolderTree inherits Rectangle {
                             TouchArea { clicked => { toggle(i); } }
                         }
                         VerticalLayout { alignment: center; FolderIcon { kind: f.kind; } }
-                        Text { text: f.name; color: i == current && focused ? Theme.on-selection : Theme.text; font-size: 15px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                        Text { text: f.name; color: i == current ? Theme.on-row-selection : Theme.text; font-size: 15px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                     }
                 }
             }
@@ -1204,7 +1208,7 @@ component TrackList inherits Rectangle {
         }
     }
 
-    background: Theme.panel;
+    background: Theme.browser;
     VerticalLayout {
         padding: 6px;
         spacing: 4px;
@@ -1464,18 +1468,18 @@ component TrackList inherits Rectangle {
                         horizontal-stretch: col.kind == 1 ? 1 : 0;
                         min-width: col.width;
                         max-width: col.kind == 1 ? 100000px : col.width;
-                        property <color> plain: selected ? Theme.on-selection : (r.available && !r.missing) || r.action != "" ? Theme.text : Theme.text-dim;
+                        property <color> plain: selected ? Theme.on-row-selection : (r.available && !r.missing) || r.action != "" ? Theme.text : Theme.text-dim;
                         if col.kind == 2: Text {
                             width: 100%;
                             text: r.rating == 0 ? "" : stars(r.rating);
-                            color: selected ? Theme.on-selection : #ffd60a;
+                            color: selected ? Theme.on-row-selection : #ffd60a;
                             font-size: 12px;
                             vertical-alignment: center;
                         }
                         if col.kind == 1: Text {
                             width: 100%;
                             text: r.title;
-                            color: selected ? Theme.on-selection : r.deck >= 0 ? Theme.deck-color(r.deck) : plain;
+                            color: selected ? Theme.on-row-selection : r.deck >= 0 ? Theme.deck-color(r.deck) : plain;
                             font-size: 15px;
                             vertical-alignment: center;
                             overflow: elide;
@@ -1483,9 +1487,9 @@ component TrackList inherits Rectangle {
                         if col.kind == 0 || col.kind >= 3: Text {
                             width: 100%;
                             text: c < r.cells.length ? r.cells[c] : "";
-                            color: col.kind == 3 ? (selected ? Theme.on-selection : Theme.key)
-                                : col.kind == 5 ? (selected ? Theme.on-selection : Theme.accent)
-                                : col.kind == 4 ? (selected ? Theme.on-selection-dim : Theme.text-dim)
+                            color: col.kind == 3 ? (selected ? Theme.on-row-selection : r.key-match ? Theme.lilac : Theme.text)
+                                : col.kind == 5 ? (selected ? Theme.on-row-selection : Theme.accent)
+                                : col.kind == 4 ? (selected ? Theme.on-row-selection-dim : Theme.text-dim)
                                 : plain;
                             font-size: col.kind >= 4 ? 14px : 15px;
                             vertical-alignment: center;
@@ -1704,7 +1708,7 @@ component SidePanel inherits Rectangle {
         removed-at = first-picked;
         remove(first-picked, last-picked);
     }
-    background: Theme.panel;
+    background: Theme.browser;
     width: 340px;
     // The tabs, as icons along the top, the one shown underlined.
     tab-bar := Rectangle {
@@ -1904,14 +1908,14 @@ component SidePanel inherits Rectangle {
                                 spacing: 2px;
                                 HorizontalLayout {
                                     spacing: 8px;
-                                    Text { horizontal-stretch: 1; text: r.title; color: (i >= first-picked && i <= last-picked) && keys.has-focus ? Theme.on-selection : Theme.text; font-size: 14px; font-weight: 500; overflow: elide; }
-                                    Text { text: r.bpm == "" ? "" : r.bpm + " BPM"; color: (i >= first-picked && i <= last-picked) && keys.has-focus ? Theme.on-selection : Theme.text; font-size: 14px; font-weight: 500; }
+                                    Text { horizontal-stretch: 1; text: r.title; color: (i >= first-picked && i <= last-picked) && keys.has-focus ? Theme.on-row-selection : Theme.text; font-size: 14px; font-weight: 500; overflow: elide; }
+                                    Text { text: r.bpm == "" ? "" : r.bpm + " BPM"; color: (i >= first-picked && i <= last-picked) && keys.has-focus ? Theme.on-row-selection : Theme.text; font-size: 14px; font-weight: 500; }
                                 }
                                 HorizontalLayout {
                                     spacing: 8px;
-                                    property <color> dim: (i >= first-picked && i <= last-picked) ? (keys.has-focus ? Theme.on-selection-dim : #ffffffc0) : Theme.text-dim;
+                                    property <color> dim: (i >= first-picked && i <= last-picked) ? (keys.has-focus ? Theme.on-row-selection-dim : #ffffffc0) : Theme.text-dim;
                                     Text { horizontal-stretch: 1; text: r.artist; color: dim; font-size: 13px; overflow: elide; }
-                                    Text { text: r.key; color: (i >= first-picked && i <= last-picked) ? (keys.has-focus ? Theme.on-selection : #ffffff) : Theme.key; font-size: 13px; font-weight: 500; }
+                                    Text { text: r.key; color: (i >= first-picked && i <= last-picked) ? (keys.has-focus ? Theme.on-row-selection : #ffffff) : r.key-match ? Theme.lilac : Theme.text; font-size: 13px; font-weight: 500; }
                                     Text { text: r.length; color: dim; font-size: 13px; }
                                 }
                             }
