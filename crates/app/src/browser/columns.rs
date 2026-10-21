@@ -168,7 +168,8 @@ impl Layout {
 
     pub fn resize(&mut self, index: usize, width: f32) {
         if let Some(c) = self.shown.get_mut(index) {
-            c.1 = width.max(MIN_WIDTH).round();
+            let min = if c.0 == TITLE_ID { 80.0 } else { MIN_WIDTH };
+            c.1 = width.max(min).round();
         }
     }
 
@@ -325,7 +326,7 @@ impl ColumnState {
             .layout
             .shown
             .iter()
-            .map(|&(id, w)| if id == TITLE_ID { TITLE_ROOM } else { w } + SPACING)
+            .map(|&(id, w)| shown_width(id, w) + SPACING)
             .sum();
         HEADER_LEAD + HEADER_TRAIL + fixed
     }
@@ -339,7 +340,13 @@ impl ColumnState {
             .filter(|(id, _)| *id != TITLE_ID)
             .map(|(_, w)| w + SPACING)
             .sum();
-        (header - HEADER_LEAD - HEADER_TRAIL - others).max(60.0)
+        let own = self
+            .layout
+            .shown
+            .iter()
+            .find(|(id, _)| *id == TITLE_ID)
+            .map_or(TITLE_ROOM, |&(id, w)| shown_width(id, w));
+        (header - HEADER_LEAD - HEADER_TRAIL - others).max(own)
     }
 }
 
@@ -348,8 +355,18 @@ impl ColumnState {
 const HEADER_LEAD: f32 = 6.0 + 26.0 + 8.0 + 22.0 + 8.0;
 const HEADER_TRAIL: f32 = 14.0;
 const SPACING: f32 = 8.0;
-/// The title's room before the list scrolls sideways.
+/// The title's width until it's resized; it also takes any room the other
+/// columns leave.
 const TITLE_ROOM: f32 = 220.0;
+
+/// A column's width as laid out: the title's is unset (0) until resized.
+fn shown_width(id: i32, width: f32) -> f32 {
+    if id == TITLE_ID && width <= 0.0 {
+        TITLE_ROOM
+    } else {
+        width
+    }
+}
 
 impl Browser {
     pub(super) fn install_columns(app: &AppWindow, b: &Rc<RefCell<Self>>) {
@@ -465,7 +482,7 @@ impl Browser {
                 Some(ListColumn {
                     id,
                     label: d.label.clone().into(),
-                    width,
+                    width: shown_width(id, width),
                     right: d.right,
                     kind: d.kind,
                 })
