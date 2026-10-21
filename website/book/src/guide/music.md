@@ -78,8 +78,8 @@ stay.
 
 ## Search
 
-Search matches titles, artists, BPM and key. The **?** next to the search box
-lists everything search understands.
+Search matches titles, artists, BPM and key. Rest the pointer on the search box
+for a moment to see everything search understands.
 
 ## Filters
 
@@ -89,7 +89,8 @@ tags, type a BPM range, or turn on **Near the playing track** (BPM) or
 **Mixes with the playing track** (Key) so the list follows what's playing.
 Chips work together with each other and with the search, and **Clear**
 empties them all. **+** adds any other field, and **Keep on the bar** pins
-it there. The filter button next to search shows or hides the bar, and
+it there. The filter button next to search shows or hides the bar (it starts
+hidden and lights up while filters are on), and
 **Save** keeps the search and the chips as a smart list.
 
 ## Columns
