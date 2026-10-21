@@ -3,8 +3,9 @@
 openDJ keeps everything it knows about your music in its **library**: one
 database file with every track's tags, rating, colour, cues, loops and beat
 grid, your playlists, smart lists and folders, and the history of what you
-played. The library points at your audio files where they are; it never
-moves, copies or changes them.
+played. The library points at your audio files where they are, and only
+moves them between your stage folders when you turn that on (see
+[Stages](#stages-inbox-triage-and-collection)).
 
 The **Collection** is the list of every track in the library. It is the top
 of the tree on the left, and the first source in the rail.
@@ -26,9 +27,52 @@ Bringing a track in only reads its tags: title, artist, album, genre, year,
 key, BPM, rating, comment and cover art. It is quick, and nothing is played
 or analysed yet.
 
+## Stages: Inbox, Triage and Collection
+
+Stages take new music from wherever it lands to a prepared collection.
+Set them up in **Settings › Library › Stages**:
+
+- **Inbox folders**: any number of folders where new music arrives, such
+  as Downloads, a Soulseek folder, or where purchases land.
+- **Triage folder**: where tracks you are preparing are kept. Its
+  subfolders are **triage crates** (for example `Yoga STG` or
+  `Journey STG`), for sorting tracks by where they'll go.
+- **Collection folder**: where prepared tracks are kept. Its subfolders
+  (such as `Albums`) stay as they are.
+
+Once the triage and collection folders are set, the tree starts with
+**Inbox**, **Triage** and **Collection**, each with its track count and
+subfolders, followed by **All Tracks**. Every track gets the stage of the
+folder it is in.
+
+Right-click tracks to move them along, or drag them onto a stage:
+
+1. **To Triage** (or **To Triage › a crate**) for inbox tracks worth
+   keeping. **Not interested** hides the rest.
+2. In Triage, prepare each track: tags, cover, rating, tempo and key. Show
+   the **Prep** column (right-click a column heading) for a dot each for
+   tags, rating, and tempo and key; tracks in Triage are analysed in the
+   background, so tempo and key fill in on their own.
+3. **Add to Collection** when it's ready. A track from a triage crate also
+   joins the list named after the crate (`Yoga STG` goes to **Yoga**).
+
+**Back to Triage** and **Back to Inbox** move a track back a stage, and
+the track menu's **Undo** line takes back the last change.
+
+Files only move between the folders when **Move files** is on. Leave it
+off while another app, such as VirtualDJ, still uses them: tracks change
+stage in openDJ at once, their moves wait, and they are made when you turn
+it on. Files going from the inbox to triage are renamed `Artist - Title
+(Remix)` from their tags, unless you turn **Rename files sent to Triage**
+off. A file is never moved over another one.
+
+Search with `stage:inbox`, `stage:triage` or `stage:collection`, and
+`is:prepped` for tracks with tags, rating, tempo and key.
+
 ## When tracks are analysed
 
-A track is analysed the first time it is loaded on a deck: its waveform,
+Tracks in Triage are analysed in the background. Any other track is
+analysed the first time it is loaded on a deck: its waveform,
 tempo and beat grid, and its key when the tags don't have one. It plays
 while that happens, and the waveform fills in as it goes. The result is
 saved, so the track loads at once next time; **Clear** in **Settings ›
