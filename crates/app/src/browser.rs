@@ -423,6 +423,9 @@ pub struct Browser {
     /// The last stage change, which the track menu can take back: its
     /// batch in the library and what to call it.
     undo: Option<(i64, String)>,
+    /// Where files whose moves are waiting (file moves off) will go, by
+    /// track id, so they show in the stage subfolder they're headed for.
+    pending_moves: HashMap<usize, PathBuf>,
 }
 
 /// The Files source: the folder listed and the thread reading it.
@@ -812,6 +815,7 @@ impl Browser {
             folders: crate::settings::stage_folders(),
             analysis: AnalysisQueue::start(),
             undo: None,
+            pending_moves: HashMap::new(),
         }));
         b.borrow_mut().set_library(library);
         app.global::<KeyNotation>().set_camelot(b.borrow().camelot);
@@ -2072,6 +2076,7 @@ impl Browser {
         self.library = library;
         self.side = [Vec::new(), Vec::new()];
         self.folders = crate::settings::stage_folders();
+        self.read_pending_moves();
         self.queue_triage_analysis();
         let tree = self.collection_tree();
         if self.tree == COLLECTION {
@@ -2196,9 +2201,16 @@ impl Browser {
 
     /// The first node shown on the library tab (or the history tab).
     fn first_node(&self, history: bool) -> usize {
-        self.nodes
-            .iter()
-            .position(|n| n.history == history)
+        // With stages, the library tab opens on the collection, not the inbox.
+        let collection = (!history)
+            .then(|| {
+                self.nodes
+                    .iter()
+                    .position(|n| matches!(n.contents, Contents::Stage(Stage::Collection, None)))
+            })
+            .flatten();
+        collection
+            .or_else(|| self.nodes.iter().position(|n| n.history == history))
             .unwrap_or(0)
     }
 
@@ -2881,9 +2893,7 @@ impl Browser {
                         Contents::Stage(stage, dir) => self
                             .library
                             .iter()
-                            .filter(|t| {
-                                !t.info.missing && staging::at_stage(t, *stage, dir.as_deref())
-                            })
+                            .filter(|t| !t.info.missing && self.at_stage(t, *stage, dir.as_deref()))
                             .count() as i32,
                         _ => -1,
                     },
@@ -3057,7 +3067,7 @@ impl Browser {
             Contents::List(ids) => ids.clone(),
             Contents::Stage(stage, dir) => all()
                 .into_iter()
-                .filter(|&t| staging::at_stage(&self.library[t], *stage, dir.as_deref()))
+                .filter(|&t| self.at_stage(&self.library[t], *stage, dir.as_deref()))
                 .collect(),
             Contents::Query(q) => self.search(&Query::parse(q), None),
             Contents::Grouping(g) => all()
