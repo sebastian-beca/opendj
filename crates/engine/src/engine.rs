@@ -99,6 +99,9 @@ const PEAK_HOLD: f32 = 0.5;
 /// Rate offsets of rate_temp_up, _down, _up_small and _down_small while held
 /// (Mixxx's default temporary pitch bends: 4% coarse, 2% fine).
 const RATE_TEMP: [f64; 4] = [0.04, -0.04, 0.02, -0.02];
+/// How fast pitch reset brings the tempo back to 0%, as a fraction of
+/// normal speed per second (0.005 = 0.5% a second).
+const RATE_RESET_SPEED: f64 = 0.005;
 
 /// Left and right deck gains for crossfader position `x` (-1 left, +1
 /// right). Shapes: 0 smooth, constant power as in Mixxx's default curve; 1
@@ -145,6 +148,7 @@ struct Deck {
     was_playing: bool,
     cue_edge: Edge,
     cup_edge: Edge,
+    zero_edge: Edge,
     /// cue_play was pressed and has not been released yet.
     cup_held: bool,
     /// CUE is held while stopped at the cue point: playing until it is
@@ -308,6 +312,32 @@ impl Deck {
     }
 
     /// Handles button presses (cue, hotcues, loops, beat jumps) once per buffer.
+    /// Pitch reset: `rate_set_zero` puts the tempo at 0% at once, and while
+    /// `rate_reset` is on the tempo glides there over `dt` seconds' worth
+    /// of RATE_RESET_SPEED. Works with or without a track loaded.
+    fn reset_rate(&mut self, dt: f64) {
+        if self.zero_edge.pressed(&self.c.rate_set_zero) {
+            self.c.rate.set(0.0);
+            self.c.rate_reset.set_bool(false);
+        }
+        if !self.c.rate_reset.get_bool() {
+            return;
+        }
+        // A deck following sync takes its tempo from the leader.
+        if self.sync_speed.is_some() {
+            self.c.rate_reset.set_bool(false);
+            return;
+        }
+        let rate = self.c.rate.get();
+        let step = RATE_RESET_SPEED * dt / self.c.rate_range.get();
+        if rate.abs() <= step {
+            self.c.rate.set(0.0);
+            self.c.rate_reset.set_bool(false);
+        } else {
+            self.c.rate.set(rate - step * rate.signum());
+        }
+    }
+
     fn handle_controls(&mut self) {
         let Some(track) = self.track.clone() else {
             return;
@@ -902,6 +932,7 @@ impl Engine {
             was_playing: false,
             cue_edge: Edge::default(),
             cup_edge: Edge::default(),
+            zero_edge: Edge::default(),
             cup_held: false,
             previewing: None,
             eject_edge: Edge::default(),
@@ -1360,6 +1391,7 @@ impl Engine {
         let mut moved = [false; NUM_DECKS];
         for (deck, d) in self.decks.iter_mut().enumerate() {
             let before = d.pos;
+            d.reset_rate(dt);
             d.handle_controls();
             moved[deck] = d.pos != before || (!d.was_playing && d.c.play.get_bool());
             if let (Some((edit, seconds)), Some(track)) = (d.grid_edit.take(), &d.track) {
@@ -2145,6 +2177,43 @@ mod tests {
         run(&mut engine, 0.02);
         c("rate_perm_up").set_bool(false);
         assert!(c("rate").get() < 0.0);
+    }
+
+    #[test]
+    fn pitch_reset_glides_pauses_and_jumps() {
+        let (reg, mut engine, _input) = setup();
+        let c = |k: &str| reg.get("[Channel1]", k).unwrap();
+        // +4% at the default ±8%.
+        c("rate").set(0.5);
+        c("rate_reset").set_bool(true);
+        run(&mut engine, 1.0);
+        // Half a percent a second: about +3.5% now.
+        assert!(
+            (c("rate").get() * 0.08 - 0.035).abs() < 0.001,
+            "{}",
+            c("rate").get()
+        );
+        // Pressed again it stops where it is.
+        c("rate_reset").set_bool(false);
+        let held = c("rate").get();
+        run(&mut engine, 0.5);
+        assert_eq!(c("rate").get(), held);
+        // Again: it carries on to 0% and turns itself off.
+        c("rate_reset").set_bool(true);
+        run(&mut engine, 8.0);
+        assert_eq!(c("rate").get(), 0.0);
+        assert!(!c("rate_reset").get_bool());
+        // Slower than 0% glides up the same way.
+        c("rate").set(-0.1);
+        c("rate_reset").set_bool(true);
+        run(&mut engine, 0.5);
+        assert!(c("rate").get() > -0.1 && c("rate").get() < 0.0);
+        // rate_set_zero is at once, and ends the glide.
+        c("rate_set_zero").set_bool(true);
+        c("rate_set_zero").set_bool(false);
+        run(&mut engine, 0.02);
+        assert_eq!(c("rate").get(), 0.0);
+        assert!(!c("rate_reset").get_bool());
     }
 
     #[test]

@@ -6,7 +6,7 @@
 // deck number is clicked: then that side plays deck 3 or 4.
 import { TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
-import { ControlButton, ControlFader, Controls, CueHeadphones, StereoMeter } from "controls.slint";
+import { ControlButton, ControlFader, Controls, CueHeadphones, PitchReset, StereoMeter } from "controls.slint";
 import { DeckInfo, FxRows, Header, LoopStepper, Pads, PlayButton } from "deck.slint";
 import { AudioSettings, Knob, ModeMenu, SideKnob } from "mixer.slint";
 
@@ -139,6 +139,11 @@ export component DeckStrip inherits Rectangle {
                     spacing: 6px;
                     CrossfaderAssign { deck: deck; }
                     ControlButton { group: group; key: "sync_enabled"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 12px; width: 60px; }
+                    // Pitch reset, pointing at the tempo.
+                    VerticalLayout {
+                        alignment: center;
+                        PitchReset { group: group; tint: tint; }
+                    }
                     VerticalLayout {
                         horizontal-stretch: 1;
                         alignment: center;
