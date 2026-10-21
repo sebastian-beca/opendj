@@ -258,6 +258,11 @@ pub fn flag(key: &str, default: bool) -> bool {
     load()[key].as_bool().unwrap_or(default)
 }
 
+/// A saved text, or "".
+pub fn string(key: &str) -> String {
+    load()[key].as_str().unwrap_or_default().to_string()
+}
+
 /// The setting that says whether an importer runs at all; off until the DJ
 /// turns it on.
 pub fn import_enabled_key(importer: &str) -> String {
