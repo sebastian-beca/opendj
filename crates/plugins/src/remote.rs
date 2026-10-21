@@ -564,6 +564,7 @@ fn snapshot_json(s: &Snapshot) -> Value {
         "items": s.items.iter().map(found_json).collect::<Vec<_>>(),
         "done": s.done,
         "note": s.note,
+        "title": s.title,
     })
 }
 
@@ -572,6 +573,7 @@ fn snapshot_from(v: &Value) -> Snapshot {
         items: list(&v["items"]).iter().map(found_from).collect(),
         done: v["done"].as_bool().unwrap_or(false),
         note: string(&v["note"]),
+        title: string(&v["title"]),
     }
 }
 
