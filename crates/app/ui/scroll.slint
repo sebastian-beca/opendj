@@ -1,0 +1,111 @@
+// Scroll views with macOS-style overlay scrollbars: a slim rounded thumb
+// hugging the right (or bottom) edge, drawn over the content, that widens
+// under the pointer. Stands in for the std-widgets ScrollView and
+// ListView, whose Fluent bars sit inset with room for arrow buttons.
+import { Theme } from "theme.slint";
+
+component Bar inherits Rectangle {
+    in property <bool> horizontal;
+    in property <length> maximum;
+    in property <length> page-size;
+    in-out property <length> value;
+    callback scrolled();
+
+    property <bool> active: ta.has-hover || ta.pressed;
+    property <length> inset: 2px;
+    property <length> thickness: active ? 8px : 6px;
+    property <length> track: (horizontal ? root.width : root.height) - 2 * inset;
+    property <length> thumb-size: maximum <= 0px ? 0px : max(28px, track * page-size / (maximum + page-size));
+    property <length> thumb-pos: maximum <= 0px ? inset : inset + (track - thumb-size) * (-value / maximum);
+
+    visible: maximum > 0px;
+
+    thumb := Rectangle {
+        x: horizontal ? thumb-pos : parent.width - inset - self.width;
+        y: horizontal ? parent.height - inset - self.height : thumb-pos;
+        width: horizontal ? thumb-size : thickness;
+        height: horizontal ? thickness : thumb-size;
+        border-radius: thickness / 2;
+        background: active ? Theme.scroll-thumb-active : Theme.scroll-thumb;
+        animate width, height, background { duration: 120ms; easing: ease-out; }
+    }
+
+    ta := TouchArea {
+        property <length> start-value;
+        property <length> start-pos;
+        pointer-event(e) => {
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                let at = horizontal ? self.mouse-x : self.mouse-y;
+                // A click off the thumb jumps there, then drags from it.
+                if at < thumb-pos || at > thumb-pos + thumb-size {
+                    root.value = -max(0px, min(maximum, (at - inset - thumb-size / 2) * maximum / max(1px, track - thumb-size)));
+                    root.scrolled();
+                }
+                start-value = -root.value;
+                start-pos = at;
+            }
+        }
+        moved => {
+            if self.pressed && maximum > 0px {
+                let at = horizontal ? self.mouse-x : self.mouse-y;
+                root.value = -max(0px, min(maximum, start-value + (at - start-pos) * maximum / max(1px, track - thumb-size)));
+                root.scrolled();
+            }
+        }
+    }
+}
+
+export component ScrollView {
+    in property <bool> enabled: true;
+    out property <length> visible-width <=> flickable.width;
+    out property <length> visible-height <=> flickable.height;
+    in-out property <length> content-width <=> flickable.content-width;
+    in-out property <length> content-height <=> flickable.content-height;
+    in-out property <length> content-x <=> flickable.content-x;
+    in-out property <length> content-y <=> flickable.content-y;
+    callback scrolled <=> flickable.flicked;
+
+    min-height: 50px;
+    min-width: 50px;
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+    preferred-height: 100%;
+    preferred-width: 100%;
+
+    flickable := Flickable {
+        mouse-drag-pan-enabled: false;
+        width: parent.width;
+        height: parent.height;
+        @children
+    }
+
+    vertical-bar := Bar {
+        horizontal: false;
+        x: parent.width - self.width;
+        y: 0;
+        width: 12px;
+        height: horizontal-bar.visible ? parent.height - 12px : parent.height;
+        maximum: flickable.content-height - flickable.height;
+        page-size: flickable.height;
+        value <=> flickable.content-y;
+        scrolled => { root.scrolled(); }
+    }
+
+    horizontal-bar := Bar {
+        horizontal: true;
+        x: 0;
+        y: parent.height - self.height;
+        width: vertical-bar.visible ? parent.width - 12px : parent.width;
+        height: 12px;
+        maximum: flickable.content-width - flickable.width;
+        page-size: flickable.width;
+        value <=> flickable.content-x;
+        scrolled => { root.scrolled(); }
+    }
+}
+
+// Rows from a `for` inside it are made only while on screen.
+export component ListView inherits ScrollView {
+    @children
+    accessible-role: list;
+}
