@@ -40,6 +40,15 @@ cat > "$app/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc signature only: macOS still asks before the first launch.
-codesign --force --deep --sign - dist/openDJ.app
+# With MACOS_SIGN_IDENTITY set (e.g. "Developer ID Application"), signs for
+# notarization: hardened runtime, secure timestamp and the entitlements.
+# Without it, an ad-hoc signature, and macOS asks before the first launch.
+if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
+  codesign --force --options runtime --timestamp \
+    --entitlements res/macos/opendj.entitlements \
+    --sign "$MACOS_SIGN_IDENTITY" dist/openDJ.app
+  codesign --verify --strict --verbose=2 dist/openDJ.app
+else
+  codesign --force --sign - dist/openDJ.app
+fi
 (cd dist && ditto -c -k --keepParent openDJ.app opendj-macos.zip)

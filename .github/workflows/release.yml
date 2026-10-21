@@ -10,6 +10,7 @@ on:
     paths:
       - .github/workflows/release.yml
       - scripts/bundle-*.sh
+      - res/macos/opendj.entitlements
   workflow_dispatch:
 
 jobs:
@@ -29,8 +30,16 @@ jobs:
 
   macos:
     # One app for both Apple Silicon and Intel Macs.
+    # Signed with Seba's Developer ID and notarized when the secrets below
+    # are set (see docs/macos-signing.md); otherwise ad-hoc signed as before.
     needs: version
     runs-on: macos-15
+    env:
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -46,8 +55,32 @@ jobs:
             target/x86_64-apple-darwin/release/opendj
         env:
           MACOSX_DEPLOYMENT_TARGET: "11.0"
+      - name: Import signing certificate
+        if: env.MACOS_CERTIFICATE != ''
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(openssl rand -base64 24)
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          echo "MACOS_SIGN_IDENTITY=Developer ID Application" >> "$GITHUB_ENV"
+      - run: scripts/bundle-macos.sh dist/opendj "${{ needs.version.outputs.version }}"
+      - name: Notarize
+        if: env.MACOS_SIGN_IDENTITY != '' && env.APPLE_APP_PASSWORD != ''
+        run: |
+          xcrun notarytool submit dist/opendj-macos.zip --wait \
+            --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          # Staple the ticket so the app opens offline too, then zip it again.
+          xcrun stapler staple dist/openDJ.app
+          rm dist/opendj-macos.zip
+          (cd dist && ditto -c -k --keepParent openDJ.app opendj-macos.zip)
       - run: |
-          scripts/bundle-macos.sh dist/opendj "${{ needs.version.outputs.version }}"
           mv dist/opendj-macos.zip "dist/openDJ-${{ needs.version.outputs.version }}-macos.zip"
       - uses: actions/upload-artifact@v4
         with:
