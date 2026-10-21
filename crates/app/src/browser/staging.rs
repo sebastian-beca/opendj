@@ -1,0 +1,406 @@
+//! The stages in the browser (see [`mixxx_library::stages`]): Inbox, Triage
+//! and Collection at the top of the tree with their counts, each stage's
+//! subfolders under it (triage crates such as "Yoga STG"), and moving
+//! tracks between them from the track menu or by dropping them on a stage.
+
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use mixxx_engine::{Source, Track};
+use mixxx_library::query::Indexed;
+use mixxx_library::stages::{self, Folders, Stage};
+use mixxx_library::{Change, PlaylistKind};
+use slint::{ModelRc, SharedString, VecModel};
+
+use super::{file_path, is_browsed, Browser, Contents, Node, KIND_FOLDER, KIND_INBOX, KIND_TRIAGE};
+use crate::analysis_queue::AnalysisQueue;
+use crate::{settings, LibraryEdit};
+
+/// The tree's stage nodes: each stage, with its folder's subfolders under
+/// Triage and Collection.
+pub(super) fn stage_nodes(folders: &Folders) -> Vec<Node> {
+    let mut nodes = Vec::new();
+    for (stage, kind) in [
+        (Stage::Inbox, KIND_INBOX),
+        (Stage::Triage, KIND_TRIAGE),
+        (Stage::Collection, 0),
+    ] {
+        nodes.push(Node::new(
+            stage.title(),
+            0,
+            kind,
+            Contents::Stage(stage, None),
+        ));
+        if stage == Stage::Inbox {
+            continue;
+        }
+        let Some(dir) = folders.folder(stage) else {
+            continue;
+        };
+        for name in folders.crates(stage) {
+            let sub = dir.join(&name);
+            nodes.push(Node::new(
+                name,
+                1,
+                KIND_FOLDER,
+                Contents::Stage(stage, Some(sub)),
+            ));
+        }
+    }
+    nodes
+}
+
+/// Whether `t` is at `stage` (and in the subfolder `dir`, when given).
+pub(super) fn at_stage(t: &Track, stage: Stage, dir: Option<&Path>) -> bool {
+    t.info.stage == stage.name()
+        && !is_browsed(t)
+        && dir.is_none_or(|d| file_path(t).is_some_and(|p| p.starts_with(d)))
+}
+
+/// The name of the list a triage crate's tracks join in the collection:
+/// the folder's name without a trailing " STG" ("Yoga STG" goes to "Yoga").
+fn crate_list_name(folder: &str) -> &str {
+    let trimmed = folder.trim();
+    let lower = trimmed.to_lowercase();
+    for suffix in [" stg", " staging"] {
+        if lower.ends_with(suffix) && trimmed.len() > suffix.len() {
+            return trimmed[..trimmed.len() - suffix.len()].trim_end();
+        }
+    }
+    trimmed
+}
+
+/// The number `LibraryEdit.stage-of` gives a stage.
+fn stage_number(stage: &str) -> i32 {
+    match Stage::from_name(stage) {
+        None => 0,
+        Some(Stage::Inbox) => 1,
+        Some(Stage::Triage) => 2,
+        Some(Stage::Collection) => 3,
+        Some(Stage::Dismissed) => 4,
+    }
+}
+
+fn stage_from_number(n: i32) -> Option<Stage> {
+    match n {
+        1 => Some(Stage::Inbox),
+        2 => Some(Stage::Triage),
+        3 => Some(Stage::Collection),
+        4 => Some(Stage::Dismissed),
+        _ => None,
+    }
+}
+
+/// What the undo line calls a change.
+fn change_label(stage: Stage, crate_name: Option<&str>) -> String {
+    match (stage, crate_name) {
+        (Stage::Triage, Some(c)) => format!("To Triage › {c}"),
+        (Stage::Triage, None) => "To Triage".into(),
+        (Stage::Collection, _) => "Add to Collection".into(),
+        (Stage::Inbox, _) => "Back to Inbox".into(),
+        (Stage::Dismissed, _) => "Not interested".into(),
+    }
+}
+
+impl Browser {
+    pub(super) fn install_staging(
+        edit: &LibraryEdit,
+        with: &(impl Fn(&dyn Fn(&mut Browser)) + Clone + 'static),
+    ) {
+        let w = with.clone();
+        edit.on_stage_of(move |row| {
+            let stage = std::cell::Cell::new(0);
+            w(&|b| {
+                let n = b
+                    .rows
+                    .get(row as usize)
+                    .copied()
+                    .flatten()
+                    .and_then(|i| b.library.get(i))
+                    .map_or(0, |t| stage_number(&t.info.stage));
+                stage.set(n);
+            });
+            stage.get()
+        });
+        let w = with.clone();
+        edit.on_set_stage(move |first, last, stage, crate_index| {
+            w(&|b| {
+                let Some(stage) = stage_from_number(stage) else {
+                    return;
+                };
+                let dir = usize::try_from(crate_index).ok().and_then(|i| {
+                    let name = b.folders.crates(Stage::Triage).into_iter().nth(i)?;
+                    Some(b.folders.triage.as_ref()?.join(name))
+                });
+                let last = (last.max(0) as usize).min(b.rows.len().saturating_sub(1));
+                let indices: Vec<usize> = (first.max(0) as usize..=last)
+                    .filter_map(|row| b.rows.get(row).copied().flatten())
+                    .collect();
+                b.change_stage(&indices, stage, dir.as_deref());
+            })
+        });
+        let w = with.clone();
+        edit.on_undo_stage(move || w(&|b| b.undo_stage()));
+    }
+
+    /// The stage a row of the tree stands for, and its subfolder.
+    pub(super) fn stage_at(&self, row: usize) -> Option<(Stage, Option<PathBuf>)> {
+        match &self.nodes.get(*self.visible_nodes.get(row)?)?.contents {
+            Contents::Stage(stage, dir) => Some((*stage, dir.clone())),
+            _ => None,
+        }
+    }
+
+    /// Moves library tracks (indices into `library`) to `stage`, into the
+    /// subfolder `dir` of its folder when given (a triage crate). The
+    /// stage is saved at once; files move now if the DJ has file moves on,
+    /// else their moves wait (see [`mixxx_library::Library::apply_moves`]).
+    /// Going from the inbox to triage, a file is renamed "Artist - Title
+    /// (Remix)"; going from a triage crate to the collection, the track
+    /// joins the list named after the crate.
+    pub(super) fn change_stage(&mut self, indices: &[usize], stage: Stage, dir: Option<&Path>) {
+        if !self.folders.is_set() || !self.saved() {
+            return;
+        }
+        self.adopt(indices);
+        let crate_name = dir
+            .and_then(Path::file_name)
+            .map(|n| n.to_string_lossy().into_owned());
+        let rename = stage == Stage::Triage && settings::rename_to_triage();
+        let mut planned: HashSet<PathBuf> = HashSet::new();
+        let mut picked: Vec<(usize, Option<PathBuf>)> = Vec::new();
+        let mut crate_lists: HashMap<String, Vec<usize>> = HashMap::new();
+        for &i in indices {
+            let Some(t) = self.library.get(i).filter(|t| !is_browsed(t)) else {
+                continue;
+            };
+            let Some(path) = file_path(t) else { continue };
+            let here = self.folders.stage_of(path) == Some(stage)
+                && crate_name
+                    .as_deref()
+                    .is_none_or(|c| self.folders.crate_of(stage, path).as_deref() == Some(c));
+            let to = if stage == Stage::Dismissed || here {
+                None
+            } else {
+                let from_inbox = matches!(t.info.stage.as_str(), "" | "inbox" | "dismissed");
+                let name = (rename && from_inbox)
+                    .then(|| stages::clean_name(t, path))
+                    .flatten();
+                stages::destination(
+                    &self.folders,
+                    stage,
+                    crate_name.as_deref(),
+                    path,
+                    name.as_deref(),
+                    |p| p.exists() || planned.contains(p) || self.path_index.contains_key(p),
+                )
+            };
+            if let Some(to) = &to {
+                planned.insert(to.clone());
+            }
+            if stage == Stage::Collection {
+                if let Some(c) = self.folders.crate_of(Stage::Triage, path) {
+                    crate_lists.entry(c).or_default().push(t.id);
+                }
+            }
+            picked.push((i, to));
+        }
+        if picked.is_empty() {
+            return;
+        }
+        let Some(db) = &mut self.db else { return };
+        let changes: Vec<Change> = picked
+            .iter()
+            .map(|(i, to)| Change {
+                track: self.library[*i].id,
+                to: to.clone(),
+            })
+            .collect();
+        let batch = match db.change_stage(&changes, stage) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("can't change the stage: {e}");
+                return;
+            }
+        };
+        let failed: HashSet<PathBuf> = if settings::move_files() {
+            match db.apply_moves() {
+                Ok(r) => r
+                    .failed
+                    .into_iter()
+                    .map(|(path, why)| {
+                        eprintln!("can't move {}: {why}", path.display());
+                        path
+                    })
+                    .collect(),
+                Err(e) => {
+                    eprintln!("can't move files: {e}");
+                    return;
+                }
+            }
+        } else {
+            HashSet::new()
+        };
+        let mut lists_changed = false;
+        for (name, ids) in crate_lists {
+            let name = crate_list_name(&name);
+            let existing = db.playlists().ok().and_then(|lists| {
+                lists
+                    .into_iter()
+                    .find(|p| p.kind == PlaylistKind::List && p.name.eq_ignore_ascii_case(name))
+                    .map(|p| p.id)
+            });
+            let list = match existing {
+                Some(id) => Ok(id),
+                None => {
+                    lists_changed = true;
+                    db.create_playlist(name, None, PlaylistKind::List)
+                }
+            };
+            if let Err(e) = list.and_then(|id| db.add_to_playlist(id, &ids)) {
+                eprintln!("can't add to the {name} list: {e}");
+            }
+        }
+        let moving = settings::move_files();
+        for (i, to) in &picked {
+            let mut t = (*self.library[*i]).clone();
+            t.info.stage = stage.name().into();
+            if let (true, Some(to), Some(from)) = (moving, to, file_path(&t).map(Path::to_path_buf))
+            {
+                if !failed.contains(&from) {
+                    self.path_index.remove(&from);
+                    self.path_index.insert(to.clone(), *i);
+                    t.source = Source::File(to.clone());
+                }
+            }
+            self.indexed[*i] = Indexed::new(&t);
+            self.library[*i] = Arc::new(t);
+        }
+        let label = change_label(stage, crate_name.as_deref());
+        let n = picked.len();
+        self.undo = Some((
+            batch,
+            format!("Undo {label} ({n} track{})", if n == 1 { "" } else { "s" }),
+        ));
+        if stage == Stage::Triage {
+            let tracks: Vec<Arc<Track>> = picked
+                .iter()
+                .map(|(i, _)| self.library[*i].clone())
+                .collect();
+            self.analysis.add(&tracks);
+        }
+        if lists_changed {
+            self.reload_tree(None);
+        } else {
+            self.refresh_tree();
+        }
+        self.refresh_rows();
+    }
+
+    /// Takes back the last stage change: stages, file moves and all.
+    fn undo_stage(&mut self) {
+        let Some((batch, _)) = self.undo.take() else {
+            return;
+        };
+        let Some(db) = &mut self.db else { return };
+        let report = match db.undo_batch(batch) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("can't undo: {e}");
+                return;
+            }
+        };
+        for (path, why) in &report.failed {
+            eprintln!("can't move {} back: {why}", path.display());
+        }
+        // Stages and paths come back from the library as it is now.
+        let tracks = match db.all_tracks(Path::exists) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("can't read the library: {e}");
+                return;
+            }
+        };
+        let by_id: HashMap<usize, Track> = tracks.into_iter().map(|t| (t.id, t)).collect();
+        for i in 0..self.library.len() {
+            let Some(saved) = by_id.get(&self.library[i].id) else {
+                continue;
+            };
+            let current = &self.library[i];
+            if saved.info.stage == current.info.stage && file_path(saved) == file_path(current) {
+                continue;
+            }
+            let mut t = (**current).clone();
+            t.info.stage = saved.info.stage.clone();
+            if let (Some(old), Some(new)) = (file_path(current), file_path(saved)) {
+                if old != new {
+                    self.path_index.remove(old);
+                    self.path_index.insert(new.to_path_buf(), i);
+                }
+            }
+            t.source = saved.source.clone();
+            self.indexed[i] = Indexed::new(&t);
+            self.library[i] = Arc::new(t);
+        }
+        self.refresh_tree();
+        self.refresh_rows();
+    }
+
+    /// Shows the track menu's stage lines as things are now.
+    pub(super) fn refresh_stage_ui(&self, edit: &LibraryEdit) {
+        let on = self.folders.is_set() && self.saved();
+        edit.set_stages(on);
+        let crates: Vec<SharedString> = if on {
+            self.folders
+                .crates(Stage::Triage)
+                .into_iter()
+                .map(SharedString::from)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        edit.set_triage_crates(ModelRc::new(VecModel::from(crates)));
+        edit.set_undo_text(
+            self.undo
+                .as_ref()
+                .map_or_else(SharedString::default, |(_, text)| text.into()),
+        );
+    }
+
+    /// Queues the tracks in triage that still need their tempo or key.
+    pub(super) fn queue_triage_analysis(&mut self) {
+        let triage: Vec<Arc<Track>> = self
+            .library
+            .iter()
+            .filter(|t| at_stage(t, Stage::Triage, None) && AnalysisQueue::needs(t))
+            .cloned()
+            .collect();
+        self.analysis.add(&triage);
+    }
+
+    /// Saves what background analysis found since last time.
+    pub fn poll_analysis(&mut self) {
+        let done = self.analysis.take();
+        if done.is_empty() {
+            return;
+        }
+        let done: Vec<Option<Arc<Track>>> = done.into_iter().map(|t| Some(Arc::new(t))).collect();
+        self.learn_analysis(&done);
+        self.refresh_tree();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crate_lists_drop_the_staging_suffix() {
+        assert_eq!(crate_list_name("Yoga STG"), "Yoga");
+        assert_eq!(crate_list_name("Journey stg"), "Journey");
+        assert_eq!(crate_list_name("Vault Staging"), "Vault");
+        assert_eq!(crate_list_name("Albums"), "Albums");
+        assert_eq!(crate_list_name("STG"), "STG");
+    }
+}

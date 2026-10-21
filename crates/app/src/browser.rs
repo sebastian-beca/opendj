@@ -18,6 +18,7 @@ use mixxx_engine::key::Key;
 use mixxx_engine::scan::{is_audio, read_track};
 use mixxx_engine::{deck_group, AudioEngine, Hotcue, Track, NUM_DECKS, NUM_HOTCUES};
 use mixxx_library::query::{self, Context, Indexed, Query};
+use mixxx_library::stages::{Folders, Stage};
 use mixxx_library::{Library, PlaylistKind};
 use slint::{ComponentHandle, DataTransfer, Model, ModelRc, SharedString, VecModel};
 
@@ -28,9 +29,11 @@ use mixxx_plugins::{ItemKind, StoreItem, StoreQuery};
 mod columns;
 mod filters;
 mod info;
+mod staging;
 
 pub use filters::DEFAULT_PINNED;
 
+use crate::analysis_queue::AnalysisQueue;
 use crate::art::Art;
 use crate::files::{self, Found, Place};
 use crate::inbox::Inbox;
@@ -82,6 +85,9 @@ enum Contents {
     Wanted,
     /// A folder on the computer, in the Files source: its audio files.
     Dir(PathBuf),
+    /// The tracks at a stage (see [`mixxx_library::stages`]), or only those
+    /// in one subfolder of its folder (a triage crate).
+    Stage(Stage, Option<PathBuf>),
 }
 
 /// Whether the streaming services and stores (Spotify, Bandcamp, the other
@@ -303,6 +309,9 @@ const KIND_DRIVE: i32 = 7;
 const KIND_PINNED: i32 = 8;
 /// iCloud Drive, Google Drive, Dropbox and the like, in Files.
 const KIND_CLOUD: i32 = 9;
+/// The inbox and triage stages; the collection stage is drawn as kind 0.
+const KIND_INBOX: i32 = 10;
+const KIND_TRIAGE: i32 = 11;
 
 /// Track colours offered in the track menu, as in `LibraryEdit.colors`.
 const COLORS: [u32; 8] = [
@@ -407,6 +416,13 @@ pub struct Browser {
     filter: filters::FilterState,
     /// The track list's columns.
     columns: columns::ColumnState,
+    /// The stage folders, as last read from the settings.
+    folders: Folders,
+    /// Tempo and key for tracks in triage, found in the background.
+    analysis: AnalysisQueue,
+    /// The last stage change, which the track menu can take back: its
+    /// batch in the library and what to call it.
+    undo: Option<(i64, String)>,
 }
 
 /// The Files source: the folder listed and the thread reading it.
@@ -793,6 +809,9 @@ impl Browser {
             info: info::InfoState::new(registry),
             filter: filters::FilterState::new(),
             columns: columns::ColumnState::new(&crate::settings::field_names()),
+            folders: crate::settings::stage_folders(),
+            analysis: AnalysisQueue::start(),
+            undo: None,
         }));
         b.borrow_mut().set_library(library);
         app.global::<KeyNotation>().set_camelot(b.borrow().camelot);
@@ -1178,6 +1197,8 @@ impl Browser {
                     let ids = b.dropped_tracks(&data);
                     if let Some(list) = b.playlist_at(i as usize) {
                         b.add_to_playlist(&ids, list);
+                    } else if let Some((stage, dir)) = b.stage_at(i as usize) {
+                        b.change_stage(&ids, stage, dir.as_deref());
                     }
                 }
             })
@@ -1219,6 +1240,7 @@ impl Browser {
         });
         let w = with.clone();
         edit.on_set_rule(move |i, text| w(&|b| b.set_rule(i as usize, &text)));
+        Self::install_staging(&edit, &with);
     }
 
     /// Saves a search as a smart list at the top level (under "Smart
@@ -2049,6 +2071,8 @@ impl Browser {
             query::duplicates(library.iter().filter(|t| !is_browsed(t)).map(|t| &**t));
         self.library = library;
         self.side = [Vec::new(), Vec::new()];
+        self.folders = crate::settings::stage_folders();
+        self.queue_triage_analysis();
         let tree = self.collection_tree();
         if self.tree == COLLECTION {
             self.nodes = tree;
@@ -2113,7 +2137,13 @@ impl Browser {
             }
             return tree;
         }
-        let mut tree = vec![Node::new("Collection", 0, 0, Contents::All)];
+        let mut tree = if self.folders.is_set() {
+            let mut t = staging::stage_nodes(&self.folders);
+            t.push(Node::new("All Tracks", 0, KIND_LIST, Contents::All));
+            t
+        } else {
+            vec![Node::new("Collection", 0, 0, Contents::All)]
+        };
         let playlists = self
             .db
             .as_ref()
@@ -2177,6 +2207,7 @@ impl Browser {
         if self.tree != COLLECTION {
             return;
         }
+        self.folders = crate::settings::stage_folders();
         let selected = select.or_else(|| self.nodes.get(self.current_node)?.playlist);
         let name = self.nodes.get(self.current_node).map(|n| n.name.clone());
         let expanded: HashMap<(String, i32), bool> = self
@@ -2845,6 +2876,17 @@ impl Browser {
                     },
                     kind: n.kind,
                     editable: n.playlist.is_some() && !n.history,
+                    stage: matches!(n.contents, Contents::Stage(..)),
+                    count: match &n.contents {
+                        Contents::Stage(stage, dir) => self
+                            .library
+                            .iter()
+                            .filter(|t| {
+                                !t.info.missing && staging::at_stage(t, *stage, dir.as_deref())
+                            })
+                            .count() as i32,
+                        _ => -1,
+                    },
                 }
             })
             .collect();
@@ -2884,6 +2926,7 @@ impl Browser {
                 _ => String::new(),
             };
             edit.set_rule(rule.into());
+            self.refresh_stage_ui(&edit);
             app.set_folders(ModelRc::new(VecModel::from(folders)));
             let current = self
                 .visible_nodes
@@ -3012,6 +3055,10 @@ impl Browser {
                 .collect(),
             Contents::Dir(_) => Vec::new(),
             Contents::List(ids) => ids.clone(),
+            Contents::Stage(stage, dir) => all()
+                .into_iter()
+                .filter(|&t| staging::at_stage(&self.library[t], *stage, dir.as_deref()))
+                .collect(),
             Contents::Query(q) => self.search(&Query::parse(q), None),
             Contents::Grouping(g) => all()
                 .into_iter()

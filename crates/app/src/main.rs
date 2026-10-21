@@ -29,6 +29,7 @@ use smooth::SmoothClock;
 
 slint::include_modules!();
 
+mod analysis_queue;
 mod art;
 mod automix;
 mod browser;
@@ -680,6 +681,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     browser.borrow_mut().add_imported(track);
                 }
                 browser.borrow_mut().poll_art();
+                browser.borrow_mut().poll_analysis();
                 browser.borrow_mut().poll_files();
                 prefs.borrow_mut().poll();
                 if let Some(c) = &controllers {
@@ -780,6 +782,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// for the browser to show.
 fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<Arc<Track>>>) {
     let music = settings::music_folder().filter(|d| d.is_dir());
+    let folders = settings::stage_folders();
+    // Stage folders outside the music folder are scanned too.
+    let stage_dirs: Vec<PathBuf> = folders
+        .all()
+        .into_iter()
+        .filter(|d| d.is_dir() && !music.as_ref().is_some_and(|m| d.starts_with(m)))
+        .map(Path::to_path_buf)
+        .collect();
+    let move_files = settings::move_files();
     let importers = stores::enabled_importers();
     // Imports the DJ removed in Settings, to take out before anything else.
     let removed: Vec<String> = stores::importers()
@@ -787,12 +798,20 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
         .map(|i| i.id().to_string())
         .filter(|id| settings::flag(&settings::import_remove_key(id), false))
         .collect();
-    if music.is_none() && importers.is_empty() && removed.is_empty() {
+    if music.is_none() && stage_dirs.is_empty() && importers.is_empty() && removed.is_empty() {
         return;
     }
     std::thread::spawn(move || {
         let music_folder = music.clone();
-        let scanned = music.map_or_else(Vec::new, |d| scan(&d, SAMPLE_LIBRARY_SIZE));
+        let mut scanned = music.map_or_else(Vec::new, |d| scan(&d, SAMPLE_LIBRARY_SIZE));
+        for dir in &stage_dirs {
+            // Inbox folders nest in each other at times (Downloads/Soulseek).
+            if stage_dirs.iter().any(|d| d != dir && dir.starts_with(d)) {
+                continue;
+            }
+            let next = SAMPLE_LIBRARY_SIZE + scanned.len();
+            scanned.extend(scan(dir, next));
+        }
         let synced = library_path
             .as_deref()
             .map(|path| -> Result<Vec<Track>, String> {
@@ -843,6 +862,24 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                         ),
                         Ok(None) => {}
                         Err(e) => eprintln!("can't import {}: {e}", database.display()),
+                    }
+                }
+                match db.assign_stages(&folders) {
+                    Ok(0) => {}
+                    Ok(n) => eprintln!("library: {n} tracks given a stage by their folder"),
+                    Err(e) => eprintln!("can't set stages: {e}"),
+                }
+                if move_files {
+                    match db.apply_moves() {
+                        Ok(r) => {
+                            if r.moved > 0 {
+                                eprintln!("library: {} files moved between stage folders", r.moved);
+                            }
+                            for (path, why) in r.failed {
+                                eprintln!("can't move {}: {why}", path.display());
+                            }
+                        }
+                        Err(e) => eprintln!("can't move files: {e}"),
                     }
                 }
                 db.all_tracks(Path::exists).map_err(|e| e.to_string())

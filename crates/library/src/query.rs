@@ -19,7 +19,10 @@
 //!   (also at half or double tempo). `~deck` finds tracks that mix with the
 //!   track playing now, by key and tempo.
 //! - `color:red` (or orange, yellow, green, cyan, blue, purple, pink),
-//!   `is:missing`, `is:duplicate`, `is:played`, `is:cued`.
+//!   `is:missing`, `is:duplicate`, `is:played`, `is:cued`, `is:prepped`
+//!   (artist, title, rating, tempo and key all there).
+//! - `stage:inbox`, `stage:triage`, `stage:collection` (see
+//!   [`crate::stages`]); `stage:none` for tracks outside the stage folders.
 //! - `-` in front of any term excludes it. Terms must all match; `|` or `OR`
 //!   between groups of terms matches either.
 
@@ -159,6 +162,7 @@ enum Flag {
     Duplicate,
     Played,
     Cued,
+    Prepped,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -175,6 +179,8 @@ enum Test {
     MixesWithDeck,
     Color(Option<u32>),
     Is(Flag),
+    /// The track's stage name; empty for none.
+    Stage(String),
     /// A term that can't be understood matches nothing, so a typo shows an
     /// empty list rather than everything.
     Never,
@@ -424,8 +430,17 @@ fn parse_test(word: &str) -> Option<Test> {
             "duplicate" | "dupe" | "duplicates" => Test::Is(Flag::Duplicate),
             "played" => Test::Is(Flag::Played),
             "cued" => Test::Is(Flag::Cued),
+            "prepped" | "ready" => Test::Is(Flag::Prepped),
             "" => return None,
             _ => Test::Never,
+        },
+        "stage" => match v.to_ascii_lowercase().as_str() {
+            "none" => Test::Stage(String::new()),
+            "" => return None,
+            name => match crate::stages::Stage::from_name(name) {
+                Some(st) => Test::Stage(st.name().to_string()),
+                None => Test::Never,
+            },
         },
         // Not a field: search for the text as typed (a title with a colon).
         _ => Test::Anywhere(unquote(word).to_lowercase()),
@@ -687,6 +702,8 @@ impl Term {
             Test::Is(Flag::Duplicate) => cx.duplicates.is_some_and(|d| d.contains(&t.id)),
             Test::Is(Flag::Played) => t.info.play_count > 0,
             Test::Is(Flag::Cued) => !t.info.hotcues.is_empty(),
+            Test::Is(Flag::Prepped) => crate::stages::Prep::of(t).done(),
+            Test::Stage(s) => t.info.stage == *s,
             Test::Never => false,
         }
     }

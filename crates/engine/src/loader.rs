@@ -61,6 +61,16 @@ fn key_is_detected(track: &Track) -> bool {
 /// `track` with its audio and analysis. Unless `detected` (see
 /// [`key_is_detected`]), its own key wins, as the tempo from tags does.
 fn analysed(track: &Track, audio: Arc<Audio>, analysis: Analysis, detected: bool) -> Track {
+    let mut t = with_analysis(track, &analysis, detected);
+    t.duration = audio.duration();
+    t.waveform = Arc::new(analysis.waveform);
+    t.audio = Some(audio);
+    t
+}
+
+/// `track` with the tempo, grid and key `analysis` found, as [`analysed`]
+/// gives them.
+fn with_analysis(track: &Track, analysis: &Analysis, detected: bool) -> Track {
     let mut info = track.info.clone();
     let key = match analysis.key {
         Some(k) if detected => {
@@ -77,9 +87,6 @@ fn analysed(track: &Track, audio: Arc<Audio>, analysis: Analysis, detected: bool
     let mut t = Track {
         key,
         info,
-        duration: audio.duration(),
-        waveform: Arc::new(analysis.waveform),
-        audio: Some(audio),
         ..track.clone()
     };
     with_grid(
@@ -90,6 +97,36 @@ fn analysed(track: &Track, audio: Arc<Audio>, analysis: Analysis, detected: bool
         analysis.first_beat,
     );
     t
+}
+
+/// Analyses `track` away from the decks (background analysis): its cached
+/// analysis when there is one, else the file is decoded and analysed and
+/// the result cached, as loading it on a deck would. A key found by
+/// another detector is found again. The track comes back with its tempo,
+/// grid and key, and without audio.
+pub fn analyse_file(track: &Track) -> Result<Track, String> {
+    let Source::File(path) = &track.source else {
+        return Err("not a file".into());
+    };
+    let detected = key_is_detected(track);
+    let detector = key::detector();
+    let analysis = match cache::load(path) {
+        Some(c) if !(detected && c.key_detector != detector) => c,
+        cached => {
+            let audio = decode(path)?;
+            let analysis = match cached {
+                Some(mut c) => {
+                    c.key = detect_key(&audio, detector).or(c.key);
+                    c.key_detector = detector;
+                    c
+                }
+                None => analyse(&audio, (track.bpm > 0.0).then_some(track.bpm)),
+            };
+            cache::store(path, &analysis);
+            analysis
+        }
+    };
+    Ok(with_analysis(track, &analysis, detected))
 }
 
 /// Gives `t` the beat grid it should play with: a grid from the library is
