@@ -240,31 +240,6 @@ export component SearchesPanel inherits Rectangle {
                 pta := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.dialog-open = true; } }
             }
         }
-        // Everything downloaded from this source.
-        Rectangle {
-            height: 34px;
-            border-radius: Theme.radius;
-            background: SourceUi.current-search == -1 ? #3a3a3d : (dta.has-hover ? #232326 : transparent);
-            dta := TouchArea { clicked => { SourceUi.select-search(-1); } }
-            HorizontalLayout {
-                padding-left: 10px;
-                padding-right: 10px;
-                spacing: 10px;
-                Path {
-                    width: 16px;
-                    height: 16px;
-                    viewbox-width: 16;
-                    viewbox-height: 16;
-                    stroke: Theme.text-dim;
-                    stroke-width: 1.5px;
-                    stroke-line-cap: round;
-                    fill: transparent;
-                    commands: "M 8 2 L 8 11 M 4 7.5 L 8 11.5 L 12 7.5 M 3 14 L 13 14";
-                }
-                Text { text: "Downloads"; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
-                Text { text: SourceUi.downloads-line; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
-            }
-        }
         if SourceUi.searches.length == 0: Text {
             text: "Press + to search.";
             color: Theme.text-dim;
@@ -312,11 +287,11 @@ export component SearchesPanel inherits Rectangle {
                 }
             }
         }
-        // What's downloading.
-        // Clicking it opens the whole Downloads list in the browser.
+        // What's downloading. Clicking anywhere on it opens the whole
+        // Downloads list in the browser.
         if SourceUi.queue-shown: Rectangle {
             border-radius: Theme.radius;
-            background: qta.has-hover ? #2a2a2e : #232326;
+            background: SourceUi.current-search == -1 ? #3a3a3d : (qta.has-hover ? #2a2a2e : #232326);
             height: q.preferred-height;
             qta := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.select-search(-1); } }
             q := VerticalLayout {
@@ -326,25 +301,6 @@ export component SearchesPanel inherits Rectangle {
                     spacing: 6px;
                     Text { text: SourceUi.queue.length > 0 ? "Downloading" : "Downloaded"; color: Theme.text; font-size: 13px; font-weight: 600; horizontal-stretch: 1; vertical-alignment: center; }
                     Text { text: SourceUi.queue-title; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
-                    // Opens the whole Downloads list in the browser.
-                    Rectangle {
-                        width: 20px;
-                        height: 20px;
-                        border-radius: 4px;
-                        background: ota.has-hover ? Theme.accent : transparent;
-                        Path {
-                            width: 12px;
-                            height: 12px;
-                            viewbox-width: 12;
-                            viewbox-height: 12;
-                            stroke: ota.has-hover ? Theme.on-selection : Theme.text-dim;
-                            stroke-width: 1.4px;
-                            stroke-line-cap: round;
-                            fill: transparent;
-                            commands: "M 7 1.5 L 10.5 1.5 L 10.5 5 M 10.5 1.5 L 5.5 6.5 M 9 7.5 L 9 10.5 L 1.5 10.5 L 1.5 3 L 4.5 3";
-                        }
-                        ota := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.select-search(-1); } }
-                    }
                 }
                 for line in SourceUi.queue: VerticalLayout {
                     spacing: 3px;
