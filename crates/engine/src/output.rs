@@ -328,7 +328,10 @@ pub(crate) struct Outputs {
     inputs: Vec<cpal::Stream>,
     /// Each input's state, by [`InputRole::index`]: its device and format,
     /// what is wrong, or empty when it has no device.
-    pub(crate) input_status: [String; NUM_INPUTS],
+    input_status: [String; NUM_INPUTS],
+    /// Whether each open input has sent anything but silence yet. macOS
+    /// sends silence to an app not allowed to use the microphone.
+    heard: [Option<Arc<AtomicBool>>; NUM_INPUTS],
 }
 
 impl Outputs {
@@ -344,6 +347,7 @@ impl Outputs {
             route_status: Vec::new(),
             inputs: Vec::new(),
             input_status: Default::default(),
+            heard: Default::default(),
         };
         o.configure(setup);
         o
@@ -360,6 +364,7 @@ impl Outputs {
     pub(crate) fn configure_inputs(&mut self, setup: &AudioSetup) {
         // Stop the old streams before taking their queues from the engine.
         self.inputs.clear();
+        self.heard = Default::default();
         let mut old = Vec::new();
         for role in InputRole::ALL {
             let i = role.index();
@@ -374,8 +379,9 @@ impl Outputs {
                     None
                 }
                 Some(r) => match self.open_input(r) {
-                    Ok((stream, feed, status)) => {
+                    Ok((stream, feed, status, heard)) => {
                         self.inputs.push(stream);
+                        self.heard[i] = Some(heard);
                         self.input_status[i] = status;
                         Some(feed)
                     }
@@ -393,7 +399,32 @@ impl Outputs {
     }
 
     /// Opens the input device `r` names.
-    fn open_input(&self, r: &InputRoute) -> Result<(cpal::Stream, InputFeed, String), String> {
+    /// Each input's state, by [`InputRole::index`]: its device and format,
+    /// what is wrong, or empty when it has no device.
+    pub(crate) fn input_status(&self) -> Vec<String> {
+        self.input_status
+            .iter()
+            .zip(&self.heard)
+            .map(|(status, heard)| match heard {
+                Some(h) if !h.load(Ordering::Relaxed) => format!(
+                    "{status} · silent so far{}",
+                    if cfg!(target_os = "macos") {
+                        ": allow openDJ in System Settings › Privacy & Security › Microphone"
+                    } else {
+                        ""
+                    }
+                ),
+                _ => status.clone(),
+            })
+            .collect()
+    }
+
+    /// Opens the input device `r` names. Also returns whether it has sent
+    /// anything but silence yet.
+    fn open_input(
+        &self,
+        r: &InputRoute,
+    ) -> Result<(cpal::Stream, InputFeed, String, Arc<AtomicBool>), String> {
         let label = if r.device.is_empty() {
             "System default"
         } else {
@@ -414,11 +445,15 @@ impl Outputs {
         // Half a second of room; the engine keeps it much emptier.
         let (mut tx, rx) = rtrb::RingBuffer::<f32>::new((self.rate * 0.5) as usize * 2);
         let period = Arc::new(AtomicUsize::new(0));
+        let heard = Arc::new(AtomicBool::new(false));
         let stereo = r.role.channels() == 2;
         let stream = input_stream(&device, &config, {
-            let period = period.clone();
+            let (period, heard) = (period.clone(), heard.clone());
             move |data: &[f32]| {
                 period.store(data.len() / channels, Ordering::Relaxed);
+                if !heard.load(Ordering::Relaxed) && data.iter().any(|v| *v != 0.0) {
+                    heard.store(true, Ordering::Relaxed);
+                }
                 for frame in data.chunks_exact(channels) {
                     if tx.slots() < 2 {
                         break;
@@ -434,7 +469,7 @@ impl Outputs {
             "{name} · {} · {khz} kHz",
             channel_names(r.channel, r.role.channels())
         );
-        Ok((stream, InputFeed { rx, period }, status))
+        Ok((stream, InputFeed { rx, period }, status, heard))
     }
 
     fn configure_outputs(&mut self, setup: &AudioSetup) {
