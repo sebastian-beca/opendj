@@ -18,7 +18,7 @@ use crate::controls::{
 use crate::dsp::{Isolator, Limiter, Sculpt, SweepFilter};
 use crate::effects::{input_target, EffectRack, MAIN, TARGETS};
 use crate::inputs::{Ducker, Input, InputFeed, AUXILIARY, MICROPHONE, NUM_INPUTS};
-use crate::key::Key;
+use crate::key::{self, Key};
 use crate::keyshift::{transpose_factor, KeyShifter};
 use crate::link::{phase_error, Link, Moment};
 use crate::preview::{Preview, PreviewInput};
@@ -1078,6 +1078,7 @@ impl Engine {
                         let _ = self.returned.push(Returned::Done(old));
                     }
                     d.set_seconds(track.first_beat);
+                    self.match_key_on_load(deck, &track);
                 }
                 Command::Analysed { deck, track } => {
                     let d = &mut self.decks[deck];
@@ -1283,6 +1284,39 @@ impl Engine {
 
     /// The deck `deck` syncs to: the leader, or else a playing deck, or
     /// else any deck with a track.
+    /// Key matching on load: a track loaded while another deck plays is
+    /// shifted by up to `key_match_on_load` semitones so its key mixes with
+    /// that deck's, with key lock on so the tempo fader doesn't move it
+    /// away again. A track that already mixes, or that no shift in range
+    /// brings close enough, plays in its own key.
+    fn match_key_on_load(&mut self, deck: usize, track: &Track) {
+        let range = self.master.key_match_on_load.get().round() as i32;
+        if range <= 0 {
+            return;
+        }
+        let playing = |k: usize| k != deck && self.decks[k].c.play.get_bool();
+        let other = self
+            .sync_leader
+            .filter(|&k| playing(k))
+            .or_else(|| (0..NUM_DECKS).find(|&k| playing(k)));
+        let theirs = other.and_then(|o| Key::from_mixxx_number(self.decks[o].c.key.get()));
+        let (Some(mine), Some(theirs)) = (Key::parse(&track.key), theirs) else {
+            return;
+        };
+        let d = &self.decks[deck];
+        // Without key lock the speed counts too, as when it plays.
+        let heard = mine.playing(0.0, d.speed(), d.c.keylock.get_bool());
+        if heard.compatible(theirs) {
+            d.c.pitch.set(0.0);
+            return;
+        }
+        let shift = mine.shift_to_mix(theirs, range, key::mixing());
+        d.c.pitch.set(shift.unwrap_or(0) as f64);
+        if shift.is_some() {
+            d.c.keylock.set_bool(true);
+        }
+    }
+
     fn sync_target(&self, deck: usize) -> Option<usize> {
         let has_bpm = |d: &Deck| d.track.as_ref().is_some_and(|t| t.bpm > 0.0);
         self.sync_leader
@@ -2256,6 +2290,40 @@ mod tests {
         // pitch_adjust is the same control.
         reg.get("[Channel1]", "pitch_adjust").unwrap().set(2.0);
         assert_eq!(c("pitch").get(), 2.0);
+    }
+
+    #[test]
+    fn matches_keys_on_load() {
+        let (reg, mut engine, mut input) = setup();
+        let c = |k: &str| reg.get("[Channel2]", k).unwrap();
+        let range = reg.get("[Controls]", "key_match_on_load").unwrap();
+        load(&mut input, 0, tone_track(440.0, "Am"));
+        run(&mut engine, 0.05);
+        reg.get("[Channel1]", "play").unwrap().set_bool(true);
+        run(&mut engine, 0.05);
+        // Off: loaded as it is.
+        load(&mut input, 1, tone_track(440.0, "Bbm"));
+        run(&mut engine, 0.02);
+        assert_eq!((c("pitch").get(), c("keylock").get_bool()), (0.0, false));
+        // Bbm (3A) one down is Am (8A), with key lock on.
+        range.set(1.0);
+        load(&mut input, 1, tone_track(440.0, "Bbm"));
+        run(&mut engine, 0.02);
+        assert_eq!((c("pitch").get(), c("keylock").get_bool()), (-1.0, true));
+        assert_eq!(Key::from_mixxx_number(c("key").get()), Key::parse("Am"));
+        // Already mixing: no shift.
+        load(&mut input, 1, tone_track(440.0, "Em"));
+        run(&mut engine, 0.02);
+        assert_eq!(c("pitch").get(), 0.0);
+        // F#m (11A) needs two down (Em, 9A): out of reach at ±1, not at ±2.
+        c("keylock").set_bool(false);
+        load(&mut input, 1, tone_track(440.0, "F#m"));
+        run(&mut engine, 0.02);
+        assert_eq!((c("pitch").get(), c("keylock").get_bool()), (0.0, false));
+        range.set(2.0);
+        load(&mut input, 1, tone_track(440.0, "F#m"));
+        run(&mut engine, 0.02);
+        assert_eq!((c("pitch").get(), c("keylock").get_bool()), (-2.0, true));
     }
 
     #[test]

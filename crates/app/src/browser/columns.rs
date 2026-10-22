@@ -78,7 +78,7 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
         d(REMIX, "Remix", 120.0, false, TEXT),
         d(LENGTH, "Length", 60.0, true, TEXT),
         d(BPM, "Bpm", 56.0, true, TEXT),
-        d(KEY_ID, "Key", 44.0, false, KEY),
+        d(KEY_ID, "Key", 56.0, false, KEY),
         d(GENRE, "Genre", 110.0, false, DIM),
         d(GROUPING, &names.grouping, 90.0, false, TEXT),
     ];

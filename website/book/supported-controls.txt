@@ -958,6 +958,7 @@
 [Channel4_Stem5],mute
 [Channel4_Stem5],volume
 [Controls],AllowTrackLoadToPlayingDeck
+[Controls],key_match_on_load
 [EffectRack1_EffectUnit10],bpm
 [EffectRack1_EffectUnit10],bpm_auto
 [EffectRack1_EffectUnit10],bpm_tap

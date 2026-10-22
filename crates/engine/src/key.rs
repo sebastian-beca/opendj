@@ -151,11 +151,28 @@ impl Key {
         (n >= 1.0).then(|| Key::from_index(n as u8 - 1)).flatten()
     }
 
-    /// Whether two keys mix well, by the Camelot wheel: the same number, or
-    /// a neighbouring number with the same letter.
+    /// Whether two keys mix well by the rule picked in the settings (see
+    /// [`set_mixing`]).
     pub fn compatible(self, other: Key) -> bool {
+        self.mixes(other, mixing())
+    }
+
+    /// Whether two keys mix well by the Camelot wheel: the same number, or a
+    /// neighbouring number with the same letter (harmonic), or with either
+    /// letter (fuzzy).
+    pub fn mixes(self, other: Key, mixing: Mixing) -> bool {
         let (a, b) = (self.camelot_number(), other.camelot_number());
-        a == b || (self.minor == other.minor && ((a + 12 - b) % 12 == 1 || (b + 12 - a) % 12 == 1))
+        let neighbours = (a + 12 - b) % 12 == 1 || (b + 12 - a) % 12 == 1;
+        a == b || (neighbours && (mixing == Mixing::Fuzzy || self.minor == other.minor))
+    }
+
+    /// The smallest shift, up to `max` semitones either way, that makes a
+    /// deck whose key is `self` mix with `target`: 0 when it already does,
+    /// and down rather than up when both are as near.
+    pub fn shift_to_mix(self, target: Key, max: i32, mixing: Mixing) -> Option<i32> {
+        (0..=max)
+            .flat_map(|n| [-n, n])
+            .find(|&n| self.transpose(n).mixes(target, mixing))
     }
 
     fn camelot_number(self) -> u8 {
@@ -224,6 +241,46 @@ impl Detector {
     pub fn from_id(id: u8) -> Option<Detector> {
         Detector::ALL.into_iter().find(|d| d.id() == id)
     }
+}
+
+/// Which keys count as mixing with each other.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Mixing {
+    /// The Camelot wheel's four: the same key, its relative, and the
+    /// neighbouring numbers with the same letter (8A: 8A, 8B, 7A, 9A).
+    #[default]
+    Harmonic,
+    /// Fuzzy keymixing: the letter doesn't matter, so the neighbouring
+    /// numbers' other keys mix too (8A: also 7B and 9B).
+    Fuzzy,
+}
+
+impl Mixing {
+    pub fn id(self) -> u8 {
+        match self {
+            Mixing::Harmonic => 0,
+            Mixing::Fuzzy => 1,
+        }
+    }
+
+    pub fn from_id(id: u8) -> Mixing {
+        if id == 1 {
+            Mixing::Fuzzy
+        } else {
+            Mixing::Harmonic
+        }
+    }
+}
+
+static MIXING: AtomicU8 = AtomicU8::new(0);
+
+/// The rule [`Key::compatible`] follows, unless changed with [`set_mixing`].
+pub fn mixing() -> Mixing {
+    Mixing::from_id(MIXING.load(Ordering::Relaxed))
+}
+
+pub fn set_mixing(m: Mixing) {
+    MIXING.store(m.id(), Ordering::Relaxed);
 }
 
 static DETECTOR: AtomicU8 = AtomicU8::new(0);
@@ -479,6 +536,38 @@ mod tests {
         assert_eq!(k("Am").shift_to_match(k("C")), 0);
         assert!(k("Am").compatible(k("Em")) && k("Am").compatible(k("C")));
         assert!(!k("Am").compatible(k("F#m")));
+        // 8A with 7B (F) and 9B (G): only when fuzzy.
+        let (h, f) = (Mixing::Harmonic, Mixing::Fuzzy);
+        let mixes = |a: &str, mixing| {
+            (0..24)
+                .filter_map(Key::from_index)
+                .filter(|&b| k(a).mixes(b, mixing))
+                .count()
+        };
+        assert_eq!((mixes("8A", h), mixes("8A", f)), (4, 6));
+        assert!(!k("Am").mixes(k("F"), h) && k("Am").mixes(k("F"), f));
+        assert!(k("Am").mixes(k("G"), f) && !k("Am").mixes(k("D"), f));
+        // Fuzzy reaches every key within two semitones, as the article says.
+        for i in 0..24 {
+            let a = Key::from_index(i).unwrap();
+            for j in 0..24 {
+                let b = Key::from_index(j).unwrap();
+                let fuzzy = a
+                    .shift_to_mix(b, 2, f)
+                    .expect("fuzzy reaches every key in ±2");
+                assert!(a.transpose(fuzzy).mixes(b, f));
+                if let Some(n) = a.shift_to_mix(b, 2, h) {
+                    assert!(a.transpose(n).mixes(b, h) && n.abs() <= 2);
+                }
+            }
+        }
+        assert_eq!(k("Am").shift_to_mix(k("C"), 2, h), Some(0));
+        // Fm (4A) with Em (9A): one down.
+        assert_eq!(k("Fm").shift_to_mix(k("Em"), 2, h), Some(-1));
+        // E (12B) with C (8B): one up is F (7B).
+        assert_eq!(k("E").shift_to_mix(k("C"), 2, h), Some(1));
+        // Am (8A) with Eb (5B): harmonic needs Cm (5A), three up.
+        assert_eq!(k("Am").shift_to_mix(k("Eb"), 2, h), None);
         assert_eq!(
             Key::from_mixxx_number(k("Am").mixxx_number()),
             Some(k("Am"))

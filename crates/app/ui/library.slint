@@ -55,6 +55,8 @@ export struct TrackRow {
     cells: [string],
     // Its key mixes harmonically with the track playing now.
     key-match: bool,
+    // Or would, shifted by this many semitones (0: no shift within reach).
+    key-shift: int,
 }
 
 // One of the track list's columns. kind: 0 text, 1 the title (takes the
@@ -103,6 +105,8 @@ export struct SideRow {
     has-cover: bool,
     // Its key mixes harmonically with the track playing now.
     key-match: bool,
+    // Or would, shifted by this many semitones (0: no shift within reach).
+    key-shift: int,
 }
 
 // Dragging tracks between the list, the side panel, the decks and the
@@ -1760,11 +1764,32 @@ component TrackList inherits Rectangle {
                             vertical-alignment: center;
                             overflow: elide;
                         }
-                        if col.kind == 0 || col.kind >= 3: Text {
+                        // The key, and the shift that would make it mix.
+                        if col.kind == 3: HorizontalLayout {
+                            width: 100%;
+                            spacing: 3px;
+                            alignment: col.right ? end : start;
+                            // The key keeps its room; a narrow column clips the mark.
+                            Text {
+                                min-width: self.preferred-width;
+                                text: c < r.cells.length ? r.cells[c] : "";
+                                color: selected ? Theme.on-row-selection : r.key-match ? Theme.lilac : Theme.text;
+                                font-size: 15px;
+                                vertical-alignment: center;
+                            }
+                            if r.key-shift != 0: Text {
+                                overflow: clip;
+                                text: shift-mark(r.key-shift);
+                                color: selected ? Theme.on-row-selection-dim : r.key-shift == 1 || r.key-shift == -1 ? Theme.lilac-dim : Theme.key-far;
+                                font-size: 10px;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                            }
+                        }
+                        if col.kind == 0 || col.kind >= 4: Text {
                             width: 100%;
                             text: c < r.cells.length ? r.cells[c] : "";
-                            color: col.kind == 3 ? (selected ? Theme.on-row-selection : r.key-match ? Theme.lilac : Theme.text)
-                                : col.kind == 5 ? (selected ? Theme.on-row-selection : Theme.accent)
+                            color: col.kind == 5 ? (selected ? Theme.on-row-selection : Theme.accent)
                                 : col.kind == 4 ? (selected ? Theme.on-row-selection-dim : Theme.text-dim)
                                 : plain;
                             font-size: col.kind >= 4 ? 14px : 15px;
@@ -1779,6 +1804,10 @@ component TrackList inherits Rectangle {
         }
     }
 
+    // A key shift as the library marks it: "+1", "−2".
+    pure function shift-mark(n: int) -> string {
+        n > 0 ? "+" + n : "−" + (-n)
+    }
     pure function stars(n: int) -> string {
         n == 1 ? "★" : n == 2 ? "★★" : n == 3 ? "★★★" : n == 4 ? "★★★★" : "★★★★★"
     }
@@ -2193,7 +2222,17 @@ component SidePanel inherits Rectangle {
                                     spacing: 8px;
                                     property <color> dim: (i >= first-picked && i <= last-picked) ? (keys.has-focus ? Theme.on-row-selection-dim : #ffffffc0) : Theme.text-dim;
                                     Text { horizontal-stretch: 1; text: r.artist; color: dim; font-size: 13px; overflow: elide; }
-                                    Text { text: r.key; color: (i >= first-picked && i <= last-picked) ? (keys.has-focus ? Theme.on-row-selection : #ffffff) : r.key-match ? Theme.lilac : Theme.text; font-size: 13px; font-weight: 500; }
+                                    HorizontalLayout {
+                                        spacing: 2px;
+                                        Text { text: r.key; color: (i >= first-picked && i <= last-picked) ? (keys.has-focus ? Theme.on-row-selection : #ffffff) : r.key-match ? Theme.lilac : Theme.text; font-size: 13px; font-weight: 500; }
+                                        if r.key-shift != 0: Text {
+                                            text: r.key-shift > 0 ? "+" + r.key-shift : "−" + (-r.key-shift);
+                                            color: (i >= first-picked && i <= last-picked) ? Theme.on-row-selection-dim : r.key-shift == 1 || r.key-shift == -1 ? Theme.lilac-dim : Theme.key-far;
+                                            font-size: 9px;
+                                            font-weight: 600;
+                                            vertical-alignment: center;
+                                        }
+                                    }
                                     Text { text: r.length; color: dim; font-size: 13px; }
                                 }
                             }
