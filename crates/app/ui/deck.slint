@@ -4,7 +4,7 @@
 // Large artwork, flat dark controls, white pointers.
 import { TrackDrag } from "library.slint";
 import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
-import { Caption, ControlButton, ControlFader, ControlKnob, Controls, PitchReset } from "controls.slint";
+import { Caption, ControlButton, ControlFader, ControlKnob, Controls, KeyLock, PitchReset } from "controls.slint";
 
 // A line of the key menu: a key shift and the key it gives.
 export struct KeyItem {
@@ -1333,17 +1333,25 @@ component Pitch inherits VerticalLayout {
     width: 56px;
     spacing: 4px;
     Text { text: info.rate; color: Theme.text; font-size: 12px; font-weight: 500; horizontal-alignment: center; }
-    // Pitch reset on the outer side, level with 0%.
+    // Pitch reset on the outer side, level with 0%, with key lock on top.
     HorizontalLayout {
         vertical-stretch: 1;
         spacing: 1px;
         if !mirrored: VerticalLayout {
             alignment: center;
+            spacing: 6px;
+            // Room above the lock as tall as the triangle, so the triangle
+            // stays level with 0%.
+            Rectangle { height: 13px; }
+            KeyLock { group: group; }
             PitchReset { group: group; tint: tint; }
         }
         ControlFader { group: group; key: "rate"; center-mark: true; ticks: 9; tint: tint; horizontal-stretch: 1; }
         if mirrored: VerticalLayout {
             alignment: center;
+            spacing: 6px;
+            Rectangle { height: 13px; }
+            KeyLock { group: group; right-aligned: true; }
             PitchReset { group: group; tint: tint; points-left: true; }
         }
     }
