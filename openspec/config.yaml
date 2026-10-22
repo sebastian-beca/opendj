@@ -1,0 +1,34 @@
+schema: spec-driven
+
+# Project context: constraints that should guide every OpenSpec artifact.
+# Decisions here are Seba's (the project owner) and are not visible in the code.
+context: |
+  openDJ is a free, open-source DJ app (GPL-2.0-or-later source, GPL-3.0 builds
+  because of Slint), written in Rust, that started as a rewrite of Mixxx.
+  - Platforms: macOS (Apple Silicon and Intel) and Linux only. Windows is v2.0.
+  - UI toolkit is Slint; waveforms are drawn on the GPU with wgpu shaders.
+  - Look: djay Pro's colours, widgets and fonts, with VirtualDJ's placement of
+    elements. Brand colour "Electric Lilac" #B69CFF.
+  - Control names follow Mixxx (`[Channel1],play`), so Mixxx controller
+    mappings run unchanged. New controls keep Mixxx's naming where one exists.
+  - Playback is local files only. Streaming services are browse only; no
+    streaming partner deals and no DRM workarounds. Getting music should go
+    as directly to artists as possible (artist-direct store add-ons).
+  - Pioneer USB export is out of scope. Video mixing is out of scope.
+  - Add-ons that touch content of unclear licence (e.g. Soulseek) live outside
+    the main repository.
+  - The owner mixes mostly two-deck long blends; test hardware is a Pioneer
+    DDJ-FLX4, an Allen & Heath Xone K2 and a Midi Fighter Twister.
+  - User-facing text is plain, short British-leaning English ("colour",
+    "analysed"), no jargon.
+  - openspec/roadmap.md orders the open changes by release.
+
+rules:
+  proposal:
+    - Say which release the change is planned for (see openspec/roadmap.md).
+    - State what is out of scope.
+  specs:
+    - Describe what a DJ sees and hears, and the control names controllers use, not Rust types.
+  tasks:
+    - Every group that adds controls regenerates website/book/supported-controls.txt.
+    - Every group that changes what a DJ sees updates the user guide in website/book/src/guide.
