@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/control", "crates/engine", "crates/controllers", "crates/waveform", "crates/library", "crates/plugins", "crates/app"]
+exclude = ["third_party"]
 
 [workspace.package]
 version = "0.3.0"
@@ -22,3 +23,9 @@ opt-level = 2
 
 [profile.dev.package.signalsmith-stretch]
 opt-level = 2
+
+# femtovg (Slint's renderer) with a fix for its pipeline cache, which threw
+# away pipelines each flush and rebuilt them every frame. See
+# third_party/femtovg/OPENDJ.md.
+[patch.crates-io]
+femtovg = { path = "third_party/femtovg" }

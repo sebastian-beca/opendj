@@ -1,11 +1,15 @@
 // Widgets bound to Mixxx controls by name, e.g. `ControlKnob { group: "[Channel1]"; key: "pregain"; }`.
 //
 // A widget resolves its name to an index once; reads go through `Controls.tick`,
-// which the app bumps every frame, so values refresh without per-control wiring.
+// which the app bumps whenever a control changes, so values refresh without
+// per-control wiring.
 import { Theme } from "theme.slint";
 
 export global Controls {
     in property <int> tick;
+    // Flips twice a second, the same for every blinking button, so they
+    // blink together and the window redraws only when they do.
+    in property <bool> blink;
     pure callback resolve(group: string, key: string) -> int;
     // 0..1 widget position (knobs, faders)
     pure callback parameter(index: int, tick: int) -> float;
