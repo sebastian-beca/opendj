@@ -14,7 +14,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use mixxx_control::{ControlHandle, ControlRegistry};
-use mixxx_engine::key::Key;
+use mixxx_engine::key::{self, Key};
 use mixxx_engine::scan::{is_audio, read_track};
 use mixxx_engine::{deck_group, AudioEngine, Hotcue, Track, NUM_DECKS, NUM_HOTCUES};
 use mixxx_library::health::{Check, Facts};
@@ -371,6 +371,13 @@ pub struct Browser {
     link_rows: usize,
     engine: Rc<AudioEngine>,
     play: [ControlHandle; NUM_DECKS],
+    /// The key each deck plays in, with its shift.
+    deck_key: [ControlHandle; NUM_DECKS],
+    /// How far, in semitones, tracks are shifted to match keys on load.
+    key_match_range: ControlHandle,
+    /// The key mixing rule and the reach of the key marks the rows were
+    /// made with.
+    key_rules: (key::Mixing, i32),
     lib: LibraryControls,
     /// Moving the selection with a controller goes through folders instead of tracks.
     folders_focused: bool,
@@ -766,6 +773,13 @@ impl Browser {
             play: std::array::from_fn(|d| {
                 registry.get(&deck_group(d), "play").expect("play control")
             }),
+            deck_key: std::array::from_fn(|d| {
+                registry.get(&deck_group(d), "key").expect("key control")
+            }),
+            key_match_range: registry
+                .get("[Controls]", "key_match_on_load")
+                .expect("key matching control"),
+            key_rules: (key::Mixing::Harmonic, 1),
             lib: LibraryControls::create(registry),
             folders_focused: false,
             play_when_loaded: [None; NUM_DECKS],
@@ -3030,7 +3044,18 @@ impl Browser {
             .chain(0..NUM_DECKS)
             .find(|&d| self.loaded[d].is_some())?;
         let t = &self.library[*self.index_of.get(&self.loaded[deck]?)?];
-        Some((t.id, t.bpm, Key::parse(&t.key)))
+        // The key it plays in, shifted or sped up, once the deck has it.
+        let key = Key::from_mixxx_number(self.deck_key[deck].get()).or_else(|| Key::parse(&t.key));
+        Some((t.id, t.bpm, key))
+    }
+
+    /// The rule keys mix by, and how far the marks reach: the shift tracks
+    /// get on load, and at least one semitone.
+    fn current_key_rules(&self) -> (key::Mixing, i32) {
+        (
+            key::mixing(),
+            (self.key_match_range.get().round() as i32).clamp(1, 2),
+        )
     }
 
     /// Notes the track playing now; returns whether it changed.
@@ -3038,9 +3063,12 @@ impl Browser {
         let r = self.playing_reference();
         let track = r.map(|(id, ..)| id);
         let reference = r.map(|(_, bpm, key)| (bpm, key));
-        let changed = track != self.deck_track || reference != self.deck_ref;
+        let rules = self.current_key_rules();
+        let changed =
+            track != self.deck_track || reference != self.deck_ref || rules != self.key_rules;
         self.deck_track = track;
         self.deck_ref = reference;
+        self.key_rules = rules;
         changed
     }
 
@@ -3050,6 +3078,19 @@ impl Browser {
             .and_then(|(_, k)| k)
             .zip(Key::parse(key))
             .is_some_and(|(a, b)| a.compatible(b))
+    }
+
+    /// The semitones a track in `key` would be shifted to mix with the
+    /// track playing now, within the marks' reach; 0 when it mixes as it is
+    /// or nothing in reach does.
+    fn key_shift_to_deck(&self, key: &str) -> i32 {
+        let (mixing, reach) = self.key_rules;
+        match self.deck_ref.and_then(|(_, k)| k).zip(Key::parse(key)) {
+            Some((theirs, mine)) if !mine.mixes(theirs, mixing) => {
+                mine.shift_to_mix(theirs, reach, mixing).unwrap_or(0)
+            }
+            _ => 0,
+        }
     }
 
     /// Whether the list shown depends on the track playing now.
@@ -3306,6 +3347,7 @@ impl Browser {
                     },
                     key: show_key(r.key, self.camelot).into(),
                     key_match: self.mixes_with_deck(r.key),
+                    key_shift: self.key_shift_to_deck(r.key),
                     rating: r.rating as i32,
                     deck: r
                         .local
@@ -3390,6 +3432,7 @@ impl Browser {
                     },
                     key: show_key(&t.key, self.camelot).into(),
                     key_match: self.mixes_with_deck(&t.key),
+                    key_shift: self.key_shift_to_deck(&t.key),
                     length: short_time(t.duration),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
@@ -3471,6 +3514,7 @@ impl Browser {
                     },
                     key: show_key(&t.key, self.camelot).into(),
                     key_match: self.mixes_with_deck(&t.key),
+                    key_shift: self.key_shift_to_deck(&t.key),
                     length: short_time(t.duration),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),

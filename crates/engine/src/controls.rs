@@ -539,6 +539,9 @@ pub(crate) struct MasterControls {
     /// Auto gain: levels every track to `auto_gain_target` LUFS.
     pub(crate) auto_gain: ControlHandle,
     pub(crate) auto_gain_target: ControlHandle,
+    /// How many semitones, at most, a track loaded while another deck plays
+    /// is shifted so its key mixes with that deck's: 0 leaves it alone.
+    pub(crate) key_match_on_load: ControlHandle,
 }
 
 pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
@@ -606,6 +609,14 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
             DEFAULT_AUTO_GAIN_TARGET,
             -30.0,
             0.0,
+            Behavior::Free,
+        ),
+        key_match_on_load: reg.create(
+            "[Controls]",
+            "key_match_on_load",
+            0.0,
+            0.0,
+            2.0,
             Behavior::Free,
         ),
     }

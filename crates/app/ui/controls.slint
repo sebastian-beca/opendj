@@ -527,3 +527,58 @@ export component PitchReset inherits Rectangle {
         }
     }
 }
+
+// Key lock, a padlock over the pitch reset triangle: tempo changes keep the
+// key. Lit lilac and shut when on, open when off.
+export component KeyLock inherits Rectangle {
+    in property <string> group;
+    in property <bool> right-aligned: false;
+    property <int> index: Controls.resolve(group, "keylock");
+    property <bool> lit: Controls.value(index, Controls.tick) > 0;
+    property <bool> tip-mine;
+    property <color> ink: lit ? Theme.accent : touch.has-hover ? Theme.text : Theme.text-dim;
+    width: 12px;
+    height: 13px;
+    Path {
+        width: 10px;
+        height: 12px;
+        viewbox-width: 10;
+        viewbox-height: 12;
+        fill: transparent;
+        stroke: ink;
+        stroke-width: 1.4px;
+        commands: lit ? "M 2.6 5.5 L 2.6 3.6 A 2.4 2.4 0 0 1 7.4 3.6 L 7.4 5.5"
+            : "M 2.6 5.5 L 2.6 2.6 A 2.4 2.4 0 0 1 7.4 2.6 L 7.4 3.6";
+    }
+    Path {
+        width: 10px;
+        height: 12px;
+        viewbox-width: 10;
+        viewbox-height: 12;
+        fill: ink;
+        commands: "M 1 5.5 L 9 5.5 L 9 11.5 L 1 11.5 Z";
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { Controls.toggle(index); }
+        changed has-hover => {
+            if !self.has-hover && tip-mine {
+                tip-mine = false;
+                HoverTip.shown = false;
+            }
+        }
+    }
+    Timer {
+        interval: 600ms;
+        running: touch.has-hover && !tip-mine;
+        triggered => {
+            tip-mine = true;
+            HoverTip.title = "KEY LOCK";
+            HoverTip.body = "Keep the key when the tempo changes.";
+            HoverTip.right-aligned = right-aligned;
+            HoverTip.x = root.absolute-position.x + (right-aligned ? root.width : 0px);
+            HoverTip.y = root.absolute-position.y + root.height + 6px;
+            HoverTip.shown = true;
+        }
+    }
+}
