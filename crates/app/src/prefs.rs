@@ -141,6 +141,18 @@ pub fn apply_saved(registry: &ControlRegistry) {
     let (lo, hi) = bpm_range();
     analysis::set_bpm_range(lo, hi);
     key::set_detector(key_detector());
+    key::set_mixing(key_mixing());
+    set("[Controls]", "key_match_on_load", key_match_range() as f64);
+}
+
+fn key_mixing() -> key::Mixing {
+    key::Mixing::from_id(settings::number("key_mixing", 0.0) as u8)
+}
+
+/// How far tracks are shifted to match keys on load: 0 (off), 1 or 2
+/// semitones.
+pub fn key_match_range() -> u8 {
+    settings::number("key_match_on_load", 1.0).clamp(0.0, 2.0) as u8
 }
 
 fn key_detector() -> key::Detector {
@@ -599,6 +611,31 @@ impl Prefs {
                         "Tempo changes keep the key; each deck's lock button still switches it.",
                         settings::flag("keylock_default", false),
                     ),
+                    PrefItem {
+                        choices: strings(&["Harmonic · 4 keys", "Fuzzy · 6 keys"]),
+                        chosen: key_mixing().id() as i32,
+                        ..item(
+                            "key_mixing",
+                            SEGMENTED,
+                            "Key mixing",
+                            "Which keys the library marks in lilac as mixing with the track \
+                             playing. Harmonic: the same number, or the next one with the same \
+                             letter (8A: 8A, 8B, 7A, 9A). Fuzzy ignores the letter, so 7B and 9B \
+                             mix too.",
+                        )
+                    },
+                    PrefItem {
+                        choices: strings(&["Off", "±1 semitone", "±2 semitones"]),
+                        chosen: key_match_range() as i32,
+                        ..item(
+                            "key_match_on_load",
+                            SEGMENTED,
+                            "Match key on load",
+                            "A track loaded while another deck plays is shifted up or down to \
+                             mix with it, with key lock on. The library marks those tracks with \
+                             the shift they'd get.",
+                        )
+                    },
                     switch(
                         "quantize",
                         "Quantize",
@@ -1361,6 +1398,15 @@ impl Prefs {
                 };
                 settings::set("key_detector", json!(d.id()));
                 key::set_detector(d);
+            }
+            "key_mixing" => {
+                let m = key::Mixing::from_id(index as u8);
+                settings::set("key_mixing", json!(m.id()));
+                key::set_mixing(m);
+            }
+            "key_match_on_load" => {
+                settings::set("key_match_on_load", json!(index.min(2)));
+                self.set("[Controls]", "key_match_on_load", index.min(2) as f64);
             }
             "key_notation" => {
                 if let Some(app) = self.app.upgrade() {
