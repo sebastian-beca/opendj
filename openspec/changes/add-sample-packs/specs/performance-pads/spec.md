@@ -1,15 +1,15 @@
 ## MODIFIED Requirements
 
 ### Requirement: Sampler
-There SHALL be 16 sampler slots (`[Sampler1]` to `[Sampler16]`). On a deck's SAMPLER page the top row SHALL show slots 1-4 on the left deck (decks 1 and 3) and 5-8 on the right deck (decks 2 and 4), and the bottom row slots 9-12 and 13-16, the same layout the DDJ-FLX4 mapping uses. Each pad SHALL show its sample's name and light while it plays; samplers SHALL join the main mix after the crossfader. Out of the box the slots SHALL hold the Default DJ Sample Pack: kick, snare, clap, hat, horn, siren, laser and crash.
+There SHALL be 16 sampler slots (`[Sampler1]` to `[Sampler16]`). A deck's SAMPLER page SHALL show 8 of them, page 1 (slots 1-8) or page 2 (slots 9-16), with a 1/2 page button on the side of the pads that flips the page; each deck keeps its own page in `[ChannelN],sampler_page`, and a controller's sampler pads SHALL play the slots of that deck's page. Each pad SHALL show its sample's name and light while it plays; samplers SHALL join the main mix after the crossfader. Out of the box the slots SHALL hold the Default DJ Sample Pack: kick, snare, clap, hat, horn, siren, laser and crash.
 
 #### Scenario: Air horn
 - **WHEN** the Horn pad is pressed
 - **THEN** the horn plays once in the master and the pad lights while it plays
 
-#### Scenario: Controller bottom row
-- **WHEN** the DDJ-FLX4's left pad 5 is pressed in SAMPLER mode
-- **THEN** slot 9 plays and the left deck's bottom-left pad on screen lights
+#### Scenario: Page 2
+- **WHEN** the left deck's 1/2 button is clicked and the DDJ-FLX4's left pad 1 is pressed in SAMPLER mode
+- **THEN** slot 9 plays and the left deck's first pad on screen lights
 
 ## ADDED Requirements
 

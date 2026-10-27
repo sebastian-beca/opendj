@@ -14,7 +14,7 @@ What we take from them:
 
 - **djay's look and flow** (as in Seba's screenshots): SAMPLE PACK menu with covers, + and Get more Packs; pencil for edit mode with level knobs and "…"; the Choose Sample popover with preview buttons, lengths and Record New Sample. It matches openDJ's djay-style look.
 - **Serato/rekordbox play modes**: One shot (Serato's Trigger), Hold (Gate), On/Off, Loop (rekordbox). That covers issue #60's one-shot / hold / loop.
-- **rekordbox/FLX4 slot layout**: 16 slots, 1-8 on the top row across both decks, 9-16 on the bottom. Our FLX4 mapping already sends this.
+- **16 slots, like rekordbox and djay**, shown as two pages of 8 on each deck with a 1/2 page button beside the pads (Seba, 2026-10-27), so a deck's 8 pads always read in order.
 - **VirtualDJ's recordings folder**: recordings land in their own "My Recordings" pack.
 - Not taken: VirtualDJ's 64-slot banks (too many for pads), Mixxx's samplers-as-full-decks (pitch, EQ per sampler; more than drops need).
 
@@ -58,6 +58,7 @@ What we take from them:
 ### Engine
 
 - `[Sampler1]` to `[Sampler16]`; `[App],num_samplers` reports 16 (the FLX4 script already asks for it).
+- Each deck has `[ChannelN],sampler_page` (0 = slots 1-8, 1 = slots 9-16). The 1/2 button and controllers set it; the DDJ-FLX4 script plays slot `page * 8 + pad` on that deck instead of the rekordbox split (left 1-4/9-12, right 5-8/13-16), so the hardware pads always play what the screen shows.
 - Samples are decoded with Symphonia on a loader thread, resampled to the engine rate, kept stereo, and handed to the audio thread through the same lock-free hand-over the decks use; the old buffer is dropped off the audio thread. Nothing allocates on the audio thread.
 - Length limit 60 seconds, held as 16-bit stereo in memory: about 11 MB a slot at 48 kHz, under 200 MB if all 16 slots are full-length. Drops and loops are far shorter; anything longer belongs on a deck. Over the limit: refused with "Longer than a minute, load it on a deck instead".
 - Level is the existing `[SamplerN],pregain` (now 0 to 2, i.e. silent to +6 dB, default 1 = 0 dB); `volume` stays as Mixxx's sampler fader at 1.0.
@@ -67,6 +68,7 @@ What we take from them:
 
 ### Screen
 
+- **Page button**: a narrow 1/2 button on the side of the pads (outer edge of each deck) shows which page the deck is on and flips it; page 2 lights it lilac.
 - **SAMPLER page header**: when a tab shows the SAMPLER page, a 22 px strip above the pads holds `SAMPLE PACK  [Default DJ Sample Pack ▾]  [✎]` like djay. The strip is shared by both decks (same pack).
 - **Pack menu**: popover with each pack's cover (or a lilac initial tile), the chosen one highlighted in Electric Lilac #B69CFF, + at the top right (New pack…, Import pack…), and a full-width Get more Packs button at the bottom. Right-click a pack: Rename, Export…, Show in Finder, Delete (not on Default).
 - **Edit mode (✎)**: each pad gets a small level knob on its left and a "…" on its right, as in djay. Out of edit mode pads stay big, clean triggers. Right-click works in both modes.
@@ -90,8 +92,11 @@ Options to look at when that dialog is designed:
 4. **Record** New Sample (deck, mic, master, loop-length capture) and synced loops.
 5. **Get more Packs** dialog (after its own design).
 
+## Answered
+
+- 16 slots, with a 1/2 page button on the side of the pads (Seba, 2026-10-27).
+- Build phases 1-2 now (Seba, 2026-10-27).
+
 ## Open questions for Seba
 
-- 16 slots with the FLX4/rekordbox layout (recommended), or keep 8 shown on every deck?
 - Should Default DJ Sample Pack get eight more synthesised sounds for slots 9-16, or stay at eight?
-- Build phases 1-2 now (before v0.5), or keep the whole change in v0.5?
