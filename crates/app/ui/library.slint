@@ -57,10 +57,15 @@ export struct TrackRow {
     key-match: bool,
     // Or would, shifted by this many semitones (0: no shift within reach).
     key-shift: int,
+    // Its mini waveform, a white image coloured by the list: only rows in
+    // view have one, and only once the track is analysed.
+    wave: image,
+    has-wave: bool,
 }
 
 // One of the track list's columns. kind: 0 text, 1 the title (takes the
-// room left), 2 rating stars, 3 key, 4 quieter text, 5 tag words.
+// room left), 2 rating stars, 3 key, 4 quieter text, 5 tag words, 6 the
+// mini waveform.
 export struct ListColumn {
     id: int,
     label: string,
@@ -90,6 +95,9 @@ export global ColumnUi {
     // along the header, or below zero when it would stay put.
     callback drag(column: int, x: length, header: length);
     in-out property <length> drop-x: -1px;
+    // The rows in view, so Rust gives just those their mini waveforms.
+    in-out property <int> first-shown;
+    in-out property <int> shown-count;
 }
 
 export struct SideRow {
@@ -1406,6 +1414,15 @@ component TrackList inherits Rectangle {
         rating: menu-rating;
     }
     property <length> row-height: 32px;
+    // Which rows are in view, for their mini waveforms.
+    property <int> first-shown: max(0, floor(-lv.content-y / row-height));
+    property <int> shown-count: ceil(lv.visible-height / row-height) + 1;
+    changed first-shown => { ColumnUi.first-shown = first-shown; }
+    changed shown-count => { ColumnUi.shown-count = shown-count; }
+    init => {
+        ColumnUi.first-shown = first-shown;
+        ColumnUi.shown-count = shown-count;
+    }
     // Shift-click picks every row from `anchor` to the one clicked. The
     // range holds while `range-end` is still the current row; moving the
     // selection another way (arrows, a controller) drops back to one row.
@@ -1786,7 +1803,16 @@ component TrackList inherits Rectangle {
                                 vertical-alignment: center;
                             }
                         }
-                        if col.kind == 0 || col.kind >= 4: Text {
+                        // The mini waveform, in lilac (white on the highlight).
+                        if col.kind == 6 && r.has-wave: Image {
+                            y: 4px;
+                            width: 100%;
+                            height: row-height - 8px;
+                            source: r.wave;
+                            image-fit: fill;
+                            colorize: selected ? Theme.on-row-selection : (r.available && !r.missing) ? Theme.lilac : Theme.text-dim;
+                        }
+                        if col.kind == 0 || col.kind == 4 || col.kind == 5: Text {
                             width: 100%;
                             text: c < r.cells.length ? r.cells[c] : "";
                             color: col.kind == 5 ? (selected ? Theme.on-row-selection : Theme.accent)

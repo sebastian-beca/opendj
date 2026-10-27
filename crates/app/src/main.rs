@@ -50,6 +50,7 @@ mod spotify;
 mod stores;
 mod ui_font;
 mod update;
+mod waves;
 
 /// Fills the master and headphone output menus and switches devices when
 /// one is picked. The menus list the devices present when they open.
@@ -697,6 +698,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     browser.borrow_mut().add_imported(track);
                 }
                 browser.borrow_mut().poll_art();
+                browser.borrow_mut().poll_waves();
                 browser.borrow_mut().poll_analysis();
                 browser.borrow_mut().poll_covers();
                 browser.borrow_mut().poll_files();

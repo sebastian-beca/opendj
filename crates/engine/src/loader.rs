@@ -643,6 +643,18 @@ mod tests {
         let again = deck(&loaded).unwrap();
         assert_eq!(again.bpm, analysed.bpm);
         assert_eq!(again.waveform.levels, analysed.waveform.levels);
+
+        // The library's mini waveform was kept with the analysis, and is
+        // made again from it when its file is gone.
+        let Source::File(path) = &again.source else {
+            unreachable!()
+        };
+        let overview = cache::overview(path).unwrap();
+        assert_eq!(overview, analysed.waveform.overview(cache::OVERVIEW_SLICES));
+        assert!(overview.iter().any(|s| s[0] > 100));
+        std::fs::remove_dir_all(dir.join("cache/overviews")).unwrap();
+        assert_eq!(cache::overview(path).unwrap(), overview);
+        assert!(dir.join("cache/overviews").is_dir());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

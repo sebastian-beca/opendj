@@ -456,6 +456,7 @@ impl Browser {
         if self.info.previewing.take().is_some() {
             self.engine.preview(None, false);
         }
+        self.fill_info_wave(app);
         ui.set_status(SharedString::new());
         ui.set_cover_open(false);
         self.info.search = None;
@@ -705,6 +706,19 @@ impl Browser {
             self.info.previewing = Some(i);
         }
         self.info.shown_position = (true, -1);
+    }
+
+    /// Shows the waveform of the track shown in the preview bar, once its
+    /// overview has been read (see [`crate::waves`]).
+    pub(super) fn fill_info_wave(&self, app: &AppWindow) {
+        let wave = self
+            .info
+            .shown
+            .as_ref()
+            .and_then(|(_, t)| self.waves.get(t));
+        let ui = app.global::<TrackInfo>();
+        ui.set_has_wave(wave.is_some());
+        ui.set_wave(wave.unwrap_or_default());
     }
 
     fn poll_preview(&mut self, app: &AppWindow) {
