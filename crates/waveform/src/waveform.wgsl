@@ -34,6 +34,12 @@ struct Params {
     digit: vec4<f32>,                  // digit atlas: cell width, cell height, advance, digit height
     level_offset: array<vec4<u32>, 4>, // first texel of each level
     level_len: array<vec4<u32>, 4>,    // slices in each level
+    phrase_start: array<vec4<f32>, 8>, // where each phrase starts, in slices
+    phrase_kind: array<vec4<u32>, 8>,  // its kind: intro, build, drop, breakdown, outro
+    phrase_count: u32,
+    pad0: u32,
+    pad1: u32,
+    pad2: u32,
 };
 
 @group(0) @binding(0) var<uniform> p: Params;
@@ -59,6 +65,16 @@ const AMBER = vec3<f32>(0.91, 0.70, 0.23);
 const LOOP_LILAC = vec3<f32>(0.714, 0.612, 1.0);
 const LOOP_MARKING = vec3<f32>(0.82, 0.82, 0.84);
 const CUE_ORANGE = vec3<f32>(1.0, 0.6, 0.1);
+// Phrase colours, muted and close to the lilac accent: intro and outro a
+// cool grey, builds a dusky lilac, drops the lilac itself, breakdowns a
+// quiet blue.
+const PHRASE_COLORS = array<vec3<f32>, 5>(
+    vec3<f32>(0.42, 0.44, 0.50),
+    vec3<f32>(0.54, 0.47, 0.76),
+    vec3<f32>(0.714, 0.612, 1.0),
+    vec3<f32>(0.36, 0.48, 0.64),
+    vec3<f32>(0.42, 0.44, 0.50),
+);
 
 struct Slice {
     peak: vec4<f32>,
@@ -180,6 +196,17 @@ fn bin_x(bin: f32) -> f32 {
         return (bin - p.play_bin) / p.bins_per_pixel + p.size.x * 0.5;
     }
     return bin / p.bins_per_pixel;
+}
+
+// The phrase at slice `bin`: its index, or -1 before the first or with none.
+fn phrase_at(bin: f32) -> i32 {
+    var found = -1;
+    for (var i = 0u; i < p.phrase_count; i = i + 1u) {
+        if (p.phrase_start[i / 4u][i % 4u] <= bin) {
+            found = i32(i);
+        }
+    }
+    return found;
 }
 
 fn over(base: vec3<f32>, c: vec3<f32>, a: f32) -> vec3<f32> {
@@ -336,6 +363,34 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         color = over(color, vec3<f32>(0.85), beat_a * tick * 0.8);
         color = over(color, AMBER, bar_a * clamp(10.0 * k - edge + 0.5, 0.0, 1.0));
         color = over(color, vec3<f32>(1.0), bar_number(x, y, k, sec) * 0.85);
+    }
+
+    // Phrases: a thin bar along the bottom in each phrase's colour, with a
+    // gap where one ends, and on the scrolling waveform a faint line where
+    // each starts.
+    if (p.phrase_count > 0u && has_track) {
+        let ph = phrase_at(bin);
+        // How much of this pixel the start of its phrase or of the next
+        // one covers (the first phrase's start, the track's, has no line).
+        var edge = 0.0;
+        if (ph > 0) {
+            let i = u32(ph);
+            edge = line(x, bin_x(p.phrase_start[i / 4u][i % 4u]), 1.0 * k);
+        }
+        let next = u32(ph + 1);
+        if (next < p.phrase_count) {
+            edge = max(edge, line(x, bin_x(p.phrase_start[next / 4u][next % 4u]), 1.0 * k));
+        }
+        let bar_h = select(3.0, 4.0, p.mode == 0u) * k;
+        let from_bottom = p.size.y - y;
+        if (ph >= 0 && from_bottom <= bar_h + 0.5) {
+            let i = u32(ph);
+            let c = PHRASE_COLORS[min(p.phrase_kind[i / 4u][i % 4u], 4u)];
+            let a = clamp(bar_h - from_bottom + 0.5, 0.0, 1.0);
+            color = over(color, c, a * 0.75 * (1.0 - edge));
+        } else if (p.mode == 0u) {
+            color = over(color, PHRASE_COLORS[2], edge * 0.3);
+        }
     }
 
     // Loop edges.

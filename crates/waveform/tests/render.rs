@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use mixxx_waveform::{
-    steady_grid, wgpu, Frame, GpuTrack, Mode, Style, WaveformRenderer, WaveformView,
+    steady_grid, wgpu, Frame, GpuTrack, Mode, PhraseKind, Style, WaveformRenderer, WaveformView,
 };
 
 /// Builds the coarser levels the way the analyser does (peaks by maximum;
@@ -105,6 +105,7 @@ fn renders_scrolling_and_overview() {
                 loop_marking: None,
                 hotcues: [Some(5.0), None, None, None, None, None, None, Some(60.0)],
                 gain: 1.0,
+                phrases: vec![(0.0, PhraseKind::Intro), (20.0, PhraseKind::Drop), (60.0, PhraseKind::Outro)],
             };
             view.render(&device, &queue, &renderer, Some(&frame), 2.0);
             let marking = Frame {
@@ -151,6 +152,7 @@ fn long_tracks_fall_back_to_a_coarser_level() {
         loop_marking: None,
         hotcues: [None; 8],
         gain: 1.0,
+        phrases: Vec::new(),
     };
     view.render(&device, &queue, &renderer, Some(&frame), 1.0);
     let data = read_back(&device, &queue, &view);
@@ -197,6 +199,7 @@ fn draws_beat_grid() {
         loop_marking: None,
         hotcues: [None; 8],
         gain: 1.0,
+        phrases: Vec::new(),
     };
     view.render(&device, &queue, &renderer, Some(&frame), 1.0);
     let data = read_back(&device, &queue, &view);
@@ -250,6 +253,7 @@ fn draws_bar_numbers() {
         loop_marking: None,
         hotcues: [None; 8],
         gain: 1.0,
+        phrases: Vec::new(),
     };
     view.render(&device, &queue, &renderer, Some(&frame), 1.0);
     let data = read_back(&device, &queue, &view);
@@ -274,4 +278,53 @@ fn draws_bar_numbers() {
         .filter(|&(x, y)| white(x, y))
         .collect();
     assert!(stray.is_empty(), "stray pixels: {stray:?}");
+}
+
+/// Phrases show as a bar along the bottom of the overview in their colours:
+/// grey for the intro, lilac for the drop, and nothing above the bar.
+#[test]
+fn draws_phrase_bars() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let renderer = WaveformRenderer::new(&device, &queue);
+    let track = Arc::new(GpuTrack::new(
+        &device,
+        &queue,
+        &renderer,
+        1,
+        &levels(vec![[0; 8]; 100_000]),
+        1000.0,
+    ));
+    let (w, h) = (512u32, 40u32);
+    let mut view = WaveformView::new(&device, Mode::Overview, w, h);
+    view.set_track(&device, &renderer, Some(&track));
+    let frame = Frame {
+        play_seconds: 0.0,
+        visible_seconds: 8.0,
+        duration: 100.0,
+        first_bar_beat: 0.0,
+        grid: steady_grid(120.0, 0.0),
+        cue: None,
+        loop_range: None,
+        loop_marking: None,
+        hotcues: [None; 8],
+        gain: 1.0,
+        phrases: vec![(0.0, PhraseKind::Intro), (50.0, PhraseKind::Drop)],
+    };
+    view.render(&device, &queue, &renderer, Some(&frame), 1.0);
+    let data = read_back(&device, &queue, &view);
+    let px = |x: u32, y: u32| {
+        let i = ((y * w + x) * 4) as usize;
+        [data[i], data[i + 1], data[i + 2]]
+    };
+    let intro = px(128, h - 2);
+    let drop = px(384, h - 2);
+    assert!(drop[2] > drop[1] + 40 && drop[0] > 100, "drop is lilac: {drop:?}");
+    assert!(intro[2] < drop[2] && intro[0] < drop[0], "intro is a darker grey: {intro:?}");
+    let gap = px(256, h - 2);
+    assert!(gap[2] < drop[2] / 2, "gap where the drop starts: {gap:?}");
+    let above = px(384, h - 10);
+    assert!(above[2] < 40, "nothing above the bar: {above:?}");
 }

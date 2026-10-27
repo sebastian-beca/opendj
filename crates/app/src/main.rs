@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use mixxx_control::{ControlHandle, ControlRegistry};
 use mixxx_engine::cover::Cover;
 use mixxx_engine::key::Key;
+use mixxx_engine::phrases;
 use mixxx_engine::scan::scan;
 use mixxx_engine::stems;
 use mixxx_engine::synth::SAMPLE_LIBRARY_SIZE;
@@ -21,8 +22,8 @@ use mixxx_engine::{
 };
 use mixxx_library::Library;
 use mixxx_waveform::{
-    steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, Style, WaveformRenderer, WaveformView,
-    GRID_SECTIONS,
+    steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, PhraseKind, Style, WaveformRenderer,
+    WaveformView, GRID_SECTIONS,
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use smooth::SmoothClock;
@@ -370,6 +371,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.on_waveforms_visible_changed(|on| {
         settings::set("waveforms_visible", serde_json::json!(on))
     });
+    // Phrase bars on the waveforms, shown or hidden from a waveform's
+    // right-click menu.
+    app.set_phrases_visible(settings::flag("phrases_visible", true));
+    {
+        let app_weak = app.as_weak();
+        app.on_phrases_visible_changed(move |on| {
+            settings::set("phrases_visible", serde_json::json!(on));
+            if let Some(app) = app_weak.upgrade() {
+                app.window().request_redraw();
+            }
+        });
+    }
     {
         use slint::winit_030::WinitWindowAccessor;
         let weak = app.as_weak();
@@ -521,6 +534,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         scrolling: std::array::from_fn(|_| make(Mode::Scrolling)),
                         overview: std::array::from_fn(|_| make(Mode::Overview)),
                         tracks: Default::default(),
+                        phrases: Default::default(),
                         clocks: Default::default(),
                         moving: false,
                         images_set: false,
@@ -1319,7 +1333,13 @@ impl Decks {
         }
     }
 
-    fn frame(&self, deck: usize, t: &Track, play_seconds: f64) -> Frame {
+    fn frame(
+        &self,
+        deck: usize,
+        t: &Track,
+        play_seconds: f64,
+        phrases: Vec<(f64, PhraseKind)>,
+    ) -> Frame {
         let h = &self.0[deck];
         Frame {
             play_seconds,
@@ -1347,6 +1367,7 @@ impl Decks {
                 enabled.get_bool().then(|| position.get())
             }),
             gain: 1.0,
+            phrases,
         }
     }
 }
@@ -1415,6 +1436,9 @@ struct Gpu {
     /// waveform it was uploaded from. While a track is being analysed its
     /// waveform grows, and each new version is uploaded again.
     tracks: [Option<(Arc<GpuTrack>, Arc<Waveform>)>; NUM_DECKS],
+    /// Each deck's phrases and the track they were found for, found again
+    /// when the track changes (a new analysis or a grid edit replaces it).
+    phrases: [Option<(Arc<Track>, Vec<(f64, PhraseKind)>)>; NUM_DECKS],
     /// Each deck's drawn position, steadier than the engine's as read.
     clocks: [SmoothClock; NUM_DECKS],
     /// Whether a deck was moving in the last frame drawn.
@@ -1438,6 +1462,7 @@ impl Gpu {
         let mut changed = !self.images_set;
         self.moving = false;
         let four = app.get_layout() == FOUR_DECK_LAYOUT;
+        let show_phrases = app.get_phrases_visible();
         for (d, track) in tracks.iter().enumerate() {
             changed |= self.scrolling[d].resize(&self.device, ww, wh);
             changed |= self.overview[d].resize(&self.device, ow, oh);
@@ -1465,7 +1490,11 @@ impl Gpu {
             let (position, speed) = visual.position(d, now);
             let play_seconds = self.clocks[d].next(position, speed, now);
             self.moving |= track.is_some() && speed != 0.0;
-            let frame = track.map(|t| decks.frame(d, t, play_seconds));
+            let phrases = match track {
+                Some(t) if show_phrases => self.phrases(d, t),
+                _ => Vec::new(),
+            };
+            let frame = track.map(|t| decks.frame(d, t, play_seconds, phrases));
             // The jog marker turns with the same smoothed clock as the
             // waveform, set here as each frame is drawn rather than on the UI
             // timer, whose ticks beat against the display. A 33 rpm record
@@ -1506,6 +1535,32 @@ impl Gpu {
             app.set_overview_3(img(&self.overview[2]));
             app.set_overview_4(img(&self.overview[3]));
             self.images_set = true;
+        }
+    }
+}
+
+impl Gpu {
+    /// Deck `d`'s phrases for the waveforms, found once per track.
+    fn phrases(&mut self, d: usize, t: &Arc<Track>) -> Vec<(f64, PhraseKind)> {
+        match &self.phrases[d] {
+            Some((cached, p)) if Arc::ptr_eq(cached, t) => p.clone(),
+            _ => {
+                let p: Vec<_> = phrases::detect(t)
+                    .into_iter()
+                    .map(|p| {
+                        let kind = match p.kind {
+                            phrases::PhraseKind::Intro => PhraseKind::Intro,
+                            phrases::PhraseKind::Build => PhraseKind::Build,
+                            phrases::PhraseKind::Drop => PhraseKind::Drop,
+                            phrases::PhraseKind::Breakdown => PhraseKind::Breakdown,
+                            phrases::PhraseKind::Outro => PhraseKind::Outro,
+                        };
+                        (p.start, kind)
+                    })
+                    .collect();
+                self.phrases[d] = Some((t.clone(), p.clone()));
+                p
+            }
         }
     }
 }

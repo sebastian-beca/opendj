@@ -1,0 +1,327 @@
+//! Phrases: a track cut into sections of whole bars (intro, build, drop,
+//! breakdown, outro) from its beat grid and waveform.
+//!
+//! Each bar gets the mean level of the low, mid and high bands. A dynamic
+//! program then picks the cuts that fit those levels best with as few
+//! sections as it can, allowing only lengths of 8 to 32 bars in steps of 4
+//! (8 and 16 cost less), so short flickers never become phrases of their
+//! own. The first and last section may be shorter, down to 4 bars, for a
+//! pickup or a tail. A section is a drop when its bass and level come close
+//! to the track's strongest section's; the others are named by where they
+//! fall. Neighbours of the same kind merge.
+//!
+//! The method follows the research in the project notes
+//! (phrase-analysis-review.md); it was written for openDJ.
+
+use crate::track::Track;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PhraseKind {
+    Intro,
+    Build,
+    Drop,
+    Breakdown,
+    Outro,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Phrase {
+    /// Where it starts, in seconds; the first phrase starts at 0.
+    pub start: f64,
+    pub kind: PhraseKind,
+}
+
+/// Shortest and longest section in bars, apart from the first and last.
+const MIN_BARS: usize = 8;
+const MAX_BARS: usize = 32;
+/// The first and last section can be this short.
+const MIN_EDGE_BARS: usize = 4;
+/// Fewer bars than this: too short for phrases.
+const MIN_TRACK_BARS: usize = 16;
+/// How much each band counts when fitting: bass most, as that is what
+/// drops and breakdowns change.
+const BAND_WEIGHT: [f32; 3] = [1.5, 1.0, 0.7];
+/// The price of one more section, in squared level units. Higher means
+/// fewer, longer phrases.
+const PER_SECTION: f32 = 1.2;
+/// The price of a length that is not a multiple of 8 bars, and of a first
+/// or last section that is not a multiple of 4.
+const NOT_EIGHT: f32 = 0.4;
+const NOT_FOUR: f32 = 0.8;
+/// A drop: bass and overall level at least this share of the track's
+/// strongest section's.
+const DROP_SHARE: f32 = 0.85;
+
+/// The phrases of a track, earliest first; empty without a tempo or
+/// waveform, for a track shorter than 16 bars, or when it all sounds alike.
+pub fn detect(track: &Track) -> Vec<Phrase> {
+    let wave = &track.waveform;
+    let Some(slices) = wave.levels.first() else {
+        return Vec::new();
+    };
+    if track.bpm <= 0.0 || slices.is_empty() || wave.bins_per_second <= 0.0 {
+        return Vec::new();
+    }
+    // Bars start at the first bar line at or after the start (bar lines
+    // every fourth beat from beat 0, as the waveform draws them).
+    let first = (track.beat_at(0.0) / 4.0 - 1e-6).ceil() * 4.0;
+    let mut starts = Vec::new();
+    let mut levels = Vec::new();
+    let slice = |s: f64| ((s * wave.bins_per_second) as usize).min(slices.len());
+    loop {
+        let beat = first + 4.0 * starts.len() as f64;
+        let (a, b) = (track.seconds_at(beat), track.seconds_at(beat + 4.0));
+        if b > track.duration {
+            break;
+        }
+        let (i, j) = (slice(a), slice(b));
+        if i >= j {
+            break;
+        }
+        // RMS bytes are square roots of the level; squared, they are levels.
+        let mut sum = [0f32; 3];
+        for bin in &slices[i..j] {
+            for (k, s) in sum.iter_mut().enumerate() {
+                *s += (bin[4 + k] as f32 / 255.0).powi(2);
+            }
+        }
+        starts.push(a);
+        levels.push(sum.map(|s| s / (j - i) as f32));
+    }
+    if levels.len() < MIN_TRACK_BARS {
+        return Vec::new();
+    }
+    normalise(&mut levels);
+    let cuts = segment(&levels);
+    let kinds = classify(&levels, &cuts);
+    let mut phrases: Vec<Phrase> = Vec::new();
+    for (n, (&cut, kind)) in cuts.iter().zip(kinds).enumerate() {
+        if phrases.last().is_some_and(|p| p.kind == kind) {
+            continue;
+        }
+        phrases.push(Phrase {
+            start: if n == 0 { 0.0 } else { starts[cut] },
+            kind,
+        });
+    }
+    // One phrase for the whole track says nothing.
+    if phrases.len() < 2 {
+        phrases.clear();
+    }
+    phrases
+}
+
+/// Scales each band so the track's loud bars (90th percentile) are 1.
+fn normalise(levels: &mut [[f32; 3]]) {
+    for k in 0..3 {
+        let mut v: Vec<f32> = levels.iter().map(|l| l[k]).collect();
+        v.sort_by(f32::total_cmp);
+        let top = v[(v.len() - 1) * 9 / 10].max(1e-6);
+        levels.iter_mut().for_each(|l| l[k] /= top);
+    }
+}
+
+/// The price of a section `len` bars long, or None where it isn't allowed;
+/// `edge` for the first or last section.
+fn length_price(len: usize, edge: bool) -> Option<f32> {
+    if len > MAX_BARS || len < if edge { MIN_EDGE_BARS } else { MIN_BARS } {
+        return None;
+    }
+    if len % 4 != 0 {
+        return edge.then_some(NOT_FOUR + NOT_EIGHT);
+    }
+    Some(if len % 8 == 0 { 0.0 } else { NOT_EIGHT })
+}
+
+/// The first bar of each section, ascending, starting with 0.
+fn segment(levels: &[[f32; 3]]) -> Vec<usize> {
+    let n = levels.len();
+    // Prefix sums of the weighted levels and their squares, so a section's
+    // squared deviation from its mean is a few subtractions.
+    let mut s1 = vec![[0f32; 3]; n + 1];
+    let mut s2 = vec![0f32; n + 1];
+    for (i, l) in levels.iter().enumerate() {
+        let w = [0, 1, 2].map(|k| l[k] * BAND_WEIGHT[k]);
+        s1[i + 1] = [0, 1, 2].map(|k| s1[i][k] + w[k]);
+        s2[i + 1] = s2[i] + w.iter().map(|v| v * v).sum::<f32>();
+    }
+    let sse = |a: usize, b: usize| {
+        let len = (b - a) as f32;
+        s2[b] - s2[a] - (0..3).map(|k| (s1[b][k] - s1[a][k]).powi(2)).sum::<f32>() / len
+    };
+    // best[j]: the cheapest way to cover bars 0..j; from[j]: where its last
+    // section starts.
+    let mut best = vec![f32::INFINITY; n + 1];
+    let mut from = vec![0usize; n + 1];
+    best[0] = 0.0;
+    for j in 1..=n {
+        for i in j.saturating_sub(MAX_BARS)..j {
+            if !best[i].is_finite() {
+                continue;
+            }
+            let Some(price) = length_price(j - i, i == 0 || j == n) else {
+                continue;
+            };
+            let cost = best[i] + sse(i, j) + PER_SECTION + price;
+            if cost < best[j] {
+                best[j] = cost;
+                from[j] = i;
+            }
+        }
+    }
+    if !best[n].is_finite() {
+        // No allowed split (can't happen from 16 bars up, but stay safe).
+        return vec![0];
+    }
+    let mut cuts = Vec::new();
+    let mut j = n;
+    while j > 0 {
+        j = from[j];
+        cuts.push(j);
+    }
+    cuts.reverse();
+    cuts
+}
+
+/// The kind of each section (`cuts` are their first bars).
+fn classify(levels: &[[f32; 3]], cuts: &[usize]) -> Vec<PhraseKind> {
+    let n = levels.len();
+    let mean = |a: usize, b: usize| {
+        let mut m = [0f32; 3];
+        for l in &levels[a..b] {
+            (0..3).for_each(|k| m[k] += l[k] / (b - a) as f32);
+        }
+        m
+    };
+    let level = |m: [f32; 3]| (m[0] + m[1] + m[2]) / 3.0;
+    let ends: Vec<usize> = cuts.iter().skip(1).copied().chain([n]).collect();
+    let means: Vec<[f32; 3]> = cuts.iter().zip(&ends).map(|(&a, &b)| mean(a, b)).collect();
+    let top_low = means.iter().map(|m| m[0]).fold(0.0, f32::max);
+    let top_level = means.iter().map(|m| level(*m)).fold(0.0, f32::max);
+    let drop: Vec<bool> = means
+        .iter()
+        .map(|m| m[0] >= DROP_SHARE * top_low && level(*m) >= DROP_SHARE * top_level)
+        .collect();
+    let first_drop = drop.iter().position(|&d| d);
+    let last_drop = drop.iter().rposition(|&d| d);
+    (0..cuts.len())
+        .map(|s| {
+            if drop[s] {
+                PhraseKind::Drop
+            } else if first_drop.is_none_or(|f| s < f) {
+                // Before the first drop: the intro, then any lift into it.
+                if s == 0 {
+                    PhraseKind::Intro
+                } else {
+                    PhraseKind::Build
+                }
+            } else if last_drop.is_some_and(|l| s > l) {
+                PhraseKind::Outro
+            } else if drop.get(s + 1) == Some(&true) && rising(levels, cuts[s], ends[s]) {
+                PhraseKind::Build
+            } else {
+                PhraseKind::Breakdown
+            }
+        })
+        .collect()
+}
+
+/// Whether the level climbs through bars `a..b`: its last quarter is
+/// clearly louder than its first.
+fn rising(levels: &[[f32; 3]], a: usize, b: usize) -> bool {
+    let q = ((b - a) / 4).max(1);
+    let avg = |r: &[[f32; 3]]| r.iter().map(|l| l[0] + l[1] + l[2]).sum::<f32>() / r.len() as f32;
+    avg(&levels[b - q..b]) > avg(&levels[a..a + q]) * 1.25
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::analysis;
+    use crate::synth;
+    use crate::track::{Source, Track};
+    use std::sync::Arc;
+
+    /// A synthetic track, analysed: its sections (intro, build, drop,
+    /// breakdown, drop, outro) are each an eighth of it.
+    fn analysed(bpm: f64, bars: usize, seed: u64) -> (Track, f64) {
+        let bar = 240.0 / bpm;
+        let duration = bars as f64 * bar;
+        let audio = synth::render_with(bpm, 0.0, duration, seed);
+        let a = analysis::analyse(&audio, Some(bpm));
+        let mut t = Track {
+            id: 0,
+            artist: String::new(),
+            title: String::new(),
+            album: String::new(),
+            genre: String::new(),
+            rating: 0,
+            bpm: 0.0,
+            key: String::new(),
+            duration,
+            first_beat: 0.0,
+            grid: Default::default(),
+            source: Source::Synth { seed },
+            waveform: Arc::new(a.waveform),
+            audio: None,
+            cover: None,
+            info: Default::default(),
+        };
+        t.bpm = a.bpm;
+        t.first_beat = a.first_beat;
+        t.set_grid(a.grid);
+        (t, bar)
+    }
+
+    #[test]
+    fn finds_the_sections_of_a_track() {
+        let (t, bar) = analysed(124.0, 128, 3);
+        let p = detect(&t);
+        let kinds: Vec<_> = p.iter().map(|p| p.kind).collect();
+        assert_eq!(kinds.first(), Some(&PhraseKind::Intro), "{p:?}");
+        assert_eq!(kinds.last(), Some(&PhraseKind::Outro), "{p:?}");
+        assert!(kinds.contains(&PhraseKind::Breakdown), "{p:?}");
+        assert_eq!(kinds.iter().filter(|k| **k == PhraseKind::Drop).count(), 2, "{p:?}");
+        // The breakdown starts where the synth's does (bar 64), give or take a bar.
+        let breakdown = p.iter().find(|p| p.kind == PhraseKind::Breakdown).unwrap();
+        assert!((breakdown.start / bar - 64.0).abs() <= 1.0, "{p:?}");
+    }
+
+    #[test]
+    fn no_short_phrases() {
+        for seed in 0..4 {
+            let (t, bar) = analysed(128.0, 96, seed);
+            let p = detect(&t);
+            assert!(p.len() <= 8, "{p:?}");
+            let ends = p.iter().skip(1).map(|p| p.start).chain([t.duration]);
+            for (ph, end) in p.iter().zip(ends) {
+                assert!(end - ph.start >= 4.0 * bar - 0.05, "{p:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn nothing_without_a_tempo_or_for_short_tracks() {
+        let (mut t, _) = analysed(124.0, 64, 1);
+        assert!(!detect(&t).is_empty());
+        t.bpm = 0.0;
+        t.grid = Default::default();
+        assert!(detect(&t).is_empty());
+        let (short, _) = analysed(124.0, 12, 1);
+        assert!(detect(&short).is_empty());
+    }
+
+    #[test]
+    fn segments_prefer_long_whole_phrases() {
+        // 16 quiet bars, 32 loud, 3 bars of a blip, 13 loud, 16 quiet.
+        let mut levels = vec![[0.2, 0.3, 0.3]; 16];
+        levels.extend(vec![[1.0, 1.0, 1.0]; 32]);
+        levels.extend(vec![[0.4, 0.8, 1.0]; 3]);
+        levels.extend(vec![[1.0, 1.0, 1.0]; 13]);
+        levels.extend(vec![[0.2, 0.3, 0.3]; 16]);
+        let cuts = segment(&levels);
+        assert!(cuts.contains(&16) && cuts.contains(&64), "{cuts:?}");
+        let ends = cuts.iter().skip(1).copied().chain([levels.len()]);
+        assert!(cuts.iter().zip(ends).all(|(a, b)| b - a >= MIN_BARS), "the blip is not its own phrase: {cuts:?}");
+    }
+}
