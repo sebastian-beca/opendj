@@ -166,9 +166,41 @@ export component Jog inherits Rectangle {
     property <color> sticker: last-cue >= 1 ? Theme.hotcues[last-cue - 1] : tint;
     property <length> centre: 70px * scale;
     property <int> jog-index: Controls.resolve(group, "jog");
+    property <int> bend-index: Controls.resolve(group, "jog_bend");
+    // Dragging round the black rim bends the speed like a controller's jog
+    // rim: clockwise faster, counterclockwise slower, by how fast it turns.
+    property <bool> bending: false;
+    property <angle> bend-angle;
     // Scrolling over the jog nudges the track in fine steps: up runs it
     // forward, down back, playing or paused.
-    TouchArea {
+    rim := TouchArea {
+        mouse-cursor: bending ? MouseCursor.grabbing : MouseCursor.default;
+        pointer-event(e) => {
+            if e.button != PointerEventButton.left {
+                return;
+            }
+            if e.kind == PointerEventKind.down {
+                let dx = (self.mouse-x - root.width / 2) / 1px;
+                let dy = (self.mouse-y - root.height / 2) / 1px;
+                let r = sqrt(dx * dx + dy * dy) * 1px;
+                bending = info.loaded && r > centre / 2 && r <= root.width / 2;
+                bend-angle = atan2(dy, dx);
+            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                bending = false;
+            }
+        }
+        moved => {
+            if !bending {
+                return;
+            }
+            let a = atan2((self.mouse-y - root.height / 2) / 1px, (self.mouse-x - root.width / 2) / 1px);
+            let d = a - bend-angle > 180deg ? a - bend-angle - 360deg
+                : a - bend-angle < -180deg ? a - bend-angle + 360deg
+                : a - bend-angle;
+            bend-angle = a;
+            // jog_bend counts rim ticks, 720 to a turn: two a degree.
+            Controls.set-value(bend-index, Controls.value(bend-index, Controls.tick) + d / 1deg * 2);
+        }
         scroll-event(e) => {
             if !info.loaded || e.delta-y == 0 {
                 return reject;
