@@ -2,8 +2,8 @@
 
 ## 1. Benchmark spike (no app changes)
 
-- [ ] 1.1 Export Spleeter 4stems and HTDemucs to ONNX with the STFT outside the graph; write the STFT/iSTFT and masking in Rust and check the output against the Python reference (SDR difference < 0.1 dB on 5 tracks)
-- [ ] 1.2 Run both with burn (wgpu: Metal and Vulkan; CPU) and with `ort` (CPU, CoreML); time first window and full 6-minute track on Seba's Mac (Apple Silicon), an Intel Mac if available, and Linux (CI runner CPU, plus an AMD or NVIDIA GPU if available)
+- [x] 1.1 Spleeter 4stems in Rust (`crates/separation`): weights converted to safetensors (`scripts/models/convert_spleeter.py`), STFT/iSTFT and masking in Rust; burn and CPU versions match a TensorFlow reference built from the original checkpoint to 69–78 dB SDR. HTDemucs through demucs-rs's burn port (vendored as `third_party/demucs-core`); no ONNX export needed
+- [ ] 1.2 Time both with `stem-bench` (burn GPU: Metal and Vulkan; CPU) on Seba's Mac and on CI (Linux and Apple Silicon runners, `.github/workflows/stems-bench.yml`); `ort` + CoreML only if burn misses the bars
 - [ ] 1.3 Pick the runtime; record the numbers in this design.md
 
 ## 2. Separation crate
