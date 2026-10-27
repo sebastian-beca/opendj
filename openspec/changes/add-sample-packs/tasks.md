@@ -12,8 +12,8 @@
 ## 2. Packs and pads
 
 - [x] 2.1 Pack store in `<config>/samples/` (`pack.json`), Default pack, overrides in `settings.json` under `sampler`
-- [x] 2.2 SAMPLER page: 1/2 page button beside the pads, SAMPLE PACK header with pack menu (covers, +, Get more Packs placeholder)
-- [x] 2.3 Edit mode: level knob and "…" on each pad; right-click menu (Choose Sample, Load file, Rename, Play mode, Reset, Clear)
+- [x] 2.2 SAMPLER page: 1/2 page button beside the pads, SAMPLE PACK strip under the pads with pack menu (covers, +, Get more Packs placeholder)
+- [x] 2.3 Edit mode: level knob and "…" on each pad; right-click menu (Choose Sample, Load file, Rename, Play mode, Reset, Clear); drag a pad onto another to swap them
 - [x] 2.4 Choose Sample popover with headphone preview and lengths
 - [x] 2.5 Drag and drop from the file manager and the track list onto pads; missing-file state and Locate file
 - [x] 2.6 Update the user guide (website/book/src/guide/decks.md)

@@ -28,6 +28,8 @@ const DEFAULT_PACK_NAME: &str = "Default DJ Sample Pack";
 const PACK_FILE: &str = "pack.json";
 /// How long the level knob rests before a change is saved.
 const SAVE_AFTER: Duration = Duration::from_millis(600);
+/// What a pad dragged in edit mode carries: its slot.
+const PAD_PAYLOAD: &str = "opendj-sampler-pad:";
 
 /// A sample on a pad or in a pack.
 #[derive(Clone, Debug, PartialEq)]
@@ -382,7 +384,10 @@ impl Sampler {
         g.on_reset(move |slot| w(Box::new(move |s| s.reset(slot as usize))));
         let w = with.clone();
         g.on_clear(move |slot| w(Box::new(move |s| s.put(slot as usize, None))));
-        g.on_accepts(|data| Browser::accepts_sample(&data));
+        g.on_pad_payload(|slot| {
+            DataTransfer::from(SharedString::from(format!("{PAD_PAYLOAD}{slot}")))
+        });
+        g.on_accepts(|data| dragged_pad(&data).is_some() || Browser::accepts_sample(&data));
         let w = with.clone();
         g.on_drop(move |slot, data| w(Box::new(move |s| s.dropped(slot as usize, &data))));
         s
@@ -650,10 +655,24 @@ impl Sampler {
     }
 
     fn dropped(&mut self, slot: usize, data: &DataTransfer) {
+        if let Some(from) = dragged_pad(data) {
+            self.swap(from, slot);
+            return;
+        }
         let found = self.browser.borrow().dropped_sample(data);
         if let Some((path, name)) = found {
             self.put(slot, Some(Sample::new(name, SampleSource::File(path))));
         }
+    }
+
+    /// Swaps two pads with their names, levels and modes.
+    fn swap(&mut self, a: usize, b: usize) {
+        if a == b || a >= NUM_SAMPLERS || b >= NUM_SAMPLERS {
+            return;
+        }
+        let (pa, pb) = (self.pads[a].clone(), self.pads[b].clone());
+        self.load(a, pb, true);
+        self.load(b, pa, true);
     }
 
     /// Shows the packs and pads.
@@ -695,9 +714,25 @@ impl Sampler {
     }
 }
 
+/// The slot of a pad dragged in edit mode.
+fn dragged_pad(data: &DataTransfer) -> Option<usize> {
+    parse_pad(&data.plain_text().ok()?)
+}
+
+fn parse_pad(text: &str) -> Option<usize> {
+    text.strip_prefix(PAD_PAYLOAD)?.parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pad_payload_names_the_slot() {
+        assert_eq!(parse_pad("opendj-sampler-pad:12"), Some(12));
+        assert_eq!(parse_pad("opendj-sampler-pad:x"), None);
+        assert_eq!(parse_pad("opendj-track:3"), None);
+    }
 
     fn kick() -> Sample {
         Sample::new("Kick".into(), SampleSource::Builtin(0))

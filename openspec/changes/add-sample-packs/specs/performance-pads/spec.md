@@ -14,7 +14,7 @@ There SHALL be 16 sampler slots (`[Sampler1]` to `[Sampler16]`). A deck's SAMPLE
 ## ADDED Requirements
 
 ### Requirement: Sample packs
-A sample pack SHALL be a named set of up to 16 samples with an optional cover, author and licence. The built-in sounds SHALL be the Default DJ Sample Pack, which can't be deleted. A SAMPLE PACK menu above the pads SHALL list the packs with their covers, switch the slots to the chosen pack, offer + to make a new empty pack or import a `.opendjpack` file, and end with Get more Packs. The chosen pack SHALL be kept across restarts.
+A sample pack SHALL be a named set of up to 16 samples with an optional cover, author and licence. The built-in sounds SHALL be the Default DJ Sample Pack, which can't be deleted. A SAMPLE PACK menu under the pads, never between the page tabs and the pads, SHALL list the packs with their covers, switch the slots to the chosen pack, offer + to make a new empty pack or import a `.opendjpack` file, and end with Get more Packs. The chosen pack SHALL be kept across restarts.
 
 #### Scenario: Switch pack
 - **WHEN** "Dancehall Drops" is chosen in the SAMPLE PACK menu
@@ -51,11 +51,15 @@ An audio file (WAV, AIFF, FLAC, MP3, M4A or OGG, up to 60 seconds) SHALL be load
 - **THEN** pad 6 shows its name dimmed with a warning mark and pressing it plays nothing
 
 ### Requirement: Pad level and play mode
-Each pad SHALL have a level from silent to +6 dB (0 dB by default), set with a small knob on the pad in edit mode, and a play mode: One shot (plays to the end; pressing again restarts), Hold (plays while held), On/Off (pressing again stops) or Loop (repeats until pressed again). Shift + pad SHALL stop a playing sample. Level, name, sample and mode SHALL be saved per pack in settings, without changing the pack's files.
+Each pad SHALL have a level from silent to +6 dB (0 dB by default), set with a small knob on the pad in edit mode, where pads can also be dragged onto each other to swap them, and a play mode: One shot (plays to the end; pressing again restarts), Hold (plays while held), On/Off (pressing again stops) or Loop (repeats until pressed again). Shift + pad SHALL stop a playing sample. Level, name, sample and mode SHALL be saved per pack in settings, without changing the pack's files.
 
 #### Scenario: Turn a drop down
 - **WHEN** pad 6's level knob is turned to -6 dB and openDJ is restarted
 - **THEN** pad 6 still plays at -6 dB
+
+#### Scenario: Swap two pads
+- **WHEN** edit mode is on and pad 1 is dragged onto pad 3
+- **THEN** the two pads swap samples, names, levels and modes, and the swap is kept for that pack
 
 #### Scenario: Hold mode
 - **WHEN** a pad in Hold mode is pressed and released half way through its sample
