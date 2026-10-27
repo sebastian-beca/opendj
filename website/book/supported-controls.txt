@@ -176,6 +176,7 @@
 [Channel1],hotcue_8_type
 [Channel1],hotcue_focus
 [Channel1],jog
+[Channel1],jog_bend
 [Channel1],key
 [Channel1],keylock
 [Channel1],loop_double
@@ -410,6 +411,7 @@
 [Channel2],hotcue_8_type
 [Channel2],hotcue_focus
 [Channel2],jog
+[Channel2],jog_bend
 [Channel2],key
 [Channel2],keylock
 [Channel2],loop_double
@@ -644,6 +646,7 @@
 [Channel3],hotcue_8_type
 [Channel3],hotcue_focus
 [Channel3],jog
+[Channel3],jog_bend
 [Channel3],key
 [Channel3],keylock
 [Channel3],loop_double
@@ -878,6 +881,7 @@
 [Channel4],hotcue_8_type
 [Channel4],hotcue_focus
 [Channel4],jog
+[Channel4],jog_bend
 [Channel4],key
 [Channel4],keylock
 [Channel4],loop_double

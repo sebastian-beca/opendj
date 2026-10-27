@@ -162,6 +162,9 @@ pub(crate) struct DeckControls {
     pub(crate) scrub_position: ControlHandle,
     /// Jog wheel movement since the engine last looked; the engine zeroes it.
     pub(crate) jog: ControlHandle,
+    /// Jog rim ticks since the engine last looked, 720 to a turn: a pitch
+    /// bend that follows how fast the rim turns. The engine zeroes it.
+    pub(crate) jog_bend: ControlHandle,
     /// Fast seek speed while non-zero, in multiples of normal speed.
     pub(crate) rate_search: ControlHandle,
     /// rate_temp_up, rate_temp_down, rate_temp_up_small, rate_temp_down_small.
@@ -348,6 +351,7 @@ impl DeckControls {
             scrub_enable: reg.toggle(g, "scrub_enable"),
             scrub_position: reg.create(g, "scrub_position", 0.0, 0.0, 1.0, Behavior::Linear),
             jog: reg.create(g, "jog", 0.0, -1000.0, 1000.0, Behavior::Free),
+            jog_bend: reg.create(g, "jog_bend", 0.0, -1000.0, 1000.0, Behavior::Free),
             rate_search: reg.create(g, "rateSearch", 0.0, -300.0, 300.0, Behavior::Free),
             rate_temp: ["up", "down", "up_small", "down_small"]
                 .map(|k| reg.push(g, &format!("rate_temp_{k}"))),
