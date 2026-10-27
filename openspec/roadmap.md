@@ -24,6 +24,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-slicer-and-freeze](changes/add-slicer-and-freeze/proposal.md)
 - [add-cue-sequence-recording](changes/add-cue-sequence-recording/proposal.md)
 - [add-fx-pre-post-and-headphone](changes/add-fx-pre-post-and-headphone/proposal.md)
+- [add-sample-packs](changes/add-sample-packs/proposal.md) (sampler with your own samples and sample packs, issue #60)
 
 ## v0.6 · Buy it from the artist
 
@@ -53,7 +54,6 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 
 ## v1.x · after 1.0
 
-- [add-custom-samples](changes/add-custom-samples/proposal.md)
 - [add-dvs](changes/add-dvs/proposal.md)
 - [add-karaoke](changes/add-karaoke/proposal.md)
 - [add-library-cloud-sync](changes/add-library-cloud-sync/proposal.md)
