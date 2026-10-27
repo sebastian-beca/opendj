@@ -105,7 +105,11 @@ fn renders_scrolling_and_overview() {
                 loop_marking: None,
                 hotcues: [Some(5.0), None, None, None, None, None, None, Some(60.0)],
                 gain: 1.0,
-                phrases: vec![(0.0, PhraseKind::Intro), (20.0, PhraseKind::Drop), (60.0, PhraseKind::Outro)],
+                phrases: vec![
+                    (0.0, PhraseKind::Intro),
+                    (20.0, PhraseKind::Drop),
+                    (60.0, PhraseKind::Outro),
+                ],
             };
             view.render(&device, &queue, &renderer, Some(&frame), 2.0);
             let marking = Frame {
@@ -321,8 +325,14 @@ fn draws_phrase_bars() {
     };
     let intro = px(128, h - 2);
     let drop = px(384, h - 2);
-    assert!(drop[2] > drop[1] + 40 && drop[0] > 100, "drop is lilac: {drop:?}");
-    assert!(intro[2] < drop[2] && intro[0] < drop[0], "intro is a darker grey: {intro:?}");
+    assert!(
+        drop[2] > drop[1] + 40 && drop[0] > 100,
+        "drop is lilac: {drop:?}"
+    );
+    assert!(
+        intro[2] < drop[2] && intro[0] < drop[0],
+        "intro is a darker grey: {intro:?}"
+    );
     let gap = px(256, h - 2);
     assert!(gap[2] < drop[2] / 2, "gap where the drop starts: {gap:?}");
     let above = px(384, h - 10);

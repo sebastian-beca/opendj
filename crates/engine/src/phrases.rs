@@ -127,10 +127,14 @@ fn length_price(len: usize, edge: bool) -> Option<f32> {
     if len > MAX_BARS || len < if edge { MIN_EDGE_BARS } else { MIN_BARS } {
         return None;
     }
-    if len % 4 != 0 {
+    if !len.is_multiple_of(4) {
         return edge.then_some(NOT_FOUR + NOT_EIGHT);
     }
-    Some(if len % 8 == 0 { 0.0 } else { NOT_EIGHT })
+    Some(if len.is_multiple_of(8) {
+        0.0
+    } else {
+        NOT_EIGHT
+    })
 }
 
 /// The first bar of each section, ascending, starting with 0.
@@ -281,7 +285,11 @@ mod tests {
         assert_eq!(kinds.first(), Some(&PhraseKind::Intro), "{p:?}");
         assert_eq!(kinds.last(), Some(&PhraseKind::Outro), "{p:?}");
         assert!(kinds.contains(&PhraseKind::Breakdown), "{p:?}");
-        assert_eq!(kinds.iter().filter(|k| **k == PhraseKind::Drop).count(), 2, "{p:?}");
+        assert_eq!(
+            kinds.iter().filter(|k| **k == PhraseKind::Drop).count(),
+            2,
+            "{p:?}"
+        );
         // The breakdown starts where the synth's does (bar 64), give or take a bar.
         let breakdown = p.iter().find(|p| p.kind == PhraseKind::Breakdown).unwrap();
         assert!((breakdown.start / bar - 64.0).abs() <= 1.0, "{p:?}");
@@ -322,6 +330,9 @@ mod tests {
         let cuts = segment(&levels);
         assert!(cuts.contains(&16) && cuts.contains(&64), "{cuts:?}");
         let ends = cuts.iter().skip(1).copied().chain([levels.len()]);
-        assert!(cuts.iter().zip(ends).all(|(a, b)| b - a >= MIN_BARS), "the blip is not its own phrase: {cuts:?}");
+        assert!(
+            cuts.iter().zip(ends).all(|(a, b)| b - a >= MIN_BARS),
+            "the blip is not its own phrase: {cuts:?}"
+        );
     }
 }
