@@ -45,6 +45,7 @@ mod mac_menu;
 #[cfg(target_os = "macos")]
 mod mac_titlebar;
 mod prefs;
+mod sampler;
 mod settings;
 mod smooth;
 mod sources;
@@ -434,6 +435,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &registry,
     );
     let sources = sources::Sources::install(&app, library_path.clone());
+    let sampler = sampler::Sampler::install(&app, engine.clone(), browser.clone(), &registry);
     let automix = Rc::new(RefCell::new(automix::AutoMix::new(&registry)));
     {
         let a = automix.clone();
@@ -721,6 +723,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 browser.borrow_mut().poll_analysis();
                 browser.borrow_mut().poll_covers();
                 browser.borrow_mut().poll_files();
+                sampler.borrow_mut().poll();
                 prefs.borrow_mut().poll();
                 controller_editor.borrow_mut().poll();
                 if let Some(c) = &controllers {

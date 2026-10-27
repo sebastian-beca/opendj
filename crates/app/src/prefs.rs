@@ -1757,9 +1757,6 @@ fn size(bytes: u64) -> String {
     }
 }
 
-/// Opens the system's dialog for picking a folder or a file, on its own
-/// thread; the path comes back through `tx`. macOS uses AppleScript's,
-/// Linux zenity's.
 /// A path as a row shows it, or `none`.
 fn show(p: Option<PathBuf>, none: &str) -> String {
     p.map_or(none.to_string(), |p| p.to_string_lossy().into_owned())
@@ -1851,8 +1848,24 @@ fn show_wizard(app: &AppWindow, w: Option<&WizardState>) {
     g.set_open(true);
 }
 
+/// Opens the system's dialog for picking a folder or a file, on its own
+/// thread; the path comes back through `tx`. macOS uses AppleScript's,
+/// Linux zenity's.
 fn choose(id: &str, prompt: &str, folder: bool, tx: Sender<(String, PathBuf)>) {
-    let (id, prompt) = (id.to_string(), prompt.to_string());
+    let id = id.to_string();
+    open_dialog(prompt, folder, move |path| {
+        let _ = tx.send((id, path));
+    });
+}
+
+/// Opens the system's dialog for picking a file; `picked` gets the path on
+/// the dialog's thread, unless it was cancelled.
+pub fn choose_file(prompt: &str, picked: impl FnOnce(PathBuf) + Send + 'static) {
+    open_dialog(prompt, false, picked);
+}
+
+fn open_dialog(prompt: &str, folder: bool, picked: impl FnOnce(PathBuf) + Send + 'static) {
+    let prompt = prompt.to_string();
     std::thread::spawn(move || {
         let output = if cfg!(target_os = "macos") {
             let what = if folder { "folder" } else { "file" };
@@ -1874,7 +1887,7 @@ fn choose(id: &str, prompt: &str, folder: bool, tx: Sender<(String, PathBuf)>) {
             Ok(out) if out.status.success() => {
                 let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if !path.is_empty() {
-                    let _ = tx.send((id, PathBuf::from(path)));
+                    picked(PathBuf::from(path));
                 }
             }
             Ok(_) => {} // Cancelled.

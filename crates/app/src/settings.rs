@@ -41,7 +41,7 @@ fn path() -> Option<PathBuf> {
     config_dir().map(|d| d.join("settings.json"))
 }
 
-fn load() -> Value {
+pub fn load() -> Value {
     path()
         .and_then(|p| std::fs::read(p).ok())
         .and_then(|b| serde_json::from_slice(&b).ok())

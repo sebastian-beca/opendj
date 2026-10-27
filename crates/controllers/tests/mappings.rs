@@ -471,3 +471,34 @@ fn ddj_flx4_pad_modes() {
     );
     assert_eq!(c.errors(), Vec::<String>::new());
 }
+
+#[test]
+fn ddj_flx4_sampler_pads_follow_the_page() {
+    let (reg, mut c) = load("Pioneer-DDJ-FLX4.midi.xml");
+    settle(&mut c, 50);
+    // Page 1: the left and right pads play slots 1-8 alike.
+    c.receive(&[0x97, 0x30, 0x7F]);
+    assert_eq!(get(&reg, "[Sampler1]", "cue_gotoandplay"), 1.0);
+    c.receive(&[0x97, 0x30, 0x00]);
+    c.receive(&[0x99, 0x34, 0x7F]);
+    assert_eq!(get(&reg, "[Sampler5]", "cue_gotoandplay"), 1.0);
+    c.receive(&[0x99, 0x34, 0x00]);
+    // The right deck on page 2: its first pad plays slot 9, and its LEDs
+    // show slots 9-16, which are empty.
+    c.take_output();
+    reg.get("[Channel2]", "sampler_page").unwrap().set(1.0);
+    settle(&mut c, 5);
+    let out = c.take_output();
+    assert!(out.iter().any(|m| m[..] == [0x99, 0x30, 0x00]), "{out:x?}");
+    // Empty, so the pad asks for the track selected in the library.
+    c.receive(&[0x99, 0x30, 0x7F]);
+    assert_eq!(get(&reg, "[Sampler9]", "LoadSelectedTrack"), 1.0);
+    c.receive(&[0x99, 0x30, 0x00]);
+    reg.get("[Sampler9]", "track_loaded").unwrap().set(1.0);
+    settle(&mut c, 5);
+    let out = c.take_output();
+    assert!(out.iter().any(|m| m[..] == [0x99, 0x30, 0x7F]), "{out:x?}");
+    c.receive(&[0x99, 0x30, 0x7F]);
+    assert_eq!(get(&reg, "[Sampler9]", "cue_gotoandplay"), 1.0);
+    assert_eq!(get(&reg, "[Sampler1]", "cue_gotoandplay"), 0.0);
+}
