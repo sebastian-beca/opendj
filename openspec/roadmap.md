@@ -24,6 +24,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-slicer-and-freeze](changes/add-slicer-and-freeze/proposal.md)
 - [add-cue-sequence-recording](changes/add-cue-sequence-recording/proposal.md)
 - [add-fx-pre-post-and-headphone](changes/add-fx-pre-post-and-headphone/proposal.md)
+- [improve-fx-engine](changes/improve-fx-engine/proposal.md) (faster rack, cleaner delays and new effects; from the FX library review, Seba 2026-10-27)
 
 ## v0.6 · Buy it from the artist
 
