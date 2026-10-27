@@ -7,8 +7,8 @@
 //! (8 and 16 cost less), so short flickers never become phrases of their
 //! own. The first and last section may be shorter, down to 4 bars, for a
 //! pickup or a tail. A section is a drop when its bass and level come close
-//! to the track's strongest section's; the others are named by where they
-//! fall. Neighbours of the same kind merge.
+//! to the track's strongest section's, and a chorus (main groove) when they
+//! are a little further off; the others are named by where they fall. Neighbours of the same kind merge.
 //!
 //! The method follows the research in the project notes
 //! (phrase-analysis-review.md); it was written for openDJ.
@@ -18,10 +18,15 @@ use crate::track::Track;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PhraseKind {
     Intro,
+    /// Rising into a drop (an "up").
     Build,
+    /// The peak.
     Drop,
+    /// The bass gone (a break or bridge).
     Breakdown,
     Outro,
+    /// Strong but short of the peak: the main groove or a chorus.
+    Chorus,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -51,6 +56,10 @@ const NOT_FOUR: f32 = 0.8;
 /// A drop: bass and overall level at least this share of the track's
 /// strongest section's.
 const DROP_SHARE: f32 = 0.85;
+/// A chorus (main groove): short of a drop, but bass at least the first
+/// share and level at least the second of the strongest section's.
+const CHORUS_LOW_SHARE: f32 = 0.6;
+const CHORUS_LEVEL_SHARE: f32 = 0.7;
 
 /// The phrases of a track, earliest first; empty without a tempo or
 /// waveform, for a track shorter than 16 bars, or when it all sounds alike.
@@ -206,22 +215,27 @@ fn classify(levels: &[[f32; 3]], cuts: &[usize]) -> Vec<PhraseKind> {
         .iter()
         .map(|m| m[0] >= DROP_SHARE * top_low && level(*m) >= DROP_SHARE * top_level)
         .collect();
+    let chorus: Vec<bool> = means
+        .iter()
+        .map(|m| m[0] >= CHORUS_LOW_SHARE * top_low && level(*m) >= CHORUS_LEVEL_SHARE * top_level)
+        .collect();
     let first_drop = drop.iter().position(|&d| d);
     let last_drop = drop.iter().rposition(|&d| d);
     (0..cuts.len())
         .map(|s| {
+            let strong_next = drop.get(s + 1) == Some(&true) || chorus.get(s + 1) == Some(&true);
             if drop[s] {
                 PhraseKind::Drop
-            } else if first_drop.is_none_or(|f| s < f) {
-                // Before the first drop: the intro, then any lift into it.
-                if s == 0 {
-                    PhraseKind::Intro
-                } else {
-                    PhraseKind::Build
-                }
+            } else if s == 0 {
+                PhraseKind::Intro
             } else if last_drop.is_some_and(|l| s > l) {
                 PhraseKind::Outro
-            } else if drop.get(s + 1) == Some(&true) && rising(levels, cuts[s], ends[s]) {
+            } else if chorus[s] {
+                PhraseKind::Chorus
+            } else if first_drop.is_none_or(|f| s < f)
+                || strong_next && rising(levels, cuts[s], ends[s])
+            {
+                // A lift into the first drop, or one that climbs into the next.
                 PhraseKind::Build
             } else {
                 PhraseKind::Breakdown
@@ -333,6 +347,23 @@ mod tests {
         assert!(
             cuts.iter().zip(ends).all(|(a, b)| b - a >= MIN_BARS),
             "the blip is not its own phrase: {cuts:?}"
+        );
+    }
+
+    #[test]
+    fn a_strong_section_short_of_the_peak_is_a_chorus() {
+        // Intro, drop, main groove, break, drop, outro: 16 bars each, 8 for the break.
+        let mut levels = vec![[0.3, 0.4, 0.4]; 16];
+        levels.extend(vec![[1.0, 1.0, 1.0]; 16]);
+        levels.extend(vec![[0.75, 0.75, 0.8]; 16]);
+        levels.extend(vec![[0.1, 0.6, 0.6]; 8]);
+        levels.extend(vec![[1.0, 1.0, 1.0]; 16]);
+        levels.extend(vec![[0.3, 0.4, 0.4]; 16]);
+        let cuts = [0, 16, 32, 48, 56, 72];
+        use PhraseKind::*;
+        assert_eq!(
+            classify(&levels, &cuts),
+            [Intro, Drop, Chorus, Breakdown, Drop, Outro]
         );
     }
 }
