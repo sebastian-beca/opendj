@@ -505,8 +505,8 @@ component TimeKey inherits HorizontalLayout {
     spacing: 12px;
     if show-time: VerticalLayout {
         alignment: center;
-        Text { text: info.loaded ? "-" + info.remaining-seconds : "-0:00"; color: Theme.text; font-size: 26px; font-weight: 500; horizontal-alignment: right; }
-        Text { text: info.loaded ? info.total : ""; color: Theme.text-dim; font-size: 12px; horizontal-alignment: right; }
+        Text { text: info.loaded ? "-" + info.remaining-seconds : "-0:00"; color: Theme.text; font-size: 23px; font-weight: 500; horizontal-alignment: right; }
+        Text { text: info.loaded ? info.total : ""; color: Theme.text-dim; font-size: 11px; horizontal-alignment: right; }
     }
     if show-time: EdgeVLine { top: 6px; bottom: 6px; line-color: #2c2c2f; }
     KeyBox { group: group; info: info; tint: tint; }
@@ -535,6 +535,9 @@ export component Header inherits Rectangle {
     // Where a press on the overview started, and whether it became a drag.
     property <length> press-x;
     property <bool> scrubbing;
+    // Where the overview's right-click menu opens.
+    property <length> menu-x;
+    property <length> menu-y;
     height: compact ? 92px : 108px;
     // Cover, title, info and overview share one black box.
     background: Theme.well;
@@ -560,21 +563,21 @@ export component Header inherits Rectangle {
             Cover { deck: deck; tint: tint; info: info; size: compact ? 40px : 96px; }
         }
         VerticalLayout {
-            spacing: 6px;
+            spacing: 4px;
             horizontal-stretch: 1;
             // Title, artist and BPM on the left, time and key on the right, on both decks.
             HorizontalLayout {
                 spacing: compact ? 8px : 12px;
-                height: compact ? 40px : 52px;
+                height: compact ? 36px : 44px;
                 VerticalLayout {
                     horizontal-stretch: 1;
                     alignment: center;
                     spacing: 2px;
-                    Text { text: info.loaded ? info.title : "Empty deck"; color: Theme.text; font-size: compact ? 15px : 20px; font-weight: 500; overflow: elide; }
+                    Text { text: info.loaded ? info.title : "Empty deck"; color: Theme.text; font-size: compact ? 14px : 18px; font-weight: 500; overflow: elide; }
                     Text {
                         text: info.loaded ? (compact ? info.artist : info.artist + "   |   " + info.bpm) : compact ? "Drop a track here" : "Drop a track here or double-click one in the browser";
                         color: Theme.text-dim;
-                        font-size: compact ? 12px : 14px;
+                        font-size: compact ? 11px : 13px;
                         overflow: elide;
                     }
                 }
@@ -595,20 +598,17 @@ export component Header inherits Rectangle {
                 // layer, which would freeze the GPU-updated image.
                 clip: true;
                 Image { width: parent.width; height: parent.height; source: overview; image-fit: fill; }
-                // A dot at every minute along the bottom.
-                if info.loaded && info.duration > 60: Rectangle {
-                    for m in floor((info.duration - 1) / 60): Rectangle {
-                        x: parent.width * (m + 1) * 60 / info.duration - 1.5px;
-                        y: parent.height - 5px;
-                        width: 3px;
-                        height: 3px;
-                        border-radius: 1.5px;
-                        background: #ffffffb0;
-                    }
-                }
+                // The waveform, a dot at every minute and the phrase bar
+                // are all drawn into the image, stacked so none overlap.
                 TouchArea {
                     mouse-cursor: ew-resize;
                     pointer-event(e) => {
+                        if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                            menu-x = self.mouse-x;
+                            menu-y = self.mouse-y;
+                            phrase-menu.show();
+                            return;
+                        }
                         if e.button != PointerEventButton.left {
                             return;
                         }
@@ -638,6 +638,41 @@ export component Header inherits Rectangle {
                         }
                     }
                 }
+                phrase-menu := PopupWindow {
+                    x: min(menu-x, ov.width - 130px);
+                    y: menu-y;
+                    width: 130px;
+                    Rectangle {
+                        background: Theme.panel-raised;
+                        border-radius: Theme.radius;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        drop-shadow-blur: 8px;
+                        drop-shadow-color: #00000080;
+                    }
+                    VerticalLayout {
+                        padding: 4px;
+                        Rectangle {
+                            height: 24px;
+                            background: pta.has-hover ? Theme.panel-raised.brighter(0.3) : transparent;
+                            border-radius: 4px;
+                            Text {
+                                x: 10px;
+                                text: PhraseView.visible ? "Hide phrases" : "Show phrases";
+                                color: Theme.text;
+                                font-size: 11px;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                            }
+                            pta := TouchArea {
+                                clicked => {
+                                    PhraseView.visible = !PhraseView.visible;
+                                    PhraseView.changed(PhraseView.visible);
+                                }
+                            }
+                        }
+                    }
+                }
             }
             if compact: Text {
                 text: info.loaded ? "-" + info.remaining-seconds : "-0:00";
@@ -659,6 +694,13 @@ export component Header inherits Rectangle {
 
 // The effects every slot can hold, in loaded_effect order (1 = the first);
 // set once from the engine's list.
+// Phrase bars on the deck overviews: shown or hidden from an overview's
+// right-click menu, for every deck at once.
+export global PhraseView {
+    in-out property <bool> visible: true;
+    callback changed(on: bool);
+}
+
 // Deck actions that aren't controls.
 export global DeckActions {
     // Separates the track on `deck` into stems in the background.
