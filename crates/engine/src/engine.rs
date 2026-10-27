@@ -94,6 +94,16 @@ const JOG_SEARCH_SPEED: f64 = 8.0;
 /// How long a deck stays quiet after its last fast-search jog, in seconds,
 /// so it doesn't flutter between wheel steps.
 const JOG_SEARCH_HOLD: f64 = 0.15;
+/// `jog_bend` comes in ticks of a jog's rim, 720 to a turn as on Pioneer
+/// controllers. As in Mixxx, where a rim tick is a `jog` of 0.8 and a jog
+/// adds a tenth of itself to the rate: each tick a second the rim turns adds
+/// 0.08% of normal speed (a quarter turn a second is about +14%).
+const BEND_PER_TICK_PER_SECOND: f64 = 0.0008;
+/// Seconds the rim's speed is averaged over, like Mixxx's jog filter: the
+/// bend follows the hand smoothly and springs back once the rim stops.
+const BEND_SMOOTH: f64 = 0.15;
+/// Track seconds one rim tick moves a paused deck by.
+const BEND_PAUSED_SECONDS: f64 = 0.008;
 /// How long a clip lights a PeakIndicator, in seconds.
 const PEAK_HOLD: f32 = 0.5;
 /// Rate offsets of rate_temp_up, _down, _up_small and _down_small while held
@@ -139,6 +149,8 @@ struct Deck {
     jog_pending: f64,
     /// Seconds the deck stays quiet for after a fast-search jog.
     search_quiet: f64,
+    /// How fast the jog's rim is turning, smoothed, in ticks per second.
+    bend_rate: f64,
     /// While slipping (slip mode, reverseroll, a loop roll): where playback
     /// would have been without it, in source frames.
     slip: Option<f64>,
@@ -256,6 +268,7 @@ impl Deck {
     /// sync leaves alone.
     fn nudging(&self) -> bool {
         self.jog_pending != 0.0
+            || self.bend_rate != 0.0
             || self.c.rate_temp.iter().any(|c| c.get_bool())
             || self.c.scratch2_enable.get_bool()
             || self.c.scrub_enable.get_bool()
@@ -296,6 +309,7 @@ impl Deck {
         self.pos = 0.0;
         self.velocity = 0.0;
         self.jog_pending = 0.0;
+        self.bend_rate = 0.0;
         self.slip = None;
         self.rolling = false;
         self.c.track_loaded.set_bool(false);
@@ -676,6 +690,7 @@ impl Deck {
     /// The speed to reach by the end of this buffer of `dt` seconds.
     fn target_velocity(&mut self, dt: f64) -> f64 {
         self.search_quiet = (self.search_quiet - dt).max(0.0);
+        let bend = self.bend_step(dt);
         if self.audio.is_none() {
             self.jog_pending = 0.0;
             return 0.0;
@@ -694,7 +709,9 @@ impl Deck {
             return search;
         }
         let mut v = if self.c.play.get_bool() {
-            self.forward_speed()
+            // Turning the rim bends the speed: faster clockwise, slower
+            // counterclockwise, but never backwards.
+            (self.forward_speed() + bend).max(0.0)
         } else {
             0.0
         };
@@ -703,6 +720,26 @@ impl Deck {
         }
         // A jog movement bends the speed while playing and scrubs while stopped.
         v + self.jog_step(dt)
+    }
+
+    /// Takes the rim ticks (`jog_bend`) that came in over the last `dt`
+    /// seconds and returns the bend they make, in multiples of normal speed
+    /// to add to the playing speed. A paused deck is nudged instead, like a jog.
+    fn bend_step(&mut self, dt: f64) -> f64 {
+        let ticks = self.c.jog_bend.get();
+        if ticks != 0.0 {
+            self.c.jog_bend.set(0.0);
+        }
+        if !self.c.play.get_bool() || dt <= 0.0 {
+            self.jog_pending += ticks * BEND_PAUSED_SECONDS;
+            self.bend_rate = 0.0;
+            return 0.0;
+        }
+        self.bend_rate += (ticks / dt - self.bend_rate) * (dt / BEND_SMOOTH).min(1.0);
+        if ticks == 0.0 && (self.bend_rate * BEND_PER_TICK_PER_SECOND).abs() < 1e-4 {
+            self.bend_rate = 0.0;
+        }
+        self.bend_rate * BEND_PER_TICK_PER_SECOND
     }
 
     /// The speed that moves on a share of the pending jog this buffer.
@@ -979,6 +1016,7 @@ impl Engine {
             velocity: 0.0,
             jog_pending: 0.0,
             search_quiet: 0.0,
+            bend_rate: 0.0,
             slip: None,
             rolling: false,
             was_playing: false,
@@ -3093,6 +3131,55 @@ mod tests {
         assert!(quiet < 1e-3, "silent while searching: {quiet}");
         run(&mut engine, 0.3);
         assert!(run(&mut engine, 0.2) > 0.01, "heard again after searching");
+    }
+
+    #[test]
+    fn turning_the_jog_rim_bends_the_speed() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 60.0));
+        run(&mut engine, 0.01);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let seconds = || ctl("playposition").get() * 60.0;
+        ctl("play").set_bool(true);
+        run(&mut engine, 0.2);
+        // Turn the rim at 180 ticks a second, a quarter turn, for about a
+        // second; returns the track seconds played per second.
+        let turn = |engine: &mut Engine, ticks: f64| {
+            let dt = 512.0 / SR;
+            let n = 90;
+            let start = seconds();
+            for _ in 0..n {
+                ctl("jog_bend").set(ticks * dt);
+                run(engine, dt);
+            }
+            (seconds() - start) / (n as f64 * dt)
+        };
+        // About +14%, a little less while the bend builds up.
+        let faster = turn(&mut engine, 180.0);
+        assert!(faster > 1.1 && faster < 1.15, "clockwise: {faster}");
+        assert_eq!(ctl("jog_bend").get(), 0.0);
+        // It springs back once the rim stops.
+        run(&mut engine, 1.0);
+        let start = seconds();
+        run(&mut engine, 1.0);
+        assert!(
+            (seconds() - start - 1.0).abs() < 0.01,
+            "{}",
+            seconds() - start
+        );
+        let slower = turn(&mut engine, -180.0);
+        assert!(slower < 0.9 && slower > 0.85, "counterclockwise: {slower}");
+        // Paused, the rim moves the track 8 ms a tick.
+        ctl("play").set_bool(false);
+        run(&mut engine, 0.5);
+        let start = seconds();
+        ctl("jog_bend").set(25.0);
+        run(&mut engine, 0.5);
+        assert!(
+            (seconds() - start - 0.2).abs() < 0.01,
+            "{}",
+            seconds() - start
+        );
     }
 
     #[test]

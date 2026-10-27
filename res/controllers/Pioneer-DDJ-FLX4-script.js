@@ -183,7 +183,6 @@ PioneerDDJFLX4.beta = PioneerDDJFLX4.alpha/32;
 // Multiplier for fast seek through track using SHIFT+JOGWHEEL
 // openDJ: half of Mixxx's 150, which searched too fast.
 PioneerDDJFLX4.fastSeekScale = 75;
-PioneerDDJFLX4.bendScale = 0.8;
 
 PioneerDDJFLX4.tempoRanges = [0.06, 0.10, 0.16, 0.25];
 
@@ -618,8 +617,11 @@ PioneerDDJFLX4.jogTurn = function(channel, _control, value, _status, group) {
 
     if (engine.isScratching(deckNum)) {
         engine.scratchTick(deckNum, newVal);
-    } else { // fallback
-        engine.setValue(group, "jog", newVal * this.bendScale);
+    } else {
+        // openDJ: the rim (and the platter when not touched) bends the
+        // speed while it turns, faster clockwise and slower
+        // counterclockwise, as in rekordbox. jog_bend takes rim ticks.
+        engine.setValue(group, "jog_bend", newVal);
     }
 };
 

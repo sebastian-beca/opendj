@@ -126,6 +126,12 @@ With `slip_enabled` on, loops, reverse and scratching SHALL keep a silent playhe
 ### Requirement: Jog wheel and scratching
 Jog input SHALL nudge a playing deck's speed (`jog`) and scratch when scratching is enabled (`scratch2_enable`, `scratch2`). A deck moved by hand faster than 8x SHALL be muted while it moves. Scrolling over an on-screen jog SHALL nudge the track by 1 ms per scrolled pixel.
 
+Turning a jog's outer rim (`jog_bend`, in ticks of 720 to a turn) SHALL bend a playing deck's speed as in Mixxx: clockwise faster, counterclockwise slower, by 0.08% of normal speed per tick a second, averaged over about 0.15 s so it springs back once the rim stops. A paused deck SHALL move 8 ms per tick instead. The DDJ-FLX4's rim, and its platter when not touched, SHALL send `jog_bend`; dragging round the black rim of an on-screen jog SHALL too.
+
+#### Scenario: Rim bend
+- **WHEN** the DJ turns a playing deck's jog rim clockwise a quarter turn a second
+- **THEN** the deck plays about 14% faster while the rim turns and returns to its tempo when it stops
+
 #### Scenario: Fast search is silent
 - **WHEN** a controller jog spins a deck faster than 8x normal speed
 - **THEN** the deck is muted until it slows down
