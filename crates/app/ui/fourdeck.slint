@@ -149,12 +149,12 @@ export component DeckStrip inherits Rectangle {
                     spacing: 6px;
                     CrossfaderAssign { deck: deck; }
                     ControlButton { group: group; key: "sync_enabled"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 12px; width: 60px; }
-                    // Key lock over pitch reset, pointing at the tempo.
+                    // Pitch reset, pointing at the tempo, over key lock.
                     VerticalLayout {
                         alignment: center;
                         spacing: 1px;
-                        KeyLock { group: group; }
                         PitchReset { group: group; tint: tint; height: 14px; }
+                        KeyLock { group: group; }
                     }
                     VerticalLayout {
                         horizontal-stretch: 1;
