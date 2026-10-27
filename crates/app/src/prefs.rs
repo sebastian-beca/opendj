@@ -1064,7 +1064,7 @@ impl Prefs {
                     PATH,
                     "Music folder",
                     &format!(
-                        "Scanned for new tracks each time openDJ starts.{}",
+                        "Where openDJ looks for your music.{}",
                         env_note("OPENDJ_MUSIC")
                     ),
                 )
@@ -1082,6 +1082,13 @@ impl Prefs {
                     },
                 )
             },
+            switch(
+                settings::SCAN_ON_START,
+                "Update library on start",
+                "Looks for new and changed tracks each time openDJ starts. Turn it off for a \
+                 big collection and use Update library when you add music.",
+                settings::scan_on_start(),
+            ),
             PrefItem {
                 action: "Clear".into(),
                 ..item("clear_cache", BUTTON, "Analysis cache", &cache_detail)

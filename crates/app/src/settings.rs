@@ -386,6 +386,15 @@ pub fn music_folder() -> Option<PathBuf> {
     path_of("music_folder").or_else(default_music_dir)
 }
 
+/// Whether the library is brought up to date each time openDJ starts:
+/// new files in the music and stage folders, and changed imports. When off,
+/// that only happens on Update library.
+pub const SCAN_ON_START: &str = "scan_on_start";
+
+pub fn scan_on_start() -> bool {
+    flag(SCAN_ON_START, true)
+}
+
 /// The stage folders (see [`mixxx_library::stages`]): any number of inbox
 /// folders, one triage folder and one collection folder.
 pub fn stage_folders() -> mixxx_library::stages::Folders {
