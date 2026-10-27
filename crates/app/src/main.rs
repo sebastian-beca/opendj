@@ -468,9 +468,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Bring the library up to date in the background with new files in the
-    // music folder. The browser then shows the library as saved.
+    // music folder, unless the DJ turned that off. The browser then shows the
+    // library as saved.
     let (scan_tx, scan_rx) = std::sync::mpsc::channel();
-    sync_library(library_path.clone(), scan_tx.clone());
+    if settings::scan_on_start() {
+        sync_library(library_path.clone(), scan_tx.clone());
+    }
     prefs::apply_saved(&registry);
     let prefs = prefs::Prefs::install(
         &app,

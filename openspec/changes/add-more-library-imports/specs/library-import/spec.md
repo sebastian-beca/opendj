@@ -1,7 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: More importers
-Settings › Library SHALL offer Import from Serato, Traktor and Apple Music, each with the three-step wizard, read-only, kept up to date at start, and removable.
+Settings › Library SHALL offer Import from Mixxx, Serato, Traktor and Apple Music, each with the three-step wizard, read-only, kept up to date at start, and removable.
+
+#### Scenario: Mixxx library
+- **WHEN** a Mixxx `mixxxdb.sqlite` is imported
+- **THEN** tracks keep their hot cues, saved loops, beat grid, rating and play count, and Mixxx crates and playlists appear as lists
 
 #### Scenario: Traktor cues
 - **WHEN** a Traktor NML with cues and loops is imported
