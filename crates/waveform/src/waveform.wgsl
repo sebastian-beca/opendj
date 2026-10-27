@@ -45,14 +45,14 @@ const ROW: u32 = 2048u;
 
 // Hotcue colours, matching the pads in the skin.
 const HOTCUE_COLORS = array<vec3<f32>, 8>(
-    vec3<f32>(1.0, 0.27, 0.23),
-    vec3<f32>(1.0, 0.62, 0.04),
-    vec3<f32>(0.04, 0.52, 1.0),
-    vec3<f32>(1.0, 0.84, 0.04),
-    vec3<f32>(0.19, 0.82, 0.35),
-    vec3<f32>(0.75, 0.35, 0.95),
-    vec3<f32>(1.0, 0.22, 0.37),
-    vec3<f32>(0.39, 0.82, 1.0),
+    vec3<f32>(0.00, 0.39, 0.78), // #0064C8
+    vec3<f32>(0.02, 0.74, 0.00), // #04BC00
+    vec3<f32>(0.86, 0.72, 0.00), // #DCB800
+    vec3<f32>(0.77, 0.35, 0.00), // #C45800
+    vec3<f32>(0.75, 0.00, 0.17), // #C0002C
+    vec3<f32>(0.77, 0.16, 0.45), // #C42874
+    vec3<f32>(0.47, 0.22, 0.77), // #7838C4
+    vec3<f32>(0.06, 0.74, 0.74), // #10BCBC
 );
 const AMBER = vec3<f32>(0.91, 0.70, 0.23);
 // A loop: Electric Lilac (#B69CFF); light grey while it is being marked out.
