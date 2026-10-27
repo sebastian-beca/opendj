@@ -200,6 +200,10 @@ struct Deck {
     shifted: Vec<[f32; 2]>,
     /// Low-pass state that softens fast overview scrubbing.
     scrub_tone: [f32; 2],
+    /// Where the play position would be now had nothing jumped, while the
+    /// deck plays; a jump from it fades over, see [`Declick`].
+    expected_pos: Option<f64>,
+    declick: Option<Declick>,
     /// Stem gains reached at the end of the last buffer.
     stem_gains: [f32; MAX_STEMS],
     /// The stems reported in `stem_count` and the stem colours (by address).
@@ -768,6 +772,54 @@ impl Frames for StemMix<'_> {
     }
 }
 
+/// How long a jump in the play position fades over: long enough to hide the
+/// step in the waveform, short enough not to be heard as a fade.
+pub(crate) const DECLICK_SECONDS: f64 = 0.006;
+
+/// A short crossfade over a jump in a deck's play position (a beatjump,
+/// hotcue, seek, or a loop wrapping), as DJ software does to keep jumps from
+/// clicking: the audio from before the jump plays on for a few milliseconds,
+/// fading out while the audio from after it fades in.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Declick {
+    /// Where the audio from before the jump is read, in source frames.
+    pub(crate) pos: f64,
+    /// Output frames still to fade, of `len`.
+    pub(crate) left: u32,
+    len: u32,
+}
+
+impl Declick {
+    pub(crate) fn new(pos: f64, sample_rate: f64) -> Self {
+        Self::frames(pos, (DECLICK_SECONDS * sample_rate).round().max(1.0) as u32)
+    }
+
+    pub(crate) fn frames(pos: f64, len: u32) -> Self {
+        Self {
+            pos,
+            left: len,
+            len,
+        }
+    }
+
+    /// Mixes the next frame: `new` from after the jump, `old` from before it.
+    #[inline]
+    pub(crate) fn mix(&mut self, new: [f32; 2], old: [f32; 2]) -> [f32; 2] {
+        self.left = self.left.saturating_sub(1);
+        crossfade(old, new, 1.0 - self.left as f32 / self.len as f32)
+    }
+}
+
+/// A raised-cosine crossfade, all `old` at `t` = 0 and all `new` at 1.
+#[inline]
+pub(crate) fn crossfade(old: [f32; 2], new: [f32; 2], t: f32) -> [f32; 2] {
+    let w = 0.5 - 0.5 * (std::f32::consts::PI * t).cos();
+    [
+        old[0] + (new[0] - old[0]) * w,
+        old[1] + (new[1] - old[1]) * w,
+    ]
+}
+
 /// Reads a stereo frame at a fractional position with 4-point Hermite
 /// interpolation. Works the same in either direction; outside the track it
 /// reads silence.
@@ -960,6 +1012,8 @@ impl Engine {
             shifter: KeyShifter::new(sample_rate),
             shifted: vec![[0.0; 2]; 4096],
             scrub_tone: [0.0; 2],
+            expected_pos: None,
+            declick: None,
             stem_gains: [1.0; MAX_STEMS],
             stems_shown: 0,
         });
@@ -1032,6 +1086,8 @@ impl Engine {
                 Command::Load { deck, track } => {
                     let d = &mut self.decks[deck];
                     d.c.play.set_bool(false);
+                    d.expected_pos = None;
+                    d.declick = None;
                     d.c.duration.set(track.duration);
                     d.c.track_loaded.set_bool(true);
                     d.c.cue_point.set(track.first_beat);
@@ -1631,6 +1687,16 @@ impl Engine {
             if let Some((_, to)) = stem_gains {
                 d.stem_gains = to;
             }
+            // A beatjump, hotcue, seek or sync jump moved the play position:
+            // fade from where the deck would have been, so it doesn't click.
+            // (The time-stretcher fades its own jumps.)
+            match d.expected_pos {
+                Some(e) if !shifting && (d.pos - e).abs() > 0.5 => {
+                    d.declick = Some(Declick::new(e, self.sample_rate));
+                }
+                _ if shifting => d.declick = None,
+                _ => {}
+            }
             Plan {
                 stems: stem_gains,
                 shifted: shifting && d.audio.is_some(),
@@ -1689,24 +1755,42 @@ impl Engine {
                     let (v0, v1) = p.velocity;
                     // Ramp the speed across the buffer so scratching does not zip.
                     let v = v0 + (v1 - v0) * r as f64;
-                    s = match (p.shifted, p.stems, audio.stems()) {
-                        (true, ..) => d.shifted[f],
-                        (false, Some((from, to)), Some(stems)) => {
+                    let source = |pos: f64| match (p.stems, audio.stems()) {
+                        (Some((from, to)), Some(stems)) => {
                             let gains = std::array::from_fn(|k| from[k] + (to[k] - from[k]) * r);
-                            read(&StemMix::new(stems, gains, gains, 1.0), d.pos)
+                            read(&StemMix::new(stems, gains, gains, 1.0), pos)
                         }
-                        _ => read(&**audio, d.pos),
+                        _ => read(&**audio, pos),
                     };
+                    s = if p.shifted {
+                        d.shifted[f]
+                    } else {
+                        source(d.pos)
+                    };
+                    let step = v * p.ratio;
+                    if let Some(dc) = &mut d.declick {
+                        s = dc.mix(s, source(dc.pos));
+                        dc.pos += step;
+                        if dc.left == 0 {
+                            d.declick = None;
+                        }
+                    }
                     if p.scrub {
                         s = soften_scrub(s, v.abs(), out_rate, &mut d.scrub_tone);
                     }
                     let before = d.pos;
-                    d.pos += v * p.ratio;
+                    d.pos += step;
                     if let Some((a, b)) = p.loop_frames {
+                        let unwrapped = d.pos;
                         if v > 0.0 && d.pos >= b {
                             d.pos -= b - a;
                         } else if v < 0.0 && d.pos < a && before >= a {
                             d.pos += b - a;
+                        }
+                        // The loop wrapped: fade from the audio running on
+                        // past its end (or before its start, in reverse).
+                        if d.pos != unwrapped && !p.shifted {
+                            d.declick = Some(Declick::new(unwrapped, out_rate));
                         }
                     }
                     let len = audio.len() as f64;
@@ -1830,6 +1914,10 @@ impl Engine {
             d.volume = p.vol.1;
             self.xfade[i] = p.xf.1;
             d.velocity = if ended[i] { 0.0 } else { p.velocity.1 };
+            d.expected_pos = (p.moving && !ended[i]).then_some(d.pos);
+            if d.expected_pos.is_none() {
+                d.declick = None;
+            }
             if ended[i] {
                 d.c.play.set_bool(false);
             }
@@ -3490,5 +3578,94 @@ mod tests {
         aux("main_mix").set_bool(false);
         let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
         assert!(peak(&out[out.len() / 2..]) < 1e-4);
+    }
+
+    /// The largest jump in slope between neighbouring samples of the left
+    /// channel: a smooth tone keeps it small, a click makes it spike.
+    fn roughness(out: &[f32]) -> f32 {
+        let l: Vec<f32> = out.iter().step_by(2).copied().collect();
+        l.windows(3)
+            .map(|w| (w[2] - 2.0 * w[1] + w[0]).abs())
+            .fold(0.0, f32::max)
+    }
+
+    /// Plays a 150 Hz tone on deck 1 and calls `each` before every buffer.
+    fn play_tone(
+        keylock: bool,
+        buffers: usize,
+        mut each: impl FnMut(&ControlRegistry, usize),
+    ) -> Vec<f32> {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, long_tone_track(150.0, "", 30.0));
+        run(&mut engine, 0.01);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        ctl("keylock").set_bool(keylock);
+        ctl("playposition").set(0.3);
+        ctl("play").set_bool(true);
+        run(&mut engine, 0.3);
+        let mut out = Vec::new();
+        let mut buf = vec![0.0f32; 512 * 2];
+        for n in 0..buffers {
+            each(&reg, n);
+            engine.process(&mut buf, 2);
+            out.extend_from_slice(&buf);
+        }
+        out
+    }
+
+    #[test]
+    fn jumps_and_loops_do_not_click() {
+        let steady = roughness(&play_tone(false, 100, |_, _| {}));
+        assert!(steady < 0.0003, "{steady}");
+        let ctl = |reg: &ControlRegistry, k: &str| reg.get("[Channel1]", k).unwrap();
+        for keylock in [false, true] {
+            // Beatjumps that land anywhere in the tone's cycle.
+            let jumps = roughness(&play_tone(keylock, 100, |reg, n| {
+                if n % 10 == 5 {
+                    ctl(reg, "beatjump").set(if n % 20 == 5 { 1.37 } else { -0.71 });
+                }
+            }));
+            assert!(jumps < 4.0 * steady, "key lock {keylock}: {jumps}");
+            // Setting a hotcue, jumping back to it, and a seek.
+            let cues = roughness(&play_tone(keylock, 60, |reg, n| match n {
+                10 => ctl(reg, "hotcue_1_activate").set_bool(true),
+                11 => ctl(reg, "hotcue_1_activate").set_bool(false),
+                30 => ctl(reg, "hotcue_1_activate").set_bool(true),
+                31 => ctl(reg, "hotcue_1_activate").set_bool(false),
+                45 => ctl(reg, "playposition").set(0.123),
+                _ => {}
+            }));
+            assert!(cues < 4.0 * steady, "key lock {keylock}: {cues}");
+            // A loop of 28⅛ cycles: the tone breaks where it wraps.
+            let looped = roughness(&play_tone(keylock, 100, |reg, n| {
+                if n == 2 {
+                    ctl(reg, "beatloop_size").set(0.375);
+                    ctl(reg, "beatloop_activate").set_bool(true);
+                }
+            }));
+            assert!(looped < 4.0 * steady, "key lock {keylock}: {looped}");
+        }
+    }
+
+    #[test]
+    fn filter_moves_do_not_click() {
+        let steady = roughness(&play_tone(false, 100, |_, _| {}));
+        let filter =
+            |reg: &ControlRegistry| reg.get("[QuickEffectRack1_[Channel1]]", "super1").unwrap();
+        // A slow low-pass sweep down and back, through the centre.
+        let sweep = roughness(&play_tone(false, 200, |reg, n| {
+            filter(reg).set((n as f64 / 100.0 - 1.0).abs() * 0.5);
+        }));
+        assert!(sweep < 2.0 * steady, "{sweep}");
+        // Flicking between low-pass and high-pass every buffer, and a knob
+        // thrown about.
+        let flick = roughness(&play_tone(false, 200, |reg, n| {
+            filter(reg).set(if n % 2 == 0 { 0.45 } else { 0.55 });
+        }));
+        assert!(flick < 0.005, "{flick}");
+        let wild = roughness(&play_tone(false, 200, |reg, n| {
+            filter(reg).set(0.5 + (n as f64 * 0.37).sin() * 0.4);
+        }));
+        assert!(wild < 0.005, "{wild}");
     }
 }

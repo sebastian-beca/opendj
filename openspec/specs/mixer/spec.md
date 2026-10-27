@@ -16,6 +16,10 @@ Each deck's channel SHALL have gain (`pregain`), a 3-band EQ (high, mid, low) wi
 - **WHEN** the filter knob is at its centre
 - **THEN** the channel is unfiltered
 
+#### Scenario: Filter moves without clicks
+- **WHEN** the filter knob is turned, fast or in big controller steps, including across the centre
+- **THEN** the cutoff glides over about 5 ms and each side fades in from the centre, so the sweep has no zipper noise or clicks
+
 ### Requirement: Knob modes
 The mixer's side knobs SHALL switch between EQ (high, mid, low, filter), STEMS (hi-hat, vocal, kick and bass stem volumes) and SCULPT (Model 1 style LPF, swept bell FREQ and CUT/BOOST, HPF). Controller EQ knobs SHALL follow the chosen mode through `[Mixer],knob_mode`.
 
