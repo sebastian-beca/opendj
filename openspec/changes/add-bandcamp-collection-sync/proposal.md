@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.5 · Buy it from the artist**
+Planned for: **v0.6 · Buy it from the artist**
 
 ## Why
 
