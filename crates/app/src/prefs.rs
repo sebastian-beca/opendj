@@ -943,9 +943,19 @@ impl Prefs {
                 "",
                 NOTE,
                 "No controllers",
-                "Plug in a MIDI controller and it shows up here within a couple of seconds.",
+                "Plug in a MIDI controller and it shows up here within a second or so.",
             ));
         }
+        items.push(PrefItem {
+            action: "Refresh".into(),
+            ..item(
+                "controllers_refresh",
+                BUTTON,
+                "Find controllers",
+                "Looks for controllers again and reconnects them, for one that is plugged in \
+                 but not showing or not answering.",
+            )
+        });
         items.push(item(
             "",
             NOTE,
@@ -1589,6 +1599,11 @@ impl Prefs {
             return;
         }
         match id {
+            "controllers_refresh" => {
+                if let Some(c) = &self.controllers {
+                    c.refresh();
+                }
+            }
             "stage_inbox_add" => choose(
                 id,
                 "Choose a folder to watch for new music",
