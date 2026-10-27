@@ -34,6 +34,7 @@ mod analysis_queue;
 mod art;
 mod automix;
 mod browser;
+mod controller_editor;
 mod cover_scan;
 mod coverart;
 mod diagnostics;
@@ -474,6 +475,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if settings::scan_on_start() {
         sync_library(library_path.clone(), scan_tx.clone());
     }
+    let controller_editor = controller_editor::Editor::install(&app, controllers.clone());
     prefs::apply_saved(&registry);
     let prefs = prefs::Prefs::install(
         &app,
@@ -720,6 +722,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 browser.borrow_mut().poll_covers();
                 browser.borrow_mut().poll_files();
                 prefs.borrow_mut().poll();
+                controller_editor.borrow_mut().poll();
                 if let Some(c) = &controllers {
                     let names: Vec<String> = c.connected().into_iter().map(|c| c.port).collect();
                     let status = if names.is_empty() {
