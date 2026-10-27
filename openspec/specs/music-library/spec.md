@@ -20,11 +20,15 @@ A track SHALL be able to hold every field VirtualDJ, rekordbox and OneLibrary ke
 - **THEN** each of those is stored
 
 ### Requirement: Music folder scan
-openDJ SHALL look through the music folder (Settings › Library, `~/Music` until set, or `OPENDJ_MUSIC`) at each start and on Rescan, adding new files and re-reading tags only of files changed since. Bringing a track in SHALL only read its tags.
+openDJ SHALL look through the music folder (Settings › Library, `~/Music` until set, or `OPENDJ_MUSIC`) at each start (unless Update library on start is off) and on Rescan, adding new files and re-reading tags only of files changed since. Bringing a track in SHALL only read its tags.
 
 #### Scenario: New file found
 - **WHEN** a file is added to the music folder and Rescan is pressed
 - **THEN** it appears in the Collection with its tags and is not yet analysed
+
+#### Scenario: No scan on start
+- **WHEN** Update library on start is off and openDJ starts
+- **THEN** the library shows as saved and the music folder is only looked through on Rescan
 
 ### Requirement: Playlists and folders
 The DJ SHALL be able to create, rename and delete playlists and folders, nest them, and add tracks by dragging or from the track menu.

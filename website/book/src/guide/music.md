@@ -16,7 +16,9 @@ Tracks come into the library in three ways:
 
 - **Your music folder.** openDJ looks through it each time it starts, and
   when you press **Rescan** in **Settings › Library**. New files are added,
-  and changed files have their tags read again. Choose the folder there
+  and changed files have their tags read again. With a big collection you
+  can turn off **Update library on start** there, and press **Rescan** when
+  you add music. Choose the folder there
   (`~/Music` until you do), or start openDJ with the `OPENDJ_MUSIC`
   environment variable set to it.
 - **Files.** The **Files** source in the rail browses any folder on your
