@@ -192,22 +192,83 @@ impl Isolator {
     }
 }
 
+/// A stereo state-variable filter in Andrew Simper's trapezoidal form: it
+/// stays stable and smooth however fast its cutoff moves, so the cutoff can
+/// glide every sample.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Svf {
+    /// tan(pi * cutoff / rate), gliding towards `target`.
+    g: f32,
+    target: f32,
+    pub(crate) k: f32,
+    ic1: [f32; 2],
+    ic2: [f32; 2],
+}
+
+impl Svf {
+    pub(crate) fn set(&mut self, sample_rate: f32, freq: f32, q: f32) {
+        let f = freq.clamp(10.0, 0.45 * sample_rate);
+        self.target = (std::f32::consts::PI * f / sample_rate).tan();
+        if self.g == 0.0 {
+            self.g = self.target;
+        }
+        self.k = 1.0 / q;
+    }
+
+    /// Low-pass, band-pass and high-pass outputs for one frame.
+    #[inline]
+    pub(crate) fn process(&mut self, x: [f32; 2]) -> [[f32; 2]; 3] {
+        // About 5 ms to glide to a new cutoff.
+        self.g += (self.target - self.g) * 0.004;
+        let (g, k) = (self.g, self.k);
+        let a1 = 1.0 / (1.0 + g * (g + k));
+        let a2 = g * a1;
+        let a3 = g * a2;
+        let mut out = [[0.0; 2]; 3];
+        for c in 0..2 {
+            let v3 = x[c] - self.ic2[c];
+            let v1 = a1 * self.ic1[c] + a2 * v3;
+            let v2 = self.ic2[c] + a2 * self.ic1[c] + a3 * v3;
+            self.ic1[c] = 2.0 * v1 - self.ic1[c];
+            self.ic2[c] = 2.0 * v2 - self.ic2[c];
+            out[0][c] = v2;
+            out[1][c] = v1;
+            out[2][c] = x[c] - k * v1 - v2;
+        }
+        out
+    }
+}
+
 /// The deck's quick filter knob: low-pass below the centre, high-pass above it.
+///
+/// Both halves are gliding state-variable filters, so turning the knob, even
+/// fast or by big MIDI steps, sweeps smoothly instead of zipping, and each
+/// half fades in and out around the centre instead of switching on with a
+/// click.
 #[derive(Clone, Copy, Debug)]
 pub struct SweepFilter {
-    sample_rate: f64,
+    sample_rate: f32,
     knob: f64,
-    lp: Biquad,
-    hp: Biquad,
+    lp: Svf,
+    hp: Svf,
+    /// How much of the low-pass and of the high-pass is heard, gliding
+    /// towards `target`.
+    mix: [f32; 2],
+    target: [f32; 2],
 }
+
+/// Per-sample glide of [`SweepFilter`]'s mix: about 5 ms, like [`Svf`]'s cutoff.
+const SWEEP_GLIDE: f32 = 0.004;
 
 impl SweepFilter {
     pub fn new(sample_rate: f64) -> Self {
         let mut f = Self {
-            sample_rate,
+            sample_rate: sample_rate as f32,
             knob: -1.0,
-            lp: Biquad::default(),
-            hp: Biquad::default(),
+            lp: Svf::default(),
+            hp: Svf::default(),
+            mix: [0.0; 2],
+            target: [0.0; 2],
         };
         f.set(0.5);
         f
@@ -223,23 +284,44 @@ impl SweepFilter {
         let lp = 60.0 * (20_000.0f64 / 60.0).powf((knob * 2.0).min(1.0));
         let hp = 20.0 * (10_000.0f64 / 20.0).powf(((knob - 0.5) * 2.0).max(0.0));
         let q = 0.85;
-        self.lp.set_lowpass(self.sample_rate, lp, q);
-        self.hp.set_highpass(self.sample_rate, hp, q);
+        self.lp.set(self.sample_rate, lp as f32, q);
+        self.hp.set(self.sample_rate, hp as f32, q);
+        // Each half fades in over the first 1.5% of its travel.
+        let amount = |x: f64| ((x - 0.005) / 0.015).clamp(0.0, 1.0) as f32;
+        self.target = [amount(0.5 - knob), amount(knob - 0.5)];
     }
 
     pub fn active(&self) -> bool {
-        (self.knob - 0.5).abs() > 0.01
+        self.mix != [0.0; 2] || self.target != [0.0; 2]
     }
 
     #[inline]
     pub fn process(&mut self, x: [f32; 2]) -> [f32; 2] {
-        if self.knob < 0.49 {
-            self.lp.process(x)
-        } else if self.knob > 0.51 {
-            self.hp.process(x)
-        } else {
-            x
+        if !self.active() {
+            return x;
         }
+        let mut y = x;
+        for (k, (svf, out)) in [(&mut self.lp, 0), (&mut self.hp, 2)]
+            .into_iter()
+            .enumerate()
+        {
+            let m = &mut self.mix[k];
+            let t = self.target[k];
+            *m += (t - *m) * SWEEP_GLIDE;
+            if (t - *m).abs() < 1e-5 {
+                *m = t;
+            }
+            if *m == 0.0 && t == 0.0 {
+                // Off: start afresh, at its cutoff, when it next fades in.
+                *svf = Svf::default();
+                continue;
+            }
+            let f = svf.process(x)[out];
+            for c in 0..2 {
+                y[c] += (f[c] - x[c]) * *m;
+            }
+        }
+        y
     }
 }
 
