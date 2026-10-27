@@ -32,12 +32,12 @@ What we take from them:
     "url": "https://…",
     "cover": "cover.jpg",
     "samples": [
-      { "file": "pull-up.wav", "name": "Pull Up", "level_db": 0, "mode": "oneshot", "bpm": null }
+      { "file": "pull-up.wav", "name": "Pull Up", "level": 1.0, "mode": 0 }
     ]
   }
   ```
 
-  Sample `i` sits on slot `i + 1`; a pack may have fewer than 16 (empty pads show "+"). Licence is an SPDX id; a sample may override the pack's licence and author.
+  Sample `i` sits on slot `i + 1` (`null` leaves a slot empty); a pack may have fewer than 16 (empty pads show "+"). `level` is the pad's gain (0 silent, 1 as recorded, 2 = +6 dB) and `mode` its play mode number. Licence is an SPDX id; a sample may override the pack's licence and author.
 - The **Default DJ Sample Pack** (id `default`) is not a folder: its eight sounds stay synthesised by the engine as today, so the app still needs no sample files. Slots 9-16 start empty; we could add eight more synthesised sounds (rewind, scratch, gunshot, bass drop, …) later.
 - **Editing a pad never changes the pack's files.** What you change (sample, name, level, mode) is saved as an override for that pack and slot in `settings.json`, so Reset to pack sample just removes it:
 
@@ -45,12 +45,12 @@ What we take from them:
   "sampler": {
     "pack": "dancehall-drops",
     "packs": {
-      "default": { "3": { "file": "/Users/…/pull-up.wav", "name": "Rewind", "level_db": -6, "mode": "hold" } }
+      "default": { "3": { "file": "/Users/…/pull-up.wav", "name": "Rewind", "level": 0.5, "mode": 1 } }
     }
   }
   ```
 
-  `file` is either a path on disk or `pack:<pack-id>/<sample>` for a sample borrowed from another pack (Choose Sample). This is what Seba asked for ("store levels in settings") and keeps packs shareable.
+  `file` is a path on disk (a sample borrowed from another pack with Choose Sample is saved by its path), `builtin` one of the built-in sounds, and `empty: true` a cleared pad. Only what differs from the pack is saved. This is what Seba asked for ("store levels in settings") and keeps packs shareable.
 - **New pack** makes an empty user pack folder. A file loaded onto a pad of a user pack is copied into that pack's folder on export only, so we don't duplicate audio on disk.
 - **`.opendjpack`** is a zip of the pack folder with the overrides folded into `pack.json` and the referenced files copied in. Import unzips into `<config>/samples/`, keeping both if the name is taken.
 - Loose files dropped on the Default pack's pads work too (as overrides); nobody is forced to make a pack first.
@@ -60,6 +60,7 @@ What we take from them:
 - `[Sampler1]` to `[Sampler16]`; `[App],num_samplers` reports 16 (the FLX4 script already asks for it).
 - Each deck has `[ChannelN],sampler_page` (0 = slots 1-8, 1 = slots 9-16). The 1/2 button and controllers set it; the DDJ-FLX4 script plays slot `page * 8 + pad` on that deck instead of the rekordbox split (left 1-4/9-12, right 5-8/13-16), so the hardware pads always play what the screen shows.
 - Samples are decoded with Symphonia on a loader thread, resampled to the engine rate, kept stereo, and handed to the audio thread through the same lock-free hand-over the decks use; the old buffer is dropped off the audio thread. Nothing allocates on the audio thread.
+- An empty pad pressed on a controller asks for `LoadSelectedTrack`, as Mixxx mappings do: the app puts the track selected in the library on it. `eject` (FLX4 Shift + pad on a stopped pad) clears it.
 - Length limit 60 seconds, held as 16-bit stereo in memory: about 11 MB a slot at 48 kHz, under 200 MB if all 16 slots are full-length. Drops and loops are far shorter; anything longer belongs on a deck. Over the limit: refused with "Longer than a minute, load it on a deck instead".
 - Level is the existing `[SamplerN],pregain` (now 0 to 2, i.e. silent to +6 dB, default 1 = 0 dB); `volume` stays as Mixxx's sampler fader at 1.0.
 - Play mode is a new `[SamplerN],play_mode` (0 one shot, 1 hold, 2 on/off, 3 loop), applied by the engine to `cue_gotoandplay` press and release, so controller mappings keep sending `cue_gotoandplay` and get the pad's mode for free. `repeat` mirrors Loop for Mixxx compatibility. `cue_gotoandstop` stops (FLX4 Shift + pad).

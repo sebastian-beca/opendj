@@ -264,7 +264,11 @@ PioneerDDJFLX4.init = function() {
     }
     for (let i = 1; i <= samplerCount; ++i) {
         engine.makeConnection("[Sampler" + i + "]", "play", PioneerDDJFLX4.samplerPlayOutputCallbackFunction);
+        engine.makeConnection("[Sampler" + i + "]", "track_loaded", PioneerDDJFLX4.samplerPlayOutputCallbackFunction);
     }
+    engine.makeConnection("[Channel1]", "sampler_page", PioneerDDJFLX4.samplerPlayOutputCallbackFunction);
+    engine.makeConnection("[Channel2]", "sampler_page", PioneerDDJFLX4.samplerPlayOutputCallbackFunction);
+    PioneerDDJFLX4.samplerPlayOutputCallbackFunction();
 
     engine.makeConnection("[Channel1]", "track_loaded", PioneerDDJFLX4.trackLoadedLED);
     engine.makeConnection("[Channel2]", "track_loaded", PioneerDDJFLX4.trackLoadedLED);
@@ -713,31 +717,44 @@ PioneerDDJFLX4.decreaseBeatjumpSizes = function(_channel, control, value, _statu
 // Sampler mode
 //
 
-PioneerDDJFLX4.samplerPlayOutputCallbackFunction = function(value, group, _control) {
-    if (value === 1) {
-        const curPad = group.match(script.samplerRegEx)[1];
-        let deckIndex = 0;
-        let padIndex = 0;
+// openDJ: each side's sampler pads play the 8 slots of its deck's sampler
+// page (`sampler_page`: 0 slots 1-8, 1 slots 9-16), the same 8 the screen
+// shows. The mapping names the rekordbox layout (left pads 1-4 and 9-12,
+// right pads 5-8 and 13-16), which only says which pad was pressed.
+// A side switched to deck 3 or 4 reads that deck's page.
+PioneerDDJFLX4.samplerSide = function(left) {
+    return left ? "[Channel1]" : "[Channel2]";
+};
 
-        if (curPad >=1 && curPad <= 4) {
-            deckIndex = 0;
-            padIndex = curPad - 1;
-        } else if (curPad >=5 && curPad <= 8) {
-            deckIndex = 2;
-            padIndex = curPad - 5;
-        } else if (curPad >=9 && curPad <= 12) {
-            deckIndex = 0;
-            padIndex = curPad - 5;
-        } else if (curPad >=13 && curPad <= 16) {
-            deckIndex = 2;
-            padIndex = curPad - 9;
+PioneerDDJFLX4.samplerSlot = function(group) {
+    const n = parseInt(group.match(script.samplerRegEx)[1]) - 1;
+    const left = n % 8 < 4;
+    const pad = n % 4 + (n >= 8 ? 4 : 0);
+    const page = engine.getValue(PioneerDDJFLX4.samplerSide(left), "sampler_page");
+    return "[Sampler" + (page * 8 + pad + 1) + "]";
+};
+
+// Lights a side's sampler pads: on for a slot with a sample, blinking while
+// it plays.
+PioneerDDJFLX4.samplerLights = function(left) {
+    const channel = left ? 0x97 : 0x99;
+    const page = engine.getValue(PioneerDDJFLX4.samplerSide(left), "sampler_page");
+    for (let pad = 0; pad < 8; ++pad) {
+        const group = "[Sampler" + (page * 8 + pad + 1) + "]";
+        PioneerDDJFLX4.stopSamplerBlink(channel, 0x30 + pad);
+        if (engine.getValue(group, "play") === 1) {
+            PioneerDDJFLX4.startSamplerBlink(channel, 0x30 + pad, group);
+        } else {
+            const on = engine.getValue(group, "track_loaded") ? 0x7F : 0x00;
+            midi.sendShortMsg(channel, 0x30 + pad, on);
+            midi.sendShortMsg(channel + 1, 0x30 + pad, on);
         }
-
-        PioneerDDJFLX4.startSamplerBlink(
-            0x97 + deckIndex,
-            0x30 + padIndex,
-            group);
     }
+};
+
+PioneerDDJFLX4.samplerPlayOutputCallbackFunction = function(_value, _group, _control) {
+    PioneerDDJFLX4.samplerLights(true);
+    PioneerDDJFLX4.samplerLights(false);
 };
 
 // openDJ: the pad panel each pad mode button opens on the deck's screen
@@ -899,7 +916,8 @@ PioneerDDJFLX4.padFxPressed = function(_channel, control, value, status, group) 
     midi.sendShortMsg(status, control, value === 0x7F ? 0x7F : 0x00);
 };
 
-PioneerDDJFLX4.samplerPadPressed = function(_channel, _control, value, _status, group) {
+PioneerDDJFLX4.samplerPadPressed = function(_channel, _control, value, _status, mapped) {
+    const group = PioneerDDJFLX4.samplerSlot(mapped);
     if (engine.getValue(group, "track_loaded")) {
         engine.setValue(group, "cue_gotoandplay", value);
     } else {
@@ -907,7 +925,8 @@ PioneerDDJFLX4.samplerPadPressed = function(_channel, _control, value, _status, 
     }
 };
 
-PioneerDDJFLX4.samplerPadShiftPressed = function(_channel, _control, value, _status, group) {
+PioneerDDJFLX4.samplerPadShiftPressed = function(_channel, _control, value, _status, mapped) {
+    const group = PioneerDDJFLX4.samplerSlot(mapped);
     if (engine.getValue(group, "play")) {
         engine.setValue(group, "cue_gotoandstop", value);
     } else if (engine.getValue(group, "track_loaded")) {

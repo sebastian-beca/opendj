@@ -94,6 +94,16 @@ export component DeckStrip inherits Rectangle {
     property <int> layer-index: Controls.resolve("[Controller]", Math.mod(deck, 2) == 0 ? "deck3" : "deck4");
     property <bool> layer-on: Controls.value(layer-index, Controls.tick) > 0;
     property <bool> controller-here: AudioSettings.controllers != "None" && (deck >= 2) == layer-on;
+    // Tracks dragged from the browser load here, as on the other layouts.
+    // First, so the sampler pads' own drop areas sit above it.
+    drop := DropArea {
+        can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
+        dropped(e) => {
+            TrackDrag.drop(deck, e.data);
+            TrackDrag.active = false;
+            DragAction.copy
+        }
+    }
     VerticalLayout {
         spacing: 1px;
         header := Header {
@@ -161,15 +171,6 @@ export component DeckStrip inherits Rectangle {
         }
     }
 
-    // Tracks dragged from the browser load here, as on the other layouts.
-    drop := DropArea {
-        can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
-        dropped(e) => {
-            TrackDrag.drop(deck, e.data);
-            TrackDrag.active = false;
-            DragAction.copy
-        }
-    }
     if TrackDrag.active || drop.has-drag: Rectangle {
         border-radius: Theme.radius + 2px;
         border-width: drop.has-drag ? 3px : 2px;

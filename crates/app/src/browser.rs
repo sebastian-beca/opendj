@@ -642,6 +642,13 @@ fn move_block<T>(list: &mut Vec<T>, first: usize, last: usize, at: usize) {
     list.splice(at..at, block);
 }
 
+/// A file's name without its extension.
+pub fn file_stem(path: &Path) -> String {
+    path.file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
 fn dropped_file(data: &DataTransfer) -> Option<PathBuf> {
     data.file_paths()
         .ok()?
@@ -2846,6 +2853,52 @@ impl Browser {
                 self.refresh_side();
             }
         }
+    }
+
+    /// Whether a drag carries something a sampler pad takes: a track or an
+    /// audio file.
+    pub fn accepts_sample(data: &DataTransfer) -> bool {
+        dragged(data).is_some() || dropped_file(data).is_some()
+    }
+
+    /// The audio file a drop on a sampler pad carries, with a name for the
+    /// pad: a track's title, or a file's name. Tracks stay where they are in
+    /// the library and files from outside don't join it.
+    pub fn dropped_sample(&self, data: &DataTransfer) -> Option<(PathBuf, String)> {
+        let id = match dragged(data) {
+            Some(Dragged::Rows(row, _)) => self.rows.get(row).copied().flatten(),
+            Some(Dragged::Side(tab, first, _)) => {
+                self.side_ids_of(tab).get(first).copied().flatten()
+            }
+            Some(Dragged::Deck(deck)) => self.deck_track(deck),
+            None => {
+                let path = dropped_file(data)?;
+                let name = file_stem(&path);
+                return Some((path, name));
+            }
+        }?;
+        self.sample_of(id)
+    }
+
+    /// The track selected in the list, as a sampler sample.
+    pub fn selected_sample(&self, app: &AppWindow) -> Option<(PathBuf, String)> {
+        let id = usize::try_from(app.get_current_track())
+            .ok()
+            .and_then(|r| self.rows.get(r).copied().flatten())?;
+        self.sample_of(id)
+    }
+
+    fn sample_of(&self, id: usize) -> Option<(PathBuf, String)> {
+        let t = self.library.get(id).filter(|_| self.playable(id))?;
+        let mixxx_engine::Source::File(path) = &t.source else {
+            return None;
+        };
+        let name = if t.title.is_empty() {
+            file_stem(path)
+        } else {
+            t.title.clone()
+        };
+        Some((path.clone(), name))
     }
 
     /// Whether the track at `index` of the library can load: its file is there.
