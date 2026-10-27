@@ -16,22 +16,22 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-browser-preview-player](changes/add-browser-preview-player/proposal.md)
 - [add-more-audio-decoders](changes/add-more-audio-decoders/proposal.md)
 
-## v0.5 · Buy it from the artist
+## v0.5 · Stems and performance
+
+- [improve-stem-separation](changes/improve-stem-separation/proposal.md) (instant stems on load, studio-quality stems in the background; moved ahead of stores by Seba, 2026-10-27)
+- [add-stem-fx-and-acapella](changes/add-stem-fx-and-acapella/proposal.md)
+- [improve-scratching](changes/improve-scratching/proposal.md)
+- [add-slicer-and-freeze](changes/add-slicer-and-freeze/proposal.md)
+- [add-cue-sequence-recording](changes/add-cue-sequence-recording/proposal.md)
+- [add-fx-pre-post-and-headphone](changes/add-fx-pre-post-and-headphone/proposal.md)
+
+## v0.6 · Buy it from the artist
 
 - [add-addon-repositories](changes/add-addon-repositories/proposal.md)
 - [enable-stores-and-purchase-inbox](changes/enable-stores-and-purchase-inbox/proposal.md)
 - [add-bandcamp-collection-sync](changes/add-bandcamp-collection-sync/proposal.md)
 - [add-find-and-buy](changes/add-find-and-buy/proposal.md)
 - [add-artist-direct-stores](changes/add-artist-direct-stores/proposal.md)
-
-## v0.6 · Stems and performance
-
-- [improve-stem-separation](changes/improve-stem-separation/proposal.md)
-- [add-stem-fx-and-acapella](changes/add-stem-fx-and-acapella/proposal.md)
-- [improve-scratching](changes/improve-scratching/proposal.md)
-- [add-slicer-and-freeze](changes/add-slicer-and-freeze/proposal.md)
-- [add-cue-sequence-recording](changes/add-cue-sequence-recording/proposal.md)
-- [add-fx-pre-post-and-headphone](changes/add-fx-pre-post-and-headphone/proposal.md)
 
 ## v0.7 · Your library, everywhere
 

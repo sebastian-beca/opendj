@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.6 · Stems and performance**
+Planned for: **v0.5 · Stems and performance**
 
 ## Why
 
