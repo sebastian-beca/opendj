@@ -18,7 +18,7 @@ rewinds, name tags. There are 16 pads, eight at a time: the **1** and **2**
 on the outside of the pads switch between them. On a DDJ-FLX4 the pads in
 SAMPLER mode play the same eight the screen shows.
 
-- **Sample packs**: **SAMPLE PACK** above the pads picks a pack. openDJ comes
+- **Sample packs**: **SAMPLE PACK** under the pads picks a pack. openDJ comes
   with the **Default DJ Sample Pack**; **+** makes a new, empty one.
 - **Your own sounds**: drop an audio file (WAV, AIFF, FLAC, MP3, M4A or OGG,
   up to a minute) from Finder or the track list on a pad, or right-click a
@@ -27,7 +27,8 @@ SAMPLER mode play the same eight the screen shows.
 - The **pencil** shows a level knob and a **•••** menu on each pad. The menu
   (or a right-click) renames the pad, sets how it plays (**One shot**,
   **Hold**, **On/Off** or **Loop**), puts back the pack's own sound, or
-  clears it. Shift-click a pad to stop it.
+  clears it. Drag a pad onto another to swap them. Shift-click a pad to stop
+  it.
 
 What you change on a pad is kept for that pack, and the pack's own files are
 left alone.

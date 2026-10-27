@@ -70,9 +70,9 @@ What we take from them:
 ### Screen
 
 - **Page button**: a narrow 1/2 button on the side of the pads (outer edge of each deck) shows which page the deck is on and flips it; page 2 lights it lilac.
-- **SAMPLER page header**: when a tab shows the SAMPLER page, a 22 px strip above the pads holds `SAMPLE PACK  [Default DJ Sample Pack ▾]  [✎]` like djay. The strip is shared by both decks (same pack).
+- **SAMPLE PACK strip**: when a tab shows the SAMPLER page, a 22 px strip under the pads holds `SAMPLE PACK  [Default DJ Sample Pack ▾]  [✎]` like djay. It sits under the pads, not between the page tabs and the pads (Seba, 2026-10-27). All decks share the pack.
 - **Pack menu**: popover with each pack's cover (or a lilac initial tile), the chosen one highlighted in Electric Lilac #B69CFF, + at the top right (New pack…, Import pack…), and a full-width Get more Packs button at the bottom. Right-click a pack: Rename, Export…, Show in Finder, Delete (not on Default).
-- **Edit mode (✎)**: each pad gets a small level knob on its left and a "…" on its right, as in djay. Out of edit mode pads stay big, clean triggers. Right-click works in both modes.
+- **Edit mode (✎)**: each pad gets a small level knob on its left and a "…" on its right, as in djay. In edit mode a pad can be dragged onto another to swap them (Seba, 2026-10-27). Out of edit mode pads stay big, clean triggers. Right-click works in both modes.
 - **Choose Sample popover**: anchored above the pad; pack menu at the top; scrolling list of samples with ▶ preview and length (`0:00.7`); a From file… row; and (phase 4) Record New Sample with buttons for deck 1, mic and deck 2.
 - **Drag and drop**: files from Finder or tracks from the track list onto any pad; the pad outline turns lilac while hovering. Dropping onto the pack menu imports `.opendjpack` files.
 - **Missing files**: name dimmed with a small warning mark; the "…" menu offers Locate file….
@@ -88,7 +88,7 @@ Options to look at when that dialog is designed:
 ## Phases (one PR each)
 
 1. **Engine**: 16 slots, file loading, stereo, play modes, level, `num_samplers`, FLX4 check.
-2. **Packs and pads UI**: pack store, Default pack, settings overrides, SAMPLE PACK header, edit mode, "…"/right-click menu, Choose Sample popover, drag and drop, rename, reset.
+2. **Packs and pads UI**: pack store, Default pack, settings overrides, SAMPLE PACK strip, edit mode (with pad swap), "…"/right-click menu, Choose Sample popover, drag and drop, rename, reset.
 3. **Share**: new pack, `.opendjpack` export and import.
 4. **Record** New Sample (deck, mic, master, loop-length capture) and synced loops.
 5. **Get more Packs** dialog (after its own design).

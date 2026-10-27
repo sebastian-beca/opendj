@@ -1,4 +1,4 @@
-// The SAMPLER pad page, as djay Pro has it: a SAMPLE PACK menu above the
+// The SAMPLER pad page, as djay Pro has it: a SAMPLE PACK menu under the
 // pads, a pencil for edit mode (a level knob and "…" on each pad), and the
 // Choose Sample popover. Sixteen slots, eight at a time: the 1/2 button on
 // the outer side of the pads flips the deck's `sampler_page`.
@@ -50,6 +50,8 @@ export global SamplerUi {
     callback reset(slot: int);
     callback clear(slot: int);
     pure callback accepts(data: data-transfer) -> bool;
+    // What dragging pad `slot` carries in edit mode.
+    pure callback pad-payload(slot: int) -> data-transfer;
     callback drop(slot: int, data: data-transfer);
 }
 
@@ -257,7 +259,12 @@ component SamplerPadCell inherits Rectangle {
         : touch.pressed ? Theme.control-pressed : lit ? tint.with-alpha(0.18) : touch.has-hover ? #1d1d20 : Theme.control;
     border-width: drop.has-drag ? 1px : 0px;
     border-color: Theme.accent;
-    // First, so the knob and "…" in edit mode sit above it.
+    // First, so the knob and "…" in edit mode sit above it. In edit mode a
+    // pad can be dragged onto another to swap them.
+    DragArea {
+        enabled: SamplerUi.editing && !pad.empty;
+        data: SamplerUi.pad-payload(slot);
+        allow-copy: true;
     touch := TouchArea {
         pointer-event(e) => {
             if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
@@ -286,6 +293,7 @@ component SamplerPadCell inherits Rectangle {
                 }
             }
         }
+    }
     }
     HorizontalLayout {
         padding-left: SamplerUi.editing ? 2px : 4px;
@@ -554,7 +562,6 @@ export component SamplerPanel inherits VerticalLayout {
     property <bool> left-side: mod(deck, 2) == 0;
     property <int> page: Controls.value(Controls.resolve(group, "sampler_page"), Controls.tick);
     spacing: 0px;
-    PackBar {}
     Rectangle {
         vertical-stretch: 1;
         background: #000000;
@@ -584,4 +591,6 @@ export component SamplerPanel inherits VerticalLayout {
             if !left-side: PageButton { group: group; }
         }
     }
+    // Under the pads, so the tabs sit right on them.
+    PackBar {}
 }

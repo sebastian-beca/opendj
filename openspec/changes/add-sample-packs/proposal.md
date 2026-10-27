@@ -11,7 +11,7 @@ There is also a bug to fix on the way: the DDJ-FLX4 mapping plays `[Sampler1]` t
 ## What Changes
 
 - 16 sampler slots instead of 8, in two pages of 8 on each deck with a 1/2 page button on the side of the pads. The DDJ-FLX4 pads follow the deck's page.
-- **Sample packs.** A pack is a named set of up to 16 samples. The current sounds become the read-only **Default DJ Sample Pack**. A SAMPLE PACK menu above the pads switches packs, with a + to make a new pack or import one, and **Get more Packs** at the bottom (its dialog is designed later).
+- **Sample packs.** A pack is a named set of up to 16 samples. The current sounds become the read-only **Default DJ Sample Pack**. A SAMPLE PACK menu under the pads switches packs, with a + to make a new pack or import one, and **Get more Packs** at the bottom (its dialog is designed later).
 - **Choose Sample** popover on a pad: a pack menu, the pack's samples with a preview button and length, **From file…**, and later **Record New Sample** from deck 1, the mic or deck 2.
 - Load a file onto a pad by dragging it from Finder or the track list, or with right-click › Load file…. WAV, AIFF, FLAC, MP3, M4A and OGG.
 - Per pad: a level knob, a name you can rename, a play mode (one shot, hold, on/off, loop), Reset to pack sample and Clear.
