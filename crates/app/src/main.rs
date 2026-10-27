@@ -372,12 +372,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.on_waveforms_visible_changed(|on| {
         settings::set("waveforms_visible", serde_json::json!(on))
     });
-    // Phrase bars on the waveforms, shown or hidden from a waveform's
-    // right-click menu.
-    app.set_phrases_visible(settings::flag("phrases_visible", true));
+    // Phrase bars on the deck overviews, shown or hidden from an
+    // overview's right-click menu.
+    let phrase_view = app.global::<PhraseView>();
+    phrase_view.set_visible(settings::flag("phrases_visible", true));
     {
         let app_weak = app.as_weak();
-        app.on_phrases_visible_changed(move |on| {
+        phrase_view.on_changed(move |on| {
             settings::set("phrases_visible", serde_json::json!(on));
             if let Some(app) = app_weak.upgrade() {
                 app.window().request_redraw();
@@ -1465,7 +1466,7 @@ impl Gpu {
         let mut changed = !self.images_set;
         self.moving = false;
         let four = app.get_layout() == FOUR_DECK_LAYOUT;
-        let show_phrases = app.get_phrases_visible();
+        let show_phrases = app.global::<PhraseView>().get_visible();
         for (d, track) in tracks.iter().enumerate() {
             changed |= self.scrolling[d].resize(&self.device, ww, wh);
             changed |= self.overview[d].resize(&self.device, ow, oh);
@@ -1514,15 +1515,17 @@ impl Gpu {
             if d >= 2 && !four {
                 continue;
             }
-            for view in [&mut self.scrolling[d], &mut self.overview[d]] {
+            // Phrases show only on the deck's overview.
+            let scrolling_frame = frame.as_ref().map(|f| Frame {
+                phrases: Vec::new(),
+                ..f.clone()
+            });
+            for (view, frame) in [
+                (&mut self.scrolling[d], scrolling_frame.as_ref()),
+                (&mut self.overview[d], frame.as_ref()),
+            ] {
                 view.set_track(&self.device, &self.renderer, gpu_track.as_ref());
-                view.render(
-                    &self.device,
-                    &self.queue,
-                    &self.renderer,
-                    frame.as_ref(),
-                    scale,
-                );
+                view.render(&self.device, &self.queue, &self.renderer, frame, scale);
             }
         }
         if changed {
@@ -1557,6 +1560,7 @@ impl Gpu {
                             phrases::PhraseKind::Drop => PhraseKind::Drop,
                             phrases::PhraseKind::Breakdown => PhraseKind::Breakdown,
                             phrases::PhraseKind::Outro => PhraseKind::Outro,
+                            phrases::PhraseKind::Chorus => PhraseKind::Chorus,
                         };
                         (p.start, kind)
                     })
