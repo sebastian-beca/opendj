@@ -278,12 +278,15 @@ component SamplerPadCell inherits Rectangle {
                 if pad.empty || pad.missing {
                     SamplerUi.browse(SamplerUi.pack);
                     choose.show();
+                } else if SamplerUi.editing {
+                    // Silent in edit mode, so dragging a pad doesn't fire it.
                 } else if e.modifiers.shift {
                     stopping = true;
                     Controls.set-value(stop-index, 1);
                 } else {
                     Controls.set-value(go-index, 1);
                 }
+            } else if SamplerUi.editing {
             } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
                 if stopping {
                     stopping = false;

@@ -413,6 +413,11 @@ pub(crate) struct Host {
     layers: Option<[ControlHandle; 2]>,
     /// The switches as the watches last resolved them.
     layers_seen: [bool; 2],
+    /// While set, every control a script writes and the value, by the name
+    /// it acts on (`[Channel1],pregain_set_default` stays as written; layers
+    /// and `[Main]` are resolved). Writes soft takeover drops still count.
+    /// For the Controller Editor, which wants to know what a script does.
+    pub(crate) trace: Option<Vec<(ConfigKey, f64)>>,
 }
 
 pub(crate) fn deck_group(deck: usize) -> String {
@@ -437,6 +442,7 @@ impl Host {
             scratch_tick: Instant::now(),
             layers: None,
             layers_seen: [false; 2],
+            trace: None,
         }
     }
 
@@ -549,6 +555,7 @@ impl Host {
     /// Script writes. Values for knobs with soft takeover enabled may be dropped.
     pub(crate) fn set_value(&mut self, group: &str, key: &str, v: f64) {
         let t = self.resolve(group, key);
+        self.record(key, &t, v);
         if self.soft_ignores(group, key, &t, t.parameter_for_value(v)) {
             return;
         }
@@ -557,11 +564,28 @@ impl Host {
 
     pub(crate) fn set_parameter(&mut self, group: &str, key: &str, p: f64) {
         let t = self.resolve(group, key);
+        self.record(key, &t, t.value_for_parameter(p));
         if self.soft_ignores(group, key, &t, p) {
             return;
         }
         let v = t.value_for_parameter(p);
         t.set(v);
+    }
+
+    /// Notes a script write while tracing; `key` as the script named it.
+    pub(crate) fn record(&mut self, key: &str, t: &Target, value: f64) {
+        if let Some(trace) = &mut self.trace {
+            let k = match t {
+                Target::Control(h) => h.key().clone(),
+                Target::Sub(h, _) => ConfigKey::new(h.key().group.clone(), key),
+            };
+            match trace.iter_mut().find(|(t, _)| *t == k) {
+                // A press that writes 1 then 0 is still "1".
+                Some((_, v)) if value != 0.0 => *v = value,
+                Some(_) => {}
+                None => trace.push((k, value)),
+            }
+        }
     }
 
     /// Whether soft takeover drops this write; `p` is the new parameter.

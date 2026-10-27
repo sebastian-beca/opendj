@@ -286,7 +286,7 @@ component PrefRow inherits Rectangle {
     if item.kind != 7: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.separator; }
 }
 
-component SearchField inherits Rectangle {
+export component SearchField inherits Rectangle {
     in-out property <string> text;
     callback edited();
     height: 30px;
@@ -327,7 +327,7 @@ component SearchField inherits Rectangle {
 }
 
 // Close button, top right of the window.
-component CloseButton inherits Rectangle {
+export component CloseButton inherits Rectangle {
     callback clicked();
     width: 26px;
     height: 26px;

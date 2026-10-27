@@ -15,6 +15,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-sync-deck-controls](changes/add-sync-deck-controls/proposal.md)
 - [add-browser-preview-player](changes/add-browser-preview-player/proposal.md)
 - [add-more-audio-decoders](changes/add-more-audio-decoders/proposal.md)
+- [add-controller-viewer](changes/add-controller-viewer/proposal.md) (view-only Controller Editor, pulled forward by Seba 2026-10-27)
 
 ## v0.5 · Stems and performance
 
@@ -25,6 +26,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-cue-sequence-recording](changes/add-cue-sequence-recording/proposal.md)
 - [add-fx-pre-post-and-headphone](changes/add-fx-pre-post-and-headphone/proposal.md)
 - [add-sample-packs](changes/add-sample-packs/proposal.md) (sampler with your own samples and sample packs, issue #60)
+- [improve-fx-engine](changes/improve-fx-engine/proposal.md) (faster rack, cleaner delays and new effects; from the FX library review, Seba 2026-10-27)
 
 ## v0.6 · Buy it from the artist
 

@@ -21,8 +21,8 @@ use serde_json::json;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use crate::{
-    settings, short_port_name, AppWindow, AudioSettings, ImportWizard, KeyNotation, PrefItem,
-    Preferences,
+    settings, short_port_name, AppWindow, AudioSettings, ControllerEditor, ImportWizard,
+    KeyNotation, PrefItem, Preferences,
 };
 
 const AUDIO: i32 = 0;
@@ -947,6 +947,15 @@ impl Prefs {
             ));
         }
         items.push(PrefItem {
+            action: "Open…".into(),
+            ..item(
+                "controller_editor",
+                BUTTON,
+                "Controller Editor",
+                "What every control does, by function. Press a control to find it.",
+            )
+        });
+        items.push(PrefItem {
             action: "Refresh".into(),
             ..item(
                 "controllers_refresh",
@@ -1606,6 +1615,11 @@ impl Prefs {
             return;
         }
         match id {
+            "controller_editor" => {
+                if let Some(app) = self.app.upgrade() {
+                    app.global::<ControllerEditor>().invoke_show();
+                }
+            }
             "controllers_refresh" => {
                 if let Some(c) = &self.controllers {
                     c.refresh();

@@ -6,6 +6,27 @@ in. There's nothing to set up.
 
 HID controllers aren't supported yet.
 
+## Controller Editor
+
+To see what every control does, open **Settings › Controllers › Controller
+Editor**. Pick a mapping at the top (the controller you have plugged in comes
+first). On the right, its controls are listed by function (Transport, Hot
+cues, Loops, Mixer, Effects and so on), each with the control it's on, the
+layer it works in (SHIFT, a pad mode, a bank) and the MIDI message it sends.
+Search the list by any of those.
+
+- **Picture.** For the Pioneer DDJ-FLX4, Allen & Heath Xone K2 and DJ
+  TechTools Midi Fighter Twister, a picture of the controller is on the left.
+  Point at a part to name it, and click it to list only what it does.
+- **Press to find.** With the controller plugged in, press or turn a control
+  and the list jumps to it.
+- **Lights** lists what each LED shows, and **Options** the mapping's own
+  settings with their defaults.
+
+Mappings that run a script are tried out in a sandbox to see what each
+control does, so even those read in plain words. For now the editor only
+shows the mapping you're using; changing it comes later.
+
 [Supported controllers](../controllers/README.md) lists every controller with
 a mapping, and what each control does where the mapping describes it.
 
