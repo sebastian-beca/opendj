@@ -43,9 +43,10 @@ use crate::inbox::Inbox;
 use crate::settings::show_key;
 use crate::spotify::{self, open_in_browser, Event, Request, Spotify, SpotifyTrack};
 use crate::stores::{self, Stores};
+use crate::waves::Waves;
 use crate::{
-    fmt_time, AppWindow, FilesUi, Folder, HealthUi, KeyNotation, LibraryEdit, SideRow, StoreUi,
-    TrackDrag, TrackRow,
+    fmt_time, AppWindow, ColumnUi, FilesUi, Folder, HealthUi, KeyNotation, LibraryEdit, SideRow,
+    StoreUi, TrackDrag, TrackInfo, TrackRow,
 };
 
 /// Sources in the rail that have a tree of their own.
@@ -398,6 +399,11 @@ pub struct Browser {
     camelot: bool,
     /// Album art thumbnails for the list.
     art: Art,
+    /// Mini waveforms for the list's Waveform column.
+    waves: Waves,
+    /// The list rows given a mini waveform, and the rows in view then.
+    wave_rows: Vec<usize>,
+    shown_rows: (i32, i32),
     /// The list as shown, kept so arriving art can fill in single rows.
     list: Rc<VecModel<TrackRow>>,
     /// The saved library, when it could be opened.
@@ -805,6 +811,9 @@ impl Browser {
             parked: HashMap::new(),
             camelot: crate::settings::camelot_keys(),
             art: Art::start(),
+            waves: Waves::start(),
+            wave_rows: Vec::new(),
+            shown_rows: (0, 0),
             list: Rc::new(VecModel::default()),
             db,
             index_of: HashMap::new(),
@@ -2034,6 +2043,67 @@ impl Browser {
         }
     }
 
+    /// Gives the rows in view (and a screenful either side) their mini
+    /// waveforms, and takes them from rows scrolled well away, so only a
+    /// few small images are ever kept. Overviews not read yet are asked
+    /// for; [`Browser::poll_waves`] fills them in as they arrive.
+    fn fill_waves(&mut self) {
+        let shown = self.columns.layout.has(columns::WAVE);
+        let (first, count) = self.shown_rows;
+        let count = count.max(1) as usize;
+        let from = (first.max(0) as usize).saturating_sub(count);
+        let to = (first.max(0) as usize + 2 * count).min(self.rows.len());
+        let list = &self.list;
+        self.wave_rows.retain(|&i| {
+            let keep = shown && (from..to).contains(&i);
+            if !keep {
+                if let Some(mut row) = list.row_data(i) {
+                    row.wave = Default::default();
+                    row.has_wave = false;
+                    list.set_row_data(i, row);
+                }
+            }
+            keep
+        });
+        if !shown {
+            return;
+        }
+        for i in from..to {
+            let Some(id) = self.rows[i] else { continue };
+            if self.wave_rows.contains(&i) {
+                continue;
+            }
+            let Some(image) = self.waves.get(&self.library[id]) else {
+                continue;
+            };
+            if let Some(mut row) = list.row_data(i) {
+                row.wave = image;
+                row.has_wave = true;
+                list.set_row_data(i, row);
+                self.wave_rows.push(i);
+            }
+        }
+    }
+
+    /// Follows the list's scrolling and puts newly read mini waveforms
+    /// into the rows showing them. Called every frame; does nothing while
+    /// the list is still and nothing has arrived.
+    pub fn poll_waves(&mut self) {
+        let arrived = self.waves.poll();
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let ui = app.global::<ColumnUi>();
+        let shown = (ui.get_first_shown(), ui.get_shown_count());
+        if arrived || shown != self.shown_rows {
+            self.shown_rows = shown;
+            self.fill_waves();
+        }
+        if arrived && !app.global::<TrackInfo>().get_has_wave() {
+            self.fill_info_wave(&app);
+        }
+    }
+
     pub fn poll_spotify(&mut self, app: &AppWindow) {
         for event in self.spotify.poll() {
             match event {
@@ -2855,6 +2925,16 @@ impl Browser {
             let Some(&i) = self.index_of.get(&t.id) else {
                 continue;
             };
+            // Its mini waveform, when its row hasn't one yet.
+            if self.waves.learn(t) {
+                if let Some(row) = self.rows.iter().position(|r| *r == Some(i)) {
+                    self.wave_rows.retain(|&w| w != row);
+                    self.fill_waves();
+                }
+                if let Some(app) = self.app.upgrade() {
+                    self.fill_info_wave(&app);
+                }
+            }
             let entry = &self.library[i];
             // An analysed grid arrives with the analysis; a fixed grid that
             // differs from the library's was edited on the deck.
@@ -3367,6 +3447,8 @@ impl Browser {
                         .unwrap_or_default(),
                     action: SharedString::new(),
                     cells: Default::default(),
+                    wave: Default::default(),
+                    has_wave: false,
                 };
                 TrackRow {
                     cells: columns::row_cells(&ids, &row, r.local.map(|id| &*library[id])),
@@ -3394,6 +3476,8 @@ impl Browser {
             app.set_folder_duration(summary.into());
             app.set_list_notice(notice.into());
             self.list.set_vec(rows);
+            self.wave_rows.clear();
+            self.fill_waves();
             app.set_tracks(ModelRc::from(self.list.clone()));
             app.set_sort_column(self.sort_column);
             app.set_sort_ascending(self.ascending);

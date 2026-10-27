@@ -19,10 +19,17 @@ use crate::analysis::Analysis;
 use crate::beats::{BeatGrid, GridMarker};
 use crate::key::{Detector, Key};
 use crate::loudness::Loudness;
-use crate::track::{Waveform, WaveformBin};
+use crate::track::{OverviewSlice, Waveform, WaveformBin};
 
 /// Changes whenever the analysis or this format changes, so old entries are ignored.
 const MAGIC: &[u8; 8] = b"MXRSAN04";
+
+/// Starts each stored overview, followed by the analysis's own [`MAGIC`],
+/// so overviews of an older analysis are made again too.
+const OVERVIEW_MAGIC: &[u8; 8] = b"ODJOVW01";
+
+/// Slices in a stored overview: the library's mini waveforms.
+pub const OVERVIEW_SLICES: usize = 256;
 
 /// Where tests keep their cache, instead of the user's.
 #[cfg(test)]
@@ -86,6 +93,10 @@ pub fn analysis_usage() -> (usize, u64) {
 /// Deletes every stored analysis; tracks are analysed again when next
 /// loaded. Separated stems are kept. Returns how many were deleted.
 pub fn clear_analysis() -> usize {
+    // Their overviews go too, so the library shows them as not analysed.
+    if let Some(dir) = cache_dir() {
+        let _ = fs::remove_dir_all(dir.join("overviews"));
+    }
     let Some(entries) = analysis_dir().and_then(|d| fs::read_dir(d).ok()) else {
         return 0;
     };
@@ -142,9 +153,14 @@ pub(crate) fn tags_rewritten(path: &Path, old: Option<PathBuf>) {
                 .join(entry.file_name()?),
         )
     };
-    if let (Some(from), Some(to)) = (stems(&old), stems(&new)) {
-        if from.exists() {
-            let _ = fs::rename(from, to);
+    for (from, to) in [
+        (stems(&old), stems(&new)),
+        (overview_file(&old), overview_file(&new)),
+    ] {
+        if let (Some(from), Some(to)) = (from, to) {
+            if from.exists() {
+                let _ = fs::rename(from, to);
+            }
         }
     }
 }
@@ -169,6 +185,57 @@ pub(crate) fn stems_dir(path: &Path) -> Option<PathBuf> {
     Some(analysis.parent()?.parent()?.join("stems").join(name))
 }
 
+/// Where the overview of the analysis kept at `entry` is kept: a small
+/// file beside the analyses, so the library can draw a whole list of
+/// mini waveforms without reading every track's full waveform.
+fn overview_file(entry: &Path) -> Option<PathBuf> {
+    Some(
+        entry
+            .parent()?
+            .parent()?
+            .join("overviews")
+            .join(entry.file_name()?),
+    )
+}
+
+/// The overview of `path` (see [`Waveform::overview`]), if it has been
+/// analysed as the file is now. Made from the stored analysis and kept
+/// the first time it is asked for, so this may take a moment once.
+pub fn overview(path: &Path) -> Option<Vec<OverviewSlice>> {
+    let file = overview_file(&entry(path)?)?;
+    if let Some(o) = fs::read(&file).ok().and_then(|d| decode_overview(&d)) {
+        return Some(o);
+    }
+    let o = load(path)?.waveform.overview(OVERVIEW_SLICES);
+    store_overview(&file, &o);
+    Some(o)
+}
+
+fn store_overview(file: &Path, o: &[OverviewSlice]) {
+    if o.is_empty() {
+        return;
+    }
+    let mut data = Vec::with_capacity(16 + o.len() * 2);
+    data.extend_from_slice(OVERVIEW_MAGIC);
+    data.extend_from_slice(MAGIC);
+    data.extend(o.iter().flatten());
+    let write = || -> std::io::Result<()> {
+        fs::create_dir_all(file.parent().unwrap())?;
+        let tmp = file.with_extension(format!("tmp{}", std::process::id()));
+        fs::write(&tmp, &data)?;
+        fs::rename(&tmp, file)
+    };
+    if let Err(e) = write() {
+        eprintln!("could not keep overview {}: {e}", file.display());
+    }
+}
+
+fn decode_overview(data: &[u8]) -> Option<Vec<OverviewSlice>> {
+    let rest = data.strip_prefix(OVERVIEW_MAGIC)?.strip_prefix(MAGIC)?;
+    let (slices, tail) = rest.as_chunks::<2>();
+    (tail.is_empty() && !slices.is_empty()).then(|| slices.to_vec())
+}
+
 /// The stored analysis of `path`, if it has one for the file as it is now.
 pub fn load(path: &Path) -> Option<Analysis> {
     let file = fs::File::open(entry(path)?).ok()?;
@@ -191,6 +258,10 @@ pub fn store(path: &Path, analysis: &Analysis) {
     };
     if let Err(e) = write() {
         eprintln!("could not cache analysis of {}: {e}", path.display());
+        return;
+    }
+    if let Some(file) = overview_file(&entry) {
+        store_overview(&file, &analysis.waveform.overview(OVERVIEW_SLICES));
     }
 }
 
@@ -302,6 +373,17 @@ mod tests {
         old[32..40].copy_from_slice(&u64::MAX.to_le_bytes());
         let b = decode(&old).unwrap();
         assert_eq!((b.key, b.key_detector), (None, Detector::Standard));
+
+        // Its overview: peaks and RMS across the track, kept small.
+        let o = a.waveform.overview(OVERVIEW_SLICES);
+        assert_eq!(o.len(), OVERVIEW_SLICES);
+        assert!(o.iter().all(|[peak, rms]| rms <= peak));
+        let mut kept = OVERVIEW_MAGIC.to_vec();
+        kept.extend_from_slice(MAGIC);
+        kept.extend(o.iter().flatten());
+        assert_eq!(decode_overview(&kept).unwrap(), o);
+        assert!(decode_overview(&kept[..kept.len() - 1]).is_none());
+        assert!(Waveform::default().overview(8).is_empty());
 
         let first = entry(&track).unwrap();
         fs::write(&track, b"second, longer version").unwrap();

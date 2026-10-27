@@ -26,6 +26,19 @@ The optional Prep column SHALL show a dot each for tags, rating, and tempo and k
 - **WHEN** a track has tags, tempo and key but no rating
 - **THEN** its rating dot is empty
 
+### Requirement: Waveform column
+The Waveform column (shown by default, and offered in the heading menu like any other column) SHALL draw each analysed track's overview as a mini waveform mirrored about its middle: the RMS body in Electric Lilac (#B69CFF), the peaks around it fainter, white on the selection highlight and dimmed for missing tracks. A track not yet analysed SHALL show nothing. It SHALL resize and move like other columns, the waveform stretching to the width. Clicking its heading SHALL sort analysed tracks first.
+
+The overview SHALL be a small summary (256 slices of peak and RMS) kept beside each stored analysis and made from the stored analysis the first time it is missing, read off the UI thread, newest request first. Each row's waveform SHALL be drawn once into a small image and only rows in view (and a screenful either side) SHALL hold one, so the list does no drawing of its own between changes and a long list costs no more than a screenful. A track analysed on a deck or in the background SHALL show its waveform at once. Clearing stored analyses SHALL clear the overviews too.
+
+#### Scenario: Analysed and not analysed
+- **WHEN** the list shows a track that has been analysed and one that hasn't
+- **THEN** the first row shows a lilac mini waveform and the second an empty cell
+
+#### Scenario: Loaded on a deck
+- **WHEN** a track with an empty Waveform cell is loaded on a deck and analysed
+- **THEN** its row shows its mini waveform without the list being opened again
+
 ### Requirement: Selection
 Click SHALL select a row, shift-click a range, and actions from the track menu apply to the whole selection. The focused list's selection SHALL be lilac (#8C72D9, white text); the other list's gray.
 
@@ -49,6 +62,7 @@ Rows SHALL drag onto decks, lists, stages, the Automix and Sidelist tabs; a deck
 
 ### Requirement: Side panel
 The side panel SHALL have icon tabs Automix, Sidelist, Linked and Info, with a lilac underline on the open one.
+Info's preview bar SHALL show the track's waveform (the same overview as the Waveform column), gray with the part played in lilac and a white playhead, and click or drag to seek; a track not yet analysed SHALL keep the plain line.
 
 #### Scenario: Open Info
 - **WHEN** the Info tab icon is clicked

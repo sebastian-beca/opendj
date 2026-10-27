@@ -62,8 +62,8 @@ pub use output::{
 pub use recorder::{RecordFormat, RecordSettings, Recorder};
 pub use synth::sample_library;
 pub use track::{
-    Audio, Hotcue, LibraryInfo, Marker, MarkerKind, Source, Track, Waveform, WaveformBin,
-    MEMORY_CUE, WAVEFORM_RATE,
+    Audio, Hotcue, LibraryInfo, Marker, MarkerKind, OverviewSlice, Source, Track, Waveform,
+    WaveformBin, MEMORY_CUE, WAVEFORM_RATE,
 };
 pub use visual::VisualPositions;
 
