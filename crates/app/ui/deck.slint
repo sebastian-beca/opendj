@@ -3,6 +3,7 @@
 // jog circle and the pitch fader towards the mixer. Deck B is mirrored.
 // Large artwork, flat dark controls, white pointers.
 import { TrackDrag } from "library.slint";
+import { SamplerPanel } from "sampler.slint";
 import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
 import { Caption, ControlButton, ControlFader, ControlKnob, Controls, KeyLock, PitchReset } from "controls.slint";
 
@@ -1249,7 +1250,6 @@ export component Pads inherits VerticalLayout {
     // KEYBOARD pads take the colour of the hot cue they play.
     property <int> cue-focus: Controls.value(Controls.resolve(group, "hotcue_focus"), Controls.tick);
     property <color> keyboard-tint: cue-focus >= 1 && cue-focus <= 8 ? Theme.hotcues[cue-focus - 1] : tint;
-    property <[string]> samples: ["Kick", "Snare", "Clap", "Hat", "Horn", "Siren", "Laser", "Crash"];
     // A controller's pad mode buttons ask for a panel through `pad_panel`:
     // open the tab that shows it, or put it in the open tab.
     property <int> panel-index: Controls.resolve(group, "pad_panel");
@@ -1275,8 +1275,9 @@ export component Pads inherits VerticalLayout {
     // The tabs sit right on the grid.
     spacing: 0px;
     PadTabs { names: ["HOT CUES", "PAD FX 1", "BEAT JUMP", "SAMPLER", "STEMS", "BEAT LOOP", "PAD FX 2", "KEYBOARD", "KEY SHIFT", "LOOP ROLL"]; slots <=> slots; selected <=> tab; }
+    if page == 3: SamplerPanel { deck: deck; group: group; vertical-stretch: 1; }
     // The black background shows through the 1px gaps as the grid lines.
-    Rectangle {
+    if page != 3: Rectangle {
         vertical-stretch: 1;
         background: #000000;
         border-width: 1px;
@@ -1312,18 +1313,6 @@ export component Pads inherits VerticalLayout {
                         key: jumps[row * 4 + i].key;
                         text: jumps[row * 4 + i].text;
                         tint: tint;
-                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
-                    }
-                }
-                if page == 3: HorizontalLayout {
-                    spacing: 1px;
-                    horizontal-stretch: 1;
-                    for i in 4: PadCell {
-                        group: "[Sampler" + (row * 4 + i + 1) + "]";
-                        key: "cue_gotoandplay";
-                        light-key: "play_indicator";
-                        text: samples[row * 4 + i];
-                        tint: Theme.hotcues[row * 4 + i];
                         horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
                     }
                 }
@@ -1610,6 +1599,16 @@ export component Deck inherits Rectangle {
     property <string> group: "[Channel" + (deck + 1) + "]";
     property <color> tint: Theme.deck-color(deck);
     // Square panels split by thin black lines.
+    // flight every deck shows a faint outline; the one under the cursor lights up.
+    // First, so the sampler pads' own drop areas sit above it.
+    drop := DropArea {
+        can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
+        dropped(e) => {
+            TrackDrag.drop(deck, e.data);
+            TrackDrag.active = false;
+            DragAction.copy
+        }
+    }
     VerticalLayout {
         spacing: 1px;
 
@@ -1651,15 +1650,6 @@ export component Deck inherits Rectangle {
     }
 
     // Drop target for tracks dragged from the browser. While any drag is in
-    // flight every deck shows a faint outline; the one under the cursor lights up.
-    drop := DropArea {
-        can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
-        dropped(e) => {
-            TrackDrag.drop(deck, e.data);
-            TrackDrag.active = false;
-            DragAction.copy
-        }
-    }
     if TrackDrag.active || drop.has-drag: Rectangle {
         border-radius: Theme.radius + 2px;
         border-width: drop.has-drag ? 3px : 2px;
