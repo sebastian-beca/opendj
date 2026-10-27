@@ -1333,13 +1333,7 @@ impl Decks {
         }
     }
 
-    fn frame(
-        &self,
-        deck: usize,
-        t: &Track,
-        play_seconds: f64,
-        phrases: Vec<(f64, PhraseKind)>,
-    ) -> Frame {
+    fn frame(&self, deck: usize, t: &Track, play_seconds: f64, phrases: Phrases) -> Frame {
         let h = &self.0[deck];
         Frame {
             play_seconds,
@@ -1426,6 +1420,9 @@ fn same_deck_info(old: &DeckInfo, new: &DeckInfo) -> bool {
     lists_same && covers_same && rest(old) == rest(new)
 }
 
+/// Where each phrase starts and its kind, as the waveforms draw them.
+type Phrases = Vec<(f64, PhraseKind)>;
+
 struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -1438,7 +1435,7 @@ struct Gpu {
     tracks: [Option<(Arc<GpuTrack>, Arc<Waveform>)>; NUM_DECKS],
     /// Each deck's phrases and the track they were found for, found again
     /// when the track changes (a new analysis or a grid edit replaces it).
-    phrases: [Option<(Arc<Track>, Vec<(f64, PhraseKind)>)>; NUM_DECKS],
+    phrases: [Option<(Arc<Track>, Phrases)>; NUM_DECKS],
     /// Each deck's drawn position, steadier than the engine's as read.
     clocks: [SmoothClock; NUM_DECKS],
     /// Whether a deck was moving in the last frame drawn.
@@ -1541,7 +1538,7 @@ impl Gpu {
 
 impl Gpu {
     /// Deck `d`'s phrases for the waveforms, found once per track.
-    fn phrases(&mut self, d: usize, t: &Arc<Track>) -> Vec<(f64, PhraseKind)> {
+    fn phrases(&mut self, d: usize, t: &Arc<Track>) -> Phrases {
         match &self.phrases[d] {
             Some((cached, p)) if Arc::ptr_eq(cached, t) => p.clone(),
             _ => {
