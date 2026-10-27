@@ -403,3 +403,71 @@ fn ddj_flx4_mixer_pads_and_eq_modes() {
     assert!((hpf - 0.5).abs() < 0.01, "hpf {hpf}");
     assert_eq!(c.errors(), Vec::<String>::new());
 }
+
+#[test]
+fn ddj_flx4_pad_modes() {
+    let (reg, mut c) = load("Pioneer-DDJ-FLX4.midi.xml");
+    settle(&mut c, 50);
+    // Each of the eight pad mode buttons opens its panel on the screen.
+    for (button, panel) in [
+        (0x1B, 0.0),
+        (0x1E, 1.0),
+        (0x20, 2.0),
+        (0x22, 3.0),
+        (0x6D, 5.0),
+        (0x6B, 6.0),
+        (0x69, 7.0),
+        (0x6F, 8.0),
+    ] {
+        c.receive(&[0x90, button, 0x7F]);
+        c.receive(&[0x90, button, 0x00]);
+        assert_eq!(
+            get(&reg, "[Channel1]", "pad_panel"),
+            panel,
+            "button {button:x}"
+        );
+    }
+    // KEYBOARD pads press keyboard_N_activate while held.
+    c.receive(&[0x97, 0x41, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "keyboard_2_activate"), 1.0);
+    c.receive(&[0x97, 0x41, 0x00]);
+    assert_eq!(get(&reg, "[Channel1]", "keyboard_2_activate"), 0.0);
+    // The pad of the key shift playing is lit.
+    c.take_output();
+    reg.get("[Channel1]", "pitch_adjust").unwrap().set(-4.0);
+    settle(&mut c, 5);
+    let out = c.take_output();
+    assert!(out.iter().any(|m| m[..] == [0x97, 0x44, 0x7F]), "{out:x?}");
+    // KEYBOARD, and KEYBOARD again: the stems pads, which mute stem 1.
+    reg.get("[Channel1]", "stem_count").unwrap().set(4.0);
+    c.receive(&[0x90, 0x69, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "pad_panel"), 7.0);
+    c.receive(&[0x90, 0x69, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "pad_panel"), 4.0);
+    c.receive(&[0x97, 0x40, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1_Stem1]", "mute"), 1.0);
+    // And once more, back to the keyboard.
+    c.receive(&[0x90, 0x69, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "pad_panel"), 7.0);
+    // BEAT LOOP pad 1 is a quarter-beat loop.
+    c.receive(&[0x97, 0x60, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "beatloop_0.25_toggle"), 1.0);
+    // PAD FX2 pad 4 holds a brake on deck 2's pad FX unit.
+    let slot = "[EffectRack1_EffectUnit7_Effect1]";
+    c.receive(&[0x99, 0x53, 0x7F]);
+    assert_eq!(get(&reg, slot, "loaded_effect"), 10.0);
+    assert_eq!(get(&reg, slot, "enabled"), 1.0);
+    assert_eq!(
+        get(&reg, "[EffectRack1_EffectUnit7]", "group_[Channel2]_enable"),
+        1.0
+    );
+    c.receive(&[0x99, 0x53, 0x00]);
+    assert_eq!(get(&reg, slot, "enabled"), 0.0);
+    // PAD FX1 pad 1 is an echo.
+    c.receive(&[0x97, 0x10, 0x7F]);
+    assert_eq!(
+        get(&reg, "[EffectRack1_EffectUnit6_Effect1]", "loaded_effect"),
+        1.0
+    );
+    assert_eq!(c.errors(), Vec::<String>::new());
+}
