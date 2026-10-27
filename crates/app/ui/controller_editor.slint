@@ -1,0 +1,562 @@
+// The Controller Editor: what a controller's mapping does, in a window over
+// the whole app, opened from Settings › Controllers. The controller's
+// picture is on the left, the mapping's controls by function on the right.
+// Pointing at a part of the picture names it, clicking it lists only what
+// it does, and pressing a control on the controller itself finds it. This
+// first version only shows the mapping; editing comes later.
+import { Theme } from "theme.slint";
+import { MenuField } from "mixer.slint";
+import { SearchField, CloseButton } from "preferences.slint";
+import { ListView, ScrollView } from "scroll.slint";
+
+// A row of the Controls or Lights list, or a category heading above them.
+export struct EditorRow {
+    header: bool,
+    // The heading's category, or what the control does: "Play / pause".
+    function: string,
+    // "Deck 1", "Effect unit 2", or empty.
+    target: string,
+    // The hardware control: "PAD 2", "ENCODER 5".
+    control: string,
+    // "SHIFT", "Hot cue", "Bank 2"; empty for the plain press.
+    layer: string,
+    // "button", "pad", "knob", "encoder", "fader", "jog" or "switch".
+    kind: string,
+    // "Note 0B · ch 1".
+    midi: string,
+    // The script function behind it, when it is a script binding.
+    script: string,
+    // The mapping author's notes and the binding's options.
+    detail: string,
+    // The part of the picture it belongs to.
+    part: string,
+    selected: bool,
+}
+
+// A control on the picture, in the layout's units.
+export struct EditorPart {
+    id: string,
+    label: string,
+    kind: string,
+    round: bool,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    // Whether the mapping uses it.
+    mapped: bool,
+    // Picked: its row is selected, or the list shows only it.
+    lit: bool,
+    // Just pressed on the controller.
+    flash: bool,
+}
+
+// The controller's body: x, y, width, height and corner radius.
+export struct EditorPanel {
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    r: float,
+}
+
+// One of the mapping's own settings.
+export struct EditorOption {
+    label: string,
+    detail: string,
+    default-value: string,
+    kind: string,
+}
+
+export global ControllerEditor {
+    in-out property <bool> open;
+    // The mappings to choose from, the controllers plugged in first.
+    in property <[string]> mappings;
+    in property <int> chosen;
+    in property <string> name;
+    in property <string> author;
+    // While the mapping is being read, or why it could not be.
+    in property <bool> loading;
+    in property <string> status;
+    // 0 Controls, 1 Lights, 2 Options.
+    in-out property <int> tab;
+    in-out property <string> query;
+    in property <[EditorRow]> rows;
+    in property <[EditorRow]> lights;
+    in property <[EditorOption]> options;
+    // "212 functions on 76 controls".
+    in property <string> summary;
+    in property <bool> has-picture;
+    in property <float> picture-width: 1;
+    in property <float> picture-height: 1;
+    in property <[EditorPanel]> panels;
+    in property <[EditorPart]> parts;
+    // The control the list is narrowed to, by name, or empty.
+    in property <string> part-filter;
+    // How to find a control by pressing it, or why that can't be done now.
+    in property <string> find-hint;
+    // Lit while the controller this mapping is for is plugged in.
+    in property <bool> live;
+    // A control was pressed: the list scrolls so that the row found, whose
+    // top is at `scroll-to` in the list, is in view.
+    in property <length> scroll-to;
+    in property <int> scroll-serial;
+    // Opens the editor on the controller plugged in, or the first mapping.
+    callback show();
+    callback pick(index: int);
+    callback part-clicked(id: string);
+    callback row-clicked(tab: int, index: int);
+    callback searched();
+    callback clear-filter();
+}
+
+// What kind of control a row is: a button or pad (MIDI notes) as a dot in a
+// square, a knob as an arc with a pointer, an endless encoder as two
+// arrows, a fader as a slot with a cap, a jog wheel as a platter.
+component KindIcon inherits Path {
+    in property <string> kind;
+    in property <color> color: Theme.text-dim;
+    width: 16px;
+    height: 16px;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    fill: transparent;
+    stroke: color;
+    stroke-width: 1.8px;
+    commands: kind == "knob" ? "M 6.3 17.7 A 8 8 0 1 1 17.7 17.7 M 12 12 L 12 5"
+        : kind == "encoder" ? "M 4 12 A 8 8 0 0 1 18 7 M 18 3 L 18 7 L 14 7 M 20 12 A 8 8 0 0 1 6 17 M 6 21 L 6 17 L 10 17"
+        : kind == "fader" ? "M 12 3 L 12 21 M 7 10 L 17 10 L 17 14 L 7 14 Z"
+        : kind == "jog" ? "M 3 12 A 9 9 0 1 0 21 12 A 9 9 0 1 0 3 12 M 9 12 A 3 3 0 1 0 15 12 A 3 3 0 1 0 9 12"
+        : kind == "switch" ? "M 4 9 L 20 9 L 20 15 L 4 15 Z M 14 9 L 14 15"
+        : kind == "pad" ? "M 4 4 L 20 4 L 20 20 L 4 20 Z M 9 9 L 15 9 L 15 15 L 9 15 Z"
+        : "M 4 4 L 20 4 L 20 20 L 4 20 Z M 10 12 A 2 2 0 1 0 14 12 A 2 2 0 1 0 10 12";
+}
+
+// A small label on a row: the target, or the layer it works in.
+component Chip inherits Rectangle {
+    in property <string> text;
+    in property <color> ink: Theme.text-dim;
+    in property <color> fill: #2a2a2e;
+    height: 18px;
+    border-radius: 4px;
+    background: fill;
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        Text { text: root.text; color: ink; font-size: 11px; vertical-alignment: center; }
+    }
+}
+
+component Tab inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked();
+    height: 28px;
+    border-radius: 6px;
+    background: selected ? #3a3a3d : ta.has-hover ? #262629 : transparent;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        Text { text: root.text; color: selected ? Theme.text : Theme.text-dim; font-size: 13px; font-weight: selected ? 600 : 400; vertical-alignment: center; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A row of the Controls or Lights list.
+component FunctionRow inherits Rectangle {
+    in property <EditorRow> item;
+    in property <bool> alt;
+    callback clicked();
+    height: item.header ? 34px : 44px;
+    background: item.header ? transparent
+        : item.selected ? Theme.selection
+        : ta.has-hover ? #222225
+        : alt ? Theme.row-alt : Theme.row;
+    property <color> ink: item.selected ? Theme.on-row-selection : Theme.text;
+    property <color> dim: item.selected ? Theme.on-row-selection-dim : Theme.text-dim;
+    if item.header: Text {
+        x: 12px;
+        y: parent.height - self.height - 6px;
+        text: item.function;
+        color: Theme.lilac;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+    }
+    if !item.header: HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            KindIcon { kind: item.kind; color: dim; }
+        }
+        // What it does, and where.
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 2px;
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: item.function; color: ink; font-size: 13px; font-weight: 500; overflow: elide; vertical-alignment: center; horizontal-stretch: 0; }
+                if item.target != "": Chip { text: item.target; ink: item.selected ? Theme.on-row-selection : Theme.text; fill: item.selected ? #ffffff30 : #2a2a2e; }
+                if item.script != "": Chip { text: "script"; ink: item.selected ? Theme.on-row-selection : Theme.lilac; fill: item.selected ? #ffffff30 : Theme.lilac.with-alpha(0.15); }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            Text {
+                text: item.detail != "" ? item.midi + "  ·  " + item.detail : item.midi;
+                color: dim;
+                font-size: 11px;
+                overflow: elide;
+            }
+        }
+        // The control and the layer it works in.
+        VerticalLayout {
+            width: 150px;
+            alignment: center;
+            spacing: 2px;
+            Text { text: item.control; color: ink; font-size: 12px; horizontal-alignment: right; overflow: elide; }
+            HorizontalLayout {
+                alignment: end;
+                if item.layer != "": Chip {
+                    text: item.layer;
+                    ink: item.selected ? Theme.on-row-selection : item.layer == "SHIFT" ? Theme.cue : Theme.text-dim;
+                    fill: item.selected ? #ffffff30 : item.layer == "SHIFT" ? Theme.cue.with-alpha(0.15) : #2a2a2e;
+                }
+            }
+        }
+    }
+    ta := TouchArea {
+        enabled: !item.header;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The controller, drawn from its layout and scaled to fit.
+component Picture inherits Rectangle {
+    property <float> scale: min(self.width / 1px / ControllerEditor.picture-width, self.height / 1px / ControllerEditor.picture-height);
+    property <length> ox: (self.width - ControllerEditor.picture-width * scale * 1px) / 2;
+    property <length> oy: (self.height - ControllerEditor.picture-height * scale * 1px) / 2;
+    property <string> hovered;
+    for p in ControllerEditor.panels: Rectangle {
+        x: root.ox + p.x * root.scale * 1px;
+        y: root.oy + p.y * root.scale * 1px;
+        width: p.w * root.scale * 1px;
+        height: p.h * root.scale * 1px;
+        border-radius: p.r * root.scale * 1px;
+        background: #1e1e21;
+        border-width: 1px;
+        border-color: #38383c;
+    }
+    for part in ControllerEditor.parts: Rectangle {
+        property <bool> hover: pta.has-hover;
+        property <bool> vertical: part.h >= part.w;
+        property <color> edge: part.flash ? Theme.lilac
+            : part.lit ? Theme.lilac
+            : hover ? #a0a0a8
+            : part.mapped ? #5a5a60 : #333337;
+        property <color> face: part.flash ? Theme.lilac
+            : part.lit ? Theme.lilac.with-alpha(0.28)
+            : hover ? #3a3a3f
+            : part.mapped ? #2a2a2e : #1f1f22;
+        x: root.ox + part.x * root.scale * 1px;
+        y: root.oy + part.y * root.scale * 1px;
+        width: part.w * root.scale * 1px;
+        height: part.h * root.scale * 1px;
+        // Faders: a slot with a cap.
+        if part.kind == "fader": Rectangle {
+            x: vertical ? (parent.width - self.width) / 2 : 0;
+            y: vertical ? 0 : (parent.height - self.height) / 2;
+            width: vertical ? max(3px, parent.width * 0.18) : parent.width;
+            height: vertical ? parent.height : max(3px, parent.height * 0.18);
+            border-radius: 2px;
+            background: #0b0b0c;
+            border-width: 1px;
+            border-color: edge;
+        }
+        if part.kind == "fader": Rectangle {
+            x: vertical ? 0 : (parent.width - self.width) / 2;
+            y: vertical ? (parent.height - self.height) / 2 : 0;
+            width: vertical ? parent.width : max(6px, parent.height * 0.6);
+            height: vertical ? max(6px, parent.width * 0.6) : parent.height;
+            border-radius: 2px;
+            background: face;
+            border-width: 1px;
+            border-color: edge;
+        }
+        if part.kind != "fader": Rectangle {
+            border-radius: part.round ? min(self.width, self.height) / 2 : min(6px, self.height * 0.2);
+            background: face;
+            border-width: part.lit || part.flash ? 2px : 1px;
+            border-color: edge;
+        }
+        // A jog wheel's centre, a knob's pointer.
+        if part.kind == "jog": Rectangle {
+            x: parent.width * 0.3;
+            y: parent.height * 0.3;
+            width: parent.width * 0.4;
+            height: parent.height * 0.4;
+            border-radius: self.width / 2;
+            border-width: 1px;
+            border-color: edge;
+        }
+        if part.kind == "knob" || part.kind == "encoder": Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: parent.height * 0.1;
+            width: max(1.5px, parent.width * 0.06);
+            height: parent.height * 0.32;
+            background: part.flash ? Theme.on-selection : edge;
+        }
+        // Labels that fit; the rest are named on hover.
+        property <length> label-size: max(7px, min(10px, self.height * 0.3));
+        if part.kind != "fader" && part.kind != "knob" && part.kind != "encoder" && self.height > 14px
+            && self.width - 6px > part.label.character-count * label-size * 0.62: Text {
+            width: parent.width - 4px;
+            x: 2px;
+            text: part.label;
+            color: part.flash ? Theme.on-selection : part.mapped ? Theme.text-dim : #55555a;
+            font-size: label-size;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        pta := TouchArea {
+            mouse-cursor: part.mapped ? pointer : default;
+            changed has-hover => {
+                if self.has-hover {
+                    root.hovered = part.label;
+                } else if root.hovered == part.label {
+                    root.hovered = "";
+                }
+            }
+            clicked => { ControllerEditor.part-clicked(part.id); }
+        }
+    }
+    // The part under the pointer.
+    if hovered != "": Rectangle {
+        x: 12px;
+        y: 12px;
+        width: hl.preferred-width;
+        height: 26px;
+        border-radius: 6px;
+        background: #000000c0;
+        hl := HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            Text { text: root.hovered; color: Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; }
+        }
+    }
+}
+
+export component ControllerEditorOverlay inherits Rectangle {
+    background: #000000c0;
+    TouchArea { }
+    Rectangle {
+        width: root.width - 48px;
+        height: root.height - 48px;
+        border-radius: 12px;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 40px;
+        drop-shadow-color: #000000c0;
+        clip: true;
+        VerticalLayout {
+            // Header: the mapping, and that it is the original and can't be
+            // changed yet.
+            HorizontalLayout {
+                height: 60px;
+                padding-left: 20px;
+                padding-right: 14px;
+                spacing: 12px;
+                Text { text: "Controller Editor"; color: Theme.text; font-size: 20px; font-weight: 700; vertical-alignment: center; }
+                VerticalLayout {
+                    alignment: center;
+                    MenuField {
+                        width: 300px;
+                        menu-width: 340px;
+                        text: ControllerEditor.name;
+                        choices: ControllerEditor.mappings;
+                        chosen: ControllerEditor.chosen;
+                        picked(i) => { ControllerEditor.pick(i); }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Chip { text: "Original mapping"; ink: Theme.lilac; fill: Theme.lilac.with-alpha(0.15); }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Chip { text: "View only"; }
+                }
+                Text {
+                    text: ControllerEditor.author != "" ? "by " + ControllerEditor.author : "";
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    CloseButton { clicked => { ControllerEditor.open = false; } }
+                }
+            }
+            Rectangle { height: 1px; background: Theme.separator; }
+            HorizontalLayout {
+                vertical-stretch: 1;
+                // The picture, and how to find a control by pressing it.
+                Rectangle {
+                    horizontal-stretch: 1;
+                    background: #141416;
+                    if ControllerEditor.has-picture: Picture {
+                        x: 24px;
+                        y: 24px;
+                        width: parent.width - 48px;
+                        height: parent.height - 76px;
+                    }
+                    if !ControllerEditor.has-picture: Text {
+                        width: parent.width - 80px;
+                        text: ControllerEditor.loading ? "" : "No picture of this controller yet. Its controls are listed by name.";
+                        color: Theme.text-dim;
+                        font-size: 13px;
+                        wrap: word-wrap;
+                        horizontal-alignment: center;
+                    }
+                    HorizontalLayout {
+                        y: parent.height - 40px;
+                        height: 28px;
+                        alignment: center;
+                        spacing: 8px;
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 8px;
+                                height: 8px;
+                                border-radius: 4px;
+                                background: ControllerEditor.live ? Theme.deck3 : #4a4a4f;
+                            }
+                        }
+                        Text { text: ControllerEditor.find-hint; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+                    }
+                }
+                Rectangle { width: 1px; background: Theme.separator; }
+                // The list.
+                VerticalLayout {
+                    width: min(560px, root.width * 0.46);
+                    padding: 14px;
+                    padding-bottom: 0px;
+                    spacing: 10px;
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Tab { text: "Controls"; selected: ControllerEditor.tab == 0; clicked => { ControllerEditor.tab = 0; } }
+                        Tab { text: "Lights"; selected: ControllerEditor.tab == 1; clicked => { ControllerEditor.tab = 1; } }
+                        Tab { text: "Options"; selected: ControllerEditor.tab == 2; clicked => { ControllerEditor.tab = 2; } }
+                        Rectangle { horizontal-stretch: 1; }
+                        Text { text: ControllerEditor.summary; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
+                    }
+                    if ControllerEditor.tab != 2: HorizontalLayout {
+                        spacing: 8px;
+                        SearchField {
+                            horizontal-stretch: 1;
+                            text <=> ControllerEditor.query;
+                            edited => { ControllerEditor.searched(); }
+                        }
+                        if ControllerEditor.part-filter != "": Rectangle {
+                            height: 30px;
+                            width: fl.preferred-width;
+                            border-radius: 8px;
+                            background: Theme.lilac.with-alpha(0.2);
+                            fl := HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 8px;
+                                spacing: 8px;
+                                Text { text: ControllerEditor.part-filter; color: Theme.lilac; font-size: 12px; font-weight: 600; vertical-alignment: center; }
+                                VerticalLayout {
+                                    alignment: center;
+                                    Path {
+                                        width: 8px;
+                                        height: 8px;
+                                        viewbox-width: 10;
+                                        viewbox-height: 10;
+                                        commands: "M 1 1 L 9 9 M 9 1 L 1 9";
+                                        stroke: Theme.lilac;
+                                        stroke-width: 1.6px;
+                                        fill: transparent;
+                                    }
+                                }
+                            }
+                            TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { ControllerEditor.clear-filter(); }
+                            }
+                        }
+                    }
+                    if ControllerEditor.loading || ControllerEditor.status != "": Text {
+                        text: ControllerEditor.status;
+                        color: Theme.text-dim;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                    if ControllerEditor.tab == 0: list := ListView {
+                        vertical-stretch: 1;
+                        // Brings a row found by pressing its control into view.
+                        property <int> serial: ControllerEditor.scroll-serial;
+                        changed serial => {
+                            self.content-y = max(min(0px, self.visible-height / 2 - ControllerEditor.scroll-to - 22px), min(0px, self.visible-height - self.content-height));
+                        }
+                        for r[i] in ControllerEditor.rows: FunctionRow {
+                            item: r;
+                            alt: mod(i, 2) == 1;
+                            clicked => { ControllerEditor.row-clicked(0, i); }
+                        }
+                    }
+                    if ControllerEditor.tab == 1: ListView {
+                        vertical-stretch: 1;
+                        for r[i] in ControllerEditor.lights: FunctionRow {
+                            item: r;
+                            alt: mod(i, 2) == 1;
+                            clicked => { ControllerEditor.row-clicked(1, i); }
+                        }
+                    }
+                    if ControllerEditor.tab == 2: ScrollView {
+                        vertical-stretch: 1;
+                        content-height: opts.preferred-height;
+                        opts := VerticalLayout {
+                            width: parent.width - 12px;
+                            spacing: 1px;
+                            if ControllerEditor.options.length == 0: Text {
+                                text: "This mapping has no settings of its own.";
+                                color: Theme.text-dim;
+                                font-size: 13px;
+                            }
+                            for o[i] in ControllerEditor.options: Rectangle {
+                                background: mod(i, 2) == 1 ? Theme.row-alt : Theme.row;
+                                HorizontalLayout {
+                                    padding: 10px;
+                                    padding-left: 12px;
+                                    spacing: 12px;
+                                    VerticalLayout {
+                                        horizontal-stretch: 1;
+                                        spacing: 3px;
+                                        Text { text: o.label; color: Theme.text; font-size: 13px; font-weight: 500; wrap: word-wrap; }
+                                        if o.detail != "": Text { text: o.detail; color: Theme.text-dim; font-size: 11px; wrap: word-wrap; }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Chip { text: o.default-value; ink: Theme.text; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Rectangle { height: 2px; }
+                }
+            }
+        }
+    }
+}

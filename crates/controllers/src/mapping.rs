@@ -66,6 +66,8 @@ pub struct Input {
     /// A control name, or for script bindings a JS expression naming a function.
     pub key: String,
     pub options: Options,
+    /// What the mapping's author wrote about it, if anything.
+    pub description: String,
 }
 
 /// Lights an LED while a control's value is within `min..=max`.
@@ -79,6 +81,7 @@ pub struct Output {
     pub off: u8,
     pub min: f64,
     pub max: f64,
+    pub description: String,
 }
 
 /// A mapping setting's value, typed as Mixxx hands it to `engine.getSetting`.
@@ -89,17 +92,36 @@ pub enum SettingValue {
     Text(String),
 }
 
+/// One of a mapping's own settings as the mapping describes it, for showing
+/// it: its label, help text, kind and default.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SettingDef {
+    pub variable: String,
+    pub label: String,
+    pub description: String,
+    /// "boolean", "integer", "real", "enum" or "string".
+    pub kind: String,
+    /// The default as shown: "On", "Red", "4".
+    pub default: String,
+    /// An enum's choices, by label.
+    pub choices: Vec<String>,
+}
+
+#[derive(Clone)]
 pub struct ScriptFile {
     pub path: PathBuf,
     pub prefix: String,
 }
 
+#[derive(Clone)]
 pub struct Mapping {
     pub name: String,
     pub author: String,
     pub path: PathBuf,
     pub scripts: Vec<ScriptFile>,
     pub settings: Vec<(String, SettingValue)>,
+    /// The same settings with their labels, for showing them.
+    pub setting_defs: Vec<SettingDef>,
     /// Keyed by `(status, midino)`; several bindings may share a key.
     pub inputs: HashMap<(u8, u8), Vec<Input>>,
     pub outputs: Vec<Output>,
@@ -187,14 +209,15 @@ impl Mapping {
             }
         }
 
-        let settings = child(root, "settings")
+        let options: Vec<roxmltree::Node> = child(root, "settings")
             .map(|s| {
                 s.descendants()
                     .filter(|n| n.has_tag_name("option"))
-                    .filter_map(parse_setting)
                     .collect()
             })
             .unwrap_or_default();
+        let settings = options.iter().filter_map(|o| parse_setting(*o)).collect();
+        let setting_defs = options.iter().filter_map(|o| setting_def(*o)).collect();
 
         let mut inputs: HashMap<(u8, u8), Vec<Input>> = HashMap::new();
         if let Some(controls) = child(controller, "controls") {
@@ -213,6 +236,7 @@ impl Mapping {
                         group: text(c, "group").unwrap_or("").to_string(),
                         key: text(c, "key").unwrap_or("").to_string(),
                         options: Options(options),
+                        description: description(c),
                     });
             }
         }
@@ -234,6 +258,7 @@ impl Mapping {
                     off: byte(text(o, "off"), 0x00),
                     min: float("minimum", 0.0),
                     max: float("maximum", 1.0),
+                    description: description(o),
                 });
             }
         }
@@ -244,10 +269,60 @@ impl Mapping {
             path: PathBuf::new(),
             scripts,
             settings,
+            setting_defs,
             inputs,
             outputs,
         })
     }
+}
+
+/// A `<description>`, with the line breaks and indents of the XML squashed.
+fn description(node: roxmltree::Node) -> String {
+    text(node, "description")
+        .unwrap_or("")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn setting_def(o: roxmltree::Node) -> Option<SettingDef> {
+    let variable = o.attribute("variable")?.to_string();
+    let kind = o.attribute("type").unwrap_or("string").to_ascii_lowercase();
+    let values: Vec<_> = o.children().filter(|n| n.has_tag_name("value")).collect();
+    let label_of = |v: &roxmltree::Node| {
+        v.attribute("label")
+            .map(str::to_string)
+            .unwrap_or_else(|| v.text().unwrap_or("").trim().to_string())
+    };
+    let choices: Vec<String> = values.iter().map(label_of).collect();
+    let default = match kind.as_str() {
+        "enum" => values
+            .iter()
+            .find(|v| v.attribute("default") == Some("true"))
+            .or(values.first())
+            .map(label_of)
+            .unwrap_or_default(),
+        "boolean" => {
+            if o.attribute("default")
+                .is_some_and(|d| d.eq_ignore_ascii_case("true"))
+            {
+                "On".into()
+            } else {
+                "Off".into()
+            }
+        }
+        _ => o.attribute("default").unwrap_or("").to_string(),
+    };
+    Some(SettingDef {
+        label: o
+            .attribute("label")
+            .map_or_else(|| variable.clone(), str::to_string),
+        variable,
+        description: description(o),
+        kind,
+        default,
+        choices,
+    })
 }
 
 fn parse_setting(o: roxmltree::Node) -> Option<(String, SettingValue)> {

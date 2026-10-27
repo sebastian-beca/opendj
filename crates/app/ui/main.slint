@@ -7,13 +7,14 @@ import { PlayerDeck, PlayerMixer } from "player.slint";
 import { DeckStrip, FourDeckCenter } from "fourdeck.slint";
 import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, ColumnUi, ListColumn, HealthUi, HealthCard } from "library.slint";
 import { Preferences, PreferencesOverlay, PrefItem, ImportWizard } from "preferences.slint";
+import { ControllerEditor, ControllerEditorOverlay, EditorRow, EditorPart, EditorPanel, EditorOption } from "controller_editor.slint";
 
 export { SourceUi, SourceTab, SearchItem, FoundRow, QueueLine } from "sources.slint";
 export { TrackInfo, InfoField, CoverChoice } from "info.slint";
 export { FilterUi, FilterChip, FilterChoice } from "filters.slint";
 export { SamplerUi, SamplerPad, SamplePack, SampleChoice } from "sampler.slint";
 export { ColumnUi, ListColumn }
-export { Theme, Controls, DeckActions, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, HealthUi, HealthCard, Preferences, PrefItem, ImportWizard }
+export { Theme, Controls, DeckActions, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, HealthUi, HealthCard, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption }
 
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
 // the track under the pointer, like a hand on a record, and drag left or
@@ -631,6 +632,10 @@ export component AppWindow inherits Window {
                 }
                 return accept;
             }
+            if e.text == Key.Escape && ControllerEditor.open {
+                ControllerEditor.open = false;
+                return accept;
+            }
             if e.text == Key.Escape && Preferences.open {
                 Preferences.open = false;
                 return accept;
@@ -915,6 +920,10 @@ export component AppWindow inherits Window {
             width: root.width;
             height: root.height;
             init => { self.focus-search(); }
+        }
+        if ControllerEditor.open: ControllerEditorOverlay {
+            width: root.width;
+            height: root.height;
         }
     }
 }

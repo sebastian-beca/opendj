@@ -235,6 +235,7 @@ fn natives<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<Host>>) -> rquickjs::Result<Ob
         .parameter_for_value(v));
     native!("reset", |h, g: String, k: String| {
         let t = h.resolve(&g, &k);
+        h.record(&k, &t, t.default_value());
         t.set(t.default_value());
     });
     native!("defaultValue", |h, g: String, k: String| h

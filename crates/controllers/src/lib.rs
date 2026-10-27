@@ -7,11 +7,15 @@
 //! Mixxx reads it, and the scripts run in QuickJS against the same `engine`
 //! and `midi` API, talking to the shared control registry.
 
+pub mod catalog;
 mod controller;
 mod host;
+pub mod layout;
 mod manager;
 pub mod mapping;
+pub mod probe;
 mod script;
+pub mod view;
 
 use std::path::PathBuf;
 
