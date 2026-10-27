@@ -1,0 +1,86 @@
+name: Stems benchmark
+
+# Times openDJ's stem separation models (crates/separation) on GitHub's Linux
+# and Apple Silicon machines, and attaches the converted model files so they
+# can be used with `stem-bench` elsewhere. Runs when the separation code
+# changes, or by hand from the Actions tab.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "crates/separation/**"
+      - "crates/stem-bench/**"
+      - "third_party/demucs-core/**"
+      - "scripts/models/**"
+      - ".github/workflows/stems-bench.yml"
+
+jobs:
+  models:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Convert Spleeter, fetch HTDemucs
+        run: |
+          pip install tensorflow-cpu numpy safetensors soundfile
+          mkdir -p models work/4stems
+          curl -sSfL -o work/4stems.tar.gz https://github.com/deezer/spleeter/releases/download/v1.4.0/4stems.tar.gz
+          tar xzf work/4stems.tar.gz -C work/4stems
+          python3 scripts/models/convert_spleeter.py work/4stems/model models/spleeter-4stems.safetensors
+          curl -sSfL -o models/htdemucs.safetensors https://huggingface.co/set-soft/audio_separation/resolve/main/Demucs/htdemucs.safetensors
+          python3 scripts/models/make_test_mix.py models/test-mix-6min.wav 360
+          sha256sum models/*.safetensors | tee models/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stem-models
+          path: models/
+
+  bench:
+    needs: models
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: stem-models
+          path: models
+      - name: Install system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig-dev libxkbcommon-dev libasound2-dev mesa-vulkan-drivers cmake libclang-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p stem-bench
+      - name: Attach the Mac build of stem-bench
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: stem-bench-macos
+          path: target/release/stem-bench
+      - name: Spleeter on the CPU, whole 6-minute mix
+        run: target/release/stem-bench models/test-mix-6min.wav --spleeter --cpu --from 120 | tee -a bench.txt
+      - name: Spleeter and HTDemucs on the GPU (Metal), whole 6-minute mix
+        # Linux runners have no GPU (only a software Vulkan driver), so the
+        # GPU timings come from the Mac.
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: target/release/stem-bench models/test-mix-6min.wav --gpu | tee -a bench.txt
+      - name: HTDemucs on the CPU, first minute
+        continue-on-error: true
+        run: target/release/stem-bench models/test-mix-6min.wav --htdemucs --cpu --seconds 60 | tee -a bench.txt
+      - name: Summary
+        if: always()
+        run: |
+          echo '### ${{ matrix.os }}' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat bench.txt >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
