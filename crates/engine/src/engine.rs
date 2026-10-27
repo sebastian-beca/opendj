@@ -606,6 +606,25 @@ impl Deck {
                     self.c.pitch.set(if n.abs() >= 1.0 { p.round() } else { p });
                 }
                 Action::KeyReset => self.c.pitch.set(0.0),
+                Action::Keyboard(semitones) => {
+                    self.c.pitch.set(semitones);
+                    let set = |h: usize| self.c.hotcues[h].enabled.get_bool();
+                    let focus = self.c.hotcue_focus.get() as i64 - 1;
+                    let cue = (0..NUM_HOTCUES as i64)
+                        .filter(|&h| h == focus)
+                        .chain(0..NUM_HOTCUES as i64)
+                        .map(|h| h as usize)
+                        .find(|&h| set(h));
+                    let at = match cue {
+                        Some(h) => {
+                            self.c.hotcue_focus.set((h + 1) as f64);
+                            self.c.hotcues[h].position.get()
+                        }
+                        None => self.c.cue_point.get(),
+                    };
+                    self.set_seconds(at);
+                    self.c.play.set_bool(true);
+                }
             }
         }
 
@@ -2028,6 +2047,7 @@ mod tests {
     use crate::synth;
     use crate::track::Hotcue;
     use crate::AVAILABLE_EFFECTS;
+    use crate::KEYBOARD_SEMITONES;
 
     const SR: f64 = 48_000.0;
 
@@ -3217,6 +3237,54 @@ mod tests {
         run(&mut engine, 0.01);
         assert!(!ctl("loop_enabled").get_bool());
         assert!((seconds() - (start + 1.01)).abs() < 0.03, "{}", seconds());
+    }
+
+    #[test]
+    fn keyboard_pads_play_the_last_hot_cue_shifted() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 20.0));
+        run(&mut engine, 0.01);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let seconds = || ctl("playposition").get() * 20.0;
+        let press = |k: &str, engine: &mut Engine| {
+            ctl(k).set_bool(true);
+            ctl(k).set_bool(false);
+            run(engine, 0.01);
+        };
+        // With no hot cue set, the pads play from the cue point.
+        ctl("cue_point").set(2.0);
+        press("keyboard_2_activate", &mut engine);
+        assert!(ctl("play").get_bool());
+        assert_eq!(ctl("pitch_adjust").get(), 1.0);
+        assert!((seconds() - 2.0).abs() < 0.05, "{}", seconds());
+        // Two hot cues: the one pressed last is the one played.
+        for (n, at) in [(1, 5.0), (3, 9.0)] {
+            ctl(&format!("hotcue_{n}_position")).set(at);
+            ctl(&format!("hotcue_{n}_enabled")).set_bool(true);
+            ctl(&format!("hotcue_{n}_type")).set(1.0);
+        }
+        press("hotcue_3_activate", &mut engine);
+        run(&mut engine, 0.5);
+        press("keyboard_6_activate", &mut engine);
+        assert_eq!(ctl("pitch_adjust").get(), KEYBOARD_SEMITONES[5]);
+        assert!((seconds() - 9.0).abs() < 0.05, "{}", seconds());
+        // Its focus gone, the first hot cue set takes over.
+        ctl("hotcue_focus").set(-1.0);
+        press("keyboard_1_activate", &mut engine);
+        assert_eq!(ctl("pitch_adjust").get(), 0.0);
+        assert!((seconds() - 5.0).abs() < 0.05, "{}", seconds());
+    }
+
+    #[test]
+    fn short_beat_loops_and_rolls_exist() {
+        let (reg, _engine, _input) = setup();
+        for key in [
+            "beatloop_0.25_toggle",
+            "beatlooproll_0.0625_activate",
+            "beatlooproll_0.125_activate",
+        ] {
+            assert!(reg.get("[Channel1]", key).is_some(), "{key}");
+        }
     }
 
     #[test]
