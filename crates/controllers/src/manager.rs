@@ -202,6 +202,38 @@ impl Controllers {
     pub fn choices(&self) -> HashMap<String, MappingChoice> {
         self.shared.choices.lock().unwrap().clone()
     }
+
+    /// Starts or stops keeping a copy of every message the controllers
+    /// send, for the Controller Editor's "press a control to find it".
+    pub fn set_monitor(&self, on: bool) {
+        *MONITOR.lock().unwrap() = on.then(Vec::new);
+    }
+
+    /// The messages received since the last call, with the port each came
+    /// from, while the monitor is on.
+    pub fn take_monitored(&self) -> Vec<Monitored> {
+        MONITOR
+            .lock()
+            .unwrap()
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default()
+    }
+}
+
+/// A message from a controller, with the port it came from.
+type Monitored = (String, Vec<u8>);
+
+/// Messages kept for [`Controllers::take_monitored`]; `None` while off.
+static MONITOR: Mutex<Option<Vec<Monitored>>> = Mutex::new(None);
+
+fn monitor(port: &str, msg: &[u8]) {
+    if let Some(seen) = MONITOR.lock().unwrap().as_mut() {
+        // Nobody is reading: don't grow without end.
+        if seen.len() < 4096 {
+            seen.push((port.to_string(), msg.to_vec()));
+        }
+    }
 }
 
 impl Drop for Controllers {
@@ -518,8 +550,10 @@ fn run_controller(
             .map_or(now + POLL, |d| d.min(now + POLL));
         match rx.recv_timeout(deadline.saturating_duration_since(now)) {
             Ok(msg) => {
+                monitor(port, &msg);
                 controller.receive(&msg);
                 while let Ok(msg) = rx.try_recv() {
+                    monitor(port, &msg);
                     controller.receive(&msg);
                 }
             }
