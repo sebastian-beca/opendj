@@ -83,6 +83,15 @@ pub(crate) fn alert(alerts: &Alerts, message: String) {
     }
 }
 
+/// What a sampler slot plays; see [`AudioEngine::set_sample`].
+#[derive(Clone, Debug, PartialEq)]
+pub enum SampleSource {
+    Empty,
+    /// One of [`sampler::SAMPLE_NAMES`].
+    Builtin(usize),
+    File(std::path::PathBuf),
+}
+
 /// Handle to the running engine. Dropping it stops playback.
 pub struct AudioEngine {
     registry: Arc<ControlRegistry>,
@@ -96,6 +105,11 @@ pub struct AudioEngine {
     /// Counts preview requests, so a file still decoding for an earlier
     /// one stops.
     preview_generation: Arc<AtomicU64>,
+    samplers: Arc<Mutex<sampler::SamplerInput>>,
+    /// Counts each slot's sample requests, so a file still decoding for an
+    /// earlier one is dropped.
+    sample_generation: Arc<[AtomicU64; sampler::NUM_SAMPLERS]>,
+    rate: f64,
 }
 
 /// Creates every engine control in `registry` without starting audio, for
@@ -115,6 +129,7 @@ impl AudioEngine {
         let (mut engine, input) = engine::Engine::new(&registry, rate);
         let feed = engine.take_record_feed().expect("record feed");
         let preview = engine.take_preview_input().expect("preview input");
+        let samplers = engine.take_sampler_input().expect("sampler input");
         let visual = engine.visual_positions();
         link::watch(engine.link_handle(), Arc::downgrade(&registry));
         let output = output::Outputs::new(engine, setup);
@@ -140,6 +155,9 @@ impl AudioEngine {
             recorder,
             preview: Arc::new(Mutex::new(preview)),
             preview_generation: Arc::default(),
+            samplers: Arc::new(Mutex::new(samplers)),
+            sample_generation: Arc::default(),
+            rate,
         }
     }
 
@@ -190,6 +208,87 @@ impl AudioEngine {
         }
     }
 
+    /// Puts the built-in sound `n`, the audio file at a path, or nothing on
+    /// sampler slot `slot`. Files are decoded in the background; one that
+    /// can't be read, or is too long, leaves the slot as it was, and
+    /// `done` hears why. `done` gets the sample's length in seconds, and
+    /// isn't called when a later request for the slot overtook this one.
+    pub fn set_sample(
+        &self,
+        slot: usize,
+        sample: SampleSource,
+        done: impl FnOnce(Result<f64, String>) + Send + 'static,
+    ) {
+        let Some(counter) = self.sample_generation.get(slot) else {
+            return;
+        };
+        let generation = counter.fetch_add(1, Ordering::AcqRel) + 1;
+        let (input, all, rate) = (
+            self.samplers.clone(),
+            self.sample_generation.clone(),
+            self.rate,
+        );
+        let current = move || all[slot].load(Ordering::Acquire) == generation;
+        let send = move |sample: Option<sampler::Sample>| {
+            let seconds = sample.as_ref().map_or(0.0, |s| s.seconds());
+            let sent = input
+                .lock()
+                .map(|mut i| i.send(slot, sample.map(Arc::new)))
+                .unwrap_or(false);
+            if sent {
+                Ok(seconds)
+            } else {
+                Err("The sampler is busy, try again.".to_owned())
+            }
+        };
+        match sample {
+            SampleSource::Empty => done(send(None)),
+            SampleSource::Builtin(n) => done(send(Some(sampler::Sample::builtin(n, rate)))),
+            SampleSource::File(path) => {
+                let spawned = std::thread::Builder::new()
+                    .name("sample-loader".into())
+                    .spawn(move || {
+                        let loaded = sampler::Sample::load(&path, rate);
+                        if current() {
+                            done(loaded.and_then(|s| send(Some(s))));
+                        }
+                    });
+                if let Err(e) = spawned {
+                    eprintln!("could not load the sample: {e}");
+                }
+            }
+        }
+    }
+
+    /// Plays a sampler sound in the headphones, through the preview player.
+    pub fn preview_sample(&self, sample: SampleSource) {
+        let generation = self.preview_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let (input, current, rate) = (
+            self.preview.clone(),
+            self.preview_generation.clone(),
+            self.rate,
+        );
+        let play = move |s: sampler::Sample| {
+            if current.load(Ordering::Acquire) == generation {
+                if let Ok(mut p) = input.lock() {
+                    p.send(Some(Arc::new(s.to_audio())), true);
+                }
+            }
+        };
+        match sample {
+            SampleSource::Empty => {}
+            SampleSource::Builtin(n) => play(sampler::Sample::builtin(n, rate)),
+            SampleSource::File(path) => {
+                let _ = std::thread::Builder::new()
+                    .name("preview".into())
+                    .spawn(move || match sampler::Sample::load(&path, rate) {
+                        Ok(s) => play(s),
+                        Err(e) => eprintln!("can't preview {}: {e}", path.display()),
+                    });
+            }
+        }
+    }
+
     /// Puts `track` on `deck` as soon as its file is open; decoding and
     /// analysis carry on in the background (see [`loader`]).
     /// Unless `[Controls],AllowTrackLoadToPlayingDeck` is on, a deck that is
@@ -216,6 +315,11 @@ impl AudioEngine {
     /// Records the master mix; see [`recorder`].
     pub fn recorder(&self) -> &Recorder {
         &self.recorder
+    }
+
+    /// Shows `message` to the person at the decks.
+    pub fn alert(&self, message: String) {
+        alert(&self.alerts, message);
     }
 
     /// Alerts since the last call, oldest first.

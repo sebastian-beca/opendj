@@ -23,7 +23,7 @@ use crate::keyshift::{transpose_factor, KeyShifter};
 use crate::link::{phase_error, Link, Moment};
 use crate::preview::{Preview, PreviewInput};
 use crate::recorder::{self, Feed, RecordTap};
-use crate::sampler::Samplers;
+use crate::sampler::{SamplerInput, Samplers};
 use crate::stems::{Stems, MAX_STEMS};
 use crate::track::{Audio, Track};
 use crate::visual::VisualPositions;
@@ -986,6 +986,7 @@ pub struct Engine {
     /// Plays a track into the headphones for the info panel.
     preview: Preview,
     preview_input: Option<PreviewInput>,
+    sampler_input: Option<SamplerInput>,
     /// The microphone and auxiliary inputs, and the ducking of the music
     /// under the microphone.
     inputs: [Input; NUM_INPUTS],
@@ -1075,7 +1076,7 @@ impl Engine {
             stems_shown: 0,
         });
         let fx = EffectRack::new(registry, sample_rate);
-        let samplers = Samplers::new(registry, sample_rate);
+        let (samplers, sampler_input) = Samplers::new(registry, sample_rate);
         let (preview, preview_input) = Preview::new(registry, sample_rate);
         let (commands_tx, commands) = rtrb::RingBuffer::new(QUEUE);
         let (returned, returned_rx) = rtrb::RingBuffer::new(QUEUE * 2);
@@ -1094,6 +1095,7 @@ impl Engine {
                 record_feed: Some(record_feed),
                 preview,
                 preview_input: Some(preview_input),
+                sampler_input: Some(sampler_input),
                 sample_rate,
                 decks,
                 master,
@@ -1135,6 +1137,11 @@ impl Engine {
     /// The other end of the preview player's queues; there is only one.
     pub(crate) fn take_preview_input(&mut self) -> Option<PreviewInput> {
         self.preview_input.take()
+    }
+
+    /// The other end of the sampler's queues; there is only one.
+    pub(crate) fn take_sampler_input(&mut self) -> Option<SamplerInput> {
+        self.sampler_input.take()
     }
 
     fn apply_commands(&mut self) {
