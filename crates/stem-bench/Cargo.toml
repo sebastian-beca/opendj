@@ -1,0 +1,12 @@
+[package]
+name = "stem-bench"
+description = "Times openDJ's stem separation models on this machine (Spleeter and HTDemucs, GPU and CPU)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+mixxx-engine = { path = "../engine" }
+mixxx-separation = { path = "../separation" }
+hound = "3"
