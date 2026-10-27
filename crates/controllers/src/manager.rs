@@ -1,6 +1,6 @@
 //! Finds MIDI controllers, picks the Mixxx mapping for each by name, and runs
 //! each one on its own thread. Plugging a controller in or out is picked up
-//! within a couple of seconds.
+//! within about a second, and [`Controllers::refresh`] reconnects them all.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -17,7 +17,7 @@ use crate::controller::Controller;
 use crate::mapping::Mapping;
 
 const CLIENT: &str = "openDJ";
-const RESCAN: Duration = Duration::from_secs(2);
+const RESCAN: Duration = Duration::from_secs(1);
 /// LEDs and connection callbacks are refreshed at least this often.
 const POLL: Duration = Duration::from_millis(10);
 
@@ -68,6 +68,9 @@ struct Shared {
     choices: Mutex<HashMap<String, MappingChoice>>,
     /// Set when a choice changes, so the next scan comes at once.
     rescan: AtomicBool,
+    /// Set by [`Controllers::refresh`]: every device is closed and the
+    /// system's MIDI device list is read again from scratch.
+    reconnect: AtomicBool,
 }
 
 /// A device's name without the parts that change between systems or
@@ -189,6 +192,13 @@ impl Controllers {
         self.shared.rescan.store(true, Ordering::Relaxed);
     }
 
+    /// Looks for devices now, closing and reopening every controller: for a
+    /// controller that was plugged in but is not showing, or stopped
+    /// answering.
+    pub fn refresh(&self) {
+        self.shared.reconnect.store(true, Ordering::Relaxed);
+    }
+
     pub fn choices(&self) -> HashMap<String, MappingChoice> {
         self.shared.choices.lock().unwrap().clone()
     }
@@ -281,7 +291,7 @@ fn watch_devices(
     stop: Arc<AtomicBool>,
 ) {
     let virtual_devices = start_virtual_devices(&registry, &mappings, &connected, &stop);
-    let Ok(input) = MidiInput::new(CLIENT) else {
+    let Ok(mut input) = MidiInput::new(CLIENT) else {
         eprintln!("MIDI is unavailable; controllers are disabled");
         for t in virtual_devices {
             let _ = t.join();
@@ -291,7 +301,18 @@ fn watch_devices(
     let mut devices: HashMap<String, Device> = HashMap::new();
     let mut last_scan: Option<Instant> = None;
     while !stop.load(Ordering::Relaxed) {
-        let rescan = shared.rescan.swap(false, Ordering::Relaxed);
+        let mut rescan = shared.rescan.swap(false, Ordering::Relaxed);
+        if shared.reconnect.swap(false, Ordering::Relaxed) {
+            rescan = true;
+            for (port, d) in devices.drain() {
+                d.stop.store(true, Ordering::Relaxed);
+                let _ = d.thread.join();
+                connected.lock().unwrap().retain(|c| c.port != port);
+            }
+            if let Ok(fresh) = MidiInput::new(CLIENT) {
+                input = fresh;
+            }
+        }
         if rescan || last_scan.is_none_or(|t| t.elapsed() >= RESCAN) {
             last_scan = Some(Instant::now());
             let ports: Vec<String> = input
@@ -359,7 +380,7 @@ fn watch_devices(
                 );
             }
         }
-        std::thread::sleep(Duration::from_millis(100));
+        wait_for_system(Duration::from_millis(100));
     }
     for (_, d) in devices.drain() {
         d.stop.store(true, Ordering::Relaxed);
@@ -368,6 +389,33 @@ fn watch_devices(
     for t in virtual_devices {
         let _ = t.join();
     }
+}
+
+/// Waits `time` on the device thread. On macOS the thread's run loop runs
+/// meanwhile: CoreMIDI tells this process about devices plugged in or out
+/// through the run loop of the thread that opened MIDI first, and without it
+/// the device list stays as it was at start.
+#[cfg(target_os = "macos")]
+fn wait_for_system(time: Duration) {
+    use std::ffi::c_void;
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        static kCFRunLoopDefaultMode: *const c_void;
+        fn CFRunLoopRunInMode(mode: *const c_void, seconds: f64, return_after: u8) -> i32;
+    }
+    const FINISHED: i32 = 1;
+    let start = Instant::now();
+    // SAFETY: runs this thread's own run loop in the default mode.
+    let result = unsafe { CFRunLoopRunInMode(kCFRunLoopDefaultMode, time.as_secs_f64(), 0) };
+    // With nothing to wait on, the run loop returns at once.
+    if result == FINISHED {
+        std::thread::sleep(time.saturating_sub(start.elapsed()));
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn wait_for_system(time: Duration) {
+    std::thread::sleep(time);
 }
 
 fn run_device(
