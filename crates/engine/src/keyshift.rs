@@ -4,11 +4,12 @@
 //!
 //! The deck's play position stays the position being heard. The stretcher
 //! needs input ahead of that (its latency), so its read position runs ahead
-//! by a fixed amount and is re-seeded whenever the deck jumps.
+//! by a fixed amount and is re-seeded whenever the deck jumps, with a short
+//! crossfade from the audio that would have played on.
 
 use signalsmith_stretch::Stretch;
 
-use crate::engine::Frames;
+use crate::engine::{crossfade, read, Declick, Frames, DECLICK_SECONDS};
 
 /// Most source frames fed per output frame (fast forward while stretching).
 const MAX_RATE: f64 = 4.0;
@@ -25,18 +26,29 @@ pub(crate) struct KeyShifter {
     read_pos: f64,
     /// Where the deck should be at the start of the next buffer if nothing jumps.
     expected_pos: f64,
+    /// The stretcher's output carrying on from before a jump, faded out
+    /// over the start of the audio after it.
+    tail: Vec<f32>,
+    /// Output frames a jump fades over.
+    declick: usize,
+    /// The loop the input in flight was read through.
+    looping: Option<(f64, f64)>,
 }
 
 impl KeyShifter {
     pub(crate) fn new(sample_rate: f64) -> Self {
         let stretch = Stretch::preset_default(2, sample_rate as u32);
         Self {
-            stretch,
-            input: vec![0.0; 2 * 8192],
+            // Room for a jump's seed (see `render`) or a buffer at top speed.
+            input: vec![0.0; 2 * (3 * stretch.input_latency()).max(MAX_RATE as usize * 4096)],
             output: vec![0.0; 2 * 4096],
             active: false,
             read_pos: 0.0,
             expected_pos: 0.0,
+            tail: vec![0.0; 2 * 4096],
+            declick: (DECLICK_SECONDS * sample_rate).round().max(1.0) as usize,
+            looping: None,
+            stretch,
         }
     }
 
@@ -68,12 +80,17 @@ impl KeyShifter {
         let out_latency = self.stretch.output_latency() as f64;
         // How far ahead of the heard position the next input frame is.
         let lead = (in_latency + out_latency * speed) * ratio;
-        let wrap = |x: f64| match looping {
-            Some((a, b)) if x >= b && b > a => a + (x - b).rem_euclid(b - a),
-            _ => x,
+        // Reads wrap at the loop's end, fading over it as the deck does.
+        let wrap = Wrap {
+            looping: looping.filter(|(a, b)| b > a),
+            fade: self.declick as f64 * ratio,
         };
         let tolerance = 4.0 * ratio + 1.0;
+        // A loop that starts, ends or changes size leaves the input already
+        // fed (which runs ahead of the play position) read the wrong way
+        // round its end, so it is fed afresh, like a jump.
         let continuing = self.active
+            && looping == self.looping
             && match looping {
                 _ if (pos - self.expected_pos).abs() < tolerance => true,
                 // The loop wrapped: carry the read position back with it.
@@ -84,14 +101,31 @@ impl KeyShifter {
                 _ => false,
             };
         self.stretch.set_transpose_factor(transpose as f32, None);
+        let mut fade = 0;
+        if !continuing && self.active {
+            // A jump: render what would have played next, to fade it out.
+            fade = self.declick.min(frames);
+            let n_in = ((fade as f64 * speed).round()).clamp(0.0, MAX_RATE * fade as f64) as usize;
+            let start = self.read_pos;
+            self.fill_input(audio, start, ratio, n_in, &wrap);
+            if self.tail.len() < fade * 2 {
+                self.tail.resize(fade * 2, 0.0);
+            }
+            self.stretch
+                .process(&self.input[..n_in * 2], &mut self.tail[..fade * 2]);
+        }
         if !continuing {
             // Prime the stretcher so its output starts at `pos`.
             self.stretch.reset();
-            let seed = in_latency as usize;
-            let start = pos + out_latency * step;
+            // Seek wants a full analysis block (about twice the input
+            // latency) and more: with less it starts on silence and the
+            // audio cuts in a few tens of milliseconds late.
+            let seed = 3 * in_latency as usize;
+            let end = pos + out_latency * step + in_latency * ratio;
+            let start = end - seed as f64 * ratio;
             self.fill_input(audio, start, ratio, seed, &wrap);
             self.stretch.seek(&self.input[..seed * 2], speed);
-            self.read_pos = start + seed as f64 * ratio;
+            self.read_pos = end;
             self.active = true;
         }
         let end = pos + step * frames as f64;
@@ -108,7 +142,12 @@ impl KeyShifter {
         for (f, o) in out.iter_mut().enumerate() {
             *o = [self.output[2 * f], self.output[2 * f + 1]];
         }
+        let mut declick = Declick::frames(0.0, fade as u32);
+        for (f, o) in out[..fade].iter_mut().enumerate() {
+            *o = declick.mix(*o, [self.tail[2 * f], self.tail[2 * f + 1]]);
+        }
         self.expected_pos = end;
+        self.looping = looping;
     }
 
     fn fill_input<F: Frames + ?Sized>(
@@ -117,17 +156,40 @@ impl KeyShifter {
         start: f64,
         ratio: f64,
         n: usize,
-        wrap: &impl Fn(f64) -> f64,
+        wrap: &Wrap,
     ) {
         if self.input.len() < n * 2 {
             self.input.resize(n * 2, 0.0);
         }
         audio.begin(start);
         for k in 0..n {
-            let s = crate::engine::read(audio, wrap(start + k as f64 * ratio));
+            let s = wrap.read(audio, start + k as f64 * ratio);
             self.input[2 * k] = s[0];
             self.input[2 * k + 1] = s[1];
         }
+    }
+}
+
+/// Reads a deck's source through its loop, if any.
+struct Wrap {
+    looping: Option<(f64, f64)>,
+    /// Source frames each lap fades in over, from the audio past the end.
+    fade: f64,
+}
+
+impl Wrap {
+    fn read<F: Frames + ?Sized>(&self, audio: &F, x: f64) -> [f32; 2] {
+        let Some((a, b)) = self.looping.filter(|&(_, b)| x >= b) else {
+            return read(audio, x);
+        };
+        let len = b - a;
+        let at = a + (x - b).rem_euclid(len);
+        let new = read(audio, at);
+        let into = at - a;
+        if into >= self.fade {
+            return new;
+        }
+        crossfade(read(audio, at + len), new, (into / self.fade) as f32)
     }
 }
 

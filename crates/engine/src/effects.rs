@@ -17,6 +17,7 @@ use crate::controls::{
     deck_group, effect_group, effect_unit_group, Edge, BEAT_FX_UNIT, EFFECTS_PER_UNIT, MIC_FX_UNIT,
     NUM_DECKS, NUM_EFFECT_UNITS,
 };
+use crate::dsp::Svf;
 use crate::inputs::{input_group, MICROPHONE, NUM_INPUTS};
 
 /// Mixxx's built-in effects that this engine implements, in `loaded_effect` order.
@@ -1109,53 +1110,6 @@ impl Reverb {
             x[0] + out[0] * 0.6 * self.send,
             x[1] + out[1] * 0.6 * self.send,
         ]
-    }
-}
-
-/// A stereo state-variable filter in Andrew Simper's trapezoidal form: it
-/// stays stable and smooth however fast its cutoff moves, so the cutoff can
-/// glide every sample.
-#[derive(Default)]
-struct Svf {
-    /// tan(pi * cutoff / rate), gliding towards `target`.
-    g: f32,
-    target: f32,
-    k: f32,
-    ic1: [f32; 2],
-    ic2: [f32; 2],
-}
-
-impl Svf {
-    fn set(&mut self, sample_rate: f32, freq: f32, q: f32) {
-        let f = freq.clamp(10.0, 0.45 * sample_rate);
-        self.target = (PI * f / sample_rate).tan();
-        if self.g == 0.0 {
-            self.g = self.target;
-        }
-        self.k = 1.0 / q;
-    }
-
-    /// Low-pass, band-pass and high-pass outputs for one frame.
-    #[inline]
-    fn process(&mut self, x: [f32; 2]) -> [[f32; 2]; 3] {
-        // About 5 ms to glide to a new cutoff.
-        self.g += (self.target - self.g) * 0.004;
-        let (g, k) = (self.g, self.k);
-        let a1 = 1.0 / (1.0 + g * (g + k));
-        let a2 = g * a1;
-        let a3 = g * a2;
-        let mut out = [[0.0; 2]; 3];
-        for c in 0..2 {
-            let v3 = x[c] - self.ic2[c];
-            let v1 = a1 * self.ic1[c] + a2 * v3;
-            let v2 = self.ic2[c] + a2 * self.ic1[c] + a3 * v3;
-            self.ic1[c] = 2.0 * v1 - self.ic1[c];
-            self.ic2[c] = 2.0 * v2 - self.ic2[c];
-            out[0][c] = v2;
-            out[1][c] = v1;
-            out[2][c] = x[c] - k * v1 - v2;
-        }
-        out
     }
 }
 
