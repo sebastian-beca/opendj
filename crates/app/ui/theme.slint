@@ -74,8 +74,9 @@ export global Theme {
     out property <length> font-large: 17px;
     out property <length> font-xl: 24px;
 
-    // Apple system colours for hotcues. Same order as the waveform shader.
-    out property <[color]> hotcues: [#ff453a, #ff9f0a, #0a84ff, #ffd60a, #30d158, #bf5af2, #ff375f, #64d2ff];
+    // Hotcue colours: blue, green, yellow, orange, red, pink, purple, teal.
+    // Same order as the waveform shader.
+    out property <[color]> hotcues: [#0064c8, #04bc00, #dcb800, #c45800, #c0002c, #c42874, #7838c4, #10bcbc];
 
     public pure function deck-color(deck: int) -> color {
         deck == 0 ? root.deck1 : deck == 1 ? root.deck2 : deck == 2 ? root.deck3 : root.deck4
