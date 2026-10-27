@@ -334,10 +334,9 @@ impl super::Net for Net {
     fn estimate(&self, magnitudes: Vec<f32>) -> Vec<f32> {
         // [channel][frame][bin] to channels-last.
         let mut data = vec![0.0f32; T * F * 2];
-        for (c, plane) in magnitudes.chunks_exact(T * F).enumerate() {
-            for (i, v) in plane.iter().enumerate() {
-                data[i * 2 + c] = *v;
-            }
+        for (j, v) in magnitudes.iter().enumerate() {
+            let (c, i) = (j / (T * F), j % (T * F));
+            data[i * 2 + c] = *v;
         }
         let x = Map {
             h: T,
@@ -346,11 +345,12 @@ impl super::Net for Net {
             data,
         };
         let mut out = vec![0.0f32; STEMS.len() * 2 * T * F];
-        for (net, dst) in self.nets.iter().zip(out.chunks_exact_mut(2 * T * F)) {
+        for (s, net) in self.nets.iter().enumerate() {
             let est = net.forward(&x);
-            for (i, px) in est.chunks_exact(2).enumerate() {
-                dst[i] = px[0];
-                dst[T * F + i] = px[1];
+            let dst = &mut out[s * 2 * T * F..][..2 * T * F];
+            for (i, [l, r]) in est.as_chunks::<2>().0.iter().enumerate() {
+                dst[i] = *l;
+                dst[T * F + i] = *r;
             }
         }
         out
