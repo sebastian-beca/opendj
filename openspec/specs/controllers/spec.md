@@ -13,11 +13,22 @@ openDJ SHALL read Mixxx `.midi.xml` mappings and run their JavaScript in QuickJS
 - **THEN** its mapping loads and it works with nothing to set up
 
 ### Requirement: Hot plugging
-Plugging a controller in or out SHALL be picked up within a couple of seconds, each controller on its own thread. LEDs SHALL be sent again 1.5 s after start.
+Plugging a controller in or out while openDJ runs SHALL be picked up within about a second, each controller on its own thread, on both macOS and Linux. On macOS the MIDI device thread SHALL run its run loop so CoreMIDI can report device changes. LEDs SHALL be sent again 1.5 s after start.
 
 #### Scenario: Plug in while running
 - **WHEN** a DDJ-FLX4 is plugged in while openDJ runs
-- **THEN** it works within about two seconds
+- **THEN** it works within about a second, with nothing to press
+
+#### Scenario: Unplug while running
+- **WHEN** a running controller is unplugged
+- **THEN** its mapping stops and it leaves Settings › Controllers within about a second
+
+### Requirement: Find controllers again
+Settings › Controllers SHALL have a Refresh button that closes every controller, reads the system's MIDI device list again and reconnects them, as a fallback when a controller does not show up or stops answering.
+
+#### Scenario: Controller not showing
+- **WHEN** a plugged-in controller is missing and Refresh is pressed
+- **THEN** openDJ looks for devices at once and starts the controller with its mapping
 
 ### Requirement: Controllers settings
 Settings › Controllers SHALL list connected controllers with the mapping in use, let one be set to Not used, and say when mappings are missing or a mapping failed.
