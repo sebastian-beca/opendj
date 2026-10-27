@@ -1,6 +1,7 @@
-//! The saved music library, as Mixxx keeps `mixxxdb.sqlite`: every track
-//! with its tags, rating, colour and comment, its hot cues and beat grid,
-//! the DJ's playlists and folders, and a history of what was played.
+//! openDJ's own music library, modeled on how Mixxx keeps `mixxxdb.sqlite`
+//! but never reading it: every track with its tags, rating, colour and
+//! comment, its hot cues and beat grid, the DJ's playlists and folders, and
+//! a history of what was played.
 //!
 //! The database is SQLite (`library.sqlite` in the settings folder), opened
 //! in WAL mode so the background scan and the UI can both use it. It is the
