@@ -42,8 +42,10 @@ pub(crate) fn tensor(st: &SafeTensors, name: &str) -> Result<(Vec<f32>, Vec<usiz
     let t = st.tensor(name).map_err(|e| format!("{name}: {e}"))?;
     let data = t
         .data()
-        .chunks_exact(2)
-        .map(|b| half::f16::from_le_bytes([b[0], b[1]]).to_f32())
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| half::f16::from_le_bytes(*b).to_f32())
         .collect();
     Ok((data, t.shape().to_vec()))
 }
