@@ -54,6 +54,23 @@ pub struct Frame {
     pub loop_marking: Option<f64>,
     pub hotcues: [Option<f64>; 8],
     pub gain: f32,
+    /// Where each phrase starts and its kind, earliest first; empty to
+    /// draw none. At most [`MAX_PHRASES`] are drawn.
+    pub phrases: Vec<(f64, PhraseKind)>,
+}
+
+/// Phrases the shader draws at once: far more than a track has, as a phrase
+/// is at least 4 bars long and neighbours of one kind are merged.
+pub const MAX_PHRASES: usize = 32;
+
+/// A phrase's kind, which sets its colour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PhraseKind {
+    Intro,
+    Build,
+    Drop,
+    Breakdown,
+    Outro,
 }
 
 /// Tempo sections the shader draws at once: enough for any view, since a
@@ -117,6 +134,12 @@ struct Params {
     digit: [f32; 4],
     level_offset: [[u32; 4]; 4],
     level_len: [[u32; 4]; 4],
+    /// Where each phrase starts, in slices, and its kind (as in
+    /// [`PhraseKind`]); `phrase_count` of them.
+    phrase_start: [[f32; 4]; MAX_PHRASES / 4],
+    phrase_kind: [[u32; 4]; MAX_PHRASES / 4],
+    phrase_count: u32,
+    _pad: [u32; 3],
 }
 
 /// Levels the shader can address; the coarsest is 2^15 slices per texel pair,
@@ -449,6 +472,10 @@ impl WaveformView {
             digit: renderer.digits.metrics,
             level_offset: track.map_or([[0; 4]; 4], |t| t.level_offset),
             level_len: track.map_or([[0; 4]; 4], |t| t.level_len),
+            phrase_start: [[0.0; 4]; MAX_PHRASES / 4],
+            phrase_kind: [[0; 4]; MAX_PHRASES / 4],
+            phrase_count: 0,
+            _pad: [0; 3],
         };
         if let (Some(f), true) = (frame, num_bins > 0) {
             let bins_per_pixel = match self.mode {
@@ -483,6 +510,11 @@ impl WaveformView {
             params.gain = f.gain;
             for (i, hc) in f.hotcues.iter().enumerate() {
                 params.hotcues[i / 4][i % 4] = hc.map(to_bin).unwrap_or(-1.0);
+            }
+            for (i, (seconds, kind)) in f.phrases.iter().take(MAX_PHRASES).enumerate() {
+                params.phrase_start[i / 4][i % 4] = to_bin(*seconds);
+                params.phrase_kind[i / 4][i % 4] = *kind as u32;
+                params.phrase_count = i as u32 + 1;
             }
         }
         queue.write_buffer(&self.params, 0, bytemuck::bytes_of(&params));
