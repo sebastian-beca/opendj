@@ -98,6 +98,17 @@ Beat jump SHALL move the playhead a whole number of beats forward or back (`beat
 - **WHEN** beat jump 16 forward is pressed
 - **THEN** the playhead moves exactly 16 beats later on the grid
 
+### Requirement: Click-free jumps
+Any jump of a playing deck's playhead (beat jump, hot cue, seek, slip return, sync landing, or a loop wrapping back to its start) SHALL crossfade over about 6 ms from the audio that would have played on to the audio at the new position, so it doesn't click. With key lock or a key shift on, jumps SHALL fade the same way and the audio SHALL continue without a gap.
+
+#### Scenario: Beat jump on a sustained note
+- **WHEN** a deck playing a sustained bass note beat jumps to a point mid-cycle
+- **THEN** the jump is heard without a click
+
+#### Scenario: Short loop with key lock
+- **WHEN** key lock is on and a 3/8-beat loop plays
+- **THEN** each wrap back to the loop start is heard without a click
+
 ### Requirement: Slip mode
 With `slip_enabled` on, loops, reverse and scratching SHALL keep a silent playhead moving, and playback SHALL resume from it when the action ends.
 
