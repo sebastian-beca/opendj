@@ -285,7 +285,7 @@ fn draws_bar_numbers() {
 }
 
 /// Phrases show as a bar along the bottom of the overview in their colours:
-/// grey for the intro, lilac for the drop, and nothing above the bar.
+/// deep blue for the intro, rose for the drop, with the minute dots above it.
 #[test]
 fn draws_phrase_bars() {
     let Some((device, queue)) = gpu() else {
@@ -326,15 +326,19 @@ fn draws_phrase_bars() {
     let intro = px(128, h - 2);
     let drop = px(384, h - 2);
     assert!(
-        drop[2] > drop[1] + 40 && drop[0] > 100,
-        "drop is lilac: {drop:?}"
+        drop[0] > 150 && drop[0] > drop[2] + 60,
+        "drop is rose: {drop:?}"
     );
     assert!(
-        intro[2] < drop[2] && intro[0] < drop[0],
-        "intro is a darker grey: {intro:?}"
+        intro[2] > intro[0] + 50 && intro[0] < 60,
+        "intro is a deep blue: {intro:?}"
     );
     let gap = px(256, h - 2);
-    assert!(gap[2] < drop[2] / 2, "gap where the drop starts: {gap:?}");
+    assert!(gap[0] < drop[0] / 2, "gap where the drop starts: {gap:?}");
     let above = px(384, h - 10);
-    assert!(above[2] < 40, "nothing above the bar: {above:?}");
+    assert!(above[2] < 40, "nothing above the bar but dots: {above:?}");
+    // The minute dot at 60 s sits between the waveform and the bar.
+    let x60 = (60.0 / 100.0 * w as f64) as u32;
+    let dot = (0..4).map(|dx| px(x60 - 2 + dx, h - 9)[0]).max().unwrap();
+    assert!(dot > 120, "minute dot above the bar: {dot}");
 }

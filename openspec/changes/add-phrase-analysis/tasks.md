@@ -8,7 +8,7 @@
 - [ ] 1.2b Energy 1-10 per phrase
 - [ ] 1.3 Unit test on `synth.rs` tracks; benchmark against rekordbox phrases and VDJ automix points on the owner's Mac
 - [ ] 1.4 Store in `markers` (kind `phrase`) and keep imported phrases (detected phrases are found again from the grid and waveform whenever a track loads or its grid changes)
-- [x] 1.5 Overview bands and scrolling-waveform lines, with a right-click Show/Hide phrases; screenshot
+- [x] 1.5 Phrase bar under the minute dots on the deck overviews, with a right-click Show/Hide phrases; screenshot
 - [ ] 1.5b Deck countdown ("Drop · 8 bars left")
 - [ ] 1.6 `has:intro>=16` search
 

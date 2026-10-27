@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Phrases
-Analysis SHALL split a track with a beat grid into phrases of whole bars, each labelled Intro, Build, Drop, Breakdown or Outro with an energy level from 1 to 10, and store them with the track. Phrases from an import SHALL be kept and not replaced by detected ones. A grid edit SHALL re-derive detected phrases so they stay on bar lines.
+Analysis SHALL split a track with a beat grid into phrases of whole bars, each labelled Intro, Build, Drop, Chorus, Breakdown or Outro with an energy level from 1 to 10, and store them with the track. Phrases from an import SHALL be kept and not replaced by detected ones. A grid edit SHALL re-derive detected phrases so they stay on bar lines.
 
 #### Scenario: Intro found
 - **WHEN** a house track with a 32-bar intro is analysed

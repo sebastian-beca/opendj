@@ -86,14 +86,15 @@ those tracks don't wait for analysis.
 ## Phrases
 
 Once a track has a beat grid, openDJ splits it into phrases of whole
-bars: intro, build, drop, breakdown and outro. A thin bar along the bottom
-of each waveform shows them: lilac for a drop, a dusky lilac for a build,
-blue for a breakdown and grey for the intro and outro. Phrases are 8 to 32
-bars long, so a short fill never gets one of its own. They move with the
-grid when you edit it.
+bars: intro, build (up), drop (peak), chorus (main groove), break and
+outro. Each deck's overview shows them as a bar under the minute dots:
+deep blue for the intro and outro, violet for a build, rose for a drop,
+green for a chorus and tangerine for a break. Phrases are 8 to 32 bars
+long, so a short fill never gets one of its own. They move with the grid
+when you edit it.
 
-Right-click a large waveform and choose **Hide phrases** (or **Show
-phrases**) to turn the bars off or on.
+Right-click a deck's overview and choose **Hide phrases** (or **Show
+phrases**) to turn the bars off or on for every deck.
 
 ## Bringing in a VirtualDJ library
 
