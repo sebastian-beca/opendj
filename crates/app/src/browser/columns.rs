@@ -24,6 +24,8 @@ pub const KEY: i32 = 3;
 pub const DIM: i32 = 4;
 /// A tag field's words, in lilac.
 pub const TAG_WORDS: i32 = 5;
+/// The track's mini waveform.
+pub const WAVEFORM: i32 = 6;
 
 /// Column ids. The first eight are the list's original sort columns, so
 /// sort orders saved before stay as they were.
@@ -47,6 +49,8 @@ pub const COMPOSER: i32 = 16;
 pub const TRACK_NUMBER: i32 = 17;
 /// Basic preparation for the collection: tags, rating, tempo and key.
 pub const PREP: i32 = 18;
+/// The track's mini waveform, once analysed.
+pub const WAVE: i32 = 19;
 /// Tag field `i` (from 0) is column `TAGS + i`.
 pub const TAGS: i32 = 100;
 
@@ -81,6 +85,7 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
         d(KEY_ID, "Key", 56.0, false, KEY),
         d(GENRE, "Genre", 110.0, false, DIM),
         d(GROUPING, &names.grouping, 90.0, false, TEXT),
+        d(WAVE, "Waveform", 120.0, false, WAVEFORM),
     ];
     for (i, name) in names.tags.iter().enumerate() {
         out.push(d(TAGS + i as i32, name, 140.0, false, TAG_WORDS));
@@ -100,7 +105,9 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
 }
 
 /// The columns shown when the DJ hasn't chosen: the list as it always was.
-pub const DEFAULT: [i32; 7] = [RATING_ID, TITLE_ID, ARTIST, LENGTH, BPM, KEY_ID, GENRE];
+pub const DEFAULT: [i32; 8] = [
+    RATING_ID, TITLE_ID, ARTIST, LENGTH, BPM, KEY_ID, WAVE, GENRE,
+];
 
 /// Narrowest a column can be dragged.
 pub const MIN_WIDTH: f32 = 30.0;
@@ -282,6 +289,8 @@ pub fn compare(id: i32, a: &Track, b: &Track) -> Ordering {
         LAST_PLAYED => x.last_played.cmp(&y.last_played),
         TRACK_NUMBER => x.track_number.cmp(&y.track_number),
         PREP => prep_count(a).cmp(&prep_count(b)),
+        // Analysed tracks, which have a waveform, first.
+        WAVE => analysed(b).cmp(&analysed(a)),
         KEY_ID => key_order(&a.key).cmp(&key_order(&b.key)),
         _ => {
             let (s, t) = (cell(id, a, true), cell(id, b, true));
@@ -292,6 +301,10 @@ pub fn compare(id: i32, a: &Track, b: &Track) -> Ordering {
             }
         }
     }
+}
+
+fn analysed(t: &Track) -> bool {
+    mixxx_library::stages::Prep::of(t).analysed
 }
 
 fn prep_count(t: &Track) -> usize {
@@ -523,6 +536,7 @@ mod tests {
         assert_eq!(ids(&l), DEFAULT);
         l.toggle(GROUPING, &defs);
         l.toggle(GENRE, &defs);
+        l.toggle(WAVE, &defs);
         l.toggle(TITLE_ID, &defs);
         assert_eq!(
             ids(&l),

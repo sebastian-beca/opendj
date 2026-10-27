@@ -66,7 +66,32 @@ impl Waveform {
     pub fn is_empty(&self) -> bool {
         self.levels.first().is_none_or(|l| l.is_empty())
     }
+
+    /// The whole track in `slices` slices, each the loudest peak and the
+    /// mean RMS of its part of the finest level, on the same square-root
+    /// scale: what the library draws as a track's mini waveform. Empty
+    /// when the track isn't analysed.
+    pub fn overview(&self, slices: usize) -> Vec<OverviewSlice> {
+        let Some(finest) = self.levels.first().filter(|l| !l.is_empty()) else {
+            return Vec::new();
+        };
+        let power = |b: u8| (b as f32 / 255.0).powi(4);
+        (0..slices)
+            .map(|i| {
+                let from = i * finest.len() / slices;
+                let to = ((i + 1) * finest.len() / slices).max(from + 1);
+                let part = &finest[from.min(finest.len() - 1)..to.min(finest.len())];
+                let peak = part.iter().map(|b| b[3]).max().unwrap_or(0);
+                let mean = part.iter().map(|b| power(b[7])).sum::<f32>() / part.len() as f32;
+                [peak, (mean.sqrt().sqrt() * 255.0).round() as u8]
+            })
+            .collect()
+    }
 }
+
+/// One slice of a track's overview: its peak, then its RMS (see
+/// [`Waveform::overview`]).
+pub type OverviewSlice = [u8; 2];
 
 /// Where a track's audio comes from.
 #[derive(Clone, Debug)]

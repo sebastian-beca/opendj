@@ -52,6 +52,10 @@ export global TrackInfo {
     in property <string> preview-time;
     callback preview-toggle();
     callback preview-seek(position: float);
+    // The track's mini waveform (white, coloured here), once analysed; the
+    // preview bar is a plain line until then.
+    in property <image> wave;
+    in property <bool> has-wave;
 
     // The cover art dialog.
     in-out property <bool> cover-open;
@@ -261,19 +265,45 @@ component PreviewBar inherits HorizontalLayout {
     }
     bar := Rectangle {
         horizontal-stretch: 1;
-        Rectangle {
+        if !TrackInfo.has-wave: Rectangle {
             y: (parent.height - self.height) / 2;
             height: 3px;
             border-radius: 1.5px;
             background: Theme.border;
         }
-        Rectangle {
+        if !TrackInfo.has-wave: Rectangle {
             x: 0px;
             y: (parent.height - self.height) / 2;
             width: parent.width * TrackInfo.preview-position;
             height: 3px;
             border-radius: 1.5px;
             background: Theme.accent;
+        }
+        // The waveform: what has played in lilac, the rest gray.
+        if TrackInfo.has-wave: Image {
+            width: parent.width;
+            height: parent.height;
+            source: TrackInfo.wave;
+            image-fit: fill;
+            colorize: Theme.text-dim;
+        }
+        if TrackInfo.has-wave: Rectangle {
+            x: 0px;
+            width: parent.width * TrackInfo.preview-position;
+            clip: true;
+            Image {
+                x: 0px;
+                width: bar.width;
+                height: bar.height;
+                source: TrackInfo.wave;
+                image-fit: fill;
+                colorize: Theme.lilac;
+            }
+        }
+        if TrackInfo.has-wave && TrackInfo.preview-position > 0: Rectangle {
+            x: parent.width * TrackInfo.preview-position - 1px;
+            width: 2px;
+            background: Theme.text;
         }
         Rectangle {
             x: parent.width * TrackInfo.preview-position - self.width / 2;
