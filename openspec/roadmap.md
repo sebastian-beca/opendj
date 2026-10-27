@@ -15,6 +15,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-sync-deck-controls](changes/add-sync-deck-controls/proposal.md)
 - [add-browser-preview-player](changes/add-browser-preview-player/proposal.md)
 - [add-more-audio-decoders](changes/add-more-audio-decoders/proposal.md)
+- [add-controller-viewer](changes/add-controller-viewer/proposal.md) (view-only Controller Editor, pulled forward by Seba 2026-10-27)
 
 ## v0.5 · Stems and performance
 

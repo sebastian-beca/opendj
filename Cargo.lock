@@ -5051,6 +5051,7 @@ dependencies = [
  "mixxx-engine",
  "roxmltree",
  "rquickjs",
+ "serde_json",
 ]
 
 [[package]]
