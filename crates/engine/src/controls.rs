@@ -206,8 +206,9 @@ impl DeckControls {
         alias(reg, g, "vu_meter_right", g, "VuMeterR");
         reg.indicator(g, "playposition_seconds", 3600.0);
         // A pad panel a controller's pad mode buttons ask the deck to show
-        // (0 hot cues, 1 pad FX, 2 beat jump, 3 sampler, 4 stems); the
-        // skin shows it and sets this back to -1.
+        // (0 hot cues, 1 pad FX 1, 2 beat jump, 3 sampler, 4 stems, 5 beat
+        // loop, 6 pad FX 2, 7 keyboard, 8 key shift, 9 loop roll); the skin
+        // shows it and sets this back to -1.
         reg.create(g, "pad_panel", -1.0, -1.0, 16.0, Behavior::Free);
         alias(reg, g, "pitch_adjust", g, "pitch");
         // Chain presets are not implemented: the empty preset and the filter,
@@ -374,8 +375,15 @@ impl DeckControls {
     }
 }
 
-/// Loop sizes with their own pads (Mixxx `beatloop_N_activate`).
-pub const BEATLOOP_SIZES: [f64; 8] = [0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0];
+/// Loop sizes with their own pads (Mixxx `beatloop_N_activate`), from the
+/// 1/16-beat loop rolls up.
+pub const BEATLOOP_SIZES: [f64; 11] = [
+    0.0625, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0,
+];
+/// The KEYBOARD pads, `keyboard_N_activate`: the hot cue played this many
+/// semitones up or down, as on the DDJ-FLX4's KEYBOARD pads in rekordbox.
+/// The top row climbs from the cue's own key, the bottom row goes below it.
+pub const KEYBOARD_SEMITONES: [f64; 8] = [0.0, 1.0, 2.0, 3.0, -4.0, -3.0, -2.0, -1.0];
 /// Beat jump sizes with their own buttons (Mixxx `beatjump_N_forward` / `_backward`).
 pub const BEATJUMP_SIZES: [f64; 6] = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
 
@@ -413,6 +421,9 @@ pub(crate) enum Action {
     Grid(GridEdit),
     /// Shifts the key by this many semitones.
     KeyStep(f64),
+    /// Sets the key shift to this many semitones and plays the last hot cue
+    /// pressed (else the first one set, else the cue point) from its start.
+    Keyboard(f64),
     KeyReset,
 }
 
@@ -496,6 +507,12 @@ pub(crate) fn deck_pushes(reg: &ControlRegistry, g: &str) -> Vec<Push> {
                 Action::BeatLoop(size),
             ));
         }
+    }
+    for (n, semitones) in KEYBOARD_SEMITONES.iter().enumerate() {
+        v.push((
+            format!("keyboard_{}_activate", n + 1),
+            Action::Keyboard(*semitones),
+        ));
     }
     for size in BEATJUMP_SIZES {
         v.push((

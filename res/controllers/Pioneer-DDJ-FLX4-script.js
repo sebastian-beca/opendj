@@ -16,6 +16,7 @@
 //      * Beat Jump Mode
 //      * Sampler Mode
 //      * Keyshift mode
+//      * openDJ: Keyboard mode, Pad FX1 and Pad FX2
 //
 //  Custom (Mixxx specific mappings):
 //      * BeatFX: Assigned Effect Unit 1
@@ -28,7 +29,7 @@
 //
 //      * 32 beat jump forward & back (Shift + </> CUE/LOOP CALL arrows)
 //      * Toggle quantize (Shift + channel cue)
-//      * Stems selection using PADs (using controller's Keyboard mode)
+//      * Stems selection using PADs (press KEYBOARD a second time)
 //
 //  Not implemented (after discussion and trial attempts):
 //      * Loop Section:
@@ -36,11 +37,6 @@
 //                            from a previous position on long press)
 //
 //        * CUE/LOOP CALL - memory & delete (complex and not useful. Hot cues are sufficient)
-//
-//      * Secondary pad modes (trial attempts complex and too experimental)
-//        * Keyboard mode
-//        * Pad FX1
-//        * Pad FX2
 //
 //  Not implemented yet (but might be in the future):
 //      * Smart CFX
@@ -743,15 +739,25 @@ PioneerDDJFLX4.samplerPlayOutputCallbackFunction = function(value, group, _contr
 };
 
 // openDJ: the pad panel each pad mode button opens on the deck's screen
-// (see the deck's `pad_panel` control). Modes openDJ has no panel for are left out.
+// (see the deck's `pad_panel` control).
 PioneerDDJFLX4.padPanelForMode = {
     0x1B: 0, // HOT CUE: hot cues
-    0x69: 4, // KEYBOARD (SHIFT + HOT CUE): stems, as this mapping uses it
-    0x1E: 1, // PAD FX1: pad FX
-    0x6B: 1, // PAD FX2: pad FX
+    0x69: 7, // KEYBOARD (SHIFT + HOT CUE): keyboard, or stems (see keyboardStems)
+    0x1E: 1, // PAD FX1: pad FX 1
+    0x6B: 6, // PAD FX2 (SHIFT + PAD FX1): pad FX 2
     0x20: 2, // BEAT JUMP: beat jump
+    0x6D: 5, // BEAT LOOP (SHIFT + BEAT JUMP): beat loop
     0x22: 3, // SAMPLER: sampler
+    0x6F: 8, // KEY SHIFT (SHIFT + SAMPLER): key shift
 };
+
+// openDJ: the pad mode button last pressed on each deck.
+PioneerDDJFLX4.padMode = {"[Channel1]": 0x1B, "[Channel2]": 0x1B};
+
+// openDJ: KEYBOARD plays the last hot cue pressed at eight pitches, as in
+// rekordbox. Pressing KEYBOARD again turns its pads into the stems pads this
+// mapping had before (mute 1-4, stem FX 5-8), and back.
+PioneerDDJFLX4.keyboardStems = {"[Channel1]": false, "[Channel2]": false};
 
 // openDJ: turns off a deck's pad mode button lights.
 PioneerDDJFLX4.padModeLightsOff = function(deck) {
@@ -763,10 +769,19 @@ PioneerDDJFLX4.padModeLightsOff = function(deck) {
 
 PioneerDDJFLX4.padModeKeyPressed = function(_channel, _control, value, _status, _group) {
     const deck = (_status === 0x90 ? PioneerDDJFLX4.lights.deck1 : PioneerDDJFLX4.lights.deck2);
+    const group = _status === 0x90 ? "[Channel1]" : "[Channel2]";
 
+    if (value && _control === 0x69) {
+        if (PioneerDDJFLX4.padMode[group] === 0x69) {
+            PioneerDDJFLX4.keyboardStems[group] = !PioneerDDJFLX4.keyboardStems[group];
+        }
+        PioneerDDJFLX4.keyboardLights(group);
+    }
     if (value && _control in PioneerDDJFLX4.padPanelForMode) {
-        engine.setValue(_status === 0x90 ? "[Channel1]" : "[Channel2]", "pad_panel",
-            PioneerDDJFLX4.padPanelForMode[_control]);
+        PioneerDDJFLX4.padMode[group] = _control;
+        const panel = _control === 0x69 && PioneerDDJFLX4.keyboardStems[group]
+            ? 4 : PioneerDDJFLX4.padPanelForMode[_control];
+        engine.setValue(group, "pad_panel", panel);
     }
     // openDJ: only the chosen mode stays lit.
     if (value) {
@@ -790,6 +805,96 @@ PioneerDDJFLX4.padModeKeyPressed = function(_channel, _control, value, _status, 
     } else if (_control === 0x6F) {
         PioneerDDJFLX4.toggleLight(deck.keyShiftMode, true);
     }
+};
+
+//
+// openDJ: KEYBOARD mode
+//
+
+// The engine's KEYBOARD_SEMITONES, pad by pad (keyboard_N_activate).
+PioneerDDJFLX4.keyboardSemitones = [0, 1, 2, 3, -4, -3, -2, -1];
+
+PioneerDDJFLX4.keyboardPadPressed = function(channel, control, value, status, group) {
+    if (PioneerDDJFLX4.keyboardStems[group]) {
+        if (control < PioneerDDJFLX4.stemFxPadsFirstControl) {
+            PioneerDDJFLX4.stemMutePadPressed(channel, control, value, status, group);
+        } else {
+            PioneerDDJFLX4.stemFxPadPressed(channel, control, value, status, group);
+        }
+        return;
+    }
+    const pad = control - PioneerDDJFLX4.stemMutePadsFirstControl + 1;
+    engine.setValue(group, "keyboard_" + pad + "_activate", value === 0x7F ? 1 : 0);
+};
+
+PioneerDDJFLX4.keyboardPadShiftPressed = function(channel, control, value, status, group) {
+    if (PioneerDDJFLX4.keyboardStems[group]) {
+        if (control < PioneerDDJFLX4.stemFxPadsFirstControl) {
+            PioneerDDJFLX4.stemMutePadShiftPressed(channel, control, value, status, group);
+        } else {
+            PioneerDDJFLX4.stemFxPadShiftPressed(channel, control, value, status, group);
+        }
+        return;
+    }
+    // SHIFT + pad plays its pitch too.
+    PioneerDDJFLX4.keyboardPadPressed(channel, control, value, status, group);
+};
+
+// Lights the KEYBOARD pads: the stems in stems mode, else the pad of the key
+// shift playing.
+PioneerDDJFLX4.keyboardLights = function(group) {
+    if (PioneerDDJFLX4.keyboardStems[group]) {
+        PioneerDDJFLX4.stemCountChanged(0, group, "stem_count");
+        return;
+    }
+    const pitch = engine.getValue(group, "pitch_adjust");
+    for (let i = 0; i < 8; i++) {
+        const lit = Math.abs(PioneerDDJFLX4.keyboardSemitones[i] - pitch) < 0.01;
+        PioneerDDJFLX4.stemsPadsModesStatus[group].forEach(function(status) {
+            midi.sendShortMsg(status, PioneerDDJFLX4.stemMutePadsFirstControl + i, lit ? 0x7F : 0x00);
+        });
+    }
+};
+
+//
+// openDJ: PAD FX1 and PAD FX2
+//
+
+// What each pad holds on, as on the deck's screen (deck.slint's pad-fx and
+// pad-fx2): a loaded_effect (1 Echo, 2 Reverb, 3 Filter, 4 Flanger,
+// 5 Bitcrusher, 6 Phaser, 7 Gate, 8 Roll, 9 Echo Out, 10 Brake, 11 Noise,
+// 12 Spiral) and where the meta knob sits.
+PioneerDDJFLX4.padFx = {
+    0x10: [1, 0.6], 0x11: [2, 0.7], 0x12: [3, 0.2], 0x13: [3, 0.8],
+    0x14: [4, 0.7], 0x15: [6, 0.7], 0x16: [5, 0.7], 0x17: [1, 1.0],
+    0x50: [8, 0.5], 0x51: [7, 0.5], 0x52: [9, 0.6], 0x53: [10, 0.5],
+    0x54: [11, 0.7], 0x55: [12, 0.7], 0x56: [7, 0.9], 0x57: [2, 1.0],
+};
+
+// Holding a pad puts its effect on the deck through the deck's pad FX unit
+// (units 6 to 9 for decks 1 to 4); letting go turns it off.
+PioneerDDJFLX4.padFxPressed = function(_channel, control, value, status, group) {
+    const fx = PioneerDDJFLX4.padFx[control];
+    if (fx === undefined) {
+        return;
+    }
+    // A side switched to deck 3 or 4 uses that deck's unit.
+    const left = group === "[Channel1]";
+    const layer = engine.getValue("[Controller]", left ? "deck3" : "deck4");
+    const deck = (left ? 1 : 2) + (layer ? 2 : 0);
+    const unit = "[EffectRack1_EffectUnit" + (deck + 5) + "]";
+    const slot = "[EffectRack1_EffectUnit" + (deck + 5) + "_Effect1]";
+    if (value === 0x7F) {
+        engine.setValue(slot, "loaded_effect", fx[0]);
+        engine.setValue(slot, "meta", fx[1]);
+        engine.setValue(unit, "mix", 1);
+        engine.setValue(unit, "enabled", 1);
+        engine.setValue(unit, "group_[Channel" + deck + "]_enable", 1);
+        engine.setValue(slot, "enabled", 1);
+    } else {
+        engine.setValue(slot, "enabled", 0);
+    }
+    midi.sendShortMsg(status, control, value === 0x7F ? 0x7F : 0x00);
 };
 
 PioneerDDJFLX4.samplerPadPressed = function(_channel, _control, value, _status, group) {
@@ -964,7 +1069,7 @@ PioneerDDJFLX4.stemMuteChanged = function(value, group, _control) {
     const stem = Number(channelStem[2]);
     const channel = `[Channel${deck}]`;
 
-    if (stem > 4) {
+    if (stem > 4 || !PioneerDDJFLX4.keyboardStems[channel]) {
         return;
     }
 
@@ -990,7 +1095,7 @@ PioneerDDJFLX4.stemFxChanged = function(value, group, _control) {
     const stem = Number(channelStem[2]);
     const channel = `[Channel${deck}]`;
 
-    if (stem > 4) {
+    if (stem > 4 || !PioneerDDJFLX4.keyboardStems[channel]) {
         return;
     }
 
@@ -1008,6 +1113,8 @@ PioneerDDJFLX4.stemFxChanged = function(value, group, _control) {
 //
 
 PioneerDDJFLX4.pitchAdjusted = function(_value, group, _control) {
+    // openDJ: the KEYBOARD pads show the key shift too.
+    PioneerDDJFLX4.keyboardLights(group);
     const pitchAdjust = Math.round(engine.getValue(group, "pitch_adjust"));
     let lights = 0b00000000;
 

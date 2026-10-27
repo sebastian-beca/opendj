@@ -48,7 +48,7 @@ The FX tab of the mixer SHALL show the Beat FX unit Pioneer style: one effect, a
 - **THEN** unit 5 turns on and the on-screen ON lights
 
 ### Requirement: Pad FX
-The PAD FX pad page SHALL play an effect while a pad is held: Echo, Reverb, Low Pass, High Pass, Flanger, Phaser, Crush and Echo Max, using that deck's pad FX unit.
+The PAD FX 1 pad page SHALL play an effect while a pad is held: Echo, Reverb, Low Pass, High Pass, Flanger, Phaser, Crush and Echo Max, using that deck's pad FX unit. PAD FX 2 SHALL do the same with Roll, Gate, Echo Out, Brake, Noise, Spiral, Gate Fast and Reverb Max. The DDJ-FLX4's PAD FX1 and PAD FX2 pads SHALL play the same effects.
 
 #### Scenario: Hold for reverb
 - **WHEN** the REVERB pad is held

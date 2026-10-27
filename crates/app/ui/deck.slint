@@ -937,6 +937,50 @@ component PadCell inherits Rectangle {
     }
 }
 
+// A KEYBOARD or KEY SHIFT pad, lit while the deck plays at its key shift.
+// KEYBOARD pads play the last hot cue pressed at `semitones`; KEY SHIFT pads
+// set the key shift, and with Shift held move it by `step` instead, as the
+// DDJ-FLX4's KEY SHIFT pads do.
+component KeyPad inherits Rectangle {
+    in property <string> group;
+    in property <bool> keyboard;
+    // The pad's number, 1 to 8, for keyboard_N_activate.
+    in property <int> number;
+    in property <float> semitones;
+    in property <float> step;
+    in property <color> tint;
+    property <int> pitch-index: Controls.resolve(group, "pitch_adjust");
+    property <int> press-index: Controls.resolve(group, "keyboard_" + number + "_activate");
+    property <bool> lit: abs(Controls.value(pitch-index, Controls.tick) - semitones) < 0.01;
+    background: touch.pressed ? Theme.control-pressed : lit ? tint.with-alpha(0.18) : touch.has-hover ? #1d1d20 : Theme.control;
+    Text {
+        text: semitones == 0 ? "±0" : semitones > 0 ? "+" + semitones : "−" + abs(semitones);
+        color: lit ? tint : Theme.text;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    touch := TouchArea {
+        pointer-event(e) => {
+            if e.button != PointerEventButton.left {
+                return;
+            }
+            if keyboard {
+                if e.kind == PointerEventKind.down {
+                    Controls.set-value(press-index, 1);
+                } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                    Controls.set-value(press-index, 0);
+                }
+            } else if e.kind == PointerEventKind.down {
+                if e.modifiers.shift {
+                    Controls.set-value(pitch-index, clamp(Controls.value(pitch-index, Controls.tick) + step, -6, 6));
+                } else {
+                    Controls.set-value(pitch-index, semitones);
+                }
+            }
+        }
+    }
+}
+
 // A hot cue: a small play triangle and the cue's time in
 // its colour, or "+" while it isn't set (pressing sets it).
 // Shift + press deletes a set cue, as on controllers.
@@ -1097,7 +1141,9 @@ component PadTabs inherits Rectangle {
 
 // Pad grid with pages: a grid of flat cells split by thin
 // black lines. Four tabs hold the hot cues, Pad FX, beat jump and sampler;
-// a right-click on a tab swaps in another panel, such as stems.
+// a right-click on a tab swaps in another panel. The panels are the DDJ-FLX4's
+// eight pad modes (hot cues, Pad FX 1 and 2, beat jump, sampler, keyboard,
+// beat loop and key shift), plus stems and loop rolls.
 export component Pads inherits VerticalLayout {
     in property <int> deck;
     in property <string> group;
@@ -1128,13 +1174,56 @@ export component Pads inherits VerticalLayout {
         { effect: 5, meta: 0.7, text: "CRUSH" },
         { effect: 1, meta: 1.0, text: "ECHO MAX" },
     ];
+    // Pad FX 2: the rhythmic and build-up effects.
+    property <[PadEffect]> pad-fx2: [
+        { effect: 8, meta: 0.5, text: "ROLL" },
+        { effect: 7, meta: 0.5, text: "GATE" },
+        { effect: 9, meta: 0.6, text: "ECHO OUT" },
+        { effect: 10, meta: 0.5, text: "BRAKE" },
+        { effect: 11, meta: 0.7, text: "NOISE" },
+        { effect: 12, meta: 0.7, text: "SPIRAL" },
+        { effect: 7, meta: 0.9, text: "GATE FAST" },
+        { effect: 2, meta: 1.0, text: "REVERB MAX" },
+    ];
+    // Beat loops by size, as on the DDJ-FLX4's BEAT LOOP pads.
+    property <[Pad]> loops: [
+        { key: "beatloop_0.25_toggle", light: "beatloop_0.25_enabled", text: "1/4" },
+        { key: "beatloop_0.5_toggle", light: "beatloop_0.5_enabled", text: "1/2" },
+        { key: "beatloop_1_toggle", light: "beatloop_1_enabled", text: "1" },
+        { key: "beatloop_2_toggle", light: "beatloop_2_enabled", text: "2" },
+        { key: "beatloop_4_toggle", light: "beatloop_4_enabled", text: "4" },
+        { key: "beatloop_8_toggle", light: "beatloop_8_enabled", text: "8" },
+        { key: "beatloop_16_toggle", light: "beatloop_16_enabled", text: "16" },
+        { key: "beatloop_32_toggle", light: "beatloop_32_enabled", text: "32" },
+    ];
+    // Loop rolls: a loop while the pad is held, then back to where the track
+    // would have been.
+    property <[Pad]> rolls: [
+        { key: "beatlooproll_0.0625_activate", light: "beatlooproll_0.0625_activate", text: "1/16" },
+        { key: "beatlooproll_0.125_activate", light: "beatlooproll_0.125_activate", text: "1/8" },
+        { key: "beatlooproll_0.25_activate", light: "beatlooproll_0.25_activate", text: "1/4" },
+        { key: "beatlooproll_0.5_activate", light: "beatlooproll_0.5_activate", text: "1/2" },
+        { key: "beatlooproll_1_activate", light: "beatlooproll_1_activate", text: "1" },
+        { key: "beatlooproll_2_activate", light: "beatlooproll_2_activate", text: "2" },
+        { key: "beatlooproll_4_activate", light: "beatlooproll_4_activate", text: "4" },
+        { key: "beatlooproll_8_activate", light: "beatlooproll_8_activate", text: "8" },
+    ];
+    // The engine's KEYBOARD_SEMITONES, pad by pad.
+    property <[float]> keyboard-semitones: [0, 1, 2, 3, -4, -3, -2, -1];
+    // KEY SHIFT pads, as the DDJ-FLX4 mapping lays them out: a key shift
+    // each, and with Shift a step up or down.
+    property <[float]> key-shift: [0, 1, 2, 3, -3, -2, -1, 0];
+    property <[float]> key-steps: [1, 2, 3, 4, -4, -3, -2, -1];
+    // KEYBOARD pads take the colour of the hot cue they play.
+    property <int> cue-focus: Controls.value(Controls.resolve(group, "hotcue_focus"), Controls.tick);
+    property <color> keyboard-tint: cue-focus >= 1 && cue-focus <= 8 ? Theme.hotcues[cue-focus - 1] : tint;
     property <[string]> samples: ["Kick", "Snare", "Clap", "Hat", "Horn", "Siren", "Laser", "Crash"];
     // A controller's pad mode buttons ask for a panel through `pad_panel`:
     // open the tab that shows it, or put it in the open tab.
     property <int> panel-index: Controls.resolve(group, "pad_panel");
     property <int> requested: Controls.value(panel-index, Controls.tick);
     changed requested => {
-        if requested < 0 || requested >= 5 {
+        if requested < 0 || requested >= 10 {
             return;
         }
         let wanted = requested;
@@ -1153,7 +1242,7 @@ export component Pads inherits VerticalLayout {
     }
     // The tabs sit right on the grid.
     spacing: 0px;
-    PadTabs { names: ["HOT CUES", "PAD FX", "BEAT JUMP", "SAMPLER", "STEMS"]; slots <=> slots; selected <=> tab; }
+    PadTabs { names: ["HOT CUES", "PAD FX 1", "BEAT JUMP", "SAMPLER", "STEMS", "BEAT LOOP", "PAD FX 2", "KEYBOARD", "KEY SHIFT", "LOOP ROLL"]; slots <=> slots; selected <=> tab; }
     // The black background shows through the 1px gaps as the grid lines.
     Rectangle {
         vertical-stretch: 1;
@@ -1203,6 +1292,36 @@ export component Pads inherits VerticalLayout {
                         light-key: "play_indicator";
                         text: samples[row * 4 + i];
                         tint: Theme.hotcues[row * 4 + i];
+                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    }
+                }
+                if page == 5 || page == 9: HorizontalLayout {
+                    spacing: 1px;
+                    horizontal-stretch: 1;
+                    for i in 4: PadCell {
+                        group: group;
+                        key: page == 5 ? loops[row * 4 + i].key : rolls[row * 4 + i].key;
+                        light-key: page == 5 ? loops[row * 4 + i].light : rolls[row * 4 + i].light;
+                        text: page == 5 ? loops[row * 4 + i].text : rolls[row * 4 + i].text;
+                        tint: tint;
+                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    }
+                }
+                if page == 6: HorizontalLayout {
+                    spacing: 1px;
+                    horizontal-stretch: 1;
+                    for i in 4: PadFxButton { deck: deck; fx: pad-fx2[row * 4 + i]; tint: tint; horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
+                }
+                if page == 7 || page == 8: HorizontalLayout {
+                    spacing: 1px;
+                    horizontal-stretch: 1;
+                    for i in 4: KeyPad {
+                        group: group;
+                        keyboard: page == 7;
+                        number: row * 4 + i + 1;
+                        semitones: page == 7 ? keyboard-semitones[row * 4 + i] : key-shift[row * 4 + i];
+                        step: key-steps[row * 4 + i];
+                        tint: page == 7 ? keyboard-tint : tint;
                         horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
                     }
                 }
