@@ -781,8 +781,8 @@ export global EffectList {
     // The parameter (from 0) each effect's slider in the FX bar sets, in
     // `loaded_effect` order (the engine's AVAILABLE_EFFECTS); -1 for the
     // beat-synced ones, which show their length in beats instead.
-    // Reverb decay, Filter resonance, Bitcrusher downsampling, Noise sweep.
-    in property <[int]> slider-params: [-1, 0, 1, -1, 1, -1, -1, -1, -1, -1, 1, -1];
+    // Reverb decay, Filter resonance, Bitcrusher bit depth, Noise sweep.
+    in property <[int]> slider-params: [-1, 0, 1, -1, 0, -1, -1, -1, -1, -1, 1, -1];
 }
 
 // One effect slot: clicking the name turns the effect on

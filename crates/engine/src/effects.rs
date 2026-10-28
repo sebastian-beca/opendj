@@ -220,7 +220,7 @@ fn link(kind: Kind, meta: f64) -> [Option<f64>; MAX_PARAMETERS] {
         Kind::Flanger | Kind::Phaser | Kind::Gate => [None, Some(meta), None, None],
         // Bitcrusher and Noise leave their second control to the FX bar's
         // slider.
-        Kind::Bitcrusher => [Some(1.0 - 0.8 * meta), None, None, None],
+        Kind::Bitcrusher => [None, Some(1.0 - 0.95 * meta), None, None],
         // Turning up rolls shorter slices; brakes and echo-outs get longer.
         // Their length is the slot's beat switch.
         Kind::Roll | Kind::Brake => [None; MAX_PARAMETERS],
