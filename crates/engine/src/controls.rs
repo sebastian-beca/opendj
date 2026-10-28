@@ -620,9 +620,9 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
         vu: reg.indicator("[Master]", "VuMeter", 1.0),
         peak: ["", "L", "R"].map(|s| reg.indicator("[Master]", &format!("PeakIndicator{s}"), 1.0)),
         crossfader: reg.create("[Master]", "crossfader", 0.0, -1.0, 1.0, Behavior::Linear),
-        gain: reg.create("[Master]", "gain", 1.0, 0.0, 1.0, Behavior::Linear),
-        head_gain: reg.create("[Master]", "headGain", 1.0, 0.0, 1.0, Behavior::Linear),
-        head_mix: reg.create("[Master]", "headMix", 0.0, -1.0, 1.0, Behavior::Linear),
+        gain: reg.create("[Master]", "gain", 0.5, 0.0, 1.0, Behavior::Linear),
+        head_gain: reg.create("[Master]", "headGain", 0.25, 0.0, 1.0, Behavior::Linear),
+        head_mix: reg.create("[Master]", "headMix", -1.0, -1.0, 1.0, Behavior::Linear),
         booth_gain: reg.create("[Master]", "booth_gain", 1.0, 0.0, 1.0, Behavior::Linear),
         head_split: reg.toggle("[Master]", "headSplit"),
         xfader_shape: reg.create(

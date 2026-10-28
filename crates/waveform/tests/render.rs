@@ -340,7 +340,10 @@ fn draws_phrase_bars() {
         assert!(gap[0] < drop[0] / 2, "gap before the drop at {x}: {gap:?}");
     }
     let start = px(256, h - 2);
-    assert!(start[0] > 150, "drop colour from its first pixel: {start:?}");
+    assert!(
+        start[0] > 150,
+        "drop colour from its first pixel: {start:?}"
+    );
     let above = px(384, h - 10);
     assert!(above[2] < 40, "nothing above the bar but dots: {above:?}");
     // The minute dot at 60 s sits between the waveform and the bar.
