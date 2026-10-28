@@ -156,17 +156,46 @@ pub struct OutputDevice {
     pub channels: u16,
 }
 
+/// What ASIO drivers' names start with in the device lists, next to the
+/// Windows Audio (WASAPI) devices.
+#[cfg(windows)]
+const ASIO_PREFIX: &str = "ASIO: ";
+
+/// The audio systems devices are listed from, each with what its devices'
+/// names start with: Windows Audio (WASAPI) and, on Windows, ASIO drivers
+/// ("ASIO: Focusrite USB ASIO"); elsewhere only the system's own.
+fn hosts() -> Vec<(&'static str, cpal::Host)> {
+    #[allow(unused_mut)]
+    let mut hosts = vec![("", cpal::default_host())];
+    #[cfg(windows)]
+    if let Ok(asio) = cpal::host_from_id(cpal::HostId::Asio) {
+        hosts.push((ASIO_PREFIX, asio));
+    }
+    hosts
+}
+
+/// The audio system a listed device name belongs to, and the device's own
+/// name there.
+fn host_of(name: &str) -> (cpal::Host, &str) {
+    for (prefix, host) in hosts() {
+        if let Some(rest) = name.strip_prefix(prefix).filter(|_| !prefix.is_empty()) {
+            return (host, rest);
+        }
+    }
+    (cpal::default_host(), name)
+}
+
 /// The output devices, for choosing between them.
 pub fn output_devices() -> Vec<OutputDevice> {
     if no_audio() {
         return Vec::new();
     }
-    let Ok(devices) = cpal::default_host().output_devices() else {
-        return Vec::new();
-    };
-    let mut list: Vec<OutputDevice> = devices
-        .map(|d| OutputDevice {
-            name: device_name(&d),
+    let mut list: Vec<OutputDevice> = hosts()
+        .into_iter()
+        .filter_map(|(prefix, host)| Some((prefix, host.output_devices().ok()?)))
+        .flat_map(|(prefix, devices)| devices.map(move |d| (prefix, d)))
+        .map(|(prefix, d)| OutputDevice {
+            name: format!("{prefix}{}", device_name(&d)),
             channels: d
                 .supported_output_configs()
                 .map(|c| c.map(|r| r.channels()).max().unwrap_or(2))
@@ -182,12 +211,12 @@ pub fn input_devices() -> Vec<OutputDevice> {
     if no_audio() {
         return Vec::new();
     }
-    let Ok(devices) = cpal::default_host().input_devices() else {
-        return Vec::new();
-    };
-    let mut list: Vec<OutputDevice> = devices
-        .map(|d| OutputDevice {
-            name: device_name(&d),
+    let mut list: Vec<OutputDevice> = hosts()
+        .into_iter()
+        .filter_map(|(prefix, host)| Some((prefix, host.input_devices().ok()?)))
+        .flat_map(|(prefix, devices)| devices.map(move |d| (prefix, d)))
+        .map(|(prefix, d)| OutputDevice {
+            name: format!("{prefix}{}", device_name(&d)),
             channels: d
                 .supported_input_configs()
                 .map(|c| c.map(|r| r.channels()).max().unwrap_or(1))
@@ -200,10 +229,10 @@ pub fn input_devices() -> Vec<OutputDevice> {
 
 /// The input device called `name`, or the default one for an empty name.
 fn find_input(name: &str) -> Option<cpal::Device> {
-    let host = cpal::default_host();
     if name.is_empty() {
-        return host.default_input_device();
+        return cpal::default_host().default_input_device();
     }
+    let (host, name) = host_of(name);
     host.input_devices().ok()?.find(|d| device_name(d) == name)
 }
 
@@ -227,10 +256,10 @@ fn device_name(d: &cpal::Device) -> String {
 
 /// The device called `name`, or the default device for an empty name.
 fn find(name: &str) -> Option<cpal::Device> {
-    let host = cpal::default_host();
     if name.is_empty() {
-        return host.default_output_device();
+        return cpal::default_host().default_output_device();
     }
+    let (host, name) = host_of(name);
     host.output_devices().ok()?.find(|d| device_name(d) == name)
 }
 
