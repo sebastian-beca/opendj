@@ -377,6 +377,36 @@ pub fn set_controller_mappings(choices: &HashMap<String, MappingChoice>) {
     });
 }
 
+/// Where the DJ's own controller mappings are kept.
+pub fn own_mappings_dir() -> Option<PathBuf> {
+    config_dir().map(|d| d.join("controller-mappings"))
+}
+
+/// The DJ's own mapping used in place of a Mixxx mapping (by its file
+/// name), if one was picked.
+pub fn controller_version(based_on: &str) -> Option<String> {
+    load()["controller_versions"][based_on]
+        .as_str()
+        .map(String::from)
+}
+
+pub fn set_controller_version(based_on: &str, id: Option<&str>) {
+    save(|v| {
+        if !v["controller_versions"].is_object() {
+            v["controller_versions"] = json!({});
+        }
+        let versions = v["controller_versions"].as_object_mut().unwrap();
+        match id {
+            Some(id) => {
+                versions.insert(based_on.to_string(), json!(id));
+            }
+            None => {
+                versions.remove(based_on);
+            }
+        }
+    });
+}
+
 /// The folder scanned for music: `OPENDJ_MUSIC`, else the one chosen in
 /// settings, else `~/Music`.
 pub fn music_folder() -> Option<PathBuf> {

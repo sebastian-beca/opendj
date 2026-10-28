@@ -216,6 +216,10 @@ impl DeckControls {
         // loop, 6 pad FX 2, 7 keyboard, 8 key shift, 9 loop roll); the skin
         // shows it and sets this back to -1.
         reg.create(g, "pad_panel", -1.0, -1.0, 16.0, Behavior::Free);
+        // Asks the skin to open pad tab 0-7 by its place (a controller's pad
+        // mode buttons: 0-3 plain, 4-7 with Shift), whatever panel it shows;
+        // the skin sets this back to -1.
+        reg.create(g, "pad_tab", -1.0, -1.0, 7.0, Behavior::Free);
         // Which 8 sampler slots the deck's SAMPLER pads play: 0 slots 1-8,
         // 1 slots 9-16.
         reg.create(g, "sampler_page", 0.0, 0.0, 1.0, Behavior::Free);
