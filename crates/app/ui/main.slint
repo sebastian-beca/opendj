@@ -779,6 +779,21 @@ export component AppWindow inherits Window {
                         lit-icon: "M 2 4 L 18 4 L 18 16 L 2 16 Z M 10 7 L 10 13 M 7 10 L 10 13 L 13 10";
                         clicked => { library-expanded = !library-expanded; }
                     }
+                    // How background analysis is going, with a ✕ that stops it.
+                    if LibraryEdit.analysis-status != "": HorizontalLayout {
+                        spacing: 6px;
+                        Text {
+                            text: LibraryEdit.analysis-status;
+                            color: Theme.text-dim;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                        Rectangle {
+                            width: 20px;
+                            CloseIcon { size: 8px; color: stop-touch.has-hover ? Theme.text : Theme.text-dim; }
+                            stop-touch := TouchArea { clicked => { LibraryEdit.cancel-analysis(); } }
+                        }
+                    }
                     FooterButton {
                         y: 5px;
                         lit: side-panel-visible;

@@ -27,6 +27,7 @@ use mixxx_library::Wanted;
 use mixxx_plugins::inbox::Mode;
 use mixxx_plugins::{ItemKind, StoreItem, StoreQuery};
 
+mod analysis;
 mod columns;
 mod filters;
 mod health;
@@ -437,6 +438,8 @@ pub struct Browser {
     folders: Folders,
     /// Tempo and key for tracks in triage, found in the background.
     analysis: AnalysisQueue,
+    analysis_shown: analysis::Shown,
+    phrases_seen: analysis::SeenDecks,
     /// The last stage change, which the track menu can take back: its
     /// batch in the library and what to call it.
     undo: Option<(i64, String)>,
@@ -856,6 +859,8 @@ impl Browser {
             columns: columns::ColumnState::new(&crate::settings::field_names()),
             folders: crate::settings::stage_folders(),
             analysis: AnalysisQueue::start(),
+            analysis_shown: Default::default(),
+            phrases_seen: Default::default(),
             undo: None,
             pending_moves: HashMap::new(),
             health: Facts::default(),
@@ -1284,6 +1289,7 @@ impl Browser {
         edit.on_set_rule(move |i, text| w(&|b| b.set_rule(i as usize, &text)));
         Self::install_staging(&edit, &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
+        Self::install_analysis(&edit, &with);
     }
 
     /// Saves a search as a smart list at the top level (under "Smart
@@ -2981,6 +2987,7 @@ impl Browser {
             if analysed || edited {
                 e.set_grid(t.grid.clone());
                 e.info.fixed_grid = true;
+                e.info.grid_analysed = analysed;
             }
             if let (true, Some(db)) = (saved, &self.db) {
                 let result = if edited {
@@ -3037,6 +3044,7 @@ impl Browser {
                     },
                     kind: n.kind,
                     editable: n.playlist.is_some() && !n.history,
+                    analysable: !n.history && Self::analysable(&n.contents),
                     stage: matches!(n.contents, Contents::Stage(..)),
                     count: match &n.contents {
                         Contents::Stage(stage, dir) => self
@@ -3479,6 +3487,7 @@ impl Browser {
                     cells: Default::default(),
                     wave: Default::default(),
                     has_wave: false,
+                    analysing: 0,
                 };
                 TrackRow {
                     cells: columns::row_cells(&ids, &row, r.local.map(|id| &*library[id])),
@@ -3508,6 +3517,8 @@ impl Browser {
             self.list.set_vec(rows);
             self.wave_rows.clear();
             self.fill_waves();
+            self.analysis_shown.marks.clear();
+            self.mark_analysis_rows();
             app.set_tracks(ModelRc::from(self.list.clone()));
             app.set_sort_column(self.sort_column);
             app.set_sort_ascending(self.ascending);

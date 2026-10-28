@@ -25,6 +25,8 @@ export struct Folder {
     stage: bool,
     // How many tracks a stage has, shown after its name; -1 for none.
     count: int,
+    // Holds library tracks, so its menu offers Analyze All.
+    analysable: bool,
 }
 
 export struct TrackRow {
@@ -61,6 +63,8 @@ export struct TrackRow {
     // view have one, and only once the track is analysed.
     wave: image,
     has-wave: bool,
+    // Queued for analysis: 1 waiting, 2 being analysed; 0 neither.
+    analysing: int,
 }
 
 // One of the track list's columns. kind: 0 text, 1 the title (takes the
@@ -153,6 +157,13 @@ export global LibraryEdit {
     callback add-to-list(first: int, last: int, list: int);
     callback remove-from-list(row: int);
     callback add-to-automix(first: int, last: int);
+    // Analyses the rows `first` to `last` again, in the background.
+    callback analyze(first: int, last: int);
+    // Analyses every track of the tree's row `row`.
+    callback analyze-all(row: int);
+    // "Analyzing 3 of 12" while tracks are queued, for the footer; empty otherwise.
+    in property <string> analysis-status;
+    callback cancel-analysis();
     // The sidebar switched between the library and the history.
     callback show-history(history: bool);
     // A search can be saved as a smart list (the collection is the saved library).
@@ -345,6 +356,13 @@ component TrackMenu inherits PopupWindow {
             }
         }
         MenuSeparator {}
+        MenuLine {
+            text: track-last > track-row ? "Analyze " + (track-last - track-row + 1) + " Tracks" : "Analyze Track";
+            clicked => {
+                LibraryEdit.analyze(track-row, track-last);
+                root.close();
+            }
+        }
         if StoreUi.services: MenuLine {
             text: "Find in stores";
             clicked => {
@@ -820,6 +838,8 @@ component FolderTree inherits Rectangle {
     property <int> menu-index;
     property <string> menu-name;
     property <int> menu-kind;
+    property <bool> menu-editable;
+    property <bool> menu-analysable;
     property <length> menu-y;
     folder-menu := PopupWindow {
         x: 40px;
@@ -829,7 +849,15 @@ component FolderTree inherits Rectangle {
         MenuBackground {}
         VerticalLayout {
             padding: 6px;
-            MenuLine {
+            if menu-analysable: MenuLine {
+                text: "Analyze All";
+                clicked => {
+                    LibraryEdit.analyze-all(menu-index);
+                    folder-menu.close();
+                }
+            }
+            if menu-analysable && menu-editable: MenuSeparator {}
+            if menu-editable: MenuLine {
                 text: "Rename…";
                 clicked => {
                     rename-index = menu-index;
@@ -839,7 +867,7 @@ component FolderTree inherits Rectangle {
                     rename-popup.show();
                 }
             }
-            if menu-kind == 3: MenuLine {
+            if menu-editable && menu-kind == 3: MenuLine {
                 text: "Edit search…";
                 clicked => {
                     rename-index = menu-index;
@@ -849,7 +877,7 @@ component FolderTree inherits Rectangle {
                     rename-popup.show();
                 }
             }
-            MenuLine {
+            if menu-editable: MenuLine {
                 text: menu-kind == 1 ? "Delete folder and its lists" : "Delete list";
                 text-color: #ff6b5e;
                 clicked => {
@@ -1029,10 +1057,12 @@ component FolderTree inherits Rectangle {
                         clicked => { select(i); }
                         double-clicked => { toggle(i); }
                         pointer-event(e) => {
-                            if (f.editable || source == 1) && tab == 0 && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                            if (f.editable || f.analysable || source == 1) && tab == 0 && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                                 menu-index = i;
                                 menu-name = f.name;
                                 menu-kind = f.kind;
+                                menu-editable = f.editable;
+                                menu-analysable = f.analysable && source == 0;
                                 menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
                                 if source == 1 { files-menu.show(); } else { folder-menu.show(); }
                             }
@@ -1691,6 +1721,14 @@ component TrackList inherits Rectangle {
                     }
                     Rectangle {
                         width: w-deck;
+                        // Queued for analysis: a dim dot, pulsing lilac while being analysed.
+                        if r.analysing > 0 && r.deck < 0 && !r.missing: Rectangle {
+                            width: 7px;
+                            height: 7px;
+                            border-radius: 3.5px;
+                            background: r.analysing == 2 ? (selected ? Theme.on-row-selection : Theme.lilac) : Theme.text-dim;
+                            opacity: r.analysing == 2 ? 0.35 + 0.65 * abs(sin(animation-tick() / 1ms * 0.25deg)) : 0.6;
+                        }
                         // A Spotify track that isn't in the collection: a hollow green ring.
                         if r.missing: Text {
                             text: "!";
