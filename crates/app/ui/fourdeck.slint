@@ -6,8 +6,8 @@
 // deck number is clicked: then that side plays deck 3 or 4.
 import { TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
-import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, KeyLock, PitchReset, StereoMeter } from "controls.slint";
-import { DeckInfo, FxRows, Header, LoopStepper, Pads, PlayButton } from "deck.slint";
+import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, KeyLock, PitchReset, QuantizeButton, StereoMeter } from "controls.slint";
+import { DeckInfo, FxRows, Header, LoopStepper, Pads, PlayButton, TempoStep } from "deck.slint";
 import { AudioSettings, Knob, ModeMenu, SideKnob } from "mixer.slint";
 
 // Which side of the crossfader a deck is on, as Mixxx's `orientation`:
@@ -146,12 +146,13 @@ export component DeckStrip inherits Rectangle {
                     ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: Theme.cue; font-size: 13px; width: 64px; }
                     LoopStepper { group: group; info: info; horizontal-stretch: 1; }
                 }
-                // Crossfader side, SYNC and the tempo with fine + and −.
+                // Crossfader side, SYNC and quantize, and the tempo with fine − and +.
                 HorizontalLayout {
                     height: 30px;
                     spacing: 6px;
                     CrossfaderAssign { deck: deck; }
-                    ControlButton { group: group; key: "sync_enabled"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 12px; width: 60px; }
+                    ControlButton { group: group; key: "sync_enabled"; shift-key: "beatsync"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 12px; width: 48px; }
+                    QuantizeButton { group: group; width: 40px; }
                     // Pitch reset, pointing at the tempo, over key lock.
                     VerticalLayout {
                         alignment: center;
@@ -165,8 +166,11 @@ export component DeckStrip inherits Rectangle {
                         Text { text: info.loaded ? info.bpm : "--"; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; }
                         Text { text: info.rate; color: Theme.text-dim; font-size: 10px; horizontal-alignment: center; }
                     }
-                    ControlButton { group: group; key: "rate_perm_down_small"; text: "−"; momentary: true; tint: tint; font-size: 15px; width: 26px; }
-                    ControlButton { group: group; key: "rate_perm_up_small"; text: "+"; momentary: true; tint: tint; font-size: 15px; width: 26px; }
+                    HorizontalLayout {
+                        alignment: center;
+                        TempoStep { group: group; key: "rate_perm_down_small"; text: "−"; tint: tint; }
+                        TempoStep { group: group; key: "rate_perm_up_small"; text: "+"; tint: tint; }
+                    }
                 }
                 Pads { deck: deck; group: group; info: info; vertical-stretch: 1; min-height: 77px; }
                 FxRows { deck: deck; names: info.effects; }

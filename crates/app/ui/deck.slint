@@ -5,7 +5,7 @@
 import { TrackDrag } from "library.slint";
 import { SamplerPanel } from "sampler.slint";
 import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
-import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, KeyLock, PitchReset } from "controls.slint";
+import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, KeyLock, MasterBadge, PitchReset, QuantizeButton } from "controls.slint";
 
 // A line of the key menu: a key shift and the key it gives.
 export struct KeyItem {
@@ -626,6 +626,10 @@ export component Header inherits Rectangle {
                         font-size: compact ? 11px : 13px;
                         overflow: elide;
                     }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    MasterBadge { group: group; font-size: compact ? 9px : 10px; height: compact ? 16px : 18px; }
                 }
                 TimeKey { group: group; info: info; tint: tint; show-time: !compact; }
             }
@@ -1730,6 +1734,42 @@ component PitchSide inherits Rectangle {
     }
 }
 
+// A fine tempo step, − or +: just the sign, no button around it, held
+// down to keep stepping as the button did.
+export component TempoStep inherits Rectangle {
+    in property <string> group;
+    in property <string> key;
+    in property <string> text;
+    in property <color> tint;
+    property <int> index: Controls.resolve(group, key);
+    width: 22px;
+    height: 22px;
+    Text {
+        text: root.text;
+        color: touch.pressed ? tint : touch.has-hover ? Theme.text : Theme.text-dim;
+        font-size: 20px;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.button != PointerEventButton.left {
+                return;
+            }
+            if e.kind == PointerEventKind.down {
+                Controls.set-value(index, 1);
+            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                Controls.set-value(index, 0);
+            }
+        }
+    }
+}
+
+// The tempo column, everything on its centre line: SYNC (Shift-click to
+// sync once) over quantize, the tempo, the fader, and the fine − and +.
+// Pitch reset and key lock sit in the margin on the fader's outer side.
 component Pitch inherits VerticalLayout {
     in property <string> group;
     in property <DeckInfo> info;
@@ -1737,25 +1777,36 @@ component Pitch inherits VerticalLayout {
     // Deck B: pitch reset goes on the fader's right, its outer side.
     in property <bool> mirrored;
     width: 56px;
-    spacing: 4px;
+    spacing: 5px;
+    ControlButton { group: group; key: "sync_enabled"; shift-key: "beatsync"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 13px; height: 30px; }
+    QuantizeButton { group: group; height: 22px; }
     Text { text: info.rate; color: Theme.text; font-size: 12px; font-weight: 500; horizontal-alignment: center; }
-    // Pitch reset on the outer side, level with 0% (the fader's middle),
-    // with key lock just below it.
-    HorizontalLayout {
+    Rectangle {
         vertical-stretch: 1;
-        spacing: 1px;
-        if !mirrored: PitchSide { group: group; tint: tint; }
-        ControlFader { group: group; key: "rate"; center-mark: true; ticks: 9; tint: tint; horizontal-stretch: 1; }
-        if mirrored: PitchSide { group: group; tint: tint; mirrored: true; }
+        ControlFader {
+            x: (parent.width - self.width) / 2;
+            width: 32px;
+            height: parent.height;
+            group: group;
+            key: "rate";
+            center-mark: true;
+            ticks: 9;
+            tint: tint;
+        }
+        PitchSide {
+            x: mirrored ? parent.width - self.width : 0px;
+            height: parent.height;
+            group: group;
+            tint: tint;
+            mirrored: mirrored;
+        }
     }
     HorizontalLayout {
-        spacing: 2px;
-        ControlButton { group: group; key: "rate_perm_down_small"; text: "−"; momentary: true; tint: tint; font-size: 15px; height: 22px; horizontal-stretch: 1; }
-        ControlButton { group: group; key: "rate_perm_up_small"; text: "+"; momentary: true; tint: tint; font-size: 15px; height: 22px; horizontal-stretch: 1; }
+        alignment: center;
+        spacing: 8px;
+        TempoStep { group: group; key: "rate_perm_down_small"; text: "−"; tint: tint; }
+        TempoStep { group: group; key: "rate_perm_up_small"; text: "+"; tint: tint; }
     }
-    // Under the tempo fader, level with play and CUE under the jog.
-    Rectangle { height: 4px; }
-    ControlButton { group: group; key: "sync_enabled"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 14px; height: 36px; }
 }
 
 // Play and pause in one button showing ▶: it fills with the deck colour
@@ -1787,7 +1838,7 @@ export component PlayButton inherits Rectangle {
     }
 }
 
-// Play and CUE side by side under the jog, play on the left; SYNC is under
+// Play and CUE side by side under the jog, play on the left; SYNC is over
 // the tempo fader (see Pitch).
 component Transport inherits HorizontalLayout {
     in property <string> group;

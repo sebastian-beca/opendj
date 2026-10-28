@@ -234,6 +234,7 @@
 [Channel1],playposition_seconds
 [Channel1],pregain
 [Channel1],quantize
+[Channel1],quantize_beats
 [Channel1],rate
 [Channel1],rateRange
 [Channel1],rateSearch
@@ -266,6 +267,7 @@
 [Channel1],stem_count
 [Channel1],sync_enabled
 [Channel1],sync_key
+[Channel1],sync_leader
 [Channel1],track_loaded
 [Channel1],volume
 [Channel1],vu_meter
@@ -499,6 +501,7 @@
 [Channel2],playposition_seconds
 [Channel2],pregain
 [Channel2],quantize
+[Channel2],quantize_beats
 [Channel2],rate
 [Channel2],rateRange
 [Channel2],rateSearch
@@ -531,6 +534,7 @@
 [Channel2],stem_count
 [Channel2],sync_enabled
 [Channel2],sync_key
+[Channel2],sync_leader
 [Channel2],track_loaded
 [Channel2],volume
 [Channel2],vu_meter
@@ -764,6 +768,7 @@
 [Channel3],playposition_seconds
 [Channel3],pregain
 [Channel3],quantize
+[Channel3],quantize_beats
 [Channel3],rate
 [Channel3],rateRange
 [Channel3],rateSearch
@@ -796,6 +801,7 @@
 [Channel3],stem_count
 [Channel3],sync_enabled
 [Channel3],sync_key
+[Channel3],sync_leader
 [Channel3],track_loaded
 [Channel3],volume
 [Channel3],vu_meter
@@ -1029,6 +1035,7 @@
 [Channel4],playposition_seconds
 [Channel4],pregain
 [Channel4],quantize
+[Channel4],quantize_beats
 [Channel4],rate
 [Channel4],rateRange
 [Channel4],rateSearch
@@ -1061,6 +1068,7 @@
 [Channel4],stem_count
 [Channel4],sync_enabled
 [Channel4],sync_key
+[Channel4],sync_leader
 [Channel4],track_loaded
 [Channel4],volume
 [Channel4],vu_meter
