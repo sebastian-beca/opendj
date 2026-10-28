@@ -517,6 +517,10 @@ export component AppWindow inherits Window {
     callback load-track(deck: int, row: int);
     callback side-activate(row: int);
     callback side-remove(first: int, last: int);
+    // A key no field took, for the keyboard shortcuts (shortcuts.rs);
+    // true when it ran one. master is 0 for deck 1; first and last are
+    // the rows picked in the track list.
+    callback shortcut(text: string, cmd: bool, alt: bool, shift: bool, master: int, first: int, last: int) -> bool;
     callback automix-toggle();
     callback automix-mix-now();
     callback automix-skip();
@@ -568,7 +572,9 @@ export component AppWindow inherits Window {
 
     // Shortcuts no focused field took: ⌘, opens settings (Ctrl+, on
     // Linux; Slint reads ⌘ as control on macOS), Esc closes them, and the
-    // space bar pauses or resumes the master deck.
+    // space bar pauses or resumes the master deck. Any other key goes to
+    // the keyboard shortcuts, which run openDJscript (⌘1 to ⌘5 rate the
+    // picked tracks).
     keys := FocusScope {
         key-pressed(e) => {
             if e.text == " " && !Preferences.open && !e.modifiers.control && !e.modifiers.meta && !e.modifiers.alt {
@@ -593,6 +599,9 @@ export component AppWindow inherits Window {
             }
             if e.text == Key.Escape && Preferences.open {
                 Preferences.open = false;
+                return accept;
+            }
+            if !Preferences.open && shortcut(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift, master-deck, browser.first-picked, browser.last-picked) {
                 return accept;
             }
             reject
