@@ -4,18 +4,24 @@ openDJ uses [Mixxx](https://mixxx.org)'s controller mappings, so most MIDI
 controllers that Mixxx supports load their mapping as soon as they're plugged
 in. There's nothing to set up.
 
+**Settings › Controllers** lists the controllers plugged in that openDJ has a
+mapping for. Other MIDI devices, such as virtual ports or gear without a
+mapping, wait under **Add a controller**; pick one to list it and choose its
+mapping. **Remove** takes a controller off the list and stops using it until
+you add it again.
+
 HID controllers aren't supported yet.
 
 ## Controller Editor
 
-To see what every control does, open **Settings › Controllers › Controller
-Editor**. Pick the controller at the top (the one you have plugged in comes
-first). Its controls are listed in three columns: the control you press (with
-the layer it works in, such as SHIFT, a pad mode or a bank), what it does, and
-the MIDI message it sends. They're grouped into sections (Deck, Pads, Mixer,
-Effects, Library, More) with smaller sections inside, such as Hot cues and
-Loops under Pads. Click a heading to open or close it. Search the list by any
-of those words.
+To see what every control does, press **Edit** next to a controller in
+**Settings › Controllers**. The editor opens on that controller's mapping;
+pick another at the top. Its controls are listed in three columns: the control
+you press (with the layer it works in, such as SHIFT, a pad mode or a bank),
+what it does, and the MIDI message it sends. They're grouped into sections
+(Deck, Pads, Mixer, Effects, Library, More) with smaller sections inside, such
+as Hot cues and Loops under Pads. Click a heading to open or close it. Search
+the list by any of those words.
 
 - **Picture.** For the Pioneer DDJ-FLX4, Allen & Heath Xone K2 and DJ
   TechTools Midi Fighter Twister, a picture of the controller is on the left.
