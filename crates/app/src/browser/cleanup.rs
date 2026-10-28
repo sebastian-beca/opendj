@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 
-use mixxx_engine::{cover, tags};
+use mixxx_engine::tags;
 use mixxx_library::cleanup::{self, Change, Field, Logged};
 use mixxx_library::health::Check;
 use mixxx_library::query::Indexed;
@@ -453,38 +453,21 @@ impl Browser {
             return;
         }
         batch.back += back.len();
-        let mut saved = Vec::new();
+        let mut found = 0;
         for (id, data) in back {
-            let Some(data) = data else { continue };
-            let Some(&i) = self.index_of.get(&id) else {
+            let (Some(data), Some(&i)) = (data, self.index_of.get(&id)) else {
                 continue;
             };
-            let t = self.library[i].clone();
-            let Some(path) = writable(&t) else { continue };
-            if let Err(e) = tags::write_cover(path, &data) {
-                eprintln!("can't save the cover of {}: {e}", path.display());
-                continue;
+            match self.keep_cover(i, &data) {
+                Ok(()) => found += 1,
+                Err(e) => eprintln!("{e}"),
             }
-            if let Some(db) = &self.db {
-                // Notes the file's new time, so a scan doesn't read it again.
-                let _ = db.save_info(t.id, &t);
-            }
-            self.art.set(&t, &data);
-            let shown = cover::decode(&data, cover::COVER_SIZE).map(Arc::new);
-            self.engine.set_cover(path, shown);
-            saved.push((id, cover_scan::mtime(path), true));
-            self.health.set_cover(id, true);
         }
         let Some(batch) = &mut self.cleanup.covers else {
             return;
         };
-        batch.found += saved.len();
+        batch.found += found;
         let (found, back, total) = (batch.found, batch.back, batch.total);
-        if let Some(db) = &mut self.db {
-            if let Err(e) = db.save_covers(&saved) {
-                eprintln!("can't save covers: {e}");
-            }
-        }
         self.health_status = if back >= total {
             self.cleanup.covers = None;
             let mut s = format!("Found covers for {found} of {}.", tracks(total));

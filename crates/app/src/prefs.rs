@@ -28,8 +28,27 @@ use crate::{
 const AUDIO: i32 = 0;
 const CONTROLLERS: i32 = 1;
 const LIBRARY: i32 = 2;
-/// Settings › Library's own tabs; each app imported from adds one after.
-const LIBRARY_TABS: [&str; 3] = ["General", "Stages", "Fields"];
+/// Settings › Library's tabs.
+const LIBRARY_TABS: [&str; 4] = ["General", "Stages", "Fields", "Import"];
+/// The Import tab's place in LIBRARY_TABS.
+const IMPORT_TAB: usize = 3;
+/// Other DJ apps whose libraries openDJ can't bring in yet, listed on the
+/// Import tab so the DJ sees what's coming.
+const COMING_IMPORTS: [(&str, &str); 4] = [
+    (
+        "rekordbox",
+        "Tracks, cues, grids and playlists, from rekordbox 6 and 7 or OneLibrary.",
+    ),
+    (
+        "Mixxx",
+        "Tracks, cues, loops, crates and playlists from Mixxx's library.",
+    ),
+    ("Serato DJ", "Tracks, cues, loops and crates."),
+    (
+        "Traktor",
+        "Tracks, cues, loops and playlists from collection.nml.",
+    ),
+];
 const ANALYSIS: i32 = 3;
 const DECKS: i32 = 4;
 const MIXER: i32 = 5;
@@ -317,6 +336,8 @@ pub struct Prefs {
     chosen_rx: Receiver<(String, PathBuf)>,
     /// What the last Rescan or Clear did, shown on its row.
     library_note: String,
+    /// What the last import change set going, shown on the Import tab.
+    import_note: String,
     cache_note: String,
     /// The devices shown on the controllers page.
     ports: Vec<Port>,
@@ -381,6 +402,7 @@ impl Prefs {
             chosen_tx,
             chosen_rx,
             library_note: String::new(),
+            import_note: String::new(),
             cache_note: String::new(),
             ports: Vec::new(),
             hidden_ports: Vec::new(),
@@ -426,6 +448,7 @@ impl Prefs {
                 settings::set(&id, json!(path.to_string_lossy()));
                 (self.rescan)();
                 self.library_note = "Updating what comes in from other apps…".into();
+                self.import_note = self.library_note.clone();
                 self.refresh();
                 continue;
             }
@@ -1260,17 +1283,11 @@ impl Prefs {
         if page != LIBRARY {
             return Vec::new();
         }
-        let mut tabs: Vec<String> = LIBRARY_TABS.iter().map(|t| t.to_string()).collect();
-        tabs.extend(
-            crate::stores::enabled_importers()
-                .iter()
-                .map(|i| i.title().to_string()),
-        );
-        tabs
+        LIBRARY_TABS.iter().map(|t| t.to_string()).collect()
     }
 
-    /// Settings › Library: General, Stages and Fields, then a tab for each
-    /// app imported from. `tab` None is every tab, for a search.
+    /// Settings › Library: General, Stages, Fields and Import. `tab` None
+    /// is every tab, for a search.
     fn library_page(&mut self, tab: Option<usize>) -> Vec<PrefItem> {
         let shows = |t: usize| tab.is_none_or(|x| x == t);
         let mut items = Vec::new();
@@ -1283,16 +1300,58 @@ impl Prefs {
         if shows(2) {
             items.extend(self.field_items());
         }
-        for (i, importer) in crate::stores::enabled_importers().iter().enumerate() {
-            if shows(LIBRARY_TABS.len() + i) {
-                items.extend(self.import_rows(importer.as_ref()));
-            }
+        if shows(IMPORT_TAB) {
+            items.extend(self.import_items());
         }
         items
     }
 
-    /// Settings › Library › General: the music folders, the cache, cover
-    /// art, and setting up an import from another DJ app.
+    /// Settings › Library › Import: each DJ app openDJ can bring a library
+    /// in from. One not set up offers Set up…; once it's on, its own
+    /// settings open up under its name. Apps still to come say so.
+    fn import_items(&self) -> Vec<PrefItem> {
+        let mut items = vec![item(
+            "",
+            NOTE,
+            "",
+            "Bring in another DJ app's library: its tracks, cues, grids and lists. openDJ \
+             keeps them up to date while you still use that app.",
+        )];
+        if !self.import_note.is_empty() {
+            items.push(item("", NOTE, "", &self.import_note));
+        }
+        for importer in crate::stores::importers() {
+            let title = importer.title();
+            items.push(item("", HEADING, &title.to_uppercase(), ""));
+            if settings::import_enabled(importer.id()) {
+                items.extend(self.import_rows(importer.as_ref()));
+            } else {
+                items.push(PrefItem {
+                    action: "Set up…".into(),
+                    ..item(
+                        &format!("import_start:{}", importer.id()),
+                        BUTTON,
+                        &format!("Import from {title}"),
+                        &format!(
+                            "Brings in {title}'s tracks, cues, grids and lists, and keeps them \
+                             up to date."
+                        ),
+                    )
+                });
+            }
+        }
+        items.push(item("", HEADING, "COMING SOON", ""));
+        for (title, detail) in COMING_IMPORTS {
+            items.push(PrefItem {
+                value: "Coming soon".into(),
+                ..item("", BUTTON, &format!("Import from {title}"), detail)
+            });
+        }
+        items
+    }
+
+    /// Settings › Library › General: the music folders, the cache and
+    /// cover art.
     fn library_general(&self) -> Vec<PrefItem> {
         let (count, bytes) = cache::analysis_usage();
         let cache_detail = if self.cache_note.is_empty() {
@@ -1343,28 +1402,6 @@ impl Prefs {
                 )
             },
         ]);
-        // Other DJ apps' libraries: set up in a few steps, then each one
-        // gets its own tab.
-        let mut importers = crate::stores::importers();
-        importers.retain(|i| !settings::import_enabled(i.id()));
-        if !importers.is_empty() {
-            items.push(item("", HEADING, "OTHER DJ APPS", ""));
-        }
-        for importer in importers {
-            let title = importer.title();
-            items.push(PrefItem {
-                action: "Set up…".into(),
-                ..item(
-                    &format!("import_start:{}", importer.id()),
-                    BUTTON,
-                    &format!("Import from {title}"),
-                    &format!(
-                        "Brings in {title}'s tracks, cues, grids and lists, and keeps them \
-                         up to date."
-                    ),
-                )
-            });
-        }
         items
     }
 
@@ -1478,8 +1515,6 @@ impl Prefs {
             self.wizard = Some(WizardState::new(i.as_ref()));
         } else if let Some(i) = id.strip_prefix("import_stop:").and_then(importer) {
             settings::set(&settings::import_enabled_key(i.id()), json!(false));
-            // Its tab goes; General is where it can be set up again.
-            self.show_tab(0);
         } else if let Some(i) = id.strip_prefix("import_remove:").and_then(importer) {
             if self.removing.as_deref() != Some(i.id()) {
                 self.removing = Some(i.id().to_string());
@@ -1489,7 +1524,7 @@ impl Prefs {
                 settings::set(&settings::import_remove_key(i.id()), json!(true));
                 (self.rescan)();
                 self.library_note = format!("Removing what came in from {}…", i.title());
-                self.show_tab(0);
+                self.import_note = self.library_note.clone();
             }
         } else if let Some(i) = id.strip_prefix("import_database:").and_then(importer) {
             choose(
@@ -1566,15 +1601,14 @@ impl Prefs {
         settings::set(&settings::import_theirs_key(id), json!(w.theirs_win));
         settings::set(&settings::import_remove_key(id), json!(false));
         settings::set(&settings::import_enabled_key(id), json!(true));
-        // Its own tab in Settings › Library, shown now.
-        if let Some(tab) = self.tabs(LIBRARY).iter().position(|t| t == i.title()) {
-            self.show_tab(tab);
-        }
+        // Its settings open up on the Import tab, shown now.
+        self.show_tab(IMPORT_TAB);
         (self.rescan)();
         self.library_note = format!(
             "Bringing in {}… tracks appear in the library when it is done.",
             i.title()
         );
+        self.import_note = self.library_note.clone();
     }
 
     fn toggled(&mut self, id: &str, on: bool) {
@@ -1602,6 +1636,7 @@ impl Prefs {
             // Brings the library and its lists in again with the new choice.
             (self.rescan)();
             self.library_note = "Updating what comes in from other apps…".into();
+            self.import_note = self.library_note.clone();
         }
         match id {
             "keylock_default" if on => self.each_deck("keylock", 1.0),

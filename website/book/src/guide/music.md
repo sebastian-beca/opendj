@@ -93,6 +93,11 @@ in or got from the tags stay as they are. While it runs, each waiting
 track has a gray dot by its title (lilac and pulsing while it is being
 analysed), and the footer shows how far along it is, with a ✕ to stop.
 
+A track with no cover also gets one: openDJ takes the first cover it finds
+online, if it is at least 600 pixels, and saves it in the file's tags. When
+the first one is smaller the track is left without, so you can pick one
+yourself from the cover dialog in **Info**.
+
 ## Phrases
 
 Once a track has a beat grid, openDJ splits it into phrases of whole
@@ -112,7 +117,9 @@ phrases**) to turn the bars off or on for every deck.
 ## Bringing in a VirtualDJ library
 
 Press **Set up…** next to **Import from VirtualDJ** in **Settings ›
-Library › General**. Three steps follow:
+Library › Import**. That tab is always there and lists every DJ app openDJ
+can bring a library in from; rekordbox, Mixxx, Serato DJ and Traktor are
+marked coming soon. Three steps follow:
 
 1. **Find your library.** openDJ looks for `database.xml` in
    `~/Library/Application Support/VirtualDJ` (or `~/.vdj` on Linux) and
@@ -135,12 +142,12 @@ you edited in openDJ are kept. The VirtualDJ folder is made again each time,
 so change those lists in VirtualDJ, or copy one out of the folder to keep
 editing it in openDJ.
 
-Once it's on, VirtualDJ gets its own tab in **Settings › Library**, with
-these choices and the two buttons below. **Stop** leaves what came in but
+Once it's on, VirtualDJ's section of the Import tab opens up with these
+choices and the two buttons below. **Stop** leaves what came in but
 stops updating it. **Remove…** takes out
 the VirtualDJ folder and history, VirtualDJ's cues, grids and markers, and
 the tracks only VirtualDJ had. Tracks in your own lists or music folder
-stay. Either one takes the VirtualDJ tab away again.
+stay. Either one closes the section again, back to **Set up…**.
 
 ## Library Health
 
