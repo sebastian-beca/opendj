@@ -1,6 +1,6 @@
 # openDJ
 
-openDJ is a free, open-source DJ app for macOS and Linux, built in Rust. It's
+openDJ is a free, open-source DJ app for macOS, Linux and Windows, built in Rust. It's
 made to be fast, pleasant to use, and to have a great Automix, for DJs just
 starting out and for experienced DJs alike.
 

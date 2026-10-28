@@ -6,11 +6,13 @@
   var ua = navigator.userAgent;
   var os = /Mac/.test(ua) && !/iPhone|iPad/.test(ua) ? "mac" : /Linux/.test(ua) && !/Android/.test(ua) ? "linux" : /Windows/.test(ua) ? "windows" : null;
 
-  // Windows until a release has its download: the card stays hidden and the
-  // main button keeps its generic label.
-  if (os && os !== "windows") {
+  if (os) {
     var card = document.querySelector('.dl-card[data-os="' + os + '"]');
     if (card) card.classList.add("is-mine");
+  }
+  // On Windows the main button keeps its generic label until a release has
+  // the Windows download (see showWindows).
+  if (os && os !== "windows") {
     var primary = document.querySelector("[data-download-primary]");
     if (primary) primary.textContent = os === "mac" ? "Download for Mac" : "Download for Linux";
   }
@@ -24,11 +26,16 @@
   };
 
   function showWindows() {
-    var card = document.querySelector('.dl-card[data-os="windows"]');
-    if (card) card.hidden = false;
-    document.querySelectorAll("[data-windows-note]").forEach(function (el) { el.hidden = true; });
+    var button = document.querySelector("[data-windows-button]");
+    if (button) {
+      button.textContent = "Download for Windows";
+      button.classList.replace("btn-ghost", "btn-primary");
+    }
+    document.querySelectorAll("[data-windows-zip]").forEach(function (el) { el.hidden = false; });
+    document.querySelectorAll("[data-windows-note]").forEach(function (el) {
+      el.textContent = "Builds aren't signed yet, so Windows asks before the first start: More info → Run anyway.";
+    });
     if (os === "windows") {
-      if (card) card.classList.add("is-mine");
       var primary = document.querySelector("[data-download-primary]");
       if (primary) primary.textContent = "Download for Windows";
     }
