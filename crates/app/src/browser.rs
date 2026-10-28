@@ -956,7 +956,7 @@ impl Browser {
                     b.sort_column = c;
                     b.ascending = true;
                 }
-                b.refresh_rows();
+                b.refresh_rows_keeping_current();
             }))
         });
         let w = with.clone();
@@ -3585,6 +3585,34 @@ impl Browser {
                 app.set_current_track(-1);
             }
         }
+    }
+
+    /// Lists the rows again, re-sorted, with the selected track still
+    /// selected at its new place (the list then scrolls to it).
+    fn refresh_rows_keeping_current(&mut self) {
+        let app = match self.app.upgrade() {
+            Some(app) if !is_stores(self.tree) => app,
+            _ => return self.refresh_rows(),
+        };
+        let current = usize::try_from(app.get_current_track()).ok();
+        // A collection track by its entry; any other row by its names.
+        let names = |r: &TrackRow| (r.title.clone(), r.artist.clone(), r.album.clone());
+        let was = current.and_then(|i| Some((*self.rows.get(i)?, self.list.row_data(i)?)));
+        self.refresh_rows();
+        let Some((local, row)) = was else {
+            return;
+        };
+        let at = match local {
+            Some(id) => self.rows.iter().position(|r| *r == Some(id)),
+            None => (0..self.list.row_count()).find(|&i| {
+                self.rows[i].is_none()
+                    && self
+                        .list
+                        .row_data(i)
+                        .is_some_and(|r| names(&r) == names(&row))
+            }),
+        };
+        app.set_current_track(at.map_or(-1, |i| i as i32));
     }
 
     fn refresh_side(&mut self) {
