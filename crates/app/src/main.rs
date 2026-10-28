@@ -72,6 +72,7 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
         g.set_devices(ModelRc::from(names_model.clone()));
     }
     let show = {
+        let app = app.as_weak();
         let default_device = default_device.clone();
         let engine = engine.clone();
         let devices = devices.clone();
@@ -84,6 +85,10 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
                 .and_then(|name| devices.iter().find(|d| d.name == *name))
                 .map_or(2, |d| d.channels);
             let status = engine.route_status();
+            if let Some(app) = app.upgrade() {
+                app.global::<AudioSettings>()
+                    .set_booth(setup.routes.iter().any(|r| r.role == Role::Booth));
+            }
             let rows: Vec<OutputRow> = setup
                 .routes
                 .iter()

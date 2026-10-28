@@ -53,7 +53,7 @@ The headphone (cue) mix SHALL carry every cued channel. CUE MIX (`headMix`) SHAL
 - **THEN** the left ear has deck 2 and the right has the master, each in mono
 
 ### Requirement: Master and booth
-MASTER (`[Master],gain`), BOOTH (`booth_gain`) and balance SHALL set the master and booth levels. MASTER, PHONES and BOOTH knobs SHALL be unipolar: 0 % fully left, no centre detent.
+MASTER (`[Master],gain`), BOOTH (`booth_gain`) and balance SHALL set the master and booth levels. MASTER, PHONES and BOOTH levels SHALL be unipolar: 0 % fully left, no centre detent.
 
 #### Scenario: Booth independent
 - **WHEN** BOOTH is turned down
@@ -80,9 +80,14 @@ The master SHALL pass through a look-ahead, stereo-linked peak limiter with a ce
 - **WHEN** two loud decks play with every fader up
 - **THEN** the master output never exceeds -0.5 dBFS
 
-### Requirement: Mixer tabs
-The centre mixer SHALL have tabs MIXER, FX (Beat FX), MIC (microphone and aux) and SETTINGS (outputs and controllers at a glance).
+### Requirement: MASTER panel
+The centre mixer SHALL have no tabs: the channels and the crossfader only, with the middle of its top row free for the effects. A click on MASTER in the top bar SHALL open a panel with horizontal sliders for Master, Phones, Booth (only while a booth output is set up) and Cue / Mix, plus Ableton Link; a click outside closes it. Cue / Mix SHALL have Cue on the left, Mix on the right and a detent at the centre. Audio routing SHALL live only in Settings › Audio.
 
-#### Scenario: Switch to MIC
-- **WHEN** the MIC tab is clicked
-- **THEN** the microphone and aux strips show in place of the channel mixer
+#### Scenario: Cue / Mix detent
+- **WHEN** the Cue / Mix slider is dragged to within 3 % of the centre
+- **THEN** it rests at the centre
+
+#### Scenario: No booth output
+- **WHEN** no output route has the booth role
+- **THEN** the MASTER panel shows no Booth slider
+
