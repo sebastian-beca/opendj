@@ -3,10 +3,12 @@ import { Theme, KeyNotation, CloseIcon } from "theme.slint";
 import { Controls, VuMeter, ControlKnob, HoverTipView } from "controls.slint";
 import { Deck, DeckInfo, KeyItem, EffectList, DeckActions, PhraseView, PhraseTip } from "deck.slint";
 import { Mixer, AudioSettings, OutputRow } from "mixer.slint";
+import { MasterPanel, MicPanel } from "toppanels.slint";
 import { PlayerDeck, PlayerMixer } from "player.slint";
 import { DeckStrip, FourDeckCenter } from "fourdeck.slint";
 import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, ColumnUi, ListColumn, HealthUi, HealthCard } from "library.slint";
 import { Preferences, PreferencesOverlay, PrefItem, ImportWizard } from "preferences.slint";
+import { UsbExport, UsbExportDialog } from "usb_export.slint";
 import { ControllerEditor, ControllerEditorOverlay, EditorRow, EditorPart, EditorPanel, EditorOption } from "controller_editor.slint";
 
 export { SourceUi, SourceTab, SearchItem, FoundRow, QueueLine } from "sources.slint";
@@ -14,7 +16,7 @@ export { TrackInfo, InfoField, CoverChoice } from "info.slint";
 export { FilterUi, FilterChip, FilterChoice } from "filters.slint";
 export { SamplerUi, SamplerPad, SamplePack, SampleChoice } from "sampler.slint";
 export { ColumnUi, ListColumn }
-export { Theme, Controls, DeckActions, PhraseView, PhraseTip, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, HealthUi, HealthCard, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption }
+export { Theme, Controls, DeckActions, PhraseView, PhraseTip, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, HealthUi, HealthCard, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, UsbExport }
 
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
 // the track under the pointer, like a hand on a record, and drag left or
@@ -85,84 +87,74 @@ component FooterButton inherits Rectangle {
     ta := TouchArea { clicked => { root.clicked(); } }
 }
 
-// Rounded group in the top bar.
-// Ableton Link: a click turns it on and off; while on it shows the
-// session's tempo, the deck it follows and how many other apps are in it.
-component LinkButton inherits Rectangle {
-    property <int> enabled-index: Controls.resolve("[Link]", "enabled");
-    property <int> peers-index: Controls.resolve("[Link]", "num_peers");
-    property <int> bpm-index: Controls.resolve("[Link]", "bpm");
-    property <bool> on: Controls.value(enabled-index, Controls.tick) > 0;
-    property <int> peers: Controls.value(peers-index, Controls.tick);
-    property <float> bpm: Controls.value(bpm-index, Controls.tick);
-    property <int> master: Controls.value(Controls.resolve("[Link]", "master_deck"), Controls.tick);
-    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : Theme.panel-raised;
-    border-radius: 10px;
-    border-width: 1px;
-    border-color: on ? Theme.accent : transparent;
-    height: 36px;
-    y: 8px;
-    horizontal-stretch: 0;
-    HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
-        spacing: 8px;
-        Text { text: "LINK"; color: on ? Theme.accent : Theme.text-dim; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
-        if on: Text {
-            text: (bpm > 0 ? (round(bpm * 10) / 10) + " BPM  ·  " : "")
-                + (master == 1 ? "Deck A  ·  " : master == 2 ? "Deck B  ·  " : "")
-                + (peers == 1 ? "1 peer" : peers + " peers");
-            color: Theme.text;
-            font-size: 12px;
-            vertical-alignment: center;
-        }
-    }
-    ta := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { Controls.toggle(enabled-index); }
-    }
-}
-
 // MIC: puts the microphone on (`[Microphone],talkover`), lit amber while it
 // is, with its level beside it once an input is chosen in the settings.
-// Its gain, EQ and effects are on the mixer's MIC page.
+// The arrow at its right end opens the MIC panel: the microphone's and
+// auxiliary input's levels, EQ and effects.
 component MicButton inherits Rectangle {
     property <int> on-index: Controls.resolve("[Microphone]", "talkover");
     property <bool> on: Controls.value(on-index, Controls.tick) > 0;
     property <bool> configured: Controls.value(Controls.resolve("[Microphone]", "input_configured"), Controls.tick) > 0;
     property <color> tint: Theme.mic;
-    background: ta.pressed ? Theme.control-pressed : on ? tint.with-alpha(0.16) : ta.has-hover ? #2e2e32 : Theme.panel-raised;
+    background: on ? tint.with-alpha(0.16) : Theme.panel-raised;
     border-radius: 10px;
     border-width: 1px;
     border-color: on ? tint : transparent;
     height: 36px;
     y: 8px;
     horizontal-stretch: 0;
+    clip: true;
     HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
-        spacing: 7px;
-        // A microphone on a stand.
-        Path {
-            width: 12px;
-            height: 16px;
-            y: (parent.height - self.height) / 2;
-            viewbox-width: 12;
-            viewbox-height: 16;
-            stroke: on ? tint : Theme.text-dim;
-            stroke-width: 1.5px;
-            fill: transparent;
-            commands: "M 3.5 3 A 2.5 2.5 0 0 1 8.5 3 L 8.5 7.5 A 2.5 2.5 0 0 1 3.5 7.5 Z M 1 7 A 5 5 0 0 0 11 7 M 6 12 L 6 15 M 3 15 L 9 15";
+        Rectangle {
+            background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #ffffff10 : transparent;
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 10px;
+                spacing: 7px;
+                // A microphone on a stand.
+                Path {
+                    width: 12px;
+                    height: 16px;
+                    y: (parent.height - self.height) / 2;
+                    viewbox-width: 12;
+                    viewbox-height: 16;
+                    stroke: on ? tint : Theme.text-dim;
+                    stroke-width: 1.5px;
+                    fill: transparent;
+                    commands: "M 3.5 3 A 2.5 2.5 0 0 1 8.5 3 L 8.5 7.5 A 2.5 2.5 0 0 1 3.5 7.5 Z M 1 7 A 5 5 0 0 0 11 7 M 6 12 L 6 15 M 3 15 L 9 15";
+                }
+                Text { text: "MIC"; color: on ? tint : Theme.text-dim; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+                if configured: VerticalLayout {
+                    alignment: center;
+                    VuMeter { group: "[Microphone]"; key: "VuMeter"; width: 4px; height: 16px; segments: 8; }
+                }
+            }
+            ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { Controls.toggle(on-index); }
+            }
         }
-        Text { text: "MIC"; color: on ? tint : Theme.text-dim; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
-        if configured: VerticalLayout {
-            alignment: center;
-            VuMeter { group: "[Microphone]"; key: "VuMeter"; width: 4px; height: 16px; segments: 8; }
+        Rectangle { width: 1px; background: on ? tint.with-alpha(0.5) : #ffffff18; }
+        Rectangle {
+            width: 26px;
+            background: arrow.pressed ? Theme.control-pressed : arrow.has-hover ? #ffffff10 : transparent;
+            Path {
+                width: 8px;
+                height: 5px;
+                commands: "M 0 0 L 4 4 L 8 0";
+                stroke: arrow.has-hover ? Theme.text : on ? tint : Theme.text-dim;
+                stroke-width: 1.4px;
+                fill: transparent;
+            }
+            arrow := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { panel.show(); }
+            }
         }
     }
-    ta := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { Controls.toggle(on-index); }
+    panel := MicPanel {
+        x: 0px;
+        y: root.height + 6px;
     }
 }
 
@@ -406,8 +398,12 @@ component WaveformsButton inherits Rectangle {
     }
 }
 
-component Pill inherits Rectangle {
-    background: Theme.panel-raised;
+// MASTER: the main meters and the clock. A click opens the MASTER panel
+// with the output levels and Ableton Link, lit while Link is on.
+component MasterPill inherits Rectangle {
+    in property <string> clock;
+    property <bool> link: Controls.value(Controls.resolve("[Link]", "enabled"), Controls.tick) > 0;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2e2e32 : Theme.panel-raised;
     border-radius: 10px;
     height: 36px;
     y: 8px;
@@ -416,7 +412,35 @@ component Pill inherits Rectangle {
         padding-left: 12px;
         padding-right: 12px;
         spacing: 10px;
-        @children
+        Text { text: "MASTER"; color: Theme.text-dim; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; vertical-alignment: center; }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            VuMeter { group: "[Master]"; key: "VuMeterL"; width: 120px; height: 4px; vertical: false; segments: 24; }
+            VuMeter { group: "[Master]"; key: "VuMeterR"; width: 120px; height: 4px; vertical: false; segments: 24; }
+        }
+        if link: Text { text: "LINK"; color: Theme.accent; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+        Text { text: clock; color: Theme.text; font-size: 14px; font-weight: 500; vertical-alignment: center; }
+        Path {
+            width: 8px;
+            height: 5px;
+            y: (parent.height - self.height) / 2;
+            commands: "M 0 0 L 4 4 L 8 0";
+            stroke: ta.has-hover ? Theme.text : Theme.text-dim;
+            stroke-width: 1.4px;
+            fill: transparent;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            AudioSettings.refresh();
+            panel.show();
+        }
+    }
+    panel := MasterPanel {
+        x: root.width - 300px;
+        y: root.height + 6px;
     }
 }
 
@@ -517,6 +541,10 @@ export component AppWindow inherits Window {
     callback load-track(deck: int, row: int);
     callback side-activate(row: int);
     callback side-remove(first: int, last: int);
+    // A key no field took, for the keyboard shortcuts (shortcuts.rs);
+    // true when it ran one. master is 0 for deck 1; first and last are
+    // the rows picked in the track list.
+    callback shortcut(text: string, cmd: bool, alt: bool, shift: bool, master: int, first: int, last: int) -> bool;
     callback automix-toggle();
     callback automix-mix-now();
     callback automix-skip();
@@ -567,20 +595,30 @@ export component AppWindow inherits Window {
     changed playing-4 => { playing-changed(3); }
 
     // Shortcuts no focused field took: ⌘, opens settings (Ctrl+, on
-    // Linux), Esc closes them, and the space bar pauses or resumes the
-    // master deck.
+    // Linux; Slint reads ⌘ as control on macOS), Esc closes them, and the
+    // space bar pauses or resumes the master deck. Any other key goes to
+    // the keyboard shortcuts, which run openDJscript (⌘1 to ⌘5 rate the
+    // picked tracks).
     keys := FocusScope {
         key-pressed(e) => {
             if e.text == " " && !Preferences.open && !e.modifiers.control && !e.modifiers.meta && !e.modifiers.alt {
                 Controls.set-value(play-index[master-deck], playing[master-deck] ? 0 : 1);
                 return accept;
             }
+            // Only opens, as in other Mac apps, so it can't undo the app
+            // menu's Settings… when both see the key.
             if e.text == "," && e.modifiers.control {
-                if Preferences.open {
-                    Preferences.open = false;
-                } else {
+                if !Preferences.open {
                     Preferences.show(Preferences.page);
                 }
+                return accept;
+            }
+            if e.text == Key.Escape && UsbExport.open && !UsbExport.running {
+                UsbExport.open = false;
+                return accept;
+            }
+            if e.text == Key.Escape && ControllerEditor.dialog != 0 {
+                ControllerEditor.dialog-done(false);
                 return accept;
             }
             if e.text == Key.Escape && ControllerEditor.open {
@@ -589,6 +627,9 @@ export component AppWindow inherits Window {
             }
             if e.text == Key.Escape && Preferences.open {
                 Preferences.open = false;
+                return accept;
+            }
+            if !Preferences.open && shortcut(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift, master-deck, browser.first-picked, browser.last-picked) {
                 return accept;
             }
             reject
@@ -629,22 +670,10 @@ export component AppWindow inherits Window {
                     spacing: 10px;
                     LayoutPill { layout <=> root.layout; changed-to(l) => { layout-changed(l); } }
                     WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
-                    LinkButton { }
                     Rectangle { horizontal-stretch: 1; }
                     MicButton { }
                     RecordButton { }
-                    Pill {
-                        // Only shown here: the master volume is in the mixer,
-                        // so the bar can always be dragged to move the window.
-                        Text { text: "MASTER"; color: Theme.text-dim; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; vertical-alignment: center; }
-                        VerticalLayout {
-                            alignment: center;
-                            spacing: 2px;
-                            VuMeter { group: "[Master]"; key: "VuMeterL"; width: 120px; height: 4px; vertical: false; segments: 24; }
-                            VuMeter { group: "[Master]"; key: "VuMeterR"; width: 120px; height: 4px; vertical: false; segments: 24; }
-                        }
-                        Text { text: clock; color: Theme.text; font-size: 14px; font-weight: 500; vertical-alignment: center; }
-                    }
+                    MasterPill { clock: clock; }
                     SettingsButton { }
                 }
             }
@@ -888,6 +917,10 @@ export component AppWindow inherits Window {
             init => { self.focus-search(); }
         }
         if ControllerEditor.open: ControllerEditorOverlay {
+            width: root.width;
+            height: root.height;
+        }
+        if UsbExport.open: UsbExportDialog {
             width: root.width;
             height: root.height;
         }

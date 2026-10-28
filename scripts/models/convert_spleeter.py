@@ -12,6 +12,7 @@ The weights are Deezer's (MIT). Each stem has its own U-Net; tensors are named
 are folded to a per-channel `scale` and `shift` (Keras epsilon 1e-3). Stored
 as fp16 to halve the download.
 """
+import struct
 import sys
 
 import numpy as np
@@ -26,9 +27,23 @@ def name(base, i):
     return base if i == 0 else f"{base}_{i}"
 
 
+def to_fp16(x):
+    """`x` as fp16, rounded the same way on every machine."""
+    values = np.asarray(x, dtype=np.float64).ravel().tolist()
+    packed = struct.pack(f"<{len(values)}e", *values)
+    return np.frombuffer(packed, dtype="<f2").reshape(np.shape(x)).copy()
+
+
 def main(checkpoint, out):
     r = tf.train.load_checkpoint(checkpoint)
-    get = r.get_tensor
+    # Everything is worked out in float64 and narrowed to fp16 by Python's
+    # own (correctly rounded) packing, not numpy's cast, which uses the CPU's
+    # conversion instructions where it has them and gave different bytes on
+    # some GitHub runners. So the file is the same on every machine and
+    # matches SHA256SUMS.
+    def get(key):
+        return r.get_tensor(key).astype(np.float64)
+
     tensors = {}
     for s, stem in enumerate(STEMS):
         # Keras numbered the layers in the order they were built: per stem,
@@ -53,7 +68,7 @@ def main(checkpoint, out):
             part = f"enc{k}" if k < 6 else f"dec{k - 6}"
             tensors[f"{stem}.{part}.bn_scale"] = scale
             tensors[f"{stem}.{part}.bn_shift"] = beta - mean * scale
-    tensors = {k: np.ascontiguousarray(v.astype(np.float16)) for k, v in tensors.items()}
+    tensors = {k: to_fp16(v) for k, v in tensors.items()}
     save_file(tensors, out, metadata={"model": "spleeter-4stems", "stems": ",".join(STEMS)})
     print(f"{out}: {len(tensors)} tensors")
 

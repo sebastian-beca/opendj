@@ -158,6 +158,12 @@
         },
     };
     globalThis.midi.send = globalThis.midi.sendSysexMsg;
+    // openDJ: makes note `from` on MIDI channel `channel` (0-15) act as note
+    // `to`, in both directions: pressing it runs `to`'s bindings, and lights
+    // sent to `to` show on it. `to === from` undoes it.
+    globalThis.midi.routeNote = function(channel, from, to) {
+        native.routeNote(Number(channel), Number(from), Number(to));
+    };
     // Mixxx 2.4: calls `callback(channel, control, value, status)` for each
     // message with this status and control; returns a handle to disconnect.
     globalThis.midi.makeInputHandler = function(status, control, callback) {

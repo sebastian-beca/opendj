@@ -16,8 +16,8 @@ use crate::controls::{
     create_global_controls, Action, DeckControls, Edge, MasterControls, HOTCUE_CUE, HOTCUE_LOOP,
     SCULPT_DEFAULTS,
 };
-use crate::dsp::{Isolator, Limiter, Sculpt, SweepFilter};
-use crate::effects::{input_target, EffectRack, MAIN, TARGETS};
+use crate::dsp::{Isolator, Limiter, Sculpt};
+use crate::effects::{input_target, ColorFx, EffectRack, COLOR_FX, MAIN, TARGETS};
 use crate::inputs::{Ducker, Input, InputFeed, AUXILIARY, MICROPHONE, NUM_INPUTS};
 use crate::key::{self, Key};
 use crate::keyshift::{transpose_factor, KeyShifter};
@@ -189,7 +189,8 @@ struct Deck {
     /// The rate sync last wrote, to tell a fader move from it.
     rate_written: f64,
     eq: Isolator,
-    filter: SweepFilter,
+    /// The filter knob's Color FX.
+    filter: ColorFx,
     sculpt: Sculpt,
     /// Gains reached at the end of the last buffer; each buffer ramps from these.
     eq_gains: [f32; 3],
@@ -276,6 +277,23 @@ impl Deck {
             || self.c.rate_search.get() != 0.0
             || self.c.reverse.get_bool()
             || self.c.reverseroll.get_bool()
+    }
+
+    /// The quantize step, in beats, for setting cue points and loops: the
+    /// deck's quantize size, but never more than a beat, so a loop or cue
+    /// isn't pulled back to the start of the bar.
+    fn point_step(&self) -> f64 {
+        self.quantize_beats().min(1.0)
+    }
+
+    /// The deck's quantize size in beats, 1/16 to 4.
+    fn quantize_beats(&self) -> f64 {
+        let b = self.c.quantize_beats.get();
+        if b > 0.0 {
+            b.clamp(1.0 / 16.0, 4.0)
+        } else {
+            1.0
+        }
     }
 
     /// The tempo at the play position, as playing.
@@ -447,8 +465,8 @@ impl Deck {
                             hc.kind.set(HOTCUE_LOOP);
                         } else {
                             let at = self.seconds();
-                            let snapped = if track.bpm > 0.0 {
-                                track.snap(at, false)
+                            let snapped = if self.c.quantize.get_bool() && track.bpm > 0.0 {
+                                track.snap_to(at, self.point_step(), false)
                             } else {
                                 at
                             };
@@ -479,11 +497,12 @@ impl Deck {
         }
 
         let quantize = self.c.quantize.get_bool();
+        let step = self.point_step();
         let snap = |t: f64, floor: bool| {
             if !quantize || track.bpm <= 0.0 {
                 return t;
             }
-            track.snap(t, floor)
+            track.snap_to(t, step, floor)
         };
         // Seconds from `t` to `beats` beats on, along the grid.
         let beats_from = |t: f64, beats: f64| track.beats_from(t, beats) - t;
@@ -798,6 +817,8 @@ impl Frames for Audio {
 /// time-stretcher (which reads ahead of the play position).
 pub(crate) struct StemMix<'a> {
     stems: &'a Stems,
+    /// The track itself, which separated stems play under (see [`Stems::mix`]).
+    audio: &'a Audio,
     from: [f32; MAX_STEMS],
     to: [f32; MAX_STEMS],
     span: f64,
@@ -805,9 +826,16 @@ pub(crate) struct StemMix<'a> {
 }
 
 impl<'a> StemMix<'a> {
-    fn new(stems: &'a Stems, from: [f32; MAX_STEMS], to: [f32; MAX_STEMS], span: f64) -> Self {
+    fn new(
+        stems: &'a Stems,
+        audio: &'a Audio,
+        from: [f32; MAX_STEMS],
+        to: [f32; MAX_STEMS],
+        span: f64,
+    ) -> Self {
         Self {
             stems,
+            audio,
             from,
             to,
             span: span.max(1.0),
@@ -821,7 +849,7 @@ impl Frames for StemMix<'_> {
     fn frame(&self, i: usize) -> [f32; 2] {
         let t = ((i as f64 - self.start.get()).abs() / self.span).min(1.0) as f32;
         let gains = std::array::from_fn(|k| self.from[k] + (self.to[k] - self.from[k]) * t);
-        self.stems.mix(i, &gains)
+        self.stems.mix(i, &gains, || self.audio.frame(i))
     }
 
     fn begin(&self, start: f64) {
@@ -964,6 +992,8 @@ pub struct Engine {
     decks: [Deck; NUM_DECKS],
     master: MasterControls,
     fx: EffectRack,
+    /// The Color FX chosen for every deck's filter knob (see [`COLOR_FX`]).
+    color_fx: f64,
     samplers: Samplers,
     commands: rtrb::Consumer<Command>,
     returned: rtrb::Producer<Returned>,
@@ -981,6 +1011,9 @@ pub struct Engine {
     link_master: Option<usize>,
     /// The deck synced decks follow.
     sync_leader: Option<usize>,
+    /// The leader picked by hand (its MASTER badge clicked), kept while it
+    /// has a track with a tempo.
+    sync_pinned: Option<usize>,
     /// Copies the master out while recording.
     record: RecordTap,
     record_feed: Option<Feed>,
@@ -1017,6 +1050,32 @@ fn sync_ratio(leader: f64, own: f64) -> f64 {
 }
 
 impl Engine {
+    /// One Color FX for all decks, as on a Pioneer mixer: a deck's
+    /// `loaded_chain_preset` set, or stepped with next/prev_chain_preset,
+    /// sets every deck's. Stepping skips 0 (none).
+    fn update_color_fx(&mut self) {
+        let n = COLOR_FX.len() as f64;
+        let mut chosen = self.color_fx;
+        for d in &mut self.decks {
+            let v = d.c.cfx_preset.get().round();
+            if v != self.color_fx {
+                chosen = v;
+            }
+            if d.c.cfx_edges[0].pressed(&d.c.cfx_next) {
+                chosen = if chosen >= n { 1.0 } else { chosen + 1.0 };
+            }
+            if d.c.cfx_edges[1].pressed(&d.c.cfx_prev) {
+                chosen = if chosen <= 1.0 { n } else { chosen - 1.0 };
+            }
+        }
+        self.color_fx = chosen.clamp(0.0, n);
+        for d in &self.decks {
+            if d.c.cfx_preset.get() != self.color_fx {
+                d.c.cfx_preset.set(self.color_fx);
+            }
+        }
+    }
+
     /// Creates all engine controls in `registry`.
     pub fn new(registry: &ControlRegistry, sample_rate: f64) -> (Self, EngineInput) {
         let master = create_global_controls(registry);
@@ -1057,7 +1116,7 @@ impl Engine {
             phase_offset: 0.0,
             rate_written: 0.0,
             eq: Isolator::new(sample_rate),
-            filter: SweepFilter::new(sample_rate),
+            filter: ColorFx::new(sample_rate),
             sculpt: Sculpt::new(sample_rate),
             eq_gains: [1.0; 3],
             pregain: 1.0,
@@ -1092,6 +1151,7 @@ impl Engine {
                 link: Link::new(registry),
                 link_master: None,
                 sync_leader: None,
+                sync_pinned: None,
                 record,
                 record_feed: Some(record_feed),
                 preview,
@@ -1101,6 +1161,7 @@ impl Engine {
                 decks,
                 master,
                 fx,
+                color_fx: 1.0,
                 samplers,
                 commands,
                 returned,
@@ -1404,11 +1465,53 @@ impl Engine {
     /// deck that has been playing longest, handing over when it stops, as
     /// Link's master deck does.
     fn pick_sync_leader(&mut self, synced: [bool; NUM_DECKS]) {
+        self.read_pinned_leader();
         let count = synced.iter().filter(|&&s| s).count();
-        if count == 0 {
+        let has_bpm = |d: &Deck| d.track.as_ref().is_some_and(|t| t.bpm > 0.0);
+        if let Some(p) = self.sync_pinned.filter(|&p| has_bpm(&self.decks[p])) {
+            self.sync_leader = Some(p);
+        } else if count == 0 {
             self.sync_leader = None;
-            return;
+        } else {
+            self.pick_soft_leader(synced, count);
         }
+        self.show_sync_leader(synced);
+    }
+
+    /// Takes a pin or unpin from the decks' `sync_leader` controls: 2 on a
+    /// deck not pinned pins it (the newest wins), anything else on the
+    /// pinned deck unpins it.
+    fn read_pinned_leader(&mut self) {
+        let pinned = |d: &Deck| d.c.sync_leader.get().round() as i32 == 2;
+        if let Some(p) = self.sync_pinned {
+            if !pinned(&self.decks[p]) {
+                self.sync_pinned = None;
+            }
+        }
+        if let Some(k) =
+            (0..NUM_DECKS).find(|&k| self.sync_pinned != Some(k) && pinned(&self.decks[k]))
+        {
+            self.sync_pinned = Some(k);
+        }
+    }
+
+    /// Writes the leader back to the decks' `sync_leader` controls: 2 on the
+    /// pinned deck, 1 on the leader while another deck follows it.
+    fn show_sync_leader(&self, synced: [bool; NUM_DECKS]) {
+        let followed = (0..NUM_DECKS).any(|i| synced[i] && self.sync_leader != Some(i));
+        for (k, d) in self.decks.iter().enumerate() {
+            let v = if self.sync_pinned == Some(k) {
+                2.0
+            } else if followed && self.sync_leader == Some(k) {
+                1.0
+            } else {
+                0.0
+            };
+            d.c.sync_leader.set(v);
+        }
+    }
+
+    fn pick_soft_leader(&mut self, synced: [bool; NUM_DECKS], count: usize) {
         let candidate = |k: usize| if count == 1 { !synced[k] } else { synced[k] };
         let playing =
             |d: &Deck| d.c.play.get_bool() && d.track.as_ref().is_some_and(|t| t.bpm > 0.0);
@@ -1493,13 +1596,22 @@ impl Engine {
             } else {
                 (sync_ratio(l.effective_bpm(), d.effective_bpm()), 0.0)
             };
+            // Quantize lines the jump up within its step (a bar at 4 beats,
+            // a sixteenth at 1/16); a synced deck keeps at least the beat,
+            // which its phase lock holds.
+            let step = if d.following {
+                d.quantize_beats().max(1.0)
+            } else {
+                d.quantize_beats()
+            };
             let beat = mine.beat_at(d.seconds());
-            let mut to = beat + phase_error(theirs.beat_at(l.seconds()) * ratio + offset, beat);
+            let theirs_beat = theirs.beat_at(l.seconds()) * ratio + offset;
+            let mut to = beat + step * phase_error(theirs_beat / step, beat / step);
             // A start before the track or a jump into a loop stays inside it.
             let looping = d.c.loop_enabled.get_bool() && d.loop_end > d.loop_start;
             let first = if looping { d.loop_start - 1e-6 } else { 0.0 };
             if mine.seconds_at(to) < first {
-                to += 1.0;
+                to += step;
             }
             let to = mine.seconds_at(to);
             if looping && !(d.loop_start - 1e-6..d.loop_end).contains(&to) {
@@ -1577,6 +1689,7 @@ impl Engine {
             }
         }
         self.land_in_phase(moved);
+        self.update_color_fx();
         self.samplers.update();
         self.preview.update();
         // Tempo-synced effects on the main mix follow the first playing deck.
@@ -1608,9 +1721,12 @@ impl Engine {
         }
         let sides = xfader_gains(x, self.master.xfader_shape.get() as u8);
         // Each deck follows the side it is assigned to; thru decks skip the
-        // crossfader.
+        // crossfader, and so does every deck while it is switched off.
+        let xfader_on =
+            self.master.xfader_enabled.get_bool() || self.master.autodj_enabled.get_bool();
         let xfade_target: [f32; NUM_DECKS] =
             std::array::from_fn(|i| match self.decks[i].c.orientation.get().round() as i32 {
+                _ if !xfader_on => 1.0,
                 0 => sides[0],
                 2 => sides[1],
                 _ => 1.0,
@@ -1661,7 +1777,9 @@ impl Engine {
                     d.c.eq[k].get() as f32
                 }
             });
-            d.filter.set(d.c.filter.get());
+            let beat = d.beat_seconds();
+            d.filter
+                .prepare(d.c.cfx_preset.get(), d.c.filter.get(), beat);
             let k = d.c.sculpt.each_ref().map(|c| c.get());
             d.sculpt.set(k[0], k[1], k[2], k[3]);
             let loop_frames = (d.c.loop_enabled.get_bool() && d.loop_end > d.loop_start)
@@ -1743,7 +1861,7 @@ impl Engine {
                     match (stems, stem_gains) {
                         (Some(s), Some((from, to))) => {
                             let span = speed * ratio * frames as f64;
-                            let mix = StemMix::new(s, from, to, span);
+                            let mix = StemMix::new(s, audio, from, to, span);
                             d.shifter.render(
                                 &mix,
                                 d.pos,
@@ -1841,7 +1959,7 @@ impl Engine {
                     let source = |pos: f64| match (p.stems, audio.stems()) {
                         (Some((from, to)), Some(stems)) => {
                             let gains = std::array::from_fn(|k| from[k] + (to[k] - from[k]) * r);
-                            read(&StemMix::new(stems, gains, gains, 1.0), pos)
+                            read(&StemMix::new(stems, audio, gains, gains, 1.0), pos)
                         }
                         _ => read(&**audio, pos),
                     };
@@ -2110,6 +2228,10 @@ mod tests {
     fn setup() -> (Arc<ControlRegistry>, Engine, EngineInput) {
         let reg = ControlRegistry::new();
         let (engine, input) = Engine::new(&reg, SR);
+        // The tests measure levels at unity, not at the DJ's starting levels.
+        for (key, value) in [("gain", 1.0), ("headGain", 1.0), ("headMix", 0.0)] {
+            reg.get("[Master]", key).unwrap().set(value);
+        }
         (reg, engine, input)
     }
 
@@ -2144,6 +2266,37 @@ mod tests {
             std::thread::sleep(due.saturating_duration_since(Instant::now()));
             engine.process(&mut buf, 2);
         }
+    }
+
+    #[test]
+    fn one_color_fx_for_every_deck() {
+        let (reg, mut engine, _input) = setup();
+        let c = |d: usize, k: &str| {
+            reg.get(&format!("[QuickEffectRack1_[Channel{}]]", d + 1), k)
+                .unwrap()
+        };
+        let presets = || {
+            (0..NUM_DECKS)
+                .map(|d| c(d, "loaded_chain_preset").get())
+                .collect::<Vec<_>>()
+        };
+        run(&mut engine, 0.01);
+        assert_eq!(presets(), vec![1.0; NUM_DECKS], "Filter to start with");
+        // Picking one on a deck picks it for all.
+        c(2, "loaded_chain_preset").set(3.0);
+        run(&mut engine, 0.01);
+        assert_eq!(presets(), vec![3.0; NUM_DECKS]);
+        // SHIFT + SMART CFX steps it on deck 1, wrapping round past the last.
+        for want in [4.0, 5.0, 1.0] {
+            c(0, "next_chain_preset").set(1.0);
+            c(0, "next_chain_preset").set(0.0);
+            run(&mut engine, 0.01);
+            assert_eq!(presets(), vec![want; NUM_DECKS]);
+        }
+        c(1, "prev_chain_preset").set(1.0);
+        c(1, "prev_chain_preset").set(0.0);
+        run(&mut engine, 0.01);
+        assert_eq!(presets(), vec![5.0; NUM_DECKS]);
     }
 
     #[test]
@@ -2256,8 +2409,58 @@ mod tests {
         load(&mut input, 0, track.clone());
         run(&mut engine, 0.01);
         assert_eq!(reg.get("[Channel1]", "stem_count").unwrap().get(), 4.0);
-        assert_eq!(reg_stem(&reg, "color").get(), 0x009E73 as f64);
+        assert_eq!(reg_stem(&reg, "color").get(), 0x2E4E75 as f64);
         assert_eq!(reg.get("[Channel2]", "stem_count").unwrap().get(), 0.0);
+    }
+
+    #[test]
+    fn separated_stems_play_the_original_less_what_is_turned_down() {
+        // The track is two tones; stem 1 holds the first, stem 2 the second.
+        let mut t = (*short_track(120.0, 4.0)).clone();
+        let n = (SR * 4.0) as usize;
+        let tone =
+            |hz: f64, i: usize| (std::f64::consts::TAU * hz * i as f64 / SR).sin() as f32 * 0.3;
+        let audio = Audio::from_frames(
+            SR as u32,
+            (0..n)
+                .map(|i| [tone(220.0, i) + tone(330.0, i); 2])
+                .collect(),
+        );
+        let mut info = crate::stems::default_info();
+        crate::stems::split_drums(&mut info);
+        let stems = Arc::new(crate::stems::Stems::separated(
+            info,
+            SR as u32,
+            n,
+            crate::stems::Quality::Fast,
+        ));
+        // Only the first 0.9 s is separated (of the 1.5 s rendered).
+        let frames = (0..(SR * 0.9) as usize)
+            .map(|i| {
+                let mut f = [[0i16; 2]; MAX_STEMS];
+                f[0] = [crate::stems::to_i16(tone(220.0, i)); 2];
+                f[1] = [crate::stems::to_i16(tone(330.0, i)); 2];
+                f
+            })
+            .collect();
+        stems.fill(0, frames);
+        assert!(audio.set_stems(stems));
+        t.audio = Some(Arc::new(audio));
+        let track = Arc::new(t);
+        let out = render(&track, |reg| {
+            reg.get("[Channel1_Stem1]", "mute").unwrap().set_bool(true)
+        });
+        let rms = |x: &[f32]| (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt();
+        let full = render(&track, |_| {});
+        let quarter = out.len() / 4;
+        let (first, second) = (&out[quarter..2 * quarter], &out[3 * quarter..]);
+        let (full_first, full_second) = (&full[quarter..2 * quarter], &full[3 * quarter..]);
+        // Muted where separated: one tone of two left.
+        let ratio = rms(first) / rms(full_first);
+        assert!((ratio - 0.71).abs() < 0.08, "one tone left: {ratio}");
+        // Not separated yet: the original plays.
+        let ratio = rms(second) / rms(full_second);
+        assert!((ratio - 1.0).abs() < 0.02, "the original: {ratio}");
     }
 
     #[test]
@@ -2343,7 +2546,10 @@ mod tests {
         eq("button_parameter3").set_bool(true);
         c("[QuickEffectRack1_[Channel1]]", "super1").set(0.8);
         c("[Sculpt_[Channel1]]", "lpf").set(0.3);
-        // Deck 1's unit, and the Beat FX on decks 1 and 2 with deck 2 playing.
+        // Deck 1's unit (with Echo, which has a length in beats), and the
+        // Beat FX on decks 1 and 2 with deck 2 playing.
+        slot(1, "loaded_effect").set(1.0);
+        run(&mut engine, 0.01);
         slot(1, "enabled").set_bool(true);
         slot(1, "beats").set(2.0);
         c("[EffectRack1_EffectUnit1]", "mix").set(0.4);
@@ -2722,6 +2928,104 @@ mod tests {
         assert!(phase_gap(&engine) > 0.1, "{}", phase_gap(&engine));
     }
 
+    /// How far apart the two decks are within `step` beats, 0 when lined up.
+    fn step_gap(engine: &Engine, step: f64) -> f64 {
+        let beat = |i: usize| {
+            let d = &engine.decks[i];
+            d.track.as_ref().unwrap().beat_at(d.seconds())
+        };
+        step * phase_error(beat(0) / step, beat(1) / step).abs()
+    }
+
+    #[test]
+    fn quantize_size_sets_how_a_start_lines_up() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(124.0, 30.0));
+        load(&mut input, 1, short_track(124.0, 30.0));
+        run(&mut engine, 0.02);
+        let c = |d: &str, k: &str| reg.get(d, k).unwrap();
+        c("[Channel1]", "play").set_bool(true);
+        // A bar: deck 2 starts on the same beat of the bar as deck 1.
+        c("[Channel2]", "quantize_beats").set(4.0);
+        run(&mut engine, 2.6);
+        c("[Channel2]", "play").set_bool(true);
+        run(&mut engine, 0.05);
+        assert!(step_gap(&engine, 4.0) < 0.01, "{}", step_gap(&engine, 4.0));
+
+        // Half a beat: in step on the half beat, not on the beat.
+        c("[Channel2]", "play").set_bool(false);
+        c("[Channel2]", "quantize_beats").set(0.5);
+        c("[Channel2]", "playposition").set(0.3);
+        run(&mut engine, 0.02);
+        let before = step_gap(&engine, 0.5);
+        c("[Channel2]", "play").set_bool(true);
+        run(&mut engine, 0.05);
+        assert!(
+            step_gap(&engine, 0.5) < 0.01,
+            "{before} -> {}",
+            step_gap(&engine, 0.5)
+        );
+    }
+
+    #[test]
+    fn a_hot_cue_is_set_on_the_quantize_step() {
+        let (reg, mut engine, mut input) = setup();
+        let track = short_track(120.0, 30.0);
+        load(&mut input, 0, track.clone());
+        run(&mut engine, 0.02);
+        let c = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let beat_at = |k: &str| track.beat_at(c(k).get());
+        // A quarter beat in from beat 2 snaps to the quarter.
+        c("quantize_beats").set(0.25);
+        c("playposition").set(track.seconds_at(2.27) / track.duration);
+        run(&mut engine, 0.02);
+        press(&reg, "[Channel1]", "hotcue_1_activate");
+        run(&mut engine, 0.02);
+        assert!((beat_at("hotcue_1_position") - 2.25).abs() < 1e-3);
+        // Quantize off: where it was pressed.
+        c("quantize").set_bool(false);
+        press(&reg, "[Channel1]", "hotcue_2_activate");
+        run(&mut engine, 0.02);
+        assert!((beat_at("hotcue_2_position") - 2.27).abs() < 0.02);
+    }
+
+    #[test]
+    fn a_pinned_leader_stays_leader_until_unpinned() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(124.0, 30.0));
+        load(&mut input, 1, short_track(128.0, 30.0));
+        run(&mut engine, 0.02);
+        let c = |d: &str, k: &str| reg.get(d, k).unwrap();
+        c("[Channel1]", "play").set_bool(true);
+        run(&mut engine, 0.2);
+        for d in ["[Channel1]", "[Channel2]"] {
+            c(d, "play").set_bool(true);
+            c(d, "sync_enabled").set_bool(true);
+        }
+        run(&mut engine, 0.2);
+        // Deck 1 started first, so it leads.
+        assert_eq!(c("[Channel1]", "sync_leader").get(), 1.0);
+        assert_eq!(c("[Channel2]", "sync_leader").get(), 0.0);
+
+        c("[Channel2]", "sync_leader").set(2.0);
+        run(&mut engine, 0.2);
+        assert_eq!(engine.sync_leader, Some(1));
+        assert_eq!(c("[Channel1]", "sync_leader").get(), 0.0);
+        // Deck 1 now follows, at the tempo they were both playing.
+        assert!((c("[Channel1]", "bpm").get() - c("[Channel2]", "bpm").get()).abs() < 0.01);
+        assert!(engine.decks[0].following && !engine.decks[1].following);
+        // Still leading when it stops.
+        c("[Channel2]", "play").set_bool(false);
+        run(&mut engine, 0.2);
+        assert_eq!(engine.sync_leader, Some(1));
+        assert_eq!(c("[Channel2]", "sync_leader").get(), 2.0);
+
+        c("[Channel2]", "sync_leader").set(0.0);
+        run(&mut engine, 0.2);
+        assert_eq!(engine.sync_leader, Some(0));
+        assert_eq!(c("[Channel1]", "sync_leader").get(), 1.0);
+    }
+
     #[test]
     fn a_hot_cue_on_a_synced_deck_lands_in_phase() {
         let (reg, mut engine, mut input) = setup();
@@ -3097,6 +3401,11 @@ mod tests {
             reg.get(&format!("[EffectRack1_EffectUnit1_Effect{n}]"), key)
                 .unwrap()
         };
+        // Echo in slot 1 and the Filter in slot 3 (the decks start with
+        // Reverb, Echo and Gate).
+        slot(1, "loaded_effect").set(1.0);
+        slot(3, "loaded_effect").set(3.0);
+        run(&mut engine, 0.01);
         reg.get(unit, "super1").unwrap().set(0.9);
         run(&mut engine, 0.01);
         for n in 1..=3 {
@@ -3505,6 +3814,28 @@ mod tests {
         assert!(!loud(Some(2.0), -1.0));
         // Thru: the crossfader leaves it alone.
         assert!(loud(Some(1.0), -1.0) && loud(Some(1.0), 1.0));
+    }
+
+    #[test]
+    fn disabled_crossfader_plays_every_deck() {
+        let loud = |enabled: bool, autodj: bool| {
+            let (reg, mut engine, mut input) = setup();
+            load(&mut input, 2, short_track(124.0, 4.0));
+            reg.get("[Mixer]", "crossfader_enabled")
+                .unwrap()
+                .set_bool(enabled);
+            reg.get("[AutoDJ]", "enabled").unwrap().set_bool(autodj);
+            // Deck 3 is on the left; the crossfader is all the way right.
+            reg.get("[Master]", "crossfader").unwrap().set(1.0);
+            run(&mut engine, 0.01);
+            reg.get("[Channel3]", "play").unwrap().set_bool(true);
+            let out = record(&mut engine, 0.5);
+            out.iter().map(|x| x.abs()).fold(0.0, f32::max) > 0.01
+        };
+        assert!(!loud(true, false));
+        assert!(loud(false, false));
+        // Automix needs the crossfader to mix, so it keeps working.
+        assert!(!loud(false, true));
     }
 
     fn reg_default_orientation() -> [f64; 4] {

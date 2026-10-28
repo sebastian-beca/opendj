@@ -3,7 +3,7 @@
 // faders in the middle with the main meter between them, crossfader below.
 // Dark knobs with white pointers, ticked faders.
 import { Theme, EdgeLine, CloseIcon } from "theme.slint";
-import { Caption, Controls, ControlButton, ControlFader, ControlKnob, CueHeadphones, StereoMeter } from "controls.slint";
+import { Caption, Controls, ControlButton, ControlFader, ControlKnob, Crossfader, CueHeadphones, StereoMeter } from "controls.slint";
 import { EffectList, FxSlot } from "deck.slint";
 
 // One output route in the settings table.
@@ -27,6 +27,8 @@ export global AudioSettings {
     in property <[OutputRow]> rows;
     in property <[string]> devices;
     in property <string> controllers: "None";
+    // A booth output is set up: the MASTER panel shows its level.
+    in property <bool> booth;
     callback refresh();
     callback set-role(row: int, role: int);
     callback set-device(row: int, device: int);
@@ -170,27 +172,6 @@ export component OutputsTable inherits VerticalLayout {
     }
 }
 
-// The settings page: outputs, controllers and the headphone and booth levels.
-component SettingsPage inherits VerticalLayout {
-    spacing: 6px;
-    Caption { text: "OUTPUTS"; horizontal-alignment: left; }
-    OutputsTable { }
-    EdgeLine { left: 8px; right: 8px; }
-    HorizontalLayout {
-        spacing: 8px;
-        Caption { text: "CONTROLLERS"; vertical-alignment: center; }
-        Text { text: AudioSettings.controllers; color: Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-    }
-    EdgeLine { left: 8px; right: 8px; }
-    HorizontalLayout {
-        alignment: space-around;
-        ControlKnob { group: "[Master]"; key: "headMix"; label: "CUE MIX"; bipolar: true; size: 32px; }
-        ControlKnob { group: "[Master]"; key: "headGain"; label: "CUE LEVEL"; size: 32px; }
-        ControlKnob { group: "[Master]"; key: "booth_gain"; label: "BOOTH"; size: 32px; }
-    }
-    Rectangle { vertical-stretch: 1; }
-}
-
 // A flat button for the Beat FX page: pressed, it pushes `key` (sets it
 // and lets go, as a controller button does).
 component FxPush inherits Rectangle {
@@ -220,17 +201,104 @@ component FxPush inherits Rectangle {
     }
 }
 
-// The Beat FX, as on a Pioneer mixer: one effect sent to deck 1, deck 2 or
-// both, with its length in beats (from the decks' tempo, or tapped), a
-// LEVEL/DEPTH knob, ON/OFF, and RELEASE to turn it off letting its tail ring
-// out. The DDJ-FLX4's BEAT FX section drives the same controls.
-component BeatFxPage inherits VerticalLayout {
+// The Color FX picker, over the meters above the knob mode menu: the chosen one's name, opening the list. Every deck's filter knob
+// plays it (one for all, as on a Pioneer mixer); SHIFT + SMART CFX on the
+// DDJ-FLX4 steps through them.
+component ColorFxMenu inherits Rectangle {
+    property <int> index: Controls.resolve("[QuickEffectRack1_[Channel1]]", "loaded_chain_preset");
+    property <int> cfx: Controls.value(index, Controls.tick);
+    height: 24px;
+    HorizontalLayout {
+        alignment: center;
+        spacing: 3px;
+        Text {
+            text: cfx >= 1 && cfx <= EffectList.color-fx.length ? EffectList.color-fx[cfx - 1].to-uppercase() : "NO CFX";
+            color: ta.has-hover ? Theme.text : Theme.label;
+            font-size: 9px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        Path {
+            width: 6px;
+            height: 4px;
+            y: (parent.height - self.height) / 2;
+            commands: "M 0 0 L 3 3.5 L 6 0";
+            stroke: ta.has-hover ? Theme.text : Theme.text-dim;
+            stroke-width: 1.2px;
+            fill: transparent;
+        }
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { menu.show(); } }
+    menu := PopupWindow {
+        x: 0px;
+        y: root.height + 2px;
+        width: 120px;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #000000a0;
+        }
+        VerticalLayout {
+            padding: 5px;
+            Text { text: "COLOR FX"; color: Theme.text-dim; font-size: 9px; font-weight: 700; letter-spacing: 0.5px; height: 20px; vertical-alignment: center; x: 8px; }
+            for name[i] in EffectList.color-fx: Rectangle {
+                property <bool> current: cfx == i + 1;
+                height: 24px;
+                border-radius: 4px;
+                background: current ? Theme.accent.with-alpha(0.35) : ita.has-hover ? #3a3a3d : transparent;
+                Text { x: 8px; text: name; color: Theme.text; font-size: 12px; font-weight: current ? 700 : 500; vertical-alignment: center; height: parent.height; }
+                ita := TouchArea {
+                    clicked => {
+                        Controls.set-value(index, i + 1);
+                        menu.close();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A value stepped with arrows either side, as the Beat FX effect and length.
+component Stepper inherits HorizontalLayout {
+    in property <string> text;
+    in property <bool> dim;
+    in property <string> group;
+    in property <string> prev-key;
+    in property <string> next-key;
+    callback prev();
+    callback next();
+    spacing: 2px;
+    FxPush { width: 18px; height: 26px; group: group; key: prev-key; text: "‹"; font-size: 14px; clicked => { root.prev(); } }
+    Rectangle {
+        horizontal-stretch: 1;
+        height: 26px;
+        border-radius: Theme.radius;
+        background: Theme.control;
+        border-width: 1px;
+        border-color: Theme.border;
+        Text { text: root.text; color: dim ? Theme.text-dim : Theme.text; font-size: 11px; font-weight: 700; overflow: elide; }
+    }
+    FxPush { width: 18px; height: 26px; group: group; key: next-key; text: "›"; font-size: 14px; clicked => { root.next(); } }
+}
+
+// The Beat FX under the mixer, as on a Pioneer mixer, in two rows: the
+// effect and its length in beats, then where it goes (deck 1, deck 2, both
+// or the main mix) and the tempo the beats come from (the decks', or
+// tapped); LEVEL/DEPTH and ON/OFF beside them. The DDJ-FLX4's BEAT FX
+// section drives the same controls.
+component FxSection inherits VerticalLayout {
     property <string> unit: "[EffectRack1_EffectUnit5]";
     property <string> slot: "[EffectRack1_EffectUnit5_Effect1]";
     property <int> ch1-index: Controls.resolve(unit, "group_[Channel1]_enable");
     property <int> ch2-index: Controls.resolve(unit, "group_[Channel2]_enable");
+    property <int> main-index: Controls.resolve(unit, "group_[Master]_enable");
     property <bool> ch1: Controls.value(ch1-index, Controls.tick) > 0;
     property <bool> ch2: Controls.value(ch2-index, Controls.tick) > 0;
+    property <bool> main: Controls.value(main-index, Controls.tick) > 0;
     property <int> loaded-index: Controls.resolve(slot, "loaded_effect");
     property <int> loaded: Controls.value(loaded-index, Controls.tick);
     property <int> beats-index: Controls.resolve(slot, "beats");
@@ -239,136 +307,78 @@ component BeatFxPage inherits VerticalLayout {
     property <float> bpm: Controls.value(bpm-index, Controls.tick);
     property <int> on-index: Controls.resolve(slot, "enabled");
     property <bool> on: Controls.value(on-index, Controls.tick) > 0;
-    spacing: 8px;
-    padding-top: 4px;
+    spacing: 6px;
+    Rectangle { height: 1px; background: Theme.border; }
+    Caption { text: "BEAT FX"; horizontal-alignment: left; }
     HorizontalLayout {
         spacing: 4px;
-        Caption { text: "BEAT FX"; vertical-alignment: center; horizontal-alignment: left; horizontal-stretch: 1; }
-        for c[i] in ["1", "2", "1&2"]: FxPush {
-            width: 40px;
-            height: 22px;
-            text: c;
-            lit: i == 0 ? ch1 && !ch2 : i == 1 ? ch2 && !ch1 : ch1 && ch2;
-            clicked => {
-                Controls.set-value(ch1-index, i != 1 ? 1 : 0);
-                Controls.set-value(ch2-index, i != 0 ? 1 : 0);
-            }
-        }
-    }
-    // The effect, stepped through as FX SELECT does.
-    HorizontalLayout {
-        spacing: 4px;
-        FxPush { width: 30px; group: slot; key: "prev_effect"; text: "‹"; font-size: 16px; }
-        Rectangle {
-            horizontal-stretch: 1;
-            height: 26px;
-            border-radius: Theme.radius;
-            background: Theme.control;
-            border-width: 1px;
-            border-color: Theme.border;
-            Text {
-                text: loaded > 0 && loaded <= EffectList.names.length ? EffectList.names[loaded - 1] : "No effect";
-                color: loaded > 0 ? Theme.text : Theme.text-dim;
-                font-size: 13px;
-                font-weight: 700;
-            }
-        }
-        FxPush { width: 30px; group: slot; key: "next_effect"; text: "›"; font-size: 16px; }
-    }
-    // Its length in beats, and the tempo the beats come from.
-    HorizontalLayout {
-        spacing: 4px;
-        FxPush {
-            width: 30px;
-            text: "‹";
-            font-size: 16px;
-            clicked => {
-                if beats > 1 / 16 {
-                    Controls.set-value(beats-index, beats / 2);
-                }
-            }
-        }
-        Rectangle {
-            horizontal-stretch: 1;
-            height: 26px;
-            border-radius: Theme.radius;
-            background: Theme.control;
-            border-width: 1px;
-            border-color: Theme.border;
-            Text {
-                text: beats <= 0 ? "–" : beats < 1 ? "1/" + round(1 / beats) : round(beats);
-                color: beats > 0 ? Theme.text : Theme.text-dim;
-                font-size: 13px;
-                font-weight: 700;
-            }
-        }
-        FxPush {
-            width: 30px;
-            text: "›";
-            font-size: 16px;
-            clicked => {
-                if beats > 0 && beats < 4 {
-                    Controls.set-value(beats-index, beats * 2);
-                }
-            }
-        }
-        Rectangle { width: 4px; }
-        FxPush { width: 44px; group: unit; key: "bpm_auto"; text: "AUTO"; lit: bpm <= 0; }
-        FxPush { width: 52px; group: unit; key: "bpm_tap"; text: bpm > 0 ? round(bpm) : "TAP"; lit: bpm > 0; }
-    }
-    HorizontalLayout {
-        alignment: space-around;
-        ControlKnob { group: slot; key: "meta"; label: "LEVEL/DEPTH"; size: 40px; }
         VerticalLayout {
-            spacing: 4px;
-            alignment: center;
-            FxPush {
-                width: 96px;
-                height: 32px;
-                text: "ON/OFF";
-                lit: on;
-                font-size: 12px;
-                clicked => { Controls.toggle(on-index); }
-            }
-            FxPush { width: 96px; group: unit; key: "release"; text: "RELEASE"; }
-        }
-    }
-    Rectangle { vertical-stretch: 1; }
-}
-
-// The MIXER / FX / SETTINGS switch at the top of the mixer's centre panel.
-component MixerTabs inherits Rectangle {
-    in-out property <int> tab;
-    height: 24px;
-    background: Theme.control;
-    border-bottom-left-radius: Theme.radius;
-    border-bottom-right-radius: Theme.radius;
-    border-width: 1px;
-    border-color: Theme.border;
-    HorizontalLayout {
-        padding: 2px;
-        spacing: 2px;
-        // Tab numbers: 0 MIXER, 2 FX, 3 MIC, 1 SETTINGS.
-        for t[i] in ["MIXER", "FX", "MIC", "SETTINGS"]: Rectangle {
-            property <int> n: [0, 2, 3, 1][i];
             horizontal-stretch: 1;
-            background: n == tab ? Theme.panel-raised.brighter(0.3) : transparent;
-            border-radius: Theme.radius - 2px;
-            Text { text: t; color: n == tab ? Theme.text : Theme.text-dim; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
-            TouchArea {
-                clicked => {
-                    if n == 1 {
-                        AudioSettings.refresh();
+            spacing: 6px;
+            HorizontalLayout {
+                spacing: 4px;
+                // The effect, stepped through as FX SELECT does.
+                Stepper {
+                    horizontal-stretch: 1;
+                    group: slot;
+                    prev-key: "prev_effect";
+                    next-key: "next_effect";
+                    text: loaded > 0 && loaded <= EffectList.names.length ? EffectList.names[loaded - 1] : "No effect";
+                    dim: loaded <= 0;
+                }
+                Stepper {
+                    width: 72px;
+                    text: beats <= 0 ? "–" : beats < 1 ? "1/" + round(1 / beats) : round(beats);
+                    dim: beats <= 0;
+                    prev => {
+                        if beats > 1 / 16 {
+                            Controls.set-value(beats-index, beats / 2);
+                        }
                     }
-                    tab = n;
+                    next => {
+                        if beats > 0 && beats < 4 {
+                            Controls.set-value(beats-index, beats * 2);
+                        }
+                    }
                 }
             }
+            HorizontalLayout {
+                spacing: 2px;
+                // Where it goes: 0 deck 1, 1 deck 2, 2 both, 3 the main mix.
+                for c[i] in ["1", "2", "1&2", "MST"]: FxPush {
+                    horizontal-stretch: 1;
+                    height: 26px;
+                    text: c;
+                    font-size: 10px;
+                    lit: i == 0 ? ch1 && !ch2 && !main : i == 1 ? ch2 && !ch1 && !main : i == 2 ? ch1 && ch2 && !main : main;
+                    clicked => {
+                        Controls.set-value(ch1-index, i == 0 || i == 2 ? 1 : 0);
+                        Controls.set-value(ch2-index, i == 1 || i == 2 ? 1 : 0);
+                        Controls.set-value(main-index, i == 3 ? 1 : 0);
+                    }
+                }
+                Rectangle { width: 2px; }
+                FxPush { width: 35px; height: 26px; group: unit; key: "bpm_auto"; text: "AUTO"; font-size: 10px; lit: bpm <= 0; }
+                FxPush { width: 35px; height: 26px; group: unit; key: "bpm_tap"; text: bpm > 0 ? round(bpm) : "TAP"; font-size: 10px; lit: bpm > 0; }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            ControlKnob { group: slot; key: "meta"; label: "LEVEL"; size: 28px; }
+        }
+        FxPush {
+            width: 46px;
+            height: 58px;
+            text: "ON";
+            lit: on;
+            font-size: 12px;
+            clicked => { Controls.toggle(on-index); }
         }
     }
 }
 
 // What the four knobs down each side of the mixer control, picked from the
-// menu between the gain knobs.
+// menu over the meters.
 export global MixerMode {
     // 0 EQ (high, mid, low, filter), 1 stem volumes, 2 sculpt as on
     // PlayDifferently's Model 1 (low-pass, sculpt frequency and cut/boost,
@@ -397,10 +407,11 @@ export component Knob inherits HorizontalLayout {
 export component SideKnob inherits Rectangle {
     in property <int> deck;
     in property <int> place;
-    in property <length> size: 30px;
+    in property <length> size: 27px;
     property <string> ch: "[Channel" + (deck + 1) + "]";
     property <string> eq: "[EqualizerRack1_" + ch + "_Effect1]";
     property <string> sculpt: "[Sculpt_" + ch + "]";
+    property <int> cfx: Controls.value(Controls.resolve("[QuickEffectRack1_" + ch + "]", "loaded_chain_preset"), Controls.tick);
     // Stems top to bottom: hi-hats (stem 5, split
     // from the drums), vocals, kick (the rest of the drums) and bass. The
     // melody stem has no knob here; its pad is on the STEMS page.
@@ -416,7 +427,8 @@ export component SideKnob inherits Rectangle {
             size: size;
             group: place == 3 ? "[QuickEffectRack1_" + ch + "]" : eq;
             key: ["parameter3", "parameter2", "parameter1", "super1"][place];
-            label: ["HIGH", "MID", "LOW", "FILTER"][place];
+            // The filter knob plays the chosen Color FX, and says which.
+            label: place == 3 ? (cfx >= 1 && cfx <= EffectList.color-fx.length ? EffectList.color-fx[cfx - 1].to-uppercase() : "CFX") : ["HIGH", "MID", "LOW"][place];
         }
         if mode == 1: Knob {
             size: size;
@@ -435,7 +447,7 @@ export component SideKnob inherits Rectangle {
     }
 }
 
-// The knob mode menu, in the tab row right of MIXER / SETTINGS.
+// The knob mode menu, over the mixer's meters.
 export component ModeMenu inherits Rectangle {
     height: 24px;
     // Just the name and an arrow, with no box round them.
@@ -502,14 +514,6 @@ component Channel inherits VerticalLayout {
     HorizontalLayout { alignment: center; CueHeadphones { group: group; tint: tint; } }
 }
 
-// A master section knob beside the crossfader, as wide as a side column.
-component SideRowKnob inherits HorizontalLayout {
-    in property <string> key;
-    in property <string> label;
-    width: 48px;
-    Knob { group: "[Master]"; key: key; label: label; origin: 0; size: 24px; }
-}
-
 // The four knobs down one side, spread over the mixer's height.
 component SideColumn inherits VerticalLayout {
     in property <int> deck;
@@ -527,145 +531,44 @@ component ChannelGrid inherits HorizontalLayout {
         horizontal-stretch: 1;
         alignment: space-around;
         Channel { group: "[Channel1]"; tint: Theme.deck1; }
-        // Level with the faders: below the gain knobs, above the cue buttons.
-        HorizontalLayout {
-            spacing: 4px;
-            padding-top: 56px;
+        // The Color FX and knob mode menus over the meters, which are
+        // level with the faders: below the gain knobs, above the cue buttons.
+        VerticalLayout {
             padding-bottom: 34px;
-            StereoMeter { group: "[Channel1]"; }
-            StereoMeter { group: "[Channel2]"; }
+            ColorFxMenu { width: 48px; }
+            ModeMenu { width: 48px; }
+            HorizontalLayout {
+                alignment: center;
+                spacing: 4px;
+                padding-top: 8px;
+                vertical-stretch: 1;
+                StereoMeter { group: "[Channel1]"; }
+                StereoMeter { group: "[Channel2]"; }
+            }
         }
         Channel { group: "[Channel2]"; tint: Theme.deck2; }
     }
     SideColumn { deck: 1; }
 }
 
-// One input on the MIC page: ON and headphone cue along the top, gain and
-// EQ beside its fader and meter. Dimmed with no device chosen
-// for it in the settings.
-component InputStrip inherits VerticalLayout {
-    in property <string> group;
-    in property <string> name;
-    // talkover for the microphone, main_mix for the auxiliary input.
-    in property <string> on-key;
-    in property <color> tint;
-    property <string> eq: "[EqualizerRack1_" + group + "_Effect1]";
-    property <bool> configured: Controls.value(Controls.resolve(group, "input_configured"), Controls.tick) > 0;
-    spacing: 6px;
-    HorizontalLayout {
-        spacing: 4px;
-        Caption { text: name; vertical-alignment: center; horizontal-alignment: left; horizontal-stretch: 1; }
-        ControlButton { group: group; key: on-key; text: "ON"; tint: tint; fill-when-lit: true; width: 34px; height: 22px; font-size: 10px; }
-        CueHeadphones { group: group; tint: tint; width: 30px; }
-    }
-    if !configured: Text {
-        text: "Choose an input in Settings";
-        color: Theme.text-dim;
-        font-size: 9px;
-        horizontal-alignment: center;
-        overflow: elide;
-    }
-    HorizontalLayout {
-        vertical-stretch: 1;
-        spacing: 2px;
-        opacity: configured ? 1 : 0.4;
-        VerticalLayout {
-            alignment: space-around;
-            GridLayout {
-                spacing: 4px;
-                Row {
-                    Knob { group: group; key: "pregain"; label: "GAIN"; size: 20px; }
-                    Knob { group: eq; key: "parameter3"; label: "HIGH"; size: 20px; }
-                }
-                Row {
-                    Knob { group: eq; key: "parameter2"; label: "MID"; size: 20px; }
-                    Knob { group: eq; key: "parameter1"; label: "LOW"; size: 20px; }
-                }
-            }
-        }
-        HorizontalLayout {
-            alignment: center;
-            horizontal-stretch: 1;
-            ControlFader { group: group; key: "volume"; tint: tint; ticks: 9; width: 26px; }
-        }
-        HorizontalLayout { padding-top: 4px; padding-bottom: 4px; StereoMeter { group: group; } }
-    }
-}
-
-// One of the microphone effect unit's slots, as a deck's FX row.
-component MicFxSlot inherits HorizontalLayout {
-    in property <int> slot;
-    property <int> loaded: Controls.value(Controls.resolve("[EffectRack1_EffectUnit" + (EffectList.mic-unit + 1) + "_Effect" + (slot + 1) + "]", "loaded_effect"), Controls.tick);
-    FxSlot {
-        horizontal-stretch: 1;
-        unit: EffectList.mic-unit;
-        slot: slot;
-        tint: Theme.mic;
-        name: loaded > 0 && loaded <= EffectList.names.length ? EffectList.names[loaded - 1] : "";
-    }
-}
-
-// The MIC page: the microphone and auxiliary inputs side by side, then the
-// microphone's own effect unit (EffectList.mic-unit), which the
-// decks' effects never touch. AUX sends the auxiliary input through it too.
-component InputsPage inherits VerticalLayout {
-    spacing: 6px;
-    padding-top: 2px;
-    HorizontalLayout {
-        vertical-stretch: 1;
-        spacing: 8px;
-        InputStrip { group: "[Microphone]"; name: "MIC"; on-key: "talkover"; tint: Theme.mic; horizontal-stretch: 1; }
-        Rectangle { width: 1px; background: Theme.border; }
-        InputStrip { group: "[Auxiliary1]"; name: "AUX"; on-key: "main_mix"; tint: Theme.accent; horizontal-stretch: 1; }
-    }
-    EdgeLine { left: 8px; right: 8px; }
-    VerticalLayout {
-        spacing: 3px;
-        HorizontalLayout {
-            spacing: 4px;
-            Caption { text: "MIC FX"; vertical-alignment: center; horizontal-alignment: left; horizontal-stretch: 1; }
-            ControlButton { group: "[EffectRack1_EffectUnit" + (EffectList.mic-unit + 1) + "]"; key: "group_[Auxiliary1]_enable"; text: "AUX"; tint: Theme.accent; width: 34px; height: 18px; font-size: 9px; }
-        }
-        for i in 3: MicFxSlot { slot: i; }
-    }
-}
-
 export component Mixer inherits Rectangle {
-    in-out property <int> tab: 0;
     background: Theme.panel;
     width: 282px;
     VerticalLayout {
         padding: 8px;
-        // The tabs hang from the top edge of the panel.
-        padding-top: 0px;
-        spacing: 6px;
-        // The tabs over the middle, and the knob mode menu to their right.
+        spacing: 4px;
+        ChannelGrid { vertical-stretch: 1; }
+        // Along the bottom edge, as on a hardware mixer: the crossfader.
+        // The levels are in the top bar's MASTER panel.
         HorizontalLayout {
-            Rectangle { width: 48px; }
-            HorizontalLayout {
-                horizontal-stretch: 1;
-                padding-left: 5px;
-                padding-right: 5px;
-                MixerTabs { tab <=> root.tab; }
-            }
-            Rectangle {
-                width: 48px;
-                if tab == 0: ModeMenu { width: parent.width; }
-            }
-        }
-        if tab == 1: SettingsPage { vertical-stretch: 1; }
-        if tab == 2: BeatFxPage { vertical-stretch: 1; }
-        if tab == 3: InputsPage { vertical-stretch: 1; }
-        if tab == 0: ChannelGrid { vertical-stretch: 1; }
-        // Along the bottom edge, as on a hardware mixer: headphone level,
-        // the crossfader, and master volume.
-        if tab == 0: HorizontalLayout {
-            SideRowKnob { key: "headGain"; label: "PHONES"; }
+            padding-left: 48px;
+            padding-right: 48px;
             Rectangle {
                 horizontal-stretch: 1;
-                ControlFader { x: 8px; y: (parent.height - self.height) / 2; width: parent.width - 16px; group: "[Master]"; key: "crossfader"; vertical: false; center-mark: true; ticks: 9; height: 28px; }
+                height: 28px;
+                Crossfader { x: 8px; width: parent.width - 16px; }
             }
-            SideRowKnob { key: "gain"; label: "MASTER"; }
         }
+        FxSection { }
     }
 }

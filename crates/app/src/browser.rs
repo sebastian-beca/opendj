@@ -7,7 +7,7 @@
 //! the tree lists the user's Spotify playlists, and their tracks play when the
 //! collection has them (see [`crate::spotify`]).
 
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -17,6 +17,7 @@ use mixxx_control::{ControlHandle, ControlRegistry};
 use mixxx_engine::key::{self, Key};
 use mixxx_engine::scan::{is_audio, read_track};
 use mixxx_engine::{deck_group, AudioEngine, Hotcue, Track, NUM_DECKS, NUM_HOTCUES};
+use mixxx_library::dupes::{Case, Group};
 use mixxx_library::health::{Check, Facts};
 use mixxx_library::query::{self, Context, Indexed, Query};
 use mixxx_library::stages::{Folders, Stage};
@@ -33,6 +34,7 @@ mod filters;
 mod health;
 mod info;
 mod staging;
+mod usb;
 
 pub use filters::DEFAULT_PINNED;
 
@@ -94,6 +96,9 @@ enum Contents {
     /// Library Health's page, or the tracks one of its checks finds (see
     /// [`mixxx_library::health`]).
     Health(Option<Check>),
+    /// The groups of copies of one case, under Library Health's
+    /// Duplicates (see [`mixxx_library::dupes`]).
+    Dupes(Case),
 }
 
 /// Whether the streaming services and stores (Spotify, Bandcamp, the other
@@ -129,6 +134,16 @@ fn all_source_names() -> Vec<String> {
 }
 
 /// A source's tree while another source is shown.
+/// What the track menu's undo line takes back.
+struct Undo {
+    /// The batch of stage changes and file moves in the library.
+    batch: Option<i64>,
+    /// What the line says.
+    text: String,
+    /// Tracks to bring back into the library: merged copies.
+    restore: Vec<usize>,
+}
+
 struct Parked {
     nodes: Vec<Node>,
     current: usize,
@@ -410,6 +425,11 @@ pub struct Browser {
     indexed: Vec<Indexed>,
     /// Ids of tracks that are in the library more than once.
     duplicates: HashSet<usize>,
+    /// The copies grouped by case, worked out (reading their files) the
+    /// first time they're needed after the library changes.
+    dupe_groups: OnceCell<Vec<Group>>,
+    /// Pairs of linked tracks, both ways round.
+    links: HashSet<(usize, usize)>,
     /// Tempo and key of the track playing now, for "mixes with deck", and its id.
     deck_ref: Option<(f64, Option<Key>)>,
     deck_track: Option<usize>,
@@ -436,10 +456,12 @@ pub struct Browser {
     /// Tempo and key for tracks in triage, found in the background.
     analysis: AnalysisQueue,
     analysis_shown: analysis::Shown,
+    /// Export to USB's dialog and export.
+    usb: usb::State,
     phrases_seen: analysis::SeenDecks,
-    /// The last stage change, which the track menu can take back: its
-    /// batch in the library and what to call it.
-    undo: Option<(i64, String)>,
+    /// The last stage change or merge of copies, which the track menu can
+    /// take back.
+    undo: Option<Undo>,
     /// Where files whose moves are waiting (file moves off) will go, by
     /// track id, so they show in the stage subfolder they're headed for.
     pending_moves: HashMap<usize, PathBuf>,
@@ -451,6 +473,8 @@ pub struct Browser {
     health_status: String,
     /// How many tracks have been taken out of the library.
     removed: usize,
+    /// Merged copies' files in quarantine, or on their way there.
+    quarantined: usize,
 }
 
 /// The Files source: the folder listed and the thread reading it.
@@ -832,6 +856,8 @@ impl Browser {
             },
             indexed: Vec::new(),
             duplicates: HashSet::new(),
+            dupe_groups: OnceCell::new(),
+            links: HashSet::new(),
             deck_ref: None,
             deck_track: None,
             history_tab: false,
@@ -857,6 +883,7 @@ impl Browser {
             folders: crate::settings::stage_folders(),
             analysis: AnalysisQueue::start(),
             analysis_shown: Default::default(),
+            usb: Default::default(),
             phrases_seen: Default::default(),
             undo: None,
             pending_moves: HashMap::new(),
@@ -864,6 +891,7 @@ impl Browser {
             cover_scan: CoverScan::start(),
             health_status: String::new(),
             removed: 0,
+            quarantined: 0,
         }));
         b.borrow_mut().set_library(library);
         app.global::<KeyNotation>().set_camelot(b.borrow().camelot);
@@ -1287,6 +1315,7 @@ impl Browser {
         Self::install_staging(&edit, &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
         Self::install_analysis(&edit, &with);
+        Self::install_usb_export(app, &edit, &with);
     }
 
     /// Saves a search as a smart list at the top level (under "Smart
@@ -2171,14 +2200,13 @@ impl Browser {
             .collect();
         self.index_of = library.iter().enumerate().map(|(i, t)| (t.id, i)).collect();
         self.indexed = library.iter().map(|t| Indexed::new(t)).collect();
-        self.duplicates =
-            query::duplicates(library.iter().filter(|t| !is_browsed(t)).map(|t| &**t));
         self.library = library;
         self.side = [Vec::new(), Vec::new()];
         self.folders = crate::settings::stage_folders();
         self.read_pending_moves();
         self.queue_triage_analysis();
         self.refresh_health();
+        self.refresh_dupes();
         let tree = self.collection_tree();
         if self.tree == COLLECTION {
             self.nodes = tree;
@@ -2497,6 +2525,29 @@ impl Browser {
                 eprintln!("can't save the rating: {e}");
             }
         });
+    }
+
+    /// Rates the rows picked in the track list, for a keyboard shortcut.
+    pub fn rate_rows(&mut self, first: usize, last: usize, rating: u8) {
+        for row in first..=last.min(self.rows.len().saturating_sub(1)) {
+            self.set_rating(row, rating);
+        }
+    }
+
+    /// Rates the track loaded on `deck`; false when there's none.
+    pub fn rate_deck(&mut self, deck: usize, rating: u8) -> bool {
+        let Some(index) = self.deck_track(deck) else {
+            return false;
+        };
+        self.adopt(&[index]);
+        let mut t = (*self.library[index]).clone();
+        t.rating = rating;
+        if let Some(Err(e)) = self.db.as_ref().map(|db| db.set_rating(t.id, rating)) {
+            eprintln!("can't save the rating: {e}");
+        }
+        self.library[index] = Arc::new(t);
+        self.refresh_rows();
+        true
     }
 
     /// Switches the sidebar between the library tree and the history.
@@ -3049,6 +3100,7 @@ impl Browser {
                             .filter(|t| !t.info.missing && self.at_stage(t, *stage, dir.as_deref()))
                             .count() as i32,
                         Contents::Health(Some(check)) => self.health_count(*check) as i32,
+                        Contents::Dupes(case) => self.dupe_tracks(Some(*case)).len() as i32,
                         _ => -1,
                     },
                 }
@@ -3252,6 +3304,8 @@ impl Browser {
                 .filter(|&t| self.at_stage(&self.library[t], *stage, dir.as_deref()))
                 .collect(),
             Contents::Query(q) => self.search(&Query::parse(q), None),
+            Contents::Health(Some(Check::Duplicate)) => self.dupe_tracks(None),
+            Contents::Dupes(case) => self.dupe_tracks(Some(*case)),
             Contents::Health(Some(check)) => self.health_tracks(*check),
             Contents::Health(None) => Vec::new(),
             Contents::Grouping(g) => all()
@@ -3406,8 +3460,12 @@ impl Browser {
             .collect();
         // A Spotify playlist keeps its own order until a column is clicked.
         // So does a folder in Files, in file name order.
-        let keep_order =
-            (self.current_playlist().is_some() || self.tree == FILES) && self.sort_column < 0;
+        // Copies stay in their groups, the one kept first.
+        let dupes = self.dupe_view();
+        let keep_order = ((self.current_playlist().is_some() || self.tree == FILES)
+            && self.sort_column < 0)
+            || dupes.is_some();
+        let fade = dupes.map(|case| self.dupe_faded(case)).unwrap_or_default();
         if !keep_order {
             let library = &self.library;
             data.sort_by(|a, b| {
@@ -3483,6 +3541,7 @@ impl Browser {
                     wave: Default::default(),
                     has_wave: false,
                     analysing: 0,
+                    fade: r.local.is_some_and(|id| fade.contains(&library[id].id)),
                 };
                 TrackRow {
                     cells: columns::row_cells(&ids, &row, r.local.map(|id| &*library[id])),
@@ -3515,7 +3574,12 @@ impl Browser {
             self.analysis_shown.marks.clear();
             self.mark_analysis_rows();
             app.set_tracks(ModelRc::from(self.list.clone()));
-            app.set_sort_column(self.sort_column);
+            // Copies are listed in their groups, whatever the sort.
+            app.set_sort_column(if dupes.is_some() {
+                -1
+            } else {
+                self.sort_column
+            });
             app.set_sort_ascending(self.ascending);
             if current >= self.rows.len() as i32 {
                 app.set_current_track(-1);

@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 mixxx-control = { path = "../control" }
+mixxx-separation = { path = "../separation" }
 cpal = "0.18"
 symphonia = { version = "0.6", features = ["all"] }
 lofty = "0.25"
@@ -20,3 +21,8 @@ serde_json = "1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 rusty_link = "0.4"
 flacenc = { version = "0.5", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+# ASIO drivers next to Windows Audio. The build downloads Steinberg's ASIO
+# SDK (GPLv3), so Windows builds are distributed under GPLv3.
+cpal = { version = "0.18", features = ["asio"] }

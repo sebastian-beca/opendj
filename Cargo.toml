@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/control", "crates/engine", "crates/controllers", "crates/waveform", "crates/library", "crates/plugins", "crates/separation", "crates/stem-bench", "crates/app"]
+members = ["crates/control", "crates/engine", "crates/controllers", "crates/waveform", "crates/library", "crates/export", "crates/plugins", "crates/separation", "crates/stem-bench", "crates/script", "crates/app"]
 exclude = ["third_party"]
 
 [workspace.package]
@@ -22,6 +22,12 @@ opt-level = 2
 opt-level = 2
 
 [profile.dev.package.signalsmith-stretch]
+opt-level = 2
+
+[profile.dev.package.mixxx-separation]
+opt-level = 2
+
+[profile.dev.package.matrixmultiply]
 opt-level = 2
 
 # femtovg (Slint's renderer) with a fix for its pipeline cache, which threw

@@ -414,18 +414,32 @@ impl Library {
     /// Brings back tracks taken out with [`Library::remove_tracks`]: these,
     /// or all of them when `ids` is `None`. Returns how many came back.
     pub fn restore_tracks(&mut self, ids: Option<&[usize]>) -> Result<usize, Error> {
-        match ids {
-            None => Ok(self.db.execute("DELETE FROM removed", [])?),
-            Some(ids) => {
-                let tx = self.db.transaction()?;
-                let mut n = 0;
-                for row in ids.iter().filter_map(|&id| row_id(id)) {
-                    n += tx.execute("DELETE FROM removed WHERE track_id = ?1", [row])?;
-                }
-                tx.commit()?;
-                Ok(n)
+        let rows: Vec<i64> = match ids {
+            None => {
+                let mut q = self.db.prepare("SELECT track_id FROM removed")?;
+                let rows = q.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+                rows
             }
+            Some(ids) => ids.iter().filter_map(|&id| row_id(id)).collect(),
+        };
+        let tx = self.db.transaction()?;
+        let mut n = 0;
+        for row in rows {
+            n += tx.execute("DELETE FROM removed WHERE track_id = ?1", [row])?;
+            // A merged copy (see `dupes`) whose file hasn't gone to
+            // quarantine yet stays where it is, with no stage.
+            tx.execute(
+                "DELETE FROM file_moves WHERE track_id = ?1 AND to_stage = 'quarantine'
+                   AND done IS NULL AND undone IS NULL",
+                [row],
+            )?;
+            tx.execute(
+                "UPDATE tracks SET stage = '' WHERE id = ?1 AND stage = 'quarantine'",
+                [row],
+            )?;
         }
+        tx.commit()?;
+        Ok(n)
     }
 
     /// How many tracks have been taken out of the library.

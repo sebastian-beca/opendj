@@ -27,11 +27,14 @@ pub mod link;
 pub mod loader;
 pub mod loudness;
 mod output;
+pub mod paths;
 pub mod phrases;
 pub mod preview;
+pub mod process;
 pub mod recorder;
 pub mod sampler;
 pub mod scan;
+pub mod separation;
 pub mod stems;
 pub mod synth;
 pub mod tags;
@@ -53,8 +56,8 @@ pub use controls::{
     NUM_EFFECT_UNITS, NUM_HOTCUES,
 };
 pub use effects::{
-    effect_name, parameter_names, AVAILABLE_EFFECTS, DEFAULT_EFFECTS, MAX_BUTTON_PARAMETERS,
-    MAX_PARAMETERS,
+    color_fx_name, effect_name, parameter_names, AVAILABLE_EFFECTS, COLOR_FX, DEFAULT_EFFECTS,
+    MAX_BUTTON_PARAMETERS, MAX_PARAMETERS,
 };
 pub use output::{
     channel_names, default_output_device, input_devices, output_devices, AudioSetup, InputRole,
@@ -374,13 +377,16 @@ impl AudioEngine {
         self.output.borrow().input_status()
     }
 
-    /// Separates `track` into stems with Demucs in the background (see
-    /// [`stems::separate`]); when it is done, the stems play on any deck the
-    /// track is loaded on. Check on it with [`stems::separation`].
-    pub fn separate_stems(&self, track: &Track) {
+    /// Prepares high-quality stems for `track` in the background (see
+    /// [`stems::separate`]); when they are ready, they take over on any deck
+    /// the track is loaded on. Check on it with [`stems::separation`].
+    pub fn prepare_hq_stems(&self, track: &Track) {
         let Source::File(path) = &track.source else {
             return;
         };
+        if stems::find(path).is_some() {
+            return;
+        }
         let loaded = self.loaded.clone();
         let file = path.clone();
         stems::separate(path, move |result| {

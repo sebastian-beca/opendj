@@ -34,8 +34,20 @@ struct UNet {
 
 const K: usize = 5;
 
+/// Threads to use; 0 means one per core.
+static THREADS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Limits the threads a separation uses, e.g. to leave cores free for
+/// audio while a deck plays; 0 is one per core.
+pub fn set_threads(n: usize) {
+    THREADS.store(n, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn threads() -> usize {
-    std::thread::available_parallelism().map_or(1, |n| n.get())
+    match THREADS.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => std::thread::available_parallelism().map_or(1, |n| n.get()),
+        n => n,
+    }
 }
 
 /// `c = a · b` for row-major `a` (m × k) and `b` (k × n).

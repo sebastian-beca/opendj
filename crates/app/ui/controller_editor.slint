@@ -9,10 +9,17 @@ import { MenuField } from "mixer.slint";
 import { SearchField, CloseButton } from "preferences.slint";
 import { ListView, ScrollView } from "scroll.slint";
 
-// A row of the Controls or Lights list, or a category heading above them.
+// A row of the Controls or Lights list, or a heading above them: a group
+// (Deck, Pads, Mixer…) or a category within it (Hot cues, Loops…).
 export struct EditorRow {
     header: bool,
-    // The heading's category, or what the control does: "Play / pause".
+    // 0 a group heading, 1 a category heading, 2 a control.
+    level: int,
+    // A heading's section is open.
+    open: bool,
+    // How many controls a heading's section holds.
+    count: int,
+    // The heading's name, or what the control does: "Play / pause".
     function: string,
     // "Deck 1", "Effect unit 2", or empty.
     target: string,
@@ -70,10 +77,24 @@ export struct EditorOption {
 
 export global ControllerEditor {
     in-out property <bool> open;
-    // The mappings to choose from, the controllers plugged in first.
+    // The controllers to choose from (by their Mixxx mapping), the ones
+    // plugged in first.
     in property <[string]> mappings;
     in property <int> chosen;
     in property <string> name;
+    // The mapping used for that controller: the original, one of the DJ's
+    // own copies, then Duplicate…, Rename… and Delete….
+    in property <[string]> versions;
+    in property <int> version;
+    in property <string> version-name;
+    // Whether the mapping shown is the original, which can't be changed.
+    in property <bool> original: true;
+    // A dialog over the editor: 0 none, 1 a name to type, 2 a question.
+    in property <int> dialog;
+    in property <string> dialog-title;
+    in property <string> dialog-detail;
+    in property <string> dialog-action;
+    in-out property <string> dialog-text;
     in property <string> author;
     // While the mapping is being read, or why it could not be.
     in property <bool> loading;
@@ -103,7 +124,12 @@ export global ControllerEditor {
     in property <int> scroll-serial;
     // Opens the editor on the controller plugged in, or the first mapping.
     callback show();
+    // Opens the editor on this mapping file, from a controller's Edit in
+    // Settings.
+    callback show-mapping(file: string);
     callback pick(index: int);
+    callback pick-version(index: int);
+    callback dialog-done(ok: bool);
     callback part-clicked(id: string);
     callback row-clicked(tab: int, index: int);
     callback searched();
@@ -165,36 +191,99 @@ component Tab inherits Rectangle {
     }
 }
 
-// A row of the Controls or Lights list.
+// The list's column headings: what you press, what it does, the message.
+component ColumnHeads inherits Rectangle {
+    in property <string> first;
+    in property <string> second;
+    in property <string> third;
+    height: 26px;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 24px;
+        spacing: 12px;
+        Text { width: 168px; text: root.first; color: Theme.text-dim; font-size: 10px; font-weight: 600; letter-spacing: 0.8px; vertical-alignment: center; }
+        Text { horizontal-stretch: 1; text: root.second; color: Theme.text-dim; font-size: 10px; font-weight: 600; letter-spacing: 0.8px; vertical-alignment: center; }
+        Text { width: 96px; text: root.third; color: Theme.text-dim; font-size: 10px; font-weight: 600; letter-spacing: 0.8px; vertical-alignment: center; horizontal-alignment: right; }
+    }
+    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.separator; }
+}
+
+// A chevron that points right when closed and down when open.
+component Chevron inherits Path {
+    in property <bool> open;
+    in property <color> color: Theme.text-dim;
+    width: 10px;
+    height: 10px;
+    viewbox-width: 10;
+    viewbox-height: 10;
+    commands: open ? "M 1.5 3 L 5 6.5 L 8.5 3" : "M 3 1.5 L 6.5 5 L 3 8.5";
+    stroke: color;
+    stroke-width: 1.6px;
+    fill: transparent;
+}
+
+// A row of the Controls or Lights list: a heading that opens and closes
+// its section, or a control in three columns (the control and its layer,
+// what it does, its MIDI message).
 component FunctionRow inherits Rectangle {
     in property <EditorRow> item;
     in property <bool> alt;
     callback clicked();
-    height: item.header ? 34px : 44px;
-    background: item.header ? transparent
+    height: item.level == 0 ? 38px : item.level == 1 ? 30px : 44px;
+    background: item.level == 0 ? (ta.has-hover ? #232326 : #1c1c1f)
+        : item.level == 1 ? (ta.has-hover ? #1e1e21 : transparent)
         : item.selected ? Theme.selection
         : ta.has-hover ? #222225
         : alt ? Theme.row-alt : Theme.row;
     property <color> ink: item.selected ? Theme.on-row-selection : Theme.text;
     property <color> dim: item.selected ? Theme.on-row-selection-dim : Theme.text-dim;
-    if item.header: Text {
-        x: 12px;
-        y: parent.height - self.height - 6px;
-        text: item.function;
-        color: Theme.lilac;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.8px;
-    }
-    if !item.header: HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
-        spacing: 10px;
+    if item.header: HorizontalLayout {
+        padding-left: item.level == 0 ? 12px : 30px;
+        padding-right: 24px;
+        spacing: 8px;
         VerticalLayout {
             alignment: center;
-            KindIcon { kind: item.kind; color: dim; }
+            Chevron { open: item.open; color: item.level == 0 ? Theme.lilac : Theme.text-dim; }
         }
-        // What it does, and where.
+        Text {
+            text: item.function;
+            color: item.level == 0 ? Theme.lilac : Theme.text;
+            font-size: item.level == 0 ? 12px : 12px;
+            font-weight: item.level == 0 ? 700 : 600;
+            letter-spacing: item.level == 0 ? 0.8px : 0px;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        Text { text: item.count; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
+    }
+    if item.header && item.level == 0: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.separator; }
+    if !item.header: HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 24px;
+        spacing: 12px;
+        // CONTROL: what you press, and the layer it works in.
+        HorizontalLayout {
+            width: 168px;
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                KindIcon { kind: item.kind; color: dim; }
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                Text { text: item.control; color: ink; font-size: 12px; font-weight: 600; overflow: elide; }
+                HorizontalLayout {
+                    alignment: start;
+                    if item.layer != "": Chip {
+                        text: item.layer;
+                        ink: item.selected ? Theme.on-row-selection : item.layer == "SHIFT" ? Theme.cue : Theme.text-dim;
+                        fill: item.selected ? #ffffff30 : item.layer == "SHIFT" ? Theme.cue.with-alpha(0.15) : #2a2a2e;
+                    }
+                }
+            }
+        }
+        // FUNCTION: what it does, and where.
         VerticalLayout {
             horizontal-stretch: 1;
             alignment: center;
@@ -206,31 +295,20 @@ component FunctionRow inherits Rectangle {
                 if item.script != "": Chip { text: "script"; ink: item.selected ? Theme.on-row-selection : Theme.lilac; fill: item.selected ? #ffffff30 : Theme.lilac.with-alpha(0.15); }
                 Rectangle { horizontal-stretch: 1; }
             }
-            Text {
-                text: item.detail != "" ? item.midi + "  ·  " + item.detail : item.midi;
-                color: dim;
-                font-size: 11px;
-                overflow: elide;
-            }
+            if item.detail != "": Text { text: item.detail; color: dim; font-size: 11px; overflow: elide; }
         }
-        // The control and the layer it works in.
-        VerticalLayout {
-            width: 150px;
-            alignment: center;
-            spacing: 2px;
-            Text { text: item.control; color: ink; font-size: 12px; horizontal-alignment: right; overflow: elide; }
-            HorizontalLayout {
-                alignment: end;
-                if item.layer != "": Chip {
-                    text: item.layer;
-                    ink: item.selected ? Theme.on-row-selection : item.layer == "SHIFT" ? Theme.cue : Theme.text-dim;
-                    fill: item.selected ? #ffffff30 : item.layer == "SHIFT" ? Theme.cue.with-alpha(0.15) : #2a2a2e;
-                }
-            }
+        // MIDI: the message.
+        Text {
+            width: 96px;
+            text: item.midi;
+            color: dim;
+            font-size: 11px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            wrap: word-wrap;
         }
     }
     ta := TouchArea {
-        enabled: !item.header;
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
@@ -352,12 +430,93 @@ component Picture inherits Rectangle {
     }
 }
 
-export component ControllerEditorOverlay inherits Rectangle {
-    background: #000000c0;
+// A small label before a field in the header.
+component FieldLabel inherits Text {
+    color: Theme.text-dim;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    vertical-alignment: center;
+}
+
+component DialogButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    callback clicked();
+    height: 28px;
+    width: max(80px, bl.preferred-width);
+    border-radius: Theme.radius;
+    background: primary ? (ta.pressed ? Theme.knob-arc.darker(0.3) : Theme.knob-arc) : ta.has-hover ? #3a3a3e : #2c2c30;
+    bl := HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        Text { text: root.text; color: Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// Naming a mapping, or asking before deleting one.
+component EditorDialog inherits Rectangle {
+    background: #00000080;
     TouchArea { }
     Rectangle {
-        width: root.width - 48px;
-        height: root.height - 48px;
+        width: 400px;
+        height: dl.preferred-height;
+        border-radius: 12px;
+        background: Theme.panel-raised;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 30px;
+        drop-shadow-color: #000000c0;
+        dl := VerticalLayout {
+            padding: 20px;
+            spacing: 12px;
+            Text { text: ControllerEditor.dialog-title; color: Theme.text; font-size: 16px; font-weight: 700; }
+            if ControllerEditor.dialog-detail != "": Text { text: ControllerEditor.dialog-detail; color: Theme.text-dim; font-size: 12px; wrap: word-wrap; }
+            if ControllerEditor.dialog == 1: Rectangle {
+                height: 30px;
+                border-radius: 6px;
+                background: Theme.well;
+                border-width: 1px;
+                border-color: Theme.knob-arc;
+                name := TextInput {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    text <=> ControllerEditor.dialog-text;
+                    color: Theme.text;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                    single-line: true;
+                    accepted => { ControllerEditor.dialog-done(true); }
+                    init => { self.focus(); self.select-all(); }
+                }
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                DialogButton { text: "Cancel"; clicked => { ControllerEditor.dialog-done(false); } }
+                DialogButton {
+                    text: ControllerEditor.dialog-action;
+                    primary: true;
+                    clicked => { ControllerEditor.dialog-done(true); }
+                }
+            }
+        }
+    }
+}
+
+export component ControllerEditorOverlay inherits Rectangle {
+    background: #000000a0;
+    // A click outside the editor closes it.
+    TouchArea {
+        clicked => { ControllerEditor.open = false; }
+    }
+    Rectangle {
+        width: min(1240px, root.width - 64px);
+        height: min(780px, root.height - 64px);
         border-radius: 12px;
         background: Theme.panel;
         border-width: 1px;
@@ -365,33 +524,45 @@ export component ControllerEditorOverlay inherits Rectangle {
         drop-shadow-blur: 40px;
         drop-shadow-color: #000000c0;
         clip: true;
+        TouchArea { }
         VerticalLayout {
-            // Header: the mapping, and that it is the original and can't be
-            // changed yet.
+            // Header: the controller, and which mapping it uses: the
+            // original or one of the DJ's own.
             HorizontalLayout {
-                height: 60px;
+                height: 56px;
                 padding-left: 20px;
                 padding-right: 14px;
-                spacing: 12px;
-                Text { text: "Controller Editor"; color: Theme.text; font-size: 20px; font-weight: 700; vertical-alignment: center; }
+                spacing: 10px;
+                Text { text: "Controller Editor"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; }
+                Rectangle { width: 8px; }
+                FieldLabel { text: "CONTROLLER"; }
                 VerticalLayout {
                     alignment: center;
                     MenuField {
-                        width: 300px;
-                        menu-width: 340px;
+                        width: 250px;
+                        menu-width: 320px;
                         text: ControllerEditor.name;
                         choices: ControllerEditor.mappings;
                         chosen: ControllerEditor.chosen;
                         picked(i) => { ControllerEditor.pick(i); }
                     }
                 }
+                Rectangle { width: 4px; }
+                FieldLabel { text: "MAPPING"; }
                 VerticalLayout {
                     alignment: center;
-                    Chip { text: "Original mapping"; ink: Theme.lilac; fill: Theme.lilac.with-alpha(0.15); }
+                    MenuField {
+                        width: 220px;
+                        menu-width: 260px;
+                        text: ControllerEditor.version-name;
+                        choices: ControllerEditor.versions;
+                        chosen: ControllerEditor.version;
+                        picked(i) => { ControllerEditor.pick-version(i); }
+                    }
                 }
                 VerticalLayout {
                     alignment: center;
-                    Chip { text: "View only"; }
+                    Chip { text: ControllerEditor.original ? "Original · view only" : "View only for now"; }
                 }
                 Text {
                     text: ControllerEditor.author != "" ? "by " + ControllerEditor.author : "";
@@ -447,7 +618,7 @@ export component ControllerEditorOverlay inherits Rectangle {
                 Rectangle { width: 1px; background: Theme.separator; }
                 // The list.
                 VerticalLayout {
-                    width: min(560px, root.width * 0.46);
+                    width: min(640px, root.width * 0.52);
                     padding: 14px;
                     padding-bottom: 0px;
                     spacing: 10px;
@@ -461,6 +632,7 @@ export component ControllerEditorOverlay inherits Rectangle {
                     }
                     if ControllerEditor.tab != 2: HorizontalLayout {
                         spacing: 8px;
+                        padding-bottom: 4px;
                         SearchField {
                             horizontal-stretch: 1;
                             text <=> ControllerEditor.query;
@@ -502,6 +674,8 @@ export component ControllerEditorOverlay inherits Rectangle {
                         font-size: 12px;
                         wrap: word-wrap;
                     }
+                    if ControllerEditor.tab == 0: ColumnHeads { first: "CONTROL"; second: "FUNCTION"; third: "MIDI IN"; }
+                    if ControllerEditor.tab == 1: ColumnHeads { first: "LIGHT"; second: "SHOWS"; third: "MIDI OUT"; }
                     if ControllerEditor.tab == 0: list := ListView {
                         vertical-stretch: 1;
                         // Brings a row found by pressing its control into view.
@@ -558,5 +732,9 @@ export component ControllerEditorOverlay inherits Rectangle {
                 }
             }
         }
+    }
+    if ControllerEditor.dialog != 0: EditorDialog {
+        width: root.width;
+        height: root.height;
     }
 }

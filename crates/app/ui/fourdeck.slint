@@ -6,8 +6,8 @@
 // deck number is clicked: then that side plays deck 3 or 4.
 import { TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
-import { ControlButton, ControlFader, Controls, CueHeadphones, KeyLock, PitchReset, StereoMeter } from "controls.slint";
-import { DeckInfo, FxRows, Header, LoopStepper, Pads, PlayButton } from "deck.slint";
+import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, KeyLock, PitchReset, QuantizeButton, StereoMeter } from "controls.slint";
+import { DeckInfo, FxRows, Header, LoopStepper, Pads, PlayButton, TempoStep } from "deck.slint";
 import { AudioSettings, Knob, ModeMenu, SideKnob } from "mixer.slint";
 
 // Which side of the crossfader a deck is on, as Mixxx's `orientation`:
@@ -18,7 +18,10 @@ component CrossfaderAssign inherits Rectangle {
     property <int> index: Controls.resolve(group, "orientation");
     property <int> side: Controls.value(index, Controls.tick);
     property <[string]> names: ["LEFT", "THRU", "RIGHT"];
+    // Dimmed while the crossfader is switched off; the choice stays.
+    property <int> enabled-index: Controls.resolve("[Mixer]", "crossfader_enabled");
     width: 64px;
+    opacity: Controls.value(enabled-index, Controls.tick) > 0 ? 1 : 0.35;
     HorizontalLayout {
         alignment: start;
         spacing: 3px;
@@ -143,12 +146,13 @@ export component DeckStrip inherits Rectangle {
                     ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: Theme.cue; font-size: 13px; width: 64px; }
                     LoopStepper { group: group; info: info; horizontal-stretch: 1; }
                 }
-                // Crossfader side, SYNC and the tempo with fine + and −.
+                // Crossfader side, SYNC and quantize, and the tempo with fine − and +.
                 HorizontalLayout {
                     height: 30px;
                     spacing: 6px;
                     CrossfaderAssign { deck: deck; }
-                    ControlButton { group: group; key: "sync_enabled"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 12px; width: 60px; }
+                    ControlButton { group: group; key: "sync_enabled"; shift-key: "beatsync"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 12px; width: 48px; }
+                    QuantizeButton { group: group; width: 40px; }
                     // Pitch reset, pointing at the tempo, over key lock.
                     VerticalLayout {
                         alignment: center;
@@ -162,8 +166,11 @@ export component DeckStrip inherits Rectangle {
                         Text { text: info.loaded ? info.bpm : "--"; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; }
                         Text { text: info.rate; color: Theme.text-dim; font-size: 10px; horizontal-alignment: center; }
                     }
-                    ControlButton { group: group; key: "rate_perm_down_small"; text: "−"; momentary: true; tint: tint; font-size: 15px; width: 26px; }
-                    ControlButton { group: group; key: "rate_perm_up_small"; text: "+"; momentary: true; tint: tint; font-size: 15px; width: 26px; }
+                    HorizontalLayout {
+                        alignment: center;
+                        TempoStep { group: group; key: "rate_perm_down_small"; text: "−"; tint: tint; }
+                        TempoStep { group: group; key: "rate_perm_up_small"; text: "+"; tint: tint; }
+                    }
                 }
                 Pads { deck: deck; group: group; info: info; vertical-stretch: 1; min-height: 77px; }
                 FxRows { deck: deck; names: info.effects; }
@@ -179,8 +186,8 @@ export component DeckStrip inherits Rectangle {
     }
 }
 
-// Between decks 1 and 2: the knob mode, master and headphones, and the
-// crossfader.
+// Between decks 1 and 2: the knob mode, the main meter and the
+// crossfader. The levels are in the top bar's MASTER panel.
 export component FourDeckCenter inherits Rectangle {
     background: Theme.panel;
     width: 150px;
@@ -189,20 +196,11 @@ export component FourDeckCenter inherits Rectangle {
         spacing: 10px;
         ModeMenu { }
         HorizontalLayout {
-            alignment: space-around;
-            Knob { group: "[Master]"; key: "gain"; label: "MASTER"; origin: 0; size: 28px; }
-        }
-        HorizontalLayout {
-            alignment: space-around;
-            Knob { group: "[Master]"; key: "headGain"; label: "PHONES"; origin: 0; size: 24px; }
-            Knob { group: "[Master]"; key: "headMix"; label: "CUE MIX"; size: 24px; }
-        }
-        HorizontalLayout {
             alignment: center;
             spacing: 4px;
             vertical-stretch: 1;
             StereoMeter { group: "[Master]"; }
         }
-        ControlFader { group: "[Master]"; key: "crossfader"; vertical: false; center-mark: true; ticks: 9; height: 28px; }
+        Crossfader { }
     }
 }

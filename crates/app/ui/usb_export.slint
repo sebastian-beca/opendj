@@ -1,0 +1,267 @@
+// Export to USB: writes a list or folder to a stick that Pioneer DJ
+// players read (rekordbox's Device Library and OneLibrary).
+import { Theme } from "theme.slint";
+
+export global UsbExport {
+    in-out property <bool> open;
+    // What is being exported: "Friday", "Gigs (3 lists)".
+    in property <string> what;
+    in property <int> track-count;
+    // Mounted drives, by name, and the one picked (-1 none).
+    in property <[string]> drives;
+    in-out property <int> drive: -1;
+    // 0 both, 1 Device Library only, 2 OneLibrary only.
+    in-out property <int> format;
+    in property <bool> running;
+    // 0..1 while running.
+    in property <float> progress;
+    in property <string> status;
+    // How the export went, once it has finished; empty before.
+    in property <string> result;
+    in property <bool> failed;
+    callback refresh-drives();
+    callback start();
+    callback cancel();
+}
+
+component ExportButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    callback clicked();
+    height: 28px;
+    width: max(80px, bl.preferred-width);
+    border-radius: Theme.radius;
+    opacity: enabled ? 1 : 0.4;
+    background: primary ? (ta.pressed ? Theme.accent.darker(0.3) : Theme.accent) : ta.has-hover ? #3a3a3e : #2c2c30;
+    bl := HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        Text {
+            text: root.text;
+            color: primary ? #000000 : Theme.text;
+            font-size: 12px;
+            font-weight: 600;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: enabled ? pointer : default;
+        clicked => {
+            if enabled { root.clicked(); }
+        }
+    }
+}
+
+// A row to pick, with a round mark.
+component Choice inherits Rectangle {
+    in property <string> text;
+    in property <string> detail;
+    in property <bool> picked;
+    in property <bool> enabled: true;
+    callback clicked();
+    height: cl.preferred-height;
+    border-radius: 6px;
+    background: ta.has-hover && enabled ? #2c2c30 : transparent;
+    opacity: enabled ? 1 : 0.5;
+    cl := HorizontalLayout {
+        padding: 6px;
+        spacing: 10px;
+        Rectangle {
+            width: 14px;
+            height: 14px;
+            y: 2px;
+            border-radius: 7px;
+            border-width: 1.5px;
+            border-color: picked ? Theme.accent : Theme.text-dim;
+            Rectangle {
+                width: 6px;
+                height: 6px;
+                border-radius: 3px;
+                background: picked ? Theme.accent : transparent;
+            }
+        }
+        VerticalLayout {
+            spacing: 2px;
+            Text { text: root.text; color: Theme.text; font-size: 13px; }
+            if root.detail != "": Text { text: root.detail; color: Theme.text-dim; font-size: 11px; wrap: word-wrap; }
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: enabled ? pointer : default;
+        clicked => {
+            if enabled { root.clicked(); }
+        }
+    }
+}
+
+component Heading inherits Text {
+    color: Theme.text-dim;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+}
+
+export component UsbExportDialog inherits Rectangle {
+    background: #000000a0;
+    TouchArea { }
+    Rectangle {
+        width: 440px;
+        height: dl.preferred-height;
+        border-radius: 12px;
+        background: Theme.panel-raised;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 30px;
+        drop-shadow-color: #000000c0;
+        // Wrapped text is as wide as the layout, so it is measured right.
+        property <length> inner: self.width - 40px;
+        dl := VerticalLayout {
+            padding: 20px;
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: "Export to USB";
+                    color: Theme.text;
+                    font-size: 16px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    width: el.preferred-width + 12px;
+                    height: 18px;
+                    y: 2px;
+                    border-radius: 9px;
+                    background: Theme.accent.with-alpha(0.18);
+                    el := Text {
+                        text: "EXPERIMENTAL";
+                        color: Theme.accent;
+                        font-size: 9px;
+                        font-weight: 700;
+                        letter-spacing: 0.6px;
+                        vertical-alignment: center;
+                    }
+                }
+                Rectangle { }
+            }
+            Text {
+                text: UsbExport.what + " · " + UsbExport.track-count + (UsbExport.track-count == 1 ? " track" : " tracks");
+                color: Theme.text;
+                font-size: 13px;
+                wrap: word-wrap;
+                width: inner;
+            }
+
+            if UsbExport.result == "" && !UsbExport.running: VerticalLayout {
+                spacing: 12px;
+                HorizontalLayout {
+                    Heading { text: "DRIVE"; vertical-alignment: center; }
+                    Rectangle { }
+                    Text {
+                        text: "Refresh";
+                        color: Theme.accent;
+                        font-size: 11px;
+                        TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { UsbExport.refresh-drives(); }
+                        }
+                    }
+                }
+                if UsbExport.drives.length == 0: Text {
+                    text: "No drives found. Plug in a USB stick formatted FAT32 or exFAT, then Refresh.";
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                    width: inner;
+                }
+                VerticalLayout {
+                    spacing: 2px;
+                    for d[i] in UsbExport.drives: Choice {
+                        text: d;
+                        picked: UsbExport.drive == i;
+                        clicked => { UsbExport.drive = i; }
+                    }
+                }
+                Heading { text: "PLAYERS"; }
+                VerticalLayout {
+                    spacing: 2px;
+                    Choice {
+                        text: "All players";
+                        detail: "Writes both libraries below.";
+                        picked: UsbExport.format == 0;
+                        clicked => { UsbExport.format = 0; }
+                    }
+                    Choice {
+                        text: "CDJ-3000, NXS2 and older, XDJ-XZ, XDJ-RX3";
+                        detail: "Device Library (export.pdb).";
+                        picked: UsbExport.format == 1;
+                        clicked => { UsbExport.format = 1; }
+                    }
+                    Choice {
+                        text: "CDJ-3000X, XDJ-AZ, OPUS-QUAD, OMNIS-DUO";
+                        detail: "OneLibrary (exportLibrary.db).";
+                        picked: UsbExport.format == 2;
+                        clicked => { UsbExport.format = 2; }
+                    }
+                }
+                Text {
+                    text: "The stick's playlists are replaced by these. Music already on it stays, and isn't copied again. This hasn't been tried on a Pioneer player yet, so check the stick before a gig.";
+                    color: Theme.text-dim;
+                    font-size: 11px;
+                    wrap: word-wrap;
+                    width: inner;
+                }
+            }
+
+            if UsbExport.running: VerticalLayout {
+                spacing: 8px;
+                Rectangle {
+                    height: 6px;
+                    border-radius: 3px;
+                    background: Theme.well;
+                    Rectangle {
+                        x: 0;
+                        width: parent.width * clamp(UsbExport.progress, 0, 1);
+                        border-radius: 3px;
+                        background: Theme.accent;
+                    }
+                }
+                Text {
+                    text: UsbExport.status;
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    overflow: elide;
+                }
+            }
+
+            if UsbExport.result != "": Text {
+                text: UsbExport.result;
+                color: UsbExport.failed ? #ff6b5e : Theme.text;
+                font-size: 12px;
+                wrap: word-wrap;
+                width: inner;
+            }
+
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                if UsbExport.running: ExportButton {
+                    text: "Stop";
+                    clicked => { UsbExport.cancel(); }
+                }
+                if !UsbExport.running: ExportButton {
+                    text: UsbExport.result == "" ? "Cancel" : "Close";
+                    clicked => { UsbExport.open = false; }
+                }
+                if UsbExport.result == "" && !UsbExport.running: ExportButton {
+                    text: "Export";
+                    primary: true;
+                    enabled: UsbExport.drive >= 0 && UsbExport.track-count > 0;
+                    clicked => { UsbExport.start(); }
+                }
+            }
+        }
+    }
+}

@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.5 · Stems and performance**
+Planned for: **v0.5 · Stems and performance** (the first part, Spleeter on load, high-quality stems on request and the VirtualDJ stems pads, comes in v0.4; see tasks.md)
 
 ## Why
 
