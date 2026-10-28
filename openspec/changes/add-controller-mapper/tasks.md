@@ -2,8 +2,9 @@
 
 ## 1. Own mappings
 
-- [ ] 1.1 openDJ mapping format (superset of Mixxx XML) with read/write round-trip tests on bundled mappings
-- [ ] 1.2 Duplicate, rename, delete, Reload Original; pick per controller in Settings › Controllers
+- [x] 1.1 openDJ mapping file (name, based_on, changes) with create/rename/delete tests
+- [x] 1.2 Mapping menu in the Controller Editor: Original, own copies, Duplicate, Rename, Delete
+- [ ] 1.3 The controller runs the picked copy with its changes applied; Reload Original
 
 ## 2. Editing
 
