@@ -51,6 +51,8 @@ pub const TRACK_NUMBER: i32 = 17;
 pub const PREP: i32 = 18;
 /// The track's mini waveform, once analysed.
 pub const WAVE: i32 = 19;
+/// Where the file is: its folder and name, e.g. "_Staging/Kerala.flac".
+pub const LOCATION: i32 = 20;
 /// Tag field `i` (from 0) is column `TAGS + i`.
 pub const TAGS: i32 = 100;
 
@@ -100,6 +102,7 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
         d(LABEL, "Label", 110.0, false, DIM),
         d(COMPOSER, "Composer", 110.0, false, DIM),
         d(COMMENT, "Comment", 160.0, false, DIM),
+        d(LOCATION, "Location", 200.0, false, DIM),
     ]);
     out
 }
@@ -237,6 +240,21 @@ pub fn cell(id: i32, t: &Track, camelot: bool) -> String {
         TRACK_NUMBER => number(i.track_number),
         PREP => prep_dots(t),
         KEY_ID => crate::settings::show_key(&t.key, camelot),
+        LOCATION => match &t.source {
+            mixxx_engine::Source::File(p) => {
+                let name = p.file_name().map(|n| n.to_string_lossy());
+                let dir = p
+                    .parent()
+                    .and_then(|d| d.file_name())
+                    .map(|n| n.to_string_lossy());
+                match (dir, name) {
+                    (Some(d), Some(n)) => format!("{d}/{n}"),
+                    (None, Some(n)) => n.into_owned(),
+                    _ => String::new(),
+                }
+            }
+            _ => String::new(),
+        },
         id if id >= TAGS => i
             .user_tag((id - TAGS) as usize)
             .split_whitespace()
