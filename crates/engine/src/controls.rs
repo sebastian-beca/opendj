@@ -144,6 +144,11 @@ pub(crate) struct DeckControls {
     pub(crate) loop_in_pending: ControlHandle,
     pub(crate) beatloop_size: ControlHandle,
     pub(crate) quantize: ControlHandle,
+    /// What quantize snaps to, in beats: 1/16 to 4 (a bar), 1 by default.
+    pub(crate) quantize_beats: ControlHandle,
+    /// 0, or 1 while synced decks follow this deck, or 2 while it is
+    /// pinned as their leader (set 2 to pin, 0 to unpin), as in Mixxx.
+    pub(crate) sync_leader: ControlHandle,
     /// beatloop_N_enabled lights, by loop size in beats.
     pub(crate) beatloop_lights: Vec<(f64, ControlHandle)>,
     pub(crate) pushes: Vec<Push>,
@@ -340,6 +345,8 @@ impl DeckControls {
                 q.set_bool(true);
                 q
             },
+            quantize_beats: reg.create(g, "quantize_beats", 1.0, 1.0 / 16.0, 4.0, Behavior::Free),
+            sync_leader: reg.create(g, "sync_leader", 0.0, 0.0, 2.0, Behavior::Free),
             beatloop_lights: BEATLOOP_SIZES
                 .iter()
                 .map(|&size| {

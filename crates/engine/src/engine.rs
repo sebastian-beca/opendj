@@ -279,6 +279,23 @@ impl Deck {
             || self.c.reverseroll.get_bool()
     }
 
+    /// The quantize step, in beats, for setting cue points and loops: the
+    /// deck's quantize size, but never more than a beat, so a loop or cue
+    /// isn't pulled back to the start of the bar.
+    fn point_step(&self) -> f64 {
+        self.quantize_beats().min(1.0)
+    }
+
+    /// The deck's quantize size in beats, 1/16 to 4.
+    fn quantize_beats(&self) -> f64 {
+        let b = self.c.quantize_beats.get();
+        if b > 0.0 {
+            b.clamp(1.0 / 16.0, 4.0)
+        } else {
+            1.0
+        }
+    }
+
     /// The tempo at the play position, as playing.
     fn effective_bpm(&self) -> f64 {
         self.track
@@ -448,8 +465,8 @@ impl Deck {
                             hc.kind.set(HOTCUE_LOOP);
                         } else {
                             let at = self.seconds();
-                            let snapped = if track.bpm > 0.0 {
-                                track.snap(at, false)
+                            let snapped = if self.c.quantize.get_bool() && track.bpm > 0.0 {
+                                track.snap_to(at, self.point_step(), false)
                             } else {
                                 at
                             };
@@ -480,11 +497,12 @@ impl Deck {
         }
 
         let quantize = self.c.quantize.get_bool();
+        let step = self.point_step();
         let snap = |t: f64, floor: bool| {
             if !quantize || track.bpm <= 0.0 {
                 return t;
             }
-            track.snap(t, floor)
+            track.snap_to(t, step, floor)
         };
         // Seconds from `t` to `beats` beats on, along the grid.
         let beats_from = |t: f64, beats: f64| track.beats_from(t, beats) - t;
@@ -993,6 +1011,9 @@ pub struct Engine {
     link_master: Option<usize>,
     /// The deck synced decks follow.
     sync_leader: Option<usize>,
+    /// The leader picked by hand (its MASTER badge clicked), kept while it
+    /// has a track with a tempo.
+    sync_pinned: Option<usize>,
     /// Copies the master out while recording.
     record: RecordTap,
     record_feed: Option<Feed>,
@@ -1130,6 +1151,7 @@ impl Engine {
                 link: Link::new(registry),
                 link_master: None,
                 sync_leader: None,
+                sync_pinned: None,
                 record,
                 record_feed: Some(record_feed),
                 preview,
@@ -1443,11 +1465,53 @@ impl Engine {
     /// deck that has been playing longest, handing over when it stops, as
     /// Link's master deck does.
     fn pick_sync_leader(&mut self, synced: [bool; NUM_DECKS]) {
+        self.read_pinned_leader();
         let count = synced.iter().filter(|&&s| s).count();
-        if count == 0 {
+        let has_bpm = |d: &Deck| d.track.as_ref().is_some_and(|t| t.bpm > 0.0);
+        if let Some(p) = self.sync_pinned.filter(|&p| has_bpm(&self.decks[p])) {
+            self.sync_leader = Some(p);
+        } else if count == 0 {
             self.sync_leader = None;
-            return;
+        } else {
+            self.pick_soft_leader(synced, count);
         }
+        self.show_sync_leader(synced);
+    }
+
+    /// Takes a pin or unpin from the decks' `sync_leader` controls: 2 on a
+    /// deck not pinned pins it (the newest wins), anything else on the
+    /// pinned deck unpins it.
+    fn read_pinned_leader(&mut self) {
+        let pinned = |d: &Deck| d.c.sync_leader.get().round() as i32 == 2;
+        if let Some(p) = self.sync_pinned {
+            if !pinned(&self.decks[p]) {
+                self.sync_pinned = None;
+            }
+        }
+        if let Some(k) =
+            (0..NUM_DECKS).find(|&k| self.sync_pinned != Some(k) && pinned(&self.decks[k]))
+        {
+            self.sync_pinned = Some(k);
+        }
+    }
+
+    /// Writes the leader back to the decks' `sync_leader` controls: 2 on the
+    /// pinned deck, 1 on the leader while another deck follows it.
+    fn show_sync_leader(&self, synced: [bool; NUM_DECKS]) {
+        let followed = (0..NUM_DECKS).any(|i| synced[i] && self.sync_leader != Some(i));
+        for (k, d) in self.decks.iter().enumerate() {
+            let v = if self.sync_pinned == Some(k) {
+                2.0
+            } else if followed && self.sync_leader == Some(k) {
+                1.0
+            } else {
+                0.0
+            };
+            d.c.sync_leader.set(v);
+        }
+    }
+
+    fn pick_soft_leader(&mut self, synced: [bool; NUM_DECKS], count: usize) {
         let candidate = |k: usize| if count == 1 { !synced[k] } else { synced[k] };
         let playing =
             |d: &Deck| d.c.play.get_bool() && d.track.as_ref().is_some_and(|t| t.bpm > 0.0);
@@ -1532,13 +1596,22 @@ impl Engine {
             } else {
                 (sync_ratio(l.effective_bpm(), d.effective_bpm()), 0.0)
             };
+            // Quantize lines the jump up within its step (a bar at 4 beats,
+            // a sixteenth at 1/16); a synced deck keeps at least the beat,
+            // which its phase lock holds.
+            let step = if d.following {
+                d.quantize_beats().max(1.0)
+            } else {
+                d.quantize_beats()
+            };
             let beat = mine.beat_at(d.seconds());
-            let mut to = beat + phase_error(theirs.beat_at(l.seconds()) * ratio + offset, beat);
+            let theirs_beat = theirs.beat_at(l.seconds()) * ratio + offset;
+            let mut to = beat + step * phase_error(theirs_beat / step, beat / step);
             // A start before the track or a jump into a loop stays inside it.
             let looping = d.c.loop_enabled.get_bool() && d.loop_end > d.loop_start;
             let first = if looping { d.loop_start - 1e-6 } else { 0.0 };
             if mine.seconds_at(to) < first {
-                to += 1.0;
+                to += step;
             }
             let to = mine.seconds_at(to);
             if looping && !(d.loop_start - 1e-6..d.loop_end).contains(&to) {
@@ -2853,6 +2926,104 @@ mod tests {
         reg.get("[Channel2]", "play").unwrap().set_bool(true);
         run(&mut engine, 0.05);
         assert!(phase_gap(&engine) > 0.1, "{}", phase_gap(&engine));
+    }
+
+    /// How far apart the two decks are within `step` beats, 0 when lined up.
+    fn step_gap(engine: &Engine, step: f64) -> f64 {
+        let beat = |i: usize| {
+            let d = &engine.decks[i];
+            d.track.as_ref().unwrap().beat_at(d.seconds())
+        };
+        step * phase_error(beat(0) / step, beat(1) / step).abs()
+    }
+
+    #[test]
+    fn quantize_size_sets_how_a_start_lines_up() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(124.0, 30.0));
+        load(&mut input, 1, short_track(124.0, 30.0));
+        run(&mut engine, 0.02);
+        let c = |d: &str, k: &str| reg.get(d, k).unwrap();
+        c("[Channel1]", "play").set_bool(true);
+        // A bar: deck 2 starts on the same beat of the bar as deck 1.
+        c("[Channel2]", "quantize_beats").set(4.0);
+        run(&mut engine, 2.6);
+        c("[Channel2]", "play").set_bool(true);
+        run(&mut engine, 0.05);
+        assert!(step_gap(&engine, 4.0) < 0.01, "{}", step_gap(&engine, 4.0));
+
+        // Half a beat: in step on the half beat, not on the beat.
+        c("[Channel2]", "play").set_bool(false);
+        c("[Channel2]", "quantize_beats").set(0.5);
+        c("[Channel2]", "playposition").set(0.3);
+        run(&mut engine, 0.02);
+        let before = step_gap(&engine, 0.5);
+        c("[Channel2]", "play").set_bool(true);
+        run(&mut engine, 0.05);
+        assert!(
+            step_gap(&engine, 0.5) < 0.01,
+            "{before} -> {}",
+            step_gap(&engine, 0.5)
+        );
+    }
+
+    #[test]
+    fn a_hot_cue_is_set_on_the_quantize_step() {
+        let (reg, mut engine, mut input) = setup();
+        let track = short_track(120.0, 30.0);
+        load(&mut input, 0, track.clone());
+        run(&mut engine, 0.02);
+        let c = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let beat_at = |k: &str| track.beat_at(c(k).get());
+        // A quarter beat in from beat 2 snaps to the quarter.
+        c("quantize_beats").set(0.25);
+        c("playposition").set(track.seconds_at(2.27) / track.duration);
+        run(&mut engine, 0.02);
+        press(&reg, "[Channel1]", "hotcue_1_activate");
+        run(&mut engine, 0.02);
+        assert!((beat_at("hotcue_1_position") - 2.25).abs() < 1e-3);
+        // Quantize off: where it was pressed.
+        c("quantize").set_bool(false);
+        press(&reg, "[Channel1]", "hotcue_2_activate");
+        run(&mut engine, 0.02);
+        assert!((beat_at("hotcue_2_position") - 2.27).abs() < 0.02);
+    }
+
+    #[test]
+    fn a_pinned_leader_stays_leader_until_unpinned() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(124.0, 30.0));
+        load(&mut input, 1, short_track(128.0, 30.0));
+        run(&mut engine, 0.02);
+        let c = |d: &str, k: &str| reg.get(d, k).unwrap();
+        c("[Channel1]", "play").set_bool(true);
+        run(&mut engine, 0.2);
+        for d in ["[Channel1]", "[Channel2]"] {
+            c(d, "play").set_bool(true);
+            c(d, "sync_enabled").set_bool(true);
+        }
+        run(&mut engine, 0.2);
+        // Deck 1 started first, so it leads.
+        assert_eq!(c("[Channel1]", "sync_leader").get(), 1.0);
+        assert_eq!(c("[Channel2]", "sync_leader").get(), 0.0);
+
+        c("[Channel2]", "sync_leader").set(2.0);
+        run(&mut engine, 0.2);
+        assert_eq!(engine.sync_leader, Some(1));
+        assert_eq!(c("[Channel1]", "sync_leader").get(), 0.0);
+        // Deck 1 now follows, at the tempo they were both playing.
+        assert!((c("[Channel1]", "bpm").get() - c("[Channel2]", "bpm").get()).abs() < 0.01);
+        assert!(engine.decks[0].following && !engine.decks[1].following);
+        // Still leading when it stops.
+        c("[Channel2]", "play").set_bool(false);
+        run(&mut engine, 0.2);
+        assert_eq!(engine.sync_leader, Some(1));
+        assert_eq!(c("[Channel2]", "sync_leader").get(), 2.0);
+
+        c("[Channel2]", "sync_leader").set(0.0);
+        run(&mut engine, 0.2);
+        assert_eq!(engine.sync_leader, Some(0));
+        assert_eq!(c("[Channel1]", "sync_leader").get(), 1.0);
     }
 
     #[test]
