@@ -39,7 +39,7 @@
 //        * CUE/LOOP CALL - memory & delete (complex and not useful. Hot cues are sufficient)
 //
 //  Not implemented yet (but might be in the future):
-//      * Smart CFX
+//      * Smart CFX (only SHIFT + SMART CFX, which steps the Color FX)
 //      * Smart fader
 
 var PioneerDDJFLX4 = {};

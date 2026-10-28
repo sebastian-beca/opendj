@@ -41,11 +41,12 @@ pub const MAX_PARAMETERS: usize = 4;
 pub const MAX_BUTTON_PARAMETERS: usize = 2;
 
 /// The effects each slot starts with, as `loaded_effect` values.
+/// Each deck's own unit starts with Reverb, Echo and Gate (a beat-synced cut).
 pub const DEFAULT_EFFECTS: [[usize; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS] = [
-    [1, 2, 3],
-    [4, 5, 6],
-    [1, 6, 5],
-    [2, 4, 3],
+    [2, 1, 7],
+    [2, 1, 7],
+    [2, 1, 7],
+    [2, 1, 7],
     [1, 0, 0],
     [0; 3],
     [0; 3],
@@ -1648,6 +1649,146 @@ impl Spiral {
     }
 }
 
+/// The Color FX each deck's filter knob can play, Pioneer-style, as
+/// `[QuickEffectRack1_[ChannelN]],loaded_chain_preset` values 1 and up (0 is
+/// none: the knob does nothing). One is chosen for every deck at once, as on
+/// a Pioneer mixer; the DDJ-FLX4's SHIFT + SMART CFX steps through them.
+pub const COLOR_FX: [&str; 5] = ["Filter", "Space", "Dub Echo", "Noise", "Crush"];
+
+/// The Color FX of a `loaded_chain_preset` value ("" for none).
+pub fn color_fx_name(preset: f64) -> &'static str {
+    let i = preset.round();
+    if i >= 1.0 && i <= COLOR_FX.len() as f64 {
+        COLOR_FX[i as usize - 1]
+    } else {
+        ""
+    }
+}
+
+/// How long a Space or Dub Echo tail rings on once the knob is back in the
+/// middle, in seconds, before the deck stops running it.
+const COLOR_TAIL_SECONDS: f32 = 6.0;
+
+/// A deck's Color FX: one bipolar knob, off in the middle. Filter sweeps a
+/// low-pass to the left and a high-pass to the right; Space and Dub Echo send
+/// the sound, filtered the same way but more gently, into a reverb or a
+/// tempo-synced echo, more the further the knob turns; Noise adds filtered
+/// white noise; Crush lowers the bit depth and sample rate.
+pub(crate) struct ColorFx {
+    preset: usize,
+    sweep: crate::dsp::SweepFilter,
+    inst: Instance,
+    /// How far the knob is from the middle, 0..1, and how much of the effect
+    /// (as opposed to plain filtering) is heard, gliding.
+    amount: f32,
+    wet: f32,
+    /// Samples left of a ringing tail after the knob came back.
+    tail: f32,
+    sample_rate: f32,
+}
+
+impl ColorFx {
+    pub(crate) fn new(sample_rate: f64) -> Self {
+        let mut fx = Self {
+            preset: 1,
+            sweep: crate::dsp::SweepFilter::new(sample_rate),
+            inst: Instance::new(sample_rate as f32),
+            amount: 0.0,
+            wet: 0.0,
+            tail: 0.0,
+            sample_rate: sample_rate as f32,
+        };
+        fx.load(1);
+        fx
+    }
+
+    fn load(&mut self, preset: usize) {
+        self.preset = preset;
+        self.inst.kind = match preset {
+            2 => Some(Kind::Reverb),
+            3 => Some(Kind::Echo),
+            4 => Some(Kind::Noise),
+            5 => Some(Kind::Bitcrusher),
+            _ => None,
+        };
+        self.inst.reset();
+        self.tail = 0.0;
+        self.wet = 0.0;
+    }
+
+    /// Once per buffer: the chosen preset, the knob (0..1, 0.5 off) and the
+    /// deck's beat length in seconds.
+    pub(crate) fn prepare(&mut self, preset: f64, knob: f64, beat_seconds: f64) {
+        let preset = preset.round().clamp(0.0, COLOR_FX.len() as f64) as usize;
+        if preset != self.preset {
+            self.load(preset);
+        }
+        let side = knob - 0.5;
+        let a = (side.abs() * 2.0).min(1.0) as f32;
+        self.amount = a;
+        // Filter alone sweeps all the way; the others filter gently.
+        let filter_knob = match preset {
+            1 => knob,
+            2 | 3 => 0.5 + side * 0.55,
+            4 => 0.5 + side * 0.35,
+            5 => 0.5 + side * 0.25,
+            _ => 0.5,
+        };
+        self.sweep.set(filter_knob);
+        if a > 0.005 {
+            self.tail = COLOR_TAIL_SECONDS * self.sample_rate;
+        }
+        let ctx = Ctx {
+            sample_rate: self.sample_rate,
+            beat_seconds: beat_seconds as f32,
+        };
+        let p = match preset {
+            // Decay, bandwidth, damping, send.
+            2 => [0.55 + 0.4 * a, 0.7, 0.35, a],
+            // Half a beat; feedback grows with the knob; send.
+            3 => [beats_parameter(0.5, -4, 2), 0.55 + 0.35 * a, 0.0, a],
+            // Level, band (low noise to the left, high to the right), resonance.
+            4 => [a, (0.5 + side as f32).clamp(0.0, 1.0), 0.3, 0.0],
+            // Bit depth, downsampling.
+            5 => [1.0 - 0.75 * a, 1.0 - 0.92 * a, 0.0, 0.0],
+            _ => [0.0; MAX_PARAMETERS],
+        };
+        if self.inst.kind.is_some() {
+            self.inst.prepare(&p, ctx);
+        }
+    }
+
+    #[inline]
+    pub(crate) fn process(&mut self, x: [f32; 2]) -> [f32; 2] {
+        let y = self.sweep.process(x);
+        let Some(kind) = self.inst.kind else {
+            return y;
+        };
+        if self.tail <= 0.0 && self.amount == 0.0 {
+            self.wet = 0.0;
+            return y;
+        }
+        self.tail -= 1.0;
+        // Crush fades in over the first stretch of the knob, so a knob a hair
+        // off the middle doesn't quantize; the others scale themselves.
+        let goal = match kind {
+            Kind::Bitcrusher => (self.amount / 0.05).min(1.0),
+            _ => 1.0,
+        };
+        self.wet += (goal - self.wet) * 0.002;
+        if (goal - self.wet).abs() < 1e-5 {
+            self.wet = goal;
+        }
+        let z = self.inst.process(y);
+        [y[0] + (z[0] - y[0]) * self.wet, y[1] + (z[1] - y[1]) * self.wet]
+    }
+}
+
+/// The 0..1 parameter that [`beats`] reads back as `wanted` beats.
+fn beats_parameter(wanted: f32, lo: i32, hi: i32) -> f32 {
+    (wanted.log2() - lo as f32) / (hi - lo) as f32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1676,6 +1817,55 @@ mod tests {
 
     fn tone(i: usize) -> f32 {
         (TAU * 220.0 * i as f32 / SR).sin() * 0.5
+    }
+
+    /// A deck's Color FX `preset` with the knob at `knob`, fed a tone for
+    /// half a second and then silence for another; returns the two halves.
+    fn color(preset: f64, knob: f64) -> (Vec<f32>, Vec<f32>) {
+        let mut fx = ColorFx::new(SR as f64);
+        fx.prepare(preset, knob, 0.5);
+        let half = SR as usize / 2;
+        let a = (0..half).map(|i| fx.process([tone(i); 2])[0]).collect();
+        let b = (0..half).map(|_| fx.process([0.0; 2])[0]).collect();
+        (a, b)
+    }
+
+    #[test]
+    fn color_fx_in_the_middle_leaves_the_sound_alone() {
+        for preset in 0..=COLOR_FX.len() {
+            let (a, b) = color(preset as f64, 0.5);
+            let dry: Vec<f32> = (0..a.len()).map(tone).collect();
+            let err = a.iter().zip(&dry).map(|(x, y)| (x - y).abs()).fold(0.0, f32::max);
+            assert!(err < 1e-6, "preset {preset} changed the sound by {err}");
+            assert!(rms(&b) == 0.0, "preset {preset} made sound out of silence");
+        }
+    }
+
+    #[test]
+    fn space_and_dub_echo_ring_on_after_the_sound_stops() {
+        for preset in [2.0, 3.0] {
+            for knob in [0.1, 0.9] {
+                let (_, tail) = color(preset, knob);
+                assert!(rms(&tail) > 0.005, "preset {preset} at {knob} left no tail");
+            }
+        }
+    }
+
+    #[test]
+    fn noise_and_crush_change_the_sound() {
+        for preset in [4.0, 5.0] {
+            let (a, _) = color(preset, 1.0);
+            let dry: Vec<f32> = (0..a.len()).map(tone).collect();
+            let diff: Vec<f32> = a.iter().zip(&dry).map(|(x, y)| x - y).collect();
+            assert!(rms(&diff) > 0.01, "preset {preset} did nothing");
+        }
+    }
+
+    #[test]
+    fn color_fx_names() {
+        assert_eq!(color_fx_name(1.0), "Filter");
+        assert_eq!(color_fx_name(3.0), "Dub Echo");
+        assert_eq!(color_fx_name(0.0), "");
     }
 
     fn rms(x: &[f32]) -> f32 {
@@ -1843,3 +2033,4 @@ mod tests {
         assert!(out.iter().all(|v| v.is_finite()));
     }
 }
+
