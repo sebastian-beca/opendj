@@ -1,0 +1,464 @@
+// The FX bar: a full-width row of its own under the waveforms, after djay
+// Pro's. Deck 1's three effects on the left, deck 2's on the right and the
+// Beat FX in the middle. Each effect is a cell of two rows: the effect,
+// stepped with the arrows or picked from the list under its name; then ON,
+// its length in beats (beat-synced effects) or a slider for its second
+// control (the others), and its D/W knob (the effect's main knob, `meta`,
+// which controllers turn too). The FX button in the top bar shows and hides it.
+import { Theme } from "theme.slint";
+import { Controls } from "controls.slint";
+import { EffectList } from "deck.slint";
+
+// Which deck each side of the bar shows in 4-Deck: 0 or 2 on the left,
+// 1 or 3 on the right. The other layouts always show decks 1 and 2.
+export global FxBarState {
+    in-out property <int> left: 0;
+    in-out property <int> right: 1;
+}
+
+// ‹ or ›, stepping to the previous or next effect.
+component StepArrow inherits Rectangle {
+    in property <bool> next;
+    in property <int> index;
+    width: 28px;
+    Path {
+        width: 6px;
+        height: 10px;
+        viewbox-width: 6;
+        viewbox-height: 10;
+        commands: next ? "M 1 1 L 5 5 L 1 9" : "M 5 1 L 1 5 L 5 9";
+        stroke: ta.pressed ? Theme.text-dim : ta.has-hover ? Theme.text : #b0b0b5;
+        stroke-width: 1.6px;
+        stroke-line-cap: round;
+        fill: transparent;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            Controls.set-value(index, 1);
+            Controls.set-value(index, 0);
+        }
+    }
+}
+
+// A filled triangle halving or doubling the beats.
+component BeatArrow inherits Rectangle {
+    in property <bool> next;
+    in property <bool> enabled;
+    callback clicked();
+    width: 14px;
+    Path {
+        width: 9px;
+        height: 12px;
+        viewbox-width: 9;
+        viewbox-height: 12;
+        commands: next ? "M 0 0 L 9 6 L 0 12 Z" : "M 9 0 L 0 6 L 9 12 Z";
+        fill: !enabled ? #3a3a3e : ta.pressed ? #6e6e73 : ta.has-hover ? #a8a8ad : #6e6e73;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// ◀ 1/8 ▶: an effect's length, halved and doubled from 1/16 to 4 beats.
+component BeatChooser inherits HorizontalLayout {
+    in property <int> index;
+    property <float> beats: Controls.value(index, Controls.tick);
+    BeatArrow {
+        enabled: beats > 1 / 16;
+        clicked => {
+            if beats > 1 / 16 {
+                Controls.set-value(index, beats / 2);
+            }
+        }
+    }
+    Text {
+        min-width: 22px;
+        horizontal-stretch: 1;
+        text: beats <= 0 ? "–" : beats < 1 ? "1/" + round(1 / beats) : round(beats);
+        color: #b0b0b5;
+        font-size: 13px;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    BeatArrow {
+        next: true;
+        enabled: beats > 0 && beats < 4;
+        clicked => {
+            if beats > 0 && beats < 4 {
+                Controls.set-value(index, beats * 2);
+            }
+        }
+    }
+}
+
+// A thin track with ticks and a round thumb: an effect's second control.
+component ParamSlider inherits Rectangle {
+    in property <int> index;
+    property <float> pos: Controls.parameter(index, Controls.tick);
+    property <length> thumb: 14px;
+    property <length> travel: self.width - thumb;
+    property <float> drag-start;
+    min-width: 40px;
+    horizontal-stretch: 1;
+    Rectangle {
+        x: thumb / 2;
+        width: travel;
+        height: 2px;
+        background: #3a3a3e;
+    }
+    for t in 5: Rectangle {
+        x: thumb / 2 + t * travel / 4 - 0.5px;
+        y: parent.height / 2 - 4px;
+        width: 1px;
+        height: 8px;
+        background: #3a3a3e;
+    }
+    Rectangle {
+        x: pos * travel;
+        width: thumb;
+        height: thumb;
+        border-radius: thumb / 2;
+        background: touch.pressed ? @linear-gradient(180deg, #8e8e93 0%, #6e6e73 100%) : touch.has-hover ? @linear-gradient(180deg, #a8a8ad 0%, #7c7c81 100%) : @linear-gradient(180deg, #98989d 0%, #6e6e73 100%);
+        drop-shadow-blur: 3px;
+        drop-shadow-color: #00000080;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                let at = (self.mouse-x - thumb / 2) / travel;
+                if abs(at - pos) * travel > thumb / 2 {
+                    Controls.set-parameter(index, clamp(at, 0, 1));
+                    drag-start = clamp(at, 0, 1);
+                } else {
+                    drag-start = pos;
+                }
+            }
+        }
+        moved => {
+            if self.pressed {
+                Controls.set-parameter(index, clamp(drag-start + (self.mouse-x - self.pressed-x) / travel, 0, 1));
+            }
+        }
+        double-clicked => { Controls.reset(index); }
+        scroll-event(e) => {
+            let d = abs(e.delta-x / 1px) > abs(e.delta-y / 1px) ? -e.delta-x : e.delta-y;
+            Controls.set-parameter(index, clamp(pos + max(-0.05, min(0.05, d / 400px)), 0, 1));
+            accept
+        }
+    }
+}
+
+// A small round knob for D/W, its arc in the tint.
+component DwKnob inherits Rectangle {
+    in property <int> index;
+    in property <color> tint;
+    property <float> param: Controls.parameter(index, Controls.tick);
+    property <float> drag-start;
+    property <angle> a: -135deg + param * 270deg;
+    width: 20px;
+    height: 20px;
+    Rectangle {
+        border-radius: self.width / 2;
+        background: ta.has-hover ? #2a2a2e : #121214;
+        border-width: 1.5px;
+        border-color: #58585d;
+    }
+    Path {
+        viewbox-width: 100;
+        viewbox-height: 100;
+        stroke: param > 0.004 ? tint : #e4e4e8;
+        stroke-width: 2px;
+        stroke-line-cap: round;
+        MoveTo { x: 50 + 4 * sin(a); y: 50 - 4 * cos(a); }
+        LineTo { x: 50 + 34 * sin(a); y: 50 - 34 * cos(a); }
+    }
+    ta := TouchArea {
+        mouse-cursor: ns-resize;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                drag-start = param;
+            }
+        }
+        moved => {
+            Controls.set-parameter(index, clamp(drag-start + (self.pressed-y - self.mouse-y) / 160px, 0, 1));
+        }
+        double-clicked => { Controls.reset(index); }
+        scroll-event(e) => {
+            Controls.set-parameter(index, clamp(param + (e.delta-y > 0 ? 0.02 : -0.02), 0, 1));
+            accept
+        }
+    }
+}
+
+// One effect: the effect chooser on top, ON, beats or slider and D/W under it.
+component FxCell inherits Rectangle {
+    // The effect unit and slot, from 0.
+    in property <int> unit;
+    in property <int> slot;
+    in property <color> tint;
+    property <string> fx: "[EffectRack1_EffectUnit" + (unit + 1) + "_Effect" + (slot + 1) + "]";
+    property <int> enabled-index: Controls.resolve(fx, "enabled");
+    property <int> loaded-index: Controls.resolve(fx, "loaded_effect");
+    property <int> beats-index: Controls.resolve(fx, "beats");
+    property <bool> on: Controls.value(enabled-index, Controls.tick) > 0;
+    property <int> loaded: Controls.value(loaded-index, Controls.tick);
+    property <float> beats: Controls.value(beats-index, Controls.tick);
+    property <bool> has-effect: loaded > 0 && loaded <= EffectList.names.length;
+    property <int> param: has-effect && loaded <= EffectList.slider-params.length ? EffectList.slider-params[loaded - 1] : -1;
+    background: Theme.panel;
+    horizontal-stretch: 1;
+    min-width: 0px;
+    preferred-width: 0px;
+    VerticalLayout {
+        spacing: 0px;
+        name-row := HorizontalLayout {
+            height: 30px;
+            StepArrow { index: Controls.resolve(fx, "prev_effect"); }
+            Rectangle {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 5px;
+                    Text {
+                        min-width: 0px;
+                        text: has-effect ? EffectList.names[loaded - 1] : "No effect";
+                        color: !has-effect ? Theme.text-dim : nta.has-hover ? #ffffff : Theme.text;
+                        font-size: 14px;
+                        font-weight: 500;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    Path {
+                        width: 9px;
+                        height: 6px;
+                        y: (parent.height - self.height) / 2;
+                        viewbox-width: 9;
+                        viewbox-height: 6;
+                        commands: "M 1 1 L 4.5 4.5 L 8 1";
+                        stroke: nta.has-hover ? Theme.text : #b0b0b5;
+                        stroke-width: 1.6px;
+                        stroke-line-cap: round;
+                        fill: transparent;
+                    }
+                }
+                nta := TouchArea { mouse-cursor: pointer; clicked => { menu.show(); } }
+            }
+            StepArrow { next: true; index: Controls.resolve(fx, "next_effect"); }
+        }
+        Rectangle { height: 1px; background: #000000; }
+        HorizontalLayout {
+            height: 37px;
+            padding-left: 6px;
+            padding-right: 6px;
+            spacing: 4px;
+            // ON, lit in the deck's colour while the effect plays.
+            Rectangle {
+                width: 34px;
+                height: 25px;
+                y: (parent.height - self.height) / 2;
+                border-radius: 6px;
+                background: on ? tint : ota.pressed ? Theme.control-pressed : ota.has-hover ? #222225 : #141416;
+                border-width: 1px;
+                border-color: on ? tint : #48484c;
+                Text { text: "ON"; color: on ? #ffffff : has-effect ? Theme.text : Theme.text-dim; font-size: 13px; font-weight: 500; }
+                ota := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        if has-effect {
+                            Controls.toggle(enabled-index);
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+                min-width: 50px;
+                if beats > 0: BeatChooser { width: parent.width; height: parent.height; index: beats-index; }
+                if beats <= 0 && param >= 0: ParamSlider { width: parent.width; height: parent.height; index: Controls.resolve(fx, "parameter" + (param + 1)); }
+            }
+            HorizontalLayout {
+                horizontal-stretch: 0;
+                spacing: 2px;
+                Text { text: "D"; color: Theme.text-dim; font-size: 10px; font-weight: 700; vertical-alignment: center; }
+                VerticalLayout {
+                    alignment: center;
+                    DwKnob { index: Controls.resolve(fx, "meta"); tint: tint; }
+                }
+                Text { text: "W"; color: Theme.text-dim; font-size: 10px; font-weight: 700; vertical-alignment: center; }
+            }
+        }
+    }
+
+    // The effects to pick from, under the name. Picking one loads it and turns it on.
+    menu := PopupWindow {
+        x: (root.width - 190px) / 2;
+        y: name-row.height + 2px;
+        width: 190px;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #000000a0;
+        }
+        VerticalLayout {
+            padding: 6px;
+            spacing: 0px;
+            for e[i] in EffectList.names: Rectangle {
+                property <bool> current: loaded == i + 1;
+                height: 26px;
+                border-radius: 4px;
+                background: current ? tint.with-alpha(0.35) : eta.has-hover ? #3a3a3d : transparent;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    Text { text: e; color: Theme.text; font-size: 12px; font-weight: current ? 700 : 400; vertical-alignment: center; horizontal-stretch: 1; }
+                }
+                eta := TouchArea {
+                    clicked => {
+                        if current {
+                            Controls.toggle(enabled-index);
+                        } else {
+                            Controls.set-value(loaded-index, i + 1);
+                            Controls.set-value(enabled-index, 1);
+                        }
+                        menu.close();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The deck a side shows, at its outer edge, in the deck's colour. In
+// 4-Deck both of the side's decks are listed and a click flips between them.
+component DeckTab inherits Rectangle {
+    in property <int> deck;
+    in property <int> other;
+    in property <bool> switchable;
+    callback flip();
+    width: 24px;
+    background: ta.has-hover && switchable ? #222225 : Theme.panel;
+    VerticalLayout {
+        alignment: center;
+        spacing: 2px;
+        Text { text: deck + 1; color: Theme.deck-color(deck); font-size: 14px; font-weight: 700; horizontal-alignment: center; }
+        if switchable: Text { text: other + 1; color: Theme.text-dim; font-size: 10px; font-weight: 600; horizontal-alignment: center; }
+    }
+    ta := TouchArea {
+        enabled: switchable;
+        mouse-cursor: pointer;
+        clicked => { root.flip(); }
+    }
+}
+
+// A word that lights up when chosen, as djay's MANUAL / INSTANT.
+component TextToggle inherits Text {
+    in property <bool> lit;
+    callback clicked();
+    color: lit ? Theme.accent : ta.has-hover ? Theme.text : Theme.text-dim;
+    font-size: 11px;
+    font-weight: 600;
+    vertical-alignment: center;
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// The middle, before the Beat FX unit's effect (a cell like the decks'):
+// BEAT FX over where it goes (deck 1, deck 2, both or the main mix) and
+// the tempo its beats follow (the decks', or tapped). The DDJ-FLX4's BEAT
+// FX section drives the same controls.
+component BeatFxRouting inherits Rectangle {
+    property <string> unit: "[EffectRack1_EffectUnit5]";
+    property <int> ch1-index: Controls.resolve(unit, "group_[Channel1]_enable");
+    property <int> ch2-index: Controls.resolve(unit, "group_[Channel2]_enable");
+    property <int> main-index: Controls.resolve(unit, "group_[Master]_enable");
+    property <bool> ch1: Controls.value(ch1-index, Controls.tick) > 0;
+    property <bool> ch2: Controls.value(ch2-index, Controls.tick) > 0;
+    property <bool> main: Controls.value(main-index, Controls.tick) > 0;
+    property <int> bpm-index: Controls.resolve(unit, "bpm");
+    property <float> bpm: Controls.value(bpm-index, Controls.tick);
+    background: Theme.panel;
+    width: 160px;
+    VerticalLayout {
+        spacing: 0px;
+        Text {
+            height: 30px;
+            text: "BEAT FX";
+            color: #8e8e93;
+            font-size: 17px;
+            font-weight: 300;
+            font-italic: true;
+            letter-spacing: 1px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        Rectangle { height: 1px; background: #000000; }
+        HorizontalLayout {
+            height: 37px;
+            alignment: center;
+            spacing: 7px;
+            // Where it goes: 0 deck 1, 1 deck 2, 2 both, 3 the main mix.
+            for c[i] in ["1", "2", "1&2", "MST"]: TextToggle {
+                text: c;
+                lit: i == 0 ? ch1 && !ch2 && !main : i == 1 ? ch2 && !ch1 && !main : i == 2 ? ch1 && ch2 && !main : main;
+                clicked => {
+                    Controls.set-value(ch1-index, i == 0 || i == 2 ? 1 : 0);
+                    Controls.set-value(ch2-index, i == 1 || i == 2 ? 1 : 0);
+                    Controls.set-value(main-index, i == 3 ? 1 : 0);
+                }
+            }
+            Rectangle { width: 1px; height: 12px; y: (parent.height - self.height) / 2; background: #3a3a3e; }
+            TextToggle {
+                text: "AUTO";
+                lit: bpm <= 0;
+                clicked => {
+                    Controls.set-value(Controls.resolve(unit, "bpm_auto"), 1);
+                    Controls.set-value(Controls.resolve(unit, "bpm_auto"), 0);
+                }
+            }
+            TextToggle {
+                text: bpm > 0 ? round(bpm) : "TAP";
+                lit: bpm > 0;
+                clicked => {
+                    Controls.set-value(Controls.resolve(unit, "bpm_tap"), 1);
+                    Controls.set-value(Controls.resolve(unit, "bpm_tap"), 0);
+                }
+            }
+        }
+    }
+}
+
+export component FxBar inherits Rectangle {
+    // 4-Deck: the sides can show decks 3 and 4.
+    in property <bool> four;
+    property <int> left: four ? FxBarState.left : 0;
+    property <int> right: four ? FxBarState.right : 1;
+    background: #000000;
+    height: 68px;
+    HorizontalLayout {
+        spacing: 1px;
+        DeckTab {
+            deck: left;
+            other: left == 0 ? 2 : 0;
+            switchable: four;
+            flip => { FxBarState.left = left == 0 ? 2 : 0; }
+        }
+        for i in 3: FxCell { unit: left; slot: i; tint: Theme.deck-color(left); }
+        BeatFxRouting { }
+        FxCell { unit: 4; slot: 0; tint: Theme.accent; }
+        for i in 3: FxCell { unit: right; slot: i; tint: Theme.deck-color(right); }
+        DeckTab {
+            deck: right;
+            other: right == 1 ? 3 : 1;
+            switchable: four;
+            flip => { FxBarState.right = right == 1 ? 3 : 1; }
+        }
+    }
+}

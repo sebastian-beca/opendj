@@ -1,13 +1,13 @@
 // The 4-Deck layout, after djay Pro's Four Decks: four strips side by side,
 // decks 3, 1, 2 and 4 from the left, each with its header, a small mixer
-// channel, transport, tempo, pads and FX. The crossfader, master and
+// channel, transport, tempo and pads (the FX are in the FX bar). The crossfader, master and
 // headphones sit in a narrow column between decks 1 and 2.
 // A two-deck controller (the DDJ-FLX4) plays decks 1 and 2 until a strip's
 // deck number is clicked: then that side plays deck 3 or 4.
 import { TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
 import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, KeyLock, PitchReset, QuantizeButton, StereoMeter } from "controls.slint";
-import { DeckInfo, FxRows, Header, LoopStepper, Pads, PlayButton, TempoStep } from "deck.slint";
+import { DeckInfo, Header, LoopStepper, Pads, PlayButton, TempoStep } from "deck.slint";
 import { AudioSettings, Knob, ModeMenu, SideKnob } from "mixer.slint";
 
 // Which side of the crossfader a deck is on, as Mixxx's `orientation`:
@@ -173,7 +173,6 @@ export component DeckStrip inherits Rectangle {
                     }
                 }
                 Pads { deck: deck; group: group; info: info; vertical-stretch: 1; min-height: 77px; }
-                FxRows { deck: deck; names: info.effects; }
             }
         }
     }

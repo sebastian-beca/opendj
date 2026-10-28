@@ -11,6 +11,20 @@ Each deck has:
 - **Hot cues**, **loops**, **beat jumps** and the **sampler** on the pads
 - Three **effect** slots, beat-synced, with echo, reverb, filter, flanger and more
 
+## FX bar
+
+The **FX** button in the top bar, beside the waveforms button, shows or
+hides the FX bar under the waveforms. Deck 1's three effects are on the
+left, deck 2's on the right and the **Beat FX** in the middle. Each effect
+has the effect name (step with the arrows or click it for the list),
+**ON**, its length in beats (or a slider for its second control on effects
+without one, such as reverb's decay) and a **D/W** knob. The Beat FX also
+picks where it plays (deck 1, deck 2, both or the main mix) and follows the
+decks' tempo (**AUTO**) or a tapped one (**TAP**).
+
+In 4-Deck, click the deck number at either end of the bar to switch that
+side between decks 1 and 3, or 2 and 4.
+
 ## Sync and quantize
 
 **SYNC** sits over the tempo fader. It stays on while it's lit: the deck
