@@ -186,7 +186,8 @@ range) and right-click.
 | Duplicates | The same track more than once: same artist, title and remix | Fix all easy, Keep this copy, Link as versions (see [Duplicates](#duplicates)) |
 | Not analyzed | No tempo or key | Analyze, in the background |
 | Missing info | No artist, title, album, year or genre | Fill from file name (`Artist - Title.mp3`), written to the file too |
-| No cover | No picture in the file's tags or its folder | Find one from the track's info panel |
+| Junk in names | Track numbers, web sites, "(Official Video)", underscores, or a remix or guest in the title | Clean up… (see [Clean-up](#clean-up)) |
+| No cover | No picture in the file's tags or its folder | Find covers online, or one by one from the track's info panel |
 | No rating | No stars | Rate them in the list |
 | Missing files | The file isn't where the library expects it | Find files (looks for the same file name in your stage folders and music folders), Remove from library |
 | Long tracks | Over 20 minutes: recorded sets and long pieces | Tag as #mix |
@@ -205,12 +206,46 @@ shows, and a rescan or a VirtualDJ import doesn't bring it back; adding the
 file again does, and so does **Bring back** at the bottom of the page.
 
 Each check is also a search: `is:notmusic`, `is:stray`, `is:outside`, `is:unanalyzed`,
-`is:noinfo`, `is:nocover`, `is:unrated`, `is:missing`, `is:long` and
+`is:noinfo`, `is:junk`, `is:nocover`, `is:unrated`, `is:missing`, `is:long` and
 `is:duplicate`.
 
 Covers are looked for in the background, and a file is looked at again
 only when it changes. On a Mac, files that iCloud has taken off the disk
 are skipped, so the check doesn't download your whole collection.
+
+**Find covers** looks online (Cover Art Archive, iTunes, and Discogs with
+a Discogs token in Settings › Library) for each track, one at a time in the
+background, and embeds the largest cover found, scaled down to 1024 pixels
+when it is bigger. Tracks it finds nothing for stay in the list: search
+those from the track's info panel.
+
+### Clean-up
+
+**Clean up…** on Junk in names (or a right-click on some of its tracks)
+shows every change before anything happens: the track, the field, what it
+says now and what it becomes. Untick a change to leave it, then **Apply**.
+The changes go to the library and to the files' tags. **Undo** in the bar
+or the track menu takes the whole batch back.
+
+| Rule | Example |
+|---|---|
+| Track numbers | `03 - Road` becomes `Road`; `Lane 8 - Fingerprint` by Lane 8 becomes `Fingerprint` |
+| Web sites | `Glue www.free-mp3.com` becomes `Glue` |
+| Video words | `Awake (Official Video) [HD]` becomes `Awake` |
+| Underscores and spaces | `bicep_glue` becomes `bicep glue` |
+| Remix to its field | `Bodhi Mandala (Drumspyder Remix)` puts `Drumspyder Remix` in Remix |
+| Featured artists | `Road (feat. Arctic Lake)` by Lane 8 becomes `Road` by `Lane 8 feat. Arctic Lake` |
+| Title Case (off) | `CARBON BASED LIFEFORMS` becomes `Carbon Based Lifeforms` |
+
+Each rule can be turned off in Settings › Library › Stages, under
+Clean-up. Titles that start with a number, such as `99 Luftballons`, stay
+as they are.
+
+**Genres…** at the bottom of the Library Health page lists every genre with
+how many tracks have it. Genres spelled like another but for capitals,
+spaces or punctuation (`Electronica` and `electronica`) are lilac. Tick the
+ones that mean the same, type the name to keep (the most used one is
+filled in), and **Merge**. Undo takes a merge back too.
 
 ### Duplicates
 

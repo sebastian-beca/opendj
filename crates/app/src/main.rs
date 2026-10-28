@@ -383,6 +383,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.on_waveforms_visible_changed(|on| {
         settings::set("waveforms_visible", serde_json::json!(on))
     });
+    // The FX bar, likewise.
+    app.set_fx_bar_visible(settings::flag("fx_bar_visible", true));
+    app.on_fx_bar_visible_changed(|on| settings::set("fx_bar_visible", serde_json::json!(on)));
     // Phrase bars on the deck overviews, shown or hidden from an
     // overview's right-click menu.
     let phrase_view = app.global::<PhraseView>();
@@ -800,6 +803,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 browser.borrow_mut().poll_analysis();
                 browser.borrow_mut().poll_usb_export();
                 browser.borrow_mut().poll_covers();
+                browser.borrow_mut().poll_cleanup();
                 browser.borrow_mut().poll_files();
                 sampler.borrow_mut().poll();
                 prefs.borrow_mut().poll();

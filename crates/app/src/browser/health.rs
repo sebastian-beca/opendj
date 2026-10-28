@@ -40,6 +40,10 @@ enum Fix {
     KeepBest,
     /// Copies of different lengths stay, linked to each other.
     LinkVersions,
+    /// Opens the review table with what the clean-up rules would change.
+    CleanUp,
+    /// Looks online for covers and embeds the largest.
+    FindCovers,
 }
 
 impl Fix {
@@ -55,6 +59,8 @@ impl Fix {
             Fix::AllEasy => "Fix all easy",
             Fix::KeepBest => "Keep the best copies",
             Fix::LinkVersions => "Link as versions",
+            Fix::CleanUp => "Clean up…",
+            Fix::FindCovers => "Find covers",
         }
     }
 }
@@ -72,7 +78,9 @@ fn fixes(check: Check, stages: bool) -> Vec<Fix> {
         Check::Missing => vec![Fix::Relink, Fix::Remove],
         Check::Long => vec![Fix::TagMix],
         Check::Duplicate => vec![Fix::AllEasy],
-        Check::NoCover | Check::NoRating => Vec::new(),
+        Check::Junk => vec![Fix::CleanUp],
+        Check::NoCover => vec![Fix::FindCovers],
+        Check::NoRating => Vec::new(),
     }
 }
 
@@ -433,6 +441,7 @@ impl Browser {
                 batch,
                 text: format!("Undo merging {}", copies(n)),
                 restore,
+                changes: None,
             });
         }
         self.read_pending_moves();
@@ -553,7 +562,8 @@ impl Browser {
             covers,
             self.folders.is_set(),
         )
-        .with_folders(folders);
+        .with_folders(folders)
+        .with_rules(settings::cleanup_rules());
         self.removed = db.removed_count().unwrap_or(0);
         for (id, path, album) in look {
             let music = self.index_of.get(&id).is_some_and(|&i| {
@@ -689,6 +699,7 @@ impl Browser {
         ui.set_quarantined(self.quarantined as i32);
         ui.set_lists(self.list_health_text().into());
         ui.set_quarantine_exists(self.quarantine_root().is_some_and(|d| d.is_dir()));
+        self.refresh_cleanup_ui();
     }
 
     /// A line on what a check found beyond its count.
@@ -802,6 +813,8 @@ impl Browser {
                 self.merge(plan)
             }
             Fix::LinkVersions => self.link_versions(indices),
+            Fix::CleanUp => self.open_cleanup(indices),
+            Fix::FindCovers => self.batch_covers(indices),
         };
         // Removed tracks leave dead entries in lists.
         self.refresh_crates();

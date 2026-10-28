@@ -12,8 +12,8 @@ jobs:
   models:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Convert Spleeter, fetch HTDemucs
@@ -26,7 +26,7 @@ jobs:
           curl -sSfL -o models/htdemucs.safetensors https://huggingface.co/set-soft/audio_separation/resolve/main/Demucs/htdemucs.safetensors
           python3 scripts/models/make_test_mix.py models/test-mix-6min.wav 360
           sha256sum models/*.safetensors | tee models/SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: stem-models
           path: models/
@@ -40,8 +40,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: stem-models
           path: models
@@ -55,7 +55,7 @@ jobs:
       - run: cargo build --release -p stem-bench
       - name: Attach the Mac build of stem-bench
         if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: stem-bench-macos
           path: target/release/stem-bench
