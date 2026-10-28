@@ -2110,6 +2110,10 @@ mod tests {
     fn setup() -> (Arc<ControlRegistry>, Engine, EngineInput) {
         let reg = ControlRegistry::new();
         let (engine, input) = Engine::new(&reg, SR);
+        // The tests measure levels at unity, not at the DJ's starting levels.
+        for (key, value) in [("gain", 1.0), ("headGain", 1.0), ("headMix", 0.0)] {
+            reg.get("[Master]", key).unwrap().set(value);
+        }
         (reg, engine, input)
     }
 

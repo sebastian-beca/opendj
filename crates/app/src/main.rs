@@ -480,6 +480,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let controller_editor = controller_editor::Editor::install(&app, controllers.clone());
     prefs::apply_saved(&registry);
+    let _levels = prefs::remember_levels(registry.clone());
     let prefs = prefs::Prefs::install(
         &app,
         registry.clone(),
