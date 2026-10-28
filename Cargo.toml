@@ -24,6 +24,12 @@ opt-level = 2
 [profile.dev.package.signalsmith-stretch]
 opt-level = 2
 
+[profile.dev.package.mixxx-separation]
+opt-level = 2
+
+[profile.dev.package.matrixmultiply]
+opt-level = 2
+
 # femtovg (Slint's renderer) with a fix for its pipeline cache, which threw
 # away pipelines each flush and rebuilt them every frame. See
 # third_party/femtovg/OPENDJ.md.

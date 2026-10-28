@@ -5066,6 +5066,7 @@ dependencies = [
  "lofty",
  "matrixmultiply",
  "mixxx-control",
+ "mixxx-separation",
  "rtrb",
  "rustfft",
  "rusty_link",

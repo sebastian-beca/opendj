@@ -220,7 +220,7 @@ fn run(install: &Install, asset: &Asset, tx: &Sender<Progress>) -> Result<(), St
     })
 }
 
-fn download(url: &str, to: &Path) -> Result<(), String> {
+pub(crate) fn download(url: &str, to: &Path) -> Result<(), String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(15 * 60)))
         .user_agent(format!("openDJ/{VERSION}"))
@@ -235,7 +235,7 @@ fn download(url: &str, to: &Path) -> Result<(), String> {
 
 /// The file must match the checksum GitHub published; a release without
 /// one isn't installed.
-fn check_digest(file: &Path, digest: Option<&str>) -> Result<(), String> {
+pub(crate) fn check_digest(file: &Path, digest: Option<&str>) -> Result<(), String> {
     let want = digest
         .and_then(|d| d.strip_prefix("sha256:"))
         .ok_or("the release has no checksum")?;
@@ -364,6 +364,20 @@ fn is_newer(candidate: &str, current: &str) -> bool {
         (Some((a, a_pre)), Some((b, b_pre))) => a > b || (a == b && b_pre && !a_pre),
         _ => false,
     }
+}
+
+/// Where the stem separation models are published: assets of the
+/// `stem-models` pre-release (so the updater and the website, which look
+/// at the latest release, skip it).
+const MODELS_URL: &str = "https://github.com/sebastian-beca/opendj/releases/download/stem-models";
+
+/// Lets the engine download a stem separation model the first time it is
+/// needed, checked against the SHA-256 the engine knows it by.
+pub fn install_model_fetch() {
+    mixxx_engine::separation::set_fetch(Box::new(|name, sha, to| {
+        download(&format!("{MODELS_URL}/{name}"), to)?;
+        check_digest(to, Some(&format!("sha256:{sha}")))
+    }));
 }
 
 #[cfg(test)]

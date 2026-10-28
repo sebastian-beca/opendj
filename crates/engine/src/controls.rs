@@ -280,7 +280,7 @@ impl DeckControls {
             .collect();
         rolls.push((0.0, reg.push(g, "beatlooproll_activate"), Edge::default()));
         Self {
-            stem_count: reg.indicator(g, "stem_count", 4.0),
+            stem_count: reg.indicator(g, "stem_count", crate::stems::MAX_STEMS as f64),
             stems: std::array::from_fn(|s| {
                 let sg = stem_group(deck, s);
                 let color = reg.create(&sg, "color", -1.0, -1.0, 16_777_215.0, Behavior::Indicator);

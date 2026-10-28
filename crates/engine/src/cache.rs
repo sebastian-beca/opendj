@@ -73,6 +73,11 @@ pub fn move_old_folder(base: &Path, name: &str) {
     }
 }
 
+/// Where downloaded models are kept (see [`crate::separation::models_dir`]).
+pub(crate) fn models_dir() -> Option<PathBuf> {
+    cache_dir().map(|d| d.join("models"))
+}
+
 /// The folder of stored analyses (waveforms, tempo and key per file).
 pub fn analysis_dir() -> Option<PathBuf> {
     cache_dir().map(|d| d.join("analysis"))
