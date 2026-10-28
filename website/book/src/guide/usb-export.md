@@ -49,3 +49,19 @@ a big list takes a while. Music already on the stick isn't copied again.
 - **Tracks that can't be read** (a missing file, say) are left out, and the
   result lists them.
 - Exporting the same lists again is quick: only new music is copied.
+
+## Credits
+
+USB export stands on the work of others:
+
+- **[rbox](https://github.com/dylanljones/rbox)** by Dylan Jones (GPL-3.0)
+  writes the Device Library, OneLibrary and the analysis files. While
+  building on it we found three small bugs in its OneLibrary schema (a
+  column name, a missing column and its foreign keys), which openDJ works
+  around and has reported upstream.
+- **[Bake'n Deck](https://github.com/M-Igashi/baken)** by Masanari Higashi
+  (MIT) worked out, and tested on real CDJs, how rekordbox encodes
+  waveforms, cue colours, analysis folders and album art. openDJ follows it.
+- **[rekordcrate](https://github.com/Holzhaus/rekordcrate)** (MPL-2.0) and
+  the [Deep Symmetry](https://djl-analysis.deepsymmetry.org/) format notes
+  were used to check openDJ's sticks.
