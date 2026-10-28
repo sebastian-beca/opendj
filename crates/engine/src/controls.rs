@@ -230,7 +230,8 @@ impl DeckControls {
         // 0 none, 1 Filter, then the others. One is chosen for all decks.
         let n_cfx = crate::effects::COLOR_FX.len() as f64;
         let cfx_preset = reg.create(&qg, "loaded_chain_preset", 1.0, 0.0, n_cfx, Behavior::Free);
-        reg.indicator(&qg, "num_chain_presets", 64.0).set(n_cfx + 1.0);
+        reg.indicator(&qg, "num_chain_presets", 64.0)
+            .set(n_cfx + 1.0);
         let cfx_next = reg.push(&qg, "next_chain_preset");
         let cfx_prev = reg.push(&qg, "prev_chain_preset");
         // The EQ slot says how many knobs and kills it has, as Mixxx's does;
