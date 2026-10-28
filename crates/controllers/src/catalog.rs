@@ -370,6 +370,8 @@ fn deck_function(key: &str, target: &str) -> Function {
         "mute" => ("Mixer", "Mute"),
         "talkover" => ("Mic & aux", "Talk over"),
         "pad_panel" => ("Pads", "Pad mode"),
+        "pad_tab" => ("Pads", "Pad tab"),
+        k if k.starts_with("pad_slot_") => ("Pads", "Pad tab page"),
         "waveform_zoom" => ("View", "Waveform zoom"),
         "waveform_zoom_up" => ("View", "Zoom waveform in"),
         "waveform_zoom_down" => ("View", "Zoom waveform out"),
@@ -641,6 +643,7 @@ pub fn describe(group: &str, key: &str) -> Function {
         Group::Mixer => {
             let n = match key {
                 "knob_mode" => "Mixer knob mode".into(),
+                "crossfader_enabled" => "Crossfader on/off".into(),
                 _ => humanize(key),
             };
             Function::new("Mixer", n, "Mixer")

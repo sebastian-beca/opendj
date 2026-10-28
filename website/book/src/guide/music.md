@@ -111,7 +111,7 @@ phrases**) to turn the bars off or on for every deck.
 ## Bringing in a VirtualDJ library
 
 Press **Set up…** next to **Import from VirtualDJ** in **Settings ›
-Library**. Three steps follow:
+Library › General**. Three steps follow:
 
 1. **Find your library.** openDJ looks for `database.xml` in
    `~/Library/Application Support/VirtualDJ` (or `~/.vdj` on Linux) and
@@ -134,10 +134,12 @@ you edited in openDJ are kept. The VirtualDJ folder is made again each time,
 so change those lists in VirtualDJ, or copy one out of the folder to keep
 editing it in openDJ.
 
-**Stop** leaves what came in but stops updating it. **Remove…** takes out
+Once it's on, VirtualDJ gets its own tab in **Settings › Library**, with
+these choices and the two buttons below. **Stop** leaves what came in but
+stops updating it. **Remove…** takes out
 the VirtualDJ folder and history, VirtualDJ's cues, grids and markers, and
 the tracks only VirtualDJ had. Tracks in your own lists or music folder
-stay.
+stay. Either one takes the VirtualDJ tab away again.
 
 ## Library Health
 
@@ -202,7 +204,7 @@ to move it. Click a heading to sort by it. openDJ remembers your columns.
 
 ## Your own fields
 
-Name grouping and your tag fields in **Settings › Library › Your fields**,
+Name grouping and your tag fields in **Settings › Library › Fields**,
 for example Trip Stage, Mood and Instrument, and add as many tag fields as
 you need. VirtualDJ's User 1 and User 2 come in as the first two. Each name
 works as a search word too (`mood:uplifting`, `tripstage:"4 peak"`), and so
