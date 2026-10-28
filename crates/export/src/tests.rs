@@ -172,6 +172,9 @@ fn an_export_reads_back_in_both_formats() {
     let anlz: Vec<_> = walk(&stick.path().join("PIONEER/USBANLZ"));
     assert_eq!(anlz.len(), 9, "{anlz:?}");
 
+    // Windows won't replace files that are still open.
+    drop((pdb, one_lib));
+
     // A second export keeps the audio and replaces the library.
     // Windows won't replace or remove a database that is still open.
     drop(pdb);
@@ -190,6 +193,7 @@ fn an_export_reads_back_in_both_formats() {
     assert!(!rekordbox.join("exportLibrary.db").exists());
     let mut pdb = DeviceLibrary::new(&rekordbox).unwrap();
     assert_eq!(pdb.get_contents().unwrap().len(), 1);
+    drop(pdb);
 
     // Nothing to export leaves the stick alone.
     let empty = tempfile::tempdir().unwrap();
