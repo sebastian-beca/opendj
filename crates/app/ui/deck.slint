@@ -392,10 +392,12 @@ component KeyBox inherits VerticalLayout {
     in property <string> group;
     in property <DeckInfo> info;
     in property <color> tint;
+    in property <bool> compact;
     property <bool> more;
     property <int> pitch-index: Controls.resolve(group, "pitch");
     width: 72px;
     alignment: center;
+    spacing: compact ? 1px : 3px;
     HorizontalLayout {
         alignment: center;
         spacing: 2px;
@@ -442,6 +444,11 @@ component KeyBox inherits VerticalLayout {
                 }
             }
         }
+    }
+    // The sync master, right under the key.
+    HorizontalLayout {
+        alignment: center;
+        MasterBadge { group: group; font-size: compact ? 7px : 8px; height: compact ? 12px : 14px; }
     }
     // Key shifts with the key each gives.
     menu := PopupWindow {
@@ -519,7 +526,7 @@ component TimeKey inherits HorizontalLayout {
         Text { text: info.loaded ? info.total : ""; color: Theme.text-dim; font-size: 11px; horizontal-alignment: right; }
     }
     if show-time: EdgeVLine { top: 6px; bottom: 6px; line-color: #2c2c2f; }
-    KeyBox { group: group; info: info; tint: tint; }
+    KeyBox { group: group; info: info; tint: tint; compact: !show-time; }
 }
 
 // Deck header: big artwork on the outer edge, title and artist, the remaining
@@ -626,10 +633,6 @@ export component Header inherits Rectangle {
                         font-size: compact ? 11px : 13px;
                         overflow: elide;
                     }
-                }
-                VerticalLayout {
-                    alignment: center;
-                    MasterBadge { group: group; font-size: compact ? 9px : 10px; height: compact ? 16px : 18px; }
                 }
                 TimeKey { group: group; info: info; tint: tint; show-time: !compact; }
             }
