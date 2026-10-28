@@ -2955,15 +2955,11 @@ impl Browser {
         let mut changed = false;
         let saved = self.saved();
         for t in loaded.iter().flatten() {
-            if t.bpm <= 0.0 {
-                continue;
-            }
-            let Some(&i) = self.index_of.get(&t.id) else {
-                continue;
-            };
-            // Its mini waveform, when its row hasn't one yet.
+            // Its mini waveform, filling in as the deck analyses it, in its
+            // row and in Info.
             if self.waves.learn(t) {
-                if let Some(row) = self.rows.iter().position(|r| *r == Some(i)) {
+                let i = self.index_of.get(&t.id).copied();
+                if let Some(row) = self.rows.iter().position(|r| i.is_some() && *r == i) {
                     self.wave_rows.retain(|&w| w != row);
                     self.fill_waves();
                 }
@@ -2971,6 +2967,12 @@ impl Browser {
                     self.fill_info_wave(&app);
                 }
             }
+            if t.bpm <= 0.0 {
+                continue;
+            }
+            let Some(&i) = self.index_of.get(&t.id) else {
+                continue;
+            };
             let entry = &self.library[i];
             // An analysed grid arrives with the analysis; a fixed grid that
             // differs from the library's was edited on the deck.

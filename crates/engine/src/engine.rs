@@ -14,6 +14,7 @@ use mixxx_control::ControlRegistry;
 use crate::beats::GridEdit;
 use crate::controls::{
     create_global_controls, Action, DeckControls, Edge, MasterControls, HOTCUE_CUE, HOTCUE_LOOP,
+    SCULPT_DEFAULTS,
 };
 use crate::dsp::{Isolator, Limiter, Sculpt, SweepFilter};
 use crate::effects::{input_target, EffectRack, MAIN, TARGETS};
@@ -1164,15 +1165,33 @@ impl Engine {
                         h.end_position.set(-1.0);
                     }
                     d.c.hotcue_focus.set(-1.0);
-                    // The track's own gain, set in its info.
+                    let [reset_fx, reset_eq, reset_gain] =
+                        self.master.auto_reset.each_ref().map(|c| c.get_bool());
+                    // The track's own gain, set in its info; auto gain levels
+                    // it on top.
                     if let Some(db) = track.info.gain_db {
                         d.c.pregain
                             .set(10f64.powf(db as f64 / 20.0).clamp(0.0, 4.0));
                         d.track_gain = true;
-                    } else if d.track_gain {
+                    } else if d.track_gain || reset_gain {
                         d.c.pregain.set(1.0);
                         d.track_gain = false;
                     }
+                    if reset_eq {
+                        for (eq, kill) in d.c.eq.iter().zip(&d.c.eq_kill) {
+                            eq.set(1.0);
+                            kill.set_bool(false);
+                        }
+                        d.c.filter.set(0.5);
+                        for (c, v) in d.c.sculpt.iter().zip(SCULPT_DEFAULTS) {
+                            c.set(v);
+                        }
+                    }
+                    if reset_fx {
+                        let playing = std::array::from_fn(|k| self.decks[k].c.play.get_bool());
+                        self.fx.reset_deck(deck, playing);
+                    }
+                    let d = &mut self.decks[deck];
                     // Hot cues and saved loops from the library.
                     for cue in &track.info.hotcues {
                         if let Some(h) = d.c.hotcues.get(cue.number) {
@@ -2310,6 +2329,57 @@ mod tests {
     }
 
     #[test]
+    fn loading_a_track_resets_fx_eq_and_gain() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 4.0));
+        load(&mut input, 1, short_track(120.0, 4.0));
+        run(&mut engine, 0.02);
+        let c = |g: &str, k: &str| reg.get(g, k).unwrap();
+        let deck1 = |k: &str| c("[Channel1]", k);
+        let eq = |k: &str| c("[EqualizerRack1_[Channel1]_Effect1]", k);
+        let slot = |u: usize, k: &str| c(&format!("[EffectRack1_EffectUnit{u}_Effect1]"), k);
+        deck1("pregain").set(2.0);
+        eq("parameter1").set(0.2);
+        eq("button_parameter3").set_bool(true);
+        c("[QuickEffectRack1_[Channel1]]", "super1").set(0.8);
+        c("[Sculpt_[Channel1]]", "lpf").set(0.3);
+        // Deck 1's unit, and the Beat FX on decks 1 and 2 with deck 2 playing.
+        slot(1, "enabled").set_bool(true);
+        slot(1, "beats").set(2.0);
+        c("[EffectRack1_EffectUnit1]", "mix").set(0.4);
+        slot(5, "enabled").set_bool(true);
+        c("[Channel2]", "play").set_bool(true);
+        run(&mut engine, 0.02);
+
+        load(&mut input, 0, short_track(124.0, 4.0));
+        run(&mut engine, 0.02);
+        assert_eq!(deck1("pregain").get(), 1.0);
+        assert_eq!(eq("parameter1").get(), 1.0);
+        assert!(!eq("button_parameter3").get_bool());
+        assert_eq!(c("[QuickEffectRack1_[Channel1]]", "super1").get(), 0.5);
+        assert_eq!(c("[Sculpt_[Channel1]]", "lpf").get(), 1.0);
+        // Off, with its beats and dry/wet kept.
+        assert!(!slot(1, "enabled").get_bool());
+        assert_eq!(slot(1, "beats").get(), 2.0);
+        assert_eq!(c("[EffectRack1_EffectUnit1]", "mix").get(), 0.4);
+        // The Beat FX still plays on deck 2.
+        assert!(slot(5, "enabled").get_bool());
+
+        // Switched off, loading leaves them as they are.
+        for k in ["fx", "eq", "gain"] {
+            c("[Controls]", &format!("auto_reset_{k}")).set_bool(false);
+        }
+        deck1("pregain").set(2.0);
+        eq("parameter1").set(0.2);
+        slot(1, "enabled").set_bool(true);
+        load(&mut input, 0, short_track(126.0, 4.0));
+        run(&mut engine, 0.02);
+        assert_eq!(deck1("pregain").get(), 2.0);
+        assert_eq!(eq("parameter1").get(), 0.2);
+        assert!(slot(1, "enabled").get_bool());
+    }
+
+    #[test]
     fn a_hot_mix_is_limited_to_the_ceiling() {
         let (reg, mut engine, mut input) = setup();
         load(&mut input, 0, short_track(120.0, 4.0));
@@ -2952,6 +3022,8 @@ mod tests {
     fn render(track: &Arc<Track>, configure: impl Fn(&ControlRegistry)) -> Vec<f32> {
         let (reg, mut engine, mut input) = setup();
         load(&mut input, 0, track.clone());
+        // Loading resets the deck's effects and EQ, so configure after it.
+        run(&mut engine, 0.01);
         configure(&reg);
         // Let gain ramps settle before the music starts, so a bypassed
         // effect leaves the output bit-identical.

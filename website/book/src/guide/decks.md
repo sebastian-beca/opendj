@@ -53,6 +53,19 @@ track loaded while another deck plays is shifted by that much, with key lock
 on, so it mixes. At ±2, keys two semitones away are marked **+2** or **−2**
 in grey.
 
+## Auto reset on load
+
+Loading a track puts its deck back to normal, so the last track's settings
+don't carry over. In **Settings > Decks**, under **Auto reset on load**, each
+of these can be switched off (all are on to start):
+
+- **Effects**: the deck's effects switch off. Their beats and dry/wet stay as
+  you set them. An effect that also plays on the main mix or on another
+  playing deck, such as a shared Beat FX, keeps going.
+- **EQ and filter**: EQ, kills, filter and sculpt go back to the middle.
+- **Gain**: the gain knob goes back to 0 dB (or the track's own gain, if its
+  info sets one). Auto gain still levels each track.
+
 ## Mixer
 
 Between the decks, each channel has gain, a 3-band EQ, a filter and a channel
