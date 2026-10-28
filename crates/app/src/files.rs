@@ -287,8 +287,22 @@ pub fn set_recursive(on: bool) {
     crate::settings::set("files_recursive", json!(on));
 }
 
-/// Shows `path` in Finder (selected) or opens the folder holding it in the
-/// file manager.
+/// Shows `path` in Finder or File Explorer (selected) or opens the folder
+/// holding it in the file manager.
+#[cfg(windows)]
+pub fn reveal(path: &Path) -> bool {
+    use std::os::windows::process::CommandExt;
+    // Explorer reads "/select," and the quoted path as one argument, which
+    // Rust's own quoting would split up.
+    std::process::Command::new("explorer")
+        .raw_arg(format!("/select,\"{}\"", path.display()))
+        .spawn()
+        .is_ok()
+}
+
+/// Shows `path` in Finder or File Explorer (selected) or opens the folder
+/// holding it in the file manager.
+#[cfg(not(windows))]
 pub fn reveal(path: &Path) -> bool {
     let mut cmd = if cfg!(target_os = "macos") {
         let mut c = std::process::Command::new("open");
@@ -310,6 +324,8 @@ pub fn reveal(path: &Path) -> bool {
 pub fn file_manager() -> &'static str {
     if cfg!(target_os = "macos") {
         "Finder"
+    } else if cfg!(windows) {
+        "File Explorer"
     } else {
         "file manager"
     }
