@@ -163,6 +163,8 @@ export global LibraryEdit {
     callback analyze(first: int, last: int);
     // Analyses every track of the tree's row `row`.
     callback analyze-all(row: int);
+    // Opens Export to USB for the tree's row `row` (a list or folder).
+    callback export-usb(row: int);
     // Prepares high-quality stems for the rows `first` to `last`, one
     // track after another in the background.
     callback prepare-hq-stems(first: int, last: int);
@@ -884,6 +886,13 @@ component FolderTree inherits Rectangle {
                 text: "Analyze All";
                 clicked => {
                     LibraryEdit.analyze-all(menu-index);
+                    folder-menu.close();
+                }
+            }
+            if menu-analysable: MenuLine {
+                text: "Export to USB…";
+                clicked => {
+                    LibraryEdit.export-usb(menu-index);
                     folder-menu.close();
                 }
             }
