@@ -21,8 +21,8 @@ use serde_json::json;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use crate::{
-    settings, short_port_name, AppWindow, AudioSettings, ImportWizard, KeyNotation, PrefItem,
-    Preferences,
+    settings, short_port_name, shortcuts, AppWindow, AudioSettings, ImportWizard, KeyNotation,
+    PrefItem, Preferences,
 };
 
 const AUDIO: i32 = 0;
@@ -31,7 +31,8 @@ const LIBRARY: i32 = 2;
 const ANALYSIS: i32 = 3;
 const DECKS: i32 = 4;
 const MIXER: i32 = 5;
-const FEEDBACK: i32 = 6;
+const KEYBOARD: i32 = 6;
+const FEEDBACK: i32 = 7;
 
 const SWITCH: i32 = 0;
 const MENU: i32 = 1;
@@ -43,6 +44,7 @@ const NOTE: i32 = 6;
 const HEADING: i32 = 7;
 const SEGMENTED: i32 = 8;
 const TEXT: i32 = 9;
+const SHORTCUT: i32 = 10;
 
 /// Tempo fader ranges, as fractions of normal speed.
 const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
@@ -251,6 +253,8 @@ pub struct Prefs {
     wizard: Option<WizardState>,
     /// The import whose Remove was pressed once, waiting for a second press.
     removing: Option<String>,
+    /// What the last change of a shortcut's key did, shown on the page.
+    shortcut_note: String,
 }
 
 /// What the settings window needs from the engine for its inputs.
@@ -302,6 +306,7 @@ impl Prefs {
             input_choices: Default::default(),
             wizard: None,
             removing: None,
+            shortcut_note: String::new(),
         }));
         let p = prefs.clone();
         g.on_changed(move || p.borrow_mut().shown());
@@ -313,6 +318,10 @@ impl Prefs {
         g.on_pressed(move |id| p.borrow_mut().pressed(&id));
         let p = prefs.clone();
         g.on_typed(move |id, text| p.borrow_mut().typed(&id, &text));
+        let p = prefs.clone();
+        g.on_key_captured(move |id, text, cmd, alt, shift| {
+            p.borrow_mut().key_captured(&id, &text, cmd, alt, shift)
+        });
         prefs
     }
 
@@ -396,6 +405,7 @@ impl Prefs {
             app.global::<AudioSettings>().invoke_refresh();
         }
         self.cache_note.clear();
+        self.shortcut_note.clear();
         self.refresh();
     }
 
@@ -709,6 +719,7 @@ impl Prefs {
                 ]
             }
             p if p > FEEDBACK => self.plugin_page((p - FEEDBACK - 1) as usize),
+            KEYBOARD => self.keyboard_page(),
             FEEDBACK => vec![
                 item(
                     "",
@@ -1370,6 +1381,26 @@ impl Prefs {
     }
 
     fn picked(&mut self, id: &str, index: usize) {
+        if let Some(key) = id.strip_prefix("shortcut:") {
+            let Some(verb) = opendj_script::VERBS.get(index) else {
+                return;
+            };
+            let mut own = settings::keyboard_shortcuts();
+            let now = shortcuts::rows(&own)
+                .into_iter()
+                .find(|r| r.key == key)
+                .map(|r| r.script)
+                .unwrap_or_default();
+            // An empty line takes the verb; otherwise it runs after.
+            let script = match now.trim() {
+                "" => shortcuts::sample(verb),
+                now => format!("{now} & {}", shortcuts::sample(verb)),
+            };
+            shortcuts::set_script(&mut own, key, &script);
+            settings::set_keyboard_shortcuts(&own);
+            self.refresh();
+            return;
+        }
         if id == "import_wizard_theirs" {
             if let Some(w) = &mut self.wizard {
                 w.theirs_win = index == 0;
@@ -1512,6 +1543,134 @@ impl Prefs {
         self.refresh();
     }
 
+    /// Keyboard shortcuts, each an openDJscript line (see shortcuts.rs).
+    fn keyboard_page(&self) -> Vec<PrefItem> {
+        let fixed = if cfg!(target_os = "macos") {
+            "Space plays or pauses the master deck, ⌘, opens Settings and Esc closes them; those stay as they are."
+        } else {
+            "Space plays or pauses the master deck, Ctrl+, opens Settings and Esc closes them; those stay as they are."
+        };
+        let mut items = vec![
+            item(
+                "",
+                NOTE,
+                "",
+                &format!(
+                    "Each key runs a line of openDJscript, such as “rating 3” or “deck 2 sync & play”. \
+                     Click a key to change it, type the action, or pick one from Actions. {fixed}"
+                ),
+            ),
+            item("", HEADING, "SHORTCUTS", ""),
+        ];
+        if !self.shortcut_note.is_empty() {
+            items.push(item("", NOTE, "", &self.shortcut_note));
+        }
+        let own = settings::keyboard_shortcuts();
+        items.extend(shortcuts::rows(&own).iter().map(shortcut_item));
+        items.push(PrefItem {
+            detail: "Click Add a key, then press the keys for a new shortcut.".into(),
+            ..item("shortcut_new", SHORTCUT, "", "")
+        });
+        items.push(PrefItem {
+            action: "Reset All".into(),
+            ..item(
+                "shortcuts_reset_all",
+                BUTTON,
+                "Reset all shortcuts",
+                &format!(
+                    "Back to openDJ's own: {} to {} rate the picked tracks.",
+                    shortcuts::display("cmd+1"),
+                    shortcuts::display("cmd+5")
+                ),
+            )
+        });
+        items.push(item("", HEADING, "ACTIONS", ""));
+        items.push(item(
+            "",
+            NOTE,
+            "",
+            "A verb alone acts on the master deck; “deck 2 play” on deck 2. “&” runs one action after \
+             another, “play ? pause : play” asks first, and “toggle 'slip_enabled'” reaches any control by its Mixxx name.",
+        ));
+        items.extend(opendj_script::VERBS.iter().map(|v| {
+            item(
+                &format!("verb:{}", v.name),
+                NOTE,
+                &shortcuts::usage(v),
+                v.help,
+            )
+        }));
+        items
+    }
+
+    /// The DJ typed in a shortcut: its row is updated where it is, so the
+    /// field keeps its focus.
+    fn update_shortcut_row(&self, id: &str) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let own = settings::keyboard_shortcuts();
+        let Some(row) = shortcuts::rows(&own)
+            .into_iter()
+            .find(|r| id.strip_prefix("shortcut:") == Some(r.key.as_str()))
+        else {
+            return;
+        };
+        let items = app.global::<Preferences>().get_items();
+        for i in 0..slint::Model::row_count(&items) {
+            let Some(old) = slint::Model::row_data(&items, i) else {
+                continue;
+            };
+            if old.id == id {
+                let mut new = shortcut_item(&row);
+                // The field shows what was typed, not a saved copy.
+                new.value = old.value;
+                slint::Model::set_row_data(&items, i, new);
+            }
+        }
+    }
+
+    /// A key pressed on a shortcut's key button. False to keep listening.
+    fn key_captured(&mut self, id: &str, text: &str, cmd: bool, alt: bool, shift: bool) -> bool {
+        let Some(key) = shortcuts::key_name(text, cmd, alt, shift) else {
+            return false;
+        };
+        let shown = shortcuts::display(&key);
+        let mut own = settings::keyboard_shortcuts();
+        if shortcuts::FIXED.contains(&key.as_str())
+            || shortcuts::normalize(&key).as_deref() != Some(&key)
+        {
+            self.shortcut_note = format!("{shown} can't be a shortcut.");
+        } else if let Some(old) = id.strip_prefix("shortcut:") {
+            let script = |key: &str| {
+                shortcuts::rows(&own)
+                    .into_iter()
+                    .find(|r| r.key == key)
+                    .map(|r| r.script)
+                    .unwrap_or_default()
+            };
+            // Moving a key that does nothing onto one in use would only
+            // turn that one off.
+            let taken = script(&key);
+            if script(old).trim().is_empty() && !taken.trim().is_empty() && old != key {
+                self.shortcut_note = format!("{shown} already runs “{taken}”.");
+                self.refresh();
+                return true;
+            }
+            self.shortcut_note = match shortcuts::rebind(&mut own, old, &key) {
+                Some(was) => format!("{shown} ran “{was}”; it now runs this one instead."),
+                None => String::new(),
+            };
+        } else if !shortcuts::add(&mut own, &key) {
+            self.shortcut_note = format!("{shown} is already on the list.");
+        } else {
+            self.shortcut_note.clear();
+        }
+        settings::set_keyboard_shortcuts(&own);
+        self.refresh();
+        true
+    }
+
     /// Plugin `index`'s page: its own rows, ids `plugin:<index>:<key>`.
     fn plugin_page(&self, index: usize) -> Vec<PrefItem> {
         let Some(plugin) = self.plugins.get(index) else {
@@ -1546,6 +1705,13 @@ impl Prefs {
     /// The DJ typed in a plugin's text field. The page isn't filled again,
     /// so the field keeps its place while typing.
     fn typed(&mut self, id: &str, text: &str) {
+        if let Some(key) = id.strip_prefix("shortcut:") {
+            let mut own = settings::keyboard_shortcuts();
+            shortcuts::set_script(&mut own, key, text);
+            settings::set_keyboard_shortcuts(&own);
+            self.update_shortcut_row(id);
+            return;
+        }
         if id == "discogs_token" {
             settings::set_discogs_token(text);
             return;
@@ -1582,6 +1748,23 @@ impl Prefs {
     }
 
     fn pressed(&mut self, id: &str) {
+        if id == "shortcuts_reset_all" {
+            settings::set_keyboard_shortcuts(&[]);
+            self.shortcut_note = "Every shortcut is back to its default.".into();
+            self.refresh();
+            return;
+        }
+        if let Some(key) = id.strip_prefix("shortcut:") {
+            let mut own = settings::keyboard_shortcuts();
+            match shortcuts::rows(&own).into_iter().find(|r| r.key == key) {
+                Some(r) if r.default && r.changed => shortcuts::reset(&mut own, key),
+                _ => shortcuts::remove(&mut own, key),
+            }
+            settings::set_keyboard_shortcuts(&own);
+            self.shortcut_note.clear();
+            self.refresh();
+            return;
+        }
         if self.import_pressed(id) {
             return;
         }
@@ -1717,6 +1900,29 @@ fn item(id: &str, kind: i32, title: &str, detail: &str) -> PrefItem {
         title: title.into(),
         detail: detail.into(),
         ..Default::default()
+    }
+}
+
+/// A shortcut's row on the Keyboard page.
+fn shortcut_item(r: &shortcuts::Row) -> PrefItem {
+    let (detail, wrong) = shortcuts::describe(&r.script);
+    let verbs: Vec<&str> = opendj_script::VERBS.iter().map(|v| v.name).collect();
+    PrefItem {
+        value: r.script.as_str().into(),
+        on: wrong,
+        choices: strings(&verbs),
+        action: match (r.default, r.changed) {
+            (true, true) => "Reset",
+            (true, false) => "Turn Off",
+            (false, _) => "Remove",
+        }
+        .into(),
+        ..item(
+            &format!("shortcut:{}", r.key),
+            SHORTCUT,
+            &shortcuts::display(&r.key),
+            &detail,
+        )
     }
 }
 
