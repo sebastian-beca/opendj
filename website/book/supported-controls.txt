@@ -1946,6 +1946,7 @@
 [Microphone],vu_meter_right
 [Mixer Profile],xFaderReverse
 [Mixer Profile],xFaderShape
+[Mixer],crossfader_enabled
 [Mixer],knob_mode
 [Playlist],LoadSelectedIntoFirstStopped
 [Playlist],SelectNextPlaylist
