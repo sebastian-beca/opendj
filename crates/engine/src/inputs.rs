@@ -98,9 +98,9 @@ impl InputControls {
             reg.toggle(g, "talkover")
         } else {
             // Mixxx 2.4 renamed `master` to `main_mix`; mappings use both.
+            // Off until the DJ turns it on, as the microphone is.
             let on = reg.toggle(g, "main_mix");
             alias(reg, g, "master", g, "main_mix");
-            on.set_bool(true);
             on
         };
         let configured = reg.indicator(g, "input_configured", 1.0);
