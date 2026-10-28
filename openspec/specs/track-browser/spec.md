@@ -37,7 +37,7 @@ The overview SHALL be a small summary (256 slices of peak and RMS) kept beside e
 
 #### Scenario: Loaded on a deck
 - **WHEN** a track with an empty Waveform cell is loaded on a deck and analysed
-- **THEN** its row shows its mini waveform without the list being opened again
+- **THEN** its row and the Info panel fill in as the deck's waveform does, and show the whole track once the analysis finishes, without the list being opened again
 
 ### Requirement: Selection
 Click SHALL select a row, shift-click a range, and actions from the track menu apply to the whole selection. The focused list's selection SHALL be lilac (#8C72D9, white text); the other list's gray.
