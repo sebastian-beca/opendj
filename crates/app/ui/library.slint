@@ -161,6 +161,9 @@ export global LibraryEdit {
     callback analyze(first: int, last: int);
     // Analyses every track of the tree's row `row`.
     callback analyze-all(row: int);
+    // Prepares high-quality stems for the rows `first` to `last`, one
+    // track after another in the background.
+    callback prepare-hq-stems(first: int, last: int);
     // "Analyzing 3 of 12" while tracks are queued, for the footer; empty otherwise.
     in property <string> analysis-status;
     callback cancel-analysis();
@@ -360,6 +363,13 @@ component TrackMenu inherits PopupWindow {
             text: track-last > track-row ? "Analyze " + (track-last - track-row + 1) + " Tracks" : "Analyze Track";
             clicked => {
                 LibraryEdit.analyze(track-row, track-last);
+                root.close();
+            }
+        }
+        MenuLine {
+            text: "Prepare High Quality Stems";
+            clicked => {
+                LibraryEdit.prepare-hq-stems(track-row, track-last);
                 root.close();
             }
         }

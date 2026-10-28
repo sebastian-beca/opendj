@@ -34,7 +34,7 @@ const FILE_STEMS: usize = 4;
 
 /// Where a drums stem splits into kick (below) and hi-hats (above, with the
 /// snares and claps).
-const KICK_SPLIT_HZ: f64 = 150.0;
+pub(crate) const KICK_SPLIT_HZ: f64 = 150.0;
 
 /// A stem's name and colour (0xRRGGBB).
 #[derive(Clone, Debug, PartialEq)]
@@ -43,14 +43,15 @@ pub struct StemInfo {
     pub color: u32,
 }
 
-/// NI's default names and colours, which Demucs's stems also take
-/// (Demucs calls "other" what NI calls "synth").
+/// The names and colours of separated stems, VirtualDJ's (drums become
+/// Kick and HiHat, see [`split_drums`]); NI STEM files without their own
+/// take them too. In NI's order: drums, bass, other ("synth") and vocals.
 pub fn default_info() -> Vec<StemInfo> {
     [
-        ("Drums", 0x009E73),
-        ("Bass", 0xD55E00),
-        ("Other", 0xCC79A7),
-        ("Vocals", 0x56B4E9),
+        ("Drums", KICK_COLOR),
+        ("Bass", 0xA21418),
+        ("Instru", 0xA26018),
+        ("Vocal", 0x09AD18),
     ]
     .map(|(name, color)| StemInfo {
         name: name.into(),
@@ -59,21 +60,41 @@ pub fn default_info() -> Vec<StemInfo> {
     .to_vec()
 }
 
+const KICK_COLOR: u32 = 0x2E4E75;
+const HIHAT_COLOR: u32 = 0x0960B1;
+
 /// Frames per chunk, as in [`Audio`](crate::track::Audio).
-const CHUNK: usize = 1 << 16;
+pub(crate) const CHUNK: usize = 1 << 16;
 
 /// One frame of all stems, 16-bit: half the memory of floats, and stems are
 /// five times a track's audio.
-type StemFrame = [[i16; 2]; MAX_STEMS];
+pub(crate) type StemFrame = [[i16; 2]; MAX_STEMS];
 
-/// A track's stems, decoded in order while they may already be playing.
-/// Frames not decoded yet read as silence.
+/// How a track's stems were made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Quality {
+    /// Spleeter, when the track was loaded: quick, with some bleed.
+    Fast,
+    /// HTDemucs (or an NI STEM file): kept in the cache.
+    High,
+}
+
+/// A track's stems, filled in while they may already be playing: decoded
+/// in order, or separated a chunk at a time from wherever the DJ is.
+/// Frames not there yet read as silence, or as the original for separated
+/// stems (see [`Stems::mix`]).
 pub struct Stems {
     pub info: Vec<StemInfo>,
     pub sample_rate: u32,
+    pub quality: Quality,
+    /// Separated from the track rather than mastered with it, so they play
+    /// as the original minus what is turned down (see [`Stems::mix`]).
+    separated: bool,
     chunks: Box<[OnceLock<Box<[StemFrame]>>]>,
     decoded: AtomicUsize,
     complete: AtomicBool,
+    /// Better stems that replace these once they are there.
+    upgrade: OnceLock<Arc<Stems>>,
 }
 
 impl Stems {
@@ -81,12 +102,61 @@ impl Stems {
         Stems {
             info,
             sample_rate,
+            quality: Quality::High,
+            separated: false,
             chunks: (0..expected_frames / CHUNK + 2)
                 .map(|_| OnceLock::new())
                 .collect(),
             decoded: AtomicUsize::new(0),
             complete: AtomicBool::new(false),
+            upgrade: OnceLock::new(),
         }
+    }
+
+    /// Separated stems of `frames` frames, filled in by [`Stems::fill`].
+    pub(crate) fn separated(
+        info: Vec<StemInfo>,
+        sample_rate: u32,
+        frames: usize,
+        quality: Quality,
+    ) -> Stems {
+        Stems {
+            quality,
+            separated: true,
+            ..Stems::new(info, sample_rate, frames)
+        }
+    }
+
+    /// Fills chunk `k`, the frames from `k * CHUNK`; the last is complete
+    /// once every chunk is filled.
+    pub(crate) fn fill(&self, k: usize, frames: Box<[StemFrame]>) {
+        let n = frames.len();
+        if let Some(slot) = self.chunks.get(k) {
+            if slot.set(frames).is_ok() {
+                self.decoded.fetch_add(n, Ordering::AcqRel);
+            }
+        }
+    }
+
+    /// Marks the stems as complete.
+    pub(crate) fn finish(&self) {
+        self.complete.store(true, Ordering::Release);
+    }
+
+    /// The stems that play: the upgrade once it is complete, else these.
+    pub fn current(&self) -> &Stems {
+        match self.upgrade.get() {
+            Some(u) if u.is_complete() => u,
+            _ => self,
+        }
+    }
+
+    /// Sets the better stems that replace these once they are complete.
+    /// False if there already are some, or they don't fit.
+    pub fn set_upgrade(&self, stems: Arc<Stems>) -> bool {
+        stems.sample_rate == self.sample_rate
+            && stems.count() == self.count()
+            && self.upgrade.set(stems).is_ok()
     }
 
     /// Stems that are already decoded: `frames[i][k]` is stem k's frame i.
@@ -120,15 +190,35 @@ impl Stems {
         self.complete.load(Ordering::Acquire)
     }
 
-    /// The mix of frame `i` with each stem scaled by its gain.
+    /// The mix of frame `i` with each stem scaled by its gain. Separated
+    /// stems play as `original() − Σ (1 − gain) × stem`: the track itself
+    /// at full gains, and the original where the stems aren't separated
+    /// yet. Stems from an NI file play as their sum.
     #[inline]
-    pub fn mix(&self, i: usize, gains: &[f32; MAX_STEMS]) -> [f32; 2] {
-        let Some(f) = self
+    pub fn mix(
+        &self,
+        i: usize,
+        gains: &[f32; MAX_STEMS],
+        original: impl FnOnce() -> [f32; 2],
+    ) -> [f32; 2] {
+        let stems = self.current();
+        let f = stems
             .chunks
             .get(i / CHUNK)
             .and_then(OnceLock::get)
-            .and_then(|c| c.get(i % CHUNK))
-        else {
+            .and_then(|c| c.get(i % CHUNK));
+        if stems.separated {
+            let mut out = original();
+            if let Some(f) = f {
+                for (s, g) in f.iter().zip(gains) {
+                    let cut = (1.0 - g) / 32_768.0;
+                    out[0] -= s[0] as f32 * cut;
+                    out[1] -= s[1] as f32 * cut;
+                }
+            }
+            return out;
+        }
+        let Some(f) = f else {
             return [0.0; 2];
         };
         let mut out = [0.0; 2];
@@ -137,6 +227,11 @@ impl Stems {
             out[1] += s[1] as f32 * g;
         }
         [out[0] / 32_768.0, out[1] / 32_768.0]
+    }
+
+    /// How the stems that play now were made.
+    pub fn playing_quality(&self) -> Quality {
+        self.current().quality
     }
 }
 
@@ -147,7 +242,7 @@ impl std::fmt::Debug for Stems {
 }
 
 /// Converts a sample to 16 bits, clipping.
-fn to_i16(x: f32) -> i16 {
+pub(crate) fn to_i16(x: f32) -> i16 {
     (x * 32_768.0).round().clamp(-32_768.0, 32_767.0) as i16
 }
 
@@ -289,19 +384,27 @@ pub struct Decode {
     inputs: Vec<Input>,
     /// Splits the first stem, drums, into kick and hi-hats (see
     /// [`split_drums`]).
-    split: Option<(crate::dsp::Lr4, crate::dsp::Lr4)>,
+    split: Option<crate::dsp::Lr4>,
+}
+
+/// Splits a drums frame into kick (through `low`) and hi-hats, the rest: the
+/// two add up to the drums exactly, so taking both out of a separated track
+/// takes out the drums and nothing else.
+pub(crate) fn split(low: &mut crate::dsp::Lr4, drums: [f32; 2]) -> ([f32; 2], [f32; 2]) {
+    let kick = low.process(drums);
+    (kick, [drums[0] - kick[0], drums[1] - kick[1]])
 }
 
 /// With the usual four stems, the drums stem (first) becomes a kick stem and
 /// a fifth, hi-hat stem takes the rest of the kit.
-fn split_drums(info: &mut Vec<StemInfo>) -> bool {
+pub(crate) fn split_drums(info: &mut Vec<StemInfo>) -> bool {
     if info.len() != FILE_STEMS || !info[0].name.eq_ignore_ascii_case("drums") {
         return false;
     }
     info[0].name = "Kick".into();
     info.push(StemInfo {
         name: "HiHat".into(),
-        color: 0xF0E442,
+        color: HIHAT_COLOR,
     });
     true
 }
@@ -331,15 +434,12 @@ impl Decode {
         let expected = inputs.iter().filter_map(|i| i.frames).max().unwrap_or(0) as usize;
         let mut info = info;
         info.truncate(inputs.len());
-        let split = split_drums(&mut info).then(|| {
-            let rate = rate as f64;
-            (
-                crate::dsp::Lr4::lowpass(rate, KICK_SPLIT_HZ),
-                crate::dsp::Lr4::highpass(rate, KICK_SPLIT_HZ),
-            )
-        });
+        let split =
+            split_drums(&mut info).then(|| crate::dsp::Lr4::lowpass(rate as f64, KICK_SPLIT_HZ));
+        let mut stems = Stems::new(info, rate, expected.max(CHUNK));
+        stems.separated = matches!(source, StemSource::Files(_));
         Ok(Decode {
-            stems: Arc::new(Stems::new(info, rate, expected.max(CHUNK))),
+            stems: Arc::new(stems),
             inputs,
             split,
         })
@@ -388,10 +488,11 @@ impl Decode {
                 for (k, i) in self.inputs.iter_mut().enumerate() {
                     frame[k] = i.queue.pop_front().unwrap_or_default();
                 }
-                if let Some((kick, hats)) = &mut self.split {
+                if let Some(low) = &mut self.split {
                     let drums = frame[0].map(|v| v as f32 / 32_768.0);
-                    frame[0] = kick.process(drums).map(to_i16);
-                    frame[FILE_STEMS] = hats.process(drums).map(to_i16);
+                    let (kick, hats) = split(low, drums);
+                    frame[0] = kick.map(to_i16);
+                    frame[FILE_STEMS] = hats.map(to_i16);
                 }
                 buf.push(frame);
                 if buf.len() == CHUNK {
@@ -637,10 +738,10 @@ fn has_demucs_module(python: &Path) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-/// Separates the file at `path` into stems with Demucs (`htdemucs`, four
-/// stems) in the background, leaving FLAC files in the cache where
-/// [`find`] looks. `done` is called with the result when it finishes.
-/// Demucs is not bundled: it has to be installed (`pip install demucs`).
+/// Separates the file at `path` into high-quality stems in the background
+/// (see [`crate::separation::separate_hq`]), leaving FLAC files in the
+/// cache where [`find`] looks. `done` is called with the result when it
+/// finishes.
 pub fn separate(path: &Path, done: impl FnOnce(Result<StemSource, String>) + Send + 'static) {
     if matches!(separation(path), Some(Separation::Running)) {
         return;
@@ -652,7 +753,10 @@ pub fn separate(path: &Path, done: impl FnOnce(Result<StemSource, String>) + Sen
         .spawn({
             let path = path.clone();
             move || {
-                let result = run_demucs(&path);
+                // One at a time: each takes the GPU (or every core).
+                static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+                let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+                let result = crate::separation::separate_hq(&path);
                 set_job(
                     &path,
                     match &result {
@@ -668,7 +772,8 @@ pub fn separate(path: &Path, done: impl FnOnce(Result<StemSource, String>) + Sen
     }
 }
 
-fn run_demucs(path: &Path) -> Result<StemSource, String> {
+/// Separates the file at `path` with the Demucs command, into the cache.
+pub(crate) fn run_demucs(path: &Path) -> Result<StemSource, String> {
     let dir = crate::cache::stems_dir(path).ok_or("no cache folder")?;
     let work = dir.with_extension(format!("work{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
@@ -720,8 +825,8 @@ mod tests {
         assert_eq!(info[0].name, "Kick");
         assert_eq!(info[0].color, 0xFF0000);
         // Missing values take NI's defaults.
-        assert_eq!(info[2].name, "Other");
-        assert_eq!(info[2].color, 0xCC79A7);
+        assert_eq!(info[2].name, "Instru");
+        assert_eq!(info[2].color, 0xA26018);
         assert_eq!(info[3].color, 0x0000FF);
     }
 
@@ -771,25 +876,29 @@ mod tests {
         // The drums (first) split into kick and hi-hats.
         assert_eq!(d.stems().count(), 5);
         assert_eq!(d.stems().info[0].name, "Kick");
-        assert_eq!(d.stems().info[3].name, "Vocals");
+        assert_eq!(d.stems().info[3].name, "Vocal");
         assert_eq!(d.stems().info[4].name, "HiHat");
         let stems = d.run(|| true).unwrap();
         assert!(stems.is_complete());
         assert_eq!(stems.decoded(), 100_000);
-        // Once the split filters have settled.
-        let all = stems.mix(20_000, &[1.0; 5]);
-        assert!((all[0] - 1.0).abs() < 1e-3 && (all[1] + 1.0).abs() < 1e-3);
+        // Separated stems play as the original (here the sum of the
+        // stems) less what is turned down; once the split filters settle.
+        let original = |i: usize| move || [if i < 50_000 { 1.0 } else { 0.6 }, 0.0];
+        let all = stems.mix(20_000, &[1.0; 5], original(20_000));
+        assert!((all[0] - 1.0).abs() < 1e-3);
         // The drums are a constant level, so all kick and no hats.
-        let kick = stems.mix(20_000, &[1.0, 0.0, 0.0, 0.0, 0.0]);
+        let kick = stems.mix(20_000, &[1.0, 0.0, 0.0, 0.0, 0.0], original(20_000));
         assert!((kick[0] - 0.1).abs() < 1e-3, "{kick:?}");
-        let hats = stems.mix(20_000, &[0.0, 0.0, 0.0, 0.0, 1.0]);
+        let hats = stems.mix(20_000, &[0.0, 0.0, 0.0, 0.0, 1.0], original(20_000));
         assert!(hats[0].abs() < 1e-3, "{hats:?}");
         // Drums and vocals muted, bass at half.
-        let some = stems.mix(20_000, &[0.0, 0.5, 1.0, 0.0, 0.0]);
+        let some = stems.mix(20_000, &[0.0, 0.5, 1.0, 0.0, 0.0], original(20_000));
         assert!((some[0] - 0.4).abs() < 1e-3);
         // Past the end of the short stem it is silent.
-        let late = stems.mix(60_000, &[0.0, 0.0, 0.0, 1.0, 0.0]);
-        assert_eq!(late, [0.0, 0.0]);
+        let late = stems.mix(60_000, &[0.0, 0.0, 0.0, 1.0, 0.0], original(60_000));
+        assert!(late[0].abs() < 1e-3, "{late:?}");
+        // Where there are no stems yet, the original plays.
+        assert_eq!(stems.mix(500_000, &[0.0; 5], || [0.7, 0.7]), [0.7, 0.7]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

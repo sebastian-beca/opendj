@@ -438,14 +438,26 @@ fn ddj_flx4_pad_modes() {
     settle(&mut c, 5);
     let out = c.take_output();
     assert!(out.iter().any(|m| m[..] == [0x97, 0x44, 0x7F]), "{out:x?}");
-    // KEYBOARD, and KEYBOARD again: the stems pads, which mute stem 1.
+    // KEYBOARD, and KEYBOARD again: the stems pads, laid out as on screen:
+    // pad 1 mutes the vocals (stem 4), pad 4 plays them alone (Acapella).
     reg.get("[Channel1]", "stem_count").unwrap().set(4.0);
     c.receive(&[0x90, 0x69, 0x7F]);
     assert_eq!(get(&reg, "[Channel1]", "pad_panel"), 7.0);
     c.receive(&[0x90, 0x69, 0x7F]);
     assert_eq!(get(&reg, "[Channel1]", "pad_panel"), 4.0);
     c.receive(&[0x97, 0x40, 0x7F]);
-    assert_eq!(get(&reg, "[Channel1_Stem1]", "mute"), 1.0);
+    assert_eq!(get(&reg, "[Channel1_Stem4]", "mute"), 1.0);
+    c.receive(&[0x97, 0x43, 0x7F]);
+    let mutes: Vec<f64> = (1..=4)
+        .map(|s| get(&reg, &format!("[Channel1_Stem{s}]"), "mute"))
+        .collect();
+    assert_eq!(mutes, [1.0, 1.0, 1.0, 0.0]);
+    // Acapella again brings every stem back; Instrumental (pad 8) mutes the vocals.
+    c.receive(&[0x97, 0x43, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1_Stem1]", "mute"), 0.0);
+    c.receive(&[0x97, 0x47, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1_Stem4]", "mute"), 1.0);
+    assert_eq!(get(&reg, "[Channel1_Stem2]", "mute"), 0.0);
     // And once more, back to the keyboard.
     c.receive(&[0x90, 0x69, 0x7F]);
     assert_eq!(get(&reg, "[Channel1]", "pad_panel"), 7.0);

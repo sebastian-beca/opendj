@@ -32,6 +32,7 @@ pub mod preview;
 pub mod recorder;
 pub mod sampler;
 pub mod scan;
+pub mod separation;
 pub mod stems;
 pub mod synth;
 pub mod tags;
@@ -374,13 +375,16 @@ impl AudioEngine {
         self.output.borrow().input_status()
     }
 
-    /// Separates `track` into stems with Demucs in the background (see
-    /// [`stems::separate`]); when it is done, the stems play on any deck the
-    /// track is loaded on. Check on it with [`stems::separation`].
-    pub fn separate_stems(&self, track: &Track) {
+    /// Prepares high-quality stems for `track` in the background (see
+    /// [`stems::separate`]); when they are ready, they take over on any deck
+    /// the track is loaded on. Check on it with [`stems::separation`].
+    pub fn prepare_hq_stems(&self, track: &Track) {
         let Source::File(path) = &track.source else {
             return;
         };
+        if stems::find(path).is_some() {
+            return;
+        }
         let loaded = self.loaded.clone();
         let file = path.clone();
         stems::separate(path, move |result| {
