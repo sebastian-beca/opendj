@@ -345,6 +345,28 @@ pub fn set(key: &str, value: Value) {
     save(|v| v[key] = value);
 }
 
+/// Controllers shown in Settings › Controllers, or taken off it, by their
+/// device key. A device not listed shows if openDJ has a mapping for it.
+pub fn controllers_shown() -> HashMap<String, bool> {
+    load()["controllers_shown"]
+        .as_object()
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, v)| Some((k.clone(), v.as_bool()?)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn set_controller_shown(key: &str, shown: bool) {
+    save(|v| {
+        if !v["controllers_shown"].is_object() {
+            v["controllers_shown"] = json!({});
+        }
+        v["controllers_shown"][key] = json!(shown);
+    });
+}
+
 /// The mapping picked for each controller, by its device key.
 pub fn controller_mappings() -> HashMap<String, MappingChoice> {
     load()["controller_mappings"]
