@@ -583,6 +583,10 @@ export component AppWindow inherits Window {
                 }
                 return accept;
             }
+            if e.text == Key.Escape && ControllerEditor.dialog != 0 {
+                ControllerEditor.dialog-done(false);
+                return accept;
+            }
             if e.text == Key.Escape && ControllerEditor.open {
                 ControllerEditor.open = false;
                 return accept;

@@ -757,17 +757,18 @@ PioneerDDJFLX4.samplerPlayOutputCallbackFunction = function(_value, _group, _con
     PioneerDDJFLX4.samplerLights(false);
 };
 
-// openDJ: the pad panel each pad mode button opens on the deck's screen
-// (see the deck's `pad_panel` control).
-PioneerDDJFLX4.padPanelForMode = {
-    0x1B: 0, // HOT CUE: hot cues
-    0x69: 7, // KEYBOARD (SHIFT + HOT CUE): keyboard, or stems (see keyboardStems)
-    0x1E: 1, // PAD FX1: pad FX 1
-    0x6B: 6, // PAD FX2 (SHIFT + PAD FX1): pad FX 2
-    0x20: 2, // BEAT JUMP: beat jump
-    0x6D: 5, // BEAT LOOP (SHIFT + BEAT JUMP): beat loop
-    0x22: 3, // SAMPLER: sampler
-    0x6F: 8, // KEY SHIFT (SHIFT + SAMPLER): key shift
+// openDJ: the pad tab each pad mode button opens on the deck's screen (see
+// the deck's `pad_tab` control): tabs 1-4 for the four buttons, 5-8 for the
+// same buttons with SHIFT, whatever page is in the tab.
+PioneerDDJFLX4.padTabForMode = {
+    0x1B: 0, // HOT CUE
+    0x1E: 1, // PAD FX1
+    0x20: 2, // BEAT JUMP
+    0x22: 3, // SAMPLER
+    0x69: 4, // KEYBOARD (SHIFT + HOT CUE)
+    0x6B: 5, // PAD FX2 (SHIFT + PAD FX1)
+    0x6D: 6, // BEAT LOOP (SHIFT + BEAT JUMP)
+    0x6F: 7, // KEY SHIFT (SHIFT + SAMPLER)
 };
 
 // openDJ: the pad mode button last pressed on each deck.
@@ -796,11 +797,14 @@ PioneerDDJFLX4.padModeKeyPressed = function(_channel, _control, value, _status, 
         }
         PioneerDDJFLX4.keyboardLights(group);
     }
-    if (value && _control in PioneerDDJFLX4.padPanelForMode) {
+    if (value && _control in PioneerDDJFLX4.padTabForMode) {
+        const again = PioneerDDJFLX4.padMode[group] === _control;
         PioneerDDJFLX4.padMode[group] = _control;
-        const panel = _control === 0x69 && PioneerDDJFLX4.keyboardStems[group]
-            ? 4 : PioneerDDJFLX4.padPanelForMode[_control];
-        engine.setValue(group, "pad_panel", panel);
+        engine.setValue(group, "pad_tab", PioneerDDJFLX4.padTabForMode[_control]);
+        // KEYBOARD again swaps the stems pads into its tab, and back.
+        if (_control === 0x69 && again) {
+            engine.setValue(group, "pad_panel", PioneerDDJFLX4.keyboardStems[group] ? 4 : 7);
+        }
     }
     // openDJ: only the chosen mode stays lit.
     if (value) {
