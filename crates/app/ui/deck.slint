@@ -1,5 +1,5 @@
 // A deck: a header with cover, title,
-// overview and tempo, then FX and pads on the outer side, loop controls, the
+// overview and tempo, then the loop and pads on the outer side, loop controls, the
 // jog circle and the pitch fader towards the mixer. Deck B is mirrored.
 // Large artwork, flat dark controls, white pointers.
 import { TrackDrag } from "library.slint";
@@ -778,6 +778,11 @@ export global EffectList {
     in property <[string]> color-fx: ["Filter", "Space", "Dub Echo", "Noise", "Crush"];
     // The microphone's effect unit, from 0 (MIC_FX_UNIT).
     in property <int> mic-unit: 5;
+    // The parameter (from 0) each effect's slider in the FX bar sets, in
+    // `loaded_effect` order (the engine's AVAILABLE_EFFECTS); -1 for the
+    // beat-synced ones, which show their length in beats instead.
+    // Reverb decay, Filter resonance, Bitcrusher bit depth, Noise sweep.
+    in property <[int]> slider-params: [-1, 0, 1, -1, 0, -1, -1, -1, -1, -1, 1, -1];
 }
 
 // One effect slot: clicking the name turns the effect on
@@ -941,14 +946,6 @@ export component FxSlot inherits HorizontalLayout {
             }
         }
     }
-}
-
-// Effects assigned to this deck, one slot per row.
-export component FxRows inherits VerticalLayout {
-    in property <int> deck;
-    in property <[string]> names;
-    spacing: 4px;
-    for name[i] in names: FxSlot { deck: deck; slot: i; name: name; }
 }
 
 struct Pad {
@@ -1695,25 +1692,23 @@ export component LoopStepper inherits Rectangle {
     }
 }
 
-// Loop controls: the loop length box (see LoopStepper) with its label.
-// Manual loops (in / out) are to come.
-export component LoopSection inherits VerticalLayout {
+// Loop controls in a short row over the pads, at the deck's outer edge:
+// LOOP, the loop length box (see LoopStepper), then IN and OUT. The
+// effects are in the FX bar.
+export component LoopSection inherits HorizontalLayout {
     in property <string> group;
     in property <DeckInfo> info;
     in property <color> tint;
-    width: 104px;
-    spacing: 4px;
-    alignment: start;
-    Text { text: "LOOP"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; horizontal-alignment: center; }
-    LoopStepper { group: group; info: info; height: 28px; }
+    in property <bool> mirrored;
+    spacing: 6px;
+    height: 26px;
+    alignment: mirrored ? end : start;
+    Text { text: "LOOP"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+    LoopStepper { group: group; info: info; width: 96px; }
     // A loop of any length: IN on the nearest beat lights grey while the
     // waveform marks the loop out; OUT closes it, and it turns lilac.
-    HorizontalLayout {
-        spacing: 4px;
-        height: 26px;
-        ControlButton { group: group; key: "loop_in"; light-key: "loop_in_pending"; text: "IN"; momentary: true; tint: #d1d1d6; font-size: 12px; horizontal-stretch: 1; }
-        ControlButton { group: group; key: "loop_out"; light-key: "loop_enabled"; text: "OUT"; momentary: true; tint: Theme.lilac; font-size: 12px; horizontal-stretch: 1; }
-    }
+    ControlButton { group: group; key: "loop_in"; light-key: "loop_in_pending"; text: "IN"; momentary: true; tint: #d1d1d6; font-size: 11px; width: 40px; }
+    ControlButton { group: group; key: "loop_out"; light-key: "loop_enabled"; text: "OUT"; momentary: true; tint: Theme.lilac; font-size: 11px; width: 40px; }
 }
 
 // The column beside the tempo fader: pitch reset always at its middle,
@@ -1923,9 +1918,9 @@ export component Deck inherits Rectangle {
         Rectangle {
             background: Theme.panel;
             vertical-stretch: 1;
-            // Four sections split by thin lines: FX and loop side
-            // by side with the pads underneath, then the play section (jog,
-            // transport and tempo). Deck B is the mirror image.
+            // Split by thin lines: the loop over the pads, beside the
+            // play section (jog, transport and tempo). Deck B is the
+            // mirror image.
             HorizontalLayout {
                 padding: 8px;
                 spacing: 0px;
@@ -1936,14 +1931,7 @@ export component Deck inherits Rectangle {
                 VerticalLayout {
                     horizontal-stretch: 1;
                     spacing: 0px;
-                    HorizontalLayout {
-                        spacing: 0px;
-                        if mirrored: LoopSection { group: group; info: info; tint: tint; }
-                        if mirrored: VDivider { bottom: 4px; }
-                        FxRows { deck: deck; names: info.effects; horizontal-stretch: 1; alignment: start; }
-                        if !mirrored: VDivider { bottom: 4px; }
-                        if !mirrored: LoopSection { group: group; info: info; tint: tint; }
-                    }
+                    LoopSection { group: group; info: info; tint: tint; mirrored: mirrored; }
                     HDivider { }
                     Pads { deck: deck; group: group; info: info; vertical-stretch: 1; }
                 }
