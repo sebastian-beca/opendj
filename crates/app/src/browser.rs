@@ -323,11 +323,6 @@ const KIND_TRIAGE: i32 = 11;
 const KIND_HEALTH: i32 = 12;
 const KIND_CHECK: i32 = 13;
 
-/// Track colours offered in the track menu, as in `LibraryEdit.colors`.
-const COLORS: [u32; 8] = [
-    0xff3b30, 0xff9500, 0xffcc00, 0x34c759, 0x5ac8fa, 0x007aff, 0xaf52de, 0xff2d55,
-];
-
 /// Seconds a track must play on a deck to count as played, for the history.
 const PLAYED_AFTER: f64 = 30.0;
 
@@ -1261,15 +1256,6 @@ impl Browser {
         });
         let w = with.clone();
         edit.on_set_rating(move |row, n| w(&|b| b.set_rating(row as usize, n.clamp(0, 5) as u8)));
-        let w = with.clone();
-        edit.on_set_color(move |row, c| {
-            w(&|b| {
-                b.set_color(
-                    row as usize,
-                    usize::try_from(c).ok().and_then(|c| COLORS.get(c).copied()),
-                )
-            })
-        });
         let w = with.clone();
         edit.on_add_to_list(move |first, last, list| {
             w(&|b| {
@@ -2509,15 +2495,6 @@ impl Browser {
             t.rating = rating;
             if let Some(Err(e)) = db.map(|db| db.set_rating(t.id, rating)) {
                 eprintln!("can't save the rating: {e}");
-            }
-        });
-    }
-
-    fn set_color(&mut self, row: usize, color: Option<u32>) {
-        self.change_track(row, |t, db| {
-            t.info.color = color;
-            if let Some(Err(e)) = db.map(|db| db.set_color(t.id, color)) {
-                eprintln!("can't save the colour: {e}");
             }
         });
     }

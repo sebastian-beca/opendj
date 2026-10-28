@@ -136,14 +136,12 @@ export global TrackDrag {
     callback drop-side(index: int, data: data-transfer);
 }
 
-// Editing the library: lists and folders, ratings and colours.
+// Editing the library: lists and folders, and ratings.
 export global LibraryEdit {
     // Names of the lists a track can be added to, for the track menu.
     in property <[string]> lists;
     // The selected node is one of the DJ's lists, so a track can be taken out.
     in property <bool> in-list;
-    // Track colours the menu offers, in order.
-    out property <[color]> colors: [#ff3b30, #ff9500, #ffcc00, #34c759, #5ac8fa, #007aff, #af52de, #ff2d55];
     // Makes a list (0) or folder (1) and returns its row in the tree.
     callback create(kind: int) -> int;
     callback rename(index: int, name: string);
@@ -151,8 +149,6 @@ export global LibraryEdit {
     pure callback accepts-drop(index: int, data: data-transfer) -> bool;
     callback drop(index: int, data: data-transfer);
     callback set-rating(row: int, rating: int);
-    // An index into `colors`, or -1 for none.
-    callback set-color(row: int, color: int);
     // The rows `first` to `last`, the tracks picked with shift-click.
     callback add-to-list(first: int, last: int, list: int);
     callback remove-from-list(row: int);
@@ -288,7 +284,6 @@ component MenuSeparator inherits Rectangle {
     Rectangle { height: 1px; background: Theme.border; }
 }
 
-// Right-click menu on a track: rating, colour, and lists.
 // The track menu's lines for moving tracks between the stages, for a
 // track at `stage` (as `LibraryEdit.stage-of` numbers them).
 component StageLines inherits VerticalLayout {
@@ -321,6 +316,7 @@ component StageLines inherits VerticalLayout {
     }
 }
 
+// Right-click menu on a track: rating, stages and lists.
 component TrackMenu inherits PopupWindow {
     in property <int> track-row;
     // The last row picked with shift-click, when the menu is for several.
@@ -343,35 +339,6 @@ component TrackMenu inherits PopupWindow {
                 TouchArea {
                     clicked => {
                         LibraryEdit.set-rating(track-row, n == rating ? 0 : n);
-                        root.close();
-                    }
-                }
-            }
-        }
-        HorizontalLayout {
-            height: 28px;
-            padding-left: 10px;
-            spacing: 4px;
-            Text { text: "Colour"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 56px; }
-            for c[i] in LibraryEdit.colors: Rectangle {
-                width: 14px;
-                VerticalLayout {
-                    alignment: center;
-                    Rectangle { height: 14px; border-radius: 7px; background: c; }
-                }
-                TouchArea {
-                    clicked => {
-                        LibraryEdit.set-color(track-row, i);
-                        root.close();
-                    }
-                }
-            }
-            Rectangle {
-                width: 14px;
-                CloseIcon { size: 8px; }
-                TouchArea {
-                    clicked => {
-                        LibraryEdit.set-color(track-row, -1);
                         root.close();
                     }
                 }
