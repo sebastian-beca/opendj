@@ -404,11 +404,16 @@ impl Browser {
     pub fn poll_analysis(&mut self) {
         let done = self.analysis.take();
         if done.is_empty() {
+            self.show_analysis();
             return;
+        }
+        for t in &done {
+            self.learn_background(t);
         }
         let done: Vec<Option<Arc<Track>>> = done.into_iter().map(|t| Some(Arc::new(t))).collect();
         self.learn_analysis(&done);
         self.refresh_tree();
+        self.show_analysis();
     }
 }
 

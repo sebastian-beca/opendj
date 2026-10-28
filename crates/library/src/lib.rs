@@ -45,6 +45,9 @@ pub const ID_BASE: usize = 1_000_000;
 /// 9 added `tracks.stage` (see [`stages`]).
 const VERSION: i32 = 9;
 
+/// The `source` of grids, keys and markers found by this app's analysis.
+const ANALYSIS: &str = "analysis";
+
 /// The smart lists a new library starts with: name and search.
 const STARTER_SMART_LISTS: [(&str, &str); 6] = [
     ("Mixes with deck", "~deck"),
@@ -505,8 +508,8 @@ impl Library {
         let mut markers: HashMap<i64, Vec<Marker>> = HashMap::new();
         {
             let mut q = self.db.prepare(
-                "SELECT track_id, kind, seconds, end_seconds, name, color FROM markers
-                 ORDER BY track_id, seconds",
+                "SELECT track_id, kind, seconds, end_seconds, name, color, source
+                 FROM markers ORDER BY track_id, seconds",
             )?;
             let rows = q.query_map([], |r| {
                 Ok((
@@ -516,10 +519,11 @@ impl Library {
                     r.get::<_, Option<f64>>(3)?,
                     r.get::<_, String>(4)?,
                     r.get::<_, Option<i64>>(5)?,
+                    r.get::<_, String>(6)?,
                 ))
             })?;
             for row in rows {
-                let (id, kind, seconds, end, name, color) = row?;
+                let (id, kind, seconds, end, name, color, source) = row?;
                 let Some(kind) = MarkerKind::from_name(&kind) else {
                     continue;
                 };
@@ -529,6 +533,7 @@ impl Library {
                     end,
                     name,
                     color: color.map(|c| c as u32),
+                    detected: source == ANALYSIS,
                 });
             }
         }
@@ -536,7 +541,7 @@ impl Library {
             "SELECT id, path, artist, title, album, genre, duration, bpm, key, rating, color,
                     comment, grouping, labels, play_count, grid, added, key_source,
                     remix, year, track_number, user1, user2, gain, last_played,
-                    disc_number, label, composer, remixer, isrc, user_more, stage
+                    disc_number, label, composer, remixer, isrc, user_more, stage, grid_source
              FROM tracks WHERE id NOT IN (SELECT track_id FROM removed) ORDER BY id",
         )?;
         let rows = q.query_map([], |r| {
@@ -545,6 +550,7 @@ impl Library {
             let grid: Option<String> = r.get(15)?;
             let labels: String = r.get(13)?;
             let key_source: Option<String> = r.get(17)?;
+            let grid_source: Option<String> = r.get(32)?;
             Ok((
                 id,
                 PathBuf::from(path),
@@ -573,6 +579,7 @@ impl Library {
                         play_count: r.get::<_, i64>(14)?.max(0) as u32,
                         hotcues: Vec::new(),
                         fixed_grid: false,
+                        grid_analysed: grid_source.as_deref() == Some(ANALYSIS),
                         added: r.get(16)?,
                         missing: false,
                         key_detected: key_source.map(|s| s == "analysis"),
@@ -866,6 +873,35 @@ impl Library {
                 key_source
             ],
         )?;
+        Ok(())
+    }
+
+    /// Replaces the phrases analysis found for a track (markers of kind
+    /// phrase from [`ANALYSIS`]); markers from imports are left alone.
+    pub fn save_phrases(&self, id: usize, phrases: &[Marker]) -> Result<(), Error> {
+        let Some(row) = row_id(id) else { return Ok(()) };
+        let tx = self.db.unchecked_transaction()?;
+        tx.execute(
+            "DELETE FROM markers WHERE track_id = ?1 AND kind = 'phrase' AND source = ?2",
+            params![row, ANALYSIS],
+        )?;
+        {
+            let mut add = tx.prepare(
+                "INSERT INTO markers (track_id, kind, seconds, end_seconds, name, color, source)
+                 VALUES (?1, 'phrase', ?2, ?3, ?4, ?5, ?6)",
+            )?;
+            for m in phrases {
+                add.execute(params![
+                    row,
+                    m.seconds,
+                    m.end,
+                    m.name,
+                    m.color.map(|c| c as i64),
+                    ANALYSIS
+                ])?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -1939,6 +1975,7 @@ mod tests {
             end: None,
             name: "Break 1".into(),
             color: None,
+            detected: false,
         }];
         let entry = |p: &str, at| ImportedEntry {
             path: PathBuf::from(p),
@@ -2044,6 +2081,48 @@ mod tests {
     }
 
     #[test]
+    fn detected_phrases_replace_their_own_and_leave_imported_markers() {
+        let mut lib = Library::in_memory().unwrap();
+        lib.sync(&[file_track("/m/a.mp3", "A")]).unwrap();
+        let id = lib.tracks(|_| true).unwrap()[0].id;
+        let row = row_id(id).unwrap();
+        lib.db
+            .execute(
+                "INSERT INTO markers (track_id, kind, seconds, name, source)
+                 VALUES (?1, 'section', 30.0, 'Break 1', 'vdj')",
+                [row],
+            )
+            .unwrap();
+        let phrase = |seconds: f64, name: &str| Marker {
+            kind: MarkerKind::Phrase,
+            seconds,
+            end: Some(seconds + 30.0),
+            name: name.into(),
+            color: None,
+            detected: true,
+        };
+        lib.save_phrases(id, &[phrase(0.0, "Intro"), phrase(30.0, "Drop")])
+            .unwrap();
+        lib.save_phrases(id, &[phrase(0.0, "Intro"), phrase(60.0, "Drop")])
+            .unwrap();
+        let t = lib.tracks(|_| true).unwrap().remove(0);
+        let found: Vec<_> = t
+            .info
+            .markers
+            .iter()
+            .map(|m| (m.name.as_str(), m.seconds, m.detected))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("Intro", 0.0, true),
+                ("Break 1", 30.0, false),
+                ("Drop", 60.0, true)
+            ]
+        );
+    }
+
+    #[test]
     fn analysis_is_stored_once_and_ratings_and_colours_are_kept() {
         let mut lib = Library::in_memory().unwrap();
         lib.sync(&[file_track("/m/a.mp3", "A")]).unwrap();
@@ -2058,6 +2137,7 @@ mod tests {
         lib.set_comment(a.id, "opener").unwrap();
         let a2 = lib.tracks(|_| true).unwrap().remove(0);
         assert!(a2.info.fixed_grid);
+        assert!(a2.info.grid_analysed);
         assert_eq!((a2.bpm, a2.key.as_str(), a2.rating), (126.0, "8A", 5));
         assert_eq!(a2.info.key_detected, Some(true));
         assert_eq!(a2.info.color, Some(0x00ff00));
@@ -2066,6 +2146,7 @@ mod tests {
         lib.save_grid(a.id, &BeatGrid::constant(125.0, 0.0), 125.0)
             .unwrap();
         lib.save_analysis(a.id, &a).unwrap();
+        assert!(!lib.tracks(|_| true).unwrap()[0].info.grid_analysed);
         assert_eq!(lib.tracks(|_| true).unwrap()[0].bpm, 125.0);
         assert_eq!(
             lib.tracks(|_| true).unwrap()[0].grid,
