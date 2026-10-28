@@ -33,6 +33,7 @@ mod filters;
 mod health;
 mod info;
 mod staging;
+mod usb;
 
 pub use filters::DEFAULT_PINNED;
 
@@ -439,6 +440,8 @@ pub struct Browser {
     /// Tempo and key for tracks in triage, found in the background.
     analysis: AnalysisQueue,
     analysis_shown: analysis::Shown,
+    /// Export to USB's dialog and export.
+    usb: usb::State,
     phrases_seen: analysis::SeenDecks,
     /// The last stage change, which the track menu can take back: its
     /// batch in the library and what to call it.
@@ -860,6 +863,7 @@ impl Browser {
             folders: crate::settings::stage_folders(),
             analysis: AnalysisQueue::start(),
             analysis_shown: Default::default(),
+            usb: Default::default(),
             phrases_seen: Default::default(),
             undo: None,
             pending_moves: HashMap::new(),
@@ -1290,6 +1294,7 @@ impl Browser {
         Self::install_staging(&edit, &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
         Self::install_analysis(&edit, &with);
+        Self::install_usb_export(app, &edit, &with);
     }
 
     /// Saves a search as a smart list at the top level (under "Smart
