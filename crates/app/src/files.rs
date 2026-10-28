@@ -48,7 +48,7 @@ pub fn roots() -> Vec<Root> {
             place: Place::Pinned,
         })
         .collect();
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = mixxx_engine::paths::home_dir();
     let mut places = Vec::new();
     if let Some(music) = crate::settings::music_folder() {
         places.push(("Music".to_string(), music));
@@ -171,8 +171,18 @@ fn cloud_name(folder: &str) -> String {
 
 /// Mounted drives: `/Volumes` on macOS (but not the startup disk, which is
 /// a link to `/`); on Linux, what desktop systems mount under `/media` and
-/// `/run/media`, and `/mnt`.
+/// `/run/media`, and `/mnt`; on Windows, the drive letters other than the
+/// system drive.
 pub fn drives() -> Vec<PathBuf> {
+    if cfg!(windows) {
+        let system = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into());
+        return ('C'..='Z')
+            .map(|l| format!("{l}:"))
+            .filter(|d| !d.eq_ignore_ascii_case(&system))
+            .map(|d| PathBuf::from(format!("{d}\\")))
+            .filter(|p| p.is_dir())
+            .collect();
+    }
     let mut parents: Vec<PathBuf> = Vec::new();
     if cfg!(target_os = "macos") {
         parents.push("/Volumes".into());
@@ -277,8 +287,22 @@ pub fn set_recursive(on: bool) {
     crate::settings::set("files_recursive", json!(on));
 }
 
-/// Shows `path` in Finder (selected) or opens the folder holding it in the
-/// file manager.
+/// Shows `path` in Finder or File Explorer (selected) or opens the folder
+/// holding it in the file manager.
+#[cfg(windows)]
+pub fn reveal(path: &Path) -> bool {
+    use std::os::windows::process::CommandExt;
+    // Explorer reads "/select," and the quoted path as one argument, which
+    // Rust's own quoting would split up.
+    std::process::Command::new("explorer")
+        .raw_arg(format!("/select,\"{}\"", path.display()))
+        .spawn()
+        .is_ok()
+}
+
+/// Shows `path` in Finder or File Explorer (selected) or opens the folder
+/// holding it in the file manager.
+#[cfg(not(windows))]
 pub fn reveal(path: &Path) -> bool {
     let mut cmd = if cfg!(target_os = "macos") {
         let mut c = std::process::Command::new("open");
@@ -300,6 +324,8 @@ pub fn reveal(path: &Path) -> bool {
 pub fn file_manager() -> &'static str {
     if cfg!(target_os = "macos") {
         "Finder"
+    } else if cfg!(windows) {
+        "File Explorer"
     } else {
         "file manager"
     }
