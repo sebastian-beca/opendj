@@ -9,12 +9,9 @@ Apple Silicon and Intel, macOS 11 or newer.
 
 1. Download `openDJ-…-macos.zip`.
 2. Unzip it and move **openDJ** to Applications.
-3. The app isn't notarised yet, so macOS blocks the first launch. Right-click
-   openDJ and choose **Open**, or run:
 
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/openDJ.app
-   ```
+The app is signed and notarized by Apple, so it opens like any other app, and
+it offers new versions itself when it starts.
 
 ## Linux
 
@@ -28,4 +25,17 @@ needs ALSA and a Vulkan driver, which most desktops already have.
 
 ## Windows
 
-Windows isn't supported yet. It's planned for openDJ 2.0.
+Windows is a preview from openDJ 0.4: 64-bit Windows 10 or 11.
+
+- **Setup:** download `openDJ-…-windows-x64-setup.exe` and run it. It installs
+  openDJ for your user only (no administrator needed), adds it to the Start
+  menu, and openDJ updates itself from then on.
+- **Portable:** download `opendj-…-windows-x64.zip`, unzip it anywhere and run
+  `openDJ.exe`. It doesn't update itself.
+
+The builds aren't signed yet, so on the first start Windows shows "Windows
+protected your PC". Click **More info**, then **Run anyway**.
+
+In Settings → Audio, pick an **ASIO** driver if your controller or audio
+interface has one, for the lowest latency. Windows lets only one app use a
+MIDI controller at a time, so quit any other DJ app before you start openDJ.
