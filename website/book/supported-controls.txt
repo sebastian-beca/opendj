@@ -260,6 +260,7 @@
 [Channel1],scratch2_enable
 [Channel1],scrub_enable
 [Channel1],scrub_position
+[Channel1],seek_hold
 [Channel1],slip_enabled
 [Channel1],start
 [Channel1],start_play
@@ -527,6 +528,7 @@
 [Channel2],scratch2_enable
 [Channel2],scrub_enable
 [Channel2],scrub_position
+[Channel2],seek_hold
 [Channel2],slip_enabled
 [Channel2],start
 [Channel2],start_play
@@ -794,6 +796,7 @@
 [Channel3],scratch2_enable
 [Channel3],scrub_enable
 [Channel3],scrub_position
+[Channel3],seek_hold
 [Channel3],slip_enabled
 [Channel3],start
 [Channel3],start_play
@@ -1061,6 +1064,7 @@
 [Channel4],scratch2_enable
 [Channel4],scrub_enable
 [Channel4],scrub_position
+[Channel4],seek_hold
 [Channel4],slip_enabled
 [Channel4],start
 [Channel4],start_play

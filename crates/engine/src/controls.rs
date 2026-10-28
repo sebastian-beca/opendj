@@ -170,10 +170,14 @@ pub(crate) struct DeckControls {
     /// Speed while scratch2_enable is on, in multiples of normal speed.
     pub(crate) scratch2: ControlHandle,
     pub(crate) scratch2_enable: ControlHandle,
-    /// Dragging on the overview: while `scrub_enable` is on the deck glides
+    /// Holding the scrolling waveform: while `scrub_enable` is on the deck glides
     /// to `scrub_position` (0..1 through the track), playing what it passes.
     pub(crate) scrub_enable: ControlHandle,
     pub(crate) scrub_position: ControlHandle,
+    /// Dragging on the small overview: while `seek_hold` is on the deck is
+    /// silent and stays where `playposition` puts it; letting go carries on
+    /// from there, playing or paused.
+    pub(crate) seek_hold: ControlHandle,
     /// Jog wheel movement since the engine last looked; the engine zeroes it.
     pub(crate) jog: ControlHandle,
     /// Jog rim ticks since the engine last looked, 720 to a turn: a pitch
@@ -398,6 +402,7 @@ impl DeckControls {
             scratch2_enable: reg.toggle(g, "scratch2_enable"),
             scrub_enable: reg.toggle(g, "scrub_enable"),
             scrub_position: reg.create(g, "scrub_position", 0.0, 0.0, 1.0, Behavior::Linear),
+            seek_hold: reg.toggle(g, "seek_hold"),
             jog: reg.create(g, "jog", 0.0, -1000.0, 1000.0, Behavior::Free),
             jog_bend: reg.create(g, "jog_bend", 0.0, -1000.0, 1000.0, Behavior::Free),
             rate_search: reg.create(g, "rateSearch", 0.0, -300.0, 300.0, Behavior::Free),
