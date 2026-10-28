@@ -798,6 +798,8 @@ impl Frames for Audio {
 /// time-stretcher (which reads ahead of the play position).
 pub(crate) struct StemMix<'a> {
     stems: &'a Stems,
+    /// The track itself, which separated stems play under (see [`Stems::mix`]).
+    audio: &'a Audio,
     from: [f32; MAX_STEMS],
     to: [f32; MAX_STEMS],
     span: f64,
@@ -805,9 +807,16 @@ pub(crate) struct StemMix<'a> {
 }
 
 impl<'a> StemMix<'a> {
-    fn new(stems: &'a Stems, from: [f32; MAX_STEMS], to: [f32; MAX_STEMS], span: f64) -> Self {
+    fn new(
+        stems: &'a Stems,
+        audio: &'a Audio,
+        from: [f32; MAX_STEMS],
+        to: [f32; MAX_STEMS],
+        span: f64,
+    ) -> Self {
         Self {
             stems,
+            audio,
             from,
             to,
             span: span.max(1.0),
@@ -821,7 +830,7 @@ impl Frames for StemMix<'_> {
     fn frame(&self, i: usize) -> [f32; 2] {
         let t = ((i as f64 - self.start.get()).abs() / self.span).min(1.0) as f32;
         let gains = std::array::from_fn(|k| self.from[k] + (self.to[k] - self.from[k]) * t);
-        self.stems.mix(i, &gains)
+        self.stems.mix(i, &gains, || self.audio.frame(i))
     }
 
     fn begin(&self, start: f64) {
@@ -1743,7 +1752,7 @@ impl Engine {
                     match (stems, stem_gains) {
                         (Some(s), Some((from, to))) => {
                             let span = speed * ratio * frames as f64;
-                            let mix = StemMix::new(s, from, to, span);
+                            let mix = StemMix::new(s, audio, from, to, span);
                             d.shifter.render(
                                 &mix,
                                 d.pos,
@@ -1841,7 +1850,7 @@ impl Engine {
                     let source = |pos: f64| match (p.stems, audio.stems()) {
                         (Some((from, to)), Some(stems)) => {
                             let gains = std::array::from_fn(|k| from[k] + (to[k] - from[k]) * r);
-                            read(&StemMix::new(stems, gains, gains, 1.0), pos)
+                            read(&StemMix::new(stems, audio, gains, gains, 1.0), pos)
                         }
                         _ => read(&**audio, pos),
                     };
@@ -2256,8 +2265,58 @@ mod tests {
         load(&mut input, 0, track.clone());
         run(&mut engine, 0.01);
         assert_eq!(reg.get("[Channel1]", "stem_count").unwrap().get(), 4.0);
-        assert_eq!(reg_stem(&reg, "color").get(), 0x009E73 as f64);
+        assert_eq!(reg_stem(&reg, "color").get(), 0x2E4E75 as f64);
         assert_eq!(reg.get("[Channel2]", "stem_count").unwrap().get(), 0.0);
+    }
+
+    #[test]
+    fn separated_stems_play_the_original_less_what_is_turned_down() {
+        // The track is two tones; stem 1 holds the first, stem 2 the second.
+        let mut t = (*short_track(120.0, 4.0)).clone();
+        let n = (SR * 4.0) as usize;
+        let tone =
+            |hz: f64, i: usize| (std::f64::consts::TAU * hz * i as f64 / SR).sin() as f32 * 0.3;
+        let audio = Audio::from_frames(
+            SR as u32,
+            (0..n)
+                .map(|i| [tone(220.0, i) + tone(330.0, i); 2])
+                .collect(),
+        );
+        let mut info = crate::stems::default_info();
+        crate::stems::split_drums(&mut info);
+        let stems = Arc::new(crate::stems::Stems::separated(
+            info,
+            SR as u32,
+            n,
+            crate::stems::Quality::Fast,
+        ));
+        // Only the first 0.9 s is separated (of the 1.5 s rendered).
+        let frames = (0..(SR * 0.9) as usize)
+            .map(|i| {
+                let mut f = [[0i16; 2]; MAX_STEMS];
+                f[0] = [crate::stems::to_i16(tone(220.0, i)); 2];
+                f[1] = [crate::stems::to_i16(tone(330.0, i)); 2];
+                f
+            })
+            .collect();
+        stems.fill(0, frames);
+        assert!(audio.set_stems(stems));
+        t.audio = Some(Arc::new(audio));
+        let track = Arc::new(t);
+        let out = render(&track, |reg| {
+            reg.get("[Channel1_Stem1]", "mute").unwrap().set_bool(true)
+        });
+        let rms = |x: &[f32]| (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt();
+        let full = render(&track, |_| {});
+        let quarter = out.len() / 4;
+        let (first, second) = (&out[quarter..2 * quarter], &out[3 * quarter..]);
+        let (full_first, full_second) = (&full[quarter..2 * quarter], &full[3 * quarter..]);
+        // Muted where separated: one tone of two left.
+        let ratio = rms(first) / rms(full_first);
+        assert!((ratio - 0.71).abs() < 0.08, "one tone left: {ratio}");
+        // Not separated yet: the original plays.
+        let ratio = rms(second) / rms(full_second);
+        assert!((ratio - 1.0).abs() < 0.02, "the original: {ratio}");
     }
 
     #[test]

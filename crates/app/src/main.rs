@@ -419,13 +419,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .set_mic_unit(mixxx_engine::MIC_FX_UNIT as i32);
     {
         let engine = engine.clone();
-        app.global::<DeckActions>().on_separate_stems(move |deck| {
-            let loaded = engine.loaded_tracks();
-            let track = loaded.read().unwrap().get(deck as usize).cloned().flatten();
-            if let Some(t) = track {
-                engine.separate_stems(&t);
-            }
-        });
+        app.global::<DeckActions>()
+            .on_prepare_hq_stems(move |deck| {
+                let loaded = engine.loaded_tracks();
+                let track = loaded.read().unwrap().get(deck as usize).cloned().flatten();
+                if let Some(t) = track {
+                    engine.prepare_hq_stems(&t);
+                }
+            });
     }
     let browser = browser::Browser::install(
         &app,
@@ -584,6 +585,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // A newer release: checked once per start, offered while nothing plays.
+    update::install_model_fetch();
     let update_check = update::check();
     let update: Rc<RefCell<Option<update::Release>>> = Default::default();
     let installing: Rc<RefCell<Option<std::sync::mpsc::Receiver<update::Progress>>>> =
@@ -1312,23 +1314,34 @@ impl Decks {
                         .collect()
                 }),
             ),
-            stem_status: match (&t.source, stems) {
-                (Source::File(path), None) => match stems::separation(path) {
-                    Some(stems::Separation::Running) => "Separating into stems…".into(),
+            stem_status: match &t.source {
+                Source::File(path) => match stems::separation(path) {
                     Some(stems::Separation::Failed(e)) => e.into(),
-                    // Done: the stems are loading.
-                    Some(stems::Separation::Done) => "Loading stems…".into(),
-                    None => "".into(),
+                    _ => "".into(),
                 },
                 _ => "".into(),
             },
-            stem_failed: match (&t.source, stems) {
-                (Source::File(path), None) => {
-                    matches!(stems::separation(path), Some(stems::Separation::Failed(_)))
+            stem_hq: stems.is_some_and(|s| s.playing_quality() == stems::Quality::High),
+            stem_preparing: match &t.source {
+                // Running, or done and the stems still loading.
+                Source::File(path) => {
+                    matches!(
+                        stems::separation(path),
+                        Some(stems::Separation::Running | stems::Separation::Done)
+                    ) && !stems.is_some_and(|s| s.playing_quality() == stems::Quality::High)
                 }
                 _ => false,
             },
-            can_separate: matches!(t.source, Source::File(_)) && stems.is_none(),
+            can_prepare_hq: match &t.source {
+                Source::File(path) => {
+                    !stems.is_some_and(|s| s.playing_quality() == stems::Quality::High)
+                        && !matches!(
+                            stems::separation(path),
+                            Some(stems::Separation::Running | stems::Separation::Done)
+                        )
+                }
+                _ => false,
+            },
             // The key being played, with any shift; a tag that isn't a key
             // is shown as it is.
             key: match Key::from_mixxx_number(h.key.get()) {
