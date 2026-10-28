@@ -274,6 +274,12 @@ export global HealthUi {
     in property <int> quarantined;
     in property <bool> quarantine-exists;
     callback show-quarantine();
+    // The track menu offers to move tracks to the quarantine folder: there
+    // is a Collection folder for it to sit beside.
+    in property <bool> can-quarantine;
+    // Takes rows `first` to `last` out of the library and moves their files
+    // to the quarantine folder (or queues the moves while Move files is off).
+    callback quarantine(first: int, last: int);
     // What is wrong in the DJ's lists ("2 empty crates, ..."); empty when
     // they're fine.
     in property <string> lists;
@@ -495,6 +501,13 @@ component TrackMenu inherits PopupWindow {
                     HealthUi.ignore(track-row, track-last);
                     root.close();
                 }
+            }
+        }
+        if StoreUi.source == 0 && HealthUi.can-quarantine: MenuLine {
+            text: track-last > track-row ? "Move " + (track-last - track-row + 1) + " Tracks to Quarantine" : "Move to Quarantine";
+            clicked => {
+                HealthUi.quarantine(track-row, track-last);
+                root.close();
             }
         }
         if StoreUi.source == 1 && !FilesUi.in-collection(track-row): MenuLine {

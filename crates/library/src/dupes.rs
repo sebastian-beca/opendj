@@ -411,44 +411,86 @@ impl Library {
         )?;
         let batch = match quarantine {
             None => None,
-            Some(dir) => {
-                let batch: i64 = match batch {
-                    Some(b) => b,
-                    None => tx.query_row(
-                        "SELECT COALESCE(MAX(batch), 0) + 1 FROM file_moves",
-                        [],
-                        |r| r.get(0),
-                    )?,
-                };
-                let mut taken: HashSet<PathBuf> = HashSet::new();
-                for &o in &others {
-                    let Some((path, stage)): Option<(String, String)> = tx
-                        .query_row("SELECT path, stage FROM tracks WHERE id = ?1", [o], |r| {
-                            Ok((r.get(0)?, r.get(1)?))
-                        })
-                        .optional()?
-                    else {
-                        continue;
-                    };
-                    let to = free_place(dir, Path::new(&path), |p| p.exists() || taken.contains(p));
-                    taken.insert(to.clone());
-                    tx.execute(
-                        "DELETE FROM file_moves WHERE track_id = ?1 AND done IS NULL AND undone IS NULL",
-                        [o],
-                    )?;
-                    tx.execute(
-                        "INSERT INTO file_moves (batch, track_id, from_path, to_path, from_stage, to_stage, queued)
-                         VALUES (?1, ?2, ?3, ?4, ?5, 'quarantine', ?6)",
-                        params![batch, o, path, path_text(&to), stage, now()],
-                    )?;
-                    tx.execute("UPDATE tracks SET stage = 'quarantine' WHERE id = ?1", [o])?;
-                }
-                Some(batch)
-            }
+            Some(dir) => Some(queue_quarantine(&tx, &others, dir, batch)?),
         };
         tx.commit()?;
         Ok(batch)
     }
+}
+
+impl Library {
+    /// Takes tracks out of the library ([`Library::remove_tracks`]) and,
+    /// with `quarantine` given, queues their files' moves there as one
+    /// batch, which is returned (made by [`Library::apply_moves`], taken
+    /// back by [`Library::undo_batch`]). Returns `None` when no track was
+    /// taken out.
+    pub fn quarantine_tracks(
+        &mut self,
+        ids: &[usize],
+        quarantine: Option<&Path>,
+    ) -> Result<Option<i64>, Error> {
+        let rows: Vec<i64> = ids.iter().filter_map(|&id| row_id(id)).collect();
+        if rows.is_empty() {
+            return Ok(None);
+        }
+        let tx = self.db.transaction()?;
+        let at = now();
+        for &row in &rows {
+            tx.execute(
+                "INSERT OR IGNORE INTO removed (track_id, removed) VALUES (?1, ?2)",
+                params![row, at],
+            )?;
+        }
+        let batch = match quarantine {
+            None => None,
+            Some(dir) => Some(queue_quarantine(&tx, &rows, dir, None)?),
+        };
+        tx.commit()?;
+        Ok(batch)
+    }
+}
+
+/// Queues moves of these tracks' files (library rows) to `dir`, as
+/// `batch` or a new one, and returns the batch. Names already in `dir`, or
+/// taken by another file of the batch, get " (2)" and so on.
+fn queue_quarantine(
+    tx: &rusqlite::Transaction,
+    rows: &[i64],
+    dir: &Path,
+    batch: Option<i64>,
+) -> Result<i64, Error> {
+    let batch: i64 = match batch {
+        Some(b) => b,
+        None => tx.query_row(
+            "SELECT COALESCE(MAX(batch), 0) + 1 FROM file_moves",
+            [],
+            |r| r.get(0),
+        )?,
+    };
+    let mut taken: HashSet<PathBuf> = HashSet::new();
+    for &o in rows {
+        let Some((path, stage)): Option<(String, String)> = tx
+            .query_row("SELECT path, stage FROM tracks WHERE id = ?1", [o], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .optional()?
+        else {
+            continue;
+        };
+        let to = free_place(dir, Path::new(&path), |p| p.exists() || taken.contains(p));
+        taken.insert(to.clone());
+        tx.execute(
+            "DELETE FROM file_moves WHERE track_id = ?1 AND done IS NULL AND undone IS NULL",
+            [o],
+        )?;
+        tx.execute(
+            "INSERT INTO file_moves (batch, track_id, from_path, to_path, from_stage, to_stage, queued)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'quarantine', ?6)",
+            params![batch, o, path, path_text(&to), stage, now()],
+        )?;
+        tx.execute("UPDATE tracks SET stage = 'quarantine' WHERE id = ?1", [o])?;
+    }
+    Ok(batch)
 }
 
 /// A place in `dir` for the file at `path`, with " (2)" and so on added to
@@ -617,6 +659,36 @@ mod tests {
         assert_eq!(moves.len(), 1);
         assert_eq!(moves[0].to, q.join("Clouds.mp3"));
         assert_eq!(moves[0].to_stage, "quarantine");
+    }
+
+    #[test]
+    fn quarantined_tracks_leave_and_come_back() {
+        let mut lib = Library::in_memory().unwrap();
+        let a = lib
+            .add_file(&file_track("/m/DB/_Staging/Rain.mp3", "Rain"))
+            .unwrap();
+        let b = lib
+            .add_file(&file_track("/m/Inbox/Rain.mp3", "Rain"))
+            .unwrap();
+        let q = PathBuf::from("/q/2026-10-28");
+        let batch = lib
+            .quarantine_tracks(&[a.id, b.id], Some(&q))
+            .unwrap()
+            .unwrap();
+        assert!(lib.all_tracks(|_| true).unwrap().is_empty());
+        // Both wait to move, the second under another name.
+        let mut to: Vec<PathBuf> = lib
+            .pending_moves()
+            .unwrap()
+            .into_iter()
+            .map(|m| m.to)
+            .collect();
+        to.sort();
+        assert_eq!(to, [q.join("Rain (2).mp3"), q.join("Rain.mp3")]);
+        lib.undo_batch(batch).unwrap();
+        lib.restore_tracks(Some(&[a.id, b.id])).unwrap();
+        assert_eq!(lib.all_tracks(|_| true).unwrap().len(), 2);
+        assert!(lib.pending_moves().unwrap().is_empty());
     }
 
     #[test]
