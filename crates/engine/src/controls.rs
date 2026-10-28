@@ -220,6 +220,22 @@ impl DeckControls {
         // mode buttons: 0-3 plain, 4-7 with Shift), whatever panel it shows;
         // the skin sets this back to -1.
         reg.create(g, "pad_tab", -1.0, -1.0, 7.0, Behavior::Free);
+        // The pad panel in each of the eight pad tabs (numbers as for
+        // `pad_panel`), in the DDJ-FLX4's pad mode order. The skin changes
+        // them; a controller's pads follow them.
+        for (tab, panel) in [0.0, 1.0, 2.0, 3.0, 7.0, 6.0, 5.0, 8.0]
+            .into_iter()
+            .enumerate()
+        {
+            reg.create(
+                g,
+                &format!("pad_slot_{}", tab + 1),
+                panel,
+                0.0,
+                16.0,
+                Behavior::Free,
+            );
+        }
         // Which 8 sampler slots the deck's SAMPLER pads play: 0 slots 1-8,
         // 1 slots 9-16.
         reg.create(g, "sampler_page", 0.0, 0.0, 1.0, Behavior::Free);
