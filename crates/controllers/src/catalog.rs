@@ -349,6 +349,7 @@ fn deck_function(key: &str, target: &str) -> Function {
         "bpm_tap" => ("Tempo & sync", "Tap tempo"),
         "bpm" => ("Tempo & sync", "BPM"),
         "quantize" => ("Tempo & sync", "Quantize"),
+        "quantize_beats" => ("Tempo & sync", "Quantize size"),
         "beats_translate_curpos" => ("Tempo & sync", "Move grid to playhead"),
         "beats_translate_earlier" => ("Tempo & sync", "Move grid earlier"),
         "beats_translate_later" => ("Tempo & sync", "Move grid later"),
