@@ -1693,7 +1693,8 @@ impl Engine {
                 }
             });
             let beat = d.beat_seconds();
-            d.filter.prepare(d.c.cfx_preset.get(), d.c.filter.get(), beat);
+            d.filter
+                .prepare(d.c.cfx_preset.get(), d.c.filter.get(), beat);
             let k = d.c.sculpt.each_ref().map(|c| c.get());
             d.sculpt.set(k[0], k[1], k[2], k[3]);
             let loop_frames = (d.c.loop_enabled.get_bool() && d.loop_end > d.loop_start)
@@ -2181,8 +2182,15 @@ mod tests {
     #[test]
     fn one_color_fx_for_every_deck() {
         let (reg, mut engine, _input) = setup();
-        let c = |d: usize, k: &str| reg.get(&format!("[QuickEffectRack1_[Channel{}]]", d + 1), k).unwrap();
-        let presets = || (0..NUM_DECKS).map(|d| c(d, "loaded_chain_preset").get()).collect::<Vec<_>>();
+        let c = |d: usize, k: &str| {
+            reg.get(&format!("[QuickEffectRack1_[Channel{}]]", d + 1), k)
+                .unwrap()
+        };
+        let presets = || {
+            (0..NUM_DECKS)
+                .map(|d| c(d, "loaded_chain_preset").get())
+                .collect::<Vec<_>>()
+        };
         run(&mut engine, 0.01);
         assert_eq!(presets(), vec![1.0; NUM_DECKS], "Filter to start with");
         // Picking one on a deck picks it for all.
@@ -2399,7 +2407,10 @@ mod tests {
         eq("button_parameter3").set_bool(true);
         c("[QuickEffectRack1_[Channel1]]", "super1").set(0.8);
         c("[Sculpt_[Channel1]]", "lpf").set(0.3);
-        // Deck 1's unit, and the Beat FX on decks 1 and 2 with deck 2 playing.
+        // Deck 1's unit (with Echo, which has a length in beats), and the
+        // Beat FX on decks 1 and 2 with deck 2 playing.
+        slot(1, "loaded_effect").set(1.0);
+        run(&mut engine, 0.01);
         slot(1, "enabled").set_bool(true);
         slot(1, "beats").set(2.0);
         c("[EffectRack1_EffectUnit1]", "mix").set(0.4);
@@ -3153,6 +3164,11 @@ mod tests {
             reg.get(&format!("[EffectRack1_EffectUnit1_Effect{n}]"), key)
                 .unwrap()
         };
+        // Echo in slot 1 and the Filter in slot 3 (the decks start with
+        // Reverb, Echo and Gate).
+        slot(1, "loaded_effect").set(1.0);
+        slot(3, "loaded_effect").set(3.0);
+        run(&mut engine, 0.01);
         reg.get(unit, "super1").unwrap().set(0.9);
         run(&mut engine, 0.01);
         for n in 1..=3 {

@@ -1780,7 +1780,10 @@ impl ColorFx {
             self.wet = goal;
         }
         let z = self.inst.process(y);
-        [y[0] + (z[0] - y[0]) * self.wet, y[1] + (z[1] - y[1]) * self.wet]
+        [
+            y[0] + (z[0] - y[0]) * self.wet,
+            y[1] + (z[1] - y[1]) * self.wet,
+        ]
     }
 }
 
@@ -1835,7 +1838,11 @@ mod tests {
         for preset in 0..=COLOR_FX.len() {
             let (a, b) = color(preset as f64, 0.5);
             let dry: Vec<f32> = (0..a.len()).map(tone).collect();
-            let err = a.iter().zip(&dry).map(|(x, y)| (x - y).abs()).fold(0.0, f32::max);
+            let err = a
+                .iter()
+                .zip(&dry)
+                .map(|(x, y)| (x - y).abs())
+                .fold(0.0, f32::max);
             assert!(err < 1e-6, "preset {preset} changed the sound by {err}");
             assert!(rms(&b) == 0.0, "preset {preset} made sound out of silence");
         }
@@ -2033,4 +2040,3 @@ mod tests {
         assert!(out.iter().all(|v| v.is_finite()));
     }
 }
-
