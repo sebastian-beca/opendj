@@ -794,6 +794,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 browser.borrow_mut().poll_art();
                 browser.borrow_mut().poll_waves();
                 browser.borrow_mut().poll_analysis();
+                browser.borrow_mut().poll_usb_export();
                 browser.borrow_mut().poll_covers();
                 browser.borrow_mut().poll_files();
                 sampler.borrow_mut().poll();

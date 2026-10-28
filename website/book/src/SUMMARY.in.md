@@ -6,6 +6,7 @@
 
 - [Install](guide/install.md)
 - [Your library](guide/music.md)
+- [Export to USB](guide/usb-export.md)
 - [Decks and mixer](guide/decks.md)
 - [Layouts](guide/layouts.md)
 - [Automix](guide/automix.md)

@@ -17,6 +17,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-browser-preview-player](changes/add-browser-preview-player/proposal.md)
 - [add-more-audio-decoders](changes/add-more-audio-decoders/proposal.md)
 - [add-controller-viewer](changes/add-controller-viewer/proposal.md) (view-only Controller Editor, pulled forward by Seba 2026-10-27)
+- [add-pioneer-usb-export](changes/add-pioneer-usb-export/proposal.md) (built on rbox, experimental until tried on a player; Seba 2026-10-28)
 
 ## v0.5 · Stems and performance
 
@@ -80,7 +81,6 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 ## Decided against, or dropped for now
 
 - Streaming playback of any kind, partner deals and DRM workarounds.
-- Pioneer USB export (writing a USB for CDJs).
 - rekordbox and OneLibrary import (dropped 2026-10-19; Seba barely uses rekordbox).
 - Mobile and iPad apps.
 - Video mixing (karaoke and lyrics only).
