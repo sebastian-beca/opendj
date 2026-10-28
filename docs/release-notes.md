@@ -1,4 +1,4 @@
-openDJ 0.4.0 brings a sampler with sample packs, phrase detection on the deck overviews, mini waveforms in the track list, key lock and fuzzy key mixing, every DDJ-FLX4 pad mode, and a Controller Editor that shows what each control does. It also fixes crackling on the filter and on jumps, and openDJ no longer uses CPU while idle.
+openDJ 0.3.5 brings a sampler with sample packs, phrase detection on the deck overviews, mini waveforms in the track list, key lock and fuzzy key mixing, every DDJ-FLX4 pad mode, and a Controller Editor that shows what each control does. It also fixes crackling on the filter and on jumps, and openDJ no longer uses CPU while idle.
 
 ## What's new
 
