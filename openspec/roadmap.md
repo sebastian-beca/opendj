@@ -2,7 +2,7 @@
 
 The open OpenSpec changes in `openspec/changes/`, in the order they are planned (within a release, in build order). Each change's `proposal.md` says why, and its `specs/` say what will be true when it's done. When a change ships, archive it (`openspec archive <name>`) so `openspec/specs/` takes its requirements.
 
-Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared 2026-10-21: four decks, mic and aux inputs, stages, Library Health, in-app updates, signed macOS app) and v0.4.0 (prepared 2026-10-28: sampler with sample packs, phrases, mini waveforms, key lock and fuzzy keymixing, FLX4 pad modes, Controller Editor; of the v0.4 changes below, add-analyze-track, add-key-lock-and-fuzzy-keymixing and add-controller-viewer shipped, the rest move to the next release). `openspec/specs/` describes the app as of v0.3.0 plus PR #56.
+Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared 2026-10-21: four decks, mic and aux inputs, stages, Library Health, in-app updates, signed macOS app) and v0.4.0 (prepared 2026-10-28: sampler with sample packs, phrases, mini waveforms, key lock and fuzzy keymixing, FLX4 pad modes, Controller Editor; of the v0.4 changes below, add-analyze-track, add-key-lock-and-fuzzy-keymixing and add-controller-viewer shipped, the rest are still open). `openspec/specs/` describes the app as of v0.3.0 plus PR #56.
 
 ## v0.4 · Your collection, cleaned up
 
