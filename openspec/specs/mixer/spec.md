@@ -21,7 +21,7 @@ Each deck's channel SHALL have gain (`pregain`), a 3-band EQ (high, mid, low) wi
 - **THEN** the cutoff glides over about 5 ms and each side fades in from the centre, so the sweep has no zipper noise or clicks
 
 ### Requirement: Color FX
-Each channel's filter knob SHALL play the chosen Color FX, off at its centre: Filter (low-pass left, high-pass right), Space (filtered reverb send), Dub Echo (filtered half-beat echo send), Noise (filtered white noise) or Crush (bit and sample-rate reduction). One Color FX SHALL apply to every deck, as `[QuickEffectRack1_[ChannelN]],loaded_chain_preset` (1 Filter to 5 Crush); setting it on one deck, or stepping it with `next_chain_preset` / `prev_chain_preset`, SHALL set it on all. A menu over the mixer's left-hand knobs SHALL show and pick it, the knobs' label SHALL name it, and SHIFT + SMART CFX on the DDJ-FLX4 SHALL step to the next one.
+Each channel's filter knob SHALL play the chosen Color FX, off at its centre: Filter (low-pass left, high-pass right), Space (filtered reverb send), Dub Echo (filtered half-beat echo send), Noise (filtered white noise) or Crush (bit and sample-rate reduction). Each deck SHALL have its own Color FX, as `[QuickEffectRack1_[ChannelN]],loaded_chain_preset` (1 Filter to 5 Crush); setting it, or stepping it with `next_chain_preset` / `prev_chain_preset`, SHALL change only that deck's. A small ▾ box beside each filter knob, on its inner side, SHALL open a COLOR FX list to pick one at a time, the knob's label SHALL name it, and SHIFT + SMART CFX on the DDJ-FLX4 SHALL step both decks to their next one.
 
 #### Scenario: Space tail
 - **WHEN** Space is chosen, the filter knob is turned right and then back to the centre
@@ -29,7 +29,11 @@ Each channel's filter knob SHALL play the chosen Color FX, off at its centre: Fi
 
 #### Scenario: FLX4 picks the Color FX
 - **WHEN** SHIFT + SMART CFX is pressed on a DDJ-FLX4 while Filter is chosen
-- **THEN** every deck's filter knob plays Space and the menu shows SPACE
+- **THEN** decks 1 and 2's filter knobs play Space and their labels show SPACE
+
+#### Scenario: Each deck picks its own
+- **WHEN** Crush is picked from the ▾ beside deck 2's filter knob
+- **THEN** deck 2's knob plays Crush and deck 1's keeps its Color FX
 
 ### Requirement: Knob modes
 The mixer's side knobs SHALL switch between EQ (high, mid, low, filter), STEMS (hi-hat, vocal, kick and bass stem volumes) and SCULPT (Model 1 style LPF, swept bell FREQ and CUT/BOOST, HPF). Controller EQ knobs SHALL follow the chosen mode through `[Mixer],knob_mode`.

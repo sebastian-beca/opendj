@@ -64,7 +64,7 @@ component PlayerTransport inherits VerticalLayout {
         spacing: 4px;
         height: 26px;
         PlayButton { group: group; tint: tint; width: 42px; }
-        ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: Theme.cue; font-size: 11px; width: 42px; }
+        ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; font-size: 11px; width: 42px; }
         SyncButton { group: group; tint: tint; menu-right-aligned: Math.mod(deck, 2) == 1; font-size: 11px; width: 42px; }
     }
 }
