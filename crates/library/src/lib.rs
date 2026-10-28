@@ -27,6 +27,7 @@ pub mod dupes;
 pub mod health;
 mod moves;
 pub mod query;
+pub mod sets;
 pub mod stages;
 
 pub use moves::{Change, FileMove, MoveReport};
@@ -103,7 +104,8 @@ CREATE TABLE IF NOT EXISTS cues (
     PRIMARY KEY (track_id, number)
 );
 -- Lists and folders in one tree. kind: 0 list, 1 folder, 2 history session,
--- 3 smart list (its tracks are those its search finds, in `query`).
+-- 3 smart list (its tracks are those its search finds, in `query`), 4 set
+-- (a folder made for one gig).
 CREATE TABLE IF NOT EXISTS playlists (
     id INTEGER PRIMARY KEY,
     parent INTEGER REFERENCES playlists(id) ON DELETE CASCADE,
@@ -278,6 +280,8 @@ pub enum PlaylistKind {
     History,
     /// A saved search.
     Smart,
+    /// A folder made for one gig, holding its lists (see [`sets`]).
+    Set,
 }
 
 impl PlaylistKind {
@@ -286,6 +290,7 @@ impl PlaylistKind {
             1 => Self::Folder,
             2 => Self::History,
             3 => Self::Smart,
+            4 => Self::Set,
             _ => Self::List,
         }
     }
@@ -296,6 +301,7 @@ impl PlaylistKind {
             Self::Folder => 1,
             Self::History => 2,
             Self::Smart => 3,
+            Self::Set => 4,
         }
     }
 }

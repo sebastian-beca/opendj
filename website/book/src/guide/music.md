@@ -149,6 +149,27 @@ the VirtualDJ folder and history, VirtualDJ's cues, grids and markers, and
 the tracks only VirtualDJ had. Tracks in your own lists or music folder
 stay. Either one closes the section again, back to **Set up…**.
 
+## Crates and sets
+
+Your lists come in two kinds. A **crate** is a list you keep: Yoga,
+Journeys, Dance, a style. A track can be in as many crates as you like,
+and the **Crates** column (right-click a heading) shows which ones it is
+in. Search with `crate:yoga` for tracks in a crate with "yoga" in its
+name, `crate:=yoga` for that crate only, and `crate:""` for tracks in no
+crate yet.
+
+A **set** is a lilac folder made for one gig. **+ › New set…** makes one
+with a list for each step of the template: **Staging** (what you'd like
+to play), **Set** (what you plan to play, about twice what you'll need)
+and **Live set** (what you actually played). Change the template in
+**Settings › Library › Stages** under Sets, for example to add Openers,
+Closers or Transitions. Selecting a set shows all its tracks with their
+total length, and how many are still in Triage without their basic prep.
+
+After the gig, open the **History** tab, pick what you played (or the
+whole session) and right-click: **Add to Set List** lists your sets,
+newest first, and puts the tracks in that set's Live set.
+
 ## Library Health
 
 **Library Health**, under All Tracks in the collection, checks the whole
@@ -170,6 +191,11 @@ range) and right-click.
 | No rating | No stars | Rate them in the list |
 | Missing files | The file isn't where the library expects it | Find files (looks for the same file name in your stage folders and music folders), Remove from library |
 | Long tracks | Over 20 minutes: recorded sets and long pieces | Tag as #mix |
+
+**Lists** at the bottom of the page shows up when crates are empty or lists
+still hold tracks you removed from the library. **Tidy up** deletes the
+empty crates and takes those tracks out of the lists. The lists of a set
+are left alone, since a new set starts empty.
 
 **Ignore for** in the right-click menu tells a check to leave a track
 alone. A track that isn't music is left out of the other checks, so an
