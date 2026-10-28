@@ -418,19 +418,26 @@ impl Browser {
         self.analysis.add(&triage);
     }
 
-    /// Saves what background analysis found since last time.
+    /// Saves what background analysis found since last time, then the
+    /// covers found online for the tracks analysed.
     pub fn poll_analysis(&mut self) {
         let done = self.analysis.take();
-        if done.is_empty() {
-            self.show_analysis();
-            return;
+        if !done.is_empty() {
+            for t in &done {
+                self.learn_background(t);
+            }
+            let done: Vec<Option<Arc<Track>>> =
+                done.into_iter().map(|t| Some(Arc::new(t))).collect();
+            self.learn_analysis(&done);
+            self.refresh_tree();
         }
-        for t in &done {
-            self.learn_background(t);
+        for (id, data) in self.analysis.take_covers() {
+            if let Some(&i) = self.index_of.get(&id) {
+                if let Err(e) = self.keep_cover(i, &data) {
+                    eprintln!("can't keep the cover found: {e}");
+                }
+            }
         }
-        let done: Vec<Option<Arc<Track>>> = done.into_iter().map(|t| Some(Arc::new(t))).collect();
-        self.learn_analysis(&done);
-        self.refresh_tree();
         self.show_analysis();
     }
 }

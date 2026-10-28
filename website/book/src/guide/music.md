@@ -93,6 +93,11 @@ in or got from the tags stay as they are. While it runs, each waiting
 track has a gray dot by its title (lilac and pulsing while it is being
 analysed), and the footer shows how far along it is, with a ✕ to stop.
 
+A track with no cover also gets one: openDJ takes the first cover it finds
+online, if it is at least 600 pixels, and saves it in the file's tags. When
+the first one is smaller the track is left without, so you can pick one
+yourself from the cover dialog in **Info**.
+
 ## Phrases
 
 Once a track has a beat grid, openDJ splits it into phrases of whole
