@@ -27,6 +27,8 @@ export global AudioSettings {
     in property <[OutputRow]> rows;
     in property <[string]> devices;
     in property <string> controllers: "None";
+    // A booth output is set up: the MASTER panel shows its level.
+    in property <bool> booth;
     callback refresh();
     callback set-role(row: int, role: int);
     callback set-device(row: int, device: int);
@@ -170,27 +172,6 @@ export component OutputsTable inherits VerticalLayout {
     }
 }
 
-// The settings page: outputs, controllers and the headphone and booth levels.
-component SettingsPage inherits VerticalLayout {
-    spacing: 6px;
-    Caption { text: "OUTPUTS"; horizontal-alignment: left; }
-    OutputsTable { }
-    EdgeLine { left: 8px; right: 8px; }
-    HorizontalLayout {
-        spacing: 8px;
-        Caption { text: "CONTROLLERS"; vertical-alignment: center; }
-        Text { text: AudioSettings.controllers; color: Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-    }
-    EdgeLine { left: 8px; right: 8px; }
-    HorizontalLayout {
-        alignment: space-around;
-        ControlKnob { group: "[Master]"; key: "headMix"; label: "CUE MIX"; bipolar: true; size: 32px; }
-        ControlKnob { group: "[Master]"; key: "headGain"; label: "CUE LEVEL"; size: 32px; }
-        ControlKnob { group: "[Master]"; key: "booth_gain"; label: "BOOTH"; size: 32px; }
-    }
-    Rectangle { vertical-stretch: 1; }
-}
-
 // A flat button for the Beat FX page: pressed, it pushes `key` (sets it
 // and lets go, as a controller button does).
 component FxPush inherits Rectangle {
@@ -220,6 +201,8 @@ component FxPush inherits Rectangle {
     }
 }
 
+// Not shown for now: the effects get their own place in the mixer's
+// middle next.
 // The Beat FX, as on a Pioneer mixer: one effect sent to deck 1, deck 2 or
 // both, with its length in beats (from the decks' tempo, or tapped), a
 // LEVEL/DEPTH knob, ON/OFF, and RELEASE to turn it off letting its tail ring
@@ -336,37 +319,6 @@ component BeatFxPage inherits VerticalLayout {
     Rectangle { vertical-stretch: 1; }
 }
 
-// The MIXER / FX / SETTINGS switch at the top of the mixer's centre panel.
-component MixerTabs inherits Rectangle {
-    in-out property <int> tab;
-    height: 24px;
-    background: Theme.control;
-    border-bottom-left-radius: Theme.radius;
-    border-bottom-right-radius: Theme.radius;
-    border-width: 1px;
-    border-color: Theme.border;
-    HorizontalLayout {
-        padding: 2px;
-        spacing: 2px;
-        // Tab numbers: 0 MIXER, 2 FX, 3 MIC, 1 SETTINGS.
-        for t[i] in ["MIXER", "FX", "MIC", "SETTINGS"]: Rectangle {
-            property <int> n: [0, 2, 3, 1][i];
-            horizontal-stretch: 1;
-            background: n == tab ? Theme.panel-raised.brighter(0.3) : transparent;
-            border-radius: Theme.radius - 2px;
-            Text { text: t; color: n == tab ? Theme.text : Theme.text-dim; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
-            TouchArea {
-                clicked => {
-                    if n == 1 {
-                        AudioSettings.refresh();
-                    }
-                    tab = n;
-                }
-            }
-        }
-    }
-}
-
 // What the four knobs down each side of the mixer control, picked from the
 // menu between the gain knobs.
 export global MixerMode {
@@ -435,7 +387,7 @@ export component SideKnob inherits Rectangle {
     }
 }
 
-// The knob mode menu, in the tab row right of MIXER / SETTINGS.
+// The knob mode menu, in the row over the mixer's right-hand knobs.
 export component ModeMenu inherits Rectangle {
     height: 24px;
     // Just the name and an arrow, with no box round them.
@@ -502,14 +454,6 @@ component Channel inherits VerticalLayout {
     HorizontalLayout { alignment: center; CueHeadphones { group: group; tint: tint; } }
 }
 
-// A master section knob beside the crossfader, as wide as a side column.
-component SideRowKnob inherits HorizontalLayout {
-    in property <string> key;
-    in property <string> label;
-    width: 48px;
-    Knob { group: "[Master]"; key: key; label: label; origin: 0; size: 24px; }
-}
-
 // The four knobs down one side, spread over the mixer's height.
 component SideColumn inherits VerticalLayout {
     in property <int> deck;
@@ -540,132 +484,31 @@ component ChannelGrid inherits HorizontalLayout {
     SideColumn { deck: 1; }
 }
 
-// One input on the MIC page: ON and headphone cue along the top, gain and
-// EQ beside its fader and meter. Dimmed with no device chosen
-// for it in the settings.
-component InputStrip inherits VerticalLayout {
-    in property <string> group;
-    in property <string> name;
-    // talkover for the microphone, main_mix for the auxiliary input.
-    in property <string> on-key;
-    in property <color> tint;
-    property <string> eq: "[EqualizerRack1_" + group + "_Effect1]";
-    property <bool> configured: Controls.value(Controls.resolve(group, "input_configured"), Controls.tick) > 0;
-    spacing: 6px;
-    HorizontalLayout {
-        spacing: 4px;
-        Caption { text: name; vertical-alignment: center; horizontal-alignment: left; horizontal-stretch: 1; }
-        ControlButton { group: group; key: on-key; text: "ON"; tint: tint; fill-when-lit: true; width: 34px; height: 22px; font-size: 10px; }
-        CueHeadphones { group: group; tint: tint; width: 30px; }
-    }
-    if !configured: Text {
-        text: "Choose an input in Settings";
-        color: Theme.text-dim;
-        font-size: 9px;
-        horizontal-alignment: center;
-        overflow: elide;
-    }
-    HorizontalLayout {
-        vertical-stretch: 1;
-        spacing: 2px;
-        opacity: configured ? 1 : 0.4;
-        VerticalLayout {
-            alignment: space-around;
-            GridLayout {
-                spacing: 4px;
-                Row {
-                    Knob { group: group; key: "pregain"; label: "GAIN"; size: 20px; }
-                    Knob { group: eq; key: "parameter3"; label: "HIGH"; size: 20px; }
-                }
-                Row {
-                    Knob { group: eq; key: "parameter2"; label: "MID"; size: 20px; }
-                    Knob { group: eq; key: "parameter1"; label: "LOW"; size: 20px; }
-                }
-            }
-        }
-        HorizontalLayout {
-            alignment: center;
-            horizontal-stretch: 1;
-            ControlFader { group: group; key: "volume"; tint: tint; ticks: 9; width: 26px; }
-        }
-        HorizontalLayout { padding-top: 4px; padding-bottom: 4px; StereoMeter { group: group; } }
-    }
-}
-
-// One of the microphone effect unit's slots, as a deck's FX row.
-component MicFxSlot inherits HorizontalLayout {
-    in property <int> slot;
-    property <int> loaded: Controls.value(Controls.resolve("[EffectRack1_EffectUnit" + (EffectList.mic-unit + 1) + "_Effect" + (slot + 1) + "]", "loaded_effect"), Controls.tick);
-    FxSlot {
-        horizontal-stretch: 1;
-        unit: EffectList.mic-unit;
-        slot: slot;
-        tint: Theme.mic;
-        name: loaded > 0 && loaded <= EffectList.names.length ? EffectList.names[loaded - 1] : "";
-    }
-}
-
-// The MIC page: the microphone and auxiliary inputs side by side, then the
-// microphone's own effect unit (EffectList.mic-unit), which the
-// decks' effects never touch. AUX sends the auxiliary input through it too.
-component InputsPage inherits VerticalLayout {
-    spacing: 6px;
-    padding-top: 2px;
-    HorizontalLayout {
-        vertical-stretch: 1;
-        spacing: 8px;
-        InputStrip { group: "[Microphone]"; name: "MIC"; on-key: "talkover"; tint: Theme.mic; horizontal-stretch: 1; }
-        Rectangle { width: 1px; background: Theme.border; }
-        InputStrip { group: "[Auxiliary1]"; name: "AUX"; on-key: "main_mix"; tint: Theme.accent; horizontal-stretch: 1; }
-    }
-    EdgeLine { left: 8px; right: 8px; }
-    VerticalLayout {
-        spacing: 3px;
-        HorizontalLayout {
-            spacing: 4px;
-            Caption { text: "MIC FX"; vertical-alignment: center; horizontal-alignment: left; horizontal-stretch: 1; }
-            ControlButton { group: "[EffectRack1_EffectUnit" + (EffectList.mic-unit + 1) + "]"; key: "group_[Auxiliary1]_enable"; text: "AUX"; tint: Theme.accent; width: 34px; height: 18px; font-size: 9px; }
-        }
-        for i in 3: MicFxSlot { slot: i; }
-    }
-}
-
 export component Mixer inherits Rectangle {
-    in-out property <int> tab: 0;
     background: Theme.panel;
     width: 282px;
     VerticalLayout {
         padding: 8px;
-        // The tabs hang from the top edge of the panel.
         padding-top: 0px;
         spacing: 6px;
-        // The tabs over the middle, and the knob mode menu to their right.
+        // The knob mode menu over the right-hand knobs. The middle is
+        // free for the effects.
         HorizontalLayout {
-            Rectangle { width: 48px; }
-            HorizontalLayout {
-                horizontal-stretch: 1;
-                padding-left: 5px;
-                padding-right: 5px;
-                MixerTabs { tab <=> root.tab; }
-            }
-            Rectangle {
-                width: 48px;
-                if tab == 0: ModeMenu { width: parent.width; }
-            }
+            height: 24px;
+            Rectangle { horizontal-stretch: 1; }
+            ModeMenu { width: 48px; }
         }
-        if tab == 1: SettingsPage { vertical-stretch: 1; }
-        if tab == 2: BeatFxPage { vertical-stretch: 1; }
-        if tab == 3: InputsPage { vertical-stretch: 1; }
-        if tab == 0: ChannelGrid { vertical-stretch: 1; }
-        // Along the bottom edge, as on a hardware mixer: headphone level,
-        // the crossfader, and master volume.
-        if tab == 0: HorizontalLayout {
-            SideRowKnob { key: "headGain"; label: "PHONES"; }
+        ChannelGrid { vertical-stretch: 1; }
+        // Along the bottom edge, as on a hardware mixer: the crossfader.
+        // The levels are in the top bar's MASTER panel.
+        HorizontalLayout {
+            padding-left: 48px;
+            padding-right: 48px;
             Rectangle {
                 horizontal-stretch: 1;
-                ControlFader { x: 8px; y: (parent.height - self.height) / 2; width: parent.width - 16px; group: "[Master]"; key: "crossfader"; vertical: false; center-mark: true; ticks: 9; height: 28px; }
+                height: 28px;
+                ControlFader { x: 8px; width: parent.width - 16px; group: "[Master]"; key: "crossfader"; vertical: false; center-mark: true; ticks: 9; height: 28px; }
             }
-            SideRowKnob { key: "gain"; label: "MASTER"; }
         }
     }
 }

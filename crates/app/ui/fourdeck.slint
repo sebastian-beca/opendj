@@ -179,8 +179,8 @@ export component DeckStrip inherits Rectangle {
     }
 }
 
-// Between decks 1 and 2: the knob mode, master and headphones, and the
-// crossfader.
+// Between decks 1 and 2: the knob mode, the main meter and the
+// crossfader. The levels are in the top bar's MASTER panel.
 export component FourDeckCenter inherits Rectangle {
     background: Theme.panel;
     width: 150px;
@@ -188,15 +188,6 @@ export component FourDeckCenter inherits Rectangle {
         padding: 8px;
         spacing: 10px;
         ModeMenu { }
-        HorizontalLayout {
-            alignment: space-around;
-            Knob { group: "[Master]"; key: "gain"; label: "MASTER"; origin: 0; size: 28px; }
-        }
-        HorizontalLayout {
-            alignment: space-around;
-            Knob { group: "[Master]"; key: "headGain"; label: "PHONES"; origin: 0; size: 24px; }
-            Knob { group: "[Master]"; key: "headMix"; label: "CUE MIX"; size: 24px; }
-        }
         HorizontalLayout {
             alignment: center;
             spacing: 4px;
