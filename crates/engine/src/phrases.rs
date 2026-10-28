@@ -13,7 +13,7 @@
 //! The method follows the research in the project notes
 //! (phrase-analysis-review.md); it was written for openDJ.
 
-use crate::track::Track;
+use crate::track::{Marker, MarkerKind, Track};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PhraseKind {
@@ -27,6 +27,33 @@ pub enum PhraseKind {
     Outro,
     /// Strong but short of the peak: the main groove or a chorus.
     Chorus,
+}
+
+impl PhraseKind {
+    const ALL: [Self; 6] = [
+        Self::Intro,
+        Self::Build,
+        Self::Drop,
+        Self::Breakdown,
+        Self::Outro,
+        Self::Chorus,
+    ];
+
+    /// What the library calls it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Intro => "Intro",
+            Self::Build => "Build",
+            Self::Drop => "Drop",
+            Self::Breakdown => "Breakdown",
+            Self::Outro => "Outro",
+            Self::Chorus => "Chorus",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.name() == name)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -60,6 +87,75 @@ const DROP_SHARE: f32 = 0.85;
 /// share and level at least the second of the strongest section's.
 const CHORUS_LOW_SHARE: f32 = 0.6;
 const CHORUS_LEVEL_SHARE: f32 = 0.7;
+
+/// Whether the track's waveform covers all of it, so its phrases can be
+/// found (while it is still being analysed they can't).
+pub fn waveform_ready(track: &Track) -> bool {
+    let wave = &track.waveform;
+    wave.bins_per_second > 0.0
+        && track.duration > 0.0
+        && wave
+            .levels
+            .first()
+            .is_some_and(|l| l.len() as f64 / wave.bins_per_second >= track.duration - 0.5)
+}
+
+/// Phrases as the library keeps them: markers of kind phrase, each
+/// ending where the next starts (the last at `duration`).
+pub fn to_markers(phrases: &[Phrase], duration: f64) -> Vec<Marker> {
+    phrases
+        .iter()
+        .enumerate()
+        .map(|(i, p)| Marker {
+            kind: MarkerKind::Phrase,
+            seconds: p.start,
+            end: Some(phrases.get(i + 1).map_or(duration, |n| n.start)),
+            name: p.kind.name().to_string(),
+            color: None,
+            detected: true,
+        })
+        .collect()
+}
+
+/// The detected phrases stored with a track, earliest first.
+pub fn stored(track: &Track) -> Vec<Phrase> {
+    let mut out: Vec<Phrase> = track
+        .info
+        .markers
+        .iter()
+        .filter(|m| m.kind == MarkerKind::Phrase && m.detected)
+        .filter_map(|m| {
+            Some(Phrase {
+                start: m.seconds,
+                kind: PhraseKind::from_name(&m.name)?,
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| a.start.total_cmp(&b.start));
+    out
+}
+
+/// Whether the track has phrases from an import, which detected ones
+/// don't replace.
+pub fn imported(track: &Track) -> bool {
+    track
+        .info
+        .markers
+        .iter()
+        .any(|m| m.kind == MarkerKind::Phrase && !m.detected)
+}
+
+/// `markers` with its detected phrases replaced by `phrases`.
+pub fn with_phrases(markers: &[Marker], phrases: Vec<Marker>) -> Vec<Marker> {
+    let mut out: Vec<Marker> = markers
+        .iter()
+        .filter(|m| !(m.kind == MarkerKind::Phrase && m.detected))
+        .cloned()
+        .chain(phrases)
+        .collect();
+    out.sort_by(|a, b| a.seconds.total_cmp(&b.seconds));
+    out
+}
 
 /// The phrases of a track, earliest first; empty without a tempo or
 /// waveform, for a track shorter than 16 bars, or when it all sounds alike.
@@ -289,6 +385,40 @@ mod tests {
         t.first_beat = a.first_beat;
         t.set_grid(a.grid);
         (t, bar)
+    }
+
+    #[test]
+    fn phrases_are_kept_as_markers_beside_imported_ones() {
+        let (mut t, _) = analysed(124.0, 128, 3);
+        assert!(waveform_ready(&t));
+        let p = detect(&t);
+        let markers = to_markers(&p, t.duration);
+        assert_eq!(markers.last().unwrap().end, Some(t.duration));
+        let section = Marker {
+            kind: MarkerKind::Section,
+            seconds: 10.0,
+            end: None,
+            name: "Break 1".into(),
+            color: None,
+            detected: false,
+        };
+        t.info.markers = with_phrases(std::slice::from_ref(&section), markers.clone());
+        assert_eq!(stored(&t), p);
+        assert!(!imported(&t));
+        // Found again: the old ones go, the section stays.
+        t.info.markers = with_phrases(&t.info.markers, markers[..1].to_vec());
+        assert_eq!(stored(&t), p[..1]);
+        assert!(t.info.markers.contains(&section));
+        // Phrases from an import.
+        t.info.markers.push(Marker {
+            kind: MarkerKind::Phrase,
+            detected: false,
+            ..section
+        });
+        assert!(imported(&t));
+        // Not ready while the waveform is still being made.
+        t.duration *= 2.0;
+        assert!(!waveform_ready(&t));
     }
 
     #[test]

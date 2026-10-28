@@ -112,6 +112,13 @@ impl Waves {
         true
     }
 
+    /// Forgets a track's overview, as its analysis was redone: it is read
+    /// again when next asked for.
+    pub fn forget(&self, path: &std::path::Path) {
+        self.overviews.borrow_mut().remove(path);
+        self.learnt.borrow_mut().remove(path);
+    }
+
     /// Takes in overviews read since the last call; true if any arrived.
     pub fn poll(&mut self) -> bool {
         let mut any = false;

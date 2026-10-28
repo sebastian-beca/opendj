@@ -756,6 +756,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &app,
                     std::array::from_fn(|d| tracks[d].as_ref().map(|t| t.id)),
                 );
+                b.learn_deck_phrases(&tracks);
                 b.learn_analysis(&tracks);
                 b.keep(&tracks, 0.016);
                 let mut host = browser::AutomixHost {
@@ -1549,12 +1550,19 @@ impl Gpu {
 }
 
 impl Gpu {
-    /// Deck `d`'s phrases for the waveforms, found once per track.
+    /// Deck `d`'s phrases for the waveforms, found once per track: the
+    /// library's until its waveform is ready, then found from the waveform
+    /// and the grid as they are now.
     fn phrases(&mut self, d: usize, t: &Arc<Track>) -> Phrases {
         match &self.phrases[d] {
             Some((cached, p)) if Arc::ptr_eq(cached, t) => p.clone(),
             _ => {
-                let p: Vec<_> = phrases::detect(t)
+                let found = if phrases::waveform_ready(t) {
+                    phrases::detect(t)
+                } else {
+                    phrases::stored(t)
+                };
+                let p: Vec<_> = found
                     .into_iter()
                     .map(|p| {
                         let kind = match p.kind {
