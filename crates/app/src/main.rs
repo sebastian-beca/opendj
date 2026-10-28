@@ -1010,7 +1010,7 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                     settings::set(&settings::import_remove_key(id), serde_json::json!(false));
                 }
                 for dir in &dropped {
-                    match db.forget_scanned_under(dir) {
+                    match db.forget_scanned_under(dir, &dirs) {
                         Ok(n) if n > 0 => {
                             eprintln!("library: {n} tracks from {} taken out", dir.display())
                         }

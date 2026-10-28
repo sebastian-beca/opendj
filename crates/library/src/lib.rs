@@ -1168,9 +1168,10 @@ impl Library {
 
     /// Takes out tracks a scan found under `dir`, a folder no longer
     /// scanned, unless the DJ has done something with them: put them in a
-    /// list or a stage, rated or played them, or set cues. Returns how many
-    /// went. The files stay.
-    pub fn forget_scanned_under(&mut self, dir: &Path) -> Result<usize, Error> {
+    /// list or a stage, rated or played them, or set cues. Tracks under any
+    /// of `still` (folders still scanned, such as a music folder inside
+    /// `~/Music`) stay too. Returns how many went. The files stay.
+    pub fn forget_scanned_under(&mut self, dir: &Path, still: &[PathBuf]) -> Result<usize, Error> {
         let tx = self.db.transaction()?;
         let found: Vec<(i64, String)> = tx
             .prepare(
@@ -1184,7 +1185,8 @@ impl Library {
             .collect::<Result<_, _>>()?;
         let mut gone = 0;
         for (id, path) in found {
-            if Path::new(&path).starts_with(dir) {
+            let path = Path::new(&path);
+            if path.starts_with(dir) && !still.iter().any(|d| path.starts_with(d)) {
                 gone += tx.execute("DELETE FROM tracks WHERE id = ?1", [id])?;
             }
         }
@@ -2430,6 +2432,7 @@ mod tests {
             file_track("/home/s/Music/Ableton/kick.wav", "Kick"),
             file_track("/home/s/Music/Ableton/snare.wav", "Snare"),
             file_track("/home/s/Music/Old/liked.mp3", "Liked"),
+            file_track("/home/s/Music/DJ/b.mp3", "B"),
             file_track("/home/s/DB/Library/a.mp3", "A"),
         ])
         .unwrap();
@@ -2450,8 +2453,11 @@ mod tests {
             [PathBuf::from("/home/s/Music"), PathBuf::from("/home/s/DB")]
         );
         assert_eq!(
-            lib.forget_scanned_under(Path::new("/home/s/Music"))
-                .unwrap(),
+            lib.forget_scanned_under(
+                Path::new("/home/s/Music"),
+                &[PathBuf::from("/home/s/Music/DJ")]
+            )
+            .unwrap(),
             2
         );
         let mut left: Vec<String> = lib
@@ -2461,7 +2467,11 @@ mod tests {
             .map(|t| t.title)
             .collect();
         left.sort();
-        assert_eq!(left, ["A", "Liked"], "a track in a list stays");
+        assert_eq!(
+            left,
+            ["A", "B", "Liked"],
+            "a track in a list, or in a folder still scanned, stays"
+        );
     }
 
     #[test]
