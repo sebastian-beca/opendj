@@ -6,7 +6,9 @@
 //! sections as it can, allowing only lengths of 8 to 32 bars in steps of 4
 //! (8 and 16 cost less), so short flickers never become phrases of their
 //! own. The first and last section may be shorter, down to 4 bars, for a
-//! pickup or a tail. A section is a drop when its bass and level come close
+//! pickup or a tail. Each cut then moves up to 4 bars to where the bass
+//! comes in or drops out, so a kick entering early ends the intro there.
+//! A section is a drop when its bass and level come close
 //! to the track's strongest section's, and a chorus (main groove) when they
 //! are a little further off; the others are named by where they fall. Neighbours of the same kind merge.
 //!
@@ -53,6 +55,10 @@ const PER_SECTION: f32 = 1.2;
 /// or last section that is not a multiple of 4.
 const NOT_EIGHT: f32 = 0.4;
 const NOT_FOUR: f32 = 0.8;
+/// How far a cut may move to where the bass comes in or drops out, and
+/// how big that change must be (in normalised bass level).
+const SNAP_BARS: usize = 4;
+const SNAP_JUMP: f32 = 0.2;
 /// A drop: bass and overall level at least this share of the track's
 /// strongest section's.
 const DROP_SHARE: f32 = 0.85;
@@ -101,7 +107,7 @@ pub fn detect(track: &Track) -> Vec<Phrase> {
         return Vec::new();
     }
     normalise(&mut levels);
-    let cuts = segment(&levels);
+    let cuts = refine(&levels, &segment(&levels));
     let kinds = classify(&levels, &cuts);
     let mut phrases: Vec<Phrase> = Vec::new();
     for (n, (&cut, kind)) in cuts.iter().zip(kinds).enumerate() {
@@ -196,6 +202,49 @@ fn segment(levels: &[[f32; 3]]) -> Vec<usize> {
     cuts
 }
 
+/// Moves each cut to where the bass actually comes in or drops out, up to
+/// `SNAP_BARS` either way: the fit above prefers whole 8- and 16-bar
+/// sections, so a kick entering on its own a few bars early would otherwise
+/// end up inside the intro. The bass crosses halfway between the levels on
+/// either side; the earliest crossing in reach wins.
+fn refine(levels: &[[f32; 3]], cuts: &[usize]) -> Vec<usize> {
+    let n = levels.len();
+    let low = |a: usize, b: usize| levels[a..b].iter().map(|l| l[0]).sum::<f32>() / (b - a) as f32;
+    let mut out = cuts.to_vec();
+    for i in 1..cuts.len() {
+        let (a, c) = (out[i - 1], cuts[i]);
+        let b = cuts.get(i + 1).copied().unwrap_or(n);
+        let (before, after) = (low(a, c), low(c, b));
+        if (after - before).abs() < SNAP_JUMP {
+            continue;
+        }
+        let half = (before + after) / 2.0;
+        let rises = after > before;
+        // Both sides keep their least length.
+        let min_left = if i == 1 { MIN_EDGE_BARS } else { MIN_BARS };
+        let min_right = if i + 1 == cuts.len() {
+            MIN_EDGE_BARS
+        } else {
+            MIN_BARS
+        };
+        let lo = c.saturating_sub(SNAP_BARS).max(a + min_left);
+        let hi = (c + SNAP_BARS).min(b.saturating_sub(min_right));
+        // A crossing: a bar on the old side of halfway, then two on the new.
+        let crosses = |x: usize| {
+            let next = [levels[x][0], levels[(x + 1).min(n - 1)][0]];
+            if rises {
+                levels[x - 1][0] < half && next.iter().all(|&l| l >= half)
+            } else {
+                levels[x - 1][0] >= half && next.iter().all(|&l| l < half)
+            }
+        };
+        if let Some(x) = (lo..=hi).find(|&x| crosses(x)) {
+            out[i] = x;
+        }
+    }
+    out
+}
+
 /// The kind of each section (`cuts` are their first bars).
 fn classify(levels: &[[f32; 3]], cuts: &[usize]) -> Vec<PhraseKind> {
     let n = levels.len();
@@ -220,7 +269,10 @@ fn classify(levels: &[[f32; 3]], cuts: &[usize]) -> Vec<PhraseKind> {
         .map(|m| m[0] >= CHORUS_LOW_SHARE * top_low && level(*m) >= CHORUS_LEVEL_SHARE * top_level)
         .collect();
     let first_drop = drop.iter().position(|&d| d);
-    let last_drop = drop.iter().rposition(|&d| d);
+    // The outro is the last section and whatever quieter ones lead into it
+    // after the last strong section, drop or chorus: a full groove after
+    // the last drop is not yet the outro.
+    let last_strong = (0..cuts.len()).rposition(|s| drop[s] || chorus[s]);
     (0..cuts.len())
         .map(|s| {
             let strong_next = drop.get(s + 1) == Some(&true) || chorus.get(s + 1) == Some(&true);
@@ -228,10 +280,14 @@ fn classify(levels: &[[f32; 3]], cuts: &[usize]) -> Vec<PhraseKind> {
                 PhraseKind::Drop
             } else if s == 0 {
                 PhraseKind::Intro
-            } else if last_drop.is_some_and(|l| s > l) {
+            } else if s + 1 == cuts.len() {
+                // The last section, short of a drop, is the outro even with
+                // the groove still running.
                 PhraseKind::Outro
             } else if chorus[s] {
                 PhraseKind::Chorus
+            } else if last_strong.is_some_and(|l| s > l) {
+                PhraseKind::Outro
             } else if first_drop.is_none_or(|f| s < f)
                 || strong_next && rising(levels, cuts[s], ends[s])
             {
@@ -348,6 +404,33 @@ mod tests {
             cuts.iter().zip(ends).all(|(a, b)| b - a >= MIN_BARS),
             "the blip is not its own phrase: {cuts:?}"
         );
+    }
+
+    #[test]
+    fn the_intro_ends_where_the_kick_comes_in() {
+        // 12 bars without bass, the kick alone for 4, then the full groove,
+        // a break and the groove again: the fit alone likes a 16-bar intro.
+        let mut levels = vec![[0.05, 0.4, 0.4]; 12];
+        levels.extend(vec![[0.6, 0.45, 0.45]; 4]);
+        levels.extend(vec![[1.0, 1.0, 1.0]; 32]);
+        levels.extend(vec![[0.1, 0.6, 0.6]; 16]);
+        levels.extend(vec![[1.0, 1.0, 1.0]; 16]);
+        let cuts = refine(&levels, &segment(&levels));
+        assert_eq!(cuts.get(1), Some(&12), "{cuts:?}");
+        // The others are where the bass changes already.
+        assert!(cuts.contains(&48) && cuts.contains(&64), "{cuts:?}");
+    }
+
+    #[test]
+    fn the_outro_starts_after_the_last_strong_section() {
+        // Intro, drop, then the groove carries on until a quiet tail.
+        let mut levels = vec![[0.3, 0.4, 0.4]; 16];
+        levels.extend(vec![[1.0, 1.0, 1.0]; 16]);
+        levels.extend(vec![[0.75, 0.75, 0.8]; 24]);
+        levels.extend(vec![[0.1, 0.2, 0.2]; 16]);
+        let cuts = [0, 16, 32, 56];
+        use PhraseKind::*;
+        assert_eq!(classify(&levels, &cuts), [Intro, Drop, Chorus, Outro]);
     }
 
     #[test]
