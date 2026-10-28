@@ -44,6 +44,7 @@ mod coverart;
 mod diagnostics;
 mod files;
 mod inbox;
+mod lookup;
 #[cfg(target_os = "macos")]
 mod mac_menu;
 #[cfg(target_os = "macos")]

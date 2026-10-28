@@ -1402,7 +1402,7 @@ impl Prefs {
                 action: "Clear".into(),
                 ..item("clear_cache", BUTTON, "Analysis cache", &cache_detail)
             },
-            item("cover_art", HEADING, "COVER ART", ""),
+            item("cover_art", HEADING, "ONLINE LOOKUP", ""),
             PrefItem {
                 value: settings::discogs_token().into(),
                 on: true,
@@ -1410,8 +1410,20 @@ impl Prefs {
                     "discogs_token",
                     TEXT,
                     "Discogs token",
-                    "Lets cover search look on Discogs too. Make one on discogs.com under \
-                     Settings › Developers.",
+                    "Lets cover search and Look up online use Discogs too (label, year, \
+                     style). Make one on discogs.com under Settings › Developers.",
+                )
+            },
+            PrefItem {
+                value: settings::acoustid_key().into(),
+                on: true,
+                ..item(
+                    "acoustid_key",
+                    TEXT,
+                    "AcoustID key",
+                    "Lets Look up online recognise tracks by their sound, so even badly \
+                     named files are found. Get a free key on acoustid.org under My \
+                     applications. Without one, tracks are looked up by artist and title.",
                 )
             },
         ]);
@@ -2017,6 +2029,10 @@ impl Prefs {
         }
         if id == "discogs_token" {
             settings::set_discogs_token(text);
+            return;
+        }
+        if id == "acoustid_key" {
+            settings::set_acoustid_key(text);
             return;
         }
         if id == "grouping_name" || id.starts_with("tag_name:") {

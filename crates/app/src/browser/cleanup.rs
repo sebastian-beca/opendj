@@ -1,13 +1,13 @@
 //! Clean-up in the browser (see [`opendj_library::cleanup`]): the review
-//! table of changes to names, the genres page, finding covers for many
-//! tracks at once, and making (and taking back) changes to tags, in the
-//! library and in the files.
+//! table of changes to names, the genres page, finding covers and looking
+//! up tags online for many tracks at once, and making (and taking back)
+//! changes to tags, in the library and in the files.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 
-use opendj_engine::tags;
+use opendj_engine::{tags, Track};
 use opendj_library::cleanup::{self, Change, Field, Logged};
 use opendj_library::health::Check;
 use opendj_library::query::Indexed;
@@ -17,6 +17,7 @@ use super::health::tracks;
 use super::info::{tag_fields, writable};
 use super::{is_browsed, Browser, Undo};
 use crate::coverart::{self, Wanted};
+use crate::lookup::{self, Found, Query};
 use crate::{cover_scan, settings, CleanupRow, CleanupUi, GenreRow};
 
 /// A change waiting in the review table, for a track (an index into
@@ -25,6 +26,24 @@ struct Pending {
     index: usize,
     change: Change,
     on: bool,
+    /// Where the new value came from, such as "MusicBrainz 92%"; empty
+    /// for the clean-up rules.
+    note: String,
+}
+
+/// A look-up at least this sure ticks its changes to empty fields.
+const SURE: f32 = 0.8;
+
+/// Seconds between tracks looked up, as MusicBrainz asks of apps.
+const LOOKUP_SPACING: f32 = 1.1;
+
+/// Tracks being looked up online, one at a time.
+struct LookupBatch {
+    /// Track ids and what was found for each, as they come back.
+    done: Receiver<(usize, Option<Found>)>,
+    total: usize,
+    found: Vec<(usize, Found)>,
+    back: usize,
 }
 
 /// Covers being looked for online, one track at a time.
@@ -43,10 +62,46 @@ pub(super) struct CleanupState {
     /// Every genre, its track count, and whether it is ticked.
     genres: Vec<(String, usize, bool)>,
     covers: Option<CoverBatch>,
+    lookups: Option<LookupBatch>,
+    /// What the review table is of: "Clean up" or "Look-up results for".
+    heading: &'static str,
 }
 
 /// A genre as compared for "spelled like another": letters and digits
 /// only, in small letters.
+/// The changes a look-up proposes for a track, each with whether it is
+/// ticked: only for a sure match filling an empty field. Fields the DJ
+/// typed in by hand are left alone.
+fn proposals(t: &Track, f: &Found, hand: &HashSet<(usize, Field)>) -> Vec<(Change, bool)> {
+    [
+        (Field::Artist, &f.artist),
+        (Field::Title, &f.title),
+        (Field::Album, &f.album),
+        (Field::Year, &f.year),
+        (Field::Label, &f.label),
+        (Field::Genre, &f.genre),
+    ]
+    .into_iter()
+    .filter(|(field, new)| !new.trim().is_empty() && !hand.contains(&(t.id, *field)))
+    .filter_map(|(field, new)| {
+        let old = field.get(t).trim().to_string();
+        // Same but for capitals is not worth a change.
+        if old.to_lowercase() == new.trim().to_lowercase() {
+            return None;
+        }
+        let on = old.is_empty() && f.score >= SURE;
+        Some((
+            Change {
+                field,
+                old,
+                new: new.trim().to_string(),
+            },
+            on,
+        ))
+    })
+    .collect()
+}
+
 fn genre_key(g: &str) -> String {
     g.chars()
         .filter(|c| c.is_alphanumeric())
@@ -121,9 +176,11 @@ impl Browser {
                         index: i,
                         change,
                         on: true,
+                        note: String::new(),
                     })
             })
             .collect();
+        self.cleanup.heading = "Clean up";
         self.refresh_cleanup_ui();
         if self.cleanup.review.is_empty() {
             "Nothing to clean up with the rules turned on in Settings › Library.".into()
@@ -143,8 +200,12 @@ impl Browser {
             .iter()
             .map(|p| {
                 let t = &self.library[p.index];
+                let mut track = format!("{} - {}", t.artist, t.title);
+                if !p.note.is_empty() {
+                    track += &format!(" · {}", p.note);
+                }
                 CleanupRow {
-                    track: format!("{} - {}", t.artist, t.title).into(),
+                    track: track.into(),
                     field: p.change.field.label().into(),
                     old: p.change.old.clone().into(),
                     new: p.change.new.clone().into(),
@@ -154,7 +215,7 @@ impl Browser {
             .collect();
         let n: HashSet<usize> = review.iter().map(|p| p.index).collect();
         ui.set_open(!review.is_empty());
-        ui.set_heading(format!("Clean up {}", tracks(n.len())).into());
+        ui.set_heading(format!("{} {}", self.cleanup.heading, tracks(n.len())).into());
         ui.set_rows(ModelRc::new(VecModel::from(rows)));
         ui.set_picked(review.iter().filter(|p| p.on).count() as i32);
         let all = self.genre_counts();
@@ -189,7 +250,12 @@ impl Browser {
             .filter(|p| p.on)
             .map(|p| (p.index, p.change.field, p.change.new))
             .collect();
-        self.health_status = self.make_changes(changes, "clean-up");
+        let what = if self.cleanup.heading == "Clean up" {
+            "clean-up"
+        } else {
+            "look-up"
+        };
+        self.health_status = self.make_changes(changes, what);
         self.refresh_cleanup_ui();
         self.refresh_tree();
         self.refresh_rows();
@@ -443,8 +509,148 @@ impl Browser {
         format!("Looking online for covers for {}…", tracks(total))
     }
 
-    /// Embeds the covers found since last time.
+    /// Looks these tracks (indices into `library`) up online, one at a
+    /// time in the background; the review table opens with what was found
+    /// once all are back.
+    pub(super) fn batch_lookup(&mut self, indices: &[usize]) -> String {
+        if self.cleanup.lookups.is_some() {
+            return "Still looking up the last batch.".into();
+        }
+        let (key, token) = (settings::acoustid_key(), settings::discogs_token());
+        let jobs: Vec<(usize, Query)> = indices
+            .iter()
+            .map(|&i| &self.library[i])
+            .filter(|t| !is_browsed(t))
+            .map(|t| {
+                // Only a file that's here is fingerprinted; one in iCloud
+                // would be downloaded for it.
+                let path = writable(t)
+                    .filter(|p| !cover_scan::offloaded(p))
+                    .map(|p| p.to_path_buf());
+                (
+                    t.id,
+                    Query {
+                        path,
+                        artist: t.artist.clone(),
+                        title: t.title.clone(),
+                        duration: t.duration,
+                        acoustid_key: key.clone(),
+                        discogs_token: token.clone(),
+                    },
+                )
+            })
+            .filter(|(_, q)| {
+                (q.path.is_some() && !key.is_empty())
+                    || !(q.artist.trim().is_empty() || q.title.trim().is_empty())
+            })
+            .collect();
+        if jobs.is_empty() {
+            return if key.is_empty() {
+                "These tracks have no artist and title to look up by. An AcoustID key in Settings › \
+                 Library lets openDJ recognise them by their sound."
+                    .into()
+            } else {
+                "None of these files is on this computer, and they have no artist and title to look up by."
+                    .into()
+            };
+        }
+        let total = jobs.len();
+        let (tx, done) = channel();
+        std::thread::Builder::new()
+            .name("lookup-batch".into())
+            .spawn(move || {
+                for (n, (id, q)) in jobs.into_iter().enumerate() {
+                    if n > 0 {
+                        std::thread::sleep(std::time::Duration::from_secs_f32(LOOKUP_SPACING));
+                    }
+                    if tx.send((id, lookup::look_up(&q))).is_err() {
+                        break;
+                    }
+                }
+            })
+            .expect("spawn lookup batch");
+        self.cleanup.lookups = Some(LookupBatch {
+            done,
+            total,
+            found: Vec::new(),
+            back: 0,
+        });
+        format!("Looking up {} online…", tracks(total))
+    }
+
+    /// Takes in what the look-up found since last time, and opens the
+    /// review table when the batch is done.
+    fn poll_lookups(&mut self) {
+        let Some(batch) = &mut self.cleanup.lookups else {
+            return;
+        };
+        let mut news = false;
+        for (id, found) in batch.done.try_iter() {
+            news = true;
+            batch.back += 1;
+            if let Some(f) = found {
+                batch.found.push((id, f));
+            }
+        }
+        if !news {
+            return;
+        }
+        let (back, total) = (batch.back, batch.total);
+        if back < total {
+            let found = batch.found.len();
+            self.health_status = format!("Looking up: {back} of {total}, {found} found…");
+            self.refresh_health_ui();
+            return;
+        }
+        let Some(batch) = self.cleanup.lookups.take() else {
+            return;
+        };
+        let hand = self
+            .db
+            .as_ref()
+            .and_then(|db| db.hand_edited().ok())
+            .unwrap_or_default();
+        let mut review = Vec::new();
+        for (id, f) in &batch.found {
+            let Some(&i) = self.index_of.get(id) else {
+                continue;
+            };
+            review.extend(
+                proposals(&self.library[i], f, &hand)
+                    .into_iter()
+                    .map(|(change, on)| Pending {
+                        index: i,
+                        change,
+                        on,
+                        note: format!("{} {:.0}%", f.source, f.score * 100.0),
+                    }),
+            );
+        }
+        let found = batch.found.len();
+        self.health_status = if found == 0 {
+            format!(
+                "Nothing found online for {}. Without an AcoustID key (Settings › Library) \
+                 tracks are looked up by artist and title only.",
+                tracks(total)
+            )
+        } else if review.is_empty() {
+            format!("Found {found} of {}; nothing new for them.", tracks(total))
+        } else {
+            format!(
+                "Found {found} of {}. Ticked changes only fill empty fields from sure matches; \
+                 tick others by hand.",
+                tracks(total)
+            )
+        };
+        self.cleanup.review = review;
+        self.cleanup.heading = "Look-up results for";
+        self.refresh_cleanup_ui();
+        self.refresh_health_ui();
+    }
+
+    /// Embeds the covers found since last time, and takes in look-ups.
     pub fn poll_cleanup(&mut self) {
+        self.poll_lookups();
         let Some(batch) = &mut self.cleanup.covers else {
             return;
         };
@@ -504,5 +710,56 @@ mod tests {
         assert_eq!(genre_key("Electronica"), "electronica");
         assert_eq!(genre_key("Deep-House"), genre_key("deep house"));
         assert_ne!(genre_key("Electronic"), genre_key("Electronica"));
+    }
+
+    #[test]
+    fn ticks_only_sure_fills_of_empty_fields() {
+        let t = Track {
+            id: 7,
+            artist: "Bonobo".into(),
+            title: "kerala".into(),
+            album: String::new(),
+            genre: "Electronica".into(),
+            rating: 0,
+            bpm: 0.0,
+            key: String::new(),
+            duration: 300.0,
+            first_beat: 0.0,
+            source: opendj_engine::Source::Synth { seed: 1 },
+            waveform: Default::default(),
+            audio: None,
+            cover: None,
+            grid: Default::default(),
+            info: Default::default(),
+        };
+        let f = Found {
+            artist: "Bonobo".into(),
+            title: "Kerala".into(),
+            album: "Migration".into(),
+            year: "2017".into(),
+            label: "Ninja Tune".into(),
+            genre: "Downtempo".into(),
+            score: 0.93,
+            source: "AcoustID",
+        };
+        let hand = HashSet::from([(7, Field::Label)]);
+        let got: Vec<(Field, bool)> = proposals(&t, &f, &hand)
+            .into_iter()
+            .map(|(c, on)| (c.field, on))
+            .collect();
+        // Same title but for capitals: left; label typed by hand: left;
+        // genre already set: shown unticked.
+        assert_eq!(
+            got,
+            [
+                (Field::Album, true),
+                (Field::Year, true),
+                (Field::Genre, false)
+            ]
+        );
+        let unsure = Found { score: 0.5, ..f };
+        assert!(proposals(&t, &unsure, &HashSet::new())
+            .iter()
+            .all(|(_, on)| !on));
     }
 }

@@ -6,6 +6,8 @@
 //! The rules only suggest: the DJ looks at each change before it is
 //! written to the library and the file.
 
+use std::collections::HashSet;
+
 use rusqlite::params;
 
 use opendj_engine::Track;
@@ -24,6 +26,11 @@ CREATE TABLE IF NOT EXISTS tag_changes (
     undone INTEGER
 );
 CREATE INDEX IF NOT EXISTS tag_changes_batch ON tag_changes(batch);
+CREATE TABLE IF NOT EXISTS hand_edited (
+    track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    field TEXT NOT NULL,
+    PRIMARY KEY (track_id, field)
+);
 ";
 
 /// Which rules run. Each can be turned off in Settings.
@@ -132,15 +139,19 @@ pub enum Field {
     Remix,
     Album,
     Genre,
+    Year,
+    Label,
 }
 
 impl Field {
-    pub const ALL: [Field; 5] = [
+    pub const ALL: [Field; 7] = [
         Field::Artist,
         Field::Title,
         Field::Remix,
         Field::Album,
         Field::Genre,
+        Field::Year,
+        Field::Label,
     ];
 
     /// The name kept in the change log.
@@ -151,6 +162,8 @@ impl Field {
             Field::Remix => "remix",
             Field::Album => "album",
             Field::Genre => "genre",
+            Field::Year => "year",
+            Field::Label => "label",
         }
     }
 
@@ -166,6 +179,8 @@ impl Field {
             Field::Remix => "Remix",
             Field::Album => "Album",
             Field::Genre => "Genre",
+            Field::Year => "Year",
+            Field::Label => "Label",
         }
     }
 
@@ -176,6 +191,8 @@ impl Field {
             Field::Remix => &t.info.remix,
             Field::Album => &t.album,
             Field::Genre => &t.genre,
+            Field::Year => &t.info.year,
+            Field::Label => &t.info.label,
         }
     }
 
@@ -186,6 +203,8 @@ impl Field {
             Field::Remix => t.info.remix = value,
             Field::Album => t.album = value,
             Field::Genre => t.genre = value,
+            Field::Year => t.info.year = value,
+            Field::Label => t.info.label = value,
         }
     }
 }
@@ -555,6 +574,33 @@ impl Library {
         Ok(out)
     }
 
+    /// Notes that the DJ typed in a field of a track (by its name, as
+    /// [`Field::name`] gives it), so online lookups leave it alone.
+    pub fn mark_hand_edited(&self, track: usize, field: &str) -> Result<(), Error> {
+        let Some(row) = row_id(track) else {
+            return Ok(());
+        };
+        self.db.execute(
+            "INSERT OR IGNORE INTO hand_edited (track_id, field) VALUES (?1, ?2)",
+            params![row, field],
+        )?;
+        Ok(())
+    }
+
+    /// The fields the DJ typed in, by track id.
+    pub fn hand_edited(&self) -> Result<HashSet<(usize, Field)>, Error> {
+        let mut q = self.db.prepare("SELECT track_id, field FROM hand_edited")?;
+        let rows = q.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        let mut out = HashSet::new();
+        for row in rows {
+            let (id, field) = row?;
+            if let Some(f) = Field::from_name(&field) {
+                out.insert((track_id(id), f));
+            }
+        }
+        Ok(out)
+    }
+
     /// Marks a batch of changes as taken back.
     pub fn undo_changes(&mut self, batch: i64) -> Result<(), Error> {
         self.db.execute(
@@ -666,5 +712,11 @@ mod tests {
         );
         lib.undo_changes(batch).unwrap();
         assert!(lib.logged_changes(batch).unwrap().is_empty());
+        lib.mark_hand_edited(t.id, "album").unwrap();
+        lib.mark_hand_edited(t.id, "bpm").unwrap();
+        assert_eq!(
+            lib.hand_edited().unwrap(),
+            HashSet::from([(t.id, Field::Album)])
+        );
     }
 }

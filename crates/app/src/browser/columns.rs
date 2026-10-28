@@ -53,7 +53,7 @@ pub const PREP: i32 = 18;
 pub const WAVE: i32 = 19;
 /// Where the file is: its folder and name, e.g. "_Staging/Kerala.flac".
 pub const LOCATION: i32 = 20;
-/// The crates the track is in (see [`mixxx_library::sets`]).
+/// The crates the track is in (see [`opendj_library::sets`]).
 pub const CRATES: i32 = 21;
 /// Tag field `i` (from 0) is column `TAGS + i`.
 pub const TAGS: i32 = 100;

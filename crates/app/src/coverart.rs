@@ -192,7 +192,7 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
-fn get_json(url: &str, auth: Option<&str>) -> Option<Value> {
+pub(crate) fn get_json(url: &str, auth: Option<&str>) -> Option<Value> {
     let mut req = agent().get(url).header("Accept", "application/json");
     if let Some(a) = auth {
         req = req.header("Authorization", a);
@@ -228,7 +228,7 @@ fn release(w: &Wanted) -> &str {
 }
 
 /// Lucene's special characters, escaped for MusicBrainz's search.
-fn lucene(text: &str) -> String {
+pub(crate) fn lucene(text: &str) -> String {
     text.chars()
         .flat_map(|c| {
             let special = "+-&|!(){}[]^\"~*?:\\/".contains(c);
