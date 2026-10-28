@@ -1,7 +1,7 @@
 // A deck: a header with cover, title,
 // overview and tempo, then from the outer side the tempo column, the pads,
-// the loop controls, CUE and play, and the jog beside the mixer. Deck B is
-// mirrored.
+// the loop controls, and the jog with play and CUE under it beside the
+// mixer. Deck B is mirrored.
 // Large artwork, flat dark controls, white pointers.
 import { TrackDrag } from "library.slint";
 import { SamplerPanel } from "sampler.slint";
@@ -1842,16 +1842,15 @@ export component PlayButton inherits Rectangle {
     }
 }
 
-// CUE over play, in a column between the loop and the jog; SYNC is over
+// Play and CUE side by side under the jog, play on the left; SYNC is over
 // the tempo fader (see Pitch).
-component Transport inherits VerticalLayout {
+component Transport inherits HorizontalLayout {
     in property <string> group;
     in property <color> tint;
     spacing: 6px;
-    alignment: center;
-    width: 63px;
-    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; font-size: 13px; height: 32px; }
-    PlayButton { group: group; tint: tint; height: 32px; }
+    height: 32px;
+    PlayButton { group: group; tint: tint; width: 63px; }
+    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; font-size: 13px; width: 63px; }
 }
 
 // A thin line between sections of a deck.
@@ -1865,21 +1864,26 @@ component VDivider inherits Rectangle {
     EdgeVLine { x: 8px; height: parent.height; top: top; bottom: bottom; }
 }
 
-// The jog, as big as the deck body's height allows.
-component JogSection inherits Rectangle {
+// The jog, as big as the room over play and CUE allows.
+component JogSection inherits VerticalLayout {
     in property <string> group;
     in property <DeckInfo> info;
     in property <color> tint;
     in property <angle> spin;
-    width: 148px;
-    Jog {
-        group: group;
-        info: info;
-        tint: tint;
-        spin: spin;
-        width: min(parent.width, parent.height);
-        height: self.width;
+    spacing: 8px;
+    width: 132px;
+    Rectangle {
+        vertical-stretch: 1;
+        Jog {
+            group: group;
+            info: info;
+            tint: tint;
+            spin: spin;
+            width: min(parent.width, parent.height);
+            height: self.width;
+        }
     }
+    Transport { group: group; tint: tint; }
 }
 
 export component Deck inherits Rectangle {
@@ -1912,14 +1916,12 @@ export component Deck inherits Rectangle {
         Rectangle {
             background: Theme.panel;
             vertical-stretch: 1;
-            // Outside in: the tempo column, the pads, the loop, CUE over
-            // play, and the jog beside the mixer. Deck B is the mirror image.
+            // Outside in: the tempo column, the pads, the loop, and the jog
+            // with play and CUE under it beside the mixer. Deck B is the mirror image.
             HorizontalLayout {
                 padding: 8px;
                 spacing: 0px;
                 if mirrored: JogSection { group: group; info: info; tint: tint; spin: spin; }
-                if mirrored: Rectangle { width: 10px; }
-                if mirrored: Transport { group: group; tint: tint; }
                 if mirrored: Rectangle { width: 10px; }
                 if mirrored: LoopSection { group: group; info: info; tint: tint; }
                 if mirrored: VDivider { }
@@ -1928,8 +1930,6 @@ export component Deck inherits Rectangle {
                 Pads { deck: deck; group: group; info: info; horizontal-stretch: 1; }
                 if !mirrored: VDivider { }
                 if !mirrored: LoopSection { group: group; info: info; tint: tint; }
-                if !mirrored: Rectangle { width: 10px; }
-                if !mirrored: Transport { group: group; tint: tint; }
                 if !mirrored: Rectangle { width: 10px; }
                 if !mirrored: JogSection { group: group; info: info; tint: tint; spin: spin; }
                 if mirrored: Rectangle { width: 12px; }
