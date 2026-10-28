@@ -4163,11 +4163,15 @@ mod tests {
     fn the_auxiliary_input_joins_the_music() {
         let (reg, mut engine, _input) = setup();
         let aux = |k: &str| reg.get("[Auxiliary1]", k).unwrap();
-        // On from the start, and under Mixxx 2.3's name too.
-        assert!(aux("main_mix").get_bool());
-        assert!(aux("master").get_bool());
+        // Off from the start, and under Mixxx 2.3's name too.
+        assert!(!aux("main_mix").get_bool());
+        assert!(!aux("master").get_bool());
         let (feed, mut tx) = mic_feed();
         engine.set_input(AUXILIARY, Some(feed));
+        let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
+        assert!(peak(&out[out.len() / 2..]) < 1e-4);
+        aux("master").set_bool(true);
+        assert!(aux("main_mix").get_bool());
         let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
         let level = level_at(&out[out.len() / 2..], 500.0);
         assert!((level - 0.4).abs() < 0.03, "{level}");
