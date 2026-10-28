@@ -10,7 +10,7 @@
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <meta property="og:title" content="openDJ">
-  <meta property="og:description" content="Free, open-source DJ software for macOS, Linux and Windows. Music is the Medicine.">
+  <meta property="og:description" content="Free, open-source DJ software for macOS, Linux and Windows, in public beta. Try it on your own gear and help build it. Music is the Medicine.">
   <meta property="og:image" content="https://opendj.app/assets/screenshot.webp">
   <meta property="og:url" content="https://opendj.app/">
   <meta name="twitter:card" content="summary_large_image">
@@ -41,13 +41,14 @@
   <!-- Hero -->
   <section class="hero" id="top">
     <div class="wrap">
+      <a class="beta-flag" href="#beta"><span class="pill">Public beta</span> Beta testers wanted: try it on your own gear →</a>
       <p class="eyebrow">macOS, Linux and Windows · Free and open source</p>
       <h1>Open-source DJ software.<br>Music is the Medicine.</h1>
-      <p class="lede">Two or four decks, a mixer, stems, effects and an Automix that blends for you. openDJ is fast, pleasant to use, and made for DJs just starting out and for experienced DJs alike.</p>
+      <p class="lede">Two or four decks, a mixer, stems, effects and an Automix that blends for you. openDJ is fast, pleasant to use, and made for DJs just starting out and for experienced DJs alike. It's in beta, and we're building it with the DJs who test it.</p>
       <div class="cta-row">
         <a class="btn btn-primary" href="#download" data-download-primary>Download openDJ</a>
         <a class="btn btn-ghost" href="https://github.com/sebastian-beca/opendj">View on GitHub</a>
-        <a class="text-link" href="#beta">Join the beta →</a>
+        <a class="text-link" href="#beta">Become a beta tester →</a>
       </div>
       <p class="meta">
         <span class="pill" data-version>v0.3.5 available</span>
@@ -83,6 +84,28 @@
         <span class="num">04</span><span class="label">Perform</span>
         <h3>Make it yours.</h3>
         <p>Hot cues, saved loops, a 16-pad sampler, stem pads and beat-synced effects on every deck.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Beta -->
+  <section class="beta" id="beta">
+    <div class="wrap">
+      <div class="beta-panel">
+        <p class="eyebrow">Beta testers wanted</p>
+        <h2>Test it on your gear. Help build the best open-source DJ platform.</h2>
+        <p class="beta-lede">openDJ gets better with every controller, audio interface, laptop and music collection it meets. Play your real sets on it, tell us what works and what doesn't, and help decide what comes next. No sign-up: download it and start.</p>
+        <ol class="beta-steps">
+          <li><span class="num">01</span><h3>Play your set</h3><p>Install openDJ on macOS, Linux or Windows, plug in your controller and mix with your own music.</p></li>
+          <li><span class="num">02</span><h3>Tell us how it went</h3><p><strong>Settings → Feedback</strong> in the app opens a report with your version filled in, and the folder with your logs to attach. A controller that misbehaves gets its own short form.</p></li>
+          <li><span class="num">03</span><h3>Shape what's next</h3><p>Vote on features. Testers are thanked by name in the release notes, and their controllers get fixed first.</p></li>
+        </ol>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#download">Download the beta</a>
+          <a class="btn btn-ghost" href="https://github.com/sebastian-beca/opendj/issues/new?template=controller.yml">Report your controller</a>
+          <a class="btn btn-ghost" href="https://github.com/sebastian-beca/opendj/issues/new/choose">Send feedback</a>
+          <a class="text-link" href="https://github.com/sebastian-beca/opendj/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement+sort%3Areactions-%2B1-desc">Vote on features →</a>
+        </div>
       </div>
     </div>
   </section>
@@ -227,22 +250,10 @@
     </div>
   </section>
 
-  <!-- Beta -->
-  <section class="center-block" id="beta">
-    <div class="wrap narrow">
-      <h2>Help shape the beta.</h2>
-      <p>Bugs, ideas, or just how it felt to use: every report helps. In the app, <strong>Settings → Feedback</strong> opens a report with your version filled in. Testers are thanked by name in the release notes, vote on what's built next, and get their controllers fixed first.</p>
-      <div class="cta-row center">
-        <a class="btn btn-ghost" href="https://github.com/sebastian-beca/opendj/issues/new/choose">Send feedback</a>
-        <a class="btn btn-ghost" href="https://github.com/sebastian-beca/opendj/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement+sort%3Areactions-%2B1-desc">Vote on features</a>
-      </div>
-    </div>
-  </section>
-
   <!-- Download -->
   <section class="download" id="download">
     <div class="wrap dl-wrap">
-      <h2>Download openDJ.</h2>
+      <h2>Download the openDJ beta.</h2>
       <p class="sub">Free, for macOS, Linux and Windows. <span data-version-text>Version 0.3.5.</span></p>
       <div class="dl-grid">
         <div class="dl-card" data-os="mac">
@@ -266,6 +277,7 @@
           <p class="small" data-windows-note>The first release for Windows is on its way. Until it's signed, Windows asks before the first start (More info → Run anyway).</p>
         </div>
       </div>
+      <p class="dl-beta">openDJ is in beta. Tell us how it runs on your setup: <strong>Settings → Feedback</strong> in the app, or <a href="https://github.com/sebastian-beca/opendj/issues/new/choose">open a report</a>.</p>
       <p class="small center"><a href="https://github.com/sebastian-beca/opendj/releases">All releases and release notes</a></p>
     </div>
   </section>
@@ -282,6 +294,7 @@
       <h4>Product</h4>
       <a href="#features">Features</a>
       <a href="#compare">Compare</a>
+      <a href="#beta">Beta testing</a>
       <a href="#download">Download</a>
       <a href="https://github.com/sebastian-beca/opendj/releases">Release notes</a>
     </div>
