@@ -232,7 +232,10 @@ impl Controller {
             }
             return;
         }
-        let control = msg.get(1).copied().unwrap_or(0);
+        let control = self
+            .host
+            .borrow()
+            .routed_input(status, msg.get(1).copied().unwrap_or(0));
         let value = msg.get(2).copied().unwrap_or(0);
         if let Some(inputs) = self.mapping.inputs.get(&(status, control)).cloned() {
             for input in inputs {
@@ -378,7 +381,7 @@ impl Controller {
 
     /// MIDI messages to send to the device, oldest first.
     pub fn take_output(&mut self) -> Vec<Vec<u8>> {
-        let out = std::mem::take(&mut self.host.borrow_mut().sent);
+        let out = self.host.borrow_mut().take_routed();
         if self.debug {
             for m in &out {
                 eprintln!("{} <- {m:02X?}", self.name);

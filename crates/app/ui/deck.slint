@@ -1212,8 +1212,10 @@ component PanelMenuItem inherits Rectangle {
 // showing one panel. Right-click a tab to put a different panel in it.
 component PadTabs inherits Rectangle {
     in property <[string]> names;
-    in-out property <[int]> slots;
+    in property <[int]> slots;
     in-out property <int> selected;
+    // Puts `panel` in tab `tab`.
+    callback pick(tab: int, panel: int);
     // The first tab shown: 0 or 4.
     in property <int> first;
     property <int> menu-tab;
@@ -1268,7 +1270,7 @@ component PadTabs inherits Rectangle {
                 text: name;
                 current: slots[menu-tab] == p;
                 picked => {
-                    slots[menu-tab] = p;
+                    root.pick(menu-tab, p);
                     selected = menu-tab;
                 }
             }
@@ -1318,9 +1320,21 @@ export component Pads inherits HorizontalLayout {
     in property <int> deck;
     in property <string> group;
     in property <DeckInfo> info;
-    // Which tab is open, and the panel each of the eight tabs shows.
+    // Which tab is open, and the panel each of the eight tabs shows: the
+    // deck's `pad_slot_N`, which a controller's pads follow too.
     in-out property <int> tab: 0;
-    in-out property <[int]> slots: [0, 1, 2, 3, 7, 6, 5, 8];
+    property <[int]> slot-index: [
+        Controls.resolve(group, "pad_slot_1"), Controls.resolve(group, "pad_slot_2"),
+        Controls.resolve(group, "pad_slot_3"), Controls.resolve(group, "pad_slot_4"),
+        Controls.resolve(group, "pad_slot_5"), Controls.resolve(group, "pad_slot_6"),
+        Controls.resolve(group, "pad_slot_7"), Controls.resolve(group, "pad_slot_8"),
+    ];
+    property <[int]> slots: [
+        Controls.value(slot-index[0], Controls.tick), Controls.value(slot-index[1], Controls.tick),
+        Controls.value(slot-index[2], Controls.tick), Controls.value(slot-index[3], Controls.tick),
+        Controls.value(slot-index[4], Controls.tick), Controls.value(slot-index[5], Controls.tick),
+        Controls.value(slot-index[6], Controls.tick), Controls.value(slot-index[7], Controls.tick),
+    ];
     property <int> page: slots[tab];
     property <color> tint: Theme.deck-color(deck);
     // Back and forward in pairs, as on the DDJ-FLX4's BEAT JUMP pads.
@@ -1426,7 +1440,7 @@ export component Pads inherits HorizontalLayout {
         } else if slots[7] == wanted {
             tab = 7;
         } else {
-            slots[tab] = wanted;
+            Controls.set-value(slot-index[tab], wanted);
         }
     }
     // The sampler's two pages are the deck's `sampler_page`, which its
@@ -1447,7 +1461,7 @@ export component Pads inherits HorizontalLayout {
         horizontal-stretch: 1;
         // The tabs sit right on the grid.
         spacing: 0px;
-        PadTabs { names: ["HOT CUES", "PAD FX 1", "BEAT JUMP", "SAMPLER", "STEMS", "BEAT LOOP", "PAD FX 2", "KEYBOARD", "KEY SHIFT", "LOOP ROLL"]; slots <=> slots; selected <=> tab; first: tab >= 4 ? 4 : 0; }
+        PadTabs { names: ["HOT CUES", "PAD FX 1", "BEAT JUMP", "SAMPLER", "STEMS", "BEAT LOOP", "PAD FX 2", "KEYBOARD", "KEY SHIFT", "LOOP ROLL"]; slots: slots; selected <=> tab; pick(t, p) => { Controls.set-value(slot-index[t], p); } first: tab >= 4 ? 4 : 0; }
         if page == 3: SamplerPanel { bank: sampler-page; vertical-stretch: 1; }
         // The black background shows through the 1px gaps as the grid lines.
         if page != 3: Rectangle {

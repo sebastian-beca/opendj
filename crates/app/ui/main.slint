@@ -568,18 +568,18 @@ export component AppWindow inherits Window {
     changed playing-4 => { playing-changed(3); }
 
     // Shortcuts no focused field took: ⌘, opens settings (Ctrl+, on
-    // Linux), Esc closes them, and the space bar pauses or resumes the
-    // master deck.
+    // Linux; Slint reads ⌘ as control on macOS), Esc closes them, and the
+    // space bar pauses or resumes the master deck.
     keys := FocusScope {
         key-pressed(e) => {
             if e.text == " " && !Preferences.open && !e.modifiers.control && !e.modifiers.meta && !e.modifiers.alt {
                 Controls.set-value(play-index[master-deck], playing[master-deck] ? 0 : 1);
                 return accept;
             }
+            // Only opens, as in other Mac apps, so it can't undo the app
+            // menu's Settings… when both see the key.
             if e.text == "," && e.modifiers.control {
-                if Preferences.open {
-                    Preferences.open = false;
-                } else {
+                if !Preferences.open {
                     Preferences.show(Preferences.page);
                 }
                 return accept;

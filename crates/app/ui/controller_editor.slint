@@ -124,6 +124,9 @@ export global ControllerEditor {
     in property <int> scroll-serial;
     // Opens the editor on the controller plugged in, or the first mapping.
     callback show();
+    // Opens the editor on this mapping file, from a controller's Edit in
+    // Settings.
+    callback show-mapping(file: string);
     callback pick(index: int);
     callback pick-version(index: int);
     callback dialog-done(ok: bool);

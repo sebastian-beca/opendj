@@ -211,6 +211,14 @@
 [Channel1],mute
 [Channel1],orientation
 [Channel1],pad_panel
+[Channel1],pad_slot_1
+[Channel1],pad_slot_2
+[Channel1],pad_slot_3
+[Channel1],pad_slot_4
+[Channel1],pad_slot_5
+[Channel1],pad_slot_6
+[Channel1],pad_slot_7
+[Channel1],pad_slot_8
 [Channel1],pad_tab
 [Channel1],peak_indicator
 [Channel1],pfl
@@ -468,6 +476,14 @@
 [Channel2],mute
 [Channel2],orientation
 [Channel2],pad_panel
+[Channel2],pad_slot_1
+[Channel2],pad_slot_2
+[Channel2],pad_slot_3
+[Channel2],pad_slot_4
+[Channel2],pad_slot_5
+[Channel2],pad_slot_6
+[Channel2],pad_slot_7
+[Channel2],pad_slot_8
 [Channel2],pad_tab
 [Channel2],peak_indicator
 [Channel2],pfl
@@ -725,6 +741,14 @@
 [Channel3],mute
 [Channel3],orientation
 [Channel3],pad_panel
+[Channel3],pad_slot_1
+[Channel3],pad_slot_2
+[Channel3],pad_slot_3
+[Channel3],pad_slot_4
+[Channel3],pad_slot_5
+[Channel3],pad_slot_6
+[Channel3],pad_slot_7
+[Channel3],pad_slot_8
 [Channel3],pad_tab
 [Channel3],peak_indicator
 [Channel3],pfl
@@ -982,6 +1006,14 @@
 [Channel4],mute
 [Channel4],orientation
 [Channel4],pad_panel
+[Channel4],pad_slot_1
+[Channel4],pad_slot_2
+[Channel4],pad_slot_3
+[Channel4],pad_slot_4
+[Channel4],pad_slot_5
+[Channel4],pad_slot_6
+[Channel4],pad_slot_7
+[Channel4],pad_slot_8
 [Channel4],pad_tab
 [Channel4],peak_indicator
 [Channel4],pfl
@@ -1946,6 +1978,7 @@
 [Microphone],vu_meter_right
 [Mixer Profile],xFaderReverse
 [Mixer Profile],xFaderShape
+[Mixer],crossfader_enabled
 [Mixer],knob_mode
 [Playlist],LoadSelectedIntoFirstStopped
 [Playlist],SelectNextPlaylist

@@ -34,7 +34,7 @@ Plain words SHALL match artist, title, album, genre, comment, grouping and tags;
 - **THEN** only tracks with artist, title, rating, tempo and key are listed
 
 ### Requirement: Own tag fields
-The DJ SHALL name the grouping field and any number of tag fields in Settings › Library › Your fields. Each name SHALL work as a search word (`mood:uplifting`), as does each number (`tag1:`), with `#` optional. Removing a field SHALL keep its tags on tracks.
+The DJ SHALL name the grouping field and any number of tag fields in Settings › Library › Fields. Each name SHALL work as a search word (`mood:uplifting`), as does each number (`tag1:`), with `#` optional. Removing a field SHALL keep its tags on tracks.
 
 #### Scenario: Named field
 - **WHEN** tag field 1 is named Mood and the DJ searches `mood:uplifting`
