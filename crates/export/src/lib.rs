@@ -150,6 +150,25 @@ const LIBRARY_FILES: [&str; 5] = [
     "exportLibrary.db-shm",
 ];
 
+/// The stick's export folder: the one that already holds a library, else
+/// `PIONEER`. rekordbox can write it hidden as `.PIONEER`, and a second
+/// library beside it would leave players to pick one.
+fn export_dir(root: &Path) -> Result<&'static str, Error> {
+    let holds_library = |name: &str| {
+        let dir = root.join(name);
+        dir.join("rekordbox/export.pdb").is_file()
+            || dir.join("rekordbox/exportLibrary.db").is_file()
+            || dir.join("DEVSETTING.DAT").is_file()
+    };
+    match (holds_library("PIONEER"), holds_library(".PIONEER")) {
+        (true, true) => Err(Error::Other(
+            "the stick has two libraries, in PIONEER and .PIONEER; remove one first".into(),
+        )),
+        (false, true) => Ok(".PIONEER"),
+        _ => Ok("PIONEER"),
+    }
+}
+
 /// Joins a stick path (`/Contents/...`) onto the stick's folder.
 fn on_stick(root: &Path, stick_path: &str) -> PathBuf {
     root.join(stick_path.trim_start_matches('/'))
@@ -235,6 +254,7 @@ pub fn export(
         )));
     }
     let root = &options.root;
+    let export_dir = export_dir(root)?;
     let today = date(chrono::Utc::now().timestamp());
 
     // Every track the lists hold, once, in the order they first appear.
@@ -253,6 +273,7 @@ pub fn export(
     let mut model = Model {
         device_name: options.name.clone(),
         date: today.clone(),
+        export_dir,
         ..Model::default()
     };
     let mut paths = layout::Paths::default();
@@ -365,7 +386,7 @@ fn put_track(
     };
 
     let stick_path = paths.assign(&track.artist, &track.album, &file_name);
-    let stem = slots.assign(&stick_path);
+    let stem = layout::rooted(&slots.assign(&stick_path), model.export_dir);
     let hot_cues_dropped = track
         .info
         .hotcues
@@ -411,7 +432,10 @@ fn put_track(
             let id = model.artworks + 1;
             for copy in ['a', 'b'] {
                 for (medium, bytes) in [(false, &thumbs.small), (true, &thumbs.medium)] {
-                    let path = on_stick(root, &layout::artwork(id, copy, medium));
+                    let path = on_stick(
+                        root,
+                        &layout::rooted(&layout::artwork(id, copy, medium), model.export_dir),
+                    );
                     fs::create_dir_all(path.parent().unwrap()).map_err(|e| err(&e))?;
                     fs::write(&path, bytes).map_err(|e| err(&e))?;
                 }
@@ -487,7 +511,7 @@ fn write_library(root: &Path, options: &Options, model: &Model) -> Result<(), Er
     if options.one_library {
         onelib::write(&built.join("exportLibrary.db"), model)?;
     }
-    let dir = root.join("PIONEER").join("rekordbox");
+    let dir = root.join(model.export_dir).join("rekordbox");
     fs::create_dir_all(&dir)?;
     for name in LIBRARY_FILES {
         let path = dir.join(name);

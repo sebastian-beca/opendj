@@ -453,7 +453,7 @@ pub struct Browser {
     /// The crates each track is in, by track id.
     crates: HashMap<usize, Vec<String>>,
     /// Empty crates and entries for removed tracks.
-    list_health: mixxx_library::sets::ListHealth,
+    list_health: opendj_library::sets::ListHealth,
     /// Hot cue controls per deck: enabled and position.
     /// Each deck's hot cues: enabled, position and a saved loop's end.
     hotcues: [Vec<(ControlHandle, ControlHandle, ControlHandle)>; NUM_DECKS],

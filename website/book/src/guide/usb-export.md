@@ -44,6 +44,8 @@ a big list takes a while. Music already on the stick isn't copied again.
 - **The stick's playlists are replaced.** Each export writes the stick's
   library afresh with the lists you picked. To have several lists on one
   stick, put them in a folder and export the folder.
+- **A stick rekordbox already exported to** gets openDJ's library in the
+  same place, in place of rekordbox's, so players never see two.
 - **Hot cues past H** are left out, as players have eight. The result says
   how many.
 - **Tracks that can't be read** (a missing file, say) are left out, and the
@@ -62,6 +64,9 @@ USB export stands on the work of others:
 - **[Bake'n Deck](https://github.com/M-Igashi/baken)** by Masanari Higashi
   (MIT) worked out, and tested on real CDJs, how rekordbox encodes
   waveforms, cue colours, analysis folders and album art. openDJ follows it.
+- **[rbxport](https://github.com/chrisle/rbxport)** by Chris Le
+  (GPL-2.0-or-later) documents the stick format in depth; openDJ checks its
+  exports against that reference.
 - **[rekordcrate](https://github.com/Holzhaus/rekordcrate)** (MPL-2.0) and
   the [Deep Symmetry](https://djl-analysis.deepsymmetry.org/) format notes
   were used to check openDJ's sticks.
