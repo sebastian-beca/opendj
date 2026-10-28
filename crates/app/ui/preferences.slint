@@ -27,7 +27,8 @@ export struct PrefItem {
     on: bool,
     choices: [string],
     chosen: int,
-    // The path, or what a menu shows when it differs from the choice.
+    // The path, what a menu shows when it differs from the choice, or a
+    // button row's label when it has no button.
     value: string,
     // A button's label.
     action: string,
@@ -39,8 +40,8 @@ export global Preferences {
     in-out property <bool> open;
     in-out property <int> page;
     in-out property <string> query;
-    // The page's tabs (Library has General, Stages, Fields and one for
-    // each app imported from); most pages have none.
+    // The page's tabs (Library has General, Stages, Fields and Import);
+    // most pages have none.
     in property <[string]> tabs;
     in-out property <int> tab;
     in property <[PrefItem]> items;
@@ -365,9 +366,22 @@ component PrefRow inherits Rectangle {
                     picked(i) => { Preferences.picked(item.id, i); }
                 }
             }
-            if item.kind == 2: VerticalLayout {
+            if item.kind == 2 && item.action != "": VerticalLayout {
                 alignment: center;
                 Button { text: item.action; clicked => { Preferences.pressed(item.id); } }
+            }
+            // A button row with no button: what's in `value` (such as
+            // "Coming soon"), dimmed.
+            if item.kind == 2 && item.action == "" && item.value != "": VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    height: 22px;
+                    width: soon.preferred-width + 16px;
+                    border-radius: 11px;
+                    border-width: 1px;
+                    border-color: Theme.separator;
+                    soon := Text { x: 8px; text: item.value; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
+                }
             }
             if item.kind == 10: HorizontalLayout {
                 spacing: 8px;
