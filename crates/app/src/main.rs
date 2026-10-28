@@ -47,6 +47,7 @@ mod mac_titlebar;
 mod prefs;
 mod sampler;
 mod settings;
+mod shortcuts;
 mod smooth;
 mod sources;
 mod spotify;
@@ -449,6 +450,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app.on_automix_set_length(move |i| a.borrow_mut().set_length(i.max(0) as usize));
         let a = automix.clone();
         app.on_automix_set_style(move |i| a.borrow_mut().set_style(i.max(0) as usize));
+    }
+
+    // Keyboard shortcuts, each an openDJscript line.
+    {
+        let browser = browser.clone();
+        let registry = registry.clone();
+        app.on_shortcut(move |text, cmd, alt, shift, master, first, last| {
+            let Some(key) = shortcuts::key_name(&text, cmd, alt, shift) else {
+                return false;
+            };
+            let Some(script) = shortcuts::script_for(&key) else {
+                return false;
+            };
+            let mut b = browser.borrow_mut();
+            let mut host = shortcuts::AppHost {
+                registry: &registry,
+                browser: &mut b,
+                picked: (first, last),
+                master: master.clamp(0, 3) as u8 + 1,
+            };
+            if let Err(e) = opendj_script::run(&script, &mut host) {
+                eprintln!("{key} ({script}): {e}");
+            }
+            true
+        });
     }
 
     // MIDI controllers, driven by Mixxx's mappings. Started after the browser
