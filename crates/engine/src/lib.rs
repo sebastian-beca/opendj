@@ -56,8 +56,8 @@ pub use controls::{
     NUM_EFFECT_UNITS, NUM_HOTCUES,
 };
 pub use effects::{
-    effect_name, parameter_names, AVAILABLE_EFFECTS, DEFAULT_EFFECTS, MAX_BUTTON_PARAMETERS,
-    MAX_PARAMETERS,
+    color_fx_name, effect_name, parameter_names, AVAILABLE_EFFECTS, COLOR_FX, DEFAULT_EFFECTS,
+    MAX_BUTTON_PARAMETERS, MAX_PARAMETERS,
 };
 pub use output::{
     channel_names, default_output_device, input_devices, output_devices, AudioSetup, InputRole,

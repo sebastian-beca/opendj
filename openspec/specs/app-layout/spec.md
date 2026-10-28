@@ -20,7 +20,7 @@ A 2-Deck deck SHALL place FX, loop and transport in that order, with PLAY on the
 - **THEN** PLAY is left of CUE
 
 ### Requirement: Top bar
-The top bar SHALL hold the layout menu, WAVEFORMS, LINK, MIC, REC and the MASTER level, at 52 px high, with macOS's title bar hidden into it.
+The top bar SHALL hold the layout menu, WAVEFORMS, MIC, REC and MASTER (which opens the levels and Ableton Link), at 52 px high, with macOS's title bar hidden into it.
 
 #### Scenario: REC lights
 - **WHEN** a recording runs

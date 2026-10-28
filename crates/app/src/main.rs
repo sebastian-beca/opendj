@@ -22,7 +22,7 @@ use mixxx_engine::synth::SAMPLE_LIBRARY_SIZE;
 use mixxx_engine::{
     deck_group, default_output_device, effect_group, effect_name, output_devices, sample_library,
     AudioEngine, AudioSetup, Role, Route, Source, Track, VisualPositions, Waveform,
-    AVAILABLE_EFFECTS, EFFECTS_PER_UNIT, NUM_DECKS,
+    AVAILABLE_EFFECTS, COLOR_FX, EFFECTS_PER_UNIT, NUM_DECKS,
 };
 use mixxx_library::Library;
 use mixxx_waveform::{
@@ -77,6 +77,7 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
         g.set_devices(ModelRc::from(names_model.clone()));
     }
     let show = {
+        let app = app.as_weak();
         let default_device = default_device.clone();
         let engine = engine.clone();
         let devices = devices.clone();
@@ -89,6 +90,10 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
                 .and_then(|name| devices.iter().find(|d| d.name == *name))
                 .map_or(2, |d| d.channels);
             let status = engine.route_status();
+            if let Some(app) = app.upgrade() {
+                app.global::<AudioSettings>()
+                    .set_booth(setup.routes.iter().any(|r| r.role == Role::Booth));
+            }
             let rows: Vec<OutputRow> = setup
                 .routes
                 .iter()
@@ -416,6 +421,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.global::<EffectList>()
         .set_names(ModelRc::new(VecModel::from(
             AVAILABLE_EFFECTS
+                .iter()
+                .map(|&n| SharedString::from(n))
+                .collect::<Vec<_>>(),
+        )));
+    app.global::<EffectList>()
+        .set_color_fx(ModelRc::new(VecModel::from(
+            COLOR_FX
                 .iter()
                 .map(|&n| SharedString::from(n))
                 .collect::<Vec<_>>(),
