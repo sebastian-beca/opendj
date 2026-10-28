@@ -1147,6 +1147,51 @@ impl Library {
         tx.commit()
     }
 
+    /// The folders the last library scan looked through; None before the
+    /// first scan that noted them.
+    pub fn scanned_folders(&self) -> Option<Vec<PathBuf>> {
+        self.meta("scanned_folders").map(|v| {
+            v.lines()
+                .filter(|l| !l.is_empty())
+                .map(PathBuf::from)
+                .collect()
+        })
+    }
+
+    pub fn set_scanned_folders(&self, dirs: &[PathBuf]) -> Result<(), Error> {
+        let v: Vec<String> = dirs
+            .iter()
+            .map(|d| d.to_string_lossy().into_owned())
+            .collect();
+        self.set_meta("scanned_folders", &v.join("\n"))
+    }
+
+    /// Takes out tracks a scan found under `dir`, a folder no longer
+    /// scanned, unless the DJ has done something with them: put them in a
+    /// list or a stage, rated or played them, or set cues. Returns how many
+    /// went. The files stay.
+    pub fn forget_scanned_under(&mut self, dir: &Path) -> Result<usize, Error> {
+        let tx = self.db.transaction()?;
+        let found: Vec<(i64, String)> = tx
+            .prepare(
+                "SELECT id, path FROM tracks
+                  WHERE source = 'scan' AND stage = '' AND rating = 0 AND play_count = 0
+                    AND NOT EXISTS (SELECT 1 FROM playlist_tracks p WHERE p.track_id = tracks.id)
+                    AND NOT EXISTS (SELECT 1 FROM cues c WHERE c.track_id = tracks.id
+                                      AND c.source = 'user')",
+            )?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        let mut gone = 0;
+        for (id, path) in found {
+            if Path::new(&path).starts_with(dir) {
+                gone += tx.execute("DELETE FROM tracks WHERE id = ?1", [id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(gone)
+    }
+
     /// Starts a history session named `name`; tracks played are added to it
     /// with [`Library::record_play`].
     pub fn start_session(&self, name: &str) -> Result<i64, Error> {
@@ -2375,6 +2420,48 @@ mod tests {
         lib.add_to_playlist(list, &[a, c]).unwrap();
         assert_eq!(lib.played_with(a).unwrap(), [b, d]);
         assert_eq!(lib.played_with(c).unwrap(), [b]);
+    }
+
+    #[test]
+    fn forgets_tracks_of_a_folder_no_longer_scanned() {
+        let mut lib = Library::in_memory().unwrap();
+        assert_eq!(lib.scanned_folders(), None);
+        lib.sync(&[
+            file_track("/home/s/Music/Ableton/kick.wav", "Kick"),
+            file_track("/home/s/Music/Ableton/snare.wav", "Snare"),
+            file_track("/home/s/Music/Old/liked.mp3", "Liked"),
+            file_track("/home/s/DB/Library/a.mp3", "A"),
+        ])
+        .unwrap();
+        let ids: HashMap<String, usize> = lib
+            .tracks(|_| true)
+            .unwrap()
+            .iter()
+            .map(|t| (t.title.clone(), t.id))
+            .collect();
+        let crate_ = lib
+            .create_playlist("Yoga", None, PlaylistKind::List)
+            .unwrap();
+        lib.add_to_playlist(crate_, &[ids["Liked"]]).unwrap();
+        lib.set_scanned_folders(&[PathBuf::from("/home/s/Music"), PathBuf::from("/home/s/DB")])
+            .unwrap();
+        assert_eq!(
+            lib.scanned_folders().unwrap(),
+            [PathBuf::from("/home/s/Music"), PathBuf::from("/home/s/DB")]
+        );
+        assert_eq!(
+            lib.forget_scanned_under(Path::new("/home/s/Music"))
+                .unwrap(),
+            2
+        );
+        let mut left: Vec<String> = lib
+            .tracks(|_| true)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.title)
+            .collect();
+        left.sort();
+        assert_eq!(left, ["A", "Liked"], "a track in a list stays");
     }
 
     #[test]

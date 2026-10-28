@@ -966,7 +966,25 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
         .map(|i| i.id().to_string())
         .filter(|id| settings::flag(&settings::import_remove_key(id), false))
         .collect();
-    if dirs.is_empty() && importers.is_empty() && removed.is_empty() {
+    // ~/Music before the scan noted its folders: the only one it could
+    // have looked through without the DJ choosing it.
+    let before = library_path
+        .as_deref()
+        .and_then(|p| Library::open(p).ok())
+        .map(|db| {
+            db.scanned_folders().unwrap_or_else(|| {
+                opendj_engine::scan::default_music_dir()
+                    .into_iter()
+                    .collect()
+            })
+        })
+        .unwrap_or_default();
+    // Folders scanned before and not now: what was found only there goes.
+    let dropped: Vec<PathBuf> = before
+        .into_iter()
+        .filter(|old| !dirs.iter().any(|d| old.starts_with(d)))
+        .collect();
+    if dirs.is_empty() && importers.is_empty() && removed.is_empty() && dropped.is_empty() {
         return;
     }
     std::thread::spawn(move || {
@@ -990,6 +1008,18 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                         Err(e) => eprintln!("can't remove the {id} import: {e}"),
                     }
                     settings::set(&settings::import_remove_key(id), serde_json::json!(false));
+                }
+                for dir in &dropped {
+                    match db.forget_scanned_under(dir) {
+                        Ok(n) if n > 0 => {
+                            eprintln!("library: {n} tracks from {} taken out", dir.display())
+                        }
+                        Ok(_) => {}
+                        Err(e) => eprintln!("can't take out {}: {e}", dir.display()),
+                    }
+                }
+                if let Err(e) = db.set_scanned_folders(&dirs) {
+                    eprintln!("can't note the scanned folders: {e}");
                 }
                 let scanned: Vec<Track> = scanned.iter().map(|t| (**t).clone()).collect();
                 let report = db.sync(&scanned).map_err(|e| e.to_string())?;

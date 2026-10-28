@@ -2101,6 +2101,11 @@ impl Prefs {
             }
             settings::set_music_folders(&folders);
             self.music_folders_changed();
+            self.library_note = "Its tracks leave the library on the next update, except ones \
+                                 you rated, played, staged or put in a list: Library Health shows \
+                                 those under Outside folders. The files stay."
+                .into();
+            self.refresh();
             return;
         }
         if let Some(i) = id
