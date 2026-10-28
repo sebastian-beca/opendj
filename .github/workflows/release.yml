@@ -160,6 +160,9 @@ jobs:
         with:
           name: openDJ ${{ needs.version.outputs.version }}
           body_path: docs/release-notes.md
+          # Adds the list of merged pull requests (grouped by .github/release.yml)
+          # under the hand-written notes.
+          generate_release_notes: true
           # A tag such as v0.2.0-beta.1 makes a pre-release, for testers;
           # the README's download link skips those.
           prerelease: ${{ contains(github.ref_name, '-') }}

@@ -1,0 +1,16 @@
+# Groups merged pull requests by label in the "What's changed" list that
+# GitHub adds under docs/release-notes.md when a release is published.
+changelog:
+  exclude:
+    authors: [dependabot]
+  categories:
+    - title: New features
+      labels: [feature]
+    - title: Fixes
+      labels: [fix]
+    - title: Docs and website
+      labels: [docs]
+    - title: Build and CI
+      labels: [ci, dependencies]
+    - title: Other changes
+      labels: ["*"]
