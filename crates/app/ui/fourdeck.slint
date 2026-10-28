@@ -141,7 +141,7 @@ export component DeckStrip inherits Rectangle {
                         }
                         HorizontalLayout { alignment: center; CueHeadphones { group: group; tint: tint; width: 30px; } }
                     }
-                    for place in 4: SideKnob { deck: deck; place: [2, 1, 0, 3][place]; size: 32px; horizontal-stretch: 1; min-width: 40px; }
+                    for place in 4: SideKnob { deck: deck; place: [2, 1, 0, 3][place]; size: 32px; cfx-arrow-left: false; horizontal-stretch: 1; min-width: 40px; }
                     ControlFader { group: group; key: "volume"; tint: tint; ticks: 5; width: 40px; }
                     VerticalLayout {
                         spacing: 4px;
@@ -153,7 +153,7 @@ export component DeckStrip inherits Rectangle {
                 HorizontalLayout {
                     spacing: 6px;
                     PlayButton { group: group; tint: tint; width: 52px; height: 32px; }
-                    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: Theme.cue; font-size: 13px; horizontal-stretch: 1; height: 32px; }
+                    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; font-size: 13px; horizontal-stretch: 1; height: 32px; }
                     VerticalLayout {
                         spacing: 2px;
                         horizontal-stretch: 1;

@@ -1653,8 +1653,8 @@ impl Spiral {
 
 /// The Color FX each deck's filter knob can play, Pioneer-style, as
 /// `[QuickEffectRack1_[ChannelN]],loaded_chain_preset` values 1 and up (0 is
-/// none: the knob does nothing). One is chosen for every deck at once, as on
-/// a Pioneer mixer; the DDJ-FLX4's SHIFT + SMART CFX steps through them.
+/// none: the knob does nothing). Each deck picks its own from the menu
+/// beside its filter knob; the DDJ-FLX4's SHIFT + SMART CFX steps both decks.
 pub const COLOR_FX: [&str; 5] = ["Filter", "Space", "Dub Echo", "Noise", "Crush"];
 
 /// The Color FX of a `loaded_chain_preset` value ("" for none).
