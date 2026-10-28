@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
-use mixxx_engine::{cover, tags};
-use mixxx_plugins::{encode, USER_AGENT};
+use opendj_engine::{cover, tags};
+use opendj_plugins::{encode, USER_AGENT};
 use serde_json::Value;
 
 /// An online source: the image links it has for what is wanted.

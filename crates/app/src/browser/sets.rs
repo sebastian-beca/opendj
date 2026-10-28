@@ -1,10 +1,10 @@
-//! Crates and sets in the browser (see [`mixxx_library::sets`]): the crates
+//! Crates and sets in the browser (see [`opendj_library::sets`]): the crates
 //! each track is in, for the Crates column and `crate:`; New set… from the
 //! template in the settings; History's "Add to Set List…"; and tidying the
 //! lists from Library Health.
 
-use mixxx_library::sets::ListHealth;
-use mixxx_library::stages::{Prep, Stage};
+use opendj_library::sets::ListHealth;
+use opendj_library::stages::{Prep, Stage};
 use slint::{ModelRc, SharedString, VecModel};
 
 use super::health::tracks;

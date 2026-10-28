@@ -6,11 +6,11 @@
 
 use std::sync::mpsc::Receiver;
 
-use mixxx_engine::cover::{self, Cover};
-use mixxx_engine::preview::PREVIEW_GROUP;
-use mixxx_engine::scan::is_cloud_only;
-use mixxx_engine::tags::{self, TagFields};
-use mixxx_engine::{BeatGrid, Source};
+use opendj_engine::cover::{self, Cover};
+use opendj_engine::preview::PREVIEW_GROUP;
+use opendj_engine::scan::is_cloud_only;
+use opendj_engine::tags::{self, TagFields};
+use opendj_engine::{BeatGrid, Source};
 
 use super::*;
 use crate::coverart::{self, Event as CoverEvent, Found as FoundCover};
@@ -506,7 +506,7 @@ impl Browser {
             return;
         };
         ui.set_has_track(true);
-        ui.set_editable(writable(t).is_some() || mixxx_library::row_id(t.id).is_some());
+        ui.set_editable(writable(t).is_some() || opendj_library::row_id(t.id).is_some());
         ui.set_title(t.title.clone().into());
         ui.set_artist(t.artist.clone().into());
         ui.set_bpm(if t.bpm > 0.0 {
@@ -569,7 +569,7 @@ impl Browser {
                 status = format!("Couldn't save to the library: {e}");
             }
             // Clean-up and Look up online leave what the DJ typed alone.
-            if mixxx_library::cleanup::Field::from_name(id).is_some() {
+            if opendj_library::cleanup::Field::from_name(id).is_some() {
                 let _ = db.mark_hand_edited(t.id, id);
             }
             if id == "bpm" && t.bpm > 0.0 {

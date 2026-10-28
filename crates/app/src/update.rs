@@ -328,7 +328,7 @@ fn publisher(file: &Path) -> Option<(String, bool)> {
          \"$($s.Status)|$($s.SignerCertificate.Subject)\"",
         file.display().to_string().replace('\'', "''")
     );
-    let out = mixxx_engine::process::background(Command::new("powershell"))
+    let out = opendj_engine::process::background(Command::new("powershell"))
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .output()
         .ok()?;
@@ -445,7 +445,7 @@ const MODELS_URL: &str = "https://github.com/sebastian-beca/opendj/releases/down
 /// Lets the engine download a stem separation model the first time it is
 /// needed, checked against the SHA-256 the engine knows it by.
 pub fn install_model_fetch() {
-    mixxx_engine::separation::set_fetch(Box::new(|name, sha, to| {
+    opendj_engine::separation::set_fetch(Box::new(|name, sha, to| {
         download(&format!("{MODELS_URL}/{name}"), to)?;
         check_digest(to, Some(&format!("sha256:{sha}")))
     }));

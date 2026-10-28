@@ -8,8 +8,8 @@
 use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
-use mixxx_engine::decode::Decoder;
-use mixxx_plugins::encode;
+use opendj_engine::decode::Decoder;
+use opendj_plugins::encode;
 use rusty_chromaprint::{Configuration, Fingerprinter};
 use serde_json::Value;
 

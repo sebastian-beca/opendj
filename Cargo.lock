@@ -5367,86 +5367,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mixxx-control"
-version = "0.3.5"
-
-[[package]]
-name = "mixxx-controllers"
-version = "0.3.5"
-dependencies = [
- "midir",
- "mixxx-control",
- "mixxx-engine",
- "roxmltree",
- "rquickjs",
- "serde_json",
-]
-
-[[package]]
-name = "mixxx-engine"
-version = "0.3.5"
-dependencies = [
- "chrono",
- "cpal",
- "flacenc",
- "flate2",
- "image",
- "lofty",
- "matrixmultiply",
- "mixxx-control",
- "mixxx-separation",
- "rtrb",
- "rustfft",
- "rusty_link",
- "serde_json",
- "signalsmith-stretch",
- "symphonia",
-]
-
-[[package]]
-name = "mixxx-library"
-version = "0.3.5"
-dependencies = [
- "mixxx-engine",
- "rusqlite",
-]
-
-[[package]]
-name = "mixxx-plugins"
-version = "0.3.5"
-dependencies = [
- "mixxx-engine",
- "roxmltree",
- "serde_json",
- "ureq",
- "zip 9.1.0",
-]
-
-[[package]]
-name = "mixxx-separation"
-version = "0.3.5"
-dependencies = [
- "burn",
- "burn-ndarray",
- "demucs-core",
- "half",
- "matrixmultiply",
- "pollster",
- "realfft",
- "safetensors 0.7.0",
-]
-
-[[package]]
-name = "mixxx-waveform"
-version = "0.3.5"
-dependencies = [
- "ab_glyph",
- "bytemuck",
- "pollster",
- "wgpu 30.0.1",
-]
-
-[[package]]
 name = "moddef"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6250,17 +6170,17 @@ dependencies = [
  "hound",
  "image",
  "libc",
- "mixxx-control",
- "mixxx-controllers",
- "mixxx-engine",
- "mixxx-library",
- "mixxx-plugins",
- "mixxx-waveform",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "opendj-control",
+ "opendj-controllers",
+ "opendj-engine",
  "opendj-export",
+ "opendj-library",
+ "opendj-plugins",
  "opendj-script",
+ "opendj-waveform",
  "read-fonts",
  "rfd",
  "rusty-chromaprint",
@@ -6276,6 +6196,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "opendj-control"
+version = "0.3.5"
+
+[[package]]
+name = "opendj-controllers"
+version = "0.3.5"
+dependencies = [
+ "midir",
+ "opendj-control",
+ "opendj-engine",
+ "roxmltree",
+ "rquickjs",
+ "serde_json",
+]
+
+[[package]]
+name = "opendj-engine"
+version = "0.3.5"
+dependencies = [
+ "chrono",
+ "cpal",
+ "flacenc",
+ "flate2",
+ "image",
+ "lofty",
+ "matrixmultiply",
+ "opendj-control",
+ "opendj-separation",
+ "rtrb",
+ "rustfft",
+ "rusty_link",
+ "serde_json",
+ "signalsmith-stretch",
+ "symphonia",
+]
+
+[[package]]
 name = "opendj-export"
 version = "0.3.5"
 dependencies = [
@@ -6283,7 +6240,7 @@ dependencies = [
  "diesel",
  "image",
  "lofty",
- "mixxx-engine",
+ "opendj-engine",
  "rbox-anlz",
  "rbox-db",
  "rbox-devlib",
@@ -6293,10 +6250,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "opendj-library"
+version = "0.3.5"
+dependencies = [
+ "opendj-engine",
+ "rusqlite",
+]
+
+[[package]]
+name = "opendj-plugins"
+version = "0.3.5"
+dependencies = [
+ "opendj-engine",
+ "roxmltree",
+ "serde_json",
+ "ureq",
+ "zip 9.1.0",
+]
+
+[[package]]
 name = "opendj-script"
 version = "0.3.5"
 dependencies = [
- "mixxx-control",
+ "opendj-control",
+]
+
+[[package]]
+name = "opendj-separation"
+version = "0.3.5"
+dependencies = [
+ "burn",
+ "burn-ndarray",
+ "demucs-core",
+ "half",
+ "matrixmultiply",
+ "pollster",
+ "realfft",
+ "safetensors 0.7.0",
+]
+
+[[package]]
+name = "opendj-waveform"
+version = "0.3.5"
+dependencies = [
+ "ab_glyph",
+ "bytemuck",
+ "pollster",
+ "wgpu 30.0.1",
 ]
 
 [[package]]
@@ -8227,8 +8227,8 @@ name = "stem-bench"
 version = "0.3.5"
 dependencies = [
  "hound",
- "mixxx-engine",
- "mixxx-separation",
+ "opendj-engine",
+ "opendj-separation",
 ]
 
 [[package]]

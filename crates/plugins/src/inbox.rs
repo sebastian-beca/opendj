@@ -9,7 +9,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-use mixxx_engine::scan::is_audio;
+use opendj_engine::scan::is_audio;
 
 use crate::{InboxFile, Manifest, Plugin};
 

@@ -1,4 +1,4 @@
-//! Clean-up in the browser (see [`mixxx_library::cleanup`]): the review
+//! Clean-up in the browser (see [`opendj_library::cleanup`]): the review
 //! table of changes to names, the genres page, finding covers and looking
 //! up tags online for many tracks at once, and making (and taking back)
 //! changes to tags, in the library and in the files.
@@ -7,10 +7,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 
-use mixxx_engine::{tags, Track};
-use mixxx_library::cleanup::{self, Change, Field, Logged};
-use mixxx_library::health::Check;
-use mixxx_library::query::Indexed;
+use opendj_engine::{tags, Track};
+use opendj_library::cleanup::{self, Change, Field, Logged};
+use opendj_library::health::Check;
+use opendj_library::query::Indexed;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::health::tracks;
@@ -725,7 +725,7 @@ mod tests {
             key: String::new(),
             duration: 300.0,
             first_beat: 0.0,
-            source: mixxx_engine::Source::Synth { seed: 1 },
+            source: opendj_engine::Source::Synth { seed: 1 },
             waveform: Default::default(),
             audio: None,
             cover: None,

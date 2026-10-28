@@ -3,7 +3,7 @@
 //! (settings `keyboard_shortcuts`). Space, ⌘, and Esc stay fixed in
 //! main.slint and never reach this.
 
-use mixxx_control::ControlRegistry;
+use opendj_control::ControlRegistry;
 use opendj_script::{query_control, run_control, Call, Error, Host, Kind};
 
 use crate::browser::Browser;

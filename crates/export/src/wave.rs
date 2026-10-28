@@ -9,7 +9,7 @@
 //! follows Bake'n Deck's `expressport` (MIT licence, Copyright (c) Masanari
 //! Higashi), which fitted them to rekordbox's own files.
 
-use mixxx_engine::track::{Waveform, WaveformBin};
+use opendj_engine::track::{Waveform, WaveformBin};
 use rbox_anlz::{
     TinyWaveformColumn, Waveform3BandCalibration, Waveform3BandColumn, Waveform3BandDetail,
     Waveform3BandPreview, WaveformColorDetail, WaveformColorDetailColumn, WaveformColorPreview,
