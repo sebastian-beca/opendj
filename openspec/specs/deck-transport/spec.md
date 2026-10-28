@@ -30,6 +30,22 @@ While "Protect playing decks" is on (the default), loading onto a playing deck S
 - **WHEN** protection is on and a track is dropped on a playing deck
 - **THEN** the deck keeps playing its track and an alert says the deck is playing
 
+### Requirement: Auto reset on load
+Loading a track SHALL put the deck back to normal, as chosen in Settings > Decks under "Auto reset on load", each on by default:
+- **Effects** (`[Controls],auto_reset_fx`): every effect unit sent to the deck SHALL switch its effects off, keeping each effect's beats and parameters and the unit's dry/wet. A unit that also sounds on the main mix, or on another deck that is playing, SHALL be left alone. The microphone's unit is never touched.
+- **EQ and filter** (`[Controls],auto_reset_eq`): the deck's EQ knobs SHALL return to unity with their kills off, the filter to the middle and the sculpt knobs to flat.
+- **Gain** (`[Controls],auto_reset_gain`): the gain knob SHALL return to 0 dB, or to the track's own gain when its info has one. Auto gain SHALL still level the new track on top.
+
+With a reset switched off, loading SHALL leave those controls as they were.
+
+#### Scenario: Track loaded after a heavy mix
+- **WHEN** deck 1 has its low EQ cut, its gain at +6 dB and its echo on, and a new track is loaded on it
+- **THEN** the EQ and gain are back at unity, auto gain levels the new track and the echo is off, with its beats and dry/wet as they were
+
+#### Scenario: Beat FX shared with a playing deck
+- **WHEN** the Beat FX is on for decks 1 and 2, deck 2 plays and a track is loaded on deck 1
+- **THEN** the Beat FX stays on
+
 ### Requirement: Play and CUE
 PLAY SHALL toggle playback. CUE SHALL follow the "CUE button" setting: "Hold to preview" (default, Mixxx `cue_mode` 0) plays while held from the cue point and returns on release, and sets the cue when pressed while paused; "Set and return" (`cue_mode` 3) only sets and returns.
 
