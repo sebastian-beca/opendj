@@ -25,7 +25,7 @@ mod verbs;
 
 pub use controls::{query_control, run_control};
 pub use parse::{parse, Arg, Deck, Expr, Script};
-pub use verbs::{verb, Kind, Verb, VERBS};
+pub use verbs::{verb, ArgKind, ArgSpec, Kind, TakesDeck, Verb, VERBS};
 
 use std::fmt;
 
