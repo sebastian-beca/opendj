@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
-use mixxx_control::{ConfigKey, ControlRegistry};
+use opendj_control::{ConfigKey, ControlRegistry};
 
 use crate::catalog::{describe, describe_value, humanize, Function};
 use crate::layout::Layout;

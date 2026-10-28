@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use mixxx_control::{ControlHandle, ControlRegistry};
+use opendj_control::{ControlHandle, ControlRegistry};
 
 use crate::host::{Host, Target};
 use crate::mapping::{Input, Mapping, Options, Output};
@@ -203,7 +203,7 @@ impl Controller {
 
     /// The controls scripts wrote since the last call, while tracing, with
     /// the last value other than 0 written to each.
-    pub fn take_trace(&mut self) -> Vec<(mixxx_control::ConfigKey, f64)> {
+    pub fn take_trace(&mut self) -> Vec<(opendj_control::ConfigKey, f64)> {
         match &mut self.host.borrow_mut().trace {
             Some(t) => std::mem::take(t),
             None => Vec::new(),

@@ -33,8 +33,8 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::RwLock;
 
-use mixxx_engine::key::Key;
-use mixxx_engine::{Source, Track};
+use opendj_engine::key::Key;
+use opendj_engine::{Source, Track};
 
 /// Tempos within this fraction count as close for `~bpm` and `~deck`.
 const BPM_TOLERANCE: f64 = 0.06;
@@ -783,11 +783,11 @@ pub fn file_exists(t: &Track) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mixxx_engine::Hotcue;
+    use opendj_engine::Hotcue;
     use std::path::PathBuf;
 
     fn track(id: usize, artist: &str, title: &str, bpm: f64, key: &str) -> Track {
-        let mut t = std::sync::Arc::unwrap_or_clone(mixxx_engine::sample_library().remove(0));
+        let mut t = std::sync::Arc::unwrap_or_clone(opendj_engine::sample_library().remove(0));
         t.id = id;
         t.artist = artist.into();
         t.title = title.into();

@@ -5,13 +5,13 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use mixxx_control::ControlRegistry;
-use mixxx_controllers::{default_mappings_dir, list_mappings, Controller, Mapping};
+use opendj_control::ControlRegistry;
+use opendj_controllers::{default_mappings_dir, list_mappings, Controller, Mapping};
 
 fn load(file: &str) -> (Arc<ControlRegistry>, Controller) {
     let reg = ControlRegistry::new();
     // Creates every engine control; the engine itself isn't run.
-    let _engine = mixxx_engine::engine::Engine::new(&reg, 44_100.0);
+    let _engine = opendj_engine::engine::Engine::new(&reg, 44_100.0);
     let path = default_mappings_dir().unwrap().join(file);
     let mapping = Mapping::load(&path).unwrap();
     let c = Controller::new("test", mapping, reg.clone()).unwrap();
@@ -222,7 +222,7 @@ fn every_bundled_mapping_loads_and_takes_its_messages() {
         }
         let messages: Vec<(u8, u8)> = mapping.inputs.keys().copied().collect();
         let reg = ControlRegistry::new();
-        let _engine = mixxx_engine::engine::Engine::new(&reg, 44_100.0);
+        let _engine = opendj_engine::engine::Engine::new(&reg, 44_100.0);
         let mut c = Controller::new("test", mapping, reg)
             .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         // Some of Mixxx's mappings have script errors of their own; what
@@ -257,7 +257,7 @@ fn scripted(name: &str, xml_controls: &str, script: &str) -> (Arc<ControlRegistr
     );
     let mapping = Mapping::parse(&xml, &dir).unwrap();
     let reg = ControlRegistry::new();
-    let _engine = mixxx_engine::engine::Engine::new(&reg, 44_100.0);
+    let _engine = opendj_engine::engine::Engine::new(&reg, 44_100.0);
     let c = Controller::new("test", mapping, reg.clone()).unwrap();
     std::fs::remove_dir_all(&dir).ok();
     (reg, c)

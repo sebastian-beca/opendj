@@ -1,6 +1,6 @@
 //! The browser: folder tree, track list and Automix / Sidelist panel.
 //!
-//! The collection is the saved library (see `mixxx_library`): the scanned
+//! The collection is the saved library (see `opendj_library`): the scanned
 //! music folder, or the built-in sample
 //! library when there is none. The DJ's lists and folders, ratings,
 //! colours and play history are kept in the library database. With the Spotify source
@@ -13,20 +13,20 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use mixxx_control::{ControlHandle, ControlRegistry};
-use mixxx_engine::key::{self, Key};
-use mixxx_engine::scan::{is_audio, read_track};
-use mixxx_engine::{deck_group, AudioEngine, Hotcue, Track, NUM_DECKS, NUM_HOTCUES};
-use mixxx_library::dupes::{Case, Group};
-use mixxx_library::health::{Check, Facts};
-use mixxx_library::query::{self, Context, Indexed, Query};
-use mixxx_library::stages::{Folders, Stage};
-use mixxx_library::{Library, PlaylistKind};
+use opendj_control::{ControlHandle, ControlRegistry};
+use opendj_engine::key::{self, Key};
+use opendj_engine::scan::{is_audio, read_track};
+use opendj_engine::{deck_group, AudioEngine, Hotcue, Track, NUM_DECKS, NUM_HOTCUES};
+use opendj_library::dupes::{Case, Group};
+use opendj_library::health::{Check, Facts};
+use opendj_library::query::{self, Context, Indexed, Query};
+use opendj_library::stages::{Folders, Stage};
+use opendj_library::{Library, PlaylistKind};
 use slint::{ComponentHandle, DataTransfer, Model, ModelRc, SharedString, VecModel};
 
-use mixxx_library::Wanted;
-use mixxx_plugins::inbox::Mode;
-use mixxx_plugins::{ItemKind, StoreItem, StoreQuery};
+use opendj_library::Wanted;
+use opendj_plugins::inbox::Mode;
+use opendj_plugins::{ItemKind, StoreItem, StoreQuery};
 
 mod analysis;
 mod cleanup;
@@ -71,7 +71,7 @@ enum Contents {
     All,
     /// Track ids in playlist order.
     List(Vec<usize>),
-    /// A smart list: the tracks a search finds (see `mixxx_library::query`).
+    /// A smart list: the tracks a search finds (see `opendj_library::query`).
     Query(String),
     /// Tracks with this grouping.
     Grouping(String),
@@ -91,14 +91,14 @@ enum Contents {
     Wanted,
     /// A folder on the computer, in the Files source: its audio files.
     Dir(PathBuf),
-    /// The tracks at a stage (see [`mixxx_library::stages`]), or only those
+    /// The tracks at a stage (see [`opendj_library::stages`]), or only those
     /// in one subfolder of its folder (a triage crate).
     Stage(Stage, Option<PathBuf>),
     /// Library Health's page, or the tracks one of its checks finds (see
-    /// [`mixxx_library::health`]).
+    /// [`opendj_library::health`]).
     Health(Option<Check>),
     /// The groups of copies of one case, under Library Health's
-    /// Duplicates (see [`mixxx_library::dupes`]).
+    /// Duplicates (see [`opendj_library::dupes`]).
     Dupes(Case),
 }
 
@@ -144,7 +144,7 @@ struct Undo {
     /// Tracks to bring back into the library: merged copies.
     restore: Vec<usize>,
     /// The batch of changes to tags to take back (see
-    /// [`mixxx_library::cleanup`]).
+    /// [`opendj_library::cleanup`]).
     changes: Option<i64>,
 }
 
@@ -299,18 +299,18 @@ fn reveal_dir(nodes: &mut Vec<Node>, path: &Path) -> Option<usize> {
 const BROWSED_BASE: usize = 800_000;
 
 fn is_browsed(t: &Track) -> bool {
-    (BROWSED_BASE..mixxx_library::ID_BASE).contains(&t.id)
+    (BROWSED_BASE..opendj_library::ID_BASE).contains(&t.id)
 }
 
 fn file_path(t: &Track) -> Option<&Path> {
     match &t.source {
-        mixxx_engine::Source::File(p) => Some(p),
+        opendj_engine::Source::File(p) => Some(p),
         _ => None,
     }
 }
 
 /// A tree node for one of the DJ's smart lists.
-fn smart_node(p: &mixxx_library::Playlist, depth: i32) -> Node {
+fn smart_node(p: &opendj_library::Playlist, depth: i32) -> Node {
     let mut n = Node::new(
         p.name.clone(),
         depth,
@@ -835,7 +835,7 @@ impl Browser {
             inbox: Inbox::start(
                 inbox_settings,
                 library_path,
-                mixxx_engine::scan::default_music_dir(),
+                opendj_engine::scan::default_music_dir(),
                 stores::configured(),
             ),
             collection_stale: false,
@@ -2261,7 +2261,7 @@ impl Browser {
             && self
                 .library
                 .first()
-                .is_some_and(|t| mixxx_library::row_id(t.id).is_some())
+                .is_some_and(|t| opendj_library::row_id(t.id).is_some())
     }
 
     /// The collection's tree: everything, the DJ's lists and folders,
@@ -2593,7 +2593,7 @@ impl Browser {
                 self.watch[d] = CueWatch::default();
                 continue;
             };
-            if mixxx_library::row_id(t.id).is_none() {
+            if opendj_library::row_id(t.id).is_none() {
                 continue;
             }
             let w = &mut self.watch[d];
@@ -2927,7 +2927,7 @@ impl Browser {
 
     fn sample_of(&self, id: usize) -> Option<(PathBuf, String)> {
         let t = self.library.get(id).filter(|_| self.playable(id))?;
-        let mixxx_engine::Source::File(path) = &t.source else {
+        let opendj_engine::Source::File(path) = &t.source else {
             return None;
         };
         let name = if t.title.is_empty() {

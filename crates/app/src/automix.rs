@@ -12,8 +12,8 @@
 
 use std::sync::Arc;
 
-use mixxx_control::{ControlHandle, ControlRegistry};
-use mixxx_engine::{deck_group, eq_group, quick_effect_group, Track, NUM_DECKS};
+use opendj_control::{ControlHandle, ControlRegistry};
+use opendj_engine::{deck_group, eq_group, quick_effect_group, Track, NUM_DECKS};
 
 use crate::AppWindow;
 
@@ -773,9 +773,9 @@ impl AutoMix {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mixxx_engine::engine::{Command, Engine, EngineInput};
-    use mixxx_engine::loader::prepare;
-    use mixxx_engine::synth::sample_library;
+    use opendj_engine::engine::{Command, Engine, EngineInput};
+    use opendj_engine::loader::prepare;
+    use opendj_engine::synth::sample_library;
 
     const SR: f64 = 48_000.0;
     const FPS: f64 = 60.0;

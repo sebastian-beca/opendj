@@ -1,4 +1,4 @@
-//! Library Health in the browser (see [`mixxx_library::health`]): a node in
+//! Library Health in the browser (see [`opendj_library::health`]): a node in
 //! the collection's tree with one node per check under it, the checks'
 //! page, and the fixes each check offers for its tracks.
 
@@ -7,11 +7,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use mixxx_engine::{tags, Track};
-use mixxx_library::dupes::{self, Case, FileFacts, Group};
-use mixxx_library::health::{self, Check, Facts};
-use mixxx_library::query::Indexed;
-use mixxx_library::stages::Stage;
+use opendj_engine::{tags, Track};
+use opendj_library::dupes::{self, Case, FileFacts, Group};
+use opendj_library::health::{self, Check, Facts};
+use opendj_library::query::Indexed;
+use opendj_library::stages::Stage;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::info::tag_fields;
@@ -135,7 +135,7 @@ fn files_by_name(roots: &[PathBuf]) -> HashMap<String, Vec<PathBuf>> {
             let hidden = e.file_name().to_string_lossy().starts_with('.');
             match e.file_type() {
                 Ok(t) if t.is_dir() && !hidden => stack.push(path),
-                Ok(t) if t.is_file() && mixxx_engine::scan::is_audio(&path) => {
+                Ok(t) if t.is_file() && opendj_engine::scan::is_audio(&path) => {
                     let name = e.file_name().to_string_lossy().to_lowercase();
                     out.entry(name).or_default().push(path);
                 }
@@ -398,7 +398,7 @@ impl Browser {
     }
 
     /// Merges groups of copies, each into the copy kept (see
-    /// [`mixxx_library::Library::merge_copies`]), as one change the undo
+    /// [`opendj_library::Library::merge_copies`]), as one change the undo
     /// line takes back.
     fn merge(&mut self, plan: Vec<(usize, Vec<usize>)>) -> String {
         if plan.is_empty() {

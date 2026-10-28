@@ -8,15 +8,15 @@ use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
-use mixxx_control::ControlRegistry;
-use mixxx_controllers::{device_key, Controllers, MappingChoice, Port};
-use mixxx_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
-use mixxx_engine::{
+use opendj_control::ControlRegistry;
+use opendj_controllers::{device_key, Controllers, MappingChoice, Port};
+use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
+use opendj_engine::{
     analysis, cache, channel_names, deck_group, input_devices, key, InputRole, InputRoute,
     RecordFormat, Recorder, BUFFER_SIZES, DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES,
 };
-use mixxx_library::query;
-use mixxx_plugins::{LibraryImport, Plugin, SettingKind};
+use opendj_library::query;
+use opendj_plugins::{LibraryImport, Plugin, SettingKind};
 use serde_json::json;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
@@ -350,7 +350,7 @@ pub struct Prefs {
     /// Opens the outputs again with the saved audio settings.
     audio_changed: Box<dyn Fn()>,
     /// Opens the inputs again with the saved audio settings, and tells
-    /// each input's state (see [`mixxx_engine::AudioEngine::input_status`]).
+    /// each input's state (see [`opendj_engine::AudioEngine::input_status`]).
     inputs: InputHooks,
     /// What each input's menu offered last, by [`InputRole::index`].
     input_choices: [Vec<Option<InputRoute>>; 2],
@@ -1272,7 +1272,7 @@ impl Prefs {
             "What Library Health's \"Junk in names\" looks for. Clean up shows every change before \
              it is made.",
         ));
-        for (key, name, about, default) in mixxx_library::cleanup::Rules::ALL {
+        for (key, name, about, default) in opendj_library::cleanup::Rules::ALL {
             items.push(switch(key, name, about, settings::flag(key, default)));
         }
         items

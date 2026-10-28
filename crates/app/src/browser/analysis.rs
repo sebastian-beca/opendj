@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use mixxx_engine::{phrases, Source, Track, NUM_DECKS};
+use opendj_engine::{phrases, Source, Track, NUM_DECKS};
 use slint::{ComponentHandle, Model};
 
 use super::{is_browsed, Browser, Contents};
@@ -140,13 +140,13 @@ impl Browser {
 
     /// Gives library track `i` these detected phrases, saving them, unless
     /// it has them already.
-    fn keep_phrases(&mut self, i: usize, found: Vec<mixxx_engine::Marker>) {
+    fn keep_phrases(&mut self, i: usize, found: Vec<opendj_engine::Marker>) {
         let entry = &self.library[i];
         let had: Vec<_> = entry
             .info
             .markers
             .iter()
-            .filter(|m| m.kind == mixxx_engine::MarkerKind::Phrase && m.detected)
+            .filter(|m| m.kind == opendj_engine::MarkerKind::Phrase && m.detected)
             .cloned()
             .collect();
         if had == found {

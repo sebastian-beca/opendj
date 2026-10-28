@@ -15,9 +15,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use mixxx_engine::beats::BeatGrid;
-use mixxx_engine::import::{ImportedLibrary, ImportedList, ImportedListKind};
-use mixxx_engine::{Hotcue, LibraryInfo, Marker, MarkerKind, Source, Track};
+use opendj_engine::beats::BeatGrid;
+use opendj_engine::import::{ImportedLibrary, ImportedList, ImportedListKind};
+use opendj_engine::{Hotcue, LibraryInfo, Marker, MarkerKind, Source, Track};
 use rusqlite::{params, Connection, OptionalExtension};
 
 pub use rusqlite::Error;
@@ -1704,7 +1704,7 @@ fn import_lists(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mixxx_engine::beats::GridMarker;
+    use opendj_engine::beats::GridMarker;
 
     pub(crate) fn file_track(path: &str, title: &str) -> Track {
         Track {
@@ -1967,7 +1967,7 @@ mod tests {
 
     #[test]
     fn imports_details_markers_and_lists() {
-        use mixxx_engine::import::ImportedEntry;
+        use opendj_engine::import::ImportedEntry;
         let mut lib = Library::in_memory().unwrap();
         lib.sync(&[file_track("/m/a.mp3", "A")]).unwrap();
         let mine = lib
@@ -1980,7 +1980,7 @@ mod tests {
         b.info.last_played = Some(1_700_000_000);
         b.info.hotcues[0].color = Some(0x00ff00);
         b.info.hotcues.push(Hotcue {
-            number: mixxx_engine::MEMORY_CUE,
+            number: opendj_engine::MEMORY_CUE,
             seconds: 5.0,
             ..Default::default()
         });

@@ -25,9 +25,9 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use mixxx_engine::key::Key;
-use mixxx_engine::track::Hotcue;
-use mixxx_engine::{cache, loader, BeatGrid, Source, Track};
+use opendj_engine::key::Key;
+use opendj_engine::track::Hotcue;
+use opendj_engine::{cache, loader, BeatGrid, Source, Track};
 
 use model::{ListRow, Model, TrackRow};
 
@@ -202,7 +202,7 @@ fn year(text: &str) -> i32 {
 }
 
 /// The grid the DJ plays with: the library's, else the analysis's.
-fn grid_for(track: &Track, analysis: &mixxx_engine::analysis::Analysis) -> BeatGrid {
+fn grid_for(track: &Track, analysis: &opendj_engine::analysis::Analysis) -> BeatGrid {
     if !track.grid.is_empty() {
         track.grid.clone()
     } else if track.bpm > 0.0 {

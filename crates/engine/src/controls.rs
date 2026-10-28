@@ -2,7 +2,7 @@
 //! for Mixxx find them: `[Channel1],play`, `[Master],crossfader`, ...
 
 use crate::beats::GridEdit;
-use mixxx_control::{Behavior, ConfigKey, ControlHandle, ControlRegistry};
+use opendj_control::{Behavior, ConfigKey, ControlHandle, ControlRegistry};
 
 pub const NUM_DECKS: usize = 4;
 pub const NUM_HOTCUES: usize = 8;

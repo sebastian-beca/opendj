@@ -9,7 +9,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use mixxx_control::ControlRegistry;
+use opendj_control::ControlRegistry;
 
 use crate::beats::GridEdit;
 use crate::controls::{
