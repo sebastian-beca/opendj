@@ -242,6 +242,16 @@ pub fn set_discogs_token(token: &str) {
     save(|v| v["discogs_token"] = json!(token.trim()));
 }
 
+/// The DJ's AcoustID application key, which lets the online lookup
+/// recognise tracks by their sound; empty for none.
+pub fn acoustid_key() -> String {
+    load()["acoustid_key"].as_str().unwrap_or("").to_string()
+}
+
+pub fn set_acoustid_key(key: &str) {
+    save(|v| v["acoustid_key"] = json!(key.trim()));
+}
+
 /// A saved switch, or `default`.
 pub fn flag(key: &str, default: bool) -> bool {
     load()[key].as_bool().unwrap_or(default)

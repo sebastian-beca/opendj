@@ -157,8 +157,8 @@ range) and right-click.
 | Outside folders | Files outside your music folders and stage folders, such as ones that came in with a VirtualDJ import | Move to Triage, Remove from library |
 | Duplicates | The same track more than once: same artist, title and remix | Fix all easy, Keep this copy, Link as versions (see [Duplicates](#duplicates)) |
 | Not analyzed | No tempo or key | Analyze, in the background |
-| Missing info | No artist, title, album, year or genre | Fill from file name (`Artist - Title.mp3`), written to the file too |
-| Junk in names | Track numbers, web sites, "(Official Video)", underscores, or a remix or guest in the title | Clean up… (see [Clean-up](#clean-up)) |
+| Missing info | No artist, title, album, year or genre | Fill from file name (`Artist - Title.mp3`), written to the file too; Look up online (see [Online lookup](#online-lookup)) |
+| Junk in names | Track numbers, web sites, "(Official Video)", underscores, or a remix or guest in the title | Clean up… (see [Clean-up](#clean-up)), Look up online |
 | No cover | No picture in the file's tags or its folder | Find covers online, or one by one from the track's info panel |
 | No rating | No stars | Rate them in the list |
 | Missing files | The file isn't where the library expects it | Find files (looks for the same file name in your stage folders and music folders), Remove from library |
@@ -213,6 +213,26 @@ how many tracks have it. Genres spelled like another but for capitals,
 spaces or punctuation (`Electronica` and `electronica`) are lilac. Tick the
 ones that mean the same, type the name to keep (the most used one is
 filled in), and **Merge**. Undo takes a merge back too.
+
+### Online lookup
+
+**Look up online** on Missing info or Junk in names (or a right-click on
+some of their tracks) looks each track up on MusicBrainz, one a second in
+the background, and opens the same review table as Clean-up with what it
+found: artist, title, album, year, and with a Discogs token also the label
+and style (as the genre). Next to each track is where the match came from
+and how sure it is.
+
+Only changes that fill an empty field from a match at least 80% sure are
+ticked. A change to something the track already has is shown unticked, so
+nothing you named yourself is overwritten unless you tick it. Fields you
+typed in the track's info panel are never proposed. **Apply** writes the
+ticked changes to the library and the files, and Undo takes them back.
+
+With an **AcoustID key** (free on acoustid.org; paste it in Settings ›
+Library under Online lookup) openDJ recognises tracks by their sound, so
+files called `track01.mp3` are found too. Without one, tracks are looked up
+by artist and title, and those with neither are skipped.
 
 ### Duplicates
 

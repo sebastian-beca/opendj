@@ -568,6 +568,10 @@ impl Browser {
             if let Err(e) = db.save_info(t.id, &t) {
                 status = format!("Couldn't save to the library: {e}");
             }
+            // Clean-up and Look up online leave what the DJ typed alone.
+            if mixxx_library::cleanup::Field::from_name(id).is_some() {
+                let _ = db.mark_hand_edited(t.id, id);
+            }
             if id == "bpm" && t.bpm > 0.0 {
                 if let Err(e) = db.save_grid(t.id, &t.beat_grid(), t.bpm) {
                     status = format!("Couldn't save the beat grid: {e}");
