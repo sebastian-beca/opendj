@@ -29,6 +29,7 @@ use mixxx_plugins::inbox::Mode;
 use mixxx_plugins::{ItemKind, StoreItem, StoreQuery};
 
 mod analysis;
+mod cleanup;
 mod columns;
 mod filters;
 mod health;
@@ -142,6 +143,9 @@ struct Undo {
     text: String,
     /// Tracks to bring back into the library: merged copies.
     restore: Vec<usize>,
+    /// The batch of changes to tags to take back (see
+    /// [`mixxx_library::cleanup`]).
+    changes: Option<i64>,
 }
 
 struct Parked {
@@ -475,6 +479,8 @@ pub struct Browser {
     removed: usize,
     /// Merged copies' files in quarantine, or on their way there.
     quarantined: usize,
+    /// The clean-up's review table, genres page and cover batch.
+    cleanup: cleanup::CleanupState,
 }
 
 /// The Files source: the folder listed and the thread reading it.
@@ -892,6 +898,7 @@ impl Browser {
             health_status: String::new(),
             removed: 0,
             quarantined: 0,
+            cleanup: Default::default(),
         }));
         b.borrow_mut().set_library(library);
         app.global::<KeyNotation>().set_camelot(b.borrow().camelot);
@@ -925,6 +932,7 @@ impl Browser {
                 if let Some(&n) = b.visible_nodes.get(i as usize) {
                     b.current_node = n;
                     b.health_status.clear();
+                    b.close_cleanup();
                     if let Some(app) = b.app.upgrade() {
                         app.set_current_track(-1);
                     }
@@ -1314,6 +1322,7 @@ impl Browser {
         edit.on_set_rule(move |i, text| w(&|b| b.set_rule(i as usize, &text)));
         Self::install_staging(&edit, &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
+        Self::install_cleanup(&app.global::<crate::CleanupUi>(), &with);
         Self::install_analysis(&edit, &with);
         Self::install_usb_export(app, &edit, &with);
     }

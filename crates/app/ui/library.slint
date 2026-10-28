@@ -270,6 +270,51 @@ export global HealthUi {
     callback show-quarantine();
 }
 
+// One change the clean-up would make: a field of a track, before and after.
+export struct CleanupRow {
+    track: string,
+    field: string,
+    old: string,
+    new: string,
+    on: bool,
+}
+
+// A genre in the library, with how many tracks have it.
+export struct GenreRow {
+    name: string,
+    count: int,
+    picked: bool,
+    // Spelled like another genre but for case, spaces or punctuation.
+    alike: bool,
+}
+
+// Clean-up: the review table of changes to names, and the genres page.
+export global CleanupUi {
+    // The review table shows in place of the list.
+    in property <bool> open;
+    in property <string> heading;
+    in property <[CleanupRow]> rows;
+    // Rows ticked.
+    in property <int> picked;
+    callback toggle(row: int);
+    callback all(on: bool);
+    callback apply();
+    callback cancel();
+    // The genres page shows in place of the list.
+    in property <bool> genres-open;
+    in property <[GenreRow]> genres;
+    // How many genres there are, and how many look like another.
+    in property <int> genre-count;
+    in property <int> alike;
+    // The name picked genres are merged into.
+    in-out property <string> into;
+    in property <int> genres-picked;
+    callback open-genres();
+    callback toggle-genre(row: int);
+    callback merge-genres();
+    callback close-genres();
+}
+
 export global StoreUi {
     // The source picked in the rail, so the app can switch to the stores.
     in-out property <int> source;
@@ -1400,6 +1445,201 @@ component HealthPanel inherits Rectangle {
                     }
                 }
             }
+            if CleanupUi.genre-count > 0: Rectangle {
+                height: 52px;
+                border-radius: 8px;
+                background: Theme.panel;
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 12px;
+                    spacing: 14px;
+                    Text {
+                        width: 64px;
+                        text: CleanupUi.genre-count;
+                        color: Theme.text-dim;
+                        font-size: 22px;
+                        font-weight: 700;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "Genres" + (CleanupUi.alike > 0 ? ", " + CleanupUi.alike + " spelled like another. Merge them into one name." : ". Merge the ones that mean the same.");
+                        color: Theme.text-dim;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        HealthButton {
+                            text: "Genres…";
+                            primary: CleanupUi.alike > 0;
+                            clicked => { CleanupUi.open-genres(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A tick box.
+component Tick inherits Rectangle {
+    in property <bool> on;
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border-width: 1.5px;
+    border-color: on ? Theme.accent : Theme.text-dim;
+    background: on ? Theme.accent : transparent;
+    if on: Text {
+        text: "✓";
+        color: #000000;
+        font-size: 11px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// The clean-up's review table: one row per change, ticked to be made.
+component CleanupPanel inherits Rectangle {
+    background: Theme.browser;
+    // The before and after columns share what the others leave.
+    property <length> value-width: max(80px, (self.width - 32px - 20px - 16px - 220px - 64px - 4 * 12px) / 2);
+    VerticalLayout {
+        padding: 16px;
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 2px;
+                Text { text: CleanupUi.heading; color: Theme.text; font-size: 18px; font-weight: 700; }
+                Text {
+                    text: "Untick a change to leave it as it is. Apply writes the ticked ones to the library and to the files' tags; Undo takes them back.";
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                HealthButton { text: "All"; clicked => { CleanupUi.all(true); } }
+            }
+            VerticalLayout {
+                alignment: center;
+                HealthButton { text: "None"; clicked => { CleanupUi.all(false); } }
+            }
+            VerticalLayout {
+                alignment: center;
+                HealthButton {
+                    text: "Apply" + (CleanupUi.picked > 0 ? " (" + CleanupUi.picked + ")" : "");
+                    primary: CleanupUi.picked > 0;
+                    clicked => { CleanupUi.apply(); }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                HealthButton { text: "Cancel"; clicked => { CleanupUi.cancel(); } }
+            }
+        }
+        HorizontalLayout {
+            height: 22px;
+            padding-left: 34px;
+            spacing: 12px;
+            Text { width: 220px; text: "TRACK"; color: Theme.text-dim; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+            Text { width: 64px; text: "FIELD"; color: Theme.text-dim; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+            Text { width: value-width; text: "NOW"; color: Theme.text-dim; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+            Text { width: value-width; text: "BECOMES"; color: Theme.text-dim; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+        }
+        ListView {
+            vertical-stretch: 1;
+            for r[i] in CleanupUi.rows: Rectangle {
+                height: 30px;
+                background: Math.mod(i, 2) == 0 ? Theme.row : Theme.row-alt;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 12px;
+                    VerticalLayout { alignment: center; Tick { on: r.on; } }
+                    Text { width: 220px; text: r.track; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; overflow: elide; }
+                    Text { width: 64px; text: r.field; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+                    Text { width: value-width; text: r.old == "" ? "(empty)" : r.old; color: Theme.text-dim; font-size: 13px; vertical-alignment: center; overflow: elide; }
+                    Text { width: value-width; text: r.new == "" ? "(empty)" : r.new; color: r.on ? Theme.text : Theme.text-dim; font-size: 13px; vertical-alignment: center; overflow: elide; }
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { CleanupUi.toggle(i); }
+                }
+            }
+        }
+    }
+}
+
+// Every genre with its count: tick the ones that mean the same and merge
+// them into one name.
+component GenrePanel inherits Rectangle {
+    background: Theme.browser;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 2px;
+                Text { text: "Genres"; color: Theme.text; font-size: 18px; font-weight: 700; }
+                if HealthUi.status != "": Text { text: HealthUi.status; color: Theme.accent; font-size: 13px; wrap: word-wrap; }
+                Text {
+                    text: "Tick genres that mean the same, then merge them into one name. Lilac ones are spelled like another. The new genre is written to the files' tags too.";
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                HealthButton { text: "Done"; clicked => { CleanupUi.close-genres(); } }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            height: 32px;
+            LineEdit {
+                horizontal-stretch: 1;
+                placeholder-text: "Merge into…";
+                text <=> CleanupUi.into;
+                accepted => { CleanupUi.merge-genres(); }
+            }
+            VerticalLayout {
+                alignment: center;
+                HealthButton {
+                    text: "Merge" + (CleanupUi.genres-picked > 1 ? " " + CleanupUi.genres-picked : "");
+                    primary: CleanupUi.genres-picked > 0 && CleanupUi.into != "";
+                    clicked => { CleanupUi.merge-genres(); }
+                }
+            }
+        }
+        ListView {
+            vertical-stretch: 1;
+            for g[i] in CleanupUi.genres: Rectangle {
+                height: 30px;
+                background: Math.mod(i, 2) == 0 ? Theme.row : Theme.row-alt;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 12px;
+                    VerticalLayout { alignment: center; Tick { on: g.picked; } }
+                    Text { horizontal-stretch: 1; text: g.name; color: g.alike ? Theme.lilac : Theme.text; font-size: 13px; vertical-alignment: center; overflow: elide; }
+                    Text { width: 60px; text: g.count; color: Theme.text-dim; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { CleanupUi.toggle-genre(i); }
+                }
+            }
         }
     }
 }
@@ -2503,7 +2743,8 @@ export component Browser inherits HorizontalLayout {
         spotify-disconnect => { spotify-disconnect(); }
     }
     // The Library Health page, or the bar over one check's tracks.
-    property <bool> health-page: source == 0 && HealthUi.overview;
+    property <bool> cleanup-page: source == 0 && (CleanupUi.open || CleanupUi.genres-open);
+    property <bool> health-page: source == 0 && HealthUi.overview && !cleanup-page;
     property <bool> health-bar: source == 0 && HealthUi.check >= 0 && HealthUi.check < HealthUi.cards.length;
     Rectangle {
         horizontal-stretch: 1;
@@ -2515,7 +2756,7 @@ export component Browser inherits HorizontalLayout {
         }
         list := TrackList {
             focused: !folders-focused;
-            visible: !plugin-source && !health-page;
+            visible: !plugin-source && !health-page && !cleanup-page;
             y: health-bar ? 45px : 0;
             width: 100%;
             height: parent.height - self.y;
@@ -2536,6 +2777,14 @@ export component Browser inherits HorizontalLayout {
             took-focus => { folders-focused = false; }
         }
         if health-page: HealthPanel {
+            width: 100%;
+            height: 100%;
+        }
+        if source == 0 && CleanupUi.open: CleanupPanel {
+            width: 100%;
+            height: 100%;
+        }
+        if source == 0 && CleanupUi.genres-open && !CleanupUi.open: GenrePanel {
             width: 100%;
             height: 100%;
         }

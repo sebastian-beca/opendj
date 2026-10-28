@@ -95,6 +95,50 @@ pub fn search(wanted: Wanted) -> Receiver<Event> {
     rx
 }
 
+/// Longest side of a cover the batch embeds; bigger ones are scaled down.
+pub const BATCH_SIZE: u32 = 1024;
+
+/// The largest cover the online sources have for what is wanted, as JPEG
+/// or PNG data no bigger than [`BATCH_SIZE`] on its longest side. Waits
+/// for every source.
+pub fn best_cover(w: &Wanted) -> Option<Vec<u8>> {
+    let found: Vec<Vec<u8>> = std::thread::scope(|s| {
+        let jobs: Vec<_> = ONLINE
+            .iter()
+            .map(|(_, find)| {
+                s.spawn(move || {
+                    find(w)
+                        .into_iter()
+                        .take(PER_SOURCE)
+                        .filter_map(|url| download(&url, w))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        jobs.into_iter()
+            .flat_map(|j| j.join().unwrap_or_default())
+            .collect()
+    });
+    largest(found)
+}
+
+/// The biggest of these images, scaled down to [`BATCH_SIZE`] when bigger.
+fn largest(found: Vec<Vec<u8>>) -> Option<Vec<u8>> {
+    let (data, image) = found
+        .into_iter()
+        .filter_map(|d| image::load_from_memory(&d).ok().map(|i| (d, i)))
+        .max_by_key(|(_, i)| i.width() as u64 * i.height() as u64)?;
+    if image.width().max(image.height()) <= BATCH_SIZE {
+        return Some(data);
+    }
+    let small = image.thumbnail(BATCH_SIZE, BATCH_SIZE).to_rgb8();
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90)
+        .encode_image(&small)
+        .ok()?;
+    Some(out)
+}
+
 /// The first cover the online sources have for what is wanted, as the
 /// image file's bytes, when it is at least `min` pixels on its shorter
 /// side; None when there is none or the first is smaller. Waits for the
@@ -332,6 +376,23 @@ mod tests {
             {"cover_image": "https://st.discogs.com/images/spacer.gif"},
         ]});
         assert_eq!(discogs_urls(&v), ["https://i.discogs.com/a.jpeg"]);
+    }
+
+    #[test]
+    fn keeps_the_largest_cover_scaled_down() {
+        let png = |w, h| {
+            let mut out = std::io::Cursor::new(Vec::new());
+            image::RgbImage::new(w, h)
+                .write_to(&mut out, image::ImageFormat::Png)
+                .unwrap();
+            out.into_inner()
+        };
+        let small = png(300, 300);
+        let got = largest(vec![small.clone(), b"junk".to_vec()]).unwrap();
+        assert_eq!(got, small);
+        let big = largest(vec![small, png(2000, 1500)]).unwrap();
+        let i = image::load_from_memory(&big).unwrap();
+        assert_eq!((i.width(), i.height()), (1024, 768));
     }
 
     #[test]
