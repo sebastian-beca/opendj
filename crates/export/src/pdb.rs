@@ -47,7 +47,10 @@ pub fn write(dir: &Path, model: &Model) -> Result<(), Error> {
     let mut db = DeviceLibrary::create(dir, &options)?;
 
     for id in 1..=model.artworks as i64 {
-        let made = db.create_artwork(layout::artwork(id as u32, 'a', false))?;
+        let made = db.create_artwork(layout::rooted(
+            &layout::artwork(id as u32, 'a', false),
+            model.export_dir,
+        ))?;
         debug_assert_eq!(made.id, id);
     }
 
@@ -108,6 +111,9 @@ pub fn write(dir: &Path, model: &Model) -> Result<(), Error> {
         row.analysis_date = model.date.clone();
         row.analysis_path = t.anlz_path.clone();
         row.isrc = valid_isrc(&t.isrc);
+        // Players load hot cues with the track only when this says "ON"
+        // (as rbxport found); OneLibrary has its own flag for it.
+        row.hot_cue_auto_load = "ON".into();
         let made = db.insert_content(row)?;
         if made.id != i as i64 + 1 {
             return Err(Error::Other(format!(

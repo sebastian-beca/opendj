@@ -66,6 +66,9 @@ pub struct Model {
     pub lists: Vec<ListRow>,
     /// Artwork ids handed out, 1 up to this.
     pub artworks: u32,
+    /// The stick's export folder: `PIONEER`, or `.PIONEER` where rekordbox
+    /// already wrote it hidden.
+    pub export_dir: &'static str,
 }
 
 /// The library id the stick's databases name as where they came from, for

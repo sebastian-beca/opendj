@@ -89,7 +89,11 @@ fn fill(conn: &mut DbConn, model: &Model) -> DieselResult<()> {
     property.insert(conn)?;
 
     for id in 1..=model.artworks {
-        NewImage::new(layout::artwork(id, 'b', false)).insert(conn)?;
+        NewImage::new(layout::rooted(
+            &layout::artwork(id, 'b', false),
+            model.export_dir,
+        ))
+        .insert(conn)?;
     }
 
     let mut artists = Names::default();

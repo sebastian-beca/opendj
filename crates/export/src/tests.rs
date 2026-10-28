@@ -134,6 +134,7 @@ fn an_export_reads_back_in_both_formats() {
         "Ana"
     );
     assert_eq!(contents[2].artist_id, one.artist_id);
+    assert_eq!(one.hot_cue_auto_load, "ON");
     let playlists = pdb.get_playlists().unwrap();
     let friday = playlists.iter().find(|p| p.name == "Friday").unwrap();
     let gigs = playlists.iter().find(|p| p.name == "Gigs").unwrap();
@@ -205,6 +206,25 @@ fn an_export_reads_back_in_both_formats() {
     };
     assert!(export(&tracks, &only_gone, &options_empty, &mut |_| true).is_err());
     assert!(!empty.path().join("PIONEER/rekordbox").exists());
+
+    // A stick rekordbox exported hidden, as .PIONEER, is written there.
+    let hidden = tempfile::tempdir().unwrap();
+    fs::create_dir_all(hidden.path().join(".PIONEER/rekordbox")).unwrap();
+    fs::write(hidden.path().join(".PIONEER/rekordbox/export.pdb"), b"old").unwrap();
+    let options_hidden = Options {
+        root: hidden.path().to_path_buf(),
+        ..options.clone()
+    };
+    export(&tracks, &lists, &options_hidden, &mut |_| true).unwrap();
+    assert!(!hidden.path().join("PIONEER").exists());
+    let mut pdb = DeviceLibrary::new(hidden.path().join(".PIONEER/rekordbox")).unwrap();
+    let c = &pdb.get_contents().unwrap()[0];
+    assert!(
+        c.analysis_path.starts_with("/.PIONEER/USBANLZ/"),
+        "{}",
+        c.analysis_path
+    );
+    assert!(on_stick(hidden.path(), &c.analysis_path).is_file());
 
     // Stopping leaves the library as it was.
     let err = export(&tracks, &lists, &options, &mut |_| false).unwrap_err();
