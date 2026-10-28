@@ -190,6 +190,11 @@ fn line(x: f32, at: f32, half_w: f32) -> f32 {
     return clamp(half_w + 0.5 - abs(x - c), 0.0, 1.0);
 }
 
+// How much of pixel `x` the `w` pixels just left of `at` cover.
+fn gap_before(x: f32, at: f32, w: f32) -> f32 {
+    return clamp(min(x + 0.5, at) - max(x - 0.5, at - w), 0.0, 1.0);
+}
+
 // The x pixel of a slice position.
 fn bin_x(bin: f32) -> f32 {
     if (p.mode == 0u) {
@@ -374,20 +379,21 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         color = over(color, vec3<f32>(1.0), bar_number(x, y, k, sec) * 0.85);
     }
 
-    // Phrases (overview): a bar along the bottom in each phrase's colour,
-    // with a gap where one ends.
+    // Phrases (overview): a bar along the bottom in each phrase's colour.
+    // Each phrase starts exactly on its bar; the gap before the next one is
+    // taken from the end of the phrase, so starts line up with cues and grid.
     if (p.phrase_count > 0u && has_track && bar_h > 0.0) {
         let ph = phrase_at(bin);
-        // How much of this pixel the start of its phrase or of the next
-        // one covers (the first phrase's start, the track's, has no gap).
+        // How much of this pixel the gap before its phrase or before the
+        // next one covers (the first phrase's start, the track's, has none).
         var edge = 0.0;
         if (ph > 0) {
             let i = u32(ph);
-            edge = line(x, bin_x(p.phrase_start[i / 4u][i % 4u]), 1.0 * k);
+            edge = gap_before(x, bin_x(p.phrase_start[i / 4u][i % 4u]), 2.0 * k);
         }
         let next = u32(ph + 1);
         if (next < p.phrase_count) {
-            edge = max(edge, line(x, bin_x(p.phrase_start[next / 4u][next % 4u]), 1.0 * k));
+            edge = max(edge, gap_before(x, bin_x(p.phrase_start[next / 4u][next % 4u]), 2.0 * k));
         }
         let from_bottom = p.size.y - y;
         if (ph >= 0 && from_bottom <= bar_h + 0.5) {

@@ -114,6 +114,11 @@ pub fn apply_saved(registry: &ControlRegistry) {
         f(settings::flag("xfader_reverse", false)),
     );
     set(
+        "[Mixer]",
+        "crossfader_enabled",
+        f(settings::flag("xfader_enabled", true)),
+    );
+    set(
         "[Master]",
         "headSplit",
         f(settings::flag("head_split", false)),
@@ -146,6 +151,55 @@ pub fn apply_saved(registry: &ControlRegistry) {
     for (id, _, _) in AUTO_RESETS {
         set("[Controls]", id, f(settings::flag(id, true)));
     }
+    // The levels as the DJ left them; the first time, the engine's own
+    // starting levels stand (master 50%, phones 25%, cue only).
+    for (key, id) in LEVEL_KEYS {
+        if let Some(value) = settings::load()[id].as_f64() {
+            set("[Master]", key, value);
+        }
+    }
+}
+
+/// The `[Master]` levels kept between runs, with their settings keys.
+const LEVEL_KEYS: [(&str, &str); 4] = [
+    ("gain", "master_level"),
+    ("headGain", "phones_level"),
+    ("headMix", "cue_mix"),
+    ("booth_gain", "booth_level"),
+];
+
+/// The `[Master]` levels as set now.
+fn levels(registry: &ControlRegistry) -> Vec<Option<f64>> {
+    LEVEL_KEYS
+        .iter()
+        .map(|(key, _)| registry.get("[Master]", key).map(|c| c.get()))
+        .collect()
+}
+
+/// Keeps the master, phones, cue mix and booth levels in settings.json
+/// whenever they change, so the next start puts them back. Checked every
+/// couple of seconds rather than at quit, which a crash or a forced quit
+/// would skip. Keep the timer alive for as long as the app runs.
+pub fn remember_levels(registry: Arc<ControlRegistry>) -> slint::Timer {
+    let saved = RefCell::new(levels(&registry));
+    let timer = slint::Timer::default();
+    timer.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_secs(2),
+        move || {
+            let now = levels(&registry);
+            if now == *saved.borrow() {
+                return;
+            }
+            for ((_, id), value) in LEVEL_KEYS.iter().zip(&now) {
+                if let Some(value) = value {
+                    settings::set(id, json!(value));
+                }
+            }
+            *saved.borrow_mut() = now;
+        },
+    );
+    timer
 }
 
 /// What loading a track puts back to normal on its deck, as settings and
@@ -723,6 +777,12 @@ impl Prefs {
                         "Smooth for blends; Scratch cuts in sharply at the ends.",
                     )
                 },
+                switch(
+                    "xfader_enabled",
+                    "Crossfader",
+                    "Off: the crossfader does nothing and every deck plays through. Right-click the crossfader to switch it too.",
+                    settings::flag("xfader_enabled", true),
+                ),
                 switch(
                     "xfader_reverse",
                     "Reverse crossfader",
@@ -1400,6 +1460,7 @@ impl Prefs {
             "quantize" => self.each_deck("quantize", f(on)),
             "protect_playing" => self.set("[Controls]", "AllowTrackLoadToPlayingDeck", f(!on)),
             "xfader_reverse" => self.set("[Mixer Profile]", "xFaderReverse", f(on)),
+            "xfader_enabled" => self.set("[Mixer]", "crossfader_enabled", f(on)),
             "head_split" => self.set("[Master]", "headSplit", f(on)),
             "auto_gain" => self.set("[ReplayGain]", "ReplayGainEnabled", f(on)),
             "auto_reset_fx" | "auto_reset_eq" | "auto_reset_gain" => {

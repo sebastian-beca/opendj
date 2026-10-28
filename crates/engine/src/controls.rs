@@ -579,6 +579,11 @@ pub(crate) struct MasterControls {
     /// sharp cut at the ends for scratching.
     pub(crate) xfader_shape: ControlHandle,
     pub(crate) xfader_reverse: ControlHandle,
+    /// `[Mixer] crossfader_enabled`: off, every deck plays as if set to
+    /// thru and the crossfader does nothing, unless Automix is mixing.
+    pub(crate) xfader_enabled: ControlHandle,
+    /// `[AutoDJ] enabled`, which keeps the crossfader working for Automix.
+    pub(crate) autodj_enabled: ControlHandle,
     pub(crate) balance: ControlHandle,
     pub(crate) vu: ControlHandle,
     pub(crate) vu_l: ControlHandle,
@@ -631,9 +636,9 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
         vu: reg.indicator("[Master]", "VuMeter", 1.0),
         peak: ["", "L", "R"].map(|s| reg.indicator("[Master]", &format!("PeakIndicator{s}"), 1.0)),
         crossfader: reg.create("[Master]", "crossfader", 0.0, -1.0, 1.0, Behavior::Linear),
-        gain: reg.create("[Master]", "gain", 1.0, 0.0, 1.0, Behavior::Linear),
-        head_gain: reg.create("[Master]", "headGain", 1.0, 0.0, 1.0, Behavior::Linear),
-        head_mix: reg.create("[Master]", "headMix", 0.0, -1.0, 1.0, Behavior::Linear),
+        gain: reg.create("[Master]", "gain", 0.5, 0.0, 1.0, Behavior::Linear),
+        head_gain: reg.create("[Master]", "headGain", 0.25, 0.0, 1.0, Behavior::Linear),
+        head_mix: reg.create("[Master]", "headMix", -1.0, -1.0, 1.0, Behavior::Linear),
         booth_gain: reg.create("[Master]", "booth_gain", 1.0, 0.0, 1.0, Behavior::Linear),
         head_split: reg.toggle("[Master]", "headSplit"),
         xfader_shape: reg.create(
@@ -645,6 +650,15 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
             Behavior::Free,
         ),
         xfader_reverse: reg.toggle("[Mixer Profile]", "xFaderReverse"),
+        xfader_enabled: reg.create(
+            "[Mixer]",
+            "crossfader_enabled",
+            1.0,
+            0.0,
+            1.0,
+            Behavior::Toggle,
+        ),
+        autodj_enabled: reg.toggle("[AutoDJ]", "enabled"),
         vu_l: reg.indicator("[Master]", "VuMeterL", 1.0),
         vu_r: reg.indicator("[Master]", "VuMeterR", 1.0),
         // Mixxx keeps its ReplayGain switch in the [ReplayGain] group too.

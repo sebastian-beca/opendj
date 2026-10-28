@@ -271,16 +271,24 @@ export component ControlFader inherits Rectangle {
     in property <bool> center-mark: false;
     in property <color> tint: Theme.accent;
     in property <int> ticks: 9;
+    // Switched off: greyed out with the handle in the centre, and it can't
+    // be moved.
+    in property <bool> disabled: false;
+    // A right-click, at that point along the fader.
+    callback context-menu(length, length);
     property <int> index: Controls.resolve(group, key);
     property <float> param: Controls.parameter(index, Controls.tick);
-    property <float> pos: inverted ? 1 - param : param;
+    property <float> pos: disabled ? 0.5 : inverted ? 1 - param : param;
     property <float> drag-start;
+    // Only a left-button drag moves it.
+    property <bool> dragging;
     property <length> handle: vertical ? 16px : 14px;
     // Length of the travel, between the handle's end positions.
     property <length> travel: (vertical ? self.height : self.width) - handle;
 
     preferred-width: vertical ? 28px : 60px;
     preferred-height: vertical ? 60px : 28px;
+    opacity: disabled ? 0.35 : 1;
 
     // Tick marks
     for i in ticks: Rectangle {
@@ -326,10 +334,17 @@ export component ControlFader inherits Rectangle {
     touch := TouchArea {
         pointer-event(e) => {
             if e.kind == PointerEventKind.down {
+                dragging = e.button == PointerEventButton.left && !disabled;
                 drag-start = pos;
+                if e.button == PointerEventButton.right {
+                    root.context-menu(self.mouse-x, self.mouse-y);
+                }
             }
         }
         moved => {
+            if !dragging {
+                return;
+            }
             if vertical {
                 Controls.set-parameter(index, to-param(inverted, drag-start + (self.pressed-y - self.mouse-y) / travel));
             } else {
@@ -337,13 +352,18 @@ export component ControlFader inherits Rectangle {
             }
         }
         double-clicked => {
-            Controls.reset(index);
+            if !disabled {
+                Controls.reset(index);
+            }
         }
         // Scrolling over the fader moves it, no click needed: up moves a
         // fader up and the crossfader right; a sideways swipe moves the
         // crossfader too. Small steps follow a trackpad smoothly; a mouse
         // wheel's notch moves it at most 5%.
         scroll-event(e) => {
+            if disabled {
+                return reject;
+            }
             let d = vertical ? e.delta-y : (abs(e.delta-x / 1px) > abs(e.delta-y / 1px) ? -e.delta-x : e.delta-y);
             Controls.set-parameter(index, to-param(inverted, pos + max(-0.05, min(0.05, d / 400px))));
             accept
@@ -353,6 +373,61 @@ export component ControlFader inherits Rectangle {
     function to-param(inv: bool, p: float) -> float {
         let c = max(0, min(1, p));
         inv ? 1 - c : c
+    }
+}
+
+// The crossfader. A right-click switches it off and on again
+// (`[Mixer],crossfader_enabled`, also in Settings > Mixer): while it is off
+// every deck plays as if set to thru, and the fader sits greyed out in the
+// centre.
+export component Crossfader inherits Rectangle {
+    property <int> enabled-index: Controls.resolve("[Mixer]", "crossfader_enabled");
+    property <bool> on: Controls.value(enabled-index, Controls.tick) > 0;
+    property <length> menu-x;
+    height: 28px;
+    ControlFader {
+        width: root.width;
+        height: root.height;
+        group: "[Master]";
+        key: "crossfader";
+        vertical: false;
+        center-mark: true;
+        ticks: 9;
+        disabled: !on;
+        context-menu(x, y) => {
+            menu-x = x;
+            menu.show();
+        }
+    }
+    menu := PopupWindow {
+        x: min(menu-x, root.width - self.width);
+        y: root.height + 2px;
+        width: 150px;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 8px;
+            drop-shadow-color: #00000080;
+        }
+        VerticalLayout {
+            padding: 4px;
+            Rectangle {
+                height: 24px;
+                background: ta.has-hover ? Theme.panel-raised.brighter(0.3) : transparent;
+                border-radius: 4px;
+                Text {
+                    x: 10px;
+                    text: on ? "Disable crossfader" : "Enable crossfader";
+                    color: Theme.text;
+                    font-size: 11px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+                ta := TouchArea { clicked => { Controls.toggle(enabled-index); } }
+            }
+        }
     }
 }
 
