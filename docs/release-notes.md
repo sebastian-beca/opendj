@@ -1,49 +1,51 @@
-openDJ 0.3.0 brings four decks, microphone and aux inputs, Library Health and stages for sorting new music, a much more flexible track browser, and in-app updates. It's also the first release whose macOS app is signed and notarized by Apple.
+openDJ 0.4.0 brings a sampler with sample packs, phrase detection on the deck overviews, mini waveforms in the track list, key lock and fuzzy key mixing, every DDJ-FLX4 pad mode, and a Controller Editor that shows what each control does. It also fixes crackling on the filter and on jumps, and openDJ no longer uses CPU while idle.
 
 ## What's new
 
 **Decks and mixing**
 
-- Four decks: a djay-style 4-Deck layout (in the layout menu) shows four strips in the order 3, 1, 2, 4, each with its own EQ, fader, transport, loops, sync, tempo, pads and FX. Every deck has a crossfader assignment (left, thru, right), and sync picks its leader among all four.
-- Two-deck controllers such as the DDJ-FLX4 get deck 3/4 switches: click a strip's deck number to move that side of the controller there, LEDs included.
-- Microphone and aux inputs: a MIC tab in the mixer and a MIC button in the top bar. The mic has its own gain, EQ, fader and an effect unit of its own (Reverb, Echo, Filter), and talkover ducks the music automatically or by hand. Both inputs are in recordings.
-- A VirtualDJ-style pitch reset triangle beside each tempo fader: click to glide back to 0%, click again to stop, double-click to jump straight to 0%. Controller mappings can use it too (`rate_reset`, `rate_set_zero`).
-- The scrolling waveform glides smoothly between pixels instead of stepping, and bar numbers are drawn sharp at any position.
+- A key lock padlock above each pitch reset triangle. Settings → Decks → Key mixing picks Harmonic (4 compatible keys) or Fuzzy (6 keys, ignoring the letter), and the browser's lilac keys, the key filter, `~key:` searches and the deck key menu all follow it. Keys are compared with what the playing deck actually sounds like, and keys a semitone away get a dim +1/−1 mark.
+- Match key on load (Off, ±1, ±2; ±1 by default): a track loaded while another deck plays is shifted the smallest step that makes it mix, with key lock on.
+- Auto reset on load in Settings → Decks: effects, EQ and filter, and gain go back to neutral when a new track loads. Effects keep their beats and dry/wet, and a unit still used by another playing deck is left alone.
+- Turning a jog's outer rim bends the speed of a playing deck, as in Mixxx, and springs back when you let go. This works on the DDJ-FLX4 and by dragging round the rim of an on-screen jog.
+- New hot cue colours for cues 1 to 8: blue, green, yellow, orange, red, pink, purple and teal, on the pads and the waveforms.
+- The pitch reset triangle sits level with 0% on the tempo fader again, with key lock under it.
+
+**Sampler**
+
+- 16 sampler pads, shown 8 at a time on each deck's SAMPLER page with a 1/2 page button. Each pad has its own level and play mode (one shot, hold, on/off or loop).
+- Sample packs: the built-in sounds are the Default DJ Sample Pack, and + makes a new one. In edit mode you choose a sound for a pad (with a headphone preview), drop your own files or tracks on it, rename, reset or clear it, and drag pads to swap them.
+
+**Pads and controllers**
+
+- Every DDJ-FLX4 pad mode now has a page on screen: hot cues, PAD FX 1 and 2, beat jump, sampler, beat loop (now down to 1/16 beat), keyboard, key shift and loop roll. KEYBOARD pressed twice switches to the stems pads.
+- Controller Editor (Settings → Controllers): see what every control on a controller does, grouped by function, with its layer, MIDI message, LED and options. The DDJ-FLX4, Xone K2 and Midi Fighter Twister get a picture: point at a part to name it, or press a control on the controller to find it. Editing mappings comes later.
+- On macOS, controllers plugged in while openDJ runs are picked up, and Settings → Controllers has a Refresh button for one that doesn't show up or stops answering.
+
+**Waveforms and phrases**
+
+- openDJ finds the phrases in a track (intro, build, drop, chorus, break, outro) and shows them as a coloured bar under each deck's overview. Hover it for the phrase's name, length in bars and times; right-click to show or hide phrases.
+- A Waveform column in the track list and a waveform in the Info panel show each analysed track's overview. They fill in while a deck analyses the track.
 
 **Library**
 
-- Stages: Inbox, Triage and Collection. Pick the folders in Settings → Library → Stages, then send tracks along with the track menu or by dropping them on a stage. Moves can be undone, tracks in Triage are analysed in the background, and files only move on disk when you turn Move files on.
-- Library Health: pages for not music, strays, duplicates, tracks not analysed, missing info, no cover, no rating, missing files and long tracks, each with batch fixes such as fill from file name, find moved files, analyse or remove (your files are kept).
-- A Prep column shows each track's tags, rating, tempo and key at a glance.
-- A filter bar with chips for genre, BPM (a range or near the playing track), key (or keys that mix with the playing track), rating, colour, year, date added and more. Filters combine with the search and save as smart lists.
-- Name your own tag fields in Settings → Library and search them by name, such as `mood:uplifting`.
-- Choose, resize and reorder the list columns: right-click a heading for the column menu, drag a heading to move it, drag its edge to resize.
-- A refreshed browser: alternating row tones, a lilac highlight in the focused list, lilac compatible keys and slim scrollbars. Hover the search box for the search help.
+- Analyze Track in the track menu (or Analyze N Tracks for a selection), and Analyze All for a list, folder, stage or smart list. Tempo, grid, key, loudness, waveform and phrases are worked out afresh in the background; grids and keys you edited or imported stay. The footer shows progress with a stop button.
+- Settings → Library → Update library on start can be switched off for big collections. The library still shows at once, and Rescan updates it.
+- The Colour row is gone from the track menu. Colours you already set stay.
 
-**Add-ons**
+**Fixes and speed**
 
-- Add-ons now run as separate programs from the add-ons folder, so one such as Soulseek installs without rebuilding openDJ.
-- A source's searches are listed by the name it gives them, such as a playlist's name.
-- Click anywhere on the Downloading bar to open the downloads list.
-
-**Updates and macOS**
-
-- openDJ checks for a new release when it starts and installs it in one click on macOS and the AppImage, then restarts once the decks stop. It never shows while a deck is playing, and Settings → Feedback can turn the check off.
-- The macOS app is signed and notarized, so it opens without any workarounds.
-- macOS now asks for microphone access, and Settings → Audio → Inputs warns when an input sends only silence.
-
-**Fixes**
-
-- Close buttons show a proper X instead of something that looked like a menu icon.
-- Security updates for the TLS certificate libraries.
+- openDJ no longer uses about 15% CPU while nothing is playing: the window only redraws when something changes.
+- No more zipper noise when turning the filter, or a click when it crosses the centre.
+- Beat jumps, hot cues, seeks and loop wraps crossfade smoothly instead of clicking, and with key lock on there's no longer a short silent gap after a jump.
 
 ## Install
 
-**macOS** (Apple Silicon and Intel, macOS 11 or newer): download `openDJ-…-macos.zip`, unzip it and move openDJ to Applications. If you have 0.2.0 or older, replace it by hand this once; from 0.3.0 on openDJ updates itself.
+**macOS** (Apple Silicon and Intel, macOS 11 or newer): if you have 0.3.0, openDJ offers this update itself when it starts. Otherwise download `openDJ-…-macos.zip`, unzip it and move openDJ to Applications.
 
 **Linux** (x86_64, glibc 2.35 or newer, e.g. Ubuntu 22.04+, Fedora 36+, Debian 12+):
 
-- `openDJ-…-x86_64.AppImage`: make it executable (`chmod +x`) and run it. It updates itself from now on.
+- `openDJ-…-x86_64.AppImage`: make it executable (`chmod +x`) and run it. 0.3.0 AppImages update themselves.
 - `opendj-…-linux-x86_64.tar.gz`: unpack anywhere and run `bin/opendj`.
 
 openDJ needs ALSA and a Vulkan driver, which most desktops already have.
@@ -55,9 +57,10 @@ openDJ reads your `~/Music` folder. MIDI controllers that Mixxx supports load th
 - No Windows build yet.
 - Streaming services and stores are coming soon.
 - Automix uses decks 1 and 2 only.
+- The Controller Editor only shows mappings; it can't change them yet.
 
 Found a bug or have an idea? Use Settings → Feedback in the app, or [open an issue](https://github.com/sebastian-beca/opendj/issues/new/choose).
 
 ## Thanks
 
-Thanks to everyone who tested 0.2.0 and sent reports and ideas.
+Thanks to everyone who tested 0.3.0 and sent reports and ideas, and for the sampler request in #60.
