@@ -135,6 +135,15 @@ impl AnlzSlots {
     }
 }
 
+/// `path` (`/PIONEER/...`) under the stick's export folder, which is
+/// `.PIONEER` on sticks rekordbox wrote hidden.
+pub fn rooted(path: &str, export_dir: &str) -> String {
+    match path.strip_prefix("/PIONEER/") {
+        Some(rest) => format!("/{export_dir}/{rest}"),
+        None => path.to_string(),
+    }
+}
+
 /// `/PIONEER/Artwork/00001/a1.jpg` and its 240-pixel `_m` sibling. Folders
 /// hold twenty images. `export.pdb` names the `a` files and OneLibrary the
 /// `b` ones, which hold the same pictures.
@@ -158,6 +167,15 @@ mod tests {
                 "/Contents/Szeir/Stolperfalle EP/Szeir - Stolperfalle EP - 01 Oort Cloud.flac"
             ),
             "/PIONEER/USBANLZ/P074/0001B742"
+        );
+        // Two more, from rbxport's reference (checked on CDJ-3000 firmware).
+        assert_eq!(
+            anlz_dir("/Contents/A/B/one.mp3"),
+            "/PIONEER/USBANLZ/P03B/0002F797"
+        );
+        assert_eq!(
+            anlz_dir("/Contents/Hosanna, Westend/Drum Death - Extended Mix/20130688_drum_death_(extended_mix).mp3"),
+            "/PIONEER/USBANLZ/P002/0002583E"
         );
     }
 
@@ -197,5 +215,9 @@ mod tests {
         assert_eq!(artwork(1, 'a', false), "/PIONEER/Artwork/00001/a1.jpg");
         assert_eq!(artwork(20, 'b', false), "/PIONEER/Artwork/00002/b20.jpg");
         assert_eq!(artwork(39, 'a', true), "/PIONEER/Artwork/00002/a39_m.jpg");
+        assert_eq!(
+            rooted(&artwork(1, 'a', false), ".PIONEER"),
+            "/.PIONEER/Artwork/00001/a1.jpg"
+        );
     }
 }
