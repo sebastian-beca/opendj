@@ -63,7 +63,25 @@ fn redirect_stderr(dir: &Path) {
     }
 }
 
-#[cfg(not(unix))]
+/// Keeps the last run's log and sends stderr to a new one. Rust looks the
+/// stderr handle up on every write, so swapping it is enough.
+#[cfg(windows)]
+fn redirect_stderr(dir: &Path) {
+    use std::os::windows::io::IntoRawHandle;
+    use windows_sys::Win32::System::Console::{SetStdHandle, STD_ERROR_HANDLE};
+    let log = dir.join("opendj.log");
+    let _ = std::fs::rename(&log, dir.join("opendj.1.log"));
+    let Ok(file) = std::fs::File::create(&log) else {
+        return;
+    };
+    // SAFETY: the handle is open and, taken out of the File, stays open for
+    // the whole run.
+    unsafe {
+        SetStdHandle(STD_ERROR_HANDLE, file.into_raw_handle());
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 fn redirect_stderr(_dir: &Path) {}
 
 /// "macOS aarch64", "Linux x86_64 (Ubuntu 24.04)" and so on.
@@ -71,6 +89,7 @@ pub fn platform() -> String {
     let os = match std::env::consts::OS {
         "macos" => "macOS".to_string(),
         "linux" => "Linux".to_string(),
+        "windows" => "Windows".to_string(),
         other => other.to_string(),
     };
     let distro = std::fs::read_to_string("/etc/os-release")

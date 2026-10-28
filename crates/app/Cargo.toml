@@ -36,6 +36,7 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 [target.'cfg(windows)'.dependencies]
 # The system's own Open dialog (macOS and Linux ask osascript and zenity).
 rfd = { version = "0.17", default-features = false }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }
 
 [build-dependencies]
 slint-build = "~1.18"
