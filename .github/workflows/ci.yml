@@ -1,9 +1,9 @@
 name: CI
 
-# Pull requests run only the Linux checks (format, clippy, tests) and the
-# dependency check: Linux is the cheapest machine and catches almost
-# everything. The Windows checks and the macOS/Windows app builds run after a
-# merge to main, or for any branch from the Actions tab (Run workflow).
+# Pull requests run the Linux checks (format, clippy, tests), the dependency
+# check, and the macOS app build so each pull request can be tried on a Mac.
+# The Windows checks and the Windows app build run after a merge to main, or
+# for any branch from the Actions tab (Run workflow).
 # Releases build every platform in release.yml.
 on:
   push:
@@ -97,9 +97,10 @@ jobs:
           command: check advisories licenses sources
 
   macos-app:
-    if: github.event_name != 'pull_request'
     # Builds an unsigned openDJ.app for Apple Silicon and attaches it to the run,
     # so the app can be tried without installing Rust.
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
