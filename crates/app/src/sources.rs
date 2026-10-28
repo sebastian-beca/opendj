@@ -1,5 +1,5 @@
 //! Sources in the rail that come from add-ons (see
-//! [`mixxx_plugins::source`]): saved searches on the left, what they found
+//! [`opendj_plugins::source`]): saved searches on the left, what they found
 //! in the list, and downloads that join the collection when they finish.
 //!
 //! Each source runs on a thread of its own, which also asks how searches
@@ -12,13 +12,13 @@ use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
-use mixxx_engine::Track;
-use mixxx_plugins::inbox::safe_name;
-use mixxx_plugins::source::{
+use opendj_engine::Track;
+use opendj_plugins::inbox::safe_name;
+use opendj_plugins::source::{
     megabytes, DownloadUpdate, Found, Prefer, Progress, QueryKind, SearchSource, Snapshot,
     SourceInfo, SourceQuery, DOWNLOAD_FOLDER,
 };
-use mixxx_plugins::{Plugin, PluginConfig, PluginError};
+use opendj_plugins::{Plugin, PluginConfig, PluginError};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 use crate::{AppWindow, FoundRow, QueueLine, SearchItem, SourceTab, SourceUi, StoreUi};
@@ -380,7 +380,7 @@ impl Sources {
             checked: HashSet::new(),
             anchor: None,
             rows: Vec::new(),
-            music: mixxx_engine::scan::default_music_dir(),
+            music: opendj_engine::scan::default_music_dir(),
             list: list.clone(),
             describers: source_plugins().into_iter().map(|(p, _)| p).collect(),
         };
@@ -1129,7 +1129,7 @@ fn folder_or_default(set: &str, name: &str, music: Option<&Path>) -> Option<Path
     if set.is_empty() {
         return music.map(|m| m.join("Downloaded").join(safe_name(name, "Downloads")));
     }
-    mixxx_engine::paths::expand_tilde(set)
+    opendj_engine::paths::expand_tilde(set)
 }
 
 /// Queued or running.
@@ -1298,7 +1298,7 @@ mod tests {
             folder_or_default("/data/slsk", "Soulseek", None),
             Some(PathBuf::from("/data/slsk"))
         );
-        let home = mixxx_engine::paths::home_dir().unwrap();
+        let home = opendj_engine::paths::home_dir().unwrap();
         assert_eq!(
             folder_or_default("~/Music/In", "Soulseek", None),
             Some(home.join("Music/In"))

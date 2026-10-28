@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use crate::{ImportedLibrary, LibraryImport, ListGroup};
-use mixxx_engine::import::ImportedListKind;
+use opendj_engine::import::ImportedListKind;
 
 pub mod database;
 pub mod lists;

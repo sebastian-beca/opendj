@@ -46,7 +46,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, RwLock};
 
-use mixxx_control::ControlRegistry;
+use opendj_control::ControlRegistry;
 
 pub use beats::{BeatGrid, GridMarker};
 pub use controls::{

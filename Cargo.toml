@@ -9,7 +9,7 @@ edition = "2021"
 license = "GPL-2.0-or-later"
 
 # Decoding, analysis and synthesis are far too slow unoptimised, even in tests.
-[profile.dev.package.mixxx-engine]
+[profile.dev.package.opendj-engine]
 opt-level = 2
 
 [profile.dev.package.symphonia-core]
@@ -24,7 +24,7 @@ opt-level = 2
 [profile.dev.package.signalsmith-stretch]
 opt-level = 2
 
-[profile.dev.package.mixxx-separation]
+[profile.dev.package.opendj-separation]
 opt-level = 2
 
 [profile.dev.package.matrixmultiply]

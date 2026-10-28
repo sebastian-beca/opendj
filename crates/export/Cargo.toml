@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-mixxx-engine = { path = "../engine" }
+opendj-engine = { path = "../engine" }
 rbox-devlib = "0.3.0"
 rbox-onelib = { version = "0.3.0", default-features = false }
 rbox-anlz = "0.3.0"

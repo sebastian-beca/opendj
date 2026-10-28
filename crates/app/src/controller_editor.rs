@@ -1,6 +1,6 @@
 //! The Controller Editor: shows what a controller's mapping does, by
 //! function, with the controller's picture. Reading a mapping means running
-//! it in a sandbox (see `mixxx_controllers::probe`), which takes a moment,
+//! it in a sandbox (see `opendj_controllers::probe`), which takes a moment,
 //! so it happens on a thread of its own. While the editor is open, messages
 //! from the controllers are watched: pressing a control finds it.
 
@@ -11,12 +11,12 @@ use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-use mixxx_control::ControlRegistry;
-use mixxx_controllers::layout::Layout;
-use mixxx_controllers::own::{self, OwnMapping};
-use mixxx_controllers::probe::message_key;
-use mixxx_controllers::view::{self, LightRow, MappingView, Row};
-use mixxx_controllers::Controllers;
+use opendj_control::ControlRegistry;
+use opendj_controllers::layout::Layout;
+use opendj_controllers::own::{self, OwnMapping};
+use opendj_controllers::probe::message_key;
+use opendj_controllers::view::{self, LightRow, MappingView, Row};
+use opendj_controllers::Controllers;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use crate::{
@@ -105,7 +105,7 @@ impl Editor {
         let editor = Rc::new(RefCell::new(Editor {
             app: app.as_weak(),
             controllers,
-            dir: mixxx_controllers::default_mappings_dir(),
+            dir: opendj_controllers::default_mappings_dir(),
             choices: Vec::new(),
             loading: None,
             view: None,
@@ -263,7 +263,7 @@ impl Editor {
                 // A sandbox with every control the app has, so the mapping
                 // runs as it would for real without touching the decks.
                 let registry = ControlRegistry::new();
-                mixxx_engine::create_controls(&registry);
+                opendj_engine::create_controls(&registry);
                 let _library = crate::browser::LibraryControls::create(&registry);
                 let _automix = crate::automix::AutoMix::new(&registry);
                 let _ = tx.send(view::build(&path, registry));

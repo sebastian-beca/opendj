@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use mixxx_control::{Behavior, ControlHandle, ControlRegistry};
+use opendj_control::{Behavior, ControlHandle, ControlRegistry};
 use serde_json::{json, Value};
 
 use crate::track::{Source, Track};

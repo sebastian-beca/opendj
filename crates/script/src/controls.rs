@@ -1,6 +1,6 @@
 //! The verbs that are controls underneath.
 
-use mixxx_control::{ControlHandle, ControlRegistry};
+use opendj_control::{ControlHandle, ControlRegistry};
 
 use crate::verbs::Kind;
 use crate::{Call, Error};

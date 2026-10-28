@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use mixxx_engine::import::{ImportedEntry, ImportedList, ImportedListKind, ListGroup};
+use opendj_engine::import::{ImportedEntry, ImportedList, ImportedListKind, ListGroup};
 
 pub const PLAYLISTS: &str = "playlists";
 pub const FOLDERS: &str = "folders";

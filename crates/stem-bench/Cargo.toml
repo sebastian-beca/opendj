@@ -7,6 +7,6 @@ license.workspace = true
 publish = false
 
 [dependencies]
-mixxx-engine = { path = "../engine" }
-mixxx-separation = { path = "../separation" }
+opendj-engine = { path = "../engine" }
+opendj-separation = { path = "../separation" }
 hound = "3"

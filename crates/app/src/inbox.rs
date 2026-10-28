@@ -1,6 +1,6 @@
 //! The purchase inbox, on a thread of its own: watches the inbox folder,
 //! files what arrives into the music folder and adds it to the library
-//! (see [`mixxx_plugins::inbox`]).
+//! (see [`opendj_plugins::inbox`]).
 //!
 //! Files a store plugin recognises (or that match a track the DJ went to
 //! buy) are filed under `Purchased/<Store>/…` as the settings say. Other
@@ -11,11 +11,11 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use mixxx_engine::scan::{read_comment, read_track};
-use mixxx_engine::{Source, Track};
-use mixxx_library::Library;
-use mixxx_plugins::inbox::{self, Mode, Watcher};
-use mixxx_plugins::{InboxFile, Plugin};
+use opendj_engine::scan::{read_comment, read_track};
+use opendj_engine::{Source, Track};
+use opendj_library::Library;
+use opendj_plugins::inbox::{self, Mode, Watcher};
+use opendj_plugins::{InboxFile, Plugin};
 
 use crate::settings::InboxSettings;
 

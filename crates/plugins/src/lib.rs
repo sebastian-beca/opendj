@@ -19,7 +19,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-pub use mixxx_engine::import::{ImportedLibrary, ListGroup};
+pub use opendj_engine::import::{ImportedLibrary, ListGroup};
 
 pub mod bandcamp;
 pub mod inbox;

@@ -22,7 +22,7 @@ use std::f32::consts::TAU;
 use std::path::Path;
 use std::sync::Arc;
 
-use mixxx_control::{Behavior, ControlHandle, ControlRegistry};
+use opendj_control::{Behavior, ControlHandle, ControlRegistry};
 
 use crate::controls::Edge;
 use crate::decode::Decoder;

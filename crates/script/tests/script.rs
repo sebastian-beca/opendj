@@ -1,4 +1,4 @@
-use mixxx_control::{Behavior, ControlRegistry};
+use opendj_control::{Behavior, ControlRegistry};
 use opendj_script::{parse, query_control, run, run_control, Call, Error, Host, Kind};
 
 /// Runs control verbs on a registry and records the app's ones.

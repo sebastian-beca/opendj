@@ -3,13 +3,13 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use mixxx_controllers::MappingChoice;
-use mixxx_engine::key::Key;
-use mixxx_engine::scan::default_music_dir;
-use mixxx_engine::{AudioSetup, InputRole, InputRoute, RecordFormat, RecordSettings, Role, Route};
-use mixxx_library::query::FieldNames;
-use mixxx_plugins::inbox::Mode;
-use mixxx_plugins::PluginConfig;
+use opendj_controllers::MappingChoice;
+use opendj_engine::key::Key;
+use opendj_engine::scan::default_music_dir;
+use opendj_engine::{AudioSetup, InputRole, InputRoute, RecordFormat, RecordSettings, Role, Route};
+use opendj_library::query::FieldNames;
+use opendj_plugins::inbox::Mode;
+use opendj_plugins::PluginConfig;
 use serde_json::{json, Value};
 
 /// Where openDJ keeps its settings: `OPENDJ_CONFIG`, else
@@ -19,10 +19,10 @@ pub fn config_dir() -> Option<PathBuf> {
     if let Some(d) = std::env::var_os("OPENDJ_CONFIG") {
         return Some(PathBuf::from(d));
     }
-    let base = mixxx_engine::paths::config_base()?;
-    let name = mixxx_engine::paths::app_folder_name();
+    let base = opendj_engine::paths::config_base()?;
+    let name = opendj_engine::paths::app_folder_name();
     static MOVED: std::sync::Once = std::sync::Once::new();
-    MOVED.call_once(|| mixxx_engine::cache::move_old_folder(&base, name));
+    MOVED.call_once(|| opendj_engine::cache::move_old_folder(&base, name));
     Some(base.join(name))
 }
 
@@ -293,7 +293,7 @@ pub fn import_enabled(importer: &str) -> bool {
 
 /// The database an importer reads: the one the DJ picked in the import
 /// wizard, else the one the app keeps where it usually does.
-pub fn import_database(importer: &dyn mixxx_plugins::LibraryImport) -> Option<PathBuf> {
+pub fn import_database(importer: &dyn opendj_plugins::LibraryImport) -> Option<PathBuf> {
     path_of(&import_database_key(importer.id())).or_else(|| importer.database())
 }
 
@@ -323,7 +323,7 @@ pub fn import_group_key(importer: &str, group: &str) -> String {
 }
 
 /// The kinds of lists the DJ wants `importer` to bring in, by id.
-pub fn import_groups(importer: &dyn mixxx_plugins::LibraryImport) -> Vec<&'static str> {
+pub fn import_groups(importer: &dyn opendj_plugins::LibraryImport) -> Vec<&'static str> {
     let v = load();
     importer
         .list_groups()
@@ -484,10 +484,10 @@ pub fn scan_on_start() -> bool {
     flag(SCAN_ON_START, true)
 }
 
-/// The stage folders (see [`mixxx_library::stages`]): any number of inbox
+/// The stage folders (see [`opendj_library::stages`]): any number of inbox
 /// folders, one triage folder and one collection folder.
-pub fn stage_folders() -> mixxx_library::stages::Folders {
-    mixxx_library::stages::Folders {
+pub fn stage_folders() -> opendj_library::stages::Folders {
+    opendj_library::stages::Folders {
         inbox: paths(STAGE_INBOX),
         triage: path_of(STAGE_TRIAGE),
         collection: path_of(STAGE_COLLECTION),
@@ -510,8 +510,8 @@ pub fn move_files() -> bool {
 }
 
 /// The clean-up rules turned on in Settings › Library.
-pub fn cleanup_rules() -> mixxx_library::cleanup::Rules {
-    mixxx_library::cleanup::Rules::from(flag)
+pub fn cleanup_rules() -> opendj_library::cleanup::Rules {
+    opendj_library::cleanup::Rules::from(flag)
 }
 
 pub fn rename_to_triage() -> bool {
@@ -519,7 +519,7 @@ pub fn rename_to_triage() -> bool {
 }
 
 /// The purchase inbox: whether it's on, the folder it watches, and what it
-/// does with what arrives (see [`mixxx_plugins::inbox::Mode`]).
+/// does with what arrives (see [`opendj_plugins::inbox::Mode`]).
 pub struct InboxSettings {
     pub on: bool,
     pub dir: Option<PathBuf>,
@@ -537,7 +537,7 @@ pub fn inbox() -> InboxSettings {
     let dir = env
         .clone()
         .or_else(|| v["inbox_dir"].as_str().map(PathBuf::from))
-        .or_else(|| mixxx_engine::paths::home_dir().map(|h| h.join("Downloads")));
+        .or_else(|| opendj_engine::paths::home_dir().map(|h| h.join("Downloads")));
     let since = match v["inbox_since"].as_u64() {
         Some(s) => s,
         None => {

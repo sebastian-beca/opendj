@@ -14,9 +14,9 @@ use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
-use mixxx_control::{ControlHandle, ControlRegistry};
-use mixxx_engine::sampler::{sampler_group, Sample as Audio, NUM_SAMPLERS, SAMPLE_NAMES};
-use mixxx_engine::{AudioEngine, SampleSource};
+use opendj_control::{ControlHandle, ControlRegistry};
+use opendj_engine::sampler::{sampler_group, Sample as Audio, NUM_SAMPLERS, SAMPLE_NAMES};
+use opendj_engine::{AudioEngine, SampleSource};
 use serde_json::{json, Map, Value};
 use slint::{ComponentHandle, DataTransfer, Image, ModelRc, SharedString, VecModel, Weak};
 
@@ -266,7 +266,7 @@ fn sample_seconds(source: &SampleSource) -> Option<f64> {
     match source {
         SampleSource::Builtin(n) => Some(Audio::builtin(*n, 48_000.0).seconds()),
         SampleSource::File(p) => {
-            let d = mixxx_engine::decode::Decoder::open(p).ok()?;
+            let d = opendj_engine::decode::Decoder::open(p).ok()?;
             let a = d.audio();
             (d.length_known() && a.sample_rate > 0).then(|| a.len() as f64 / a.sample_rate as f64)
         }

@@ -15,8 +15,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use mixxx_engine::beats::{BeatGrid, GridMarker};
-use mixxx_engine::{Hotcue, LibraryInfo, Marker, MarkerKind, Source, Track};
+use opendj_engine::beats::{BeatGrid, GridMarker};
+use opendj_engine::{Hotcue, LibraryInfo, Marker, MarkerKind, Source, Track};
 
 /// Where VirtualDJ keeps its main database: `OPENDJ_VDJ_DATABASE`, else
 /// the first of VirtualDJ's home folders that has one.
@@ -24,7 +24,7 @@ pub fn default_database() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("OPENDJ_VDJ_DATABASE") {
         return Some(PathBuf::from(p));
     }
-    let home = mixxx_engine::paths::home_dir()?;
+    let home = opendj_engine::paths::home_dir()?;
     [
         "Library/Application Support/VirtualDJ/database.xml",
         "Documents/VirtualDJ/database.xml",
@@ -65,7 +65,7 @@ pub fn import(
 /// The tags of a file on this computer, unless reading them would download
 /// it from iCloud first.
 pub fn read_file_tags(path: &Path) -> Option<Track> {
-    (!mixxx_engine::scan::is_cloud_only(path)).then(|| mixxx_engine::scan::read_track(0, path))
+    (!opendj_engine::scan::is_cloud_only(path)).then(|| opendj_engine::scan::read_track(0, path))
 }
 
 pub fn parse(
@@ -420,7 +420,7 @@ mod tests {
         // The file's own tags fill in what VirtualDJ leaves empty.
         let file_tags = |p: &Path| {
             // A file that isn't there reads as empty tags.
-            let mut t = mixxx_engine::scan::read_track(0, p);
+            let mut t = opendj_engine::scan::read_track(0, p);
             t.album = "From the file".into();
             t.info.isrc = "GBAAA9900001".into();
             t.info.year = "2001".into();

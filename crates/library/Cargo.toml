@@ -1,10 +1,10 @@
 [package]
-name = "mixxx-library"
+name = "opendj-library"
 description = "The saved music library: tracks, cues, beat grids, playlists and history in SQLite"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-mixxx-engine = { path = "../engine" }
+opendj-engine = { path = "../engine" }
 rusqlite = { version = "0.40.2", features = ["bundled"] }

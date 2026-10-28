@@ -8,7 +8,7 @@ distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
 without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
 PARTICULAR PURPOSE.
 
-Its control names, data formats and behaviour follow Mixxx, which is
+Its control names, controller mapping format and behaviour follow Mixxx, which is
 Copyright (C) 2001-2026 Mixxx Development Team and licensed under the
 GNU General Public License, version 2 or later. Files that port Mixxx
 code or maths say so in their header and keep that licence.

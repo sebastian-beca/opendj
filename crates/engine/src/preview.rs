@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use mixxx_control::{Behavior, ControlHandle, ControlRegistry};
+use opendj_control::{Behavior, ControlHandle, ControlRegistry};
 
 use crate::track::Audio;
 

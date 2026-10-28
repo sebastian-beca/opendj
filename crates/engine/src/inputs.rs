@@ -17,7 +17,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use mixxx_control::{Behavior, ControlHandle, ControlRegistry};
+use opendj_control::{Behavior, ControlHandle, ControlRegistry};
 
 use crate::controls::alias;
 use crate::dsp::Isolator;

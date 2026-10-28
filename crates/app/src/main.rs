@@ -12,20 +12,20 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use mixxx_control::{ControlHandle, ControlRegistry};
-use mixxx_engine::cover::Cover;
-use mixxx_engine::key::Key;
-use mixxx_engine::phrases;
-use mixxx_engine::scan::scan;
-use mixxx_engine::stems;
-use mixxx_engine::synth::SAMPLE_LIBRARY_SIZE;
-use mixxx_engine::{
+use opendj_control::{ControlHandle, ControlRegistry};
+use opendj_engine::cover::Cover;
+use opendj_engine::key::Key;
+use opendj_engine::phrases;
+use opendj_engine::scan::scan;
+use opendj_engine::stems;
+use opendj_engine::synth::SAMPLE_LIBRARY_SIZE;
+use opendj_engine::{
     deck_group, default_output_device, effect_group, effect_name, output_devices, sample_library,
     AudioEngine, AudioSetup, Role, Route, Source, Track, VisualPositions, Waveform,
     AVAILABLE_EFFECTS, COLOR_FX, EFFECTS_PER_UNIT, NUM_DECKS,
 };
-use mixxx_library::Library;
-use mixxx_waveform::{
+use opendj_library::Library;
+use opendj_waveform::{
     steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, PhraseKind, Style, WaveformRenderer,
     WaveformView, GRID_SECTIONS,
 };
@@ -306,7 +306,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let recorder = engine.recorder().clone();
     // The saved library, with the tracks it had last time; the built-in
     // samples until there is anything in it.
-    let library_path = settings::config_dir().map(|d| mixxx_library::default_path(&d));
+    let library_path = settings::config_dir().map(|d| opendj_library::default_path(&d));
     let db = library_path
         .as_deref()
         .and_then(|p| match Library::open(p) {
@@ -355,14 +355,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app.get_layout() as f64,
         0.0,
         FOUR_DECK_LAYOUT as f64,
-        mixxx_control::Behavior::Toggle,
+        opendj_control::Behavior::Toggle,
     );
     // The deck 3 and 4 switches for two-deck controllers (see
-    // mixxx_controllers::LAYER_KEYS): clicking a strip's deck number in
+    // opendj_controllers::LAYER_KEYS): clicking a strip's deck number in
     // 4-Deck moves that side over. Outside 4-Deck they go back to decks 1
     // and 2, which are the ones showing.
     let layers =
-        mixxx_controllers::LAYER_KEYS.map(|k| registry.toggle(mixxx_controllers::LAYER_GROUP, k));
+        opendj_controllers::LAYER_KEYS.map(|k| registry.toggle(opendj_controllers::LAYER_GROUP, k));
     let reset_layers = move |layout: i32| {
         if layout != FOUR_DECK_LAYOUT {
             layers.iter().for_each(|l| l.set_bool(false));
@@ -436,7 +436,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .collect::<Vec<_>>(),
         )));
     app.global::<EffectList>()
-        .set_mic_unit(mixxx_engine::MIC_FX_UNIT as i32);
+        .set_mic_unit(opendj_engine::MIC_FX_UNIT as i32);
     {
         let engine = engine.clone();
         app.global::<DeckActions>()
@@ -499,8 +499,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // MIDI controllers, driven by Mixxx's mappings. Started after the browser
     // so the library controls the mappings use already exist.
-    let controllers = match mixxx_controllers::default_mappings_dir() {
-        Some(dir) => Some(Rc::new(mixxx_controllers::Controllers::start(
+    let controllers = match opendj_controllers::default_mappings_dir() {
+        Some(dir) => Some(Rc::new(opendj_controllers::Controllers::start(
             registry.clone(),
             dir,
             settings::controller_mappings(),
@@ -688,7 +688,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         1.0,
         0.0,
         1.0,
-        mixxx_control::Behavior::Toggle,
+        opendj_control::Behavior::Toggle,
     );
     let xfader_version = Cell::new(xfader_enabled.version());
     // What the screen last showed, to redraw only when something changed.
@@ -1072,7 +1072,7 @@ fn short_port_name(port: &str) -> &str {
 /// that don't do anything in openDJ yet (website/book/supported-controls.txt).
 fn list_controls() {
     let registry = ControlRegistry::new();
-    mixxx_engine::create_controls(&registry);
+    opendj_engine::create_controls(&registry);
     browser::LibraryControls::create(&registry);
     automix::AutoMix::new(&registry);
     let mut keys = registry.keys();

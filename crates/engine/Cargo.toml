@@ -1,13 +1,13 @@
 [package]
-name = "mixxx-engine"
+name = "opendj-engine"
 description = "Audio engine: decks, mixer and output, driven through Mixxx controls"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-mixxx-control = { path = "../control" }
-mixxx-separation = { path = "../separation" }
+opendj-control = { path = "../control" }
+opendj-separation = { path = "../separation" }
 cpal = "0.18"
 symphonia = { version = "0.6", features = ["all"] }
 lofty = "0.25"

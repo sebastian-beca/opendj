@@ -11,7 +11,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use midir::{Ignore, MidiInput, MidiOutput};
-use mixxx_control::ControlRegistry;
+use opendj_control::ControlRegistry;
 
 use crate::controller::Controller;
 use crate::mapping::Mapping;

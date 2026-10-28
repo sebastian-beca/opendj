@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::UNIX_EPOCH;
 
-use mixxx_engine::cover;
+use opendj_engine::cover;
 
 /// A file to look at: the track's id, its path and album.
 type Request = (usize, PathBuf, String);

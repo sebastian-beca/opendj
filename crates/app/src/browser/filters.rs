@@ -1,15 +1,15 @@
 //! The filter bar above the track list: a chip per field, as djay Pro
 //! has, that narrows the list along with the search. Each chip turns into
-//! search text (see `mixxx_library::query`), so chips, typed searches and
+//! search text (see `opendj_library::query`), so chips, typed searches and
 //! smart lists all agree.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use mixxx_engine::key::Key;
-use mixxx_engine::Track;
-use mixxx_library::query::{self, and_text, keyword, quoted, FieldNames, COLOR_NAMES};
+use opendj_engine::key::Key;
+use opendj_engine::Track;
+use opendj_library::query::{self, and_text, keyword, quoted, FieldNames, COLOR_NAMES};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::Browser;
@@ -847,10 +847,10 @@ fn capitalized(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mixxx_library::query::{Indexed, Query};
+    use opendj_library::query::{Indexed, Query};
 
     fn track(id: usize, genre: &str, grouping: &str, tags: &str, bpm: f64, key: &str) -> Track {
-        let mut t = std::sync::Arc::unwrap_or_clone(mixxx_engine::sample_library().remove(0));
+        let mut t = std::sync::Arc::unwrap_or_clone(opendj_engine::sample_library().remove(0));
         t.id = id;
         t.genre = genre.into();
         t.bpm = bpm;

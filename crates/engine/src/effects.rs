@@ -11,7 +11,7 @@
 
 use std::f32::consts::{PI, TAU};
 
-use mixxx_control::{Behavior, ControlHandle, ControlRegistry};
+use opendj_control::{Behavior, ControlHandle, ControlRegistry};
 
 use crate::controls::{
     deck_group, effect_group, effect_unit_group, Edge, BEAT_FX_UNIT, EFFECTS_PER_UNIT, MIC_FX_UNIT,

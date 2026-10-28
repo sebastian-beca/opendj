@@ -1,5 +1,5 @@
 //! Mini waveforms for the browser's Waveform column: each analysed track's
-//! overview (see [`mixxx_engine::cache::overview`]), read on a background
+//! overview (see [`opendj_engine::cache::overview`]), read on a background
 //! thread and drawn once into a small image. Only the rows in view hold an
 //! image, so a long list costs no more than a screenful; the list draws
 //! them like album art, with no work of its own between changes.
@@ -10,8 +10,8 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Weak};
 
-use mixxx_engine::cache::{self, OVERVIEW_SLICES};
-use mixxx_engine::{OverviewSlice, Source, Track, Waveform};
+use opendj_engine::cache::{self, OVERVIEW_SLICES};
+use opendj_engine::{OverviewSlice, Source, Track, Waveform};
 
 /// The image's size in pixels: a pixel column per slice, and tall enough
 /// for a row on a HiDPI screen. The list stretches it to the column.
@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn follows_a_deck_analysing_the_track() {
         let waves = Waves::start();
-        let mut t = (*mixxx_engine::sample_library()[0]).clone();
+        let mut t = (*opendj_engine::sample_library()[0]).clone();
         t.source = Source::File("/music/a.wav".into());
         // Not analysed: nothing to show, and nothing learnt.
         assert!(!waves.learn(&t));

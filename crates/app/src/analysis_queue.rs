@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
-use mixxx_engine::loader::analyse_file;
-use mixxx_engine::{cover, Source, Track};
+use opendj_engine::loader::analyse_file;
+use opendj_engine::{cover, Source, Track};
 
 use crate::coverart;
 

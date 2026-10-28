@@ -1,13 +1,13 @@
 //! The Controller Editor's view of Seba's three controllers: script-driven
 //! controls get their meaning from the sandbox probe.
 
-use mixxx_control::ControlRegistry;
-use mixxx_controllers::default_mappings_dir;
-use mixxx_controllers::view::{build, MappingView};
+use opendj_control::ControlRegistry;
+use opendj_controllers::default_mappings_dir;
+use opendj_controllers::view::{build, MappingView};
 
 fn view(file: &str) -> MappingView {
     let reg = ControlRegistry::new();
-    let _engine = mixxx_engine::engine::Engine::new(&reg, 44_100.0);
+    let _engine = opendj_engine::engine::Engine::new(&reg, 44_100.0);
     build(&default_mappings_dir().unwrap().join(file), reg).unwrap()
 }
 
