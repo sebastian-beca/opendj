@@ -1,0 +1,322 @@
+// The top bar's dropdown panels: MASTER (output levels and Ableton Link)
+// and MIC (the microphone and auxiliary inputs and the microphone's
+// effects). Both close on a click outside them.
+import { Theme, EdgeLine } from "theme.slint";
+import { Caption, Controls, ControlButton, CueHeadphones, VuMeter } from "controls.slint";
+import { EffectList, FxSlot } from "deck.slint";
+import { AudioSettings, Knob } from "mixer.slint";
+import { Preferences } from "preferences.slint";
+
+// A speaker, with one or two waves; for the ends of a level slider.
+component SpeakerIcon inherits Path {
+    in property <bool> loud;
+    width: 14px;
+    height: 12px;
+    viewbox-width: 14;
+    viewbox-height: 12;
+    fill: transparent;
+    stroke: Theme.text-dim;
+    stroke-width: 1.2px;
+    commands: loud
+        ? "M 1 4 L 3.5 4 L 6.5 1.5 L 6.5 10.5 L 3.5 8 L 1 8 Z M 8.5 4 A 2.5 2.5 0 0 1 8.5 8 M 10.5 2 A 5 5 0 0 1 10.5 10"
+        : "M 1 4 L 3.5 4 L 6.5 1.5 L 6.5 10.5 L 3.5 8 L 1 8 Z";
+}
+
+// A horizontal level slider in the style of macOS's volume slider: a thin
+// track filled up to a round thumb. A click on the track jumps there, a
+// drag moves it and a double click resets it. `detent` fills from the
+// centre and catches the thumb there (the headphone cue/mix balance).
+export component LevelSlider inherits Rectangle {
+    in property <string> group;
+    in property <string> key;
+    in property <bool> detent: false;
+    in property <color> tint: Theme.accent;
+    property <int> index: Controls.resolve(group, key);
+    property <float> pos: Controls.parameter(index, Controls.tick);
+    property <length> thumb: 18px;
+    property <length> travel: self.width - thumb;
+    property <float> origin: detent ? 0.5 : 0;
+    property <float> drag-start;
+    height: 20px;
+    min-width: 80px;
+    horizontal-stretch: 1;
+
+    // Track, then the fill from the origin to the thumb.
+    Rectangle {
+        x: thumb / 2;
+        width: travel;
+        height: 4px;
+        border-radius: 2px;
+        background: #3a3a3e;
+    }
+    Rectangle {
+        x: thumb / 2 + min(origin, pos) * travel;
+        width: abs(pos - origin) * travel;
+        height: 4px;
+        border-radius: 2px;
+        background: tint;
+    }
+    if detent: Rectangle {
+        x: thumb / 2 + travel / 2 - 1px;
+        y: 0px;
+        width: 2px;
+        height: 4px;
+        border-radius: 1px;
+        background: Theme.text-dim;
+    }
+    Rectangle {
+        x: pos * travel;
+        width: thumb;
+        height: 14px;
+        border-radius: 7px;
+        background: touch.pressed ? #d4d4d8 : #f2f2f4;
+        drop-shadow-blur: 3px;
+        drop-shadow-color: #00000080;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                let at = (self.mouse-x - thumb / 2) / travel;
+                if abs(at - pos) * travel > thumb / 2 {
+                    set(at);
+                    drag-start = clamp(at, 0, 1);
+                } else {
+                    drag-start = pos;
+                }
+            }
+        }
+        moved => {
+            if self.pressed {
+                set(drag-start + (self.mouse-x - self.pressed-x) / travel);
+            }
+        }
+        double-clicked => { Controls.reset(index); }
+        scroll-event(e) => {
+            let d = abs(e.delta-x / 1px) > abs(e.delta-y / 1px) ? -e.delta-x : e.delta-y;
+            set(pos + max(-0.05, min(0.05, d / 400px)));
+            accept
+        }
+    }
+
+    function set(p: float) {
+        let c = clamp(p, 0, 1);
+        Controls.set-parameter(index, detent && abs(c - 0.5) < 0.03 ? 0.5 : c);
+    }
+}
+
+// A named level: its name above, then the slider between a quiet and a
+// loud speaker.
+component LevelRow inherits VerticalLayout {
+    in property <string> name;
+    in property <string> group: "[Master]";
+    in property <string> key;
+    in property <color> tint: Theme.accent;
+    spacing: 4px;
+    Text { text: name; color: Theme.text; font-size: 12px; font-weight: 600; }
+    HorizontalLayout {
+        spacing: 8px;
+        VerticalLayout { alignment: center; SpeakerIcon { } }
+        LevelSlider { group: group; key: key; tint: tint; }
+        VerticalLayout { alignment: center; SpeakerIcon { loud: true; } }
+    }
+}
+
+// The panel's rounded, shadowed background.
+component PanelBackground inherits Rectangle {
+    background: Theme.panel-raised;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 16px;
+    drop-shadow-color: #000000b0;
+}
+
+// A small link-like button along the bottom of a panel.
+component PanelLink inherits Text {
+    callback clicked();
+    color: ta.has-hover ? Theme.text : Theme.text-dim;
+    font-size: 11px;
+    horizontal-alignment: right;
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// Ableton Link, in the MASTER panel: a switch, and while on the session's
+// tempo, the deck it follows and how many other apps are in it.
+component LinkRow inherits HorizontalLayout {
+    property <int> enabled-index: Controls.resolve("[Link]", "enabled");
+    property <bool> on: Controls.value(enabled-index, Controls.tick) > 0;
+    property <int> peers: Controls.value(Controls.resolve("[Link]", "num_peers"), Controls.tick);
+    property <float> bpm: Controls.value(Controls.resolve("[Link]", "bpm"), Controls.tick);
+    property <int> master: Controls.value(Controls.resolve("[Link]", "master_deck"), Controls.tick);
+    spacing: 8px;
+    VerticalLayout {
+        horizontal-stretch: 1;
+        alignment: center;
+        spacing: 2px;
+        Text { text: "Ableton Link"; color: Theme.text; font-size: 12px; font-weight: 600; }
+        Text {
+            text: !on ? "Off" : (bpm > 0 ? (round(bpm * 10) / 10) + " BPM  ·  " : "")
+                + (master == 1 ? "Deck A  ·  " : master == 2 ? "Deck B  ·  " : "")
+                + (peers == 1 ? "1 peer" : peers + " peers");
+            color: on ? Theme.accent : Theme.text-dim;
+            font-size: 11px;
+            overflow: elide;
+        }
+    }
+    // A switch.
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: 34px;
+            height: 20px;
+            border-radius: 10px;
+            background: on ? Theme.accent : #48484c;
+            Rectangle {
+                x: on ? parent.width - self.width - 2px : 2px;
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background: #ffffff;
+                animate x { duration: 120ms; }
+            }
+            TouchArea { mouse-cursor: pointer; clicked => { Controls.toggle(enabled-index); } }
+        }
+    }
+}
+
+// MASTER: the main, headphone and booth (when a booth output is set up)
+// levels, the headphones' cue/mix balance, and Ableton Link. Audio
+// routing is in the settings.
+export component MasterPanel inherits PopupWindow {
+    width: 300px;
+    close-policy: close-on-click-outside;
+    PanelBackground { }
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+        Text { text: "Master"; color: Theme.text; font-size: 17px; font-weight: 700; }
+        VerticalLayout {
+            spacing: 3px;
+            VuMeter { group: "[Master]"; key: "VuMeterL"; height: 6px; vertical: false; segments: 32; }
+            VuMeter { group: "[Master]"; key: "VuMeterR"; height: 6px; vertical: false; segments: 32; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout { alignment: center; SpeakerIcon { } }
+            LevelSlider { group: "[Master]"; key: "gain"; }
+            VerticalLayout { alignment: center; SpeakerIcon { loud: true; } }
+        }
+        EdgeLine { line-color: Theme.border; }
+        LevelRow { name: "Phones"; key: "headGain"; }
+        if AudioSettings.booth: LevelRow { name: "Booth"; key: "booth_gain"; }
+        VerticalLayout {
+            spacing: 4px;
+            Text { text: "Cue / Mix"; color: Theme.text; font-size: 12px; font-weight: 600; }
+            HorizontalLayout {
+                spacing: 8px;
+                Caption { text: "CUE"; vertical-alignment: center; width: 22px; }
+                LevelSlider { group: "[Master]"; key: "headMix"; detent: true; }
+                Caption { text: "MIX"; vertical-alignment: center; width: 22px; }
+            }
+        }
+        EdgeLine { line-color: Theme.border; }
+        LinkRow { }
+        PanelLink {
+            text: "Audio Settings…";
+            clicked => {
+                root.close();
+                Preferences.show(0);
+            }
+        }
+    }
+}
+
+// One input in the MIC panel: ON and headphone cue beside its name, its
+// level slider with the meter over it, then gain and EQ. Dimmed with no
+// device chosen for it in the settings.
+component InputSection inherits VerticalLayout {
+    in property <string> group;
+    in property <string> name;
+    // talkover for the microphone, main_mix for the auxiliary input.
+    in property <string> on-key;
+    in property <color> tint;
+    property <string> eq: "[EqualizerRack1_" + group + "_Effect1]";
+    property <bool> configured: Controls.value(Controls.resolve(group, "input_configured"), Controls.tick) > 0;
+    spacing: 8px;
+    HorizontalLayout {
+        spacing: 6px;
+        Text { text: name; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+        ControlButton { group: group; key: on-key; text: "ON"; tint: tint; fill-when-lit: true; width: 40px; height: 22px; font-size: 10px; }
+        CueHeadphones { group: group; tint: tint; width: 32px; }
+    }
+    if !configured: Text {
+        text: "Choose an input in Audio Settings";
+        color: Theme.text-dim;
+        font-size: 11px;
+    }
+    VerticalLayout {
+        spacing: 8px;
+        opacity: configured ? 1 : 0.4;
+        VuMeter { group: group; key: "VuMeter"; height: 5px; vertical: false; segments: 32; }
+        HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout { alignment: center; SpeakerIcon { } }
+            LevelSlider { group: group; key: "volume"; tint: tint; }
+            VerticalLayout { alignment: center; SpeakerIcon { loud: true; } }
+        }
+        HorizontalLayout {
+            alignment: space-around;
+            Knob { group: group; key: "pregain"; label: "GAIN"; size: 22px; }
+            Knob { group: eq; key: "parameter3"; label: "HIGH"; size: 22px; }
+            Knob { group: eq; key: "parameter2"; label: "MID"; size: 22px; }
+            Knob { group: eq; key: "parameter1"; label: "LOW"; size: 22px; }
+        }
+    }
+}
+
+// One of the microphone effect unit's slots, as a deck's FX row.
+component MicFxSlot inherits HorizontalLayout {
+    in property <int> slot;
+    property <int> loaded: Controls.value(Controls.resolve("[EffectRack1_EffectUnit" + (EffectList.mic-unit + 1) + "_Effect" + (slot + 1) + "]", "loaded_effect"), Controls.tick);
+    FxSlot {
+        horizontal-stretch: 1;
+        unit: EffectList.mic-unit;
+        slot: slot;
+        tint: Theme.mic;
+        name: loaded > 0 && loaded <= EffectList.names.length ? EffectList.names[loaded - 1] : "";
+    }
+}
+
+// MIC: the microphone with its own effect unit (EffectList.mic-unit,
+// which the decks' effects never touch) on the top half, the auxiliary
+// input on the bottom. AUX sends the auxiliary input through the
+// microphone's effects too.
+export component MicPanel inherits PopupWindow {
+    width: 320px;
+    close-policy: close-on-click-outside;
+    PanelBackground { }
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+        InputSection { group: "[Microphone]"; name: "Mic"; on-key: "talkover"; tint: Theme.mic; }
+        VerticalLayout {
+            spacing: 3px;
+            HorizontalLayout {
+                spacing: 4px;
+                Caption { text: "MIC FX"; vertical-alignment: center; horizontal-alignment: left; horizontal-stretch: 1; }
+                ControlButton { group: "[EffectRack1_EffectUnit" + (EffectList.mic-unit + 1) + "]"; key: "group_[Auxiliary1]_enable"; text: "AUX"; tint: Theme.accent; width: 34px; height: 18px; font-size: 9px; }
+            }
+            for i in 3: MicFxSlot { slot: i; }
+        }
+        EdgeLine { line-color: Theme.border; }
+        InputSection { group: "[Auxiliary1]"; name: "Aux"; on-key: "main_mix"; tint: Theme.accent; }
+        PanelLink {
+            text: "Audio Settings…";
+            clicked => {
+                root.close();
+                Preferences.show(0);
+            }
+        }
+    }
+}

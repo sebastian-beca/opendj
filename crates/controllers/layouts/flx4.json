@@ -68,7 +68,7 @@
   {"id": "load-r", "label": "LOAD ▶", "kind": "button", "round": false, "x": 883, "y": 62, "w": 48, "h": 22, "midi": ["96 47", "SHIFT|96 59"]},
   {"id": "browse", "label": "BROWSE", "kind": "encoder", "round": true, "x": 772, "y": 37, "w": 56, "h": 56, "midi": ["B6 40", "SHIFT|B6 64", "Press|96 41", "SHIFT press|96 42"]},
   {"id": "mic", "label": "MIC LEVEL", "kind": "knob", "round": true, "x": 588, "y": 281, "w": 48, "h": 48, "midi": []},
-  {"id": "smart-cfx", "label": "SMART CFX", "kind": "button", "round": true, "x": 592, "y": 447, "w": 40, "h": 40, "midi": []},
+  {"id": "smart-cfx", "label": "SMART CFX", "kind": "button", "round": true, "x": 592, "y": 447, "w": 40, "h": 40, "midi": ["96 00", "96 08"]},
   {"id": "mix", "label": "HEADPHONES MIX", "kind": "knob", "round": true, "x": 588, "y": 543, "w": 48, "h": 48, "midi": ["B6 0C", "B6 2C"]},
   {"id": "phones", "label": "HEADPHONES LEVEL", "kind": "knob", "round": true, "x": 588, "y": 631, "w": 48, "h": 48, "midi": ["B6 0D", "B6 2D"]},
   {"id": "smart-fader", "label": "SMART FADER", "kind": "button", "round": true, "x": 592, "y": 730, "w": 40, "h": 40, "midi": []},

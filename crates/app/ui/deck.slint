@@ -770,6 +770,8 @@ export global DeckActions {
 
 export global EffectList {
     in property <[string]> names;
+    // The Color FX the filter knobs can play, `loaded_chain_preset` 1 and up.
+    in property <[string]> color-fx: ["Filter", "Space", "Dub Echo", "Noise", "Crush"];
     // The microphone's effect unit, from 0 (MIC_FX_UNIT).
     in property <int> mic-unit: 5;
 }
