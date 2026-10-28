@@ -256,3 +256,5 @@ td { color: var(--text-2); }
 .dl-beta strong { color: var(--text); }
 @media (max-width: 900px) { .beta-steps { grid-template-columns: 1fr; gap: 20px; } .beta-panel { padding: 36px 28px; } }
 @media (max-width: 600px) { .beta { padding: 64px 0; } .beta-panel { padding: 28px 20px; } .beta-flag { font-size: 14px; } }
+.dl-support { color: var(--text-2); font-size: 16px; margin: 24px 0 12px; }
+.download .btn-sm { margin-bottom: 24px; }
