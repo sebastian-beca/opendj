@@ -195,6 +195,16 @@ impl Browser {
         let w = with.clone();
         ui.on_keep_this(move |row| w(&|b| b.keep_this(row)));
         let w = with.clone();
+        ui.on_quarantine(move |first, last| {
+            w(&|b| {
+                let indices = b.picked_rows(first, last);
+                b.health_status = b.quarantine(&indices);
+                b.refresh_crates();
+                b.refresh_tree();
+                b.refresh_rows();
+            })
+        });
+        let w = with.clone();
         ui.on_show_quarantine(move || {
             w(&|b| {
                 if let Some(dir) = b.quarantine_root().filter(|d| d.is_dir()) {
@@ -468,6 +478,62 @@ impl Browser {
         s
     }
 
+    /// Takes tracks (indices into `library`) out of the library and moves
+    /// their files to today's quarantine folder, or queues the moves while
+    /// Move files is off, as one change the undo line takes back.
+    fn quarantine(&mut self, indices: &[usize]) -> String {
+        let ids: Vec<usize> = indices
+            .iter()
+            .map(|&i| &self.library[i])
+            .filter(|t| !is_browsed(t))
+            .map(|t| t.id)
+            .collect();
+        let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let Some(quarantine) = dupes::quarantine_dir(&self.folders, &date) else {
+            return "Set your Collection folder in Settings › Library to quarantine tracks.".into();
+        };
+        let moving = settings::move_files();
+        let Some(db) = &mut self.db else {
+            return String::new();
+        };
+        let batch = match db.quarantine_tracks(&ids, Some(&quarantine)) {
+            Ok(Some(b)) => b,
+            Ok(None) => return "Nothing to quarantine here.".into(),
+            Err(e) => return format!("Couldn't quarantine them: {e}"),
+        };
+        let mut failed = 0;
+        if moving {
+            match db.apply_moves() {
+                Ok(r) => {
+                    for (path, why) in &r.failed {
+                        eprintln!("can't move {}: {why}", path.display());
+                    }
+                    failed = r.failed.len();
+                }
+                Err(e) => eprintln!("can't move files: {e}"),
+            }
+        }
+        let n = ids.len();
+        self.undo = Some(Undo {
+            batch: Some(batch),
+            text: format!("Undo moving {} to Quarantine", tracks(n)),
+            restore: ids,
+            changes: None,
+        });
+        self.read_pending_moves();
+        self.reload_library();
+        let mut s = format!("{} taken out of the library.", tracks(n));
+        s += if moving {
+            " Their files are in _Quarantine."
+        } else {
+            " Their files go to _Quarantine once Move files is on in Settings › Library."
+        };
+        if failed > 0 {
+            s += &format!(" {failed} couldn't be moved.");
+        }
+        s
+    }
+
     /// Links each listed group of versions, so they stay.
     fn link_versions(&mut self, indices: &[usize]) -> String {
         let groups = self.picked_groups(indices, |c| c == Case::Versions);
@@ -703,6 +769,7 @@ impl Browser {
         ui.set_quarantined(self.quarantined as i32);
         ui.set_lists(self.list_health_text().into());
         ui.set_quarantine_exists(self.quarantine_root().is_some_and(|d| d.is_dir()));
+        ui.set_can_quarantine(self.saved() && self.quarantine_root().is_some());
         self.refresh_cleanup_ui();
     }
 
