@@ -418,13 +418,32 @@ pub fn set_controller_version(based_on: &str, id: Option<&str>) {
     });
 }
 
-/// The folder scanned for music: `OPENDJ_MUSIC`, else the one chosen in
-/// settings, else `~/Music`.
-pub fn music_folder() -> Option<PathBuf> {
+/// The folders scanned for music: `OPENDJ_MUSIC`, else the ones chosen in
+/// settings (which may be none, once the DJ has removed them all), else
+/// `~/Music`.
+pub fn music_folders() -> Vec<PathBuf> {
     if std::env::var_os("OPENDJ_MUSIC").is_some() {
-        return default_music_dir();
+        return default_music_dir().into_iter().collect();
     }
-    path_of("music_folder").or_else(default_music_dir)
+    let v = load();
+    if v[MUSIC_FOLDERS].is_array() {
+        return paths(MUSIC_FOLDERS);
+    }
+    // Before there could be several, there was one.
+    path_of("music_folder")
+        .or_else(default_music_dir)
+        .into_iter()
+        .collect()
+}
+
+pub const MUSIC_FOLDERS: &str = "music_folders";
+
+pub fn set_music_folders(folders: &[PathBuf]) {
+    let folders: Vec<String> = folders
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    save(|v| v[MUSIC_FOLDERS] = json!(folders));
 }
 
 /// Whether the library is brought up to date each time openDJ starts:

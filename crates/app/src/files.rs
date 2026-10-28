@@ -50,8 +50,13 @@ pub fn roots() -> Vec<Root> {
         .collect();
     let home = mixxx_engine::paths::home_dir();
     let mut places = Vec::new();
-    if let Some(music) = crate::settings::music_folder() {
-        places.push(("Music".to_string(), music));
+    for (i, music) in crate::settings::music_folders().into_iter().enumerate() {
+        let name = if i == 0 {
+            "Music".to_string()
+        } else {
+            folder_name(&music)
+        };
+        places.push((name, music));
     }
     if let Some(home) = &home {
         places.push(("Home".into(), home.clone()));

@@ -6,7 +6,7 @@ The rail of sources beside the browser: the Collection, Files on the computer, s
 ## Requirements
 
 ### Requirement: Rail
-The rail SHALL list Collection, Files, Spotify, TIDAL, Apple Music, Bandcamp, Beatport, OneLibrary, SoundCloud and Shopping with their official logos, then add-ons' sources. The "…" menu SHALL hide and show sources (`hidden_sources`).
+The rail SHALL list Collection, Files, Spotify, TIDAL, Apple Music, Bandcamp (with the other stores in its list), Beatport, OneLibrary and SoundCloud with their official logos, then add-ons' sources. The "…" menu SHALL hide and show sources (`hidden_sources`).
 
 #### Scenario: Hide a source
 - **WHEN** SoundCloud is hidden from the "…" menu
@@ -20,7 +20,7 @@ Every built-in source but Collection and Files SHALL say "Coming soon" until it 
 - **THEN** the list says "Coming soon."
 
 ### Requirement: Files source
-Files SHALL browse pinned folders, the music folder, Home, Desktop, Downloads, drives and cloud folders (iCloud Drive, Google Drive, Dropbox, OneDrive, Box), reading subfolders on opening and tags on a background thread. Cloud-only files SHALL NOT be downloaded to read tags. A browsed file SHALL join the collection only when it is loaded, dragged, rated, listed or added.
+Files SHALL browse pinned folders, the music folders, Home, Desktop, Downloads, drives and cloud folders (iCloud Drive, Google Drive, Dropbox, OneDrive, Box), reading subfolders on opening and tags on a background thread. Cloud-only files SHALL NOT be downloaded to read tags. A browsed file SHALL join the collection only when it is loaded, dragged, rated, listed or added.
 
 #### Scenario: Browsing doesn't add
 - **WHEN** a folder in Downloads is browsed
