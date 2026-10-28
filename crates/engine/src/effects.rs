@@ -764,6 +764,24 @@ impl EffectRack {
         }
     }
 
+    /// Auto reset on load: switches off the effects of every unit sent to
+    /// `deck`, unless the unit also sounds on the main mix or on another
+    /// deck that is playing. Each effect's beats, parameters and the unit's
+    /// dry/wet stay as they were, ready for the next time it is switched on.
+    pub(crate) fn reset_deck(&mut self, deck: usize, playing: [bool; NUM_DECKS]) {
+        for (u, unit) in self.units.iter().enumerate() {
+            let routed = |t: usize| unit.routes[t].get_bool();
+            let elsewhere =
+                routed(MAIN) || (0..NUM_DECKS).any(|t| t != deck && playing[t] && routed(t));
+            if u == MIC_FX_UNIT || !routed(deck) || elsewhere {
+                continue;
+            }
+            for slot in &self.slots[u] {
+                slot.enabled.set_bool(false);
+            }
+        }
+    }
+
     /// Runs one frame of `target` through the units routed to it. `r` is how
     /// far through the buffer this frame is (0..1], for ramps.
     #[inline]
