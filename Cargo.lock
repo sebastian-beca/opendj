@@ -5433,7 +5433,7 @@ dependencies = [
  "matrixmultiply",
  "pollster",
  "realfft",
- "safetensors 0.5.3",
+ "safetensors 0.7.0",
 ]
 
 [[package]]
