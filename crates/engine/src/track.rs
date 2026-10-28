@@ -538,6 +538,14 @@ impl Track {
         self.seconds_at(if floor { (b + 1e-6).floor() } else { b.round() })
     }
 
+    /// `seconds` on the nearest step of `beats` beats (a fraction of a beat
+    /// or several), counted from the grid's first beat; with `floor` the
+    /// step at or before it.
+    pub fn snap_to(&self, seconds: f64, beats: f64, floor: bool) -> f64 {
+        let q = self.beat_at(seconds) / beats;
+        self.seconds_at(beats * if floor { (q + 1e-6).floor() } else { q.round() })
+    }
+
     /// `seconds` moved by `beats` beats along the grid.
     pub fn beats_from(&self, seconds: f64, beats: f64) -> f64 {
         self.seconds_at(self.beat_at(seconds) + beats)
