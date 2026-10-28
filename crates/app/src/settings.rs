@@ -610,7 +610,6 @@ pub fn keyboard_shortcuts() -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
-#[allow(dead_code)] // For the keyboard shortcuts editor.
 pub fn set_keyboard_shortcuts(shortcuts: &[(String, String)]) {
     let list: Vec<Value> = shortcuts
         .iter()
