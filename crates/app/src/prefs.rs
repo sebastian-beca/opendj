@@ -143,7 +143,30 @@ pub fn apply_saved(registry: &ControlRegistry) {
     key::set_detector(key_detector());
     key::set_mixing(key_mixing());
     set("[Controls]", "key_match_on_load", key_match_range() as f64);
+    for (id, _, _) in AUTO_RESETS {
+        set("[Controls]", id, f(settings::flag(id, true)));
+    }
 }
+
+/// What loading a track puts back to normal on its deck, as settings and
+/// `[Controls]` keys of the same name, with their titles and help.
+const AUTO_RESETS: [(&str, &str, &str); 3] = [
+    (
+        "auto_reset_fx",
+        "Effects",
+        "The deck's effects switch off. Their beats and dry/wet stay as you set them.",
+    ),
+    (
+        "auto_reset_eq",
+        "EQ and filter",
+        "EQ, kills, filter and sculpt go back to the middle.",
+    ),
+    (
+        "auto_reset_gain",
+        "Gain",
+        "The gain knob goes back to 0 dB; auto gain still levels each track.",
+    ),
+];
 
 fn key_mixing() -> key::Mixing {
     key::Mixing::from_id(settings::number("key_mixing", 0.0) as u8)
@@ -648,7 +671,13 @@ impl Prefs {
                         "A track can't be loaded onto a deck while it plays.",
                         settings::flag("protect_playing", true),
                     ),
+                    item("auto_reset", HEADING, "AUTO RESET ON LOAD", ""),
                 ]
+                .into_iter()
+                .chain(AUTO_RESETS.map(|(id, title, detail)| {
+                    switch(id, title, detail, settings::flag(id, true))
+                }))
+                .collect()
             }
             MIXER => {
                 let target = settings::number("auto_gain_target", DEFAULT_AUTO_GAIN_TARGET);
@@ -1373,6 +1402,9 @@ impl Prefs {
             "xfader_reverse" => self.set("[Mixer Profile]", "xFaderReverse", f(on)),
             "head_split" => self.set("[Master]", "headSplit", f(on)),
             "auto_gain" => self.set("[ReplayGain]", "ReplayGainEnabled", f(on)),
+            "auto_reset_fx" | "auto_reset_eq" | "auto_reset_gain" => {
+                self.set("[Controls]", id, f(on))
+            }
             _ => {}
         }
         self.refresh();
