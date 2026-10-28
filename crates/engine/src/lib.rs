@@ -30,6 +30,7 @@ mod output;
 pub mod paths;
 pub mod phrases;
 pub mod preview;
+pub mod process;
 pub mod recorder;
 pub mod sampler;
 pub mod scan;

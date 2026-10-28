@@ -159,7 +159,7 @@ struct Process {
 
 impl Process {
     fn start(program: &Path) -> Result<(Self, Value), PluginError> {
-        let mut child = Command::new(program)
+        let mut child = mixxx_engine::process::background(Command::new(program))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -405,6 +405,9 @@ fn is_program(path: &Path) -> bool {
     #[cfg(not(unix))]
     {
         meta.is_file()
+            && path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
     }
 }
 
