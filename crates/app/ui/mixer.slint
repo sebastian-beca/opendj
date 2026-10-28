@@ -201,8 +201,7 @@ component FxPush inherits Rectangle {
     }
 }
 
-// The Color FX picker, top left of the mixer as the knob mode menu is top
-// right: the chosen one's name, opening the list. Every deck's filter knob
+// The Color FX picker, over the meters above the knob mode menu: the chosen one's name, opening the list. Every deck's filter knob
 // plays it (one for all, as on a Pioneer mixer); SHIFT + SMART CFX on the
 // DDJ-FLX4 steps through them.
 component ColorFxMenu inherits Rectangle {
@@ -273,17 +272,17 @@ component Stepper inherits HorizontalLayout {
     callback prev();
     callback next();
     spacing: 2px;
-    FxPush { width: 18px; height: 22px; group: group; key: prev-key; text: "‹"; font-size: 14px; clicked => { root.prev(); } }
+    FxPush { width: 18px; height: 26px; group: group; key: prev-key; text: "‹"; font-size: 14px; clicked => { root.prev(); } }
     Rectangle {
         horizontal-stretch: 1;
-        height: 22px;
+        height: 26px;
         border-radius: Theme.radius;
         background: Theme.control;
         border-width: 1px;
         border-color: Theme.border;
         Text { text: root.text; color: dim ? Theme.text-dim : Theme.text; font-size: 11px; font-weight: 700; overflow: elide; }
     }
-    FxPush { width: 18px; height: 22px; group: group; key: next-key; text: "›"; font-size: 14px; clicked => { root.next(); } }
+    FxPush { width: 18px; height: 26px; group: group; key: next-key; text: "›"; font-size: 14px; clicked => { root.next(); } }
 }
 
 // The Beat FX under the mixer, as on a Pioneer mixer, in two rows: the
@@ -308,13 +307,14 @@ component FxSection inherits VerticalLayout {
     property <float> bpm: Controls.value(bpm-index, Controls.tick);
     property <int> on-index: Controls.resolve(slot, "enabled");
     property <bool> on: Controls.value(on-index, Controls.tick) > 0;
-    spacing: 4px;
+    spacing: 6px;
     Rectangle { height: 1px; background: Theme.border; }
+    Caption { text: "BEAT FX"; horizontal-alignment: left; }
     HorizontalLayout {
         spacing: 4px;
         VerticalLayout {
             horizontal-stretch: 1;
-            spacing: 4px;
+            spacing: 6px;
             HorizontalLayout {
                 spacing: 4px;
                 // The effect, stepped through as FX SELECT does.
@@ -347,7 +347,7 @@ component FxSection inherits VerticalLayout {
                 // Where it goes: 0 deck 1, 1 deck 2, 2 both, 3 the main mix.
                 for c[i] in ["1", "2", "1&2", "MST"]: FxPush {
                     horizontal-stretch: 1;
-                    height: 22px;
+                    height: 26px;
                     text: c;
                     font-size: 10px;
                     lit: i == 0 ? ch1 && !ch2 && !main : i == 1 ? ch2 && !ch1 && !main : i == 2 ? ch1 && ch2 && !main : main;
@@ -358,8 +358,8 @@ component FxSection inherits VerticalLayout {
                     }
                 }
                 Rectangle { width: 2px; }
-                FxPush { width: 35px; height: 22px; group: unit; key: "bpm_auto"; text: "AUTO"; font-size: 10px; lit: bpm <= 0; }
-                FxPush { width: 35px; height: 22px; group: unit; key: "bpm_tap"; text: bpm > 0 ? round(bpm) : "TAP"; font-size: 10px; lit: bpm > 0; }
+                FxPush { width: 35px; height: 26px; group: unit; key: "bpm_auto"; text: "AUTO"; font-size: 10px; lit: bpm <= 0; }
+                FxPush { width: 35px; height: 26px; group: unit; key: "bpm_tap"; text: bpm > 0 ? round(bpm) : "TAP"; font-size: 10px; lit: bpm > 0; }
             }
         }
         VerticalLayout {
@@ -368,7 +368,7 @@ component FxSection inherits VerticalLayout {
         }
         FxPush {
             width: 46px;
-            height: 48px;
+            height: 58px;
             text: "ON";
             lit: on;
             font-size: 12px;
@@ -378,7 +378,7 @@ component FxSection inherits VerticalLayout {
 }
 
 // What the four knobs down each side of the mixer control, picked from the
-// menu between the gain knobs.
+// menu over the meters.
 export global MixerMode {
     // 0 EQ (high, mid, low, filter), 1 stem volumes, 2 sculpt as on
     // PlayDifferently's Model 1 (low-pass, sculpt frequency and cut/boost,
@@ -447,7 +447,7 @@ export component SideKnob inherits Rectangle {
     }
 }
 
-// The knob mode menu, in the row over the mixer's right-hand knobs.
+// The knob mode menu, over the mixer's meters.
 export component ModeMenu inherits Rectangle {
     height: 24px;
     // Just the name and an arrow, with no box round them.
@@ -531,13 +531,20 @@ component ChannelGrid inherits HorizontalLayout {
         horizontal-stretch: 1;
         alignment: space-around;
         Channel { group: "[Channel1]"; tint: Theme.deck1; }
-        // Level with the faders: below the gain knobs, above the cue buttons.
-        HorizontalLayout {
-            spacing: 4px;
-            padding-top: 56px;
+        // The Color FX and knob mode menus over the meters, which are
+        // level with the faders: below the gain knobs, above the cue buttons.
+        VerticalLayout {
             padding-bottom: 34px;
-            StereoMeter { group: "[Channel1]"; }
-            StereoMeter { group: "[Channel2]"; }
+            ColorFxMenu { width: 48px; }
+            ModeMenu { width: 48px; }
+            HorizontalLayout {
+                alignment: center;
+                spacing: 4px;
+                padding-top: 8px;
+                vertical-stretch: 1;
+                StereoMeter { group: "[Channel1]"; }
+                StereoMeter { group: "[Channel2]"; }
+            }
         }
         Channel { group: "[Channel2]"; tint: Theme.deck2; }
     }
@@ -549,16 +556,7 @@ export component Mixer inherits Rectangle {
     width: 282px;
     VerticalLayout {
         padding: 8px;
-        padding-top: 0px;
         spacing: 4px;
-        // The Color FX menu over the left-hand knobs (the filter knobs play
-        // it), the knob mode menu over the right-hand ones.
-        HorizontalLayout {
-            height: 24px;
-            ColorFxMenu { width: 48px; }
-            Rectangle { horizontal-stretch: 1; }
-            ModeMenu { width: 48px; }
-        }
         ChannelGrid { vertical-stretch: 1; }
         // Along the bottom edge, as on a hardware mixer: the crossfader.
         // The levels are in the top bar's MASTER panel.
