@@ -5,7 +5,7 @@
 import { TrackDrag } from "library.slint";
 import { SamplerPanel } from "sampler.slint";
 import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
-import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, KeyLock, MasterBadge, PitchReset, QuantizeButton } from "controls.slint";
+import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, KeyLock, MasterBadge, PitchReset, SyncButton } from "controls.slint";
 
 // A line of the key menu: a key shift and the key it gives.
 export struct KeyItem {
@@ -1765,7 +1765,7 @@ export component TempoStep inherits Rectangle {
 }
 
 // The tempo column, everything on its centre line: SYNC (Shift-click to
-// sync once) over quantize, the tempo, the fader, and the fine − and +.
+// sync once, right-click for quantize) over the tempo, the fader, and the fine − and +.
 // Pitch reset and key lock sit in the margin on the fader's outer side.
 component Pitch inherits VerticalLayout {
     in property <string> group;
@@ -1775,8 +1775,7 @@ component Pitch inherits VerticalLayout {
     in property <bool> mirrored;
     width: 56px;
     spacing: 5px;
-    ControlButton { group: group; key: "sync_enabled"; shift-key: "beatsync"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 13px; height: 30px; }
-    QuantizeButton { group: group; height: 22px; }
+    SyncButton { group: group; tint: tint; font-size: 13px; height: 30px; menu-right-aligned: mirrored; }
     Text { text: info.rate; color: Theme.text; font-size: 12px; font-weight: 500; horizontal-alignment: center; }
     Rectangle {
         vertical-stretch: 1;

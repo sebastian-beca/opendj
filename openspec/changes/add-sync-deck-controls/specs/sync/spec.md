@@ -1,14 +1,14 @@
 ## ADDED Requirements
 
 ### Requirement: Per-deck quantize
-Each deck SHALL have a Q button toggling its `quantize`; Settings › Decks Quantize SHALL set every deck's default.
+Each deck's SYNC button SHALL open a quantize menu on right-click whose switch toggles the deck's `quantize`; Settings › Decks Quantize SHALL set every deck's default.
 
-#### Scenario: Q off on one deck
-- **WHEN** deck 2's Q is turned off
+#### Scenario: Quantize off on one deck
+- **WHEN** deck 2's quantize is turned off
 - **THEN** deck 2's hot cues land where pressed while deck 1 still quantizes
 
 ### Requirement: Quantize resolution
-Each deck's Q button SHALL have an arrow menu choosing the quantize step: 1/16, 1/8, 1/4, 1/2 or 1 beat, or 4 beats (a bar), 1 by default (`quantize_beats`). Jumps and starts SHALL land in step within that step; cue points and loops SHALL snap to it, at most a beat. A synced deck SHALL keep at least the beat.
+The same menu SHALL choose the quantize step: 1/16, 1/8, 1/4, 1/2 or 1 beat, or 4 beats (a bar), 1 by default (`quantize_beats`). Jumps and starts SHALL land in step within that step; cue points and loops SHALL snap to it, at most a beat. A synced deck SHALL keep at least the beat.
 
 #### Scenario: Bar quantize
 - **WHEN** the step is 4 and a deck starts while the other plays
