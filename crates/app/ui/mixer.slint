@@ -3,7 +3,7 @@
 // faders in the middle with the main meter between them, crossfader below.
 // Dark knobs with white pointers, ticked faders.
 import { Theme, EdgeLine, CloseIcon } from "theme.slint";
-import { Caption, Controls, ControlButton, ControlFader, ControlKnob, CueHeadphones, StereoMeter } from "controls.slint";
+import { Caption, Controls, ControlButton, ControlFader, ControlKnob, Crossfader, CueHeadphones, StereoMeter } from "controls.slint";
 import { EffectList, FxSlot } from "deck.slint";
 
 // One output route in the settings table.
@@ -663,7 +663,7 @@ export component Mixer inherits Rectangle {
             SideRowKnob { key: "headGain"; label: "PHONES"; }
             Rectangle {
                 horizontal-stretch: 1;
-                ControlFader { x: 8px; y: (parent.height - self.height) / 2; width: parent.width - 16px; group: "[Master]"; key: "crossfader"; vertical: false; center-mark: true; ticks: 9; height: 28px; }
+                Crossfader { x: 8px; y: (parent.height - self.height) / 2; width: parent.width - 16px; }
             }
             SideRowKnob { key: "gain"; label: "MASTER"; }
         }
