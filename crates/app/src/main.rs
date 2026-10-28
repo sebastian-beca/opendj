@@ -480,6 +480,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let controller_editor = controller_editor::Editor::install(&app, controllers.clone());
     prefs::apply_saved(&registry);
+    let _levels = prefs::remember_levels(registry.clone());
     let prefs = prefs::Prefs::install(
         &app,
         registry.clone(),
@@ -632,6 +633,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let alert_until: Cell<Option<Instant>> = Cell::new(None);
     let alert_engine = engine.clone();
     let layout_version = Cell::new(layout_control.version());
+    // Switched off or on from the crossfader's menu, a controller or a
+    // script: remembered for next time, as the Settings switch is.
+    let xfader_enabled = registry.create(
+        "[Mixer]",
+        "crossfader_enabled",
+        1.0,
+        0.0,
+        1.0,
+        mixxx_control::Behavior::Toggle,
+    );
+    let xfader_version = Cell::new(xfader_enabled.version());
     // What the screen last showed, to redraw only when something changed.
     let shown_controls = Cell::new(u64::MAX);
     let shown_tracks: RefCell<[Option<Arc<Track>>; NUM_DECKS]> = Default::default();
@@ -666,6 +678,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     app.set_layout(layout);
                     settings::set("layout", serde_json::json!(layout));
                     reset_layers(layout);
+                }
+                if xfader_version.replace(xfader_enabled.version()) != xfader_enabled.version() {
+                    let on = xfader_enabled.get_bool();
+                    if settings::flag("xfader_enabled", true) != on {
+                        settings::set("xfader_enabled", serde_json::json!(on));
+                    }
                 }
                 // The newest alert shows for a while; a click closes it.
                 if let Some(message) = alert_engine.take_alerts().pop() {
