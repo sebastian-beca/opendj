@@ -35,6 +35,17 @@ Each stem SHALL have `volume`, `mute` and `color` (`[ChannelN_StemM]`, M = 1 to 
 - **WHEN** a separated track plays with every stem at full level
 - **THEN** the deck's output is the original track, sample for sample
 
+### Requirement: Stem pads
+The STEMS pad page SHALL show VirtualDJ's eight pads: Vocal, Instru, Bass and Acapella on top; Kick, HiHat, Stems FX and Instrumental below. A stem's pad SHALL mute and unmute it and be lit while it plays. Acapella SHALL play the vocals alone and Instrumental everything but the vocals, each bringing every stem back when pressed again. Stem levels SHALL be set on the mixer's knobs in stems mode, not on the pads. Right-clicking a pad SHALL offer Prepare High Quality Stems. There SHALL be no button to start a separation.
+
+#### Scenario: Acapella
+- **WHEN** Acapella is pressed on a deck with stems
+- **THEN** only the vocals play and the Acapella and Vocal pads are lit
+
+#### Scenario: Back to the full track
+- **WHEN** Acapella is pressed again
+- **THEN** every stem plays
+
 ## ADDED Requirements
 
 ### Requirement: Instant stems on load
