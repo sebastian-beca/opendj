@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>openDJ · Free, open-source DJ software for macOS and Linux</title>
-  <meta name="description" content="openDJ is a free, open-source DJ app for macOS and Linux, built in Rust. Two decks, a great Automix, stems, beat grids, key detection, Ableton Link and Mixxx controller mappings.">
+  <title>openDJ · Free, open-source DJ software for macOS, Linux and Windows</title>
+  <meta name="description" content="openDJ is a free, open-source DJ app for macOS, Linux and Windows, built in Rust. Two or four decks, a great Automix, stems, phrase detection, a sampler, beat grids, key mixing, Ableton Link and Mixxx controller mappings.">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0e0d17">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <meta property="og:title" content="openDJ">
-  <meta property="og:description" content="Free, open-source DJ software for macOS and Linux. Music is the Medicine.">
+  <meta property="og:description" content="Free, open-source DJ software for macOS, Linux and Windows. Music is the Medicine.">
   <meta property="og:image" content="https://opendj.app/assets/screenshot.webp">
   <meta property="og:url" content="https://opendj.app/">
   <meta name="twitter:card" content="summary_large_image">
@@ -41,9 +41,9 @@
   <!-- Hero -->
   <section class="hero" id="top">
     <div class="wrap">
-      <p class="eyebrow">macOS and Linux · Free and open source</p>
+      <p class="eyebrow">macOS, Linux and Windows · Free and open source</p>
       <h1>Open-source DJ software.<br>Music is the Medicine.</h1>
-      <p class="lede">Two decks, a mixer, effects and an Automix that blends for you. openDJ is fast, pleasant to use, and made for DJs just starting out and for experienced DJs alike.</p>
+      <p class="lede">Two or four decks, a mixer, stems, effects and an Automix that blends for you. openDJ is fast, pleasant to use, and made for DJs just starting out and for experienced DJs alike.</p>
       <div class="cta-row">
         <a class="btn btn-primary" href="#download" data-download-primary>Download openDJ</a>
         <a class="btn btn-ghost" href="https://github.com/sebastian-beca/opendj">View on GitHub</a>
@@ -51,7 +51,7 @@
       </div>
       <p class="meta">
         <span class="pill" data-version>v0.3.5 available</span>
-        <span class="platforms">macOS (Apple Silicon and Intel) · Linux</span>
+        <span class="platforms">macOS (Apple Silicon and Intel) · Linux · Windows (preview)</span>
       </p>
     </div>
     <div class="wrap wrap-wide">
@@ -67,7 +67,7 @@
       <div class="step">
         <span class="num">01</span><span class="label">Browse</span>
         <h3>Find the next track.</h3>
-        <p>Search your music folder by title, artist, BPM or key, with playlists, smart lists and ratings.</p>
+        <p>Search by title, artist, BPM or key, filter by tracks that mix with the one playing, and sort new music through stages.</p>
       </div>
       <div class="step">
         <span class="num">02</span><span class="label">Beatmatch</span>
@@ -77,12 +77,12 @@
       <div class="step">
         <span class="num">03</span><span class="label">Mix</span>
         <h3>Blend it in.</h3>
-        <p>Gain, 3-band EQ, filter, faders and a crossfader, with headphone cue for the next track.</p>
+        <p>Gain, 3-band EQ, Color FX on the filter, faders and a crossfader, with headphone cue and a mic channel.</p>
       </div>
       <div class="step">
         <span class="num">04</span><span class="label">Perform</span>
         <h3>Make it yours.</h3>
-        <p>Hot cues, loops, beat jumps and four beat-synced effect units on every deck.</p>
+        <p>Hot cues, saved loops, a 16-pad sampler, stem pads and beat-synced effects on every deck.</p>
       </div>
     </div>
   </section>
@@ -128,12 +128,12 @@
       <div class="split-text">
         <p class="eyebrow">Layouts</p>
         <h2>Room for the decks, or room for the music.</h2>
-        <p>Pro gives you the full decks, pads and effects. Player shrinks both decks to one row so your library gets the screen. A compact view hides the waveforms altogether.</p>
-        <div class="tags"><span>Pro</span><span>Player</span><span>Compact</span></div>
+        <p>2-Deck gives you the full decks, pads and effects. 4-Deck puts four decks side by side, djay style. Simple shrinks the decks to one row so your library gets the screen, and a compact view hides the decks altogether.</p>
+        <div class="tags"><span>Simple</span><span>2-Deck</span><span>4-Deck</span><span>Compact</span></div>
       </div>
       <figure class="split-media shot">
-        <img src="assets/player.webp" width="1600" height="296" alt="The Player layout: both decks in a single row, with small jog wheels, PLAY, CUE and SYNC, and EQs between them.">
-        <figcaption>The Player layout.</figcaption>
+        <img src="assets/player.webp" width="1600" height="296" alt="The Simple layout: both decks in a single row, with small jog wheels, PLAY, CUE and SYNC, and EQs between them.">
+        <figcaption>The Simple layout.</figcaption>
       </figure>
     </div>
   </section>
@@ -145,6 +145,7 @@
         <p class="eyebrow">Controllers · Mixxx mappings</p>
         <h2>Plug in your controller.</h2>
         <p>openDJ uses Mixxx's controller mappings, so most MIDI controllers Mixxx supports work as soon as they're plugged in. No setup, no mapping files to hunt for.</p>
+        <p>The Controller Editor in Settings shows what every control does, with a picture of the DDJ-FLX4, Xone K2 and Midi Fighter Twister: press a control to find it. Every mapping also has <a href="docs/controllers/">its own page in the docs</a>.</p>
         <p class="note">HID controllers aren't supported yet. If yours doesn't work right, <a href="https://github.com/sebastian-beca/opendj/issues/new?template=controller.yml">tell us which one</a> and testers' controllers are fixed first.</p>
       </div>
       <figure class="split-media controller" aria-hidden="true">
@@ -171,12 +172,48 @@
       <h2>Everything a mix needs.</h2>
       <ol class="cards">
         <li class="card"><span class="num">01</span><h3>Beat grids</h3><p>Grids that follow tempo changes, with tools to fix them by hand.</p></li>
-        <li class="card"><span class="num">02</span><h3>Key detection</h3><p>Every track gets a key, with harmonic mixing hints and key shift.</p></li>
-        <li class="card"><span class="num">03</span><h3>Stems</h3><p>Play NI stem files, or split any track with Demucs if it's installed.</p></li>
-        <li class="card"><span class="num">04</span><h3>Ableton Link</h3><p>Play in time with other apps and devices on your network.</p></li>
-        <li class="card"><span class="num">05</span><h3>GPU waveforms</h3><p>Fast waveforms drawn on the GPU, coloured by frequency.</p></li>
-        <li class="card"><span class="num">06</span><h3>Library</h3><p>Playlists, smart lists, ratings, colours, play history and fast search.</p></li>
+        <li class="card"><span class="num">02</span><h3>Key mixing</h3><p>Key lock, harmonic or fuzzy key matching, and tracks shifted to mix as they load.</p></li>
+        <li class="card"><span class="num">03</span><h3>Stems</h3><p>Split any track into vocals, drums, bass and the rest as it loads, then play them from the pads.</p></li>
+        <li class="card"><span class="num">04</span><h3>Phrases</h3><p>Intro, build, drop, break and outro, shown as a coloured bar under each deck.</p></li>
+        <li class="card"><span class="num">05</span><h3>Sampler</h3><p>16 pads with sample packs, and your own sounds dropped straight on a pad.</p></li>
+        <li class="card"><span class="num">06</span><h3>Record your mix</h3><p>WAV or FLAC, with a tracklist and every move you made logged next to it.</p></li>
+        <li class="card"><span class="num">07</span><h3>Ableton Link</h3><p>Play in time with other apps and devices on your network.</p></li>
+        <li class="card"><span class="num">08</span><h3>Library Health</h3><p>Find duplicates, missing files and tracks with no tags, and fix them in batches.</p></li>
+        <li class="card"><span class="num">09</span><h3>Bring your library</h3><p>Import from VirtualDJ, and export lists to a USB stick for Pioneer players (experimental).</p></li>
       </ol>
+    </div>
+  </section>
+
+  <!-- Comparison -->
+  <section class="compare" id="compare">
+    <div class="wrap">
+      <p class="eyebrow">How it compares</p>
+      <h2>openDJ, Mixxx and rekordbox.</h2>
+      <p class="sub">The big things at a glance, including what's on the way.</p>
+      <div class="table-scroll">
+        <table class="compare-table">
+          <thead>
+            <tr><th scope="col"><span class="visually-hidden">Feature</span></th><th scope="col" class="us">openDJ</th><th scope="col">Mixxx 2.5</th><th scope="col">rekordbox 7</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Price</th><td><strong>Free, open source</strong></td><td>Free, open source</td><td>Free, paid plans for more</td></tr>
+            <tr><th scope="row">Runs on</th><td>macOS, Linux, Windows <span class="soon">Windows in 0.4</span></td><td>macOS, Linux, Windows</td><td>macOS, Windows</td></tr>
+            <tr><th scope="row">Beat grids that follow tempo changes</th><td><span class="yes">Yes</span></td><td>Constant tempo only</td><td><span class="yes">Yes</span></td></tr>
+            <tr><th scope="row">Stems from any track</th><td><span class="yes">Yes</span></td><td>Stem files only (2.6 beta)</td><td><span class="yes">Yes</span></td></tr>
+            <tr><th scope="row">Phrase detection</th><td><span class="yes">Yes</span></td><td><span class="no">No</span></td><td><span class="yes">Yes</span></td></tr>
+            <tr><th scope="row">Automix</th><td><span class="yes">Yes</span> beat-matched blends</td><td>Auto DJ</td><td><span class="yes">Yes</span></td></tr>
+            <tr><th scope="row">Ableton Link</th><td><span class="yes">Yes</span></td><td><span class="no">No</span></td><td><span class="yes">Yes</span></td></tr>
+            <tr><th scope="row">MIDI controllers</th><td><span class="yes">Yes</span> 140+ Mixxx mappings</td><td>Yes, plus HID</td><td>Pioneer DJ, others by MIDI mapping</td></tr>
+            <tr><th scope="row">Mapping editor, MIDI learn</th><td><span class="soon">Planned for 1.0</span> view-only today</td><td><span class="yes">Yes</span></td><td><span class="yes">Yes</span></td></tr>
+            <tr><th scope="row">Import other DJ libraries</th><td>VirtualDJ <span class="soon">rekordbox planned</span></td><td>rekordbox, Serato, Traktor, iTunes</td><td>iTunes / Apple Music</td></tr>
+            <tr><th scope="row">USB export for Pioneer players</th><td><span class="soon">Experimental, in 0.4</span></td><td><span class="no">No</span></td><td><span class="yes">Yes</span></td></tr>
+            <tr><th scope="row">DVS timecode vinyl</th><td><span class="soon">Planned after 1.0</span></td><td><span class="yes">Yes</span></td><td><span class="yes">Yes</span></td></tr>
+            <tr><th scope="row">Streaming services</th><td>Browse only, plays your own files</td><td><span class="no">No</span></td><td>TIDAL, Beatport, SoundCloud and more</td></tr>
+            <tr><th scope="row">Control from an AI assistant</th><td><span class="soon">Planned for 1.0</span></td><td><span class="no">No</span></td><td><span class="no">No</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="small">Mixxx and rekordbox from their public pages, October 2026. Some rekordbox features need a subscription or Pioneer DJ hardware. See the <a href="https://github.com/sebastian-beca/opendj/releases">release notes</a> for what's in each openDJ version.</p>
     </div>
   </section>
 
@@ -204,9 +241,9 @@
 
   <!-- Download -->
   <section class="download" id="download">
-    <div class="wrap narrow">
+    <div class="wrap dl-wrap">
       <h2>Download openDJ.</h2>
-      <p class="sub">Free, for macOS and Linux. <span data-version-text>Version 0.3.5.</span></p>
+      <p class="sub">Free, for macOS, Linux and Windows. <span data-version-text>Version 0.3.5.</span></p>
       <div class="dl-grid">
         <div class="dl-card" data-os="mac">
           <h3>macOS</h3>
@@ -220,15 +257,16 @@
           <a class="btn btn-primary" data-asset="appimage" href="https://github.com/sebastian-beca/opendj/releases/latest">Download AppImage</a>
           <a class="text-link small" data-asset="tarball" href="https://github.com/sebastian-beca/opendj/releases/latest">or the .tar.gz</a>
         </div>
-        <!-- Shown by main.js once the latest release has a Windows download. -->
-        <div class="dl-card" data-os="windows" hidden>
-          <h3>Windows <span class="small">preview</span></h3>
-          <p>64-bit Windows 10 or 11. Windows Audio and ASIO.</p>
-          <a class="btn btn-primary" data-asset="winsetup" href="https://github.com/sebastian-beca/opendj/releases/latest">Download for Windows</a>
-          <a class="text-link small" data-asset="winzip" href="https://github.com/sebastian-beca/opendj/releases/latest">or the portable .zip</a>
+        <!-- main.js turns this into a download once the latest release has the Windows files. -->
+        <div class="dl-card" data-os="windows">
+          <h3>Windows <span class="soon">Preview</span></h3>
+          <p>64-bit Windows 10 or 11, with Windows Audio and ASIO drivers.</p>
+          <a class="btn btn-ghost" data-asset="winsetup" data-windows-button href="https://github.com/sebastian-beca/opendj/releases">Coming in 0.4</a>
+          <a class="text-link small" data-asset="winzip" data-windows-zip href="https://github.com/sebastian-beca/opendj/releases/latest" hidden>or the portable .zip</a>
+          <p class="small" data-windows-note>The first release for Windows is on its way. Until it's signed, Windows asks before the first start (More info → Run anyway).</p>
         </div>
       </div>
-      <p class="small center"><a href="https://github.com/sebastian-beca/opendj/releases">All releases and release notes</a><span data-windows-note> · Windows is coming in 0.4.</span></p>
+      <p class="small center"><a href="https://github.com/sebastian-beca/opendj/releases">All releases and release notes</a></p>
     </div>
   </section>
 
@@ -238,11 +276,12 @@
   <div class="wrap footer-inner">
     <div class="footer-brand">
       <a class="brand" href="#top"><img src="assets/logo.svg" alt="" width="28" height="28"><span class="wordmark">openDJ</span></a>
-      <p>Free, open-source DJ software for macOS and Linux.</p>
+      <p>Free, open-source DJ software for macOS, Linux and Windows.</p>
     </div>
     <div class="footer-col">
       <h4>Product</h4>
       <a href="#features">Features</a>
+      <a href="#compare">Compare</a>
       <a href="#download">Download</a>
       <a href="https://github.com/sebastian-beca/opendj/releases">Release notes</a>
     </div>
