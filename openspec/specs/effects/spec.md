@@ -41,11 +41,18 @@ A unit's `release` SHALL let the effect's tail ring on for 8 beats after it is t
 - **THEN** its repeats fade out over about 8 beats instead of stopping
 
 ### Requirement: Beat FX
-The FX tab of the mixer SHALL show the Beat FX unit Pioneer style: one effect, a channel selector, LEVEL/DEPTH, beat length, TAP and AUTO, ON/OFF. The DDJ-FLX4's BEAT FX section SHALL drive it.
+Two rows under the mixer's crossfader SHALL show the Beat FX unit Pioneer style: one effect, a channel selector (1, 2, 1&2, MST), LEVEL/DEPTH, beat length, TAP and AUTO, ON/OFF. The DDJ-FLX4's BEAT FX section SHALL drive it.
 
 #### Scenario: FLX4 Beat FX
 - **WHEN** BEAT FX ON is pressed on a DDJ-FLX4
 - **THEN** unit 5 turns on and the on-screen ON lights
+
+### Requirement: Deck FX defaults
+Each deck's own unit (units 1 to 4) SHALL start with Reverb, Echo and Gate in its three slots.
+
+#### Scenario: Fresh start
+- **WHEN** openDJ starts
+- **THEN** each deck's FX show Reverb, Echo and Gate, all off
 
 ### Requirement: Pad FX
 The PAD FX 1 pad page SHALL play an effect while a pad is held: Echo, Reverb, Low Pass, High Pass, Flanger, Phaser, Crush and Echo Max, using that deck's pad FX unit. PAD FX 2 SHALL do the same with Roll, Gate, Echo Out, Brake, Noise, Spiral, Gate Fast and Reverb Max. The DDJ-FLX4's PAD FX1 and PAD FX2 pads SHALL play the same effects.
