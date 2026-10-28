@@ -254,6 +254,7 @@ fn song_track(id: usize, path: PathBuf, song: roxmltree::Node) -> Track {
                 end: None,
                 name: name.to_string(),
                 color: number(Some(*p), "Color").map(color),
+                detected: false,
             })
         })
         .collect();

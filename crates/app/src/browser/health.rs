@@ -160,7 +160,7 @@ impl Browser {
 
     /// Library tracks (indices into `library`) on rows `first` to `last`, or
     /// on every row when `first` is negative.
-    fn picked_rows(&self, first: i32, last: i32) -> Vec<usize> {
+    pub(super) fn picked_rows(&self, first: i32, last: i32) -> Vec<usize> {
         let rows = &self.rows;
         let range = if first < 0 {
             0..rows.len()

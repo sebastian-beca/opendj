@@ -1,18 +1,20 @@
 import { Palette } from "std-widgets.slint";
 import { Theme, KeyNotation, CloseIcon } from "theme.slint";
 import { Controls, VuMeter, ControlKnob, HoverTipView } from "controls.slint";
-import { Deck, DeckInfo, KeyItem, EffectList, DeckActions } from "deck.slint";
+import { Deck, DeckInfo, KeyItem, EffectList, DeckActions, PhraseView, PhraseTip } from "deck.slint";
 import { Mixer, AudioSettings, OutputRow } from "mixer.slint";
 import { PlayerDeck, PlayerMixer } from "player.slint";
 import { DeckStrip, FourDeckCenter } from "fourdeck.slint";
 import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, ColumnUi, ListColumn, HealthUi, HealthCard } from "library.slint";
 import { Preferences, PreferencesOverlay, PrefItem, ImportWizard } from "preferences.slint";
+import { ControllerEditor, ControllerEditorOverlay, EditorRow, EditorPart, EditorPanel, EditorOption } from "controller_editor.slint";
 
 export { SourceUi, SourceTab, SearchItem, FoundRow, QueueLine } from "sources.slint";
 export { TrackInfo, InfoField, CoverChoice } from "info.slint";
 export { FilterUi, FilterChip, FilterChoice } from "filters.slint";
+export { SamplerUi, SamplerPad, SamplePack, SampleChoice } from "sampler.slint";
 export { ColumnUi, ListColumn }
-export { Theme, Controls, DeckActions, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, HealthUi, HealthCard, Preferences, PrefItem, ImportWizard }
+export { Theme, Controls, DeckActions, PhraseView, PhraseTip, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, HealthUi, HealthCard, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption }
 
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
 // the track under the pointer, like a hand on a record, and drag left or
@@ -30,25 +32,14 @@ component Waveform inherits Rectangle {
     property <int> duration-index: Controls.resolve(group, "duration");
     property <int> scrub-index: Controls.resolve(group, "scrub_position");
     property <int> scrub-enable-index: Controls.resolve(group, "scrub_enable");
-    // Whether phrase bars are drawn; a right-click offers to change it.
-    in-out property <bool> phrases-visible;
-    callback phrases-visible-changed(on: bool);
     property <float> press-position;
     property <bool> holding;
-    property <length> menu-x;
-    property <length> menu-y;
     background: Theme.well;
     clip: true;
     Image { width: parent.width; height: parent.height; source: source; image-fit: fill; }
     TouchArea {
         mouse-cursor: Controls.value(duration-index, Controls.tick) > 0 ? ew-resize : default;
         pointer-event(e) => {
-            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
-                menu-x = self.mouse-x;
-                menu-y = self.mouse-y;
-                menu.show();
-                return;
-            }
             if e.button != PointerEventButton.left {
                 return;
             }
@@ -70,41 +61,6 @@ component Waveform inherits Rectangle {
             if self.pressed && holding {
                 // Dragging right pulls earlier audio under the playhead.
                 Controls.set-value(scrub-index, clamp(press-position - (self.mouse-x - self.pressed-x) / self.width * visible-seconds / Controls.value(duration-index, Controls.tick), 0, 1));
-            }
-        }
-    }
-    menu := PopupWindow {
-        x: min(menu-x, root.width - 130px);
-        y: menu-y;
-        width: 130px;
-        Rectangle {
-            background: Theme.panel-raised;
-            border-radius: Theme.radius;
-            border-width: 1px;
-            border-color: Theme.border;
-            drop-shadow-blur: 8px;
-            drop-shadow-color: #00000080;
-        }
-        VerticalLayout {
-            padding: 4px;
-            Rectangle {
-                height: 24px;
-                background: item.has-hover ? Theme.panel-raised.brighter(0.3) : transparent;
-                border-radius: 4px;
-                Text {
-                    x: 10px;
-                    text: phrases-visible ? "Hide phrases" : "Show phrases";
-                    color: Theme.text;
-                    font-size: 11px;
-                    font-weight: 600;
-                    vertical-alignment: center;
-                }
-                item := TouchArea {
-                    clicked => {
-                        phrases-visible = !phrases-visible;
-                        phrases-visible-changed(phrases-visible);
-                    }
-                }
             }
         }
     }
@@ -529,9 +485,6 @@ export component AppWindow inherits Window {
     // The large scrolling waveforms above the decks, from the top bar button.
     in-out property <bool> waveforms-visible: true;
     callback waveforms-visible-changed(on: bool);
-    // Phrase bars on the waveforms.
-    in-out property <bool> phrases-visible: true;
-    callback phrases-visible-changed(on: bool);
 
     // Physical sizes the GPU textures should be rendered at.
     // Room on the left of the top bar for macOS's window buttons.
@@ -618,21 +571,30 @@ export component AppWindow inherits Window {
     changed playing-4 => { playing-changed(3); }
 
     // Shortcuts no focused field took: ⌘, opens settings (Ctrl+, on
-    // Linux), Esc closes them, and the space bar pauses or resumes the
-    // master deck. Any other key goes to the keyboard shortcuts, which
-    // run openDJscript (⌘1 to ⌘5 rate the picked tracks).
+    // Linux; Slint reads ⌘ as control on macOS), Esc closes them, and the
+    // space bar pauses or resumes the master deck. Any other key goes to
+    // the keyboard shortcuts, which run openDJscript (⌘1 to ⌘5 rate the
+    // picked tracks).
     keys := FocusScope {
         key-pressed(e) => {
             if e.text == " " && !Preferences.open && !e.modifiers.control && !e.modifiers.meta && !e.modifiers.alt {
                 Controls.set-value(play-index[master-deck], playing[master-deck] ? 0 : 1);
                 return accept;
             }
+            // Only opens, as in other Mac apps, so it can't undo the app
+            // menu's Settings… when both see the key.
             if e.text == "," && e.modifiers.control {
-                if Preferences.open {
-                    Preferences.open = false;
-                } else {
+                if !Preferences.open {
                     Preferences.show(Preferences.page);
                 }
+                return accept;
+            }
+            if e.text == Key.Escape && ControllerEditor.dialog != 0 {
+                ControllerEditor.dialog-done(false);
+                return accept;
+            }
+            if e.text == Key.Escape && ControllerEditor.open {
+                ControllerEditor.open = false;
                 return accept;
             }
             if e.text == Key.Escape && Preferences.open {
@@ -713,21 +675,21 @@ export component AppWindow inherits Window {
                 if !four: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; phrases-visible <=> root.phrases-visible; phrases-visible-changed(on) => { root.phrases-visible-changed(on); } }
+                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-2; group: "[Channel2]"; vertical-stretch: 1; phrases-visible <=> root.phrases-visible; phrases-visible-changed(on) => { root.phrases-visible-changed(on); } }
+                    Waveform { source: waveform-2; group: "[Channel2]"; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
                 }
                 if four: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-3; group: "[Channel3]"; vertical-stretch: 1; phrases-visible <=> root.phrases-visible; phrases-visible-changed(on) => { root.phrases-visible-changed(on); } }
+                    Waveform { source: waveform-3; group: "[Channel3]"; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; phrases-visible <=> root.phrases-visible; phrases-visible-changed(on) => { root.phrases-visible-changed(on); } }
+                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-2; group: "[Channel2]"; vertical-stretch: 1; phrases-visible <=> root.phrases-visible; phrases-visible-changed(on) => { root.phrases-visible-changed(on); } }
+                    Waveform { source: waveform-2; group: "[Channel2]"; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-4; group: "[Channel4]"; vertical-stretch: 1; phrases-visible <=> root.phrases-visible; phrases-visible-changed(on) => { root.phrases-visible-changed(on); } }
+                    Waveform { source: waveform-4; group: "[Channel4]"; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
                 }
             }
@@ -830,6 +792,21 @@ export component AppWindow inherits Window {
                         lit-icon: "M 2 4 L 18 4 L 18 16 L 2 16 Z M 10 7 L 10 13 M 7 10 L 10 13 L 13 10";
                         clicked => { library-expanded = !library-expanded; }
                     }
+                    // How background analysis is going, with a ✕ that stops it.
+                    if LibraryEdit.analysis-status != "": HorizontalLayout {
+                        spacing: 6px;
+                        Text {
+                            text: LibraryEdit.analysis-status;
+                            color: Theme.text-dim;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                        Rectangle {
+                            width: 20px;
+                            CloseIcon { size: 8px; color: stop-touch.has-hover ? Theme.text : Theme.text-dim; }
+                            stop-touch := TouchArea { clicked => { LibraryEdit.cancel-analysis(); } }
+                        }
+                    }
                     FooterButton {
                         y: 5px;
                         lit: side-panel-visible;
@@ -922,6 +899,10 @@ export component AppWindow inherits Window {
             width: root.width;
             height: root.height;
             init => { self.focus-search(); }
+        }
+        if ControllerEditor.open: ControllerEditorOverlay {
+            width: root.width;
+            height: root.height;
         }
     }
 }

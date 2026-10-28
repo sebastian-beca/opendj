@@ -55,7 +55,7 @@ pub struct Frame {
     pub hotcues: [Option<f64>; 8],
     pub gain: f32,
     /// Where each phrase starts and its kind, earliest first; empty to
-    /// draw none. At most [`MAX_PHRASES`] are drawn.
+    /// draw none. Drawn on the overview only, at most [`MAX_PHRASES`].
     pub phrases: Vec<(f64, PhraseKind)>,
 }
 
@@ -71,6 +71,7 @@ pub enum PhraseKind {
     Drop,
     Breakdown,
     Outro,
+    Chorus,
 }
 
 /// Tempo sections the shader draws at once: enough for any view, since a
@@ -139,7 +140,9 @@ struct Params {
     phrase_start: [[f32; 4]; MAX_PHRASES / 4],
     phrase_kind: [[u32; 4]; MAX_PHRASES / 4],
     phrase_count: u32,
-    _pad: [u32; 3],
+    /// Slices per minute, for the overview's minute dots; 0 for none.
+    minute_bins: f32,
+    _pad: [u32; 2],
 }
 
 /// Levels the shader can address; the coarsest is 2^15 slices per texel pair,
@@ -475,7 +478,8 @@ impl WaveformView {
             phrase_start: [[0.0; 4]; MAX_PHRASES / 4],
             phrase_kind: [[0; 4]; MAX_PHRASES / 4],
             phrase_count: 0,
-            _pad: [0; 3],
+            minute_bins: 0.0,
+            _pad: [0; 2],
         };
         if let (Some(f), true) = (frame, num_bins > 0) {
             let bins_per_pixel = match self.mode {
@@ -515,6 +519,9 @@ impl WaveformView {
                 params.phrase_start[i / 4][i % 4] = to_bin(*seconds);
                 params.phrase_kind[i / 4][i % 4] = *kind as u32;
                 params.phrase_count = i as u32 + 1;
+            }
+            if f.duration > 60.0 {
+                params.minute_bins = to_bin(60.0);
             }
         }
         queue.write_buffer(&self.params, 0, bytemuck::bytes_of(&params));

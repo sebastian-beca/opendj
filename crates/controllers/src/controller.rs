@@ -195,6 +195,21 @@ impl Controller {
         Ok(c)
     }
 
+    /// Starts noting every control the mapping's scripts write, for
+    /// [`Self::take_trace`]; see the Controller Editor's probe.
+    pub fn start_trace(&mut self) {
+        self.host.borrow_mut().trace = Some(Vec::new());
+    }
+
+    /// The controls scripts wrote since the last call, while tracing, with
+    /// the last value other than 0 written to each.
+    pub fn take_trace(&mut self) -> Vec<(mixxx_control::ConfigKey, f64)> {
+        match &mut self.host.borrow_mut().trace {
+            Some(t) => std::mem::take(t),
+            None => Vec::new(),
+        }
+    }
+
     pub fn mapping_name(&self) -> &str {
         &self.mapping.name
     }
@@ -217,7 +232,10 @@ impl Controller {
             }
             return;
         }
-        let control = msg.get(1).copied().unwrap_or(0);
+        let control = self
+            .host
+            .borrow()
+            .routed_input(status, msg.get(1).copied().unwrap_or(0));
         let value = msg.get(2).copied().unwrap_or(0);
         if let Some(inputs) = self.mapping.inputs.get(&(status, control)).cloned() {
             for input in inputs {
@@ -363,7 +381,7 @@ impl Controller {
 
     /// MIDI messages to send to the device, oldest first.
     pub fn take_output(&mut self) -> Vec<Vec<u8>> {
-        let out = std::mem::take(&mut self.host.borrow_mut().sent);
+        let out = self.host.borrow_mut().take_routed();
         if self.debug {
             for m in &out {
                 eprintln!("{} <- {m:02X?}", self.name);

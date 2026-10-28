@@ -6,7 +6,7 @@
 // deck number is clicked: then that side plays deck 3 or 4.
 import { TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
-import { ControlButton, ControlFader, Controls, CueHeadphones, KeyLock, PitchReset, StereoMeter } from "controls.slint";
+import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, KeyLock, PitchReset, StereoMeter } from "controls.slint";
 import { DeckInfo, FxRows, Header, LoopStepper, Pads, PlayButton } from "deck.slint";
 import { AudioSettings, Knob, ModeMenu, SideKnob } from "mixer.slint";
 
@@ -18,7 +18,10 @@ component CrossfaderAssign inherits Rectangle {
     property <int> index: Controls.resolve(group, "orientation");
     property <int> side: Controls.value(index, Controls.tick);
     property <[string]> names: ["LEFT", "THRU", "RIGHT"];
+    // Dimmed while the crossfader is switched off; the choice stays.
+    property <int> enabled-index: Controls.resolve("[Mixer]", "crossfader_enabled");
     width: 64px;
+    opacity: Controls.value(enabled-index, Controls.tick) > 0 ? 1 : 0.35;
     HorizontalLayout {
         alignment: start;
         spacing: 3px;
@@ -94,6 +97,16 @@ export component DeckStrip inherits Rectangle {
     property <int> layer-index: Controls.resolve("[Controller]", Math.mod(deck, 2) == 0 ? "deck3" : "deck4");
     property <bool> layer-on: Controls.value(layer-index, Controls.tick) > 0;
     property <bool> controller-here: AudioSettings.controllers != "None" && (deck >= 2) == layer-on;
+    // Tracks dragged from the browser load here, as on the other layouts.
+    // First, so the sampler pads' own drop areas sit above it.
+    drop := DropArea {
+        can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
+        dropped(e) => {
+            TrackDrag.drop(deck, e.data);
+            TrackDrag.active = false;
+            DragAction.copy
+        }
+    }
     VerticalLayout {
         spacing: 1px;
         header := Header {
@@ -139,12 +152,12 @@ export component DeckStrip inherits Rectangle {
                     spacing: 6px;
                     CrossfaderAssign { deck: deck; }
                     ControlButton { group: group; key: "sync_enabled"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 12px; width: 60px; }
-                    // Key lock over pitch reset, pointing at the tempo.
+                    // Pitch reset, pointing at the tempo, over key lock.
                     VerticalLayout {
                         alignment: center;
                         spacing: 1px;
-                        KeyLock { group: group; }
                         PitchReset { group: group; tint: tint; height: 14px; }
+                        KeyLock { group: group; }
                     }
                     VerticalLayout {
                         horizontal-stretch: 1;
@@ -161,15 +174,6 @@ export component DeckStrip inherits Rectangle {
         }
     }
 
-    // Tracks dragged from the browser load here, as on the other layouts.
-    drop := DropArea {
-        can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
-        dropped(e) => {
-            TrackDrag.drop(deck, e.data);
-            TrackDrag.active = false;
-            DragAction.copy
-        }
-    }
     if TrackDrag.active || drop.has-drag: Rectangle {
         border-radius: Theme.radius + 2px;
         border-width: drop.has-drag ? 3px : 2px;
@@ -202,6 +206,6 @@ export component FourDeckCenter inherits Rectangle {
             vertical-stretch: 1;
             StereoMeter { group: "[Master]"; }
         }
-        ControlFader { group: "[Master]"; key: "crossfader"; vertical: false; center-mark: true; ticks: 9; height: 28px; }
+        Crossfader { }
     }
 }

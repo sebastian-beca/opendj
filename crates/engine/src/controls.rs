@@ -50,6 +50,9 @@ pub fn sculpt_group(deck: usize) -> String {
     format!("[Sculpt_[Channel{}]]", deck + 1)
 }
 
+/// Where the sculpt's hpf, freq, gain and lpf knobs rest: flat.
+pub(crate) const SCULPT_DEFAULTS: [f64; 4] = [0.0, 0.5, 0.5, 1.0];
+
 pub fn effect_unit_group(unit: usize) -> String {
     format!("[EffectRack1_EffectUnit{}]", unit + 1)
 }
@@ -213,6 +216,29 @@ impl DeckControls {
         // loop, 6 pad FX 2, 7 keyboard, 8 key shift, 9 loop roll); the skin
         // shows it and sets this back to -1.
         reg.create(g, "pad_panel", -1.0, -1.0, 16.0, Behavior::Free);
+        // Asks the skin to open pad tab 0-7 by its place (a controller's pad
+        // mode buttons: 0-3 plain, 4-7 with Shift), whatever panel it shows;
+        // the skin sets this back to -1.
+        reg.create(g, "pad_tab", -1.0, -1.0, 7.0, Behavior::Free);
+        // The pad panel in each of the eight pad tabs (numbers as for
+        // `pad_panel`), in the DDJ-FLX4's pad mode order. The skin changes
+        // them; a controller's pads follow them.
+        for (tab, panel) in [0.0, 1.0, 2.0, 3.0, 7.0, 6.0, 5.0, 8.0]
+            .into_iter()
+            .enumerate()
+        {
+            reg.create(
+                g,
+                &format!("pad_slot_{}", tab + 1),
+                panel,
+                0.0,
+                16.0,
+                Behavior::Free,
+            );
+        }
+        // Which 8 sampler slots the deck's SAMPLER pads play: 0 slots 1-8,
+        // 1 slots 9-16.
+        reg.create(g, "sampler_page", 0.0, 0.0, 1.0, Behavior::Free);
         alias(reg, g, "pitch_adjust", g, "pitch");
         // Chain presets are not implemented: the empty preset and the filter,
         // which is always loaded.
@@ -330,8 +356,10 @@ impl DeckControls {
             filter: reg.create(&qg, "super1", 0.5, 0.0, 1.0, Behavior::Linear),
             sculpt: {
                 let sg = sculpt_group(deck);
-                [("hpf", 0.0), ("freq", 0.5), ("gain", 0.5), ("lpf", 1.0)]
-                    .map(|(k, v)| reg.create(&sg, k, v, 0.0, 1.0, Behavior::Linear))
+                let keys = ["hpf", "freq", "gain", "lpf"];
+                std::array::from_fn(|i| {
+                    reg.create(&sg, keys[i], SCULPT_DEFAULTS[i], 0.0, 1.0, Behavior::Linear)
+                })
             },
             quick_enabled: {
                 let e = reg.toggle(&qg, "enabled");
@@ -551,6 +579,11 @@ pub(crate) struct MasterControls {
     /// sharp cut at the ends for scratching.
     pub(crate) xfader_shape: ControlHandle,
     pub(crate) xfader_reverse: ControlHandle,
+    /// `[Mixer] crossfader_enabled`: off, every deck plays as if set to
+    /// thru and the crossfader does nothing, unless Automix is mixing.
+    pub(crate) xfader_enabled: ControlHandle,
+    /// `[AutoDJ] enabled`, which keeps the crossfader working for Automix.
+    pub(crate) autodj_enabled: ControlHandle,
     pub(crate) balance: ControlHandle,
     pub(crate) vu: ControlHandle,
     pub(crate) vu_l: ControlHandle,
@@ -563,6 +596,10 @@ pub(crate) struct MasterControls {
     /// How many semitones, at most, a track loaded while another deck plays
     /// is shifted so its key mixes with that deck's: 0 leaves it alone.
     pub(crate) key_match_on_load: ControlHandle,
+    /// What loading a track puts back to normal on its deck: `[Controls]`
+    /// auto_reset_fx (effects off), auto_reset_eq (EQ, kills, filter and
+    /// sculpt) and auto_reset_gain (the gain knob). All on to start.
+    pub(crate) auto_reset: [ControlHandle; 3],
 }
 
 pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
@@ -599,9 +636,9 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
         vu: reg.indicator("[Master]", "VuMeter", 1.0),
         peak: ["", "L", "R"].map(|s| reg.indicator("[Master]", &format!("PeakIndicator{s}"), 1.0)),
         crossfader: reg.create("[Master]", "crossfader", 0.0, -1.0, 1.0, Behavior::Linear),
-        gain: reg.create("[Master]", "gain", 1.0, 0.0, 1.0, Behavior::Linear),
-        head_gain: reg.create("[Master]", "headGain", 1.0, 0.0, 1.0, Behavior::Linear),
-        head_mix: reg.create("[Master]", "headMix", 0.0, -1.0, 1.0, Behavior::Linear),
+        gain: reg.create("[Master]", "gain", 0.5, 0.0, 1.0, Behavior::Linear),
+        head_gain: reg.create("[Master]", "headGain", 0.25, 0.0, 1.0, Behavior::Linear),
+        head_mix: reg.create("[Master]", "headMix", -1.0, -1.0, 1.0, Behavior::Linear),
         booth_gain: reg.create("[Master]", "booth_gain", 1.0, 0.0, 1.0, Behavior::Linear),
         head_split: reg.toggle("[Master]", "headSplit"),
         xfader_shape: reg.create(
@@ -613,6 +650,15 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
             Behavior::Free,
         ),
         xfader_reverse: reg.toggle("[Mixer Profile]", "xFaderReverse"),
+        xfader_enabled: reg.create(
+            "[Mixer]",
+            "crossfader_enabled",
+            1.0,
+            0.0,
+            1.0,
+            Behavior::Toggle,
+        ),
+        autodj_enabled: reg.toggle("[AutoDJ]", "enabled"),
         vu_l: reg.indicator("[Master]", "VuMeterL", 1.0),
         vu_r: reg.indicator("[Master]", "VuMeterR", 1.0),
         // Mixxx keeps its ReplayGain switch in the [ReplayGain] group too.
@@ -640,6 +686,11 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
             2.0,
             Behavior::Free,
         ),
+        auto_reset: ["fx", "eq", "gain"].map(|k| {
+            let c = reg.toggle("[Controls]", &format!("auto_reset_{k}"));
+            c.set_bool(true);
+            c
+        }),
     }
 }
 

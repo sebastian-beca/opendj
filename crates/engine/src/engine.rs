@@ -14,6 +14,7 @@ use mixxx_control::ControlRegistry;
 use crate::beats::GridEdit;
 use crate::controls::{
     create_global_controls, Action, DeckControls, Edge, MasterControls, HOTCUE_CUE, HOTCUE_LOOP,
+    SCULPT_DEFAULTS,
 };
 use crate::dsp::{Isolator, Limiter, Sculpt, SweepFilter};
 use crate::effects::{input_target, EffectRack, MAIN, TARGETS};
@@ -23,7 +24,7 @@ use crate::keyshift::{transpose_factor, KeyShifter};
 use crate::link::{phase_error, Link, Moment};
 use crate::preview::{Preview, PreviewInput};
 use crate::recorder::{self, Feed, RecordTap};
-use crate::sampler::Samplers;
+use crate::sampler::{SamplerInput, Samplers};
 use crate::stems::{Stems, MAX_STEMS};
 use crate::track::{Audio, Track};
 use crate::visual::VisualPositions;
@@ -986,6 +987,7 @@ pub struct Engine {
     /// Plays a track into the headphones for the info panel.
     preview: Preview,
     preview_input: Option<PreviewInput>,
+    sampler_input: Option<SamplerInput>,
     /// The microphone and auxiliary inputs, and the ducking of the music
     /// under the microphone.
     inputs: [Input; NUM_INPUTS],
@@ -1075,7 +1077,7 @@ impl Engine {
             stems_shown: 0,
         });
         let fx = EffectRack::new(registry, sample_rate);
-        let samplers = Samplers::new(registry, sample_rate);
+        let (samplers, sampler_input) = Samplers::new(registry, sample_rate);
         let (preview, preview_input) = Preview::new(registry, sample_rate);
         let (commands_tx, commands) = rtrb::RingBuffer::new(QUEUE);
         let (returned, returned_rx) = rtrb::RingBuffer::new(QUEUE * 2);
@@ -1094,6 +1096,7 @@ impl Engine {
                 record_feed: Some(record_feed),
                 preview,
                 preview_input: Some(preview_input),
+                sampler_input: Some(sampler_input),
                 sample_rate,
                 decks,
                 master,
@@ -1137,6 +1140,11 @@ impl Engine {
         self.preview_input.take()
     }
 
+    /// The other end of the sampler's queues; there is only one.
+    pub(crate) fn take_sampler_input(&mut self) -> Option<SamplerInput> {
+        self.sampler_input.take()
+    }
+
     fn apply_commands(&mut self) {
         while let Ok(cmd) = self.commands.pop() {
             match cmd {
@@ -1157,15 +1165,33 @@ impl Engine {
                         h.end_position.set(-1.0);
                     }
                     d.c.hotcue_focus.set(-1.0);
-                    // The track's own gain, set in its info.
+                    let [reset_fx, reset_eq, reset_gain] =
+                        self.master.auto_reset.each_ref().map(|c| c.get_bool());
+                    // The track's own gain, set in its info; auto gain levels
+                    // it on top.
                     if let Some(db) = track.info.gain_db {
                         d.c.pregain
                             .set(10f64.powf(db as f64 / 20.0).clamp(0.0, 4.0));
                         d.track_gain = true;
-                    } else if d.track_gain {
+                    } else if d.track_gain || reset_gain {
                         d.c.pregain.set(1.0);
                         d.track_gain = false;
                     }
+                    if reset_eq {
+                        for (eq, kill) in d.c.eq.iter().zip(&d.c.eq_kill) {
+                            eq.set(1.0);
+                            kill.set_bool(false);
+                        }
+                        d.c.filter.set(0.5);
+                        for (c, v) in d.c.sculpt.iter().zip(SCULPT_DEFAULTS) {
+                            c.set(v);
+                        }
+                    }
+                    if reset_fx {
+                        let playing = std::array::from_fn(|k| self.decks[k].c.play.get_bool());
+                        self.fx.reset_deck(deck, playing);
+                    }
+                    let d = &mut self.decks[deck];
                     // Hot cues and saved loops from the library.
                     for cue in &track.info.hotcues {
                         if let Some(h) = d.c.hotcues.get(cue.number) {
@@ -1582,9 +1608,12 @@ impl Engine {
         }
         let sides = xfader_gains(x, self.master.xfader_shape.get() as u8);
         // Each deck follows the side it is assigned to; thru decks skip the
-        // crossfader.
+        // crossfader, and so does every deck while it is switched off.
+        let xfader_on =
+            self.master.xfader_enabled.get_bool() || self.master.autodj_enabled.get_bool();
         let xfade_target: [f32; NUM_DECKS] =
             std::array::from_fn(|i| match self.decks[i].c.orientation.get().round() as i32 {
+                _ if !xfader_on => 1.0,
                 0 => sides[0],
                 2 => sides[1],
                 _ => 1.0,
@@ -2084,6 +2113,10 @@ mod tests {
     fn setup() -> (Arc<ControlRegistry>, Engine, EngineInput) {
         let reg = ControlRegistry::new();
         let (engine, input) = Engine::new(&reg, SR);
+        // The tests measure levels at unity, not at the DJ's starting levels.
+        for (key, value) in [("gain", 1.0), ("headGain", 1.0), ("headMix", 0.0)] {
+            reg.get("[Master]", key).unwrap().set(value);
+        }
         (reg, engine, input)
     }
 
@@ -2300,6 +2333,57 @@ mod tests {
             (20.0 * (full / levelled).log10() - 6.0).abs() < 0.2,
             "{levelled} {full}"
         );
+    }
+
+    #[test]
+    fn loading_a_track_resets_fx_eq_and_gain() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 4.0));
+        load(&mut input, 1, short_track(120.0, 4.0));
+        run(&mut engine, 0.02);
+        let c = |g: &str, k: &str| reg.get(g, k).unwrap();
+        let deck1 = |k: &str| c("[Channel1]", k);
+        let eq = |k: &str| c("[EqualizerRack1_[Channel1]_Effect1]", k);
+        let slot = |u: usize, k: &str| c(&format!("[EffectRack1_EffectUnit{u}_Effect1]"), k);
+        deck1("pregain").set(2.0);
+        eq("parameter1").set(0.2);
+        eq("button_parameter3").set_bool(true);
+        c("[QuickEffectRack1_[Channel1]]", "super1").set(0.8);
+        c("[Sculpt_[Channel1]]", "lpf").set(0.3);
+        // Deck 1's unit, and the Beat FX on decks 1 and 2 with deck 2 playing.
+        slot(1, "enabled").set_bool(true);
+        slot(1, "beats").set(2.0);
+        c("[EffectRack1_EffectUnit1]", "mix").set(0.4);
+        slot(5, "enabled").set_bool(true);
+        c("[Channel2]", "play").set_bool(true);
+        run(&mut engine, 0.02);
+
+        load(&mut input, 0, short_track(124.0, 4.0));
+        run(&mut engine, 0.02);
+        assert_eq!(deck1("pregain").get(), 1.0);
+        assert_eq!(eq("parameter1").get(), 1.0);
+        assert!(!eq("button_parameter3").get_bool());
+        assert_eq!(c("[QuickEffectRack1_[Channel1]]", "super1").get(), 0.5);
+        assert_eq!(c("[Sculpt_[Channel1]]", "lpf").get(), 1.0);
+        // Off, with its beats and dry/wet kept.
+        assert!(!slot(1, "enabled").get_bool());
+        assert_eq!(slot(1, "beats").get(), 2.0);
+        assert_eq!(c("[EffectRack1_EffectUnit1]", "mix").get(), 0.4);
+        // The Beat FX still plays on deck 2.
+        assert!(slot(5, "enabled").get_bool());
+
+        // Switched off, loading leaves them as they are.
+        for k in ["fx", "eq", "gain"] {
+            c("[Controls]", &format!("auto_reset_{k}")).set_bool(false);
+        }
+        deck1("pregain").set(2.0);
+        eq("parameter1").set(0.2);
+        slot(1, "enabled").set_bool(true);
+        load(&mut input, 0, short_track(126.0, 4.0));
+        run(&mut engine, 0.02);
+        assert_eq!(deck1("pregain").get(), 2.0);
+        assert_eq!(eq("parameter1").get(), 0.2);
+        assert!(slot(1, "enabled").get_bool());
     }
 
     #[test]
@@ -2945,6 +3029,8 @@ mod tests {
     fn render(track: &Arc<Track>, configure: impl Fn(&ControlRegistry)) -> Vec<f32> {
         let (reg, mut engine, mut input) = setup();
         load(&mut input, 0, track.clone());
+        // Loading resets the deck's effects and EQ, so configure after it.
+        run(&mut engine, 0.01);
         configure(&reg);
         // Let gain ramps settle before the music starts, so a bypassed
         // effect leaves the output bit-identical.
@@ -3426,6 +3512,28 @@ mod tests {
         assert!(!loud(Some(2.0), -1.0));
         // Thru: the crossfader leaves it alone.
         assert!(loud(Some(1.0), -1.0) && loud(Some(1.0), 1.0));
+    }
+
+    #[test]
+    fn disabled_crossfader_plays_every_deck() {
+        let loud = |enabled: bool, autodj: bool| {
+            let (reg, mut engine, mut input) = setup();
+            load(&mut input, 2, short_track(124.0, 4.0));
+            reg.get("[Mixer]", "crossfader_enabled")
+                .unwrap()
+                .set_bool(enabled);
+            reg.get("[AutoDJ]", "enabled").unwrap().set_bool(autodj);
+            // Deck 3 is on the left; the crossfader is all the way right.
+            reg.get("[Master]", "crossfader").unwrap().set(1.0);
+            run(&mut engine, 0.01);
+            reg.get("[Channel3]", "play").unwrap().set_bool(true);
+            let out = record(&mut engine, 0.5);
+            out.iter().map(|x| x.abs()).fold(0.0, f32::max) > 0.01
+        };
+        assert!(!loud(true, false));
+        assert!(loud(false, false));
+        // Automix needs the crossfader to mix, so it keeps working.
+        assert!(!loud(false, true));
     }
 
     fn reg_default_orientation() -> [f64; 4] {

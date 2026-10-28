@@ -35,11 +35,11 @@ struct Params {
     level_offset: array<vec4<u32>, 4>, // first texel of each level
     level_len: array<vec4<u32>, 4>,    // slices in each level
     phrase_start: array<vec4<f32>, 8>, // where each phrase starts, in slices
-    phrase_kind: array<vec4<u32>, 8>,  // its kind: intro, build, drop, breakdown, outro
+    phrase_kind: array<vec4<u32>, 8>,  // its kind: intro, build, drop, breakdown, outro, chorus
     phrase_count: u32,
+    minute_bins: f32,                  // slices per minute, for the overview's minute dots (0 = none)
     pad0: u32,
     pad1: u32,
-    pad2: u32,
 };
 
 @group(0) @binding(0) var<uniform> p: Params;
@@ -65,15 +65,15 @@ const AMBER = vec3<f32>(0.91, 0.70, 0.23);
 const LOOP_LILAC = vec3<f32>(0.714, 0.612, 1.0);
 const LOOP_MARKING = vec3<f32>(0.82, 0.82, 0.84);
 const CUE_ORANGE = vec3<f32>(1.0, 0.6, 0.1);
-// Phrase colours, muted and close to the lilac accent: intro and outro a
-// cool grey, builds a dusky lilac, drops the lilac itself, breakdowns a
-// quiet blue.
-const PHRASE_COLORS = array<vec3<f32>, 5>(
-    vec3<f32>(0.42, 0.44, 0.50),
-    vec3<f32>(0.54, 0.47, 0.76),
-    vec3<f32>(0.714, 0.612, 1.0),
-    vec3<f32>(0.36, 0.48, 0.64),
-    vec3<f32>(0.42, 0.44, 0.50),
+// Phrase colours, in PhraseKind order: intro, build (up), drop (peak),
+// breakdown (break or bridge), outro, chorus (main).
+const PHRASE_COLORS = array<vec3<f32>, 6>(
+    vec3<f32>(0.141, 0.353, 0.471), // #245A78
+    vec3<f32>(0.580, 0.447, 0.835), // #9472D5
+    vec3<f32>(0.792, 0.294, 0.408), // #CA4B68
+    vec3<f32>(0.914, 0.608, 0.408), // #E99B68
+    vec3<f32>(0.141, 0.353, 0.471), // #245A78
+    vec3<f32>(0.282, 0.773, 0.631), // #48C5A1
 );
 
 struct Slice {
@@ -190,6 +190,11 @@ fn line(x: f32, at: f32, half_w: f32) -> f32 {
     return clamp(half_w + 0.5 - abs(x - c), 0.0, 1.0);
 }
 
+// How much of pixel `x` the `w` pixels just left of `at` cover.
+fn gap_before(x: f32, at: f32, w: f32) -> f32 {
+    return clamp(min(x + 0.5, at) - max(x - 0.5, at - w), 0.0, 1.0);
+}
+
 // The x pixel of a slice position.
 fn bin_x(bin: f32) -> f32 {
     if (p.mode == 0u) {
@@ -284,7 +289,16 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let y = frag.y;
     let k = max(p.scale, 1.0);
     let bin = column_bin(x);
-    let half_h = p.size.y * 0.5;
+    // The overview keeps strips along the bottom, from the top: the
+    // waveform, a dot at every minute, then the phrase bar.
+    var bar_h = 0.0;
+    var dots_h = 0.0;
+    if (p.mode == 1u) {
+        bar_h = select(0.0, 6.0 * k, p.phrase_count > 0u);
+        dots_h = select(0.0, 6.0 * k, p.minute_bins > 0.0);
+    }
+    let wave_h = p.size.y - bar_h - dots_h;
+    let half_h = wave_h * 0.5;
     let d = abs(y - half_h) - 0.5;            // pixels from the centre line
     let span = half_h - 1.0;                  // tallest a peak can reach
     var color = p.background.rgb;
@@ -365,31 +379,28 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         color = over(color, vec3<f32>(1.0), bar_number(x, y, k, sec) * 0.85);
     }
 
-    // Phrases: a thin bar along the bottom in each phrase's colour, with a
-    // gap where one ends, and on the scrolling waveform a faint line where
-    // each starts.
-    if (p.phrase_count > 0u && has_track) {
+    // Phrases (overview): a bar along the bottom in each phrase's colour.
+    // Each phrase starts exactly on its bar; the gap before the next one is
+    // taken from the end of the phrase, so starts line up with cues and grid.
+    if (p.phrase_count > 0u && has_track && bar_h > 0.0) {
         let ph = phrase_at(bin);
-        // How much of this pixel the start of its phrase or of the next
-        // one covers (the first phrase's start, the track's, has no line).
+        // How much of this pixel the gap before its phrase or before the
+        // next one covers (the first phrase's start, the track's, has none).
         var edge = 0.0;
         if (ph > 0) {
             let i = u32(ph);
-            edge = line(x, bin_x(p.phrase_start[i / 4u][i % 4u]), 1.0 * k);
+            edge = gap_before(x, bin_x(p.phrase_start[i / 4u][i % 4u]), 2.0 * k);
         }
         let next = u32(ph + 1);
         if (next < p.phrase_count) {
-            edge = max(edge, line(x, bin_x(p.phrase_start[next / 4u][next % 4u]), 1.0 * k));
+            edge = max(edge, gap_before(x, bin_x(p.phrase_start[next / 4u][next % 4u]), 2.0 * k));
         }
-        let bar_h = select(3.0, 4.0, p.mode == 0u) * k;
         let from_bottom = p.size.y - y;
         if (ph >= 0 && from_bottom <= bar_h + 0.5) {
             let i = u32(ph);
-            let c = PHRASE_COLORS[min(p.phrase_kind[i / 4u][i % 4u], 4u)];
+            let c = PHRASE_COLORS[min(p.phrase_kind[i / 4u][i % 4u], 5u)];
             let a = clamp(bar_h - from_bottom + 0.5, 0.0, 1.0);
-            color = over(color, c, a * 0.75 * (1.0 - edge));
-        } else if (p.mode == 0u) {
-            color = over(color, PHRASE_COLORS[2], edge * 0.3);
+            color = over(color, c, a * 0.9 * (1.0 - edge));
         }
     }
 
@@ -406,10 +417,22 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         if (bin < p.play_bin) {
             color = color * 0.45;
         }
+        // A dot at every minute, between the waveform and the phrase bar,
+        // undimmed so they read the same either side of the play position.
+        if (dots_h > 0.0) {
+            let m = round(bin / p.minute_bins);
+            if (m >= 1.0 && m * p.minute_bins < f32(p.num_bins)) {
+                let c = vec2<f32>(bin_x(m * p.minute_bins), wave_h + dots_h * 0.5);
+                let r = 1.5 * k;
+                let dot = clamp(r + 0.5 - length(vec2<f32>(x, y) - c), 0.0, 1.0);
+                color = over(color, vec3<f32>(1.0), dot * 0.7);
+            }
+        }
     }
 
-    // Cue point: a line with flags at both edges.
-    if (p.cue_bin >= 0.0) {
+    // Cue point: a line with flags at both edges (of the waveform, clear of
+    // the overview's dots and phrase bar).
+    if (p.cue_bin >= 0.0 && y < wave_h) {
         let cx = bin_x(p.cue_bin);
         let edge = half_h - d;
         let flag = clamp(5.0 * k - abs(x - cx) - edge * 0.8 + 0.5, 0.0, 1.0);
@@ -419,7 +442,7 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     // Hotcues: a coloured line with a flag at the top.
     for (var h = 0; h < 8; h = h + 1) {
         let pos = p.hotcues[h / 4][h % 4];
-        if (pos >= 0.0) {
+        if (pos >= 0.0 && y < wave_h) {
             let hx = bin_x(pos);
             let in_flag = x >= hx - 0.5 && x <= hx + 7.0 * k && y <= 7.0 * k;
             let a = max(line(x, hx, 0.5 * k), select(0.0, 1.0, in_flag));

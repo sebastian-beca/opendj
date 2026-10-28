@@ -235,6 +235,7 @@ fn natives<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<Host>>) -> rquickjs::Result<Ob
         .parameter_for_value(v));
     native!("reset", |h, g: String, k: String| {
         let t = h.resolve(&g, &k);
+        h.record(&k, &t, t.default_value());
         t.set(t.default_value());
     });
     native!("defaultValue", |h, g: String, k: String| h
@@ -259,6 +260,8 @@ fn natives<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<Host>>) -> rquickjs::Result<Ob
             h.sent.push(msg);
         }
     });
+    native!("routeNote", |h, channel: u8, from: u8, to: u8| h
+        .route_note(channel, from, to));
     native!("log", |h, m: String| h.log(&m));
     native!("timerStart", |h, ms: f64, one_shot: bool| h
         .timer_start(ms, one_shot));

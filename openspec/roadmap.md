@@ -2,10 +2,11 @@
 
 The open OpenSpec changes in `openspec/changes/`, in the order they are planned (within a release, in build order). Each change's `proposal.md` says why, and its `specs/` say what will be true when it's done. When a change ships, archive it (`openspec archive <name>`) so `openspec/specs/` takes its requirements.
 
-Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared 2026-10-21: four decks, mic and aux inputs, stages, Library Health, in-app updates, signed macOS app). `openspec/specs/` describes the app as of v0.3.0 plus PR #56.
+Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared 2026-10-21: four decks, mic and aux inputs, stages, Library Health, in-app updates, signed macOS app) and v0.3.5 (prepared 2026-10-28: sampler with sample packs, phrases, mini waveforms, key lock and fuzzy keymixing, FLX4 pad modes, Controller Editor; from the v0.4 list below, add-analyze-track, add-key-lock-and-fuzzy-keymixing and add-controller-viewer shipped early, the rest stay for v0.4). `openspec/specs/` describes the app as of v0.3.0 plus PR #56.
 
 ## v0.4 · Your collection, cleaned up
 
+- [add-analyze-track](changes/add-analyze-track/proposal.md) (Analyze Track in the browser menu, Seba 2026-10-28)
 - [add-key-lock-and-fuzzy-keymixing](changes/add-key-lock-and-fuzzy-keymixing/proposal.md) (in progress: opendj PR #57)
 - [add-duplicate-resolution](changes/add-duplicate-resolution/proposal.md) (collection maintenance PR 3)
 - [add-metadata-cleanup](changes/add-metadata-cleanup/proposal.md) (collection maintenance PR 4)
@@ -15,6 +16,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-sync-deck-controls](changes/add-sync-deck-controls/proposal.md)
 - [add-browser-preview-player](changes/add-browser-preview-player/proposal.md)
 - [add-more-audio-decoders](changes/add-more-audio-decoders/proposal.md)
+- [add-controller-viewer](changes/add-controller-viewer/proposal.md) (view-only Controller Editor, pulled forward by Seba 2026-10-27)
 
 ## v0.5 · Stems and performance
 
@@ -24,6 +26,8 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-slicer-and-freeze](changes/add-slicer-and-freeze/proposal.md)
 - [add-cue-sequence-recording](changes/add-cue-sequence-recording/proposal.md)
 - [add-fx-pre-post-and-headphone](changes/add-fx-pre-post-and-headphone/proposal.md)
+- [add-sample-packs](changes/add-sample-packs/proposal.md) (sampler with your own samples and sample packs, issue #60)
+- [improve-fx-engine](changes/improve-fx-engine/proposal.md) (faster rack, cleaner delays and new effects; from the FX library review, Seba 2026-10-27)
 
 ## v0.6 · Buy it from the artist
 
@@ -53,7 +57,6 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 
 ## v1.x · after 1.0
 
-- [add-custom-samples](changes/add-custom-samples/proposal.md)
 - [add-dvs](changes/add-dvs/proposal.md)
 - [add-karaoke](changes/add-karaoke/proposal.md)
 - [add-library-cloud-sync](changes/add-library-cloud-sync/proposal.md)

@@ -27,6 +27,7 @@ use mixxx_library::Wanted;
 use mixxx_plugins::inbox::Mode;
 use mixxx_plugins::{ItemKind, StoreItem, StoreQuery};
 
+mod analysis;
 mod columns;
 mod filters;
 mod health;
@@ -323,11 +324,6 @@ const KIND_TRIAGE: i32 = 11;
 const KIND_HEALTH: i32 = 12;
 const KIND_CHECK: i32 = 13;
 
-/// Track colours offered in the track menu, as in `LibraryEdit.colors`.
-const COLORS: [u32; 8] = [
-    0xff3b30, 0xff9500, 0xffcc00, 0x34c759, 0x5ac8fa, 0x007aff, 0xaf52de, 0xff2d55,
-];
-
 /// Seconds a track must play on a deck to count as played, for the history.
 const PLAYED_AFTER: f64 = 30.0;
 
@@ -442,6 +438,8 @@ pub struct Browser {
     folders: Folders,
     /// Tempo and key for tracks in triage, found in the background.
     analysis: AnalysisQueue,
+    analysis_shown: analysis::Shown,
+    phrases_seen: analysis::SeenDecks,
     /// The last stage change, which the track menu can take back: its
     /// batch in the library and what to call it.
     undo: Option<(i64, String)>,
@@ -640,6 +638,13 @@ fn move_block<T>(list: &mut Vec<T>, first: usize, last: usize, at: usize) {
     let block: Vec<T> = list.drain(first..=last).collect();
     let at = if at > last { at - block.len() } else { at };
     list.splice(at..at, block);
+}
+
+/// A file's name without its extension.
+pub fn file_stem(path: &Path) -> String {
+    path.file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 fn dropped_file(data: &DataTransfer) -> Option<PathBuf> {
@@ -854,6 +859,8 @@ impl Browser {
             columns: columns::ColumnState::new(&crate::settings::field_names()),
             folders: crate::settings::stage_folders(),
             analysis: AnalysisQueue::start(),
+            analysis_shown: Default::default(),
+            phrases_seen: Default::default(),
             undo: None,
             pending_moves: HashMap::new(),
             health: Facts::default(),
@@ -1255,15 +1262,6 @@ impl Browser {
         let w = with.clone();
         edit.on_set_rating(move |row, n| w(&|b| b.set_rating(row as usize, n.clamp(0, 5) as u8)));
         let w = with.clone();
-        edit.on_set_color(move |row, c| {
-            w(&|b| {
-                b.set_color(
-                    row as usize,
-                    usize::try_from(c).ok().and_then(|c| COLORS.get(c).copied()),
-                )
-            })
-        });
-        let w = with.clone();
         edit.on_add_to_list(move |first, last, list| {
             w(&|b| {
                 if let Some(&id) = b.menu_lists.get(list as usize) {
@@ -1291,6 +1289,7 @@ impl Browser {
         edit.on_set_rule(move |i, text| w(&|b| b.set_rule(i as usize, &text)));
         Self::install_staging(&edit, &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
+        Self::install_analysis(&edit, &with);
     }
 
     /// Saves a search as a smart list at the top level (under "Smart
@@ -2529,15 +2528,6 @@ impl Browser {
         true
     }
 
-    fn set_color(&mut self, row: usize, color: Option<u32>) {
-        self.change_track(row, |t, db| {
-            t.info.color = color;
-            if let Some(Err(e)) = db.map(|db| db.set_color(t.id, color)) {
-                eprintln!("can't save the colour: {e}");
-            }
-        });
-    }
-
     /// Switches the sidebar between the library tree and the history.
     fn show_history(&mut self, on: bool) {
         if on == self.history_tab {
@@ -2871,6 +2861,52 @@ impl Browser {
         }
     }
 
+    /// Whether a drag carries something a sampler pad takes: a track or an
+    /// audio file.
+    pub fn accepts_sample(data: &DataTransfer) -> bool {
+        dragged(data).is_some() || dropped_file(data).is_some()
+    }
+
+    /// The audio file a drop on a sampler pad carries, with a name for the
+    /// pad: a track's title, or a file's name. Tracks stay where they are in
+    /// the library and files from outside don't join it.
+    pub fn dropped_sample(&self, data: &DataTransfer) -> Option<(PathBuf, String)> {
+        let id = match dragged(data) {
+            Some(Dragged::Rows(row, _)) => self.rows.get(row).copied().flatten(),
+            Some(Dragged::Side(tab, first, _)) => {
+                self.side_ids_of(tab).get(first).copied().flatten()
+            }
+            Some(Dragged::Deck(deck)) => self.deck_track(deck),
+            None => {
+                let path = dropped_file(data)?;
+                let name = file_stem(&path);
+                return Some((path, name));
+            }
+        }?;
+        self.sample_of(id)
+    }
+
+    /// The track selected in the list, as a sampler sample.
+    pub fn selected_sample(&self, app: &AppWindow) -> Option<(PathBuf, String)> {
+        let id = usize::try_from(app.get_current_track())
+            .ok()
+            .and_then(|r| self.rows.get(r).copied().flatten())?;
+        self.sample_of(id)
+    }
+
+    fn sample_of(&self, id: usize) -> Option<(PathBuf, String)> {
+        let t = self.library.get(id).filter(|_| self.playable(id))?;
+        let mixxx_engine::Source::File(path) = &t.source else {
+            return None;
+        };
+        let name = if t.title.is_empty() {
+            file_stem(path)
+        } else {
+            t.title.clone()
+        };
+        Some((path.clone(), name))
+    }
+
     /// Whether the track at `index` of the library can load: its file is there.
     fn playable(&self, index: usize) -> bool {
         self.library.get(index).is_some_and(|t| !t.info.missing)
@@ -2942,15 +2978,11 @@ impl Browser {
         let mut changed = false;
         let saved = self.saved();
         for t in loaded.iter().flatten() {
-            if t.bpm <= 0.0 {
-                continue;
-            }
-            let Some(&i) = self.index_of.get(&t.id) else {
-                continue;
-            };
-            // Its mini waveform, when its row hasn't one yet.
+            // Its mini waveform, filling in as the deck analyses it, in its
+            // row and in Info.
             if self.waves.learn(t) {
-                if let Some(row) = self.rows.iter().position(|r| *r == Some(i)) {
+                let i = self.index_of.get(&t.id).copied();
+                if let Some(row) = self.rows.iter().position(|r| i.is_some() && *r == i) {
                     self.wave_rows.retain(|&w| w != row);
                     self.fill_waves();
                 }
@@ -2958,6 +2990,12 @@ impl Browser {
                     self.fill_info_wave(&app);
                 }
             }
+            if t.bpm <= 0.0 {
+                continue;
+            }
+            let Some(&i) = self.index_of.get(&t.id) else {
+                continue;
+            };
             let entry = &self.library[i];
             // An analysed grid arrives with the analysis; a fixed grid that
             // differs from the library's was edited on the deck.
@@ -2974,6 +3012,7 @@ impl Browser {
             if analysed || edited {
                 e.set_grid(t.grid.clone());
                 e.info.fixed_grid = true;
+                e.info.grid_analysed = analysed;
             }
             if let (true, Some(db)) = (saved, &self.db) {
                 let result = if edited {
@@ -3030,6 +3069,7 @@ impl Browser {
                     },
                     kind: n.kind,
                     editable: n.playlist.is_some() && !n.history,
+                    analysable: !n.history && Self::analysable(&n.contents),
                     stage: matches!(n.contents, Contents::Stage(..)),
                     count: match &n.contents {
                         Contents::Stage(stage, dir) => self
@@ -3472,6 +3512,7 @@ impl Browser {
                     cells: Default::default(),
                     wave: Default::default(),
                     has_wave: false,
+                    analysing: 0,
                 };
                 TrackRow {
                     cells: columns::row_cells(&ids, &row, r.local.map(|id| &*library[id])),
@@ -3501,6 +3542,8 @@ impl Browser {
             self.list.set_vec(rows);
             self.wave_rows.clear();
             self.fill_waves();
+            self.analysis_shown.marks.clear();
+            self.mark_analysis_rows();
             app.set_tracks(ModelRc::from(self.list.clone()));
             app.set_sort_column(self.sort_column);
             app.set_sort_ascending(self.ascending);
