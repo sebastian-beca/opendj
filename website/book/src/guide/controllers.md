@@ -9,11 +9,13 @@ HID controllers aren't supported yet.
 ## Controller Editor
 
 To see what every control does, open **Settings › Controllers › Controller
-Editor**. Pick a mapping at the top (the controller you have plugged in comes
-first). On the right, its controls are listed by function (Transport, Hot
-cues, Loops, Mixer, Effects and so on), each with the control it's on, the
-layer it works in (SHIFT, a pad mode, a bank) and the MIDI message it sends.
-Search the list by any of those.
+Editor**. Pick the controller at the top (the one you have plugged in comes
+first). Its controls are listed in three columns: the control you press (with
+the layer it works in, such as SHIFT, a pad mode or a bank), what it does, and
+the MIDI message it sends. They're grouped into sections (Deck, Pads, Mixer,
+Effects, Library, More) with smaller sections inside, such as Hot cues and
+Loops under Pads. Click a heading to open or close it. Search the list by any
+of those words.
 
 - **Picture.** For the Pioneer DDJ-FLX4, Allen & Heath Xone K2 and DJ
   TechTools Midi Fighter Twister, a picture of the controller is on the left.
@@ -22,10 +24,14 @@ Search the list by any of those.
   and the list jumps to it.
 - **Lights** lists what each LED shows, and **Options** the mapping's own
   settings with their defaults.
+- **Your own mappings.** The **Mapping** menu next to the controller has the
+  original mapping, which never changes, and your own copies of it: choose
+  **Duplicate…** to make one, and **Rename…** or **Delete…** to tidy up. For
+  now a copy works just like the original; changing what a control does comes
+  next.
 
 Mappings that run a script are tried out in a sandbox to see what each
-control does, so even those read in plain words. For now the editor only
-shows the mapping you're using; changing it comes later.
+control does, so even those read in plain words.
 
 [Supported controllers](../controllers/README.md) lists every controller with
 a mapping, and what each control does where the mapping describes it.
