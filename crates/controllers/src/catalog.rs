@@ -641,6 +641,7 @@ pub fn describe(group: &str, key: &str) -> Function {
         Group::Mixer => {
             let n = match key {
                 "knob_mode" => "Mixer knob mode".into(),
+                "crossfader_enabled" => "Crossfader on/off".into(),
                 _ => humanize(key),
             };
             Function::new("Mixer", n, "Mixer")
