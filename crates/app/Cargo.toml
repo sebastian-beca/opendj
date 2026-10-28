@@ -39,3 +39,7 @@ rfd = { version = "0.17", default-features = false }
 
 [build-dependencies]
 slint-build = "~1.18"
+
+[target.'cfg(windows)'.build-dependencies]
+# Puts the icon and version into openDJ.exe, for Explorer and the taskbar.
+winresource = { version = "0.1", default-features = false }
