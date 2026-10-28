@@ -44,6 +44,9 @@ enum Fix {
     CleanUp,
     /// Looks online for covers and embeds the largest.
     FindCovers,
+    /// Looks tracks up online and opens the review table with what was
+    /// found.
+    LookUp,
 }
 
 impl Fix {
@@ -61,6 +64,7 @@ impl Fix {
             Fix::LinkVersions => "Link as versions",
             Fix::CleanUp => "Clean up…",
             Fix::FindCovers => "Find covers",
+            Fix::LookUp => "Look up online",
         }
     }
 }
@@ -74,11 +78,11 @@ fn fixes(check: Check, stages: bool) -> Vec<Fix> {
         Check::Outside if stages => vec![Fix::ToTriage, Fix::Remove],
         Check::Outside => vec![Fix::Remove],
         Check::NotAnalyzed => vec![Fix::Analyze],
-        Check::MissingInfo => vec![Fix::FillFromName],
+        Check::MissingInfo => vec![Fix::FillFromName, Fix::LookUp],
         Check::Missing => vec![Fix::Relink, Fix::Remove],
         Check::Long => vec![Fix::TagMix],
         Check::Duplicate => vec![Fix::AllEasy],
-        Check::Junk => vec![Fix::CleanUp],
+        Check::Junk => vec![Fix::CleanUp, Fix::LookUp],
         Check::NoCover => vec![Fix::FindCovers],
         Check::NoRating => Vec::new(),
     }
@@ -815,6 +819,7 @@ impl Browser {
             Fix::LinkVersions => self.link_versions(indices),
             Fix::CleanUp => self.open_cleanup(indices),
             Fix::FindCovers => self.batch_covers(indices),
+            Fix::LookUp => self.batch_lookup(indices),
         };
         // Removed tracks leave dead entries in lists.
         self.refresh_crates();
