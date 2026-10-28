@@ -26,7 +26,7 @@ jobs:
     outputs:
       code: ${{ github.event_name != 'pull_request' || steps.filter.outputs.code == 'true' }}
     steps:
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         if: github.event_name == 'pull_request'
         with:
@@ -44,7 +44,7 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install system libraries
         # mesa-vulkan-drivers provides lavapipe, a software Vulkan driver, so the
         # waveform shader test runs on CI machines without a GPU. cmake and
@@ -74,7 +74,7 @@ jobs:
     # too. windows-latest already has the cmake and LLVM that Ableton Link needs.
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -91,7 +91,7 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories licenses sources
@@ -102,14 +102,14 @@ jobs:
     # so the app can be tried without installing Rust.
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo build --release -p opendj
       - run: scripts/bundle-macos.sh target/release/opendj 0.1.0
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: opendj-macos
           path: dist/opendj-macos.zip
@@ -120,7 +120,7 @@ jobs:
     # be tried in a Windows VM without installing Rust.
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -128,7 +128,7 @@ jobs:
       - run: cargo build --release -p opendj
       - run: scripts/bundle-windows.ps1 target/release/opendj.exe 0.0.0-dev
         shell: pwsh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: opendj-windows
           path: |

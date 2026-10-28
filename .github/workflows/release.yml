@@ -25,7 +25,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: v
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then
@@ -47,7 +47,7 @@ jobs:
       APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
@@ -97,7 +97,7 @@ jobs:
           (cd dist && ditto -c -k --keepParent openDJ.app opendj-macos.zip)
       - run: |
           mv dist/opendj-macos.zip "dist/openDJ-${{ needs.version.outputs.version }}-macos.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-macos
           path: dist/openDJ-*-macos.zip
@@ -108,7 +108,7 @@ jobs:
     needs: version
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: |
           sudo apt-get update
           sudo apt-get install -y libfontconfig-dev libxkbcommon-dev libasound2-dev cmake libclang-dev imagemagick
@@ -116,7 +116,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release -p opendj
       - run: scripts/bundle-linux.sh target/release/opendj "${{ needs.version.outputs.version }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-linux
           path: |
@@ -129,7 +129,7 @@ jobs:
     needs: version
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -137,7 +137,7 @@ jobs:
       - run: cargo build --release -p opendj
       - run: scripts/bundle-windows.ps1 target/release/opendj.exe "${{ needs.version.outputs.version }}"
         shell: pwsh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-windows
           path: |
@@ -151,12 +151,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: openDJ ${{ needs.version.outputs.version }}
           body_path: docs/release-notes.md
