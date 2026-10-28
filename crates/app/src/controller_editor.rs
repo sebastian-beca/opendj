@@ -73,6 +73,8 @@ impl Editor {
         let e = editor.clone();
         g.on_show(move || e.borrow_mut().show());
         let e = editor.clone();
+        g.on_show_mapping(move |file| e.borrow_mut().show_mapping(&file));
+        let e = editor.clone();
         g.on_pick(move |i| e.borrow_mut().pick(i.max(0) as usize));
         let e = editor.clone();
         g.on_part_clicked(move |id| e.borrow_mut().part_clicked(&id));
@@ -156,6 +158,19 @@ impl Editor {
             self.pick(i);
         } else {
             g.set_chosen(i as i32);
+        }
+    }
+
+    /// Opens the editor on the mapping in `file`, or as [`Self::show`] does
+    /// when it isn't one of the mappings.
+    fn show_mapping(&mut self, file: &str) {
+        self.show();
+        let Some(i) = self.choices.iter().position(|(f, _)| f == file) else {
+            return;
+        };
+        let reading = self.loading.as_ref().is_some_and(|(f, _)| f == file);
+        if !reading && self.chosen() != Some(i) {
+            self.pick(i);
         }
     }
 

@@ -843,7 +843,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let weak = weak.clone();
                 added.set(mac_menu::add_settings_item(move || {
                     if let Some(app) = weak.upgrade() {
-                        app.global::<Preferences>().set_open(true);
+                        let prefs = app.global::<Preferences>();
+                        if !prefs.get_open() {
+                            prefs.invoke_show(prefs.get_page());
+                        }
                     }
                 }));
             },
