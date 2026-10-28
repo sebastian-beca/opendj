@@ -50,6 +50,9 @@ pub fn sculpt_group(deck: usize) -> String {
     format!("[Sculpt_[Channel{}]]", deck + 1)
 }
 
+/// Where the sculpt's hpf, freq, gain and lpf knobs rest: flat.
+pub(crate) const SCULPT_DEFAULTS: [f64; 4] = [0.0, 0.5, 0.5, 1.0];
+
 pub fn effect_unit_group(unit: usize) -> String {
     format!("[EffectRack1_EffectUnit{}]", unit + 1)
 }
@@ -333,8 +336,10 @@ impl DeckControls {
             filter: reg.create(&qg, "super1", 0.5, 0.0, 1.0, Behavior::Linear),
             sculpt: {
                 let sg = sculpt_group(deck);
-                [("hpf", 0.0), ("freq", 0.5), ("gain", 0.5), ("lpf", 1.0)]
-                    .map(|(k, v)| reg.create(&sg, k, v, 0.0, 1.0, Behavior::Linear))
+                let keys = ["hpf", "freq", "gain", "lpf"];
+                std::array::from_fn(|i| {
+                    reg.create(&sg, keys[i], SCULPT_DEFAULTS[i], 0.0, 1.0, Behavior::Linear)
+                })
             },
             quick_enabled: {
                 let e = reg.toggle(&qg, "enabled");
@@ -566,6 +571,10 @@ pub(crate) struct MasterControls {
     /// How many semitones, at most, a track loaded while another deck plays
     /// is shifted so its key mixes with that deck's: 0 leaves it alone.
     pub(crate) key_match_on_load: ControlHandle,
+    /// What loading a track puts back to normal on its deck: `[Controls]`
+    /// auto_reset_fx (effects off), auto_reset_eq (EQ, kills, filter and
+    /// sculpt) and auto_reset_gain (the gain knob). All on to start.
+    pub(crate) auto_reset: [ControlHandle; 3],
 }
 
 pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
@@ -643,6 +652,11 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
             2.0,
             Behavior::Free,
         ),
+        auto_reset: ["fx", "eq", "gain"].map(|k| {
+            let c = reg.toggle("[Controls]", &format!("auto_reset_{k}"));
+            c.set_bool(true);
+            c
+        }),
     }
 }
 
