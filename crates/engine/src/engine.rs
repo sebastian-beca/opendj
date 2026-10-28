@@ -212,7 +212,7 @@ struct Deck {
     shifter: KeyShifter,
     /// This buffer's audio from the shifter, when it is in use.
     shifted: Vec<[f32; 2]>,
-    /// Low-pass state that softens fast overview scrubbing.
+    /// Low-pass state that softens fast waveform scrubbing.
     scrub_tone: [f32; 2],
     /// Where the play position would be now had nothing jumped, while the
     /// deck plays; a jump from it fades over, see [`Declick`].
@@ -274,6 +274,7 @@ impl Deck {
             || self.c.rate_temp.iter().any(|c| c.get_bool())
             || self.c.scratch2_enable.get_bool()
             || self.c.scrub_enable.get_bool()
+            || self.c.seek_hold.get_bool()
             || self.c.rate_search.get() != 0.0
             || self.c.reverse.get_bool()
             || self.c.reverseroll.get_bool()
@@ -710,7 +711,7 @@ impl Deck {
         self.c.key.set(key.map_or(0.0, Key::mixxx_number));
     }
 
-    /// The speed that closes most of the gap to the overview drag's position
+    /// The speed that closes most of the gap to the waveform drag's position
     /// over the next [`SCRUB_GLIDE`] seconds, so the deck follows the
     /// pointer smoothly instead of jumping. A gap too wide to cover at
     /// [`SCRUB_MAX_SPEED`] in a few glides is jumped over.
@@ -731,6 +732,10 @@ impl Deck {
         self.search_quiet = (self.search_quiet - dt).max(0.0);
         let bend = self.bend_step(dt);
         if self.audio.is_none() {
+            self.jog_pending = 0.0;
+            return 0.0;
+        }
+        if self.c.seek_hold.get_bool() {
             self.jog_pending = 0.0;
             return 0.0;
         }
@@ -945,12 +950,12 @@ fn glide_db(from: f32, to: f32, max_db: f32) -> f32 {
 }
 
 /// Peak level to a meter position: -40 dBFS..0 dBFS maps to 0..1.
-/// Seconds an overview drag takes to catch up with the pointer.
+/// Seconds a waveform drag takes to catch up with the pointer.
 const SCRUB_GLIDE: f64 = 0.06;
-/// Fastest an overview drag plays through a track, in multiples of normal speed.
+/// Fastest a waveform drag plays through a track, in multiples of normal speed.
 const SCRUB_MAX_SPEED: f64 = 60.0;
 
-/// Overview scrubbing plays the track many times faster, which pushes it
+/// Waveform scrubbing plays the track many times faster, which pushes it
 /// up into a shrill whine. Fast passes are low-passed and turned down, more
 /// the faster they go, so they sound like a muffled rush instead; at normal
 /// speed the audio is untouched.
@@ -967,7 +972,7 @@ fn soften_scrub(s: [f32; 2], speed: f64, sr: f64, state: &mut [f32; 2]) -> [f32;
     out
 }
 
-/// The low-pass cutoff of overview scrubbing at normal speed; it falls in
+/// The low-pass cutoff of waveform scrubbing at normal speed; it falls in
 /// proportion as the speed rises.
 const SCRUB_TONE_HZ: f64 = 12_000.0;
 
@@ -1761,7 +1766,7 @@ impl Engine {
             pfl: bool,
             /// This buffer's audio is in the deck's `shifted` buffer.
             shifted: bool,
-            /// Dragging on the overview: fast passes are softened.
+            /// Dragging a scrolling waveform: fast passes are softened.
             scrub: bool,
             /// Stem gains at the start and end of the buffer, when the deck
             /// plays stems.
@@ -1810,7 +1815,9 @@ impl Engine {
             // Play and stop act at once, as in Mixxx; scratching, jog and
             // search speeds ramp across the buffer.
             let held = d.c.scratch2_enable.get_bool() || d.c.scrub_enable.get_bool();
-            let from = if playing != d.was_playing && !held {
+            // Holding the overview cuts the sound at once instead of winding
+            // down through what the deck was playing.
+            let from = if d.c.seek_hold.get_bool() || (playing != d.was_playing && !held) {
                 target
             } else {
                 d.velocity
@@ -3460,7 +3467,7 @@ mod tests {
     }
 
     #[test]
-    fn overview_drag_glides_to_the_pointer() {
+    fn waveform_drag_glides_to_the_pointer() {
         let (reg, mut engine, mut input) = setup();
         load(&mut input, 0, short_track(120.0, 60.0));
         run(&mut engine, 0.01);
@@ -3484,6 +3491,30 @@ mod tests {
         ctl("scrub_enable").set_bool(false);
         run(&mut engine, 0.2);
         assert!((seconds() - 54.0).abs() < 0.05, "{}", seconds());
+    }
+
+    #[test]
+    fn overview_drag_is_silent_and_resumes_where_let_go() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 60.0));
+        run(&mut engine, 0.01);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let seconds = || ctl("playposition").get() * 60.0;
+        ctl("play").set_bool(true);
+        assert!(run(&mut engine, 0.1) > 0.01, "audible while playing");
+        // Holding the overview: dragging moves the deck without a sound.
+        ctl("seek_hold").set_bool(true);
+        ctl("playposition").set(0.3);
+        // Past the mixer's own short tail, as when stopping.
+        run(&mut engine, 0.02);
+        assert!(run(&mut engine, 0.1) < 1e-4, "silent while held");
+        ctl("playposition").set(0.5);
+        assert!(run(&mut engine, 0.1) < 1e-4, "silent while dragging");
+        assert!((seconds() - 30.0).abs() < 0.01, "{}", seconds());
+        // Letting go plays on from there.
+        ctl("seek_hold").set_bool(false);
+        assert!(run(&mut engine, 0.1) > 0.01, "audible after letting go");
+        assert!(seconds() > 30.05 && seconds() < 30.2, "{}", seconds());
     }
 
     #[test]
