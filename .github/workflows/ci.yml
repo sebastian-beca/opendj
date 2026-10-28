@@ -70,3 +70,21 @@ jobs:
         with:
           name: opendj-macos
           path: dist/opendj-macos.zip
+
+  windows-app:
+    # The Windows setup and portable zip, attached to the run so the app can
+    # be tried in a Windows VM without installing Rust.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p opendj
+      - run: scripts/bundle-windows.ps1 target/release/opendj.exe 0.0.0-dev
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opendj-windows
+          path: |
+            dist/*.zip
+            dist/*-setup.exe
