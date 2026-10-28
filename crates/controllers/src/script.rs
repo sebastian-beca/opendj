@@ -260,6 +260,8 @@ fn natives<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<Host>>) -> rquickjs::Result<Ob
             h.sent.push(msg);
         }
     });
+    native!("routeNote", |h, channel: u8, from: u8, to: u8| h
+        .route_note(channel, from, to));
     native!("log", |h, m: String| h.log(&m));
     native!("timerStart", |h, ms: f64, one_shot: bool| h
         .timer_start(ms, one_shot));

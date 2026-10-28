@@ -345,6 +345,28 @@ pub fn set(key: &str, value: Value) {
     save(|v| v[key] = value);
 }
 
+/// Controllers shown in Settings › Controllers, or taken off it, by their
+/// device key. A device not listed shows if openDJ has a mapping for it.
+pub fn controllers_shown() -> HashMap<String, bool> {
+    load()["controllers_shown"]
+        .as_object()
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, v)| Some((k.clone(), v.as_bool()?)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn set_controller_shown(key: &str, shown: bool) {
+    save(|v| {
+        if !v["controllers_shown"].is_object() {
+            v["controllers_shown"] = json!({});
+        }
+        v["controllers_shown"][key] = json!(shown);
+    });
+}
+
 /// The mapping picked for each controller, by its device key.
 pub fn controller_mappings() -> HashMap<String, MappingChoice> {
     load()["controller_mappings"]
@@ -374,6 +396,36 @@ pub fn set_controller_mappings(choices: &HashMap<String, MappingChoice>) {
             })
             .collect::<serde_json::Map<_, _>>()
             .into();
+    });
+}
+
+/// Where the DJ's own controller mappings are kept.
+pub fn own_mappings_dir() -> Option<PathBuf> {
+    config_dir().map(|d| d.join("controller-mappings"))
+}
+
+/// The DJ's own mapping used in place of a Mixxx mapping (by its file
+/// name), if one was picked.
+pub fn controller_version(based_on: &str) -> Option<String> {
+    load()["controller_versions"][based_on]
+        .as_str()
+        .map(String::from)
+}
+
+pub fn set_controller_version(based_on: &str, id: Option<&str>) {
+    save(|v| {
+        if !v["controller_versions"].is_object() {
+            v["controller_versions"] = json!({});
+        }
+        let versions = v["controller_versions"].as_object_mut().unwrap();
+        match id {
+            Some(id) => {
+                versions.insert(based_on.to_string(), json!(id));
+            }
+            None => {
+                versions.remove(based_on);
+            }
+        }
     });
 }
 
@@ -589,6 +641,33 @@ pub fn set_columns(columns: &[(i32, f32)]) {
         .map(|(id, width)| json!({ "id": id, "width": width }))
         .collect();
     save(|v| v["columns"] = json!(list));
+}
+
+/// The DJ's own keyboard shortcuts, as (key, openDJscript line) pairs in
+/// the order saved. They replace the default for the same key
+/// ([`crate::shortcuts::DEFAULTS`]); an empty line turns that key off.
+pub fn keyboard_shortcuts() -> Vec<(String, String)> {
+    load()["keyboard_shortcuts"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| {
+                    Some((
+                        s["key"].as_str()?.to_string(),
+                        s["script"].as_str()?.to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn set_keyboard_shortcuts(shortcuts: &[(String, String)]) {
+    let list: Vec<Value> = shortcuts
+        .iter()
+        .map(|(key, script)| json!({ "key": key, "script": script }))
+        .collect();
+    save(|v| v["keyboard_shortcuts"] = json!(list));
 }
 
 fn save(change: impl FnOnce(&mut Value)) {
