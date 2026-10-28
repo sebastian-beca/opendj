@@ -8,10 +8,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use mixxx_engine::cache::{self, OVERVIEW_SLICES};
-use mixxx_engine::{OverviewSlice, Source, Track};
+use mixxx_engine::{OverviewSlice, Source, Track, Waveform};
 
 /// The image's size in pixels: a pixel column per slice, and tall enough
 /// for a row on a HiDPI screen. The list stretches it to the column.
@@ -28,6 +28,10 @@ pub struct Waves {
     found: Receiver<(PathBuf, Option<Vec<OverviewSlice>>)>,
     /// `None` while being read, or when the track isn't analysed.
     overviews: RefCell<HashMap<PathBuf, Option<Arc<[OverviewSlice]>>>>,
+    /// The deck waveform each overview was last learnt from, so a deck
+    /// still analysing (whose waveform grows every 200 ms) is followed to
+    /// the end, and a finished one isn't summarised again every frame.
+    learnt: RefCell<HashMap<PathBuf, Weak<Waveform>>>,
 }
 
 impl Waves {
@@ -55,6 +59,7 @@ impl Waves {
             requests,
             found,
             overviews: RefCell::default(),
+            learnt: RefCell::default(),
         }
     }
 
@@ -75,18 +80,34 @@ impl Waves {
         }
     }
 
-    /// Takes the overview of a track just analysed (on a deck or in the
-    /// background), so its row shows it without reading it back. True if
-    /// it is new: the track had none before.
+    /// Takes the overview of a track on a deck or just analysed in the
+    /// background, so its row shows it without reading it back. A deck
+    /// that is still analysing hands over a fuller waveform every 200 ms,
+    /// and each is taken in turn, so the row fills in as the deck's does.
+    /// True if the overview changed.
     pub fn learn(&self, track: &Track) -> bool {
         let Source::File(path) = &track.source else {
             return false;
         };
-        let mut overviews = self.overviews.borrow_mut();
-        if track.waveform.is_empty() || overviews.get(path).is_some_and(|o| o.is_some()) {
+        if track.waveform.is_empty() {
             return false;
         }
+        let mut learnt = self.learnt.borrow_mut();
+        let seen = learnt
+            .get(path)
+            .is_some_and(|w| w.ptr_eq(&Arc::downgrade(&track.waveform)));
+        if seen {
+            return false;
+        }
+        learnt.insert(path.clone(), Arc::downgrade(&track.waveform));
         let overview = track.waveform.overview(OVERVIEW_SLICES);
+        let mut overviews = self.overviews.borrow_mut();
+        if overviews
+            .get(path)
+            .is_some_and(|o| o.as_deref() == Some(&overview[..]))
+        {
+            return false;
+        }
         overviews.insert(path.clone(), Some(overview.into()));
         true
     }
@@ -136,6 +157,30 @@ fn image(overview: &[OverviewSlice]) -> slint::Image {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn follows_a_deck_analysing_the_track() {
+        let waves = Waves::start();
+        let mut t = (*mixxx_engine::sample_library()[0]).clone();
+        t.source = Source::File("/music/a.wav".into());
+        // Not analysed: nothing to show, and nothing learnt.
+        assert!(!waves.learn(&t));
+        // Halfway through: what is analysed so far, the rest silent.
+        let mut bins = vec![[0u8; 8]; 1000];
+        bins[..500].fill([200; 8]);
+        t.waveform = Arc::new(Waveform::from_finest(1000.0, bins.clone()));
+        assert!(waves.learn(&t));
+        assert!(!waves.learn(&t), "the same waveform isn't taken twice");
+        let half = waves.overviews.borrow()[&PathBuf::from("/music/a.wav")].clone();
+        assert_eq!(half.unwrap()[OVERVIEW_SLICES - 1], [0, 0]);
+        // Finished: the row shows the whole track.
+        bins.fill([200; 8]);
+        t.waveform = Arc::new(Waveform::from_finest(1000.0, bins));
+        assert!(waves.learn(&t));
+        assert!(waves.get(&t).is_some());
+        let full = waves.overviews.borrow()[&PathBuf::from("/music/a.wav")].clone();
+        assert_eq!(full.unwrap()[OVERVIEW_SLICES - 1], [200, 200]);
+    }
 
     #[test]
     fn draws_body_and_peaks_about_the_middle() {
