@@ -363,6 +363,15 @@ impl Prefs {
                 self.refresh();
                 continue;
             }
+            if id == "music_folder_add" {
+                let mut folders = settings::music_folders();
+                if !folders.contains(&path) {
+                    folders.push(path);
+                }
+                settings::set_music_folders(&folders);
+                self.music_folders_changed();
+                continue;
+            }
             if id == "stage_inbox_add" {
                 let mut inbox = settings::paths(settings::STAGE_INBOX);
                 if !inbox.contains(&path) {
@@ -403,6 +412,14 @@ impl Prefs {
                 self.refresh();
             }
         }
+    }
+
+    /// A music folder was added or removed: the library is updated, which
+    /// brings in what is there and finds what is now outside.
+    fn music_folders_changed(&mut self) {
+        (self.rescan)();
+        self.library_note = "Updating… new tracks appear in the library as they are found.".into();
+        self.refresh();
     }
 
     /// The stage folders changed: the library is updated, which finds what
@@ -1003,6 +1020,46 @@ impl Prefs {
         items
     }
 
+    /// Settings › Library: the music folders, each with Remove, then Add.
+    fn music_folder_items(&self) -> Vec<PrefItem> {
+        let env = std::env::var_os("OPENDJ_MUSIC").is_some();
+        let folders = settings::music_folders();
+        let mut items = Vec::new();
+        for (i, dir) in folders.iter().enumerate() {
+            items.push(PrefItem {
+                value: dir.to_string_lossy().into_owned().into(),
+                action: if env { "".into() } else { "Remove".into() },
+                ..item(
+                    &format!("music_folder_remove:{i}"),
+                    PATH,
+                    if i == 0 { "Music folders" } else { "" },
+                    if env && i == 0 {
+                        "Set by OPENDJ_MUSIC for now."
+                    } else {
+                        ""
+                    },
+                )
+            });
+        }
+        if !env {
+            items.push(PrefItem {
+                action: "Add…".into(),
+                ..item(
+                    "music_folder_add",
+                    BUTTON,
+                    if folders.is_empty() {
+                        "Music folders"
+                    } else {
+                        "Add a music folder"
+                    },
+                    "Where openDJ looks for your music. Tracks elsewhere show up in Library \
+                     Health under Outside folders.",
+                )
+            });
+        }
+        items
+    }
+
     /// Settings › Library › Stages: the inbox folders, the triage and
     /// collection folders, and what happens to files between them.
     fn stage_items(&self) -> Vec<PrefItem> {
@@ -1076,13 +1133,6 @@ impl Prefs {
     }
 
     fn library_page(&mut self) -> Vec<PrefItem> {
-        let env_note = |var: &str| {
-            if std::env::var_os(var).is_some() {
-                format!(" Set by {var} for now.")
-            } else {
-                String::new()
-            }
-        };
         let (count, bytes) = cache::analysis_usage();
         let cache_detail = if self.cache_note.is_empty() {
             format!(
@@ -1093,20 +1143,8 @@ impl Prefs {
         } else {
             self.cache_note.clone()
         };
-        let mut items = vec![
-            PrefItem {
-                value: show(settings::music_folder(), "None").into(),
-                action: "Choose…".into(),
-                ..item(
-                    "music_folder",
-                    PATH,
-                    "Music folder",
-                    &format!(
-                        "Where openDJ looks for your music.{}",
-                        env_note("OPENDJ_MUSIC")
-                    ),
-                )
-            },
+        let mut items = self.music_folder_items();
+        items.extend([
             PrefItem {
                 action: "Rescan".into(),
                 ..item(
@@ -1114,7 +1152,7 @@ impl Prefs {
                     BUTTON,
                     "Update library",
                     if self.library_note.is_empty() {
-                        "Looks for new and changed tracks in the music folder now."
+                        "Looks for new and changed tracks in the music folders now."
                     } else {
                         &self.library_note
                     },
@@ -1131,7 +1169,7 @@ impl Prefs {
                 action: "Clear".into(),
                 ..item("clear_cache", BUTTON, "Analysis cache", &cache_detail)
             },
-        ];
+        ]);
         items.extend(self.stage_items());
         items.extend([
             item("", HEADING, "YOUR FIELDS", ""),
@@ -1631,6 +1669,18 @@ impl Prefs {
             return;
         }
         if let Some(i) = id
+            .strip_prefix("music_folder_remove:")
+            .and_then(|i| i.parse::<usize>().ok())
+        {
+            let mut folders = settings::music_folders();
+            if i < folders.len() {
+                folders.remove(i);
+            }
+            settings::set_music_folders(&folders);
+            self.music_folders_changed();
+            return;
+        }
+        if let Some(i) = id
             .strip_prefix("stage_inbox_remove:")
             .and_then(|i| i.parse::<usize>().ok())
         {
@@ -1672,7 +1722,7 @@ impl Prefs {
                 true,
                 self.chosen_tx.clone(),
             ),
-            "music_folder" => choose(id, "Choose your music folder", true, self.chosen_tx.clone()),
+            "music_folder_add" => choose(id, "Choose a music folder", true, self.chosen_tx.clone()),
             "recording_folder" => choose(
                 id,
                 "Choose where to save recordings",

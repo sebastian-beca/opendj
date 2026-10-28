@@ -54,6 +54,8 @@ fn fixes(check: Check, stages: bool) -> Vec<Fix> {
         Check::NotMusic => vec![Fix::Remove, Fix::MarkMusic],
         Check::Stray if stages => vec![Fix::ToTriage, Fix::Remove],
         Check::Stray => vec![Fix::Remove],
+        Check::Outside if stages => vec![Fix::ToTriage, Fix::Remove],
+        Check::Outside => vec![Fix::Remove],
         Check::NotAnalyzed => vec![Fix::Analyze],
         Check::MissingInfo => vec![Fix::FillFromName],
         Check::Missing => vec![Fix::Relink, Fix::Remove],
@@ -202,12 +204,15 @@ impl Browser {
                 _ => look.push((t.id, path.to_path_buf(), t.album.clone())),
             }
         }
+        let mut folders = settings::music_folders();
+        folders.extend(self.folders.all().into_iter().map(Path::to_path_buf));
         self.health = Facts::new(
             tracks.iter().copied(),
             ignored,
             covers,
             self.folders.is_set(),
-        );
+        )
+        .with_folders(folders);
         self.removed = db.removed_count().unwrap_or(0);
         for (id, path, album) in look {
             let music = self.index_of.get(&id).is_some_and(|&i| {
@@ -363,6 +368,11 @@ impl Browser {
             }
             Check::Stray if !self.folders.is_set() => {
                 "Set your stage folders in Settings › Library first.".into()
+            }
+            Check::Outside
+                if settings::music_folders().is_empty() && self.folders.all().is_empty() =>
+            {
+                "Add a music folder in Settings › Library first.".into()
             }
             _ => String::new(),
         }
@@ -557,7 +567,7 @@ impl Browser {
     }
 
     /// Looks for missing files by name in the stage folders and the music
-    /// folder, and points each track with exactly one match at it.
+    /// folders, and points each track with exactly one match at it.
     fn relink(&mut self, indices: &[usize]) -> String {
         let mut roots: Vec<PathBuf> = self
             .folders
@@ -565,9 +575,7 @@ impl Browser {
             .into_iter()
             .map(Path::to_path_buf)
             .collect();
-        if let Some(music) = settings::music_folder() {
-            roots.push(music);
-        }
+        roots.extend(settings::music_folders());
         let found = files_by_name(&roots);
         let (mut linked, mut many, mut none, mut taken) = (0, 0, 0, 0);
         let Some(db) = &mut self.db else {

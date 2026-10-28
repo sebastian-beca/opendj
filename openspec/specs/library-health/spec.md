@@ -1,7 +1,7 @@
 # library-health Specification
 
 ## Purpose
-Library Health finds what needs fixing across the library and fixes it in batches: not music, strays, duplicates, unanalysed, missing info, no cover, no rating, missing files and long tracks.
+Library Health finds what needs fixing across the library and fixes it in batches: not music, strays, files outside the music folders, duplicates, unanalysed, missing info, no cover, no rating, missing files and long tracks.
 
 ## Requirements
 
@@ -13,7 +13,7 @@ Library Health, under All Tracks, SHALL show one line per check with how many tr
 - **THEN** the unrated tracks are listed
 
 ### Requirement: Checks
-The checks SHALL be: Not music (audiobooks, podcasts, spoken word, `.m4b`, chapters), Strays (outside the stage folders), Duplicates, Not analyzed, Missing info (artist, title, album, year or genre), No cover, No rating, Missing files and Long tracks (over 20 minutes). Each SHALL also be a search (`is:notmusic` and so on).
+The checks SHALL be: Not music (audiobooks, podcasts, spoken word, `.m4b`, chapters), Strays (outside the stage folders), Outside folders (files outside the music folders and stage folders, `is:outside`), Duplicates, Not analyzed, Missing info (artist, title, album, year or genre), No cover, No rating, Missing files and Long tracks (over 20 minutes). Each SHALL also be a search (`is:notmusic` and so on).
 
 #### Scenario: Audiobook found
 - **WHEN** an `.m4b` file is in the library

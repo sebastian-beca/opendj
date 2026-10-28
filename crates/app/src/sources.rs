@@ -24,7 +24,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use crate::{AppWindow, FoundRow, QueueLine, SearchItem, SourceTab, SourceUi, StoreUi};
 
 /// Where plugin sources start in the rail, after the built-in ones.
-pub const FIRST_SOURCE: i32 = 10;
+pub const FIRST_SOURCE: i32 = 9;
 
 /// How often searches and downloads are asked how they're getting on.
 const TICK: Duration = Duration::from_millis(900);
