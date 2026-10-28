@@ -146,6 +146,55 @@ pub fn apply_saved(registry: &ControlRegistry) {
     for (id, _, _) in AUTO_RESETS {
         set("[Controls]", id, f(settings::flag(id, true)));
     }
+    // The levels as the DJ left them; the first time, the engine's own
+    // starting levels stand (master 50%, phones 25%, cue only).
+    for (key, id) in LEVEL_KEYS {
+        if let Some(value) = settings::load()[id].as_f64() {
+            set("[Master]", key, value);
+        }
+    }
+}
+
+/// The `[Master]` levels kept between runs, with their settings keys.
+const LEVEL_KEYS: [(&str, &str); 4] = [
+    ("gain", "master_level"),
+    ("headGain", "phones_level"),
+    ("headMix", "cue_mix"),
+    ("booth_gain", "booth_level"),
+];
+
+/// The `[Master]` levels as set now.
+fn levels(registry: &ControlRegistry) -> Vec<Option<f64>> {
+    LEVEL_KEYS
+        .iter()
+        .map(|(key, _)| registry.get("[Master]", key).map(|c| c.get()))
+        .collect()
+}
+
+/// Keeps the master, phones, cue mix and booth levels in settings.json
+/// whenever they change, so the next start puts them back. Checked every
+/// couple of seconds rather than at quit, which a crash or a forced quit
+/// would skip. Keep the timer alive for as long as the app runs.
+pub fn remember_levels(registry: Arc<ControlRegistry>) -> slint::Timer {
+    let saved = RefCell::new(levels(&registry));
+    let timer = slint::Timer::default();
+    timer.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_secs(2),
+        move || {
+            let now = levels(&registry);
+            if now == *saved.borrow() {
+                return;
+            }
+            for ((_, id), value) in LEVEL_KEYS.iter().zip(&now) {
+                if let Some(value) = value {
+                    settings::set(id, json!(value));
+                }
+            }
+            *saved.borrow_mut() = now;
+        },
+    );
+    timer
 }
 
 /// What loading a track puts back to normal on its deck, as settings and
