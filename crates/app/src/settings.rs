@@ -232,6 +232,35 @@ pub fn number(key: &str, default: f64) -> f64 {
     load()[key].as_f64().unwrap_or(default)
 }
 
+/// The lists a new set gets (see [`mixxx_library::sets`]).
+pub fn set_template() -> Vec<String> {
+    let saved: Vec<String> = load()["set_template"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if saved.is_empty() {
+        mixxx_library::sets::TEMPLATE.map(String::from).to_vec()
+    } else {
+        saved
+    }
+}
+
+pub fn set_set_template(lists: &[String]) {
+    let lists: Vec<&str> = lists
+        .iter()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect();
+    save(|v| v["set_template"] = json!(lists));
+}
+
 /// The DJ's Discogs personal access token, which lets the cover search
 /// look on Discogs; empty for none.
 pub fn discogs_token() -> String {

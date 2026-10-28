@@ -34,6 +34,7 @@ mod columns;
 mod filters;
 mod health;
 mod info;
+mod sets;
 mod staging;
 mod usb;
 
@@ -339,6 +340,8 @@ const KIND_TRIAGE: i32 = 11;
 /// Library Health, and one of its checks.
 const KIND_HEALTH: i32 = 12;
 const KIND_CHECK: i32 = 13;
+/// A set: a folder made for one gig, drawn in lilac.
+const KIND_SET: i32 = 14;
 
 /// Seconds a track must play on a deck to count as played, for the history.
 const PLAYED_AFTER: f64 = 30.0;
@@ -445,6 +448,12 @@ pub struct Browser {
     session: Option<i64>,
     /// Lists tracks can be added to, as offered in the track menu.
     menu_lists: Vec<i64>,
+    /// Sets, as History's "Add to Set List…" offers them.
+    menu_sets: Vec<i64>,
+    /// The crates each track is in, by track id.
+    crates: HashMap<usize, Vec<String>>,
+    /// Empty crates and entries for removed tracks.
+    list_health: mixxx_library::sets::ListHealth,
     /// Hot cue controls per deck: enabled and position.
     /// Each deck's hot cues: enabled, position and a saved loop's end.
     hotcues: [Vec<(ControlHandle, ControlHandle, ControlHandle)>; NUM_DECKS],
@@ -870,6 +879,9 @@ impl Browser {
             other_tab_node: 0,
             session: None,
             menu_lists: Vec::new(),
+            menu_sets: Vec::new(),
+            crates: HashMap::new(),
+            list_health: Default::default(),
             hotcues: std::array::from_fn(|d| {
                 (1..=NUM_HOTCUES)
                     .map(|n| {
@@ -1271,7 +1283,13 @@ impl Browser {
         let w = with.clone();
         edit.on_create(move |kind| {
             let row = std::cell::Cell::new(-1);
-            w(&|b| row.set(b.create_list(kind == 1)));
+            w(&|b| {
+                row.set(if kind == 2 {
+                    b.create_set()
+                } else {
+                    b.create_list(kind == 1)
+                })
+            });
             row.get()
         });
         let w = with.clone();
@@ -1304,6 +1322,16 @@ impl Browser {
         });
         let w = with.clone();
         edit.on_remove_from_list(move |row| w(&|b| b.remove_row_from_list(row as usize)));
+        let w = with.clone();
+        edit.on_add_to_set(move |first, last, set| {
+            w(&|b| {
+                b.add_rows_to_set(
+                    first.max(0) as usize,
+                    last.max(0) as usize,
+                    set.max(0) as usize,
+                )
+            })
+        });
         let w = with.clone();
         edit.on_show_history(move |on| w(&|b| b.show_history(on)));
         let w = with.clone();
@@ -1731,7 +1759,7 @@ impl Browser {
                     ..Default::default()
                 };
                 TrackRow {
-                    cells: columns::row_cells(&ids, &row, None),
+                    cells: columns::row_cells(&ids, &row, None, None),
                     ..row
                 }
             })
@@ -2305,6 +2333,11 @@ impl Browser {
                 PlaylistKind::Smart => tree.push(smart_node(p, d)),
                 PlaylistKind::History if p.parent.is_some() => sessions.push(p),
                 PlaylistKind::History => {}
+                PlaylistKind::Set => {
+                    let mut n = Node::new(p.name.clone(), d, KIND_SET, Contents::Folder);
+                    n.playlist = Some(p.id);
+                    tree.push(n);
+                }
                 PlaylistKind::Folder | PlaylistKind::List => {
                     let folder = p.kind == PlaylistKind::Folder;
                     let mut n = Node::new(
@@ -2359,6 +2392,7 @@ impl Browser {
             return;
         }
         self.folders = crate::settings::stage_folders();
+        self.refresh_crates();
         let selected = select.or_else(|| self.nodes.get(self.current_node)?.playlist);
         let name = self.nodes.get(self.current_node).map(|n| n.name.clone());
         let expanded: HashMap<(String, i32), bool> = self
@@ -2402,7 +2436,7 @@ impl Browser {
         let parent = self
             .nodes
             .get(self.current_node)
-            .filter(|n| n.kind == KIND_FOLDER)
+            .filter(|n| n.kind == KIND_FOLDER || n.kind == KIND_SET)
             .and_then(|n| n.playlist);
         let (name, kind) = if folder {
             ("New folder", PlaylistKind::Folder)
@@ -2474,6 +2508,7 @@ impl Browser {
                 eprintln!("can't add to the list: {e}");
             }
         }
+        self.refresh_crates();
         if self.nodes.get(self.current_node).and_then(|n| n.playlist) == Some(playlist) {
             self.refresh_rows();
         }
@@ -2512,6 +2547,7 @@ impl Browser {
         if let Err(e) = db.remove_from_playlist(list, position) {
             eprintln!("can't remove from the list: {e}");
         }
+        self.refresh_crates();
         self.refresh_rows();
     }
 
@@ -3152,6 +3188,7 @@ impl Browser {
             };
             edit.set_rule(rule.into());
             self.refresh_stage_ui(&edit);
+            self.refresh_set_menu(&edit);
             self.refresh_health_ui();
             app.set_folders(ModelRc::new(VecModel::from(folders)));
             let current = self
@@ -3189,6 +3226,7 @@ impl Browser {
             deck_track: self.deck_track,
             duplicates: Some(&self.duplicates),
             health: Some(&self.health),
+            crates: Some(&self.crates),
         }
     }
 
@@ -3490,6 +3528,17 @@ impl Browser {
                     columns::RATING_ID => a.rating.cmp(&b.rating),
                     // What only the collection knows: Spotify tracks it
                     // doesn't have go last.
+                    columns::CRATES => {
+                        let names = |r: &RowData| {
+                            r.local
+                                .and_then(|i| self.crates.get(&library[i].id))
+                                .map(|c| c.join(", "))
+                                .unwrap_or_default()
+                        };
+                        let (x, y) = (names(a), names(b));
+                        // Tracks in no crate last.
+                        (x.is_empty(), x.to_lowercase()).cmp(&(y.is_empty(), y.to_lowercase()))
+                    }
                     id => match (a.local, b.local) {
                         (Some(x), Some(y)) => columns::compare(id, &library[x], &library[y]),
                         (Some(_), None) => Ordering::Less,
@@ -3552,8 +3601,14 @@ impl Browser {
                     analysing: 0,
                     fade: r.local.is_some_and(|id| fade.contains(&library[id].id)),
                 };
+                let crates = r.local.and_then(|id| self.crates.get(&library[id].id));
                 TrackRow {
-                    cells: columns::row_cells(&ids, &row, r.local.map(|id| &*library[id])),
+                    cells: columns::row_cells(
+                        &ids,
+                        &row,
+                        r.local.map(|id| &*library[id]),
+                        crates.map(Vec::as_slice),
+                    ),
                     ..row
                 }
             })
@@ -3563,6 +3618,10 @@ impl Browser {
         if self.current_playlist().is_some() && !data.is_empty() {
             let have = data.iter().filter(|r| r.local.is_some()).count();
             summary = format!("{summary} · {have} in your collection");
+        }
+        let local: Vec<usize> = data.iter().filter_map(|r| r.local).collect();
+        if let Some(note) = self.set_note(&local) {
+            summary = format!("{summary} · {note}");
         }
         if self.tree == FILES && self.files.reading && !data.is_empty() {
             summary = format!(
