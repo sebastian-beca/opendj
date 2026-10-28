@@ -16,8 +16,8 @@ use crate::controls::{
     create_global_controls, Action, DeckControls, Edge, MasterControls, HOTCUE_CUE, HOTCUE_LOOP,
     SCULPT_DEFAULTS,
 };
-use crate::dsp::{Isolator, Limiter, Sculpt, SweepFilter};
-use crate::effects::{input_target, EffectRack, MAIN, TARGETS};
+use crate::dsp::{Isolator, Limiter, Sculpt};
+use crate::effects::{input_target, ColorFx, EffectRack, COLOR_FX, MAIN, TARGETS};
 use crate::inputs::{Ducker, Input, InputFeed, AUXILIARY, MICROPHONE, NUM_INPUTS};
 use crate::key::{self, Key};
 use crate::keyshift::{transpose_factor, KeyShifter};
@@ -189,7 +189,8 @@ struct Deck {
     /// The rate sync last wrote, to tell a fader move from it.
     rate_written: f64,
     eq: Isolator,
-    filter: SweepFilter,
+    /// The filter knob's Color FX.
+    filter: ColorFx,
     sculpt: Sculpt,
     /// Gains reached at the end of the last buffer; each buffer ramps from these.
     eq_gains: [f32; 3],
@@ -964,6 +965,8 @@ pub struct Engine {
     decks: [Deck; NUM_DECKS],
     master: MasterControls,
     fx: EffectRack,
+    /// The Color FX chosen for every deck's filter knob (see [`COLOR_FX`]).
+    color_fx: f64,
     samplers: Samplers,
     commands: rtrb::Consumer<Command>,
     returned: rtrb::Producer<Returned>,
@@ -1017,6 +1020,32 @@ fn sync_ratio(leader: f64, own: f64) -> f64 {
 }
 
 impl Engine {
+    /// One Color FX for all decks, as on a Pioneer mixer: a deck's
+    /// `loaded_chain_preset` set, or stepped with next/prev_chain_preset,
+    /// sets every deck's. Stepping skips 0 (none).
+    fn update_color_fx(&mut self) {
+        let n = COLOR_FX.len() as f64;
+        let mut chosen = self.color_fx;
+        for d in &mut self.decks {
+            let v = d.c.cfx_preset.get().round();
+            if v != self.color_fx {
+                chosen = v;
+            }
+            if d.c.cfx_edges[0].pressed(&d.c.cfx_next) {
+                chosen = if chosen >= n { 1.0 } else { chosen + 1.0 };
+            }
+            if d.c.cfx_edges[1].pressed(&d.c.cfx_prev) {
+                chosen = if chosen <= 1.0 { n } else { chosen - 1.0 };
+            }
+        }
+        self.color_fx = chosen.clamp(0.0, n);
+        for d in &self.decks {
+            if d.c.cfx_preset.get() != self.color_fx {
+                d.c.cfx_preset.set(self.color_fx);
+            }
+        }
+    }
+
     /// Creates all engine controls in `registry`.
     pub fn new(registry: &ControlRegistry, sample_rate: f64) -> (Self, EngineInput) {
         let master = create_global_controls(registry);
@@ -1057,7 +1086,7 @@ impl Engine {
             phase_offset: 0.0,
             rate_written: 0.0,
             eq: Isolator::new(sample_rate),
-            filter: SweepFilter::new(sample_rate),
+            filter: ColorFx::new(sample_rate),
             sculpt: Sculpt::new(sample_rate),
             eq_gains: [1.0; 3],
             pregain: 1.0,
@@ -1101,6 +1130,7 @@ impl Engine {
                 decks,
                 master,
                 fx,
+                color_fx: 1.0,
                 samplers,
                 commands,
                 returned,
@@ -1577,6 +1607,7 @@ impl Engine {
             }
         }
         self.land_in_phase(moved);
+        self.update_color_fx();
         self.samplers.update();
         self.preview.update();
         // Tempo-synced effects on the main mix follow the first playing deck.
@@ -1661,7 +1692,8 @@ impl Engine {
                     d.c.eq[k].get() as f32
                 }
             });
-            d.filter.set(d.c.filter.get());
+            let beat = d.beat_seconds();
+            d.filter.prepare(d.c.cfx_preset.get(), d.c.filter.get(), beat);
             let k = d.c.sculpt.each_ref().map(|c| c.get());
             d.sculpt.set(k[0], k[1], k[2], k[3]);
             let loop_frames = (d.c.loop_enabled.get_bool() && d.loop_end > d.loop_start)
@@ -2144,6 +2176,30 @@ mod tests {
             std::thread::sleep(due.saturating_duration_since(Instant::now()));
             engine.process(&mut buf, 2);
         }
+    }
+
+    #[test]
+    fn one_color_fx_for_every_deck() {
+        let (reg, mut engine, _input) = setup();
+        let c = |d: usize, k: &str| reg.get(&format!("[QuickEffectRack1_[Channel{}]]", d + 1), k).unwrap();
+        let presets = || (0..NUM_DECKS).map(|d| c(d, "loaded_chain_preset").get()).collect::<Vec<_>>();
+        run(&mut engine, 0.01);
+        assert_eq!(presets(), vec![1.0; NUM_DECKS], "Filter to start with");
+        // Picking one on a deck picks it for all.
+        c(2, "loaded_chain_preset").set(3.0);
+        run(&mut engine, 0.01);
+        assert_eq!(presets(), vec![3.0; NUM_DECKS]);
+        // SHIFT + SMART CFX steps it on deck 1, wrapping round past the last.
+        for want in [4.0, 5.0, 1.0] {
+            c(0, "next_chain_preset").set(1.0);
+            c(0, "next_chain_preset").set(0.0);
+            run(&mut engine, 0.01);
+            assert_eq!(presets(), vec![want; NUM_DECKS]);
+        }
+        c(1, "prev_chain_preset").set(1.0);
+        c(1, "prev_chain_preset").set(0.0);
+        run(&mut engine, 0.01);
+        assert_eq!(presets(), vec![5.0; NUM_DECKS]);
     }
 
     #[test]
