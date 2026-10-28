@@ -176,6 +176,9 @@ export component ControlButton inherits Rectangle {
     in property <length> font-size: Theme.font-normal;
     // Fill the whole button with the tint when lit (sync, keylock) instead of tinting the label.
     in property <bool> fill-when-lit: false;
+    // Or just outline it in the tint when lit, label tinted too (SYNC,
+    // CUE): a thicker edge, no fill.
+    in property <bool> outline-when-lit: false;
     // Draw a headphone icon instead of the text, for headphone cue (PFL).
     in property <bool> headphones: false;
     // Or a filled icon: SVG path commands in a 20 x 20 box. Glyphs like ❚❚
@@ -201,9 +204,9 @@ export component ControlButton inherits Rectangle {
     border-radius: Theme.radius;
     background: lit && fill-when-lit ? root.tint
         : touch.pressed ? Theme.control-pressed
-        : lit ? root.tint.with-alpha(0.14)
+        : lit && !outline-when-lit ? root.tint.with-alpha(0.14)
         : touch.has-hover ? #1d1d20 : Theme.control;
-    border-width: 1px;
+    border-width: lit && outline-when-lit ? 2px : 1px;
     border-color: lit ? root.tint : Theme.border;
 
     if !headphones && icon == "": Text {
@@ -701,7 +704,7 @@ export component SyncButton inherits Rectangle {
         shift-key: "beatsync";
         text: "SYNC";
         tint: tint;
-        fill-when-lit: true;
+        outline-when-lit: true;
         font-size: root.font-size;
         right-clicked => { menu.show(); }
     }

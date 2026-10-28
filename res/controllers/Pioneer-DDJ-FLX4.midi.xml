@@ -56,8 +56,18 @@
                 </options>
             </control>
             <control>
-                <description>SMART CFX +SHIFT - press - Next Color FX for every deck's CFX knob</description>
+                <description>SMART CFX +SHIFT - press - Next Color FX for deck 1's CFX knob</description>
                 <group>[QuickEffectRack1_[Channel1]]</group>
+                <key>next_chain_preset</key>
+                <status>0x96</status>
+                <midino>0x08</midino>
+                <options>
+                    <Normal/>
+                </options>
+            </control>
+            <control>
+                <description>SMART CFX +SHIFT - press - Next Color FX for deck 2's CFX knob</description>
+                <group>[QuickEffectRack1_[Channel2]]</group>
                 <key>next_chain_preset</key>
                 <status>0x96</status>
                 <midino>0x08</midino>

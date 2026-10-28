@@ -1,6 +1,7 @@
 // A deck: a header with cover, title,
-// overview and tempo, then the loop and pads on the outer side, loop controls, the
-// jog circle and the pitch fader towards the mixer. Deck B is mirrored.
+// overview and tempo, then from the outer side the tempo column, the pads,
+// the loop controls, CUE and play, and the jog beside the mixer. Deck B is
+// mirrored.
 // Large artwork, flat dark controls, white pointers.
 import { TrackDrag } from "library.slint";
 import { SamplerPanel } from "sampler.slint";
@@ -1692,23 +1693,26 @@ export component LoopStepper inherits Rectangle {
     }
 }
 
-// Loop controls in a short row over the pads, at the deck's outer edge:
-// LOOP, the loop length box (see LoopStepper), then IN and OUT. The
-// effects are in the FX bar.
-export component LoopSection inherits HorizontalLayout {
+// The loop controls in a column of three rows between the pads and the
+// transport: the LOOP title, the loop length box (see LoopStepper), then IN
+// and OUT. The effects are in the FX bar.
+export component LoopSection inherits VerticalLayout {
     in property <string> group;
     in property <DeckInfo> info;
     in property <color> tint;
-    in property <bool> mirrored;
     spacing: 6px;
-    height: 26px;
-    alignment: mirrored ? end : start;
-    Text { text: "LOOP"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
-    LoopStepper { group: group; info: info; width: 96px; }
-    // A loop of any length: IN on the nearest beat lights grey while the
-    // waveform marks the loop out; OUT closes it, and it turns lilac.
-    ControlButton { group: group; key: "loop_in"; light-key: "loop_in_pending"; text: "IN"; momentary: true; tint: #d1d1d6; font-size: 11px; width: 40px; }
-    ControlButton { group: group; key: "loop_out"; light-key: "loop_enabled"; text: "OUT"; momentary: true; tint: Theme.lilac; font-size: 11px; width: 40px; }
+    alignment: center;
+    width: 96px;
+    Text { text: "LOOP"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; horizontal-alignment: center; height: 16px; vertical-alignment: center; }
+    LoopStepper { group: group; info: info; height: 28px; }
+    HorizontalLayout {
+        spacing: 6px;
+        height: 28px;
+        // A loop of any length: IN on the nearest beat lights grey while the
+        // waveform marks the loop out; OUT closes it, and it turns lilac.
+        ControlButton { group: group; key: "loop_in"; light-key: "loop_in_pending"; text: "IN"; momentary: true; tint: #d1d1d6; font-size: 11px; horizontal-stretch: 1; }
+        ControlButton { group: group; key: "loop_out"; light-key: "loop_enabled"; text: "OUT"; momentary: true; tint: Theme.lilac; font-size: 11px; horizontal-stretch: 1; }
+    }
 }
 
 // The column beside the tempo fader: pitch reset always at its middle,
@@ -1765,7 +1769,8 @@ export component TempoStep inherits Rectangle {
 }
 
 // The tempo column, everything on its centre line: SYNC (Shift-click to
-// sync once, right-click for quantize) over the tempo, the fader, and the fine − and +.
+// sync once, right-click for quantize) over the fader, and the tempo with
+// the fine − and + either side under it.
 // Pitch reset and key lock sit in the margin on the fader's outer side.
 component Pitch inherits VerticalLayout {
     in property <string> group;
@@ -1773,10 +1778,9 @@ component Pitch inherits VerticalLayout {
     in property <color> tint;
     // Deck B: pitch reset goes on the fader's right, its outer side.
     in property <bool> mirrored;
-    width: 56px;
+    width: 64px;
     spacing: 5px;
     SyncButton { group: group; tint: tint; font-size: 13px; height: 30px; menu-right-aligned: mirrored; }
-    Text { text: info.rate; color: Theme.text; font-size: 12px; font-weight: 500; horizontal-alignment: center; }
     Rectangle {
         vertical-stretch: 1;
         ControlFader {
@@ -1797,16 +1801,18 @@ component Pitch inherits VerticalLayout {
             mirrored: mirrored;
         }
     }
+    // The fine − and + either side of the tempo, to leave the fader as
+    // much height as the deck allows.
     HorizontalLayout {
-        alignment: center;
-        spacing: 8px;
-        TempoStep { group: group; key: "rate_perm_down_small"; text: "−"; tint: tint; }
-        TempoStep { group: group; key: "rate_perm_up_small"; text: "+"; tint: tint; }
+        TempoStep { group: group; key: "rate_perm_down_small"; text: "−"; tint: tint; width: 15px; }
+        Text { text: info.rate; color: Theme.text; font-size: 11px; font-weight: 500; horizontal-alignment: center; vertical-alignment: center; horizontal-stretch: 1; }
+        TempoStep { group: group; key: "rate_perm_up_small"; text: "+"; tint: tint; width: 15px; }
     }
 }
 
-// Play and pause in one button showing ▶: it fills with the deck colour
-// while playing and its background blinks while a track waits, like a CDJ's.
+// Play and pause in one button showing ▶: outlined and drawn in the deck
+// colour while playing, and its background blinks while a track waits,
+// like a CDJ's.
 export component PlayButton inherits Rectangle {
     in property <string> group;
     in property <color> tint;
@@ -1817,15 +1823,15 @@ export component PlayButton inherits Rectangle {
     // each blink would keep the window redrawing most of the time.
     property <bool> blink: loaded && Controls.blink;
     border-radius: Theme.radius;
-    border-width: 1px;
+    border-width: playing ? 2px : 1px;
     border-color: playing ? tint : Theme.border;
-    background: playing ? tint : touch.pressed ? Theme.control-pressed : blink ? tint.with-alpha(0.28) : Theme.control;
+    background: touch.pressed ? Theme.control-pressed : !playing && blink ? tint.with-alpha(0.28) : Theme.control;
     Path {
         width: 16px;
         height: 18px;
         viewbox-width: 16;
         viewbox-height: 18;
-        fill: playing ? #ffffff : Theme.text;
+        fill: playing ? tint : Theme.text;
         commands: "M 1 1 L 15 9 L 1 17 Z";
     }
     touch := TouchArea {
@@ -1834,15 +1840,16 @@ export component PlayButton inherits Rectangle {
     }
 }
 
-// Play and CUE side by side under the jog, play on the left; SYNC is over
+// CUE over play, in a column between the loop and the jog; SYNC is over
 // the tempo fader (see Pitch).
-component Transport inherits HorizontalLayout {
+component Transport inherits VerticalLayout {
     in property <string> group;
     in property <color> tint;
     spacing: 6px;
-    height: 36px;
-    PlayButton { group: group; tint: tint; width: 70px; }
-    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: Theme.cue; font-size: 14px; width: 70px; }
+    alignment: center;
+    width: 63px;
+    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; font-size: 13px; height: 32px; }
+    PlayButton { group: group; tint: tint; height: 32px; }
 }
 
 // A thin line between sections of a deck.
@@ -1856,34 +1863,20 @@ component VDivider inherits Rectangle {
     EdgeVLine { x: 8px; height: parent.height; top: top; bottom: bottom; }
 }
 
-component HDivider inherits Rectangle {
-    height: 9px;
-    EdgeLine { y: 4px; width: parent.width; left: 8px; right: 8px; }
-}
-
-// The jog, with play and CUE under it.
-component PlaySection inherits VerticalLayout {
+// The jog, as big as the deck body's height allows.
+component JogSection inherits Rectangle {
     in property <string> group;
     in property <DeckInfo> info;
     in property <color> tint;
     in property <angle> spin;
-    spacing: 8px;
-    width: 172px;
-    // The jog fills the space down to the buttons.
-    Rectangle {
-        vertical-stretch: 1;
-        Jog {
-            group: group;
-            info: info;
-            tint: tint;
-            spin: spin;
-            width: min(parent.width, parent.height);
-            height: self.width;
-        }
-    }
-    HorizontalLayout {
-        alignment: center;
-        Transport { group: group; tint: tint; }
+    width: 148px;
+    Jog {
+        group: group;
+        info: info;
+        tint: tint;
+        spin: spin;
+        width: min(parent.width, parent.height);
+        height: self.width;
     }
 }
 
@@ -1917,27 +1910,28 @@ export component Deck inherits Rectangle {
         Rectangle {
             background: Theme.panel;
             vertical-stretch: 1;
-            // Split by thin lines: the loop over the pads, beside the
-            // play section (jog, transport and tempo). Deck B is the
-            // mirror image.
+            // Outside in: the tempo column, the pads, the loop, CUE over
+            // play, and the jog beside the mixer. Deck B is the mirror image.
             HorizontalLayout {
                 padding: 8px;
                 spacing: 0px;
-                if mirrored: Pitch { group: group; info: info; tint: tint; mirrored: true; }
-                if mirrored: Rectangle { width: 12px; }
-                if mirrored: PlaySection { group: group; info: info; tint: tint; spin: spin; }
+                if mirrored: JogSection { group: group; info: info; tint: tint; spin: spin; }
+                if mirrored: Rectangle { width: 10px; }
+                if mirrored: Transport { group: group; tint: tint; }
+                if mirrored: Rectangle { width: 10px; }
+                if mirrored: LoopSection { group: group; info: info; tint: tint; }
                 if mirrored: VDivider { }
-                VerticalLayout {
-                    horizontal-stretch: 1;
-                    spacing: 0px;
-                    LoopSection { group: group; info: info; tint: tint; mirrored: mirrored; }
-                    HDivider { }
-                    Pads { deck: deck; group: group; info: info; vertical-stretch: 1; }
-                }
-                if !mirrored: VDivider { }
-                if !mirrored: PlaySection { group: group; info: info; tint: tint; spin: spin; }
-                if !mirrored: Rectangle { width: 12px; }
                 if !mirrored: Pitch { group: group; info: info; tint: tint; }
+                if !mirrored: Rectangle { width: 12px; }
+                Pads { deck: deck; group: group; info: info; horizontal-stretch: 1; }
+                if !mirrored: VDivider { }
+                if !mirrored: LoopSection { group: group; info: info; tint: tint; }
+                if !mirrored: Rectangle { width: 10px; }
+                if !mirrored: Transport { group: group; tint: tint; }
+                if !mirrored: Rectangle { width: 10px; }
+                if !mirrored: JogSection { group: group; info: info; tint: tint; spin: spin; }
+                if mirrored: Rectangle { width: 12px; }
+                if mirrored: Pitch { group: group; info: info; tint: tint; mirrored: true; }
             }
         }
     }

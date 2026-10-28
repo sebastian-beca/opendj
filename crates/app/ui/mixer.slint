@@ -172,38 +172,34 @@ export component OutputsTable inherits VerticalLayout {
     }
 }
 
-// The Color FX picker, over the meters above the knob mode menu: the chosen one's name, opening the list. Every deck's filter knob
-// plays it (one for all, as on a Pioneer mixer); SHIFT + SMART CFX on the
-// DDJ-FLX4 steps through them.
-component ColorFxMenu inherits Rectangle {
-    property <int> index: Controls.resolve("[QuickEffectRack1_[Channel1]]", "loaded_chain_preset");
+// The small ▾ box beside a deck's filter knob, on its inner side as on
+// VirtualDJ: opens the Color FX list to pick the one that knob plays, one
+// at a time. Each deck has its own; SHIFT + SMART CFX on the DDJ-FLX4
+// steps both.
+component ColorFxArrow inherits Rectangle {
+    in property <int> deck;
+    // Beside the knob on its left: the list opens leftwards.
+    in property <bool> left;
+    property <int> index: Controls.resolve("[QuickEffectRack1_[Channel" + (deck + 1) + "]]", "loaded_chain_preset");
     property <int> cfx: Controls.value(index, Controls.tick);
-    height: 24px;
-    HorizontalLayout {
-        alignment: center;
-        spacing: 3px;
-        Text {
-            text: cfx >= 1 && cfx <= EffectList.color-fx.length ? EffectList.color-fx[cfx - 1].to-uppercase() : "NO CFX";
-            color: ta.has-hover ? Theme.text : Theme.label;
-            font-size: 9px;
-            font-weight: 700;
-            vertical-alignment: center;
-        }
-        Path {
-            width: 6px;
-            height: 4px;
-            y: (parent.height - self.height) / 2;
-            commands: "M 0 0 L 3 3.5 L 6 0";
-            stroke: ta.has-hover ? Theme.text : Theme.text-dim;
-            stroke-width: 1.2px;
-            fill: transparent;
-        }
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    border-width: 1px;
+    border-color: ta.has-hover ? Theme.text-dim : Theme.border;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2a2e : Theme.control;
+    Path {
+        width: 6px;
+        height: 4px;
+        commands: "M 0 0 L 6 0 L 3 4 Z";
+        fill: ta.has-hover ? Theme.text : Theme.text-dim;
     }
     ta := TouchArea { mouse-cursor: pointer; clicked => { menu.show(); } }
     menu := PopupWindow {
-        x: 0px;
-        y: root.height + 2px;
-        width: 120px;
+        // Opens beside the knob, away from it: down and inwards.
+        x: left ? root.width - 130px : 0px;
+        y: root.height + 3px;
+        width: 130px;
         close-policy: close-on-click-outside;
         Rectangle {
             background: Theme.panel-raised;
@@ -264,6 +260,9 @@ export component SideKnob inherits Rectangle {
     in property <int> deck;
     in property <int> place;
     in property <length> size: 27px;
+    // The Color FX ▾ beside the filter knob goes on its left: the inner
+    // side for the right-hand deck.
+    in property <bool> cfx-arrow-left: deck == 1;
     property <string> ch: "[Channel" + (deck + 1) + "]";
     property <string> eq: "[EqualizerRack1_" + ch + "_Effect1]";
     property <string> sculpt: "[Sculpt_" + ch + "]";
@@ -300,6 +299,13 @@ export component SideKnob inherits Rectangle {
             origin: [1, 0.5, 0.5, 0][place];
             look: place == 1 || place == 2 ? 1 : 2;
         }
+    }
+    // The filter knob's Color FX menu, on the knob's inner side.
+    if mode == 0 && place == 3: ColorFxArrow {
+        deck: deck;
+        left: cfx-arrow-left;
+        x: cfx-arrow-left ? (parent.width - size) / 2 - self.width - 1px : (parent.width + size) / 2 + 1px;
+        y: (size + 6px - self.height) / 2;
     }
 }
 
@@ -387,11 +393,10 @@ component ChannelGrid inherits HorizontalLayout {
         horizontal-stretch: 1;
         alignment: space-around;
         Channel { group: "[Channel1]"; tint: Theme.deck1; }
-        // The Color FX and knob mode menus over the meters, which are
-        // level with the faders: below the gain knobs, above the cue buttons.
+        // The knob mode menu over the meters, which are level with the
+        // faders: below the gain knobs, above the cue buttons.
         VerticalLayout {
             padding-bottom: 34px;
-            ColorFxMenu { width: 48px; }
             ModeMenu { width: 48px; }
             HorizontalLayout {
                 alignment: center;

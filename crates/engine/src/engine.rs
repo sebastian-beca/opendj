@@ -992,8 +992,6 @@ pub struct Engine {
     decks: [Deck; NUM_DECKS],
     master: MasterControls,
     fx: EffectRack,
-    /// The Color FX chosen for every deck's filter knob (see [`COLOR_FX`]).
-    color_fx: f64,
     samplers: Samplers,
     commands: rtrb::Consumer<Command>,
     returned: rtrb::Producer<Returned>,
@@ -1050,28 +1048,22 @@ fn sync_ratio(leader: f64, own: f64) -> f64 {
 }
 
 impl Engine {
-    /// One Color FX for all decks, as on a Pioneer mixer: a deck's
-    /// `loaded_chain_preset` set, or stepped with next/prev_chain_preset,
-    /// sets every deck's. Stepping skips 0 (none).
+    /// Each deck's Color FX, picked from the menu beside its filter knob:
+    /// `loaded_chain_preset` set, or stepped with next/prev_chain_preset.
+    /// Stepping skips 0 (none).
     fn update_color_fx(&mut self) {
         let n = COLOR_FX.len() as f64;
-        let mut chosen = self.color_fx;
         for d in &mut self.decks {
-            let v = d.c.cfx_preset.get().round();
-            if v != self.color_fx {
-                chosen = v;
-            }
+            let mut chosen = d.c.cfx_preset.get().round();
             if d.c.cfx_edges[0].pressed(&d.c.cfx_next) {
                 chosen = if chosen >= n { 1.0 } else { chosen + 1.0 };
             }
             if d.c.cfx_edges[1].pressed(&d.c.cfx_prev) {
                 chosen = if chosen <= 1.0 { n } else { chosen - 1.0 };
             }
-        }
-        self.color_fx = chosen.clamp(0.0, n);
-        for d in &self.decks {
-            if d.c.cfx_preset.get() != self.color_fx {
-                d.c.cfx_preset.set(self.color_fx);
+            let chosen = chosen.clamp(0.0, n);
+            if d.c.cfx_preset.get() != chosen {
+                d.c.cfx_preset.set(chosen);
             }
         }
     }
@@ -1161,7 +1153,6 @@ impl Engine {
                 decks,
                 master,
                 fx,
-                color_fx: 1.0,
                 samplers,
                 commands,
                 returned,
@@ -2269,7 +2260,7 @@ mod tests {
     }
 
     #[test]
-    fn one_color_fx_for_every_deck() {
+    fn a_color_fx_for_each_deck() {
         let (reg, mut engine, _input) = setup();
         let c = |d: usize, k: &str| {
             reg.get(&format!("[QuickEffectRack1_[Channel{}]]", d + 1), k)
@@ -2282,21 +2273,21 @@ mod tests {
         };
         run(&mut engine, 0.01);
         assert_eq!(presets(), vec![1.0; NUM_DECKS], "Filter to start with");
-        // Picking one on a deck picks it for all.
+        // Picking one on a deck leaves the others alone.
         c(2, "loaded_chain_preset").set(3.0);
         run(&mut engine, 0.01);
-        assert_eq!(presets(), vec![3.0; NUM_DECKS]);
-        // SHIFT + SMART CFX steps it on deck 1, wrapping round past the last.
+        assert_eq!(presets(), vec![1.0, 1.0, 3.0, 1.0]);
+        // Stepping on deck 3 wraps round past the last.
         for want in [4.0, 5.0, 1.0] {
-            c(0, "next_chain_preset").set(1.0);
-            c(0, "next_chain_preset").set(0.0);
+            c(2, "next_chain_preset").set(1.0);
+            c(2, "next_chain_preset").set(0.0);
             run(&mut engine, 0.01);
-            assert_eq!(presets(), vec![want; NUM_DECKS]);
+            assert_eq!(presets()[2], want);
         }
         c(1, "prev_chain_preset").set(1.0);
         c(1, "prev_chain_preset").set(0.0);
         run(&mut engine, 0.01);
-        assert_eq!(presets(), vec![5.0; NUM_DECKS]);
+        assert_eq!(presets(), vec![1.0, 5.0, 1.0, 1.0]);
     }
 
     #[test]
