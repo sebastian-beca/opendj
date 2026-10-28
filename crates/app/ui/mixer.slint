@@ -391,13 +391,16 @@ component ChannelGrid inherits HorizontalLayout {
     SideColumn { deck: 0; }
     HorizontalLayout {
         horizontal-stretch: 1;
-        alignment: space-around;
+        // Faders close in on the meters; what room is left goes on the
+        // outside, by the knobs.
+        alignment: center;
+        spacing: 2px;
         Channel { group: "[Channel1]"; tint: Theme.deck1; }
         // The knob mode menu over the meters, which are level with the
         // faders: below the gain knobs, above the cue buttons.
         VerticalLayout {
             padding-bottom: 34px;
-            ModeMenu { width: 48px; }
+            ModeMenu { width: 40px; }
             HorizontalLayout {
                 alignment: center;
                 spacing: 4px;
@@ -414,7 +417,8 @@ component ChannelGrid inherits HorizontalLayout {
 
 export component Mixer inherits Rectangle {
     background: Theme.panel;
-    width: 282px;
+    // The Beat FX under it in the FX bar matches this width.
+    width: 254px;
     VerticalLayout {
         padding: 8px;
         spacing: 4px;
