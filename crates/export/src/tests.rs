@@ -176,9 +176,6 @@ fn an_export_reads_back_in_both_formats() {
     drop((pdb, one_lib));
 
     // A second export keeps the audio and replaces the library.
-    // Windows won't replace or remove a database that is still open.
-    drop(pdb);
-    drop(one_lib);
     let lists = vec![List {
         name: "Only".into(),
         tracks: vec![1],
