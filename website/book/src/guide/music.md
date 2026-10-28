@@ -83,6 +83,15 @@ Library** throws those results away.
 Grids, keys and cues brought in from VirtualDJ are used as they are, so
 those tracks don't wait for analysis.
 
+To analyse tracks yourself, right-click them and choose **Analyze Track**
+(or **Analyze 12 Tracks** for a shift-click selection), or right-click a
+list, folder or stage and choose **Analyze All**. They are analysed again
+from scratch in the background, one at a time: tempo, beat grid, key,
+loudness, mini waveform and phrases. A grid you edited and a key you typed
+in or got from the tags stay as they are. While it runs, each waiting
+track has a gray dot by its title (lilac and pulsing while it is being
+analysed), and the footer shows how far along it is, with a ✕ to stop.
+
 ## Phrases
 
 Once a track has a beat grid, openDJ splits it into phrases of whole
@@ -90,8 +99,8 @@ bars: intro, build (up), drop (peak), chorus (main groove), break and
 outro. Each deck's overview shows them as a bar under the minute dots:
 deep blue for the intro and outro, violet for a build, rose for a drop,
 green for a chorus and tangerine for a break. Phrases are 8 to 32 bars
-long, so a short fill never gets one of its own. They move with the grid
-when you edit it.
+long, so a short fill never gets one of its own. They are saved in the
+library with the track, and move with the grid when you edit it.
 
 Right-click a deck's overview and choose **Hide phrases** (or **Show
 phrases**) to turn the bars off or on for every deck.
