@@ -1275,6 +1275,19 @@ impl Prefs {
         for (key, name, about, default) in mixxx_library::cleanup::Rules::ALL {
             items.push(switch(key, name, about, settings::flag(key, default)));
         }
+        items.push(item("sets", HEADING, "SETS", ""));
+        items.push(PrefItem {
+            value: settings::set_template().join(", ").into(),
+            on: true,
+            ..item(
+                "set_template",
+                TEXT,
+                "New set template",
+                "The lists + › New set… makes, separated by commas. History's Add to Set \
+                 List puts tracks in the one called Live set. Openers, Closers or \
+                 Transitions can be added too.",
+            )
+        });
         items
     }
 
@@ -2007,6 +2020,11 @@ impl Prefs {
             shortcuts::set_script(&mut own, key, text);
             settings::set_keyboard_shortcuts(&own);
             self.update_shortcut_row(id);
+            return;
+        }
+        if id == "set_template" {
+            let lists: Vec<String> = text.split(',').map(|l| l.trim().to_string()).collect();
+            settings::set_set_template(&lists);
             return;
         }
         if id == "discogs_token" {

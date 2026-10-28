@@ -53,6 +53,8 @@ pub const PREP: i32 = 18;
 pub const WAVE: i32 = 19;
 /// Where the file is: its folder and name, e.g. "_Staging/Kerala.flac".
 pub const LOCATION: i32 = 20;
+/// The crates the track is in (see [`mixxx_library::sets`]).
+pub const CRATES: i32 = 21;
 /// Tag field `i` (from 0) is column `TAGS + i`.
 pub const TAGS: i32 = 100;
 
@@ -103,6 +105,7 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
         d(COMPOSER, "Composer", 110.0, false, DIM),
         d(COMMENT, "Comment", 160.0, false, DIM),
         d(LOCATION, "Location", 200.0, false, DIM),
+        d(CRATES, "Crates", 160.0, false, TAG_WORDS),
     ]);
     out
 }
@@ -277,9 +280,14 @@ pub fn prep_dots(t: &Track) -> String {
 
 /// A row's cells for the columns `ids`: what the row already holds for
 /// the list's own columns, the rest from its track (none for a store
-/// result or a Spotify track the collection doesn't have). The title and
-/// rating are drawn from the row itself.
-pub fn row_cells(ids: &[i32], row: &TrackRow, track: Option<&Track>) -> ModelRc<SharedString> {
+/// result or a Spotify track the collection doesn't have) and the crates
+/// it is in. The title and rating are drawn from the row itself.
+pub fn row_cells(
+    ids: &[i32],
+    row: &TrackRow,
+    track: Option<&Track>,
+    crates: Option<&[String]>,
+) -> ModelRc<SharedString> {
     let cells: Vec<SharedString> = ids
         .iter()
         .map(|&id| match id {
@@ -290,6 +298,7 @@ pub fn row_cells(ids: &[i32], row: &TrackRow, track: Option<&Track>) -> ModelRc<
             BPM => row.bpm.clone(),
             KEY_ID => row.key.clone(),
             TITLE_ID | RATING_ID => SharedString::new(),
+            CRATES => crates.map(|c| c.join("  ")).unwrap_or_default().into(),
             id => track.map(|t| cell(id, t, true).into()).unwrap_or_default(),
         })
         .collect();

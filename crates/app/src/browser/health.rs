@@ -191,6 +191,8 @@ impl Browser {
         let w = with.clone();
         ui.on_restore(move || w(&|b| b.restore_removed()));
         let w = with.clone();
+        ui.on_tidy_lists(move || w(&|b| b.tidy_lists()));
+        let w = with.clone();
         ui.on_keep_this(move |row| w(&|b| b.keep_this(row)));
         let w = with.clone();
         ui.on_show_quarantine(move || {
@@ -699,6 +701,7 @@ impl Browser {
         ui.set_removed(self.removed as i32);
         ui.set_copies(on && self.dupe_view().is_some());
         ui.set_quarantined(self.quarantined as i32);
+        ui.set_lists(self.list_health_text().into());
         ui.set_quarantine_exists(self.quarantine_root().is_some_and(|d| d.is_dir()));
         self.refresh_cleanup_ui();
     }
@@ -818,6 +821,8 @@ impl Browser {
             Fix::FindCovers => self.batch_covers(indices),
             Fix::LookUp => self.batch_lookup(indices),
         };
+        // Removed tracks leave dead entries in lists.
+        self.refresh_crates();
         self.refresh_tree();
         self.refresh_rows();
     }
