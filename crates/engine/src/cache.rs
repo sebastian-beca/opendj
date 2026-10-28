@@ -2,8 +2,8 @@
 //! does in its library, so a track loaded again shows its waveform at once.
 //!
 //! Entries live in the user's cache folder (`~/Library/Caches/openDJ` on
-//! macOS, `$XDG_CACHE_HOME/opendj` or `~/.cache/opendj` elsewhere, or
-//! `OPENDJ_CACHE`), named by a hash of the file's path, size and
+//! macOS, `%LOCALAPPDATA%\openDJ` on Windows, `$XDG_CACHE_HOME/opendj` or
+//! `~/.cache/opendj` elsewhere, or `OPENDJ_CACHE`), named by a hash of the file's path, size and
 //! modification time, so an edited file is analysed again.
 
 use std::fs;
@@ -43,20 +43,8 @@ fn cache_dir() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("OPENDJ_CACHE") {
         return Some(PathBuf::from(dir));
     }
-    let home = std::env::var_os("HOME").map(PathBuf::from);
-    let base = if cfg!(target_os = "macos") {
-        home?.join("Library/Caches")
-    } else {
-        match std::env::var_os("XDG_CACHE_HOME") {
-            Some(d) if !d.is_empty() => PathBuf::from(d),
-            _ => home?.join(".cache"),
-        }
-    };
-    let name = if cfg!(target_os = "macos") {
-        "openDJ"
-    } else {
-        "opendj"
-    };
+    let base = crate::paths::cache_base()?;
+    let name = crate::paths::app_folder_name();
     static MOVED: std::sync::Once = std::sync::Once::new();
     MOVED.call_once(|| move_old_folder(&base, name));
     Some(base.join(name))

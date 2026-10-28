@@ -668,7 +668,7 @@ fn search_dirs() -> Vec<PathBuf> {
     if let Some(path) = login_shell_path() {
         dirs.extend(std::env::split_paths(&path));
     }
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = crate::paths::home_dir();
     for d in ["/opt/homebrew/bin", "/usr/local/bin"] {
         dirs.push(d.into());
     }

@@ -24,10 +24,12 @@ pub fn default_database() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("OPENDJ_VDJ_DATABASE") {
         return Some(PathBuf::from(p));
     }
-    let home = PathBuf::from(std::env::var_os("HOME")?);
+    let home = mixxx_engine::paths::home_dir()?;
     [
         "Library/Application Support/VirtualDJ/database.xml",
         "Documents/VirtualDJ/database.xml",
+        // Windows with Documents backed up to OneDrive.
+        "OneDrive/Documents/VirtualDJ/database.xml",
         ".vdj/database.xml",
     ]
     .iter()

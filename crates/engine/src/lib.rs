@@ -27,6 +27,7 @@ pub mod link;
 pub mod loader;
 pub mod loudness;
 mod output;
+pub mod paths;
 pub mod phrases;
 pub mod preview;
 pub mod recorder;

@@ -13,25 +13,14 @@ use mixxx_plugins::PluginConfig;
 use serde_json::{json, Value};
 
 /// Where openDJ keeps its settings: `OPENDJ_CONFIG`, else
-/// `~/Library/Application Support/openDJ` on macOS and
-/// `$XDG_CONFIG_HOME/opendj` (or `~/.config/opendj`) elsewhere.
+/// `~/Library/Application Support/openDJ` on macOS, `%APPDATA%\openDJ` on
+/// Windows and `$XDG_CONFIG_HOME/opendj` (or `~/.config/opendj`) elsewhere.
 pub fn config_dir() -> Option<PathBuf> {
     if let Some(d) = std::env::var_os("OPENDJ_CONFIG") {
         return Some(PathBuf::from(d));
     }
-    let home = std::env::var_os("HOME").map(PathBuf::from);
-    let base = if cfg!(target_os = "macos") {
-        home?.join("Library/Application Support")
-    } else {
-        std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .or_else(|| home.map(|h| h.join(".config")))?
-    };
-    let name = if cfg!(target_os = "macos") {
-        "openDJ"
-    } else {
-        "opendj"
-    };
+    let base = mixxx_engine::paths::config_base()?;
+    let name = mixxx_engine::paths::app_folder_name();
     static MOVED: std::sync::Once = std::sync::Once::new();
     MOVED.call_once(|| mixxx_engine::cache::move_old_folder(&base, name));
     Some(base.join(name))
@@ -495,7 +484,7 @@ pub fn inbox() -> InboxSettings {
     let dir = env
         .clone()
         .or_else(|| v["inbox_dir"].as_str().map(PathBuf::from))
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Downloads")));
+        .or_else(|| mixxx_engine::paths::home_dir().map(|h| h.join("Downloads")));
     let since = match v["inbox_since"].as_u64() {
         Some(s) => s,
         None => {
