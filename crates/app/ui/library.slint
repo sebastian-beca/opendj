@@ -1705,7 +1705,9 @@ component TrackList inherits Rectangle {
                 ascending: ascending;
                 header-x: header.absolute-position.x;
                 header-width: header.width;
-                sort(id) => { sort(id); }
+                // Sorting keeps only the current track picked: a shift-click
+                // range would no longer be one block of rows.
+                sort(id) => { anchor = -1; sort(id); }
                 menu(x, y) => {
                     column-menu-x = x + lv.content-x;
                     column-menu.show();
