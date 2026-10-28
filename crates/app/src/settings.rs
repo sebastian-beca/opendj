@@ -458,8 +458,8 @@ pub fn set_controller_version(based_on: &str, id: Option<&str>) {
 }
 
 /// The folders scanned for music: `OPENDJ_MUSIC`, else the ones chosen in
-/// settings (which may be none, once the DJ has removed them all), else
-/// `~/Music`.
+/// settings. There's no default: `~/Music` is where Ableton, GarageBand and
+/// the like keep their samples, so it's only scanned when the DJ adds it.
 pub fn music_folders() -> Vec<PathBuf> {
     if std::env::var_os("OPENDJ_MUSIC").is_some() {
         return default_music_dir().into_iter().collect();
@@ -469,10 +469,7 @@ pub fn music_folders() -> Vec<PathBuf> {
         return paths(MUSIC_FOLDERS);
     }
     // Before there could be several, there was one.
-    path_of("music_folder")
-        .or_else(default_music_dir)
-        .into_iter()
-        .collect()
+    path_of("music_folder").into_iter().collect()
 }
 
 pub const MUSIC_FOLDERS: &str = "music_folders";

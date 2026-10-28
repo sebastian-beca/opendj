@@ -19,9 +19,12 @@ Tracks come into the library in three ways:
   added, and changed files have their tags read again. With a big collection
   you can turn off **Update library on start** there, and press **Rescan**
   when you add music. Add as many folders as you like there with
-  **Add…**, and take one out with **Remove** (`~/Music` until you choose
-  your own), or start openDJ with the `OPENDJ_MUSIC` environment variable
-  set to one.
+  **Add…**, and take one out with **Remove**, or start openDJ with the
+  `OPENDJ_MUSIC` environment variable set to one. There's no default folder:
+  `~/Music` is where Ableton, GarageBand and other apps keep their samples,
+  so openDJ only looks there if you add it. When a folder is no longer looked through,
+  its tracks leave the library, except ones you rated, played, staged or put
+  in a list. The files stay where they are.
 - **Files.** The **Files** source in the rail browses any folder on your
   computer. Load or drag a track from there to add it.
 - **Another DJ app.** openDJ can bring in your VirtualDJ library (see below).
