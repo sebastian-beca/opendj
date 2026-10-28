@@ -727,7 +727,7 @@ impl Term {
 
 /// A title or artist reduced to what identifies the song: lowercase,
 /// without punctuation, "the", or a trailing "(Original Mix)".
-fn normalized(s: &str) -> String {
+pub(crate) fn normalized(s: &str) -> String {
     let lower = s.to_lowercase();
     let lower = lower
         .replace("(original mix)", "")

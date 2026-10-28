@@ -49,6 +49,20 @@ impl Browser {
             })
         });
         let w = with.clone();
+        edit.on_prepare_hq_stems(move |first, last| {
+            w(&|b| {
+                for i in b.picked_rows(first, last) {
+                    if let Some(t) = b
+                        .library
+                        .get(i)
+                        .filter(|t| matches!(t.source, Source::File(_)))
+                    {
+                        b.engine.prepare_hq_stems(t);
+                    }
+                }
+            })
+        });
+        let w = with.clone();
         edit.on_cancel_analysis(move || {
             w(&|b| {
                 b.analysis.cancel();

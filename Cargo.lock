@@ -5378,6 +5378,7 @@ dependencies = [
  "lofty",
  "matrixmultiply",
  "mixxx-control",
+ "mixxx-separation",
  "rtrb",
  "rustfft",
  "rusty_link",
@@ -6241,6 +6242,7 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "opendj-export",
+ "opendj-script",
  "read-fonts",
  "serde_json",
  "sha2",
@@ -6266,6 +6268,13 @@ dependencies = [
  "rbox-onelib",
  "tempfile",
  "unicode-normalization",
+]
+
+[[package]]
+name = "opendj-script"
+version = "0.3.5"
+dependencies = [
+ "mixxx-control",
 ]
 
 [[package]]

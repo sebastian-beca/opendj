@@ -643,6 +643,33 @@ pub fn set_columns(columns: &[(i32, f32)]) {
     save(|v| v["columns"] = json!(list));
 }
 
+/// The DJ's own keyboard shortcuts, as (key, openDJscript line) pairs in
+/// the order saved. They replace the default for the same key
+/// ([`crate::shortcuts::DEFAULTS`]); an empty line turns that key off.
+pub fn keyboard_shortcuts() -> Vec<(String, String)> {
+    load()["keyboard_shortcuts"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| {
+                    Some((
+                        s["key"].as_str()?.to_string(),
+                        s["script"].as_str()?.to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn set_keyboard_shortcuts(shortcuts: &[(String, String)]) {
+    let list: Vec<Value> = shortcuts
+        .iter()
+        .map(|(key, script)| json!({ "key": key, "script": script }))
+        .collect();
+    save(|v| v["keyboard_shortcuts"] = json!(list));
+}
+
 fn save(change: impl FnOnce(&mut Value)) {
     let Some(path) = path() else { return };
     let mut v = load();
