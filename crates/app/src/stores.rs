@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
-use mixxx_plugins::{remote, LibraryImport, Plugin, PluginError, StoreItem, StoreQuery};
+use opendj_plugins::{remote, LibraryImport, Plugin, PluginError, StoreItem, StoreQuery};
 
 /// How long typing has to pause before a store is asked.
 const DEBOUNCE: Duration = Duration::from_millis(400);
@@ -14,7 +14,7 @@ const DEBOUNCE: Duration = Duration::from_millis(400);
 /// in the `addons` folder of the app's config folder (and any named in
 /// `OPENDJ_ADDONS`).
 pub fn plugins() -> Vec<Box<dyn Plugin>> {
-    let mut all = mixxx_plugins::builtin();
+    let mut all = opendj_plugins::builtin();
     all.extend(addons());
     all
 }
@@ -48,9 +48,9 @@ pub fn configured() -> Vec<Box<dyn Plugin>> {
 }
 
 /// The other DJ apps whose libraries the app can bring in (see
-/// [`mixxx_plugins::LibraryImport`]), turned on or not.
+/// [`opendj_plugins::LibraryImport`]), turned on or not.
 pub fn importers() -> Vec<Box<dyn LibraryImport>> {
-    mixxx_plugins::importers()
+    opendj_plugins::importers()
 }
 
 /// The importers the DJ turned on in Settings > Library.

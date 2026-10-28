@@ -598,7 +598,7 @@ mod tests {
     use crate::decode::tests::write_wav;
     use crate::engine::Engine;
     use crate::key::Key;
-    use mixxx_control::ControlRegistry;
+    use opendj_control::ControlRegistry;
     use std::sync::mpsc;
 
     /// Runs the engine like an audio callback until `done` holds.

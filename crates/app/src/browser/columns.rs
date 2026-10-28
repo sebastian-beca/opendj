@@ -6,9 +6,9 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
 
-use mixxx_engine::key::Key;
-use mixxx_engine::Track;
-use mixxx_library::query::FieldNames;
+use opendj_engine::key::Key;
+use opendj_engine::Track;
+use opendj_library::query::FieldNames;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 use super::Browser;
@@ -244,7 +244,7 @@ pub fn cell(id: i32, t: &Track, camelot: bool) -> String {
         PREP => prep_dots(t),
         KEY_ID => crate::settings::show_key(&t.key, camelot),
         LOCATION => match &t.source {
-            mixxx_engine::Source::File(p) => {
+            opendj_engine::Source::File(p) => {
                 let name = p.file_name().map(|n| n.to_string_lossy());
                 let dir = p
                     .parent()
@@ -271,7 +271,7 @@ pub fn cell(id: i32, t: &Track, camelot: bool) -> String {
 /// A dot for each part of basic preparation, filled when done: tags
 /// (artist and title), rating, tempo and key.
 pub fn prep_dots(t: &Track) -> String {
-    let p = mixxx_library::stages::Prep::of(t);
+    let p = opendj_library::stages::Prep::of(t);
     [p.tags, p.rating, p.analysed]
         .iter()
         .map(|&done| if done { '●' } else { '○' })
@@ -331,11 +331,11 @@ pub fn compare(id: i32, a: &Track, b: &Track) -> Ordering {
 }
 
 fn analysed(t: &Track) -> bool {
-    mixxx_library::stages::Prep::of(t).analysed
+    opendj_library::stages::Prep::of(t).analysed
 }
 
 fn prep_count(t: &Track) -> usize {
-    let p = mixxx_library::stages::Prep::of(t);
+    let p = opendj_library::stages::Prep::of(t);
     [p.tags, p.rating, p.analysed]
         .iter()
         .filter(|d| **d)
@@ -598,7 +598,7 @@ mod tests {
 
     #[test]
     fn shows_and_sorts_library_fields() {
-        let mut a = std::sync::Arc::unwrap_or_clone(mixxx_engine::sample_library().remove(0));
+        let mut a = std::sync::Arc::unwrap_or_clone(opendj_engine::sample_library().remove(0));
         let mut b = a.clone();
         a.info.grouping = "10 SONG".into();
         b.info.grouping = "2 ONS".into();

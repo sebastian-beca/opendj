@@ -243,13 +243,13 @@ fn move_file(from: &Path, to: &Path) -> io::Result<()> {
     if let Some(dir) = to.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let cached = mixxx_engine::cache::before_move(from);
+    let cached = opendj_engine::cache::before_move(from);
     if std::fs::rename(from, to).is_err() {
         // Another disk: copy, then remove the original once the copy is whole.
         std::fs::copy(from, to)?;
         std::fs::remove_file(from)?;
     }
-    mixxx_engine::cache::file_moved(to, cached);
+    opendj_engine::cache::file_moved(to, cached);
     Ok(())
 }
 
@@ -279,7 +279,7 @@ mod tests {
             .unwrap()
             .into_iter()
             .map(|t| match t.source {
-                mixxx_engine::Source::File(p) => (t.info.stage, p),
+                opendj_engine::Source::File(p) => (t.info.stage, p),
                 _ => unreachable!(),
             })
             .collect()

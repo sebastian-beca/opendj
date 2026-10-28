@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use mixxx_control::{Behavior, ConfigKey, ControlHandle, ControlRegistry};
+use opendj_control::{Behavior, ConfigKey, ControlHandle, ControlRegistry};
 
 /// Shortcut controls Mixxx adds next to every knob, e.g. `pregain_set_default`.
 #[derive(Clone, Copy, Debug, PartialEq)]

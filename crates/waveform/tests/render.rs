@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use mixxx_waveform::{
+use opendj_waveform::{
     steady_grid, wgpu, Frame, GpuTrack, Mode, PhraseKind, Style, WaveformRenderer, WaveformView,
 };
 

@@ -13,7 +13,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use mixxx_control::{Behavior, ControlHandle, ControlRegistry};
+use opendj_control::{Behavior, ControlHandle, ControlRegistry};
 use rusty_link::{AblLink, HostTimeFilter, SessionState};
 
 pub const GROUP: &str = "[Link]";

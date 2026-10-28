@@ -18,7 +18,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use mixxx_engine::{Source, Track};
+use opendj_engine::{Source, Track};
 use rusqlite::{params, OptionalExtension};
 
 use crate::query::normalized;
@@ -474,7 +474,7 @@ fn free_place(dir: &Path, path: &Path, taken: impl Fn(&Path) -> bool) -> PathBuf
 mod tests {
     use super::*;
     use crate::tests::file_track;
-    use mixxx_engine::Hotcue;
+    use opendj_engine::Hotcue;
 
     fn copy(id: usize, path: &str, seconds: f64) -> Track {
         let mut t = file_track(path, "Clouds");

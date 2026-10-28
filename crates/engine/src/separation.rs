@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use mixxx_separation::spleeter;
+use opendj_separation::spleeter;
 
 use crate::dsp::Lr4;
 use crate::stems::{
@@ -149,7 +149,7 @@ pub fn separate_fast(
         return Ok(());
     }
     let [l, r] = channels(audio);
-    let model_rate = mixxx_separation::SAMPLE_RATE;
+    let model_rate = opendj_separation::SAMPLE_RATE;
     // Our stems, with the drums split, for `n` frames from `lead` on.
     #[allow(clippy::needless_range_loop)] // frame by frame across the stems
     let frames = |parts: &[[&[f32]; 2]], lead: usize| -> Box<[StemFrame]> {
@@ -188,7 +188,7 @@ pub fn separate_fast(
     // Another rate: separate at the model's and bring the stems back, all
     // at once.
     let resample =
-        |x: &[f32], from_rate, to_rate| mixxx_separation::resample(x, from_rate, to_rate);
+        |x: &[f32], from_rate, to_rate| opendj_separation::resample(x, from_rate, to_rate);
     let (l, r) = (
         resample(&l, rate, model_rate)?,
         resample(&r, rate, model_rate)?,
@@ -244,24 +244,24 @@ pub fn separate_hq(path: &Path) -> Result<StemSource, String> {
 }
 
 fn htdemucs(path: &Path, weights: &Path) -> Result<StemSource, String> {
-    use mixxx_separation::htdemucs::HtDemucs;
+    use opendj_separation::htdemucs::HtDemucs;
     let audio = crate::decode::decode(path)?;
     let rate = audio.sample_rate;
     let [l, r] = channels(&audio);
     let bytes = std::fs::read(weights).map_err(|e| format!("{}: {e}", weights.display()))?;
     let device = Default::default();
-    let model = HtDemucs::<mixxx_separation::Gpu>::load(&bytes, &device)?;
+    let model = HtDemucs::<opendj_separation::Gpu>::load(&bytes, &device)?;
     let stems = model.separate([&l, &r])?;
-    let model_rate = mixxx_separation::SAMPLE_RATE;
+    let model_rate = opendj_separation::SAMPLE_RATE;
     let dir = crate::cache::stems_dir(path).ok_or("no cache folder")?;
     let work = dir.with_extension(format!("work{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let written = (|| -> Result<(), String> {
         // HTDemucs's order is ours: drums, bass, other, vocals.
-        for (name, [sl, sr]) in mixxx_separation::htdemucs::STEMS.iter().zip(&stems) {
+        for (name, [sl, sr]) in opendj_separation::htdemucs::STEMS.iter().zip(&stems) {
             let fit = |x: &[f32]| -> Result<Vec<f32>, String> {
-                let mut y = mixxx_separation::resample(x, model_rate, rate)?;
+                let mut y = opendj_separation::resample(x, model_rate, rate)?;
                 y.resize(audio.len(), 0.0);
                 Ok(y)
             };
@@ -285,13 +285,13 @@ mod tests {
     use super::*;
 
     /// Needs the Spleeter weights: `OPENDJ_MODELS=<folder with
-    /// spleeter-4stems.safetensors> cargo test -p mixxx-engine -- --ignored spleeter_on`.
+    /// spleeter-4stems.safetensors> cargo test -p opendj-engine -- --ignored spleeter_on`.
     #[test]
     #[ignore]
     fn spleeter_on_load_fills_the_stems_from_the_cue() {
         let audio = crate::synth::render_with(124.0, 0.25, 60.0, 5);
         let audio = Audio::from_frames(
-            mixxx_separation::SAMPLE_RATE,
+            opendj_separation::SAMPLE_RATE,
             audio.decoded_chunks().flatten().copied().collect(),
         );
         let t = std::time::Instant::now();

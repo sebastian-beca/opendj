@@ -16,7 +16,7 @@
 
 use std::path::{Path, PathBuf};
 
-use mixxx_engine::Track;
+use opendj_engine::Track;
 
 /// A step on the way into the collection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -257,7 +257,7 @@ impl Prep {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mixxx_engine::Source;
+    use opendj_engine::Source;
 
     fn folders() -> Folders {
         Folders {

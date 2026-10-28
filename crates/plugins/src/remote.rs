@@ -159,7 +159,7 @@ struct Process {
 
 impl Process {
     fn start(program: &Path) -> Result<(Self, Value), PluginError> {
-        let mut child = mixxx_engine::process::background(Command::new(program))
+        let mut child = opendj_engine::process::background(Command::new(program))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
