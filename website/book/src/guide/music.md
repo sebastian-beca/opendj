@@ -102,6 +102,9 @@ green for a chorus and tangerine for a break. Phrases are 8 to 32 bars
 long, so a short fill never gets one of its own. They are saved in the
 library with the track, and move with the grid when you edit it.
 
+Rest the pointer on a deck's overview to see the phrase under it: its
+kind, how many bars it runs and where it starts and ends.
+
 Right-click a deck's overview and choose **Hide phrases** (or **Show
 phrases**) to turn the bars off or on for every deck.
 

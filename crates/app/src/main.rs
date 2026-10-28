@@ -569,6 +569,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })?;
     }
 
+    // The overview's tooltip: the phrase under the pointer.
+    {
+        let gpu = gpu.clone();
+        app.global::<PhraseView>().on_describe(move |d, seconds| {
+            let gpu = gpu.try_borrow().ok();
+            let cached = gpu
+                .as_ref()
+                .and_then(|g| g.as_ref()?.phrases.get(d as usize)?.as_ref());
+            cached
+                .and_then(|(t, p)| phrase_tip(p, t.duration, t.bpm, seconds as f64))
+                .unwrap_or_default()
+        });
+    }
+
     // A newer release: checked once per start, offered while nothing plays.
     let update_check = update::check();
     let update: Rc<RefCell<Option<update::Release>>> = Default::default();
@@ -1581,6 +1595,37 @@ impl Gpu {
             }
         }
     }
+}
+
+/// The tooltip for the phrase at `seconds`: its kind, then its length in
+/// bars and where it starts and ends.
+fn phrase_tip(phrases: &Phrases, duration: f64, bpm: f64, seconds: f64) -> Option<PhraseTip> {
+    let i = phrases.iter().rposition(|(start, _)| *start <= seconds)?;
+    let (start, kind) = phrases[i];
+    let end = phrases.get(i + 1).map_or(duration, |(s, _)| *s);
+    let title = match kind {
+        PhraseKind::Intro => "INTRO",
+        PhraseKind::Build => "BUILD-UP",
+        PhraseKind::Drop => "DROP",
+        PhraseKind::Breakdown => "BREAKDOWN",
+        PhraseKind::Outro => "OUTRO",
+        PhraseKind::Chorus => "CHORUS",
+    };
+    let mmss = |s: f64| {
+        let s = s.max(0.0).round() as u64;
+        format!("{}:{:02}", s / 60, s % 60)
+    };
+    let range = format!("{} – {}", mmss(start), mmss(end));
+    let bars = ((end - start) * bpm / 240.0).round();
+    let body = if bpm > 0.0 && bars >= 1.0 {
+        format!("{bars} bars · {range}")
+    } else {
+        range
+    };
+    Some(PhraseTip {
+        title: title.into(),
+        body: body.into(),
+    })
 }
 
 /// The beat number of the track's first bar: the first bar line at or
