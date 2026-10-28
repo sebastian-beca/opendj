@@ -14,6 +14,11 @@ on:
       - res/macos/opendj.entitlements
   workflow_dispatch:
 
+# A new push to a pull request cancels the packaging run for the push before it.
+concurrency:
+  group: release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   version:
     runs-on: ubuntu-24.04
