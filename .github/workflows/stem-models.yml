@@ -22,7 +22,7 @@ jobs:
           python-version: "3.12"
       - name: Convert Spleeter, fetch HTDemucs
         run: |
-          pip install tensorflow-cpu numpy safetensors
+          pip install tensorflow-cpu==2.21.0 numpy==2.5.4 safetensors==0.8.0
           mkdir -p models work/4stems
           curl -sSfL -o work/4stems.tar.gz https://github.com/deezer/spleeter/releases/download/v1.4.0/4stems.tar.gz
           tar xzf work/4stems.tar.gz -C work/4stems
