@@ -33,5 +33,9 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSButton", "NSControl", "NSMenu", "NSMenuItem", "NSResponder", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSObject", "NSString"] }
 
+[target.'cfg(windows)'.dependencies]
+# The system's own Open dialog (macOS and Linux ask osascript and zenity).
+rfd = { version = "0.17", default-features = false }
+
 [build-dependencies]
 slint-build = "~1.18"
