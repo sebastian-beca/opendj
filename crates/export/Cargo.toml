@@ -15,7 +15,6 @@ diesel = { version = "2.3", default-features = false, features = ["sqlite"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 lofty = "0.25"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
-jpeg-encoder = "0.7"
 unicode-normalization = "0.1"
 tempfile = "3"
 
