@@ -502,8 +502,7 @@ component Placeholder inherits Rectangle {
 // files, and the streaming services.
 component SourceIcon inherits Rectangle {
     // 0 = collection, 1 = files, 2 = Spotify, 3 = TIDAL, 4 = Apple Music,
-    // 5 = Bandcamp, 6 = Beatport, 7 = OneLibrary, 8 = SoundCloud,
-    // 9 = shopping (the other stores)
+    // 5 = Bandcamp, 6 = Beatport, 7 = OneLibrary, 8 = SoundCloud
     in property <int> kind;
     width: 30px;
     height: 30px;
@@ -516,7 +515,6 @@ component SourceIcon inherits Rectangle {
         : kind == 5 || kind == 6 ? transparent
         : kind == 7 ? #000000
         : kind == 8 ? #ff5500
-        : kind == 9 ? transparent
         : @linear-gradient(180deg, #fc5c7d 0%, #fa2d48 100%);
     border-width: kind == 3 || kind == 7 ? 1px : 0px;
     border-color: Theme.border;
@@ -538,8 +536,6 @@ component SourceIcon inherits Rectangle {
     if kind == 7: Image { width: 22px; height: 22px; source: @image-url("icons/onelibrary.svg"); }
     // SoundCloud: its own logo.
     if kind == 8: Image { width: 30px; height: 30px; source: @image-url("icons/soundcloud.png"); }
-    // Shopping, the other stores: a cart.
-    if kind == 9: Image { width: 30px; height: 30px; source: @image-url("icons/shopping.png"); }
 }
 
 // An on/off switch, as in macOS.
@@ -567,7 +563,7 @@ component SourceRail inherits Rectangle {
     in-out property <[bool]> shown;
     callback picked(source: int);
     callback shown-changed(source: int, on: bool);
-    property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Shopping"];
+    property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud"];
     width: 52px;
     background: Theme.browser;
     rail := VerticalLayout {
@@ -1002,15 +998,15 @@ component FolderTree inherits Rectangle {
         }
         if tab == 0 && source >= 2 && (!StoreUi.services || (source != 2 && source != 5 && source != 9)): Placeholder {
             vertical-stretch: 1;
-            title: ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Shopping"][source];
+            title: ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud"][source];
             text: "Coming soon.";
         }
-        if (tab == 0 && (source == 0 || source == 1 || (StoreUi.services && (source == 5 || source == 9 || (source == 2 && spotify-connected))))) || (tab == 1 && folders.length > 0): VerticalLayout {
+        if (tab == 0 && (source == 0 || source == 1 || (StoreUi.services && (source == 5 || (source == 2 && spotify-connected))))) || (tab == 1 && folders.length > 0): VerticalLayout {
             spacing: 6px;
             HorizontalLayout {
                 padding-left: 8px;
                 height: 26px;
-                Text { text: tab == 1 ? "Sessions" : source == 1 ? "Folders" : source == 0 ? "Playlists" : ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Shopping"][source]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                Text { text: tab == 1 ? "Sessions" : source == 1 ? "Folders" : source == 0 ? "Playlists" : ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud"][source]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
                 // New list or folder.
                 if source == 0 && tab == 0: Rectangle {
                     width: 26px;
@@ -1110,7 +1106,7 @@ component FolderTree inherits Rectangle {
                     }
                 }
             }
-            if StoreUi.services && (source == 5 || source == 9): InboxPanel {}
+            if StoreUi.services && source == 5: InboxPanel {}
             if source == 1 && tab == 0: FilesOptions {}
             if StoreUi.services && source == 2: HorizontalLayout {
                 height: 28px;
@@ -2372,7 +2368,7 @@ export component Browser inherits HorizontalLayout {
     callback automix-set-style(index: int);
     property <int> source <=> StoreUi.source;
     property <int> library-tab;
-    property <[string]> source-names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Shopping"];
+    property <[string]> source-names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud"];
     // Which sources the rail shows, by index; picked under its "...".
     in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true];
     callback source-shown-changed(source: int, on: bool);
@@ -2381,7 +2377,7 @@ export component Browser inherits HorizontalLayout {
     spacing: 1px;
     // Sources with a list of their own: the collection, Files, the stores,
     // and Spotify once signed in.
-    property <bool> listing: source == 0 || source == 1 || (StoreUi.services && (source == 5 || source == 9 || (source == 2 && spotify-connected)));
+    property <bool> listing: source == 0 || source == 1 || (StoreUi.services && (source == 5 || (source == 2 && spotify-connected)));
     SourceRail {
         source <=> source;
         shown <=> sources-shown;
@@ -2437,7 +2433,7 @@ export component Browser inherits HorizontalLayout {
             width: 100%;
             height: parent.height - self.y;
             rows: listing ? rows : [];
-            results: StoreUi.services && (source == 5 || source == 9);
+            results: StoreUi.services && source == 5;
             sort-column: sort-column;
             ascending: ascending;
             folder-name: listing ? folder-name : source-names[source];

@@ -55,14 +55,12 @@ const COLLECTION: i32 = 0;
 /// Folders on the computer (see [`crate::files`]).
 const FILES: i32 = 1;
 const SPOTIFY: i32 = 2;
-/// Bandcamp, the main store, in the rail.
+/// Bandcamp in the rail, with the other stores in its tree.
 const STORES: i32 = 5;
-/// The other stores, as Shopping in the rail.
-const OTHER_STORES: i32 = 9;
 
 /// Whether `source` shows store results.
 fn is_stores(source: i32) -> bool {
-    source == STORES || source == OTHER_STORES
+    source == STORES
 }
 
 #[derive(Clone)]
@@ -104,7 +102,7 @@ enum Contents {
 pub const SERVICES_ENABLED: bool = false;
 
 /// The sources in the rail, in order, as saved when hidden.
-const SOURCE_NAMES: [&str; 10] = [
+const SOURCE_NAMES: [&str; 9] = [
     "Collection",
     "Files",
     "Spotify",
@@ -114,7 +112,6 @@ const SOURCE_NAMES: [&str; 10] = [
     "Beatport",
     "OneLibrary",
     "SoundCloud",
-    "Shopping",
 ];
 
 /// Every source in the rail: the built-in ones, then add-ons' own (see
@@ -1345,7 +1342,7 @@ impl Browser {
     /// underneath their placeholder.
     fn select_source(&mut self, source: i32) {
         let usable: &[i32] = if SERVICES_ENABLED {
-            &[COLLECTION, FILES, SPOTIFY, STORES, OTHER_STORES]
+            &[COLLECTION, FILES, SPOTIFY, STORES]
         } else {
             &[COLLECTION, FILES]
         };
@@ -1370,7 +1367,7 @@ impl Browser {
         match source {
             FILES => self.rebuild_files_tree(),
             SPOTIFY => self.rebuild_spotify_tree(),
-            STORES | OTHER_STORES => self.rebuild_stores_tree(),
+            STORES => self.rebuild_stores_tree(),
             _ => {}
         }
         if let Some(app) = self.app.upgrade() {
@@ -1389,28 +1386,25 @@ impl Browser {
         }
     }
 
-    /// The stores tree: Bandcamp on its own, or the other stores (together
-    /// and each), then the wanted list.
+    /// The stores tree: Bandcamp, the other stores (together and each),
+    /// then the wanted list.
     fn rebuild_stores_tree(&mut self) {
-        let bandcamp = self.tree == STORES;
-        let mut nodes = Vec::new();
-        if !bandcamp {
+        let stores = &self.store.stores.stores;
+        let node = |i: usize| {
+            let s = &stores[i];
+            let kind = if s.name == "Bandcamp" {
+                KIND_BANDCAMP
+            } else {
+                KIND_LIST
+            };
+            Node::new(s.name.clone(), 0, kind, Contents::Store(Some(i)))
+        };
+        let (bandcamp, others): (Vec<usize>, Vec<usize>) =
+            (0..stores.len()).partition(|&i| stores[i].name == "Bandcamp");
+        let mut nodes: Vec<Node> = bandcamp.into_iter().map(node).collect();
+        if !others.is_empty() {
             nodes.push(Node::new("All other stores", 0, 0, Contents::OtherStores));
-        }
-        for (i, s) in self.store.stores.stores.iter().enumerate() {
-            if (s.name == "Bandcamp") != bandcamp {
-                continue;
-            }
-            nodes.push(Node::new(
-                s.name.clone(),
-                0,
-                if s.name == "Bandcamp" {
-                    KIND_BANDCAMP
-                } else {
-                    KIND_LIST
-                },
-                Contents::Store(Some(i)),
-            ));
+            nodes.extend(others.into_iter().map(node));
         }
         nodes.push(Node::new("Wanted", 0, 4, Contents::Wanted));
         self.current_node = self.current_node.min(nodes.len() - 1);
@@ -3111,7 +3105,6 @@ impl Browser {
                 None if self.tree == FILES => "Files".into(),
                 None if self.tree == SPOTIFY => "Spotify".into(),
                 None if self.tree == STORES => "Bandcamp".into(),
-                None if self.tree == OTHER_STORES => "Shopping".into(),
                 None => String::new(),
             };
             app.set_folder_name(name.into());

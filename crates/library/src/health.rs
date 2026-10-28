@@ -1,5 +1,6 @@
 //! Library Health: checks that find what needs fixing in the collection
-//! (audiobooks and podcasts, files outside the stage folders, tracks not
+//! (audiobooks and podcasts, files outside the stage folders or the music
+//! folders, tracks not
 //! analysed or missing their tags, cover or rating, files gone, long
 //! recordings), so it can be fixed in batches. Each check is also a
 //! search (`is:notmusic`, `is:stray`…), and a track can be set to be
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS covers (
 pub enum Check {
     NotMusic,
     Stray,
+    Outside,
     NotAnalyzed,
     MissingInfo,
     NoCover,
@@ -57,9 +59,10 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 9] = [
+    pub const ALL: [Check; 10] = [
         Check::NotMusic,
         Check::Stray,
+        Check::Outside,
         Check::Duplicate,
         Check::NotAnalyzed,
         Check::MissingInfo,
@@ -74,6 +77,7 @@ impl Check {
         match self {
             Check::NotMusic => "notmusic",
             Check::Stray => "stray",
+            Check::Outside => "outside",
             Check::NotAnalyzed => "unanalyzed",
             Check::MissingInfo => "noinfo",
             Check::NoCover => "nocover",
@@ -89,6 +93,7 @@ impl Check {
         Some(match s {
             "notmusic" | "nonmusic" | "audiobook" | "podcast" => Check::NotMusic,
             "stray" | "strays" => Check::Stray,
+            "outside" | "unwatched" => Check::Outside,
             "unanalyzed" | "unanalysed" | "notanalyzed" => Check::NotAnalyzed,
             "noinfo" | "untagged" | "incomplete" => Check::MissingInfo,
             "nocover" | "noart" => Check::NoCover,
@@ -105,6 +110,7 @@ impl Check {
         match self {
             Check::NotMusic => "Not music",
             Check::Stray => "Strays",
+            Check::Outside => "Outside folders",
             Check::NotAnalyzed => "Not analyzed",
             Check::MissingInfo => "Missing info",
             Check::NoCover => "No cover",
@@ -122,6 +128,7 @@ impl Check {
                 "Audiobooks, podcasts and spoken word that came in with another library."
             }
             Check::Stray => "Files outside your Inbox, Triage and Collection folders.",
+            Check::Outside => "Files outside your music folders and stage folders.",
             Check::NotAnalyzed => "No tempo or key yet.",
             Check::MissingInfo => "No artist, title, album, year or genre.",
             Check::NoCover => "No picture in the file's tags or its folder.",
@@ -208,6 +215,8 @@ pub struct Facts {
     covers: HashMap<usize, bool>,
     /// The DJ has set up the stage folders, so a track outside them is a stray.
     stages: bool,
+    /// The music folders and stage folders: a file in none of them is outside.
+    folders: Vec<PathBuf>,
 }
 
 impl Facts {
@@ -240,7 +249,15 @@ impl Facts {
             ignored,
             covers,
             stages,
+            folders: Vec::new(),
         }
+    }
+
+    /// The music folders and stage folders, for [`Check::Outside`]. With
+    /// none, that check finds nothing.
+    pub fn with_folders(mut self, folders: Vec<PathBuf>) -> Self {
+        self.folders = folders;
+        self
     }
 
     /// Whether `check` finds `t`. `duplicates` are the ids of tracks that
@@ -255,6 +272,12 @@ impl Facts {
         match check {
             Check::NotMusic => self.not_music(t),
             Check::Stray => self.stages && t.info.stage.is_empty(),
+            Check::Outside => match &t.source {
+                Source::File(path) => {
+                    !self.folders.is_empty() && !self.folders.iter().any(|d| path.starts_with(d))
+                }
+                _ => false,
+            },
             Check::NotAnalyzed => t.bpm <= 0.0 || t.key.is_empty(),
             Check::MissingInfo => [&t.artist, &t.title, &t.album, &t.info.year, &t.genre]
                 .iter()
@@ -553,6 +576,22 @@ mod tests {
         assert!(!facts.finds(Check::NoCover, &t, &none), "not looked at yet");
         facts.set_cover(1, false);
         assert!(facts.finds(Check::NoCover, &t, &none));
+    }
+
+    #[test]
+    fn files_outside_the_folders() {
+        let inside = track(1, "/m/DB/Library/x.mp3", "Song");
+        let outside = track(2, "/Users/s/Downloads/y.mp3", "Song");
+        let none = HashSet::new();
+        let facts = Facts::new([&inside, &outside], HashMap::new(), HashMap::new(), false);
+        assert!(
+            !facts.finds(Check::Outside, &outside, &none),
+            "no folders yet"
+        );
+        let facts = facts.with_folders(vec![PathBuf::from("/m/DB"), PathBuf::from("/m/Inbox")]);
+        assert!(!facts.finds(Check::Outside, &inside, &none));
+        assert!(facts.finds(Check::Outside, &outside, &none));
+        assert_eq!(Check::from_name("outside"), Some(Check::Outside));
     }
 
     #[test]
