@@ -5,7 +5,8 @@ import { Deck, DeckInfo, KeyItem, EffectList, DeckActions, PhraseView, PhraseTip
 import { Mixer, AudioSettings, OutputRow } from "mixer.slint";
 import { MasterPanel, MicPanel } from "toppanels.slint";
 import { PlayerDeck, PlayerMixer } from "player.slint";
-import { DeckStrip, FourDeckCenter } from "fourdeck.slint";
+import { DeckStrip, FourDeckBar } from "fourdeck.slint";
+import { FxBar } from "fxbar.slint";
 import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, ColumnUi, ListColumn, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow } from "library.slint";
 import { Preferences, PreferencesOverlay, PrefItem, ImportWizard } from "preferences.slint";
 import { UsbExport, UsbExportDialog } from "usb_export.slint";
@@ -398,6 +399,31 @@ component WaveformsButton inherits Rectangle {
     }
 }
 
+// Shows or hides the FX bar under the decks: "FX", lit while it shows.
+component FxButton inherits Rectangle {
+    in-out property <bool> on;
+    callback changed-to(on: bool);
+    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: on ? Theme.accent : transparent;
+    height: 36px;
+    y: 8px;
+    horizontal-stretch: 0;
+    HorizontalLayout {
+        padding-left: 11px;
+        padding-right: 11px;
+        Text { text: "FX"; color: on ? Theme.accent : Theme.text-dim; font-size: 14px; font-weight: 700; font-italic: true; vertical-alignment: center; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            on = !on;
+            changed-to(on);
+        }
+    }
+}
+
 // MASTER: the main meters and the clock. A click opens the MASTER panel
 // with the output levels and Ableton Link, lit while Link is on.
 component MasterPill inherits Rectangle {
@@ -509,6 +535,9 @@ export component AppWindow inherits Window {
     // The large scrolling waveforms above the decks, from the top bar button.
     in-out property <bool> waveforms-visible: true;
     callback waveforms-visible-changed(on: bool);
+    // The FX bar under the waveforms, from the top bar's FX button.
+    in-out property <bool> fx-bar-visible: true;
+    callback fx-bar-visible-changed(on: bool);
 
     // Physical sizes the GPU textures should be rendered at.
     // Room on the left of the top bar for macOS's window buttons.
@@ -670,6 +699,7 @@ export component AppWindow inherits Window {
                     spacing: 10px;
                     LayoutPill { layout <=> root.layout; changed-to(l) => { layout-changed(l); } }
                     WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
+                    FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
                     Rectangle { horizontal-stretch: 1; }
                     MicButton { }
                     RecordButton { }
@@ -726,16 +756,15 @@ export component AppWindow inherits Window {
                 Deck { deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
             }
 
-            // 4-Deck: four strips, decks 3, 1, 2 and 4, with the crossfader
-            // between 1 and 2. Folded away, like the 2-Deck row, in the
-            // other layouts.
+            // 4-Deck: four strips, decks 3, 1, 2 and 4, then the bar with the
+            // crossfader. Folded away, like the 2-Deck row, in the other
+            // layouts.
             HorizontalLayout {
                 spacing: 1px;
-                height: four ? 446px : 0px;
+                height: four ? 330px : 0px;
                 visible: four;
                 DeckStrip { deck: 2; info: decks[2]; overview: overview-3; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
                 strip-1 := DeckStrip { deck: 0; info: decks[0]; overview: overview-1; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
-                FourDeckCenter { }
                 DeckStrip { deck: 1; info: decks[1]; overview: overview-2; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
                 DeckStrip { deck: 3; info: decks[3]; overview: overview-4; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
             }
@@ -748,6 +777,21 @@ export component AppWindow inherits Window {
                 player-a := PlayerDeck { deck: 0; info: decks[0]; overview: overview-1; horizontal-stretch: 1; min-width: 330px; }
                 PlayerMixer { decks: decks; spin-1: spin-1; spin-2: spin-2; }
                 PlayerDeck { deck: 1; info: decks[1]; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 330px; }
+            }
+
+            FourDeckBar {
+                decks: decks;
+                height: four ? 48px : 0px;
+                visible: four;
+            }
+
+            // The FX bar under the decks: deck effects either side of the
+            // Beat FX. Folded away while the library is expanded or the top
+            // bar hides it.
+            FxBar {
+                four: four;
+                height: library-expanded || !fx-bar-visible ? 0px : four ? 96px : 68px;
+                visible: !library-expanded && fx-bar-visible;
             }
 
             browser := Browser {
