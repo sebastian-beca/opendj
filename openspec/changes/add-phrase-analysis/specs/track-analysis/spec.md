@@ -11,6 +11,14 @@ Analysis SHALL split a track with a beat grid into phrases of whole bars, each l
 - **WHEN** a track drops its bass for 16 bars and brings it back
 - **THEN** those 16 bars are a Breakdown and the phrase after them is a Drop
 
+#### Scenario: Kick enters early
+- **WHEN** the kick comes in alone 4 bars before the full groove
+- **THEN** the intro ends where the kick comes in, not on the neater 16-bar line
+
+#### Scenario: Groove after the last drop
+- **WHEN** a strong groove carries on after the last drop and the track then fades to a quiet tail
+- **THEN** only the tail is the Outro
+
 #### Scenario: Imported phrases win
 - **WHEN** a track with phrases from an import is analysed again
 - **THEN** its imported phrases stay

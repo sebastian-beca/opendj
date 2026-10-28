@@ -5,7 +5,7 @@
 import { TrackDrag } from "library.slint";
 import { SamplerPanel } from "sampler.slint";
 import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
-import { Caption, ControlButton, ControlFader, ControlKnob, Controls, KeyLock, PitchReset } from "controls.slint";
+import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, KeyLock, PitchReset } from "controls.slint";
 
 // A line of the key menu: a key shift and the key it gives.
 export struct KeyItem {
@@ -16,6 +16,12 @@ export struct KeyItem {
     compatible: bool,
     // The shift in use.
     current: bool,
+}
+
+// The overview tooltip for a phrase.
+export struct PhraseTip {
+    title: string,
+    body: string,
 }
 
 export struct DeckInfo {
@@ -539,6 +545,42 @@ export component Header inherits Rectangle {
     // Where the overview's right-click menu opens.
     property <length> menu-x;
     property <length> menu-y;
+    // The phrase under the pointer, named in a tooltip below the overview
+    // while the pointer rests there.
+    property <PhraseTip> phrase-tip: PhraseView.visible && info.loaded && ota.has-hover
+        ? PhraseView.describe(deck, clamp(ota.mouse-x / ota.width, 0, 1) * info.duration) : { title: "", body: "" };
+    property <bool> tip-mine;
+    changed phrase-tip => {
+        if tip-mine {
+            if phrase-tip.title == "" {
+                hide-tip();
+            } else {
+                show-tip();
+            }
+        }
+    }
+    // The tooltip follows the pointer along the overview.
+    property <length> hover-x: ota.mouse-x;
+    changed hover-x => {
+        if tip-mine && phrase-tip.title != "" {
+            show-tip();
+        }
+    }
+    function show-tip() {
+        // Beside the pointer, on whichever side has more room.
+        HoverTip.title = phrase-tip.title;
+        HoverTip.body = phrase-tip.body;
+        HoverTip.right-aligned = ota.mouse-x > ota.width / 2;
+        HoverTip.x = ota.absolute-position.x + ota.mouse-x;
+        HoverTip.y = ov.absolute-position.y + ov.height + 6px;
+        HoverTip.shown = true;
+    }
+    function hide-tip() {
+        if tip-mine {
+            tip-mine = false;
+            HoverTip.shown = false;
+        }
+    }
     height: compact ? 92px : 108px;
     // Cover, title, info and overview share one black box.
     background: Theme.well;
@@ -601,9 +643,12 @@ export component Header inherits Rectangle {
                 Image { width: parent.width; height: parent.height; source: overview; image-fit: fill; }
                 // The waveform, a dot at every minute and the phrase bar
                 // are all drawn into the image, stacked so none overlap.
-                TouchArea {
+                ota := TouchArea {
                     mouse-cursor: ew-resize;
                     pointer-event(e) => {
+                        if e.kind == PointerEventKind.down {
+                            hide-tip();
+                        }
                         if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                             menu-x = self.mouse-x;
                             menu-y = self.mouse-y;
@@ -637,6 +682,14 @@ export component Header inherits Rectangle {
                                 Controls.set-value(scrub-index, clamp(self.mouse-x / self.width, 0, 1));
                             }
                         }
+                    }
+                }
+                Timer {
+                    interval: 600ms;
+                    running: ota.has-hover && !ota.pressed && !tip-mine && phrase-tip.title != "";
+                    triggered => {
+                        tip-mine = true;
+                        show-tip();
                     }
                 }
                 phrase-menu := PopupWindow {
@@ -700,6 +753,9 @@ export component Header inherits Rectangle {
 export global PhraseView {
     in-out property <bool> visible: true;
     callback changed(on: bool);
+    // The phrase at `seconds` into the track on `deck`, for the overview's
+    // tooltip; an empty title where there is none.
+    pure callback describe(deck: int, seconds: float) -> PhraseTip;
 }
 
 // Deck actions that aren't controls.
