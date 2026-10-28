@@ -279,7 +279,7 @@ pub(super) fn tag_fields(t: &Track) -> TagFields {
 }
 
 /// The file whose tags can be written, if `t` has one on disk.
-fn writable(t: &Track) -> Option<&Path> {
+pub(super) fn writable(t: &Track) -> Option<&Path> {
     match &t.source {
         Source::File(p) if !t.info.missing && p.exists() && !is_cloud_only(p) => Some(p),
         _ => None,

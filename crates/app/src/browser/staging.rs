@@ -305,6 +305,7 @@ impl Browser {
             batch: Some(batch),
             text: format!("Undo {label} ({n} track{})", if n == 1 { "" } else { "s" }),
             restore: Vec::new(),
+            changes: None,
         });
         if stage == Stage::Triage {
             let tracks: Vec<Arc<Track>> = picked
@@ -327,6 +328,10 @@ impl Browser {
         let Some(undo) = self.undo.take() else {
             return;
         };
+        if let Some(batch) = undo.changes {
+            self.undo_tag_changes(batch);
+            return;
+        }
         let Some(db) = &mut self.db else { return };
         let report = match undo.batch.map(|b| db.undo_batch(b)) {
             None => Default::default(),

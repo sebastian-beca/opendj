@@ -480,6 +480,11 @@ pub fn move_files() -> bool {
     flag(MOVE_FILES, false)
 }
 
+/// The clean-up rules turned on in Settings › Library.
+pub fn cleanup_rules() -> mixxx_library::cleanup::Rules {
+    mixxx_library::cleanup::Rules::from(flag)
+}
+
 pub fn rename_to_triage() -> bool {
     flag(RENAME_TO_TRIAGE, true)
 }

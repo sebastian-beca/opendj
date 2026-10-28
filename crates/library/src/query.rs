@@ -22,7 +22,7 @@
 //!   `is:missing`, `is:duplicate`, `is:played`, `is:cued`, `is:prepped`
 //!   (artist, title, rating, tempo and key all there), and Library
 //!   Health's checks: `is:notmusic`, `is:stray`, `is:outside`, `is:unanalyzed`,
-//!   `is:noinfo`, `is:nocover`, `is:unrated`, `is:long` (see
+//!   `is:noinfo`, `is:junk`, `is:nocover`, `is:unrated`, `is:long` (see
 //!   [`crate::health`]).
 //! - `stage:inbox`, `stage:triage`, `stage:collection` (see
 //!   [`crate::stages`]); `stage:none` for tracks outside the stage folders.

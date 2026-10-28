@@ -22,6 +22,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 pub use rusqlite::Error;
 
+pub mod cleanup;
 pub mod dupes;
 pub mod health;
 mod moves;
@@ -442,6 +443,7 @@ impl Library {
         db.execute_batch(LINKS_SCHEMA)?;
         db.execute_batch(MOVES_SCHEMA)?;
         db.execute_batch(health::HEALTH_SCHEMA)?;
+        db.execute_batch(cleanup::CHANGES_SCHEMA)?;
         let lib = Library { db };
         if version < 2 {
             lib.add_starter_smart_lists()?;

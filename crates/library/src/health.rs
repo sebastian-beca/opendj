@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use mixxx_engine::{Source, Track};
 use rusqlite::{params, OptionalExtension};
 
+use crate::cleanup::{self, Rules};
 use crate::{now, row_id, track_id, Error, Library};
 
 /// Tracks longer than this (in seconds) are recordings of whole sets or
@@ -56,16 +57,18 @@ pub enum Check {
     Missing,
     Long,
     Duplicate,
+    Junk,
 }
 
 impl Check {
-    pub const ALL: [Check; 10] = [
+    pub const ALL: [Check; 11] = [
         Check::NotMusic,
         Check::Stray,
         Check::Outside,
         Check::Duplicate,
         Check::NotAnalyzed,
         Check::MissingInfo,
+        Check::Junk,
         Check::NoCover,
         Check::NoRating,
         Check::Missing,
@@ -85,6 +88,7 @@ impl Check {
             Check::Missing => "missing",
             Check::Long => "long",
             Check::Duplicate => "duplicate",
+            Check::Junk => "junk",
         }
     }
 
@@ -101,6 +105,7 @@ impl Check {
             "missing" => Check::Missing,
             "long" => Check::Long,
             "duplicate" | "dupe" | "duplicates" => Check::Duplicate,
+            "junk" | "messy" | "cleanup" => Check::Junk,
             _ => return None,
         })
     }
@@ -118,6 +123,7 @@ impl Check {
             Check::Missing => "Missing files",
             Check::Long => "Long tracks",
             Check::Duplicate => "Duplicates",
+            Check::Junk => "Junk in names",
         }
     }
 
@@ -136,6 +142,9 @@ impl Check {
             Check::Missing => "The file isn't where the library expects it.",
             Check::Long => "Over 20 minutes: recorded sets and long pieces.",
             Check::Duplicate => "The same track more than once.",
+            Check::Junk => {
+                "Track numbers, web sites, \"(Official Video)\", underscores, or a remix or guest in the title."
+            }
         }
     }
 
@@ -217,6 +226,8 @@ pub struct Facts {
     stages: bool,
     /// The music folders and stage folders: a file in none of them is outside.
     folders: Vec<PathBuf>,
+    /// The clean-up rules turned on, for [`Check::Junk`].
+    rules: Rules,
 }
 
 impl Facts {
@@ -250,6 +261,7 @@ impl Facts {
             covers,
             stages,
             folders: Vec::new(),
+            rules: Rules::default(),
         }
     }
 
@@ -257,6 +269,12 @@ impl Facts {
     /// none, that check finds nothing.
     pub fn with_folders(mut self, folders: Vec<PathBuf>) -> Self {
         self.folders = folders;
+        self
+    }
+
+    /// The clean-up rules [`Check::Junk`] goes by.
+    pub fn with_rules(mut self, rules: Rules) -> Self {
+        self.rules = rules;
         self
     }
 
@@ -287,6 +305,7 @@ impl Facts {
             Check::Missing => t.info.missing,
             Check::Long => t.duration > LONG_TRACK,
             Check::Duplicate => duplicates.contains(&t.id),
+            Check::Junk => !cleanup::changes(t, &self.rules).is_empty(),
         }
     }
 
