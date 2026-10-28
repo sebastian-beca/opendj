@@ -661,25 +661,33 @@ impl Browser {
 
     /// Embeds the cover found at `index` in the track's tags.
     fn save_cover(&mut self, index: usize) {
-        let (Some((i, t)), Some(found)) = (self.info.shown.clone(), self.info.found.get(index))
+        let (Some((i, _)), Some(found)) = (self.info.shown.clone(), self.info.found.get(index))
         else {
             return;
         };
         let Some(app) = self.app.upgrade() else {
             return;
         };
+        let data = found.data.clone();
         let ui = app.global::<TrackInfo>();
-        let Some(path) = writable(&t) else {
-            ui.set_status("The file isn't on this computer, so the cover can't be saved.".into());
-            return;
-        };
-        if let Err(e) = tags::write_cover(path, &found.data) {
-            ui.set_status(format!("Couldn't save the cover: {e}").into());
+        if let Err(e) = self.keep_cover(i, &data) {
+            ui.set_status(e.into());
             return;
         }
-        let data = found.data.clone();
         ui.set_status(SharedString::new());
         ui.set_cover_open(false);
+    }
+
+    /// Embeds `data` (an image file) as library track `i`'s cover, and
+    /// shows it everywhere the track is; Err says why it couldn't be.
+    pub(super) fn keep_cover(&mut self, i: usize, data: &[u8]) -> Result<(), String> {
+        let Some(t) = self.library.get(i).cloned() else {
+            return Err("The track is gone.".into());
+        };
+        let Some(path) = writable(&t) else {
+            return Err("The file isn't on this computer, so the cover can't be saved.".into());
+        };
+        tags::write_cover(path, data).map_err(|e| format!("Couldn't save the cover: {e}"))?;
         self.adopt(&[i]);
         let t = self.library[i].clone();
         if let Some(db) = &self.db {
@@ -688,14 +696,24 @@ impl Browser {
                 eprintln!("can't save the track: {e}");
             }
         }
+        // Library Health looks again, so the track leaves No Cover.
+        self.cover_scan.add(t.id, path, &t.album);
         // Every list showing the track, and any deck it's on, shows the
         // new cover at once.
-        self.art.set(&t, &data);
-        let cover = cover::decode(&data, cover::COVER_SIZE).map(Arc::new);
+        self.art.set(&t, data);
+        let cover = cover::decode(data, cover::COVER_SIZE).map(Arc::new);
         self.engine.set_cover(path, cover);
-        self.read_info_cover();
+        if self
+            .info
+            .shown
+            .as_ref()
+            .is_some_and(|(shown, _)| *shown == i)
+        {
+            self.read_info_cover();
+        }
         self.refresh_rows();
         self.refresh_side();
+        Ok(())
     }
 
     /// Plays or pauses the track shown in the headphones.

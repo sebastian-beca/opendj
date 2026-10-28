@@ -2,7 +2,8 @@
 //! panel: the picture in its tags, an image in its folder, and covers found
 //! online through public APIs (MusicBrainz with the Cover Art Archive,
 //! iTunes Search, and Discogs when the DJ gave a Discogs token). Each source
-//! runs on its own thread and reports covers as it finds them.
+//! runs on its own thread and reports covers as it finds them. Analyze
+//! Track also takes the first online cover on its own, see [`first_online`].
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -19,6 +20,16 @@ type Finder = fn(&Wanted) -> Vec<String>;
 const PER_SOURCE: usize = 3;
 /// Longest side of the picture shown in the dialog.
 const THUMB: u32 = 240;
+/// The smallest cover Analyze Track takes on its own, on its shorter side.
+pub const AUTO_MIN: u32 = 600;
+
+/// The online sources, in the order [`first_online`] asks them: iTunes
+/// first, as it is the quickest to answer and so the dialog's first cover.
+const ONLINE: [(&str, Finder); 3] = [
+    ("iTunes", itunes),
+    ("Cover Art Archive", cover_art_archive),
+    ("Discogs", discogs),
+];
 
 /// What a search is for.
 #[derive(Clone, Debug, Default)]
@@ -67,12 +78,7 @@ pub fn search(wanted: Wanted) -> Receiver<Event> {
                         }
                     }
                 });
-                let online: [(&str, Finder); 3] = [
-                    ("Cover Art Archive", cover_art_archive),
-                    ("iTunes", itunes),
-                    ("Discogs", discogs),
-                ];
-                for (name, find) in online {
+                for (name, find) in ONLINE {
                     let tx = tx.clone();
                     s.spawn(move || {
                         for url in find(w).into_iter().take(PER_SOURCE) {
@@ -96,11 +102,10 @@ pub const BATCH_SIZE: u32 = 1024;
 /// or PNG data no bigger than [`BATCH_SIZE`] on its longest side. Waits
 /// for every source.
 pub fn best_cover(w: &Wanted) -> Option<Vec<u8>> {
-    let online: [Finder; 3] = [cover_art_archive, itunes, discogs];
     let found: Vec<Vec<u8>> = std::thread::scope(|s| {
-        let jobs: Vec<_> = online
+        let jobs: Vec<_> = ONLINE
             .iter()
-            .map(|find| {
+            .map(|(_, find)| {
                 s.spawn(move || {
                     find(w)
                         .into_iter()
@@ -132,6 +137,27 @@ fn largest(found: Vec<Vec<u8>>) -> Option<Vec<u8>> {
         .encode_image(&small)
         .ok()?;
     Some(out)
+}
+
+/// The first cover the online sources have for what is wanted, as the
+/// image file's bytes, when it is at least `min` pixels on its shorter
+/// side; None when there is none or the first is smaller. Waits for the
+/// answers, so it is for a background thread.
+pub fn first_online(wanted: &Wanted, min: u32) -> Option<Vec<u8>> {
+    let data = ONLINE.iter().find_map(|(_, find)| {
+        let url = find(wanted).into_iter().next()?;
+        download(&url, wanted)
+    })?;
+    big_enough(&data, min).then_some(data)
+}
+
+/// Whether the image is at least `min` pixels on its shorter side.
+fn big_enough(data: &[u8], min: u32) -> bool {
+    image::ImageReader::new(std::io::Cursor::new(data))
+        .with_guessed_format()
+        .ok()
+        .and_then(|r| r.into_dimensions().ok())
+        .is_some_and(|(w, h)| w.min(h) >= min)
 }
 
 fn send(tx: &Sender<Event>, source: &str, data: Vec<u8>) {
@@ -377,6 +403,21 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(release(&w), "Single");
+    }
+
+    #[test]
+    fn takes_only_big_enough_covers() {
+        let png = |w, h| {
+            let mut out = Vec::new();
+            image::RgbaImage::from_pixel(w, h, image::Rgba([1, 2, 3, 255]))
+                .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+                .unwrap();
+            out
+        };
+        assert!(big_enough(&png(600, 600), AUTO_MIN));
+        assert!(big_enough(&png(1200, 1000), AUTO_MIN));
+        assert!(!big_enough(&png(600, 599), AUTO_MIN));
+        assert!(!big_enough(b"not an image", AUTO_MIN));
     }
 
     #[test]
