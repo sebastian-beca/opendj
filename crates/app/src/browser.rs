@@ -2506,6 +2506,29 @@ impl Browser {
         });
     }
 
+    /// Rates the rows picked in the track list, for a keyboard shortcut.
+    pub fn rate_rows(&mut self, first: usize, last: usize, rating: u8) {
+        for row in first..=last.min(self.rows.len().saturating_sub(1)) {
+            self.set_rating(row, rating);
+        }
+    }
+
+    /// Rates the track loaded on `deck`; false when there's none.
+    pub fn rate_deck(&mut self, deck: usize, rating: u8) -> bool {
+        let Some(index) = self.deck_track(deck) else {
+            return false;
+        };
+        self.adopt(&[index]);
+        let mut t = (*self.library[index]).clone();
+        t.rating = rating;
+        if let Some(Err(e)) = self.db.as_ref().map(|db| db.set_rating(t.id, rating)) {
+            eprintln!("can't save the rating: {e}");
+        }
+        self.library[index] = Arc::new(t);
+        self.refresh_rows();
+        true
+    }
+
     fn set_color(&mut self, row: usize, color: Option<u32>) {
         self.change_track(row, |t, db| {
             t.info.color = color;
