@@ -49,7 +49,7 @@ With quantize on (Settings › Decks, on by default, `quantize`), loops SHALL sn
 - **THEN** the deck's SYNC turns on and lights
 
 ### Requirement: Ableton Link
-LINK in the top bar SHALL join an Ableton Link session on the network (`[Link],enabled`). Link SHALL follow the master deck, the one playing (or started first while several play), so other apps play in time with the mix; there is no per-deck LINK button. The peer count SHALL be shown.
+The Ableton Link switch in the top bar's MASTER panel SHALL join an Ableton Link session on the network (`[Link],enabled`). Link SHALL follow the master deck, the one playing (or started first while several play), so other apps play in time with the mix; there is no per-deck LINK button. The peer count SHALL be shown.
 
 #### Scenario: Link follows the playing deck
 - **WHEN** LINK is on and deck 2 is the only deck playing at 124 BPM

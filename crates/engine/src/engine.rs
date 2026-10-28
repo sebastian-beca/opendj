@@ -16,8 +16,8 @@ use crate::controls::{
     create_global_controls, Action, DeckControls, Edge, MasterControls, HOTCUE_CUE, HOTCUE_LOOP,
     SCULPT_DEFAULTS,
 };
-use crate::dsp::{Isolator, Limiter, Sculpt, SweepFilter};
-use crate::effects::{input_target, EffectRack, MAIN, TARGETS};
+use crate::dsp::{Isolator, Limiter, Sculpt};
+use crate::effects::{input_target, ColorFx, EffectRack, COLOR_FX, MAIN, TARGETS};
 use crate::inputs::{Ducker, Input, InputFeed, AUXILIARY, MICROPHONE, NUM_INPUTS};
 use crate::key::{self, Key};
 use crate::keyshift::{transpose_factor, KeyShifter};
@@ -189,7 +189,8 @@ struct Deck {
     /// The rate sync last wrote, to tell a fader move from it.
     rate_written: f64,
     eq: Isolator,
-    filter: SweepFilter,
+    /// The filter knob's Color FX.
+    filter: ColorFx,
     sculpt: Sculpt,
     /// Gains reached at the end of the last buffer; each buffer ramps from these.
     eq_gains: [f32; 3],
@@ -798,6 +799,8 @@ impl Frames for Audio {
 /// time-stretcher (which reads ahead of the play position).
 pub(crate) struct StemMix<'a> {
     stems: &'a Stems,
+    /// The track itself, which separated stems play under (see [`Stems::mix`]).
+    audio: &'a Audio,
     from: [f32; MAX_STEMS],
     to: [f32; MAX_STEMS],
     span: f64,
@@ -805,9 +808,16 @@ pub(crate) struct StemMix<'a> {
 }
 
 impl<'a> StemMix<'a> {
-    fn new(stems: &'a Stems, from: [f32; MAX_STEMS], to: [f32; MAX_STEMS], span: f64) -> Self {
+    fn new(
+        stems: &'a Stems,
+        audio: &'a Audio,
+        from: [f32; MAX_STEMS],
+        to: [f32; MAX_STEMS],
+        span: f64,
+    ) -> Self {
         Self {
             stems,
+            audio,
             from,
             to,
             span: span.max(1.0),
@@ -821,7 +831,7 @@ impl Frames for StemMix<'_> {
     fn frame(&self, i: usize) -> [f32; 2] {
         let t = ((i as f64 - self.start.get()).abs() / self.span).min(1.0) as f32;
         let gains = std::array::from_fn(|k| self.from[k] + (self.to[k] - self.from[k]) * t);
-        self.stems.mix(i, &gains)
+        self.stems.mix(i, &gains, || self.audio.frame(i))
     }
 
     fn begin(&self, start: f64) {
@@ -964,6 +974,8 @@ pub struct Engine {
     decks: [Deck; NUM_DECKS],
     master: MasterControls,
     fx: EffectRack,
+    /// The Color FX chosen for every deck's filter knob (see [`COLOR_FX`]).
+    color_fx: f64,
     samplers: Samplers,
     commands: rtrb::Consumer<Command>,
     returned: rtrb::Producer<Returned>,
@@ -1017,6 +1029,32 @@ fn sync_ratio(leader: f64, own: f64) -> f64 {
 }
 
 impl Engine {
+    /// One Color FX for all decks, as on a Pioneer mixer: a deck's
+    /// `loaded_chain_preset` set, or stepped with next/prev_chain_preset,
+    /// sets every deck's. Stepping skips 0 (none).
+    fn update_color_fx(&mut self) {
+        let n = COLOR_FX.len() as f64;
+        let mut chosen = self.color_fx;
+        for d in &mut self.decks {
+            let v = d.c.cfx_preset.get().round();
+            if v != self.color_fx {
+                chosen = v;
+            }
+            if d.c.cfx_edges[0].pressed(&d.c.cfx_next) {
+                chosen = if chosen >= n { 1.0 } else { chosen + 1.0 };
+            }
+            if d.c.cfx_edges[1].pressed(&d.c.cfx_prev) {
+                chosen = if chosen <= 1.0 { n } else { chosen - 1.0 };
+            }
+        }
+        self.color_fx = chosen.clamp(0.0, n);
+        for d in &self.decks {
+            if d.c.cfx_preset.get() != self.color_fx {
+                d.c.cfx_preset.set(self.color_fx);
+            }
+        }
+    }
+
     /// Creates all engine controls in `registry`.
     pub fn new(registry: &ControlRegistry, sample_rate: f64) -> (Self, EngineInput) {
         let master = create_global_controls(registry);
@@ -1057,7 +1095,7 @@ impl Engine {
             phase_offset: 0.0,
             rate_written: 0.0,
             eq: Isolator::new(sample_rate),
-            filter: SweepFilter::new(sample_rate),
+            filter: ColorFx::new(sample_rate),
             sculpt: Sculpt::new(sample_rate),
             eq_gains: [1.0; 3],
             pregain: 1.0,
@@ -1101,6 +1139,7 @@ impl Engine {
                 decks,
                 master,
                 fx,
+                color_fx: 1.0,
                 samplers,
                 commands,
                 returned,
@@ -1577,6 +1616,7 @@ impl Engine {
             }
         }
         self.land_in_phase(moved);
+        self.update_color_fx();
         self.samplers.update();
         self.preview.update();
         // Tempo-synced effects on the main mix follow the first playing deck.
@@ -1664,7 +1704,9 @@ impl Engine {
                     d.c.eq[k].get() as f32
                 }
             });
-            d.filter.set(d.c.filter.get());
+            let beat = d.beat_seconds();
+            d.filter
+                .prepare(d.c.cfx_preset.get(), d.c.filter.get(), beat);
             let k = d.c.sculpt.each_ref().map(|c| c.get());
             d.sculpt.set(k[0], k[1], k[2], k[3]);
             let loop_frames = (d.c.loop_enabled.get_bool() && d.loop_end > d.loop_start)
@@ -1746,7 +1788,7 @@ impl Engine {
                     match (stems, stem_gains) {
                         (Some(s), Some((from, to))) => {
                             let span = speed * ratio * frames as f64;
-                            let mix = StemMix::new(s, from, to, span);
+                            let mix = StemMix::new(s, audio, from, to, span);
                             d.shifter.render(
                                 &mix,
                                 d.pos,
@@ -1844,7 +1886,7 @@ impl Engine {
                     let source = |pos: f64| match (p.stems, audio.stems()) {
                         (Some((from, to)), Some(stems)) => {
                             let gains = std::array::from_fn(|k| from[k] + (to[k] - from[k]) * r);
-                            read(&StemMix::new(stems, gains, gains, 1.0), pos)
+                            read(&StemMix::new(stems, audio, gains, gains, 1.0), pos)
                         }
                         _ => read(&**audio, pos),
                     };
@@ -2154,6 +2196,37 @@ mod tests {
     }
 
     #[test]
+    fn one_color_fx_for_every_deck() {
+        let (reg, mut engine, _input) = setup();
+        let c = |d: usize, k: &str| {
+            reg.get(&format!("[QuickEffectRack1_[Channel{}]]", d + 1), k)
+                .unwrap()
+        };
+        let presets = || {
+            (0..NUM_DECKS)
+                .map(|d| c(d, "loaded_chain_preset").get())
+                .collect::<Vec<_>>()
+        };
+        run(&mut engine, 0.01);
+        assert_eq!(presets(), vec![1.0; NUM_DECKS], "Filter to start with");
+        // Picking one on a deck picks it for all.
+        c(2, "loaded_chain_preset").set(3.0);
+        run(&mut engine, 0.01);
+        assert_eq!(presets(), vec![3.0; NUM_DECKS]);
+        // SHIFT + SMART CFX steps it on deck 1, wrapping round past the last.
+        for want in [4.0, 5.0, 1.0] {
+            c(0, "next_chain_preset").set(1.0);
+            c(0, "next_chain_preset").set(0.0);
+            run(&mut engine, 0.01);
+            assert_eq!(presets(), vec![want; NUM_DECKS]);
+        }
+        c(1, "prev_chain_preset").set(1.0);
+        c(1, "prev_chain_preset").set(0.0);
+        run(&mut engine, 0.01);
+        assert_eq!(presets(), vec![5.0; NUM_DECKS]);
+    }
+
+    #[test]
     fn ableton_link_follows_the_master_deck() {
         let (reg, mut engine, mut input) = setup();
         let link = engine.link_handle();
@@ -2263,8 +2336,58 @@ mod tests {
         load(&mut input, 0, track.clone());
         run(&mut engine, 0.01);
         assert_eq!(reg.get("[Channel1]", "stem_count").unwrap().get(), 4.0);
-        assert_eq!(reg_stem(&reg, "color").get(), 0x009E73 as f64);
+        assert_eq!(reg_stem(&reg, "color").get(), 0x2E4E75 as f64);
         assert_eq!(reg.get("[Channel2]", "stem_count").unwrap().get(), 0.0);
+    }
+
+    #[test]
+    fn separated_stems_play_the_original_less_what_is_turned_down() {
+        // The track is two tones; stem 1 holds the first, stem 2 the second.
+        let mut t = (*short_track(120.0, 4.0)).clone();
+        let n = (SR * 4.0) as usize;
+        let tone =
+            |hz: f64, i: usize| (std::f64::consts::TAU * hz * i as f64 / SR).sin() as f32 * 0.3;
+        let audio = Audio::from_frames(
+            SR as u32,
+            (0..n)
+                .map(|i| [tone(220.0, i) + tone(330.0, i); 2])
+                .collect(),
+        );
+        let mut info = crate::stems::default_info();
+        crate::stems::split_drums(&mut info);
+        let stems = Arc::new(crate::stems::Stems::separated(
+            info,
+            SR as u32,
+            n,
+            crate::stems::Quality::Fast,
+        ));
+        // Only the first 0.9 s is separated (of the 1.5 s rendered).
+        let frames = (0..(SR * 0.9) as usize)
+            .map(|i| {
+                let mut f = [[0i16; 2]; MAX_STEMS];
+                f[0] = [crate::stems::to_i16(tone(220.0, i)); 2];
+                f[1] = [crate::stems::to_i16(tone(330.0, i)); 2];
+                f
+            })
+            .collect();
+        stems.fill(0, frames);
+        assert!(audio.set_stems(stems));
+        t.audio = Some(Arc::new(audio));
+        let track = Arc::new(t);
+        let out = render(&track, |reg| {
+            reg.get("[Channel1_Stem1]", "mute").unwrap().set_bool(true)
+        });
+        let rms = |x: &[f32]| (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt();
+        let full = render(&track, |_| {});
+        let quarter = out.len() / 4;
+        let (first, second) = (&out[quarter..2 * quarter], &out[3 * quarter..]);
+        let (full_first, full_second) = (&full[quarter..2 * quarter], &full[3 * quarter..]);
+        // Muted where separated: one tone of two left.
+        let ratio = rms(first) / rms(full_first);
+        assert!((ratio - 0.71).abs() < 0.08, "one tone left: {ratio}");
+        // Not separated yet: the original plays.
+        let ratio = rms(second) / rms(full_second);
+        assert!((ratio - 1.0).abs() < 0.02, "the original: {ratio}");
     }
 
     #[test]
@@ -2350,7 +2473,10 @@ mod tests {
         eq("button_parameter3").set_bool(true);
         c("[QuickEffectRack1_[Channel1]]", "super1").set(0.8);
         c("[Sculpt_[Channel1]]", "lpf").set(0.3);
-        // Deck 1's unit, and the Beat FX on decks 1 and 2 with deck 2 playing.
+        // Deck 1's unit (with Echo, which has a length in beats), and the
+        // Beat FX on decks 1 and 2 with deck 2 playing.
+        slot(1, "loaded_effect").set(1.0);
+        run(&mut engine, 0.01);
         slot(1, "enabled").set_bool(true);
         slot(1, "beats").set(2.0);
         c("[EffectRack1_EffectUnit1]", "mix").set(0.4);
@@ -3104,6 +3230,11 @@ mod tests {
             reg.get(&format!("[EffectRack1_EffectUnit1_Effect{n}]"), key)
                 .unwrap()
         };
+        // Echo in slot 1 and the Filter in slot 3 (the decks start with
+        // Reverb, Echo and Gate).
+        slot(1, "loaded_effect").set(1.0);
+        slot(3, "loaded_effect").set(3.0);
+        run(&mut engine, 0.01);
         reg.get(unit, "super1").unwrap().set(0.9);
         run(&mut engine, 0.01);
         for n in 1..=3 {

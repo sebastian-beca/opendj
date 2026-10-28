@@ -18,7 +18,7 @@ use mixxx_engine::synth::SAMPLE_LIBRARY_SIZE;
 use mixxx_engine::{
     deck_group, default_output_device, effect_group, effect_name, output_devices, sample_library,
     AudioEngine, AudioSetup, Role, Route, Source, Track, VisualPositions, Waveform,
-    AVAILABLE_EFFECTS, EFFECTS_PER_UNIT, NUM_DECKS,
+    AVAILABLE_EFFECTS, COLOR_FX, EFFECTS_PER_UNIT, NUM_DECKS,
 };
 use mixxx_library::Library;
 use mixxx_waveform::{
@@ -47,6 +47,7 @@ mod mac_titlebar;
 mod prefs;
 mod sampler;
 mod settings;
+mod shortcuts;
 mod smooth;
 mod sources;
 mod spotify;
@@ -72,6 +73,7 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
         g.set_devices(ModelRc::from(names_model.clone()));
     }
     let show = {
+        let app = app.as_weak();
         let default_device = default_device.clone();
         let engine = engine.clone();
         let devices = devices.clone();
@@ -84,6 +86,10 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
                 .and_then(|name| devices.iter().find(|d| d.name == *name))
                 .map_or(2, |d| d.channels);
             let status = engine.route_status();
+            if let Some(app) = app.upgrade() {
+                app.global::<AudioSettings>()
+                    .set_booth(setup.routes.iter().any(|r| r.role == Role::Booth));
+            }
             let rows: Vec<OutputRow> = setup
                 .routes
                 .iter()
@@ -416,16 +422,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .collect::<Vec<_>>(),
         )));
     app.global::<EffectList>()
+        .set_color_fx(ModelRc::new(VecModel::from(
+            COLOR_FX
+                .iter()
+                .map(|&n| SharedString::from(n))
+                .collect::<Vec<_>>(),
+        )));
+    app.global::<EffectList>()
         .set_mic_unit(mixxx_engine::MIC_FX_UNIT as i32);
     {
         let engine = engine.clone();
-        app.global::<DeckActions>().on_separate_stems(move |deck| {
-            let loaded = engine.loaded_tracks();
-            let track = loaded.read().unwrap().get(deck as usize).cloned().flatten();
-            if let Some(t) = track {
-                engine.separate_stems(&t);
-            }
-        });
+        app.global::<DeckActions>()
+            .on_prepare_hq_stems(move |deck| {
+                let loaded = engine.loaded_tracks();
+                let track = loaded.read().unwrap().get(deck as usize).cloned().flatten();
+                if let Some(t) = track {
+                    engine.prepare_hq_stems(&t);
+                }
+            });
     }
     let browser = browser::Browser::install(
         &app,
@@ -449,6 +463,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app.on_automix_set_length(move |i| a.borrow_mut().set_length(i.max(0) as usize));
         let a = automix.clone();
         app.on_automix_set_style(move |i| a.borrow_mut().set_style(i.max(0) as usize));
+    }
+
+    // Keyboard shortcuts, each an openDJscript line.
+    {
+        let browser = browser.clone();
+        let registry = registry.clone();
+        app.on_shortcut(move |text, cmd, alt, shift, master, first, last| {
+            let Some(key) = shortcuts::key_name(&text, cmd, alt, shift) else {
+                return false;
+            };
+            let Some(script) = shortcuts::script_for(&key) else {
+                return false;
+            };
+            let mut b = browser.borrow_mut();
+            let mut host = shortcuts::AppHost {
+                registry: &registry,
+                browser: &mut b,
+                picked: (first, last),
+                master: master.clamp(0, 3) as u8 + 1,
+            };
+            if let Err(e) = opendj_script::run(&script, &mut host) {
+                eprintln!("{key} ({script}): {e}");
+            }
+            true
+        });
     }
 
     // MIDI controllers, driven by Mixxx's mappings. Started after the browser
@@ -585,6 +624,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // A newer release: checked once per start, offered while nothing plays.
+    update::install_model_fetch();
     let update_check = update::check();
     let update: Rc<RefCell<Option<update::Release>>> = Default::default();
     let installing: Rc<RefCell<Option<std::sync::mpsc::Receiver<update::Progress>>>> =
@@ -1334,23 +1374,34 @@ impl Decks {
                         .collect()
                 }),
             ),
-            stem_status: match (&t.source, stems) {
-                (Source::File(path), None) => match stems::separation(path) {
-                    Some(stems::Separation::Running) => "Separating into stems…".into(),
+            stem_status: match &t.source {
+                Source::File(path) => match stems::separation(path) {
                     Some(stems::Separation::Failed(e)) => e.into(),
-                    // Done: the stems are loading.
-                    Some(stems::Separation::Done) => "Loading stems…".into(),
-                    None => "".into(),
+                    _ => "".into(),
                 },
                 _ => "".into(),
             },
-            stem_failed: match (&t.source, stems) {
-                (Source::File(path), None) => {
-                    matches!(stems::separation(path), Some(stems::Separation::Failed(_)))
+            stem_hq: stems.is_some_and(|s| s.playing_quality() == stems::Quality::High),
+            stem_preparing: match &t.source {
+                // Running, or done and the stems still loading.
+                Source::File(path) => {
+                    matches!(
+                        stems::separation(path),
+                        Some(stems::Separation::Running | stems::Separation::Done)
+                    ) && !stems.is_some_and(|s| s.playing_quality() == stems::Quality::High)
                 }
                 _ => false,
             },
-            can_separate: matches!(t.source, Source::File(_)) && stems.is_none(),
+            can_prepare_hq: match &t.source {
+                Source::File(path) => {
+                    !stems.is_some_and(|s| s.playing_quality() == stems::Quality::High)
+                        && !matches!(
+                            stems::separation(path),
+                            Some(stems::Separation::Running | stems::Separation::Done)
+                        )
+                }
+                _ => false,
+            },
             // The key being played, with any shift; a tag that isn't a key
             // is shown as it is.
             key: match Key::from_mixxx_number(h.key.get()) {

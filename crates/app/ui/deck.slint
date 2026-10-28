@@ -51,15 +51,18 @@ export struct DeckInfo {
     loop-size: string,
     // How many tempo sections the beat grid has (1 for a steady tempo).
     grid-sections: int,
-    // The loaded track's stems (none without stems), and how separating
-    // it into stems is going ("" when it isn't).
+    // The loaded track's stems (none without stems), and how preparing
+    // high-quality stems is going ("" when it isn't).
     stem-names: [string],
     stem-colors: [color],
     stem-status: string,
-    // The last separation failed; the button tries again.
-    stem-failed: bool,
-    // Whether the track can be separated (a file, with no stems yet).
-    can-separate: bool,
+    // High-quality stems play (HTDemucs, or an NI STEM file).
+    stem-hq: bool,
+    // High-quality stems are being prepared.
+    stem-preparing: bool,
+    // Whether high-quality stems can be prepared (a file without them,
+    // nothing preparing).
+    can-prepare-hq: bool,
     // 0..1 through the track
     progress: float,
     effects: [string],
@@ -760,12 +763,15 @@ export global PhraseView {
 
 // Deck actions that aren't controls.
 export global DeckActions {
-    // Separates the track on `deck` into stems in the background.
-    callback separate-stems(deck: int);
+    // Prepares high-quality stems for the track on `deck` in the
+    // background; they take over from the quick ones when ready.
+    callback prepare-hq-stems(deck: int);
 }
 
 export global EffectList {
     in property <[string]> names;
+    // The Color FX the filter knobs can play, `loaded_chain_preset` 1 and up.
+    in property <[string]> color-fx: ["Filter", "Space", "Dub Echo", "Noise", "Crush"];
     // The microphone's effect unit, from 0 (MIC_FX_UNIT).
     in property <int> mic-unit: 5;
 }
@@ -951,6 +957,13 @@ struct Pad {
 // It loads the effect into the first slot of the deck's pad FX unit (units
 // 6 to 9 for decks 1 to 4), turns it on and routes the unit to the deck;
 // letting go turns it off again.
+// A STEMS pad: a stem (1 to 5), or one of StemPads.
+struct StemPadSpec {
+    stem: int,
+    text: string,
+    tint: color,
+}
+
 struct PadEffect {
     // loaded_effect: 1 Echo, 2 Reverb, 3 Filter, 4 Flanger, 5 Bitcrusher, 6 Phaser
     effect: int,
@@ -987,59 +1000,143 @@ component PadFxButton inherits Rectangle {
     }
 }
 
-// A stem's pad: lit in the stem's colour while it plays; a click mutes it.
-component StemPad inherits Rectangle {
-    in property <string> group;
+// A line in the menu of pad panels.
+component PanelMenuItem inherits Rectangle {
     in property <string> text;
-    in property <color> tint;
-    property <int> mute-index: Controls.resolve(group, "mute");
-    property <bool> on: Controls.value(mute-index, Controls.tick) == 0;
-    background: ta.pressed ? Theme.control-pressed : on ? tint.with-alpha(0.22) : Theme.control;
+    in property <bool> current;
+    callback picked();
+    height: 24px;
+    background: ta.has-hover ? Theme.panel-raised.brighter(0.3) : transparent;
+    border-radius: 4px;
     Text {
+        x: 10px;
         text: root.text;
-        font-size: 12px;
-        font-weight: 700;
-        color: on ? tint : Theme.text-dim;
-        horizontal-alignment: center;
+        color: current ? Theme.accent : Theme.text;
+        font-size: 11px;
+        font-weight: 600;
         vertical-alignment: center;
-        overflow: elide;
     }
-    ta := TouchArea { clicked => { Controls.toggle(mute-index); } }
+    ta := TouchArea { clicked => { root.picked(); } }
 }
 
-// A stem's volume: drag across; a double click sets it back to full.
-component StemLevel inherits Rectangle {
-    in property <string> group;
+// The kinds of STEMS pad that aren't a stem.
+export global StemPads {
+    out property <int> acapella: 0;
+    out property <int> instrumental: -1;
+    out property <int> fx: -2;
+}
+
+// A STEMS pad, laid out as VirtualDJ's (see Pads.stem-pads). A stem's pad
+// mutes it and is lit while it plays; ACAPELLA plays the vocals alone and
+// INSTRUMENTAL everything but, a second press bringing every stem back.
+// The levels are on the mixer's knobs in stems mode. Right-click for
+// high-quality stems.
+component StemPad inherits Rectangle {
+    in property <int> deck;
+    in property <DeckInfo> info;
+    // 1 to 5 for a stem ([ChannelN_StemM]), else one of STEM-PAD-*.
+    in property <int> stem;
+    in property <string> text;
     in property <color> tint;
-    property <int> index: Controls.resolve(group, "volume");
-    property <float> level: Controls.value(index, Controls.tick);
-    background: Theme.control;
-    clip: true;
-    Rectangle {
-        x: 0;
-        width: parent.width * clamp(level, 0, 1);
-        background: tint.with-alpha(0.45);
+    property <string> base: "[Channel" + (deck + 1) + "_Stem";
+    property <int> count: Controls.value(Controls.resolve("[Channel" + (deck + 1) + "]", "stem_count"), Controls.tick);
+    property <int> m1: Controls.resolve(base + "1]", "mute");
+    property <int> m2: Controls.resolve(base + "2]", "mute");
+    property <int> m3: Controls.resolve(base + "3]", "mute");
+    property <int> m4: Controls.resolve(base + "4]", "mute");
+    property <int> m5: Controls.resolve(base + "5]", "mute");
+    property <bool> on1: Controls.value(m1, Controls.tick) == 0;
+    property <bool> on2: Controls.value(m2, Controls.tick) == 0;
+    property <bool> on3: Controls.value(m3, Controls.tick) == 0;
+    property <bool> on4: Controls.value(m4, Controls.tick) == 0;
+    property <bool> on5: Controls.value(m5, Controls.tick) == 0 || count < 5;
+    property <bool> others-on: on1 && on2 && on3 && on5;
+    property <bool> others-off: !on1 && !on2 && !on3 && (!on5 || count < 5);
+    property <bool> available: stem > 0 ? count >= stem : stem != StemPads.fx && count >= 4;
+    property <bool> lit: !available ? false
+        : stem == 1 ? on1 : stem == 2 ? on2 : stem == 3 ? on3 : stem == 4 ? on4 : stem == 5 ? on5
+        : stem == StemPads.acapella ? on4 && others-off
+        : stem == StemPads.instrumental ? !on4 && others-on : false;
+    function set-all(vocals: bool, rest: bool) {
+        Controls.set-value(m4, vocals ? 0 : 1);
+        Controls.set-value(m1, rest ? 0 : 1);
+        Controls.set-value(m2, rest ? 0 : 1);
+        Controls.set-value(m3, rest ? 0 : 1);
+        Controls.set-value(m5, rest ? 0 : 1);
     }
+    background: !available ? Theme.control : ta.pressed ? Theme.control-pressed : lit ? tint.with-alpha(0.2) : ta.has-hover ? #1d1d20 : Theme.control;
     Text {
-        text: round(level * 100) + "%";
-        font-size: 11px;
-        color: Theme.text;
+        y: (parent.height - self.height) / 2 - 3px;
+        width: parent.width - 6px;
+        text: root.text;
+        font-size: 12px;
+        font-weight: 600;
+        color: !available ? Theme.text-dim.with-alpha(0.5) : lit ? Theme.text : Theme.text-dim;
         horizontal-alignment: center;
-        vertical-alignment: center;
+        overflow: elide;
     }
-    TouchArea {
-        mouse-cursor: ew-resize;
+    // The stem's colour, under its name.
+    Rectangle {
+        y: parent.height / 2 + 8px;
+        width: min(parent.width * 0.4, 44px);
+        height: 3px;
+        border-radius: 1px;
+        background: !available ? tint.with-alpha(0.2) : lit ? tint : tint.with-alpha(0.5);
+    }
+    ta := TouchArea {
         pointer-event(e) => {
-            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
-                Controls.set-value(index, clamp(self.mouse-x / self.width, 0, 1));
+            if e.kind != PointerEventKind.down {
+                return;
+            }
+            if e.button == PointerEventButton.right {
+                menu.show();
+            } else if e.button == PointerEventButton.left && available {
+                if stem == 1 { Controls.toggle(m1); }
+                else if stem == 2 { Controls.toggle(m2); }
+                else if stem == 3 { Controls.toggle(m3); }
+                else if stem == 4 { Controls.toggle(m4); }
+                else if stem == 5 { Controls.toggle(m5); }
+                else if stem == StemPads.acapella { set-all(true, lit); }
+                else if stem == StemPads.instrumental { set-all(lit, true); }
             }
         }
-        moved => {
-            if self.pressed {
-                Controls.set-value(index, clamp(self.mouse-x / self.width, 0, 1));
+    }
+    menu := PopupWindow {
+        x: ta.mouse-x;
+        y: ta.mouse-y;
+        width: 230px;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 8px;
+            drop-shadow-color: #00000080;
+        }
+        VerticalLayout {
+            padding: 4px;
+            PanelMenuItem {
+                text: info.stem-hq ? "High Quality Stems ✓"
+                    : info.stem-preparing ? "Preparing High Quality Stems…"
+                    : "Prepare High Quality Stems";
+                current: info.stem-hq;
+                picked => {
+                    if info.can-prepare-hq {
+                        DeckActions.prepare-hq-stems(deck);
+                    }
+                }
+            }
+            if info.stem-status != "": Text {
+                x: 10px;
+                width: parent.width - 20px;
+                height: 22px;
+                text: info.stem-status;
+                color: Theme.text-dim;
+                font-size: 10px;
+                vertical-alignment: center;
+                overflow: elide;
             }
         }
-        double-clicked => { Controls.set-value(index, 1); }
     }
 }
 
@@ -1189,25 +1286,6 @@ component HotcueCell inherits Rectangle {
     }
 }
 
-// A line in the menu of pad panels.
-component PanelMenuItem inherits Rectangle {
-    in property <string> text;
-    in property <bool> current;
-    callback picked();
-    height: 24px;
-    background: ta.has-hover ? Theme.panel-raised.brighter(0.3) : transparent;
-    border-radius: 4px;
-    Text {
-        x: 10px;
-        text: root.text;
-        color: current ? Theme.accent : Theme.text;
-        font-size: 11px;
-        font-weight: 600;
-        vertical-alignment: center;
-    }
-    ta := TouchArea { clicked => { root.picked(); } }
-}
-
 // The pad tabs: four at a time, tabs 1-4 or 5-8 (see `first`), each
 // showing one panel. Right-click a tab to put a different panel in it.
 component PadTabs inherits Rectangle {
@@ -1347,6 +1425,18 @@ export component Pads inherits HorizontalLayout {
         { key: "beatjump_16_forward", light: "beatjump_16_forward", text: "16 ›" },
         { key: "beatjump_32_backward", light: "beatjump_32_backward", text: "‹ 32" },
         { key: "beatjump_32_forward", light: "beatjump_32_forward", text: "32 ›" },
+    ];
+    // VirtualDJ's STEMS pads: stems 1 to 5 are kick, bass, instruments,
+    // vocals and hi-hats (see mixxx_engine::stems::default_info).
+    property <[StemPadSpec]> stem-pads: [
+        { stem: 4, text: "Vocal", tint: #09AD18 },
+        { stem: 3, text: "Instru", tint: #A26018 },
+        { stem: 2, text: "Bass", tint: #A21418 },
+        { stem: 0, text: "Acapella", tint: #A9AAAB },
+        { stem: 1, text: "Kick", tint: #2E4E75 },
+        { stem: 5, text: "HiHat", tint: #0960B1 },
+        { stem: -2, text: "Stems FX", tint: #5D5D5E },
+        { stem: -1, text: "Instrumental", tint: #A9AAAB },
     ];
     property <[PadEffect]> pad-fx: [
         { effect: 1, meta: 0.6, text: "ECHO" },
@@ -1533,48 +1623,18 @@ export component Pads inherits HorizontalLayout {
                             horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
                         }
                     }
-                    if page == 4 && info.stem-names.length > 0: HorizontalLayout {
+                    if page == 4: HorizontalLayout {
                         spacing: 1px;
                         horizontal-stretch: 1;
-                        for name[i] in info.stem-names: Rectangle {
+                        for i in 4: StemPad {
+                            deck: deck;
+                            info: info;
+                            stem: stem-pads[row * 4 + i].stem;
+                            text: stem-pads[row * 4 + i].text;
+                            // The track's own colour for a stem, else VirtualDJ's.
+                            tint: stem-pads[row * 4 + i].stem > 0 && stem-pads[row * 4 + i].stem <= info.stem-colors.length
+                                ? info.stem-colors[stem-pads[row * 4 + i].stem - 1] : stem-pads[row * 4 + i].tint;
                             horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
-                            property <string> stem-group: "[Channel" + (deck + 1) + "_Stem" + (i + 1) + "]";
-                            if row == 0: StemPad { group: stem-group; text: name; tint: info.stem-colors[i]; }
-                            if row == 1: StemLevel { group: stem-group; tint: info.stem-colors[i]; }
-                        }
-                    }
-                    if page == 4 && info.stem-names.length == 0 && row == 0: Rectangle {
-                        horizontal-stretch: 1;
-                        background: !info.can-separate || (info.stem-status != "" && !info.stem-failed) ? Theme.control
-                            : sep.pressed ? Theme.control-pressed : sep.has-hover ? #1d1d20 : Theme.control;
-                        Text {
-                            text: !info.loaded ? "No track loaded"
-                                : info.can-separate && info.stem-failed ? "TRY AGAIN"
-                                : info.can-separate && info.stem-status == "" ? "SEPARATE STEMS"
-                                : info.can-separate ? "Separating…" : "No stems";
-                            font-size: 12px;
-                            font-weight: 700;
-                            color: info.can-separate && (info.stem-status == "" || info.stem-failed) ? tint : Theme.text-dim;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-                        sep := TouchArea {
-                            enabled: info.can-separate && (info.stem-status == "" || info.stem-failed);
-                            clicked => { DeckActions.separate-stems(deck); }
-                        }
-                    }
-                    if page == 4 && info.stem-names.length == 0 && row == 1: Rectangle {
-                        horizontal-stretch: 1;
-                        background: Theme.control;
-                        Text {
-                            width: parent.width - 8px;
-                            text: info.stem-status != "" ? info.stem-status
-                                : info.can-separate ? "Splits drums, bass, other and vocals with Demucs" : "";
-                            font-size: 11px;
-                            color: Theme.text-dim;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                            overflow: elide;
                         }
                     }
                 }
