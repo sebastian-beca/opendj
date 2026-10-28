@@ -1,13 +1,14 @@
 //! Album art for the players: two thumbnails per picture, 80 and 240 pixels
-//! square, the picture fitted and centred on black, baseline JPEG with 4:2:0
-//! chroma, the way rekordbox makes them (as Bake'n Deck's `expressport`
-//! found, MIT licence, Copyright (c) Masanari Higashi).
+//! square, the picture fitted and centred on black, baseline JPEG, the way
+//! rekordbox makes them (as Bake'n Deck's `expressport` found, MIT licence,
+//! Copyright (c) Masanari Higashi). rekordbox uses 4:2:0 chroma; `image`
+//! writes 4:2:2, which any JPEG decoder reads too.
 
 use std::path::Path;
 
+use image::codecs::jpeg::JpegEncoder;
 use image::imageops::{self, FilterType};
 use image::{Rgb, RgbImage, RgbaImage};
-use jpeg_encoder::{ColorType, Encoder, SamplingFactor};
 use mixxx_engine::cover;
 
 const SMALL: u32 = 80;
@@ -42,10 +43,8 @@ fn square(image: &RgbImage, side: u32) -> Option<Vec<u8>> {
     let (x, y) = ((side - scaled.width()) / 2, (side - scaled.height()) / 2);
     imageops::overlay(&mut canvas, &scaled, i64::from(x), i64::from(y));
     let mut jpeg = Vec::new();
-    let mut encoder = Encoder::new(&mut jpeg, QUALITY);
-    encoder.set_sampling_factor(SamplingFactor::R_4_2_0);
-    encoder
-        .encode(canvas.as_raw(), side as u16, side as u16, ColorType::Rgb)
+    JpegEncoder::new_with_quality(&mut jpeg, QUALITY)
+        .encode_image(&canvas)
         .ok()?;
     Some(jpeg)
 }
