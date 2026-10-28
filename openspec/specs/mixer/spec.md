@@ -55,6 +55,17 @@ The headphone (cue) mix SHALL carry every cued channel. CUE MIX (`headMix`) SHAL
 ### Requirement: Master and booth
 MASTER (`[Master],gain`), BOOTH (`booth_gain`) and balance SHALL set the master and booth levels. MASTER, PHONES and BOOTH knobs SHALL be unipolar: 0 % fully left, no centre detent.
 
+### Requirement: Remembered levels
+MASTER, PHONES (`headGain`), CUE MIX and BOOTH SHALL be saved as the DJ leaves them and put back at the next start. The first time, MASTER SHALL start at 50 % of its travel, PHONES at 25 % and CUE MIX fully on the cue side; BOOTH at 100 %.
+
+#### Scenario: First start
+- **WHEN** openDJ starts with no saved levels
+- **THEN** MASTER is at 50 %, PHONES at 25 % and the headphones hear only the cue
+
+#### Scenario: Next start
+- **WHEN** the DJ set MASTER to 70 % and quits
+- **THEN** MASTER is at 70 % at the next start
+
 #### Scenario: Booth independent
 - **WHEN** BOOTH is turned down
 - **THEN** the booth output gets quieter and the master output does not change
