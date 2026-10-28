@@ -151,6 +151,12 @@ pub(crate) struct DeckControls {
     pub(crate) eq_kill: [ControlHandle; 3],
     pub(crate) filter: ControlHandle,
     pub(crate) quick_enabled: ControlHandle,
+    /// The Color FX the filter knob plays (`loaded_chain_preset`), and the
+    /// pushes that step it.
+    pub(crate) cfx_preset: ControlHandle,
+    pub(crate) cfx_next: ControlHandle,
+    pub(crate) cfx_prev: ControlHandle,
+    pub(crate) cfx_edges: [Edge; 2],
     /// `[Sculpt_[ChannelN]]` hpf, freq, gain and lpf.
     pub(crate) sculpt: [ControlHandle; 4],
     pub(crate) hotcues: Vec<Hotcue>,
@@ -220,12 +226,14 @@ impl DeckControls {
         // 1 slots 9-16.
         reg.create(g, "sampler_page", 0.0, 0.0, 1.0, Behavior::Free);
         alias(reg, g, "pitch_adjust", g, "pitch");
-        // Chain presets are not implemented: the empty preset and the filter,
-        // which is always loaded.
-        reg.create(&qg, "loaded_chain_preset", 1.0, -1.0, 64.0, Behavior::Free);
-        reg.indicator(&qg, "num_chain_presets", 64.0).set(2.0);
-        reg.push(&qg, "next_chain_preset");
-        reg.push(&qg, "prev_chain_preset");
+        // The chain presets are the Color FX (see `crate::effects::COLOR_FX`):
+        // 0 none, 1 Filter, then the others. One is chosen for all decks.
+        let n_cfx = crate::effects::COLOR_FX.len() as f64;
+        let cfx_preset = reg.create(&qg, "loaded_chain_preset", 1.0, 0.0, n_cfx, Behavior::Free);
+        reg.indicator(&qg, "num_chain_presets", 64.0)
+            .set(n_cfx + 1.0);
+        let cfx_next = reg.push(&qg, "next_chain_preset");
+        let cfx_prev = reg.push(&qg, "prev_chain_preset");
         // The EQ slot says how many knobs and kills it has, as Mixxx's does;
         // mappings that build their EQ knobs from these find none otherwise.
         reg.indicator(&eqg, "num_parameters", 3.0).set(3.0);
@@ -346,6 +354,10 @@ impl DeckControls {
                 e.set_bool(true);
                 e
             },
+            cfx_preset,
+            cfx_next,
+            cfx_prev,
+            cfx_edges: [Edge::default(); 2],
             hotcues,
             hotcue_focus: reg.create(
                 g,

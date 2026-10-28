@@ -6,7 +6,7 @@ The mixer between the decks: each channel's gain, EQ, filter and fader, the knob
 ## Requirements
 
 ### Requirement: Channel strip
-Each deck's channel SHALL have gain (`pregain`), a 3-band EQ (high, mid, low) with kills reachable from controllers, a bipolar filter (`[QuickEffectRack1_[ChannelN]],super1`, low-pass left, high-pass right), a channel fader (`volume`), a headphone cue button (`pfl`) and a stereo level meter with peak indicator.
+Each deck's channel SHALL have gain (`pregain`), a 3-band EQ (high, mid, low) with kills reachable from controllers, a bipolar filter knob (`[QuickEffectRack1_[ChannelN]],super1`) playing the chosen Color FX, by default the filter (low-pass left, high-pass right), a channel fader (`volume`), a headphone cue button (`pfl`) and a stereo level meter with peak indicator.
 
 #### Scenario: Low kill
 - **WHEN** a channel's low EQ kill is turned on from a controller
@@ -19,6 +19,17 @@ Each deck's channel SHALL have gain (`pregain`), a 3-band EQ (high, mid, low) wi
 #### Scenario: Filter moves without clicks
 - **WHEN** the filter knob is turned, fast or in big controller steps, including across the centre
 - **THEN** the cutoff glides over about 5 ms and each side fades in from the centre, so the sweep has no zipper noise or clicks
+
+### Requirement: Color FX
+Each channel's filter knob SHALL play the chosen Color FX, off at its centre: Filter (low-pass left, high-pass right), Space (filtered reverb send), Dub Echo (filtered half-beat echo send), Noise (filtered white noise) or Crush (bit and sample-rate reduction). One Color FX SHALL apply to every deck, as `[QuickEffectRack1_[ChannelN]],loaded_chain_preset` (1 Filter to 5 Crush); setting it on one deck, or stepping it with `next_chain_preset` / `prev_chain_preset`, SHALL set it on all. A menu over the mixer's left-hand knobs SHALL show and pick it, the knobs' label SHALL name it, and SHIFT + SMART CFX on the DDJ-FLX4 SHALL step to the next one.
+
+#### Scenario: Space tail
+- **WHEN** Space is chosen, the filter knob is turned right and then back to the centre
+- **THEN** the reverb rings on and fades instead of stopping
+
+#### Scenario: FLX4 picks the Color FX
+- **WHEN** SHIFT + SMART CFX is pressed on a DDJ-FLX4 while Filter is chosen
+- **THEN** every deck's filter knob plays Space and the menu shows SPACE
 
 ### Requirement: Knob modes
 The mixer's side knobs SHALL switch between EQ (high, mid, low, filter), STEMS (hi-hat, vocal, kick and bass stem volumes) and SCULPT (Model 1 style LPF, swept bell FREQ and CUT/BOOST, HPF). Controller EQ knobs SHALL follow the chosen mode through `[Mixer],knob_mode`.

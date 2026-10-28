@@ -18,7 +18,7 @@ use mixxx_engine::synth::SAMPLE_LIBRARY_SIZE;
 use mixxx_engine::{
     deck_group, default_output_device, effect_group, effect_name, output_devices, sample_library,
     AudioEngine, AudioSetup, Role, Route, Source, Track, VisualPositions, Waveform,
-    AVAILABLE_EFFECTS, EFFECTS_PER_UNIT, NUM_DECKS,
+    AVAILABLE_EFFECTS, COLOR_FX, EFFECTS_PER_UNIT, NUM_DECKS,
 };
 use mixxx_library::Library;
 use mixxx_waveform::{
@@ -416,6 +416,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.global::<EffectList>()
         .set_names(ModelRc::new(VecModel::from(
             AVAILABLE_EFFECTS
+                .iter()
+                .map(|&n| SharedString::from(n))
+                .collect::<Vec<_>>(),
+        )));
+    app.global::<EffectList>()
+        .set_color_fx(ModelRc::new(VecModel::from(
+            COLOR_FX
                 .iter()
                 .map(|&n| SharedString::from(n))
                 .collect::<Vec<_>>(),
