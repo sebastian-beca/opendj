@@ -1,66 +1,76 @@
-openDJ 0.3.5 brings a sampler with sample packs, phrase detection on the deck overviews, mini waveforms in the track list, key lock and fuzzy key mixing, every DDJ-FLX4 pad mode, and a Controller Editor that shows what each control does. It also fixes crackling on the filter and on jumps, and openDJ no longer uses CPU while idle.
+openDJ 0.4 is about cleaning up your collection. Library Health can now merge duplicate copies, tidy up track names and genres, look tags up online, find missing covers and quarantine files you don't want. Sets and crates organise your lists. Effects move into an FX bar of their own, the 2-Deck layout gets more compact, and openDJ comes to Windows as a preview.
 
 ## What's new
 
-**Decks and mixing**
+**Collection clean-up**
 
-- A key lock padlock above each pitch reset triangle. Settings → Decks → Key mixing picks Harmonic (4 compatible keys) or Fuzzy (6 keys, ignoring the letter), and the browser's lilac keys, the key filter, `~key:` searches and the deck key menu all follow it. Keys are compared with what the playing deck actually sounds like, and keys a semitone away get a dim +1/−1 mark.
-- Match key on load (Off, ±1, ±2; ±1 by default): a track loaded while another deck plays is shifted the smallest step that makes it mix, with key lock on.
-- Auto reset on load in Settings → Decks: effects, EQ and filter, and gain go back to neutral when a new track loads. Effects keep their beats and dry/wet, and a unit still used by another playing deck is left alone.
-- Turning a jog's outer rim bends the speed of a playing deck, as in Mixxx, and springs back when you let go. This works on the DDJ-FLX4 and by dragging round the rim of an on-screen jog.
-- New hot cue colours for cues 1 to 8: blue, green, yellow, orange, red, pink, purple and teal, on the pads and the waveforms.
-- The pitch reset triangle sits level with 0% on the tempo fader again, with key lock under it.
+- Duplicates in Library Health groups copies of a track and picks the one to keep: the copy in your Collection folder first, then lossless, higher bitrate, with cues or a grid, most played. Fix all easy merges every safe group at once; Keep this copy picks another; Link as versions keeps copies of different lengths, linked. Lists, history, cues, ratings, plays and missing tags move onto the kept copy, and the other files go to `_Quarantine/<date>` beside your Collection folder. Undo brings them back.
+- Move to Quarantine in the track menu sends tracks you don't want to the same quarantine folder, with undo.
+- Junk in names (`is:junk`) finds track numbers, web sites, "(Official Video)" and similar, underscores and double spaces, and moves remixes and featured artists into their own fields. Clean up… shows every change in a review table to tick or untick before anything is written, and every change can be undone. Each rule can be switched off in Settings → Library → Stages → Clean-up.
+- A Genres page lists every genre with its track count, shows the ones spelled almost alike, and merges them.
+- Look up online fills in missing tags from MusicBrainz, finding badly named files by their sound when you add an AcoustID key, and adding label, year and style from Discogs with a Discogs token. Results open in the review table, and fields you typed yourself are never changed.
+- Find covers looks online for tracks with no cover, and Analyze Track now does the same, embedding the first cover at least 600 px big.
+- Several music folders in Settings → Library, each with Remove. A new Outside folders check finds files in none of them. openDJ no longer scans `~/Music` unless you add it, and tracks from a folder you remove leave the library (rated, played, staged and listed tracks stay; files on disk are never touched).
 
-**Sampler**
+**Sets and crates**
 
-- 16 sampler pads, shown 8 at a time on each deck's SAMPLER page with a 1/2 page button. Each pad has its own level and play mode (one shot, hold, on/off or loop).
-- Sample packs: the built-in sounds are the Default DJ Sample Pack, and + makes a new one. In edit mode you choose a sound for a pad (with a headphone preview), drop your own files or tracks on it, rename, reset or clear it, and drag pads to swap them.
+- + → New set… makes a set, a lilac folder holding Staging, Set and Live set lists (change the template in Settings → Library → Stages → Sets). A set shows all its tracks with their total length and which still need prep.
+- Add to Set List on the History tab puts the tracks you played into a set's Live set.
+- Crates are your own lists outside sets. A Crates column shows which crates a track is in, and `crate:name` searches them. Library Health's Lists line finds empty crates and lists holding removed tracks, and Tidy up clears them.
 
-**Pads and controllers**
+**Decks and effects**
 
-- Every DDJ-FLX4 pad mode now has a page on screen: hot cues, PAD FX 1 and 2, beat jump, sampler, beat loop (now down to 1/16 beat), keyboard, key shift and loop roll. KEYBOARD pressed twice switches to the stems pads.
-- Controller Editor (Settings → Controllers): see what every control on a controller does, grouped by function, with its layer, MIDI message, LED and options. The DDJ-FLX4, Xone K2 and Midi Fighter Twister get a picture: point at a part to name it, or press a control on the controller to find it. Editing mappings comes later.
-- On macOS, controllers plugged in while openDJ runs are picked up, and Settings → Controllers has a Refresh button for one that doesn't show up or stops answering.
+- An FX bar under the decks holds all the effects, shown or hidden with the FX button in the top bar: each deck's three effects across its width, and the Beat FX under the mixer. Deck effects start as Reverb, Echo and Gate.
+- Color FX on each deck's filter knob (Filter, Space, Dub Echo, Noise, Crush), picked from a small ▾ beside the knob. Each deck keeps its own.
+- A more compact 2-Deck layout: tempo, pads, loop controls and the jog with PLAY and CUE under it, a narrower mixer and wider pads. PLAY, CUE and SYNC light up as an outline in the deck colour.
+- SYNC sits over the tempo fader. Right-click it for quantize and its step (1/16 to 4 beats); Shift-click syncs once. A small MASTER badge under the key shows which deck the others follow; click it to pin.
+- The 4-Deck layout is cleaned up: no centre mixer, bigger strip controls, and a bar under the strips with each deck's crossfader side, SYNC and tempo.
+- The MASTER button in the top bar opens master, phones, booth and cue mix sliders and the Ableton Link switch; the MIC button opens the mic and aux. Levels are remembered between runs, and the aux input starts off.
+- A crossfader on/off switch (Settings → Mixer or right-click the crossfader).
+- Dragging a deck's overview waveform moves silently instead of playing what it passes.
 
-**Waveforms and phrases**
+**Stems**
 
-- openDJ finds the phrases in a track (intro, build, drop, chorus, break, outro) and shows them as a coloured bar under each deck's overview. Hover it for the phrase's name, length in bars and times; right-click to show or hide phrases.
-- A Waveform column in the track list and a waveform in the Info panel show each analysed track's overview. They fill in while a deck analyses the track.
+- Every loaded track gets stems straight away, separated while it plays starting from the cue point. Prepare High Quality Stems in the track menu makes studio-quality stems in the background and swaps them in.
+- The STEMS pads are now 8: Vocal, Instru, Bass, Acapella, Kick, HiHat, Stems FX and Instrumental.
+
+**Pads, keyboard and controllers**
+
+- A page shifter left of the pads, and pad pages in the DDJ-FLX4's order. Each FLX4 pad mode plays whatever page is in its tab, so you can put stems where the sampler was.
+- Settings → Keyboard lists every shortcut to change, turn off or add. ⌘1 to ⌘5 (Ctrl on Linux and Windows) rate the selected tracks.
+- Settings → Controllers lists only controllers with a mapping, with Add, Remove and Edit. The Controller Editor groups controls into sections and can duplicate and rename a mapping as your own copy.
+- ⌘, (Ctrl+,) opens Settings.
 
 **Library**
 
-- Analyze Track in the track menu (or Analyze N Tracks for a selection), and Analyze All for a list, folder, stage or smart list. Tempo, grid, key, loudness, waveform and phrases are worked out afresh in the background; grids and keys you edited or imported stay. The footer shows progress with a stop button.
-- Settings → Library → Update library on start can be switched off for big collections. The library still shows at once, and Rescan updates it.
-- The Colour row is gone from the track menu. Colours you already set stay.
-
-**Fixes and speed**
-
-- openDJ no longer uses about 15% CPU while nothing is playing: the window only redraws when something changes.
-- No more zipper noise when turning the filter, or a click when it crosses the centre.
-- Beat jumps, hot cues, seeks and loop wraps crossfade smoothly instead of clicking, and with key lock on there's no longer a short silent gap after a jump.
+- Settings → Library has General, Stages, Fields and Import tabs. Import from VirtualDJ is on the Import tab; more apps are coming.
+- Sorting by a column keeps the selected track selected and in view.
+- Export to USB… on a list writes a stick for Pioneer players. It is experimental: it hasn't been tried on a player yet.
 
 ## Install
 
-**macOS** (Apple Silicon and Intel, macOS 11 or newer): if you have 0.3.0, openDJ offers this update itself when it starts. Otherwise download `openDJ-…-macos.zip`, unzip it and move openDJ to Applications.
+**macOS** (Apple Silicon and Intel, macOS 11 or newer): if you have 0.3.0 or newer, openDJ offers this update itself when it starts. Otherwise download `openDJ-…-macos.zip`, unzip it and move openDJ to Applications.
+
+**Windows** (preview; 64-bit Windows 10 and 11):
+
+- `openDJ-…-windows-x64-setup.exe`: installs for your user, no administrator needed, and updates itself from now on.
+- `opendj-…-windows-x64.zip`: portable. Unzip anywhere and run `openDJ.exe`.
+
+The Windows build isn't signed yet, so on first run SmartScreen says "Windows protected your PC": click More info, then Run anyway. ASIO drivers show next to Windows Audio devices in Settings → Audio. Windows on ARM runs it through emulation.
 
 **Linux** (x86_64, glibc 2.35 or newer, e.g. Ubuntu 22.04+, Fedora 36+, Debian 12+):
 
-- `openDJ-…-x86_64.AppImage`: make it executable (`chmod +x`) and run it. 0.3.0 AppImages update themselves.
+- `openDJ-…-x86_64.AppImage`: make it executable (`chmod +x`) and run it. AppImages from 0.3.0 on update themselves.
 - `opendj-…-linux-x86_64.tar.gz`: unpack anywhere and run `bin/opendj`.
 
 openDJ needs ALSA and a Vulkan driver, which most desktops already have.
 
-openDJ reads your `~/Music` folder. MIDI controllers that Mixxx supports load their mapping when plugged in.
+Add your music folders in Settings → Library. MIDI controllers that Mixxx supports load their mapping when plugged in.
 
 ## Known limits
 
-- No Windows build yet.
+- Windows is a preview: unsigned, and less tested than macOS and Linux.
 - Streaming services and stores are coming soon.
 - Automix uses decks 1 and 2 only.
-- The Controller Editor only shows mappings; it can't change them yet.
-
-Found a bug or have an idea? Use Settings → Feedback in the app, or [open an issue](https://github.com/sebastian-beca/opendj/issues/new/choose).
-
-## Thanks
-
-Thanks to everyone who tested 0.3.0 and sent reports and ideas, and for the sampler request in #60.
+- The Controller Editor can copy mappings but not change them yet.
+- USB export for Pioneer players is experimental.

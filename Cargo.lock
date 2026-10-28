@@ -6162,7 +6162,7 @@ dependencies = [
 
 [[package]]
 name = "opendj"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -6197,11 +6197,11 @@ dependencies = [
 
 [[package]]
 name = "opendj-control"
-version = "0.3.5"
+version = "0.4.0"
 
 [[package]]
 name = "opendj-controllers"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "midir",
  "opendj-control",
@@ -6213,7 +6213,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-engine"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "cpal",
@@ -6234,7 +6234,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-export"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "diesel",
@@ -6251,7 +6251,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-library"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "opendj-engine",
  "rusqlite",
@@ -6259,7 +6259,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-plugins"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "opendj-engine",
  "roxmltree",
@@ -6270,14 +6270,14 @@ dependencies = [
 
 [[package]]
 name = "opendj-script"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "opendj-control",
 ]
 
 [[package]]
 name = "opendj-separation"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "burn",
  "burn-ndarray",
@@ -6291,7 +6291,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-waveform"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "ab_glyph",
  "bytemuck",
@@ -8224,7 +8224,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stem-bench"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "hound",
  "opendj-engine",
