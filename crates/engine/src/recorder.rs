@@ -527,6 +527,23 @@ impl Sink for WavSink {
     }
 }
 
+/// Writes a stereo FLAC file, 16-bit.
+pub(crate) fn write_flac(path: &Path, rate: u32, channels: [&[f32]; 2]) -> io::Result<()> {
+    let mut sink = Box::new(FlacSink::create(path, rate, 16)?);
+    let mut buf = Vec::with_capacity(FLAC_BLOCK * 2);
+    for (l, r) in channels[0]
+        .chunks(FLAC_BLOCK)
+        .zip(channels[1].chunks(FLAC_BLOCK))
+    {
+        buf.clear();
+        for (a, b) in l.iter().zip(r) {
+            buf.extend_from_slice(&[*a, *b]);
+        }
+        sink.write(&buf)?;
+    }
+    sink.finish()
+}
+
 /// Samples per FLAC frame.
 const FLAC_BLOCK: usize = 4096;
 

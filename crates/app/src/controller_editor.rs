@@ -13,20 +13,62 @@ use std::time::{Duration, Instant};
 
 use mixxx_control::ControlRegistry;
 use mixxx_controllers::layout::Layout;
+use mixxx_controllers::own::{self, OwnMapping};
 use mixxx_controllers::probe::message_key;
 use mixxx_controllers::view::{self, LightRow, MappingView, Row};
 use mixxx_controllers::Controllers;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use crate::{
-    short_port_name, AppWindow, ControllerEditor, EditorOption, EditorPanel, EditorPart, EditorRow,
+    settings, short_port_name, AppWindow, ControllerEditor, EditorOption, EditorPanel, EditorPart,
+    EditorRow,
 };
 
 /// How long a part stays lit after its control is pressed.
 const FLASH: Duration = Duration::from_millis(350);
 /// The list's row heights (FunctionRow in controller_editor.slint).
 const ROW_HEIGHT: f32 = 44.0;
-const HEADER_HEIGHT: f32 = 34.0;
+const GROUP_HEIGHT: f32 = 38.0;
+const CATEGORY_HEIGHT: f32 = 30.0;
+
+/// The sections of the Controls and Lights lists: groups, each holding
+/// categories of the function catalog.
+const GROUPS: [(&str, &[&str]); 6] = [
+    (
+        "DECK",
+        &["Transport", "Cues", "Jog & scratch", "Tempo & sync", "Key"],
+    ),
+    (
+        "PADS",
+        &[
+            "Hot cues",
+            "Loops",
+            "Beat jump",
+            "Samplers",
+            "Stems",
+            "Pads",
+        ],
+    ),
+    ("MIXER", &["Mixer", "EQ & filter"]),
+    ("EFFECTS", &["Effects"]),
+    ("LIBRARY", &["Library", "Automix"]),
+    ("MORE", &["Mic & aux", "Recording", "View", "Controller"]),
+];
+
+/// What the dialog over the editor is for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Dialog {
+    Duplicate,
+    Rename,
+    Delete,
+}
+
+/// A row of the list: a section heading (by its key) or a row of the view.
+#[derive(Clone, Debug, PartialEq)]
+enum Shown {
+    Heading(String),
+    Row(usize),
+}
 
 pub struct Editor {
     app: slint::Weak<AppWindow>,
@@ -42,9 +84,15 @@ pub struct Editor {
     part: Option<String>,
     /// The selected row, as (tab, index into the view's rows or lights).
     selected: Option<(i32, usize)>,
-    /// Model rows of the tab shown, as indexes into the view (None for a
-    /// heading).
-    shown: Vec<Option<usize>>,
+    /// What each row of the list shown is.
+    shown: Vec<Shown>,
+    /// The sections closed, as "tab/group" or "tab/group/category".
+    collapsed: HashSet<String>,
+    /// The DJ's own mappings based on the one shown, and the one in use
+    /// (None for the original).
+    own: Vec<OwnMapping>,
+    version: Option<String>,
+    dialog: Option<Dialog>,
     flash: Option<(String, Instant)>,
     scroll_serial: i32,
     was_open: bool,
@@ -64,6 +112,10 @@ impl Editor {
             part: None,
             selected: None,
             shown: Vec::new(),
+            collapsed: HashSet::new(),
+            own: Vec::new(),
+            version: None,
+            dialog: None,
             flash: None,
             scroll_serial: 0,
             was_open: false,
@@ -73,7 +125,13 @@ impl Editor {
         let e = editor.clone();
         g.on_show(move || e.borrow_mut().show());
         let e = editor.clone();
+        g.on_show_mapping(move |file| e.borrow_mut().show_mapping(&file));
+        let e = editor.clone();
         g.on_pick(move |i| e.borrow_mut().pick(i.max(0) as usize));
+        let e = editor.clone();
+        g.on_pick_version(move |i| e.borrow_mut().pick_version(i.max(0) as usize));
+        let e = editor.clone();
+        g.on_dialog_done(move |ok| e.borrow_mut().dialog_done(ok));
         let e = editor.clone();
         g.on_part_clicked(move |id| e.borrow_mut().part_clicked(&id));
         let e = editor.clone();
@@ -159,6 +217,19 @@ impl Editor {
         }
     }
 
+    /// Opens the editor on the mapping in `file`, or as [`Self::show`] does
+    /// when it isn't one of the mappings.
+    fn show_mapping(&mut self, file: &str) {
+        self.show();
+        let Some(i) = self.choices.iter().position(|(f, _)| f == file) else {
+            return;
+        };
+        let reading = self.loading.as_ref().is_some_and(|(f, _)| f == file);
+        if !reading && self.chosen() != Some(i) {
+            self.pick(i);
+        }
+    }
+
     fn chosen(&self) -> Option<usize> {
         let file = &self.view.as_ref()?.file;
         self.choices.iter().position(|(f, _)| f == file)
@@ -175,6 +246,7 @@ impl Editor {
         let g = app.global::<ControllerEditor>();
         g.set_chosen(index as i32);
         g.set_name(name.into());
+        self.versions(&file);
         g.set_author("".into());
         g.set_loading(true);
         g.set_status("Reading the mapping…".into());
@@ -198,6 +270,138 @@ impl Editor {
             })
             .expect("spawn controller editor thread");
         self.loading = Some((file, rx));
+    }
+
+    /// The Mixxx mapping shown, by file name.
+    fn base(&self) -> Option<String> {
+        let app = self.app.upgrade()?;
+        let i = app.global::<ControllerEditor>().get_chosen();
+        self.choices.get(i.max(0) as usize).map(|(f, _)| f.clone())
+    }
+
+    /// Fills the Mapping menu for the Mixxx mapping `base`: the original,
+    /// the DJ's own copies of it, then what can be done with them.
+    fn versions(&mut self, base: &str) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        self.own = settings::own_mappings_dir()
+            .map(|d| own::list(&d, base))
+            .unwrap_or_default();
+        self.version =
+            settings::controller_version(base).filter(|id| self.own.iter().any(|m| &m.id == id));
+        let mut items: Vec<SharedString> = vec!["Original mapping".into()];
+        items.extend(self.own.iter().map(|m| SharedString::from(m.name.as_str())));
+        items.push("Duplicate…".into());
+        if self.version.is_some() {
+            items.push("Rename…".into());
+            items.push("Delete…".into());
+        }
+        g.set_versions(ModelRc::new(VecModel::from(items)));
+        let current = self
+            .version
+            .as_ref()
+            .and_then(|id| self.own.iter().position(|m| &m.id == id));
+        g.set_version(current.map_or(0, |i| i + 1) as i32);
+        g.set_version_name(
+            current
+                .map_or("Original mapping".to_string(), |i| self.own[i].name.clone())
+                .into(),
+        );
+        g.set_original(current.is_none());
+    }
+
+    fn current_own(&self) -> Option<&OwnMapping> {
+        let id = self.version.as_ref()?;
+        self.own.iter().find(|m| &m.id == id)
+    }
+
+    fn pick_version(&mut self, index: usize) {
+        let (Some(app), Some(base)) = (self.app.upgrade(), self.base()) else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        let n = self.own.len();
+        let open_dialog = |kind: Dialog, title: &str, detail: &str, action: &str, text: String| {
+            g.set_dialog_title(title.into());
+            g.set_dialog_detail(detail.into());
+            g.set_dialog_action(action.into());
+            g.set_dialog_text(text.into());
+            g.set_dialog(if kind == Dialog::Delete { 2 } else { 1 });
+            kind
+        };
+        let current_name = self
+            .current_own()
+            .map_or(g.get_name().to_string(), |m| m.name.clone());
+        match index {
+            0 => settings::set_controller_version(&base, None),
+            i if i <= n => settings::set_controller_version(&base, Some(&self.own[i - 1].id)),
+            i if i == n + 1 => {
+                let taken: Vec<String> = self.own.iter().map(|m| m.name.clone()).collect();
+                self.dialog = Some(open_dialog(
+                    Dialog::Duplicate,
+                    "Duplicate mapping",
+                    &format!(
+                        "A copy of {current_name} that you can name, and later change. The original stays as it is."
+                    ),
+                    "Duplicate",
+                    own::copy_name(&current_name, &taken),
+                ));
+            }
+            i if i == n + 2 => {
+                self.dialog = Some(open_dialog(
+                    Dialog::Rename,
+                    "Rename mapping",
+                    "",
+                    "Rename",
+                    current_name,
+                ));
+            }
+            _ => {
+                self.dialog = Some(open_dialog(
+                    Dialog::Delete,
+                    &format!("Delete {current_name}?"),
+                    "The controller goes back to the original mapping. This can't be undone.",
+                    "Delete",
+                    String::new(),
+                ));
+            }
+        }
+        self.versions(&base);
+    }
+
+    fn dialog_done(&mut self, ok: bool) {
+        let (Some(app), Some(base), Some(dir)) = (
+            self.app.upgrade(),
+            self.base(),
+            settings::own_mappings_dir(),
+        ) else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        g.set_dialog(0);
+        let Some(kind) = self.dialog.take() else {
+            return;
+        };
+        let name = g.get_dialog_text().trim().to_string();
+        if !ok || (kind != Dialog::Delete && name.is_empty()) {
+            return;
+        }
+        let id = self.version.clone();
+        let result = match (kind, &id) {
+            (Dialog::Duplicate, _) => own::create(&dir, &name, &base, self.current_own())
+                .map(|m| settings::set_controller_version(&base, Some(&m.id))),
+            (Dialog::Rename, Some(id)) => own::rename(&dir, id, &name),
+            (Dialog::Delete, Some(id)) => {
+                own::delete(&dir, id).map(|_| settings::set_controller_version(&base, None))
+            }
+            _ => Ok(()),
+        };
+        if let Err(e) = result {
+            g.set_status(format!("Couldn't save the mapping: {e}").into());
+        }
+        self.versions(&base);
     }
 
     /// Called every frame.
@@ -239,6 +443,7 @@ impl Editor {
                                 })
                                 .collect::<Vec<_>>(),
                         )));
+                        self.collapsed = closed_sections(&v);
                         self.view = Some(v);
                     }
                     Err(e) => g.set_status(format!("Can't read this mapping: {e}").into()),
@@ -334,9 +539,10 @@ impl Editor {
         let mut y = 0.0;
         for s in &self.shown {
             match s {
-                Some(i) if *i == sel => break,
-                Some(_) => y += ROW_HEIGHT,
-                None => y += HEADER_HEIGHT,
+                Shown::Row(i) if *i == sel => break,
+                Shown::Row(_) => y += ROW_HEIGHT,
+                Shown::Heading(key) if key.matches('/').count() == 1 => y += GROUP_HEIGHT,
+                Shown::Heading(_) => y += CATEGORY_HEIGHT,
             }
         }
         let g = app.global::<ControllerEditor>();
@@ -370,8 +576,17 @@ impl Editor {
     }
 
     fn row_clicked(&mut self, tab: i32, model_index: usize) {
-        let Some(Some(i)) = self.shown.get(model_index).copied() else {
-            return;
+        let i = match self.shown.get(model_index).cloned() {
+            Some(Shown::Row(i)) => i,
+            // A heading opens or closes its section.
+            Some(Shown::Heading(key)) => {
+                if !self.collapsed.remove(&key) {
+                    self.collapsed.insert(key);
+                }
+                self.fill();
+                return;
+            }
+            None => return,
         };
         self.selected = if self.selected == Some((tab, i)) {
             None
@@ -419,59 +634,67 @@ impl Editor {
             None => true,
             Some(id) => p.as_deref() == Some(id.as_str()) || (p.is_none() && control == id),
         };
-        let mut category = "";
-        let mut push = |header: Option<&'static str>,
-                        row: EditorRow,
-                        index: usize,
-                        model: &mut Vec<EditorRow>,
-                        shown: &mut Vec<Option<usize>>| {
-            if let Some(c) = header {
-                if c != category {
-                    category = c;
-                    model.push(EditorRow {
-                        header: true,
-                        function: c.to_uppercase().into(),
-                        ..Default::default()
-                    });
-                    shown.push(None);
-                }
-            }
-            model.push(row);
-            shown.push(Some(index));
-        };
         let matches = |text: &str| {
             let text = text.to_lowercase();
             words.iter().all(|w| text.contains(w.as_str()))
         };
+        // The rows that match, by category.
+        let mut found: Vec<Found> = Vec::new();
         if tab == 1 {
             for (i, l) in v.lights.iter().enumerate() {
                 let row = light_row(v, l, self.selected == Some((1, i)));
                 if on_part(&l.part, &l.control) && matches(&search_text(&row, l.function.category))
                 {
-                    push(
-                        Some(l.function.category),
-                        row,
-                        i,
-                        &mut model,
-                        &mut self.shown,
-                    );
+                    found.push((l.function.category, i, row));
                 }
             }
-            g.set_lights(ModelRc::new(VecModel::from(model)));
         } else {
             for (i, r) in v.rows.iter().enumerate() {
                 let row = function_row(r, self.selected == Some((0, i)));
                 if on_part(&r.part, &r.control) && matches(&search_text(&row, r.function.category))
                 {
-                    push(
-                        Some(r.function.category),
-                        row,
-                        i,
-                        &mut model,
-                        &mut self.shown,
-                    );
+                    found.push((r.function.category, i, row));
                 }
             }
+        }
+        // Searching or narrowing to a part shows everything found; otherwise
+        // closed sections show only their heading.
+        let everything = !words.is_empty() || part.is_some();
+        for (group, categories) in GROUPS {
+            let in_group: Vec<&Found> = found
+                .iter()
+                .filter(|(c, _, _)| categories.contains(c))
+                .collect();
+            if in_group.is_empty() {
+                continue;
+            }
+            let key = format!("{tab}/{group}");
+            let open = everything || !self.collapsed.contains(&key);
+            model.push(heading(0, group, open, in_group.len()));
+            self.shown.push(Shown::Heading(key));
+            if !open {
+                continue;
+            }
+            for (sub, rows) in sections(categories, &in_group) {
+                // A group that is one section needs no second heading.
+                if let Some(name) = sub {
+                    let key = format!("{tab}/{group}/{name}");
+                    let open = everything || !self.collapsed.contains(&key);
+                    model.push(heading(1, &name, open, rows.len()));
+                    self.shown.push(Shown::Heading(key));
+                    if !open {
+                        continue;
+                    }
+                }
+                for (_, i, row) in rows {
+                    model.push(row.clone());
+                    self.shown.push(Shown::Row(*i));
+                }
+            }
+        }
+        if tab == 1 {
+            g.set_lights(ModelRc::new(VecModel::from(model)));
+        } else {
             g.set_rows(ModelRc::new(VecModel::from(model)));
         }
         let controls: HashSet<&str> = v.rows.iter().map(|r| r.control.as_str()).collect();
@@ -549,6 +772,126 @@ impl Editor {
     }
 }
 
+type Found = (&'static str, usize, EditorRow);
+
+/// A group's rows in sections, each with its heading: by category, or for a
+/// group that is one category (Effects), by target ("FX 1", "FX 2") when
+/// there are many. A group with one section has no second heading.
+fn sections<'a>(categories: &[&str], rows: &[&'a Found]) -> Vec<(Option<String>, Vec<&'a Found>)> {
+    let mut out: Vec<(Option<String>, Vec<&Found>)> = Vec::new();
+    if categories.len() > 1 {
+        for category in categories {
+            let in_it: Vec<&Found> = rows
+                .iter()
+                .copied()
+                .filter(|(c, _, _)| c == category)
+                .collect();
+            if !in_it.is_empty() {
+                let name = if *category == "Pads" {
+                    "Pad modes"
+                } else {
+                    category
+                };
+                out.push((Some(name.to_string()), in_it));
+            }
+        }
+        return out;
+    }
+    let mut targets: Vec<String> = Vec::new();
+    for (_, _, r) in rows {
+        if !targets.iter().any(|t| t.as_str() == r.target.as_str()) {
+            targets.push(r.target.to_string());
+        }
+    }
+    if targets.len() < 2 || rows.len() <= 12 {
+        return vec![(None, rows.to_vec())];
+    }
+    targets.sort_by(|a, b| natural(a, b));
+    for t in targets {
+        let in_it: Vec<&Found> = rows
+            .iter()
+            .copied()
+            .filter(|(_, _, r)| r.target.as_str() == t)
+            .collect();
+        out.push((
+            Some(if t.is_empty() { "Other".to_string() } else { t }),
+            in_it,
+        ));
+    }
+    out
+}
+
+/// "FX 2" before "FX 10".
+fn natural(a: &str, b: &str) -> std::cmp::Ordering {
+    let split = |s: &str| {
+        let digits: String = s.chars().rev().take_while(|c| c.is_ascii_digit()).collect();
+        let n: u32 = digits
+            .chars()
+            .rev()
+            .collect::<String>()
+            .parse()
+            .unwrap_or(0);
+        (
+            s.trim_end_matches(|c: char| c.is_ascii_digit()).to_string(),
+            n,
+        )
+    };
+    split(a).cmp(&split(b))
+}
+
+/// Every section closed but the first group and the first section in it,
+/// on both lists.
+fn closed_sections(v: &MappingView) -> HashSet<String> {
+    let mut closed = HashSet::new();
+    let lists: [Vec<Found>; 2] = [
+        v.rows
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (r.function.category, i, function_row(r, false)))
+            .collect(),
+        v.lights
+            .iter()
+            .enumerate()
+            .map(|(i, l)| (l.function.category, i, light_row(v, l, false)))
+            .collect(),
+    ];
+    for (tab, found) in lists.iter().enumerate() {
+        let mut first = true;
+        for (group, categories) in GROUPS {
+            let in_group: Vec<&Found> = found
+                .iter()
+                .filter(|(c, _, _)| categories.contains(c))
+                .collect();
+            if in_group.is_empty() {
+                continue;
+            }
+            if !first {
+                closed.insert(format!("{tab}/{group}"));
+            }
+            for (j, (sub, _)) in sections(categories, &in_group).into_iter().enumerate() {
+                if let Some(name) = sub {
+                    if !(first && j == 0) {
+                        closed.insert(format!("{tab}/{group}/{name}"));
+                    }
+                }
+            }
+            first = false;
+        }
+    }
+    closed
+}
+
+fn heading(level: i32, name: &str, open: bool, count: usize) -> EditorRow {
+    EditorRow {
+        header: true,
+        level,
+        open,
+        count: count as i32,
+        function: name.into(),
+        ..Default::default()
+    }
+}
+
 fn function_row(r: &Row, selected: bool) -> EditorRow {
     // The options, without "Script" (the row has a tag for that), and the
     // last part of the author's note ("PLAY/PAUSE (DECK1) - press -
@@ -560,7 +903,13 @@ fn function_row(r: &Row, selected: bool) -> EditorRow {
         detail.push(options);
     }
     let note = r.description.rsplit(" - ").next().unwrap_or("").trim();
-    if !note.is_empty() && !note.eq_ignore_ascii_case(&r.function.name) {
+    let plain = |t: &str| -> String {
+        t.chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    if !note.is_empty() && plain(note) != plain(&r.function.name) {
         detail.push(note);
     }
     // The script function only on the selected row: it's long and only
@@ -570,6 +919,9 @@ fn function_row(r: &Row, selected: bool) -> EditorRow {
     }
     EditorRow {
         header: false,
+        level: 2,
+        open: false,
+        count: 0,
         function: r.function.name.clone().into(),
         target: r.function.target.clone().into(),
         control: r.control.clone().into(),
@@ -598,12 +950,15 @@ fn light_row(v: &MappingView, l: &LightRow, selected: bool) -> EditorRow {
         .unwrap_or_default();
     EditorRow {
         header: false,
+        level: 2,
+        open: false,
+        count: 0,
         function: l.function.name.clone().into(),
         target: l.function.target.clone().into(),
         control: l.control.clone().into(),
         layer: layer.into(),
         kind: kind.into(),
-        midi: format!("Out: {}", l.midi).into(),
+        midi: l.midi.clone().into(),
         script: SharedString::new(),
         detail: SharedString::new(),
         part: l.part.clone().unwrap_or_default().into(),

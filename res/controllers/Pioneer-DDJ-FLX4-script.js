@@ -211,9 +211,6 @@ PioneerDDJFLX4.stemsPadsModesStatus = {
 // Stems (KEYBOARD) pad 1 control (pad control = [this value] + [pad  number] - 1)
 PioneerDDJFLX4.stemMutePadsFirstControl = 0x40;
 
-// Stems (KEYBOARD) pad 5 control (pad control = [this value] + [pad  number] - 1)
-PioneerDDJFLX4.stemFxPadsFirstControl = 0x44;
-
 // Pitch shift (KEY SHIFT) pads mode status for deck 1 and 2, without or with SHIFT pressed
 PioneerDDJFLX4.pitchPadsModesStatus = {
     "[Channel1]": [0x97, 0x98],
@@ -284,6 +281,16 @@ PioneerDDJFLX4.init = function() {
     PioneerDDJFLX4.toggleLight(PioneerDDJFLX4.lights.deck1.hotcueMode, true);
     PioneerDDJFLX4.toggleLight(PioneerDDJFLX4.lights.deck2.hotcueMode, true);
 
+    // openDJ: the pads follow the pages in the deck's pad tabs.
+    for (let tab = 1; tab <= 8; ++tab) {
+        engine.makeConnection("[Channel1]", "pad_slot_" + tab, PioneerDDJFLX4.padSlotChanged);
+        engine.makeConnection("[Channel2]", "pad_slot_" + tab, PioneerDDJFLX4.padSlotChanged);
+    }
+    engine.makeConnection("[Controller]", "deck3", function() { PioneerDDJFLX4.routePads(true); });
+    engine.makeConnection("[Controller]", "deck4", function() { PioneerDDJFLX4.routePads(false); });
+    PioneerDDJFLX4.routePads(true);
+    PioneerDDJFLX4.routePads(false);
+
     engine.makeConnection("[Channel1]", "loop_enabled", PioneerDDJFLX4.loopToggle);
     engine.makeConnection("[Channel2]", "loop_enabled", PioneerDDJFLX4.loopToggle);
 
@@ -293,11 +300,10 @@ PioneerDDJFLX4.init = function() {
     engine.makeConnection("[Channel1]", "stem_count", PioneerDDJFLX4.stemCountChanged);
     engine.makeConnection("[Channel2]", "stem_count", PioneerDDJFLX4.stemCountChanged);
 
-    // Register callbacks for each stems of each decks, to change pad lights when muted/unmuted/FX
-    for (let stem=1; stem<=4; stem++) {
+    // Register callbacks for each stems of each decks, to change pad lights when muted/unmuted
+    for (let stem=1; stem<=5; stem++) {
         for (let deck=1; deck<=2; deck++) {
             engine.makeConnection(`[Channel${deck}_Stem${stem}]`, "mute", PioneerDDJFLX4.stemMuteChanged);
-            engine.makeConnection(`[QuickEffectRack1_[Channel${deck}_Stem${stem}]]`, "enabled", PioneerDDJFLX4.stemFxChanged);
         }
     }
 
@@ -757,25 +763,63 @@ PioneerDDJFLX4.samplerPlayOutputCallbackFunction = function(_value, _group, _con
     PioneerDDJFLX4.samplerLights(false);
 };
 
-// openDJ: the pad panel each pad mode button opens on the deck's screen
-// (see the deck's `pad_panel` control).
-PioneerDDJFLX4.padPanelForMode = {
-    0x1B: 0, // HOT CUE: hot cues
-    0x69: 7, // KEYBOARD (SHIFT + HOT CUE): keyboard, or stems (see keyboardStems)
-    0x1E: 1, // PAD FX1: pad FX 1
-    0x6B: 6, // PAD FX2 (SHIFT + PAD FX1): pad FX 2
-    0x20: 2, // BEAT JUMP: beat jump
-    0x6D: 5, // BEAT LOOP (SHIFT + BEAT JUMP): beat loop
-    0x22: 3, // SAMPLER: sampler
-    0x6F: 8, // KEY SHIFT (SHIFT + SAMPLER): key shift
+// openDJ: the pad tab each pad mode button opens on the deck's screen (see
+// the deck's `pad_tab` control): tabs 1-4 for the four buttons, 5-8 for the
+// same buttons with SHIFT, whatever page is in the tab.
+PioneerDDJFLX4.padTabForMode = {
+    0x1B: 0, // HOT CUE
+    0x1E: 1, // PAD FX1
+    0x20: 2, // BEAT JUMP
+    0x22: 3, // SAMPLER
+    0x69: 4, // KEYBOARD (SHIFT + HOT CUE)
+    0x6B: 5, // PAD FX2 (SHIFT + PAD FX1)
+    0x6D: 6, // BEAT LOOP (SHIFT + BEAT JUMP)
+    0x6F: 7, // KEY SHIFT (SHIFT + SAMPLER)
+};
+
+// openDJ: the first pad note of each pad mode, in tab order.
+PioneerDDJFLX4.padModeNotes = [0x00, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70];
+
+// openDJ: the pad notes that play each pad panel (numbers as for the deck's
+// `pad_panel`): its own pad mode's, or for loop rolls notes of their own
+// (see the LOOP ROLL controls). Stems share KEYBOARD's notes (keyboardStems).
+PioneerDDJFLX4.panelNotes = [0x00, 0x10, 0x20, 0x30, 0x40, 0x60, 0x50, 0x40, 0x70, 0x78];
+
+// openDJ: the pads follow the screen. Each pad mode's pads play the panel in
+// its tab (the deck's `pad_slot_N`), with that panel's lights, whatever it
+// is: put STEMS in tab 4 and the SAMPLER button gives stems pads.
+PioneerDDJFLX4.routePads = function(left) {
+    const group = left ? "[Channel1]" : "[Channel2]";
+    const channels = left ? [0x07, 0x08] : [0x09, 0x0A];
+    for (let tab = 0; tab < 8; ++tab) {
+        const panel = engine.getValue(group, "pad_slot_" + (tab + 1));
+        const to = PioneerDDJFLX4.panelNotes[panel];
+        for (let pad = 0; pad < 8; ++pad) {
+            const from = PioneerDDJFLX4.padModeNotes[tab] + pad;
+            channels.forEach(function(channel) {
+                midi.routeNote(channel, from, to === undefined ? from : to + pad);
+            });
+        }
+    }
+    // KEYBOARD's notes play stems while the open tab shows them.
+    const open = PioneerDDJFLX4.padTabForMode[PioneerDDJFLX4.padMode[group]];
+    const stems = engine.getValue(group, "pad_slot_" + (open + 1)) === 4;
+    if (stems !== PioneerDDJFLX4.keyboardStems[group]) {
+        PioneerDDJFLX4.keyboardStems[group] = stems;
+        PioneerDDJFLX4.keyboardLights(group);
+    }
+};
+
+PioneerDDJFLX4.padSlotChanged = function(_value, group, _control) {
+    PioneerDDJFLX4.routePads(group === "[Channel1]");
 };
 
 // openDJ: the pad mode button last pressed on each deck.
 PioneerDDJFLX4.padMode = {"[Channel1]": 0x1B, "[Channel2]": 0x1B};
 
 // openDJ: KEYBOARD plays the last hot cue pressed at eight pitches, as in
-// rekordbox. Pressing KEYBOARD again turns its pads into the stems pads this
-// mapping had before (mute 1-4, stem FX 5-8), and back.
+// rekordbox. Pressing KEYBOARD again turns its pads into the stems pads
+// (see stemPads), and back.
 PioneerDDJFLX4.keyboardStems = {"[Channel1]": false, "[Channel2]": false};
 
 // openDJ: turns off a deck's pad mode button lights.
@@ -790,17 +834,18 @@ PioneerDDJFLX4.padModeKeyPressed = function(_channel, _control, value, _status, 
     const deck = (_status === 0x90 ? PioneerDDJFLX4.lights.deck1 : PioneerDDJFLX4.lights.deck2);
     const group = _status === 0x90 ? "[Channel1]" : "[Channel2]";
 
-    if (value && _control === 0x69) {
-        if (PioneerDDJFLX4.padMode[group] === 0x69) {
-            PioneerDDJFLX4.keyboardStems[group] = !PioneerDDJFLX4.keyboardStems[group];
-        }
-        PioneerDDJFLX4.keyboardLights(group);
-    }
-    if (value && _control in PioneerDDJFLX4.padPanelForMode) {
+    if (value && _control in PioneerDDJFLX4.padTabForMode) {
+        const again = PioneerDDJFLX4.padMode[group] === _control;
+        const tab = PioneerDDJFLX4.padTabForMode[_control];
         PioneerDDJFLX4.padMode[group] = _control;
-        const panel = _control === 0x69 && PioneerDDJFLX4.keyboardStems[group]
-            ? 4 : PioneerDDJFLX4.padPanelForMode[_control];
-        engine.setValue(group, "pad_panel", panel);
+        engine.setValue(group, "pad_tab", tab);
+        // KEYBOARD again swaps its tab between keyboard and stems.
+        const slot = "pad_slot_" + (tab + 1);
+        const panel = engine.getValue(group, slot);
+        if (_control === 0x69 && again && (panel === 7 || panel === 4)) {
+            engine.setValue(group, slot, panel === 7 ? 4 : 7);
+        }
+        PioneerDDJFLX4.routePads(group === "[Channel1]");
     }
     // openDJ: only the chosen mode stays lit.
     if (value) {
@@ -835,11 +880,7 @@ PioneerDDJFLX4.keyboardSemitones = [0, 1, 2, 3, -4, -3, -2, -1];
 
 PioneerDDJFLX4.keyboardPadPressed = function(channel, control, value, status, group) {
     if (PioneerDDJFLX4.keyboardStems[group]) {
-        if (control < PioneerDDJFLX4.stemFxPadsFirstControl) {
-            PioneerDDJFLX4.stemMutePadPressed(channel, control, value, status, group);
-        } else {
-            PioneerDDJFLX4.stemFxPadPressed(channel, control, value, status, group);
-        }
+        PioneerDDJFLX4.stemMutePadPressed(channel, control, value, status, group);
         return;
     }
     const pad = control - PioneerDDJFLX4.stemMutePadsFirstControl + 1;
@@ -848,11 +889,7 @@ PioneerDDJFLX4.keyboardPadPressed = function(channel, control, value, status, gr
 
 PioneerDDJFLX4.keyboardPadShiftPressed = function(channel, control, value, status, group) {
     if (PioneerDDJFLX4.keyboardStems[group]) {
-        if (control < PioneerDDJFLX4.stemFxPadsFirstControl) {
-            PioneerDDJFLX4.stemMutePadShiftPressed(channel, control, value, status, group);
-        } else {
-            PioneerDDJFLX4.stemFxPadShiftPressed(channel, control, value, status, group);
-        }
+        PioneerDDJFLX4.stemMutePadShiftPressed(channel, control, value, status, group);
         return;
     }
     // SHIFT + pad plays its pitch too.
@@ -991,143 +1028,103 @@ PioneerDDJFLX4.quickJumpBack = function(_channel, _control, value, _status, grou
 // Stems mode
 //
 
+// openDJ: the stems pads, laid out as on screen (VirtualDJ's): Vocal,
+// Instru, Bass, Acapella on top; Kick, HiHat, Stems FX, Instrumental below.
+// A number from 1 is the stem ([ChannelN_StemM]: 1 kick, 2 bass, 3
+// instruments, 4 vocals, 5 hi-hats); 0 is Acapella, -1 Instrumental and -2
+// Stems FX, which does nothing yet.
+PioneerDDJFLX4.stemPads = [4, 3, 2, 0, 1, 5, -2, -1];
+
+PioneerDDJFLX4.stemGroup = function(group, stem) {
+    return `[${group.substring(1, group.length-1)}_Stem${stem}]`;
+};
+
+// Whether each of the deck's stems plays (index 1 to 5); a stem the track
+// doesn't have counts as playing.
+PioneerDDJFLX4.stemsOn = function(group) {
+    const count = engine.getValue(group, "stem_count");
+    const on = [false];
+    for (let stem = 1; stem <= 5; stem++) {
+        on.push(stem > count || engine.getValue(PioneerDDJFLX4.stemGroup(group, stem), "mute") <= 0.5);
+    }
+    return on;
+};
+
+// Whether the pad for `kind` (see stemPads) is lit.
+PioneerDDJFLX4.stemPadLit = function(group, kind) {
+    const count = engine.getValue(group, "stem_count");
+    if (count < 4) {
+        return false;
+    }
+    const on = PioneerDDJFLX4.stemsOn(group);
+    const others = [1, 2, 3, 5].filter(function(s) { return s <= count; });
+    if (kind > 0) {
+        return kind <= count && on[kind];
+    } else if (kind === 0) {
+        return on[4] && others.every(function(s) { return !on[s]; });
+    } else if (kind === -1) {
+        return !on[4] && others.every(function(s) { return on[s]; });
+    }
+    return false;
+};
+
+// Mutes or unmutes the vocals and the rest.
+PioneerDDJFLX4.setStems = function(group, vocals, rest) {
+    for (let stem = 1; stem <= 5; stem++) {
+        const on = stem === 4 ? vocals : rest;
+        engine.setValue(PioneerDDJFLX4.stemGroup(group, stem), "mute", on ? 0 : 1);
+    }
+};
+
 PioneerDDJFLX4.stemMutePadPressed = function(_channel, control, value, _status, group) {
     if (value !== 0x7f) {
         return;
     }
-
-    const stemCount = Math.min(engine.getValue(group, "stem_count"), 4);
-
-    if (control - PioneerDDJFLX4.stemMutePadsFirstControl + 1 > stemCount) {
+    const kind = PioneerDDJFLX4.stemPads[control - PioneerDDJFLX4.stemMutePadsFirstControl];
+    const count = engine.getValue(group, "stem_count");
+    if (count < 4 || kind === undefined || kind > count) {
         return;
     }
-
-    const stemGroup = `[${group.substring(1, group.length-1)}_Stem${control - PioneerDDJFLX4.stemMutePadsFirstControl + 1}]`;
-
-    if (engine.getValue(stemGroup, "mute")) {
-        engine.setValue(stemGroup, "mute", 0);
-    } else {
-        engine.setValue(stemGroup, "mute", 1);
+    if (kind > 0) {
+        const stemGroup = PioneerDDJFLX4.stemGroup(group, kind);
+        engine.setValue(stemGroup, "mute", engine.getValue(stemGroup, "mute") ? 0 : 1);
+    } else if (kind === 0) {
+        PioneerDDJFLX4.setStems(group, true, PioneerDDJFLX4.stemPadLit(group, 0));
+    } else if (kind === -1) {
+        PioneerDDJFLX4.setStems(group, PioneerDDJFLX4.stemPadLit(group, -1), true);
     }
 };
 
+// SHIFT + a stem's pad plays that stem alone.
 PioneerDDJFLX4.stemMutePadShiftPressed = function(_channel, control, value, _status, group) {
     if (value !== 0x7f) {
         return;
     }
-
-    const stemCount = Math.min(engine.getValue(group, "stem_count"), 4);
-
-    if (control - PioneerDDJFLX4.stemMutePadsFirstControl + 1 > stemCount) {
+    const kind = PioneerDDJFLX4.stemPads[control - PioneerDDJFLX4.stemMutePadsFirstControl];
+    const count = engine.getValue(group, "stem_count");
+    if (count < 4 || kind === undefined || kind <= 0 || kind > count) {
+        PioneerDDJFLX4.stemMutePadPressed(_channel, control, value, _status, group);
         return;
     }
-
-    for (let stemIdx=1; stemIdx<=stemCount; stemIdx++) {
-        const stemGroup = `[${group.substring(1, group.length-1)}_Stem${stemIdx}]`;
-
-        if (stemIdx + PioneerDDJFLX4.stemMutePadsFirstControl - 1 === control) {
-            engine.setValue(stemGroup, "mute", 0);
-        } else {
-            engine.setValue(stemGroup, "mute", 1);
-        }
+    for (let stem = 1; stem <= count; stem++) {
+        engine.setValue(PioneerDDJFLX4.stemGroup(group, stem), "mute", stem === kind ? 0 : 1);
     }
-};
-
-PioneerDDJFLX4.stemFxPadPressed = function(_channel, control, value, _status, group) {
-    if (value !== 0x7f) {
-        return;
-    }
-
-    if (control - PioneerDDJFLX4.stemFxPadsFirstControl + 1 > 4) {
-        return;
-    }
-
-    const stemGroup = `[QuickEffectRack1_[${group.substring(1, group.length-1)}_Stem${control - PioneerDDJFLX4.stemFxPadsFirstControl + 1}]]`;
-
-    if (engine.getValue(stemGroup, "enabled")) {
-        engine.setValue(stemGroup, "enabled", 0);
-    } else {
-        engine.setValue(stemGroup, "enabled", 1);
-    }
-};
-
-PioneerDDJFLX4.stemFxPadShiftPressed = function(_channel, control, value, _status, group) {
-    if (value !== 0x7f) {
-        return;
-    }
-
-    if (control - PioneerDDJFLX4.stemFxPadsFirstControl + 1 > 4) {
-        return;
-    }
-
-    const stemGroup = `[QuickEffectRack1_[${group.substring(1, group.length-1)}_Stem${control - PioneerDDJFLX4.stemFxPadsFirstControl + 1}]]`;
-
-    engine.setValue(stemGroup, "next_chain_preset", 1);
 };
 
 PioneerDDJFLX4.stemCountChanged = function(_value, group, _control) {
-
-    for (let stem=1; stem<=4; stem++) {
-        // Stem mute pads
-        PioneerDDJFLX4.stemMuteChanged(
-            engine.getValue(`[${group.substring(1, group.length-1)}_Stem${stem}]`, "mute"),
-            `[${group.substring(1, group.length-1)}_Stem${stem}]`,
-            _control,
-        );
-
-        // Stem FX pads
-        PioneerDDJFLX4.stemFxChanged(
-            engine.getValue(`[QuickEffectRack1_[${group.substring(1, group.length-1)}_Stem${stem}]]`, "enabled"),
-            `[QuickEffectRack1_[${group.substring(1, group.length-1)}_Stem${stem}]]`,
-            _control,
-        );
-    }
-};
-
-PioneerDDJFLX4.stemMuteChanged = function(value, group, _control) {
-    const channelStem = group.match(/\[Channel(\d+)_Stem(\d+)\]/);
-    const deck = Number(channelStem[1]);
-    const stem = Number(channelStem[2]);
-    const channel = `[Channel${deck}]`;
-
-    if (stem > 4 || !PioneerDDJFLX4.keyboardStems[channel]) {
+    const channel = group.match(/\[Channel\d+/)[0] + "]";
+    if (!PioneerDDJFLX4.keyboardStems[channel]) {
         return;
     }
-
-    const stemCount = engine.getValue(channel, "stem_count");
-
-    let code = 0x00;
-    if (stem <= stemCount && value <= 0.5) {
-        code = 0x7f;
-    }
-
-    for (let i=0; i<PioneerDDJFLX4.stemsPadsModesStatus[channel].length; i++) {
-        midi.sendShortMsg(
-            PioneerDDJFLX4.stemsPadsModesStatus[channel][i],
-            PioneerDDJFLX4.stemMutePadsFirstControl + stem -1,
-            code,
-        );
+    for (let pad = 0; pad < 8; pad++) {
+        const lit = PioneerDDJFLX4.stemPadLit(channel, PioneerDDJFLX4.stemPads[pad]);
+        PioneerDDJFLX4.stemsPadsModesStatus[channel].forEach(function(status) {
+            midi.sendShortMsg(status, PioneerDDJFLX4.stemMutePadsFirstControl + pad, lit ? 0x7F : 0x00);
+        });
     }
 };
 
-PioneerDDJFLX4.stemFxChanged = function(value, group, _control) {
-    const channelStem = group.match(/\[QuickEffectRack1_\[Channel(\d+)_Stem(\d+)\]\]/);
-    const deck = Number(channelStem[1]);
-    const stem = Number(channelStem[2]);
-    const channel = `[Channel${deck}]`;
-
-    if (stem > 4 || !PioneerDDJFLX4.keyboardStems[channel]) {
-        return;
-    }
-
-    for (let i=0; i<PioneerDDJFLX4.stemsPadsModesStatus[channel].length; i++) {
-        midi.sendShortMsg(
-            PioneerDDJFLX4.stemsPadsModesStatus[channel][i],
-            PioneerDDJFLX4.stemFxPadsFirstControl + stem -1,
-            value <= 0.5 ? 0x00 : 0x7f,
-        );
-    }
-};
+PioneerDDJFLX4.stemMuteChanged = PioneerDDJFLX4.stemCountChanged;
 
 //
 // Pitch Shift mode

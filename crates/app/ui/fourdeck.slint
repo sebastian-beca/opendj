@@ -6,7 +6,7 @@
 // deck number is clicked: then that side plays deck 3 or 4.
 import { TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
-import { ControlButton, ControlFader, Controls, CueHeadphones, KeyLock, PitchReset, StereoMeter } from "controls.slint";
+import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, KeyLock, PitchReset, StereoMeter } from "controls.slint";
 import { DeckInfo, FxRows, Header, LoopStepper, Pads, PlayButton } from "deck.slint";
 import { AudioSettings, Knob, ModeMenu, SideKnob } from "mixer.slint";
 
@@ -18,7 +18,10 @@ component CrossfaderAssign inherits Rectangle {
     property <int> index: Controls.resolve(group, "orientation");
     property <int> side: Controls.value(index, Controls.tick);
     property <[string]> names: ["LEFT", "THRU", "RIGHT"];
+    // Dimmed while the crossfader is switched off; the choice stays.
+    property <int> enabled-index: Controls.resolve("[Mixer]", "crossfader_enabled");
     width: 64px;
+    opacity: Controls.value(enabled-index, Controls.tick) > 0 ? 1 : 0.35;
     HorizontalLayout {
         alignment: start;
         spacing: 3px;
@@ -194,6 +197,6 @@ export component FourDeckCenter inherits Rectangle {
             vertical-stretch: 1;
             StereoMeter { group: "[Master]"; }
         }
-        ControlFader { group: "[Master]"; key: "crossfader"; vertical: false; center-mark: true; ticks: 9; height: 28px; }
+        Crossfader { }
     }
 }
