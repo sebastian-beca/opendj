@@ -15,6 +15,8 @@
 - [x] 2.4 Row dot (queued, analysing) and footer "Analyzing N of M" with ✕
 - [x] 2.5 Tests and screenshots
 
+- [x] 2.6 Fetch the first online cover (≥600px) for tracks with none
+
 ## 3. Docs
 
 - [x] 3.1 Update the user guide's library page
