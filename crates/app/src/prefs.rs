@@ -114,6 +114,11 @@ pub fn apply_saved(registry: &ControlRegistry) {
         f(settings::flag("xfader_reverse", false)),
     );
     set(
+        "[Mixer]",
+        "crossfader_enabled",
+        f(settings::flag("xfader_enabled", true)),
+    );
+    set(
         "[Master]",
         "headSplit",
         f(settings::flag("head_split", false)),
@@ -723,6 +728,12 @@ impl Prefs {
                         "Smooth for blends; Scratch cuts in sharply at the ends.",
                     )
                 },
+                switch(
+                    "xfader_enabled",
+                    "Crossfader",
+                    "Off: the crossfader does nothing and every deck plays through. Right-click the crossfader to switch it too.",
+                    settings::flag("xfader_enabled", true),
+                ),
                 switch(
                     "xfader_reverse",
                     "Reverse crossfader",
@@ -1400,6 +1411,7 @@ impl Prefs {
             "quantize" => self.each_deck("quantize", f(on)),
             "protect_playing" => self.set("[Controls]", "AllowTrackLoadToPlayingDeck", f(!on)),
             "xfader_reverse" => self.set("[Mixer Profile]", "xFaderReverse", f(on)),
+            "xfader_enabled" => self.set("[Mixer]", "crossfader_enabled", f(on)),
             "head_split" => self.set("[Master]", "headSplit", f(on)),
             "auto_gain" => self.set("[ReplayGain]", "ReplayGainEnabled", f(on)),
             "auto_reset_fx" | "auto_reset_eq" | "auto_reset_gain" => {

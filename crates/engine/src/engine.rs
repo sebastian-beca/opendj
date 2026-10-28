@@ -1608,9 +1608,12 @@ impl Engine {
         }
         let sides = xfader_gains(x, self.master.xfader_shape.get() as u8);
         // Each deck follows the side it is assigned to; thru decks skip the
-        // crossfader.
+        // crossfader, and so does every deck while it is switched off.
+        let xfader_on =
+            self.master.xfader_enabled.get_bool() || self.master.autodj_enabled.get_bool();
         let xfade_target: [f32; NUM_DECKS] =
             std::array::from_fn(|i| match self.decks[i].c.orientation.get().round() as i32 {
+                _ if !xfader_on => 1.0,
                 0 => sides[0],
                 2 => sides[1],
                 _ => 1.0,
@@ -3505,6 +3508,28 @@ mod tests {
         assert!(!loud(Some(2.0), -1.0));
         // Thru: the crossfader leaves it alone.
         assert!(loud(Some(1.0), -1.0) && loud(Some(1.0), 1.0));
+    }
+
+    #[test]
+    fn disabled_crossfader_plays_every_deck() {
+        let loud = |enabled: bool, autodj: bool| {
+            let (reg, mut engine, mut input) = setup();
+            load(&mut input, 2, short_track(124.0, 4.0));
+            reg.get("[Mixer]", "crossfader_enabled")
+                .unwrap()
+                .set_bool(enabled);
+            reg.get("[AutoDJ]", "enabled").unwrap().set_bool(autodj);
+            // Deck 3 is on the left; the crossfader is all the way right.
+            reg.get("[Master]", "crossfader").unwrap().set(1.0);
+            run(&mut engine, 0.01);
+            reg.get("[Channel3]", "play").unwrap().set_bool(true);
+            let out = record(&mut engine, 0.5);
+            out.iter().map(|x| x.abs()).fold(0.0, f32::max) > 0.01
+        };
+        assert!(!loud(true, false));
+        assert!(loud(false, false));
+        // Automix needs the crossfader to mix, so it keeps working.
+        assert!(!loud(false, true));
     }
 
     fn reg_default_orientation() -> [f64; 4] {

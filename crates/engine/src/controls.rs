@@ -563,6 +563,11 @@ pub(crate) struct MasterControls {
     /// sharp cut at the ends for scratching.
     pub(crate) xfader_shape: ControlHandle,
     pub(crate) xfader_reverse: ControlHandle,
+    /// `[Mixer] crossfader_enabled`: off, every deck plays as if set to
+    /// thru and the crossfader does nothing, unless Automix is mixing.
+    pub(crate) xfader_enabled: ControlHandle,
+    /// `[AutoDJ] enabled`, which keeps the crossfader working for Automix.
+    pub(crate) autodj_enabled: ControlHandle,
     pub(crate) balance: ControlHandle,
     pub(crate) vu: ControlHandle,
     pub(crate) vu_l: ControlHandle,
@@ -629,6 +634,15 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
             Behavior::Free,
         ),
         xfader_reverse: reg.toggle("[Mixer Profile]", "xFaderReverse"),
+        xfader_enabled: reg.create(
+            "[Mixer]",
+            "crossfader_enabled",
+            1.0,
+            0.0,
+            1.0,
+            Behavior::Toggle,
+        ),
+        autodj_enabled: reg.toggle("[AutoDJ]", "enabled"),
         vu_l: reg.indicator("[Master]", "VuMeterL", 1.0),
         vu_r: reg.indicator("[Master]", "VuMeterR", 1.0),
         // Mixxx keeps its ReplayGain switch in the [ReplayGain] group too.
