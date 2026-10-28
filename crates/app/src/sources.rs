@@ -1129,10 +1129,7 @@ fn folder_or_default(set: &str, name: &str, music: Option<&Path>) -> Option<Path
     if set.is_empty() {
         return music.map(|m| m.join("Downloaded").join(safe_name(name, "Downloads")));
     }
-    match set.strip_prefix("~/").or((set == "~").then_some("")) {
-        Some(rest) => std::env::var_os("HOME").map(|h| PathBuf::from(h).join(rest)),
-        None => Some(PathBuf::from(set)),
-    }
+    mixxx_engine::paths::expand_tilde(set)
 }
 
 /// Queued or running.
@@ -1301,7 +1298,7 @@ mod tests {
             folder_or_default("/data/slsk", "Soulseek", None),
             Some(PathBuf::from("/data/slsk"))
         );
-        let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+        let home = mixxx_engine::paths::home_dir().unwrap();
         assert_eq!(
             folder_or_default("~/Music/In", "Soulseek", None),
             Some(home.join("Music/In"))

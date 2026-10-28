@@ -2,11 +2,14 @@
 //! window can say so. Pre-releases are skipped (GitHub's "latest" never
 //! returns them), and a version dismissed once isn't shown again.
 //!
-//! The macOS app and the AppImage can install the update themselves: the
-//! download must match the checksum GitHub publishes for it, and on macOS
-//! it must also be notarized and signed by the same developer as the
-//! running app. The old app is swapped out and openDJ starts again. Other
-//! installs (the Linux tarball, a build from source) get the release page.
+//! The macOS app, the AppImage and a Windows install made by the setup can
+//! install the update themselves: the download must match the checksum
+//! GitHub publishes for it, and on macOS it must also be notarized and
+//! signed by the same developer as the running app (on Windows, once
+//! openDJ is signed, by the same publisher). The old app is swapped out,
+//! or on Windows the new setup runs silently, and openDJ starts again.
+//! Other installs (the Linux tarball, the Windows zip, a build from
+//! source) get the release page.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -47,6 +50,9 @@ enum Install {
     MacApp(PathBuf),
     /// The AppImage file at this path.
     AppImage(PathBuf),
+    /// Installed by the Windows setup, which left its uninstaller next to
+    /// openDJ.exe at this path.
+    WindowsSetup(PathBuf),
 }
 
 fn this_install() -> Option<Install> {
@@ -55,6 +61,11 @@ fn this_install() -> Option<Install> {
         let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
         let app = exe.parent()?.parent()?.parent()?;
         (app.extension()? == "app").then(|| Install::MacApp(app.to_path_buf()))
+    } else if cfg!(windows) {
+        let exe = std::env::current_exe().ok()?;
+        exe.with_file_name("unins000.exe")
+            .is_file()
+            .then_some(Install::WindowsSetup(exe))
     } else {
         std::env::var_os("APPIMAGE").map(|p| Install::AppImage(p.into()))
     }
@@ -65,6 +76,7 @@ fn wants(install: &Install, name: &str) -> bool {
     match install {
         Install::MacApp(_) => name.ends_with("-macos.zip"),
         Install::AppImage(_) => name.ends_with(&format!("-{}.AppImage", std::env::consts::ARCH)),
+        Install::WindowsSetup(_) => name.ends_with("-windows-x64-setup.exe"),
     }
 }
 
@@ -198,6 +210,12 @@ fn run(install: &Install, asset: &Asset, tx: &Sender<Progress>) -> Result<(), St
             let _ = tx.send(Progress::Status("Installing…".into()));
             swap_app(app, &new_app)
         }
+        Install::WindowsSetup(exe) => {
+            check_publisher(&file, exe)?;
+            // Runs once openDJ has quit (see `relaunch`), so it's kept.
+            std::fs::rename(&file, windows_setup(&dir)).map_err(|e| e.to_string())?;
+            return Ok(());
+        }
         Install::AppImage(path) => {
             let _ = tx.send(Progress::Status("Installing…".into()));
             // Next to the old one, so the rename can't cross disks.
@@ -220,7 +238,7 @@ fn run(install: &Install, asset: &Asset, tx: &Sender<Progress>) -> Result<(), St
     })
 }
 
-fn download(url: &str, to: &Path) -> Result<(), String> {
+pub(crate) fn download(url: &str, to: &Path) -> Result<(), String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(15 * 60)))
         .user_agent(format!("openDJ/{VERSION}"))
@@ -235,7 +253,7 @@ fn download(url: &str, to: &Path) -> Result<(), String> {
 
 /// The file must match the checksum GitHub published; a release without
 /// one isn't installed.
-fn check_digest(file: &Path, digest: Option<&str>) -> Result<(), String> {
+pub(crate) fn check_digest(file: &Path, digest: Option<&str>) -> Result<(), String> {
     let want = digest
         .and_then(|d| d.strip_prefix("sha256:"))
         .ok_or("the release has no checksum")?;
@@ -283,6 +301,42 @@ fn check_signature(new_app: &Path, running: &Path) -> Result<(), String> {
     }
 }
 
+/// Where a downloaded Windows setup waits for openDJ to quit.
+fn windows_setup(updates: &Path) -> PathBuf {
+    updates.join("openDJ-setup.exe")
+}
+
+/// When the running openDJ.exe is signed, the new setup must have a valid
+/// signature from the same publisher. Unsigned builds (until the signing
+/// certificate arrives) rely on the checksum alone.
+fn check_publisher(setup: &Path, running: &Path) -> Result<(), String> {
+    let Some(ours) = publisher(running).filter(|(_, valid)| *valid) else {
+        return Ok(());
+    };
+    match publisher(setup) {
+        Some((theirs, true)) if theirs == ours.0 => Ok(()),
+        Some((_, true)) => Err("the new setup is signed by someone else".into()),
+        _ => Err("the new setup isn't signed".into()),
+    }
+}
+
+/// Who signed a Windows program and whether the signature is valid, from
+/// PowerShell's Get-AuthenticodeSignature.
+fn publisher(file: &Path) -> Option<(String, bool)> {
+    let script = format!(
+        "$s = Get-AuthenticodeSignature -LiteralPath '{}'; \
+         \"$($s.Status)|$($s.SignerCertificate.Subject)\"",
+        file.display().to_string().replace('\'', "''")
+    );
+    let out = mixxx_engine::process::background(Command::new("powershell"))
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let (status, subject) = text.trim().split_once('|')?;
+    (!subject.is_empty()).then(|| (subject.to_string(), status == "Valid"))
+}
+
 /// The TeamIdentifier from `codesign -dv`, if there is one.
 fn team(app: &Path) -> Option<String> {
     let out = Command::new("codesign").arg("-dv").arg(app).output().ok()?;
@@ -328,18 +382,35 @@ fn command(cmd: &mut Command) -> Result<(), String> {
 
 /// Starts the new version once this process has quit.
 pub fn relaunch() {
-    let Some(install) = this_install() else {
-        return;
-    };
-    let start = match &install {
-        Install::MacApp(app) => format!("open {}", shell_quote(app)),
-        Install::AppImage(path) => format!("{} >/dev/null 2>&1 &", shell_quote(path)),
+    let start = match this_install() {
+        None => return,
+        Some(Install::WindowsSetup(_)) => return run_windows_setup(),
+        Some(Install::MacApp(app)) => format!("open {}", shell_quote(&app)),
+        Some(Install::AppImage(path)) => format!("{} >/dev/null 2>&1 &", shell_quote(&path)),
     };
     let script = format!(
         "while kill -0 {} 2>/dev/null; do sleep 0.2; done; {start}",
         std::process::id()
     );
     let _ = Command::new("/bin/sh").arg("-c").arg(script).spawn();
+}
+
+/// Starts the downloaded setup, which closes what's left of this process,
+/// installs over it without asking and, given /RELAUNCH, starts openDJ
+/// again.
+fn run_windows_setup() {
+    let Some(dir) = crate::settings::config_dir() else {
+        return;
+    };
+    let _ = Command::new(windows_setup(&dir.join("updates")))
+        .args([
+            "/VERYSILENT",
+            "/SUPPRESSMSGBOXES",
+            "/NORESTART",
+            "/CLOSEAPPLICATIONS",
+            "/RELAUNCH",
+        ])
+        .spawn();
 }
 
 fn shell_quote(path: &Path) -> String {
@@ -364,6 +435,20 @@ fn is_newer(candidate: &str, current: &str) -> bool {
         (Some((a, a_pre)), Some((b, b_pre))) => a > b || (a == b && b_pre && !a_pre),
         _ => false,
     }
+}
+
+/// Where the stem separation models are published: assets of the
+/// `stem-models` pre-release (so the updater and the website, which look
+/// at the latest release, skip it).
+const MODELS_URL: &str = "https://github.com/sebastian-beca/opendj/releases/download/stem-models";
+
+/// Lets the engine download a stem separation model the first time it is
+/// needed, checked against the SHA-256 the engine knows it by.
+pub fn install_model_fetch() {
+    mixxx_engine::separation::set_fetch(Box::new(|name, sha, to| {
+        download(&format!("{MODELS_URL}/{name}"), to)?;
+        check_digest(to, Some(&format!("sha256:{sha}")))
+    }));
 }
 
 #[cfg(test)]
@@ -414,6 +499,8 @@ mod tests {
                 {"name": "openDJ-0.3.0-macos.zip", "browser_download_url": "https://example.com/mac", "digest": "sha256:ab"},
                 {"name": "openDJ-0.3.0-x86_64.AppImage", "browser_download_url": "https://example.com/appimage"},
                 {"name": "opendj-0.3.0-linux-x86_64.tar.gz", "browser_download_url": "https://example.com/tar"},
+                {"name": "opendj-0.3.0-windows-x64.zip", "browser_download_url": "https://example.com/zip"},
+                {"name": "openDJ-0.3.0-windows-x64-setup.exe", "browser_download_url": "https://example.com/setup"},
             ],
         });
         let mac = newer(
@@ -435,6 +522,15 @@ mod tests {
         );
         let expect_appimage = std::env::consts::ARCH == "x86_64";
         assert_eq!(appimage.unwrap().asset.is_some(), expect_appimage);
+        let windows = newer(
+            &release,
+            "0.2.0",
+            Some(&Install::WindowsSetup("C:/openDJ/openDJ.exe".into())),
+        );
+        assert_eq!(
+            windows.unwrap().asset.map(|a| a.url).as_deref(),
+            Some("https://example.com/setup")
+        );
     }
 
     #[test]

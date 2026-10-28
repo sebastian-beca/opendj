@@ -2,18 +2,20 @@
 //! the collection's tree with one node per check under it, the checks'
 //! page, and the fixes each check offers for its tracks.
 
+use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use mixxx_engine::{tags, Track};
+use mixxx_library::dupes::{self, Case, FileFacts, Group};
 use mixxx_library::health::{self, Check, Facts};
 use mixxx_library::query::Indexed;
 use mixxx_library::stages::Stage;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::info::tag_fields;
-use super::{file_path, is_browsed, Browser, Contents, Node, KIND_CHECK, KIND_HEALTH};
+use super::{file_path, is_browsed, Browser, Contents, Node, Undo, KIND_CHECK, KIND_HEALTH};
 use crate::cover_scan;
 use crate::{settings, HealthCard, HealthUi};
 
@@ -32,6 +34,12 @@ enum Fix {
     FillFromName,
     Relink,
     TagMix,
+    /// Duplicates: merges every group of copies that is safe to merge.
+    AllEasy,
+    /// Merges each listed group into the copy picked to keep.
+    KeepBest,
+    /// Copies of different lengths stay, linked to each other.
+    LinkVersions,
 }
 
 impl Fix {
@@ -44,6 +52,9 @@ impl Fix {
             Fix::FillFromName => "Fill from file name",
             Fix::Relink => "Find files",
             Fix::TagMix => "Tag as #mix",
+            Fix::AllEasy => "Fix all easy",
+            Fix::KeepBest => "Keep the best copies",
+            Fix::LinkVersions => "Link as versions",
         }
     }
 }
@@ -60,13 +71,19 @@ fn fixes(check: Check, stages: bool) -> Vec<Fix> {
         Check::MissingInfo => vec![Fix::FillFromName],
         Check::Missing => vec![Fix::Relink, Fix::Remove],
         Check::Long => vec![Fix::TagMix],
-        Check::NoCover | Check::NoRating | Check::Duplicate => Vec::new(),
+        Check::Duplicate => vec![Fix::AllEasy],
+        Check::NoCover | Check::NoRating => Vec::new(),
     }
 }
 
 /// "1 track" or "3 tracks".
-fn tracks(n: usize) -> String {
+pub(super) fn tracks(n: usize) -> String {
     format!("{n} track{}", if n == 1 { "" } else { "s" })
+}
+
+/// "1 copy" or "3 copies".
+fn copies(n: usize) -> String {
+    format!("{n} cop{}", if n == 1 { "y" } else { "ies" })
 }
 
 /// The tree's Library Health node, closed, with a node per check under it.
@@ -75,12 +92,20 @@ pub(super) fn health_nodes() -> Vec<Node> {
     top.expanded = false;
     let mut nodes = vec![top];
     for check in Check::ALL {
-        nodes.push(Node::new(
-            check.title(),
-            1,
-            KIND_CHECK,
-            Contents::Health(Some(check)),
-        ));
+        let mut node = Node::new(check.title(), 1, KIND_CHECK, Contents::Health(Some(check)));
+        // Its cases read the copies' files, so they wait to be opened.
+        node.expanded = check != Check::Duplicate;
+        nodes.push(node);
+        if check == Check::Duplicate {
+            for case in Case::ALL {
+                nodes.push(Node::new(
+                    case.title(),
+                    2,
+                    KIND_CHECK,
+                    Contents::Dupes(case),
+                ));
+            }
+        }
     }
     nodes
 }
@@ -131,13 +156,10 @@ impl Browser {
         let w = with.clone();
         ui.on_fix(move |action, first, last| {
             w(&|b| {
-                let Some(Contents::Health(Some(check))) =
-                    b.nodes.get(b.current_node).map(|n| n.contents.clone())
-                else {
+                let Some(check) = b.listed_check() else {
                     return;
                 };
-                let Some(&fix) = fixes(check, b.folders.is_set()).get(action.max(0) as usize)
-                else {
+                let Some(&fix) = b.offered(check).get(action.max(0) as usize) else {
                     return;
                 };
                 let indices = b.picked_rows(first, last);
@@ -147,9 +169,7 @@ impl Browser {
         let w = with.clone();
         ui.on_ignore(move |first, last| {
             w(&|b| {
-                let Some(Contents::Health(Some(check))) =
-                    b.nodes.get(b.current_node).map(|n| n.contents.clone())
-                else {
+                let Some(check) = b.listed_check() else {
                     return;
                 };
                 let indices = b.picked_rows(first, last);
@@ -158,6 +178,325 @@ impl Browser {
         });
         let w = with.clone();
         ui.on_restore(move || w(&|b| b.restore_removed()));
+        let w = with.clone();
+        ui.on_keep_this(move |row| w(&|b| b.keep_this(row)));
+        let w = with.clone();
+        ui.on_show_quarantine(move || {
+            w(&|b| {
+                if let Some(dir) = b.quarantine_root().filter(|d| d.is_dir()) {
+                    crate::files::reveal(&dir);
+                }
+            })
+        });
+    }
+
+    /// The check whose tracks are listed: a case of copies is Duplicates'.
+    fn listed_check(&self) -> Option<Check> {
+        match self.nodes.get(self.current_node)?.contents {
+            Contents::Health(check) => check,
+            Contents::Dupes(_) => Some(Check::Duplicate),
+            _ => None,
+        }
+    }
+
+    /// The fixes offered for the tracks listed: each case of copies has
+    /// its own.
+    fn offered(&self, check: Check) -> Vec<Fix> {
+        match self.dupe_view() {
+            Some(Some(Case::Versions)) => vec![Fix::LinkVersions, Fix::KeepBest],
+            Some(Some(_)) => vec![Fix::KeepBest],
+            _ => fixes(check, self.folders.is_set()),
+        }
+    }
+
+    /// Copies are listed: all of them (`Some(None)`), or one case's.
+    pub(super) fn dupe_view(&self) -> Option<Option<Case>> {
+        match self.nodes.get(self.current_node)?.contents {
+            Contents::Health(Some(Check::Duplicate)) => Some(None),
+            Contents::Dupes(case) => Some(Some(case)),
+            _ => None,
+        }
+    }
+
+    /// Works out which tracks are copies of others, without reading their
+    /// files, and forgets the groups worked out before.
+    pub(super) fn refresh_dupes(&mut self) {
+        self.dupe_groups = OnceCell::new();
+        self.links = self
+            .db
+            .as_ref()
+            .and_then(|db| db.all_links().ok())
+            .unwrap_or_default();
+        let everyone: HashSet<usize> = self.library.iter().map(|t| t.id).collect();
+        let tracks: Vec<&Track> = self
+            .library
+            .iter()
+            .filter(|t| !is_browsed(t) && self.health.finds(Check::Duplicate, t, &everyone))
+            .map(|t| &**t)
+            .collect();
+        let links = &self.links;
+        self.duplicates = dupes::copies(tracks)
+            .iter()
+            .flat_map(|c| {
+                dupes::groups(
+                    c,
+                    &self.folders,
+                    |_| FileFacts::default(),
+                    |_, _| false,
+                    |a, b| links.contains(&(a, b)),
+                )
+            })
+            .flat_map(|g| g.tracks)
+            .collect();
+        self.quarantined = self.count_quarantined();
+    }
+
+    /// The copies grouped by case, each with the copy to keep first. The
+    /// first call after the library changes reads the copies' files.
+    fn dupe_groups(&self) -> &[Group] {
+        self.dupe_groups.get_or_init(|| {
+            let tracks = self
+                .library
+                .iter()
+                .filter(|t| !is_browsed(t) && self.duplicates.contains(&t.id))
+                .map(|t| &**t);
+            // Files iCloud has taken off this computer aren't read.
+            fn here(t: &Track) -> Option<&Path> {
+                file_path(t).filter(|p| !cover_scan::offloaded(p))
+            }
+            let facts = |t: &Track| {
+                here(t).map_or_else(FileFacts::default, |p| {
+                    let info = tags::file_info(p);
+                    FileFacts {
+                        size: info.size,
+                        lossless: dupes::lossless(&info.format, info.bit_depth),
+                        bitrate: info.bitrate.unwrap_or(0),
+                    }
+                })
+            };
+            let same = |a: &Track, b: &Track| match (here(a), here(b)) {
+                (Some(x), Some(y)) => dupes::same_bytes(x, y),
+                _ => false,
+            };
+            dupes::copies(tracks)
+                .iter()
+                .flat_map(|c| {
+                    dupes::groups(c, &self.folders, facts, same, |a, b| {
+                        self.links.contains(&(a, b))
+                    })
+                })
+                .collect()
+        })
+    }
+
+    /// The copies (indices into `library`) in groups of `case`, or in any
+    /// group, group by group.
+    pub(super) fn dupe_tracks(&self, case: Option<Case>) -> Vec<usize> {
+        let mut seen = HashSet::new();
+        self.dupe_groups()
+            .iter()
+            .filter(|g| case.is_none_or(|c| g.case == c))
+            .flat_map(|g| &g.tracks)
+            .filter(|&&id| seen.insert(id))
+            .filter_map(|id| self.index_of.get(id).copied())
+            .collect()
+    }
+
+    /// Ids of the copies the listed groups would merge away: in every easy
+    /// group, or in `case`'s.
+    pub(super) fn dupe_faded(&self, case: Option<Case>) -> HashSet<usize> {
+        self.dupe_groups()
+            .iter()
+            .filter(|g| case.map_or(g.case.easy(), |c| g.case == c))
+            .flat_map(|g| g.tracks[1..].iter().copied())
+            .collect()
+    }
+
+    /// The groups of the cases `wanted` takes that hold any of these
+    /// tracks (indices into `library`).
+    fn picked_groups(&self, indices: &[usize], wanted: impl Fn(Case) -> bool) -> Vec<Group> {
+        let ids: HashSet<usize> = indices.iter().map(|&i| self.library[i].id).collect();
+        self.dupe_groups()
+            .iter()
+            .filter(|g| wanted(g.case) && g.tracks.iter().any(|t| ids.contains(t)))
+            .cloned()
+            .collect()
+    }
+
+    /// How many listed groups a fix for copies works on.
+    fn fix_groups(&self, fix: Fix) -> usize {
+        let case = self.dupe_view().flatten();
+        self.dupe_groups()
+            .iter()
+            .filter(|g| match fix {
+                Fix::AllEasy => g.case.easy(),
+                Fix::LinkVersions => g.case == Case::Versions,
+                _ => case.map_or(g.case.easy(), |c| g.case == c),
+            })
+            .count()
+    }
+
+    /// What merging `group` into `keep` takes out: the other copies, and
+    /// for versions, each other version's own copies too.
+    fn merge_plan(&self, group: &Group, keep: usize) -> (usize, Vec<usize>) {
+        let mut others: Vec<usize> = group
+            .tracks
+            .iter()
+            .copied()
+            .filter(|&t| t != keep)
+            .collect();
+        if group.case == Case::Versions {
+            let groups = self.dupe_groups();
+            let copies: Vec<usize> = others
+                .iter()
+                .flat_map(|&o| {
+                    groups
+                        .iter()
+                        .filter(move |g| g.case.easy() && g.tracks[0] == o)
+                        .flat_map(|g| g.tracks[1..].iter().copied())
+                })
+                .collect();
+            others.extend(copies);
+        }
+        (keep, others)
+    }
+
+    /// Keeps the copy at a row, merging the rest of its group into it.
+    fn keep_this(&mut self, row: i32) {
+        let Some(i) = usize::try_from(row)
+            .ok()
+            .and_then(|r| self.rows.get(r).copied().flatten())
+        else {
+            return;
+        };
+        let id = self.library[i].id;
+        let view = self.dupe_view().flatten();
+        let holds = |g: &&Group| g.tracks.contains(&id) && view.is_none_or(|c| g.case == c);
+        let groups = self.dupe_groups();
+        // On the list of all copies, its own recording's group comes first.
+        let Some(group) = groups
+            .iter()
+            .filter(holds)
+            .find(|g| g.case.easy())
+            .or_else(|| groups.iter().find(holds))
+            .cloned()
+        else {
+            return;
+        };
+        let plan = self.merge_plan(&group, id);
+        self.health_status = self.merge(vec![plan]);
+        self.refresh_tree();
+        self.refresh_rows();
+    }
+
+    /// Merges groups of copies, each into the copy kept (see
+    /// [`mixxx_library::Library::merge_copies`]), as one change the undo
+    /// line takes back.
+    fn merge(&mut self, plan: Vec<(usize, Vec<usize>)>) -> String {
+        if plan.is_empty() {
+            return "Nothing to merge here.".into();
+        }
+        let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let quarantine = dupes::quarantine_dir(&self.folders, &date);
+        let moving = settings::move_files();
+        let Some(db) = &mut self.db else {
+            return String::new();
+        };
+        let (mut batch, mut groups, mut restore) = (None, 0, Vec::new());
+        for (keep, others) in &plan {
+            match db.merge_copies(*keep, others, quarantine.as_deref(), batch) {
+                Ok(b) => {
+                    batch = batch.or(b);
+                    groups += 1;
+                    restore.extend(others.iter().copied());
+                }
+                Err(e) => eprintln!("can't merge copies: {e}"),
+            }
+        }
+        let mut failed = 0;
+        if batch.is_some() && moving {
+            match db.apply_moves() {
+                Ok(r) => {
+                    for (path, why) in &r.failed {
+                        eprintln!("can't move {}: {why}", path.display());
+                    }
+                    failed = r.failed.len();
+                }
+                Err(e) => eprintln!("can't move files: {e}"),
+            }
+        }
+        let n = restore.len();
+        if n > 0 {
+            self.undo = Some(Undo {
+                batch,
+                text: format!("Undo merging {}", copies(n)),
+                restore,
+            });
+        }
+        self.read_pending_moves();
+        self.reload_library();
+        let mut s = format!(
+            "Kept one copy of {} track{}; {} merged into {}.",
+            groups,
+            if groups == 1 { "" } else { "s" },
+            copies(n),
+            if groups == 1 { "it" } else { "them" },
+        );
+        s += match (quarantine.is_some(), moving) {
+            (false, _) => " Their files stay where they are: set your Collection folder in Settings › Library to quarantine them.",
+            (true, true) => " Their files are in _Quarantine.",
+            (true, false) => " Their files go to _Quarantine once Move files is on in Settings › Library.",
+        };
+        if failed > 0 {
+            s += &format!(" {failed} couldn't be moved.");
+        }
+        s
+    }
+
+    /// Links each listed group of versions, so they stay.
+    fn link_versions(&mut self, indices: &[usize]) -> String {
+        let groups = self.picked_groups(indices, |c| c == Case::Versions);
+        let Some(db) = &self.db else {
+            return String::new();
+        };
+        let mut n = 0;
+        for g in &groups {
+            for (i, &a) in g.tracks.iter().enumerate() {
+                for &b in &g.tracks[i + 1..] {
+                    if let Err(e) = db.link(a, b) {
+                        eprintln!("can't link: {e}");
+                    }
+                }
+            }
+            n += g.tracks.len();
+        }
+        self.refresh_dupes();
+        format!(
+            "Linked {} as versions. Each shows the others on its Linked tab.",
+            tracks(n)
+        )
+    }
+
+    /// The folder merged copies' files go to, by date.
+    fn quarantine_root(&self) -> Option<PathBuf> {
+        dupes::quarantine_root(&self.folders)
+    }
+
+    /// Files in the quarantine folder, and those waiting to go there.
+    fn count_quarantined(&self) -> usize {
+        let Some(root) = self.quarantine_root() else {
+            return 0;
+        };
+        let there: usize = files_by_name(std::slice::from_ref(&root))
+            .values()
+            .map(Vec::len)
+            .sum();
+        there
+            + self
+                .pending_moves
+                .values()
+                .filter(|to| to.starts_with(&root))
+                .count()
     }
 
     /// Library tracks (indices into `library`) on rows `first` to `last`, or
@@ -301,27 +640,42 @@ impl Browser {
         let current = self.nodes.get(self.current_node).map(|n| &n.contents);
         let on = self.saved() && self.tree == super::COLLECTION && !self.history_tab;
         ui.set_overview(on && matches!(current, Some(Contents::Health(None))));
-        let check = match current {
-            Some(Contents::Health(Some(c))) if on => Check::ALL.iter().position(|x| x == c),
-            _ => None,
-        };
+        let listed = self.listed_check().filter(|_| on);
+        let check = listed.and_then(|c| Check::ALL.iter().position(|&x| x == c));
         ui.set_check(check.map_or(-1, |c| c as i32));
+        let case = self.dupe_view().flatten();
         let cards: Vec<HealthCard> = Check::ALL
             .iter()
             .map(|&c| {
-                let offered = fixes(c, self.folders.is_set());
-                // The track menu has the stage lines already.
+                let offered = if Some(c) == listed {
+                    self.offered(c)
+                } else {
+                    fixes(c, self.folders.is_set())
+                };
+                // The track menu has the stage lines already, and "Keep
+                // this copy" instead of fixing every group.
                 let menu: Vec<i32> = (0..offered.len() as i32)
-                    .filter(|&j| offered[j as usize] != Fix::ToTriage)
+                    .filter(|&j| !matches!(offered[j as usize], Fix::ToTriage | Fix::AllEasy))
                     .collect();
+                // Fixes for copies count the groups they merge or link.
+                let counts: Vec<i32> = if Some(c) == listed && c == Check::Duplicate {
+                    offered.iter().map(|&f| self.fix_groups(f) as i32).collect()
+                } else {
+                    Vec::new()
+                };
                 let fixes: Vec<SharedString> =
                     offered.into_iter().map(|f| f.label().into()).collect();
+                let case = case.filter(|_| c == Check::Duplicate);
                 HealthCard {
                     title: c.title().into(),
-                    about: c.about().into(),
-                    count: self.health_count(c) as i32,
+                    about: case.map_or(c.about(), Case::about).into(),
+                    count: case.map_or_else(
+                        || self.health_count(c),
+                        |case| self.dupe_tracks(Some(case)).len(),
+                    ) as i32,
                     detail: self.health_detail(c).into(),
                     fixes: ModelRc::new(VecModel::from(fixes)),
+                    counts: ModelRc::new(VecModel::from(counts)),
                     menu_fixes: ModelRc::new(VecModel::from(menu)),
                 }
             })
@@ -329,6 +683,9 @@ impl Browser {
         ui.set_cards(ModelRc::new(VecModel::from(cards)));
         ui.set_status(self.health_status.clone().into());
         ui.set_removed(self.removed as i32);
+        ui.set_copies(on && self.dupe_view().is_some());
+        ui.set_quarantined(self.quarantined as i32);
+        ui.set_quarantine_exists(self.quarantine_root().is_some_and(|d| d.is_dir()));
     }
 
     /// A line on what a check found beyond its count.
@@ -366,6 +723,28 @@ impl Browser {
                     String::new()
                 }
             }
+            Check::Duplicate => {
+                // Grouping reads the files, so only once it's looked at.
+                let on_page = matches!(
+                    self.nodes.get(self.current_node).map(|n| &n.contents),
+                    Some(Contents::Health(None))
+                ) || self.dupe_view().is_some();
+                let groups = if on_page {
+                    Some(self.dupe_groups())
+                } else {
+                    self.dupe_groups.get().map(Vec::as_slice)
+                };
+                let Some(groups) = groups.filter(|g| !g.is_empty()) else {
+                    return String::new();
+                };
+                let easy = groups.iter().filter(|g| g.case.easy()).count();
+                let versions = groups.len() - easy;
+                let mut s = format!("{easy} easy to fix at once");
+                if versions > 0 {
+                    s += &format!(", {versions} of different lengths to look at");
+                }
+                s + "."
+            }
             Check::Stray if !self.folders.is_set() => {
                 "Set your stage folders in Settings › Library first.".into()
             }
@@ -402,6 +781,24 @@ impl Browser {
             Fix::FillFromName => self.fill_from_names(indices),
             Fix::Relink => self.relink(indices),
             Fix::TagMix => self.tag_mix(indices),
+            Fix::AllEasy => {
+                let plan = self
+                    .picked_groups(indices, Case::easy)
+                    .iter()
+                    .map(|g| self.merge_plan(g, g.tracks[0]))
+                    .collect();
+                self.merge(plan)
+            }
+            Fix::KeepBest => {
+                let case = self.dupe_view().flatten();
+                let plan = self
+                    .picked_groups(indices, |c| case.map_or(c.easy(), |x| x == c))
+                    .iter()
+                    .map(|g| self.merge_plan(g, g.tracks[0]))
+                    .collect();
+                self.merge(plan)
+            }
+            Fix::LinkVersions => self.link_versions(indices),
         };
         self.refresh_tree();
         self.refresh_rows();
@@ -417,6 +814,7 @@ impl Browser {
             }
         }
         self.health.set_ignored(check, &ids, true);
+        self.refresh_dupes();
         self.health_status = format!("{} left out of {}.", tracks(ids.len()), check.title());
         self.refresh_tree();
         self.refresh_rows();
@@ -456,7 +854,7 @@ impl Browser {
 
     /// Reads the library again (after tracks left it or came back),
     /// staying on the node shown.
-    fn reload_library(&mut self) {
+    pub(super) fn reload_library(&mut self) {
         let Some(db) = &self.db else { return };
         let tracks = match db.all_tracks(Path::exists) {
             Ok(t) => t,
@@ -500,8 +898,17 @@ impl Browser {
                     .iter()
                     .position(|n| matches!(n.contents, Contents::Health(None)))
                 {
-                    self.nodes[top].expanded |=
-                        matches!(self.nodes[n].contents, Contents::Health(_));
+                    self.nodes[top].expanded |= matches!(
+                        self.nodes[n].contents,
+                        Contents::Health(_) | Contents::Dupes(_)
+                    );
+                }
+                if matches!(self.nodes[n].contents, Contents::Dupes(_)) {
+                    if let Some(d) = self.nodes.iter().position(|n| {
+                        matches!(n.contents, Contents::Health(Some(Check::Duplicate)))
+                    }) {
+                        self.nodes[d].expanded = true;
+                    }
                 }
                 self.current_node = n;
             }
@@ -663,7 +1070,7 @@ mod tests {
     #[test]
     fn every_check_has_a_node_and_fixes_fit() {
         let nodes = health_nodes();
-        assert_eq!(nodes.len(), Check::ALL.len() + 1);
+        assert_eq!(nodes.len(), Check::ALL.len() + Case::ALL.len() + 1);
         assert!(!nodes[0].expanded);
         assert_eq!(fixes(Check::Stray, false), [Fix::Remove]);
         assert_eq!(fixes(Check::Stray, true)[0], Fix::ToTriage);

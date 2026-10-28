@@ -19,6 +19,7 @@ use crate::engine::{Command, EngineInput, Returned};
 use crate::key;
 use crate::phrases;
 use crate::scan;
+use crate::separation;
 use crate::stems::{self, StemSource};
 use crate::synth;
 use crate::track::{Audio, Source, Track};
@@ -336,17 +337,51 @@ fn edit_grid(
     Some(t)
 }
 
+/// Separates `audio` into stems with Spleeter in the background (see
+/// [`separation::separate_fast`]), one track at a time, stopping if the
+/// deck loads another track meanwhile.
+fn separate_on_load(
+    shared: &Arc<Shared>,
+    deck: usize,
+    generation: u64,
+    audio: Arc<Audio>,
+    from: usize,
+) {
+    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+    let shared = shared.clone();
+    let spawned = std::thread::Builder::new()
+        .name(format!("stems-deck-{}", deck + 1))
+        .spawn(move || {
+            let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+            let latest = || shared.is_latest(deck, generation);
+            if !latest() {
+                return;
+            }
+            if let Err(e) = separation::separate_fast(&audio, from, latest) {
+                eprintln!("no stems on load: {e}");
+            }
+        });
+    if let Err(e) = spawned {
+        eprintln!("could not start separating stems: {e}");
+    }
+}
+
 /// Decodes the stems from `source` and gives them to `audio` once they are
-/// all decoded, so a deck switches to them with nothing missing. Stops if
-/// `keep_going` turns false.
+/// all decoded, so a deck switches to them with nothing missing (taking
+/// over from stems separated on load). Stops if `keep_going` turns false.
 pub(crate) fn load_stems(
     audio: &Audio,
     source: &StemSource,
     keep_going: impl Fn() -> bool,
 ) -> Result<(), String> {
     let stems = stems::Decode::open(source)?.run(&keep_going)?;
-    if keep_going() && !audio.set_stems(stems) {
-        return Err("the stems don't match the track's sample rate".into());
+    // Better stems take over from the ones Spleeter made on load.
+    let given = match audio.stems() {
+        Some(s) => s.set_upgrade(stems),
+        None => audio.set_stems(stems),
+    };
+    if keep_going() && !given {
+        return Err("the stems don't match the track".into());
     }
     Ok(())
 }
@@ -398,7 +433,7 @@ pub(crate) fn run(
 
 /// Loads `base` on `deck`: on the deck as soon as the file is open, then
 /// decoded and analysed, with the UI and engine kept up to date.
-fn load(shared: &Shared, deck: usize, generation: u64, base: &Track) -> Result<(), String> {
+fn load(shared: &Arc<Shared>, deck: usize, generation: u64, base: &Track) -> Result<(), String> {
     let latest = || shared.is_latest(deck, generation);
     let path = match &base.source {
         Source::File(p) => Some(p.as_path()),
@@ -511,6 +546,11 @@ fn load(shared: &Shared, deck: usize, generation: u64, base: &Track) -> Result<(
                 feed(audio, &mut analyser);
                 latest()
             })?;
+        }
+        // A file without stems is separated now, from the cue point.
+        if path.is_some_and(|p| stems::find(p).is_none()) {
+            let from = (first.first_beat.max(0.0) * audio.sample_rate as f64) as usize;
+            separate_on_load(shared, deck, generation, audio.clone(), from);
         }
         if let Some(a) = analyser.as_mut() {
             // The last, partial chunk only appears once decoding is done.

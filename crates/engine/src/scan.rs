@@ -17,7 +17,7 @@ pub fn default_music_dir() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("OPENDJ_MUSIC") {
         return Some(PathBuf::from(dir));
     }
-    std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Music"))
+    crate::paths::home_dir().map(|h| h.join("Music"))
 }
 
 /// Lists audio files under `dir`, sorted by path.

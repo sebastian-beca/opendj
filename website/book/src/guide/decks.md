@@ -11,6 +11,26 @@ Each deck has:
 - **Hot cues**, **loops**, **beat jumps** and the **sampler** on the pads
 - Three **effect** slots, beat-synced, with echo, reverb, filter, flanger and more
 
+## Sync and quantize
+
+**SYNC** sits over the tempo fader. It stays on while it's lit: the deck
+follows the **master** deck's tempo and keeps its beats in step, at half or
+double tempo when that's closer. Press it again to let go. **Shift-click**
+SYNC to match the tempo and beat once, without staying synced, as SYNC does
+in VirtualDJ.
+
+The deck that synced decks follow shows a lit **MASTER** in its header.
+openDJ picks it by itself, the deck that has been playing longest, and hands
+over when it stops. Click **MASTER** on a deck to keep that deck the master
+(it fills in), and click it again to let openDJ pick.
+
+The **Q** button under SYNC is **quantize**. While it's lit, cues and loops
+are set on the beat, and play, CUE, hot cues and jumps land in step with the
+other playing deck. The arrow beside it sets the step: **1/16**, **1/8**,
+**1/4**, **1/2** or **1** beat, or **4** to land on the same beat of the bar.
+Cues and loops snap to a beat at most. **Settings → Decks → Quantize** sets
+whether Q starts on for every deck.
+
 ## Sampler
 
 The **SAMPLER** pad tab plays short sounds over the mix: drops, horns,

@@ -479,7 +479,13 @@ fn run_device(
     ) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("{port}: cannot open MIDI input: {e}");
+            // Windows lets only one app at a time open a MIDI device.
+            let hint = if cfg!(windows) {
+                " (is another DJ app using it?)"
+            } else {
+                ""
+            };
+            eprintln!("{port}: cannot open MIDI input: {e}{hint}");
             return;
         }
     };

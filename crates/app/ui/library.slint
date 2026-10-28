@@ -65,6 +65,8 @@ export struct TrackRow {
     has-wave: bool,
     // Queued for analysis: 1 waiting, 2 being analysed; 0 neither.
     analysing: int,
+    // Shown dimmed: a duplicate copy that a fix would merge away.
+    fade: bool,
 }
 
 // One of the track list's columns. kind: 0 text, 1 the title (takes the
@@ -161,6 +163,11 @@ export global LibraryEdit {
     callback analyze(first: int, last: int);
     // Analyses every track of the tree's row `row`.
     callback analyze-all(row: int);
+    // Opens Export to USB for the tree's row `row` (a list or folder).
+    callback export-usb(row: int);
+    // Prepares high-quality stems for the rows `first` to `last`, one
+    // track after another in the background.
+    callback prepare-hq-stems(first: int, last: int);
     // "Analyzing 3 of 12" while tracks are queued, for the footer; empty otherwise.
     in property <string> analysis-status;
     callback cancel-analysis();
@@ -224,6 +231,9 @@ export struct HealthCard {
     // More on what it found, e.g. "29 without artist or title".
     detail: string,
     fixes: [string],
+    // How many things the bar's fix buttons count, in the same order:
+    // groups of copies, say. Empty: the tracks listed.
+    counts: [int],
     // The fixes the track menu offers (indices into `fixes`): those its
     // stage lines don't already.
     menu-fixes: [int],
@@ -249,6 +259,15 @@ export global HealthUi {
     callback ignore(first: int, last: int);
     // Brings back every track taken out of the library.
     callback restore();
+    // Copies of the same track are listed: the track menu offers to keep
+    // the copy at a row and merge the rest of its group into it.
+    in property <bool> copies;
+    callback keep-this(row: int);
+    // Merged copies' files in the quarantine folder, or waiting to go
+    // there, and a button to show the folder.
+    in property <int> quarantined;
+    in property <bool> quarantine-exists;
+    callback show-quarantine();
 }
 
 export global StoreUi {
@@ -363,6 +382,13 @@ component TrackMenu inherits PopupWindow {
                 root.close();
             }
         }
+        MenuLine {
+            text: "Prepare High Quality Stems";
+            clicked => {
+                LibraryEdit.prepare-hq-stems(track-row, track-last);
+                root.close();
+            }
+        }
         if StoreUi.services: MenuLine {
             text: "Find in stores";
             clicked => {
@@ -398,6 +424,13 @@ component TrackMenu inherits PopupWindow {
                 text: HealthUi.cards[HealthUi.check].fixes[j];
                 clicked => {
                     HealthUi.fix(j, track-row, track-last);
+                    root.close();
+                }
+            }
+            if HealthUi.copies && track-last <= track-row: MenuLine {
+                text: "Keep this copy";
+                clicked => {
+                    HealthUi.keep-this(track-row);
                     root.close();
                 }
             }
@@ -849,6 +882,13 @@ component FolderTree inherits Rectangle {
                 text: "Analyze All";
                 clicked => {
                     LibraryEdit.analyze-all(menu-index);
+                    folder-menu.close();
+                }
+            }
+            if menu-analysable: MenuLine {
+                text: "Export to USB…";
+                clicked => {
+                    LibraryEdit.export-usb(menu-index);
                     folder-menu.close();
                 }
             }
@@ -1311,7 +1351,7 @@ component HealthPanel inherits Rectangle {
                     }
                     Text {
                         horizontal-stretch: 1;
-                        text: "Removed from the library. Their files are still where they were.";
+                        text: "Removed from the library, merged copies included. Bring them back here.";
                         color: Theme.text-dim;
                         font-size: 12px;
                         vertical-alignment: center;
@@ -1322,6 +1362,40 @@ component HealthPanel inherits Rectangle {
                         HealthButton {
                             text: "Bring back";
                             clicked => { HealthUi.restore(); }
+                        }
+                    }
+                }
+            }
+            if HealthUi.quarantined > 0: Rectangle {
+                height: 52px;
+                border-radius: 8px;
+                background: Theme.panel;
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 12px;
+                    spacing: 14px;
+                    Text {
+                        width: 64px;
+                        text: HealthUi.quarantined;
+                        color: Theme.text-dim;
+                        font-size: 22px;
+                        font-weight: 700;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "Files of merged copies in _Quarantine. openDJ never deletes them: empty the folder yourself once you're sure.";
+                        color: Theme.text-dim;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    if HealthUi.quarantine-exists: VerticalLayout {
+                        alignment: center;
+                        HealthButton {
+                            text: "Show folder";
+                            clicked => { HealthUi.show-quarantine(); }
                         }
                     }
                 }
@@ -1354,10 +1428,18 @@ component HealthBar inherits Rectangle {
             for f[j] in card.fixes: VerticalLayout {
                 alignment: center;
                 HealthButton {
-                    text: f + (listed > 1 ? " (" + listed + ")" : "");
+                    property <int> n: j < card.counts.length ? card.counts[j] : listed;
+                    text: f + (n > 1 ? " (" + n + ")" : "");
                     primary: j == 0;
                     clicked => { HealthUi.fix(j, -1, -1); }
                 }
+            }
+        }
+        if LibraryEdit.undo-text != "": VerticalLayout {
+            alignment: center;
+            HealthButton {
+                text: "Undo";
+                clicked => { LibraryEdit.undo-stage(); }
             }
         }
         VerticalLayout {
@@ -1422,8 +1504,8 @@ component TrackList inherits Rectangle {
     property <int> anchor: -1;
     property <int> range-end: -1;
     property <bool> ranged: anchor >= 0 && range-end == current && anchor != current;
-    property <int> first-picked: ranged ? min(anchor, current) : current;
-    property <int> last-picked: ranged ? max(anchor, current) : current;
+    out property <int> first-picked: ranged ? min(anchor, current) : current;
+    out property <int> last-picked: ranged ? max(anchor, current) : current;
     property <bool> shift-held;
     function pick(i: int) {
         anchor = i;
@@ -1766,7 +1848,7 @@ component TrackList inherits Rectangle {
                         horizontal-stretch: 0;
                         min-width: col.width;
                         max-width: col.width;
-                        property <color> plain: selected ? Theme.on-row-selection : (r.available && !r.missing) || r.action != "" ? Theme.text : Theme.text-dim;
+                        property <color> plain: selected ? Theme.on-row-selection : (r.available && !r.missing && !r.fade) || r.action != "" ? Theme.text : Theme.text-dim;
                         if col.kind == 2: Text {
                             width: 100%;
                             text: r.rating == 0 ? "" : stars(r.rating);
@@ -1811,7 +1893,7 @@ component TrackList inherits Rectangle {
                             height: row-height - 8px;
                             source: r.wave;
                             image-fit: fill;
-                            colorize: selected ? Theme.on-row-selection : (r.available && !r.missing) ? Theme.lilac : Theme.text-dim;
+                            colorize: selected ? Theme.on-row-selection : (r.available && !r.missing && !r.fade) ? Theme.lilac : Theme.text-dim;
                         }
                         if col.kind == 0 || col.kind == 4 || col.kind == 5: Text {
                             width: 100%;
@@ -2335,6 +2417,9 @@ export component Browser inherits HorizontalLayout {
     in property <int> sort-column;
     in property <bool> ascending;
     in-out property <int> current-row <=> list.current;
+    // The rows picked in the track list, for keyboard shortcuts.
+    out property <int> first-picked: list.first-picked;
+    out property <int> last-picked: list.last-picked;
     in property <[SideRow]> side-rows;
     in property <string> side-total;
     in-out property <int> side-tab;

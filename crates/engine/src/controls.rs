@@ -144,6 +144,11 @@ pub(crate) struct DeckControls {
     pub(crate) loop_in_pending: ControlHandle,
     pub(crate) beatloop_size: ControlHandle,
     pub(crate) quantize: ControlHandle,
+    /// What quantize snaps to, in beats: 1/16 to 4 (a bar), 1 by default.
+    pub(crate) quantize_beats: ControlHandle,
+    /// 0, or 1 while synced decks follow this deck, or 2 while it is
+    /// pinned as their leader (set 2 to pin, 0 to unpin), as in Mixxx.
+    pub(crate) sync_leader: ControlHandle,
     /// beatloop_N_enabled lights, by loop size in beats.
     pub(crate) beatloop_lights: Vec<(f64, ControlHandle)>,
     pub(crate) pushes: Vec<Push>,
@@ -151,6 +156,12 @@ pub(crate) struct DeckControls {
     pub(crate) eq_kill: [ControlHandle; 3],
     pub(crate) filter: ControlHandle,
     pub(crate) quick_enabled: ControlHandle,
+    /// The Color FX the filter knob plays (`loaded_chain_preset`), and the
+    /// pushes that step it.
+    pub(crate) cfx_preset: ControlHandle,
+    pub(crate) cfx_next: ControlHandle,
+    pub(crate) cfx_prev: ControlHandle,
+    pub(crate) cfx_edges: [Edge; 2],
     /// `[Sculpt_[ChannelN]]` hpf, freq, gain and lpf.
     pub(crate) sculpt: [ControlHandle; 4],
     pub(crate) hotcues: Vec<Hotcue>,
@@ -216,16 +227,38 @@ impl DeckControls {
         // loop, 6 pad FX 2, 7 keyboard, 8 key shift, 9 loop roll); the skin
         // shows it and sets this back to -1.
         reg.create(g, "pad_panel", -1.0, -1.0, 16.0, Behavior::Free);
+        // Asks the skin to open pad tab 0-7 by its place (a controller's pad
+        // mode buttons: 0-3 plain, 4-7 with Shift), whatever panel it shows;
+        // the skin sets this back to -1.
+        reg.create(g, "pad_tab", -1.0, -1.0, 7.0, Behavior::Free);
+        // The pad panel in each of the eight pad tabs (numbers as for
+        // `pad_panel`), in the DDJ-FLX4's pad mode order. The skin changes
+        // them; a controller's pads follow them.
+        for (tab, panel) in [0.0, 1.0, 2.0, 3.0, 7.0, 6.0, 5.0, 8.0]
+            .into_iter()
+            .enumerate()
+        {
+            reg.create(
+                g,
+                &format!("pad_slot_{}", tab + 1),
+                panel,
+                0.0,
+                16.0,
+                Behavior::Free,
+            );
+        }
         // Which 8 sampler slots the deck's SAMPLER pads play: 0 slots 1-8,
         // 1 slots 9-16.
         reg.create(g, "sampler_page", 0.0, 0.0, 1.0, Behavior::Free);
         alias(reg, g, "pitch_adjust", g, "pitch");
-        // Chain presets are not implemented: the empty preset and the filter,
-        // which is always loaded.
-        reg.create(&qg, "loaded_chain_preset", 1.0, -1.0, 64.0, Behavior::Free);
-        reg.indicator(&qg, "num_chain_presets", 64.0).set(2.0);
-        reg.push(&qg, "next_chain_preset");
-        reg.push(&qg, "prev_chain_preset");
+        // The chain presets are the Color FX (see `crate::effects::COLOR_FX`):
+        // 0 none, 1 Filter, then the others. One is chosen for all decks.
+        let n_cfx = crate::effects::COLOR_FX.len() as f64;
+        let cfx_preset = reg.create(&qg, "loaded_chain_preset", 1.0, 0.0, n_cfx, Behavior::Free);
+        reg.indicator(&qg, "num_chain_presets", 64.0)
+            .set(n_cfx + 1.0);
+        let cfx_next = reg.push(&qg, "next_chain_preset");
+        let cfx_prev = reg.push(&qg, "prev_chain_preset");
         // The EQ slot says how many knobs and kills it has, as Mixxx's does;
         // mappings that build their EQ knobs from these find none otherwise.
         reg.indicator(&eqg, "num_parameters", 3.0).set(3.0);
@@ -260,7 +293,7 @@ impl DeckControls {
             .collect();
         rolls.push((0.0, reg.push(g, "beatlooproll_activate"), Edge::default()));
         Self {
-            stem_count: reg.indicator(g, "stem_count", 4.0),
+            stem_count: reg.indicator(g, "stem_count", crate::stems::MAX_STEMS as f64),
             stems: std::array::from_fn(|s| {
                 let sg = stem_group(deck, s);
                 let color = reg.create(&sg, "color", -1.0, -1.0, 16_777_215.0, Behavior::Indicator);
@@ -312,6 +345,8 @@ impl DeckControls {
                 q.set_bool(true);
                 q
             },
+            quantize_beats: reg.create(g, "quantize_beats", 1.0, 1.0 / 16.0, 4.0, Behavior::Free),
+            sync_leader: reg.create(g, "sync_leader", 0.0, 0.0, 2.0, Behavior::Free),
             beatloop_lights: BEATLOOP_SIZES
                 .iter()
                 .map(|&size| {
@@ -346,6 +381,10 @@ impl DeckControls {
                 e.set_bool(true);
                 e
             },
+            cfx_preset,
+            cfx_next,
+            cfx_prev,
+            cfx_edges: [Edge::default(); 2],
             hotcues,
             hotcue_focus: reg.create(
                 g,
@@ -559,6 +598,11 @@ pub(crate) struct MasterControls {
     /// sharp cut at the ends for scratching.
     pub(crate) xfader_shape: ControlHandle,
     pub(crate) xfader_reverse: ControlHandle,
+    /// `[Mixer] crossfader_enabled`: off, every deck plays as if set to
+    /// thru and the crossfader does nothing, unless Automix is mixing.
+    pub(crate) xfader_enabled: ControlHandle,
+    /// `[AutoDJ] enabled`, which keeps the crossfader working for Automix.
+    pub(crate) autodj_enabled: ControlHandle,
     pub(crate) balance: ControlHandle,
     pub(crate) vu: ControlHandle,
     pub(crate) vu_l: ControlHandle,
@@ -611,9 +655,9 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
         vu: reg.indicator("[Master]", "VuMeter", 1.0),
         peak: ["", "L", "R"].map(|s| reg.indicator("[Master]", &format!("PeakIndicator{s}"), 1.0)),
         crossfader: reg.create("[Master]", "crossfader", 0.0, -1.0, 1.0, Behavior::Linear),
-        gain: reg.create("[Master]", "gain", 1.0, 0.0, 1.0, Behavior::Linear),
-        head_gain: reg.create("[Master]", "headGain", 1.0, 0.0, 1.0, Behavior::Linear),
-        head_mix: reg.create("[Master]", "headMix", 0.0, -1.0, 1.0, Behavior::Linear),
+        gain: reg.create("[Master]", "gain", 0.5, 0.0, 1.0, Behavior::Linear),
+        head_gain: reg.create("[Master]", "headGain", 0.25, 0.0, 1.0, Behavior::Linear),
+        head_mix: reg.create("[Master]", "headMix", -1.0, -1.0, 1.0, Behavior::Linear),
         booth_gain: reg.create("[Master]", "booth_gain", 1.0, 0.0, 1.0, Behavior::Linear),
         head_split: reg.toggle("[Master]", "headSplit"),
         xfader_shape: reg.create(
@@ -625,6 +669,15 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
             Behavior::Free,
         ),
         xfader_reverse: reg.toggle("[Mixer Profile]", "xFaderReverse"),
+        xfader_enabled: reg.create(
+            "[Mixer]",
+            "crossfader_enabled",
+            1.0,
+            0.0,
+            1.0,
+            Behavior::Toggle,
+        ),
+        autodj_enabled: reg.toggle("[AutoDJ]", "enabled"),
         vu_l: reg.indicator("[Master]", "VuMeterL", 1.0),
         vu_r: reg.indicator("[Master]", "VuMeterR", 1.0),
         // Mixxx keeps its ReplayGain switch in the [ReplayGain] group too.
