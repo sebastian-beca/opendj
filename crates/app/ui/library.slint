@@ -148,8 +148,14 @@ export global LibraryEdit {
     in property <[string]> lists;
     // The selected node is one of the DJ's lists, so a track can be taken out.
     in property <bool> in-list;
-    // Makes a list (0) or folder (1) and returns its row in the tree.
+    // Makes a list (0), folder (1) or set (2) and returns its row in the tree.
     callback create(kind: int) -> int;
+    // The sets, newest first, for "Add to Set List…" in History.
+    in property <[string]> sets;
+    // The sidebar shows the history.
+    in property <bool> history;
+    // Adds rows `first` to `last` to the Live set of set `set`.
+    callback add-to-set(first: int, last: int, set: int);
     callback rename(index: int, name: string);
     callback delete(index: int);
     pure callback accepts-drop(index: int, data: data-transfer) -> bool;
@@ -268,6 +274,10 @@ export global HealthUi {
     in property <int> quarantined;
     in property <bool> quarantine-exists;
     callback show-quarantine();
+    // What is wrong in the DJ's lists ("2 empty crates, ..."); empty when
+    // they're fine.
+    in property <string> lists;
+    callback tidy-lists();
 }
 
 export global StoreUi {
@@ -457,6 +467,21 @@ component TrackMenu inherits PopupWindow {
             }
         }
         MenuSeparator {}
+        if LibraryEdit.history && LibraryEdit.sets.length > 0: Text { x: 10px; height: 20px; text: "Add to Set List"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+        if LibraryEdit.history && LibraryEdit.sets.length == 0: Text { x: 10px; height: 24px; text: "Make a set with + › New set… to add tracks to its Live set."; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+        if LibraryEdit.history: ScrollView {
+            height: min(LibraryEdit.sets.length * 26px, 156px);
+            VerticalLayout {
+                for name[i] in LibraryEdit.sets: MenuLine {
+                    text: name;
+                    clicked => {
+                        LibraryEdit.add-to-set(track-row, track-last, i);
+                        root.close();
+                    }
+                }
+            }
+        }
+        if LibraryEdit.history: MenuSeparator {}
         if LibraryEdit.lists.length > 0: Text { x: 10px; height: 20px; text: "Add to list"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
         if LibraryEdit.lists.length == 0: Text { x: 10px; height: 24px; text: "Make a list with + to add tracks to it."; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
         ScrollView {
@@ -487,10 +512,10 @@ component FolderIcon inherits Rectangle {
     in property <int> kind;
     width: 18px;
     height: 18px;
-    if kind == 1: Rectangle {
-        // Folder: tab and body.
-        Rectangle { x: 1px; y: 3px; width: 7px; height: 3px; border-radius: 1px; background: Theme.text; }
-        Rectangle { x: 1px; y: 5px; width: 16px; height: 11px; border-radius: 2px; background: Theme.text; }
+    // Folder: tab and body; a set's in lilac.
+    if kind == 1 || kind == 14: Rectangle {
+        Rectangle { x: 1px; y: 3px; width: 7px; height: 3px; border-radius: 1px; background: kind == 14 ? Theme.accent : Theme.text; }
+        Rectangle { x: 1px; y: 5px; width: 16px; height: 11px; border-radius: 2px; background: kind == 14 ? Theme.accent : Theme.text; }
     }
     // Drive: a flat box with a light.
     if kind == 7: Rectangle {
@@ -510,7 +535,7 @@ component FolderIcon inherits Rectangle {
         fill: transparent;
         commands: "M 5 14 A 3 3 0 0 1 4.6 8 A 4.5 4.5 0 0 1 13 6.8 A 3.6 3.6 0 0 1 13.6 14 Z";
     }
-    if kind != 1 && kind != 6 && kind != 7 && kind != 9: Text {
+    if kind != 1 && kind != 6 && kind != 7 && kind != 9 && kind != 14: Text {
         text: kind == 0 ? "♫" : kind == 3 ? "✦" : kind == 4 ? "♥" : kind == 5 ? "◷" : kind == 8 ? "★" : kind == 10 ? "↓" : kind == 11 ? "◐" : kind == 12 ? "✚" : kind == 13 ? "◦" : "≡";
         color: Theme.text;
         font-size: kind == 2 ? 18px : 14px;
@@ -914,7 +939,7 @@ component FolderTree inherits Rectangle {
                 }
             }
             if menu-editable: MenuLine {
-                text: menu-kind == 1 ? "Delete folder and its lists" : "Delete list";
+                text: menu-kind == 14 ? "Delete set and its lists" : menu-kind == 1 ? "Delete folder and its lists" : "Delete list";
                 text-color: #ff6b5e;
                 clicked => {
                     LibraryEdit.delete(menu-index);
@@ -1074,6 +1099,16 @@ component FolderTree inherits Rectangle {
                                 text: "New folder";
                                 clicked => {
                                     rename-index = LibraryEdit.create(1);
+                                    rename-text = "";
+                                    editing-rule = false;
+                                    add-menu.close();
+                                    rename-popup.show();
+                                }
+                            }
+                            MenuLine {
+                                text: "New set…";
+                                clicked => {
+                                    rename-index = LibraryEdit.create(2);
                                     rename-text = "";
                                     editing-rule = false;
                                     add-menu.close();
@@ -1362,6 +1397,31 @@ component HealthPanel inherits Rectangle {
                         HealthButton {
                             text: "Bring back";
                             clicked => { HealthUi.restore(); }
+                        }
+                    }
+                }
+            }
+            if HealthUi.lists != "": Rectangle {
+                height: 52px;
+                border-radius: 8px;
+                background: Theme.panel;
+                HorizontalLayout {
+                    padding-left: 92px;
+                    padding-right: 12px;
+                    spacing: 14px;
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        horizontal-stretch: 1;
+                        Text { text: "Lists"; color: Theme.text; font-size: 14px; font-weight: 600; }
+                        Text { text: HealthUi.lists + "."; color: Theme.text-dim; font-size: 12px; overflow: elide; }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        HealthButton {
+                            text: "Tidy up";
+                            primary: true;
+                            clicked => { HealthUi.tidy-lists(); }
                         }
                     }
                 }
@@ -1945,6 +2005,7 @@ component TrackList inherits Rectangle {
                 ["~deck", "mixes with the track playing"],
                 ["color:red  is:duplicate  is:missing", "colour; duplicates; missing files"],
                 ["is:notmusic  is:nocover  is:unrated", "Library Health's checks"],
+                ["crate:yoga  crate:\"\"", "in a crate; in none"],
                 ["-genre:techno", "leave out"],
                 ["glue | daft", "either"],
             ]: HorizontalLayout {

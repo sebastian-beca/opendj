@@ -26,10 +26,13 @@
 //!   [`crate::health`]).
 //! - `stage:inbox`, `stage:triage`, `stage:collection` (see
 //!   [`crate::stages`]); `stage:none` for tracks outside the stage folders.
+//! - `crate:yoga` for tracks in a crate whose name has "yoga" in it,
+//!   `crate:=yoga` for that crate only, `crate:""` for tracks in no crate
+//!   (see [`crate::sets`]).
 //! - `-` in front of any term excludes it. Terms must all match; `|` or `OR`
 //!   between groups of terms matches either.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::RwLock;
 
@@ -186,6 +189,9 @@ enum Test {
     Is(Flag),
     /// The track's stage name; empty for none.
     Stage(String),
+    /// In a crate whose lowercased name has this in it (or is it, when
+    /// exact); `Crate(None)` is in no crate.
+    Crate(Option<(String, bool)>),
     /// A term that can't be understood matches nothing, so a typo shows an
     /// empty list rather than everything.
     Never,
@@ -204,6 +210,8 @@ pub struct Context<'a> {
     pub duplicates: Option<&'a HashSet<usize>>,
     /// What Library Health's checks go by (`is:notmusic` and the like).
     pub health: Option<&'a crate::health::Facts>,
+    /// The crates each track is in, by track id, for `crate:`.
+    pub crates: Option<&'a HashMap<usize, Vec<String>>>,
 }
 
 /// A track's text fields lowercased once, so searching while typing stays
@@ -441,6 +449,12 @@ fn parse_test(word: &str) -> Option<Test> {
             "" => return None,
             other => crate::health::Check::from_name(other)
                 .map_or(Test::Never, |c| Test::Is(Flag::Health(c))),
+        },
+        "crate" | "crates" if value == "\"\"" => Test::Crate(None),
+        "crate" | "crates" => match value.strip_prefix('=') {
+            Some(exact) => Test::Crate(Some((unquote(exact).to_lowercase(), true))),
+            None if v.is_empty() => return None,
+            None => Test::Crate(Some((v.to_lowercase(), false))),
         },
         "stage" => match v.to_ascii_lowercase().as_str() {
             "none" => Test::Stage(String::new()),
@@ -720,6 +734,22 @@ impl Term {
                 }
             }
             Test::Stage(s) => t.info.stage == *s,
+            Test::Crate(want) => {
+                let names = cx.crates.and_then(|c| c.get(&t.id));
+                match want {
+                    None => names.is_none_or(|n| n.is_empty()),
+                    Some((name, exact)) => names.is_some_and(|n| {
+                        n.iter().any(|c| {
+                            let c = c.to_lowercase();
+                            if *exact {
+                                c == *name
+                            } else {
+                                c.contains(name.as_str())
+                            }
+                        })
+                    }),
+                }
+            }
             Test::Never => false,
         }
     }
@@ -959,6 +989,7 @@ mod tests {
             deck_track: None,
             duplicates: None,
             health: None,
+            crates: None,
         };
         assert_eq!(find_with(&lib, "~deck", &cx), [1, 3]);
         let playing_3 = Context {
@@ -996,5 +1027,23 @@ mod tests {
         assert_eq!(find(&lib, "is:missing"), [7]);
         assert!(Query::parse("is:missing artist:daft").wants_missing());
         assert!(!Query::parse("-is:missing").wants_missing());
+    }
+
+    #[test]
+    fn finds_tracks_by_crate() {
+        let lib = library();
+        let crates = HashMap::from([
+            (1, vec!["Yoga".to_string(), "Deep Yoga".to_string()]),
+            (2, vec!["Dance".to_string()]),
+        ]);
+        let cx = Context {
+            crates: Some(&crates),
+            ..Default::default()
+        };
+        assert_eq!(find_with(&lib, "crate:yoga", &cx), [1]);
+        assert_eq!(find_with(&lib, "crate:=dance", &cx), [2]);
+        assert!(find_with(&lib, "crate:=danc", &cx).is_empty());
+        assert_eq!(find_with(&lib, "crate:\"\"", &cx), [3, 4]);
+        assert_eq!(find_with(&lib, "-crate:yoga", &cx), [2, 3, 4]);
     }
 }
