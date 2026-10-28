@@ -924,18 +924,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Brings the library up to date in the background: new and changed files
-/// in the music folder, and the library of any app the DJ imports from whose
+/// in the music folders, and the library of any app the DJ imports from whose
 /// files have changed since last time. The tracks as saved are then sent to `tx`,
 /// for the browser to show.
 fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<Arc<Track>>>) {
-    let music = settings::music_folder().filter(|d| d.is_dir());
-    let folders = settings::stage_folders();
-    // Stage folders outside the music folder are scanned too.
-    let stage_dirs: Vec<PathBuf> = folders
-        .all()
+    let music: Vec<PathBuf> = settings::music_folders()
         .into_iter()
-        .filter(|d| d.is_dir() && !music.as_ref().is_some_and(|m| d.starts_with(m)))
-        .map(Path::to_path_buf)
+        .filter(|d| d.is_dir())
+        .collect();
+    let folders = settings::stage_folders();
+    // The music folders and the stage folders, each folder once: one inside
+    // another (Downloads/Soulseek, a stage folder in a music folder) is
+    // scanned with it.
+    let mut wanted: Vec<PathBuf> = Vec::new();
+    for dir in music.iter().cloned().chain(
+        folders
+            .all()
+            .into_iter()
+            .filter(|d| d.is_dir())
+            .map(Path::to_path_buf),
+    ) {
+        if !wanted.contains(&dir) {
+            wanted.push(dir);
+        }
+    }
+    let dirs: Vec<PathBuf> = wanted
+        .iter()
+        .filter(|dir| !wanted.iter().any(|d| d != *dir && dir.starts_with(d)))
+        .cloned()
         .collect();
     let move_files = settings::move_files();
     let importers = stores::enabled_importers();
@@ -945,17 +961,12 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
         .map(|i| i.id().to_string())
         .filter(|id| settings::flag(&settings::import_remove_key(id), false))
         .collect();
-    if music.is_none() && stage_dirs.is_empty() && importers.is_empty() && removed.is_empty() {
+    if dirs.is_empty() && importers.is_empty() && removed.is_empty() {
         return;
     }
     std::thread::spawn(move || {
-        let music_folder = music.clone();
-        let mut scanned = music.map_or_else(Vec::new, |d| scan(&d, SAMPLE_LIBRARY_SIZE));
-        for dir in &stage_dirs {
-            // Inbox folders nest in each other at times (Downloads/Soulseek).
-            if stage_dirs.iter().any(|d| d != dir && dir.starts_with(d)) {
-                continue;
-            }
+        let mut scanned = Vec::new();
+        for dir in &dirs {
             let next = SAMPLE_LIBRARY_SIZE + scanned.len();
             scanned.extend(scan(dir, next));
         }
@@ -964,8 +975,8 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
             .map(|path| -> Result<Vec<Track>, String> {
                 let mut db = Library::open(path).map_err(|e| e.to_string())?;
                 for id in &removed {
-                    // Files in the music folder stay, as a scan would bring them in again.
-                    let keep = |p: &Path| music_folder.as_ref().is_some_and(|m| p.starts_with(m));
+                    // Files in the music folders stay, as a scan would bring them in again.
+                    let keep = |p: &Path| music.iter().any(|m| p.starts_with(m));
                     match db.remove_import(id, keep) {
                         Ok(r) => eprintln!(
                             "{id}: import removed: {} lists, {} tracks; {} tracks kept",

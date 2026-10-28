@@ -14,13 +14,14 @@ of the tree on the left, and the first source in the rail.
 
 Tracks come into the library in three ways:
 
-- **Your music folder.** openDJ looks through it each time it starts, and
-  when you press **Rescan** in **Settings › Library**. New files are added,
-  and changed files have their tags read again. With a big collection you
-  can turn off **Update library on start** there, and press **Rescan** when
-  you add music. Choose the folder there
-  (`~/Music` until you do), or start openDJ with the `OPENDJ_MUSIC`
-  environment variable set to it.
+- **Your music folders.** openDJ looks through them each time it starts,
+  and when you press **Rescan** in **Settings › Library**. New files are
+  added, and changed files have their tags read again. With a big collection
+  you can turn off **Update library on start** there, and press **Rescan**
+  when you add music. Add as many folders as you like there with
+  **Add…**, and take one out with **Remove** (`~/Music` until you choose
+  your own), or start openDJ with the `OPENDJ_MUSIC` environment variable
+  set to one.
 - **Files.** The **Files** source in the rail browses any folder on your
   computer. Load or drag a track from there to add it.
 - **Another DJ app.** openDJ can bring in your VirtualDJ library (see below).
@@ -153,12 +154,13 @@ range) and right-click.
 |---|---|---|
 | Not music | Audiobooks, podcasts and spoken word: Apple Books and Podcasts folders, `.m4b` files, genres such as Audiobook, "(Unabridged)" albums, and chapters (several tracks in one folder sharing a title) | Remove from library, It's music |
 | Strays | Files outside your Inbox, Triage and Collection folders | Move to Triage, Remove from library |
+| Outside folders | Files outside your music folders and stage folders, such as ones that came in with a VirtualDJ import | Move to Triage, Remove from library |
 | Duplicates | The same track more than once: same artist, title and remix | Fix all easy, Keep this copy, Link as versions (see [Duplicates](#duplicates)) |
 | Not analyzed | No tempo or key | Analyze, in the background |
 | Missing info | No artist, title, album, year or genre | Fill from file name (`Artist - Title.mp3`), written to the file too |
 | No cover | No picture in the file's tags or its folder | Find one from the track's info panel |
 | No rating | No stars | Rate them in the list |
-| Missing files | The file isn't where the library expects it | Find files (looks for the same file name in your stage folders and music folder), Remove from library |
+| Missing files | The file isn't where the library expects it | Find files (looks for the same file name in your stage folders and music folders), Remove from library |
 | Long tracks | Over 20 minutes: recorded sets and long pieces | Tag as #mix |
 
 **Ignore for** in the right-click menu tells a check to leave a track
@@ -169,7 +171,7 @@ audiobook doesn't also show up as missing its cover.
 shows, and a rescan or a VirtualDJ import doesn't bring it back; adding the
 file again does, and so does **Bring back** at the bottom of the page.
 
-Each check is also a search: `is:notmusic`, `is:stray`, `is:unanalyzed`,
+Each check is also a search: `is:notmusic`, `is:stray`, `is:outside`, `is:unanalyzed`,
 `is:noinfo`, `is:nocover`, `is:unrated`, `is:missing`, `is:long` and
 `is:duplicate`.
 
