@@ -786,8 +786,8 @@ export component MasterBadge inherits Rectangle {
     property <bool> pinned: state > 1.5;
     property <bool> tip-mine;
     height: 18px;
-    preferred-width: label.preferred-width + 12px;
-    border-radius: 9px;
+    preferred-width: label.preferred-width + (root.font-size >= 10px ? 12px : 10px);
+    border-radius: self.height / 2;
     border-width: 1px;
     border-color: leading ? Theme.accent : touch.has-hover ? #48484c : Theme.border;
     background: pinned ? Theme.accent : leading ? Theme.accent.with-alpha(0.14) : transparent;
