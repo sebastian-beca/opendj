@@ -1241,6 +1241,17 @@ impl Prefs {
             "Names them \"Artist - Title (Remix)\" from their tags.",
             settings::rename_to_triage(),
         ));
+        items.push(item("", HEADING, "CLEAN-UP", ""));
+        items.push(item(
+            "",
+            NOTE,
+            "",
+            "What Library Health's \"Junk in names\" looks for. Clean up shows every change before \
+             it is made.",
+        ));
+        for (key, name, about, default) in mixxx_library::cleanup::Rules::ALL {
+            items.push(switch(key, name, about, settings::flag(key, default)));
+        }
         items
     }
 
