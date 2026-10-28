@@ -11,7 +11,7 @@ burn = { version = "0.20.1", default-features = false, features = ["std", "ndarr
 burn-ndarray = { version = "0.20.1", features = ["multi-threads"] }
 realfft = "3.5"
 matrixmultiply = { version = "0.3", features = ["std"] }
-safetensors = "0.5"
+safetensors = "0.7"
 half = "2"
 pollster = "0.4"
 
