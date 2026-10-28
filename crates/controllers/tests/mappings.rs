@@ -422,11 +422,7 @@ fn ddj_flx4_pad_modes() {
     ] {
         c.receive(&[0x90, button, 0x7F]);
         c.receive(&[0x90, button, 0x00]);
-        assert_eq!(
-            get(&reg, "[Channel1]", "pad_tab"),
-            tab,
-            "button {button:x}"
-        );
+        assert_eq!(get(&reg, "[Channel1]", "pad_tab"), tab, "button {button:x}");
     }
     // KEYBOARD pads press keyboard_N_activate while held.
     c.receive(&[0x97, 0x41, 0x7F]);
