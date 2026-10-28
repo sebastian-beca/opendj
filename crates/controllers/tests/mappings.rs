@@ -376,9 +376,9 @@ fn ddj_flx4_mixer_pads_and_eq_modes() {
     let before = release.version();
     c.receive(&[0x94, 0x43, 0x7F]);
     assert!(release.version() > before, "SHIFT + ON/OFF releases");
-    // Pad mode buttons ask deck 2 to show the beat jump pads.
+    // Pad mode buttons ask deck 2 to open its third pad tab.
     c.receive(&[0x91, 0x20, 0x7F]);
-    assert_eq!(get(&reg, "[Channel2]", "pad_panel"), 2.0);
+    assert_eq!(get(&reg, "[Channel2]", "pad_tab"), 2.0);
     // SHIFT + left LOAD asks for the Linked tab; each press counts.
     reg.free("[Library]", "ShowLinked");
     c.receive(&[0x96, 0x58, 0x7F]);
@@ -408,24 +408,21 @@ fn ddj_flx4_mixer_pads_and_eq_modes() {
 fn ddj_flx4_pad_modes() {
     let (reg, mut c) = load("Pioneer-DDJ-FLX4.midi.xml");
     settle(&mut c, 50);
-    // Each of the eight pad mode buttons opens its panel on the screen.
-    for (button, panel) in [
+    // Each of the eight pad mode buttons opens its tab on the screen by
+    // place: 1-4, and 5-8 with SHIFT.
+    for (button, tab) in [
         (0x1B, 0.0),
         (0x1E, 1.0),
         (0x20, 2.0),
         (0x22, 3.0),
-        (0x6D, 5.0),
-        (0x6B, 6.0),
-        (0x69, 7.0),
-        (0x6F, 8.0),
+        (0x69, 4.0),
+        (0x6B, 5.0),
+        (0x6D, 6.0),
+        (0x6F, 7.0),
     ] {
         c.receive(&[0x90, button, 0x7F]);
         c.receive(&[0x90, button, 0x00]);
-        assert_eq!(
-            get(&reg, "[Channel1]", "pad_panel"),
-            panel,
-            "button {button:x}"
-        );
+        assert_eq!(get(&reg, "[Channel1]", "pad_tab"), tab, "button {button:x}");
     }
     // KEYBOARD pads press keyboard_N_activate while held.
     c.receive(&[0x97, 0x41, 0x7F]);
@@ -441,7 +438,7 @@ fn ddj_flx4_pad_modes() {
     // KEYBOARD, and KEYBOARD again: the stems pads, which mute stem 1.
     reg.get("[Channel1]", "stem_count").unwrap().set(4.0);
     c.receive(&[0x90, 0x69, 0x7F]);
-    assert_eq!(get(&reg, "[Channel1]", "pad_panel"), 7.0);
+    assert_eq!(get(&reg, "[Channel1]", "pad_tab"), 4.0);
     c.receive(&[0x90, 0x69, 0x7F]);
     assert_eq!(get(&reg, "[Channel1]", "pad_panel"), 4.0);
     c.receive(&[0x97, 0x40, 0x7F]);

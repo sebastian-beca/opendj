@@ -211,6 +211,7 @@
 [Channel1],mute
 [Channel1],orientation
 [Channel1],pad_panel
+[Channel1],pad_tab
 [Channel1],peak_indicator
 [Channel1],pfl
 [Channel1],pitch
@@ -467,6 +468,7 @@
 [Channel2],mute
 [Channel2],orientation
 [Channel2],pad_panel
+[Channel2],pad_tab
 [Channel2],peak_indicator
 [Channel2],pfl
 [Channel2],pitch
@@ -723,6 +725,7 @@
 [Channel3],mute
 [Channel3],orientation
 [Channel3],pad_panel
+[Channel3],pad_tab
 [Channel3],peak_indicator
 [Channel3],pfl
 [Channel3],pitch
@@ -979,6 +982,7 @@
 [Channel4],mute
 [Channel4],orientation
 [Channel4],pad_panel
+[Channel4],pad_tab
 [Channel4],peak_indicator
 [Channel4],pfl
 [Channel4],pitch
