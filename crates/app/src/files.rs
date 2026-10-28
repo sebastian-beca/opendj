@@ -48,7 +48,7 @@ pub fn roots() -> Vec<Root> {
             place: Place::Pinned,
         })
         .collect();
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = mixxx_engine::paths::home_dir();
     let mut places = Vec::new();
     if let Some(music) = crate::settings::music_folder() {
         places.push(("Music".to_string(), music));
@@ -171,8 +171,18 @@ fn cloud_name(folder: &str) -> String {
 
 /// Mounted drives: `/Volumes` on macOS (but not the startup disk, which is
 /// a link to `/`); on Linux, what desktop systems mount under `/media` and
-/// `/run/media`, and `/mnt`.
+/// `/run/media`, and `/mnt`; on Windows, the drive letters other than the
+/// system drive.
 pub fn drives() -> Vec<PathBuf> {
+    if cfg!(windows) {
+        let system = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into());
+        return ('C'..='Z')
+            .map(|l| format!("{l}:"))
+            .filter(|d| !d.eq_ignore_ascii_case(&system))
+            .map(|d| PathBuf::from(format!("{d}\\")))
+            .filter(|p| p.is_dir())
+            .collect();
+    }
     let mut parents: Vec<PathBuf> = Vec::new();
     if cfg!(target_os = "macos") {
         parents.push("/Volumes".into());
