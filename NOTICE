@@ -36,3 +36,12 @@ Public License, version 2 or later.
 The neural key detector's weights (crates/engine/models/keynet.bin) come
 from openkeyscan-analyzer, Copyright (c) 2025 Alexander Sommer, under the
 MIT licence; see crates/engine/models/README.md.
+
+USB export (crates/export) writes Pioneer's stick formats with rbox
+(https://github.com/dylanljones/rbox), Copyright Dylan Jones, under the
+GNU General Public License, version 3 only. Like Slint, it is one more
+reason built copies are GPL-3.0. The byte layouts rbox leaves to its
+caller (waveform encodings, cue colours, the analysis folder hash, MP3
+frame counting, artwork thumbnails) follow Bake'n Deck
+(https://github.com/M-Igashi/baken), Copyright (c) 2025 Masanari Higashi,
+under the MIT licence; the files that use them say so.

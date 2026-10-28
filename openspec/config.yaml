@@ -14,7 +14,8 @@ context: |
   - Playback is local files only. Streaming services are browse only; no
     streaming partner deals and no DRM workarounds. Getting music should go
     as directly to artists as possible (artist-direct store add-ons).
-  - Pioneer USB export is out of scope. Video mixing is out of scope.
+  - Video mixing is out of scope. Pioneer USB export is in, built on rbox
+    (GPL-3.0-only), and stays marked experimental until tried on a player.
   - Add-ons that touch content of unclear licence (e.g. Soulseek) live outside
     the main repository.
   - The owner mixes mostly two-deck long blends; test hardware is a Pioneer
