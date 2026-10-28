@@ -11,7 +11,7 @@
 //!   file has changed since.
 //! - Analysis results are stored once, so a track loads with its grid at once.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -22,6 +22,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 pub use rusqlite::Error;
 
+pub mod dupes;
 pub mod health;
 mod moves;
 pub mod query;
@@ -1222,6 +1223,18 @@ impl Library {
             .map(|r| r.map(track_id))
             .collect();
         ids
+    }
+
+    /// Every link between two tracks, both ways round.
+    pub fn all_links(&self) -> Result<HashSet<(usize, usize)>, Error> {
+        let mut q = self.db.prepare("SELECT track, linked FROM track_links")?;
+        let mut out = HashSet::new();
+        for pair in q.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))? {
+            let (a, b) = pair?;
+            out.insert((track_id(a), track_id(b)));
+            out.insert((track_id(b), track_id(a)));
+        }
+        Ok(out)
     }
 
     /// Tracks played right before or after `track` in the history, most

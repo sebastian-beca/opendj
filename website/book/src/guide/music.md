@@ -153,7 +153,7 @@ range) and right-click.
 |---|---|---|
 | Not music | Audiobooks, podcasts and spoken word: Apple Books and Podcasts folders, `.m4b` files, genres such as Audiobook, "(Unabridged)" albums, and chapters (several tracks in one folder sharing a title) | Remove from library, It's music |
 | Strays | Files outside your Inbox, Triage and Collection folders | Move to Triage, Remove from library |
-| Duplicates | The same track more than once | Review for now |
+| Duplicates | The same track more than once: same artist, title and remix | Fix all easy, Keep this copy, Link as versions (see [Duplicates](#duplicates)) |
 | Not analyzed | No tempo or key | Analyze, in the background |
 | Missing info | No artist, title, album, year or genre | Fill from file name (`Artist - Title.mp3`), written to the file too |
 | No cover | No picture in the file's tags or its folder | Find one from the track's info panel |
@@ -176,6 +176,42 @@ Each check is also a search: `is:notmusic`, `is:stray`, `is:unanalyzed`,
 Covers are looked for in the background, and a file is looked at again
 only when it changes. On a Mac, files that iCloud has taken off the disk
 are skipped, so the check doesn't download your whole collection.
+
+### Duplicates
+
+Copies are tracks with the same artist, title and remix, ignoring case,
+punctuation and "Original Mix". Under **Duplicates** in the tree, openDJ
+sorts them into groups by what tells them apart:
+
+| Group | What it is | What happens |
+|---|---|---|
+| Same file | The same file, byte for byte, in two places | One is kept |
+| Better copy | The same recording, one lossless or at a higher bitrate | The better file is kept |
+| Same format | The same recording in the same format, in different folders | One is kept |
+| Different lengths | More than 3 seconds apart: an edit and an extended mix, say | You decide: **Link as versions** or **Keep the best copies** |
+
+In each group the copy kept comes first and the others are dimmed. openDJ
+keeps the copy in your Collection folder, then a lossless file over a lossy
+one, then the higher bitrate, then the one with cues or a checked grid,
+then the most played. To keep another one, right-click it and choose
+**Keep this copy**. The **Location** column (right-click a heading) shows
+which folder each copy is in.
+
+**Fix all easy** merges every group but Different lengths at once. Merging
+loses nothing: the kept copy takes the others' lists and history, cues and
+grid (when it has none), links, the highest rating, all their plays, the
+earliest date added, and any tags it lacks. The other copies leave the
+library and their files go to `_Quarantine/<date>/`, next to your
+Collection folder. With **Move files** off in Settings › Library, the moves
+wait until you turn it on. openDJ never deletes anything there: the bottom
+of the Library Health page shows how many files are waiting, and
+**Show folder** opens it, so you can empty it once you're sure.
+
+**Undo** in the bar (or the track menu) brings the copies back and moves
+their files back. The merged plays and tags stay on the kept copy.
+
+**Link as versions** keeps copies of different lengths and links them, so
+each shows the others on its Linked tab, and they leave the Duplicates list.
 
 ## Search
 
