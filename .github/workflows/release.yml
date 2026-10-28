@@ -1,6 +1,6 @@
 name: Release
 
-# Pushing a tag such as v0.1.0 builds the macOS and Linux downloads and
+# Pushing a tag such as v0.1.0 builds the macOS, Linux and Windows downloads and
 # publishes them as a GitHub release. On a pull request that changes the
 # packaging, the same builds run without publishing.
 on:
@@ -9,7 +9,8 @@ on:
   pull_request:
     paths:
       - .github/workflows/release.yml
-      - scripts/bundle-*.sh
+      - scripts/bundle-*
+      - res/windows/**
       - res/macos/opendj.entitlements
   workflow_dispatch:
 
@@ -118,19 +119,29 @@ jobs:
             dist/*.AppImage
 
   windows:
-    # Not released yet: shows how far a Windows build gets.
+    # A setup .exe (per-user, no admin) and a portable zip, for x64 PCs.
+    # Unsigned until a code signing certificate is set up (docs/windows.md).
     needs: version
     runs-on: windows-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - run: cargo build --release -p opendj
+      - run: scripts/bundle-windows.ps1 target/release/opendj.exe "${{ needs.version.outputs.version }}"
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            dist/*.zip
+            dist/*-setup.exe
 
   publish:
     if: github.ref_type == 'tag'
-    needs: [version, macos, linux]
+    needs: [version, macos, linux, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
