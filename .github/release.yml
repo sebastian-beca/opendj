@@ -2,7 +2,7 @@
 # GitHub adds under docs/release-notes.md when a release is published.
 changelog:
   exclude:
-    authors: [dependabot]
+    authors: [dependabot, "dependabot[bot]"]
   categories:
     - title: New features
       labels: [feature]
