@@ -1,6 +1,10 @@
 //! openDJ: the Slint UI wired to the control registry, the audio engine
 //! and the GPU waveform renderer.
 
+// No console window behind the app on Windows (debug builds keep it, for
+// the log).
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
