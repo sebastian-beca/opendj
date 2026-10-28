@@ -5885,6 +5885,7 @@ dependencies = [
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "opendj-script",
  "read-fonts",
  "serde_json",
  "sha2",
@@ -5893,6 +5894,13 @@ dependencies = [
  "slint-build",
  "ureq",
  "write-fonts",
+]
+
+[[package]]
+name = "opendj-script"
+version = "0.3.0"
+dependencies = [
+ "mixxx-control",
 ]
 
 [[package]]

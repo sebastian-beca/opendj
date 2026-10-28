@@ -1429,8 +1429,8 @@ component TrackList inherits Rectangle {
     property <int> anchor: -1;
     property <int> range-end: -1;
     property <bool> ranged: anchor >= 0 && range-end == current && anchor != current;
-    property <int> first-picked: ranged ? min(anchor, current) : current;
-    property <int> last-picked: ranged ? max(anchor, current) : current;
+    out property <int> first-picked: ranged ? min(anchor, current) : current;
+    out property <int> last-picked: ranged ? max(anchor, current) : current;
     property <bool> shift-held;
     function pick(i: int) {
         anchor = i;
@@ -2334,6 +2334,9 @@ export component Browser inherits HorizontalLayout {
     in property <int> sort-column;
     in property <bool> ascending;
     in-out property <int> current-row <=> list.current;
+    // The rows picked in the track list, for keyboard shortcuts.
+    out property <int> first-picked: list.first-picked;
+    out property <int> last-picked: list.last-picked;
     in property <[SideRow]> side-rows;
     in property <string> side-total;
     in-out property <int> side-tab;
