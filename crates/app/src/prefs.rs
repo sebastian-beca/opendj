@@ -9,7 +9,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
 use mixxx_control::ControlRegistry;
-use mixxx_controllers::{Controllers, MappingChoice, Port};
+use mixxx_controllers::{device_key, Controllers, MappingChoice, Port};
 use mixxx_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use mixxx_engine::{
     analysis, cache, channel_names, deck_group, input_devices, key, InputRole, InputRoute,
@@ -21,13 +21,15 @@ use serde_json::json;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use crate::{
-    settings, short_port_name, shortcuts, AppWindow, AudioSettings, ImportWizard, KeyNotation,
-    PrefItem, Preferences,
+    settings, short_port_name, shortcuts, AppWindow, AudioSettings, ControllerEditor, ImportWizard,
+    KeyNotation, PrefItem, Preferences,
 };
 
 const AUDIO: i32 = 0;
 const CONTROLLERS: i32 = 1;
 const LIBRARY: i32 = 2;
+/// Settings › Library's own tabs; each app imported from adds one after.
+const LIBRARY_TABS: [&str; 3] = ["General", "Stages", "Fields"];
 const ANALYSIS: i32 = 3;
 const DECKS: i32 = 4;
 const MIXER: i32 = 5;
@@ -44,7 +46,10 @@ const NOTE: i32 = 6;
 const HEADING: i32 = 7;
 const SEGMENTED: i32 = 8;
 const TEXT: i32 = 9;
-const SHORTCUT: i32 = 10;
+/// A controller: its mapping menu, with Edit (when `action` is set) and
+/// Remove beside it.
+const CONTROLLER: i32 = 10;
+const SHORTCUT: i32 = 11;
 
 /// Tempo fader ranges, as fractions of normal speed.
 const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
@@ -116,6 +121,11 @@ pub fn apply_saved(registry: &ControlRegistry) {
         f(settings::flag("xfader_reverse", false)),
     );
     set(
+        "[Mixer]",
+        "crossfader_enabled",
+        f(settings::flag("xfader_enabled", true)),
+    );
+    set(
         "[Master]",
         "headSplit",
         f(settings::flag("head_split", false)),
@@ -145,7 +155,79 @@ pub fn apply_saved(registry: &ControlRegistry) {
     key::set_detector(key_detector());
     key::set_mixing(key_mixing());
     set("[Controls]", "key_match_on_load", key_match_range() as f64);
+    for (id, _, _) in AUTO_RESETS {
+        set("[Controls]", id, f(settings::flag(id, true)));
+    }
+    // The levels as the DJ left them; the first time, the engine's own
+    // starting levels stand (master 50%, phones 25%, cue only).
+    for (key, id) in LEVEL_KEYS {
+        if let Some(value) = settings::load()[id].as_f64() {
+            set("[Master]", key, value);
+        }
+    }
 }
+
+/// The `[Master]` levels kept between runs, with their settings keys.
+const LEVEL_KEYS: [(&str, &str); 4] = [
+    ("gain", "master_level"),
+    ("headGain", "phones_level"),
+    ("headMix", "cue_mix"),
+    ("booth_gain", "booth_level"),
+];
+
+/// The `[Master]` levels as set now.
+fn levels(registry: &ControlRegistry) -> Vec<Option<f64>> {
+    LEVEL_KEYS
+        .iter()
+        .map(|(key, _)| registry.get("[Master]", key).map(|c| c.get()))
+        .collect()
+}
+
+/// Keeps the master, phones, cue mix and booth levels in settings.json
+/// whenever they change, so the next start puts them back. Checked every
+/// couple of seconds rather than at quit, which a crash or a forced quit
+/// would skip. Keep the timer alive for as long as the app runs.
+pub fn remember_levels(registry: Arc<ControlRegistry>) -> slint::Timer {
+    let saved = RefCell::new(levels(&registry));
+    let timer = slint::Timer::default();
+    timer.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_secs(2),
+        move || {
+            let now = levels(&registry);
+            if now == *saved.borrow() {
+                return;
+            }
+            for ((_, id), value) in LEVEL_KEYS.iter().zip(&now) {
+                if let Some(value) = value {
+                    settings::set(id, json!(value));
+                }
+            }
+            *saved.borrow_mut() = now;
+        },
+    );
+    timer
+}
+
+/// What loading a track puts back to normal on its deck, as settings and
+/// `[Controls]` keys of the same name, with their titles and help.
+const AUTO_RESETS: [(&str, &str, &str); 3] = [
+    (
+        "auto_reset_fx",
+        "Effects",
+        "The deck's effects switch off. Their beats and dry/wet stay as you set them.",
+    ),
+    (
+        "auto_reset_eq",
+        "EQ and filter",
+        "EQ, kills, filter and sculpt go back to the middle.",
+    ),
+    (
+        "auto_reset_gain",
+        "Gain",
+        "The gain knob goes back to 0 dB; auto gain still levels each track.",
+    ),
+];
 
 fn key_mixing() -> key::Mixing {
     key::Mixing::from_id(settings::number("key_mixing", 0.0) as u8)
@@ -238,6 +320,8 @@ pub struct Prefs {
     cache_note: String,
     /// The devices shown on the controllers page.
     ports: Vec<Port>,
+    /// The devices under Add a controller, in its menu's order.
+    hidden_ports: Vec<String>,
     /// Plugins with a page of their own, after the built-in pages.
     plugins: Vec<Box<dyn Plugin>>,
     /// Tells the rest of the app a plugin's settings changed, by its id.
@@ -299,6 +383,7 @@ impl Prefs {
             library_note: String::new(),
             cache_note: String::new(),
             ports: Vec::new(),
+            hidden_ports: Vec::new(),
             plugins,
             plugin_changed,
             audio_changed,
@@ -417,14 +502,23 @@ impl Prefs {
         let g = app.global::<Preferences>();
         let query = g.get_query().to_lowercase();
         let pages = g.get_pages();
-        let items: Vec<PrefItem> = if query.trim().is_empty() {
-            self.page(&app, g.get_page())
+        let searching = !query.trim().is_empty();
+        let tabs = if searching {
+            Vec::new()
+        } else {
+            self.tabs(g.get_page())
+        };
+        let tab = (g.get_tab().max(0) as usize).min(tabs.len().saturating_sub(1));
+        g.set_tab(tab as i32);
+        g.set_tabs(strings(&tabs));
+        let items: Vec<PrefItem> = if !searching {
+            self.page(&app, g.get_page(), Some(tab))
         } else {
             let words: Vec<&str> = query.split_whitespace().collect();
             (AUDIO..FEEDBACK + 1 + self.plugins.len() as i32)
                 .flat_map(|p| {
                     let name = slint::Model::row_data(&pages, p as usize).unwrap_or_default();
-                    self.page(&app, p).into_iter().map(move |mut item| {
+                    self.page(&app, p, None).into_iter().map(move |mut item| {
                         item.page_name = name.to_uppercase().into();
                         item
                     })
@@ -441,7 +535,9 @@ impl Prefs {
         show_wizard(&app, self.wizard.as_ref());
     }
 
-    fn page(&mut self, app: &AppWindow, page: i32) -> Vec<PrefItem> {
+    /// A page's rows: of one of its tabs, or of all of them for a search
+    /// (`tab` None).
+    fn page(&mut self, app: &AppWindow, page: i32, tab: Option<usize>) -> Vec<PrefItem> {
         match page {
             AUDIO => vec![
                 item(
@@ -527,7 +623,7 @@ impl Prefs {
                 },
             ],
             CONTROLLERS => self.controllers_page(),
-            LIBRARY => self.library_page(),
+            LIBRARY => self.library_page(tab),
             ANALYSIS => {
                 let (lo, hi) = bpm_range();
                 let names: Vec<String> = BPM_RANGES
@@ -658,7 +754,13 @@ impl Prefs {
                         "A track can't be loaded onto a deck while it plays.",
                         settings::flag("protect_playing", true),
                     ),
+                    item("auto_reset", HEADING, "AUTO RESET ON LOAD", ""),
                 ]
+                .into_iter()
+                .chain(AUTO_RESETS.map(|(id, title, detail)| {
+                    switch(id, title, detail, settings::flag(id, true))
+                }))
+                .collect()
             }
             MIXER => {
                 let target = settings::number("auto_gain_target", DEFAULT_AUTO_GAIN_TARGET);
@@ -704,6 +806,12 @@ impl Prefs {
                         "Smooth for blends; Scratch cuts in sharply at the ends.",
                     )
                 },
+                switch(
+                    "xfader_enabled",
+                    "Crossfader",
+                    "Off: the crossfader does nothing and every deck plays through. Right-click the crossfader to switch it too.",
+                    settings::flag("xfader_enabled", true),
+                ),
                 switch(
                     "xfader_reverse",
                     "Reverse crossfader",
@@ -896,6 +1004,8 @@ impl Prefs {
         }
     }
 
+    /// Settings › Controllers: the controllers openDJ has a mapping for,
+    /// and any others added; the rest wait under Add a controller.
     fn controllers_page(&mut self) -> Vec<PrefItem> {
         let Some(c) = &self.controllers else {
             return vec![item(
@@ -907,8 +1017,18 @@ impl Prefs {
         };
         self.ports = c.ports();
         let mappings = c.mappings();
-        let mut items: Vec<PrefItem> = self
-            .ports
+        let shown = settings::controllers_shown();
+        let (visible, hidden): (Vec<&Port>, Vec<&Port>) = self.ports.iter().partition(|port| {
+            shown
+                .get(&device_key(&port.name))
+                .copied()
+                .unwrap_or_else(|| {
+                    port.running.is_some()
+                        || c.auto_mapping(&port.name).is_some()
+                        || matches!(c.choice(&port.name), MappingChoice::File(_))
+                })
+        });
+        let mut items: Vec<PrefItem> = visible
             .iter()
             .map(|port| {
                 let choice = c.choice(&port.name);
@@ -937,12 +1057,15 @@ impl Prefs {
                     }
                     (None, _, Some(_)) => "Starting, or its mapping failed to load".to_string(),
                 };
+                // Edit opens the Controller Editor on the mapping it uses.
+                let editable = edit_file(c, port).is_some() && choice != MappingChoice::Off;
                 PrefItem {
                     choices: strings(&choices),
                     chosen: chosen as i32,
+                    action: if editable { "Edit" } else { "" }.into(),
                     ..item(
                         &format!("controller:{}", port.name),
-                        MENU,
+                        CONTROLLER,
                         short_port_name(&port.name),
                         &detail,
                     )
@@ -954,8 +1077,27 @@ impl Prefs {
                 "",
                 NOTE,
                 "No controllers",
-                "Plug in a MIDI controller and it shows up here within a second or so.",
+                "Plug in a controller openDJ has a mapping for and it shows up here within a \
+                 second or so.",
             ));
+        }
+        self.hidden_ports = hidden.iter().map(|p| p.name.clone()).collect();
+        if !self.hidden_ports.is_empty() {
+            let names: Vec<&str> = self
+                .hidden_ports
+                .iter()
+                .map(|p| short_port_name(p))
+                .collect();
+            items.push(PrefItem {
+                choices: strings(&names),
+                value: "Choose…".into(),
+                ..item(
+                    "controller_add",
+                    MENU,
+                    "Add a controller",
+                    "Other MIDI devices plugged in, such as one without a mapping yet.",
+                )
+            });
         }
         items.push(PrefItem {
             action: "Refresh".into(),
@@ -980,17 +1122,14 @@ impl Prefs {
     /// collection folders, and what happens to files between them.
     fn stage_items(&self) -> Vec<PrefItem> {
         let folders = settings::stage_folders();
-        let mut items = vec![
-            item("", HEADING, "STAGES", ""),
-            item(
-                "",
-                NOTE,
-                "",
-                "New music lands in the Inbox. Send what you like to Triage to prepare it \
+        let mut items = vec![item(
+            "",
+            NOTE,
+            "",
+            "New music lands in the Inbox. Send what you like to Triage to prepare it \
                  (tags, cover, rating, tempo and key), then add it to the Collection. \
                  Subfolders of the Triage folder are triage crates.",
-            ),
-        ];
+        )];
         for (i, dir) in folders.inbox.iter().enumerate() {
             items.push(PrefItem {
                 value: dir.to_string_lossy().into_owned().into(),
@@ -1048,7 +1187,45 @@ impl Prefs {
         items
     }
 
-    fn library_page(&mut self) -> Vec<PrefItem> {
+    /// The tabs a page has; most have none.
+    fn tabs(&self, page: i32) -> Vec<String> {
+        if page != LIBRARY {
+            return Vec::new();
+        }
+        let mut tabs: Vec<String> = LIBRARY_TABS.iter().map(|t| t.to_string()).collect();
+        tabs.extend(
+            crate::stores::enabled_importers()
+                .iter()
+                .map(|i| i.title().to_string()),
+        );
+        tabs
+    }
+
+    /// Settings › Library: General, Stages and Fields, then a tab for each
+    /// app imported from. `tab` None is every tab, for a search.
+    fn library_page(&mut self, tab: Option<usize>) -> Vec<PrefItem> {
+        let shows = |t: usize| tab.is_none_or(|x| x == t);
+        let mut items = Vec::new();
+        if shows(0) {
+            items.extend(self.library_general());
+        }
+        if shows(1) {
+            items.extend(self.stage_items());
+        }
+        if shows(2) {
+            items.extend(self.field_items());
+        }
+        for (i, importer) in crate::stores::enabled_importers().iter().enumerate() {
+            if shows(LIBRARY_TABS.len() + i) {
+                items.extend(self.import_rows(importer.as_ref()));
+            }
+        }
+        items
+    }
+
+    /// Settings › Library › General: the music folder, the cache, cover art,
+    /// and setting up an import from another DJ app.
+    fn library_general(&self) -> Vec<PrefItem> {
         let env_note = |var: &str| {
             if std::env::var_os(var).is_some() {
                 format!(" Set by {var} for now.")
@@ -1104,19 +1281,54 @@ impl Prefs {
                 action: "Clear".into(),
                 ..item("clear_cache", BUTTON, "Analysis cache", &cache_detail)
             },
+            item("cover_art", HEADING, "COVER ART", ""),
+            PrefItem {
+                value: settings::discogs_token().into(),
+                on: true,
+                ..item(
+                    "discogs_token",
+                    TEXT,
+                    "Discogs token",
+                    "Lets cover search look on Discogs too. Make one on discogs.com under \
+                     Settings › Developers.",
+                )
+            },
         ];
-        items.extend(self.stage_items());
-        items.extend([
-            item("", HEADING, "YOUR FIELDS", ""),
-            item(
-                "",
-                NOTE,
-                "",
-                "Name grouping and your tag fields for what you use them for, such as Trip Stage, \
-                 Mood or Instrument. Each name is also a search word (mood:uplifting) and a \
-                 filter on the bar above the track list.",
-            ),
-        ]);
+        // Other DJ apps' libraries: set up in a few steps, then each one
+        // gets its own tab.
+        let mut importers = crate::stores::importers();
+        importers.retain(|i| !settings::import_enabled(i.id()));
+        if !importers.is_empty() {
+            items.push(item("", HEADING, "OTHER DJ APPS", ""));
+        }
+        for importer in importers {
+            let title = importer.title();
+            items.push(PrefItem {
+                action: "Set up…".into(),
+                ..item(
+                    &format!("import_start:{}", importer.id()),
+                    BUTTON,
+                    &format!("Import from {title}"),
+                    &format!(
+                        "Brings in {title}'s tracks, cues, grids and lists, and keeps them \
+                         up to date."
+                    ),
+                )
+            });
+        }
+        items
+    }
+
+    /// Settings › Library › Fields: names for grouping and the tag fields.
+    fn field_items(&self) -> Vec<PrefItem> {
+        let mut items = vec![item(
+            "",
+            NOTE,
+            "",
+            "Name grouping and your tag fields for what you use them for, such as Trip Stage, \
+             Mood or Instrument. Each name is also a search word (mood:uplifting) and a \
+             filter on the bar above the track list.",
+        )];
         let names = settings::field_names();
         items.push(PrefItem {
             value: names.grouping.clone().into(),
@@ -1152,46 +1364,6 @@ impl Prefs {
                     "Its tags stay on your tracks, and come back if you add the field again.",
                 )
             });
-        }
-        items.extend([
-            item("cover_art", HEADING, "COVER ART", ""),
-            PrefItem {
-                value: settings::discogs_token().into(),
-                on: true,
-                ..item(
-                    "discogs_token",
-                    TEXT,
-                    "Discogs token",
-                    "Lets cover search look on Discogs too. Make one on discogs.com under \
-                     Settings › Developers.",
-                )
-            },
-        ]);
-        // Other DJ apps' libraries: set up in a few steps, then what comes in.
-        for importer in crate::stores::importers() {
-            let title = importer.title().to_string();
-            items.push(item(
-                "",
-                HEADING,
-                &format!("FROM {}", title.to_uppercase()),
-                "",
-            ));
-            if settings::import_enabled(importer.id()) {
-                items.extend(self.import_rows(importer.as_ref()));
-            } else {
-                items.push(PrefItem {
-                    action: "Set up…".into(),
-                    ..item(
-                        &format!("import_start:{}", importer.id()),
-                        BUTTON,
-                        &format!("Import from {title}"),
-                        &format!(
-                            "Brings in {title}'s tracks, cues, grids and lists, and keeps them \
-                             up to date."
-                        ),
-                    )
-                });
-            }
         }
         items
     }
@@ -1257,6 +1429,8 @@ impl Prefs {
             self.wizard = Some(WizardState::new(i.as_ref()));
         } else if let Some(i) = id.strip_prefix("import_stop:").and_then(importer) {
             settings::set(&settings::import_enabled_key(i.id()), json!(false));
+            // Its tab goes; General is where it can be set up again.
+            self.show_tab(0);
         } else if let Some(i) = id.strip_prefix("import_remove:").and_then(importer) {
             if self.removing.as_deref() != Some(i.id()) {
                 self.removing = Some(i.id().to_string());
@@ -1266,6 +1440,7 @@ impl Prefs {
                 settings::set(&settings::import_remove_key(i.id()), json!(true));
                 (self.rescan)();
                 self.library_note = format!("Removing what came in from {}…", i.title());
+                self.show_tab(0);
             }
         } else if let Some(i) = id.strip_prefix("import_database:").and_then(importer) {
             choose(
@@ -1309,6 +1484,13 @@ impl Prefs {
         true
     }
 
+    /// Switches the page shown to its tab `tab`; the caller fills it.
+    fn show_tab(&self, tab: usize) {
+        if let Some(app) = self.app.upgrade() {
+            app.global::<Preferences>().set_tab(tab as i32);
+        }
+    }
+
     fn wizard_importer(&self) -> Option<Box<dyn LibraryImport>> {
         self.wizard.as_ref().and_then(|w| importer(&w.importer))
     }
@@ -1335,6 +1517,10 @@ impl Prefs {
         settings::set(&settings::import_theirs_key(id), json!(w.theirs_win));
         settings::set(&settings::import_remove_key(id), json!(false));
         settings::set(&settings::import_enabled_key(id), json!(true));
+        // Its own tab in Settings › Library, shown now.
+        if let Some(tab) = self.tabs(LIBRARY).iter().position(|t| t == i.title()) {
+            self.show_tab(tab);
+        }
         (self.rescan)();
         self.library_note = format!(
             "Bringing in {}… tracks appear in the library when it is done.",
@@ -1373,8 +1559,12 @@ impl Prefs {
             "quantize" => self.each_deck("quantize", f(on)),
             "protect_playing" => self.set("[Controls]", "AllowTrackLoadToPlayingDeck", f(!on)),
             "xfader_reverse" => self.set("[Mixer Profile]", "xFaderReverse", f(on)),
+            "xfader_enabled" => self.set("[Mixer]", "crossfader_enabled", f(on)),
             "head_split" => self.set("[Master]", "headSplit", f(on)),
             "auto_gain" => self.set("[ReplayGain]", "ReplayGainEnabled", f(on)),
+            "auto_reset_fx" | "auto_reset_eq" | "auto_reset_gain" => {
+                self.set("[Controls]", id, f(on))
+            }
             _ => {}
         }
         self.refresh();
@@ -1412,6 +1602,17 @@ impl Prefs {
             settings::set(id, json!(index == 0));
             (self.rescan)();
             self.library_note = "Updating what comes in from other apps…".into();
+            self.refresh();
+            return;
+        }
+        if id == "controller_add" {
+            if let (Some(c), Some(port)) = (&self.controllers, self.hidden_ports.get(index)) {
+                settings::set_controller_shown(&device_key(port), true);
+                if c.choice(port) == MappingChoice::Off {
+                    c.set_choice(port, MappingChoice::Auto);
+                    settings::set_controller_mappings(&c.choices());
+                }
+            }
             self.refresh();
             return;
         }
@@ -1788,6 +1989,35 @@ impl Prefs {
             self.stages_changed();
             return;
         }
+        if let Some((port, what)) = id
+            .strip_prefix("controller:")
+            .and_then(|p| p.rsplit_once('#'))
+        {
+            match what {
+                "edit" => {
+                    let port = self.ports.iter().find(|p| p.name == port);
+                    let file = match (&self.controllers, port) {
+                        (Some(c), Some(port)) => edit_file(c, port).unwrap_or_default(),
+                        _ => String::new(),
+                    };
+                    if let Some(app) = self.app.upgrade() {
+                        app.global::<ControllerEditor>()
+                            .invoke_show_mapping(file.into());
+                    }
+                }
+                "remove" => {
+                    // Taken off the list and not used, until added again.
+                    settings::set_controller_shown(&device_key(port), false);
+                    if let Some(c) = &self.controllers {
+                        c.set_choice(port, MappingChoice::Off);
+                        settings::set_controller_mappings(&c.choices());
+                    }
+                    self.refresh();
+                }
+                _ => {}
+            }
+            return;
+        }
         match id {
             "controllers_refresh" => {
                 if let Some(c) = &self.controllers {
@@ -1893,6 +2123,18 @@ fn set_field_names(names: query::FieldNames) {
     query::set_field_names(settings::field_names());
 }
 
+/// The mapping file a controller's Edit opens: the one it uses, or, for a
+/// stand-in device, the one named as running.
+fn edit_file(c: &Controllers, port: &Port) -> Option<String> {
+    port.mapping_file.clone().or_else(|| {
+        let running = port.running.as_ref()?;
+        c.mappings()
+            .into_iter()
+            .find(|(name, _)| name == running)
+            .map(|(_, file)| file)
+    })
+}
+
 fn item(id: &str, kind: i32, title: &str, detail: &str) -> PrefItem {
     PrefItem {
         id: id.into(),
@@ -1949,9 +2191,6 @@ fn size(bytes: u64) -> String {
     }
 }
 
-/// Opens the system's dialog for picking a folder or a file, on its own
-/// thread; the path comes back through `tx`. macOS uses AppleScript's,
-/// Linux zenity's.
 /// A path as a row shows it, or `none`.
 fn show(p: Option<PathBuf>, none: &str) -> String {
     p.map_or(none.to_string(), |p| p.to_string_lossy().into_owned())
@@ -2043,8 +2282,24 @@ fn show_wizard(app: &AppWindow, w: Option<&WizardState>) {
     g.set_open(true);
 }
 
+/// Opens the system's dialog for picking a folder or a file, on its own
+/// thread; the path comes back through `tx`. macOS uses AppleScript's,
+/// Linux zenity's.
 fn choose(id: &str, prompt: &str, folder: bool, tx: Sender<(String, PathBuf)>) {
-    let (id, prompt) = (id.to_string(), prompt.to_string());
+    let id = id.to_string();
+    open_dialog(prompt, folder, move |path| {
+        let _ = tx.send((id, path));
+    });
+}
+
+/// Opens the system's dialog for picking a file; `picked` gets the path on
+/// the dialog's thread, unless it was cancelled.
+pub fn choose_file(prompt: &str, picked: impl FnOnce(PathBuf) + Send + 'static) {
+    open_dialog(prompt, false, picked);
+}
+
+fn open_dialog(prompt: &str, folder: bool, picked: impl FnOnce(PathBuf) + Send + 'static) {
+    let prompt = prompt.to_string();
     std::thread::spawn(move || {
         let output = if cfg!(target_os = "macos") {
             let what = if folder { "folder" } else { "file" };
@@ -2066,7 +2321,7 @@ fn choose(id: &str, prompt: &str, folder: bool, tx: Sender<(String, PathBuf)>) {
             Ok(out) if out.status.success() => {
                 let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if !path.is_empty() {
-                    let _ = tx.send((id, PathBuf::from(path)));
+                    picked(PathBuf::from(path));
                 }
             }
             Ok(_) => {} // Cancelled.

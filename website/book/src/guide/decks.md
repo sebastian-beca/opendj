@@ -8,8 +8,30 @@ Each deck has:
 
 - **PLAY** and **CUE**
 - **SYNC** and a tempo fader, with key lock and key shift
-- **Hot cues**, **loops** and **beat jumps** on the pads
+- **Hot cues**, **loops**, **beat jumps** and the **sampler** on the pads
 - Three **effect** slots, beat-synced, with echo, reverb, filter, flanger and more
+
+## Sampler
+
+The **SAMPLER** pad tab plays short sounds over the mix: drops, horns,
+rewinds, name tags. There are 16 pads, eight at a time: the **1** and **2**
+on the outside of the pads switch between them. On a DDJ-FLX4 the pads in
+SAMPLER mode play the same eight the screen shows.
+
+- **Sample packs**: **SAMPLE PACK** under the pads picks a pack. openDJ comes
+  with the **Default DJ Sample Pack**; **+** makes a new, empty one.
+- **Your own sounds**: drop an audio file (WAV, AIFF, FLAC, MP3, M4A or OGG,
+  up to a minute) from Finder or the track list on a pad, or right-click a
+  pad and choose **Load File…**. **Choose Sample…** borrows a sound from any
+  pack, with a play button to hear it in the headphones first.
+- The **pencil** shows a level knob and a **•••** menu on each pad. The menu
+  (or a right-click) renames the pad, sets how it plays (**One shot**,
+  **Hold**, **On/Off** or **Loop**), puts back the pack's own sound, or
+  clears it. Drag a pad onto another to swap them. Shift-click a pad to stop
+  it.
+
+What you change on a pad is kept for that pack, and the pack's own files are
+left alone.
 
 ## Keys
 
@@ -30,6 +52,19 @@ lilac. With **Match key on load** (Off, ±1 or ±2 semitones, ±1 by default), a
 track loaded while another deck plays is shifted by that much, with key lock
 on, so it mixes. At ±2, keys two semitones away are marked **+2** or **−2**
 in grey.
+
+## Auto reset on load
+
+Loading a track puts its deck back to normal, so the last track's settings
+don't carry over. In **Settings > Decks**, under **Auto reset on load**, each
+of these can be switched off (all are on to start):
+
+- **Effects**: the deck's effects switch off. Their beats and dry/wet stay as
+  you set them. An effect that also plays on the main mix or on another
+  playing deck, such as a shared Beat FX, keeps going.
+- **EQ and filter**: EQ, kills, filter and sculpt go back to the middle.
+- **Gain**: the gain knob goes back to 0 dB (or the track's own gain, if its
+  info sets one). Auto gain still levels each track.
 
 ## Mixer
 

@@ -31,11 +31,23 @@ Settings › Controllers SHALL have a Refresh button that closes every controlle
 - **THEN** openDJ looks for devices at once and starts the controller with its mapping
 
 ### Requirement: Controllers settings
-Settings › Controllers SHALL list connected controllers with the mapping in use, let one be set to Not used, and say when mappings are missing or a mapping failed.
+Settings › Controllers SHALL list the connected controllers openDJ has a mapping for, with the mapping in use, let one be set to Not used, and say when mappings are missing or a mapping failed. Other MIDI devices (virtual ports, apps, unmapped gear) SHALL stay off the list until picked from Add a controller. Remove SHALL take a controller off the list and stop using it until it is added again; both are kept by device key. Each controller SHALL have an Edit button that opens the Controller Editor on its mapping.
 
 #### Scenario: Turn off a controller
 - **WHEN** a controller is set to Not used
 - **THEN** openDJ ignores it
+
+#### Scenario: Unmapped device
+- **WHEN** a MIDI device with no mapping is plugged in
+- **THEN** it is not listed, and shows under Add a controller
+
+#### Scenario: Remove a controller
+- **WHEN** Remove is pressed on a controller
+- **THEN** it leaves the list, its mapping stops, and it stays off the list after a restart until added again
+
+#### Scenario: Edit a controller
+- **WHEN** Edit is pressed on a controller
+- **THEN** the Controller Editor opens on the mapping that controller runs
 
 ### Requirement: Decks 3 and 4 on two-deck controllers
 A mapping without decks 3 and 4 SHALL get `[Controller],deck3`/`deck4` switches. In 4-Deck, clicking deck 3's (or 4's) number SHALL move the left (or right) side there, LEDs included; leaving 4-Deck SHALL move both back.

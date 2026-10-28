@@ -6,22 +6,56 @@
 //! sections as it can, allowing only lengths of 8 to 32 bars in steps of 4
 //! (8 and 16 cost less), so short flickers never become phrases of their
 //! own. The first and last section may be shorter, down to 4 bars, for a
-//! pickup or a tail. A section is a drop when its bass and level come close
-//! to the track's strongest section's; the others are named by where they
-//! fall. Neighbours of the same kind merge.
+//! pickup or a tail. Each cut then moves up to 4 bars to where the bass
+//! comes in or drops out, so a kick entering early ends the intro there.
+//! A section is a drop when its bass and level come close
+//! to the track's strongest section's, and a chorus (main groove) when they
+//! are a little further off; the others are named by where they fall. Neighbours of the same kind merge.
 //!
 //! The method follows the research in the project notes
 //! (phrase-analysis-review.md); it was written for openDJ.
 
-use crate::track::Track;
+use crate::track::{Marker, MarkerKind, Track};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PhraseKind {
     Intro,
+    /// Rising into a drop (an "up").
     Build,
+    /// The peak.
     Drop,
+    /// The bass gone (a break or bridge).
     Breakdown,
     Outro,
+    /// Strong but short of the peak: the main groove or a chorus.
+    Chorus,
+}
+
+impl PhraseKind {
+    const ALL: [Self; 6] = [
+        Self::Intro,
+        Self::Build,
+        Self::Drop,
+        Self::Breakdown,
+        Self::Outro,
+        Self::Chorus,
+    ];
+
+    /// What the library calls it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Intro => "Intro",
+            Self::Build => "Build",
+            Self::Drop => "Drop",
+            Self::Breakdown => "Breakdown",
+            Self::Outro => "Outro",
+            Self::Chorus => "Chorus",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.name() == name)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -48,9 +82,86 @@ const PER_SECTION: f32 = 1.2;
 /// or last section that is not a multiple of 4.
 const NOT_EIGHT: f32 = 0.4;
 const NOT_FOUR: f32 = 0.8;
+/// How far a cut may move to where the bass comes in or drops out, and
+/// how big that change must be (in normalised bass level).
+const SNAP_BARS: usize = 4;
+const SNAP_JUMP: f32 = 0.2;
 /// A drop: bass and overall level at least this share of the track's
 /// strongest section's.
 const DROP_SHARE: f32 = 0.85;
+/// A chorus (main groove): short of a drop, but bass at least the first
+/// share and level at least the second of the strongest section's.
+const CHORUS_LOW_SHARE: f32 = 0.6;
+const CHORUS_LEVEL_SHARE: f32 = 0.7;
+
+/// Whether the track's waveform covers all of it, so its phrases can be
+/// found (while it is still being analysed they can't).
+pub fn waveform_ready(track: &Track) -> bool {
+    let wave = &track.waveform;
+    wave.bins_per_second > 0.0
+        && track.duration > 0.0
+        && wave
+            .levels
+            .first()
+            .is_some_and(|l| l.len() as f64 / wave.bins_per_second >= track.duration - 0.5)
+}
+
+/// Phrases as the library keeps them: markers of kind phrase, each
+/// ending where the next starts (the last at `duration`).
+pub fn to_markers(phrases: &[Phrase], duration: f64) -> Vec<Marker> {
+    phrases
+        .iter()
+        .enumerate()
+        .map(|(i, p)| Marker {
+            kind: MarkerKind::Phrase,
+            seconds: p.start,
+            end: Some(phrases.get(i + 1).map_or(duration, |n| n.start)),
+            name: p.kind.name().to_string(),
+            color: None,
+            detected: true,
+        })
+        .collect()
+}
+
+/// The detected phrases stored with a track, earliest first.
+pub fn stored(track: &Track) -> Vec<Phrase> {
+    let mut out: Vec<Phrase> = track
+        .info
+        .markers
+        .iter()
+        .filter(|m| m.kind == MarkerKind::Phrase && m.detected)
+        .filter_map(|m| {
+            Some(Phrase {
+                start: m.seconds,
+                kind: PhraseKind::from_name(&m.name)?,
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| a.start.total_cmp(&b.start));
+    out
+}
+
+/// Whether the track has phrases from an import, which detected ones
+/// don't replace.
+pub fn imported(track: &Track) -> bool {
+    track
+        .info
+        .markers
+        .iter()
+        .any(|m| m.kind == MarkerKind::Phrase && !m.detected)
+}
+
+/// `markers` with its detected phrases replaced by `phrases`.
+pub fn with_phrases(markers: &[Marker], phrases: Vec<Marker>) -> Vec<Marker> {
+    let mut out: Vec<Marker> = markers
+        .iter()
+        .filter(|m| !(m.kind == MarkerKind::Phrase && m.detected))
+        .cloned()
+        .chain(phrases)
+        .collect();
+    out.sort_by(|a, b| a.seconds.total_cmp(&b.seconds));
+    out
+}
 
 /// The phrases of a track, earliest first; empty without a tempo or
 /// waveform, for a track shorter than 16 bars, or when it all sounds alike.
@@ -92,7 +203,7 @@ pub fn detect(track: &Track) -> Vec<Phrase> {
         return Vec::new();
     }
     normalise(&mut levels);
-    let cuts = segment(&levels);
+    let cuts = refine(&levels, &segment(&levels));
     let kinds = classify(&levels, &cuts);
     let mut phrases: Vec<Phrase> = Vec::new();
     for (n, (&cut, kind)) in cuts.iter().zip(kinds).enumerate() {
@@ -187,6 +298,49 @@ fn segment(levels: &[[f32; 3]]) -> Vec<usize> {
     cuts
 }
 
+/// Moves each cut to where the bass actually comes in or drops out, up to
+/// `SNAP_BARS` either way: the fit above prefers whole 8- and 16-bar
+/// sections, so a kick entering on its own a few bars early would otherwise
+/// end up inside the intro. The bass crosses halfway between the levels on
+/// either side; the earliest crossing in reach wins.
+fn refine(levels: &[[f32; 3]], cuts: &[usize]) -> Vec<usize> {
+    let n = levels.len();
+    let low = |a: usize, b: usize| levels[a..b].iter().map(|l| l[0]).sum::<f32>() / (b - a) as f32;
+    let mut out = cuts.to_vec();
+    for i in 1..cuts.len() {
+        let (a, c) = (out[i - 1], cuts[i]);
+        let b = cuts.get(i + 1).copied().unwrap_or(n);
+        let (before, after) = (low(a, c), low(c, b));
+        if (after - before).abs() < SNAP_JUMP {
+            continue;
+        }
+        let half = (before + after) / 2.0;
+        let rises = after > before;
+        // Both sides keep their least length.
+        let min_left = if i == 1 { MIN_EDGE_BARS } else { MIN_BARS };
+        let min_right = if i + 1 == cuts.len() {
+            MIN_EDGE_BARS
+        } else {
+            MIN_BARS
+        };
+        let lo = c.saturating_sub(SNAP_BARS).max(a + min_left);
+        let hi = (c + SNAP_BARS).min(b.saturating_sub(min_right));
+        // A crossing: a bar on the old side of halfway, then two on the new.
+        let crosses = |x: usize| {
+            let next = [levels[x][0], levels[(x + 1).min(n - 1)][0]];
+            if rises {
+                levels[x - 1][0] < half && next.iter().all(|&l| l >= half)
+            } else {
+                levels[x - 1][0] >= half && next.iter().all(|&l| l < half)
+            }
+        };
+        if let Some(x) = (lo..=hi).find(|&x| crosses(x)) {
+            out[i] = x;
+        }
+    }
+    out
+}
+
 /// The kind of each section (`cuts` are their first bars).
 fn classify(levels: &[[f32; 3]], cuts: &[usize]) -> Vec<PhraseKind> {
     let n = levels.len();
@@ -206,22 +360,34 @@ fn classify(levels: &[[f32; 3]], cuts: &[usize]) -> Vec<PhraseKind> {
         .iter()
         .map(|m| m[0] >= DROP_SHARE * top_low && level(*m) >= DROP_SHARE * top_level)
         .collect();
+    let chorus: Vec<bool> = means
+        .iter()
+        .map(|m| m[0] >= CHORUS_LOW_SHARE * top_low && level(*m) >= CHORUS_LEVEL_SHARE * top_level)
+        .collect();
     let first_drop = drop.iter().position(|&d| d);
-    let last_drop = drop.iter().rposition(|&d| d);
+    // The outro is the last section and whatever quieter ones lead into it
+    // after the last strong section, drop or chorus: a full groove after
+    // the last drop is not yet the outro.
+    let last_strong = (0..cuts.len()).rposition(|s| drop[s] || chorus[s]);
     (0..cuts.len())
         .map(|s| {
+            let strong_next = drop.get(s + 1) == Some(&true) || chorus.get(s + 1) == Some(&true);
             if drop[s] {
                 PhraseKind::Drop
-            } else if first_drop.is_none_or(|f| s < f) {
-                // Before the first drop: the intro, then any lift into it.
-                if s == 0 {
-                    PhraseKind::Intro
-                } else {
-                    PhraseKind::Build
-                }
-            } else if last_drop.is_some_and(|l| s > l) {
+            } else if s == 0 {
+                PhraseKind::Intro
+            } else if s + 1 == cuts.len() {
+                // The last section, short of a drop, is the outro even with
+                // the groove still running.
                 PhraseKind::Outro
-            } else if drop.get(s + 1) == Some(&true) && rising(levels, cuts[s], ends[s]) {
+            } else if chorus[s] {
+                PhraseKind::Chorus
+            } else if last_strong.is_some_and(|l| s > l) {
+                PhraseKind::Outro
+            } else if first_drop.is_none_or(|f| s < f)
+                || strong_next && rising(levels, cuts[s], ends[s])
+            {
+                // A lift into the first drop, or one that climbs into the next.
                 PhraseKind::Build
             } else {
                 PhraseKind::Breakdown
@@ -275,6 +441,40 @@ mod tests {
         t.first_beat = a.first_beat;
         t.set_grid(a.grid);
         (t, bar)
+    }
+
+    #[test]
+    fn phrases_are_kept_as_markers_beside_imported_ones() {
+        let (mut t, _) = analysed(124.0, 128, 3);
+        assert!(waveform_ready(&t));
+        let p = detect(&t);
+        let markers = to_markers(&p, t.duration);
+        assert_eq!(markers.last().unwrap().end, Some(t.duration));
+        let section = Marker {
+            kind: MarkerKind::Section,
+            seconds: 10.0,
+            end: None,
+            name: "Break 1".into(),
+            color: None,
+            detected: false,
+        };
+        t.info.markers = with_phrases(std::slice::from_ref(&section), markers.clone());
+        assert_eq!(stored(&t), p);
+        assert!(!imported(&t));
+        // Found again: the old ones go, the section stays.
+        t.info.markers = with_phrases(&t.info.markers, markers[..1].to_vec());
+        assert_eq!(stored(&t), p[..1]);
+        assert!(t.info.markers.contains(&section));
+        // Phrases from an import.
+        t.info.markers.push(Marker {
+            kind: MarkerKind::Phrase,
+            detected: false,
+            ..section
+        });
+        assert!(imported(&t));
+        // Not ready while the waveform is still being made.
+        t.duration *= 2.0;
+        assert!(!waveform_ready(&t));
     }
 
     #[test]
@@ -333,6 +533,50 @@ mod tests {
         assert!(
             cuts.iter().zip(ends).all(|(a, b)| b - a >= MIN_BARS),
             "the blip is not its own phrase: {cuts:?}"
+        );
+    }
+
+    #[test]
+    fn the_intro_ends_where_the_kick_comes_in() {
+        // 12 bars without bass, the kick alone for 4, then the full groove,
+        // a break and the groove again: the fit alone likes a 16-bar intro.
+        let mut levels = vec![[0.05, 0.4, 0.4]; 12];
+        levels.extend(vec![[0.6, 0.45, 0.45]; 4]);
+        levels.extend(vec![[1.0, 1.0, 1.0]; 32]);
+        levels.extend(vec![[0.1, 0.6, 0.6]; 16]);
+        levels.extend(vec![[1.0, 1.0, 1.0]; 16]);
+        let cuts = refine(&levels, &segment(&levels));
+        assert_eq!(cuts.get(1), Some(&12), "{cuts:?}");
+        // The others are where the bass changes already.
+        assert!(cuts.contains(&48) && cuts.contains(&64), "{cuts:?}");
+    }
+
+    #[test]
+    fn the_outro_starts_after_the_last_strong_section() {
+        // Intro, drop, then the groove carries on until a quiet tail.
+        let mut levels = vec![[0.3, 0.4, 0.4]; 16];
+        levels.extend(vec![[1.0, 1.0, 1.0]; 16]);
+        levels.extend(vec![[0.75, 0.75, 0.8]; 24]);
+        levels.extend(vec![[0.1, 0.2, 0.2]; 16]);
+        let cuts = [0, 16, 32, 56];
+        use PhraseKind::*;
+        assert_eq!(classify(&levels, &cuts), [Intro, Drop, Chorus, Outro]);
+    }
+
+    #[test]
+    fn a_strong_section_short_of_the_peak_is_a_chorus() {
+        // Intro, drop, main groove, break, drop, outro: 16 bars each, 8 for the break.
+        let mut levels = vec![[0.3, 0.4, 0.4]; 16];
+        levels.extend(vec![[1.0, 1.0, 1.0]; 16]);
+        levels.extend(vec![[0.75, 0.75, 0.8]; 16]);
+        levels.extend(vec![[0.1, 0.6, 0.6]; 8]);
+        levels.extend(vec![[1.0, 1.0, 1.0]; 16]);
+        levels.extend(vec![[0.3, 0.4, 0.4]; 16]);
+        let cuts = [0, 16, 32, 48, 56, 72];
+        use PhraseKind::*;
+        assert_eq!(
+            classify(&levels, &cuts),
+            [Intro, Drop, Chorus, Breakdown, Drop, Outro]
         );
     }
 }

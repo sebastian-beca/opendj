@@ -17,6 +17,7 @@ use crate::cover::{self, Cover};
 use crate::decode::{decode, Decoder};
 use crate::engine::{Command, EngineInput, Returned};
 use crate::key;
+use crate::phrases;
 use crate::scan;
 use crate::stems::{self, StemSource};
 use crate::synth;
@@ -102,15 +103,20 @@ fn with_analysis(track: &Track, analysis: &Analysis, detected: bool) -> Track {
 /// Analyses `track` away from the decks (background analysis): its cached
 /// analysis when there is one, else the file is decoded and analysed and
 /// the result cached, as loading it on a deck would. A key found by
-/// another detector is found again. The track comes back with its tempo,
-/// grid and key, and without audio.
-pub fn analyse_file(track: &Track) -> Result<Track, String> {
+/// another detector is found again. With `fresh` (the DJ asked), the file
+/// is analysed again whatever the cache holds, and a grid the library got
+/// from an earlier analysis may be replaced; a grid the DJ edited or an
+/// import brought, and a key from tags, an import or the DJ, still stay.
+/// The track comes back with its tempo, grid, key and detected phrases
+/// (unless it has imported ones), and without audio or waveform.
+pub fn analyse_file(track: &Track, fresh: bool) -> Result<Track, String> {
     let Source::File(path) = &track.source else {
         return Err("not a file".into());
     };
     let detected = key_is_detected(track);
     let detector = key::detector();
-    let analysis = match cache::load(path) {
+    let cached = if fresh { None } else { cache::load(path) };
+    let analysis = match cached {
         Some(c) if !(detected && c.key_detector != detector) => c,
         cached => {
             let audio = decode(path)?;
@@ -120,13 +126,30 @@ pub fn analyse_file(track: &Track) -> Result<Track, String> {
                     c.key_detector = detector;
                     c
                 }
-                None => analyse(&audio, (track.bpm > 0.0).then_some(track.bpm)),
+                // Afresh, the tempo is found without the library's as a hint.
+                None => analyse(&audio, (!fresh && track.bpm > 0.0).then_some(track.bpm)),
             };
             cache::store(path, &analysis);
             analysis
         }
     };
-    Ok(with_analysis(track, &analysis, detected))
+    let mut base = track.clone();
+    if fresh && base.info.grid_analysed {
+        base.info.fixed_grid = false;
+        base.grid = BeatGrid::default();
+    }
+    let mut t = with_analysis(&base, &analysis, detected);
+    let finest = analysis.waveform.levels.first().map_or(0, Vec::len);
+    if t.duration <= 0.0 && analysis.waveform.bins_per_second > 0.0 && finest > 0 {
+        t.duration = finest as f64 / analysis.waveform.bins_per_second;
+    }
+    if !phrases::imported(&t) {
+        t.waveform = Arc::new(analysis.waveform);
+        let found = phrases::to_markers(&phrases::detect(&t), t.duration);
+        t.info.markers = phrases::with_phrases(&t.info.markers, found);
+        t.waveform = Arc::default();
+    }
+    Ok(t)
 }
 
 /// Gives `t` the beat grid it should play with: a grid from the library is
@@ -655,6 +678,23 @@ mod tests {
         std::fs::remove_dir_all(dir.join("cache/overviews")).unwrap();
         assert_eq!(cache::overview(path).unwrap(), overview);
         assert!(dir.join("cache/overviews").is_dir());
+
+        // Analysed on request: past the cache, a grid from an earlier
+        // analysis is replaced, and one the DJ edited stays.
+        let mut stale = Track {
+            audio: None,
+            waveform: Arc::default(),
+            ..(*again).clone()
+        };
+        stale.set_grid(BeatGrid::constant(100.0, 0.0));
+        stale.info.fixed_grid = true;
+        stale.info.grid_analysed = true;
+        assert_eq!(analyse_file(&stale, false).unwrap().bpm, 100.0);
+        let fresh = analyse_file(&stale, true).unwrap();
+        assert!((fresh.bpm - 124.0).abs() < 0.05, "{}", fresh.bpm);
+        assert!(fresh.waveform.is_empty() && fresh.audio.is_none());
+        stale.info.grid_analysed = false;
+        assert_eq!(analyse_file(&stale, true).unwrap().bpm, 100.0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

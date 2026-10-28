@@ -83,22 +83,35 @@ Library** throws those results away.
 Grids, keys and cues brought in from VirtualDJ are used as they are, so
 those tracks don't wait for analysis.
 
+To analyse tracks yourself, right-click them and choose **Analyze Track**
+(or **Analyze 12 Tracks** for a shift-click selection), or right-click a
+list, folder or stage and choose **Analyze All**. They are analysed again
+from scratch in the background, one at a time: tempo, beat grid, key,
+loudness, mini waveform and phrases. A grid you edited and a key you typed
+in or got from the tags stay as they are. While it runs, each waiting
+track has a gray dot by its title (lilac and pulsing while it is being
+analysed), and the footer shows how far along it is, with a ✕ to stop.
+
 ## Phrases
 
 Once a track has a beat grid, openDJ splits it into phrases of whole
-bars: intro, build, drop, breakdown and outro. A thin bar along the bottom
-of each waveform shows them: lilac for a drop, a dusky lilac for a build,
-blue for a breakdown and grey for the intro and outro. Phrases are 8 to 32
-bars long, so a short fill never gets one of its own. They move with the
-grid when you edit it.
+bars: intro, build (up), drop (peak), chorus (main groove), break and
+outro. Each deck's overview shows them as a bar under the minute dots:
+deep blue for the intro and outro, violet for a build, rose for a drop,
+green for a chorus and tangerine for a break. Phrases are 8 to 32 bars
+long, so a short fill never gets one of its own. They are saved in the
+library with the track, and move with the grid when you edit it.
 
-Right-click a large waveform and choose **Hide phrases** (or **Show
-phrases**) to turn the bars off or on.
+Rest the pointer on a deck's overview to see the phrase under it: its
+kind, how many bars it runs and where it starts and ends.
+
+Right-click a deck's overview and choose **Hide phrases** (or **Show
+phrases**) to turn the bars off or on for every deck.
 
 ## Bringing in a VirtualDJ library
 
 Press **Set up…** next to **Import from VirtualDJ** in **Settings ›
-Library**. Three steps follow:
+Library › General**. Three steps follow:
 
 1. **Find your library.** openDJ looks for `database.xml` in
    `~/Library/Application Support/VirtualDJ` (or `~/.vdj` on Linux) and
@@ -121,10 +134,12 @@ you edited in openDJ are kept. The VirtualDJ folder is made again each time,
 so change those lists in VirtualDJ, or copy one out of the folder to keep
 editing it in openDJ.
 
-**Stop** leaves what came in but stops updating it. **Remove…** takes out
+Once it's on, VirtualDJ gets its own tab in **Settings › Library**, with
+these choices and the two buttons below. **Stop** leaves what came in but
+stops updating it. **Remove…** takes out
 the VirtualDJ folder and history, VirtualDJ's cues, grids and markers, and
 the tracks only VirtualDJ had. Tracks in your own lists or music folder
-stay.
+stay. Either one takes the VirtualDJ tab away again.
 
 ## Library Health
 
@@ -189,7 +204,7 @@ to move it. Click a heading to sort by it. openDJ remembers your columns.
 
 ## Your own fields
 
-Name grouping and your tag fields in **Settings › Library › Your fields**,
+Name grouping and your tag fields in **Settings › Library › Fields**,
 for example Trip Stage, Mood and Instrument, and add as many tag fields as
 you need. VirtualDJ's User 1 and User 2 come in as the first two. Each name
 works as a search word too (`mood:uplifting`, `tripstage:"4 peak"`), and so

@@ -413,6 +413,20 @@ pub(crate) struct Host {
     layers: Option<[ControlHandle; 2]>,
     /// The switches as the watches last resolved them.
     layers_seen: [bool; 2],
+    /// While set, every control a script writes and the value, by the name
+    /// it acts on (`[Channel1],pregain_set_default` stays as written; layers
+    /// and `[Main]` are resolved). Writes soft takeover drops still count.
+    /// For the Controller Editor, which wants to know what a script does.
+    pub(crate) trace: Option<Vec<(ConfigKey, f64)>>,
+    /// openDJ: notes a script moved with `midi.routeNote`, by MIDI channel:
+    /// a pad pressed on the device acts as the note it is routed to, and that
+    /// note's lights show on it. For pad mode buttons that open a pad page
+    /// by place, whatever page is in it.
+    note_routes: HashMap<u8, [u8; 128]>,
+    /// The last value sent to each note, by status and note, to show on a
+    /// pad newly routed to it.
+    note_values: HashMap<(u8, u8), u8>,
+    routes_changed: bool,
 }
 
 pub(crate) fn deck_group(deck: usize) -> String {
@@ -426,6 +440,9 @@ impl Host {
             name,
             errors: Vec::new(),
             sent: Vec::new(),
+            note_routes: HashMap::new(),
+            note_values: HashMap::new(),
+            routes_changed: false,
             watches: Vec::new(),
             triggered: Vec::new(),
             script_bound: HashSet::new(),
@@ -437,6 +454,7 @@ impl Host {
             scratch_tick: Instant::now(),
             layers: None,
             layers_seen: [false; 2],
+            trace: None,
         }
     }
 
@@ -549,6 +567,7 @@ impl Host {
     /// Script writes. Values for knobs with soft takeover enabled may be dropped.
     pub(crate) fn set_value(&mut self, group: &str, key: &str, v: f64) {
         let t = self.resolve(group, key);
+        self.record(key, &t, v);
         if self.soft_ignores(group, key, &t, t.parameter_for_value(v)) {
             return;
         }
@@ -557,11 +576,28 @@ impl Host {
 
     pub(crate) fn set_parameter(&mut self, group: &str, key: &str, p: f64) {
         let t = self.resolve(group, key);
+        self.record(key, &t, t.value_for_parameter(p));
         if self.soft_ignores(group, key, &t, p) {
             return;
         }
         let v = t.value_for_parameter(p);
         t.set(v);
+    }
+
+    /// Notes a script write while tracing; `key` as the script named it.
+    pub(crate) fn record(&mut self, key: &str, t: &Target, value: f64) {
+        if let Some(trace) = &mut self.trace {
+            let k = match t {
+                Target::Control(h) => h.key().clone(),
+                Target::Sub(h, _) => ConfigKey::new(h.key().group.clone(), key),
+            };
+            match trace.iter_mut().find(|(t, _)| *t == k) {
+                // A press that writes 1 then 0 is still "1".
+                Some((_, v)) if value != 0.0 => *v = value,
+                Some(_) => {}
+                None => trace.push((k, value)),
+            }
+        }
     }
 
     /// Whether soft takeover drops this write; `p` is the new parameter.
@@ -981,6 +1017,77 @@ impl Host {
         if done {
             self.control(d, "scratch2_enable").set_bool(false);
         }
+    }
+}
+
+impl Host {
+    /// Makes `from` on MIDI channel `channel` act as `to` (see
+    /// `note_routes`); `from == to` undoes it.
+    pub(crate) fn route_note(&mut self, channel: u8, from: u8, to: u8) {
+        let routes = self
+            .note_routes
+            .entry(channel & 0x0F)
+            .or_insert_with(|| std::array::from_fn(|i| i as u8));
+        let (from, to) = ((from & 0x7F) as usize, to & 0x7F);
+        if routes[from] != to {
+            routes[from] = to;
+            self.routes_changed = true;
+        }
+    }
+
+    /// The note an incoming note on or off acts as.
+    pub(crate) fn routed_input(&self, status: u8, control: u8) -> u8 {
+        if !matches!(status & 0xF0, 0x80 | 0x90) {
+            return control;
+        }
+        match self.note_routes.get(&(status & 0x0F)) {
+            Some(routes) => routes[(control & 0x7F) as usize],
+            None => control,
+        }
+    }
+
+    /// The messages waiting to be sent, with the lights of routed notes
+    /// moved onto the pads routed to them.
+    pub(crate) fn take_routed(&mut self) -> Vec<Vec<u8>> {
+        let sent = std::mem::take(&mut self.sent);
+        if self.note_routes.is_empty() {
+            return sent;
+        }
+        let mut out = Vec::with_capacity(sent.len());
+        for m in sent {
+            let routes = match m[..] {
+                [status, _, _] if status & 0xF0 == 0x90 => self.note_routes.get(&(status & 0x0F)),
+                _ => None,
+            };
+            let Some(routes) = routes else {
+                out.push(m);
+                continue;
+            };
+            let (status, note, value) = (m[0], m[1] & 0x7F, m[2]);
+            self.note_values.insert((status, note), value);
+            for (from, to) in routes.iter().enumerate() {
+                if *to == note {
+                    out.push(vec![status, from as u8, value]);
+                }
+            }
+        }
+        if std::mem::take(&mut self.routes_changed) {
+            // Every routed pad shows what its note last showed.
+            let mut statuses: Vec<u8> = self.note_values.keys().map(|(s, _)| *s).collect();
+            statuses.sort_unstable();
+            statuses.dedup();
+            for status in statuses {
+                let Some(routes) = self.note_routes.get(&(status & 0x0F)) else {
+                    continue;
+                };
+                for (from, to) in routes.iter().enumerate() {
+                    if let Some(v) = self.note_values.get(&(status, *to)) {
+                        out.push(vec![status, from as u8, *v]);
+                    }
+                }
+            }
+        }
+        out
     }
 }
 

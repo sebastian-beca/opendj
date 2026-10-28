@@ -3,8 +3,9 @@
 // jog circle and the pitch fader towards the mixer. Deck B is mirrored.
 // Large artwork, flat dark controls, white pointers.
 import { TrackDrag } from "library.slint";
+import { SamplerPanel } from "sampler.slint";
 import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
-import { Caption, ControlButton, ControlFader, ControlKnob, Controls, KeyLock, PitchReset } from "controls.slint";
+import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, KeyLock, PitchReset } from "controls.slint";
 
 // A line of the key menu: a key shift and the key it gives.
 export struct KeyItem {
@@ -15,6 +16,12 @@ export struct KeyItem {
     compatible: bool,
     // The shift in use.
     current: bool,
+}
+
+// The overview tooltip for a phrase.
+export struct PhraseTip {
+    title: string,
+    body: string,
 }
 
 export struct DeckInfo {
@@ -505,8 +512,8 @@ component TimeKey inherits HorizontalLayout {
     spacing: 12px;
     if show-time: VerticalLayout {
         alignment: center;
-        Text { text: info.loaded ? "-" + info.remaining-seconds : "-0:00"; color: Theme.text; font-size: 26px; font-weight: 500; horizontal-alignment: right; }
-        Text { text: info.loaded ? info.total : ""; color: Theme.text-dim; font-size: 12px; horizontal-alignment: right; }
+        Text { text: info.loaded ? "-" + info.remaining-seconds : "-0:00"; color: Theme.text; font-size: 23px; font-weight: 500; horizontal-alignment: right; }
+        Text { text: info.loaded ? info.total : ""; color: Theme.text-dim; font-size: 11px; horizontal-alignment: right; }
     }
     if show-time: EdgeVLine { top: 6px; bottom: 6px; line-color: #2c2c2f; }
     KeyBox { group: group; info: info; tint: tint; }
@@ -535,6 +542,45 @@ export component Header inherits Rectangle {
     // Where a press on the overview started, and whether it became a drag.
     property <length> press-x;
     property <bool> scrubbing;
+    // Where the overview's right-click menu opens.
+    property <length> menu-x;
+    property <length> menu-y;
+    // The phrase under the pointer, named in a tooltip below the overview
+    // while the pointer rests there.
+    property <PhraseTip> phrase-tip: PhraseView.visible && info.loaded && ota.has-hover
+        ? PhraseView.describe(deck, clamp(ota.mouse-x / ota.width, 0, 1) * info.duration) : { title: "", body: "" };
+    property <bool> tip-mine;
+    changed phrase-tip => {
+        if tip-mine {
+            if phrase-tip.title == "" {
+                hide-tip();
+            } else {
+                show-tip();
+            }
+        }
+    }
+    // The tooltip follows the pointer along the overview.
+    property <length> hover-x: ota.mouse-x;
+    changed hover-x => {
+        if tip-mine && phrase-tip.title != "" {
+            show-tip();
+        }
+    }
+    function show-tip() {
+        // Beside the pointer, on whichever side has more room.
+        HoverTip.title = phrase-tip.title;
+        HoverTip.body = phrase-tip.body;
+        HoverTip.right-aligned = ota.mouse-x > ota.width / 2;
+        HoverTip.x = ota.absolute-position.x + ota.mouse-x;
+        HoverTip.y = ov.absolute-position.y + ov.height + 6px;
+        HoverTip.shown = true;
+    }
+    function hide-tip() {
+        if tip-mine {
+            tip-mine = false;
+            HoverTip.shown = false;
+        }
+    }
     height: compact ? 92px : 108px;
     // Cover, title, info and overview share one black box.
     background: Theme.well;
@@ -560,21 +606,21 @@ export component Header inherits Rectangle {
             Cover { deck: deck; tint: tint; info: info; size: compact ? 40px : 96px; }
         }
         VerticalLayout {
-            spacing: 6px;
+            spacing: 4px;
             horizontal-stretch: 1;
             // Title, artist and BPM on the left, time and key on the right, on both decks.
             HorizontalLayout {
                 spacing: compact ? 8px : 12px;
-                height: compact ? 40px : 52px;
+                height: compact ? 36px : 44px;
                 VerticalLayout {
                     horizontal-stretch: 1;
                     alignment: center;
                     spacing: 2px;
-                    Text { text: info.loaded ? info.title : "Empty deck"; color: Theme.text; font-size: compact ? 15px : 20px; font-weight: 500; overflow: elide; }
+                    Text { text: info.loaded ? info.title : "Empty deck"; color: Theme.text; font-size: compact ? 14px : 18px; font-weight: 500; overflow: elide; }
                     Text {
                         text: info.loaded ? (compact ? info.artist : info.artist + "   |   " + info.bpm) : compact ? "Drop a track here" : "Drop a track here or double-click one in the browser";
                         color: Theme.text-dim;
-                        font-size: compact ? 12px : 14px;
+                        font-size: compact ? 11px : 13px;
                         overflow: elide;
                     }
                 }
@@ -595,20 +641,20 @@ export component Header inherits Rectangle {
                 // layer, which would freeze the GPU-updated image.
                 clip: true;
                 Image { width: parent.width; height: parent.height; source: overview; image-fit: fill; }
-                // A dot at every minute along the bottom.
-                if info.loaded && info.duration > 60: Rectangle {
-                    for m in floor((info.duration - 1) / 60): Rectangle {
-                        x: parent.width * (m + 1) * 60 / info.duration - 1.5px;
-                        y: parent.height - 5px;
-                        width: 3px;
-                        height: 3px;
-                        border-radius: 1.5px;
-                        background: #ffffffb0;
-                    }
-                }
-                TouchArea {
+                // The waveform, a dot at every minute and the phrase bar
+                // are all drawn into the image, stacked so none overlap.
+                ota := TouchArea {
                     mouse-cursor: ew-resize;
                     pointer-event(e) => {
+                        if e.kind == PointerEventKind.down {
+                            hide-tip();
+                        }
+                        if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                            menu-x = self.mouse-x;
+                            menu-y = self.mouse-y;
+                            phrase-menu.show();
+                            return;
+                        }
                         if e.button != PointerEventButton.left {
                             return;
                         }
@@ -638,6 +684,49 @@ export component Header inherits Rectangle {
                         }
                     }
                 }
+                Timer {
+                    interval: 600ms;
+                    running: ota.has-hover && !ota.pressed && !tip-mine && phrase-tip.title != "";
+                    triggered => {
+                        tip-mine = true;
+                        show-tip();
+                    }
+                }
+                phrase-menu := PopupWindow {
+                    x: min(menu-x, ov.width - 130px);
+                    y: menu-y;
+                    width: 130px;
+                    Rectangle {
+                        background: Theme.panel-raised;
+                        border-radius: Theme.radius;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        drop-shadow-blur: 8px;
+                        drop-shadow-color: #00000080;
+                    }
+                    VerticalLayout {
+                        padding: 4px;
+                        Rectangle {
+                            height: 24px;
+                            background: pta.has-hover ? Theme.panel-raised.brighter(0.3) : transparent;
+                            border-radius: 4px;
+                            Text {
+                                x: 10px;
+                                text: PhraseView.visible ? "Hide phrases" : "Show phrases";
+                                color: Theme.text;
+                                font-size: 11px;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                            }
+                            pta := TouchArea {
+                                clicked => {
+                                    PhraseView.visible = !PhraseView.visible;
+                                    PhraseView.changed(PhraseView.visible);
+                                }
+                            }
+                        }
+                    }
+                }
             }
             if compact: Text {
                 text: info.loaded ? "-" + info.remaining-seconds : "-0:00";
@@ -659,6 +748,16 @@ export component Header inherits Rectangle {
 
 // The effects every slot can hold, in loaded_effect order (1 = the first);
 // set once from the engine's list.
+// Phrase bars on the deck overviews: shown or hidden from an overview's
+// right-click menu, for every deck at once.
+export global PhraseView {
+    in-out property <bool> visible: true;
+    callback changed(on: bool);
+    // The phrase at `seconds` into the track on `deck`, for the overview's
+    // tooltip; an empty title where there is none.
+    pure callback describe(deck: int, seconds: float) -> PhraseTip;
+}
+
 // Deck actions that aren't controls.
 export global DeckActions {
     // Separates the track on `deck` into stems in the background.
@@ -1109,12 +1208,16 @@ component PanelMenuItem inherits Rectangle {
     ta := TouchArea { clicked => { root.picked(); } }
 }
 
-// The pad tabs: four of them, each showing one panel. Right-click a tab to
-// put a different panel in it.
+// The pad tabs: four at a time, tabs 1-4 or 5-8 (see `first`), each
+// showing one panel. Right-click a tab to put a different panel in it.
 component PadTabs inherits Rectangle {
     in property <[string]> names;
-    in-out property <[int]> slots;
+    in property <[int]> slots;
     in-out property <int> selected;
+    // Puts `panel` in tab `tab`.
+    callback pick(tab: int, panel: int);
+    // The first tab shown: 0 or 4.
+    in property <int> first;
     property <int> menu-tab;
     // Square tabs on top of the pad grid, split by the same black lines:
     // the open one is lit like the pads, the others sit back darker.
@@ -1124,18 +1227,22 @@ component PadTabs inherits Rectangle {
         padding: 1px;
         padding-bottom: 0px;
         spacing: 1px;
-        for panel[i] in slots: Rectangle {
+        for n in 4: Rectangle {
+            property <int> i: first + n;
             horizontal-stretch: 1;
             min-width: 0px;
             preferred-width: 0px;
             background: i == selected ? Theme.panel-raised : Theme.well;
-            Text { text: names[panel]; color: i == selected ? Theme.text : Theme.text-dim; font-size: 10px; font-weight: 600; overflow: elide; }
+            Text { text: names[slots[i]]; color: i == selected ? Theme.text : Theme.text-dim; font-size: 10px; font-weight: 600; overflow: elide; }
             TouchArea {
                 pointer-event(e) => {
                     if e.kind != PointerEventKind.down {
                         return;
                     }
-                    if e.button == PointerEventButton.left {
+                    if e.button == PointerEventButton.left && e.modifiers.shift {
+                        // Its partner, as Shift + a pad mode button.
+                        selected = mod(i + 4, 8);
+                    } else if e.button == PointerEventButton.left {
                         selected = i;
                     } else if e.button == PointerEventButton.right {
                         menu-tab = i;
@@ -1146,7 +1253,7 @@ component PadTabs inherits Rectangle {
         }
     }
     menu := PopupWindow {
-        x: root.width / slots.length * menu-tab;
+        x: root.width / 4 * (menu-tab - first);
         y: root.height + 2px;
         width: 130px;
         Rectangle {
@@ -1163,7 +1270,7 @@ component PadTabs inherits Rectangle {
                 text: name;
                 current: slots[menu-tab] == p;
                 picked => {
-                    slots[menu-tab] = p;
+                    root.pick(menu-tab, p);
                     selected = menu-tab;
                 }
             }
@@ -1171,18 +1278,63 @@ component PadTabs inherits Rectangle {
     }
 }
 
+// The page shifter left of the pads, as rekordbox has it: 1 and 2 when the
+// open pad page has two pages, ‹ and › when it has more, and dimmed ‹ › when
+// it has one.
+component PadPager inherits Rectangle {
+    in property <int> count;
+    in property <int> current;
+    callback pick(page: int);
+    width: 18px;
+    background: #000000;
+    VerticalLayout {
+        padding: 1px;
+        spacing: 1px;
+        for p in 2: Rectangle {
+            property <bool> numbers: count == 2;
+            property <bool> on: numbers && current == p;
+            property <bool> can: numbers || (p == 0 ? current > 0 : current < count - 1);
+            vertical-stretch: 1;
+            background: on ? Theme.accent.with-alpha(0.22) : ta.has-hover && can ? #1d1d20 : Theme.control;
+            Text {
+                text: numbers ? p + 1 : p == 0 ? "‹" : "›";
+                color: on ? Theme.accent : can ? Theme.text : Theme.text-dim.with-alpha(0.4);
+                font-size: numbers ? 11px : 15px;
+                font-weight: 700;
+            }
+            ta := TouchArea {
+                enabled: can;
+                clicked => { root.pick(numbers ? p : p == 0 ? current - 1 : current + 1); }
+            }
+        }
+    }
+}
+
 // Pad grid with pages: a grid of flat cells split by thin
-// black lines. Four tabs hold the hot cues, Pad FX, beat jump and sampler;
-// a right-click on a tab swaps in another panel. The panels are the DDJ-FLX4's
-// eight pad modes (hot cues, Pad FX 1 and 2, beat jump, sampler, keyboard,
-// beat loop and key shift), plus stems and loop rolls.
-export component Pads inherits VerticalLayout {
+// black lines. Eight tabs, four at a time, follow the DDJ-FLX4's pad mode
+// buttons: hot cues, Pad FX 1, beat jump and sampler, then with Shift the
+// keyboard, Pad FX 2, beat loop and key shift (Shift-click a tab for its
+// partner). A right-click on a tab swaps in another panel (stems, loop
+// rolls). The shifter on the left flips the open panel's own pages.
+export component Pads inherits HorizontalLayout {
     in property <int> deck;
     in property <string> group;
     in property <DeckInfo> info;
-    // Which tab is open, and the panel each of the four tabs shows.
+    // Which tab is open, and the panel each of the eight tabs shows: the
+    // deck's `pad_slot_N`, which a controller's pads follow too.
     in-out property <int> tab: 0;
-    in-out property <[int]> slots: [0, 1, 2, 3];
+    property <[int]> slot-index: [
+        Controls.resolve(group, "pad_slot_1"), Controls.resolve(group, "pad_slot_2"),
+        Controls.resolve(group, "pad_slot_3"), Controls.resolve(group, "pad_slot_4"),
+        Controls.resolve(group, "pad_slot_5"), Controls.resolve(group, "pad_slot_6"),
+        Controls.resolve(group, "pad_slot_7"), Controls.resolve(group, "pad_slot_8"),
+    ];
+    property <[int]> slots: [
+        Controls.value(slot-index[0], Controls.tick), Controls.value(slot-index[1], Controls.tick),
+        Controls.value(slot-index[2], Controls.tick), Controls.value(slot-index[3], Controls.tick),
+        Controls.value(slot-index[4], Controls.tick), Controls.value(slot-index[5], Controls.tick),
+        Controls.value(slot-index[6], Controls.tick), Controls.value(slot-index[7], Controls.tick),
+    ];
     property <int> page: slots[tab];
     property <color> tint: Theme.deck-color(deck);
     // Back and forward in pairs, as on the DDJ-FLX4's BEAT JUMP pads.
@@ -1249,9 +1401,19 @@ export component Pads inherits VerticalLayout {
     // KEYBOARD pads take the colour of the hot cue they play.
     property <int> cue-focus: Controls.value(Controls.resolve(group, "hotcue_focus"), Controls.tick);
     property <color> keyboard-tint: cue-focus >= 1 && cue-focus <= 8 ? Theme.hotcues[cue-focus - 1] : tint;
-    property <[string]> samples: ["Kick", "Snare", "Clap", "Hat", "Horn", "Siren", "Laser", "Crash"];
-    // A controller's pad mode buttons ask for a panel through `pad_panel`:
-    // open the tab that shows it, or put it in the open tab.
+    // A controller's pad mode buttons open a tab by its place through
+    // `pad_tab` (0-7), whatever panel is in it.
+    property <int> tab-index: Controls.resolve(group, "pad_tab");
+    property <int> requested-tab: Controls.value(tab-index, Controls.tick);
+    changed requested-tab => {
+        if requested-tab < 0 || requested-tab >= 8 {
+            return;
+        }
+        tab = requested-tab;
+        Controls.set-value(tab-index, -1);
+    }
+    // Or ask for a panel through `pad_panel`: open the tab that shows it,
+    // or put it in the open tab.
     property <int> panel-index: Controls.resolve(group, "pad_panel");
     property <int> requested: Controls.value(panel-index, Controls.tick);
     changed requested => {
@@ -1260,7 +1422,8 @@ export component Pads inherits VerticalLayout {
         }
         let wanted = requested;
         Controls.set-value(panel-index, -1);
-        if slots[0] == wanted {
+        if slots[tab] == wanted {
+        } else if slots[0] == wanted {
             tab = 0;
         } else if slots[1] == wanted {
             tab = 1;
@@ -1268,137 +1431,151 @@ export component Pads inherits VerticalLayout {
             tab = 2;
         } else if slots[3] == wanted {
             tab = 3;
+        } else if slots[4] == wanted {
+            tab = 4;
+        } else if slots[5] == wanted {
+            tab = 5;
+        } else if slots[6] == wanted {
+            tab = 6;
+        } else if slots[7] == wanted {
+            tab = 7;
         } else {
-            slots[tab] = wanted;
+            Controls.set-value(slot-index[tab], wanted);
         }
     }
-    // The tabs sit right on the grid.
-    spacing: 0px;
-    PadTabs { names: ["HOT CUES", "PAD FX 1", "BEAT JUMP", "SAMPLER", "STEMS", "BEAT LOOP", "PAD FX 2", "KEYBOARD", "KEY SHIFT", "LOOP ROLL"]; slots <=> slots; selected <=> tab; }
-    // The black background shows through the 1px gaps as the grid lines.
-    Rectangle {
-        vertical-stretch: 1;
-        background: #000000;
-        border-width: 1px;
-        border-color: #000000;
-        VerticalLayout {
-            padding: 1px;
-            spacing: 1px;
-            for row in [0, 1]: HorizontalLayout {
+    // The sampler's two pages are the deck's `sampler_page`, which its
+    // pads on a controller follow too.
+    property <int> sampler-page-index: Controls.resolve(group, "sampler_page");
+    property <int> sampler-page: Controls.value(sampler-page-index, Controls.tick);
+    spacing: 4px;
+    PadPager {
+        count: page == 3 ? 2 : 1;
+        current: page == 3 ? sampler-page : 0;
+        pick(p) => {
+            if page == 3 {
+                Controls.set-value(sampler-page-index, p);
+            }
+        }
+    }
+    VerticalLayout {
+        horizontal-stretch: 1;
+        // The tabs sit right on the grid.
+        spacing: 0px;
+        PadTabs { names: ["HOT CUES", "PAD FX 1", "BEAT JUMP", "SAMPLER", "STEMS", "BEAT LOOP", "PAD FX 2", "KEYBOARD", "KEY SHIFT", "LOOP ROLL"]; slots: slots; selected <=> tab; pick(t, p) => { Controls.set-value(slot-index[t], p); } first: tab >= 4 ? 4 : 0; }
+        if page == 3: SamplerPanel { bank: sampler-page; vertical-stretch: 1; }
+        // The black background shows through the 1px gaps as the grid lines.
+        if page != 3: Rectangle {
+            vertical-stretch: 1;
+            background: #000000;
+            border-width: 1px;
+            border-color: #000000;
+            VerticalLayout {
+                padding: 1px;
                 spacing: 1px;
-                // Taller when there's room, filling the space under FX and loop.
-                min-height: 26px;
-                vertical-stretch: 1;
-                if page == 0: HorizontalLayout {
+                for row in [0, 1]: HorizontalLayout {
                     spacing: 1px;
-                    horizontal-stretch: 1;
-                    for i in 4: HotcueCell {
-                        group: group;
-                        number: row * 4 + i + 1;
-                        tint: Theme.hotcues[row * 4 + i];
-                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    // Taller when there's room, filling the space under FX and loop.
+                    min-height: 26px;
+                    vertical-stretch: 1;
+                    if page == 0: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for i in 4: HotcueCell {
+                            group: group;
+                            number: row * 4 + i + 1;
+                            tint: Theme.hotcues[row * 4 + i];
+                            horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                        }
                     }
-                }
-                if page == 1: HorizontalLayout {
-                    spacing: 1px;
-                    horizontal-stretch: 1;
-                    for i in 4: PadFxButton { deck: deck; fx: pad-fx[row * 4 + i]; tint: tint; horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
-                }
-                if page == 2: HorizontalLayout {
-                    spacing: 1px;
-                    horizontal-stretch: 1;
-                    for i in 4: PadCell {
-                        group: group;
-                        key: jumps[row * 4 + i].key;
-                        text: jumps[row * 4 + i].text;
-                        tint: tint;
-                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    if page == 1: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for i in 4: PadFxButton { deck: deck; fx: pad-fx[row * 4 + i]; tint: tint; horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
                     }
-                }
-                if page == 3: HorizontalLayout {
-                    spacing: 1px;
-                    horizontal-stretch: 1;
-                    for i in 4: PadCell {
-                        group: "[Sampler" + (row * 4 + i + 1) + "]";
-                        key: "cue_gotoandplay";
-                        light-key: "play_indicator";
-                        text: samples[row * 4 + i];
-                        tint: Theme.hotcues[row * 4 + i];
-                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    if page == 2: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for i in 4: PadCell {
+                            group: group;
+                            key: jumps[row * 4 + i].key;
+                            text: jumps[row * 4 + i].text;
+                            tint: tint;
+                            horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                        }
                     }
-                }
-                if page == 5 || page == 9: HorizontalLayout {
-                    spacing: 1px;
-                    horizontal-stretch: 1;
-                    for i in 4: PadCell {
-                        group: group;
-                        key: page == 5 ? loops[row * 4 + i].key : rolls[row * 4 + i].key;
-                        light-key: page == 5 ? loops[row * 4 + i].light : rolls[row * 4 + i].light;
-                        text: page == 5 ? loops[row * 4 + i].text : rolls[row * 4 + i].text;
-                        tint: tint;
-                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    if page == 5 || page == 9: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for i in 4: PadCell {
+                            group: group;
+                            key: page == 5 ? loops[row * 4 + i].key : rolls[row * 4 + i].key;
+                            light-key: page == 5 ? loops[row * 4 + i].light : rolls[row * 4 + i].light;
+                            text: page == 5 ? loops[row * 4 + i].text : rolls[row * 4 + i].text;
+                            tint: tint;
+                            horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                        }
                     }
-                }
-                if page == 6: HorizontalLayout {
-                    spacing: 1px;
-                    horizontal-stretch: 1;
-                    for i in 4: PadFxButton { deck: deck; fx: pad-fx2[row * 4 + i]; tint: tint; horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
-                }
-                if page == 7 || page == 8: HorizontalLayout {
-                    spacing: 1px;
-                    horizontal-stretch: 1;
-                    for i in 4: KeyPad {
-                        group: group;
-                        keyboard: page == 7;
-                        number: row * 4 + i + 1;
-                        semitones: page == 7 ? keyboard-semitones[row * 4 + i] : key-shift[row * 4 + i];
-                        step: key-steps[row * 4 + i];
-                        tint: page == 7 ? keyboard-tint : tint;
-                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    if page == 6: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for i in 4: PadFxButton { deck: deck; fx: pad-fx2[row * 4 + i]; tint: tint; horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
                     }
-                }
-                if page == 4 && info.stem-names.length > 0: HorizontalLayout {
-                    spacing: 1px;
-                    horizontal-stretch: 1;
-                    for name[i] in info.stem-names: Rectangle {
-                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
-                        property <string> stem-group: "[Channel" + (deck + 1) + "_Stem" + (i + 1) + "]";
-                        if row == 0: StemPad { group: stem-group; text: name; tint: info.stem-colors[i]; }
-                        if row == 1: StemLevel { group: stem-group; tint: info.stem-colors[i]; }
+                    if page == 7 || page == 8: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for i in 4: KeyPad {
+                            group: group;
+                            keyboard: page == 7;
+                            number: row * 4 + i + 1;
+                            semitones: page == 7 ? keyboard-semitones[row * 4 + i] : key-shift[row * 4 + i];
+                            step: key-steps[row * 4 + i];
+                            tint: page == 7 ? keyboard-tint : tint;
+                            horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                        }
                     }
-                }
-                if page == 4 && info.stem-names.length == 0 && row == 0: Rectangle {
-                    horizontal-stretch: 1;
-                    background: !info.can-separate || (info.stem-status != "" && !info.stem-failed) ? Theme.control
-                        : sep.pressed ? Theme.control-pressed : sep.has-hover ? #1d1d20 : Theme.control;
-                    Text {
-                        text: !info.loaded ? "No track loaded"
-                            : info.can-separate && info.stem-failed ? "TRY AGAIN"
-                            : info.can-separate && info.stem-status == "" ? "SEPARATE STEMS"
-                            : info.can-separate ? "Separating…" : "No stems";
-                        font-size: 12px;
-                        font-weight: 700;
-                        color: info.can-separate && (info.stem-status == "" || info.stem-failed) ? tint : Theme.text-dim;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                    if page == 4 && info.stem-names.length > 0: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for name[i] in info.stem-names: Rectangle {
+                            horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                            property <string> stem-group: "[Channel" + (deck + 1) + "_Stem" + (i + 1) + "]";
+                            if row == 0: StemPad { group: stem-group; text: name; tint: info.stem-colors[i]; }
+                            if row == 1: StemLevel { group: stem-group; tint: info.stem-colors[i]; }
+                        }
                     }
-                    sep := TouchArea {
-                        enabled: info.can-separate && (info.stem-status == "" || info.stem-failed);
-                        clicked => { DeckActions.separate-stems(deck); }
+                    if page == 4 && info.stem-names.length == 0 && row == 0: Rectangle {
+                        horizontal-stretch: 1;
+                        background: !info.can-separate || (info.stem-status != "" && !info.stem-failed) ? Theme.control
+                            : sep.pressed ? Theme.control-pressed : sep.has-hover ? #1d1d20 : Theme.control;
+                        Text {
+                            text: !info.loaded ? "No track loaded"
+                                : info.can-separate && info.stem-failed ? "TRY AGAIN"
+                                : info.can-separate && info.stem-status == "" ? "SEPARATE STEMS"
+                                : info.can-separate ? "Separating…" : "No stems";
+                            font-size: 12px;
+                            font-weight: 700;
+                            color: info.can-separate && (info.stem-status == "" || info.stem-failed) ? tint : Theme.text-dim;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        sep := TouchArea {
+                            enabled: info.can-separate && (info.stem-status == "" || info.stem-failed);
+                            clicked => { DeckActions.separate-stems(deck); }
+                        }
                     }
-                }
-                if page == 4 && info.stem-names.length == 0 && row == 1: Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.control;
-                    Text {
-                        width: parent.width - 8px;
-                        text: info.stem-status != "" ? info.stem-status
-                            : info.can-separate ? "Splits drums, bass, other and vocals with Demucs" : "";
-                        font-size: 11px;
-                        color: Theme.text-dim;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                        overflow: elide;
+                    if page == 4 && info.stem-names.length == 0 && row == 1: Rectangle {
+                        horizontal-stretch: 1;
+                        background: Theme.control;
+                        Text {
+                            width: parent.width - 8px;
+                            text: info.stem-status != "" ? info.stem-status
+                                : info.can-separate ? "Splits drums, bass, other and vocals with Demucs" : "";
+                            font-size: 11px;
+                            color: Theme.text-dim;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
                     }
                 }
             }
@@ -1475,6 +1652,26 @@ export component LoopSection inherits VerticalLayout {
     }
 }
 
+// The column beside the tempo fader: pitch reset always at its middle,
+// level with 0%, and key lock under it.
+component PitchSide inherits Rectangle {
+    in property <string> group;
+    in property <color> tint;
+    in property <bool> mirrored;
+    width: 12px;
+    reset := PitchReset {
+        y: (parent.height - self.height) / 2;
+        group: group;
+        tint: tint;
+        points-left: mirrored;
+    }
+    KeyLock {
+        y: reset.y + reset.height + 6px;
+        group: group;
+        right-aligned: mirrored;
+    }
+}
+
 component Pitch inherits VerticalLayout {
     in property <string> group;
     in property <DeckInfo> info;
@@ -1484,27 +1681,14 @@ component Pitch inherits VerticalLayout {
     width: 56px;
     spacing: 4px;
     Text { text: info.rate; color: Theme.text; font-size: 12px; font-weight: 500; horizontal-alignment: center; }
-    // Pitch reset on the outer side, level with 0%, with key lock on top.
+    // Pitch reset on the outer side, level with 0% (the fader's middle),
+    // with key lock just below it.
     HorizontalLayout {
         vertical-stretch: 1;
         spacing: 1px;
-        if !mirrored: VerticalLayout {
-            alignment: center;
-            spacing: 6px;
-            // Room above the lock as tall as the triangle, so the triangle
-            // stays level with 0%.
-            Rectangle { height: 13px; }
-            KeyLock { group: group; }
-            PitchReset { group: group; tint: tint; }
-        }
+        if !mirrored: PitchSide { group: group; tint: tint; }
         ControlFader { group: group; key: "rate"; center-mark: true; ticks: 9; tint: tint; horizontal-stretch: 1; }
-        if mirrored: VerticalLayout {
-            alignment: center;
-            spacing: 6px;
-            Rectangle { height: 13px; }
-            KeyLock { group: group; right-aligned: true; }
-            PitchReset { group: group; tint: tint; points-left: true; }
-        }
+        if mirrored: PitchSide { group: group; tint: tint; mirrored: true; }
     }
     HorizontalLayout {
         spacing: 2px;
@@ -1610,6 +1794,16 @@ export component Deck inherits Rectangle {
     property <string> group: "[Channel" + (deck + 1) + "]";
     property <color> tint: Theme.deck-color(deck);
     // Square panels split by thin black lines.
+    // flight every deck shows a faint outline; the one under the cursor lights up.
+    // First, so the sampler pads' own drop areas sit above it.
+    drop := DropArea {
+        can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
+        dropped(e) => {
+            TrackDrag.drop(deck, e.data);
+            TrackDrag.active = false;
+            DragAction.copy
+        }
+    }
     VerticalLayout {
         spacing: 1px;
 
@@ -1651,15 +1845,6 @@ export component Deck inherits Rectangle {
     }
 
     // Drop target for tracks dragged from the browser. While any drag is in
-    // flight every deck shows a faint outline; the one under the cursor lights up.
-    drop := DropArea {
-        can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
-        dropped(e) => {
-            TrackDrag.drop(deck, e.data);
-            TrackDrag.active = false;
-            DragAction.copy
-        }
-    }
     if TrackDrag.active || drop.has-drag: Rectangle {
         border-radius: Theme.radius + 2px;
         border-width: drop.has-drag ? 3px : 2px;

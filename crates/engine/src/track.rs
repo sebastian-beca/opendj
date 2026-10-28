@@ -328,6 +328,10 @@ pub struct LibraryInfo {
     /// The tempo and first beat came from the library and are kept, rather
     /// than replaced by this app's analysis.
     pub fixed_grid: bool,
+    /// The library's grid was found by this app's analysis, so analysing
+    /// the track again on request may replace it (unlike one the DJ edited
+    /// or an import brought).
+    pub grid_analysed: bool,
     /// When the track joined the library, as a Unix time (0 if unknown).
     pub added: i64,
     /// The library has the track but its file is not on disk.
@@ -428,6 +432,9 @@ pub struct Marker {
     /// "fadeStart".
     pub name: String,
     pub color: Option<u32>,
+    /// Found by this app's analysis (a detected phrase), so analysing
+    /// again replaces it; false for markers from an import.
+    pub detected: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -25,6 +25,8 @@ export struct Folder {
     stage: bool,
     // How many tracks a stage has, shown after its name; -1 for none.
     count: int,
+    // Holds library tracks, so its menu offers Analyze All.
+    analysable: bool,
 }
 
 export struct TrackRow {
@@ -61,6 +63,8 @@ export struct TrackRow {
     // view have one, and only once the track is analysed.
     wave: image,
     has-wave: bool,
+    // Queued for analysis: 1 waiting, 2 being analysed; 0 neither.
+    analysing: int,
 }
 
 // One of the track list's columns. kind: 0 text, 1 the title (takes the
@@ -136,14 +140,12 @@ export global TrackDrag {
     callback drop-side(index: int, data: data-transfer);
 }
 
-// Editing the library: lists and folders, ratings and colours.
+// Editing the library: lists and folders, and ratings.
 export global LibraryEdit {
     // Names of the lists a track can be added to, for the track menu.
     in property <[string]> lists;
     // The selected node is one of the DJ's lists, so a track can be taken out.
     in property <bool> in-list;
-    // Track colours the menu offers, in order.
-    out property <[color]> colors: [#ff3b30, #ff9500, #ffcc00, #34c759, #5ac8fa, #007aff, #af52de, #ff2d55];
     // Makes a list (0) or folder (1) and returns its row in the tree.
     callback create(kind: int) -> int;
     callback rename(index: int, name: string);
@@ -151,12 +153,17 @@ export global LibraryEdit {
     pure callback accepts-drop(index: int, data: data-transfer) -> bool;
     callback drop(index: int, data: data-transfer);
     callback set-rating(row: int, rating: int);
-    // An index into `colors`, or -1 for none.
-    callback set-color(row: int, color: int);
     // The rows `first` to `last`, the tracks picked with shift-click.
     callback add-to-list(first: int, last: int, list: int);
     callback remove-from-list(row: int);
     callback add-to-automix(first: int, last: int);
+    // Analyses the rows `first` to `last` again, in the background.
+    callback analyze(first: int, last: int);
+    // Analyses every track of the tree's row `row`.
+    callback analyze-all(row: int);
+    // "Analyzing 3 of 12" while tracks are queued, for the footer; empty otherwise.
+    in property <string> analysis-status;
+    callback cancel-analysis();
     // The sidebar switched between the library and the history.
     callback show-history(history: bool);
     // A search can be saved as a smart list (the collection is the saved library).
@@ -288,7 +295,6 @@ component MenuSeparator inherits Rectangle {
     Rectangle { height: 1px; background: Theme.border; }
 }
 
-// Right-click menu on a track: rating, colour, and lists.
 // The track menu's lines for moving tracks between the stages, for a
 // track at `stage` (as `LibraryEdit.stage-of` numbers them).
 component StageLines inherits VerticalLayout {
@@ -321,6 +327,7 @@ component StageLines inherits VerticalLayout {
     }
 }
 
+// Right-click menu on a track: rating, stages and lists.
 component TrackMenu inherits PopupWindow {
     in property <int> track-row;
     // The last row picked with shift-click, when the menu is for several.
@@ -348,36 +355,14 @@ component TrackMenu inherits PopupWindow {
                 }
             }
         }
-        HorizontalLayout {
-            height: 28px;
-            padding-left: 10px;
-            spacing: 4px;
-            Text { text: "Colour"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 56px; }
-            for c[i] in LibraryEdit.colors: Rectangle {
-                width: 14px;
-                VerticalLayout {
-                    alignment: center;
-                    Rectangle { height: 14px; border-radius: 7px; background: c; }
-                }
-                TouchArea {
-                    clicked => {
-                        LibraryEdit.set-color(track-row, i);
-                        root.close();
-                    }
-                }
-            }
-            Rectangle {
-                width: 14px;
-                CloseIcon { size: 8px; }
-                TouchArea {
-                    clicked => {
-                        LibraryEdit.set-color(track-row, -1);
-                        root.close();
-                    }
-                }
+        MenuSeparator {}
+        MenuLine {
+            text: track-last > track-row ? "Analyze " + (track-last - track-row + 1) + " Tracks" : "Analyze Track";
+            clicked => {
+                LibraryEdit.analyze(track-row, track-last);
+                root.close();
             }
         }
-        MenuSeparator {}
         if StoreUi.services: MenuLine {
             text: "Find in stores";
             clicked => {
@@ -853,6 +838,8 @@ component FolderTree inherits Rectangle {
     property <int> menu-index;
     property <string> menu-name;
     property <int> menu-kind;
+    property <bool> menu-editable;
+    property <bool> menu-analysable;
     property <length> menu-y;
     folder-menu := PopupWindow {
         x: 40px;
@@ -862,7 +849,15 @@ component FolderTree inherits Rectangle {
         MenuBackground {}
         VerticalLayout {
             padding: 6px;
-            MenuLine {
+            if menu-analysable: MenuLine {
+                text: "Analyze All";
+                clicked => {
+                    LibraryEdit.analyze-all(menu-index);
+                    folder-menu.close();
+                }
+            }
+            if menu-analysable && menu-editable: MenuSeparator {}
+            if menu-editable: MenuLine {
                 text: "Rename…";
                 clicked => {
                     rename-index = menu-index;
@@ -872,7 +867,7 @@ component FolderTree inherits Rectangle {
                     rename-popup.show();
                 }
             }
-            if menu-kind == 3: MenuLine {
+            if menu-editable && menu-kind == 3: MenuLine {
                 text: "Edit search…";
                 clicked => {
                     rename-index = menu-index;
@@ -882,7 +877,7 @@ component FolderTree inherits Rectangle {
                     rename-popup.show();
                 }
             }
-            MenuLine {
+            if menu-editable: MenuLine {
                 text: menu-kind == 1 ? "Delete folder and its lists" : "Delete list";
                 text-color: #ff6b5e;
                 clicked => {
@@ -1062,10 +1057,12 @@ component FolderTree inherits Rectangle {
                         clicked => { select(i); }
                         double-clicked => { toggle(i); }
                         pointer-event(e) => {
-                            if (f.editable || source == 1) && tab == 0 && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                            if (f.editable || f.analysable || source == 1) && tab == 0 && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                                 menu-index = i;
                                 menu-name = f.name;
                                 menu-kind = f.kind;
+                                menu-editable = f.editable;
+                                menu-analysable = f.analysable && source == 0;
                                 menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
                                 if source == 1 { files-menu.show(); } else { folder-menu.show(); }
                             }
@@ -1724,6 +1721,14 @@ component TrackList inherits Rectangle {
                     }
                     Rectangle {
                         width: w-deck;
+                        // Queued for analysis: a dim dot, pulsing lilac while being analysed.
+                        if r.analysing > 0 && r.deck < 0 && !r.missing: Rectangle {
+                            width: 7px;
+                            height: 7px;
+                            border-radius: 3.5px;
+                            background: r.analysing == 2 ? (selected ? Theme.on-row-selection : Theme.lilac) : Theme.text-dim;
+                            opacity: r.analysing == 2 ? 0.35 + 0.65 * abs(sin(animation-tick() / 1ms * 0.25deg)) : 0.6;
+                        }
                         // A Spotify track that isn't in the collection: a hollow green ring.
                         if r.missing: Text {
                             text: "!";

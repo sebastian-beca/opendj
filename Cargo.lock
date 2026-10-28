@@ -5040,22 +5040,23 @@ dependencies = [
 
 [[package]]
 name = "mixxx-control"
-version = "0.3.0"
+version = "0.3.5"
 
 [[package]]
 name = "mixxx-controllers"
-version = "0.3.0"
+version = "0.3.5"
 dependencies = [
  "midir",
  "mixxx-control",
  "mixxx-engine",
  "roxmltree",
  "rquickjs",
+ "serde_json",
 ]
 
 [[package]]
 name = "mixxx-engine"
-version = "0.3.0"
+version = "0.3.5"
 dependencies = [
  "chrono",
  "cpal",
@@ -5075,7 +5076,7 @@ dependencies = [
 
 [[package]]
 name = "mixxx-library"
-version = "0.3.0"
+version = "0.3.5"
 dependencies = [
  "mixxx-engine",
  "rusqlite",
@@ -5083,7 +5084,7 @@ dependencies = [
 
 [[package]]
 name = "mixxx-plugins"
-version = "0.3.0"
+version = "0.3.5"
 dependencies = [
  "mixxx-engine",
  "roxmltree",
@@ -5094,7 +5095,7 @@ dependencies = [
 
 [[package]]
 name = "mixxx-separation"
-version = "0.3.0"
+version = "0.3.5"
 dependencies = [
  "burn",
  "burn-ndarray",
@@ -5108,7 +5109,7 @@ dependencies = [
 
 [[package]]
 name = "mixxx-waveform"
-version = "0.3.0"
+version = "0.3.5"
 dependencies = [
  "ab_glyph",
  "bytemuck",
@@ -5869,7 +5870,7 @@ dependencies = [
 
 [[package]]
 name = "opendj"
-version = "0.3.0"
+version = "0.3.5"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -5898,7 +5899,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-script"
-version = "0.3.0"
+version = "0.3.5"
 dependencies = [
  "mixxx-control",
 ]
@@ -7559,7 +7560,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stem-bench"
-version = "0.3.0"
+version = "0.3.5"
 dependencies = [
  "hound",
  "mixxx-engine",

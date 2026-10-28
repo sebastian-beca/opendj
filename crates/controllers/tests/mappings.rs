@@ -376,9 +376,9 @@ fn ddj_flx4_mixer_pads_and_eq_modes() {
     let before = release.version();
     c.receive(&[0x94, 0x43, 0x7F]);
     assert!(release.version() > before, "SHIFT + ON/OFF releases");
-    // Pad mode buttons ask deck 2 to show the beat jump pads.
+    // Pad mode buttons ask deck 2 to open its third pad tab.
     c.receive(&[0x91, 0x20, 0x7F]);
-    assert_eq!(get(&reg, "[Channel2]", "pad_panel"), 2.0);
+    assert_eq!(get(&reg, "[Channel2]", "pad_tab"), 2.0);
     // SHIFT + left LOAD asks for the Linked tab; each press counts.
     reg.free("[Library]", "ShowLinked");
     c.receive(&[0x96, 0x58, 0x7F]);
@@ -408,24 +408,21 @@ fn ddj_flx4_mixer_pads_and_eq_modes() {
 fn ddj_flx4_pad_modes() {
     let (reg, mut c) = load("Pioneer-DDJ-FLX4.midi.xml");
     settle(&mut c, 50);
-    // Each of the eight pad mode buttons opens its panel on the screen.
-    for (button, panel) in [
+    // Each of the eight pad mode buttons opens its tab on the screen by
+    // place: 1-4, and 5-8 with SHIFT.
+    for (button, tab) in [
         (0x1B, 0.0),
         (0x1E, 1.0),
         (0x20, 2.0),
         (0x22, 3.0),
-        (0x6D, 5.0),
-        (0x6B, 6.0),
-        (0x69, 7.0),
-        (0x6F, 8.0),
+        (0x69, 4.0),
+        (0x6B, 5.0),
+        (0x6D, 6.0),
+        (0x6F, 7.0),
     ] {
         c.receive(&[0x90, button, 0x7F]);
         c.receive(&[0x90, button, 0x00]);
-        assert_eq!(
-            get(&reg, "[Channel1]", "pad_panel"),
-            panel,
-            "button {button:x}"
-        );
+        assert_eq!(get(&reg, "[Channel1]", "pad_tab"), tab, "button {button:x}");
     }
     // KEYBOARD pads press keyboard_N_activate while held.
     c.receive(&[0x97, 0x41, 0x7F]);
@@ -441,14 +438,14 @@ fn ddj_flx4_pad_modes() {
     // KEYBOARD, and KEYBOARD again: the stems pads, which mute stem 1.
     reg.get("[Channel1]", "stem_count").unwrap().set(4.0);
     c.receive(&[0x90, 0x69, 0x7F]);
-    assert_eq!(get(&reg, "[Channel1]", "pad_panel"), 7.0);
+    assert_eq!(get(&reg, "[Channel1]", "pad_tab"), 4.0);
     c.receive(&[0x90, 0x69, 0x7F]);
-    assert_eq!(get(&reg, "[Channel1]", "pad_panel"), 4.0);
+    assert_eq!(get(&reg, "[Channel1]", "pad_slot_5"), 4.0);
     c.receive(&[0x97, 0x40, 0x7F]);
     assert_eq!(get(&reg, "[Channel1_Stem1]", "mute"), 1.0);
     // And once more, back to the keyboard.
     c.receive(&[0x90, 0x69, 0x7F]);
-    assert_eq!(get(&reg, "[Channel1]", "pad_panel"), 7.0);
+    assert_eq!(get(&reg, "[Channel1]", "pad_slot_5"), 7.0);
     // BEAT LOOP pad 1 is a quarter-beat loop.
     c.receive(&[0x97, 0x60, 0x7F]);
     assert_eq!(get(&reg, "[Channel1]", "beatloop_0.25_toggle"), 1.0);
@@ -469,5 +466,73 @@ fn ddj_flx4_pad_modes() {
         get(&reg, "[EffectRack1_EffectUnit6_Effect1]", "loaded_effect"),
         1.0
     );
+    assert_eq!(c.errors(), Vec::<String>::new());
+}
+
+#[test]
+fn ddj_flx4_sampler_pads_follow_the_page() {
+    let (reg, mut c) = load("Pioneer-DDJ-FLX4.midi.xml");
+    settle(&mut c, 50);
+    // Page 1: the left and right pads play slots 1-8 alike.
+    c.receive(&[0x97, 0x30, 0x7F]);
+    assert_eq!(get(&reg, "[Sampler1]", "cue_gotoandplay"), 1.0);
+    c.receive(&[0x97, 0x30, 0x00]);
+    c.receive(&[0x99, 0x34, 0x7F]);
+    assert_eq!(get(&reg, "[Sampler5]", "cue_gotoandplay"), 1.0);
+    c.receive(&[0x99, 0x34, 0x00]);
+    // The right deck on page 2: its first pad plays slot 9, and its LEDs
+    // show slots 9-16, which are empty.
+    c.take_output();
+    reg.get("[Channel2]", "sampler_page").unwrap().set(1.0);
+    settle(&mut c, 5);
+    let out = c.take_output();
+    assert!(out.iter().any(|m| m[..] == [0x99, 0x30, 0x00]), "{out:x?}");
+    // Empty, so the pad asks for the track selected in the library.
+    c.receive(&[0x99, 0x30, 0x7F]);
+    assert_eq!(get(&reg, "[Sampler9]", "LoadSelectedTrack"), 1.0);
+    c.receive(&[0x99, 0x30, 0x00]);
+    reg.get("[Sampler9]", "track_loaded").unwrap().set(1.0);
+    settle(&mut c, 5);
+    let out = c.take_output();
+    assert!(out.iter().any(|m| m[..] == [0x99, 0x30, 0x7F]), "{out:x?}");
+    c.receive(&[0x99, 0x30, 0x7F]);
+    assert_eq!(get(&reg, "[Sampler9]", "cue_gotoandplay"), 1.0);
+    assert_eq!(get(&reg, "[Sampler1]", "cue_gotoandplay"), 0.0);
+}
+
+#[test]
+fn ddj_flx4_pads_follow_the_tabs() {
+    let (reg, mut c) = load("Pioneer-DDJ-FLX4.midi.xml");
+    settle(&mut c, 50);
+    reg.get("[Channel1]", "stem_count").unwrap().set(4.0);
+    // STEMS in tab 4: SAMPLER opens it, and its pads mute stems.
+    reg.get("[Channel1]", "pad_slot_4").unwrap().set(4.0);
+    settle(&mut c, 5);
+    c.receive(&[0x90, 0x22, 0x7F]);
+    c.receive(&[0x90, 0x22, 0x00]);
+    assert_eq!(get(&reg, "[Channel1]", "pad_tab"), 3.0);
+    c.take_output();
+    c.receive(&[0x97, 0x30, 0x7F]);
+    c.receive(&[0x97, 0x30, 0x00]);
+    assert_eq!(get(&reg, "[Channel1_Stem1]", "mute"), 1.0);
+    assert_eq!(get(&reg, "[Sampler1]", "cue_gotoandplay"), 0.0);
+    // The stem's light shows on the SAMPLER pad.
+    settle(&mut c, 5);
+    let out = c.take_output();
+    assert!(out.iter().any(|m| m[..] == [0x97, 0x30, 0x00]), "{out:x?}");
+    // LOOP ROLL in tab 1: HOT CUE pads roll while held.
+    reg.get("[Channel1]", "pad_slot_1").unwrap().set(9.0);
+    settle(&mut c, 5);
+    c.receive(&[0x90, 0x1B, 0x7F]);
+    c.receive(&[0x97, 0x02, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "beatlooproll_0.25_activate"), 1.0);
+    c.receive(&[0x97, 0x02, 0x00]);
+    assert_eq!(get(&reg, "[Channel1]", "beatlooproll_0.25_activate"), 0.0);
+    assert_eq!(get(&reg, "[Channel1]", "hotcue_3_activate"), 0.0);
+    // Back to hot cues.
+    reg.get("[Channel1]", "pad_slot_1").unwrap().set(0.0);
+    settle(&mut c, 5);
+    c.receive(&[0x97, 0x02, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "hotcue_3_activate"), 1.0);
     assert_eq!(c.errors(), Vec::<String>::new());
 }

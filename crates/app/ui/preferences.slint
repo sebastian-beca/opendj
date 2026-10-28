@@ -15,10 +15,12 @@ export struct PrefItem {
     // 0 switch, 1 menu, 2 button, 3 file or folder with a Choose button,
     // 4 the output routes table, 5 headphone and booth level knobs, 6 a
     // note, 7 a heading, 8 segmented buttons, 9 a text field (hidden
-    // typing when `on`, for a password), 10 a keyboard shortcut: its key
-    // in `title` (none for the row that adds one), its openDJscript line
-    // in `value`, the verbs to pick from in `choices`, the button's label
-    // in `action`; `on` shows `detail` as a mistake.
+    // typing when `on`, for a password), 10 a controller: its mapping menu
+    // with Edit (when `action` is set) and Remove, pressing id + "#edit"
+    // and id + "#remove", 11 a keyboard shortcut: its key in `title` (none
+    // for the row that adds one), its openDJscript line in `value`, the
+    // verbs to pick from in `choices`, the button's label in `action`; `on`
+    // shows `detail` as a mistake.
     kind: int,
     title: string,
     detail: string,
@@ -37,6 +39,10 @@ export global Preferences {
     in-out property <bool> open;
     in-out property <int> page;
     in-out property <string> query;
+    // The page's tabs (Library has General, Stages, Fields and one for
+    // each app imported from); most pages have none.
+    in property <[string]> tabs;
+    in-out property <int> tab;
     in property <[PrefItem]> items;
     // The app adds a page for each plugin with settings after these.
     in-out property <[string]> pages: ["Audio", "Controllers", "Library", "Analysis", "Decks", "Mixer", "Keyboard", "Feedback"];
@@ -55,6 +61,9 @@ export global Preferences {
     in-out property <int> refocus;
 
     public function show(p: int) {
+        if p != page {
+            tab = 0;
+        }
         page = p;
         query = "";
         open = true;
@@ -287,7 +296,7 @@ component PrefRow inherits Rectangle {
             font-weight: 600;
             letter-spacing: 0.6px;
         }
-        if item.kind == 10: HorizontalLayout {
+        if item.kind == 11: HorizontalLayout {
             spacing: 10px;
             VerticalLayout {
                 alignment: start;
@@ -329,7 +338,7 @@ component PrefRow inherits Rectangle {
                 }
             }
         }
-        if item.kind != 7 && item.kind != 10: HorizontalLayout {
+        if item.kind != 7 && item.kind != 11: HorizontalLayout {
             spacing: 16px;
             VerticalLayout {
                 horizontal-stretch: 1;
@@ -359,6 +368,37 @@ component PrefRow inherits Rectangle {
             if item.kind == 2: VerticalLayout {
                 alignment: center;
                 Button { text: item.action; clicked => { Preferences.pressed(item.id); } }
+            }
+            if item.kind == 10: HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    alignment: center;
+                    MenuField {
+                        width: 260px;
+                        text: item.choices[item.chosen];
+                        choices: item.choices;
+                        chosen: item.chosen;
+                        menu-width: 300px;
+                        picked(i) => { Preferences.picked(item.id, i); }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Button {
+                        text: "Edit";
+                        min-width: 64px;
+                        opacity: item.action != "" ? 1 : 0.4;
+                        clicked => {
+                            if item.action != "" {
+                                Preferences.pressed(item.id + "#edit");
+                            }
+                        }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Button { text: "Remove"; min-width: 64px; clicked => { Preferences.pressed(item.id + "#remove"); } }
+                }
             }
             if item.kind == 9: VerticalLayout {
                 alignment: center;
@@ -405,7 +445,7 @@ component PrefRow inherits Rectangle {
     if item.kind != 7: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.separator; }
 }
 
-component SearchField inherits Rectangle {
+export component SearchField inherits Rectangle {
     in-out property <string> text;
     callback edited();
     height: 30px;
@@ -446,7 +486,7 @@ component SearchField inherits Rectangle {
 }
 
 // Close button, top right of the window.
-component CloseButton inherits Rectangle {
+export component CloseButton inherits Rectangle {
     callback clicked();
     width: 26px;
     height: 26px;
@@ -622,6 +662,19 @@ export component PreferencesOverlay inherits Rectangle {
                     VerticalLayout {
                         alignment: center;
                         CloseButton { clicked => { Preferences.open = false; } }
+                    }
+                }
+                if !searching && Preferences.tabs.length > 0: HorizontalLayout {
+                    alignment: start;
+                    padding-top: 6px;
+                    padding-bottom: 4px;
+                    Segmented {
+                        choices: Preferences.tabs;
+                        chosen: Preferences.tab;
+                        picked(i) => {
+                            Preferences.tab = i;
+                            Preferences.changed();
+                        }
                     }
                 }
                 Flickable {

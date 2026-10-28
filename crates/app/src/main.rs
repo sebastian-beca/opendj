@@ -34,6 +34,7 @@ mod analysis_queue;
 mod art;
 mod automix;
 mod browser;
+mod controller_editor;
 mod cover_scan;
 mod coverart;
 mod diagnostics;
@@ -44,6 +45,7 @@ mod mac_menu;
 #[cfg(target_os = "macos")]
 mod mac_titlebar;
 mod prefs;
+mod sampler;
 mod settings;
 mod shortcuts;
 mod smooth;
@@ -372,12 +374,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.on_waveforms_visible_changed(|on| {
         settings::set("waveforms_visible", serde_json::json!(on))
     });
-    // Phrase bars on the waveforms, shown or hidden from a waveform's
-    // right-click menu.
-    app.set_phrases_visible(settings::flag("phrases_visible", true));
+    // Phrase bars on the deck overviews, shown or hidden from an
+    // overview's right-click menu.
+    let phrase_view = app.global::<PhraseView>();
+    phrase_view.set_visible(settings::flag("phrases_visible", true));
     {
         let app_weak = app.as_weak();
-        app.on_phrases_visible_changed(move |on| {
+        phrase_view.on_changed(move |on| {
             settings::set("phrases_visible", serde_json::json!(on));
             if let Some(app) = app_weak.upgrade() {
                 app.window().request_redraw();
@@ -434,6 +437,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &registry,
     );
     let sources = sources::Sources::install(&app, library_path.clone());
+    let sampler = sampler::Sampler::install(&app, engine.clone(), browser.clone(), &registry);
     let automix = Rc::new(RefCell::new(automix::AutoMix::new(&registry)));
     {
         let a = automix.clone();
@@ -500,7 +504,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if settings::scan_on_start() {
         sync_library(library_path.clone(), scan_tx.clone());
     }
+    let controller_editor = controller_editor::Editor::install(&app, controllers.clone());
     prefs::apply_saved(&registry);
+    let _levels = prefs::remember_levels(registry.clone());
     let prefs = prefs::Prefs::install(
         &app,
         registry.clone(),
@@ -590,6 +596,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })?;
     }
 
+    // The overview's tooltip: the phrase under the pointer.
+    {
+        let gpu = gpu.clone();
+        app.global::<PhraseView>().on_describe(move |d, seconds| {
+            let gpu = gpu.try_borrow().ok();
+            let cached = gpu
+                .as_ref()
+                .and_then(|g| g.as_ref()?.phrases.get(d as usize)?.as_ref());
+            cached
+                .and_then(|(t, p)| phrase_tip(p, t.duration, t.bpm, seconds as f64))
+                .unwrap_or_default()
+        });
+    }
+
     // A newer release: checked once per start, offered while nothing plays.
     let update_check = update::check();
     let update: Rc<RefCell<Option<update::Release>>> = Default::default();
@@ -639,6 +659,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let alert_until: Cell<Option<Instant>> = Cell::new(None);
     let alert_engine = engine.clone();
     let layout_version = Cell::new(layout_control.version());
+    // Switched off or on from the crossfader's menu, a controller or a
+    // script: remembered for next time, as the Settings switch is.
+    let xfader_enabled = registry.create(
+        "[Mixer]",
+        "crossfader_enabled",
+        1.0,
+        0.0,
+        1.0,
+        mixxx_control::Behavior::Toggle,
+    );
+    let xfader_version = Cell::new(xfader_enabled.version());
     // What the screen last showed, to redraw only when something changed.
     let shown_controls = Cell::new(u64::MAX);
     let shown_tracks: RefCell<[Option<Arc<Track>>; NUM_DECKS]> = Default::default();
@@ -673,6 +704,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     app.set_layout(layout);
                     settings::set("layout", serde_json::json!(layout));
                     reset_layers(layout);
+                }
+                if xfader_version.replace(xfader_enabled.version()) != xfader_enabled.version() {
+                    let on = xfader_enabled.get_bool();
+                    if settings::flag("xfader_enabled", true) != on {
+                        settings::set("xfader_enabled", serde_json::json!(on));
+                    }
                 }
                 // The newest alert shows for a while; a click closes it.
                 if let Some(message) = alert_engine.take_alerts().pop() {
@@ -745,7 +782,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 browser.borrow_mut().poll_analysis();
                 browser.borrow_mut().poll_covers();
                 browser.borrow_mut().poll_files();
+                sampler.borrow_mut().poll();
                 prefs.borrow_mut().poll();
+                controller_editor.borrow_mut().poll();
                 if let Some(c) = &controllers {
                     let names: Vec<String> = c.connected().into_iter().map(|c| c.port).collect();
                     let status = if names.is_empty() {
@@ -775,6 +814,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &app,
                     std::array::from_fn(|d| tracks[d].as_ref().map(|t| t.id)),
                 );
+                b.learn_deck_phrases(&tracks);
                 b.learn_analysis(&tracks);
                 b.keep(&tracks, 0.016);
                 let mut host = browser::AutomixHost {
@@ -847,7 +887,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let weak = weak.clone();
                 added.set(mac_menu::add_settings_item(move || {
                     if let Some(app) = weak.upgrade() {
-                        app.global::<Preferences>().set_open(true);
+                        let prefs = app.global::<Preferences>();
+                        if !prefs.get_open() {
+                            prefs.invoke_show(prefs.get_page());
+                        }
                     }
                 }));
             },
@@ -1488,7 +1531,7 @@ impl Gpu {
         let mut changed = !self.images_set;
         self.moving = false;
         let four = app.get_layout() == FOUR_DECK_LAYOUT;
-        let show_phrases = app.get_phrases_visible();
+        let show_phrases = app.global::<PhraseView>().get_visible();
         for (d, track) in tracks.iter().enumerate() {
             changed |= self.scrolling[d].resize(&self.device, ww, wh);
             changed |= self.overview[d].resize(&self.device, ow, oh);
@@ -1537,15 +1580,17 @@ impl Gpu {
             if d >= 2 && !four {
                 continue;
             }
-            for view in [&mut self.scrolling[d], &mut self.overview[d]] {
+            // Phrases show only on the deck's overview.
+            let scrolling_frame = frame.as_ref().map(|f| Frame {
+                phrases: Vec::new(),
+                ..f.clone()
+            });
+            for (view, frame) in [
+                (&mut self.scrolling[d], scrolling_frame.as_ref()),
+                (&mut self.overview[d], frame.as_ref()),
+            ] {
                 view.set_track(&self.device, &self.renderer, gpu_track.as_ref());
-                view.render(
-                    &self.device,
-                    &self.queue,
-                    &self.renderer,
-                    frame.as_ref(),
-                    scale,
-                );
+                view.render(&self.device, &self.queue, &self.renderer, frame, scale);
             }
         }
         if changed {
@@ -1566,12 +1611,19 @@ impl Gpu {
 }
 
 impl Gpu {
-    /// Deck `d`'s phrases for the waveforms, found once per track.
+    /// Deck `d`'s phrases for the waveforms, found once per track: the
+    /// library's until its waveform is ready, then found from the waveform
+    /// and the grid as they are now.
     fn phrases(&mut self, d: usize, t: &Arc<Track>) -> Phrases {
         match &self.phrases[d] {
             Some((cached, p)) if Arc::ptr_eq(cached, t) => p.clone(),
             _ => {
-                let p: Vec<_> = phrases::detect(t)
+                let found = if phrases::waveform_ready(t) {
+                    phrases::detect(t)
+                } else {
+                    phrases::stored(t)
+                };
+                let p: Vec<_> = found
                     .into_iter()
                     .map(|p| {
                         let kind = match p.kind {
@@ -1580,6 +1632,7 @@ impl Gpu {
                             phrases::PhraseKind::Drop => PhraseKind::Drop,
                             phrases::PhraseKind::Breakdown => PhraseKind::Breakdown,
                             phrases::PhraseKind::Outro => PhraseKind::Outro,
+                            phrases::PhraseKind::Chorus => PhraseKind::Chorus,
                         };
                         (p.start, kind)
                     })
@@ -1589,6 +1642,37 @@ impl Gpu {
             }
         }
     }
+}
+
+/// The tooltip for the phrase at `seconds`: its kind, then its length in
+/// bars and where it starts and ends.
+fn phrase_tip(phrases: &Phrases, duration: f64, bpm: f64, seconds: f64) -> Option<PhraseTip> {
+    let i = phrases.iter().rposition(|(start, _)| *start <= seconds)?;
+    let (start, kind) = phrases[i];
+    let end = phrases.get(i + 1).map_or(duration, |(s, _)| *s);
+    let title = match kind {
+        PhraseKind::Intro => "INTRO",
+        PhraseKind::Build => "BUILD-UP",
+        PhraseKind::Drop => "DROP",
+        PhraseKind::Breakdown => "BREAKDOWN",
+        PhraseKind::Outro => "OUTRO",
+        PhraseKind::Chorus => "CHORUS",
+    };
+    let mmss = |s: f64| {
+        let s = s.max(0.0).round() as u64;
+        format!("{}:{:02}", s / 60, s % 60)
+    };
+    let range = format!("{} – {}", mmss(start), mmss(end));
+    let bars = ((end - start) * bpm / 240.0).round();
+    let body = if bpm > 0.0 && bars >= 1.0 {
+        format!("{bars} bars · {range}")
+    } else {
+        range
+    };
+    Some(PhraseTip {
+        title: title.into(),
+        body: body.into(),
+    })
 }
 
 /// The beat number of the track's first bar: the first bar line at or
