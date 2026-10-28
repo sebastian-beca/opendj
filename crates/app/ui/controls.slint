@@ -187,6 +187,8 @@ export component ControlButton inherits Rectangle {
     // Pressed instead while Shift is held, as a momentary push (Shift+SYNC
     // syncs once).
     in property <string> shift-key;
+    // A right-click, for a button with a menu (SYNC's quantize).
+    callback right-clicked();
     property <int> shift-index: shift-key == "" ? -1 : Controls.resolve(group, shift-key);
     property <bool> shift-held;
     property <color> label-color: lit ? (fill-when-lit ? #ffffff : root.tint) : Theme.text;
@@ -250,6 +252,10 @@ export component ControlButton inherits Rectangle {
 
     touch := TouchArea {
         pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                root.right-clicked();
+                return;
+            }
             if e.button != PointerEventButton.left {
                 return;
             }
@@ -673,80 +679,34 @@ export component KeyLock inherits Rectangle {
     }
 }
 
-// Quantize, as djay has it beside SYNC: the Q turns it on and off for the
-// deck, the arrow picks what it snaps to, 1/16 of a beat up to a bar.
-export component QuantizeButton inherits Rectangle {
+// SYNC (Shift-click syncs once). A right-click opens the deck's quantize:
+// on and off, and what it snaps to, 1/16 of a beat up to a bar.
+export component SyncButton inherits Rectangle {
     in property <string> group;
+    in property <color> tint: Theme.accent;
+    in property <length> font-size: Theme.font-normal;
+    // Open the menu leftwards, for a button on the window's right edge.
+    in property <bool> menu-right-aligned;
     property <int> index: Controls.resolve(group, "quantize");
     property <int> beats-index: Controls.resolve(group, "quantize_beats");
     property <bool> lit: Controls.value(index, Controls.tick) > 0;
     property <float> beats: Controls.value(beats-index, Controls.tick);
-    property <color> ink: lit ? Theme.accent : qta.has-hover ? Theme.text : Theme.text-dim;
-    property <bool> tip-mine;
-    preferred-width: 46px;
+    preferred-width: 28px;
     preferred-height: 22px;
-    border-radius: Theme.radius;
-    background: lit ? Theme.accent.with-alpha(0.14) : Theme.control;
-    border-width: 1px;
-    border-color: lit ? Theme.accent : Theme.border;
-    HorizontalLayout {
-        Rectangle {
-            horizontal-stretch: 1;
-            background: qta.pressed ? Theme.control-pressed : transparent;
-            Rectangle {
-                width: 15px;
-                height: 15px;
-                border-radius: 7.5px;
-                border-width: 1.4px;
-                border-color: ink;
-                Text { text: "Q"; color: ink; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
-            }
-            qta := TouchArea {
-                mouse-cursor: pointer;
-                clicked => { Controls.toggle(index); }
-                changed has-hover => {
-                    if !self.has-hover && tip-mine {
-                        tip-mine = false;
-                        HoverTip.shown = false;
-                    }
-                }
-            }
-        }
-        Rectangle { width: 1px; background: lit ? Theme.accent.with-alpha(0.5) : Theme.border; }
-        Rectangle {
-            width: 15px;
-            background: ata.pressed ? Theme.control-pressed : transparent;
-            Path {
-                width: 8px;
-                height: 8px;
-                viewbox-width: 10;
-                viewbox-height: 10;
-                stroke: ata.has-hover ? Theme.text : Theme.text-dim;
-                stroke-width: 1.5px;
-                fill: transparent;
-                commands: "M 1.5 3.5 L 5 7 L 8.5 3.5";
-            }
-            ata := TouchArea {
-                mouse-cursor: pointer;
-                clicked => { menu.show(); }
-            }
-        }
-    }
-    Timer {
-        interval: 600ms;
-        running: qta.has-hover && !tip-mine;
-        triggered => {
-            tip-mine = true;
-            HoverTip.title = "QUANTIZE";
-            HoverTip.body = "Cues, loops and play snap to the beat, in step with the other deck.\nThe arrow sets the step";
-            HoverTip.right-aligned = false;
-            HoverTip.x = root.absolute-position.x;
-            HoverTip.y = root.absolute-position.y + root.height + 6px;
-            HoverTip.shown = true;
-        }
+    ControlButton {
+        width: parent.width;
+        height: parent.height;
+        group: group;
+        key: "sync_enabled";
+        shift-key: "beatsync";
+        text: "SYNC";
+        tint: tint;
+        fill-when-lit: true;
+        font-size: root.font-size;
+        right-clicked => { menu.show(); }
     }
     menu := PopupWindow {
-        x: 0px;
+        x: menu-right-aligned ? root.width - self.width : 0px;
         y: root.height + 4px;
         width: 214px;
         close-policy: close-on-click-outside;

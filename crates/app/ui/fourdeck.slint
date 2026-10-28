@@ -7,7 +7,7 @@
 // deck number is clicked: then that side plays deck 3 or 4.
 import { TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
-import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, StereoMeter } from "controls.slint";
+import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, StereoMeter, SyncButton } from "controls.slint";
 import { DeckInfo, Header, LoopStepper, Pads, PlayButton, TempoStep } from "deck.slint";
 import { AudioSettings, Knob, ModeMenu, SideKnob } from "mixer.slint";
 
@@ -251,7 +251,7 @@ component DeckBarSection inherits Rectangle {
         spacing: 22px;
         alignment: start;
         if !right: CrossfaderAssign { deck: deck; }
-        ControlButton { group: group; key: "sync_enabled"; shift-key: "beatsync"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 12px; width: 60px; height: 28px; y: (parent.height - self.height) / 2; }
+        SyncButton { group: group; tint: tint; menu-right-aligned: right; font-size: 12px; width: 60px; height: 28px; y: (parent.height - self.height) / 2; }
         VerticalLayout {
             width: 52px;
             alignment: center;
