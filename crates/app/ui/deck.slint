@@ -1208,12 +1208,14 @@ component PanelMenuItem inherits Rectangle {
     ta := TouchArea { clicked => { root.picked(); } }
 }
 
-// The pad tabs: four of them, each showing one panel. Right-click a tab to
-// put a different panel in it.
+// The pad tabs: four at a time, tabs 1-4 or 5-8 (see `first`), each
+// showing one panel. Right-click a tab to put a different panel in it.
 component PadTabs inherits Rectangle {
     in property <[string]> names;
     in-out property <[int]> slots;
     in-out property <int> selected;
+    // The first tab shown: 0 or 4.
+    in property <int> first;
     property <int> menu-tab;
     // Square tabs on top of the pad grid, split by the same black lines:
     // the open one is lit like the pads, the others sit back darker.
@@ -1223,18 +1225,22 @@ component PadTabs inherits Rectangle {
         padding: 1px;
         padding-bottom: 0px;
         spacing: 1px;
-        for panel[i] in slots: Rectangle {
+        for n in 4: Rectangle {
+            property <int> i: first + n;
             horizontal-stretch: 1;
             min-width: 0px;
             preferred-width: 0px;
             background: i == selected ? Theme.panel-raised : Theme.well;
-            Text { text: names[panel]; color: i == selected ? Theme.text : Theme.text-dim; font-size: 10px; font-weight: 600; overflow: elide; }
+            Text { text: names[slots[i]]; color: i == selected ? Theme.text : Theme.text-dim; font-size: 10px; font-weight: 600; overflow: elide; }
             TouchArea {
                 pointer-event(e) => {
                     if e.kind != PointerEventKind.down {
                         return;
                     }
-                    if e.button == PointerEventButton.left {
+                    if e.button == PointerEventButton.left && e.modifiers.shift {
+                        // Its partner, as Shift + a pad mode button.
+                        selected = mod(i + 4, 8);
+                    } else if e.button == PointerEventButton.left {
                         selected = i;
                     } else if e.button == PointerEventButton.right {
                         menu-tab = i;
@@ -1245,7 +1251,7 @@ component PadTabs inherits Rectangle {
         }
     }
     menu := PopupWindow {
-        x: root.width / slots.length * menu-tab;
+        x: root.width / 4 * (menu-tab - first);
         y: root.height + 2px;
         width: 130px;
         Rectangle {
@@ -1270,18 +1276,51 @@ component PadTabs inherits Rectangle {
     }
 }
 
+// The page shifter left of the pads, as rekordbox has it: 1 and 2 when the
+// open pad page has two pages, ‹ and › when it has more, and dimmed ‹ › when
+// it has one.
+component PadPager inherits Rectangle {
+    in property <int> count;
+    in property <int> current;
+    callback pick(page: int);
+    width: 18px;
+    background: #000000;
+    VerticalLayout {
+        padding: 1px;
+        spacing: 1px;
+        for p in 2: Rectangle {
+            property <bool> numbers: count == 2;
+            property <bool> on: numbers && current == p;
+            property <bool> can: numbers || (p == 0 ? current > 0 : current < count - 1);
+            vertical-stretch: 1;
+            background: on ? Theme.accent.with-alpha(0.22) : ta.has-hover && can ? #1d1d20 : Theme.control;
+            Text {
+                text: numbers ? p + 1 : p == 0 ? "‹" : "›";
+                color: on ? Theme.accent : can ? Theme.text : Theme.text-dim.with-alpha(0.4);
+                font-size: numbers ? 11px : 15px;
+                font-weight: 700;
+            }
+            ta := TouchArea {
+                enabled: can;
+                clicked => { root.pick(numbers ? p : p == 0 ? current - 1 : current + 1); }
+            }
+        }
+    }
+}
+
 // Pad grid with pages: a grid of flat cells split by thin
-// black lines. Four tabs hold the hot cues, Pad FX, beat jump and sampler;
-// a right-click on a tab swaps in another panel. The panels are the DDJ-FLX4's
-// eight pad modes (hot cues, Pad FX 1 and 2, beat jump, sampler, keyboard,
-// beat loop and key shift), plus stems and loop rolls.
-export component Pads inherits VerticalLayout {
+// black lines. Eight tabs, four at a time, follow the DDJ-FLX4's pad mode
+// buttons: hot cues, Pad FX 1, beat jump and sampler, then with Shift the
+// keyboard, Pad FX 2, beat loop and key shift (Shift-click a tab for its
+// partner). A right-click on a tab swaps in another panel (stems, loop
+// rolls). The shifter on the left flips the open panel's own pages.
+export component Pads inherits HorizontalLayout {
     in property <int> deck;
     in property <string> group;
     in property <DeckInfo> info;
-    // Which tab is open, and the panel each of the four tabs shows.
+    // Which tab is open, and the panel each of the eight tabs shows.
     in-out property <int> tab: 0;
-    in-out property <[int]> slots: [0, 1, 2, 3];
+    in-out property <[int]> slots: [0, 1, 2, 3, 7, 6, 5, 8];
     property <int> page: slots[tab];
     property <color> tint: Theme.deck-color(deck);
     // Back and forward in pairs, as on the DDJ-FLX4's BEAT JUMP pads.
@@ -1348,8 +1387,19 @@ export component Pads inherits VerticalLayout {
     // KEYBOARD pads take the colour of the hot cue they play.
     property <int> cue-focus: Controls.value(Controls.resolve(group, "hotcue_focus"), Controls.tick);
     property <color> keyboard-tint: cue-focus >= 1 && cue-focus <= 8 ? Theme.hotcues[cue-focus - 1] : tint;
-    // A controller's pad mode buttons ask for a panel through `pad_panel`:
-    // open the tab that shows it, or put it in the open tab.
+    // A controller's pad mode buttons open a tab by its place through
+    // `pad_tab` (0-7), whatever panel is in it.
+    property <int> tab-index: Controls.resolve(group, "pad_tab");
+    property <int> requested-tab: Controls.value(tab-index, Controls.tick);
+    changed requested-tab => {
+        if requested-tab < 0 || requested-tab >= 8 {
+            return;
+        }
+        tab = requested-tab;
+        Controls.set-value(tab-index, -1);
+    }
+    // Or ask for a panel through `pad_panel`: open the tab that shows it,
+    // or put it in the open tab.
     property <int> panel-index: Controls.resolve(group, "pad_panel");
     property <int> requested: Controls.value(panel-index, Controls.tick);
     changed requested => {
@@ -1358,7 +1408,8 @@ export component Pads inherits VerticalLayout {
         }
         let wanted = requested;
         Controls.set-value(panel-index, -1);
-        if slots[0] == wanted {
+        if slots[tab] == wanted {
+        } else if slots[0] == wanted {
             tab = 0;
         } else if slots[1] == wanted {
             tab = 1;
@@ -1366,126 +1417,151 @@ export component Pads inherits VerticalLayout {
             tab = 2;
         } else if slots[3] == wanted {
             tab = 3;
+        } else if slots[4] == wanted {
+            tab = 4;
+        } else if slots[5] == wanted {
+            tab = 5;
+        } else if slots[6] == wanted {
+            tab = 6;
+        } else if slots[7] == wanted {
+            tab = 7;
         } else {
             slots[tab] = wanted;
         }
     }
-    // The tabs sit right on the grid.
-    spacing: 0px;
-    PadTabs { names: ["HOT CUES", "PAD FX 1", "BEAT JUMP", "SAMPLER", "STEMS", "BEAT LOOP", "PAD FX 2", "KEYBOARD", "KEY SHIFT", "LOOP ROLL"]; slots <=> slots; selected <=> tab; }
-    if page == 3: SamplerPanel { deck: deck; group: group; vertical-stretch: 1; }
-    // The black background shows through the 1px gaps as the grid lines.
-    if page != 3: Rectangle {
-        vertical-stretch: 1;
-        background: #000000;
-        border-width: 1px;
-        border-color: #000000;
-        VerticalLayout {
-            padding: 1px;
-            spacing: 1px;
-            for row in [0, 1]: HorizontalLayout {
+    // The sampler's two pages are the deck's `sampler_page`, which its
+    // pads on a controller follow too.
+    property <int> sampler-page-index: Controls.resolve(group, "sampler_page");
+    property <int> sampler-page: Controls.value(sampler-page-index, Controls.tick);
+    spacing: 4px;
+    PadPager {
+        count: page == 3 ? 2 : 1;
+        current: page == 3 ? sampler-page : 0;
+        pick(p) => {
+            if page == 3 {
+                Controls.set-value(sampler-page-index, p);
+            }
+        }
+    }
+    VerticalLayout {
+        horizontal-stretch: 1;
+        // The tabs sit right on the grid.
+        spacing: 0px;
+        PadTabs { names: ["HOT CUES", "PAD FX 1", "BEAT JUMP", "SAMPLER", "STEMS", "BEAT LOOP", "PAD FX 2", "KEYBOARD", "KEY SHIFT", "LOOP ROLL"]; slots <=> slots; selected <=> tab; first: tab >= 4 ? 4 : 0; }
+        if page == 3: SamplerPanel { bank: sampler-page; vertical-stretch: 1; }
+        // The black background shows through the 1px gaps as the grid lines.
+        if page != 3: Rectangle {
+            vertical-stretch: 1;
+            background: #000000;
+            border-width: 1px;
+            border-color: #000000;
+            VerticalLayout {
+                padding: 1px;
                 spacing: 1px;
-                // Taller when there's room, filling the space under FX and loop.
-                min-height: 26px;
-                vertical-stretch: 1;
-                if page == 0: HorizontalLayout {
+                for row in [0, 1]: HorizontalLayout {
                     spacing: 1px;
-                    horizontal-stretch: 1;
-                    for i in 4: HotcueCell {
-                        group: group;
-                        number: row * 4 + i + 1;
-                        tint: Theme.hotcues[row * 4 + i];
-                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    // Taller when there's room, filling the space under FX and loop.
+                    min-height: 26px;
+                    vertical-stretch: 1;
+                    if page == 0: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for i in 4: HotcueCell {
+                            group: group;
+                            number: row * 4 + i + 1;
+                            tint: Theme.hotcues[row * 4 + i];
+                            horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                        }
                     }
-                }
-                if page == 1: HorizontalLayout {
-                    spacing: 1px;
-                    horizontal-stretch: 1;
-                    for i in 4: PadFxButton { deck: deck; fx: pad-fx[row * 4 + i]; tint: tint; horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
-                }
-                if page == 2: HorizontalLayout {
-                    spacing: 1px;
-                    horizontal-stretch: 1;
-                    for i in 4: PadCell {
-                        group: group;
-                        key: jumps[row * 4 + i].key;
-                        text: jumps[row * 4 + i].text;
-                        tint: tint;
-                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    if page == 1: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for i in 4: PadFxButton { deck: deck; fx: pad-fx[row * 4 + i]; tint: tint; horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
                     }
-                }
-                if page == 5 || page == 9: HorizontalLayout {
-                    spacing: 1px;
-                    horizontal-stretch: 1;
-                    for i in 4: PadCell {
-                        group: group;
-                        key: page == 5 ? loops[row * 4 + i].key : rolls[row * 4 + i].key;
-                        light-key: page == 5 ? loops[row * 4 + i].light : rolls[row * 4 + i].light;
-                        text: page == 5 ? loops[row * 4 + i].text : rolls[row * 4 + i].text;
-                        tint: tint;
-                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    if page == 2: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for i in 4: PadCell {
+                            group: group;
+                            key: jumps[row * 4 + i].key;
+                            text: jumps[row * 4 + i].text;
+                            tint: tint;
+                            horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                        }
                     }
-                }
-                if page == 6: HorizontalLayout {
-                    spacing: 1px;
-                    horizontal-stretch: 1;
-                    for i in 4: PadFxButton { deck: deck; fx: pad-fx2[row * 4 + i]; tint: tint; horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
-                }
-                if page == 7 || page == 8: HorizontalLayout {
-                    spacing: 1px;
-                    horizontal-stretch: 1;
-                    for i in 4: KeyPad {
-                        group: group;
-                        keyboard: page == 7;
-                        number: row * 4 + i + 1;
-                        semitones: page == 7 ? keyboard-semitones[row * 4 + i] : key-shift[row * 4 + i];
-                        step: key-steps[row * 4 + i];
-                        tint: page == 7 ? keyboard-tint : tint;
-                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    if page == 5 || page == 9: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for i in 4: PadCell {
+                            group: group;
+                            key: page == 5 ? loops[row * 4 + i].key : rolls[row * 4 + i].key;
+                            light-key: page == 5 ? loops[row * 4 + i].light : rolls[row * 4 + i].light;
+                            text: page == 5 ? loops[row * 4 + i].text : rolls[row * 4 + i].text;
+                            tint: tint;
+                            horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                        }
                     }
-                }
-                if page == 4 && info.stem-names.length > 0: HorizontalLayout {
-                    spacing: 1px;
-                    horizontal-stretch: 1;
-                    for name[i] in info.stem-names: Rectangle {
-                        horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
-                        property <string> stem-group: "[Channel" + (deck + 1) + "_Stem" + (i + 1) + "]";
-                        if row == 0: StemPad { group: stem-group; text: name; tint: info.stem-colors[i]; }
-                        if row == 1: StemLevel { group: stem-group; tint: info.stem-colors[i]; }
+                    if page == 6: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for i in 4: PadFxButton { deck: deck; fx: pad-fx2[row * 4 + i]; tint: tint; horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
                     }
-                }
-                if page == 4 && info.stem-names.length == 0 && row == 0: Rectangle {
-                    horizontal-stretch: 1;
-                    background: !info.can-separate || (info.stem-status != "" && !info.stem-failed) ? Theme.control
-                        : sep.pressed ? Theme.control-pressed : sep.has-hover ? #1d1d20 : Theme.control;
-                    Text {
-                        text: !info.loaded ? "No track loaded"
-                            : info.can-separate && info.stem-failed ? "TRY AGAIN"
-                            : info.can-separate && info.stem-status == "" ? "SEPARATE STEMS"
-                            : info.can-separate ? "Separating…" : "No stems";
-                        font-size: 12px;
-                        font-weight: 700;
-                        color: info.can-separate && (info.stem-status == "" || info.stem-failed) ? tint : Theme.text-dim;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                    if page == 7 || page == 8: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for i in 4: KeyPad {
+                            group: group;
+                            keyboard: page == 7;
+                            number: row * 4 + i + 1;
+                            semitones: page == 7 ? keyboard-semitones[row * 4 + i] : key-shift[row * 4 + i];
+                            step: key-steps[row * 4 + i];
+                            tint: page == 7 ? keyboard-tint : tint;
+                            horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                        }
                     }
-                    sep := TouchArea {
-                        enabled: info.can-separate && (info.stem-status == "" || info.stem-failed);
-                        clicked => { DeckActions.separate-stems(deck); }
+                    if page == 4 && info.stem-names.length > 0: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for name[i] in info.stem-names: Rectangle {
+                            horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                            property <string> stem-group: "[Channel" + (deck + 1) + "_Stem" + (i + 1) + "]";
+                            if row == 0: StemPad { group: stem-group; text: name; tint: info.stem-colors[i]; }
+                            if row == 1: StemLevel { group: stem-group; tint: info.stem-colors[i]; }
+                        }
                     }
-                }
-                if page == 4 && info.stem-names.length == 0 && row == 1: Rectangle {
-                    horizontal-stretch: 1;
-                    background: Theme.control;
-                    Text {
-                        width: parent.width - 8px;
-                        text: info.stem-status != "" ? info.stem-status
-                            : info.can-separate ? "Splits drums, bass, other and vocals with Demucs" : "";
-                        font-size: 11px;
-                        color: Theme.text-dim;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                        overflow: elide;
+                    if page == 4 && info.stem-names.length == 0 && row == 0: Rectangle {
+                        horizontal-stretch: 1;
+                        background: !info.can-separate || (info.stem-status != "" && !info.stem-failed) ? Theme.control
+                            : sep.pressed ? Theme.control-pressed : sep.has-hover ? #1d1d20 : Theme.control;
+                        Text {
+                            text: !info.loaded ? "No track loaded"
+                                : info.can-separate && info.stem-failed ? "TRY AGAIN"
+                                : info.can-separate && info.stem-status == "" ? "SEPARATE STEMS"
+                                : info.can-separate ? "Separating…" : "No stems";
+                            font-size: 12px;
+                            font-weight: 700;
+                            color: info.can-separate && (info.stem-status == "" || info.stem-failed) ? tint : Theme.text-dim;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        sep := TouchArea {
+                            enabled: info.can-separate && (info.stem-status == "" || info.stem-failed);
+                            clicked => { DeckActions.separate-stems(deck); }
+                        }
+                    }
+                    if page == 4 && info.stem-names.length == 0 && row == 1: Rectangle {
+                        horizontal-stretch: 1;
+                        background: Theme.control;
+                        Text {
+                            width: parent.width - 8px;
+                            text: info.stem-status != "" ? info.stem-status
+                                : info.can-separate ? "Splits drums, bass, other and vocals with Demucs" : "";
+                            font-size: 11px;
+                            color: Theme.text-dim;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
                     }
                 }
             }
