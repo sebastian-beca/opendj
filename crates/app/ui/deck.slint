@@ -1692,20 +1692,23 @@ export component LoopStepper inherits Rectangle {
     }
 }
 
-// Loop controls in one row over the pads: LOOP, the loop length box (see
-// LoopStepper), then IN and OUT. The effects are in the FX bar.
+// Loop controls in a short row over the pads, at the deck's outer edge:
+// LOOP, the loop length box (see LoopStepper), then IN and OUT. The
+// effects are in the FX bar.
 export component LoopSection inherits HorizontalLayout {
     in property <string> group;
     in property <DeckInfo> info;
     in property <color> tint;
+    in property <bool> mirrored;
     spacing: 6px;
-    height: 28px;
+    height: 26px;
+    alignment: mirrored ? end : start;
     Text { text: "LOOP"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
-    LoopStepper { group: group; info: info; horizontal-stretch: 1; }
+    LoopStepper { group: group; info: info; width: 96px; }
     // A loop of any length: IN on the nearest beat lights grey while the
     // waveform marks the loop out; OUT closes it, and it turns lilac.
-    ControlButton { group: group; key: "loop_in"; light-key: "loop_in_pending"; text: "IN"; momentary: true; tint: #d1d1d6; font-size: 12px; width: 52px; }
-    ControlButton { group: group; key: "loop_out"; light-key: "loop_enabled"; text: "OUT"; momentary: true; tint: Theme.lilac; font-size: 12px; width: 52px; }
+    ControlButton { group: group; key: "loop_in"; light-key: "loop_in_pending"; text: "IN"; momentary: true; tint: #d1d1d6; font-size: 11px; width: 40px; }
+    ControlButton { group: group; key: "loop_out"; light-key: "loop_enabled"; text: "OUT"; momentary: true; tint: Theme.lilac; font-size: 11px; width: 40px; }
 }
 
 // The column beside the tempo fader: pitch reset always at its middle,
@@ -1928,7 +1931,7 @@ export component Deck inherits Rectangle {
                 VerticalLayout {
                     horizontal-stretch: 1;
                     spacing: 0px;
-                    LoopSection { group: group; info: info; tint: tint; }
+                    LoopSection { group: group; info: info; tint: tint; mirrored: mirrored; }
                     HDivider { }
                     Pads { deck: deck; group: group; info: info; vertical-stretch: 1; }
                 }

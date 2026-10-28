@@ -1,12 +1,13 @@
 // The 4-Deck layout, after djay Pro's Four Decks: four strips side by side,
 // decks 3, 1, 2 and 4 from the left, each with its header, a small mixer
-// channel, transport, tempo and pads (the FX are in the FX bar). The crossfader, master and
-// headphones sit in a narrow column between decks 1 and 2.
+// channel, PLAY, CUE, the loop and pads. Under them a bar with each deck's
+// crossfader side, SYNC and tempo either side of the crossfader; the FX
+// are in the FX bar under that.
 // A two-deck controller (the DDJ-FLX4) plays decks 1 and 2 until a strip's
 // deck number is clicked: then that side plays deck 3 or 4.
 import { TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
-import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, KeyLock, PitchReset, QuantizeButton, StereoMeter } from "controls.slint";
+import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, StereoMeter } from "controls.slint";
 import { DeckInfo, Header, LoopStepper, Pads, PlayButton, TempoStep } from "deck.slint";
 import { AudioSettings, Knob, ModeMenu, SideKnob } from "mixer.slint";
 
@@ -124,52 +125,40 @@ export component DeckStrip inherits Rectangle {
             VerticalLayout {
                 padding: 6px;
                 spacing: 6px;
-                // The channel: EQs (or stems or sculpt), gain, fader, meter
-                // and headphone cue.
+                // The channel: the knob mode and headphone cue, the EQs (or
+                // stems or sculpt), the fader, and gain over the meter.
                 HorizontalLayout {
                     height: 74px;
                     spacing: 4px;
-                    for place in 4: SideKnob { deck: deck; place: [2, 1, 0, 3][place]; size: 26px; horizontal-stretch: 1; min-width: 36px; }
                     VerticalLayout {
-                        alignment: space-between;
-                        Knob { group: group; key: "pregain"; label: "GAIN"; size: 20px; }
-                        CueHeadphones { group: group; tint: tint; width: 30px; }
+                        width: 44px;
+                        alignment: space-around;
+                        Rectangle {
+                            height: 22px;
+                            border-radius: 6px;
+                            background: #2a2a2d;
+                            ModeMenu { width: parent.width; height: parent.height; }
+                        }
+                        HorizontalLayout { alignment: center; CueHeadphones { group: group; tint: tint; width: 30px; } }
                     }
-                    ControlFader { group: group; key: "volume"; tint: tint; ticks: 7; width: 24px; }
-                    StereoMeter { group: group; }
-                }
-                // Play, CUE and the loop.
-                HorizontalLayout {
-                    height: 30px;
-                    spacing: 6px;
-                    PlayButton { group: group; tint: tint; width: 48px; }
-                    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: Theme.cue; font-size: 13px; width: 64px; }
-                    LoopStepper { group: group; info: info; horizontal-stretch: 1; }
-                }
-                // Crossfader side, SYNC and quantize, and the tempo with fine − and +.
-                HorizontalLayout {
-                    height: 30px;
-                    spacing: 6px;
-                    CrossfaderAssign { deck: deck; }
-                    ControlButton { group: group; key: "sync_enabled"; shift-key: "beatsync"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 12px; width: 48px; }
-                    QuantizeButton { group: group; width: 40px; }
-                    // Pitch reset, pointing at the tempo, over key lock.
+                    for place in 4: SideKnob { deck: deck; place: [2, 1, 0, 3][place]; size: 32px; horizontal-stretch: 1; min-width: 40px; }
+                    ControlFader { group: group; key: "volume"; tint: tint; ticks: 5; width: 40px; }
                     VerticalLayout {
-                        alignment: center;
-                        spacing: 1px;
-                        PitchReset { group: group; tint: tint; height: 14px; }
-                        KeyLock { group: group; }
+                        spacing: 4px;
+                        Knob { group: group; key: "pregain"; size: 20px; }
+                        HorizontalLayout { alignment: center; vertical-stretch: 1; StereoMeter { group: group; } }
                     }
+                }
+                // PLAY, CUE and the loop.
+                HorizontalLayout {
+                    spacing: 6px;
+                    PlayButton { group: group; tint: tint; width: 52px; height: 32px; }
+                    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: Theme.cue; font-size: 13px; horizontal-stretch: 1; height: 32px; }
                     VerticalLayout {
+                        spacing: 2px;
                         horizontal-stretch: 1;
-                        alignment: center;
-                        Text { text: info.loaded ? info.bpm : "--"; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; }
-                        Text { text: info.rate; color: Theme.text-dim; font-size: 10px; horizontal-alignment: center; }
-                    }
-                    HorizontalLayout {
-                        alignment: center;
-                        TempoStep { group: group; key: "rate_perm_down_small"; text: "−"; tint: tint; }
-                        TempoStep { group: group; key: "rate_perm_up_small"; text: "+"; tint: tint; }
+                        LoopStepper { group: group; info: info; height: 32px; }
+                        Text { text: "LOOP"; color: Theme.text-dim; font-size: 9px; font-weight: 600; letter-spacing: 0.5px; horizontal-alignment: center; }
                     }
                 }
                 Pads { deck: deck; group: group; info: info; vertical-stretch: 1; min-height: 77px; }
@@ -185,21 +174,168 @@ export component DeckStrip inherits Rectangle {
     }
 }
 
-// Between decks 1 and 2: the knob mode, the main meter and the
-// crossfader. The levels are in the top bar's MASTER panel.
-export component FourDeckCenter inherits Rectangle {
-    background: Theme.panel;
-    width: 150px;
-    VerticalLayout {
-        padding: 8px;
-        spacing: 10px;
-        ModeMenu { }
-        HorizontalLayout {
-            alignment: center;
-            spacing: 4px;
-            vertical-stretch: 1;
-            StereoMeter { group: "[Master]"; }
+// The tempo under its BPM: a click opens key lock, quantize and a reset.
+component TempoMenu inherits Rectangle {
+    in property <string> group;
+    in property <string> rate;
+    in property <color> tint;
+    property <int> rate-index: Controls.resolve(group, "rate");
+    height: 14px;
+    HorizontalLayout {
+        alignment: center;
+        spacing: 3px;
+        Text { text: rate; color: ta.has-hover ? Theme.text : Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+        Path {
+            width: 6px;
+            height: 4px;
+            y: (parent.height - self.height) / 2;
+            commands: "M 0 0 L 3 3.5 L 6 0";
+            stroke: ta.has-hover ? Theme.text : Theme.text-dim;
+            stroke-width: 1.2px;
+            fill: transparent;
         }
-        Crossfader { }
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { menu.show(); } }
+    menu := PopupWindow {
+        x: (root.width - 130px) / 2;
+        y: root.height + 4px;
+        width: 130px;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #000000a0;
+        }
+        VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+            ControlButton { group: group; key: "keylock"; text: "KEY LOCK"; tint: tint; fill-when-lit: true; font-size: 11px; height: 26px; }
+            ControlButton { group: group; key: "quantize"; text: "QUANTIZE"; tint: tint; fill-when-lit: true; font-size: 11px; height: 26px; }
+            Rectangle {
+                height: 26px;
+                border-radius: Theme.radius;
+                background: rta.pressed ? Theme.control-pressed : rta.has-hover ? #1d1d20 : Theme.control;
+                border-width: 1px;
+                border-color: Theme.border;
+                Text { text: "RESET TEMPO"; color: Theme.text; font-size: 11px; font-weight: 700; }
+                rta := TouchArea {
+                    clicked => {
+                        Controls.set-value(rate-index, 0);
+                        menu.close();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// One deck's part of the bar under the strips: which side of the
+// crossfader it is on, SYNC, the BPM and tempo, and fine + and −. Decks 2
+// and 4 have the crossfader side last, towards the outside.
+component DeckBarSection inherits Rectangle {
+    in property <int> deck;
+    in property <DeckInfo> info;
+    property <string> group: "[Channel" + (deck + 1) + "]";
+    property <color> tint: Theme.deck-color(deck);
+    property <bool> right: Math.mod(deck, 2) == 1;
+    background: Theme.panel;
+    horizontal-stretch: 1;
+    min-width: 0px;
+    preferred-width: 0px;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 22px;
+        alignment: start;
+        if !right: CrossfaderAssign { deck: deck; }
+        ControlButton { group: group; key: "sync_enabled"; shift-key: "beatsync"; text: "SYNC"; tint: tint; fill-when-lit: true; font-size: 12px; width: 60px; height: 28px; y: (parent.height - self.height) / 2; }
+        VerticalLayout {
+            width: 52px;
+            alignment: center;
+            Text { text: info.loaded ? info.bpm : "--"; color: Theme.text; font-size: 14px; font-weight: 600; horizontal-alignment: center; }
+            TempoMenu { group: group; rate: info.rate; tint: tint; }
+        }
+        VerticalLayout {
+            alignment: center;
+            TempoStep { group: group; key: "rate_perm_up_small"; text: "+"; tint: tint; height: 18px; }
+            TempoStep { group: group; key: "rate_perm_down_small"; text: "−"; tint: tint; height: 18px; }
+        }
+        if right: CrossfaderAssign { deck: deck; }
+    }
+}
+
+// 4-Deck: the bar under the strips, decks 3, 1 | the crossfader | 2, 4,
+// the middle as wide as the Beat FX under it. The crossfader's ▾ (or a
+// right-click) switches it off and on.
+export component FourDeckBar inherits Rectangle {
+    in property <[DeckInfo]> decks;
+    property <int> enabled-index: Controls.resolve("[Mixer]", "crossfader_enabled");
+    property <bool> on: Controls.value(enabled-index, Controls.tick) > 0;
+    background: #000000;
+    height: 48px;
+    HorizontalLayout {
+        spacing: 1px;
+        DeckBarSection { deck: 2; info: decks[2]; }
+        DeckBarSection { deck: 0; info: decks[0]; }
+        Rectangle {
+            background: Theme.panel;
+            width: 282px;
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 10px;
+                spacing: 10px;
+                VerticalLayout { alignment: center; horizontal-stretch: 1; Crossfader { } }
+                Rectangle {
+                    width: 22px;
+                    height: 22px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 11px;
+                    background: xta.has-hover ? #48484c : #3a3a3d;
+                    Path {
+                        width: 8px;
+                        height: 5px;
+                        commands: "M 0 0 L 4 4 L 8 0";
+                        stroke: Theme.text;
+                        stroke-width: 1.4px;
+                        fill: transparent;
+                    }
+                    xta := TouchArea { mouse-cursor: pointer; clicked => { xmenu.show(); } }
+                    xmenu := PopupWindow {
+                        x: parent.width - 150px;
+                        y: parent.height + 4px;
+                        width: 150px;
+                        close-policy: close-on-click-outside;
+                        Rectangle {
+                            background: Theme.panel-raised;
+                            border-radius: Theme.radius;
+                            border-width: 1px;
+                            border-color: Theme.border;
+                            drop-shadow-blur: 12px;
+                            drop-shadow-color: #000000a0;
+                        }
+                        VerticalLayout {
+                            padding: 5px;
+                            Rectangle {
+                                height: 26px;
+                                border-radius: 4px;
+                                background: ita.has-hover ? #3a3a3d : transparent;
+                                Text { x: 8px; text: on ? "Turn crossfader off" : "Turn crossfader on"; color: Theme.text; font-size: 12px; vertical-alignment: center; height: parent.height; }
+                                ita := TouchArea {
+                                    clicked => {
+                                        Controls.toggle(enabled-index);
+                                        xmenu.close();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        DeckBarSection { deck: 1; info: decks[1]; }
+        DeckBarSection { deck: 3; info: decks[3]; }
     }
 }

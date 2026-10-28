@@ -5,7 +5,7 @@ import { Deck, DeckInfo, KeyItem, EffectList, DeckActions, PhraseView, PhraseTip
 import { Mixer, AudioSettings, OutputRow } from "mixer.slint";
 import { MasterPanel, MicPanel } from "toppanels.slint";
 import { PlayerDeck, PlayerMixer } from "player.slint";
-import { DeckStrip, FourDeckCenter } from "fourdeck.slint";
+import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { FxBar } from "fxbar.slint";
 import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, ColumnUi, ListColumn, HealthUi, HealthCard } from "library.slint";
 import { Preferences, PreferencesOverlay, PrefItem, ImportWizard } from "preferences.slint";
@@ -399,7 +399,7 @@ component WaveformsButton inherits Rectangle {
     }
 }
 
-// Shows or hides the FX bar under the waveforms: "FX", lit while it shows.
+// Shows or hides the FX bar under the decks: "FX", lit while it shows.
 component FxButton inherits Rectangle {
     in-out property <bool> on;
     callback changed-to(on: bool);
@@ -740,14 +740,6 @@ export component AppWindow inherits Window {
                 }
             }
 
-            // The FX bar: deck effects either side of the Beat FX. Folded
-            // away while the library is expanded or the top bar hides it.
-            FxBar {
-                four: four;
-                height: library-expanded || !fx-bar-visible ? 0px : 68px;
-                visible: !library-expanded && fx-bar-visible;
-            }
-
             // Decks and mixer
             // Split by thin black lines.
             // In Player, folded away (rather than removed, so the overview
@@ -764,16 +756,15 @@ export component AppWindow inherits Window {
                 Deck { deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
             }
 
-            // 4-Deck: four strips, decks 3, 1, 2 and 4, with the crossfader
-            // between 1 and 2. Folded away, like the 2-Deck row, in the
-            // other layouts.
+            // 4-Deck: four strips, decks 3, 1, 2 and 4, then the bar with the
+            // crossfader. Folded away, like the 2-Deck row, in the other
+            // layouts.
             HorizontalLayout {
                 spacing: 1px;
-                height: four ? 446px : 0px;
+                height: four ? 330px : 0px;
                 visible: four;
                 DeckStrip { deck: 2; info: decks[2]; overview: overview-3; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
                 strip-1 := DeckStrip { deck: 0; info: decks[0]; overview: overview-1; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
-                FourDeckCenter { }
                 DeckStrip { deck: 1; info: decks[1]; overview: overview-2; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
                 DeckStrip { deck: 3; info: decks[3]; overview: overview-4; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
             }
@@ -786,6 +777,21 @@ export component AppWindow inherits Window {
                 player-a := PlayerDeck { deck: 0; info: decks[0]; overview: overview-1; horizontal-stretch: 1; min-width: 330px; }
                 PlayerMixer { decks: decks; spin-1: spin-1; spin-2: spin-2; }
                 PlayerDeck { deck: 1; info: decks[1]; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 330px; }
+            }
+
+            FourDeckBar {
+                decks: decks;
+                height: four ? 48px : 0px;
+                visible: four;
+            }
+
+            // The FX bar under the decks: deck effects either side of the
+            // Beat FX. Folded away while the library is expanded or the top
+            // bar hides it.
+            FxBar {
+                four: four;
+                height: library-expanded || !fx-bar-visible ? 0px : four ? 96px : 68px;
+                visible: !library-expanded && fx-bar-visible;
             }
 
             browser := Browser {

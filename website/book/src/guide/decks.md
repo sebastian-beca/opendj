@@ -14,16 +14,17 @@ Each deck has:
 ## FX bar
 
 The **FX** button in the top bar, beside the waveforms button, shows or
-hides the FX bar under the waveforms. Deck 1's three effects are on the
-left, deck 2's on the right and the **Beat FX** in the middle. Each effect
-has the effect name (step with the arrows or click it for the list),
-**ON**, its length in beats (or a slider for its second control on effects
-without one, such as reverb's decay) and a **D/W** knob. The Beat FX also
-picks where it plays (deck 1, deck 2, both or the main mix) and follows the
-decks' tempo (**AUTO**) or a tapped one (**TAP**).
+hides the FX bar under the decks. Each deck's three effects sit under the
+deck, and the **Beat FX** under the mixer. Each effect has its name (click
+it for the list; in 2-Deck the arrows step through them), **ON**, its
+length in beats (or a slider for its second control on effects without
+one, such as reverb's decay) and a **D/W** knob. The Beat FX also picks
+where it plays: deck 1, deck 2 or both.
 
-In 4-Deck, click the deck number at either end of the bar to switch that
-side between decks 1 and 3, or 2 and 4.
+In 4-Deck each deck's effects are stacked in three rows, and a bar above
+them holds each deck's crossfader side, **SYNC** and tempo either side of
+the crossfader. Click a deck's tempo there for key lock, quantize and a
+tempo reset.
 
 ## Sync and quantize
 
