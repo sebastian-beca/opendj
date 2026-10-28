@@ -38,5 +38,20 @@ set '[Master],gain' 1             a control of another group
 | `set`, `toggle`, `press`, `get` | Any control; `get` only asks, in a condition |
 
 In a condition a verb asks rather than does: `play ? …` asks whether the
-deck is playing. You can't change the shortcuts in the app yet; that comes
-with the shortcuts editor.
+deck is playing.
+
+## Changing shortcuts
+
+Open **Settings → Keyboard**. Each row is a key and the line it runs:
+
+- Click the key, then press the new one (Esc leaves it as it was). If that
+  key already did something, this shortcut takes it over and the page says
+  what it replaced.
+- Type in the line, or pick a verb from **Actions**; it's added with `&`
+  when the line already has something. A mistake shows in red under it.
+- **Reset** puts a changed default back, **Turn Off** stops a default key,
+  and **Remove** deletes one of your own.
+- **Add a key…** at the end starts a new shortcut, and **Reset All** goes
+  back to openDJ's own.
+
+Every verb is listed under ACTIONS at the bottom of the page.

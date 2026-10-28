@@ -15,7 +15,10 @@ export struct PrefItem {
     // 0 switch, 1 menu, 2 button, 3 file or folder with a Choose button,
     // 4 the output routes table, 5 headphone and booth level knobs, 6 a
     // note, 7 a heading, 8 segmented buttons, 9 a text field (hidden
-    // typing when `on`, for a password).
+    // typing when `on`, for a password), 10 a keyboard shortcut: its key
+    // in `title` (none for the row that adds one), its openDJscript line
+    // in `value`, the verbs to pick from in `choices`, the button's label
+    // in `action`; `on` shows `detail` as a mistake.
     kind: int,
     title: string,
     detail: string,
@@ -36,13 +39,20 @@ export global Preferences {
     in-out property <string> query;
     in property <[PrefItem]> items;
     // The app adds a page for each plugin with settings after these.
-    in-out property <[string]> pages: ["Audio", "Controllers", "Library", "Analysis", "Decks", "Mixer", "Feedback"];
+    in-out property <[string]> pages: ["Audio", "Controllers", "Library", "Analysis", "Decks", "Mixer", "Keyboard", "Feedback"];
     // The page or the search changed: the app fills `items` again.
     callback changed();
     callback toggled(id: string, on: bool);
     callback picked(id: string, index: int);
     callback pressed(id: string);
     callback typed(id: string, text: string);
+    // A key pressed on a shortcut's key button; true when it was taken
+    // (a modifier alone isn't).
+    callback key-captured(id: string, text: string, cmd: bool, alt: bool, shift: bool) -> bool;
+    // Counts shortcut edits that fill the rows again (a key caught, an
+    // action picked, a button), so the window takes focus back from the
+    // row that's gone and Esc and ⌘, work again.
+    in-out property <int> refocus;
 
     public function show(p: int) {
         page = p;
@@ -80,15 +90,16 @@ component PageIcon inherits Path {
     stroke-width: 1.7px;
     // Audio: a speaker. Controllers: a two-deck controller. Library: a
     // list with a note. Analysis: a waveform. Decks:
-    // a platter. Mixer: three faders. Feedback: a speech bubble. A
-    // plugin's page: a plug.
+    // a platter. Mixer: three faders. Keyboard: keys. Feedback: a speech
+    // bubble. A plugin's page: a plug.
     commands: kind == 0 ? "M 3 9 L 7 9 L 12 5 L 12 19 L 7 15 L 3 15 Z M 15.5 9 Q 17.5 12 15.5 15 M 18 6.5 Q 21.5 12 18 17.5"
         : kind == 1 ? "M 2 7 L 22 7 L 22 17 L 2 17 Z M 4.5 12 A 2.5 2.5 0 1 0 9.5 12 A 2.5 2.5 0 1 0 4.5 12 M 14.5 12 A 2.5 2.5 0 1 0 19.5 12 A 2.5 2.5 0 1 0 14.5 12 M 12 9.5 L 12 14.5"
         : kind == 2 ? "M 3 5 L 15 5 M 3 10 L 15 10 M 3 15 L 10 15 M 18 18 L 18 7 L 22 8.5 M 18 18 A 2 2 0 1 1 17.99 18"
         : kind == 3 ? "M 3 10 L 3 14 M 6 7 L 6 17 M 9 4 L 9 20 M 12 8 L 12 16 M 15 5 L 15 19 M 18 9 L 18 15 M 21 11 L 21 13"
         : kind == 4 ? "M 3 12 A 9 9 0 1 0 21 12 A 9 9 0 1 0 3 12 M 9.5 12 A 2.5 2.5 0 1 0 14.5 12 A 2.5 2.5 0 1 0 9.5 12"
-        : kind >= 7 ? "M 9 3 L 9 8 M 15 3 L 15 8 M 6 8 L 18 8 L 18 11 A 6 6 0 0 1 6 11 Z M 12 17 L 12 21"
-        : kind == 6 ? "M 4 5 L 20 5 L 20 16 L 11 16 L 6 20 L 6 16 L 4 16 Z M 8 9 L 16 9 M 8 12 L 13 12"
+        : kind >= 8 ? "M 9 3 L 9 8 M 15 3 L 15 8 M 6 8 L 18 8 L 18 11 A 6 6 0 0 1 6 11 Z M 12 17 L 12 21"
+        : kind == 6 ? "M 2 6 L 22 6 L 22 18 L 2 18 Z M 6 10 L 6.5 10 M 10 10 L 10.5 10 M 14 10 L 14.5 10 M 18 10 L 18.5 10 M 7 14 L 17 14"
+        : kind == 7 ? "M 4 5 L 20 5 L 20 16 L 11 16 L 6 20 L 6 16 L 4 16 Z M 8 9 L 16 9 M 8 12 L 13 12"
         : "M 6 3 L 6 12 M 6 16 L 6 21 M 12 3 L 12 6 M 12 10 L 12 21 M 18 3 L 18 9 M 18 13 L 18 21 M 4 12 L 8 12 L 8 16 L 4 16 Z M 10 6 L 14 6 L 14 10 L 10 10 Z M 16 9 L 20 9 L 20 13 L 16 13 Z";
 }
 
@@ -193,6 +204,72 @@ component TextField inherits Rectangle {
     }
 }
 
+// A shortcut's key: click it, then press the new key (Esc to leave it).
+component KeyButton inherits Rectangle {
+    in property <string> id;
+    in property <string> text;
+    property <bool> listening: keys.has-focus;
+    width: 130px;
+    height: 28px;
+    border-radius: Theme.radius;
+    background: listening ? #2a2440 : ta.has-hover ? #222225 : Theme.well;
+    border-width: 1px;
+    border-color: listening ? Theme.knob-arc : Theme.separator;
+    Text {
+        text: listening ? "Press a key…" : root.text == "" ? "Add a key…" : root.text;
+        color: listening ? Theme.knob-arc : root.text == "" ? Theme.text-dim : Theme.text;
+        font-size: 13px;
+        font-weight: root.text == "" ? 400 : 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    keys := FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.Escape {
+                Preferences.refocus += 1;
+                return accept;
+            }
+            if Preferences.key-captured(id, e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift) {
+                Preferences.refocus += 1;
+            }
+            accept
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { keys.focus(); }
+    }
+}
+
+// A shortcut's openDJscript line; each change is saved at once.
+component ScriptField inherits Rectangle {
+    in property <PrefItem> item;
+    horizontal-stretch: 1;
+    height: 28px;
+    border-radius: Theme.radius;
+    background: Theme.well;
+    border-width: 1px;
+    border-color: item.on ? #ff6b6b : input.has-focus ? Theme.knob-arc : Theme.separator;
+    if input.text == "": Text {
+        x: 8px;
+        text: "Type an action…";
+        color: #5a5a60;
+        font-size: 13px;
+        vertical-alignment: center;
+        height: parent.height;
+    }
+    input := TextInput {
+        x: 8px;
+        width: parent.width - 16px;
+        text: item.value;
+        color: Theme.text;
+        font-size: 13px;
+        vertical-alignment: center;
+        single-line: true;
+        edited => { Preferences.typed(item.id, self.text); }
+    }
+}
+
 // One setting: its name and a line on what it does on the left, the
 // control on the right.
 component PrefRow inherits Rectangle {
@@ -210,7 +287,49 @@ component PrefRow inherits Rectangle {
             font-weight: 600;
             letter-spacing: 0.6px;
         }
-        if item.kind != 7: HorizontalLayout {
+        if item.kind == 10: HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                alignment: start;
+                KeyButton { id: item.id; text: item.title; }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 4px;
+                if item.title != "": ScriptField { item: item; }
+                Text {
+                    text: item.detail;
+                    color: item.on ? #ff6b6b : Theme.text-dim;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+            if item.title != "": VerticalLayout {
+                alignment: start;
+                MenuField {
+                    width: 96px;
+                    text: "Actions";
+                    choices: item.choices;
+                    chosen: -1;
+                    menu-width: 200px;
+                    picked(i) => {
+                        Preferences.picked(item.id, i);
+                        Preferences.refocus += 1;
+                    }
+                }
+            }
+            if item.action != "": VerticalLayout {
+                alignment: start;
+                Button {
+                    text: item.action;
+                    clicked => {
+                        Preferences.pressed(item.id);
+                        Preferences.refocus += 1;
+                    }
+                }
+            }
+        }
+        if item.kind != 7 && item.kind != 10: HorizontalLayout {
             spacing: 16px;
             VerticalLayout {
                 horizontal-stretch: 1;
@@ -423,6 +542,10 @@ component ImportWizardDialog inherits Rectangle {
 
 export component PreferencesOverlay inherits Rectangle {
     property <bool> searching: Preferences.query != "";
+    // Where focus goes after a shortcut edit (Preferences.refocus).
+    idle := FocusScope { width: 0; height: 0; }
+    property <int> refocus: Preferences.refocus;
+    changed refocus => { idle.focus(); }
     // The dimmed app behind; a click there closes settings.
     background: #000000a0;
     TouchArea {
