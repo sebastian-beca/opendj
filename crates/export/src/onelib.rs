@@ -68,7 +68,7 @@ pub fn write(path: &Path, model: &Model) -> Result<(), Error> {
     initialize_schema(&mut conn)?;
     // rbox 0.3.0's schema names one column differently from rekordbox (and
     // from rbox's own queries) and leaves out the play count, which
-    // rekordbox's sticks have.
+    // rekordbox's sticks have. Both are reported to rbox.
     conn.batch_execute(
         "ALTER TABLE content RENAME COLUMN originalartist_id TO artist_id_originalArtist;
          ALTER TABLE content ADD COLUMN djPlayCount INTEGER;",
