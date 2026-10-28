@@ -543,6 +543,13 @@ fn authorize_url(client_id: &str, challenge: &str, state: &str) -> String {
 }
 
 pub fn open_in_browser(url: &str) -> bool {
+    if cfg!(windows) {
+        // `start` would cut the URL at its first "&".
+        return std::process::Command::new("rundll32")
+            .args(["url.dll,FileProtocolHandler", url])
+            .spawn()
+            .is_ok();
+    }
     let opener = if cfg!(target_os = "macos") {
         "open"
     } else {

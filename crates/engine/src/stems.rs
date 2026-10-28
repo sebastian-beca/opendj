@@ -617,8 +617,14 @@ fn set_job(path: &Path, state: Separation) {
 
 /// The command that runs Demucs. `OPENDJ_DEMUCS` overrides it; otherwise
 /// the first `demucs` program found (see [`search_dirs`]), else the first
-/// Python there that has the `demucs` module, else `python3 -m demucs`.
+/// Python there that has the `demucs` module, else `python3 -m demucs`
+/// (`py -m demucs`, through the Python launcher, on Windows).
 fn demucs_command() -> Command {
+    crate::process::background(find_demucs())
+}
+
+fn find_demucs() -> Command {
+    use crate::process::exe_name;
     if let Some(cmd) = std::env::var_os("OPENDJ_DEMUCS") {
         return Command::new(cmd);
     }
@@ -630,12 +636,12 @@ fn demucs_command() -> Command {
         let dirs = search_dirs();
         *found = dirs
             .iter()
-            .map(|d| d.join("demucs"))
+            .map(|d| d.join(exe_name("demucs")))
             .find(|p| p.is_file())
             .map(|p| (p, false))
             .or_else(|| {
                 dirs.iter()
-                    .map(|d| d.join("python3"))
+                    .flat_map(|d| PYTHONS.iter().map(move |p| d.join(exe_name(p))))
                     .filter(|p| p.is_file())
                     .find(|p| has_demucs_module(p))
                     .map(|p| (p, true))
@@ -649,17 +655,26 @@ fn demucs_command() -> Command {
             c
         }
         None => {
-            let mut c = Command::new("python3");
+            let mut c = Command::new(if cfg!(windows) { "py" } else { "python3" });
             c.args(["-m", "demucs"]);
             c
         }
     }
 }
 
+/// The names Python goes by. Windows' python.org installer makes only
+/// `python.exe` (its `python3.exe` is usually the Microsoft Store's stand-in).
+const PYTHONS: &[&str] = if cfg!(windows) {
+    &["python"]
+} else {
+    &["python3"]
+};
+
 /// Where `pip install demucs` may have put Demucs. An app opened from the
 /// Finder or a desktop menu doesn't get the PATH set up by the user's shell
 /// profile, so this asks the login shell for it and adds the usual Homebrew,
-/// python.org, pip `--user`, pyenv and conda folders.
+/// python.org, pip `--user`, pyenv and conda folders (on Windows, the
+/// python.org installer's folders and their `Scripts`).
 fn search_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Some(path) = std::env::var_os("PATH") {
@@ -668,7 +683,7 @@ fn search_dirs() -> Vec<PathBuf> {
     if let Some(path) = login_shell_path() {
         dirs.extend(std::env::split_paths(&path));
     }
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = crate::paths::home_dir();
     for d in ["/opt/homebrew/bin", "/usr/local/bin"] {
         dirs.push(d.into());
     }
@@ -684,6 +699,18 @@ fn search_dirs() -> Vec<PathBuf> {
         "/Library/Frameworks/Python.framework/Versions".into(),
         "bin",
     );
+    if cfg!(windows) {
+        // python.org installs into %LOCALAPPDATA%\Programs\Python\Python3xx,
+        // pip --user into %APPDATA%\Python\Python3xx\Scripts.
+        if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+            let base = local.join("Programs").join("Python");
+            globbed(base.clone(), "Scripts");
+            globbed(base, "");
+        }
+        if let Some(roaming) = std::env::var_os("APPDATA").map(PathBuf::from) {
+            globbed(roaming.join("Python"), "Scripts");
+        }
+    }
     if let Some(home) = &home {
         globbed(home.join("Library/Python"), "bin");
         for d in [
@@ -729,7 +756,7 @@ fn login_shell_path() -> Option<String> {
 
 /// Whether the Python at `python` can import Demucs.
 fn has_demucs_module(python: &Path) -> bool {
-    Command::new(python)
+    crate::process::background(Command::new(python))
         .args(["-c", "import demucs"])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

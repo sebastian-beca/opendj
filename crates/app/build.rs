@@ -5,4 +5,13 @@ fn main() {
         slint_build::CompilerConfiguration::new().with_style("fluent-dark".into()),
     )
     .expect("compile default skin");
+
+    #[cfg(windows)]
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        let mut res = winresource::WindowsResource::new();
+        res.set_icon("../../res/windows/opendj.ico")
+            .set("ProductName", "openDJ")
+            .set("FileDescription", "openDJ");
+        res.compile().expect("embed the Windows icon");
+    }
 }

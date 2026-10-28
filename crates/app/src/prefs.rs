@@ -2284,7 +2284,7 @@ fn show_wizard(app: &AppWindow, w: Option<&WizardState>) {
 
 /// Opens the system's dialog for picking a folder or a file, on its own
 /// thread; the path comes back through `tx`. macOS uses AppleScript's,
-/// Linux zenity's.
+/// Windows its own Open dialog, Linux zenity's.
 fn choose(id: &str, prompt: &str, folder: bool, tx: Sender<(String, PathBuf)>) {
     let id = id.to_string();
     open_dialog(prompt, folder, move |path| {
@@ -2301,31 +2301,51 @@ pub fn choose_file(prompt: &str, picked: impl FnOnce(PathBuf) + Send + 'static) 
 fn open_dialog(prompt: &str, folder: bool, picked: impl FnOnce(PathBuf) + Send + 'static) {
     let prompt = prompt.to_string();
     std::thread::spawn(move || {
-        let output = if cfg!(target_os = "macos") {
-            let what = if folder { "folder" } else { "file" };
-            std::process::Command::new("osascript")
-                .arg("-e")
-                .arg(format!(
-                    "POSIX path of (choose {what} with prompt \"{prompt}\")"
-                ))
-                .output()
-        } else {
-            let mut cmd = std::process::Command::new("zenity");
-            cmd.arg("--file-selection").arg(format!("--title={prompt}"));
-            if folder {
-                cmd.arg("--directory");
-            }
-            cmd.output()
-        };
-        match output {
-            Ok(out) if out.status.success() => {
-                let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !path.is_empty() {
-                    picked(PathBuf::from(path));
-                }
-            }
-            Ok(_) => {} // Cancelled.
-            Err(e) => eprintln!("can't open a file dialog: {e}"),
+        if let Some(path) = system_dialog(&prompt, folder) {
+            picked(path);
         }
     });
+}
+
+/// The path picked in the system's dialog, or `None` if it was cancelled.
+#[cfg(windows)]
+fn system_dialog(prompt: &str, folder: bool) -> Option<PathBuf> {
+    let dialog = rfd::FileDialog::new().set_title(prompt);
+    if folder {
+        dialog.pick_folder()
+    } else {
+        dialog.pick_file()
+    }
+}
+
+/// The path picked in the system's dialog, or `None` if it was cancelled.
+#[cfg(not(windows))]
+fn system_dialog(prompt: &str, folder: bool) -> Option<PathBuf> {
+    let output = if cfg!(target_os = "macos") {
+        let what = if folder { "folder" } else { "file" };
+        std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(format!(
+                "POSIX path of (choose {what} with prompt \"{prompt}\")"
+            ))
+            .output()
+    } else {
+        let mut cmd = std::process::Command::new("zenity");
+        cmd.arg("--file-selection").arg(format!("--title={prompt}"));
+        if folder {
+            cmd.arg("--directory");
+        }
+        cmd.output()
+    };
+    match output {
+        Ok(out) if out.status.success() => {
+            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            (!path.is_empty()).then(|| PathBuf::from(path))
+        }
+        Ok(_) => None, // Cancelled.
+        Err(e) => {
+            eprintln!("can't open a file dialog: {e}");
+            None
+        }
+    }
 }
