@@ -13,7 +13,9 @@ use mixxx_library::stages::{self, Folders, Stage};
 use mixxx_library::{Change, PlaylistKind};
 use slint::{ModelRc, SharedString, VecModel};
 
-use super::{file_path, is_browsed, Browser, Contents, Node, KIND_FOLDER, KIND_INBOX, KIND_TRIAGE};
+use super::{
+    file_path, is_browsed, Browser, Contents, Node, Undo, KIND_FOLDER, KIND_INBOX, KIND_TRIAGE,
+};
 use crate::analysis_queue::AnalysisQueue;
 use crate::{settings, LibraryEdit};
 
@@ -299,10 +301,11 @@ impl Browser {
         self.read_pending_moves();
         let label = change_label(stage, crate_name.as_deref());
         let n = picked.len();
-        self.undo = Some((
-            batch,
-            format!("Undo {label} ({n} track{})", if n == 1 { "" } else { "s" }),
-        ));
+        self.undo = Some(Undo {
+            batch: Some(batch),
+            text: format!("Undo {label} ({n} track{})", if n == 1 { "" } else { "s" }),
+            restore: Vec::new(),
+        });
         if stage == Stage::Triage {
             let tracks: Vec<Arc<Track>> = picked
                 .iter()
@@ -318,21 +321,36 @@ impl Browser {
         self.refresh_rows();
     }
 
-    /// Takes back the last stage change: stages, file moves and all.
+    /// Takes back the last stage change (stages, file moves and all), or
+    /// the last merge of copies.
     fn undo_stage(&mut self) {
-        let Some((batch, _)) = self.undo.take() else {
+        let Some(undo) = self.undo.take() else {
             return;
         };
         let Some(db) = &mut self.db else { return };
-        let report = match db.undo_batch(batch) {
-            Ok(r) => r,
-            Err(e) => {
+        let report = match undo.batch.map(|b| db.undo_batch(b)) {
+            None => Default::default(),
+            Some(Ok(r)) => r,
+            Some(Err(e)) => {
                 eprintln!("can't undo: {e}");
                 return;
             }
         };
         for (path, why) in &report.failed {
             eprintln!("can't move {} back: {why}", path.display());
+        }
+        if !undo.restore.is_empty() {
+            if let Err(e) = db.restore_tracks(Some(&undo.restore)) {
+                eprintln!("can't bring the copies back: {e}");
+            }
+            self.health_status = format!(
+                "{} back in the library.",
+                super::health::tracks(undo.restore.len())
+            );
+            self.reload_library();
+            self.refresh_tree();
+            self.refresh_rows();
+            return;
         }
         // Stages and paths come back from the library as it is now.
         let tracks = match db.all_tracks(Path::exists) {
@@ -385,7 +403,7 @@ impl Browser {
         edit.set_undo_text(
             self.undo
                 .as_ref()
-                .map_or_else(SharedString::default, |(_, text)| text.into()),
+                .map_or_else(SharedString::default, |u| u.text.as_str().into()),
         );
     }
 
