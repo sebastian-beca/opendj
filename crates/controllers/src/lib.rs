@@ -13,6 +13,7 @@ mod host;
 pub mod layout;
 mod manager;
 pub mod mapping;
+pub mod own;
 pub mod probe;
 mod script;
 pub mod view;
