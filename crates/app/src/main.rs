@@ -506,6 +506,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             registry.clone(),
             dir,
             settings::controller_mappings(),
+            settings::controller_versions(),
         ))),
         None => {
             eprintln!("controller mappings not found; MIDI controllers are disabled");

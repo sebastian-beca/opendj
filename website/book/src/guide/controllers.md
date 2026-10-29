@@ -34,9 +34,21 @@ the list by any of those words.
   settings with their defaults.
 - **Your own mappings.** The **Mapping** menu next to the controller has the
   original mapping, which never changes, and your own copies of it: choose
-  **Duplicate…** to make one, and **Rename…** or **Delete…** to tidy up. For
-  now a copy works just like the original; changing what a control does comes
-  next.
+  **Duplicate…** to make one, and **Rename…** or **Delete…** to tidy up. The
+  controller runs the one picked.
+- **Change a control.** Click a row and the panel under the list shows what it
+  does. **Change…** opens every function by category, with a search; pick one
+  and the controller uses it at once. Pick the deck or effect unit beside it.
+  **Does nothing** turns the control off, and **Back to original** puts the
+  row back as the original mapping has it. Changed rows are marked in lilac.
+  Changing the original makes your own copy first, called "My" and the
+  controller's name, so the original stays as it is.
+- **Advanced**, folded under the function, sets when the row acts (press,
+  release, long press, tap or double press, so one button can do more than one
+  thing), how a button is read, the knob type (absolute, or one of the endless
+  kinds), pick-up for knobs and faders, and invert. Each has a short hint.
+  A row run by the mapping's script can be given a plain function too; the
+  script keeps running the other controls.
 - **Import…** in the same menu brings a mapping across from another DJ app:
   VirtualDJ (`.xml` from `Documents/VirtualDJ/Mappers`), Traktor (`.tsi`),
   rekordbox (`.midi.csv`), djay Pro (`.djayMidiMapping`) or an openDJ
