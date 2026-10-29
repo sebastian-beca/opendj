@@ -58,7 +58,7 @@ submission id; `xcrun notarytool log <id> --apple-id … --team-id …` says why
 
 ## In-app updates
 
-openDJ checks GitHub's latest release when it starts (Settings → Feedback →
+openDJ checks GitHub's latest release when it starts (Settings → Help →
 Check for updates). The macOS app installs an update itself only if the
 download matches GitHub's checksum, passes Gatekeeper (notarized) and is
 signed by the same Team ID as the running app, so every release must be

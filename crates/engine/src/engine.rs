@@ -900,6 +900,18 @@ impl Declick {
     }
 }
 
+/// The test tone at frame `n`: a 440 Hz beep, a quarter of full scale,
+/// 0.4 s on and 0.2 s off, faded in and out so it doesn't click.
+fn test_tone(n: u64, rate: f64) -> f32 {
+    let t = n as f64 / rate;
+    let at = t % 0.6;
+    if at >= 0.4 {
+        return 0.0;
+    }
+    let fade = (at / 0.01).min((0.4 - at) / 0.01).min(1.0);
+    (0.25 * fade * (std::f64::consts::TAU * 440.0 * t).sin()) as f32
+}
+
 /// A raised-cosine crossfade, all `old` at `t` = 0 and all `new` at 1.
 #[inline]
 pub(crate) fn crossfade(old: [f32; 2], new: [f32; 2], t: f32) -> [f32; 2] {
@@ -1028,6 +1040,8 @@ pub struct Engine {
     /// under the microphone.
     inputs: [Input; NUM_INPUTS],
     ducker: Ducker,
+    /// Frames into the test tone's beeps (see [`test_tone`]).
+    tone_frame: u64,
 }
 
 /// How far (in beats) Link's beat may drift from the master deck's before
@@ -1168,6 +1182,7 @@ impl Engine {
                 xfade: [1.0; NUM_DECKS],
                 clock: 0.0,
                 limiter: Limiter::new(sample_rate, LIMIT_CEILING),
+                tone_frame: 0,
             },
             EngineInput {
                 commands: commands_tx,
@@ -1738,6 +1753,10 @@ impl Engine {
         let (cue_mix, main_mix) = (mix.cos(), mix.sin());
         let booth_gain = self.master.booth_gain.get() as f32;
         let head_split = self.master.head_split.get_bool();
+        let tone = self.master.test_tone.get().round() as u8;
+        if tone == 0 {
+            self.tone_frame = 0;
+        }
 
         struct Plan {
             moving: bool,
@@ -2052,6 +2071,13 @@ impl Engine {
             if mic.pfl {
                 cue[0] += m[0];
                 cue[1] += m[1];
+            }
+            if tone != 0 {
+                let t = test_tone(self.tone_frame, out_rate);
+                self.tone_frame += 1;
+                let to = if tone == 1 { &mut main } else { &mut cue };
+                to[0] += t;
+                to[1] += t;
             }
             // The booth hears the main mix before the main level, at its own.
             let booth = main.map(|v| (v * booth_gain).clamp(-1.0, 1.0));
@@ -4046,6 +4072,33 @@ mod tests {
             )
         });
         2.0 * (re * re + im * im).sqrt() / x.len() as f64
+    }
+
+    #[test]
+    fn the_test_tone_beeps_in_the_master_or_the_headphones() {
+        let (reg, mut engine, _input) = setup();
+        let tone = reg.get("[Master]", "test_tone").unwrap();
+        let mut run = |channels: usize| {
+            let mut buf = vec![0.0f32; 4800 * channels];
+            engine.process(&mut buf, channels);
+            buf
+        };
+        assert!(peak(&run(2)) < 1e-6);
+        tone.set(1.0);
+        let master = run(2);
+        assert!(peak(&master) > 0.05, "{}", peak(&master));
+        // Headphones only: the master goes quiet (once the limiter's look
+        // ahead has played out), channels 3 and 4 beep.
+        tone.set(2.0);
+        run(4);
+        let four = run(4);
+        let main: Vec<f32> = four.chunks(4).flat_map(|f| [f[0], f[1]]).collect();
+        let phones: Vec<f32> = four.chunks(4).flat_map(|f| [f[2], f[3]]).collect();
+        assert!(peak(&main) < 1e-6, "{}", peak(&main));
+        assert!(peak(&phones) > 0.01, "{}", peak(&phones));
+        tone.set(0.0);
+        run(2);
+        assert!(peak(&run(2)) < 1e-6);
     }
 
     #[test]
