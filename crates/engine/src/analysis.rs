@@ -8,14 +8,15 @@
 //!
 //! Live and older recordings drift, so a steady grid misses their beats. A
 //! dynamic-programming beat tracker (Ellis, "Beat Tracking by Dynamic
-//! Programming", 2007) then follows the beats one by one; where most of them
-//! stray from the steady grid, the track gets a grid of sections whose
-//! tempos are fitted to the tracked beats (see [`crate::beats`]).
+//! Programming", 2007) then follows the beats one by one, and a grid is
+//! fitted through them: steady unless the beats move away from one tempo
+//! for a while, then in tempo sections (see [`crate::gridfit`]).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::beats::{BeatGrid, GridMarker};
+use crate::beats::BeatGrid;
 use crate::dsp::Isolator;
+use crate::gridfit::{self, Fitted};
 use crate::key::{self, Detector, Key, KeyDetector};
 use crate::keynet::Spectrogram;
 use crate::loudness::{Loudness, LoudnessMeter};
@@ -35,6 +36,8 @@ pub struct Analysis {
     /// The beat grid: steady at `bpm` from `first_beat`, or sections at
     /// different tempos when the track drifts. Empty without a tempo.
     pub grid: BeatGrid,
+    /// The detected beats fit the grid poorly: worth checking by ear.
+    pub grid_unsure: bool,
     /// EBU R128 loudness and peak, for auto gain; None for silence.
     pub loudness: Option<Loudness>,
 }
@@ -227,11 +230,17 @@ impl Analyser {
         } else {
             0.0
         };
-        // A tempo from tags is taken as steady.
-        let grid = match bpm {
-            b if b <= 0.0 => BeatGrid::default(),
-            _ if tagged => BeatGrid::constant(bpm, first_beat),
-            _ => dynamic_grid(&onset, bpm).unwrap_or_else(|| BeatGrid::constant(bpm, first_beat)),
+        // A tempo from tags is taken as steady. Otherwise the tracked beats
+        // say whether the tempo really moves; if it doesn't, the folded
+        // tempo and phase are the more precise.
+        let fitted = (bpm > 0.0 && !tagged)
+            .then(|| fit_beats(&onset, bpm, first_beat))
+            .flatten();
+        let grid_unsure = fitted.as_ref().is_some_and(|f| f.unsure);
+        let grid = match fitted {
+            _ if bpm <= 0.0 => BeatGrid::default(),
+            Some(f) if f.grid.is_dynamic() => f.grid,
+            _ => BeatGrid::constant(bpm, first_beat),
         };
         let (bpm, first_beat) = if grid.is_dynamic() {
             (
@@ -257,6 +266,7 @@ impl Analyser {
             bpm,
             first_beat,
             grid,
+            grid_unsure,
             loudness: self.loudness.finish(),
         }
     }
@@ -375,17 +385,6 @@ fn detect_bpm(onset: &[f32]) -> f64 {
     }
 }
 
-/// Share of clear beats whose local tempo must match the track's for it to
-/// keep a steady grid.
-const STEADY_SHARE: f64 = 0.85;
-/// Tempos closer than this (as a fraction) count as the same.
-const SAME_TEMPO: f64 = 0.004;
-/// How close a beat must be to a new section's grid to join it, in seconds.
-const ON_NEW_GRID: f64 = 0.012;
-/// Clear beats either side that give a beat its local tempo.
-const NEIGHBOURS: usize = 8;
-/// Fewest clear beats in a section of a dynamic grid.
-const MIN_SECTION: usize = 16;
 /// How strong an onset (in standard deviations) marks a beat clearly.
 const CLEAR_ONSET: f64 = 2.0;
 
@@ -450,161 +449,24 @@ fn track_beats(onset: &[f32], period: f64) -> Vec<(usize, bool)> {
         .collect()
 }
 
-/// The median of `v` (which it reorders); 0 for none.
-fn median(v: &mut [f64]) -> f64 {
-    if v.is_empty() {
-        return 0.0;
-    }
-    v.sort_by(f64::total_cmp);
-    v[v.len() / 2]
-}
+/// Share of the clearly marked beats that must fall on the steady grid for
+/// the track to keep it.
+const STEADY_SHARE: f64 = 0.75;
 
-/// The beat phase (in seconds, 0..period) most of `times` agree on, so beats
-/// that a syncopated part pulls off the beat don't drag it.
-fn common_phase(times: &[f64], period: f64) -> f64 {
-    const BINS: usize = 32;
-    let mut hist = [0usize; BINS];
-    let bin = |t: f64| ((t.rem_euclid(period) / period * BINS as f64) as usize).min(BINS - 1);
-    for &t in times {
-        hist[bin(t)] += 1;
-    }
-    let best = (0..BINS)
-        .max_by_key(|&k| hist[(k + BINS - 1) % BINS] + 2 * hist[k] + hist[(k + 1) % BINS])
-        .unwrap();
-    // Average the beats in and beside the peak, unwrapped around it.
-    let centre = (best as f64 + 0.5) / BINS as f64 * period;
-    let (mut sum, mut n) = (0.0, 0.0);
-    for &t in times {
-        let k = bin(t);
-        if k == best || k == (best + 1) % BINS || k == (best + BINS - 1) % BINS {
-            let mut d = t.rem_euclid(period) - centre;
-            if d > period / 2.0 {
-                d -= period;
-            } else if d < -period / 2.0 {
-                d += period;
-            }
-            sum += d;
-            n += 1.0;
-        }
-    }
-    (centre + if n > 0.0 { sum / n } else { 0.0 }).rem_euclid(period)
-}
-
-/// A grid of tempo sections for a track whose tempo drifts; None if the
-/// steady grid at `bpm` fits.
-fn dynamic_grid(onset: &[f32], bpm: f64) -> Option<BeatGrid> {
-    let (min_bpm, max_bpm) = bpm_range();
-    let period = ONSET_RATE * 60.0 / bpm;
-    let tracked = track_beats(onset, period);
-    let beat = 60.0 / bpm;
-    // Number the tracked beats, counting a missed beat where a gap is long,
-    // and keep the clearly marked ones.
-    let mut numbered: Vec<(f64, f64)> = Vec::with_capacity(tracked.len());
-    let mut n = 0.0;
-    let mut last: Option<f64> = None;
-    for &(b, clear) in &tracked {
-        let t = b as f64 / ONSET_RATE;
-        if let Some(prev) = last {
-            n += ((t - prev) / beat).round().max(1.0);
-        }
-        last = Some(t);
-        if clear {
-            numbered.push((n, t));
-        }
-    }
-    if numbered.len() < MIN_SECTION * 2 {
-        return None;
-    }
-    // Each beat's local beat length: the median slope to its neighbours.
-    // A stretch pushed off the beat (syncopation) shifts every beat in it
-    // alike, so it barely moves the median, while a real tempo change does.
-    let local: Vec<f64> = (0..numbered.len())
-        .map(|i| {
-            let (ni, ti) = numbered[i];
-            let lo = i.saturating_sub(NEIGHBOURS);
-            let hi = (i + NEIGHBOURS + 1).min(numbered.len());
-            let mut slopes: Vec<f64> = numbered[lo..hi]
-                .iter()
-                .filter(|(nj, _)| (nj - ni).abs() >= 2.0)
-                .map(|(nj, tj)| (tj - ti) / (nj - ni))
-                .collect();
-            median(&mut slopes)
-        })
+/// A grid fitted to the clearly marked beats [`track_beats`] finds at `bpm`
+/// (see [`gridfit`]); None when the steady grid at `bpm` from `first_beat`
+/// holds most of them.
+fn fit_beats(onset: &[f32], bpm: f64, first_beat: f64) -> Option<Fitted> {
+    let beats: Vec<f64> = track_beats(onset, ONSET_RATE * 60.0 / bpm)
+        .into_iter()
+        .filter(|&(_, clear)| clear)
+        .map(|(b, _)| b as f64 / ONSET_RATE)
         .collect();
-    let steady = local
-        .iter()
-        .filter(|&&l| (l / beat - 1.0).abs() < SAME_TEMPO)
-        .count();
-    if steady as f64 >= local.len() as f64 * STEADY_SHARE {
+    let steady = BeatGrid::constant(bpm, first_beat);
+    if gridfit::share_on(&beats, &steady) >= STEADY_SHARE {
         return None;
     }
-
-    // Split where the local tempo moves away from the section's for a while.
-    let mut sections: Vec<(usize, usize)> = Vec::new();
-    let mut start = 0;
-    let mut i = 0;
-    while i < numbered.len() {
-        let mut lens: Vec<f64> = local[start..=i].to_vec();
-        let here = median(&mut lens);
-        let away = |k: usize| (local[k] / here - 1.0).abs() > SAME_TEMPO;
-        let run = (i..(i + MIN_SECTION / 2).min(numbered.len())).all(away);
-        if i - start >= MIN_SECTION / 2 && i + MIN_SECTION / 2 <= numbered.len() && run {
-            sections.push((start, i));
-            start = i;
-        }
-        i += 1;
-    }
-    sections.push((start, numbered.len()));
-    // Short sections (often a breakdown with no clear beat) join the one before.
-    let mut merged: Vec<(usize, usize)> = Vec::new();
-    for (a, b) in sections {
-        match merged.last_mut() {
-            Some(last) if b - a < MIN_SECTION => last.1 = b,
-            _ => merged.push((a, b)),
-        }
-    }
-    let mut markers: Vec<GridMarker> = Vec::new();
-    for (a, b) in merged {
-        let mut lens: Vec<f64> = local[a..b].to_vec();
-        let len = median(&mut lens);
-        if len.is_nan() || len <= 0.0 {
-            continue;
-        }
-        let times: Vec<f64> = numbered[a..b].iter().map(|(_, t)| *t).collect();
-        let phase = common_phase(&times, len);
-        // The section starts on its beat nearest its first tracked beat.
-        let t0 = times[0];
-        let seconds = t0 - (t0 - phase).rem_euclid(len);
-        let mut seconds = if t0 - seconds > len / 2.0 {
-            seconds + len
-        } else {
-            seconds
-        };
-        // The change was only noticed a few beats in: take the section back
-        // over the beats before it that already keep its time.
-        if let Some(prev) = markers.last() {
-            let earliest = prev.seconds + 4.0 * 60.0 / prev.bpm;
-            while seconds - len > earliest
-                && numbered[..a]
-                    .iter()
-                    .any(|(_, t)| (t - (seconds - len)).abs() < ON_NEW_GRID)
-            {
-                seconds -= len;
-            }
-        }
-        let m = GridMarker {
-            seconds,
-            bpm: 60.0 / len,
-        };
-        match markers.last() {
-            // Neighbours within a hair of each other's tempo are one section.
-            Some(last) if (m.bpm / last.bpm - 1.0).abs() < SAME_TEMPO => {}
-            _ if (min_bpm * 0.9..=max_bpm * 1.1).contains(&m.bpm) => markers.push(m),
-            _ => {}
-        }
-    }
-    let grid = BeatGrid::new(markers);
-    grid.is_dynamic().then_some(grid)
+    gridfit::fit(&beats, None, bpm)
 }
 
 #[cfg(test)]

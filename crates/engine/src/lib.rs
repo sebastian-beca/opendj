@@ -18,6 +18,7 @@ pub mod decode;
 pub mod dsp;
 mod effects;
 pub mod engine;
+mod gridfit;
 pub mod import;
 pub mod inputs;
 pub mod key;
