@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
+use crate::list_picker::{Picker, Ticked};
 use opendj_control::ControlRegistry;
 use opendj_controllers::{device_key, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
@@ -69,6 +70,9 @@ const TEXT: i32 = 9;
 /// Remove beside it.
 const CONTROLLER: i32 = 10;
 const SHORTCUT: i32 = 11;
+/// A tick box, indented by `chosen`; `value` "some" shows a folder partly
+/// ticked, and `action` its open or closed arrow, pressing id + "#fold".
+const TICK: i32 = 12;
 
 /// Tempo fader ranges, as fractions of normal speed.
 const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
@@ -289,6 +293,11 @@ struct WizardState {
     /// Whether `database` could be read; Next waits for one that can.
     readable: bool,
     groups: Vec<&'static str>,
+    /// The lists to tick, read when step 1 is shown.
+    picker: Option<Picker>,
+    /// Opened from Settings to change which lists come in: only step 1,
+    /// saved by its button.
+    only_lists: bool,
     theirs_win: bool,
 }
 
@@ -301,6 +310,8 @@ impl WizardState {
             preview: String::new(),
             readable: false,
             groups: settings::import_groups(importer),
+            picker: None,
+            only_lists: false,
             theirs_win: settings::import_theirs_win(importer.id()),
         };
         w.set_database(importer, settings::import_database(importer));
@@ -321,6 +332,41 @@ impl WizardState {
         };
         self.readable = !self.preview.starts_with("Can't");
         self.database = database;
+        self.picker = None;
+    }
+
+    /// Reads the lists to tick, if they haven't been yet.
+    fn read_lists(&mut self, importer: &dyn LibraryImport) {
+        if self.picker.is_some() {
+            return;
+        }
+        let Some(db) = &self.database else {
+            return;
+        };
+        let choices = settings::import_list_choices(importer.id());
+        match Picker::read(importer, db, &self.groups, &choices) {
+            Ok(p) => self.picker = Some(p),
+            Err(e) => {
+                self.preview = format!("Can't read its lists: {e}");
+                self.picker = Some(Picker::default());
+            }
+        }
+    }
+
+    /// Saves which lists come in, from the ticks.
+    fn save_lists(&self, importer: &dyn LibraryImport) {
+        let Some(p) = &self.picker else {
+            return;
+        };
+        let id = importer.id();
+        let groups = p.groups();
+        for g in importer.list_groups() {
+            settings::set(
+                &settings::import_group_key(id, g.id),
+                json!(groups.contains(&g.id)),
+            );
+        }
+        settings::set(&settings::import_lists_key(id), json!(p.choices()));
     }
 }
 
@@ -1555,14 +1601,16 @@ impl Prefs {
                 &format!("Read when openDJ starts. Change its lists in {title}."),
             )
         }];
-        let chosen = settings::import_groups(importer);
-        for g in importer.list_groups() {
-            rows.push(switch(
-                &settings::import_group_key(id, g.id),
-                g.title,
-                g.detail,
-                chosen.contains(&g.id),
-            ));
+        if !importer.list_groups().is_empty() {
+            rows.push(PrefItem {
+                action: "Choose…".into(),
+                ..item(
+                    &format!("import_lists:{id}"),
+                    BUTTON,
+                    "Lists",
+                    &format!("Which of {title}'s playlists, folders and history come in."),
+                )
+            });
         }
         rows.push(theirs_row(
             &settings::import_theirs_key(id),
@@ -1630,6 +1678,20 @@ impl Prefs {
                 self.chosen_tx.clone(),
             );
             return true;
+        } else if let Some(i) = id.strip_prefix("import_lists:").and_then(importer) {
+            let mut w = WizardState::new(i.as_ref());
+            w.step = 1;
+            w.only_lists = true;
+            w.read_lists(i.as_ref());
+            self.wizard = Some(w);
+        } else if let Some(node) = id
+            .strip_prefix("import_pick:")
+            .and_then(|n| n.strip_suffix("#fold"))
+            .and_then(|n| n.parse().ok())
+        {
+            if let Some(p) = self.wizard.as_mut().and_then(|w| w.picker.as_mut()) {
+                p.toggle_open(node);
+            }
         } else if id == "import_wizard_cancel" {
             self.wizard = None;
         } else if id == "import_wizard_back" {
@@ -1643,8 +1705,22 @@ impl Prefs {
             if w.database.is_none() || !w.readable {
                 return true;
             }
-            if w.step < 2 {
+            if w.only_lists {
+                if let Some(w) = self.wizard.take() {
+                    if let Some(i) = importer(&w.importer) {
+                        w.save_lists(i.as_ref());
+                        (self.rescan)();
+                        self.library_note = "Updating what comes in from other apps…".into();
+                        self.import_note = self.library_note.clone();
+                    }
+                }
+            } else if w.step < 2 {
                 w.step += 1;
+                if w.step == 1 {
+                    if let Some(i) = importer(&w.importer) {
+                        w.read_lists(i.as_ref());
+                    }
+                }
             } else if let Some(w) = self.wizard.take() {
                 self.finish_wizard(w);
             }
@@ -1674,16 +1750,23 @@ impl Prefs {
         let id = i.id();
         // Only a database the DJ picked is saved, so the usual place is
         // followed if VirtualDJ moves it.
-        let picked = w.database.filter(|d| Some(d) != i.database().as_ref());
+        let picked = w
+            .database
+            .clone()
+            .filter(|d| Some(d) != i.database().as_ref());
         settings::set(
             &settings::import_database_key(id),
             json!(picked.map_or(String::new(), |d| d.to_string_lossy().into_owned())),
         );
-        for g in i.list_groups() {
-            settings::set(
-                &settings::import_group_key(id, g.id),
-                json!(w.groups.contains(&g.id)),
-            );
+        if w.picker.is_some() {
+            w.save_lists(i.as_ref());
+        } else {
+            for g in i.list_groups() {
+                settings::set(
+                    &settings::import_group_key(id, g.id),
+                    json!(w.groups.contains(&g.id)),
+                );
+            }
         }
         settings::set(&settings::import_theirs_key(id), json!(w.theirs_win));
         settings::set(&settings::import_remove_key(id), json!(false));
@@ -1699,6 +1782,13 @@ impl Prefs {
     }
 
     fn toggled(&mut self, id: &str, on: bool) {
+        if let Some(node) = id.strip_prefix("import_pick:").and_then(|n| n.parse().ok()) {
+            if let Some(p) = self.wizard.as_mut().and_then(|w| w.picker.as_mut()) {
+                p.set(node, on);
+            }
+            self.refresh();
+            return;
+        }
         if let Some(group) = id.strip_prefix("import_wizard_group:") {
             if let Some(w) = &mut self.wizard {
                 w.groups.retain(|g| *g != group);
@@ -2488,18 +2578,27 @@ fn wizard_rows(importer: &dyn LibraryImport, w: &WizardState) -> Vec<PrefItem> {
             },
             item("", NOTE, "", &w.preview),
         ],
-        1 => importer
-            .list_groups()
-            .into_iter()
-            .map(|g| {
-                switch(
-                    &format!("import_wizard_group:{}", g.id),
-                    g.title,
-                    g.detail,
-                    w.groups.contains(&g.id),
-                )
-            })
-            .collect(),
+        1 => match &w.picker {
+            Some(p) if !p.nodes[0].children.is_empty() => pick_rows(p),
+            Some(_) => vec![item(
+                "",
+                NOTE,
+                "",
+                &format!("{title} has no lists to bring in, only tracks."),
+            )],
+            None => importer
+                .list_groups()
+                .into_iter()
+                .map(|g| {
+                    switch(
+                        &format!("import_wizard_group:{}", g.id),
+                        g.title,
+                        g.detail,
+                        w.groups.contains(&g.id),
+                    )
+                })
+                .collect(),
+        },
         _ => vec![
             theirs_row("import_wizard_theirs", title, w.theirs_win),
             item(
@@ -2516,6 +2615,43 @@ fn wizard_rows(importer: &dyn LibraryImport, w: &WizardState) -> Vec<PrefItem> {
     }
 }
 
+/// The tree of lists to tick: a folder's tick box does all of it, its
+/// arrow opens it.
+fn pick_rows(p: &Picker) -> Vec<PrefItem> {
+    p.visible()
+        .into_iter()
+        .map(|i| {
+            let n = &p.nodes[i];
+            let ticked = if n.list.is_some() {
+                if n.on {
+                    Ticked::All
+                } else {
+                    Ticked::None
+                }
+            } else {
+                p.ticked(i)
+            };
+            let detail = if i == 0 {
+                p.summary()
+            } else {
+                n.detail.clone()
+            };
+            PrefItem {
+                on: ticked == Ticked::All,
+                value: if ticked == Ticked::Some { "some" } else { "" }.into(),
+                chosen: n.depth as i32,
+                action: match (n.list.is_some(), n.open) {
+                    (true, _) => "",
+                    (false, true) => "▾",
+                    (false, false) => "▸",
+                }
+                .into(),
+                ..item(&format!("import_pick:{i}"), TICK, &n.title, &detail)
+            }
+        })
+        .collect()
+}
+
 /// Shows the import wizard's dialog, or hides it.
 fn show_wizard(app: &AppWindow, w: Option<&WizardState>) {
     let g = app.global::<ImportWizard>();
@@ -2529,15 +2665,29 @@ fn show_wizard(app: &AppWindow, w: Option<&WizardState>) {
         1 => "Choose which lists come across".to_string(),
         _ => "Choose whose tags win when they differ".to_string(),
     };
-    g.set_title(format!("Import from {title}").into());
-    g.set_step(format!("Step {} of 3 · {step}", w.step + 1).into());
+    if w.only_lists {
+        g.set_title(format!("{title} lists").into());
+        g.set_step("Tick the lists to bring in. A folder's tick box does everything in it.".into());
+    } else {
+        g.set_title(format!("Import from {title}").into());
+        g.set_step(format!("Step {} of 3 · {step}", w.step + 1).into());
+    }
     g.set_items(ModelRc::new(VecModel::from(wizard_rows(
         importer.as_ref(),
         w,
     ))));
-    g.set_next_label(if w.step < 2 { "Next" } else { "Import" }.into());
+    g.set_next_label(
+        if w.only_lists {
+            "Save"
+        } else if w.step < 2 {
+            "Next"
+        } else {
+            "Import"
+        }
+        .into(),
+    );
     g.set_can_next(w.database.is_some() && w.readable);
-    g.set_can_back(w.step > 0);
+    g.set_can_back(w.step > 0 && !w.only_lists);
     g.set_open(true);
 }
 

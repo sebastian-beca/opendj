@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use opendj_engine::beats::BeatGrid;
 use opendj_engine::import::{ImportedLibrary, ImportedList, ImportedListKind};
-use opendj_engine::{Hotcue, LibraryInfo, Marker, MarkerKind, Source, Track};
+use opendj_engine::{Hotcue, LibraryInfo, Marker, MarkerKind, Source, Track, MEMORY_CUE};
 use rusqlite::{params, Connection, OptionalExtension};
 
 pub use rusqlite::Error;
@@ -196,6 +196,18 @@ CREATE TABLE IF NOT EXISTS track_links (
 CREATE INDEX IF NOT EXISTS track_links_linked ON track_links(linked);
 ";
 
+/// Another app's copy of a song the library already has, found by artist,
+/// title and duration: its lists point at `track_id` instead of adding the
+/// song twice. Made again on each import of `source`. Created on every
+/// open, as [`LINKS_SCHEMA`] is.
+const ALIASES_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS track_aliases (
+    path TEXT PRIMARY KEY,
+    track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    source TEXT NOT NULL
+);
+";
+
 /// Files moved between the stage folders, and the stage changes that go
 /// with them. A move waits (`done` NULL) while the DJ keeps file moves
 /// off; `undone` is set when it was taken back. Changes made together
@@ -316,6 +328,9 @@ pub struct SyncReport {
     /// List entries left out because the library doesn't have their file
     /// (streamed tracks, files that have gone).
     pub unmatched: usize,
+    /// Tracks found to be another copy of a song the library has, whose
+    /// lists now point at that one.
+    pub matched: usize,
 }
 
 /// What [`Library::remove_import`] took out.
@@ -448,6 +463,7 @@ impl Library {
         }
         db.execute_batch(LINKS_SCHEMA)?;
         db.execute_batch(MOVES_SCHEMA)?;
+        db.execute_batch(ALIASES_SCHEMA)?;
         db.execute_batch(health::HEALTH_SCHEMA)?;
         db.execute_batch(cleanup::CHANGES_SCHEMA)?;
         let lib = Library { db };
@@ -761,6 +777,7 @@ impl Library {
         tx.execute("DELETE FROM playlists WHERE source = ?1", [source])?;
         tx.execute("DELETE FROM markers WHERE source = ?1", [source])?;
         tx.execute("DELETE FROM cues WHERE source = ?1", [source])?;
+        tx.execute("DELETE FROM track_aliases WHERE source = ?1", [source])?;
         tx.execute(
             "UPDATE tracks SET grid = NULL, grid_source = NULL WHERE grid_source = ?1",
             [source],
@@ -1491,6 +1508,12 @@ impl Library {
 /// Brings in another app's tracks (`source` names the app): their tags,
 /// rating, colour and play count, and their grid and cues where the DJ
 /// hasn't edited those here.
+///
+/// A track that is another import's (by path, or a different copy of a
+/// song the library has, matched by artist, title and duration) is that
+/// app's first: this one only fills in what is empty, its grid only goes
+/// where there is none from another app, and its hot cues become memory
+/// cues when the track has hot cues already.
 fn import_tracks(
     tx: &rusqlite::Transaction,
     source: &str,
@@ -1498,9 +1521,22 @@ fn import_tracks(
     theirs_win: bool,
     report: &mut SyncReport,
 ) -> Result<(), Error> {
-    let mut find = tx.prepare("SELECT id, grid_source FROM tracks WHERE path = ?1")?;
+    // The other apps brought in before this one.
+    let others: HashSet<String> = tx
+        .prepare("SELECT substr(key, 14) FROM meta WHERE key LIKE 'import_stamp:%'")?
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<Result<HashSet<_>, _>>()?
+        .into_iter()
+        .filter(|s| s != source)
+        .collect();
+    tx.execute("DELETE FROM track_aliases WHERE source = ?1", [source])?;
+    let mut songs = SongIndex::new(tx, source)?;
+    let mut find = tx.prepare("SELECT id, source FROM tracks WHERE path = ?1")?;
     let mut insert =
         tx.prepare("INSERT INTO tracks (path, file_mtime, source, added) VALUES (?1, ?2, ?4, ?3)")?;
+    let mut alias = tx.prepare(
+        "INSERT OR REPLACE INTO track_aliases (path, track_id, source) VALUES (?1, ?2, ?3)",
+    )?;
     let mut set = tx.prepare(
         "UPDATE tracks SET
                 artist = CASE WHEN ?18 OR artist = '' THEN ?2 ELSE artist END,
@@ -1512,35 +1548,48 @@ fn import_tracks(
                 comment = CASE WHEN ?18 OR comment = '' THEN ?8 ELSE comment END,
                 grouping = CASE WHEN ?18 OR grouping = '' THEN ?9 ELSE grouping END,
                 labels = CASE WHEN ?18 OR labels = '' THEN ?10 ELSE labels END,
-                play_count = MAX(play_count, ?11), source = ?14,
-                duration = CASE WHEN ?12 > 0 THEN ?12 ELSE duration END,
-                key = CASE WHEN ?13 != '' THEN ?13 ELSE key END,
-                key_source = CASE WHEN ?13 != '' THEN ?14 ELSE key_source END,
-                remix = CASE WHEN ?15 != '' THEN ?15 ELSE remix END,
-                user1 = CASE WHEN ?16 != '' THEN ?16 ELSE user1 END,
-                user2 = CASE WHEN ?17 != '' THEN ?17 ELSE user2 END,
-                user_more = CASE WHEN ?19 != '' THEN ?19 ELSE user_more END
+                play_count = MAX(play_count, ?11),
+                source = CASE WHEN ?20 THEN source ELSE ?14 END,
+                duration = CASE WHEN ?12 > 0 AND (NOT ?20 OR duration <= 0) THEN ?12 ELSE duration END,
+                key_source = CASE WHEN ?13 != '' AND (NOT ?20 OR key = '') THEN ?14 ELSE key_source END,
+                key = CASE WHEN ?13 != '' AND (NOT ?20 OR key = '') THEN ?13 ELSE key END,
+                remix = CASE WHEN ?15 != '' AND (NOT ?20 OR remix = '') THEN ?15 ELSE remix END,
+                user1 = CASE WHEN ?16 != '' AND (NOT ?20 OR user1 = '') THEN ?16 ELSE user1 END,
+                user2 = CASE WHEN ?17 != '' AND (NOT ?20 OR user2 = '') THEN ?17 ELSE user2 END,
+                user_more = CASE WHEN ?19 != '' AND (NOT ?20 OR user_more = '') THEN ?19 ELSE user_more END
          WHERE id = ?1",
     )?;
     let mut set_grid = tx.prepare(
         "UPDATE tracks SET grid = ?2, bpm = ?3, grid_source = ?4
          WHERE id = ?1 AND (grid_source IS NULL OR grid_source != 'user')",
     )?;
+    let mut grid_source = tx.prepare("SELECT grid_source FROM tracks WHERE id = ?1")?;
     let mut user_cues =
         tx.prepare("SELECT COUNT(*) FROM cues WHERE track_id = ?1 AND source = 'user'")?;
+    // Hot cues from somewhere other than this app.
+    let mut other_hot_cues = tx.prepare(
+        "SELECT COUNT(*) FROM cues WHERE track_id = ?1 AND source != ?2 AND number < ?3",
+    )?;
+    let mut next_memory = tx.prepare(
+        "SELECT MAX(COALESCE(MAX(number) + 1, ?2), ?2) FROM cues WHERE track_id = ?1 AND number >= ?2",
+    )?;
     let mut set_dates = tx.prepare(
-        "UPDATE tracks SET added = COALESCE(?2, added),
+        "UPDATE tracks SET added = CASE WHEN ?5 THEN MIN(added, COALESCE(?2, added)) ELSE COALESCE(?2, added) END,
                 last_played = NULLIF(MAX(COALESCE(last_played, 0), COALESCE(?3, 0)), 0),
-                gain = COALESCE(?4, gain)
+                gain = CASE WHEN ?5 THEN COALESCE(gain, ?4) ELSE COALESCE(?4, gain) END
          WHERE id = ?1",
     )?;
     let mut clear_markers =
         tx.prepare("DELETE FROM markers WHERE track_id = ?1 AND source = ?2")?;
+    let mut other_markers =
+        tx.prepare("SELECT COUNT(*) FROM markers WHERE track_id = ?1 AND source != ?2")?;
     let mut add_marker = tx.prepare(
         "INSERT INTO markers (track_id, kind, seconds, end_seconds, name, color, source)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )?;
-    let mut clear_cues = tx.prepare("DELETE FROM cues WHERE track_id = ?1")?;
+    // Cues other apps brought in stay: they are memory cues of theirs.
+    let mut clear_own_cues = tx.prepare("DELETE FROM cues WHERE track_id = ?1 AND source = ?2")?;
+    let mut clear_cues = tx.prepare("DELETE FROM cues WHERE track_id = ?1 AND source != 'user'")?;
     let mut add_cue = tx.prepare(
         "INSERT OR REPLACE INTO cues (track_id, number, seconds, name, color, end_seconds, source)
          VALUES (?1, ?2, ?3, ?4, ?7, ?5, ?6)",
@@ -1550,19 +1599,27 @@ fn import_tracks(
             continue;
         };
         let p = path_text(path);
-        let found: Option<(i64, Option<String>)> = find
+        let found: Option<(i64, String)> = find
             .query_row([&p], |r| Ok((r.get(0)?, r.get(1)?)))
             .optional()?;
-        let id = match found {
-            Some((id, _)) => {
+        // Whether the track came from another app first.
+        let (id, guest) = match found {
+            Some((id, owner)) => {
                 report.updated += 1;
-                id
+                (id, others.contains(&owner))
             }
-            None => {
-                insert.execute(params![p, mtime(path), now(), source])?;
-                report.added += 1;
-                tx.last_insert_rowid()
-            }
+            None => match songs.find(t) {
+                Some(id) => {
+                    alias.execute(params![p, id, source])?;
+                    report.matched += 1;
+                    (id, true)
+                }
+                None => {
+                    insert.execute(params![p, mtime(path), now(), source])?;
+                    report.added += 1;
+                    (tx.last_insert_rowid(), false)
+                }
+            },
         };
         set.execute(params![
             id,
@@ -1582,15 +1639,45 @@ fn import_tracks(
             t.info.remix,
             t.info.user_tag(0),
             t.info.user_tag(1),
-            theirs_win,
-            user_columns(&t.info).2
+            theirs_win && !guest,
+            user_columns(&t.info).2,
+            guest
         ])?;
         let grid = t.beat_grid();
         if t.info.fixed_grid && !grid.is_empty() {
-            set_grid.execute(params![id, grid.to_text(), t.bpm, source])?;
+            let from: Option<String> = grid_source.query_row([id], |r| r.get(0))?;
+            let taken = from.is_some_and(|f| f != source && others.contains(&f));
+            if !(guest && taken) {
+                set_grid.execute(params![id, grid.to_text(), t.bpm, source])?;
+            }
         }
         let mine: i64 = user_cues.query_row([id], |r| r.get(0))?;
-        if mine == 0 {
+        if guest {
+            clear_own_cues.execute(params![id, source])?;
+            let theirs: i64 =
+                other_hot_cues.query_row(params![id, source, MEMORY_CUE as i64], |r| r.get(0))?;
+            // Hot cues only when the track has none; otherwise all of them
+            // come in as memory cues, after any it has.
+            let mut next: i64 =
+                next_memory.query_row(params![id, MEMORY_CUE as i64], |r| r.get(0))?;
+            for c in &t.info.hotcues {
+                let number = if theirs == 0 && !c.is_memory() {
+                    c.number as i64
+                } else {
+                    next += 1;
+                    next - 1
+                };
+                add_cue.execute(params![
+                    id,
+                    number,
+                    c.seconds,
+                    c.name,
+                    c.end,
+                    source,
+                    c.color.map(|c| c as i64)
+                ])?;
+            }
+        } else if mine == 0 {
             clear_cues.execute([id])?;
             for c in &t.info.hotcues {
                 add_cue.execute(params![
@@ -1611,22 +1698,94 @@ fn import_tracks(
             id,
             (t.info.added > 0).then_some(t.info.added),
             t.info.last_played,
-            t.info.gain_db.map(f64::from)
+            t.info.gain_db.map(f64::from),
+            guest
         ])?;
         clear_markers.execute(params![id, source])?;
-        for m in &t.info.markers {
-            add_marker.execute(params![
-                id,
-                m.kind.name(),
-                m.seconds,
-                m.end,
-                m.name,
-                m.color.map(|c| c as i64),
-                source
-            ])?;
+        // A guest's phrases and sections would repeat the first app's.
+        let taken: i64 = if guest {
+            other_markers.query_row(params![id, source], |r| r.get(0))?
+        } else {
+            0
+        };
+        if taken == 0 {
+            for m in &t.info.markers {
+                add_marker.execute(params![
+                    id,
+                    m.kind.name(),
+                    m.seconds,
+                    m.end,
+                    m.name,
+                    m.color.map(|c| c as i64),
+                    source
+                ])?;
+            }
         }
     }
     Ok(())
+}
+
+/// The library's songs by artist and title, to find another app's copy of
+/// one: same artist and title (ignoring case, punctuation and spacing) and
+/// a duration within [`SAME_SONG_SECONDS`]. Leaves out `source`'s own
+/// tracks, as two copies in one app are that app's to sort out.
+struct SongIndex {
+    songs: HashMap<(String, String), Vec<(i64, f64)>>,
+}
+
+/// How far apart two copies' durations can be and still be one song.
+const SAME_SONG_SECONDS: f64 = 2.0;
+
+impl SongIndex {
+    fn new(tx: &Connection, source: &str) -> Result<Self, Error> {
+        let mut songs: HashMap<(String, String), Vec<(i64, f64)>> = HashMap::new();
+        let mut q = tx.prepare(
+            "SELECT id, artist, title, duration FROM tracks WHERE source != ?1 ORDER BY id",
+        )?;
+        let rows = q.query_map([source], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, f64>(3)?,
+            ))
+        })?;
+        for row in rows {
+            let (id, artist, title, duration) = row?;
+            if let Some(key) = song_key(&artist, &title) {
+                songs.entry(key).or_default().push((id, duration));
+            }
+        }
+        Ok(SongIndex { songs })
+    }
+
+    /// The library's copy of `t`, the first added when there are several.
+    fn find(&mut self, t: &Track) -> Option<i64> {
+        if t.duration <= 0.0 {
+            return None;
+        }
+        self.songs
+            .get(&song_key(&t.artist, &t.title)?)?
+            .iter()
+            .find(|(_, d)| *d > 0.0 && (d - t.duration).abs() <= SAME_SONG_SECONDS)
+            .map(|(id, _)| *id)
+    }
+}
+
+/// Artist and title as they are compared: lower case, letters and digits
+/// only, one space between words. `None` when either is empty.
+fn song_key(artist: &str, title: &str) -> Option<(String, String)> {
+    let norm = |s: &str| {
+        s.to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let (a, t) = (norm(artist), norm(title));
+    (!a.is_empty() && !t.is_empty()).then_some((a, t))
 }
 
 /// Stores the details beyond artist, title, album and genre. With
@@ -1705,7 +1864,11 @@ fn import_lists(
     let top = make(None, title, PlaylistKind::Folder, last, now(), None)?;
     report.lists += 1;
     let mut folders: HashMap<Vec<String>, i64> = HashMap::new();
-    let mut find = tx.prepare("SELECT id FROM tracks WHERE path = ?1")?;
+    // The library's copy, or the song another copy stands for.
+    let mut find = tx.prepare(
+        "SELECT id FROM tracks WHERE path = ?1
+         UNION ALL SELECT track_id FROM track_aliases WHERE path = ?1 LIMIT 1",
+    )?;
     let mut add = tx.prepare(
         "INSERT INTO playlist_tracks (playlist_id, position, track_id, played_at)
          VALUES (?1, ?2, ?3, ?4)",
@@ -2016,6 +2179,82 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(lib.tracks(|_| true).unwrap()[0].title, "Theirs");
+    }
+
+    #[test]
+    fn a_second_apps_copy_joins_the_song_already_here() {
+        use opendj_engine::import::ImportedEntry;
+        let mut lib = Library::in_memory().unwrap();
+        let mut vdj = imported_track("/vdj/a.mp3");
+        vdj.artist = "Bicep".into();
+        vdj.title = "Glue".into();
+        lib.import("vdj", "VirtualDJ", "1", || {
+            Ok(ImportedLibrary {
+                tracks: vec![vdj.clone()],
+                lists: Vec::new(),
+            })
+        })
+        .unwrap();
+        // rekordbox's copy is another file, a second shorter, tagged a little
+        // differently, with its own cue and a comment VirtualDJ didn't have.
+        let mut rb = imported_track("/rb/Bicep - Glue.mp3");
+        rb.artist = "BICEP".into();
+        rb.title = "Glue!".into();
+        rb.duration = 199.0;
+        rb.rating = 2;
+        rb.info.comment = String::new();
+        rb.info.hotcues[0].seconds = 64.0;
+        let mut other = imported_track("/rb/other.mp3");
+        other.title = "Other".into();
+        let list = ImportedList {
+            folders: Vec::new(),
+            name: "Friday".into(),
+            kind: ImportedListKind::List,
+            entries: vec![ImportedEntry {
+                path: PathBuf::from("/rb/Bicep - Glue.mp3"),
+                played_at: None,
+            }],
+        };
+        let read = || {
+            Ok(ImportedLibrary {
+                tracks: vec![rb.clone(), other.clone()],
+                lists: vec![list.clone()],
+            })
+        };
+        let report = lib.import("rb", "rekordbox", "1", read).unwrap().unwrap();
+        assert_eq!((report.added, report.matched, report.unmatched), (1, 1, 0));
+        let tracks = lib.tracks(|_| true).unwrap();
+        assert_eq!(tracks.len(), 2);
+        let glue = tracks.iter().find(|t| t.title == "Glue").unwrap();
+        // VirtualDJ's copy and tags stay; rekordbox's cue is a memory cue.
+        assert!(matches!(&glue.source, Source::File(p) if p == Path::new("/vdj/a.mp3")));
+        assert_eq!(glue.rating, 4);
+        assert_eq!(glue.info.hotcues.len(), 2);
+        assert_eq!(glue.info.hotcues[0].seconds, 32.0);
+        assert!(glue.info.hotcues[1].is_memory());
+        assert_eq!(glue.info.hotcues[1].seconds, 64.0);
+        // The list points at the one copy.
+        let friday = lib
+            .playlists()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.name == "Friday")
+            .unwrap();
+        assert_eq!(lib.playlist_tracks(friday.id).unwrap(), vec![glue.id]);
+        // Bringing rekordbox in again doesn't add the cue twice.
+        lib.import("rb", "rekordbox", "2", read).unwrap();
+        let glue = lib
+            .tracks(|_| true)
+            .unwrap()
+            .into_iter()
+            .find(|t| t.title == "Glue")
+            .unwrap();
+        assert_eq!(glue.info.hotcues.len(), 2);
+        // Removing the rekordbox import leaves VirtualDJ's track as it was.
+        lib.remove_import("rb", |_| false).unwrap();
+        let tracks = lib.tracks(|_| true).unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].info.hotcues.len(), 1);
     }
 
     #[test]
