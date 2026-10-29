@@ -89,7 +89,8 @@ export global ControllerEditor {
     in property <string> version-name;
     // Whether the mapping shown is the original, which can't be changed.
     in property <bool> original: true;
-    // A dialog over the editor: 0 none, 1 a name to type, 2 a question.
+    // A dialog over the editor: 0 none, 1 a name to type, 2 a question,
+    // 3 a report to read (an import's).
     in property <int> dialog;
     in property <string> dialog-title;
     in property <string> dialog-detail;
@@ -458,7 +459,7 @@ component DialogButton inherits Rectangle {
     }
 }
 
-// Naming a mapping, or asking before deleting one.
+// Naming a mapping, asking before deleting one, or what an import brought.
 component EditorDialog inherits Rectangle {
     background: #00000080;
     TouchArea { }
@@ -497,7 +498,7 @@ component EditorDialog inherits Rectangle {
             HorizontalLayout {
                 alignment: end;
                 spacing: 8px;
-                DialogButton { text: "Cancel"; clicked => { ControllerEditor.dialog-done(false); } }
+                if ControllerEditor.dialog != 3: DialogButton { text: "Cancel"; clicked => { ControllerEditor.dialog-done(false); } }
                 DialogButton {
                     text: ControllerEditor.dialog-action;
                     primary: true;

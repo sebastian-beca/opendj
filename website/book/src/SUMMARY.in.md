@@ -27,3 +27,4 @@
 # Developer guide
 
 - [Build from source](dev/build.md)
+- [Controller mapping format](dev/mapping-format.md)

@@ -435,6 +435,31 @@ impl Prefs {
     /// Called every frame: picks up chosen paths and plugged-in devices.
     pub fn poll(&mut self) {
         while let Ok((id, path)) = self.chosen_rx.try_recv() {
+            if id == "keyboard_set_import" {
+                let file = path
+                    .file_name()
+                    .map(|f| f.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                self.shortcut_note = match opendj_controllers::import::import_file(&path) {
+                    Ok(i) if !i.shortcuts.is_empty() => {
+                        let set = shortcuts::import_set(&file, &i.shortcuts);
+                        let mut note = format!("{set}: {}", i.summary());
+                        if !i.skipped_shortcuts.is_empty() {
+                            let keys: Vec<String> = i
+                                .skipped_shortcuts
+                                .iter()
+                                .map(|(k, _)| shortcuts::display(k))
+                                .collect();
+                            note.push_str(&format!(" Not done yet: {}.", keys.join(", ")));
+                        }
+                        note
+                    }
+                    Ok(_) => format!("{file} has no keyboard shortcuts in it."),
+                    Err(e) => e,
+                };
+                self.refresh();
+                continue;
+            }
             if id == "import_wizard_db" {
                 if let Some(w) = &mut self.wizard {
                     if let Some(i) = importer(&w.importer) {
@@ -1717,6 +1742,26 @@ impl Prefs {
     }
 
     fn picked(&mut self, id: &str, index: usize) {
+        if id == "keyboard_set" {
+            let sets = settings::keyboard_sets();
+            match index.checked_sub(sets.len()) {
+                None => settings::select_keyboard_set(&sets[index]),
+                Some(0) => {
+                    let name = format!("{} copy", settings::keyboard_set());
+                    settings::add_keyboard_set(&name, &settings::keyboard_shortcuts());
+                }
+                Some(1) => choose(
+                    "keyboard_set_import",
+                    "Choose a VirtualDJ keyboard mapping",
+                    false,
+                    self.chosen_tx.clone(),
+                ),
+                Some(_) => settings::delete_keyboard_set(),
+            }
+            self.shortcut_note.clear();
+            self.refresh();
+            return;
+        }
         if let Some(key) = id.strip_prefix("shortcut:") {
             let Some(verb) = opendj_script::VERBS.get(index) else {
                 return;
@@ -1907,8 +1952,34 @@ impl Prefs {
                      Click a key to change it, type the action, or pick one from Actions. {fixed}"
                 ),
             ),
-            item("", HEADING, "SHORTCUTS", ""),
+            item("", HEADING, "SET", ""),
         ];
+        let sets = settings::keyboard_sets();
+        let current = settings::keyboard_set();
+        let mut choices = sets.clone();
+        choices.push("New set from this one".into());
+        choices.push("Import…".into());
+        let default = current == settings::DEFAULT_KEYBOARD_SET;
+        if !default {
+            choices.push("Delete this set".into());
+        }
+        items.push(PrefItem {
+            choices: strings(&choices),
+            chosen: sets.iter().position(|n| *n == current).unwrap_or(0) as i32,
+            ..item(
+                "keyboard_set",
+                MENU,
+                "Shortcut set",
+                "Keep several sets of shortcuts and switch between them. Import reads a VirtualDJ keyboard mapping.",
+            )
+        });
+        if !default {
+            items.push(PrefItem {
+                value: current.clone().into(),
+                ..item("keyboard_set_name", TEXT, "Name", "")
+            });
+        }
+        items.push(item("", HEADING, "SHORTCUTS", ""));
         if !self.shortcut_note.is_empty() {
             items.push(item("", NOTE, "", &self.shortcut_note));
         }
@@ -2052,6 +2123,10 @@ impl Prefs {
     /// The DJ typed in a plugin's text field. The page isn't filled again,
     /// so the field keeps its place while typing.
     fn typed(&mut self, id: &str, text: &str) {
+        if id == "keyboard_set_name" {
+            settings::rename_keyboard_set(text);
+            return;
+        }
         if let Some(key) = id.strip_prefix("shortcut:") {
             let mut own = settings::keyboard_shortcuts();
             shortcuts::set_script(&mut own, key, text);
@@ -2480,6 +2555,12 @@ fn choose(id: &str, prompt: &str, folder: bool, tx: Sender<(String, PathBuf)>) {
 /// the dialog's thread, unless it was cancelled.
 pub fn choose_file(prompt: &str, picked: impl FnOnce(PathBuf) + Send + 'static) {
     open_dialog(prompt, false, picked);
+}
+
+/// Opens the system's dialog for picking a folder; `picked` gets the path
+/// on the dialog's thread, unless it was cancelled.
+pub fn choose_folder(prompt: &str, picked: impl FnOnce(PathBuf) + Send + 'static) {
+    open_dialog(prompt, true, picked);
 }
 
 fn open_dialog(prompt: &str, folder: bool, picked: impl FnOnce(PathBuf) + Send + 'static) {
