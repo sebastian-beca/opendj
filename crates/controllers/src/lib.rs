@@ -9,6 +9,7 @@
 
 pub mod catalog;
 mod controller;
+pub mod edit;
 pub mod export;
 pub mod format;
 mod host;

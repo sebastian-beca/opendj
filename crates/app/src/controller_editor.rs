@@ -3,6 +3,10 @@
 //! it in a sandbox (see `opendj_controllers::probe`), which takes a moment,
 //! so it happens on a thread of its own. While the editor is open, messages
 //! from the controllers are watched: pressing a control finds it.
+//!
+//! A selected row is changed in the panel under the list. Changes go into
+//! the DJ's own mapping (the first change to the original makes one, "My
+//! …"), the controller restarts with it, and the view is read again.
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -12,9 +16,11 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use opendj_control::ControlRegistry;
+use opendj_controllers::edit::{self, Binding, Buttons, Choice, Encoder};
+use opendj_controllers::format::OpenDjMapping;
 use opendj_controllers::layout::Layout;
 use opendj_controllers::own::{self, OwnMapping};
-use opendj_controllers::probe::message_key;
+use opendj_controllers::probe::{message_key, MessageKey};
 use opendj_controllers::view::{self, LightRow, MappingView, Row};
 use opendj_controllers::Controllers;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
@@ -95,6 +101,10 @@ enum Picking {
     Export(Receiver<PathBuf>, bool),
 }
 
+/// What reading a mapping gives: its view, and the functions a row can be
+/// given.
+type Read = (Result<MappingView, String>, Vec<Choice>);
+
 /// A row of the list: a section heading (by its key) or a row of the view.
 #[derive(Clone, Debug, PartialEq)]
 enum Shown {
@@ -109,7 +119,14 @@ pub struct Editor {
     /// The mappings in the menu, by file name, and their names.
     choices: Vec<(String, String)>,
     /// The mapping being read, and where its view will come from.
-    loading: Option<(String, Receiver<Result<MappingView, String>>)>,
+    loading: Option<(String, Receiver<Read>)>,
+    /// The mapping is read again after a change: the list stays as it was,
+    /// and this row (its first message and layer) is selected again.
+    reselect: Option<Option<(MessageKey, String)>>,
+    /// The functions a row can be given.
+    functions: Vec<Choice>,
+    /// The function picker's rows: a category heading, or a function.
+    picker: Vec<Option<usize>>,
     view: Option<MappingView>,
     /// The list narrowed to this part of the picture (or control name, when
     /// there is no picture).
@@ -143,6 +160,9 @@ impl Editor {
             dir: opendj_controllers::default_mappings_dir(),
             choices: Vec::new(),
             loading: None,
+            reselect: None,
+            functions: Vec::new(),
+            picker: Vec::new(),
             view: None,
             part: None,
             selected: None,
@@ -181,6 +201,49 @@ impl Editor {
             e.part = None;
             e.fill();
         });
+        let e = editor.clone();
+        g.on_open_picker(move || e.borrow_mut().open_picker());
+        let e = editor.clone();
+        g.on_picker_searched(move || e.borrow_mut().fill_picker());
+        let e = editor.clone();
+        g.on_picker_picked(move |i| e.borrow_mut().picker_picked(i.max(0) as usize));
+        let e = editor.clone();
+        g.on_set_target(move |i| {
+            let mut e = e.borrow_mut();
+            let Some(choice) = e.current_choice() else {
+                return;
+            };
+            let Some((_, control)) = choice.targets.get(i.max(0) as usize).cloned() else {
+                return;
+            };
+            e.change(|b| b.control = Some(control));
+        });
+        let e = editor.clone();
+        g.on_set_when(move |i| {
+            let when = edit::WHENS[(i.max(0) as usize).min(edit::WHENS.len() - 1)];
+            e.borrow_mut().change(|b| b.when = when);
+        });
+        let e = editor.clone();
+        g.on_set_buttons(move |i| {
+            let m = Buttons::ALL[(i.max(0) as usize).min(Buttons::ALL.len() - 1)];
+            e.borrow_mut().change(|b| b.buttons = m);
+        });
+        let e = editor.clone();
+        g.on_set_encoder(move |i| {
+            let m = Encoder::ALL[(i.max(0) as usize).min(Encoder::ALL.len() - 1)];
+            e.borrow_mut().change(|b| b.encoder = m);
+        });
+        let e = editor.clone();
+        g.on_set_invert(move |on| e.borrow_mut().change(|b| b.invert = on));
+        let e = editor.clone();
+        g.on_set_pickup(move |on| e.borrow_mut().change(|b| b.pickup = on));
+        let e = editor.clone();
+        g.on_set_nothing(move || e.borrow_mut().change(|b| b.control = None));
+        let e = editor.clone();
+        g.on_reset_row(move || e.borrow_mut().apply(edit::reset));
+        g.set_whens(labels(edit::WHENS.iter().map(|w| edit::when_label(*w))));
+        g.set_button_modes(labels(Buttons::ALL.iter().map(|b| b.label())));
+        g.set_encoder_modes(labels(Encoder::ALL.iter().map(|e| e.label())));
         editor
     }
 
@@ -203,9 +266,17 @@ impl Editor {
         let Some(v) = &self.view else {
             return Vec::new();
         };
+        // Running the original, or an own mapping (named its own way).
+        let original = self
+            .choices
+            .iter()
+            .find(|(f, _)| *f == v.file)
+            .map(|(_, n)| n.as_str());
         self.running()
             .into_iter()
-            .filter(|(_, file, name)| file.as_ref() == Some(&v.file) || *name == v.name)
+            .filter(|(_, file, name)| {
+                file.as_ref() == Some(&v.file) || *name == v.name || Some(name.as_str()) == original
+            })
             .map(|(p, _, _)| p)
             .collect()
     }
@@ -285,13 +356,33 @@ impl Editor {
         g.set_name(name.into());
         self.versions(&file);
         g.set_author("".into());
-        g.set_loading(true);
-        g.set_status("Reading the mapping…".into());
-        self.view = None;
-        self.part = None;
-        self.selected = None;
-        self.fill();
-        self.picture();
+        let _ = dir;
+        self.read(false);
+    }
+
+    /// Reads the mapping shown (the original or the DJ's own) on a thread.
+    /// `again` keeps the list as it is meanwhile and selects the same row
+    /// once read: after a change, or a switch between original and own.
+    fn read(&mut self, again: bool) {
+        let (Some(app), Some(dir), Some(file)) =
+            (self.app.upgrade(), self.dir.clone(), self.base())
+        else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        if again {
+            self.reselect = Some(self.selected_row().map(|r| (r.keys[0], r.layer.clone())));
+        } else {
+            self.reselect = None;
+            g.set_loading(true);
+            g.set_status("Reading the mapping…".into());
+            self.view = None;
+            self.part = None;
+            self.selected = None;
+            self.fill();
+            self.picture();
+        }
+        let own: Option<OpenDjMapping> = self.current_own().map(|m| m.mapping.clone());
         let (tx, rx) = mpsc::channel();
         let path = dir.join(&file);
         std::thread::Builder::new()
@@ -303,10 +394,24 @@ impl Editor {
                 opendj_engine::create_controls(&registry);
                 let _library = crate::browser::LibraryControls::create(&registry);
                 let _automix = crate::automix::AutoMix::new(&registry);
-                let _ = tx.send(view::build(&path, registry));
+                let functions = edit::choices(&registry);
+                let v = match own {
+                    Some(own) => view::build_own(&path, &own, registry),
+                    None => view::build(&path, registry),
+                };
+                let _ = tx.send((v, functions));
             })
             .expect("spawn controller editor thread");
         self.loading = Some((file, rx));
+    }
+
+    /// Uses the own mapping `id` for the Mixxx mapping `base`, or the
+    /// original for `None`, here and on the controller.
+    fn use_version(&self, base: &str, id: Option<&str>) {
+        settings::set_controller_version(base, id);
+        if let (Some(c), Some(dir)) = (&self.controllers, settings::own_mappings_dir()) {
+            c.set_version(base, id.map(|id| own::path(&dir, id)));
+        }
     }
 
     /// The Mixxx mapping shown, by file name.
@@ -382,9 +487,10 @@ impl Editor {
         let action = index
             .checked_sub(n + 1)
             .and_then(|i| self.actions.get(i).copied());
+        let before = self.version.clone();
         match (index, action) {
-            (0, _) => settings::set_controller_version(&base, None),
-            (i, _) if i <= n => settings::set_controller_version(&base, Some(&self.own[i - 1].id)),
+            (0, _) => self.use_version(&base, None),
+            (i, _) if i <= n => self.use_version(&base, Some(&self.own[i - 1].id)),
             (_, Some(Action::Duplicate)) => {
                 let taken: Vec<String> = self.own.iter().map(|m| m.name.clone()).collect();
                 self.dialog = Some(open_dialog(
@@ -435,6 +541,9 @@ impl Editor {
             _ => {}
         }
         self.versions(&base);
+        if self.version != before {
+            self.read(true);
+        }
     }
 
     fn dialog_done(&mut self, ok: bool) {
@@ -457,10 +566,10 @@ impl Editor {
         let id = self.version.clone();
         let result = match (kind, &id) {
             (Dialog::Duplicate, _) => own::create(&dir, &name, &base, self.current_own())
-                .map(|m| settings::set_controller_version(&base, Some(&m.id))),
+                .map(|m| self.use_version(&base, Some(&m.id))),
             (Dialog::Rename, Some(id)) => own::rename(&dir, id, &name),
             (Dialog::Delete, Some(id)) => {
-                own::delete(&dir, id).map(|_| settings::set_controller_version(&base, None))
+                own::delete(&dir, id).map(|_| self.use_version(&base, None))
             }
             _ => Ok(()),
         };
@@ -468,6 +577,9 @@ impl Editor {
             g.set_status(format!("Couldn't save the mapping: {e}").into());
         }
         self.versions(&base);
+        if self.version != id {
+            self.read(true);
+        }
     }
 
     /// Shows what an import or export did.
@@ -550,10 +662,13 @@ impl Editor {
             lines.push(format!("Keys left as they were:\n{}", keys.join("\n")));
         }
         lines.extend(import.notes);
-        if let Some(id) = first {
-            settings::set_controller_version(&base, Some(&id));
+        if let Some(id) = &first {
+            self.use_version(&base, Some(id));
         }
         self.versions(&base);
+        if first.is_some() {
+            self.read(true);
+        }
         self.report(&format!("Imported {file}"), lines.join("\n\n"));
     }
 
@@ -649,9 +764,11 @@ impl Editor {
             }
         }
         if let Some((_, rx)) = &self.loading {
-            if let Ok(result) = rx.try_recv() {
+            if let Ok((result, functions)) = rx.try_recv() {
                 self.loading = None;
+                self.functions = functions;
                 g.set_loading(false);
+                let again = self.reselect.take();
                 match result {
                     Ok(v) => {
                         g.set_author(v.author.clone().into());
@@ -671,13 +788,46 @@ impl Editor {
                                 })
                                 .collect::<Vec<_>>(),
                         )));
-                        self.collapsed = closed_sections(&v);
+                        match &again {
+                            // The same row again: by its message and layer,
+                            // else any row on that message.
+                            Some(Some((key, layer))) => {
+                                self.selected = v
+                                    .rows
+                                    .iter()
+                                    .position(|r| r.keys.contains(key) && &r.layer == layer)
+                                    .or_else(|| v.rows.iter().position(|r| r.keys.contains(key)))
+                                    .map(|i| (0, i));
+                            }
+                            Some(None) => self.selected = None,
+                            None => self.collapsed = closed_sections(&v),
+                        }
+                        // A row whose function changed may be in another
+                        // section now: it opens.
+                        if let Some(r) = again
+                            .is_some()
+                            .then_some(self.selected)
+                            .flatten()
+                            .and_then(|(_, i)| v.rows.get(i))
+                        {
+                            if let Some((group, _)) = GROUPS
+                                .iter()
+                                .find(|(_, c)| c.contains(&r.function.category))
+                            {
+                                self.collapsed.remove(&format!("0/{group}"));
+                                self.collapsed
+                                    .remove(&format!("0/{group}/{}", r.function.category));
+                            }
+                        }
                         self.view = Some(v);
                     }
                     Err(e) => g.set_status(format!("Can't read this mapping: {e}").into()),
                 }
                 self.fill();
                 self.picture();
+                if again.is_some() {
+                    self.scroll_to_selected();
+                }
             }
         }
         if (g.get_query().to_string(), g.get_tab()) != self.filled_for {
@@ -703,9 +853,12 @@ impl Editor {
                 true,
                 format!("Press a control on the {} to find it", short_port_name(p)),
             ),
-            (None, Some(v)) => (
+            (None, Some(_)) => (
                 false,
-                format!("Plug in the {} to find a control by pressing it", v.name),
+                format!(
+                    "Plug in the {} to find a control by pressing it",
+                    g.get_name()
+                ),
             ),
             (None, None) => (false, String::new()),
         };
@@ -941,6 +1094,273 @@ impl Editor {
                 .map_or(id.clone(), |p| p.label.clone())
         });
         g.set_part_filter(filter.unwrap_or_default().into());
+        self.edit_panel();
+    }
+
+    /// The row selected on the Controls tab.
+    fn selected_row(&self) -> Option<&Row> {
+        match self.selected? {
+            (0, i) => self.view.as_ref()?.rows.get(i),
+            _ => None,
+        }
+    }
+
+    /// The function the selected row is set to, among those to choose from.
+    fn current_choice(&self) -> Option<&Choice> {
+        let control = Binding::of(self.selected_row()?).control?;
+        self.functions
+            .iter()
+            .find(|c| c.targets.iter().any(|(_, t)| *t == control))
+    }
+
+    /// Fills the panel that edits the selected row.
+    fn edit_panel(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        let Some(row) = self.selected_row() else {
+            g.set_editing(false);
+            g.set_picker_open(false);
+            return;
+        };
+        let b = Binding::of(row);
+        g.set_editing(true);
+        g.set_edit_control(
+            if row.layer.is_empty() {
+                row.control.clone()
+            } else {
+                format!("{} · {}", row.control, row.layer)
+            }
+            .into(),
+        );
+        g.set_edit_midi(row.midi.clone().into());
+        let script = row.sources.first().is_some_and(|s| !s.is_control());
+        g.set_edit_function(
+            match (&b.control, script) {
+                _ if row.off => row.function.name.clone(),
+                (Some(_), _) => row.function.name.clone(),
+                (None, true) => format!("{} (by the script)", row.function.name),
+                (None, false) => "Does nothing".to_string(),
+            }
+            .into(),
+        );
+        let choice = self.current_choice();
+        let targets: Vec<&str> = choice
+            .map(|c| c.targets.iter().map(|(t, _)| t.as_str()).collect())
+            .unwrap_or_default();
+        let target = choice
+            .zip(b.control.as_ref())
+            .and_then(|(c, ctl)| c.targets.iter().position(|(_, t)| t == ctl))
+            .unwrap_or(0);
+        g.set_edit_targets(labels(targets.iter().copied()));
+        g.set_edit_target(target as i32);
+        g.set_edit_target_name(targets.get(target).copied().unwrap_or("").into());
+        let index_of = |w| edit::WHENS.iter().position(|x| *x == w).unwrap_or(0) as i32;
+        g.set_edit_when(index_of(b.when));
+        g.set_edit_buttons(
+            Buttons::ALL
+                .iter()
+                .position(|x| *x == b.buttons)
+                .unwrap_or(0) as i32,
+        );
+        g.set_edit_encoder(
+            Encoder::ALL
+                .iter()
+                .position(|x| *x == b.encoder)
+                .unwrap_or(0) as i32,
+        );
+        g.set_edit_invert(b.invert);
+        g.set_edit_pickup(b.pickup);
+        let first = row.sources.first();
+        g.set_edit_is_button(first.is_none_or(|s| matches!(s.status & 0xF0, 0x80 | 0x90)));
+        g.set_edit_edited(row.edited);
+        g.set_edit_enabled(!row.off && first.is_some());
+        let mut hint = Vec::new();
+        if row.off {
+            hint.push(if row.note.is_empty() {
+                "Kept from the import but not working yet.".to_string()
+            } else {
+                format!("Not working yet: {}", row.note)
+            });
+        } else if script {
+            hint.push(
+                "The mapping's script runs this. A function chosen here replaces what the \
+                 script does with this control (SHIFT too); the script keeps running the rest."
+                    .to_string(),
+            );
+        }
+        if self.version.is_none() && !row.off {
+            hint.push(format!(
+                "A change makes your own copy, {}; the original stays as it is.",
+                self.my_name()
+            ));
+        }
+        g.set_edit_hint(hint.join(" ").into());
+    }
+
+    /// The name the first own copy of the mapping shown gets.
+    fn my_name(&self) -> String {
+        let name = self
+            .app
+            .upgrade()
+            .map(|a| a.global::<ControllerEditor>().get_name().to_string())
+            .unwrap_or_default();
+        let taken: Vec<String> = self.own.iter().map(|m| m.name.clone()).collect();
+        edit::my_name(&name, &taken)
+    }
+
+    fn open_picker(&mut self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        g.set_picker_query("".into());
+        self.fill_picker();
+        g.set_picker_open(true);
+    }
+
+    /// Fills the function picker: the functions that match the search, by
+    /// category, the one in use lit.
+    fn fill_picker(&mut self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        let words: Vec<String> = g
+            .get_picker_query()
+            .to_lowercase()
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        let current = self.selected_row().and_then(|r| Binding::of(r).control);
+        let mut rows = Vec::new();
+        self.picker.clear();
+        // By name and target; by category too only when no name matches
+        // ("sync" finds Sync, not all of Tempo & sync).
+        let text = |c: &Choice, category: bool| {
+            let targets: Vec<&str> = c.targets.iter().map(|(t, _)| t.as_str()).collect();
+            let mut t = format!("{} {}", c.name, targets.join(" "));
+            if category {
+                t = format!("{} {t}", c.category);
+            }
+            t.to_lowercase()
+        };
+        let found = |c: &Choice, category: bool| {
+            let t = text(c, category);
+            words.iter().all(|w| t.contains(w.as_str()))
+        };
+        let by_category = !self.functions.iter().any(|c| found(c, false));
+        let mut category = "";
+        for (i, c) in self.functions.iter().enumerate() {
+            if !found(c, by_category) {
+                continue;
+            }
+            if c.category != category {
+                category = c.category;
+                rows.push(EditorRow {
+                    header: true,
+                    function: c.category.to_uppercase().into(),
+                    ..Default::default()
+                });
+                self.picker.push(None);
+            }
+            let target = match c.targets.as_slice() {
+                [] => String::new(),
+                [(t, _)] => t.clone(),
+                [(a, _), .., (z, _)] => format!("{a} … {z}"),
+            };
+            rows.push(EditorRow {
+                header: false,
+                function: c.name.clone().into(),
+                target: target.into(),
+                kind: if c.continuous { "knob or fader" } else { "" }.into(),
+                selected: current
+                    .as_ref()
+                    .is_some_and(|ctl| c.targets.iter().any(|(_, t)| t == ctl)),
+                ..Default::default()
+            });
+            self.picker.push(Some(i));
+        }
+        g.set_picker_rows(ModelRc::new(VecModel::from(rows)));
+    }
+
+    /// Gives the selected row the function picked, on the target the row
+    /// had (Deck 2 stays Deck 2) where the function has it.
+    fn picker_picked(&mut self, index: usize) {
+        let Some(Some(i)) = self.picker.get(index).copied() else {
+            return;
+        };
+        let Some(choice) = self.functions.get(i).cloned() else {
+            return;
+        };
+        let Some(row) = self.selected_row() else {
+            return;
+        };
+        let target = row.function.target.clone();
+        let Some((_, control)) = choice
+            .targets
+            .iter()
+            .find(|(t, _)| *t == target)
+            .or(choice.targets.first())
+            .cloned()
+        else {
+            return;
+        };
+        if let Some(app) = self.app.upgrade() {
+            app.global::<ControllerEditor>().set_picker_open(false);
+        }
+        self.change(|b| b.control = Some(control));
+    }
+
+    /// Changes what the selected row is set to.
+    fn change(&mut self, f: impl FnOnce(&mut Binding)) {
+        let Some(row) = self.selected_row() else {
+            return;
+        };
+        let mut b = Binding::of(row);
+        f(&mut b);
+        self.apply(move |own, row| edit::set(own, row, &b));
+    }
+
+    /// Changes the selected row in the own mapping in use, making one first
+    /// when the original is shown, then saves it, restarts the controller
+    /// with it and reads the view again.
+    fn apply(&mut self, f: impl FnOnce(&mut OpenDjMapping, &Row)) {
+        let (Some(app), Some(base), Some(dir)) = (
+            self.app.upgrade(),
+            self.base(),
+            settings::own_mappings_dir(),
+        ) else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        let Some(row) = self.selected_row().cloned() else {
+            return;
+        };
+        if self.version.is_none() {
+            match own::create(&dir, &self.my_name(), &base, None) {
+                Ok(m) => self.use_version(&base, Some(&m.id)),
+                Err(e) => {
+                    g.set_status(format!("Couldn't save the mapping: {e}").into());
+                    return;
+                }
+            }
+            self.versions(&base);
+        }
+        let Some(mut mine) = self.current_own().cloned() else {
+            return;
+        };
+        f(&mut mine.mapping, &row);
+        if let Err(e) = own::save(&dir, &mine) {
+            g.set_status(format!("Couldn't save the mapping: {e}").into());
+            return;
+        }
+        self.versions(&base);
+        if let Some(c) = &self.controllers {
+            c.reload(&base);
+        }
+        self.read(true);
     }
 
     /// Draws the controller: its parts, which are mapped, and which are lit.
@@ -1168,6 +1588,9 @@ fn function_row(r: &Row, selected: bool) -> EditorRow {
     if let Some(s) = r.script.as_ref().filter(|_| selected) {
         detail.push(s);
     }
+    if r.off && !r.note.is_empty() {
+        detail.push(&r.note);
+    }
     EditorRow {
         header: false,
         level: 2,
@@ -1183,7 +1606,15 @@ fn function_row(r: &Row, selected: bool) -> EditorRow {
         detail: detail.join(" · ").into(),
         part: r.part.clone().unwrap_or_default().into(),
         selected,
+        edited: r.edited,
+        off: r.off,
     }
+}
+
+fn labels<'a>(items: impl Iterator<Item = &'a str>) -> ModelRc<SharedString> {
+    ModelRc::new(VecModel::from(
+        items.map(SharedString::from).collect::<Vec<_>>(),
+    ))
 }
 
 fn light_row(v: &MappingView, l: &LightRow, selected: bool) -> EditorRow {
@@ -1214,6 +1645,8 @@ fn light_row(v: &MappingView, l: &LightRow, selected: bool) -> EditorRow {
         detail: SharedString::new(),
         part: l.part.clone().unwrap_or_default().into(),
         selected,
+        edited: false,
+        off: false,
     }
 }
 

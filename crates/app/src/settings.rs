@@ -475,6 +475,24 @@ pub fn controller_version(based_on: &str) -> Option<String> {
         .map(String::from)
 }
 
+/// Every own mapping picked in place of a Mixxx mapping: the Mixxx
+/// mapping's file name, and the own mapping's file.
+pub fn controller_versions() -> HashMap<String, PathBuf> {
+    let Some(dir) = own_mappings_dir() else {
+        return HashMap::new();
+    };
+    load()["controller_versions"]
+        .as_object()
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, v)| {
+                    Some((k.clone(), opendj_controllers::own::path(&dir, v.as_str()?)))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub fn set_controller_version(based_on: &str, id: Option<&str>) {
     save(|v| {
         if !v["controller_versions"].is_object() {
