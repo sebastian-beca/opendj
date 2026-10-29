@@ -9,6 +9,7 @@
 
 pub mod catalog;
 mod controller;
+pub mod format;
 mod host;
 pub mod layout;
 mod manager;

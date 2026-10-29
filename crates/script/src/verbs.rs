@@ -29,6 +29,21 @@ pub enum Kind {
     PressNamed,
     /// `get 'control'`: only asks, whether the control is above 0.
     Get,
+    /// Sets a 0..1 control from the controller's fader or knob; also asked
+    /// for its level in a comparison (`filter > 50%`).
+    Value(&'static str),
+    /// Only asked, for its level in a comparison: `vu_meter > 90%`.
+    Reading(&'static str),
+    /// `var 'name' [value]`: only asks, whether a variable is that value
+    /// (or above 0). Variables belong to the host, see [`crate::Host`].
+    Var,
+    /// `set_var 'name' value`.
+    SetVar,
+    /// `toggle_var 'name'`: 0 becomes 1, anything else 0.
+    ToggleVar,
+    /// What an LED shows: `on`, `off`, `blink`, `color`, `led`. Only in a
+    /// controller mapping's lights.
+    Light,
     /// Done by the app, not a control: see [`crate::Host`].
     App,
 }
@@ -52,7 +67,13 @@ pub enum ArgKind {
     Level,
     /// A control's name: `'keylock'` on the deck, or `'[Master],gain'`.
     Control,
+    /// A name in quotes: a variable, a colour.
+    Text,
 }
+
+/// The default of a level the controller gives: a verb such as `volume`
+/// on a fader with no level written takes the fader's.
+pub const FROM_CONTROLLER: f64 = f64::NAN;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ArgSpec {
@@ -92,6 +113,23 @@ const CONTROL: ArgSpec = ArgSpec {
     name: "control",
     kind: ArgKind::Control,
     default: None,
+};
+
+const LEVEL: ArgSpec = ArgSpec {
+    name: "level",
+    kind: ArgKind::Level,
+    default: Some(FROM_CONTROLLER),
+};
+
+const NAME: ArgSpec = ArgSpec {
+    name: "name",
+    kind: ArgKind::Text,
+    default: None,
+};
+
+const ANY_NUMBER: ArgKind = ArgKind::Number {
+    min: f64::MIN,
+    max: f64::MAX,
 };
 
 use Kind::*;
@@ -184,6 +222,113 @@ pub static VERBS: &[Verb] = &[
         "Set the channel fader",
     ),
     def(
+        "level",
+        Value("volume"),
+        Yes,
+        &[LEVEL],
+        "The channel fader, from a controller fader or a level",
+    ),
+    def(
+        "gain",
+        Value("pregain"),
+        Yes,
+        &[LEVEL],
+        "The deck's gain (trim)",
+    ),
+    def(
+        "eq_high",
+        Value("[EqualizerRack1_[Channel{n}]_Effect1],parameter3"),
+        Yes,
+        &[LEVEL],
+        "The high EQ",
+    ),
+    def(
+        "eq_mid",
+        Value("[EqualizerRack1_[Channel{n}]_Effect1],parameter2"),
+        Yes,
+        &[LEVEL],
+        "The mid EQ",
+    ),
+    def(
+        "eq_low",
+        Value("[EqualizerRack1_[Channel{n}]_Effect1],parameter1"),
+        Yes,
+        &[LEVEL],
+        "The low EQ",
+    ),
+    def(
+        "filter",
+        Value("[QuickEffectRack1_[Channel{n}]],super1"),
+        Yes,
+        &[LEVEL],
+        "The deck's filter knob",
+    ),
+    def("pitch", Value("rate"), Yes, &[LEVEL], "The tempo fader"),
+    def(
+        "vu_meter",
+        Reading("vu_meter"),
+        Yes,
+        &[],
+        "In a comparison: the deck's level meter, vu_meter > 90%",
+    ),
+    def(
+        "pfl",
+        Toggle("pfl"),
+        Yes,
+        &[],
+        "Turn headphone cue on or off",
+    ),
+    def(
+        "master_deck",
+        Toggle("sync_leader"),
+        Yes,
+        &[],
+        "Make the deck the sync leader",
+    ),
+    def(
+        "pitch_zero",
+        Press("rate_set_zero"),
+        Yes,
+        &[],
+        "Put the tempo back to the track's own",
+    ),
+    def("loop_half", Press("loop_halve"), Yes, &[], "Halve the loop"),
+    def(
+        "loop_double",
+        Press("loop_double"),
+        Yes,
+        &[],
+        "Double the loop",
+    ),
+    def(
+        "loop_in",
+        Press("loop_in"),
+        Yes,
+        &[],
+        "Set where a loop starts",
+    ),
+    def(
+        "loop_out",
+        Press("loop_out"),
+        Yes,
+        &[],
+        "Set where a loop ends",
+    ),
+    def(
+        "reloop",
+        Press("reloop_toggle"),
+        Yes,
+        &[],
+        "Turn the last loop back on, or end it",
+    ),
+    def(
+        "load",
+        Press("LoadSelectedTrack"),
+        Yes,
+        &[],
+        "Load the track picked in the browser",
+    ),
+    def(
         "crossfader",
         Toggle("[Mixer],crossfader_enabled"),
         TakesDeck::No,
@@ -238,6 +383,78 @@ pub static VERBS: &[Verb] = &[
         Yes,
         &[CONTROL],
         "In a condition: whether a control is above 0",
+    ),
+    def(
+        "var",
+        Var,
+        TakesDeck::No,
+        &[
+            NAME,
+            ArgSpec {
+                name: "value",
+                kind: ANY_NUMBER,
+                default: Some(FROM_CONTROLLER),
+            },
+        ],
+        "In a condition: whether a variable is that value, or above 0",
+    ),
+    def(
+        "set_var",
+        SetVar,
+        TakesDeck::No,
+        &[
+            NAME,
+            ArgSpec {
+                name: "value",
+                kind: ANY_NUMBER,
+                default: None,
+            },
+        ],
+        "Set a variable of the mapping",
+    ),
+    def(
+        "toggle_var",
+        ToggleVar,
+        TakesDeck::No,
+        &[NAME],
+        "Flip a variable between 0 and 1",
+    ),
+    def("on", Light, TakesDeck::No, &[], "In a light: on"),
+    def("off", Light, TakesDeck::No, &[], "In a light: off"),
+    def(
+        "blink",
+        Light,
+        TakesDeck::No,
+        &[ArgSpec {
+            name: "milliseconds",
+            kind: ArgKind::Number {
+                min: 50.0,
+                max: 10000.0,
+            },
+            default: Some(500.0),
+        }],
+        "In a light: blink, 500 ms on and off unless given",
+    ),
+    def(
+        "color",
+        Light,
+        TakesDeck::No,
+        &[NAME],
+        "In a light: a colour the controller knows, color 'red'",
+    ),
+    def(
+        "led",
+        Light,
+        TakesDeck::No,
+        &[ArgSpec {
+            name: "value",
+            kind: ArgKind::Number {
+                min: 0.0,
+                max: 127.0,
+            },
+            default: None,
+        }],
+        "In a light: send this value, 0 to 127",
     ),
 ];
 

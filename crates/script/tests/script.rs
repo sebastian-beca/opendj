@@ -1,11 +1,15 @@
 use opendj_control::{Behavior, ControlRegistry};
-use opendj_script::{parse, query_control, run, run_control, Call, Error, Host, Kind};
+use opendj_script::{
+    level_control, parse, query_control, run, run_control, Call, Error, Host, Kind,
+};
 
 /// Runs control verbs on a registry and records the app's ones.
 struct Test {
     reg: std::sync::Arc<ControlRegistry>,
     master: u8,
     ratings: Vec<(Option<u8>, f64)>,
+    /// What a controller fader would give.
+    input: Option<f64>,
 }
 
 impl Test {
@@ -19,12 +23,22 @@ impl Test {
             reg.push(&g, "beatloop_4_toggle");
             reg.push(&g, "reloop_toggle");
             reg.create(&g, "volume", 1.0, 0.0, 1.0, Behavior::Linear);
+            reg.indicator(&g, "vu_meter", 1.0);
+            reg.create(
+                &format!("[EqualizerRack1_[Channel{d}]_Effect1]"),
+                "parameter3",
+                1.0,
+                0.0,
+                1.0,
+                Behavior::Linear,
+            );
         }
         reg.create("[Master]", "gain", 1.0, 0.0, 5.0, Behavior::Linear);
         Self {
             reg,
             master: 1,
             ratings: Vec::new(),
+            input: None,
         }
     }
 
@@ -48,6 +62,14 @@ impl Host for Test {
 
     fn query(&mut self, call: &Call) -> Result<bool, Error> {
         query_control(&self.reg, call)
+    }
+
+    fn level(&mut self, call: &Call) -> Result<f64, Error> {
+        level_control(&self.reg, call)
+    }
+
+    fn input(&self) -> Option<f64> {
+        self.input
     }
 }
 
@@ -152,4 +174,33 @@ fn loop_defaults_to_four_beats() {
     let mut t = Test::new();
     run("loop", &mut t).unwrap();
     run("Loop_Exit", &mut t).unwrap();
+}
+
+#[test]
+fn a_controller_fader_gives_the_level() {
+    let mut t = Test::new();
+    assert!(run("deck 2 eq_high", &mut t).is_err());
+    t.input = Some(0.25);
+    run("deck 2 eq_high", &mut t).unwrap();
+    assert_eq!(
+        t.get("[EqualizerRack1_[Channel2]_Effect1]", "parameter3"),
+        0.25
+    );
+    run("deck 3 eq_high 50%", &mut t).unwrap();
+    assert_eq!(
+        t.get("[EqualizerRack1_[Channel3]_Effect1]", "parameter3"),
+        0.5
+    );
+}
+
+#[test]
+fn comparisons_ask_how_far_up() {
+    let mut t = Test::new();
+    t.reg.get("[Channel2]", "vu_meter").unwrap().set(0.8);
+    run("deck 2 vu_meter > 75% ? play : pause", &mut t).unwrap();
+    assert_eq!(t.get("[Channel2]", "play"), 1.0);
+    run("deck 2 (vu_meter < 0.5 ? pause : sync)", &mut t).unwrap();
+    assert_eq!(t.get("[Channel2]", "sync_enabled"), 1.0);
+    assert!(run("vu_meter > 50%", &mut t).is_err());
+    assert!(parse("vu_meter > loud ? on : off").is_err());
 }

@@ -399,6 +399,7 @@ pub fn sample(v: &opendj_script::Verb) -> String {
             ArgKind::Number { .. } => "1",
             ArgKind::Level => "100%",
             ArgKind::Control => "'play'",
+            ArgKind::Text => "'x'",
         });
     }
     out
