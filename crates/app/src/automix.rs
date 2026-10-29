@@ -200,6 +200,8 @@ pub struct AutoMix {
     glide: Option<Glide>,
     length: usize,
     style: usize,
+    /// Playing an album (Play Album): gapless until Automix stops.
+    album: bool,
     /// How long the last UI frame took, in seconds, for timing gapless
     /// changeovers.
     frame: f64,
@@ -270,6 +272,7 @@ impl AutoMix {
             glide: None,
             length,
             style,
+            album: false,
             frame: 1.0 / 60.0,
             note: String::new(),
         }
@@ -277,6 +280,22 @@ impl AutoMix {
 
     pub fn toggle(&mut self) {
         self.enabled.toggle();
+    }
+
+    /// Plays the Automix list as an album: gaplessly, whatever mix length
+    /// is chosen, until Automix stops. Starts Automix if it is off.
+    pub fn play_album(&mut self) {
+        self.album = true;
+        self.enabled.set_bool(true);
+    }
+
+    /// The mix length in use: none while playing an album.
+    fn mix_length(&self) -> Length {
+        if self.album {
+            Length::Seconds(0.0)
+        } else {
+            LENGTHS[self.length]
+        }
     }
 
     pub fn mix_now(&mut self) {
@@ -331,6 +350,7 @@ impl AutoMix {
         }
         self.glide = None;
         self.phase = Phase::Off;
+        self.album = false;
         self.enabled.set_bool(false);
         self.note = note.to_string();
     }
@@ -525,7 +545,7 @@ impl AutoMix {
             0.0
         };
         let mut start = (end - len - lead).max(0.0);
-        if let (Length::Bars(_), Some(t)) = (LENGTHS[self.length], tracks[live].as_deref()) {
+        if let (Length::Bars(_), Some(t)) = (self.mix_length(), tracks[live].as_deref()) {
             if t.bpm > 0.0 {
                 // Start on a bar of the outgoing track.
                 let bar = 4.0 * t.beat_length();
@@ -550,7 +570,7 @@ impl AutoMix {
             let beat = tracks[live].as_deref().map_or(0.5, Track::beat_length);
             end = start + beat;
         }
-        let beat_match = matches!(LENGTHS[self.length], Length::Bars(_))
+        let beat_match = matches!(self.mix_length(), Length::Bars(_))
             && match (tracks[live].as_deref(), tracks[other].as_deref()) {
                 (Some(a), Some(b)) if a.bpm > 0.0 && b.bpm > 0.0 => {
                     let target = a.bpm * self.decks[live].speed();
@@ -689,7 +709,7 @@ impl AutoMix {
 
     /// Whether the 0 s length is chosen: tracks follow each other with no mix.
     fn gapless(&self) -> bool {
-        LENGTHS[self.length] == Length::Seconds(0.0)
+        self.mix_length() == Length::Seconds(0.0)
     }
 
     /// Where Automix takes `t` to end: where its sound ends, or for gapless
@@ -715,7 +735,7 @@ impl AutoMix {
 
     /// The chosen mix length, in seconds of `deck`'s track.
     fn length_on(&self, deck: usize, tracks: &[Option<Arc<Track>>; NUM_DECKS]) -> f64 {
-        match LENGTHS[self.length] {
+        match self.mix_length() {
             Length::Seconds(s) => s * self.decks[deck].speed().max(0.1),
             Length::Bars(n) => {
                 let beat = tracks[deck].as_deref().map_or(0.5, Track::beat_length);
@@ -761,8 +781,10 @@ impl AutoMix {
         if app.get_automix_status() != status.as_str() {
             app.set_automix_status(status.into());
         }
-        if app.get_automix_length() != self.length as i32 {
-            app.set_automix_length(self.length as i32);
+        // An album shows as the 0 s length it plays with.
+        let length = if self.album { 0 } else { self.length as i32 };
+        if app.get_automix_length() != length {
+            app.set_automix_length(length);
         }
         if app.get_automix_style() != self.style as i32 {
             app.set_automix_style(self.style as i32);
@@ -901,6 +923,24 @@ mod tests {
         assert!(r.deck(1, "play").get_bool());
         assert_eq!(r.xfade(), 0.0, "no crossfade");
         assert_eq!(r.loaded_id(0), Some(1002), "the next track waits on deck A");
+    }
+
+    #[test]
+    fn an_album_plays_gaplessly_whatever_the_mix_length() {
+        let mut r = Rig::new(vec![track(0, 10.0), track(1, 10.0)]);
+        // 12 s mixes are chosen.
+        r.automix.length = 1;
+        r.automix.play_album();
+        r.run(2.0);
+        assert!(r.deck(0, "play").get_bool());
+        assert_eq!(r.xfade(), 0.0, "crossfader rests in the centre");
+        r.run(8.5);
+        assert!(r.deck(1, "play").get_bool(), "second track follows on");
+        assert_eq!(r.xfade(), 0.0, "no crossfade");
+        // Once the album has played, the chosen length is back.
+        r.run(12.0);
+        assert!(!r.ctl("[AutoDJ]", "enabled").get_bool());
+        assert_eq!(r.automix.mix_length(), LENGTHS[1]);
     }
 
     #[test]

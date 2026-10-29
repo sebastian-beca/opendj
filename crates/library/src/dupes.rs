@@ -530,6 +530,7 @@ mod tests {
             inbox: vec![PathBuf::from("/m/Downloads")],
             triage: Some(PathBuf::from("/m/DB/_Staging")),
             collection: Some(PathBuf::from("/m/DB/Library")),
+            albums: None,
         }
     }
 

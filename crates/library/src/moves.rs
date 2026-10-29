@@ -297,6 +297,7 @@ mod tests {
             inbox: vec!["/u/Downloads".into()],
             triage: Some("/u/DB/_Staging".into()),
             collection: Some("/u/DB/Library".into()),
+            albums: None,
         };
         assert_eq!(lib.assign_stages(&folders).unwrap(), 3);
         let s: Vec<String> = stages(&lib).into_iter().map(|(s, _)| s).collect();

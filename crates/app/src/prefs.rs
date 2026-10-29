@@ -484,6 +484,12 @@ impl Prefs {
                 self.stages_changed();
                 continue;
             }
+            if id == settings::ALBUMS_FOLDER || id == settings::MIXED_SETS_FOLDER {
+                settings::set(&id, json!(path.to_string_lossy()));
+                self.recorder.configure(settings::recording());
+                self.music_folders_changed();
+                continue;
+            }
             settings::set(&id, json!(path.to_string_lossy()));
             if id == "recording_folder" {
                 self.recorder.configure(settings::recording());
@@ -642,15 +648,26 @@ impl Prefs {
                         )
                     }
                 },
-                PrefItem {
-                    value: settings::recording().dir.display().to_string().into(),
-                    action: "Choose…".into(),
-                    ..item(
-                        "recording_folder",
-                        PATH,
-                        "Recordings folder",
-                        "Each mix is saved with a .cue tracklist and a log of every control move.",
-                    )
+                {
+                    // With a mixed sets folder, recordings go in it.
+                    let in_sets = settings::mixed_sets_folder().is_some();
+                    PrefItem {
+                        value: settings::recording().dir.display().to_string().into(),
+                        action: if in_sets { "" } else { "Choose…" }.into(),
+                        ..item(
+                            "recording_folder",
+                            PATH,
+                            "Recordings folder",
+                            if in_sets {
+                                "In your Mixed Sets folder (Settings › Library). Each mix is \
+                                 saved with a .cue tracklist and a log of every control move."
+                            } else {
+                                "Each mix is saved with a .cue tracklist and a log of every \
+                                 control move. Choose a Mixed Sets folder in Settings › Library \
+                                 to keep them with your other sets."
+                            },
+                        )
+                    }
                 },
                 PrefItem {
                     action: "Show".into(),
@@ -1378,6 +1395,26 @@ impl Prefs {
         };
         let mut items = self.music_folder_items();
         items.extend([
+            PrefItem {
+                value: show(settings::albums_folder(), "None").into(),
+                action: "Choose…".into(),
+                ..item(
+                    settings::ALBUMS_FOLDER,
+                    PATH,
+                    "Albums folder",
+                    "A folder per album, or Artist › Album. In the collection and under Albums.",
+                )
+            },
+            PrefItem {
+                value: show(settings::mixed_sets_folder(), "None").into(),
+                action: "Choose…".into(),
+                ..item(
+                    settings::MIXED_SETS_FOLDER,
+                    PATH,
+                    "Mixed Sets folder",
+                    "Whole DJ sets, kept out of the collection. Your recordings go in it too.",
+                )
+            },
             PrefItem {
                 action: "Rescan".into(),
                 ..item(
@@ -2175,6 +2212,18 @@ impl Prefs {
                 self.chosen_tx.clone(),
             ),
             "music_folder_add" => choose(id, "Choose a music folder", true, self.chosen_tx.clone()),
+            settings::ALBUMS_FOLDER => choose(
+                id,
+                "Choose your albums folder",
+                true,
+                self.chosen_tx.clone(),
+            ),
+            settings::MIXED_SETS_FOLDER => choose(
+                id,
+                "Choose your mixed sets folder",
+                true,
+                self.chosen_tx.clone(),
+            ),
             "recording_folder" => choose(
                 id,
                 "Choose where to save recordings",

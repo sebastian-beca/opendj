@@ -558,7 +558,7 @@ export component AppWindow inherits Window {
 
     callback select-source(source: int);
     // Which sources the library rail shows, by index.
-    in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true];
+    in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true, true, true];
     callback source-shown-changed(source: int, on: bool);
     callback spotify-connect(client-id: string);
     callback spotify-disconnect();

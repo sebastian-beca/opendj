@@ -58,10 +58,12 @@ pub enum Check {
     Long,
     Duplicate,
     Junk,
+    /// Tracks in one album's folder that don't share its album tag.
+    AlbumTags,
 }
 
 impl Check {
-    pub const ALL: [Check; 11] = [
+    pub const ALL: [Check; 12] = [
         Check::NotMusic,
         Check::Stray,
         Check::Outside,
@@ -69,6 +71,7 @@ impl Check {
         Check::NotAnalyzed,
         Check::MissingInfo,
         Check::Junk,
+        Check::AlbumTags,
         Check::NoCover,
         Check::NoRating,
         Check::Missing,
@@ -89,6 +92,7 @@ impl Check {
             Check::Long => "long",
             Check::Duplicate => "duplicate",
             Check::Junk => "junk",
+            Check::AlbumTags => "albumtags",
         }
     }
 
@@ -106,6 +110,7 @@ impl Check {
             "long" => Check::Long,
             "duplicate" | "dupe" | "duplicates" => Check::Duplicate,
             "junk" | "messy" | "cleanup" => Check::Junk,
+            "albumtags" | "albumtag" => Check::AlbumTags,
             _ => return None,
         })
     }
@@ -124,6 +129,7 @@ impl Check {
             Check::Long => "Long tracks",
             Check::Duplicate => "Duplicates",
             Check::Junk => "Junk in names",
+            Check::AlbumTags => "Album tags differ",
         }
     }
 
@@ -145,6 +151,7 @@ impl Check {
             Check::Junk => {
                 "Track numbers, web sites, \"(Official Video)\", underscores, or a remix or guest in the title."
             }
+            Check::AlbumTags => "Tracks in one album's folder without the same album tag.",
         }
     }
 
@@ -228,6 +235,9 @@ pub struct Facts {
     folders: Vec<PathBuf>,
     /// The clean-up rules turned on, for [`Check::Junk`].
     rules: Rules,
+    /// The album tag each track in the albums folder should have, by id,
+    /// for those that have another (see [`album_folders`]).
+    album_tags: HashMap<usize, String>,
 }
 
 impl Facts {
@@ -262,7 +272,38 @@ impl Facts {
             stages,
             folders: Vec::new(),
             rules: Rules::default(),
+            album_tags: HashMap::new(),
         }
+    }
+
+    /// The albums in the albums folder, for [`Check::AlbumTags`].
+    pub fn with_albums<'a>(
+        mut self,
+        albums: &Path,
+        tracks: impl IntoIterator<Item = &'a Track>,
+    ) -> Self {
+        self.set_albums(albums, tracks);
+        self
+    }
+
+    /// Looks at the albums in the albums folder again, after their tags
+    /// changed.
+    pub fn set_albums<'a>(&mut self, albums: &Path, tracks: impl IntoIterator<Item = &'a Track>) {
+        self.album_tags.clear();
+        let tracks: Vec<&Track> = tracks.into_iter().collect();
+        let tags: HashMap<usize, &str> = tracks.iter().map(|t| (t.id, t.album.trim())).collect();
+        for album in album_folders(albums, tracks.iter().copied()).into_values() {
+            for &id in &album.tracks {
+                if tags.get(&id).copied() != Some(album.name.as_str()) {
+                    self.album_tags.insert(id, album.name.clone());
+                }
+            }
+        }
+    }
+
+    /// The album tag `id` should have, when it has another.
+    pub fn album_tag(&self, id: usize) -> Option<&str> {
+        self.album_tags.get(&id).map(String::as_str)
     }
 
     /// The music folders and stage folders, for [`Check::Outside`]. With
@@ -306,6 +347,7 @@ impl Facts {
             Check::Long => t.duration > LONG_TRACK,
             Check::Duplicate => duplicates.contains(&t.id),
             Check::Junk => !cleanup::changes(t, &self.rules).is_empty(),
+            Check::AlbumTags => self.album_tags.contains_key(&t.id),
         }
     }
 
@@ -340,6 +382,64 @@ impl Facts {
             }
         }
     }
+}
+
+/// One album in the albums folder: a folder with tracks right in it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AlbumFolder {
+    /// Its tracks' ids.
+    pub tracks: Vec<usize>,
+    /// The album tag they should share: the one most of them have, else
+    /// the folder's name.
+    pub name: String,
+}
+
+/// The albums under `albums`, by folder: each folder that has tracks right
+/// in it is one album, whether it is `Album` or `Artist/Album`.
+pub fn album_folders<'a>(
+    albums: &Path,
+    tracks: impl IntoIterator<Item = &'a Track>,
+) -> HashMap<PathBuf, AlbumFolder> {
+    let mut by_dir: HashMap<PathBuf, Vec<&Track>> = HashMap::new();
+    for t in tracks {
+        let Source::File(path) = &t.source else {
+            continue;
+        };
+        let Some(dir) = path
+            .parent()
+            .filter(|d| d.starts_with(albums) && *d != albums)
+        else {
+            continue;
+        };
+        by_dir.entry(dir.to_path_buf()).or_default().push(t);
+    }
+    by_dir
+        .into_iter()
+        .map(|(dir, tracks)| {
+            let mut counts: HashMap<&str, usize> = HashMap::new();
+            for t in &tracks {
+                let tag = t.album.trim();
+                if !tag.is_empty() {
+                    *counts.entry(tag).or_default() += 1;
+                }
+            }
+            // The most common tag; between equals, the first in name order.
+            let name = counts
+                .into_iter()
+                .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0)))
+                .map(|(tag, _)| tag.to_string())
+                .unwrap_or_else(|| {
+                    dir.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                });
+            let album = AlbumFolder {
+                tracks: tracks.iter().map(|t| t.id).collect(),
+                name,
+            };
+            (dir, album)
+        })
+        .collect()
 }
 
 /// The artist and title in a file name such as "01 - Artist - Title
@@ -546,6 +646,48 @@ mod tests {
         let mut t = file_track(path, title);
         t.id = id;
         t
+    }
+
+    #[test]
+    fn an_album_folder_shares_the_tag_most_of_its_tracks_have() {
+        let album = |id, path: &str, tag: &str| {
+            let mut t = track(id, path, &format!("Song {id}"));
+            t.album = tag.into();
+            t
+        };
+        let tracks = [
+            album(1, "/m/Albums/Air/Moon Safari/01.flac", "Moon Safari"),
+            album(2, "/m/Albums/Air/Moon Safari/02.flac", "Moon Safari"),
+            album(
+                3,
+                "/m/Albums/Air/Moon Safari/03.flac",
+                "Moon Safari (Remaster)",
+            ),
+            album(4, "/m/Albums/Untagged/01.mp3", ""),
+            album(5, "/m/Albums/loose.mp3", ""),
+            album(6, "/m/DB/Library/x.mp3", "Other"),
+        ];
+        let folders = album_folders(Path::new("/m/Albums"), &tracks);
+        assert_eq!(folders.len(), 2);
+        assert_eq!(
+            folders[Path::new("/m/Albums/Air/Moon Safari")],
+            AlbumFolder {
+                tracks: vec![1, 2, 3],
+                name: "Moon Safari".into()
+            }
+        );
+        // No tags at all: the folder's name.
+        assert_eq!(folders[Path::new("/m/Albums/Untagged")].name, "Untagged");
+
+        let facts = Facts::new(&tracks, HashMap::new(), HashMap::new(), false)
+            .with_albums(Path::new("/m/Albums"), &tracks);
+        let found: Vec<usize> = tracks
+            .iter()
+            .filter(|t| facts.finds(Check::AlbumTags, t, &HashSet::new()))
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(found, vec![3, 4]);
+        assert_eq!(facts.album_tag(3), Some("Moon Safari"));
     }
 
     #[test]

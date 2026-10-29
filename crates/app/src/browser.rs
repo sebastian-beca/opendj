@@ -28,6 +28,7 @@ use opendj_library::Wanted;
 use opendj_plugins::inbox::Mode;
 use opendj_plugins::{ItemKind, StoreItem, StoreQuery};
 
+mod albums;
 mod analysis;
 mod cleanup;
 mod columns;
@@ -61,6 +62,10 @@ const FILES: i32 = 1;
 const SPOTIFY: i32 = 2;
 /// Bandcamp in the rail, with the other stores in its tree.
 const STORES: i32 = 5;
+/// The albums folder and the mixed sets folder (see [`albums`]); drawn
+/// in the rail after Files.
+const ALBUMS: i32 = 9;
+const MIXED_SETS: i32 = 10;
 
 /// Whether `source` shows store results.
 fn is_stores(source: i32) -> bool {
@@ -92,6 +97,9 @@ enum Contents {
     Wanted,
     /// A folder on the computer, in the Files source: its audio files.
     Dir(PathBuf),
+    /// The collection's tracks in a folder and below it, in the Albums
+    /// and Mixed Sets sources.
+    Under(PathBuf),
     /// The tracks at a stage (see [`opendj_library::stages`]), or only those
     /// in one subfolder of its folder (a triage crate).
     Stage(Stage, Option<PathBuf>),
@@ -109,7 +117,7 @@ enum Contents {
 pub const SERVICES_ENABLED: bool = false;
 
 /// The sources in the rail, in order, as saved when hidden.
-const SOURCE_NAMES: [&str; 9] = [
+const SOURCE_NAMES: [&str; 11] = [
     "Collection",
     "Files",
     "Spotify",
@@ -119,6 +127,8 @@ const SOURCE_NAMES: [&str; 9] = [
     "Beatport",
     "OneLibrary",
     "SoundCloud",
+    "Albums",
+    "Mixed Sets",
 ];
 
 /// Every source in the rail: the built-in ones, then add-ons' own (see
@@ -342,6 +352,9 @@ const KIND_HEALTH: i32 = 12;
 const KIND_CHECK: i32 = 13;
 /// A set: a folder made for one gig, drawn in lilac.
 const KIND_SET: i32 = 14;
+/// An album's folder, and a folder of mixed sets.
+const KIND_ALBUM: i32 = 15;
+const KIND_MIX: i32 = 16;
 
 /// Seconds a track must play on a deck to count as played, for the history.
 const PLAYED_AFTER: f64 = 30.0;
@@ -466,6 +479,10 @@ pub struct Browser {
     columns: columns::ColumnState,
     /// The stage folders, as last read from the settings.
     folders: Folders,
+    /// The mixed sets folder: its tracks are kept out of the collection.
+    mixed_sets: Option<PathBuf>,
+    /// Play Album was picked, for Automix to play the list gaplessly.
+    album_request: bool,
     /// Tempo and key for tracks in triage, found in the background.
     analysis: AnalysisQueue,
     analysis_shown: analysis::Shown,
@@ -899,6 +916,8 @@ impl Browser {
             filter: filters::FilterState::new(),
             columns: columns::ColumnState::new(&crate::settings::field_names()),
             folders: crate::settings::stage_folders(),
+            mixed_sets: crate::settings::mixed_sets_folder(),
+            album_request: false,
             analysis: AnalysisQueue::start(),
             analysis_shown: Default::default(),
             usb: Default::default(),
@@ -1352,6 +1371,7 @@ impl Browser {
         Self::install_health(&app.global::<HealthUi>(), &with);
         Self::install_cleanup(&app.global::<crate::CleanupUi>(), &with);
         Self::install_analysis(&edit, &with);
+        Self::install_albums(&edit, &with);
         Self::install_usb_export(app, &edit, &with);
     }
 
@@ -1408,9 +1428,9 @@ impl Browser {
     /// underneath their placeholder.
     fn select_source(&mut self, source: i32) {
         let usable: &[i32] = if SERVICES_ENABLED {
-            &[COLLECTION, FILES, SPOTIFY, STORES]
+            &[COLLECTION, FILES, ALBUMS, MIXED_SETS, SPOTIFY, STORES]
         } else {
-            &[COLLECTION, FILES]
+            &[COLLECTION, FILES, ALBUMS, MIXED_SETS]
         };
         if !usable.contains(&source) || source == self.tree {
             return;
@@ -1432,6 +1452,7 @@ impl Browser {
         (self.sort_column, self.ascending) = back.sort;
         match source {
             FILES => self.rebuild_files_tree(),
+            ALBUMS | MIXED_SETS => self.rebuild_folder_tree(source),
             SPOTIFY => self.rebuild_spotify_tree(),
             STORES => self.rebuild_stores_tree(),
             _ => {}
@@ -2240,6 +2261,7 @@ impl Browser {
         self.library = library;
         self.side = [Vec::new(), Vec::new()];
         self.folders = crate::settings::stage_folders();
+        self.mixed_sets = crate::settings::mixed_sets_folder();
         self.read_pending_moves();
         self.queue_triage_analysis();
         self.refresh_health();
@@ -2259,6 +2281,9 @@ impl Browser {
                     sort,
                 },
             );
+        }
+        if matches!(self.tree, ALBUMS | MIXED_SETS) {
+            self.rebuild_folder_tree(self.tree);
         }
         if let Some(app) = self.app.upgrade() {
             app.set_current_track(-1);
@@ -2392,6 +2417,7 @@ impl Browser {
             return;
         }
         self.folders = crate::settings::stage_folders();
+        self.mixed_sets = crate::settings::mixed_sets_folder();
         self.refresh_crates();
         let selected = select.or_else(|| self.nodes.get(self.current_node)?.playlist);
         let name = self.nodes.get(self.current_node).map(|n| n.name.clone());
@@ -3201,6 +3227,8 @@ impl Browser {
             let name = match self.nodes.get(self.current_node) {
                 Some(n) => n.name.clone(),
                 None if self.tree == FILES => "Files".into(),
+                None if self.tree == ALBUMS => "Albums".into(),
+                None if self.tree == MIXED_SETS => "Mixed Sets".into(),
                 None if self.tree == SPOTIFY => "Spotify".into(),
                 None if self.tree == STORES => "Bandcamp".into(),
                 None => String::new(),
@@ -3242,7 +3270,7 @@ impl Browser {
         match within {
             Some(rows) => rows.iter().copied().filter(test).collect(),
             None => (0..self.library.len())
-                .filter(|&t| !is_browsed(&self.library[t]))
+                .filter(|&t| self.in_collection(&self.library[t]))
                 .filter(test)
                 .collect(),
         }
@@ -3315,10 +3343,11 @@ impl Browser {
     }
 
     fn node_tracks(&self, i: usize) -> Vec<usize> {
-        // Missing files only show in their own lists.
+        // Missing files only show in their own lists, mixed sets only in
+        // theirs.
         let all = || {
             (0..self.library.len())
-                .filter(|&t| !self.library[t].info.missing && !is_browsed(&self.library[t]))
+                .filter(|&t| !self.library[t].info.missing && self.in_collection(&self.library[t]))
                 .collect::<Vec<_>>()
         };
         let Some(node) = self.nodes.get(i) else {
@@ -3345,6 +3374,7 @@ impl Browser {
                 .filter_map(|p| self.path_index.get(p).copied())
                 .collect(),
             Contents::Dir(_) => Vec::new(),
+            Contents::Under(dir) => self.tracks_under(dir),
             Contents::List(ids) => ids.clone(),
             Contents::Stage(stage, dir) => all()
                 .into_iter()
@@ -3450,6 +3480,14 @@ impl Browser {
 
     /// What the list says instead of rows while a playlist loads or fails.
     fn list_notice(&self) -> String {
+        if matches!(self.tree, ALBUMS | MIXED_SETS) && self.nodes.is_empty() {
+            return if self.tree == ALBUMS {
+                "Choose your albums folder in Settings › Library."
+            } else {
+                "Choose your mixed sets folder in Settings › Library. Recordings are saved there too."
+            }
+            .into();
+        }
         if self.tree == FILES {
             let f = &self.files;
             return if self.nodes.is_empty() {
@@ -3506,10 +3544,11 @@ impl Browser {
             })
             .collect();
         // A Spotify playlist keeps its own order until a column is clicked.
-        // So does a folder in Files, in file name order.
+        // So does a folder in Files, in file name order, and an album.
         // Copies stay in their groups, the one kept first.
         let dupes = self.dupe_view();
-        let keep_order = ((self.current_playlist().is_some() || self.tree == FILES)
+        let keep_order = ((self.current_playlist().is_some()
+            || matches!(self.tree, FILES | ALBUMS | MIXED_SETS))
             && self.sort_column < 0)
             || dupes.is_some();
         let fade = dupes.map(|case| self.dupe_faded(case)).unwrap_or_default();

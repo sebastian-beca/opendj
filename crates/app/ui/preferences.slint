@@ -423,7 +423,8 @@ component PrefRow inherits Rectangle {
                 Segmented { choices: item.choices; chosen: item.chosen; picked(i) => { Preferences.picked(item.id, i); } }
             }
         }
-        // A path on its own line under the title, with Choose beside it.
+        // A path on its own line under the title, with Choose beside it
+        // (none when it can't be changed here).
         if item.kind == 3: HorizontalLayout {
             spacing: 8px;
             Rectangle {
@@ -443,7 +444,7 @@ component PrefRow inherits Rectangle {
                     vertical-alignment: center;
                 }
             }
-            Button { text: item.action; clicked => { Preferences.pressed(item.id); } }
+            if item.action != "": Button { text: item.action; clicked => { Preferences.pressed(item.id); } }
         }
         if item.kind == 4: OutputsTable { roomy: true; }
         if item.kind == 5: HorizontalLayout {
