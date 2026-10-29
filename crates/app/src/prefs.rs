@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::list_picker::{Picker, Ticked};
 use opendj_control::ControlRegistry;
-use opendj_controllers::{device_key, Controllers, MappingChoice, Port};
+use opendj_controllers::{device_key, support, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
     analysis, cache, channel_names, deck_group, input_devices, key, InputRole, InputRoute,
@@ -36,11 +36,7 @@ const LIBRARY_TABS: [&str; 4] = ["General", "Stages", "Fields", "Import"];
 const IMPORT_TAB: usize = 3;
 /// Other DJ apps whose libraries openDJ can't bring in yet, listed on the
 /// Import tab so the DJ sees what's coming.
-const COMING_IMPORTS: [(&str, &str); 4] = [
-    (
-        "rekordbox",
-        "Tracks, cues, grids and playlists, from rekordbox 6 and 7 or OneLibrary.",
-    ),
+const COMING_IMPORTS: [(&str, &str); 3] = [
     (
         "Mixxx",
         "Tracks, cues, loops, crates and playlists from Mixxx's library.",
@@ -1329,7 +1325,20 @@ impl Prefs {
                         .map_or(0, |i| i + 2),
                 };
                 let detail = match (&port.running, &choice, &port.mapping_file) {
-                    (Some(m), _, _) => format!("Running {m}"),
+                    (Some(m), _, _) => match port
+                        .mapping_file
+                        .as_deref()
+                        .or_else(|| {
+                            mappings
+                                .iter()
+                                .find(|(n, _)| n == m)
+                                .map(|(_, f)| f.as_str())
+                        })
+                        .and_then(support::status)
+                    {
+                        Some(s) => format!("Running {m} · {}", s.label()),
+                        None => format!("Running {m}"),
+                    },
                     (None, MappingChoice::Off, _) => "Not used".to_string(),
                     (None, _, None) => {
                         "No Mixxx mapping matches this device: pick one.".to_string()

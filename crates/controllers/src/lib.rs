@@ -21,6 +21,7 @@ pub mod own;
 pub mod probe;
 mod rows;
 mod script;
+pub mod support;
 pub mod view;
 
 use std::path::PathBuf;

@@ -74,11 +74,14 @@ impl Picker {
                 continue;
             }
             let top = p.add(0, folder(g.title, 1, false));
-            // A folder every list sits in ("Playlists" in VirtualDJ) is the
-            // group itself.
+            // VirtualDJ keeps every list of a group in one folder of its own
+            // ("Playlists", "Folders"): that folder is the group itself. A
+            // folder the DJ made stays, even when it holds every list.
             let first = lists[0].folders.first().cloned();
-            let shared =
-                first.is_some() && lists.iter().all(|l| l.folders.first() == first.as_ref());
+            let shared = first
+                .as_deref()
+                .is_some_and(|f| f == g.title || f == "Folders")
+                && lists.iter().all(|l| l.folders.first() == first.as_ref());
             let mut folders: HashMap<Vec<String>, usize> = HashMap::new();
             for l in &lists {
                 let mut path: Vec<String> =
@@ -104,17 +107,23 @@ impl Picker {
                     };
                 }
                 let key = l.key();
-                let on = group_on
-                    && choices
-                        .get(&key)
-                        .copied()
-                        .unwrap_or_else(|| l.wanted_by_default());
+                // Streamed tracks (netsearch://, a store's link) don't come
+                // in, so a list of only those starts unticked.
+                let here = l
+                    .entries
+                    .iter()
+                    .filter(|e| !e.path.to_string_lossy().contains("://"))
+                    .count();
+                let online_only = here == 0 && !l.entries.is_empty();
+                let default_on = l.wanted_by_default() && !online_only;
+                let on = group_on && choices.get(&key).copied().unwrap_or(default_on);
                 let detail = match l.kind {
                     opendj_engine::import::ImportedListKind::Smart { .. } => {
                         "Smart list".to_string()
                     }
-                    _ if l.entries.len() == 1 => "1 track".to_string(),
-                    _ => format!("{} tracks", l.entries.len()),
+                    _ if online_only => "Online only".to_string(),
+                    _ if here == 1 => "1 track".to_string(),
+                    _ => format!("{here} tracks"),
                 };
                 let depth = path.len() + 2;
                 p.add(
@@ -125,7 +134,7 @@ impl Picker {
                         children: Vec::new(),
                         list: Some((key, g.id)),
                         on,
-                        default_on: l.wanted_by_default(),
+                        default_on,
                         detail,
                         open: false,
                     },
@@ -394,5 +403,30 @@ mod tests {
         assert_eq!(again.ticked(again.nodes[1].children[0]), Ticked::None);
         assert_eq!(again.ticked(again.nodes[0].children[1]), Ticked::All);
         assert_eq!(p.groups(), vec!["playlists", "filters", "history"]);
+    }
+
+    #[test]
+    fn lists_of_only_online_tracks_start_unticked() {
+        let mut streams = list(&["Playlists"], "Streams", ImportedListKind::List);
+        streams.entries[0].path = "netsearch://td1".into();
+        let p = Picker::new(
+            vec![(
+                group("playlists", "Playlists"),
+                vec![
+                    streams,
+                    list(&["Playlists"], "Mine", ImportedListKind::List),
+                ],
+            )],
+            &["playlists"],
+            &HashMap::new(),
+        );
+        let streams = &p.nodes[p.nodes[1].children[0]];
+        assert_eq!(
+            (streams.on, streams.detail.as_str()),
+            (false, "Online only")
+        );
+        assert!(p.nodes[p.nodes[1].children[1]].on);
+        // Nothing to save: unticked is its default.
+        assert!(p.choices().is_empty());
     }
 }
