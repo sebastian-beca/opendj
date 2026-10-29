@@ -24,10 +24,16 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use crate::{AppWindow, FoundRow, QueueLine, SearchItem, SourceTab, SourceUi, StoreUi};
 
 /// Where plugin sources start in the rail, after the built-in ones.
-pub const FIRST_SOURCE: i32 = 9;
+pub const FIRST_SOURCE: i32 = 11;
 
 /// How often searches and downloads are asked how they're getting on.
 const TICK: Duration = Duration::from_millis(900);
+
+/// A square picture's side length and RGBA pixels.
+type Thumbnail = (u32, Vec<u8>);
+
+/// How big a result's cover is fetched, in pixels (shown at 40).
+const COVER_SIDE: u32 = 96;
 
 /// Formats that count as lossless for "Lossless only".
 const LOSSLESS: [&str; 5] = ["FLAC", "WAV", "AIFF", "ALAC", "APE"];
@@ -319,6 +325,11 @@ enum Row {
 
 pub struct Sources {
     app: slint::Weak<AppWindow>,
+    /// Results' covers fetched so far, by address, and those asked for.
+    covers: HashMap<String, slint::Image>,
+    asked: HashSet<String>,
+    cover_requests: Sender<String>,
+    cover_events: Receiver<(String, Option<Thumbnail>)>,
     sources: Vec<Source>,
     events: Receiver<Event>,
     next_local: u64,
@@ -368,8 +379,25 @@ impl Sources {
             })
             .collect();
         let list = Rc::new(VecModel::default());
+        let (cover_requests, wanted) = channel::<String>();
+        let (covers_tx, cover_events) = channel();
+        std::thread::Builder::new()
+            .name("source covers".into())
+            .spawn(move || {
+                for url in wanted {
+                    let thumb = crate::coverart::thumbnail(&url, COVER_SIDE);
+                    if covers_tx.send((url, thumb)).is_err() {
+                        return;
+                    }
+                }
+            })
+            .expect("spawn source covers thread");
         let mut me = Self {
             app: app.as_weak(),
+            covers: HashMap::new(),
+            asked: HashSet::new(),
+            cover_requests,
+            cover_events,
             sources,
             events,
             next_local: 0,
@@ -491,6 +519,15 @@ impl Sources {
     pub fn poll(&mut self) -> Vec<Track> {
         let mut imported = Vec::new();
         let mut changed = false;
+        for (url, thumb) in self.cover_events.try_iter().collect::<Vec<_>>() {
+            if let Some((side, rgba)) = thumb {
+                let pixels = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                    &rgba, side, side,
+                );
+                self.covers.insert(url, slint::Image::from_rgba8(pixels));
+                changed = true;
+            }
+        }
         for event in self.events.try_iter().collect::<Vec<_>>() {
             changed = true;
             match event {
@@ -964,6 +1001,16 @@ impl Sources {
             Some((_, search)) => self.result_rows(source, search),
             None => self.download_rows(source),
         };
+        // Covers of what's listed are fetched once each, in the background.
+        let wanted: Vec<String> = match self.current() {
+            Some((_, search)) => search.items.iter().map(|f| f.cover_url.clone()).collect(),
+            None => Vec::new(),
+        };
+        for url in wanted {
+            if !url.is_empty() && self.asked.insert(url.clone()) {
+                let _ = self.cover_requests.send(url);
+            }
+        }
         let (title, summary, notice) = match self.current() {
             Some((_, search)) => (
                 search.name().to_string(),
@@ -1026,6 +1073,7 @@ impl Sources {
             rows.push(Row::Item(f.key.clone()));
             list.push(found_row(
                 f,
+                self.covers.get(&f.cover_url),
                 depth,
                 self.checked.contains(&f.key) || parent_checked,
                 search.open.contains(&f.key),
@@ -1102,7 +1150,14 @@ impl Sources {
                     ..Default::default()
                 });
             rows.push(Row::Download(i));
-            list.push(found_row(&found, 0, false, false, Some(&d.progress)));
+            list.push(found_row(
+                &found,
+                self.covers.get(&found.cover_url),
+                0,
+                false,
+                false,
+                Some(&d.progress),
+            ));
         }
         (rows, list)
     }
@@ -1195,6 +1250,7 @@ fn plural(n: usize, one: &str, many: &str) -> String {
 
 fn found_row(
     f: &Found,
+    cover: Option<&slint::Image>,
     depth: i32,
     checked: bool,
     open: bool,
@@ -1255,6 +1311,8 @@ fn found_row(
         state,
         progress: fraction,
         note: note.into(),
+        cover: cover.cloned().unwrap_or_default(),
+        has_cover: cover.is_some(),
     }
 }
 
@@ -1368,13 +1426,14 @@ mod tests {
 
     #[test]
     fn rows_show_download_state() {
-        let r = found_row(&file("k", "Kong"), 0, true, false, None);
+        let r = found_row(&file("k", "Kong"), None, 0, true, false, None);
         assert_eq!((r.kind, r.state, r.checked), (2, 0, true));
         let r = found_row(
             &Found {
                 duration: 302.0,
                 ..file("k", "Kong")
             },
+            None,
             0,
             false,
             false,
@@ -1383,6 +1442,7 @@ mod tests {
         assert_eq!((r.state, r.progress, r.length.as_str()), (2, 0.5, "5:02"));
         let r = found_row(
             &file("k", "Kong"),
+            None,
             0,
             false,
             false,

@@ -538,7 +538,7 @@ fn found_json(f: &Found) -> Value {
         "album": f.album, "year": f.year, "number": f.number, "duration": f.duration,
         "format": f.format, "quality": f.quality, "size": f.size, "from": f.from,
         "tracks": f.tracks.iter().map(found_json).collect::<Vec<_>>(),
-        "track_count": f.track_count, "group": f.group,
+        "track_count": f.track_count, "group": f.group, "cover_url": f.cover_url,
     })
 }
 
@@ -559,6 +559,7 @@ fn found_from(v: &Value) -> Found {
         tracks: list(&v["tracks"]).iter().map(found_from).collect(),
         track_count: v["track_count"].as_u64().unwrap_or(0) as usize,
         group: string(&v["group"]),
+        cover_url: string(&v["cover_url"]),
     }
 }
 

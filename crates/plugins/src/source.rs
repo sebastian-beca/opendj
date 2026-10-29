@@ -127,6 +127,8 @@ pub struct Found {
     /// For a playlist search: the playlist entry this was found for, e.g.
     /// "3. Bonobo – Kerala". Results with the same group show together.
     pub group: String,
+    /// A picture of it (an album's cover), as an address the app fetches.
+    pub cover_url: String,
 }
 
 /// What a search has found so far.

@@ -184,6 +184,23 @@ fn send(tx: &Sender<Event>, source: &str, data: Vec<u8>) {
     }));
 }
 
+/// A small square picture from `url` (a result's cover in a source's
+/// list), as RGBA pixels with its side length.
+pub fn thumbnail(url: &str, side: u32) -> Option<(u32, Vec<u8>)> {
+    let data = agent()
+        .get(url)
+        .call()
+        .ok()?
+        .body_mut()
+        .with_config()
+        .limit(8 << 20)
+        .read_to_vec()
+        .ok()?;
+    let image = image::load_from_memory(&data).ok()?;
+    let small = image.resize_to_fill(side, side, image::imageops::FilterType::Triangle);
+    Some((side, small.to_rgba8().into_raw()))
+}
+
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(12)))
