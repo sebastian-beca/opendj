@@ -6206,6 +6206,7 @@ dependencies = [
  "midir",
  "opendj-control",
  "opendj-engine",
+ "opendj-script",
  "roxmltree",
  "rquickjs",
  "serde_json",

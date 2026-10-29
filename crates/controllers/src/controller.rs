@@ -11,6 +11,7 @@ use opendj_control::{ControlHandle, ControlRegistry};
 
 use crate::host::{Host, Target};
 use crate::mapping::{Input, Mapping, Options, Output};
+use crate::rows::ScriptRows;
 use crate::script::Script;
 
 struct OutputState {
@@ -38,6 +39,8 @@ pub struct Controller {
     debug: bool,
     /// The deck 3 and 4 switches as the outputs last resolved them.
     layers: [bool; 2],
+    /// openDJ mappings: openDJscript rows and lights.
+    rows: ScriptRows,
 }
 
 /// How long after loading a mapping its LEDs are sent again.
@@ -158,10 +161,11 @@ impl Controller {
                 prefixes.push(file.prefix.clone());
             }
         }
+        let mut plain_outputs = mapping.outputs.clone();
+        let rows = ScriptRows::new(&mapping, &mut plain_outputs);
         let outputs = {
             let h = host.borrow();
-            mapping
-                .outputs
+            plain_outputs
                 .iter()
                 .map(|o| OutputState {
                     control: match h.resolve(&o.group, &o.key) {
@@ -184,6 +188,7 @@ impl Controller {
             resend_at: Some(Instant::now() + RESEND_AFTER),
             debug: std::env::var_os("OPENDJ_MIDI_DEBUG").is_some(),
             layers: [false; 2],
+            rows,
         };
         let id = serde_str(&c.name);
         for p in c.prefixes.clone() {
@@ -241,6 +246,7 @@ impl Controller {
             for input in inputs {
                 self.process(&input, status, control, value);
             }
+            self.rows.finish(status, control, value, Instant::now());
         }
         if self.host.borrow().has_input_handlers(status, control) {
             self.script.fire_input(status, control, value);
@@ -249,6 +255,24 @@ impl Controller {
 
     fn process(&mut self, input: &Input, status: u8, control: u8, value: u8) {
         let opcode = status & 0xF0;
+        if !input.layer.is_empty() && !self.rows.layer_holds(&input.layer) {
+            return;
+        }
+        if input.action.is_some() {
+            // The LSB of a 14-bit pair only refines the MSB's value.
+            if input.options.has(Options::FOURTEEN_BIT_LSB) {
+                return;
+            }
+            let v = if opcode == 0xE0 {
+                (((value as u32) << 7) | control as u32) as f64 / 16383.0
+            } else {
+                value as f64 / 127.0
+            };
+            let registry = self.host.borrow().registry.clone();
+            self.rows
+                .handle(&registry, input, status, control, v, Instant::now());
+            return;
+        }
         if input.options.has(Options::SCRIPT) {
             let channel = (status & 0x0F) as f64;
             self.script.call_binding(
@@ -335,6 +359,13 @@ impl Controller {
                 o.version = None;
                 o.last = None;
             }
+            self.rows.resend();
+        }
+        {
+            let registry = self.host.borrow().registry.clone();
+            let mut sent = Vec::new();
+            self.rows.poll(&registry, now, &mut sent);
+            self.host.borrow_mut().sent.extend(sent);
         }
         let mut h = self.host.borrow_mut();
         // A side switched decks: the LEDs follow the other deck.
@@ -369,14 +400,20 @@ impl Controller {
 
     /// Script errors so far (exceptions, bad bindings).
     pub fn errors(&self) -> Vec<String> {
-        self.host.borrow().errors.clone()
+        let mut out = self.host.borrow().errors.clone();
+        out.extend(self.rows.errors.iter().cloned());
+        out
     }
 
     pub fn next_deadline(&self) -> Option<Instant> {
-        match (self.host.borrow().next_deadline(), self.resend_at) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        [
+            self.host.borrow().next_deadline(),
+            self.resend_at,
+            self.rows.next_deadline(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// MIDI messages to send to the device, oldest first.

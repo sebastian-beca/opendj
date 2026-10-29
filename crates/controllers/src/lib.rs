@@ -16,6 +16,7 @@ mod manager;
 pub mod mapping;
 pub mod own;
 pub mod probe;
+mod rows;
 mod script;
 pub mod view;
 
