@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 
 pub use opendj_engine::import::{ImportedLibrary, ImportedList, ListGroup};
 
+pub mod archive;
 pub mod bandcamp;
 pub mod inbox;
 pub mod links;
@@ -288,7 +289,10 @@ pub trait LibraryImport: Send {
 
 /// The plugins that come with the app: Bandcamp, then the stores we link to.
 pub fn builtin() -> Vec<Box<dyn Plugin>> {
-    let mut out: Vec<Box<dyn Plugin>> = vec![Box::new(bandcamp::Bandcamp::new())];
+    let mut out: Vec<Box<dyn Plugin>> = vec![
+        Box::new(bandcamp::Bandcamp::new()),
+        Box::new(archive::InternetArchive::new()),
+    ];
     out.extend(
         links::STORES
             .iter()
