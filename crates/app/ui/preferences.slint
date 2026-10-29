@@ -285,10 +285,10 @@ component ScriptField inherits Rectangle {
 component PrefRow inherits Rectangle {
     in property <PrefItem> item;
     in property <bool> searching;
-    min-height: item.kind == 7 ? 34px : 52px;
+    min-height: item.kind == 7 ? 34px : item.kind == 12 ? 30px : 52px;
     VerticalLayout {
-        padding-top: item.kind == 7 ? 14px : 10px;
-        padding-bottom: item.kind == 7 ? 4px : 10px;
+        padding-top: item.kind == 7 ? 14px : item.kind == 12 ? 4px : 10px;
+        padding-bottom: item.kind == 7 ? 4px : item.kind == 12 ? 4px : 10px;
         spacing: 8px;
         if item.kind == 7: Text {
             text: item.title;
@@ -339,7 +339,74 @@ component PrefRow inherits Rectangle {
                 }
             }
         }
-        if item.kind != 7 && item.kind != 11: HorizontalLayout {
+        // A tick box in a tree: the arrow opens a folder, the box ticks it
+        // and everything in it.
+        if item.kind == 12: HorizontalLayout {
+            spacing: 6px;
+            Rectangle { width: item.chosen * 18px; }
+            Rectangle {
+                width: 16px;
+                if item.action != "": Text {
+                    text: item.action;
+                    color: Theme.text-dim;
+                    font-size: 11px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                if item.action != "": TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { Preferences.pressed(item.id + "#fold"); }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 4px;
+                    border-width: 1.5px;
+                    border-color: item.on || item.value == "some" ? Theme.accent : Theme.text-dim;
+                    background: item.on || item.value == "some" ? Theme.accent : transparent;
+                    Text {
+                        text: item.on ? "✓" : item.value == "some" ? "–" : "";
+                        color: #000000;
+                        font-size: 11px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { Preferences.toggled(item.id, !item.on); }
+                    }
+                }
+            }
+            Text {
+                text: item.title;
+                color: Theme.text;
+                font-size: 13px;
+                font-weight: item.chosen <= 1 ? 600 : 400;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+                TouchArea {
+                    clicked => {
+                        if item.action != "" {
+                            Preferences.pressed(item.id + "#fold");
+                        } else {
+                            Preferences.toggled(item.id, !item.on);
+                        }
+                    }
+                }
+            }
+            Text {
+                text: item.detail;
+                color: Theme.text-dim;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+        }
+        if item.kind != 7 && item.kind != 11 && item.kind != 12: HorizontalLayout {
             spacing: 16px;
             VerticalLayout {
                 horizontal-stretch: 1;
