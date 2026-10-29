@@ -1,30 +1,30 @@
 # Decks and mixer
 
-Drag a track from the library onto a deck to load it.
+Drag a track from the library onto a deck to load it, or select it and
+press a controller's **LOAD** button.
 
 ## Decks
 
-Each deck has:
+In 2-Deck each deck runs, from the outer edge in:
 
-- **PLAY** and **CUE**
-- **SYNC** and a tempo fader, with key lock and key shift
-- **Hot cues**, **loops**, **beat jumps** and the **sampler** on the pads
-- Three **effect** slots, beat-synced, with echo, reverb, filter, flanger and more
+- **The tempo column**: **SYNC** on top, the tempo fader, and **−** and **+**
+  under it for small steps. The triangle beside the fader puts the tempo
+  back to the track's own, and the padlock above it is
+  [key lock](#keys).
+- **The pads**, with their tabs on top (see [Pads](pads.md)).
+- **The LOOP column** (see [Looping](looping.md)).
+- **The jog wheel**, with **CUE** and **PLAY** under it, next to the mixer.
+  Drag the jog to scratch or nudge.
 
-## FX bar
+Above them, the deck's header shows the cover, title and artist, the time
+left and the track's tempo and key, with the overview waveform of the whole
+track. Click the overview to jump; dragging it moves without playing what it
+passes.
 
-The **FX** button in the top bar, beside the waveforms button, shows or
-hides the FX bar under the decks. Each deck's three effects sit under the
-deck, and the **Beat FX** under the mixer. Each effect has its name (click
-it for the list; in 2-Deck the arrows step through them), **ON**, its
-length in beats (or a slider for its second control on effects without
-one, such as reverb's decay) and a **D/W** knob. The Beat FX also picks
-where it plays: deck 1, deck 2 or both.
+**PLAY**, **CUE** and **SYNC** show an outline in the deck's colour while
+they're on. **Shift-click** PLAY to go back to the start of the track.
 
-In 4-Deck each deck's effects are stacked in three rows, and a bar above
-them holds each deck's crossfader side, **SYNC** and tempo either side of
-the crossfader. Click a deck's tempo there for key lock, quantize and a
-tempo reset.
+The decks' effects are in the [FX bar](fx.md#the-fx-bar) under them.
 
 ## Sync and quantize
 
@@ -34,48 +34,27 @@ double tempo when that's closer. Press it again to let go. **Shift-click**
 SYNC to match the tempo and beat once, without staying synced, as SYNC does
 in VirtualDJ.
 
-The deck that synced decks follow shows a lit **MASTER** in its header.
+The deck that synced decks follow shows a small **MASTER** under its key.
 openDJ picks it by itself, the deck that has been playing longest, and hands
 over when it stops. Click **MASTER** on a deck to keep that deck the master
 (it fills in), and click it again to let openDJ pick.
 
-The **Q** button under SYNC is **quantize**. While it's lit, cues and loops
-are set on the beat, and play, CUE, hot cues and jumps land in step with the
-other playing deck. The arrow beside it sets the step: **1/16**, **1/8**,
-**1/4**, **1/2** or **1** beat, or **4** to land on the same beat of the bar.
-Cues and loops snap to a beat at most. **Settings → Decks → Quantize** sets
-whether Q starts on for every deck.
-
-## Sampler
-
-The **SAMPLER** pad tab plays short sounds over the mix: drops, horns,
-rewinds, name tags. There are 16 pads, eight at a time: the **1** and **2**
-on the outside of the pads switch between them. On a DDJ-FLX4 the pads in
-SAMPLER mode play the same eight the screen shows.
-
-- **Sample packs**: **SAMPLE PACK** under the pads picks a pack. openDJ comes
-  with the **Default DJ Sample Pack**; **+** makes a new, empty one.
-- **Your own sounds**: drop an audio file (WAV, AIFF, FLAC, MP3, M4A or OGG,
-  up to a minute) from Finder or the track list on a pad, or right-click a
-  pad and choose **Load File…**. **Choose Sample…** borrows a sound from any
-  pack, with a play button to hear it in the headphones first.
-- The **pencil** shows a level knob and a **•••** menu on each pad. The menu
-  (or a right-click) renames the pad, sets how it plays (**One shot**,
-  **Hold**, **On/Off** or **Loop**), puts back the pack's own sound, or
-  clears it. Drag a pad onto another to swap them. Shift-click a pad to stop
-  it.
-
-What you change on a pad is kept for that pack, and the pack's own files are
-left alone.
+**Right-click SYNC** for **quantize**. While it's on, cues and loops are set
+on the beat, and play, CUE, hot cues and jumps land in step with the other
+playing deck. The same menu sets the step: **1/16**, **1/8**, **1/4**,
+**1/2** or **1** beat, or **4** to land on the same beat of the bar. Cues and
+loops snap to a beat at most. **Settings › Decks › Quantize** sets whether
+quantize starts on for every deck.
 
 ## Keys
 
 The padlock over the triangle beside the tempo fader is **key lock**: while
 it's lit, moving the tempo fader keeps the track's key. The **+** and **−**
-beside the deck's key shift it a semitone at a time.
+beside the deck's key shift it a semitone at a time, and clicking the key
+lists every shift with the key it gives.
 
 The library shows in lilac the keys that mix with the track playing now.
-**Settings → Decks → Key mixing** picks which ones count:
+**Settings › Decks › Key mixing** picks which ones count:
 
 - **Harmonic** (4 keys): the same Camelot number, or the next number up or
   down with the same letter. 8A mixes with 8A, 8B, 7A and 9A.
@@ -91,7 +70,7 @@ in grey.
 ## Auto reset on load
 
 Loading a track puts its deck back to normal, so the last track's settings
-don't carry over. In **Settings > Decks**, under **Auto reset on load**, each
+don't carry over. In **Settings › Decks**, under **Auto reset on load**, each
 of these can be switched off (all are on to start):
 
 - **Effects**: the deck's effects switch off. Their beats and dry/wet stay as
@@ -103,5 +82,33 @@ of these can be switched off (all are on to start):
 
 ## Mixer
 
-Between the decks, each channel has gain, a 3-band EQ, a filter and a channel
-fader. Below them are the crossfader and the headphone cue buttons.
+Between the decks, each channel has four knobs down its outer side, its
+gain, and a channel fader beside the main level meter. Under the faders are
+the headphone **CUE** buttons and the crossfader.
+
+The menu over the meters picks what the four knobs do:
+
+- **EQ**: high, mid and low, and the [Color FX](fx.md#color-fx) filter knob,
+  with a small **▾** beside it to pick the Color FX.
+- **STEMS**: the level of each [stem](stems.md).
+- **SCULPT**: a low-pass, a sculpt band with its frequency and cut or boost,
+  and a high-pass, after PlayDifferently's Model 1.
+
+A controller's EQ knobs follow the same choice.
+
+**The crossfader** can be switched off, so it no longer fades either side:
+right-click it, or use **Settings › Mixer**.
+
+## Master, phones and mic
+
+The **MASTER** button in the top bar opens the output levels: **Master**,
+**Phones**, **Booth**, and **Cue / Mix**, which blends cue and main in the
+headphones. Its **Ableton Link** switch is described in
+[Ableton Link](link.md). **Audio Settings…** opens the outputs in Settings.
+Levels are kept between runs.
+
+The **MIC** button opens the microphone and the auxiliary input, each with
+**ON** and a level. The microphone has effects of its own under **MIC FX**,
+which the decks' effects never touch, and **AUX** sends the auxiliary input
+through them too. Choose the inputs in **Settings › Audio**. The auxiliary
+input starts off.

@@ -12,6 +12,8 @@ you add it again.
 
 HID controllers aren't supported yet.
 
+The **Pioneer DDJ-FLX4** has a page of its own: [Pioneer DDJ-FLX4](controllers/ddj-flx4.md).
+
 ## Controller Editor
 
 To see what every control does, press **Edit** next to a controller in
@@ -39,7 +41,7 @@ the list by any of those words.
 Mappings that run a script are tried out in a sandbox to see what each
 control does, so even those read in plain words.
 
-[Supported controllers](../controllers/README.md) lists every controller with
+[Supported controllers](../controllers/index.html) lists every controller with
 a mapping, and what each control does where the mapping describes it.
 
 If your controller doesn't work right,
