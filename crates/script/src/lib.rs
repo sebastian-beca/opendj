@@ -23,9 +23,9 @@ mod controls;
 mod parse;
 mod verbs;
 
-pub use controls::{query_control, run_control};
+pub use controls::{level_control, query_control, run_control};
 pub use parse::{parse, Arg, Deck, Expr, Script};
-pub use verbs::{verb, ArgKind, ArgSpec, Kind, TakesDeck, Verb, VERBS};
+pub use verbs::{verb, ArgKind, ArgSpec, Kind, TakesDeck, Verb, FROM_CONTROLLER, VERBS};
 
 use std::fmt;
 
@@ -68,6 +68,9 @@ pub struct Call<'a> {
     pub verb: &'static Verb,
     pub deck: Option<u8>,
     pub args: &'a [Arg],
+    /// The controller's fader or knob, 0 to 1, when a controller runs the
+    /// line: what a level verb with no level takes.
+    pub input: Option<f64>,
 }
 
 /// What runs the verbs: the app, or a test.
@@ -76,6 +79,14 @@ pub trait Host {
     fn master_deck(&self) -> u8;
     fn run(&mut self, call: &Call) -> Result<(), Error>;
     fn query(&mut self, call: &Call) -> Result<bool, Error>;
+    /// How far up a verb is, 0 to 1, for `verb > level` and `verb < level`.
+    fn level(&mut self, call: &Call) -> Result<f64, Error> {
+        Ok(if self.query(call)? { 1.0 } else { 0.0 })
+    }
+    /// The controller's value for the line now running, 0 to 1.
+    fn input(&self) -> Option<f64> {
+        None
+    }
 }
 
 /// Parses and runs a line.

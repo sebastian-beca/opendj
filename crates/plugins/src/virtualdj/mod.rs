@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use crate::{ImportedLibrary, LibraryImport, ListGroup};
+use crate::{ImportedLibrary, ImportedList, LibraryImport, ListGroup};
 use opendj_engine::import::ImportedListKind;
 
 pub mod database;
@@ -164,6 +164,11 @@ impl LibraryImport for VirtualDj {
             out += &format!(" {left_out} streamed or missing files stay out.");
         }
         Ok(out)
+    }
+
+    fn lists(&self, database: &Path, groups: &[&str]) -> Result<Vec<ImportedList>, String> {
+        let home = database.parent().unwrap_or(Path::new("."));
+        Ok(lists::read(home, groups, &mut lists::Skipped::default()))
     }
 
     fn read(&self, database: &Path, groups: &[&str]) -> Result<ImportedLibrary, String> {

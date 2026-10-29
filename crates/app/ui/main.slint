@@ -2,7 +2,7 @@ import { Palette } from "std-widgets.slint";
 import { Theme, KeyNotation, CloseIcon } from "theme.slint";
 import { Controls, VuMeter, ControlKnob, HoverTipView } from "controls.slint";
 import { Deck, DeckInfo, KeyItem, EffectList, DeckActions, PhraseView, PhraseTip } from "deck.slint";
-import { Mixer, AudioSettings, OutputRow } from "mixer.slint";
+import { Mixer, AudioSettings, OutputRow, MixerMode } from "mixer.slint";
 import { MasterPanel, MicPanel } from "toppanels.slint";
 import { PlayerDeck, PlayerMixer } from "player.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
@@ -10,6 +10,7 @@ import { FxBar } from "fxbar.slint";
 import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, ColumnUi, ListColumn, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow } from "library.slint";
 import { Preferences, PreferencesOverlay, PrefItem, ImportWizard } from "preferences.slint";
 import { UsbExport, UsbExportDialog } from "usb_export.slint";
+import { Tour, TourSetup, TourSetupDialog, TourTip, TourOffer } from "tour.slint";
 import { ControllerEditor, ControllerEditorOverlay, EditorRow, EditorPart, EditorPanel, EditorOption } from "controller_editor.slint";
 
 export { SourceUi, SourceTab, SearchItem, FoundRow, QueueLine } from "sources.slint";
@@ -17,6 +18,8 @@ export { TrackInfo, InfoField, CoverChoice } from "info.slint";
 export { FilterUi, FilterChip, FilterChoice } from "filters.slint";
 export { SamplerUi, SamplerPad, SamplePack, SampleChoice } from "sampler.slint";
 export { ColumnUi, ListColumn }
+export { Tour, TourSetup }
+export { MixerMode }
 export { Theme, Controls, DeckActions, PhraseView, PhraseTip, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, UsbExport }
 
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
@@ -558,10 +561,11 @@ export component AppWindow inherits Window {
 
     callback select-source(source: int);
     // Which sources the library rail shows, by index.
-    in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true];
+    in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true, true, true];
     callback source-shown-changed(source: int, on: bool);
     callback spotify-connect(client-id: string);
     callback spotify-disconnect();
+    callback spotify-copy();
     callback select-folder(index: int);
     callback toggle-folder(index: int);
     callback sort(column: int);
@@ -644,6 +648,10 @@ export component AppWindow inherits Window {
             }
             if e.text == Key.Escape && UsbExport.open && !UsbExport.running {
                 UsbExport.open = false;
+                return accept;
+            }
+            if e.text == Key.Escape && Tour.mode == 1 && !ImportWizard.open {
+                Tour.end();
                 return accept;
             }
             if e.text == Key.Escape && ControllerEditor.dialog != 0 {
@@ -811,6 +819,7 @@ export component AppWindow inherits Window {
                 source-shown-changed(s, on) => { source-shown-changed(s, on); }
                 spotify-connect(id) => { spotify-connect(id); }
                 spotify-disconnect => { spotify-disconnect(); }
+                spotify-copy => { spotify-copy(); }
                 rows: tracks;
                 sort-column: sort-column;
                 ascending: sort-ascending;
@@ -952,6 +961,14 @@ export component AppWindow inherits Window {
             TouchArea { clicked => { alert = ""; } }
         }
 
+        if Tour.offer && Tour.mode == 0 && update-version == "": TourOffer {
+            x: (root.width - self.width) / 2;
+            y: 64px;
+        }
+
+        // A lesson's tip, over the app but under the dialogs it may open.
+        if Tour.mode == 2: TourTip { width: root.width; height: root.height; }
+
         HoverTipView { width: root.width; height: root.height; }
 
         // Inside the shortcuts' scope, so Esc reaches it from the search box.
@@ -965,6 +982,10 @@ export component AppWindow inherits Window {
             height: root.height;
         }
         if UsbExport.open: UsbExportDialog {
+            width: root.width;
+            height: root.height;
+        }
+        if Tour.mode == 1: TourSetupDialog {
             width: root.width;
             height: root.height;
         }

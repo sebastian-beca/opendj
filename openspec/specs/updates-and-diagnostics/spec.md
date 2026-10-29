@@ -6,7 +6,7 @@ Keeping openDJ current and giving testers something to report with: the update c
 ## Requirements
 
 ### Requirement: Update check
-At start openDJ SHALL ask GitHub once for the latest release (pre-releases skipped) unless Settings › Feedback "Check for updates" is off, sending nothing but the request. A version dismissed once SHALL not be shown again, and the banner SHALL never show while a deck plays.
+At start openDJ SHALL ask GitHub once for the latest release (pre-releases skipped) unless Settings › Help "Check for updates" is off, sending nothing but the request. A version dismissed once SHALL not be shown again, and the banner SHALL never show while a deck plays.
 
 #### Scenario: New version
 - **WHEN** a newer release exists and no deck plays
@@ -27,7 +27,7 @@ When not started from a terminal, output SHALL go to `logs/opendj.log` in the se
 - **THEN** a crash file with the backtrace is in the logs folder
 
 ### Requirement: Feedback
-Settings › Feedback SHALL link to report a problem and suggest a feature with the version filled in, and open the logs folder.
+Settings › Help SHALL link to report a problem and suggest a feature with the version filled in, and open the logs folder.
 
 #### Scenario: Report
 - **WHEN** Report… is pressed

@@ -11,8 +11,9 @@ use std::sync::Arc;
 use opendj_control::{ConfigKey, ControlRegistry};
 
 use crate::catalog::{describe, describe_value, humanize, Function};
+use crate::format::OpenDjMapping;
 use crate::layout::Layout;
-use crate::mapping::{Input, Mapping, Options, SettingDef};
+use crate::mapping::{Input, Mapping, Options, SettingDef, When};
 use crate::probe::{is_shift_binding, message_key, probe, Effect, MessageKey, Probe};
 
 /// One thing a control does.
@@ -37,6 +38,53 @@ pub struct Row {
     pub description: String,
     /// The binding's options in words: "Pick-up, 14-bit".
     pub options: String,
+    /// The bindings behind it, for editing it.
+    pub sources: Vec<Source>,
+    /// Changed in the DJ's own mapping shown.
+    pub edited: bool,
+    /// Kept in the own mapping but doing nothing (a row an import couldn't
+    /// translate), with why.
+    pub off: bool,
+    pub note: String,
+}
+
+/// One binding behind a row: the message and what it is bound to.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Source {
+    pub status: u8,
+    pub number: u8,
+    pub group: String,
+    /// A control, or a script function for script bindings.
+    pub key: String,
+    pub options: Options,
+    /// An openDJscript line, in an openDJ mapping.
+    pub action: Option<String>,
+    pub layer: Vec<(String, Option<f64>)>,
+    pub when: When,
+}
+
+impl Source {
+    fn of(status: u8, number: u8, input: &Input) -> Self {
+        Source {
+            status,
+            number,
+            group: input.group.clone(),
+            key: input.key.clone(),
+            options: input.options,
+            action: input.action.clone(),
+            layer: input.layer.clone(),
+            when: input.when,
+        }
+    }
+
+    pub fn message(&self) -> MessageKey {
+        message_key(self.status, self.number)
+    }
+
+    /// A binding to a control (not a script).
+    pub fn is_control(&self) -> bool {
+        self.action.is_none() && !self.options.has(Options::SCRIPT)
+    }
 }
 
 /// What an LED shows.
@@ -246,13 +294,17 @@ impl Builder<'_> {
         let key = message_key(status, number);
         let (desc_control, desc_what, desc_shift) = split_description(&input.description);
         let found = self.layout.and_then(|l| l.find(status, number));
-        let script = input
-            .options
-            .has(Options::SCRIPT)
-            .then(|| input.key.clone());
+        let script = match &input.action {
+            Some(line) => Some(line.clone()),
+            None => input
+                .options
+                .has(Options::SCRIPT)
+                .then(|| input.key.clone()),
+        };
         let control = match (found, &script) {
             (Some((p, _)), _) => p.label.clone(),
             _ if !desc_control.is_empty() => desc_control.clone(),
+            _ if !input.name.is_empty() => humanize(&input.name),
             (None, Some(s)) => script_name(s),
             _ => message_text(status, number),
         };
@@ -261,6 +313,23 @@ impl Builder<'_> {
             None if desc_shift => "SHIFT".into(),
             None => String::new(),
         };
+        // An openDJ mapping's own layer and when: "SHIFT", "Long press".
+        let mut extra: Vec<String> = input
+            .layer
+            .iter()
+            .map(|(n, v)| match v {
+                Some(v) => format!("{} {v}", n.to_uppercase()),
+                None => n.to_uppercase(),
+            })
+            .collect();
+        if input.when != When::Press {
+            extra.push(when_text(input.when).into());
+        }
+        let base_layer = std::iter::once(base_layer)
+            .chain(extra)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join(" + ");
         let kind = match found {
             Some((p, _)) => p.kind.clone(),
             None => guess_kind(status, input.options).into(),
@@ -276,6 +345,10 @@ impl Builder<'_> {
             script: script.clone(),
             description: input.description.clone(),
             options: options_text(input.options),
+            sources: vec![Source::of(status, number, input)],
+            edited: false,
+            off: false,
+            note: String::new(),
         };
         let fallback = |what: &str| {
             let target = describe(&input.group, "").target;
@@ -298,7 +371,14 @@ impl Builder<'_> {
         let hardware_shift = found.is_some_and(|(p, _)| p.midi.iter().any(sends_shift));
         let shifted_message = found.is_some_and(|(_, m)| sends_shift(m));
         let mut new_rows = Vec::new();
-        if script.is_none() {
+        if let Some(line) = &input.action {
+            let name = if input.name.is_empty() {
+                line.clone()
+            } else {
+                humanize(&input.name)
+            };
+            new_rows.push(make(script_function(line, name), base_layer));
+        } else if script.is_none() {
             new_rows.push(make(describe(&input.group, &input.key), base_layer));
         } else {
             let normal = match self.probe.shifted.get(&key) {
@@ -344,12 +424,47 @@ impl Builder<'_> {
                 Some(o) if !o.keys.contains(&key) => {
                     o.keys.push(key);
                     o.midi = join_messages(&o.midi, &r.midi);
+                    o.sources.extend(r.sources);
                 }
-                Some(_) => {}
+                Some(o) => {
+                    for s in r.sources {
+                        if !o.sources.contains(&s) {
+                            o.sources.push(s);
+                        }
+                    }
+                }
                 None => self.rows.push(r),
             }
         }
     }
+}
+
+fn when_text(w: When) -> &'static str {
+    match w {
+        When::Press => "Press",
+        When::Release => "Release",
+        When::Long => "Long press",
+        When::Tap => "Tap",
+        When::Double => "Double press",
+    }
+}
+
+/// What an openDJscript line does: `deck 1 play` is Play on Deck 1, as a
+/// binding to that control would be; anything else is named `name`.
+fn script_function(line: &str, name: String) -> Function {
+    let words: Vec<&str> = line.split_whitespace().collect();
+    if let [kind, n, control] = words[..] {
+        let group = match kind {
+            "deck" => format!("[Channel{n}]"),
+            "sampler" => format!("[Sampler{n}]"),
+            "fx" => format!("[EffectRack1_EffectUnit{n}]"),
+            _ => String::new(),
+        };
+        if !group.is_empty() && control.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return describe(&group, control);
+        }
+    }
+    Function::new("Controller", name, "")
 }
 
 /// Reads the mapping at `path` and works out what it does. `registry` must
@@ -361,6 +476,126 @@ pub fn build(path: &Path, registry: Arc<ControlRegistry>) -> Result<MappingView,
         .file_name()
         .map(|f| f.to_string_lossy().into_owned())
         .unwrap_or_default();
+    build_from(&mapping, file, registry)
+}
+
+/// Like [`build`], for the DJ's own mapping `own` put over the Mixxx mapping
+/// at `path` (the one it's based on): rows it changes are marked, and rows
+/// it keeps greyed are listed with why.
+pub fn build_own(
+    path: &Path,
+    own: &OpenDjMapping,
+    registry: Arc<ControlRegistry>,
+) -> Result<MappingView, String> {
+    let base = Mapping::load(path)?;
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let mapping = own.build(Some(&base), dir);
+    let file = path
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut v = build_from(&mapping, file, registry)?;
+    for row in &mut v.rows {
+        row.edited = crate::edit::is_edited(own, row);
+    }
+    let layout = v.layout.clone();
+    // A message the own mapping takes away and gives nothing else on its
+    // layer: a row saying so, to change or put back.
+    for r in own.rows.iter().filter(|r| r.remove && !r.off) {
+        let (s, n) = (r.midi.status, r.midi.number);
+        let replaced = own.rows.iter().any(|o| {
+            !o.remove && !o.off && (o.midi.status, o.midi.number) == (s, n) && o.layer == r.layer
+        });
+        if replaced {
+            continue;
+        }
+        let found = layout.as_ref().and_then(|l| l.find(s, n));
+        let name = if r.name.is_empty() {
+            message_text(s, n)
+        } else {
+            r.name.clone()
+        };
+        let mut layer = r.layer.to_uppercase();
+        if r.when != When::Press {
+            layer = [layer, when_text(r.when).into()]
+                .into_iter()
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+                .join(" + ");
+        }
+        v.rows.push(Row {
+            function: Function::new("Controller", "Does nothing", ""),
+            control: found.map_or(name, |(p, _)| p.label.clone()),
+            part: found.map(|(p, _)| p.id.clone()),
+            layer,
+            kind: found.map_or_else(
+                || guess_kind(s, Options::default()).into(),
+                |(p, _)| p.kind.clone(),
+            ),
+            keys: vec![message_key(s, n)],
+            midi: message_text(s, n),
+            script: None,
+            description: String::new(),
+            options: String::new(),
+            sources: vec![Source {
+                status: s,
+                number: n,
+                group: String::new(),
+                key: String::new(),
+                options: Options::default(),
+                action: None,
+                layer: r.layer_conditions(),
+                when: r.when,
+            }],
+            edited: true,
+            off: false,
+            note: String::new(),
+        });
+    }
+    for r in own.rows.iter().filter(|r| r.off) {
+        let (s, n) = (r.midi.status, r.midi.number);
+        let found = layout.as_ref().and_then(|l| l.find(s, n));
+        let name = if r.name.is_empty() {
+            message_text(s, n)
+        } else {
+            humanize(&r.name)
+        };
+        let what = if r.original.is_empty() {
+            "Not translated".to_string()
+        } else {
+            r.original.clone()
+        };
+        v.rows.push(Row {
+            function: Function::new("Controller", what, ""),
+            control: found.map_or(name, |(p, _)| p.label.clone()),
+            part: found.map(|(p, _)| p.id.clone()),
+            layer: r.layer.to_uppercase(),
+            kind: found.map_or_else(
+                || guess_kind(s, Options::default()).into(),
+                |(p, _)| p.kind.clone(),
+            ),
+            keys: vec![message_key(s, n)],
+            midi: message_text(s, n),
+            script: None,
+            description: r.description.clone(),
+            options: String::new(),
+            sources: Vec::new(),
+            edited: false,
+            off: true,
+            note: r.note.clone(),
+        });
+    }
+    Ok(v)
+}
+
+/// Works out what `mapping` does; `file` is the Mixxx mapping's file name,
+/// for its picture.
+pub fn build_from(
+    mapping: &Mapping,
+    file: String,
+    registry: Arc<ControlRegistry>,
+) -> Result<MappingView, String> {
+    let mapping = mapping.clone();
     let layout = Layout::for_file(&file);
     let mut notes = Vec::new();
     let probed = match probe(&mapping, registry.clone()) {

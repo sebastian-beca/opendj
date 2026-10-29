@@ -9,12 +9,17 @@
 
 pub mod catalog;
 mod controller;
+pub mod edit;
+pub mod export;
+pub mod format;
 mod host;
+pub mod import;
 pub mod layout;
 mod manager;
 pub mod mapping;
 pub mod own;
 pub mod probe;
+mod rows;
 mod script;
 pub mod support;
 pub mod view;

@@ -2,7 +2,7 @@
 
 openDJ is in beta, and feedback of any kind helps.
 
-In the app, **Settings → Feedback** has links to report a problem or suggest a
+In the app, **Settings → Help** has links to report a problem or suggest a
 feature with your version already filled in. It also opens the folder with your
 logs, so you can attach them.
 

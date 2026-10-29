@@ -28,6 +28,7 @@ use opendj_library::Wanted;
 use opendj_plugins::inbox::Mode;
 use opendj_plugins::{ItemKind, StoreItem, StoreQuery};
 
+mod albums;
 mod analysis;
 mod cleanup;
 mod columns;
@@ -61,6 +62,10 @@ const FILES: i32 = 1;
 const SPOTIFY: i32 = 2;
 /// Bandcamp in the rail, with the other stores in its tree.
 const STORES: i32 = 5;
+/// The albums folder and the mixed sets folder (see [`albums`]); drawn
+/// in the rail after Files.
+const ALBUMS: i32 = 9;
+const MIXED_SETS: i32 = 10;
 
 /// Whether `source` shows store results.
 fn is_stores(source: i32) -> bool {
@@ -92,6 +97,9 @@ enum Contents {
     Wanted,
     /// A folder on the computer, in the Files source: its audio files.
     Dir(PathBuf),
+    /// The collection's tracks in a folder and below it, in the Albums
+    /// and Mixed Sets sources.
+    Under(PathBuf),
     /// The tracks at a stage (see [`opendj_library::stages`]), or only those
     /// in one subfolder of its folder (a triage crate).
     Stage(Stage, Option<PathBuf>),
@@ -103,13 +111,16 @@ enum Contents {
     Dupes(Case),
 }
 
-/// Whether the streaming services and stores (Spotify, Bandcamp, the other
-/// stores) and the purchase inbox can be used. While false, only the
-/// collection and Files work; the other sources say "Coming soon".
-pub const SERVICES_ENABLED: bool = false;
+/// Whether the streaming services that are built (Spotify) can be browsed.
+/// The others in the rail say "Coming soon".
+pub const STREAMING_ENABLED: bool = true;
+
+/// Whether the stores (Bandcamp, the other stores) and the purchase inbox
+/// can be used. While false, their source says "Coming soon".
+pub const STORES_ENABLED: bool = false;
 
 /// The sources in the rail, in order, as saved when hidden.
-const SOURCE_NAMES: [&str; 9] = [
+const SOURCE_NAMES: [&str; 11] = [
     "Collection",
     "Files",
     "Spotify",
@@ -119,6 +130,8 @@ const SOURCE_NAMES: [&str; 9] = [
     "Beatport",
     "OneLibrary",
     "SoundCloud",
+    "Albums",
+    "Mixed Sets",
 ];
 
 /// Every source in the rail: the built-in ones, then add-ons' own (see
@@ -342,6 +355,9 @@ const KIND_HEALTH: i32 = 12;
 const KIND_CHECK: i32 = 13;
 /// A set: a folder made for one gig, drawn in lilac.
 const KIND_SET: i32 = 14;
+/// An album's folder, and a folder of mixed sets.
+const KIND_ALBUM: i32 = 15;
+const KIND_MIX: i32 = 16;
 
 /// Seconds a track must play on a deck to count as played, for the history.
 const PLAYED_AFTER: f64 = 30.0;
@@ -466,6 +482,10 @@ pub struct Browser {
     columns: columns::ColumnState,
     /// The stage folders, as last read from the settings.
     folders: Folders,
+    /// The mixed sets folder: its tracks are kept out of the collection.
+    mixed_sets: Option<PathBuf>,
+    /// Play Album was picked, for Automix to play the list gaplessly.
+    album_request: bool,
     /// Tempo and key for tracks in triage, found in the background.
     analysis: AnalysisQueue,
     analysis_shown: analysis::Shown,
@@ -899,6 +919,8 @@ impl Browser {
             filter: filters::FilterState::new(),
             columns: columns::ColumnState::new(&crate::settings::field_names()),
             folders: crate::settings::stage_folders(),
+            mixed_sets: crate::settings::mixed_sets_folder(),
+            album_request: false,
             analysis: AnalysisQueue::start(),
             analysis_shown: Default::default(),
             usb: Default::default(),
@@ -917,7 +939,8 @@ impl Browser {
         app.set_spotify_client_id(b.borrow().spotify.client_id.clone().into());
         {
             let ui = app.global::<StoreUi>();
-            ui.set_services(SERVICES_ENABLED);
+            ui.set_streaming(STREAMING_ENABLED);
+            ui.set_stores(STORES_ENABLED);
             ui.set_inbox_on(inbox_on);
             ui.set_inbox_mode(match inbox_mode {
                 Mode::Move => 0,
@@ -1167,6 +1190,8 @@ impl Browser {
         });
         let w = with.clone();
         app.on_spotify_disconnect(move || w(Box::new(|b| b.spotify.send(Request::Disconnect))));
+        let w = with.clone();
+        app.on_spotify_copy(move || w(Box::new(|b| b.copy_spotify_playlist())));
         Self::install_editing(app, &b);
         Self::install_files(app, &b);
         Self::install_info(app, &b);
@@ -1352,6 +1377,7 @@ impl Browser {
         Self::install_health(&app.global::<HealthUi>(), &with);
         Self::install_cleanup(&app.global::<crate::CleanupUi>(), &with);
         Self::install_analysis(&edit, &with);
+        Self::install_albums(&edit, &with);
         Self::install_usb_export(app, &edit, &with);
     }
 
@@ -1407,12 +1433,13 @@ impl Browser {
     /// tree of their own (Files, TIDAL, Apple Music) keep the current one
     /// underneath their placeholder.
     fn select_source(&mut self, source: i32) {
-        let usable: &[i32] = if SERVICES_ENABLED {
-            &[COLLECTION, FILES, SPOTIFY, STORES]
-        } else {
-            &[COLLECTION, FILES]
+        let usable = match source {
+            COLLECTION | FILES | ALBUMS | MIXED_SETS => true,
+            SPOTIFY => STREAMING_ENABLED,
+            STORES => STORES_ENABLED,
+            _ => false,
         };
-        if !usable.contains(&source) || source == self.tree {
+        if !usable || source == self.tree {
             return;
         }
         let leaving = Parked {
@@ -1432,6 +1459,7 @@ impl Browser {
         (self.sort_column, self.ascending) = back.sort;
         match source {
             FILES => self.rebuild_files_tree(),
+            ALBUMS | MIXED_SETS => self.rebuild_folder_tree(source),
             SPOTIFY => self.rebuild_spotify_tree(),
             STORES => self.rebuild_stores_tree(),
             _ => {}
@@ -2041,6 +2069,10 @@ impl Browser {
         let Some(key) = self.current_playlist().map(str::to_string) else {
             return;
         };
+        // What copying the last playlist did is for that playlist only.
+        if let Some(app) = self.app.upgrade() {
+            app.set_spotify_status("".into());
+        }
         let st = &mut self.spotify_state;
         if !st.tracks.contains_key(&key) && !st.loading.contains(&key) {
             st.loading.insert(key.clone());
@@ -2240,6 +2272,7 @@ impl Browser {
         self.library = library;
         self.side = [Vec::new(), Vec::new()];
         self.folders = crate::settings::stage_folders();
+        self.mixed_sets = crate::settings::mixed_sets_folder();
         self.read_pending_moves();
         self.queue_triage_analysis();
         self.refresh_health();
@@ -2259,6 +2292,9 @@ impl Browser {
                     sort,
                 },
             );
+        }
+        if matches!(self.tree, ALBUMS | MIXED_SETS) {
+            self.rebuild_folder_tree(self.tree);
         }
         if let Some(app) = self.app.upgrade() {
             app.set_current_track(-1);
@@ -2392,6 +2428,7 @@ impl Browser {
             return;
         }
         self.folders = crate::settings::stage_folders();
+        self.mixed_sets = crate::settings::mixed_sets_folder();
         self.refresh_crates();
         let selected = select.or_else(|| self.nodes.get(self.current_node)?.playlist);
         let name = self.nodes.get(self.current_node).map(|n| n.name.clone());
@@ -3201,6 +3238,8 @@ impl Browser {
             let name = match self.nodes.get(self.current_node) {
                 Some(n) => n.name.clone(),
                 None if self.tree == FILES => "Files".into(),
+                None if self.tree == ALBUMS => "Albums".into(),
+                None if self.tree == MIXED_SETS => "Mixed Sets".into(),
                 None if self.tree == SPOTIFY => "Spotify".into(),
                 None if self.tree == STORES => "Bandcamp".into(),
                 None => String::new(),
@@ -3242,7 +3281,7 @@ impl Browser {
         match within {
             Some(rows) => rows.iter().copied().filter(test).collect(),
             None => (0..self.library.len())
-                .filter(|&t| !is_browsed(&self.library[t]))
+                .filter(|&t| self.in_collection(&self.library[t]))
                 .filter(test)
                 .collect(),
         }
@@ -3315,10 +3354,11 @@ impl Browser {
     }
 
     fn node_tracks(&self, i: usize) -> Vec<usize> {
-        // Missing files only show in their own lists.
+        // Missing files only show in their own lists, mixed sets only in
+        // theirs.
         let all = || {
             (0..self.library.len())
-                .filter(|&t| !self.library[t].info.missing && !is_browsed(&self.library[t]))
+                .filter(|&t| !self.library[t].info.missing && self.in_collection(&self.library[t]))
                 .collect::<Vec<_>>()
         };
         let Some(node) = self.nodes.get(i) else {
@@ -3345,6 +3385,7 @@ impl Browser {
                 .filter_map(|p| self.path_index.get(p).copied())
                 .collect(),
             Contents::Dir(_) => Vec::new(),
+            Contents::Under(dir) => self.tracks_under(dir),
             Contents::List(ids) => ids.clone(),
             Contents::Stage(stage, dir) => all()
                 .into_iter()
@@ -3408,21 +3449,10 @@ impl Browser {
         let Some(tracks) = self.spotify_state.tracks.get(key) else {
             return Vec::new();
         };
-        // Files only shown in Files don't count as in the collection.
-        let normalized: Vec<(String, String)> = self
-            .library
-            .iter()
-            .map(|t| match is_browsed(t) {
-                true => Default::default(),
-                false => (spotify::normalize(&t.title), spotify::normalize(&t.artist)),
-            })
-            .collect();
         tracks
             .iter()
-            .map(|sp| {
-                let found = normalized
-                    .iter()
-                    .position(|(title, artist)| spotify::matches(sp, title, artist));
+            .zip(self.spotify_matches(tracks))
+            .map(|(sp, found)| {
                 match found {
                     // Show what Spotify calls it, with what the collection knows.
                     Some(id) => RowData {
@@ -3448,8 +3478,108 @@ impl Browser {
             .collect()
     }
 
+    /// The collection track (by index into `library`) that each Spotify
+    /// track is, if any: the same ISRC first, else the same title and artist.
+    fn spotify_matches(&self, tracks: &[SpotifyTrack]) -> Vec<Option<usize>> {
+        // Files only shown in Files don't count as in the collection.
+        let normalized: Vec<(String, String)> = self
+            .library
+            .iter()
+            .map(|t| match is_browsed(t) {
+                true => Default::default(),
+                false => (spotify::normalize(&t.title), spotify::normalize(&t.artist)),
+            })
+            .collect();
+        let mut by_isrc = HashMap::new();
+        for (i, t) in self.library.iter().enumerate() {
+            let isrc = spotify::normalize_isrc(&t.info.isrc);
+            if !isrc.is_empty() && !is_browsed(t) {
+                by_isrc.entry(isrc).or_insert(i);
+            }
+        }
+        tracks
+            .iter()
+            .map(|sp| {
+                by_isrc
+                    .get(&spotify::normalize_isrc(&sp.isrc))
+                    .copied()
+                    .or_else(|| {
+                        normalized
+                            .iter()
+                            .position(|(title, artist)| spotify::matches(sp, title, artist))
+                    })
+            })
+            .collect()
+    }
+
+    /// Copies the Spotify playlist being shown into a new list of the DJ's
+    /// own, once: the tracks the collection has go in the list, the rest on
+    /// the wanted list.
+    fn copy_spotify_playlist(&mut self) {
+        let status = |b: &Self, s: &str| {
+            if let Some(app) = b.app.upgrade() {
+                app.set_spotify_status(s.into());
+            }
+        };
+        let Some(key) = self.current_playlist().map(str::to_string) else {
+            return status(self, "Pick a playlist to copy.");
+        };
+        let Some(tracks) = self.spotify_state.tracks.get(&key).cloned() else {
+            return status(self, "Wait for the playlist to load, then copy it.");
+        };
+        if !self.saved() {
+            return status(self, "There's no library to copy into.");
+        }
+        let name = match self.spotify_state.playlists.iter().find(|p| p.key == key) {
+            Some(p) => p.name.clone(),
+            None => "Spotify playlist".into(),
+        };
+        let found = self.spotify_matches(&tracks);
+        let mut have: Vec<usize> = Vec::new();
+        let mut missing = 0;
+        let Some(db) = &self.db else { return };
+        let list = match db.create_playlist(&name, None, PlaylistKind::List) {
+            Ok(id) => id,
+            Err(e) => return status(self, &format!("Couldn't make the list: {e}")),
+        };
+        for (sp, f) in tracks.iter().zip(found) {
+            match f {
+                // The same track twice in a playlist goes in once.
+                Some(i) if !have.contains(&i) => have.push(i),
+                Some(_) => {}
+                None => {
+                    missing += 1;
+                    let _ = db.add_wanted("Spotify", &sp.artist(), &sp.title, &sp.page_url());
+                }
+            }
+        }
+        self.store.wanted = db.wanted().unwrap_or_default();
+        self.add_to_playlist(&have, list);
+        // The collection's tree shows the new list when it's next opened.
+        self.collection_stale = true;
+        status(
+            self,
+            &match missing {
+                0 => format!("Copied all {} tracks to \"{name}\".", have.len()),
+                n => format!(
+                    "Copied {} {} to \"{name}\". {n} not in your collection went on the wanted list.",
+                    have.len(),
+                    if have.len() == 1 { "track" } else { "tracks" },
+                ),
+            },
+        );
+    }
+
     /// What the list says instead of rows while a playlist loads or fails.
     fn list_notice(&self) -> String {
+        if matches!(self.tree, ALBUMS | MIXED_SETS) && self.nodes.is_empty() {
+            return if self.tree == ALBUMS {
+                "Choose your albums folder in Settings › Library."
+            } else {
+                "Choose your mixed sets folder in Settings › Library. Recordings are saved there too."
+            }
+            .into();
+        }
         if self.tree == FILES {
             let f = &self.files;
             return if self.nodes.is_empty() {
@@ -3506,10 +3636,11 @@ impl Browser {
             })
             .collect();
         // A Spotify playlist keeps its own order until a column is clicked.
-        // So does a folder in Files, in file name order.
+        // So does a folder in Files, in file name order, and an album.
         // Copies stay in their groups, the one kept first.
         let dupes = self.dupe_view();
-        let keep_order = ((self.current_playlist().is_some() || self.tree == FILES)
+        let keep_order = ((self.current_playlist().is_some()
+            || matches!(self.tree, FILES | ALBUMS | MIXED_SETS))
             && self.sort_column < 0)
             || dupes.is_some();
         let fade = dupes.map(|case| self.dupe_faded(case)).unwrap_or_default();

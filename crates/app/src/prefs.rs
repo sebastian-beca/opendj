@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
+use crate::list_picker::{Picker, Ticked};
 use opendj_control::ControlRegistry;
 use opendj_controllers::{device_key, support, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
@@ -20,9 +21,10 @@ use opendj_plugins::{LibraryImport, Plugin, SettingKind};
 use serde_json::json;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
+use crate::tour::Part;
 use crate::{
     settings, short_port_name, shortcuts, AppWindow, AudioSettings, ControllerEditor, ImportWizard,
-    KeyNotation, PrefItem, Preferences,
+    KeyNotation, PrefItem, Preferences, Tour,
 };
 
 const AUDIO: i32 = 0;
@@ -69,6 +71,9 @@ const TEXT: i32 = 9;
 /// Remove beside it.
 const CONTROLLER: i32 = 10;
 const SHORTCUT: i32 = 11;
+/// A tick box, indented by `chosen`; `value` "some" shows a folder partly
+/// ticked, and `action` its open or closed arrow, pressing id + "#fold".
+const TICK: i32 = 12;
 
 /// Tempo fader ranges, as fractions of normal speed.
 const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
@@ -289,6 +294,11 @@ struct WizardState {
     /// Whether `database` could be read; Next waits for one that can.
     readable: bool,
     groups: Vec<&'static str>,
+    /// The lists to tick, read when step 1 is shown.
+    picker: Option<Picker>,
+    /// Opened from Settings to change which lists come in: only step 1,
+    /// saved by its button.
+    only_lists: bool,
     theirs_win: bool,
 }
 
@@ -301,6 +311,8 @@ impl WizardState {
             preview: String::new(),
             readable: false,
             groups: settings::import_groups(importer),
+            picker: None,
+            only_lists: false,
             theirs_win: settings::import_theirs_win(importer.id()),
         };
         w.set_database(importer, settings::import_database(importer));
@@ -321,6 +333,41 @@ impl WizardState {
         };
         self.readable = !self.preview.starts_with("Can't");
         self.database = database;
+        self.picker = None;
+    }
+
+    /// Reads the lists to tick, if they haven't been yet.
+    fn read_lists(&mut self, importer: &dyn LibraryImport) {
+        if self.picker.is_some() {
+            return;
+        }
+        let Some(db) = &self.database else {
+            return;
+        };
+        let choices = settings::import_list_choices(importer.id());
+        match Picker::read(importer, db, &self.groups, &choices) {
+            Ok(p) => self.picker = Some(p),
+            Err(e) => {
+                self.preview = format!("Can't read its lists: {e}");
+                self.picker = Some(Picker::default());
+            }
+        }
+    }
+
+    /// Saves which lists come in, from the ticks.
+    fn save_lists(&self, importer: &dyn LibraryImport) {
+        let Some(p) = &self.picker else {
+            return;
+        };
+        let id = importer.id();
+        let groups = p.groups();
+        for g in importer.list_groups() {
+            settings::set(
+                &settings::import_group_key(id, g.id),
+                json!(groups.contains(&g.id)),
+            );
+        }
+        settings::set(&settings::import_lists_key(id), json!(p.choices()));
     }
 }
 
@@ -360,6 +407,9 @@ pub struct Prefs {
     removing: Option<String>,
     /// What the last change of a shortcut's key did, shown on the page.
     shortcut_note: String,
+    /// Counts fills of the rows, so the tour's setup dialog, which shows
+    /// some of the same rows, knows to fill its own again.
+    pub generation: u64,
 }
 
 /// What the settings window needs from the engine for its inputs.
@@ -414,6 +464,7 @@ impl Prefs {
             wizard: None,
             removing: None,
             shortcut_note: String::new(),
+            generation: 0,
         }));
         let p = prefs.clone();
         g.on_changed(move || p.borrow_mut().shown());
@@ -435,6 +486,31 @@ impl Prefs {
     /// Called every frame: picks up chosen paths and plugged-in devices.
     pub fn poll(&mut self) {
         while let Ok((id, path)) = self.chosen_rx.try_recv() {
+            if id == "keyboard_set_import" {
+                let file = path
+                    .file_name()
+                    .map(|f| f.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                self.shortcut_note = match opendj_controllers::import::import_file(&path) {
+                    Ok(i) if !i.shortcuts.is_empty() => {
+                        let set = shortcuts::import_set(&file, &i.shortcuts);
+                        let mut note = format!("{set}: {}", i.summary());
+                        if !i.skipped_shortcuts.is_empty() {
+                            let keys: Vec<String> = i
+                                .skipped_shortcuts
+                                .iter()
+                                .map(|(k, _)| shortcuts::display(k))
+                                .collect();
+                            note.push_str(&format!(" Not done yet: {}.", keys.join(", ")));
+                        }
+                        note
+                    }
+                    Ok(_) => format!("{file} has no keyboard shortcuts in it."),
+                    Err(e) => e,
+                };
+                self.refresh();
+                continue;
+            }
             if id == "import_wizard_db" {
                 if let Some(w) = &mut self.wizard {
                     if let Some(i) = importer(&w.importer) {
@@ -482,6 +558,12 @@ impl Prefs {
             if id == settings::STAGE_TRIAGE || id == settings::STAGE_COLLECTION {
                 settings::set(&id, json!(path.to_string_lossy()));
                 self.stages_changed();
+                continue;
+            }
+            if id == settings::ALBUMS_FOLDER || id == settings::MIXED_SETS_FOLDER {
+                settings::set(&id, json!(path.to_string_lossy()));
+                self.recorder.configure(settings::recording());
+                self.music_folders_changed();
                 continue;
             }
             settings::set(&id, json!(path.to_string_lossy()));
@@ -573,6 +655,130 @@ impl Prefs {
         };
         g.set_items(ModelRc::new(VecModel::from(items)));
         show_wizard(&app, self.wizard.as_ref());
+        self.generation += 1;
+    }
+
+    /// The rows of a part of the tour's setup dialog: the settings it asks
+    /// about, as on their pages. `heard` says what the controller check
+    /// last heard ("" for nothing yet).
+    pub fn tour_items(&mut self, part: Part, heard: &str) -> Vec<PrefItem> {
+        let Some(app) = self.app.upgrade() else {
+            return Vec::new();
+        };
+        match part {
+            Part::Audio => {
+                let mut items: Vec<PrefItem> = self
+                    .page(&app, AUDIO, None)
+                    .into_iter()
+                    .filter(|i| i.id == "outputs" || i.id == "levels")
+                    .collect();
+                items.push(PrefItem {
+                    action: "Play".into(),
+                    ..item(
+                        "tour_tone:1",
+                        BUTTON,
+                        "Test the speakers",
+                        "Beeps for a few seconds in the master output.",
+                    )
+                });
+                items.push(PrefItem {
+                    action: "Play".into(),
+                    ..item(
+                        "tour_tone:2",
+                        BUTTON,
+                        "Test the headphones",
+                        "Beeps for a few seconds in the headphones only.",
+                    )
+                });
+                items.push(item(
+                    "",
+                    NOTE,
+                    "",
+                    "A controller with its own sound card, such as the DDJ-FLX4, is its own \
+                     device: pick it for the master and headphones, on channels 1 & 2 and 3 & 4.",
+                ));
+                items
+            }
+            Part::Controller => {
+                let mut items = vec![item(
+                    "",
+                    NOTE,
+                    "",
+                    if heard.is_empty() {
+                        "Press a button or move a knob on your controller to check it's \
+                         heard."
+                    } else {
+                        heard
+                    },
+                )];
+                items.extend(self.controllers_page());
+                items
+            }
+            Part::Library => {
+                let mut items = self.music_folder_items();
+                items.push(item("", HEADING, "FROM YOUR OTHER DJ APPS", ""));
+                let mut found = false;
+                let importers = crate::stores::importers();
+                for i in &importers {
+                    let Some(db) = settings::import_database(i.as_ref()) else {
+                        continue;
+                    };
+                    found = true;
+                    let title = i.title();
+                    if settings::import_enabled(i.id()) {
+                        items.push(item(
+                            "",
+                            NOTE,
+                            &format!("Importing from {title}"),
+                            &format!("openDJ brings in {title}'s library and keeps it up to date."),
+                        ));
+                    } else {
+                        items.push(PrefItem {
+                            action: "Set up…".into(),
+                            ..item(
+                                &format!("import_start:{}", i.id()),
+                                BUTTON,
+                                &format!("Import from {title}"),
+                                &format!(
+                                    "Found its library at {}. Brings in tracks, cues, grids \
+                                     and lists.",
+                                    db.display()
+                                ),
+                            )
+                        });
+                    }
+                }
+                for app_name in crate::tour::other_dj_apps() {
+                    if importers.iter().any(|i| i.title() == app_name) {
+                        continue;
+                    }
+                    found = true;
+                    items.push(PrefItem {
+                        value: "Coming soon".into(),
+                        ..item(
+                            "",
+                            BUTTON,
+                            &format!("Import from {app_name}"),
+                            "Found it on this computer. Its import is on the way.",
+                        )
+                    });
+                }
+                if !found {
+                    items.push(item(
+                        "",
+                        NOTE,
+                        "",
+                        "No other DJ app's library turned up. You can import one later in \
+                         Settings › Library › Import.",
+                    ));
+                }
+                if !self.library_note.is_empty() {
+                    items.push(item("", NOTE, "", &self.library_note));
+                }
+                items
+            }
+            Part::Mixing => Vec::new(),
+        }
     }
 
     /// A page's rows: of one of its tabs, or of all of them for a search
@@ -642,15 +848,26 @@ impl Prefs {
                         )
                     }
                 },
-                PrefItem {
-                    value: settings::recording().dir.display().to_string().into(),
-                    action: "Choose…".into(),
-                    ..item(
-                        "recording_folder",
-                        PATH,
-                        "Recordings folder",
-                        "Each mix is saved with a .cue tracklist and a log of every control move.",
-                    )
+                {
+                    // With a mixed sets folder, recordings go in it.
+                    let in_sets = settings::mixed_sets_folder().is_some();
+                    PrefItem {
+                        value: settings::recording().dir.display().to_string().into(),
+                        action: if in_sets { "" } else { "Choose…" }.into(),
+                        ..item(
+                            "recording_folder",
+                            PATH,
+                            "Recordings folder",
+                            if in_sets {
+                                "In your Mixed Sets folder (Settings › Library). Each mix is \
+                                 saved with a .cue tracklist and a log of every control move."
+                            } else {
+                                "Each mix is saved with a .cue tracklist and a log of every \
+                                 control move. Choose a Mixed Sets folder in Settings › Library \
+                                 to keep them with your other sets."
+                            },
+                        )
+                    }
                 },
                 PrefItem {
                     action: "Show".into(),
@@ -869,6 +1086,28 @@ impl Prefs {
             p if p > FEEDBACK => self.plugin_page((p - FEEDBACK - 1) as usize),
             KEYBOARD => self.keyboard_page(),
             FEEDBACK => vec![
+                item("", HEADING, "GUIDED TOUR", ""),
+                PrefItem {
+                    action: "Start".into(),
+                    ..item(
+                        "tour_start:-1",
+                        BUTTON,
+                        "Take the tour",
+                        "Sets up your sound, controller and music, then mixes two tracks with \
+                         you, step by step.",
+                    )
+                },
+                PrefItem {
+                    choices: strings(&crate::tour::PART_NAMES),
+                    value: "Choose…".into(),
+                    ..item(
+                        "tour_part",
+                        MENU,
+                        "Just one part",
+                        "Run one part of the tour again.",
+                    )
+                },
+                item("", HEADING, "FEEDBACK", ""),
                 item(
                     "",
                     NOTE,
@@ -1392,6 +1631,26 @@ impl Prefs {
         let mut items = self.music_folder_items();
         items.extend([
             PrefItem {
+                value: show(settings::albums_folder(), "None").into(),
+                action: "Choose…".into(),
+                ..item(
+                    settings::ALBUMS_FOLDER,
+                    PATH,
+                    "Albums folder",
+                    "A folder per album, or Artist › Album. In the collection and under Albums.",
+                )
+            },
+            PrefItem {
+                value: show(settings::mixed_sets_folder(), "None").into(),
+                action: "Choose…".into(),
+                ..item(
+                    settings::MIXED_SETS_FOLDER,
+                    PATH,
+                    "Mixed Sets folder",
+                    "Whole DJ sets, kept out of the collection. Your recordings go in it too.",
+                )
+            },
+            PrefItem {
                 action: "Rescan".into(),
                 ..item(
                     "rescan",
@@ -1506,14 +1765,16 @@ impl Prefs {
                 &format!("Read when openDJ starts. Change its lists in {title}."),
             )
         }];
-        let chosen = settings::import_groups(importer);
-        for g in importer.list_groups() {
-            rows.push(switch(
-                &settings::import_group_key(id, g.id),
-                g.title,
-                g.detail,
-                chosen.contains(&g.id),
-            ));
+        if !importer.list_groups().is_empty() {
+            rows.push(PrefItem {
+                action: "Choose…".into(),
+                ..item(
+                    &format!("import_lists:{id}"),
+                    BUTTON,
+                    "Lists",
+                    &format!("Which of {title}'s playlists, folders and history come in."),
+                )
+            });
         }
         rows.push(theirs_row(
             &settings::import_theirs_key(id),
@@ -1581,6 +1842,20 @@ impl Prefs {
                 self.chosen_tx.clone(),
             );
             return true;
+        } else if let Some(i) = id.strip_prefix("import_lists:").and_then(importer) {
+            let mut w = WizardState::new(i.as_ref());
+            w.step = 1;
+            w.only_lists = true;
+            w.read_lists(i.as_ref());
+            self.wizard = Some(w);
+        } else if let Some(node) = id
+            .strip_prefix("import_pick:")
+            .and_then(|n| n.strip_suffix("#fold"))
+            .and_then(|n| n.parse().ok())
+        {
+            if let Some(p) = self.wizard.as_mut().and_then(|w| w.picker.as_mut()) {
+                p.toggle_open(node);
+            }
         } else if id == "import_wizard_cancel" {
             self.wizard = None;
         } else if id == "import_wizard_back" {
@@ -1594,8 +1869,22 @@ impl Prefs {
             if w.database.is_none() || !w.readable {
                 return true;
             }
-            if w.step < 2 {
+            if w.only_lists {
+                if let Some(w) = self.wizard.take() {
+                    if let Some(i) = importer(&w.importer) {
+                        w.save_lists(i.as_ref());
+                        (self.rescan)();
+                        self.library_note = "Updating what comes in from other apps…".into();
+                        self.import_note = self.library_note.clone();
+                    }
+                }
+            } else if w.step < 2 {
                 w.step += 1;
+                if w.step == 1 {
+                    if let Some(i) = importer(&w.importer) {
+                        w.read_lists(i.as_ref());
+                    }
+                }
             } else if let Some(w) = self.wizard.take() {
                 self.finish_wizard(w);
             }
@@ -1625,16 +1914,23 @@ impl Prefs {
         let id = i.id();
         // Only a database the DJ picked is saved, so the usual place is
         // followed if VirtualDJ moves it.
-        let picked = w.database.filter(|d| Some(d) != i.database().as_ref());
+        let picked = w
+            .database
+            .clone()
+            .filter(|d| Some(d) != i.database().as_ref());
         settings::set(
             &settings::import_database_key(id),
             json!(picked.map_or(String::new(), |d| d.to_string_lossy().into_owned())),
         );
-        for g in i.list_groups() {
-            settings::set(
-                &settings::import_group_key(id, g.id),
-                json!(w.groups.contains(&g.id)),
-            );
+        if w.picker.is_some() {
+            w.save_lists(i.as_ref());
+        } else {
+            for g in i.list_groups() {
+                settings::set(
+                    &settings::import_group_key(id, g.id),
+                    json!(w.groups.contains(&g.id)),
+                );
+            }
         }
         settings::set(&settings::import_theirs_key(id), json!(w.theirs_win));
         settings::set(&settings::import_remove_key(id), json!(false));
@@ -1650,6 +1946,13 @@ impl Prefs {
     }
 
     fn toggled(&mut self, id: &str, on: bool) {
+        if let Some(node) = id.strip_prefix("import_pick:").and_then(|n| n.parse().ok()) {
+            if let Some(p) = self.wizard.as_mut().and_then(|w| w.picker.as_mut()) {
+                p.set(node, on);
+            }
+            self.refresh();
+            return;
+        }
         if let Some(group) = id.strip_prefix("import_wizard_group:") {
             if let Some(w) = &mut self.wizard {
                 w.groups.retain(|g| *g != group);
@@ -1693,6 +1996,30 @@ impl Prefs {
     }
 
     fn picked(&mut self, id: &str, index: usize) {
+        if id == "tour_part" {
+            self.pressed(&format!("tour_start:{index}"));
+            return;
+        }
+        if id == "keyboard_set" {
+            let sets = settings::keyboard_sets();
+            match index.checked_sub(sets.len()) {
+                None => settings::select_keyboard_set(&sets[index]),
+                Some(0) => {
+                    let name = format!("{} copy", settings::keyboard_set());
+                    settings::add_keyboard_set(&name, &settings::keyboard_shortcuts());
+                }
+                Some(1) => choose(
+                    "keyboard_set_import",
+                    "Choose a VirtualDJ keyboard mapping",
+                    false,
+                    self.chosen_tx.clone(),
+                ),
+                Some(_) => settings::delete_keyboard_set(),
+            }
+            self.shortcut_note.clear();
+            self.refresh();
+            return;
+        }
         if let Some(key) = id.strip_prefix("shortcut:") {
             let Some(verb) = opendj_script::VERBS.get(index) else {
                 return;
@@ -1883,8 +2210,34 @@ impl Prefs {
                      Click a key to change it, type the action, or pick one from Actions. {fixed}"
                 ),
             ),
-            item("", HEADING, "SHORTCUTS", ""),
+            item("", HEADING, "SET", ""),
         ];
+        let sets = settings::keyboard_sets();
+        let current = settings::keyboard_set();
+        let mut choices = sets.clone();
+        choices.push("New set from this one".into());
+        choices.push("Import…".into());
+        let default = current == settings::DEFAULT_KEYBOARD_SET;
+        if !default {
+            choices.push("Delete this set".into());
+        }
+        items.push(PrefItem {
+            choices: strings(&choices),
+            chosen: sets.iter().position(|n| *n == current).unwrap_or(0) as i32,
+            ..item(
+                "keyboard_set",
+                MENU,
+                "Shortcut set",
+                "Keep several sets of shortcuts and switch between them. Import reads a VirtualDJ keyboard mapping.",
+            )
+        });
+        if !default {
+            items.push(PrefItem {
+                value: current.clone().into(),
+                ..item("keyboard_set_name", TEXT, "Name", "")
+            });
+        }
+        items.push(item("", HEADING, "SHORTCUTS", ""));
         if !self.shortcut_note.is_empty() {
             items.push(item("", NOTE, "", &self.shortcut_note));
         }
@@ -2028,6 +2381,10 @@ impl Prefs {
     /// The DJ typed in a plugin's text field. The page isn't filled again,
     /// so the field keeps its place while typing.
     fn typed(&mut self, id: &str, text: &str) {
+        if id == "keyboard_set_name" {
+            settings::rename_keyboard_set(text);
+            return;
+        }
         if let Some(key) = id.strip_prefix("shortcut:") {
             let mut own = settings::keyboard_shortcuts();
             shortcuts::set_script(&mut own, key, text);
@@ -2080,6 +2437,18 @@ impl Prefs {
     }
 
     fn pressed(&mut self, id: &str) {
+        if id.starts_with("tour_") {
+            if let Some(app) = self.app.upgrade() {
+                if let Some(part) = id.strip_prefix("tour_start:") {
+                    app.global::<Preferences>().set_open(false);
+                    app.global::<Tour>()
+                        .invoke_start(part.parse().unwrap_or(-1));
+                } else {
+                    app.global::<Tour>().invoke_pressed(id.into());
+                }
+            }
+            return;
+        }
         if id == "shortcuts_reset_all" {
             settings::set_keyboard_shortcuts(&[]);
             self.shortcut_note = "Every shortcut is back to its default.".into();
@@ -2188,6 +2557,18 @@ impl Prefs {
                 self.chosen_tx.clone(),
             ),
             "music_folder_add" => choose(id, "Choose a music folder", true, self.chosen_tx.clone()),
+            settings::ALBUMS_FOLDER => choose(
+                id,
+                "Choose your albums folder",
+                true,
+                self.chosen_tx.clone(),
+            ),
+            settings::MIXED_SETS_FOLDER => choose(
+                id,
+                "Choose your mixed sets folder",
+                true,
+                self.chosen_tx.clone(),
+            ),
             "recording_folder" => choose(
                 id,
                 "Choose where to save recordings",
@@ -2377,18 +2758,27 @@ fn wizard_rows(importer: &dyn LibraryImport, w: &WizardState) -> Vec<PrefItem> {
             },
             item("", NOTE, "", &w.preview),
         ],
-        1 => importer
-            .list_groups()
-            .into_iter()
-            .map(|g| {
-                switch(
-                    &format!("import_wizard_group:{}", g.id),
-                    g.title,
-                    g.detail,
-                    w.groups.contains(&g.id),
-                )
-            })
-            .collect(),
+        1 => match &w.picker {
+            Some(p) if !p.nodes[0].children.is_empty() => pick_rows(p),
+            Some(_) => vec![item(
+                "",
+                NOTE,
+                "",
+                &format!("{title} has no lists to bring in, only tracks."),
+            )],
+            None => importer
+                .list_groups()
+                .into_iter()
+                .map(|g| {
+                    switch(
+                        &format!("import_wizard_group:{}", g.id),
+                        g.title,
+                        g.detail,
+                        w.groups.contains(&g.id),
+                    )
+                })
+                .collect(),
+        },
         _ => vec![
             theirs_row("import_wizard_theirs", title, w.theirs_win),
             item(
@@ -2405,6 +2795,43 @@ fn wizard_rows(importer: &dyn LibraryImport, w: &WizardState) -> Vec<PrefItem> {
     }
 }
 
+/// The tree of lists to tick: a folder's tick box does all of it, its
+/// arrow opens it.
+fn pick_rows(p: &Picker) -> Vec<PrefItem> {
+    p.visible()
+        .into_iter()
+        .map(|i| {
+            let n = &p.nodes[i];
+            let ticked = if n.list.is_some() {
+                if n.on {
+                    Ticked::All
+                } else {
+                    Ticked::None
+                }
+            } else {
+                p.ticked(i)
+            };
+            let detail = if i == 0 {
+                p.summary()
+            } else {
+                n.detail.clone()
+            };
+            PrefItem {
+                on: ticked == Ticked::All,
+                value: if ticked == Ticked::Some { "some" } else { "" }.into(),
+                chosen: n.depth as i32,
+                action: match (n.list.is_some(), n.open) {
+                    (true, _) => "",
+                    (false, true) => "▾",
+                    (false, false) => "▸",
+                }
+                .into(),
+                ..item(&format!("import_pick:{i}"), TICK, &n.title, &detail)
+            }
+        })
+        .collect()
+}
+
 /// Shows the import wizard's dialog, or hides it.
 fn show_wizard(app: &AppWindow, w: Option<&WizardState>) {
     let g = app.global::<ImportWizard>();
@@ -2418,15 +2845,29 @@ fn show_wizard(app: &AppWindow, w: Option<&WizardState>) {
         1 => "Choose which lists come across".to_string(),
         _ => "Choose whose tags win when they differ".to_string(),
     };
-    g.set_title(format!("Import from {title}").into());
-    g.set_step(format!("Step {} of 3 · {step}", w.step + 1).into());
+    if w.only_lists {
+        g.set_title(format!("{title} lists").into());
+        g.set_step("Tick the lists to bring in. A folder's tick box does everything in it.".into());
+    } else {
+        g.set_title(format!("Import from {title}").into());
+        g.set_step(format!("Step {} of 3 · {step}", w.step + 1).into());
+    }
     g.set_items(ModelRc::new(VecModel::from(wizard_rows(
         importer.as_ref(),
         w,
     ))));
-    g.set_next_label(if w.step < 2 { "Next" } else { "Import" }.into());
+    g.set_next_label(
+        if w.only_lists {
+            "Save"
+        } else if w.step < 2 {
+            "Next"
+        } else {
+            "Import"
+        }
+        .into(),
+    );
     g.set_can_next(w.database.is_some() && w.readable);
-    g.set_can_back(w.step > 0);
+    g.set_can_back(w.step > 0 && !w.only_lists);
     g.set_open(true);
 }
 
@@ -2444,6 +2885,12 @@ fn choose(id: &str, prompt: &str, folder: bool, tx: Sender<(String, PathBuf)>) {
 /// the dialog's thread, unless it was cancelled.
 pub fn choose_file(prompt: &str, picked: impl FnOnce(PathBuf) + Send + 'static) {
     open_dialog(prompt, false, picked);
+}
+
+/// Opens the system's dialog for picking a folder; `picked` gets the path
+/// on the dialog's thread, unless it was cancelled.
+pub fn choose_folder(prompt: &str, picked: impl FnOnce(PathBuf) + Send + 'static) {
+    open_dialog(prompt, true, picked);
 }
 
 fn open_dialog(prompt: &str, folder: bool, picked: impl FnOnce(PathBuf) + Send + 'static) {

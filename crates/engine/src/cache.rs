@@ -22,7 +22,7 @@ use crate::loudness::Loudness;
 use crate::track::{OverviewSlice, Waveform, WaveformBin};
 
 /// Changes whenever the analysis or this format changes, so old entries are ignored.
-const MAGIC: &[u8; 8] = b"MXRSAN04";
+const MAGIC: &[u8; 8] = b"MXRSAN05";
 
 /// Starts each stored overview, followed by the analysis's own [`MAGIC`],
 /// so overviews of an older analysis are made again too.
@@ -280,6 +280,7 @@ fn encode(a: &Analysis) -> Vec<u8> {
         out.extend_from_slice(&m.seconds.to_le_bytes());
         out.extend_from_slice(&m.bpm.to_le_bytes());
     }
+    out.extend_from_slice(&u64::from(a.grid_unsure).to_le_bytes());
     out.extend_from_slice(&(finest.len() as u64).to_le_bytes());
     for b in finest {
         out.extend_from_slice(b);
@@ -322,6 +323,7 @@ fn decode(data: &[u8]) -> Option<Analysis> {
             bpm: f64::from_le_bytes(num()?),
         });
     }
+    let grid_unsure = u64::from_le_bytes(num()?) != 0;
     let len = u64::from_le_bytes(num()?) as usize;
     let finest: Vec<WaveformBin> = rest.as_chunks::<8>().0.to_vec();
     (finest.len() == len && len > 0).then(|| Analysis {
@@ -331,6 +333,7 @@ fn decode(data: &[u8]) -> Option<Analysis> {
         bpm,
         first_beat,
         grid: BeatGrid::new(grid),
+        grid_unsure,
         loudness,
     })
 }
