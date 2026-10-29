@@ -51,7 +51,7 @@ const GROUPS: [(&str, &[&str]); 6] = [
     ),
     ("MIXER", &["Mixer", "EQ & filter"]),
     ("EFFECTS", &["Effects"]),
-    ("LIBRARY", &["Library", "Automix"]),
+    ("BROWSER", &["Browser", "Automix"]),
     ("MORE", &["Mic & aux", "Recording", "View", "Controller"]),
 ];
 

@@ -18,7 +18,7 @@ pub const CATEGORIES: [&str; 20] = [
     "Stems",
     "Samplers",
     "Pads",
-    "Library",
+    "Browser",
     "Automix",
     "Mic & aux",
     "Recording",
@@ -288,8 +288,8 @@ fn deck_function(key: &str, target: &str) -> Function {
         "playposition" => ("Transport", "Position"),
         "brake" => ("Transport", "Brake"),
         "rate_search" => ("Transport", "Fast search"),
-        "LoadSelectedTrack" => ("Library", "Load selected track"),
-        "LoadSelectedTrackAndPlay" => ("Library", "Load and play"),
+        "LoadSelectedTrack" => ("Browser", "Load selected track"),
+        "LoadSelectedTrackAndPlay" => ("Browser", "Load and play"),
         "jog" => ("Jog & scratch", "Jog nudge"),
         "jog_bend" => ("Jog & scratch", "Jog rim bend"),
         "scratch2" => ("Jog & scratch", "Scratch"),
@@ -553,7 +553,7 @@ pub fn describe(group: &str, key: &str) -> Function {
                 "balance" => ("Mixer", "Balance"),
                 "booth_gain" | "boothGain" => ("Mixer", "Booth level"),
                 "talkover_ducking" | "duckStrength" => ("Mic & aux", "Talk-over ducking"),
-                "maximize_library" => ("View", "Maximise library"),
+                "maximize_library" => ("View", "Maximise browser"),
                 _ => ("Mixer", ""),
             };
             let n = if n.is_empty() {
@@ -592,7 +592,7 @@ pub fn describe(group: &str, key: &str) -> Function {
             } else {
                 n.into()
             };
-            Function::new("Library", n, "Library")
+            Function::new("Browser", n, "Browser")
         }
         Group::AutoDj => {
             let n = match key {
@@ -741,7 +741,7 @@ mod tests {
         );
         assert_eq!(
             d("[Library]", "MoveVertical"),
-            ("Library", "Scroll list".into(), "Library".into())
+            ("Browser", "Scroll list".into(), "Browser".into())
         );
         assert_eq!(
             d("[Sampler3]", "cue_gotoandplay"),

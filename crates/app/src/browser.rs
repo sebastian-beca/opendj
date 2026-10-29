@@ -103,10 +103,10 @@ enum Contents {
     /// The tracks at a stage (see [`opendj_library::stages`]), or only those
     /// in one subfolder of its folder (a triage crate).
     Stage(Stage, Option<PathBuf>),
-    /// Library Health's page, or the tracks one of its checks finds (see
+    /// Collection Health's page, or the tracks one of its checks finds (see
     /// [`opendj_library::health`]).
     Health(Option<Check>),
-    /// The groups of copies of one case, under Library Health's
+    /// The groups of copies of one case, under Collection Health's
     /// Duplicates (see [`opendj_library::dupes`]).
     Dupes(Case),
 }
@@ -347,7 +347,7 @@ const KIND_CLOUD: i32 = 9;
 /// The inbox and triage stages; the collection stage is drawn as kind 0.
 const KIND_INBOX: i32 = 10;
 const KIND_TRIAGE: i32 = 11;
-/// Library Health, and one of its checks.
+/// Collection Health, and one of its checks.
 const KIND_HEALTH: i32 = 12;
 const KIND_CHECK: i32 = 13;
 /// A set: a folder made for one gig, drawn in lilac.
@@ -495,11 +495,11 @@ pub struct Browser {
     /// Where files whose moves are waiting (file moves off) will go, by
     /// track id, so they show in the stage subfolder they're headed for.
     pending_moves: HashMap<usize, PathBuf>,
-    /// What Library Health's checks go by.
+    /// What Collection Health's checks go by.
     health: Facts,
     /// Looks for covers in the background, for the "No cover" check.
     cover_scan: CoverScan,
-    /// What the last Library Health fix did.
+    /// What the last Collection Health fix did.
     health_status: String,
     /// How many tracks have been taken out of the library.
     removed: usize,
@@ -3482,9 +3482,9 @@ impl Browser {
     fn list_notice(&self) -> String {
         if matches!(self.tree, ALBUMS | MIXED_SETS) && self.nodes.is_empty() {
             return if self.tree == ALBUMS {
-                "Choose your albums folder in Settings › Library."
+                "Choose your albums folder in Settings › Collection."
             } else {
-                "Choose your mixed sets folder in Settings › Library. Recordings are saved there too."
+                "Choose your mixed sets folder in Settings › Collection. Recordings are saved there too."
             }
             .into();
         }

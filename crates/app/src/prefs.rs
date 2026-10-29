@@ -29,7 +29,7 @@ use crate::{
 const AUDIO: i32 = 0;
 const CONTROLLERS: i32 = 1;
 const LIBRARY: i32 = 2;
-/// Settings › Library's tabs.
+/// Settings › Collection's tabs.
 const LIBRARY_TABS: [&str; 4] = ["General", "Stages", "Fields", "Import"];
 /// The Import tab's place in LIBRARY_TABS.
 const IMPORT_TAB: usize = 3;
@@ -589,7 +589,8 @@ impl Prefs {
     /// brings in what is there and finds what is now outside.
     fn music_folders_changed(&mut self) {
         (self.rescan)();
-        self.library_note = "Updating… new tracks appear in the library as they are found.".into();
+        self.library_note =
+            "Updating… new tracks appear in your collection as they are found.".into();
         self.refresh();
     }
 
@@ -730,11 +731,11 @@ impl Prefs {
                             PATH,
                             "Recordings folder",
                             if in_sets {
-                                "In your Mixed Sets folder (Settings › Library). Each mix is \
+                                "In your Mixed Sets folder (Settings › Collection). Each mix is \
                                  saved with a .cue tracklist and a log of every control move."
                             } else {
                                 "Each mix is saved with a .cue tracklist and a log of every \
-                                 control move. Choose a Mixed Sets folder in Settings › Library \
+                                 control move. Choose a Mixed Sets folder in Settings › Collection \
                                  to keep them with your other sets."
                             },
                         )
@@ -792,7 +793,7 @@ impl Prefs {
                             "key_notation",
                             SEGMENTED,
                             "Key notation",
-                            "How keys are written on the decks and in the library.",
+                            "How keys are written on the decks and in the track list.",
                         )
                     },
                 ]
@@ -852,7 +853,7 @@ impl Prefs {
                             "key_mixing",
                             SEGMENTED,
                             "Key mixing",
-                            "Which keys the library marks in lilac as mixing with the track \
+                            "Which keys the track list marks in lilac as mixing with the track \
                              playing. Harmonic: the same number, or the next one with the same \
                              letter (8A: 8A, 8B, 7A, 9A). Fuzzy ignores the letter, so 7B and 9B \
                              mix too.",
@@ -866,7 +867,7 @@ impl Prefs {
                             SEGMENTED,
                             "Match key on load",
                             "A track loaded while another deck plays is shifted up or down to \
-                             mix with it, with key lock on. The library marks those tracks with \
+                             mix with it, with key lock on. The track list marks those tracks with \
                              the shift they'd get.",
                         )
                     },
@@ -1246,7 +1247,7 @@ impl Prefs {
         items
     }
 
-    /// Settings › Library: the music folders, each with Remove, then Add.
+    /// Settings › Collection: the music folders, each with Remove, then Add.
     fn music_folder_items(&self) -> Vec<PrefItem> {
         let env = std::env::var_os("OPENDJ_MUSIC").is_some();
         let folders = settings::music_folders();
@@ -1278,7 +1279,7 @@ impl Prefs {
                     } else {
                         "Add a music folder"
                     },
-                    "Where openDJ looks for your music. Tracks elsewhere show up in Library \
+                    "Where openDJ looks for your music. Tracks elsewhere show up in Collection \
                      Health under Outside folders.",
                 )
             });
@@ -1286,7 +1287,7 @@ impl Prefs {
         items
     }
 
-    /// Settings › Library › Stages: the inbox folders, the triage and
+    /// Settings › Collection › Stages: the inbox folders, the triage and
     /// collection folders, and what happens to files between them.
     fn stage_items(&self) -> Vec<PrefItem> {
         let folders = settings::stage_folders();
@@ -1294,9 +1295,9 @@ impl Prefs {
             "",
             NOTE,
             "",
-            "New music lands in the Inbox. Send what you like to Triage to prepare it \
-                 (tags, cover, rating, tempo and key), then add it to the Collection. \
-                 Subfolders of the Triage folder are triage crates.",
+            "New music lands in the Inbox. Send what you like to In Prep to prepare it \
+                 (tags, cover, rating, tempo and key), then send it to Play Ready. \
+                 Subfolders of the In Prep folder are prep crates.",
         )];
         for (i, dir) in folders.inbox.iter().enumerate() {
             items.push(PrefItem {
@@ -1325,7 +1326,7 @@ impl Prefs {
             ..item(
                 settings::STAGE_TRIAGE,
                 PATH,
-                "Triage folder",
+                "In Prep folder",
                 "Where tracks you are preparing are kept.",
             )
         });
@@ -1335,7 +1336,7 @@ impl Prefs {
             ..item(
                 settings::STAGE_COLLECTION,
                 PATH,
-                "Collection folder",
+                "Play Ready folder",
                 "Where prepared tracks are kept. Its subfolders (such as Albums) stay as they are.",
             )
         });
@@ -1348,7 +1349,7 @@ impl Prefs {
         ));
         items.push(switch(
             settings::RENAME_TO_TRIAGE,
-            "Rename files sent to Triage",
+            "Rename files sent to In Prep",
             "Names them \"Artist - Title (Remix)\" from their tags.",
             settings::rename_to_triage(),
         ));
@@ -1357,7 +1358,7 @@ impl Prefs {
             "",
             NOTE,
             "",
-            "What Library Health's \"Junk in names\" looks for. Clean up shows every change before \
+            "What Collection Health's \"Junk in names\" looks for. Clean up shows every change before \
              it is made.",
         ));
         for (key, name, about, default) in opendj_library::cleanup::Rules::ALL {
@@ -1387,7 +1388,7 @@ impl Prefs {
         LIBRARY_TABS.iter().map(|t| t.to_string()).collect()
     }
 
-    /// Settings › Library: General, Stages, Fields and Import. `tab` None
+    /// Settings › Collection: General, Stages, Fields and Import. `tab` None
     /// is every tab, for a search.
     fn library_page(&mut self, tab: Option<usize>) -> Vec<PrefItem> {
         let shows = |t: usize| tab.is_none_or(|x| x == t);
@@ -1407,7 +1408,7 @@ impl Prefs {
         items
     }
 
-    /// Settings › Library › Import: each DJ app openDJ can bring a library
+    /// Settings › Collection › Import: each DJ app openDJ can bring a library
     /// in from. One not set up offers Set up…; once it's on, its own
     /// settings open up under its name. Apps still to come say so.
     fn import_items(&self) -> Vec<PrefItem> {
@@ -1415,7 +1416,7 @@ impl Prefs {
             "",
             NOTE,
             "",
-            "Bring in another DJ app's library: its tracks, cues, grids and lists. openDJ \
+            "Bring in another DJ app's library: its tracks, cues, grids and lists join your collection. openDJ \
              keeps them up to date while you still use that app.",
         )];
         if !self.import_note.is_empty() {
@@ -1451,7 +1452,7 @@ impl Prefs {
         items
     }
 
-    /// Settings › Library › General: the music folders, the cache and
+    /// Settings › Collection › General: the music folders, the cache and
     /// cover art.
     fn library_general(&self) -> Vec<PrefItem> {
         let (count, bytes) = cache::analysis_usage();
@@ -1491,7 +1492,7 @@ impl Prefs {
                 ..item(
                     "rescan",
                     BUTTON,
-                    "Update library",
+                    "Update collection",
                     if self.library_note.is_empty() {
                         "Looks for new and changed tracks in the music folders now."
                     } else {
@@ -1501,9 +1502,9 @@ impl Prefs {
             },
             switch(
                 settings::SCAN_ON_START,
-                "Update library on start",
+                "Update collection on start",
                 "Looks for new and changed tracks each time openDJ starts. Turn it off for a \
-                 big collection and use Update library when you add music.",
+                 big collection and use Update collection when you add music.",
                 settings::scan_on_start(),
             ),
             PrefItem {
@@ -1538,7 +1539,7 @@ impl Prefs {
         items
     }
 
-    /// Settings › Library › Fields: names for grouping and the tag fields.
+    /// Settings › Collection › Fields: names for grouping and the tag fields.
     fn field_items(&self) -> Vec<PrefItem> {
         let mut items = vec![item(
             "",
@@ -1775,7 +1776,7 @@ impl Prefs {
         self.show_tab(IMPORT_TAB);
         (self.rescan)();
         self.library_note = format!(
-            "Bringing in {}… tracks appear in the library when it is done.",
+            "Bringing in {}… tracks appear in your collection when it is done.",
             i.title()
         );
         self.import_note = self.library_note.clone();
@@ -2303,8 +2304,8 @@ impl Prefs {
             }
             settings::set_music_folders(&folders);
             self.music_folders_changed();
-            self.library_note = "Its tracks leave the library on the next update, except ones \
-                                 you rated, played, staged or put in a list: Library Health shows \
+            self.library_note = "Its tracks leave your collection on the next update, except ones \
+                                 you rated, played, staged or put in a list: Collection Health shows \
                                  those under Outside folders. The files stay."
                 .into();
             self.refresh();
@@ -2367,12 +2368,15 @@ impl Prefs {
                 true,
                 self.chosen_tx.clone(),
             ),
-            settings::STAGE_TRIAGE => {
-                choose(id, "Choose the Triage folder", true, self.chosen_tx.clone())
-            }
+            settings::STAGE_TRIAGE => choose(
+                id,
+                "Choose the In Prep folder",
+                true,
+                self.chosen_tx.clone(),
+            ),
             settings::STAGE_COLLECTION => choose(
                 id,
-                "Choose the Collection folder",
+                "Choose the Play Ready folder",
                 true,
                 self.chosen_tx.clone(),
             ),
@@ -2406,7 +2410,7 @@ impl Prefs {
             "rescan" => {
                 (self.rescan)();
                 self.library_note =
-                    "Updating… new tracks appear in the library as they are found.".into();
+                    "Updating… new tracks appear in your collection as they are found.".into();
             }
             "report_bug" => {
                 crate::spotify::open_in_browser(&crate::diagnostics::issue_url("bug_report.yml"));
@@ -2608,7 +2612,7 @@ fn wizard_rows(importer: &dyn LibraryImport, w: &WizardState) -> Vec<PrefItem> {
                 &format!(
                     "Grids and cues you edit in openDJ stay either way. Import brings it in \
                      now. openDJ checks {title}'s files each time it starts and brings in \
-                     what changed; you can change these choices in Settings › Library."
+                     what changed; you can change these choices in Settings › Collection."
                 ),
             ),
         ],

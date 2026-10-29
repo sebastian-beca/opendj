@@ -46,7 +46,7 @@ export global Preferences {
     in-out property <int> tab;
     in property <[PrefItem]> items;
     // The app adds a page for each plugin with settings after these.
-    in-out property <[string]> pages: ["Audio", "Controllers", "Library", "Analysis", "Decks", "Mixer", "Keyboard", "Feedback"];
+    in-out property <[string]> pages: ["Audio", "Controllers", "Collection", "Analysis", "Decks", "Mixer", "Keyboard", "Feedback"];
     // The page or the search changed: the app fills `items` again.
     callback changed();
     callback toggled(id: string, on: bool);
