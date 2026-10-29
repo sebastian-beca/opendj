@@ -35,6 +35,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [improve-beatgrids](changes/improve-beatgrids/proposal.md) (research first, djay Pro as the bar; saved grids and editing; moved from v1.0 by Seba 2026-10-29, issue #134)
 - [add-first-run-setup](changes/add-first-run-setup/proposal.md) (first-run guided tour; moved from v1.0 by Seba 2026-10-29, issue #135)
 - [add-tutorials](changes/add-tutorials/proposal.md) (advanced tutorials in Help; Seba 2026-10-29, issue #136)
+- [add-streaming-browse](changes/add-streaming-browse/proposal.md) (Spotify, TIDAL, Apple Music, SoundCloud, Mixcloud and other streaming playlists, browse only; Seba 2026-10-29, issue #139)
 
 ## v0.6 · Buy it from the artist
 
