@@ -562,6 +562,7 @@ export component AppWindow inherits Window {
     callback source-shown-changed(source: int, on: bool);
     callback spotify-connect(client-id: string);
     callback spotify-disconnect();
+    callback spotify-copy();
     callback select-folder(index: int);
     callback toggle-folder(index: int);
     callback sort(column: int);
@@ -811,6 +812,7 @@ export component AppWindow inherits Window {
                 source-shown-changed(s, on) => { source-shown-changed(s, on); }
                 spotify-connect(id) => { spotify-connect(id); }
                 spotify-disconnect => { spotify-disconnect(); }
+                spotify-copy => { spotify-copy(); }
                 rows: tracks;
                 sort-column: sort-column;
                 ascending: sort-ascending;

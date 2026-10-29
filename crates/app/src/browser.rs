@@ -111,10 +111,13 @@ enum Contents {
     Dupes(Case),
 }
 
-/// Whether the streaming services and stores (Spotify, Bandcamp, the other
-/// stores) and the purchase inbox can be used. While false, only the
-/// collection and Files work; the other sources say "Coming soon".
-pub const SERVICES_ENABLED: bool = false;
+/// Whether the streaming services that are built (Spotify) can be browsed.
+/// The others in the rail say "Coming soon".
+pub const STREAMING_ENABLED: bool = true;
+
+/// Whether the stores (Bandcamp, the other stores) and the purchase inbox
+/// can be used. While false, their source says "Coming soon".
+pub const STORES_ENABLED: bool = false;
 
 /// The sources in the rail, in order, as saved when hidden.
 const SOURCE_NAMES: [&str; 11] = [
@@ -936,7 +939,8 @@ impl Browser {
         app.set_spotify_client_id(b.borrow().spotify.client_id.clone().into());
         {
             let ui = app.global::<StoreUi>();
-            ui.set_services(SERVICES_ENABLED);
+            ui.set_streaming(STREAMING_ENABLED);
+            ui.set_stores(STORES_ENABLED);
             ui.set_inbox_on(inbox_on);
             ui.set_inbox_mode(match inbox_mode {
                 Mode::Move => 0,
@@ -1186,6 +1190,8 @@ impl Browser {
         });
         let w = with.clone();
         app.on_spotify_disconnect(move || w(Box::new(|b| b.spotify.send(Request::Disconnect))));
+        let w = with.clone();
+        app.on_spotify_copy(move || w(Box::new(|b| b.copy_spotify_playlist())));
         Self::install_editing(app, &b);
         Self::install_files(app, &b);
         Self::install_info(app, &b);
@@ -1427,12 +1433,13 @@ impl Browser {
     /// tree of their own (Files, TIDAL, Apple Music) keep the current one
     /// underneath their placeholder.
     fn select_source(&mut self, source: i32) {
-        let usable: &[i32] = if SERVICES_ENABLED {
-            &[COLLECTION, FILES, ALBUMS, MIXED_SETS, SPOTIFY, STORES]
-        } else {
-            &[COLLECTION, FILES, ALBUMS, MIXED_SETS]
+        let usable = match source {
+            COLLECTION | FILES | ALBUMS | MIXED_SETS => true,
+            SPOTIFY => STREAMING_ENABLED,
+            STORES => STORES_ENABLED,
+            _ => false,
         };
-        if !usable.contains(&source) || source == self.tree {
+        if !usable || source == self.tree {
             return;
         }
         let leaving = Parked {
@@ -2062,6 +2069,10 @@ impl Browser {
         let Some(key) = self.current_playlist().map(str::to_string) else {
             return;
         };
+        // What copying the last playlist did is for that playlist only.
+        if let Some(app) = self.app.upgrade() {
+            app.set_spotify_status("".into());
+        }
         let st = &mut self.spotify_state;
         if !st.tracks.contains_key(&key) && !st.loading.contains(&key) {
             st.loading.insert(key.clone());
@@ -3438,21 +3449,10 @@ impl Browser {
         let Some(tracks) = self.spotify_state.tracks.get(key) else {
             return Vec::new();
         };
-        // Files only shown in Files don't count as in the collection.
-        let normalized: Vec<(String, String)> = self
-            .library
-            .iter()
-            .map(|t| match is_browsed(t) {
-                true => Default::default(),
-                false => (spotify::normalize(&t.title), spotify::normalize(&t.artist)),
-            })
-            .collect();
         tracks
             .iter()
-            .map(|sp| {
-                let found = normalized
-                    .iter()
-                    .position(|(title, artist)| spotify::matches(sp, title, artist));
+            .zip(self.spotify_matches(tracks))
+            .map(|(sp, found)| {
                 match found {
                     // Show what Spotify calls it, with what the collection knows.
                     Some(id) => RowData {
@@ -3476,6 +3476,98 @@ impl Browser {
                 }
             })
             .collect()
+    }
+
+    /// The collection track (by index into `library`) that each Spotify
+    /// track is, if any: the same ISRC first, else the same title and artist.
+    fn spotify_matches(&self, tracks: &[SpotifyTrack]) -> Vec<Option<usize>> {
+        // Files only shown in Files don't count as in the collection.
+        let normalized: Vec<(String, String)> = self
+            .library
+            .iter()
+            .map(|t| match is_browsed(t) {
+                true => Default::default(),
+                false => (spotify::normalize(&t.title), spotify::normalize(&t.artist)),
+            })
+            .collect();
+        let mut by_isrc = HashMap::new();
+        for (i, t) in self.library.iter().enumerate() {
+            let isrc = spotify::normalize_isrc(&t.info.isrc);
+            if !isrc.is_empty() && !is_browsed(t) {
+                by_isrc.entry(isrc).or_insert(i);
+            }
+        }
+        tracks
+            .iter()
+            .map(|sp| {
+                by_isrc
+                    .get(&spotify::normalize_isrc(&sp.isrc))
+                    .copied()
+                    .or_else(|| {
+                        normalized
+                            .iter()
+                            .position(|(title, artist)| spotify::matches(sp, title, artist))
+                    })
+            })
+            .collect()
+    }
+
+    /// Copies the Spotify playlist being shown into a new list of the DJ's
+    /// own, once: the tracks the collection has go in the list, the rest on
+    /// the wanted list.
+    fn copy_spotify_playlist(&mut self) {
+        let status = |b: &Self, s: &str| {
+            if let Some(app) = b.app.upgrade() {
+                app.set_spotify_status(s.into());
+            }
+        };
+        let Some(key) = self.current_playlist().map(str::to_string) else {
+            return status(self, "Pick a playlist to copy.");
+        };
+        let Some(tracks) = self.spotify_state.tracks.get(&key).cloned() else {
+            return status(self, "Wait for the playlist to load, then copy it.");
+        };
+        if !self.saved() {
+            return status(self, "There's no library to copy into.");
+        }
+        let name = match self.spotify_state.playlists.iter().find(|p| p.key == key) {
+            Some(p) => p.name.clone(),
+            None => "Spotify playlist".into(),
+        };
+        let found = self.spotify_matches(&tracks);
+        let mut have: Vec<usize> = Vec::new();
+        let mut missing = 0;
+        let Some(db) = &self.db else { return };
+        let list = match db.create_playlist(&name, None, PlaylistKind::List) {
+            Ok(id) => id,
+            Err(e) => return status(self, &format!("Couldn't make the list: {e}")),
+        };
+        for (sp, f) in tracks.iter().zip(found) {
+            match f {
+                // The same track twice in a playlist goes in once.
+                Some(i) if !have.contains(&i) => have.push(i),
+                Some(_) => {}
+                None => {
+                    missing += 1;
+                    let _ = db.add_wanted("Spotify", &sp.artist(), &sp.title, &sp.page_url());
+                }
+            }
+        }
+        self.store.wanted = db.wanted().unwrap_or_default();
+        self.add_to_playlist(&have, list);
+        // The collection's tree shows the new list when it's next opened.
+        self.collection_stale = true;
+        status(
+            self,
+            &match missing {
+                0 => format!("Copied all {} tracks to \"{name}\".", have.len()),
+                n => format!(
+                    "Copied {} {} to \"{name}\". {n} not in your collection went on the wanted list.",
+                    have.len(),
+                    if have.len() == 1 { "track" } else { "tracks" },
+                ),
+            },
+        );
     }
 
     /// What the list says instead of rows while a playlist loads or fails.
