@@ -1090,7 +1090,16 @@ impl Prefs {
                         .map_or(0, |i| i + 2),
                 };
                 let detail = match (&port.running, &choice, &port.mapping_file) {
-                    (Some(m), _, _) => match port.mapping_file.as_deref().and_then(support::status)
+                    (Some(m), _, _) => match port
+                        .mapping_file
+                        .as_deref()
+                        .or_else(|| {
+                            mappings
+                                .iter()
+                                .find(|(n, _)| n == m)
+                                .map(|(_, f)| f.as_str())
+                        })
+                        .and_then(support::status)
                     {
                         Some(s) => format!("Running {m} · {}", s.label()),
                         None => format!("Running {m}"),

@@ -290,11 +290,21 @@ impl Builder<'_> {
             };
             Function::new("Controller", name, target)
         };
+        // A control the picture lists with its own SHIFT message: the
+        // controller sends that one while SHIFT is held, so the script is
+        // shifted for it and never for the plain message.
+        let sends_shift =
+            |m: &crate::layout::PartMessage| m.layer.split(" + ").any(|l| l.starts_with("SHIFT"));
+        let hardware_shift = found.is_some_and(|(p, _)| p.midi.iter().any(sends_shift));
+        let shifted_message = found.is_some_and(|(_, m)| sends_shift(m));
         let mut new_rows = Vec::new();
         if script.is_none() {
             new_rows.push(make(describe(&input.group, &input.key), base_layer));
         } else {
-            let normal = functions(self.probe.normal.get(&key).map_or(&[][..], |v| v));
+            let normal = match self.probe.shifted.get(&key) {
+                Some(shifted) if shifted_message => functions(shifted),
+                _ => functions(self.probe.normal.get(&key).map_or(&[][..], |v| v)),
+            };
             // A SHIFT button is just that, whatever its script resets.
             let shift = is_shift_binding(&input.key);
             if shift || normal.is_empty() {
@@ -303,7 +313,12 @@ impl Builder<'_> {
             for f in normal.into_iter().filter(|_| !shift) {
                 new_rows.push(make(f, base_layer.clone()));
             }
-            if let Some(shifted) = self.probe.shifted.get(&key).filter(|_| !shift) {
+            if let Some(shifted) = self
+                .probe
+                .shifted
+                .get(&key)
+                .filter(|_| !shift && !hardware_shift)
+            {
                 let layer = if base_layer.is_empty() {
                     "SHIFT".to_string()
                 } else {
