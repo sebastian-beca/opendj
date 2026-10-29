@@ -49,9 +49,14 @@ Settings > Controllers.
 
 ## Code signing
 
-Until the builds are signed, Windows SmartScreen shows "Windows protected
-your PC" on first run (More info > Run anyway), and the release notes say
-so. The plan is SignPath's free signing for open source projects:
+Windows builds are unsigned for now, so Windows SmartScreen shows "Windows
+protected your PC" on first run (More info > Run anyway), and the release
+notes say so. SignPath Foundation's free signing for open source projects
+turned openDJ's application down (2026-10-29), so signing waits for a
+later release. When it comes back, either route below fits the release
+workflow.
+
+SignPath (if a new application is accepted later):
 
 1. Apply at https://signpath.org (open source program) with the repository
    URL. They check the project and its build; approval takes a few weeks.
