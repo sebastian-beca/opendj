@@ -24,6 +24,7 @@ pub use opendj_engine::import::{ImportedLibrary, ImportedList, ListGroup};
 pub mod bandcamp;
 pub mod inbox;
 pub mod links;
+pub mod rekordbox;
 pub mod remote;
 pub mod source;
 pub mod virtualdj;
@@ -300,7 +301,10 @@ pub fn builtin() -> Vec<Box<dyn Plugin>> {
 /// The other DJ apps whose libraries openDJ can bring in. Each is off until
 /// the DJ turns it on in Settings > Library.
 pub fn importers() -> Vec<Box<dyn LibraryImport>> {
-    vec![Box::new(virtualdj::VirtualDj)]
+    vec![
+        Box::new(virtualdj::VirtualDj),
+        Box::new(rekordbox::Rekordbox),
+    ]
 }
 
 /// The User-Agent plugins send, so stores can see who is asking.
