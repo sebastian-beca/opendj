@@ -47,6 +47,9 @@ enum Fix {
     /// Looks tracks up online and opens the review table with what was
     /// found.
     LookUp,
+    /// Opens the review table with each album's tracks given the album
+    /// tag most of them have.
+    SameAlbum,
 }
 
 impl Fix {
@@ -65,6 +68,7 @@ impl Fix {
             Fix::CleanUp => "Clean up…",
             Fix::FindCovers => "Find covers",
             Fix::LookUp => "Look up online",
+            Fix::SameAlbum => "Use one album tag…",
         }
     }
 }
@@ -84,6 +88,7 @@ fn fixes(check: Check, stages: bool) -> Vec<Fix> {
         Check::Duplicate => vec![Fix::AllEasy],
         Check::Junk => vec![Fix::CleanUp, Fix::LookUp],
         Check::NoCover => vec![Fix::FindCovers],
+        Check::AlbumTags => vec![Fix::SameAlbum],
         Check::NoRating => Vec::new(),
     }
 }
@@ -255,7 +260,7 @@ impl Browser {
         let tracks: Vec<&Track> = self
             .library
             .iter()
-            .filter(|t| !is_browsed(t) && self.health.finds(Check::Duplicate, t, &everyone))
+            .filter(|t| self.in_collection(t) && self.health.finds(Check::Duplicate, t, &everyone))
             .map(|t| &**t)
             .collect();
         let links = &self.links;
@@ -282,7 +287,7 @@ impl Browser {
             let tracks = self
                 .library
                 .iter()
-                .filter(|t| !is_browsed(t) && self.duplicates.contains(&t.id))
+                .filter(|t| self.in_collection(t) && self.duplicates.contains(&t.id))
                 .map(|t| &**t);
             // Files iCloud has taken off this computer aren't read.
             fn here(t: &Track) -> Option<&Path> {
@@ -607,7 +612,7 @@ impl Browser {
         let tracks: Vec<&Track> = self
             .library
             .iter()
-            .filter(|t| !is_browsed(t))
+            .filter(|t| self.in_collection(t))
             .map(|t| &**t)
             .collect();
         let mut covers = HashMap::new();
@@ -626,7 +631,8 @@ impl Browser {
         }
         let mut folders = settings::music_folders();
         folders.extend(self.folders.all().into_iter().map(Path::to_path_buf));
-        self.health = Facts::new(
+        folders.extend(self.mixed_sets.clone());
+        let mut facts = Facts::new(
             tracks.iter().copied(),
             ignored,
             covers,
@@ -634,6 +640,10 @@ impl Browser {
         )
         .with_folders(folders)
         .with_rules(settings::cleanup_rules());
+        if let Some(albums) = &self.folders.albums {
+            facts = facts.with_albums(albums, tracks.iter().copied());
+        }
+        self.health = facts;
         self.removed = db.removed_count().unwrap_or(0);
         for (id, path, album) in look {
             let music = self.index_of.get(&id).is_some_and(|&i| {
@@ -651,7 +661,7 @@ impl Browser {
     pub(super) fn health_count(&self, check: Check) -> usize {
         self.library
             .iter()
-            .filter(|t| !is_browsed(t) && self.health.finds(check, t, &self.duplicates))
+            .filter(|t| self.in_collection(t) && self.health.finds(check, t, &self.duplicates))
             .count()
     }
 
@@ -660,7 +670,7 @@ impl Browser {
         (0..self.library.len())
             .filter(|&i| {
                 let t = &self.library[i];
-                !is_browsed(t) && self.health.finds(check, t, &self.duplicates)
+                self.in_collection(t) && self.health.finds(check, t, &self.duplicates)
             })
             .collect()
     }
@@ -796,7 +806,7 @@ impl Browser {
                     .library
                     .iter()
                     .filter(|t| {
-                        !is_browsed(t)
+                        self.in_collection(t)
                             && !t.info.missing
                             && file_path(t).is_some()
                             && !self.health.cover_known(t.id)
@@ -840,6 +850,21 @@ impl Browser {
             }
             _ => String::new(),
         }
+    }
+
+    /// Looks at the albums again for "Album tags differ", after album tags
+    /// changed.
+    pub(super) fn refresh_album_tags(&mut self) {
+        let Some(albums) = self.folders.albums.clone() else {
+            return;
+        };
+        let tracks: Vec<Arc<Track>> = self
+            .library
+            .iter()
+            .filter(|t| self.in_collection(t))
+            .cloned()
+            .collect();
+        self.health.set_albums(&albums, tracks.iter().map(|t| &**t));
     }
 
     /// Runs `fix` on library tracks (indices into `library`).
@@ -887,6 +912,7 @@ impl Browser {
             Fix::CleanUp => self.open_cleanup(indices),
             Fix::FindCovers => self.batch_covers(indices),
             Fix::LookUp => self.batch_lookup(indices),
+            Fix::SameAlbum => self.review_album_tags(indices),
         };
         // Removed tracks leave dead entries in lists.
         self.refresh_crates();
