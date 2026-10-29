@@ -16,6 +16,8 @@ mkdir -p "$appdir/usr/bin" "$appdir/usr/share/opendj" \
 cp "$binary" "$appdir/usr/bin/opendj"
 strip "$appdir/usr/bin/opendj"
 cp -R res/controllers "$appdir/usr/share/opendj/controllers"
+# The guided tour's demo tracks, once they are in the repository.
+if [ -d res/demo ]; then cp -R res/demo "$appdir/usr/share/opendj/demo"; fi
 convert res/macos/opendj-1024.png -resize 256x256 "$appdir/usr/share/icons/hicolor/256x256/apps/opendj.png"
 cat > "$appdir/usr/share/applications/opendj.desktop" <<DESKTOP
 [Desktop Entry]

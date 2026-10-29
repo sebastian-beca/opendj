@@ -24,6 +24,8 @@ if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory $stage | Out-Null
 Copy-Item $Binary "$stage/openDJ.exe"
 Copy-Item -Recurse res/controllers "$stage/controllers"
+# The guided tour's demo tracks, once they are in the repository.
+if (Test-Path res/demo) { Copy-Item -Recurse res/demo "$stage/demo" }
 Copy-Item README.md, NOTICE "$stage/"
 Copy-Item LICENSE "$stage/LICENSE-GPL2.txt"
 # The ASIO SDK built in is GPLv3, so the Windows build as a whole is too.

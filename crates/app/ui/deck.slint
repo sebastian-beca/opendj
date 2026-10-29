@@ -7,6 +7,7 @@ import { TrackDrag } from "library.slint";
 import { SamplerPanel } from "sampler.slint";
 import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
 import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, KeyLock, MasterBadge, PitchReset, SyncButton } from "controls.slint";
+import { TourMark } from "tourmark.slint";
 
 // A line of the key menu: a key shift and the key it gives.
 export struct KeyItem {
@@ -1782,7 +1783,7 @@ component Pitch inherits VerticalLayout {
     in property <bool> mirrored;
     width: 64px;
     spacing: 5px;
-    SyncButton { group: group; tint: tint; font-size: 13px; height: 30px; menu-right-aligned: mirrored; }
+    SyncButton { group: group; tint: tint; font-size: 13px; height: 30px; menu-right-aligned: mirrored; tour-id: group + ",sync_enabled"; }
     Rectangle {
         vertical-stretch: 1;
         ControlFader {
@@ -1816,6 +1817,8 @@ component Pitch inherits VerticalLayout {
 // colour while playing, and its background blinks while a track waits,
 // like a CDJ's.
 export component PlayButton inherits Rectangle {
+    // Names it for the guided tour (see TourMark).
+    in property <string> tour-id;
     in property <string> group;
     in property <color> tint;
     property <int> index: Controls.resolve(group, "play");
@@ -1840,6 +1843,7 @@ export component PlayButton inherits Rectangle {
         mouse-cursor: pointer;
         clicked => { Controls.set-value(index, playing ? 0 : 1); }
     }
+    TourMark { id: root.tour-id; }
 }
 
 // Play and CUE side by side under the jog, play on the left; SYNC is over
@@ -1849,8 +1853,8 @@ component Transport inherits HorizontalLayout {
     in property <color> tint;
     spacing: 6px;
     height: 32px;
-    PlayButton { group: group; tint: tint; width: 63px; }
-    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; font-size: 13px; width: 63px; }
+    PlayButton { group: group; tint: tint; width: 63px; tour-id: group + ",play"; }
+    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; font-size: 13px; width: 63px; tour-id: group + ",cue_default"; }
 }
 
 // A thin line between sections of a deck.
@@ -1945,4 +1949,6 @@ export component Deck inherits Rectangle {
         border-color: drop.has-drag ? tint : tint.transparentize(0.55);
         background: drop.has-drag ? tint.transparentize(0.9) : transparent;
     }
+    // The tour points here to load a track: the header, where its title shows.
+    TourMark { id: group + ",load"; x: header.x; y: header.y; width: header.width; height: header.height; }
 }

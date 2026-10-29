@@ -250,8 +250,9 @@ export component Knob inherits HorizontalLayout {
     in property <float> origin: 0.5;
     in property <int> look: 0;
     in property <length> size: 30px;
+    in property <string> tour-id;
     alignment: center;
-    ControlKnob { group: group; key: key; label: label; bipolar: true; origin: origin; look: look; size: size; tint: tint; }
+    ControlKnob { group: group; key: key; label: label; bipolar: true; origin: origin; look: look; size: size; tint: tint; tour-id: tour-id; }
 }
 
 // One of the four knobs down a side of the mixer (`place` 0 is the top), as
@@ -282,6 +283,7 @@ export component SideKnob inherits Rectangle {
             size: size;
             group: place == 3 ? "[QuickEffectRack1_" + ch + "]" : eq;
             key: ["parameter3", "parameter2", "parameter1", "super1"][place];
+            tour-id: self.group + "," + self.key;
             // The filter knob plays the chosen Color FX, and says which.
             label: place == 3 ? (cfx >= 1 && cfx <= EffectList.color-fx.length ? EffectList.color-fx[cfx - 1].to-uppercase() : "CFX") : ["HIGH", "MID", "LOW"][place];
         }
@@ -371,9 +373,9 @@ component Channel inherits VerticalLayout {
     HorizontalLayout {
         alignment: center;
         vertical-stretch: 1;
-        ControlFader { group: group; key: "volume"; tint: tint; ticks: 11; width: 36px; }
+        ControlFader { group: group; key: "volume"; tint: tint; ticks: 11; width: 36px; tour-id: group + ",volume"; }
     }
-    HorizontalLayout { alignment: center; CueHeadphones { group: group; tint: tint; } }
+    HorizontalLayout { alignment: center; CueHeadphones { group: group; tint: tint; tour-id: group + ",pfl"; } }
 }
 
 // The four knobs down one side, spread over the mixer's height.
@@ -431,7 +433,7 @@ export component Mixer inherits Rectangle {
             Rectangle {
                 horizontal-stretch: 1;
                 height: 28px;
-                Crossfader { x: 8px; width: parent.width - 16px; }
+                Crossfader { x: 8px; width: parent.width - 16px; tour-id: "[Master],crossfader"; }
             }
         }
     }

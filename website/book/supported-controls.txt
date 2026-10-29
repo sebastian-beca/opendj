@@ -1969,6 +1969,7 @@
 [Master],peak_indicator_left
 [Master],peak_indicator_right
 [Master],talkover_ducking
+[Master],test_tone
 [Master],vu_meter
 [Master],vu_meter_left
 [Master],vu_meter_right
