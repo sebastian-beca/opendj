@@ -19,7 +19,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-pub use opendj_engine::import::{ImportedLibrary, ListGroup};
+pub use opendj_engine::import::{ImportedLibrary, ImportedList, ListGroup};
 
 pub mod bandcamp;
 pub mod inbox;
@@ -275,6 +275,11 @@ pub trait LibraryImport: Send {
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map_or(0, |d| d.as_secs());
         format!("{}:{modified}", database.display())
+    }
+    /// The lists in `groups`, for the DJ to pick from; their entries may be
+    /// left empty. By default, those [`LibraryImport::read`] finds.
+    fn lists(&self, database: &Path, groups: &[&str]) -> Result<Vec<ImportedList>, String> {
+        Ok(self.read(database, groups)?.lists)
     }
     /// Reads the tracks in `database` (local files only), and the lists in
     /// `groups` (ids from [`LibraryImport::list_groups`]).

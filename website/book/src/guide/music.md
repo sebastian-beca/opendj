@@ -127,8 +127,12 @@ marked coming soon. Three steps follow:
 1. **Find your library.** openDJ looks for `database.xml` in
    `~/Library/Application Support/VirtualDJ` (or `~/.vdj` on Linux) and
    shows what it holds. Choose another file if yours is elsewhere.
-2. **Choose which lists come across:** playlists, virtual folders, filter
-   folders (as smart lists) and history.
+2. **Choose which lists come across.** Every playlist, virtual folder,
+   filter folder (as a smart list) and history session is in a tree with a
+   tick box. Ticking a folder ticks everything in it, and **All lists** at
+   the top does the lot. History is grouped by year. Everything starts
+   ticked except filter folders, whose searches may not mean quite the same
+   here. Lists you add in VirtualDJ later come in ticked.
 3. **Choose whose tags win** when a track's title, rating or colour differ:
    VirtualDJ's, while you still use it, or openDJ's.
 
@@ -146,11 +150,23 @@ so change those lists in VirtualDJ, or copy one out of the folder to keep
 editing it in openDJ.
 
 Once it's on, VirtualDJ's section of the Import tab opens up with these
-choices and the two buttons below. **Stop** leaves what came in but
+choices and the two buttons below. **Lists › Choose…** opens the tree again
+to change which lists come in. **Stop** leaves what came in but
 stops updating it. **Remove…** takes out
 the VirtualDJ folder and history, VirtualDJ's cues, grids and markers, and
 the tracks only VirtualDJ had. Tracks in your own lists or music folder
 stay. Either one closes the section again, back to **Set up…**.
+
+### The same song from two apps
+
+When a second app's library has a different file of a song you already have
+(the same artist and title, ignoring case and punctuation, and a length
+within two seconds), openDJ doesn't add it twice. The copy already in your
+library stays, and the second app only fills in what it left empty. Its
+lists point at that copy. Its grid is only used when the track has none from
+another app, and its hot cues come in as memory cues when the track already
+has hot cues, so nothing is lost. Removing the second import takes out what
+it added and leaves the track as it was.
 
 ## Crates and sets
 

@@ -26,6 +26,27 @@ pub struct ImportedList {
     pub entries: Vec<ImportedEntry>,
 }
 
+impl ImportedList {
+    /// Names the list among its app's, for the DJ's choice of which come
+    /// in: its kind, folders and name ("list:Sets/2023/Friday").
+    pub fn key(&self) -> String {
+        let kind = match self.kind {
+            ImportedListKind::List => "list",
+            ImportedListKind::History { .. } => "history",
+            ImportedListKind::Smart { .. } => "smart",
+        };
+        let mut path = self.folders.clone();
+        path.push(self.name.clone());
+        format!("{kind}:{}", path.join("/"))
+    }
+
+    /// Whether it comes in when the DJ hasn't said: all but smart lists,
+    /// whose searches may not mean the same here.
+    pub fn wanted_by_default(&self) -> bool {
+        !matches!(self.kind, ImportedListKind::Smart { .. })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ImportedListKind {
     List,

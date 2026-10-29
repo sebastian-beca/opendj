@@ -347,6 +347,36 @@ pub fn import_groups(importer: &dyn opendj_plugins::LibraryImport) -> Vec<&'stat
         .collect()
 }
 
+/// The setting with the lists the DJ ticked or unticked for `importer`, by
+/// [`ImportedList::key`](opendj_plugins::ImportedList::key): only those that
+/// differ from what comes in by default are kept.
+pub fn import_lists_key(importer: &str) -> String {
+    format!("import_lists:{importer}")
+}
+
+/// The DJ's choice for each list of `importer` they changed.
+pub fn import_list_choices(importer: &str) -> HashMap<String, bool> {
+    load()[import_lists_key(importer).as_str()]
+        .as_object()
+        .map(|o| {
+            o.iter()
+                .filter_map(|(k, v)| Some((k.clone(), v.as_bool()?)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether `list` comes in, by the DJ's `choices`.
+pub fn import_list_wanted(
+    choices: &HashMap<String, bool>,
+    list: &opendj_plugins::ImportedList,
+) -> bool {
+    choices
+        .get(&list.key())
+        .copied()
+        .unwrap_or_else(|| list.wanted_by_default())
+}
+
 /// A saved path, if one was chosen.
 pub fn path_of(key: &str) -> Option<PathBuf> {
     load()[key]
