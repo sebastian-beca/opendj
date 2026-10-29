@@ -9,7 +9,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
 use opendj_control::ControlRegistry;
-use opendj_controllers::{device_key, Controllers, MappingChoice, Port};
+use opendj_controllers::{device_key, support, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
     analysis, cache, channel_names, deck_group, input_devices, key, InputRole, InputRoute,
@@ -1090,7 +1090,11 @@ impl Prefs {
                         .map_or(0, |i| i + 2),
                 };
                 let detail = match (&port.running, &choice, &port.mapping_file) {
-                    (Some(m), _, _) => format!("Running {m}"),
+                    (Some(m), _, _) => match port.mapping_file.as_deref().and_then(support::status)
+                    {
+                        Some(s) => format!("Running {m} · {}", s.label()),
+                        None => format!("Running {m}"),
+                    },
                     (None, MappingChoice::Off, _) => "Not used".to_string(),
                     (None, _, None) => {
                         "No Mixxx mapping matches this device: pick one.".to_string()

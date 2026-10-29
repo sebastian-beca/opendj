@@ -16,6 +16,7 @@ pub mod mapping;
 pub mod own;
 pub mod probe;
 mod script;
+pub mod support;
 pub mod view;
 
 use std::path::PathBuf;
