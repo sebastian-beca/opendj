@@ -736,7 +736,10 @@ pub fn keyboard_set() -> String {
 pub fn keyboard_sets() -> Vec<String> {
     let mut names = vec![DEFAULT_KEYBOARD_SET.to_string()];
     if let Some(a) = load()["keyboard_sets"].as_array() {
-        names.extend(a.iter().filter_map(|s| s["name"].as_str().map(str::to_string)));
+        names.extend(
+            a.iter()
+                .filter_map(|s| s["name"].as_str().map(str::to_string)),
+        );
     }
     names
 }
@@ -764,7 +767,10 @@ pub fn set_keyboard_shortcuts(shortcuts: &[(String, String)]) {
         if set == DEFAULT_KEYBOARD_SET {
             v["keyboard_shortcuts"] = list;
         } else if let Some(a) = v["keyboard_sets"].as_array_mut() {
-            if let Some(s) = a.iter_mut().find(|s| s["name"].as_str() == Some(set.as_str())) {
+            if let Some(s) = a
+                .iter_mut()
+                .find(|s| s["name"].as_str() == Some(set.as_str()))
+            {
                 s["shortcuts"] = list;
             }
         }
@@ -775,7 +781,13 @@ pub fn set_keyboard_shortcuts(shortcuts: &[(String, String)]) {
 fn free_set_name(name: &str) -> String {
     let taken = keyboard_sets();
     (1..)
-        .map(|n| if n == 1 { name.to_string() } else { format!("{name} {n}") })
+        .map(|n| {
+            if n == 1 {
+                name.to_string()
+            } else {
+                format!("{name} {n}")
+            }
+        })
         .find(|n| !taken.contains(n))
         .unwrap_or_else(|| name.to_string())
 }
@@ -811,7 +823,10 @@ pub fn rename_keyboard_set(new: &str) {
     }
     save(|v| {
         if let Some(a) = v["keyboard_sets"].as_array_mut() {
-            if let Some(s) = a.iter_mut().find(|s| s["name"].as_str() == Some(old.as_str())) {
+            if let Some(s) = a
+                .iter_mut()
+                .find(|s| s["name"].as_str() == Some(old.as_str()))
+            {
                 s["name"] = json!(new);
             }
         }

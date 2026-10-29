@@ -379,7 +379,9 @@ impl Editor {
         let current_name = self
             .current_own()
             .map_or(g.get_name().to_string(), |m| m.name.clone());
-        let action = index.checked_sub(n + 1).and_then(|i| self.actions.get(i).copied());
+        let action = index
+            .checked_sub(n + 1)
+            .and_then(|i| self.actions.get(i).copied());
         match (index, action) {
             (0, _) => settings::set_controller_version(&base, None),
             (i, _) if i <= n => settings::set_controller_version(&base, Some(&self.own[i - 1].id)),
@@ -449,10 +451,7 @@ impl Editor {
             return;
         };
         let name = g.get_dialog_text().trim().to_string();
-        if kind == Dialog::Report
-            || !ok
-            || (kind != Dialog::Delete && name.is_empty())
-        {
+        if kind == Dialog::Report || !ok || (kind != Dialog::Delete && name.is_empty()) {
             return;
         }
         let id = self.version.clone();
@@ -561,7 +560,8 @@ impl Editor {
     /// Writes the own mapping in use as a shared `.opendj-mapping`, or as a
     /// Mixxx mapping with its scripts, into `folder`.
     fn export(&mut self, folder: &std::path::Path, mixxx: bool) {
-        let (Some(own_dir), Some(shipped)) = (settings::own_mappings_dir(), self.dir.clone()) else {
+        let (Some(own_dir), Some(shipped)) = (settings::own_mappings_dir(), self.dir.clone())
+        else {
             return;
         };
         let Some(current) = self.current_own().cloned() else {
@@ -580,7 +580,13 @@ impl Editor {
             let stem: String = m
                 .name
                 .chars()
-                .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '-' })
+                .map(|c| {
+                    if c.is_alphanumeric() || c == ' ' || c == '-' {
+                        c
+                    } else {
+                        '-'
+                    }
+                })
                 .collect();
             let path = folder.join(format!("{}.opendj-mapping", stem.trim()));
             opendj_controllers::export::write_opendj(&m, &shipped, &own_dir, &path)
@@ -601,7 +607,11 @@ impl Editor {
                     detail.push_str(&format!(
                         "\n\nMixxx can't hold {} of the rows:\n{}",
                         r.left_out.len(),
-                        shown.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n")
+                        shown
+                            .iter()
+                            .map(|s| s.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n")
                     ));
                 }
                 self.report("Exported", detail);
@@ -1010,7 +1020,7 @@ fn greyed(m: &opendj_controllers::format::OpenDjMapping) -> String {
             None => why.push((note.clone(), 1)),
         }
     }
-    why.sort_by(|a, b| b.1.cmp(&a.1));
+    why.sort_by_key(|w| std::cmp::Reverse(w.1));
     why.iter()
         .take(8)
         .map(|(n, c)| format!("{c} × {n}"))

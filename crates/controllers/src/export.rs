@@ -85,8 +85,8 @@ fn plain(line: &str) -> Option<(String, String, bool)> {
     let group = |d: Option<u8>| d.map(|d| format!("[Channel{d}]"));
     let named = |button: bool| -> Option<(String, String, bool)> {
         let c = args.first()?.text();
-        let (g, k) = crate::format::split_control(c)
-            .or_else(|| Some((group(deck)?, c.to_string())))?;
+        let (g, k) =
+            crate::format::split_control(c).or_else(|| Some((group(deck)?, c.to_string())))?;
         Some((g, k, button))
     };
     match verb.kind {
@@ -115,7 +115,10 @@ pub fn mixxx_xml(m: &OpenDjMapping, built: &Mapping, report: &mut Report) -> Str
     } else {
         m.description.clone()
     };
-    x.push_str(&format!("    <description>{}</description>\n", xml(&description)));
+    x.push_str(&format!(
+        "    <description>{}</description>\n",
+        xml(&description)
+    ));
     x.push_str("  </info>\n");
     let id = m
         .controller
@@ -123,9 +126,16 @@ pub fn mixxx_xml(m: &OpenDjMapping, built: &Mapping, report: &mut Report) -> Str
         .chars()
         .filter(|c| c.is_alphanumeric())
         .collect::<String>();
-    x.push_str(&format!("  <controller id=\"{}\">\n    <scriptfiles>\n", xml(&id)));
+    x.push_str(&format!(
+        "  <controller id=\"{}\">\n    <scriptfiles>\n",
+        xml(&id)
+    ));
     for s in &built.scripts {
-        let file = s.path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        let file = s
+            .path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
         if file == REQUIRED_SCRIPT {
             continue;
         }
@@ -171,7 +181,11 @@ pub fn mixxx_xml(m: &OpenDjMapping, built: &Mapping, report: &mut Report) -> Str
     if !m.variables.is_empty() {
         report.left_out.push(format!(
             "Variables {}: Mixxx has none outside its scripts",
-            m.variables.iter().map(|v| v.name.as_str()).collect::<Vec<_>>().join(", ")
+            m.variables
+                .iter()
+                .map(|v| v.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     x
@@ -184,7 +198,9 @@ fn control(input: &Input, (status, number): (u8, u8), report: &mut Report) -> Op
         input.name.clone()
     };
     if !input.layer.is_empty() {
-        report.left_out.push(format!("{what}: on a layer ({})", layer_text(&input.layer)));
+        report
+            .left_out
+            .push(format!("{what}: on a layer ({})", layer_text(&input.layer)));
         return None;
     }
     if input.when != When::Press {
@@ -198,10 +214,16 @@ fn control(input: &Input, (status, number): (u8, u8), report: &mut Report) -> Op
             Some((g, k, button)) => (
                 g,
                 k,
-                if button { Options::from_names(["button"]) } else { input.options },
+                if button {
+                    Options::from_names(["button"])
+                } else {
+                    input.options
+                },
             ),
             None => {
-                report.left_out.push(format!("{what}: openDJscript ({line})"));
+                report
+                    .left_out
+                    .push(format!("{what}: openDJscript ({line})"));
                 return None;
             }
         },
@@ -211,7 +233,10 @@ fn control(input: &Input, (status, number): (u8, u8), report: &mut Report) -> Op
     c.push_str(&format!("        <group>{}</group>\n", xml(&group)));
     c.push_str(&format!("        <key>{}</key>\n", xml(&key)));
     if !input.description.is_empty() {
-        c.push_str(&format!("        <description>{}</description>\n", xml(&input.description)));
+        c.push_str(&format!(
+            "        <description>{}</description>\n",
+            xml(&input.description)
+        ));
     }
     c.push_str(&format!("        <status>0x{status:02X}</status>\n"));
     c.push_str(&format!("        <midino>0x{number:02X}</midino>\n"));
@@ -245,14 +270,22 @@ pub fn write_mixxx(m: &OpenDjMapping, built: &Mapping, dir: &Path) -> std::io::R
     let stem: String = m
         .name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     std::fs::create_dir_all(dir)?;
     let path = dir.join(format!("{}.midi.xml", stem.trim()));
     std::fs::write(&path, text)?;
     report.written.push(path);
     for s in &built.scripts {
-        let Some(file) = s.path.file_name() else { continue };
+        let Some(file) = s.path.file_name() else {
+            continue;
+        };
         if file == REQUIRED_SCRIPT || !s.path.is_file() {
             continue;
         }
@@ -272,14 +305,21 @@ mod tests {
 
     #[test]
     fn one_control_rows_become_bindings() {
-        assert_eq!(plain("deck 1 sync"), Some(("[Channel1]".into(), "sync_enabled".into(), true)));
+        assert_eq!(
+            plain("deck 1 sync"),
+            Some(("[Channel1]".into(), "sync_enabled".into(), true))
+        );
         assert_eq!(
             plain("press '[Channel2],hotcue_3_clear'"),
             Some(("[Channel2]".into(), "hotcue_3_clear".into(), true))
         );
         assert_eq!(
             plain("adjust '[EffectRack1_EffectUnit1_Effect1],parameter1'"),
-            Some(("[EffectRack1_EffectUnit1_Effect1]".into(), "parameter1".into(), false))
+            Some((
+                "[EffectRack1_EffectUnit1_Effect1]".into(),
+                "parameter1".into(),
+                false
+            ))
         );
         assert_eq!(plain("(var 'k2mode' ? hot_cue 1 : sync)"), None);
     }
@@ -291,7 +331,8 @@ mod tests {
         let mut m = OpenDjMapping::new("FLX4 mine");
         m.controller.name = "DDJ-FLX4".into();
         m.based_on = Some("Pioneer-DDJ-FLX4.midi.xml".into());
-        m.rows.push(Row::script(Midi::new(0x90, 0x0B), "deck 1 sync"));
+        m.rows
+            .push(Row::script(Midi::new(0x90, 0x0B), "deck 1 sync"));
         let mut long = Row::script(Midi::new(0x90, 0x0C), "deck 1 loop 4");
         long.when = When::Long;
         long.name = "CUE".into();
@@ -301,10 +342,15 @@ mod tests {
         let text = mixxx_xml(&m, &built, &mut report);
         assert!(text.contains("<key>sync_enabled</key>"));
         assert!(text.contains("PioneerDDJFLX4"));
-        assert!(report.left_out.iter().any(|l| l.starts_with("CUE: a long press")));
+        assert!(report
+            .left_out
+            .iter()
+            .any(|l| l.starts_with("CUE: a long press")));
         // Mixxx reads it back.
         let again = Mapping::parse(&text, &dir).unwrap();
-        assert!(again.inputs[&(0x90, 0x0B)].iter().any(|i| i.key == "sync_enabled"));
+        assert!(again.inputs[&(0x90, 0x0B)]
+            .iter()
+            .any(|i| i.key == "sync_enabled"));
         assert!(!again.outputs.is_empty());
     }
 
@@ -321,7 +367,10 @@ mod tests {
         let other = tmp.join("other");
         let back = read_opendj(&path, &other).unwrap();
         assert_eq!(back.name, "Mine");
-        assert_eq!(std::fs::read_to_string(other.join("mine.js")).unwrap(), "var Mine = {};");
+        assert_eq!(
+            std::fs::read_to_string(other.join("mine.js")).unwrap(),
+            "var Mine = {};"
+        );
         let _ = std::fs::remove_dir_all(tmp);
     }
 }
