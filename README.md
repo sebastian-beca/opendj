@@ -6,7 +6,7 @@ openDJ is a free, open-source DJ app for macOS and Linux. It's built to be fast,
 pleasant to use, and to have a great automix, for DJs just starting out and for
 more experienced DJs alike.
 
-![openDJ](docs/screenshot.png)
+![openDJ](docs/screenshot.jpg)
 
 ## Features
 
