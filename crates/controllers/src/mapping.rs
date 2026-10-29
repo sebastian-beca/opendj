@@ -179,6 +179,9 @@ pub struct Output {
     pub script: Option<String>,
     /// What `color 'name'` sends.
     pub colors: Vec<(String, u8)>,
+    /// The colours are added to the note, sent at full velocity, as on the
+    /// Xone K2 (red on the note, amber 36 above, green 72 above).
+    pub color_notes: bool,
 }
 
 /// A mapping setting's value, typed as Mixxx hands it to `engine.getSetting`.

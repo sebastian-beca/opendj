@@ -217,6 +217,9 @@ pub struct Light {
     pub source: LightSource,
     /// What `color 'name'` sends on this controller.
     pub colors: Vec<(String, u8)>,
+    /// The colours are notes above this one, sent at full velocity (Xone
+    /// K2), rather than velocities of this note.
+    pub color_notes: bool,
     pub off: bool,
     pub original: String,
     pub note: String,
@@ -230,6 +233,7 @@ impl Light {
             name: String::new(),
             source,
             colors: Vec::new(),
+            color_notes: false,
             off: false,
             original: String::new(),
             note: String::new(),
@@ -441,6 +445,7 @@ impl Light {
             name: take_str(&mut o, "name"),
             source,
             colors,
+            color_notes: take_bool(&mut o, "color_notes"),
             off: take_bool(&mut o, "off"),
             original: take_str(&mut o, "original"),
             note: take_str(&mut o, "note"),
@@ -481,6 +486,9 @@ impl Light {
                 .map(|(k, v)| (k.clone(), json!(v)))
                 .collect();
             o.insert("colors".into(), Value::Object(c));
+        }
+        if self.color_notes {
+            o.insert("color_notes".into(), json!(true));
         }
         if self.off {
             o.insert("off".into(), json!(true));
@@ -1036,6 +1044,7 @@ impl OpenDjMapping {
                     on: 0x7F,
                     script: Some(line.clone()),
                     colors: light.colors.clone(),
+                    color_notes: light.color_notes,
                     ..Default::default()
                 },
                 LightSource::Js(_) | LightSource::Nothing => continue,

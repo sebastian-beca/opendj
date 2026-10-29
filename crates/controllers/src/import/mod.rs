@@ -113,7 +113,7 @@ pub fn import_file(path: &Path) -> Result<Import, String> {
         App::Traktor => traktor::import(&text, &file)?,
         App::Rekordbox => rekordbox::import(&text)?,
         App::Djay => djay::import(&text, &file)?,
-        App::VirtualDj => vdj::import(&text)?,
+        App::VirtualDj => vdj::import(&text, &file)?,
     };
     let date = today();
     for m in &mut import.mappings {

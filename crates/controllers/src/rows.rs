@@ -26,7 +26,10 @@ enum Shown {
 struct ScriptLight {
     output: Output,
     script: Option<Script>,
-    last: Option<u8>,
+    /// Shows a level (an LED ring, a meter) rather than on or off.
+    level: bool,
+    /// The note and value sent last.
+    last: Option<(u8, u8)>,
 }
 
 pub(crate) struct ScriptRows {
@@ -136,9 +139,11 @@ impl ScriptRows {
         let mut lights = Vec::new();
         outputs.retain(|o| match &o.script {
             Some(line) => {
+                let script = opendj_script::parse(line).ok();
                 lights.push(ScriptLight {
                     output: o.clone(),
-                    script: opendj_script::parse(line).ok(),
+                    level: script.as_ref().is_some_and(|s| s.is_level()),
+                    script,
                     last: None,
                 });
                 false
@@ -301,25 +306,33 @@ impl ScriptRows {
                 shown: None,
                 colors: &light.output.colors,
             };
-            if script.run(&mut host).is_err() {
-                continue;
-            }
-            let on = light.output.on;
-            let byte = match host.shown.unwrap_or(Shown::Off) {
-                Shown::On => on,
-                Shown::Off => light.output.off,
-                Shown::Byte(b) => b,
-                Shown::Blink(ms) => {
-                    if (millis / ms as u64).is_multiple_of(2) {
-                        on
-                    } else {
-                        light.output.off
+            let o = &light.output;
+            let (number, byte) = if light.level {
+                match script.level(&mut host) {
+                    Ok(v) => (o.control, (v.clamp(0.0, 1.0) * 127.0).round() as u8),
+                    Err(_) => continue,
+                }
+            } else {
+                if script.run(&mut host).is_err() {
+                    continue;
+                }
+                match host.shown.unwrap_or(Shown::Off) {
+                    Shown::On => (o.control, o.on),
+                    Shown::Off => (o.control, o.off),
+                    Shown::Byte(b) if o.color_notes => (o.control.saturating_add(b).min(127), 0x7F),
+                    Shown::Byte(b) => (o.control, b),
+                    Shown::Blink(ms) => {
+                        if (millis / ms as u64).is_multiple_of(2) {
+                            (o.control, o.on)
+                        } else {
+                            (o.control, o.off)
+                        }
                     }
                 }
             };
-            if light.last != Some(byte) {
-                light.last = Some(byte);
-                sent.push(vec![light.output.status, light.output.control, byte]);
+            if light.last != Some((number, byte)) {
+                light.last = Some((number, byte));
+                sent.push(vec![o.status, number, byte]);
             }
         }
     }

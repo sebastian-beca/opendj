@@ -22,6 +22,9 @@ fn main() {
             Err(e) => println!("  {e}"),
             Ok(i) => {
                 println!("  {}", i.summary());
+                for (k, s) in &i.skipped_shortcuts {
+                    println!("  key {k} — {s}");
+                }
                 for n in &i.notes {
                     println!("  note: {n}");
                 }

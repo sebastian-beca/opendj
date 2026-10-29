@@ -80,6 +80,7 @@ pub fn run_control(reg: &ControlRegistry, call: &Call) -> Result<(), Error> {
             control(reg, call, item)?.set_parameter(level(call, 0)?)
         }
         Kind::Set => control(reg, call, named())?.set(arg(1)),
+        Kind::Adjust => control(reg, call, named())?.set_parameter(level(call, 1)?),
         Kind::ToggleNamed => control(reg, call, named())?.toggle(),
         Kind::PressNamed => press(&control(reg, call, named())?),
         Kind::Get => {
@@ -87,7 +88,7 @@ pub fn run_control(reg: &ControlRegistry, call: &Call) -> Result<(), Error> {
                 "'get' only asks, in a condition such as get 'keylock' ? … : …",
             ))
         }
-        Kind::Reading(_) | Kind::Var => {
+        Kind::Reading(_) | Kind::Var | Kind::Input => {
             return Err(Error::new(format!(
                 "'{}' only asks, in a condition",
                 call.verb.name
@@ -116,7 +117,9 @@ pub fn query_control(reg: &ControlRegistry, call: &Call) -> Result<bool, Error> 
             control(reg, call, &format!("hotcue_{n}_enabled"))?.get_bool()
         }
         Kind::ToggleNamed | Kind::Get => control(reg, call, named())?.get() > 0.0,
+        Kind::Adjust => control(reg, call, named())?.get_parameter() > 0.0,
         Kind::Value(item) | Kind::Reading(item) => control(reg, call, item)?.get_parameter() > 0.0,
+        Kind::Input => call.input.is_some_and(|v| v > 0.0),
         Kind::Press(_)
         | Kind::Level(_)
         | Kind::Set
@@ -143,6 +146,10 @@ pub fn level_control(reg: &ControlRegistry, call: &Call) -> Result<f64, Error> {
             Ok(control(reg, call, item)?.get_parameter())
         }
         Kind::Get | Kind::ToggleNamed | Kind::Set => Ok(control(reg, call, named())?.get()),
+        Kind::Adjust => Ok(control(reg, call, named())?.get_parameter()),
+        Kind::Input => call
+            .input
+            .ok_or_else(|| Error::new("'value' is only there when a controller runs the line")),
         _ => Ok(if query_control(reg, call)? { 1.0 } else { 0.0 }),
     }
 }

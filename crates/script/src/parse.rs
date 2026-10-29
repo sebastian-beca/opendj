@@ -1,6 +1,6 @@
 //! Reading a line into an [`Expr`], and running it.
 
-use crate::verbs::{verb, ArgKind, TakesDeck, Verb, VERBS};
+use crate::verbs::{verb, ArgKind, Kind, TakesDeck, Verb, VERBS};
 use crate::{Call, Error, Host};
 
 /// A deck named with `deck`.
@@ -66,6 +66,40 @@ pub struct Script(pub Expr);
 impl Script {
     pub fn run(&self, host: &mut dyn Host) -> Result<(), Error> {
         run(&self.0, None, host)
+    }
+
+    /// Whether the line is one verb that only shows a level, such as
+    /// `deck 1 filter` or `vu_meter`: a controller light then shows that
+    /// level (an encoder's LED ring, a meter) instead of on or off.
+    pub fn is_level(&self) -> bool {
+        let mut e = &self.0;
+        while let Expr::OnDeck(_, inner) = e {
+            e = inner;
+        }
+        matches!(e, Expr::Action { verb, .. } if matches!(
+            verb.kind,
+            Kind::Level(_) | Kind::Value(_) | Kind::Reading(_) | Kind::Var | Kind::Get | Kind::Adjust
+        ))
+    }
+
+    /// The level a line from [`Script::is_level`] shows, 0 to 1.
+    pub fn level(&self, host: &mut dyn Host) -> Result<f64, Error> {
+        let mut e = &self.0;
+        let mut deck = None;
+        while let Expr::OnDeck(d, inner) = e {
+            deck = Some(*d);
+            e = inner;
+        }
+        let Expr::Action { verb, args } = e else {
+            return Err(Error::new("Only one verb shows a level"));
+        };
+        let call = Call {
+            verb,
+            deck: resolve(verb, deck, host),
+            args,
+            input: host.input(),
+        };
+        host.level(&call)
     }
 }
 

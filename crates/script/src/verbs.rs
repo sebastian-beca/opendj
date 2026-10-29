@@ -29,11 +29,17 @@ pub enum Kind {
     PressNamed,
     /// `get 'control'`: only asks, whether the control is above 0.
     Get,
+    /// `adjust 'control' [level]`: sets any control's knob position from
+    /// the controller's fader or knob (or the level); asks its position.
+    Adjust,
     /// Sets a 0..1 control from the controller's fader or knob; also asked
     /// for its level in a comparison (`filter > 50%`).
     Value(&'static str),
     /// Only asked, for its level in a comparison: `vu_meter > 90%`.
     Reading(&'static str),
+    /// `value`: only asked, the controller's fader or knob in a comparison
+    /// (`value > 50%`).
+    Input,
     /// `var 'name' [value]`: only asks, whether a variable is that value
     /// (or above 0). Variables belong to the host, see [`crate::Host`].
     Var,
@@ -265,6 +271,13 @@ pub static VERBS: &[Verb] = &[
     ),
     def("pitch", Value("rate"), Yes, &[LEVEL], "The tempo fader"),
     def(
+        "value",
+        Input,
+        TakesDeck::No,
+        &[],
+        "In a comparison: the controller's fader or knob, value > 50%",
+    ),
+    def(
         "vu_meter",
         Reading("vu_meter"),
         Yes,
@@ -362,6 +375,13 @@ pub static VERBS: &[Verb] = &[
             },
         ],
         "Set any control to a value",
+    ),
+    def(
+        "adjust",
+        Adjust,
+        Yes,
+        &[CONTROL, LEVEL],
+        "Move any control from a controller fader or knob, or to a level",
     ),
     def(
         "toggle",
