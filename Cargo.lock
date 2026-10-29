@@ -6203,6 +6203,7 @@ version = "0.4.0"
 name = "opendj-controllers"
 version = "0.4.0"
 dependencies = [
+ "base64 0.22.1",
  "midir",
  "opendj-control",
  "opendj-engine",

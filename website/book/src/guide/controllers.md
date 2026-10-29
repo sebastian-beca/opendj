@@ -35,6 +35,17 @@ the list by any of those words.
   **Duplicate…** to make one, and **Rename…** or **Delete…** to tidy up. For
   now a copy works just like the original; changing what a control does comes
   next.
+- **Import…** in the same menu brings a mapping across from another DJ app:
+  VirtualDJ (`.xml` from `Documents/VirtualDJ/Mappers`), Traktor (`.tsi`),
+  rekordbox (`.midi.csv`), djay Pro (`.djayMidiMapping`) or an openDJ
+  `.opendj-mapping`. Each file becomes a mapping of your own, built on the
+  controller's original mapping. Controls openDJ can't do yet are kept but
+  greyed, with the reason, and the original keeps working for them; a report
+  says how many came across. A VirtualDJ keyboard file becomes a keyboard
+  shortcut set instead (see [Keyboard shortcuts](shortcuts.md)).
+- **Export…** writes the mapping as one `.opendj-mapping` file that works on
+  another computer, and **Export for Mixxx…** writes a `.midi.xml` with its
+  scripts; a report lists anything Mixxx can't do.
 
 Mappings that run a script are tried out in a sandbox to see what each
 control does, so even those read in plain words.

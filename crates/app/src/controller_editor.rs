@@ -61,6 +61,38 @@ enum Dialog {
     Duplicate,
     Rename,
     Delete,
+    /// What an import or export did; only to read.
+    Report,
+}
+
+/// The Mapping menu's entries after the mappings themselves.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Action {
+    Duplicate,
+    Rename,
+    Delete,
+    Import,
+    Export,
+    ExportMixxx,
+}
+
+impl Action {
+    fn label(self) -> &'static str {
+        match self {
+            Action::Duplicate => "Duplicate…",
+            Action::Rename => "Rename…",
+            Action::Delete => "Delete…",
+            Action::Import => "Import…",
+            Action::Export => "Export…",
+            Action::ExportMixxx => "Export for Mixxx…",
+        }
+    }
+}
+
+/// A file or folder being picked in the system's dialog, for what.
+enum Picking {
+    Import(Receiver<PathBuf>),
+    Export(Receiver<PathBuf>, bool),
 }
 
 /// A row of the list: a section heading (by its key) or a row of the view.
@@ -93,6 +125,9 @@ pub struct Editor {
     own: Vec<OwnMapping>,
     version: Option<String>,
     dialog: Option<Dialog>,
+    /// The Mapping menu's entries after the mappings.
+    actions: Vec<Action>,
+    picking: Option<Picking>,
     flash: Option<(String, Instant)>,
     scroll_serial: i32,
     was_open: bool,
@@ -116,6 +151,8 @@ impl Editor {
             own: Vec::new(),
             version: None,
             dialog: None,
+            actions: Vec::new(),
+            picking: None,
             flash: None,
             scroll_serial: 0,
             was_open: false,
@@ -293,11 +330,15 @@ impl Editor {
             settings::controller_version(base).filter(|id| self.own.iter().any(|m| &m.id == id));
         let mut items: Vec<SharedString> = vec!["Original mapping".into()];
         items.extend(self.own.iter().map(|m| SharedString::from(m.name.as_str())));
-        items.push("Duplicate…".into());
+        self.actions = vec![Action::Duplicate];
         if self.version.is_some() {
-            items.push("Rename…".into());
-            items.push("Delete…".into());
+            self.actions.extend([Action::Rename, Action::Delete]);
         }
+        self.actions.push(Action::Import);
+        if self.version.is_some() {
+            self.actions.extend([Action::Export, Action::ExportMixxx]);
+        }
+        items.extend(self.actions.iter().map(|a| SharedString::from(a.label())));
         g.set_versions(ModelRc::new(VecModel::from(items)));
         let current = self
             .version
@@ -328,16 +369,21 @@ impl Editor {
             g.set_dialog_detail(detail.into());
             g.set_dialog_action(action.into());
             g.set_dialog_text(text.into());
-            g.set_dialog(if kind == Dialog::Delete { 2 } else { 1 });
+            g.set_dialog(match kind {
+                Dialog::Delete => 2,
+                Dialog::Report => 3,
+                _ => 1,
+            });
             kind
         };
         let current_name = self
             .current_own()
             .map_or(g.get_name().to_string(), |m| m.name.clone());
-        match index {
-            0 => settings::set_controller_version(&base, None),
-            i if i <= n => settings::set_controller_version(&base, Some(&self.own[i - 1].id)),
-            i if i == n + 1 => {
+        let action = index.checked_sub(n + 1).and_then(|i| self.actions.get(i).copied());
+        match (index, action) {
+            (0, _) => settings::set_controller_version(&base, None),
+            (i, _) if i <= n => settings::set_controller_version(&base, Some(&self.own[i - 1].id)),
+            (_, Some(Action::Duplicate)) => {
                 let taken: Vec<String> = self.own.iter().map(|m| m.name.clone()).collect();
                 self.dialog = Some(open_dialog(
                     Dialog::Duplicate,
@@ -349,7 +395,7 @@ impl Editor {
                     own::copy_name(&current_name, &taken),
                 ));
             }
-            i if i == n + 2 => {
+            (_, Some(Action::Rename)) => {
                 self.dialog = Some(open_dialog(
                     Dialog::Rename,
                     "Rename mapping",
@@ -358,7 +404,7 @@ impl Editor {
                     current_name,
                 ));
             }
-            _ => {
+            (_, Some(Action::Delete)) => {
                 self.dialog = Some(open_dialog(
                     Dialog::Delete,
                     &format!("Delete {current_name}?"),
@@ -367,6 +413,24 @@ impl Editor {
                     String::new(),
                 ));
             }
+            (_, Some(Action::Import)) => {
+                let (tx, rx) = mpsc::channel();
+                crate::prefs::choose_file(
+                    "Choose a mapping from VirtualDJ, Traktor, rekordbox, djay Pro or openDJ",
+                    move |p| {
+                        let _ = tx.send(p);
+                    },
+                );
+                self.picking = Some(Picking::Import(rx));
+            }
+            (_, Some(a @ (Action::Export | Action::ExportMixxx))) => {
+                let (tx, rx) = mpsc::channel();
+                crate::prefs::choose_folder("Choose where to save the mapping", move |p| {
+                    let _ = tx.send(p);
+                });
+                self.picking = Some(Picking::Export(rx, a == Action::ExportMixxx));
+            }
+            _ => {}
         }
         self.versions(&base);
     }
@@ -385,7 +449,10 @@ impl Editor {
             return;
         };
         let name = g.get_dialog_text().trim().to_string();
-        if !ok || (kind != Dialog::Delete && name.is_empty()) {
+        if kind == Dialog::Report
+            || !ok
+            || (kind != Dialog::Delete && name.is_empty())
+        {
             return;
         }
         let id = self.version.clone();
@@ -404,6 +471,145 @@ impl Editor {
         self.versions(&base);
     }
 
+    /// Shows what an import or export did.
+    fn report(&mut self, title: &str, detail: String) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        g.set_dialog_title(title.into());
+        g.set_dialog_detail(detail.into());
+        g.set_dialog_action("OK".into());
+        g.set_dialog_text("".into());
+        g.set_dialog(3);
+        self.dialog = Some(Dialog::Report);
+    }
+
+    /// Reads a mapping from another app (or a shared openDJ one) into a new
+    /// mapping of the DJ's own, and switches the controller to it.
+    fn import(&mut self, path: &std::path::Path) {
+        let (Some(base), Some(dir)) = (self.base(), settings::own_mappings_dir()) else {
+            return;
+        };
+        let file = path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let result = if file.ends_with(".opendj-mapping") {
+            opendj_controllers::export::read_opendj(path, &dir).map(|m| {
+                opendj_controllers::import::Import {
+                    mappings: vec![m],
+                    ..Default::default()
+                }
+            })
+        } else {
+            opendj_controllers::import::import_file(path)
+        };
+        let import = match result {
+            Ok(i) => i,
+            Err(e) => {
+                self.report("Couldn't import this mapping", e);
+                return;
+            }
+        };
+        let mut lines = Vec::new();
+        let summary = import.summary();
+        if !summary.is_empty() {
+            lines.push(summary);
+        }
+        let mut first = None;
+        for m in import.mappings {
+            // Rows it doesn't have stay as the mapping shown does them.
+            let based_on = m.based_on.clone().unwrap_or_else(|| base.clone());
+            let name = m.name.clone();
+            let off = greyed(&m);
+            match own::save_new(&dir, &name, &based_on, m) {
+                Ok(saved) => {
+                    if based_on == base && first.is_none() {
+                        first = Some(saved.id.clone());
+                    }
+                    if !off.is_empty() {
+                        lines.push(format!("Greyed in {name}:\n{off}"));
+                    }
+                }
+                Err(e) => lines.push(format!("Couldn't save {name}: {e}")),
+            }
+        }
+        if !import.shortcuts.is_empty() {
+            let set = crate::shortcuts::import_set(&file, &import.shortcuts);
+            lines.push(format!(
+                "The keys are a new keyboard shortcut set, {set}, now in use; Settings › Keyboard switches sets."
+            ));
+        }
+        if !import.skipped_shortcuts.is_empty() {
+            let keys: Vec<String> = import
+                .skipped_shortcuts
+                .iter()
+                .take(12)
+                .map(|(k, a)| format!("{k}: {a}"))
+                .collect();
+            lines.push(format!("Keys left as they were:\n{}", keys.join("\n")));
+        }
+        lines.extend(import.notes);
+        if let Some(id) = first {
+            settings::set_controller_version(&base, Some(&id));
+        }
+        self.versions(&base);
+        self.report(&format!("Imported {file}"), lines.join("\n\n"));
+    }
+
+    /// Writes the own mapping in use as a shared `.opendj-mapping`, or as a
+    /// Mixxx mapping with its scripts, into `folder`.
+    fn export(&mut self, folder: &std::path::Path, mixxx: bool) {
+        let (Some(own_dir), Some(shipped)) = (settings::own_mappings_dir(), self.dir.clone()) else {
+            return;
+        };
+        let Some(current) = self.current_own().cloned() else {
+            return;
+        };
+        let mut m = current.mapping.clone();
+        m.name = current.name.clone();
+        let result = if mixxx {
+            let base = m
+                .based_on
+                .as_ref()
+                .and_then(|b| opendj_controllers::Mapping::load(&shipped.join(b)).ok());
+            let built = m.build(base.as_ref(), &shipped);
+            opendj_controllers::export::write_mixxx(&m, &built, folder)
+        } else {
+            let stem: String = m
+                .name
+                .chars()
+                .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '-' })
+                .collect();
+            let path = folder.join(format!("{}.opendj-mapping", stem.trim()));
+            opendj_controllers::export::write_opendj(&m, &shipped, &own_dir, &path)
+        };
+        match result {
+            Ok(r) => {
+                let mut detail = format!(
+                    "Saved {}.",
+                    r.written
+                        .iter()
+                        .filter_map(|p| p.file_name())
+                        .map(|f| f.to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                if !r.left_out.is_empty() {
+                    let shown: Vec<&String> = r.left_out.iter().take(12).collect();
+                    detail.push_str(&format!(
+                        "\n\nMixxx can't hold {} of the rows:\n{}",
+                        r.left_out.len(),
+                        shown.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n")
+                    ));
+                }
+                self.report("Exported", detail);
+            }
+            Err(e) => self.report("Couldn't export", e.to_string()),
+        }
+    }
+
     /// Called every frame.
     pub fn poll(&mut self) {
         let Some(app) = self.app.upgrade() else {
@@ -419,6 +625,18 @@ impl Editor {
         }
         if !open {
             return;
+        }
+        let picked = match &self.picking {
+            Some(Picking::Import(rx)) => rx.try_recv().ok().map(|p| (p, None)),
+            Some(Picking::Export(rx, mixxx)) => rx.try_recv().ok().map(|p| (p, Some(*mixxx))),
+            None => None,
+        };
+        if let Some((path, export)) = picked {
+            self.picking = None;
+            match export {
+                None => self.import(&path),
+                Some(mixxx) => self.export(&path, mixxx),
+            }
         }
         if let Some((_, rx)) = &self.loading {
             if let Ok(result) = rx.try_recv() {
@@ -777,6 +995,29 @@ type Found = (&'static str, usize, EditorRow);
 /// A group's rows in sections, each with its heading: by category, or for a
 /// group that is one category (Effects), by target ("FX 1", "FX 2") when
 /// there are many. A group with one section has no second heading.
+/// The greyed rows of an import, grouped by why, most first.
+fn greyed(m: &opendj_controllers::format::OpenDjMapping) -> String {
+    let mut why: Vec<(String, usize)> = Vec::new();
+    let notes = m
+        .rows
+        .iter()
+        .filter(|r| r.off)
+        .map(|r| &r.note)
+        .chain(m.lights.iter().filter(|l| l.off).map(|l| &l.note));
+    for note in notes {
+        match why.iter_mut().find(|(n, _)| n == note) {
+            Some((_, c)) => *c += 1,
+            None => why.push((note.clone(), 1)),
+        }
+    }
+    why.sort_by(|a, b| b.1.cmp(&a.1));
+    why.iter()
+        .take(8)
+        .map(|(n, c)| format!("{c} × {n}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn sections<'a>(categories: &[&str], rows: &[&'a Found]) -> Vec<(Option<String>, Vec<&'a Found>)> {
     let mut out: Vec<(Option<String>, Vec<&Found>)> = Vec::new();
     if categories.len() > 1 {

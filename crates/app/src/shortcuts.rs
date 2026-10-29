@@ -309,6 +309,25 @@ pub fn rebind(own: &mut Vec<(String, String)>, old: &str, new: &str) -> Option<S
 }
 
 /// A key as the DJ reads it: `⌘⇧1` on macOS, `Ctrl+Shift+1` elsewhere.
+/// Saves imported shortcuts as a new set named after `file` and starts
+/// using it; keys openDJ keeps for itself are left out. Returns its name.
+pub fn import_set(file: &str, keys: &[(String, String)]) -> String {
+    let mut own = Vec::new();
+    for (key, script) in keys {
+        if let Some(k) = normalize(key) {
+            if !FIXED.contains(&k.as_str()) {
+                set_script(&mut own, &k, script);
+            }
+        }
+    }
+    let name = file
+        .rsplit_once('.')
+        .map_or(file, |(stem, _)| stem)
+        .trim_start_matches("KEYBOARD - ")
+        .to_string();
+    settings::add_keyboard_set(&name, &own)
+}
+
 pub fn display(key: &str) -> String {
     let mac = cfg!(target_os = "macos");
     let mut parts: Vec<&str> = key.split('+').collect();
