@@ -1,0 +1,18 @@
+# Tasks
+
+## 1. API access
+
+- [ ] 1.1 Apply for or set up access per service (SoundCloud and Mixcloud first; Spotify extended quota, TIDAL, Apple MusicKit, YouTube, Beatport); note the terms each one sets
+
+## 2. Sources
+
+- [ ] 2.1 Per-source switches in place of `SERVICES_ENABLED`; switch on Spotify
+- [ ] 2.2 TIDAL and Apple Music browse
+- [ ] 2.3 SoundCloud and Mixcloud browse (no approval needed)
+- [ ] 2.4 YouTube Music and Beatport where access allows
+- [ ] 2.5 Collection matching (ISRC, then artist, title and duration); greyed unmatched tracks; Copy to openDJ list; screenshot
+- [ ] 2.6 Update the matching user guide page in website/book/src/guide
+
+## Workflow follow-up
+
+- Archive the change once its PR is merged, so the main specs take its requirements.
