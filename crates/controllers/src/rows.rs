@@ -64,7 +64,12 @@ impl Host for RowHost<'_> {
     }
 
     fn run(&mut self, call: &Call) -> Result<(), Error> {
-        let name = || call.args.first().map(|a| a.text().to_string()).unwrap_or_default();
+        let name = || {
+            call.args
+                .first()
+                .map(|a| a.text().to_string())
+                .unwrap_or_default()
+        };
         match call.verb.kind {
             Kind::SetVar => {
                 let v = call.args.get(1).map(|a| a.number()).unwrap_or(0.0);
@@ -83,7 +88,11 @@ impl Host for RowHost<'_> {
                     "led" => Shown::Byte(arg.clamp(0.0, 127.0) as u8),
                     _ => {
                         let want = name().to_ascii_lowercase();
-                        match self.colors.iter().find(|(c, _)| c.to_ascii_lowercase() == want) {
+                        match self
+                            .colors
+                            .iter()
+                            .find(|(c, _)| c.to_ascii_lowercase() == want)
+                        {
                             Some((_, b)) => Shown::Byte(*b),
                             None => Shown::On,
                         }
@@ -251,16 +260,19 @@ impl ScriptRows {
     pub(crate) fn finish(&mut self, status: u8, number: u8, value: u8, now: Instant) {
         let opcode = status & 0xF0;
         let key = (status & 0x0F | 0x90, number);
-        if opcode == 0x80 || value == 0 {
-            if self.held.remove(&key).is_some() {
-                self.last_press.insert(key, now);
-            }
+        if (opcode == 0x80 || value == 0) && self.held.remove(&key).is_some() {
+            self.last_press.insert(key, now);
         }
     }
 
     /// Runs long presses that are due and asks the lights; the messages to
     /// send go in `sent`.
-    pub(crate) fn poll(&mut self, registry: &ControlRegistry, now: Instant, sent: &mut Vec<Vec<u8>>) {
+    pub(crate) fn poll(
+        &mut self,
+        registry: &ControlRegistry,
+        now: Instant,
+        sent: &mut Vec<Vec<u8>>,
+    ) {
         let due: Vec<(Instant, (u8, u8), Input)> = {
             let (due, wait) = self.pending.drain(..).partition(|(t, _, _)| *t <= now);
             self.pending = wait;
@@ -279,7 +291,9 @@ impl ScriptRows {
         self.lights_due = now + LIGHT_EVERY;
         let millis = now.duration_since(self.start).as_millis() as u64;
         for light in &mut self.lights {
-            let Some(script) = &light.script else { continue };
+            let Some(script) = &light.script else {
+                continue;
+            };
             let mut host = RowHost {
                 registry,
                 vars: &mut self.vars,
@@ -296,7 +310,7 @@ impl ScriptRows {
                 Shown::Off => light.output.off,
                 Shown::Byte(b) => b,
                 Shown::Blink(ms) => {
-                    if (millis / ms as u64) % 2 == 0 {
+                    if (millis / ms as u64).is_multiple_of(2) {
                         on
                     } else {
                         light.output.off
@@ -372,11 +386,32 @@ mod tests {
         let reg = registry();
         let mut rows = ScriptRows::new(&empty(), &mut Vec::new());
         let t = Instant::now();
-        rows.handle(&reg, &row("deck 2 level", When::Press, &[]), 0xB0, 0x13, 0.5, t);
+        rows.handle(
+            &reg,
+            &row("deck 2 level", When::Press, &[]),
+            0xB0,
+            0x13,
+            0.5,
+            t,
+        );
         assert_eq!(reg.get("[Channel2]", "volume").unwrap().get(), 0.5);
-        rows.handle(&reg, &row("deck 1 play_pause", When::Press, &[]), 0x90, 0x0B, 1.0, t);
+        rows.handle(
+            &reg,
+            &row("deck 1 play_pause", When::Press, &[]),
+            0x90,
+            0x0B,
+            1.0,
+            t,
+        );
         rows.finish(0x90, 0x0B, 127, t);
-        rows.handle(&reg, &row("deck 1 play_pause", When::Press, &[]), 0x80, 0x0B, 0.0, t);
+        rows.handle(
+            &reg,
+            &row("deck 1 play_pause", When::Press, &[]),
+            0x80,
+            0x0B,
+            0.0,
+            t,
+        );
         rows.finish(0x80, 0x0B, 0, t);
         assert_eq!(reg.get("[Channel1]", "play").unwrap().get(), 1.0);
     }
