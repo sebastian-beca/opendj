@@ -6264,6 +6264,9 @@ name = "opendj-plugins"
 version = "0.4.0"
 dependencies = [
  "opendj-engine",
+ "rbox-anlz",
+ "rbox-core",
+ "rbox-masterdb",
  "roxmltree",
  "serde_json",
  "ureq",

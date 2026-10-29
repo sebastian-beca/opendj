@@ -132,8 +132,8 @@ phrases**) to turn the bars off or on for every deck.
 
 Press **Set up…** next to **Import from VirtualDJ** in **Settings ›
 Library › Import**. That tab is always there and lists every DJ app openDJ
-can bring a library in from; rekordbox, Mixxx, Serato DJ and Traktor are
-marked coming soon. Three steps follow:
+can bring a library in from; Mixxx, Serato DJ and Traktor are marked coming
+soon. Three steps follow:
 
 1. **Find your library.** openDJ looks for `database.xml` in
    `~/Library/Application Support/VirtualDJ` (or `~/.vdj` on Linux) and
@@ -167,6 +167,32 @@ stops updating it. **Remove…** takes out
 the VirtualDJ folder and history, VirtualDJ's cues, grids and markers, and
 the tracks only VirtualDJ had. Tracks in your own lists or music folder
 stay. Either one closes the section again, back to **Set up…**.
+
+### Lists of online tracks
+
+Streamed tracks (VirtualDJ's online catalogues, a streaming service in
+rekordbox) never come in, as there is no file to play. A list made only of
+them starts unticked, marked **Online only**, and stays out even if you tick
+it, rather than coming in empty.
+
+## Bringing in a rekordbox library
+
+**Import from rekordbox** works the same way. openDJ reads rekordbox 6 and
+7's own database, `master.db`, which it finds where rekordbox keeps it
+(`~/Library/Pioneer/rekordbox` on a Mac, `AppData\Roaming\Pioneer\rekordbox`
+on Windows). For rekordbox 5, or if the database can't be opened, export
+your collection from rekordbox (**File › Export Collection in xml format**)
+and choose that file in the first step.
+
+From `master.db` each track keeps its tags, stars, colour, comment, play
+count, date added, key, My Tags (as tags like `#warmup`), hot cues A to H
+with their names and colours, memory cues, saved loops, its beat grid with
+any tempo changes, and rekordbox's phrases (Intro, Verse, Chorus and so on,
+shown on the waveform as openDJ's own phrases are). Playlists come in their
+folders, intelligent playlists as smart lists where openDJ's search can say
+the same thing, and history into the History tab. An XML export holds
+tracks, grids, cues and playlists, but no phrases, history or intelligent
+playlists.
 
 ### The same song from two apps
 

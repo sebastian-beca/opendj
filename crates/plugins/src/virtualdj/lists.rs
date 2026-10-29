@@ -348,7 +348,7 @@ fn history(dir: &Path, out: &mut Vec<ImportedList>) {
 }
 
 /// The Unix time a day named "2023-11-13" starts (UTC).
-fn day_start(name: &str) -> Option<i64> {
+pub(crate) fn day_start(name: &str) -> Option<i64> {
     let mut parts = name.get(..10)?.splitn(3, '-');
     let y: i64 = parts.next()?.parse().ok()?;
     let m: i64 = parts.next()?.parse().ok()?;
