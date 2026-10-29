@@ -20,3 +20,10 @@ Map mode SHALL tint the main window; clicking an on-screen control and then movi
 #### Scenario: Learn a knob
 - **WHEN** Map mode is on, a filter knob is clicked and a controller knob turned
 - **THEN** that knob now drives the filter
+
+### Requirement: Quick map
+For a connected MIDI controller with no mapping, openDJ SHALL offer Quick map: it highlights the usual deck, mixer and library controls one at a time, binds each to the next hardware control the DJ moves, lets the DJ skip any, and saves the result as the DJ's own mapping.
+
+#### Scenario: New controller
+- **WHEN** an unmapped controller is plugged in and the DJ runs Quick map, moving a control for each step
+- **THEN** a mapping named after the controller is in use, and every step not skipped works

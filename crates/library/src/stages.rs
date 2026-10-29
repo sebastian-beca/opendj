@@ -7,8 +7,8 @@
 //!   tags, cover, rating, tempo and key. Subfolders of the triage folder
 //!   are *triage crates* (e.g. "Yoga STG"), tracks sorted by where they
 //!   will go.
-//! - **Collection**: prepared tracks. Subfolders are kept as they are
-//!   (e.g. "Albums").
+//! - **Collection**: prepared tracks. Subfolders are kept as they are.
+//!   The albums folder, wherever it is, counts as part of the collection.
 //!
 //! A track's stage is kept in the library, so it can change before its
 //! file moves (while the DJ still uses another app that points at the old
@@ -68,6 +68,9 @@ pub struct Folders {
     pub inbox: Vec<PathBuf>,
     pub triage: Option<PathBuf>,
     pub collection: Option<PathBuf>,
+    /// Albums, one folder each: their tracks are in the collection, but
+    /// stay where they are.
+    pub albums: Option<PathBuf>,
 }
 
 impl Folders {
@@ -83,6 +86,7 @@ impl Folders {
             .iter()
             .chain(&self.triage)
             .chain(&self.collection)
+            .chain(&self.albums)
             .map(PathBuf::as_path)
             .collect()
     }
@@ -113,6 +117,9 @@ impl Folders {
             consider(dir, Stage::Triage);
         }
         if let Some(dir) = &self.collection {
+            consider(dir, Stage::Collection);
+        }
+        if let Some(dir) = &self.albums {
             consider(dir, Stage::Collection);
         }
         best.map(|(_, s)| s)
@@ -264,6 +271,7 @@ mod tests {
             inbox: vec!["/u/Downloads".into(), "/u/Soulseek Downloads".into()],
             triage: Some("/u/DB/_Staging".into()),
             collection: Some("/u/DB/Library".into()),
+            albums: Some("/u/DB/Albums".into()),
         }
     }
 
@@ -310,6 +318,11 @@ mod tests {
             Some(Stage::Collection)
         );
         assert_eq!(f.stage_of(Path::new("/u/Music/a.flac")), None);
+        // Albums are in the collection, in their own folder.
+        assert_eq!(
+            f.stage_of(Path::new("/u/DB/Albums/Air/Moon Safari/01 La femme.flac")),
+            Some(Stage::Collection)
+        );
         // A triage folder inside the collection's folder is still triage.
         f.triage = Some("/u/DB/Library/_Staging".into());
         assert_eq!(

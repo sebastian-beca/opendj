@@ -44,7 +44,13 @@ impl Browser {
                 let Some(&node) = b.visible_nodes.get(row as usize) else {
                     return;
                 };
-                let tracks = b.node_tracks(node);
+                // Mixed sets are hours of many tempos and keys: only
+                // analysed when asked for one by one.
+                let tracks: Vec<usize> = b
+                    .node_tracks(node)
+                    .into_iter()
+                    .filter(|&t| !b.is_mixed_set(&b.library[t]))
+                    .collect();
                 b.analyze(&tracks);
             })
         });

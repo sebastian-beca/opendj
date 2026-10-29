@@ -44,6 +44,7 @@ mod coverart;
 mod diagnostics;
 mod files;
 mod inbox;
+mod list_picker;
 mod lookup;
 #[cfg(target_os = "macos")]
 mod mac_menu;
@@ -847,6 +848,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let now = Instant::now();
                 let dt = now.duration_since(last_tick.replace(now)).as_secs_f64();
+                if host.browser.take_album_request() {
+                    automix.borrow_mut().play_album();
+                }
                 automix.borrow_mut().tick(&mut host, &tracks, dt.min(0.1));
                 automix.borrow().show(&app, b.automix_len(), &tracks);
                 drop(b);
@@ -938,16 +942,18 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
         .filter(|d| d.is_dir())
         .collect();
     let folders = settings::stage_folders();
-    // The music folders and the stage folders, each folder once: one inside
-    // another (Downloads/Soulseek, a stage folder in a music folder) is
-    // scanned with it.
+    // The music folders, the stage folders (the albums folder with them)
+    // and the mixed sets folder, each folder once: one inside another
+    // (Downloads/Soulseek, a stage folder in a music folder) is scanned
+    // with it.
     let mut wanted: Vec<PathBuf> = Vec::new();
     for dir in music.iter().cloned().chain(
         folders
             .all()
             .into_iter()
-            .filter(|d| d.is_dir())
-            .map(Path::to_path_buf),
+            .map(Path::to_path_buf)
+            .chain(settings::mixed_sets_folder())
+            .filter(|d| d.is_dir()),
     ) {
         if !wanted.contains(&dir) {
             wanted.push(dir);
@@ -1035,21 +1041,30 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                     };
                     let groups = settings::import_groups(importer.as_ref());
                     let theirs = settings::import_theirs_win(importer.id());
+                    let choices = settings::import_list_choices(importer.id());
+                    let mut picked: Vec<_> = choices.iter().collect();
+                    picked.sort();
                     // Changing what comes in, or whose tags win, brings it in again.
                     let stamp = format!(
-                        "{}|{}|{theirs}",
+                        "{}|{}|{theirs}|{picked:?}",
                         importer.stamp(&database),
                         groups.join(",")
                     );
                     match db.import_with(importer.id(), importer.title(), &stamp, theirs, || {
-                        importer.read(&database, &groups)
+                        let mut library = importer.read(&database, &groups)?;
+                        library
+                            .lists
+                            .retain(|l| settings::import_list_wanted(&choices, l));
+                        Ok(library)
                     }) {
                         Ok(Some(r)) => eprintln!(
-                            "{}: {} tracks added, {} updated; {} lists, folders and \
-                             sessions ({} entries without a file here left out)",
+                            "{}: {} tracks added, {} updated, {} matched to a copy already \
+                             here; {} lists, folders and sessions ({} entries without a file \
+                             here left out)",
                             importer.id(),
                             r.added,
                             r.updated,
+                            r.matched,
                             r.lists,
                             r.unmatched
                         ),

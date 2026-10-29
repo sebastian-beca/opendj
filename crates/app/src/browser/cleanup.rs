@@ -189,6 +189,35 @@ impl Browser {
         }
     }
 
+    /// Opens the review table with each of these tracks (indices into
+    /// `library`) given the album tag its album folder should share.
+    pub(super) fn review_album_tags(&mut self, indices: &[usize]) -> String {
+        self.cleanup.review = indices
+            .iter()
+            .filter_map(|&i| {
+                let t = &self.library[i];
+                let new = self.health.album_tag(t.id)?;
+                Some(Pending {
+                    index: i,
+                    change: Change {
+                        field: Field::Album,
+                        old: t.album.clone(),
+                        new: new.to_string(),
+                    },
+                    on: true,
+                    note: "Most of its album".into(),
+                })
+            })
+            .collect();
+        self.cleanup.heading = "Album tags for";
+        self.refresh_cleanup_ui();
+        if self.cleanup.review.is_empty() {
+            "Every album already shares one album tag.".into()
+        } else {
+            String::new()
+        }
+    }
+
     /// Shows the review table and the genres as things are now.
     pub(super) fn refresh_cleanup_ui(&self) {
         let Some(app) = self.app.upgrade() else {
@@ -337,6 +366,9 @@ impl Browser {
             self.library[i] = Arc::new(t);
             logged.extend(these);
         }
+        if logged.iter().any(|(_, field, _, _)| *field == Field::Album) {
+            self.refresh_album_tags();
+        }
         (logged, unwritten)
     }
 
@@ -372,7 +404,7 @@ impl Browser {
     /// Every genre in the collection and how many tracks have it.
     fn genre_counts(&self) -> BTreeMap<String, usize> {
         let mut out = BTreeMap::new();
-        for t in self.library.iter().filter(|t| !is_browsed(t)) {
+        for t in self.library.iter().filter(|t| self.in_collection(t)) {
             let g = t.genre.trim();
             if !g.is_empty() {
                 *out.entry(g.to_string()).or_default() += 1;
