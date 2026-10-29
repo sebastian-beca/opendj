@@ -70,15 +70,20 @@ pub fn set_automix_style(i: usize) {
     save(|v| v["automix_style"] = json!(i));
 }
 
-/// Where mixes are recorded, and in what format.
+/// Where mixes are recorded, and in what format: in the mixed sets folder
+/// once there is one, else the recordings folder.
 pub fn recording() -> RecordSettings {
     let v = load();
     let d = RecordSettings::default();
     RecordSettings {
-        dir: v["recording_folder"]
-            .as_str()
-            .filter(|s| !s.is_empty())
-            .map(PathBuf::from)
+        dir: mixed_sets_folder()
+            .map(|m| m.join(RECORDINGS_SUBFOLDER))
+            .or_else(|| {
+                v["recording_folder"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .map(PathBuf::from)
+            })
             .unwrap_or(d.dir),
         format: v["recording_format"]
             .as_str()
@@ -498,7 +503,26 @@ pub fn stage_folders() -> opendj_library::stages::Folders {
         inbox: paths(STAGE_INBOX),
         triage: path_of(STAGE_TRIAGE),
         collection: path_of(STAGE_COLLECTION),
+        albums: albums_folder(),
     }
+}
+
+/// Albums, a folder each (or Artist/Album): in the collection, and in the
+/// rail's Albums source.
+pub const ALBUMS_FOLDER: &str = "albums_folder";
+/// Mixed sets: recordings of whole DJ sets, hours long. Kept out of the
+/// collection, in the rail's Mixed Sets source; openDJ's own recordings go
+/// in a subfolder.
+pub const MIXED_SETS_FOLDER: &str = "mixed_sets_folder";
+/// The subfolder of the mixed sets folder that recordings are saved in.
+pub const RECORDINGS_SUBFOLDER: &str = "openDJ Recordings";
+
+pub fn albums_folder() -> Option<PathBuf> {
+    path_of(ALBUMS_FOLDER)
+}
+
+pub fn mixed_sets_folder() -> Option<PathBuf> {
+    path_of(MIXED_SETS_FOLDER)
 }
 
 pub const STAGE_INBOX: &str = "stage_inbox";
