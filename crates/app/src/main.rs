@@ -58,6 +58,7 @@ mod smooth;
 mod sources;
 mod spotify;
 mod stores;
+mod tour;
 mod ui_font;
 mod update;
 mod waves;
@@ -283,6 +284,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     diagnostics::install();
+    // Before anything is saved: no settings yet means a first start, which
+    // gets the guided tour.
+    let first_run = settings::load().as_object().is_none_or(|m| m.is_empty());
     let backend =
         slint::BackendSelector::new().require_wgpu_30(slint::wgpu_30::WGPUConfiguration::default());
     // On macOS the app draws under a hidden title bar: only
@@ -506,6 +510,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             registry.clone(),
             dir,
             settings::controller_mappings(),
+            settings::controller_versions(),
         ))),
         None => {
             eprintln!("controller mappings not found; MIDI controllers are disabled");
@@ -553,6 +558,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Box::new(move || engine.input_status())
             },
         },
+    );
+
+    let tour = tour::Tour::install(
+        &app,
+        registry.clone(),
+        engine.clone(),
+        controllers.clone(),
+        prefs.clone(),
+        first_run,
     );
 
     let decks = Rc::new(Decks::new(&registry));
@@ -809,6 +823,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 browser.borrow_mut().poll_files();
                 sampler.borrow_mut().poll();
                 prefs.borrow_mut().poll();
+                tour.borrow_mut().poll();
                 controller_editor.borrow_mut().poll();
                 if let Some(c) = &controllers {
                     let names: Vec<String> = c.connected().into_iter().map(|c| c.port).collect();

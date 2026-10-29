@@ -4,6 +4,7 @@
 // which the app bumps whenever a control changes, so values refresh without
 // per-control wiring.
 import { Theme } from "theme.slint";
+import { TourMark } from "tourmark.slint";
 
 export global Controls {
     in property <int> tick;
@@ -52,6 +53,8 @@ component KnobArc inherits Path {
 
 // A round knob (see below).
 export component ControlKnob inherits Rectangle {
+    // Names it for the guided tour (see TourMark).
+    in property <string> tour-id;
     in property <string> group;
     in property <string> key;
     in property <string> label;
@@ -160,11 +163,14 @@ export component ControlKnob inherits Rectangle {
             accept
         }
     }
+    TourMark { id: root.tour-id; }
 }
 
 // Flat dark button with a thin border. When its light is on, the label and
 // border take the tint.
 export component ControlButton inherits Rectangle {
+    // Names it for the guided tour (see TourMark).
+    in property <string> tour-id;
     in property <string> group;
     in property <string> key;
     in property <string> text;
@@ -283,10 +289,13 @@ export component ControlButton inherits Rectangle {
             }
         }
     }
+    TourMark { id: root.tour-id; }
 }
 
 // Fader with tick marks either side of a dark slot and a grey metal-look cap.
 export component ControlFader inherits Rectangle {
+    // Names it for the guided tour (see TourMark).
+    in property <string> tour-id;
     in property <string> group;
     in property <string> key;
     in property <bool> vertical: true;
@@ -398,6 +407,7 @@ export component ControlFader inherits Rectangle {
         let c = max(0, min(1, p));
         inv ? 1 - c : c
     }
+    TourMark { id: root.tour-id; }
 }
 
 // The crossfader. A right-click switches it off and on again
@@ -405,6 +415,8 @@ export component ControlFader inherits Rectangle {
 // every deck plays as if set to thru, and the fader sits greyed out in the
 // centre.
 export component Crossfader inherits Rectangle {
+    // Names it for the guided tour (see TourMark).
+    in property <string> tour-id;
     property <int> enabled-index: Controls.resolve("[Mixer]", "crossfader_enabled");
     property <bool> on: Controls.value(enabled-index, Controls.tick) > 0;
     property <length> menu-x;
@@ -453,11 +465,14 @@ export component Crossfader inherits Rectangle {
             }
         }
     }
+    TourMark { id: root.tour-id; }
 }
 
 // Segmented level meter: green, then yellow, then red at the top.
 // Headphone cue (PFL) as a bare headphone icon: grey when off, green when on.
 export component CueHeadphones inherits Rectangle {
+    // Names it for the guided tour (see TourMark).
+    in property <string> tour-id;
     in property <string> group;
     // The fill while on: the deck's colour.
     in property <color> tint: Theme.accent;
@@ -495,6 +510,7 @@ export component CueHeadphones inherits Rectangle {
         mouse-cursor: pointer;
         clicked => { Controls.set-value(index, lit ? 0 : 1); }
     }
+    TourMark { id: root.tour-id; }
 }
 
 export component VuMeter inherits Rectangle {
@@ -685,6 +701,8 @@ export component KeyLock inherits Rectangle {
 // SYNC (Shift-click syncs once). A right-click opens the deck's quantize:
 // on and off, and what it snaps to, 1/16 of a beat up to a bar.
 export component SyncButton inherits Rectangle {
+    // Names it for the guided tour (see TourMark).
+    in property <string> tour-id;
     in property <string> group;
     in property <color> tint: Theme.accent;
     in property <length> font-size: Theme.font-normal;
@@ -775,6 +793,7 @@ export component SyncButton inherits Rectangle {
             Text { text: "Steps in beats; 4 is a bar."; color: Theme.text-dim; font-size: 11px; }
         }
     }
+    TourMark { id: root.tour-id; }
 }
 
 // MASTER: lit on the deck the synced decks follow, filled while it is

@@ -2,11 +2,12 @@
 // the whole app, opened from Settings › Controllers. The controller's
 // picture is on the left, the mapping's controls by function on the right.
 // Pointing at a part of the picture names it, clicking it lists only what
-// it does, and pressing a control on the controller itself finds it. This
-// first version only shows the mapping; editing comes later.
+// it does, and pressing a control on the controller itself finds it. A
+// selected row is edited in the panel under the list; changing the original
+// mapping first makes the DJ's own copy of it.
 import { Theme } from "theme.slint";
 import { MenuField } from "mixer.slint";
-import { SearchField, CloseButton } from "preferences.slint";
+import { SearchField, CloseButton, Switch } from "preferences.slint";
 import { ListView, ScrollView } from "scroll.slint";
 
 // A row of the Controls or Lights list, or a heading above them: a group
@@ -38,6 +39,11 @@ export struct EditorRow {
     // The part of the picture it belongs to.
     part: string,
     selected: bool,
+    // Changed in the DJ's own mapping.
+    edited: bool,
+    // Kept but doing nothing (an import couldn't translate it); `detail`
+    // says why.
+    off: bool,
 }
 
 // A control on the picture, in the layout's units.
@@ -123,6 +129,35 @@ export global ControllerEditor {
     // top is at `scroll-to` in the list, is in view.
     in property <length> scroll-to;
     in property <int> scroll-serial;
+    // The panel editing the selected row.
+    in property <bool> editing;
+    in property <string> edit-control;
+    in property <string> edit-midi;
+    in property <string> edit-function;
+    in property <[string]> edit-targets;
+    in property <int> edit-target;
+    in property <string> edit-target-name;
+    in property <[string]> whens;
+    in property <int> edit-when;
+    in property <[string]> button-modes;
+    in property <int> edit-buttons;
+    in property <[string]> encoder-modes;
+    in property <int> edit-encoder;
+    in property <bool> edit-invert;
+    in property <bool> edit-pickup;
+    // A button (notes) rather than a knob, fader or encoder.
+    in property <bool> edit-is-button;
+    // Changed from the original, so it can be reset.
+    in property <bool> edit-edited;
+    // What to know before changing it: a script row, a greyed one.
+    in property <string> edit-hint;
+    // The row can be changed (a greyed row can't yet).
+    in property <bool> edit-enabled: true;
+    in-out property <bool> advanced;
+    // Choosing a function: the list, narrowed by the search.
+    in-out property <bool> picker-open;
+    in-out property <string> picker-query;
+    in property <[EditorRow]> picker-rows;
     // Opens the editor on the controller plugged in, or the first mapping.
     callback show();
     // Opens the editor on this mapping file, from a controller's Edit in
@@ -135,6 +170,17 @@ export global ControllerEditor {
     callback row-clicked(tab: int, index: int);
     callback searched();
     callback clear-filter();
+    callback open-picker();
+    callback picker-searched();
+    callback picker-picked(index: int);
+    callback set-target(index: int);
+    callback set-when(index: int);
+    callback set-buttons(index: int);
+    callback set-encoder(index: int);
+    callback set-invert(on: bool);
+    callback set-pickup(on: bool);
+    callback set-nothing();
+    callback reset-row();
 }
 
 // What kind of control a row is: a button or pad (MIDI notes) as a dot in a
@@ -236,8 +282,10 @@ component FunctionRow inherits Rectangle {
         : item.selected ? Theme.selection
         : ta.has-hover ? #222225
         : alt ? Theme.row-alt : Theme.row;
-    property <color> ink: item.selected ? Theme.on-row-selection : Theme.text;
-    property <color> dim: item.selected ? Theme.on-row-selection-dim : Theme.text-dim;
+    property <color> ink: item.selected ? Theme.on-row-selection : item.off ? #6a6a70 : Theme.text;
+    property <color> dim: item.selected ? Theme.on-row-selection-dim : item.off ? #55555a : Theme.text-dim;
+    // A change of the DJ's own: a lilac mark on the left edge.
+    if item.edited: Rectangle { x: 0; width: 3px; background: Theme.lilac; }
     if item.header: HorizontalLayout {
         padding-left: item.level == 0 ? 12px : 30px;
         padding-right: 24px;
@@ -294,6 +342,8 @@ component FunctionRow inherits Rectangle {
                 Text { text: item.function; color: ink; font-size: 13px; font-weight: 500; overflow: elide; vertical-alignment: center; horizontal-stretch: 0; }
                 if item.target != "": Chip { text: item.target; ink: item.selected ? Theme.on-row-selection : Theme.text; fill: item.selected ? #ffffff30 : #2a2a2e; }
                 if item.script != "": Chip { text: "script"; ink: item.selected ? Theme.on-row-selection : Theme.lilac; fill: item.selected ? #ffffff30 : Theme.lilac.with-alpha(0.15); }
+                if item.edited: Chip { text: "changed"; ink: item.selected ? Theme.on-row-selection : Theme.lilac; fill: item.selected ? #ffffff30 : Theme.lilac.with-alpha(0.15); }
+                if item.off: Chip { text: "not working"; ink: item.selected ? Theme.on-row-selection : Theme.text-dim; fill: item.selected ? #ffffff30 : #2a2a2e; }
                 Rectangle { horizontal-stretch: 1; }
             }
             if item.detail != "": Text { text: item.detail; color: dim; font-size: 11px; overflow: elide; }
@@ -459,6 +509,226 @@ component DialogButton inherits Rectangle {
     }
 }
 
+// A label, a field and a short hint under it, in the row editor.
+component EditField inherits VerticalLayout {
+    in property <string> label;
+    in property <string> hint;
+    spacing: 3px;
+    HorizontalLayout {
+        spacing: 10px;
+        Text { width: 92px; text: root.label; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
+        @children
+    }
+    if root.hint != "": HorizontalLayout {
+        padding-left: 102px;
+        Text { text: root.hint; color: #77777d; font-size: 10px; wrap: word-wrap; }
+    }
+}
+
+component SmallButton inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+    height: 24px;
+    width: sb.preferred-width;
+    border-radius: Theme.radius;
+    background: ta.has-hover ? #3a3a3e : #2c2c30;
+    sb := HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        Text { text: root.text; color: Theme.text; font-size: 11px; font-weight: 500; vertical-alignment: center; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The selected row, to change: what it does and on what, and folded under
+// Advanced when it acts and how its value is read.
+component RowEditor inherits Rectangle {
+    background: #19191c;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border;
+    height: el.preferred-height;
+    el := VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: ControllerEditor.edit-control; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; overflow: elide; }
+            Text { text: ControllerEditor.edit-midi; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
+            Rectangle { horizontal-stretch: 1; }
+            if ControllerEditor.edit-enabled: SmallButton { text: "Does nothing"; clicked => { ControllerEditor.set-nothing(); } }
+            if ControllerEditor.edit-edited: SmallButton { text: "Back to original"; clicked => { ControllerEditor.reset-row(); } }
+        }
+        if ControllerEditor.edit-hint != "": Text { text: ControllerEditor.edit-hint; color: Theme.text-dim; font-size: 11px; wrap: word-wrap; }
+        if ControllerEditor.edit-enabled: EditField {
+            label: "Function";
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 26px;
+                background: fta.has-hover ? #2a2a2e : Theme.control;
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.border;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    spacing: 6px;
+                    Text { text: ControllerEditor.edit-function; color: Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                    Text { text: "Change…"; color: Theme.lilac; font-size: 11px; vertical-alignment: center; }
+                }
+                fta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { ControllerEditor.open-picker(); }
+                }
+            }
+            if ControllerEditor.edit-targets.length > 1: MenuField {
+                width: 130px;
+                menu-width: 170px;
+                text: ControllerEditor.edit-target-name;
+                choices: ControllerEditor.edit-targets;
+                chosen: ControllerEditor.edit-target;
+                picked(i) => { ControllerEditor.set-target(i); }
+            }
+        }
+        if ControllerEditor.edit-enabled: HorizontalLayout {
+            Rectangle {
+                width: al.preferred-width;
+                height: 20px;
+                al := HorizontalLayout {
+                    spacing: 6px;
+                    VerticalLayout {
+                        alignment: center;
+                        Chevron { open: ControllerEditor.advanced; color: Theme.text-dim; }
+                    }
+                    Text { text: "Advanced"; color: Theme.text-dim; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { ControllerEditor.advanced = !ControllerEditor.advanced; }
+                }
+            }
+        }
+        if ControllerEditor.edit-enabled && ControllerEditor.advanced: VerticalLayout {
+            spacing: 8px;
+            EditField {
+                label: "Acts on";
+                hint: "Long press, tap and double press let one button do more than one thing.";
+                MenuField {
+                    width: 200px;
+                    text: ControllerEditor.whens[ControllerEditor.edit-when];
+                    choices: ControllerEditor.whens;
+                    chosen: ControllerEditor.edit-when;
+                    picked(i) => { ControllerEditor.set-when(i); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            if ControllerEditor.edit-is-button: EditField {
+                label: "Button";
+                hint: "Leave it as the function does it unless a button sticks or needs holding.";
+                MenuField {
+                    width: 200px;
+                    text: ControllerEditor.button-modes[ControllerEditor.edit-buttons];
+                    choices: ControllerEditor.button-modes;
+                    chosen: ControllerEditor.edit-buttons;
+                    picked(i) => { ControllerEditor.set-buttons(i); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            if !ControllerEditor.edit-is-button: EditField {
+                label: "Knob type";
+                hint: "Pick an endless type for a knob that turns round and round.";
+                MenuField {
+                    width: 200px;
+                    menu-width: 240px;
+                    text: ControllerEditor.encoder-modes[ControllerEditor.edit-encoder];
+                    choices: ControllerEditor.encoder-modes;
+                    chosen: ControllerEditor.edit-encoder;
+                    picked(i) => { ControllerEditor.set-encoder(i); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            if !ControllerEditor.edit-is-button: EditField {
+                label: "Pick-up";
+                hint: "The knob only takes over once it passes the value on screen, so nothing jumps.";
+                Switch { on: ControllerEditor.edit-pickup; toggled(on) => { ControllerEditor.set-pickup(on); } }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            EditField {
+                label: "Invert";
+                hint: ControllerEditor.edit-is-button ? "Pressed reads as let go, and the other way round." : "Up is down: for a fader or knob that works the wrong way.";
+                Switch { on: ControllerEditor.edit-invert; toggled(on) => { ControllerEditor.set-invert(on); } }
+                Rectangle { horizontal-stretch: 1; }
+            }
+        }
+    }
+}
+
+// Choosing what a control does: every function by category, searchable.
+component FunctionPicker inherits Rectangle {
+    background: #00000060;
+    TouchArea {
+        clicked => { ControllerEditor.picker-open = false; }
+    }
+    Rectangle {
+        width: 460px;
+        height: min(560px, root.height - 120px);
+        border-radius: 12px;
+        background: Theme.panel-raised;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 30px;
+        drop-shadow-color: #000000c0;
+        clip: true;
+        TouchArea { }
+        VerticalLayout {
+            padding: 14px;
+            spacing: 10px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: "Choose a function for " + ControllerEditor.edit-control; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                CloseButton { clicked => { ControllerEditor.picker-open = false; } }
+            }
+            ps := SearchField {
+                text <=> ControllerEditor.picker-query;
+                edited => { ControllerEditor.picker-searched(); }
+                init => { self.focus-input(); }
+            }
+            ListView {
+                vertical-stretch: 1;
+                for r[i] in ControllerEditor.picker-rows: Rectangle {
+                    height: r.header ? 28px : 30px;
+                    background: r.header ? transparent : r.selected ? Theme.selection : pta.has-hover ? #2a2a2e : transparent;
+                    border-radius: 4px;
+                    HorizontalLayout {
+                        padding-left: r.header ? 4px : 14px;
+                        padding-right: 10px;
+                        spacing: 8px;
+                        Text {
+                            text: r.function;
+                            color: r.header ? Theme.lilac : r.selected ? Theme.on-row-selection : Theme.text;
+                            font-size: r.header ? 11px : 13px;
+                            font-weight: r.header ? 700 : 400;
+                            letter-spacing: r.header ? 0.6px : 0px;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                        if !r.header && r.kind != "": Text { text: r.kind; color: r.selected ? Theme.on-row-selection-dim : Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+                        if !r.header: Text { text: r.target; color: r.selected ? Theme.on-row-selection-dim : Theme.text-dim; font-size: 11px; vertical-alignment: center; }
+                    }
+                    pta := TouchArea {
+                        mouse-cursor: r.header ? default : pointer;
+                        clicked => { if !r.header { ControllerEditor.picker-picked(i); } }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // Naming a mapping, asking before deleting one, or what an import brought.
 component EditorDialog inherits Rectangle {
     background: #00000080;
@@ -563,7 +833,7 @@ export component ControllerEditorOverlay inherits Rectangle {
                 }
                 VerticalLayout {
                     alignment: center;
-                    Chip { text: ControllerEditor.original ? "Original · view only" : "View only for now"; }
+                    Chip { text: ControllerEditor.original ? "Original · a change makes your own copy" : "Your mapping"; }
                 }
                 Text {
                     text: ControllerEditor.author != "" ? "by " + ControllerEditor.author : "";
@@ -729,10 +999,15 @@ export component ControllerEditorOverlay inherits Rectangle {
                             }
                         }
                     }
+                    if ControllerEditor.tab == 0 && ControllerEditor.editing: RowEditor { }
                     Rectangle { height: 2px; }
                 }
             }
         }
+    }
+    if ControllerEditor.picker-open: FunctionPicker {
+        width: root.width;
+        height: root.height;
     }
     if ControllerEditor.dialog != 0: EditorDialog {
         width: root.width;

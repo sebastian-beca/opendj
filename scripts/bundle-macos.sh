@@ -10,6 +10,8 @@ rm -rf dist/openDJ.app
 mkdir -p "$app/MacOS" "$app/Resources"
 cp "$binary" "$app/MacOS/opendj"
 cp -R res/controllers "$app/Resources/controllers"
+# The guided tour's demo tracks, once they are in the repository.
+if [ -d res/demo ]; then cp -R res/demo "$app/Resources/demo"; fi
 
 icons=dist/openDJ.iconset
 mkdir -p "$icons"
