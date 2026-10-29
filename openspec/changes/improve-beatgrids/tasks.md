@@ -1,13 +1,18 @@
 # Tasks
 
-## 1. Detection
+## 1. Research
 
-- [ ] 1.1 Build a labelled benchmark and improve downbeats
+- [ ] 1.1 Compare djay Pro, rekordbox, Serato, Traktor and VirtualDJ grids and editing; compare open detectors (licence, accuracy, speed, size) on a labelled benchmark from Seba's collection; write the recommendation for Seba
 
-## 2. Editing
+## 2. Detection
 
-- [ ] 2.1 Add edit mode, lock and the unsure mark; screenshot
-- [ ] 2.2 Update the matching user guide page in website/book/src/guide
+- [ ] 2.1 Build the chosen detector; better downbeats; dynamic sections only where needed; unsure mark
+
+## 3. Saving and editing
+
+- [ ] 3.1 Saved grids: lock, source shown, back to analysed; file tags if the research says so
+- [ ] 3.2 Grid edit mode on the waveform with undo; screenshot
+- [ ] 3.3 Update the matching user guide page in website/book/src/guide
 
 ## Workflow follow-up
 

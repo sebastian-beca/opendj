@@ -19,7 +19,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-controller-viewer](changes/add-controller-viewer/proposal.md) (view-only Controller Editor, pulled forward by Seba 2026-10-27)
 - [add-pioneer-usb-export](changes/add-pioneer-usb-export/proposal.md) (built on rbox, experimental until tried on a player; Seba 2026-10-28)
 
-## v0.5 · Stems and performance
+## v0.5 · Stems, performance and switching over
 
 - [improve-stem-separation](changes/improve-stem-separation/proposal.md) (instant stems on load, studio-quality stems in the background; moved ahead of stores by Seba, 2026-10-27)
 - [add-stem-fx-and-acapella](changes/add-stem-fx-and-acapella/proposal.md)
@@ -29,6 +29,14 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-fx-pre-post-and-headphone](changes/add-fx-pre-post-and-headphone/proposal.md)
 - [add-sample-packs](changes/add-sample-packs/proposal.md) (sampler with your own samples and sample packs, issue #60)
 - [improve-fx-engine](changes/improve-fx-engine/proposal.md) (faster rack, cleaner delays and new effects; from the FX library review, Seba 2026-10-27)
+- [add-more-library-imports](changes/add-more-library-imports/proposal.md) (rekordbox and Mixxx imports, VirtualDJ import updated; moved from v0.7 by Seba 2026-10-29, issue #131, #75)
+- [add-more-controllers](changes/add-more-controllers/proposal.md) (popular controllers supported and drawn; Seba 2026-10-29, issue #132)
+- [add-controller-mapper](changes/add-controller-mapper/proposal.md) (own mappings, editing, Map mode and Quick map; moved from v1.0 by Seba 2026-10-29, issue #133)
+- [add-controller-mapping-import-export](changes/add-controller-mapping-import-export/proposal.md) (VirtualDJ, Traktor, rekordbox and djay Pro mappings in; openDJ and Mixxx out; keyboard sets; Seba 2026-10-29, issue #133, PR #140)
+- [improve-beatgrids](changes/improve-beatgrids/proposal.md) (research first, djay Pro as the bar; saved grids and editing; moved from v1.0 by Seba 2026-10-29, issue #134)
+- [add-first-run-setup](changes/add-first-run-setup/proposal.md) (first-run guided tour; moved from v1.0 by Seba 2026-10-29, issue #135)
+- [add-tutorials](changes/add-tutorials/proposal.md) (advanced tutorials in Help; Seba 2026-10-29, issue #136)
+- [add-streaming-browse](changes/add-streaming-browse/proposal.md) (Spotify, TIDAL, Apple Music, SoundCloud, Mixcloud and other streaming playlists, browse only; Seba 2026-10-29, issue #139)
 
 ## v0.6 · Buy it from the artist
 
@@ -40,21 +48,17 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 
 ## v0.7 · Your library, everywhere
 
-- [add-more-library-imports](changes/add-more-library-imports/proposal.md)
 - [add-phrase-analysis](changes/add-phrase-analysis/proposal.md)
 - [add-prepare-list](changes/add-prepare-list/proposal.md)
 
 ## v1.0 · Ready for any DJ switching over
 
 - [add-ableton-set-export](changes/add-ableton-set-export/proposal.md)
-- [add-controller-mapper](changes/add-controller-mapper/proposal.md)
-- [add-first-run-setup](changes/add-first-run-setup/proposal.md)
 - [add-layout-customization](changes/add-layout-customization/proposal.md)
 - [add-mcp-server](changes/add-mcp-server/proposal.md)
 - [add-slip-everywhere](changes/add-slip-everywhere/proposal.md)
 - [add-super-library](changes/add-super-library/proposal.md)
 - [add-user-manual](changes/add-user-manual/proposal.md)
-- [improve-beatgrids](changes/improve-beatgrids/proposal.md)
 
 ## v1.x · after 1.0
 
@@ -70,7 +74,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 ## v2.0
 
 - [add-audio-plugin-hosting](changes/add-audio-plugin-hosting/proposal.md)
-- [add-windows-support](changes/add-windows-support/proposal.md)
+- [add-windows-support](changes/add-windows-support/proposal.md) (a Windows preview shipped in v0.4.0; code signing waits: SignPath Foundation turned the application down, 2026-10-29, see docs/windows.md)
 
 ## Much later (no change yet)
 
@@ -81,6 +85,6 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 ## Decided against, or dropped for now
 
 - Streaming playback of any kind, partner deals and DRM workarounds.
-- rekordbox and OneLibrary import (dropped 2026-10-19; Seba barely uses rekordbox).
+- OneLibrary import (dropped 2026-10-19; rekordbox import is back in v0.5, Seba 2026-10-29).
 - Mobile and iPad apps.
 - Video mixing (karaoke and lyrics only).
