@@ -103,6 +103,8 @@ export global ControllerEditor {
     in property <string> dialog-action;
     in-out property <string> dialog-text;
     in property <string> author;
+    // "Beta" or "Supported" for a controller on openDJ's own list.
+    in property <string> support;
     // While the mapping is being read, or why it could not be.
     in property <bool> loading;
     in property <string> status;
@@ -834,6 +836,10 @@ export component ControllerEditorOverlay inherits Rectangle {
                 VerticalLayout {
                     alignment: center;
                     Chip { text: ControllerEditor.original ? "Original · a change makes your own copy" : "Your mapping"; }
+                }
+                if ControllerEditor.support != "": VerticalLayout {
+                    alignment: center;
+                    Chip { text: ControllerEditor.support; ink: Theme.accent; }
                 }
                 Text {
                     text: ControllerEditor.author != "" ? "by " + ControllerEditor.author : "";
