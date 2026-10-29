@@ -21,9 +21,10 @@ use opendj_plugins::{LibraryImport, Plugin, SettingKind};
 use serde_json::json;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
+use crate::tour::Part;
 use crate::{
     settings, short_port_name, shortcuts, AppWindow, AudioSettings, ControllerEditor, ImportWizard,
-    KeyNotation, PrefItem, Preferences,
+    KeyNotation, PrefItem, Preferences, Tour,
 };
 
 const AUDIO: i32 = 0;
@@ -406,6 +407,9 @@ pub struct Prefs {
     removing: Option<String>,
     /// What the last change of a shortcut's key did, shown on the page.
     shortcut_note: String,
+    /// Counts fills of the rows, so the tour's setup dialog, which shows
+    /// some of the same rows, knows to fill its own again.
+    pub generation: u64,
 }
 
 /// What the settings window needs from the engine for its inputs.
@@ -460,6 +464,7 @@ impl Prefs {
             wizard: None,
             removing: None,
             shortcut_note: String::new(),
+            generation: 0,
         }));
         let p = prefs.clone();
         g.on_changed(move || p.borrow_mut().shown());
@@ -651,6 +656,130 @@ impl Prefs {
         };
         g.set_items(ModelRc::new(VecModel::from(items)));
         show_wizard(&app, self.wizard.as_ref());
+        self.generation += 1;
+    }
+
+    /// The rows of a part of the tour's setup dialog: the settings it asks
+    /// about, as on their pages. `heard` says what the controller check
+    /// last heard ("" for nothing yet).
+    pub fn tour_items(&mut self, part: Part, heard: &str) -> Vec<PrefItem> {
+        let Some(app) = self.app.upgrade() else {
+            return Vec::new();
+        };
+        match part {
+            Part::Audio => {
+                let mut items: Vec<PrefItem> = self
+                    .page(&app, AUDIO, None)
+                    .into_iter()
+                    .filter(|i| i.id == "outputs" || i.id == "levels")
+                    .collect();
+                items.push(PrefItem {
+                    action: "Play".into(),
+                    ..item(
+                        "tour_tone:1",
+                        BUTTON,
+                        "Test the speakers",
+                        "Beeps for a few seconds in the master output.",
+                    )
+                });
+                items.push(PrefItem {
+                    action: "Play".into(),
+                    ..item(
+                        "tour_tone:2",
+                        BUTTON,
+                        "Test the headphones",
+                        "Beeps for a few seconds in the headphones only.",
+                    )
+                });
+                items.push(item(
+                    "",
+                    NOTE,
+                    "",
+                    "A controller with its own sound card, such as the DDJ-FLX4, is its own \
+                     device: pick it for the master and headphones, on channels 1 & 2 and 3 & 4.",
+                ));
+                items
+            }
+            Part::Controller => {
+                let mut items = vec![item(
+                    "",
+                    NOTE,
+                    "",
+                    if heard.is_empty() {
+                        "Press a button or move a knob on your controller to check it's \
+                         heard."
+                    } else {
+                        heard
+                    },
+                )];
+                items.extend(self.controllers_page());
+                items
+            }
+            Part::Library => {
+                let mut items = self.music_folder_items();
+                items.push(item("", HEADING, "FROM YOUR OTHER DJ APPS", ""));
+                let mut found = false;
+                let importers = crate::stores::importers();
+                for i in &importers {
+                    let Some(db) = settings::import_database(i.as_ref()) else {
+                        continue;
+                    };
+                    found = true;
+                    let title = i.title();
+                    if settings::import_enabled(i.id()) {
+                        items.push(item(
+                            "",
+                            NOTE,
+                            &format!("Importing from {title}"),
+                            &format!("openDJ brings in {title}'s library and keeps it up to date."),
+                        ));
+                    } else {
+                        items.push(PrefItem {
+                            action: "Set up…".into(),
+                            ..item(
+                                &format!("import_start:{}", i.id()),
+                                BUTTON,
+                                &format!("Import from {title}"),
+                                &format!(
+                                    "Found its library at {}. Brings in tracks, cues, grids \
+                                     and lists.",
+                                    db.display()
+                                ),
+                            )
+                        });
+                    }
+                }
+                for app_name in crate::tour::other_dj_apps() {
+                    if importers.iter().any(|i| i.title() == app_name) {
+                        continue;
+                    }
+                    found = true;
+                    items.push(PrefItem {
+                        value: "Coming soon".into(),
+                        ..item(
+                            "",
+                            BUTTON,
+                            &format!("Import from {app_name}"),
+                            "Found it on this computer. Its import is on the way.",
+                        )
+                    });
+                }
+                if !found {
+                    items.push(item(
+                        "",
+                        NOTE,
+                        "",
+                        "No other DJ app's library turned up. You can import one later in \
+                         Settings › Collection › Import.",
+                    ));
+                }
+                if !self.library_note.is_empty() {
+                    items.push(item("", NOTE, "", &self.library_note));
+                }
+                items
+            }
+            Part::Mixing => Vec::new(),
+        }
     }
 
     /// A page's rows: of one of its tabs, or of all of them for a search
@@ -958,6 +1087,28 @@ impl Prefs {
             p if p > FEEDBACK => self.plugin_page((p - FEEDBACK - 1) as usize),
             KEYBOARD => self.keyboard_page(),
             FEEDBACK => vec![
+                item("", HEADING, "GUIDED TOUR", ""),
+                PrefItem {
+                    action: "Start".into(),
+                    ..item(
+                        "tour_start:-1",
+                        BUTTON,
+                        "Take the tour",
+                        "Sets up your sound, controller and music, then mixes two tracks with \
+                         you, step by step.",
+                    )
+                },
+                PrefItem {
+                    choices: strings(&crate::tour::PART_NAMES),
+                    value: "Choose…".into(),
+                    ..item(
+                        "tour_part",
+                        MENU,
+                        "Just one part",
+                        "Run one part of the tour again.",
+                    )
+                },
+                item("", HEADING, "FEEDBACK", ""),
                 item(
                     "",
                     NOTE,
@@ -1833,6 +1984,10 @@ impl Prefs {
     }
 
     fn picked(&mut self, id: &str, index: usize) {
+        if id == "tour_part" {
+            self.pressed(&format!("tour_start:{index}"));
+            return;
+        }
         if id == "keyboard_set" {
             let sets = settings::keyboard_sets();
             match index.checked_sub(sets.len()) {
@@ -2270,6 +2425,18 @@ impl Prefs {
     }
 
     fn pressed(&mut self, id: &str) {
+        if id.starts_with("tour_") {
+            if let Some(app) = self.app.upgrade() {
+                if let Some(part) = id.strip_prefix("tour_start:") {
+                    app.global::<Preferences>().set_open(false);
+                    app.global::<Tour>()
+                        .invoke_start(part.parse().unwrap_or(-1));
+                } else {
+                    app.global::<Tour>().invoke_pressed(id.into());
+                }
+            }
+            return;
+        }
         if id == "shortcuts_reset_all" {
             settings::set_keyboard_shortcuts(&[]);
             self.shortcut_note = "Every shortcut is back to its default.".into();

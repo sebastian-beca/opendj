@@ -46,7 +46,7 @@ export global Preferences {
     in-out property <int> tab;
     in property <[PrefItem]> items;
     // The app adds a page for each plugin with settings after these.
-    in-out property <[string]> pages: ["Audio", "Controllers", "Collection", "Analysis", "Decks", "Mixer", "Keyboard", "Feedback"];
+    in-out property <[string]> pages: ["Audio", "Controllers", "Collection", "Analysis", "Decks", "Mixer", "Keyboard", "Help"];
     // The page or the search changed: the app fills `items` again.
     callback changed();
     callback toggled(id: string, on: bool);
@@ -100,7 +100,7 @@ component PageIcon inherits Path {
     stroke-width: 1.7px;
     // Audio: a speaker. Controllers: a two-deck controller. Library: a
     // list with a note. Analysis: a waveform. Decks:
-    // a platter. Mixer: three faders. Keyboard: keys. Feedback: a speech
+    // a platter. Mixer: three faders. Keyboard: keys. Help: a speech
     // bubble. A plugin's page: a plug.
     commands: kind == 0 ? "M 3 9 L 7 9 L 12 5 L 12 19 L 7 15 L 3 15 Z M 15.5 9 Q 17.5 12 15.5 15 M 18 6.5 Q 21.5 12 18 17.5"
         : kind == 1 ? "M 2 7 L 22 7 L 22 17 L 2 17 Z M 4.5 12 A 2.5 2.5 0 1 0 9.5 12 A 2.5 2.5 0 1 0 4.5 12 M 14.5 12 A 2.5 2.5 0 1 0 19.5 12 A 2.5 2.5 0 1 0 14.5 12 M 12 9.5 L 12 14.5"
@@ -114,7 +114,7 @@ component PageIcon inherits Path {
 }
 
 // A switch.
-component Switch inherits Rectangle {
+export component Switch inherits Rectangle {
     in property <bool> on;
     callback toggled(on: bool);
     width: 38px;
@@ -139,7 +139,7 @@ component Switch inherits Rectangle {
     }
 }
 
-component Button inherits Rectangle {
+export component Button inherits Rectangle {
     in property <string> text;
     // The step a dialog's Next or Import takes, in the accent colour.
     in property <bool> primary;
@@ -282,7 +282,7 @@ component ScriptField inherits Rectangle {
 
 // One setting: its name and a line on what it does on the left, the
 // control on the right.
-component PrefRow inherits Rectangle {
+export component PrefRow inherits Rectangle {
     in property <PrefItem> item;
     in property <bool> searching;
     min-height: item.kind == 7 ? 34px : item.kind == 12 ? 30px : 52px;
@@ -592,7 +592,7 @@ export component CloseButton inherits Rectangle {
 
 // The import wizard: a dialog over Settings, with its steps' rows and
 // Back, Cancel and Next along the bottom.
-component ImportWizardDialog inherits Rectangle {
+export component ImportWizardDialog inherits Rectangle {
     background: #00000080;
     // Clicks outside the dialog do nothing, as it waits on an answer.
     TouchArea { }

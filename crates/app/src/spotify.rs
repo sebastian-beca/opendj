@@ -46,6 +46,10 @@ pub struct Playlist {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpotifyTrack {
+    /// Spotify's track id; empty for the DJ's own local files.
+    pub id: String,
+    /// The recording's ISRC, when Spotify knows it.
+    pub isrc: String,
     pub title: String,
     pub artists: Vec<String>,
     pub album: String,
@@ -55,6 +59,18 @@ pub struct SpotifyTrack {
 impl SpotifyTrack {
     pub fn artist(&self) -> String {
         self.artists.join(", ")
+    }
+
+    /// The track's page on Spotify, or a search for it when it has no id.
+    pub fn page_url(&self) -> String {
+        if self.id.is_empty() {
+            format!(
+                "https://open.spotify.com/search/{}",
+                encode(&format!("{} {}", self.artist(), self.title))
+            )
+        } else {
+            format!("https://open.spotify.com/track/{}", self.id)
+        }
     }
 }
 
@@ -97,8 +113,8 @@ impl Spotify {
     pub fn start() -> Self {
         let (requests, rx) = channel();
         let (tx, events) = channel();
-        // Without the services, no sign-in from last time either.
-        let saved = Saved::load().filter(|_| crate::browser::SERVICES_ENABLED);
+        // Without streaming, no sign-in from last time either.
+        let saved = Saved::load().filter(|_| crate::browser::STREAMING_ENABLED);
         let client_id = std::env::var("OPENDJ_SPOTIFY_CLIENT_ID")
             .ok()
             .filter(|s| !s.is_empty())
@@ -442,6 +458,11 @@ fn parse_item(item: &Value) -> Option<SpotifyTrack> {
         return None;
     }
     Some(SpotifyTrack {
+        id: t["id"].as_str().unwrap_or_default().to_string(),
+        isrc: t["external_ids"]["isrc"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
         title: t["name"].as_str()?.to_string(),
         artists: t["artists"]
             .as_array()
@@ -463,6 +484,21 @@ pub fn normalize(s: &str) -> String {
         .filter(|c| c.is_alphanumeric())
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+/// An ISRC as letters and digits in upper case, so "US-RC1-76-07839" and
+/// "usrc17607839" compare equal. Empty unless it has the 12 characters.
+pub fn normalize_isrc(s: &str) -> String {
+    let s: String = s
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    if s.len() == 12 {
+        s
+    } else {
+        String::new()
+    }
 }
 
 /// Whether a collection track with this (normalized) title and artist is the
@@ -726,6 +762,8 @@ mod tests {
     #[test]
     fn matches_collection_tracks() {
         let sp = SpotifyTrack {
+            id: String::new(),
+            isrc: String::new(),
             title: "Insomnia - Extended Mix".into(),
             artists: vec!["Faithless".into(), "Rollo".into()],
             album: String::new(),
@@ -737,5 +775,18 @@ mod tests {
         assert!(m("Faithless - Insomnia (Extended Mix)", ""));
         assert!(!m("Insomnia", "Faithless"));
         assert!(!m("Insomnia (Extended Mix)", "Someone Else"));
+    }
+
+    #[test]
+    fn reads_track_ids_and_isrcs() {
+        let t = parse_item(&json!({ "track": {
+            "type": "track", "id": "abc", "name": "Insomnia",
+            "artists": [{ "name": "Faithless" }],
+            "external_ids": { "isrc": "gb-arl-96-00049" },
+        }}))
+        .unwrap();
+        assert_eq!(t.page_url(), "https://open.spotify.com/track/abc");
+        assert_eq!(normalize_isrc(&t.isrc), "GBARL9600049");
+        assert_eq!(normalize_isrc("not one"), "");
     }
 }

@@ -1,0 +1,85 @@
+// The guided tour's state, and the mark it puts on a real control.
+//
+// A lesson points at controls by their tour id (usually the control's
+// "group,key", such as "[Channel1],play"); each widget that can be pointed
+// at holds a TourMark with its id. The mark rings the control while the
+// tour points at it and tells Tour where it is, so the tip can sit beside
+// it. Kept apart from tour.slint so the widgets can use it without the
+// settings rows it imports.
+import { Theme } from "theme.slint";
+
+export global Tour {
+    // 0 off, 1 the setup dialog (see TourSetup in tour.slint), 2 a lesson's
+    // tips over the app.
+    in property <int> mode;
+    // The control the tip points at; "" for a tip in the middle.
+    in property <string> target;
+    // "Step 3 of 12".
+    in property <string> step;
+    in property <string> title;
+    in property <string> body;
+    // A button in the tip that does the step for the DJ, such as "Load a
+    // demo track"; none when "".
+    in property <string> action;
+    // The step goes on when the DJ does it (on screen or on a controller);
+    // otherwise Next.
+    in property <bool> waiting;
+    // Done, about to go on.
+    in property <bool> done;
+    in property <bool> can-back;
+    in property <string> next-label: "Next";
+    // Where the target is, in window coordinates, set by its mark.
+    in-out property <bool> placed;
+    in-out property <length> target-x;
+    in-out property <length> target-y;
+    in-out property <length> target-width;
+    in-out property <length> target-height;
+    // Offered once to a DJ who used openDJ before the tour existed.
+    in property <bool> offer;
+
+    callback next();
+    callback back();
+    // The setup dialog's quieter button (see TourSetup.skip-label).
+    callback skip();
+    // Leaves the tour (or the part run from Help).
+    callback end();
+    callback action-pressed();
+    // A tour button on a settings row ("tour_…" ids).
+    callback pressed(id: string);
+    // From Help: -1 the whole tour, else one part (Audio 0, Controller 1,
+    // Library 2, Mixing 3).
+    callback start(part: int);
+    callback dismiss-offer();
+
+    public function place(x: length, y: length, w: length, h: length) {
+        target-x = x;
+        target-y = y;
+        target-width = w;
+        target-height = h;
+        placed = true;
+    }
+}
+
+// Rings its parent while the tour points at `id`. Put it last in a
+// widget so it draws over it; it takes no clicks.
+export component TourMark inherits Rectangle {
+    in property <string> id;
+    property <bool> on: id != "" && Tour.mode == 2 && Tour.target == id;
+    if on: ring := Rectangle {
+        x: -4px;
+        y: -4px;
+        width: root.width + 8px;
+        height: root.height + 8px;
+        border-radius: 8px;
+        border-width: 2px;
+        border-color: Tour.done ? #4cd07d : Theme.lilac;
+        // A slow pulse, so the eye finds it.
+        opacity: 0.6 + 0.4 * sin(animation-tick() / 1ms * 0.25deg);
+        drop-shadow-blur: 10px;
+        drop-shadow-color: Theme.lilac.with-alpha(0.6);
+        init => { Tour.place(self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+        changed absolute-position => { Tour.place(self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+        changed width => { Tour.place(self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+        changed height => { Tour.place(self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+    }
+}

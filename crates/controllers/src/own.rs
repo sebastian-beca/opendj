@@ -139,6 +139,11 @@ pub fn save_new(
     Ok(m)
 }
 
+/// Writes `m` back after a change to it.
+pub fn save(dir: &Path, m: &OwnMapping) -> std::io::Result<()> {
+    m.write(dir)
+}
+
 pub fn rename(dir: &Path, id: &str, name: &str) -> std::io::Result<()> {
     let mut m = OwnMapping::read(&path(dir, id))
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no such mapping"))?;
