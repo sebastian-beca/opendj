@@ -2,7 +2,7 @@
 //! each one on its own thread. Plugging a controller in or out is picked up
 //! within about a second, and [`Controllers::refresh`] reconnects them all.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -14,6 +14,7 @@ use midir::{Ignore, MidiInput, MidiOutput};
 use opendj_control::ControlRegistry;
 
 use crate::controller::Controller;
+use crate::format::OpenDjMapping;
 use crate::mapping::Mapping;
 
 const CLIENT: &str = "openDJ";
@@ -26,6 +27,9 @@ const POLL: Duration = Duration::from_millis(10);
 pub struct ConnectedController {
     pub port: String,
     pub mapping: String,
+    /// The Mixxx mapping's file name: the one it runs, or the one the own
+    /// mapping it runs is based on.
+    pub file: String,
 }
 
 /// Which mapping a device uses.
@@ -66,6 +70,12 @@ struct Shared {
     ports: Mutex<Vec<(String, Option<PathBuf>)>>,
     /// Choices by [`device_key`]; devices not listed are Auto.
     choices: Mutex<HashMap<String, MappingChoice>>,
+    /// The DJ's own mapping run in place of a Mixxx mapping, by the Mixxx
+    /// mapping's file name: the own mapping's file.
+    versions: Mutex<HashMap<String, PathBuf>>,
+    /// Mixxx mappings (by file name) whose controllers restart at the next
+    /// scan, because the own mapping they run changed.
+    stale: Mutex<HashSet<String>>,
     /// Set when a choice changes, so the next scan comes at once.
     rescan: AtomicBool,
     /// Set by [`Controllers::refresh`]: every device is closed and the
@@ -81,15 +91,18 @@ pub fn device_key(port: &str) -> String {
 
 impl Controllers {
     /// Starts watching for devices. `choices` are the mappings picked
-    /// before, by [`device_key`].
+    /// before, by [`device_key`]; `versions` the DJ's own mappings used in
+    /// place of Mixxx mappings (see [`Controllers::set_version`]).
     pub fn start(
         registry: Arc<ControlRegistry>,
         mappings_dir: PathBuf,
         choices: HashMap<String, MappingChoice>,
+        versions: HashMap<String, PathBuf>,
     ) -> Self {
         let connected = Arc::new(Mutex::new(Vec::new()));
         let shared = Arc::new(Shared {
             choices: Mutex::new(choices),
+            versions: Mutex::new(versions),
             ..Default::default()
         });
         let stop = Arc::new(AtomicBool::new(false));
@@ -141,7 +154,7 @@ impl Controllers {
             if !ports.iter().any(|p| p.name == c.port) {
                 ports.push(Port {
                     name: c.port,
-                    mapping_file: None,
+                    mapping_file: Some(c.file),
                     running: Some(c.mapping),
                 });
             }
@@ -189,6 +202,29 @@ impl Controllers {
         } else {
             choices.insert(device_key(port), choice);
         }
+        self.shared.rescan.store(true, Ordering::Relaxed);
+    }
+
+    /// Runs the DJ's own mapping in the file `own` (see [`crate::own`]) in
+    /// place of the Mixxx mapping `based_on` (a file name), or the Mixxx
+    /// mapping itself again for `None`. Its controllers restart with it.
+    pub fn set_version(&self, based_on: &str, own: Option<PathBuf>) {
+        let mut versions = self.shared.versions.lock().unwrap();
+        match own {
+            Some(p) => versions.insert(based_on.to_string(), p),
+            None => versions.remove(based_on),
+        };
+        self.reload(based_on);
+    }
+
+    /// Restarts the controllers running the Mixxx mapping `based_on`, or an
+    /// own mapping based on it: after that own mapping was changed.
+    pub fn reload(&self, based_on: &str) {
+        self.shared
+            .stale
+            .lock()
+            .unwrap()
+            .insert(based_on.to_string());
         self.shared.rescan.store(true, Ordering::Relaxed);
     }
 
@@ -298,6 +334,25 @@ struct Device {
     stop: Arc<AtomicBool>,
     thread: JoinHandle<()>,
     mapping: PathBuf,
+    own: Option<PathBuf>,
+}
+
+/// The own mapping run in place of the Mixxx mapping at `path`, if any.
+fn own_for(path: &Path, versions: &HashMap<String, PathBuf>) -> Option<PathBuf> {
+    let file = path.file_name()?.to_string_lossy();
+    versions.get(file.as_ref()).filter(|p| p.is_file()).cloned()
+}
+
+/// The mapping a controller runs: the Mixxx mapping at `path`, or the own
+/// mapping `own` put over it.
+pub(crate) fn load_mapping(path: &Path, own: Option<&Path>) -> Result<Mapping, String> {
+    let base = Mapping::load(path)?;
+    let Some(own) = own else {
+        return Ok(base);
+    };
+    let mine = OpenDjMapping::read(own)?;
+    let dir = path.parent().unwrap_or(Path::new("."));
+    Ok(mine.build(Some(&base), dir))
 }
 
 /// The mapping file `port` should run, given the choices.
@@ -322,7 +377,8 @@ fn watch_devices(
     shared: Arc<Shared>,
     stop: Arc<AtomicBool>,
 ) {
-    let virtual_devices = start_virtual_devices(&registry, &mappings, &connected, &stop);
+    let versions = shared.versions.lock().unwrap().clone();
+    let virtual_devices = start_virtual_devices(&registry, &mappings, &versions, &connected, &stop);
     let Ok(mut input) = MidiInput::new(CLIENT) else {
         eprintln!("MIDI is unavailable; controllers are disabled");
         for t in virtual_devices {
@@ -360,12 +416,17 @@ fn watch_devices(
                     .map(|p| (p.clone(), pick_mapping(p, &dir, &mappings, &choices)))
                     .collect()
             };
+            let versions = shared.versions.lock().unwrap().clone();
+            let stale = std::mem::take(&mut *shared.stale.lock().unwrap());
             // Unplugged, its thread ended (e.g. the mapping failed to load),
-            // or given another mapping.
+            // given another mapping, or its own mapping changed.
             let gone: Vec<String> = devices
                 .iter()
                 .filter(|(port, d)| {
+                    let file = d.mapping.file_name().map(|f| f.to_string_lossy());
                     d.thread.is_finished()
+                        || file.is_some_and(|f| stale.contains(f.as_ref()))
+                        || d.own != own_for(&d.mapping, &versions)
                         || !picked
                             .iter()
                             .any(|(p, m)| p == *port && m.as_ref() == Some(&d.mapping))
@@ -388,18 +449,22 @@ fn watch_devices(
                 let Some(path) = path else {
                     continue;
                 };
+                let own = own_for(&path, &versions);
                 let d_stop = Arc::new(AtomicBool::new(false));
                 let thread = {
-                    let (registry, path, port, d_stop, connected) = (
+                    let (registry, path, own, port, d_stop, connected) = (
                         registry.clone(),
                         path.clone(),
+                        own.clone(),
                         port.clone(),
                         d_stop.clone(),
                         connected.clone(),
                     );
                     std::thread::Builder::new()
                         .name(format!("midi {port}"))
-                        .spawn(move || run_device(&port, &path, registry, &d_stop, &connected))
+                        .spawn(move || {
+                            run_device(&port, &path, own.as_deref(), registry, &d_stop, &connected)
+                        })
                         .expect("spawn controller thread")
                 };
                 devices.insert(
@@ -408,6 +473,7 @@ fn watch_devices(
                         stop: d_stop,
                         thread,
                         mapping: path,
+                        own,
                     },
                 );
             }
@@ -453,6 +519,7 @@ fn wait_for_system(time: Duration) {
 fn run_device(
     port: &str,
     mapping_path: &Path,
+    own: Option<&Path>,
     registry: Arc<ControlRegistry>,
     stop: &AtomicBool,
     connected: &Mutex<Vec<ConnectedController>>,
@@ -510,23 +577,26 @@ fn run_device(
             let _ = out.send(m);
         }
     };
-    run_controller(port, mapping_path, registry, stop, connected, rx, send);
+    run_controller(port, mapping_path, own, registry, stop, connected, rx, send);
 }
 
 /// Runs a mapping until `stop` is set or the input ends.
+#[allow(clippy::too_many_arguments)]
 fn run_controller(
     port: &str,
     mapping_path: &Path,
+    own: Option<&Path>,
     registry: Arc<ControlRegistry>,
     stop: &AtomicBool,
     connected: &Mutex<Vec<ConnectedController>>,
     rx: mpsc::Receiver<Vec<u8>>,
     mut send: impl FnMut(&[u8]),
 ) {
-    let mapping = match Mapping::load(mapping_path) {
+    let mapping = match load_mapping(mapping_path, own) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("{port}: cannot read {}: {e}", mapping_path.display());
+            let file = own.unwrap_or(mapping_path);
+            eprintln!("{port}: cannot read {}: {e}", file.display());
             return;
         }
     };
@@ -542,6 +612,10 @@ fn run_controller(
     connected.lock().unwrap().push(ConnectedController {
         port: port.to_string(),
         mapping: mapping_name,
+        file: mapping_path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default(),
     });
     let mut flush = |c: &mut Controller| {
         for m in c.take_output() {
@@ -582,6 +656,7 @@ fn run_controller(
 fn start_virtual_devices(
     registry: &Arc<ControlRegistry>,
     mappings: &[(String, PathBuf)],
+    versions: &HashMap<String, PathBuf>,
     connected: &Arc<Mutex<Vec<ConnectedController>>>,
     stop: &Arc<AtomicBool>,
 ) -> Vec<JoinHandle<()>> {
@@ -597,6 +672,7 @@ fn start_virtual_devices(
             eprintln!("{port}: no mapping matches this name");
             continue;
         };
+        let own = own_for(&path, versions);
         let (port, file) = (port.to_string(), PathBuf::from(file));
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
@@ -617,9 +693,16 @@ fn start_virtual_devices(
         let (registry, connected, stop) = (registry.clone(), connected.clone(), stop.clone());
         threads.push(std::thread::spawn(move || {
             let name = port.clone();
-            run_controller(&port, &path, registry, &stop, &connected, rx, |m| {
-                eprintln!("{name} <- {m:02X?}")
-            });
+            run_controller(
+                &port,
+                &path,
+                own.as_deref(),
+                registry,
+                &stop,
+                &connected,
+                rx,
+                |m| eprintln!("{name} <- {m:02X?}"),
+            );
         }));
     }
     threads
