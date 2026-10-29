@@ -556,7 +556,7 @@ pub fn inbox() -> InboxSettings {
         }
     };
     InboxSettings {
-        on: crate::browser::SERVICES_ENABLED
+        on: crate::browser::STORES_ENABLED
             && (env.is_some() || v["inbox_on"].as_bool().unwrap_or(true)),
         dir,
         mode: Mode::from_name(v["inbox_mode"].as_str().unwrap_or("move")),
