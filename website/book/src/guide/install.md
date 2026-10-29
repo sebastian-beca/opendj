@@ -39,3 +39,25 @@ protected your PC". Click **More info**, then **Run anyway**.
 In Settings → Audio, pick an **ASIO** driver if your controller or audio
 interface has one, for the lowest latency. Windows lets only one app use a
 MIDI controller at a time, so quit any other DJ app before you start openDJ.
+
+## First start: the guided tour
+
+The first time openDJ opens, a short guided tour sets it up with you. Every step
+can be skipped.
+
+1. **Sound:** pick where the master (your speakers) and the headphones play,
+   and play a test tone in each. A controller with its own sound card, such as
+   the DDJ-FLX4, is its own device: pick it for both, on channels 1 & 2 and
+   3 & 4.
+2. **Controller** (only when one is plugged in): openDJ shows which mapping it
+   runs. Press a button or move a knob and the tour says it heard it.
+3. **Your music:** add your music folders. If openDJ finds another DJ app's
+   library, such as VirtualDJ's, it offers to bring it in.
+4. **Your first mix:** a hands-on lesson on two demo tracks. It switches to
+   the 2-Deck layout, rings each control in turn and waits for you to use it,
+   on screen or on your controller: load, play and cue, listen in the
+   headphones, sync, bring the second track in with its fader and EQ, then a
+   bass swap.
+
+**Settings → Help** runs the tour again, whole or one part. If you used openDJ
+before the tour existed, it's offered once in a banner under the top bar.

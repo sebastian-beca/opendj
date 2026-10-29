@@ -624,6 +624,9 @@ pub(crate) struct MasterControls {
     /// auto_reset_fx (effects off), auto_reset_eq (EQ, kills, filter and
     /// sculpt) and auto_reset_gain (the gain knob). All on to start.
     pub(crate) auto_reset: [ControlHandle; 3],
+    /// `[Master] test_tone`: beeps for checking the outputs, 1 in the
+    /// master mix, 2 in the headphones, 0 off. The guided tour plays it.
+    pub(crate) test_tone: ControlHandle,
 }
 
 pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
@@ -683,6 +686,7 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
             Behavior::Toggle,
         ),
         autodj_enabled: reg.toggle("[AutoDJ]", "enabled"),
+        test_tone: reg.create("[Master]", "test_tone", 0.0, 0.0, 2.0, Behavior::Free),
         vu_l: reg.indicator("[Master]", "VuMeterL", 1.0),
         vu_r: reg.indicator("[Master]", "VuMeterR", 1.0),
         // Mixxx keeps its ReplayGain switch in the [ReplayGain] group too.
