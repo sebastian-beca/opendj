@@ -1,7 +1,7 @@
 //! Simple top views of controllers for the Controller Editor: where each
 //! control sits, its shape and kind, and the MIDI messages it sends. openDJ
-//! draws these itself from `layouts/*.json`; only Seba's controllers have
-//! one so far (DDJ-FLX4, Xone K2, Midi Fighter Twister).
+//! draws these itself from `layouts/*.json`, one for each controller on the
+//! [support](crate::support) list that has a mapping.
 //!
 //! A message is written `"[layer|]SS NN"` in hex: `"SHIFT|90 0E"`, or
 //! `"B? 00"` for any channel (the Xone K2's channel is set on the device).
@@ -10,8 +10,14 @@ use serde_json::Value;
 
 use crate::probe::message_key;
 
-const LAYOUTS: [&str; 3] = [
+const LAYOUTS: [&str; 9] = [
     include_str!("../layouts/flx4.json"),
+    include_str!("../layouts/ddj-400.json"),
+    include_str!("../layouts/ddj-200.json"),
+    include_str!("../layouts/ddj-sb3.json"),
+    include_str!("../layouts/mixtrack-platinum-fx.json"),
+    include_str!("../layouts/mixtrack-pro-fx.json"),
+    include_str!("../layouts/inpulse-500.json"),
     include_str!("../layouts/xone-k2.json"),
     include_str!("../layouts/twister.json"),
 ];
@@ -208,11 +214,8 @@ mod tests {
     #[test]
     fn layouts_cover_their_mappings() {
         let dir = crate::default_mappings_dir().unwrap();
-        for file in [
-            "Pioneer-DDJ-FLX4.midi.xml",
-            "Allen and Heath Xone K2.midi.xml",
-            "DJ TechTools MIDI Fighter Twister.midi.xml",
-        ] {
+        for file in Layout::files() {
+            let file = file.as_str();
             let l = Layout::for_file(file).unwrap();
             let m = crate::Mapping::load(&dir.join(file)).unwrap();
             let mut missing: Vec<String> = m

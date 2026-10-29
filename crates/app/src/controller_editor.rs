@@ -21,6 +21,7 @@ use opendj_controllers::format::OpenDjMapping;
 use opendj_controllers::layout::Layout;
 use opendj_controllers::own::{self, OwnMapping};
 use opendj_controllers::probe::{message_key, MessageKey};
+use opendj_controllers::support;
 use opendj_controllers::view::{self, LightRow, MappingView, Row};
 use opendj_controllers::Controllers;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
@@ -356,6 +357,12 @@ impl Editor {
         g.set_name(name.into());
         self.versions(&file);
         g.set_author("".into());
+        g.set_support(
+            support::status(&file)
+                .map(|s| s.label())
+                .unwrap_or("")
+                .into(),
+        );
         let _ = dir;
         self.read(false);
     }

@@ -11,6 +11,7 @@ Usage: controllers.py <res/controllers> <book dir>
 """
 
 import html
+import json
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -18,6 +19,13 @@ from pathlib import Path
 
 MIXXX_MANUAL = "https://manual.mixxx.org/2.4/en/hardware/controllers/{}"
 ISSUE_URL = "https://github.com/sebastian-beca/opendj/issues/new?template=controller.yml"
+STATUS = {
+    "supported": "**Supported.** Tried on the hardware, and the mapping is settled.",
+    "beta": ("**Beta.** This mapping works on paper and has a picture in the Controller "
+             "Editor, but nobody has tried it in openDJ on the real controller yet. If you "
+             "have one, [tell us how it goes]({}): what works, and what doesn't."),
+    "planned": "**Coming soon.** openDJ doesn't have a mapping for this controller yet.",
+}
 
 SHIFT = re.compile(r"\s*\+\s*shift\b|\bshift\s*\+\s*|\s*\(shift(ed)?\)", re.I)
 DECK = re.compile(r"\s*\((?:deck|ch|channel)\s*\d\)", re.I)
@@ -245,8 +253,12 @@ class Mapping:
         sections = list(dict.fromkeys(l["section"] for l in lines))
         return [(l["section"], l) for s in sections for l in lines if l["section"] == s]
 
-    def page(self):
+    def page(self, status=None, guide=None):
         out = [f"# {md(self.name)}", ""]
+        if status:
+            out += [STATUS[status].format(ISSUE_URL), ""]
+        if guide:
+            out += [guide.strip(), "", "## Every control", ""]
         meta = []
         if self.author:
             meta.append(f"Mapping by {md(self.author)}, from Mixxx")
@@ -319,14 +331,35 @@ def main():
             print(f"skipping {path.name}: {e}", file=sys.stderr)
     mappings.sort(key=lambda m: m.name.lower())
 
+    # The controllers openDJ looks after itself, and their hand-written guides.
+    support = json.loads((controllers.parent.parent / "crates/controllers/support.json").read_text())
+    looked_after = support["controllers"]
+    status = {c["file"]: c["status"] for c in looked_after if c["file"]}
+    guides = book / "controller-guides"
+
     index = ["# Supported controllers", "",
              "openDJ uses Mixxx's controller mappings, so these MIDI controllers load their "
              "mapping as soon as they're plugged in. HID controllers aren't supported yet.", "",
-             "| Controller | Mapping by | Controls listed |", "|---|---|---|"]
+             "## Popular controllers", "",
+             "openDJ looks after these itself: each has a picture in the Controller Editor and "
+             "a guide. **Beta** means nobody has tried it in openDJ on the real controller yet; "
+             f"if you have one, [tell us how it goes]({ISSUE_URL}). It becomes **Supported** "
+             "once it has been tried and its mapping is settled.", "",
+             "| Controller | Status | Notes |", "|---|---|---|"]
+    by_file = {m.path.name: m for m in mappings}
+    labels = {"supported": "Supported", "beta": "Beta", "planned": "Coming soon"}
+    for c in looked_after:
+        m = by_file.get(c["file"] or "")
+        name = f"[{md(c['name'])}]({slug(m.path)}.md)" if m else md(c["name"])
+        index.append(f"| {name} | {labels[c['status']]} | {md(c['note']) or '–'} |")
+    index += ["", "## Every mapping", "",
+              "| Controller | Mapping by | Controls listed |", "|---|---|---|"]
     entries = []
     for m in mappings:
         s = slug(m.path)
-        (out / f"{s}.md").write_text(m.page())
+        guide = guides / f"{s}.md"
+        page = m.page(status.get(m.path.name), guide.read_text() if guide.exists() else None)
+        (out / f"{s}.md").write_text(page)
         listed = "Yes" if m.documented else "Not yet"
         index.append(f"| [{md(m.name)}]({s}.md) | {md(m.author) or '–'} | {listed} |")
         entries.append(f"  - [{m.name.replace(']', '')}](controllers/{s}.md)")

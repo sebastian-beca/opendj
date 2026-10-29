@@ -1,0 +1,19 @@
+{
+ "about": "The controllers openDJ looks after itself, beyond running Mixxx's mappings. beta: works on paper, waiting for someone to try it on the hardware. supported: tried on the hardware and its mapping settled. planned: no mapping yet. Read by src/support.rs and website/tools/controllers.py.",
+ "controllers": [
+  {"name": "Pioneer DDJ-FLX4", "file": "Pioneer-DDJ-FLX4.midi.xml", "status": "beta", "note": "Tried on the hardware; the mapping is still settling."},
+  {"name": "Pioneer DDJ-400", "file": "Pioneer-DDJ-400.midi.xml", "status": "beta", "note": ""},
+  {"name": "Pioneer DDJ-200", "file": "Pioneer DDJ-200.midi.xml", "status": "beta", "note": ""},
+  {"name": "Pioneer DDJ-SB3", "file": "Pioneer-DDJ-SB3.midi.xml", "status": "beta", "note": ""},
+  {"name": "Numark Mixtrack Platinum FX", "file": "Numark Mixtrack Platinum FX.midi.xml", "status": "beta", "note": ""},
+  {"name": "Numark Mixtrack Pro FX", "file": "Numark Mixtrack Pro FX.midi.xml", "status": "beta", "note": ""},
+  {"name": "Hercules DJControl Inpulse 500", "file": "Hercules_DJControl_Inpulse_500.midi.xml", "status": "beta", "note": ""},
+  {"name": "Allen & Heath Xone:K2", "file": "Allen and Heath Xone K2.midi.xml", "status": "beta", "note": "Tried on the hardware; the mapping is still settling."},
+  {"name": "DJ TechTools Midi Fighter Twister", "file": "DJ TechTools MIDI Fighter Twister.midi.xml", "status": "beta", "note": "Tried on the hardware; the mapping is still settling."},
+  {"name": "Pioneer DDJ-FLX6", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list."},
+  {"name": "Pioneer DDJ-REV1", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list."},
+  {"name": "Pioneer DDJ-1000", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list. The jog screens stay dark: they need Pioneer's own protocol."},
+  {"name": "Pioneer DDJ-FLX10", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list."},
+  {"name": "Native Instruments Traktor Kontrol S2 MK3", "file": null, "status": "planned", "note": "A USB HID controller: needs HID support first."}
+ ]
+}

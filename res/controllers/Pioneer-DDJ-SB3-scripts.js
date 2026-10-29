@@ -783,9 +783,8 @@ PioneerDDJSB3.keyLockButton = function(channel, control, value, status, group) {
 PioneerDDJSB3.shiftKeyLockButton = function(channel, control, value, status, group) {
     if (value) {
         var currentTempoRange = engine.getValue(group, "rateRange");
-        var deckIndex = status - 0x90 + 1;
 
-        PioneerDDJSB3.deck[deckIndex].tempoFader.skipSoftTakeover();
+        engine.softTakeoverIgnoreNextValue(group, "rate");
 
         if (currentTempoRange < 0.081) {
             engine.setValue(group, "rateRange", 0.16);

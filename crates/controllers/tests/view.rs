@@ -93,3 +93,29 @@ fn midi_fighter_twister() {
         .iter()
         .any(|o| o.label == "Use gain knob as vu meter"));
 }
+
+/// The DDJ-SB3 sends its own messages while SHIFT is held, and its script
+/// also keeps track of SHIFT: each message shows what it does in the layer
+/// the controller sends it in, never "SHIFT + SHIFT".
+#[test]
+fn ddj_sb3_shift_layers() {
+    let v = view("Pioneer-DDJ-SB3.midi.xml");
+    dump(&v);
+    assert!(v.rows.iter().all(|r| !r.layer.contains("SHIFT + SHIFT")));
+    assert!(has(&v, "Play / pause", "Deck 1", "PLAY/PAUSE", ""));
+    assert!(!has(&v, "Play / pause", "Deck 1", "PLAY/PAUSE", "SHIFT"));
+    assert!(has(&v, "Key lock", "Deck 1", "KEY LOCK", ""));
+}
+
+/// Every popular controller's mapping reads with a picture and no
+/// script errors.
+#[test]
+fn looked_after_mappings_read_cleanly() {
+    for c in opendj_controllers::support::all() {
+        let Some(file) = c.file else { continue };
+        let v = view(&file);
+        assert!(!v.rows.is_empty(), "{file}");
+        let failed: Vec<&String> = v.notes.iter().filter(|n| n.contains("failed")).collect();
+        assert!(failed.is_empty(), "{file}: {failed:?}");
+    }
+}
