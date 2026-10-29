@@ -716,12 +716,8 @@ pub fn set_columns(columns: &[(i32, f32)]) {
     save(|v| v["columns"] = json!(list));
 }
 
-/// The DJ's own keyboard shortcuts, as (key, openDJscript line) pairs in
-/// the order saved. They replace the default for the same key
-/// ([`crate::shortcuts::DEFAULTS`]); an empty line turns that key off.
-pub fn keyboard_shortcuts() -> Vec<(String, String)> {
-    load()["keyboard_shortcuts"]
-        .as_array()
+fn shortcut_list(v: &Value) -> Vec<(String, String)> {
+    v.as_array()
         .map(|a| {
             a.iter()
                 .filter_map(|s| {
@@ -735,12 +731,145 @@ pub fn keyboard_shortcuts() -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
-pub fn set_keyboard_shortcuts(shortcuts: &[(String, String)]) {
-    let list: Vec<Value> = shortcuts
+fn shortcut_json(shortcuts: &[(String, String)]) -> Value {
+    json!(shortcuts
         .iter()
         .map(|(key, script)| json!({ "key": key, "script": script }))
-        .collect();
-    save(|v| v["keyboard_shortcuts"] = json!(list));
+        .collect::<Vec<_>>())
+}
+
+/// The name openDJ's own set of keyboard shortcuts goes by.
+pub const DEFAULT_KEYBOARD_SET: &str = "Default";
+
+/// The keyboard shortcut set in use; [`DEFAULT_KEYBOARD_SET`] unless the DJ
+/// picked one of their own.
+pub fn keyboard_set() -> String {
+    let v = load();
+    let name = v["keyboard_set"].as_str().unwrap_or("");
+    let exists = v["keyboard_sets"]
+        .as_array()
+        .is_some_and(|a| a.iter().any(|s| s["name"].as_str() == Some(name)));
+    if exists {
+        name.to_string()
+    } else {
+        DEFAULT_KEYBOARD_SET.to_string()
+    }
+}
+
+/// Every keyboard shortcut set: the default first, then the DJ's own.
+pub fn keyboard_sets() -> Vec<String> {
+    let mut names = vec![DEFAULT_KEYBOARD_SET.to_string()];
+    if let Some(a) = load()["keyboard_sets"].as_array() {
+        names.extend(
+            a.iter()
+                .filter_map(|s| s["name"].as_str().map(str::to_string)),
+        );
+    }
+    names
+}
+
+/// The keyboard shortcuts of the set in use, as (key, openDJscript line)
+/// pairs in the order saved. They replace the default for the same key
+/// ([`crate::shortcuts::DEFAULTS`]); an empty line turns that key off.
+pub fn keyboard_shortcuts() -> Vec<(String, String)> {
+    let v = load();
+    let set = keyboard_set();
+    if set == DEFAULT_KEYBOARD_SET {
+        return shortcut_list(&v["keyboard_shortcuts"]);
+    }
+    v["keyboard_sets"]
+        .as_array()
+        .and_then(|a| a.iter().find(|s| s["name"].as_str() == Some(set.as_str())))
+        .map(|s| shortcut_list(&s["shortcuts"]))
+        .unwrap_or_default()
+}
+
+pub fn set_keyboard_shortcuts(shortcuts: &[(String, String)]) {
+    let set = keyboard_set();
+    let list = shortcut_json(shortcuts);
+    save(|v| {
+        if set == DEFAULT_KEYBOARD_SET {
+            v["keyboard_shortcuts"] = list;
+        } else if let Some(a) = v["keyboard_sets"].as_array_mut() {
+            if let Some(s) = a
+                .iter_mut()
+                .find(|s| s["name"].as_str() == Some(set.as_str()))
+            {
+                s["shortcuts"] = list;
+            }
+        }
+    });
+}
+
+/// A name no set has yet: `name`, then "name 2".
+fn free_set_name(name: &str) -> String {
+    let taken = keyboard_sets();
+    (1..)
+        .map(|n| {
+            if n == 1 {
+                name.to_string()
+            } else {
+                format!("{name} {n}")
+            }
+        })
+        .find(|n| !taken.contains(n))
+        .unwrap_or_else(|| name.to_string())
+}
+
+/// Saves `shortcuts` as a new set called `name` (or "name 2" when taken)
+/// and starts using it. Returns the name it got.
+pub fn add_keyboard_set(name: &str, shortcuts: &[(String, String)]) -> String {
+    let name = free_set_name(name.trim());
+    let list = shortcut_json(shortcuts);
+    let n = name.clone();
+    save(|v| {
+        if !v["keyboard_sets"].is_array() {
+            v["keyboard_sets"] = json!([]);
+        }
+        if let Some(a) = v["keyboard_sets"].as_array_mut() {
+            a.push(json!({ "name": n, "shortcuts": list }));
+        }
+        v["keyboard_set"] = json!(n);
+    });
+    name
+}
+
+pub fn select_keyboard_set(name: &str) {
+    save(|v| v["keyboard_set"] = json!(name));
+}
+
+/// Renames the set in use; the default keeps its name.
+pub fn rename_keyboard_set(new: &str) {
+    let old = keyboard_set();
+    let new = new.trim().to_string();
+    if old == DEFAULT_KEYBOARD_SET || new.is_empty() || keyboard_sets().contains(&new) {
+        return;
+    }
+    save(|v| {
+        if let Some(a) = v["keyboard_sets"].as_array_mut() {
+            if let Some(s) = a
+                .iter_mut()
+                .find(|s| s["name"].as_str() == Some(old.as_str()))
+            {
+                s["name"] = json!(new);
+            }
+        }
+        v["keyboard_set"] = json!(new);
+    });
+}
+
+/// Deletes the set in use and goes back to the default.
+pub fn delete_keyboard_set() {
+    let set = keyboard_set();
+    if set == DEFAULT_KEYBOARD_SET {
+        return;
+    }
+    save(|v| {
+        if let Some(a) = v["keyboard_sets"].as_array_mut() {
+            a.retain(|s| s["name"].as_str() != Some(set.as_str()));
+        }
+        v["keyboard_set"] = json!(DEFAULT_KEYBOARD_SET);
+    });
 }
 
 fn save(change: impl FnOnce(&mut Value)) {

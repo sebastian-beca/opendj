@@ -13,6 +13,27 @@ pub const REQUIRED_SCRIPT: &str = "common-controller-scripts.js";
 pub struct Options(u32);
 
 impl Options {
+    pub fn new(bits: u32) -> Self {
+        Options(bits)
+    }
+
+    pub fn bits(self) -> u32 {
+        self.0
+    }
+
+    /// Mixxx's names for the flags set, as written in `<options>`.
+    pub fn names(self) -> Vec<&'static str> {
+        NAMES
+            .iter()
+            .filter(|(_, flag)| self.has(*flag))
+            .map(|(n, _)| *n)
+            .collect()
+    }
+
+    pub fn from_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Self {
+        Options(names.into_iter().fold(0, |acc, n| acc | Self::from_name(n)))
+    }
+
     pub const INVERT: u32 = 1 << 0;
     pub const ROT64: u32 = 1 << 1;
     pub const ROT64_INV: u32 = 1 << 2;
@@ -37,7 +58,7 @@ impl Options {
         self.0 == 0
     }
 
-    fn from_name(name: &str) -> u32 {
+    pub fn from_name(name: &str) -> u32 {
         match name.to_ascii_lowercase().as_str() {
             "invert" => Self::INVERT,
             "rot64" => Self::ROT64,
@@ -60,7 +81,69 @@ impl Options {
     }
 }
 
-#[derive(Clone, Debug)]
+/// Mixxx's option names, in the spelling its own mappings use.
+const NAMES: [(&str, u32); 15] = [
+    ("invert", Options::INVERT),
+    ("rot64", Options::ROT64),
+    ("rot64inv", Options::ROT64_INV),
+    ("rot64fast", Options::ROT64_FAST),
+    ("diff", Options::DIFF),
+    ("button", Options::BUTTON),
+    ("switch", Options::SWITCH),
+    ("hercjog", Options::HERC_JOG),
+    ("hercjogfast", Options::HERC_JOG_FAST),
+    ("spread64", Options::SPREAD64),
+    ("selectknob", Options::SELECT_KNOB),
+    ("soft-takeover", Options::SOFT_TAKEOVER),
+    ("Script-Binding", Options::SCRIPT),
+    ("fourteen-bit-msb", Options::FOURTEEN_BIT_MSB),
+    ("fourteen-bit-lsb", Options::FOURTEEN_BIT_LSB),
+];
+
+/// When a row of an openDJ mapping acts, for buttons.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum When {
+    /// On press (and, for a fader or knob, on every move).
+    #[default]
+    Press,
+    Release,
+    /// Held for [`LONG_PRESS`].
+    Long,
+    /// Let go before [`LONG_PRESS`].
+    Tap,
+    /// Pressed twice within [`DOUBLE_PRESS`].
+    Double,
+}
+
+/// How long a press is held to count as long.
+pub const LONG_PRESS: std::time::Duration = std::time::Duration::from_millis(500);
+/// How quickly two presses follow to count as a double press.
+pub const DOUBLE_PRESS: std::time::Duration = std::time::Duration::from_millis(300);
+
+impl When {
+    pub fn name(self) -> &'static str {
+        match self {
+            When::Press => "press",
+            When::Release => "release",
+            When::Long => "long",
+            When::Tap => "tap",
+            When::Double => "double",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "press" | "" => When::Press,
+            "release" => When::Release,
+            "long" => When::Long,
+            "tap" => When::Tap,
+            "double" => When::Double,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct Input {
     pub group: String,
     /// A control name, or for script bindings a JS expression naming a function.
@@ -68,10 +151,19 @@ pub struct Input {
     pub options: Options,
     /// What the mapping's author wrote about it, if anything.
     pub description: String,
+    /// openDJ mappings only: an openDJscript line to run instead of `key`.
+    pub action: Option<String>,
+    /// openDJ mappings only: variables that must be set for the row to act,
+    /// as `(name, value)`; a value of `None` means anything above 0.
+    pub layer: Vec<(String, Option<f64>)>,
+    pub when: When,
+    /// The control's name in the app the row came from (`PLAY_PAUSE`).
+    pub name: String,
 }
 
-/// Lights an LED while a control's value is within `min..=max`.
-#[derive(Clone, Debug)]
+/// Lights an LED while a control's value is within `min..=max`, or, in an
+/// openDJ mapping, as an openDJscript line says.
+#[derive(Clone, Debug, Default)]
 pub struct Output {
     pub group: String,
     pub key: String,
@@ -82,6 +174,14 @@ pub struct Output {
     pub min: f64,
     pub max: f64,
     pub description: String,
+    /// openDJ mappings only: a line ending in `on`, `off`, `blink`,
+    /// `color` or `led`, asked several times a second.
+    pub script: Option<String>,
+    /// What `color 'name'` sends.
+    pub colors: Vec<(String, u8)>,
+    /// The colours are added to the note, sent at full velocity, as on the
+    /// Xone K2 (red on the note, amber 36 above, green 72 above).
+    pub color_notes: bool,
 }
 
 /// A mapping setting's value, typed as Mixxx hands it to `engine.getSetting`.
@@ -125,6 +225,9 @@ pub struct Mapping {
     /// Keyed by `(status, midino)`; several bindings may share a key.
     pub inputs: HashMap<(u8, u8), Vec<Input>>,
     pub outputs: Vec<Output>,
+    /// openDJ mappings only: variables for openDJscript rows and lights,
+    /// with their starting values.
+    pub variables: Vec<(String, f64)>,
 }
 
 /// Parses `0x7F`, `127` or `0177` the way Qt's `toInt(&ok, 0)` does.
@@ -237,6 +340,7 @@ impl Mapping {
                         key: text(c, "key").unwrap_or("").to_string(),
                         options: Options(options),
                         description: description(c),
+                        ..Default::default()
                     });
             }
         }
@@ -259,6 +363,7 @@ impl Mapping {
                     min: float("minimum", 0.0),
                     max: float("maximum", 1.0),
                     description: description(o),
+                    ..Default::default()
                 });
             }
         }
@@ -272,6 +377,7 @@ impl Mapping {
             setting_defs,
             inputs,
             outputs,
+            variables: Vec::new(),
         })
     }
 }

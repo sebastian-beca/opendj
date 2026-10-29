@@ -1,12 +1,12 @@
-//! openDJ's own mappings: copies of a Mixxx mapping that the DJ names and
-//! will be able to change. Each is a small JSON file next to the settings
-//! (`controller-mappings/<id>.json`) holding its name, the Mixxx mapping it
-//! is based on and the changes made to it. The Mixxx mapping itself is
-//! never written to, so the original can always be gone back to.
+//! openDJ's own mappings: the DJ's copies of a Mixxx mapping and the ones
+//! imported from other apps. Each is a file in openDJ's mapping format
+//! (see [`crate::format`]) next to the settings,
+//! `controller-mappings/<id>.json`. A Mixxx mapping itself is never written
+//! to, so the original can always be gone back to.
 
 use std::path::{Path, PathBuf};
 
-use serde_json::{json, Value};
+use crate::format::OpenDjMapping;
 
 /// One of the DJ's own mappings.
 #[derive(Clone, Debug, PartialEq)]
@@ -14,50 +14,38 @@ pub struct OwnMapping {
     /// Its file name without `.json`.
     pub id: String,
     pub name: String,
-    /// The Mixxx mapping it is a copy of, by file name.
+    /// The Mixxx mapping it builds on, by file name; empty when it stands
+    /// alone.
     pub based_on: String,
-    /// The changes made to it; empty until editing comes.
-    pub changes: Vec<Value>,
+    /// The whole file.
+    pub mapping: OpenDjMapping,
 }
 
 impl OwnMapping {
-    fn read(path: &Path) -> Option<Self> {
-        let v: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    pub fn read(path: &Path) -> Option<Self> {
+        let mapping = OpenDjMapping::read(path).ok()?;
         Some(OwnMapping {
             id: path.file_stem()?.to_string_lossy().into_owned(),
-            name: v["name"].as_str()?.to_string(),
-            based_on: v["based_on"].as_str()?.to_string(),
-            changes: v["changes"].as_array().cloned().unwrap_or_default(),
+            name: mapping.name.clone(),
+            based_on: mapping.based_on.clone().unwrap_or_default(),
+            mapping,
         })
     }
 
     fn write(&self, dir: &Path) -> std::io::Result<()> {
-        std::fs::create_dir_all(dir)?;
-        let v = json!({
-            "name": self.name,
-            "based_on": self.based_on,
-            "changes": self.changes,
-        });
-        std::fs::write(
-            dir.join(format!("{}.json", self.id)),
-            serde_json::to_vec_pretty(&v)?,
-        )
+        let mut m = self.mapping.clone();
+        m.name = self.name.clone();
+        m.based_on = (!self.based_on.is_empty()).then(|| self.based_on.clone());
+        m.write(&path(dir, &self.id))
     }
 }
 
 /// The own mappings in `dir` based on the Mixxx mapping `based_on`, by name.
 pub fn list(dir: &Path, based_on: &str) -> Vec<OwnMapping> {
-    let mut out: Vec<OwnMapping> = std::fs::read_dir(dir)
+    all(dir)
         .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "json"))
-        .filter_map(|p| OwnMapping::read(&p))
         .filter(|m| m.based_on == based_on)
-        .collect();
-    out.sort_by_key(|m| m.name.to_lowercase());
-    out
+        .collect()
 }
 
 /// A name for a copy of `name` that no mapping in `taken` has yet:
@@ -76,6 +64,20 @@ pub fn copy_name(name: &str, taken: &[String]) -> String {
         .unwrap_or(base)
 }
 
+/// Every own mapping in `dir`, by name.
+pub fn all(dir: &Path) -> Vec<OwnMapping> {
+    let mut out: Vec<OwnMapping> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .filter_map(|p| OwnMapping::read(&p))
+        .collect();
+    out.sort_by_key(|m| m.name.to_lowercase());
+    out
+}
+
 /// Makes a new own mapping called `name`, a copy of `from` (its changes
 /// too), based on the Mixxx mapping `based_on`.
 pub fn create(
@@ -83,6 +85,20 @@ pub fn create(
     name: &str,
     based_on: &str,
     from: Option<&OwnMapping>,
+) -> std::io::Result<OwnMapping> {
+    let mapping = from
+        .map(|f| f.mapping.clone())
+        .unwrap_or_else(|| OpenDjMapping::new(name));
+    save_new(dir, name, based_on, mapping)
+}
+
+/// Saves `mapping` as a new own mapping called `name` (an import, say),
+/// with a file name no other one has.
+pub fn save_new(
+    dir: &Path,
+    name: &str,
+    based_on: &str,
+    mapping: OpenDjMapping,
 ) -> std::io::Result<OwnMapping> {
     let stem: String = name
         .chars()
@@ -117,7 +133,7 @@ pub fn create(
         id,
         name: name.to_string(),
         based_on: based_on.to_string(),
-        changes: from.map(|f| f.changes.clone()).unwrap_or_default(),
+        mapping,
     };
     m.write(dir)?;
     Ok(m)
@@ -134,7 +150,7 @@ pub fn delete(dir: &Path, id: &str) -> std::io::Result<()> {
     std::fs::remove_file(path(dir, id))
 }
 
-fn path(dir: &Path, id: &str) -> PathBuf {
+pub fn path(dir: &Path, id: &str) -> PathBuf {
     dir.join(format!("{id}.json"))
 }
 

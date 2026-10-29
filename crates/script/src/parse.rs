@@ -1,6 +1,6 @@
 //! Reading a line into an [`Expr`], and running it.
 
-use crate::verbs::{verb, ArgKind, TakesDeck, Verb, VERBS};
+use crate::verbs::{verb, ArgKind, Kind, TakesDeck, Verb, VERBS};
 use crate::{Call, Error, Host};
 
 /// A deck named with `deck`.
@@ -51,6 +51,12 @@ pub enum Expr {
     },
     /// `deck 2 …`
     OnDeck(Deck, Box<Expr>),
+    /// `vu_meter > 90%`: only asks, how far up a verb is against a level.
+    Compare {
+        action: Box<Expr>,
+        above: bool,
+        level: f64,
+    },
 }
 
 /// A parsed line, ready to run as often as needed.
@@ -60,6 +66,40 @@ pub struct Script(pub Expr);
 impl Script {
     pub fn run(&self, host: &mut dyn Host) -> Result<(), Error> {
         run(&self.0, None, host)
+    }
+
+    /// Whether the line is one verb that only shows a level, such as
+    /// `deck 1 filter` or `vu_meter`: a controller light then shows that
+    /// level (an encoder's LED ring, a meter) instead of on or off.
+    pub fn is_level(&self) -> bool {
+        let mut e = &self.0;
+        while let Expr::OnDeck(_, inner) = e {
+            e = inner;
+        }
+        matches!(e, Expr::Action { verb, .. } if matches!(
+            verb.kind,
+            Kind::Level(_) | Kind::Value(_) | Kind::Reading(_) | Kind::Var | Kind::Get | Kind::Adjust
+        ))
+    }
+
+    /// The level a line from [`Script::is_level`] shows, 0 to 1.
+    pub fn level(&self, host: &mut dyn Host) -> Result<f64, Error> {
+        let mut e = &self.0;
+        let mut deck = None;
+        while let Expr::OnDeck(d, inner) = e {
+            deck = Some(*d);
+            e = inner;
+        }
+        let Expr::Action { verb, args } = e else {
+            return Err(Error::new("Only one verb shows a level"));
+        };
+        let call = Call {
+            verb,
+            deck: resolve(verb, deck, host),
+            args,
+            input: host.input(),
+        };
+        host.level(&call)
     }
 }
 
@@ -91,6 +131,8 @@ enum Token {
     Colon,
     Open,
     Close,
+    Greater,
+    Less,
 }
 
 impl Token {
@@ -105,6 +147,8 @@ impl Token {
             Token::Colon => "':'".into(),
             Token::Open => "'('".into(),
             Token::Close => "')'".into(),
+            Token::Greater => "'>'".into(),
+            Token::Less => "'<'".into(),
         }
     }
 }
@@ -123,6 +167,8 @@ fn lex(src: &str) -> Result<Vec<(Token, usize)>, Error> {
             ':' => Some(Token::Colon),
             '(' => Some(Token::Open),
             ')' => Some(Token::Close),
+            '>' => Some(Token::Greater),
+            '<' => Some(Token::Less),
             _ => None,
         };
         if let Some(t) = single {
@@ -236,7 +282,10 @@ impl Parser {
                 self.expect(Token::Close, "')'")?;
                 e
             }
-            Some((Token::Word(w), at)) => self.action(&w, at)?,
+            Some((Token::Word(w), at)) => {
+                let action = self.action(&w, at)?;
+                self.compare(action)?
+            }
             Some((t, at)) => {
                 return Err(Error::at(
                     format!("Expected a verb, found {}", t.describe()),
@@ -256,6 +305,32 @@ impl Parser {
             condition: Box::new(first),
             then: Box::new(then),
             otherwise: Box::new(otherwise),
+        })
+    }
+
+    /// An action, or the action compared with a level: `vu_meter > 90%`.
+    fn compare(&mut self, action: Expr) -> Result<Expr, Error> {
+        let above = match self.peek() {
+            Some((Token::Greater, _)) => true,
+            Some((Token::Less, _)) => false,
+            _ => return Ok(action),
+        };
+        self.next();
+        let level = match self.next() {
+            Some((Token::Number(n), _)) => n,
+            Some((Token::Percent(p), _)) => p / 100.0,
+            Some((t, at)) => {
+                return Err(Error::at(
+                    format!("Expected a level to compare with, found {}", t.describe()),
+                    at,
+                ))
+            }
+            None => return Err(Error::at("Expected a level to compare with", self.end)),
+        };
+        Ok(Expr::Compare {
+            action: Box::new(action),
+            above,
+            level,
         })
     }
 
@@ -374,6 +449,7 @@ fn check_arg(
             Err(Error::at("A level goes from 0 to 1, or 0% to 100%", at))
         }
         (ArgKind::Control, Token::Text(t) | Token::Word(t)) => Ok(Arg::Text(t.clone())),
+        (ArgKind::Text, Token::Text(t)) => Ok(Arg::Text(t.clone())),
         _ => Err(wrong()),
     }
 }
@@ -397,6 +473,7 @@ fn run(e: &Expr, deck: Option<Deck>, host: &mut dyn Host) -> Result<(), Error> {
                 verb,
                 deck: resolve(verb, deck, host),
                 args,
+                input: host.input(),
             };
             host.run(&call)
         }
@@ -421,6 +498,9 @@ fn run(e: &Expr, deck: Option<Deck>, host: &mut dyn Host) -> Result<(), Error> {
             }
         }
         Expr::OnDeck(d, inner) => run(inner, Some(*d), host),
+        Expr::Compare { .. } => Err(Error::new(
+            "A comparison only asks, in a condition such as vu_meter > 90% ? … : …",
+        )),
     }
 }
 
@@ -432,6 +512,7 @@ fn query(e: &Expr, deck: Option<Deck>, host: &mut dyn Host) -> Result<bool, Erro
                 verb,
                 deck: resolve(verb, deck, host),
                 args,
+                input: host.input(),
             };
             host.query(&call)
         }
@@ -445,5 +526,28 @@ fn query(e: &Expr, deck: Option<Deck>, host: &mut dyn Host) -> Result<bool, Erro
         }
         Expr::If { .. } => Err(Error::new("A condition can't hold another '?'")),
         Expr::OnDeck(d, inner) => query(inner, Some(*d), host),
+        Expr::Compare {
+            action,
+            above,
+            level,
+        } => {
+            let mut action = action.as_ref();
+            let mut deck = deck;
+            while let Expr::OnDeck(d, inner) = action {
+                deck = Some(*d);
+                action = inner;
+            }
+            let Expr::Action { verb, args } = action else {
+                return Err(Error::new("Only one verb can be compared with a level"));
+            };
+            let call = Call {
+                verb,
+                deck: resolve(verb, deck, host),
+                args,
+                input: host.input(),
+            };
+            let now = host.level(&call)?;
+            Ok(if *above { now > *level } else { now < *level })
+        }
     }
 }
