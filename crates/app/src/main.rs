@@ -50,6 +50,7 @@ mod lookup;
 mod mac_menu;
 #[cfg(target_os = "macos")]
 mod mac_titlebar;
+mod map_mode;
 mod prefs;
 mod sampler;
 mod settings;
@@ -532,6 +533,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sync_library(library_path.clone(), scan_tx.clone());
     }
     let controller_editor = controller_editor::Editor::install(&app, controllers.clone());
+    let map_mode = map_mode::Mapper::install(&app, controllers.clone());
     prefs::apply_saved(&registry);
     let _levels = prefs::remember_levels(registry.clone());
     let prefs = prefs::Prefs::install(
@@ -825,6 +827,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 prefs.borrow_mut().poll();
                 tour.borrow_mut().poll();
                 controller_editor.borrow_mut().poll();
+                map_mode.borrow_mut().poll();
                 if let Some(c) = &controllers {
                     let names: Vec<String> = c.connected().into_iter().map(|c| c.port).collect();
                     let status = if names.is_empty() {

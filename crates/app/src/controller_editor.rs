@@ -744,8 +744,11 @@ impl Editor {
         let open = g.get_open();
         if open != self.was_open {
             self.was_open = open;
+            // Map mode watches the controllers too, and closes the editor
+            // when it starts.
+            let mapping = app.global::<crate::MapMode>().get_active();
             if let Some(c) = &self.controllers {
-                c.set_monitor(open);
+                c.set_monitor(open || mapping);
             }
         }
         if !open {
