@@ -3,8 +3,8 @@
 | Key | Does |
 |---|---|
 | <kbd>Space</kbd> | Play or pause the master deck |
-| <kbd>⌘</kbd> <kbd>1</kbd> to <kbd>⌘</kbd> <kbd>5</kbd> (Linux: <kbd>Ctrl</kbd>) | Rate the tracks picked in the browser 1 to 5 stars |
-| <kbd>⌘</kbd> <kbd>,</kbd> (Linux: <kbd>Ctrl</kbd> <kbd>,</kbd>) | Open or close Settings |
+| <kbd>⌘</kbd> <kbd>1</kbd> to <kbd>⌘</kbd> <kbd>5</kbd> (Linux and Windows: <kbd>Ctrl</kbd>) | Rate the tracks picked in the browser 1 to 5 stars |
+| <kbd>⌘</kbd> <kbd>,</kbd> (Linux and Windows: <kbd>Ctrl</kbd> <kbd>,</kbd>) | Open or close Settings |
 | <kbd>Esc</kbd> | Close Settings |
 
 ## openDJscript

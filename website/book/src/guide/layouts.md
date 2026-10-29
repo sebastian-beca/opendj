@@ -4,14 +4,15 @@ The menu at the top left of the window switches layouts:
 
 - **Simple** shrinks decks 1 and 2 to a single row, so the library gets most
   of the screen.
-- **2-Deck** shows the full decks, with pads and effects, and the mixer between
-  them.
+- **2-Deck** shows the full decks, with pads and loops, and the mixer between
+  them (see [Decks and mixer](decks.md)).
 - **4-Deck** shows four decks side by side, in the order 3, 1, 2, 4, as djay Pro
-  does. Each deck has its own EQ, filter, gain and channel fader, play and CUE,
-  loop, tempo, pads and effects. The crossfader, master and headphones sit
-  between decks 1 and 2. With the waveform button in the top bar lit, the four
-  large waveforms are
-  stacked above the decks in the same order.
+  does. Each deck is a strip with its own EQ, filter, gain and channel fader,
+  PLAY and CUE, loop, pads and effects. A bar under the strips holds each
+  deck's crossfader side, **SYNC** and tempo, either side of the crossfader;
+  click a deck's tempo there for key lock, quantize and a tempo reset. With
+  **WAVEFORMS** lit in the top bar, the four large waveforms are stacked above
+  the decks in the same order.
 
 The button at the bottom left of the window hides the decks for a compact
 view, in any layout.
