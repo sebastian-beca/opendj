@@ -15,6 +15,7 @@ pub mod format;
 mod host;
 pub mod import;
 pub mod layout;
+pub mod learn;
 mod manager;
 pub mod mapping;
 pub mod own;

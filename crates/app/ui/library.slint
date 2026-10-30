@@ -197,7 +197,7 @@ export global LibraryEdit {
     callback set-rule(index: int, text: string);
     // The stage folders are set up, so tracks can move between stages.
     in property <bool> stages;
-    // The triage folder's subfolders, offered as "To Triage › Yoga STG".
+    // The In Prep folder's subfolders, offered as "Send to In Prep › Yoga STG".
     in property <[string]> triage-crates;
     // The stage of the track at a row of the list: 0 = none, 1 = inbox,
     // 2 = triage, 3 = collection, 4 = passed over.
@@ -205,7 +205,7 @@ export global LibraryEdit {
     // Moves the rows `first` to `last` to a stage (as `stage-of` numbers
     // them), into the triage crate at `crate` (-1 for none).
     callback set-stage(first: int, last: int, stage: int, crate: int);
-    // "Undo: To Triage (3 tracks)", or empty when there is nothing to undo.
+    // "Undo: Send to In Prep (3 tracks)", or empty when there is nothing to undo.
     in property <string> undo-text;
     callback undo-stage();
 }
@@ -233,7 +233,7 @@ export global FilesUi {
 
 // The stores source: switching to it from elsewhere, its search box, and
 // the purchase inbox.
-// One check on the Library Health page.
+// One check on the Collection Health page.
 export struct HealthCard {
     title: string,
     about: string,
@@ -250,9 +250,9 @@ export struct HealthCard {
     menu-fixes: [int],
 }
 
-// Library Health: the checks' page and the bar over a check's tracks.
+// Collection Health: the checks' page and the bar over a check's tracks.
 export global HealthUi {
-    // The Library Health node is selected: its page shows instead of the list.
+    // The Collection Health node is selected: its page shows instead of the list.
     in property <bool> overview;
     // The check whose tracks are listed (an index into `cards`), or -1.
     in property <int> check: -1;
@@ -412,18 +412,18 @@ component StageLines inherits VerticalLayout {
     spacing: 2px;
     MenuSeparator {}
     if stage != 2: MenuLine {
-        text: stage == 3 ? "Back to Triage" : "To Triage";
+        text: stage == 3 ? "Back to In Prep" : "Send to In Prep";
         clicked => { picked(2, -1); }
     }
     if stage != 2 && stage != 3: VerticalLayout {
         spacing: 2px;
         for c[i] in LibraryEdit.triage-crates: MenuLine {
-            text: "To Triage › " + c;
+            text: "Send to In Prep › " + c;
             clicked => { picked(2, i); }
         }
     }
     if stage == 2: MenuLine {
-        text: "Add to Collection";
+        text: "Send to Play Ready";
         clicked => { picked(3, -1); }
     }
     if stage == 2: MenuLine {
@@ -1569,7 +1569,7 @@ component HealthButton inherits Rectangle {
     }
 }
 
-// The Library Health page: one row per check with its count, what it looks
+// The Collection Health page: one row per check with its count, what it looks
 // for, a button to see its tracks, and fixes for all of them at once.
 component HealthPanel inherits Rectangle {
     background: Theme.browser;
@@ -1578,7 +1578,7 @@ component HealthPanel inherits Rectangle {
             padding: 16px;
             spacing: 10px;
             alignment: start;
-            Text { text: "Library Health"; color: Theme.text; font-size: 18px; font-weight: 700; }
+            Text { text: "Collection Health"; color: Theme.text; font-size: 18px; font-weight: 700; }
             Text {
                 text: "Each check finds tracks that need something. Review shows them in the list, where you can fix them all at once, or pick some and right-click.";
                 color: Theme.text-dim;
@@ -1643,7 +1643,7 @@ component HealthPanel inherits Rectangle {
                     }
                     Text {
                         horizontal-stretch: 1;
-                        text: "Removed from the library, merged copies included. Bring them back here.";
+                        text: "Removed from your collection, merged copies included. Bring them back here.";
                         color: Theme.text-dim;
                         font-size: 12px;
                         vertical-alignment: center;
@@ -1790,7 +1790,7 @@ component CleanupPanel inherits Rectangle {
                 spacing: 2px;
                 Text { text: CleanupUi.heading; color: Theme.text; font-size: 18px; font-weight: 700; }
                 Text {
-                    text: "Untick a change to leave it as it is. Apply writes the ticked ones to the library and to the files' tags; Undo takes them back.";
+                    text: "Untick a change to leave it as it is. Apply writes the ticked ones to your collection and to the files' tags; Undo takes them back.";
                     color: Theme.text-dim;
                     font-size: 12px;
                     wrap: word-wrap;
@@ -2487,7 +2487,7 @@ component TrackList inherits Rectangle {
                 ["~key:8A  ~bpm:124", "keys that mix; tempo within 6%"],
                 ["~deck", "mixes with the track playing"],
                 ["color:red  is:duplicate  is:missing", "colour; duplicates; missing files"],
-                ["is:notmusic  is:nocover  is:unrated", "Library Health's checks"],
+                ["is:notmusic  is:nocover  is:unrated", "Collection Health's checks"],
                 ["crate:yoga  crate:\"\"", "in a crate; in none"],
                 ["-genre:techno", "leave out"],
                 ["glue | daft", "either"],
@@ -2919,7 +2919,7 @@ component SidePanel inherits Rectangle {
                     width: parent.width - 16px;
                     text: tab == 0 ? "Empty. Drag tracks here, or right-click a track and choose Add to Automix."
                         : tab == 1 ? "Empty. Drag tracks here."
-                        : total == "" ? "Select a track in the library to see the tracks linked to it and those played next to it."
+                        : total == "" ? "Select a track in the browser to see the tracks linked to it and those played next to it."
                         : "Nothing linked yet. Drag tracks here to link them to this one; tracks played next to it in your history show up here too.";
                     color: Theme.text-dim;
                     font-size: 12px;
@@ -3069,7 +3069,7 @@ export component Browser inherits HorizontalLayout {
         spotify-disconnect => { spotify-disconnect(); }
         spotify-copy => { spotify-copy(); }
     }
-    // The Library Health page, or the bar over one check's tracks.
+    // The Collection Health page, or the bar over one check's tracks.
     property <bool> cleanup-page: source == 0 && (CleanupUi.open || CleanupUi.genres-open);
     property <bool> health-page: source == 0 && HealthUi.overview && !cleanup-page;
     property <bool> health-bar: source == 0 && HealthUi.check >= 0 && HealthUi.check < HealthUi.cards.length;

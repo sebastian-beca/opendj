@@ -8,6 +8,7 @@ import { SamplerPanel } from "sampler.slint";
 import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
 import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, KeyLock, MasterBadge, PitchReset, SyncButton } from "controls.slint";
 import { TourMark } from "tourmark.slint";
+import { MapMark } from "mapmark.slint";
 
 // A line of the key menu: a key shift and the key it gives.
 export struct KeyItem {
@@ -340,6 +341,7 @@ export component Jog inherits Rectangle {
             vertical-alignment: center;
         }
     }
+    MapMark { key: root.group + ",jog"; }
 }
 
 // Album art, large; without any, the deck colour with the
@@ -1289,6 +1291,7 @@ component HotcueCell inherits Rectangle {
             }
         }
     }
+    MapMark { key: root.group + ",hotcue_" + root.number + "_activate"; }
 }
 
 // The pad tabs: four at a time, tabs 1-4 or 5-8 (see `first`), each
@@ -1844,6 +1847,7 @@ export component PlayButton inherits Rectangle {
         clicked => { Controls.set-value(index, playing ? 0 : 1); }
     }
     TourMark { id: root.tour-id; }
+    MapMark { key: root.group + ",play"; }
 }
 
 // Play and CUE side by side under the jog, play on the left; SYNC is over

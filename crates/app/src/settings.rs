@@ -588,7 +588,7 @@ pub fn move_files() -> bool {
     flag(MOVE_FILES, false)
 }
 
-/// The clean-up rules turned on in Settings › Library.
+/// The clean-up rules turned on in Settings › Collection.
 pub fn cleanup_rules() -> opendj_library::cleanup::Rules {
     opendj_library::cleanup::Rules::from(flag)
 }

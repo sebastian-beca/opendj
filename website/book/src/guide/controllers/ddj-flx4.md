@@ -73,7 +73,7 @@ over the meters), the controller's EQ knobs follow it.
   **LEVEL/DEPTH** sets how much you hear, and **ON/OFF** turns it on.
   **SHIFT** + **ON/OFF** releases it, letting its tail ring out.
 
-## Library
+## Browser
 
 - **Turn BROWSE** to move through the track list, and **press** it to move
   between the list and the tree on the left. **SHIFT** + press zooms the

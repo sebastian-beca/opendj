@@ -21,7 +21,7 @@ To see what every control does, press **Edit** next to a controller in
 pick another at the top. Its controls are listed in three columns: the control
 you press (with the layer it works in, such as SHIFT, a pad mode or a bank),
 what it does, and the MIDI message it sends. They're grouped into sections
-(Deck, Pads, Mixer, Effects, Library, More) with smaller sections inside, such
+(Deck, Pads, Mixer, Effects, Browser, More) with smaller sections inside, such
 as Hot cues and Loops under Pads. Click a heading to open or close it. Search
 the list by any of those words.
 
@@ -66,6 +66,21 @@ the list by any of those words.
 - **Export…** writes the mapping as one `.opendj-mapping` file that works on
   another computer, and **Export for Mixxx…** writes a `.midi.xml` with its
   scripts; a report lists anything Mixxx can't do.
+
+## Map mode
+
+The quickest way to change a few controls: press **MIDI** in the top bar (or
+**MIDI map** in the Controller Editor). Every control on screen that can be
+mapped turns lilac, brighter where the controller already does it. Click
+one, then press, turn or move a control on the controller, and from then on
+it does that. The bar says what changed and what the control did before.
+**Keep both** makes it do both, **Undo** (or ⌘Z, Ctrl+Z on Windows and
+Linux) takes the last one back, and **Done** or Esc ends Map mode. While Map
+mode is on, the controller only teaches: pressing PLAY doesn't start a deck.
+
+Map mode works out endless encoders and 14-bit faders by itself. The
+changes go into your own mapping, as in the editor ("My" and the
+controller's name the first time), so the original stays as it is.
 
 Mappings that run a script are tried out in a sandbox to see what each
 control does, so even those read in plain words.

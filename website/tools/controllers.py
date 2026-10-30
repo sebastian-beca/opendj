@@ -119,7 +119,7 @@ def group_section(group):
     if "Effect" in group:
         return "Effects"
     if group in ("[Library]", "[Playlist]", "[AutoDJ]"):
-        return "Library"
+        return "Browser"
     if group in ("[Master]", "[Main]", "[Mixer]", "[Mixer Profile]"):
         return "Mixer"
     return "Other"
