@@ -3,7 +3,7 @@
 //!
 //! The tempo detector works on an onset envelope (rises in bass energy and
 //! overall level, 200 per second). It picks the strongest autocorrelation lag
-//! in the tempo range (70 to 180 BPM unless set otherwise), then refines it to 0.01 BPM by folding the envelope
+//! in the tempo range (60 to 180 BPM unless set otherwise), then refines it to 0.01 BPM by folding the envelope
 //! at each candidate period and keeping the one whose beats line up best.
 //!
 //! Live and older recordings drift, so a steady grid misses their beats. A
@@ -48,7 +48,7 @@ pub struct Analysis {
 
 /// The tempo range tracks are analysed in, unless changed with
 /// [`set_bpm_range`].
-pub const DEFAULT_BPM_RANGE: (f64, f64) = (70.0, 180.0);
+pub const DEFAULT_BPM_RANGE: (f64, f64) = (60.0, 180.0);
 static BPM_RANGE: AtomicU64 = AtomicU64::new(pack_range(DEFAULT_BPM_RANGE));
 
 const fn pack_range((lo, hi): (f64, f64)) -> u64 {
@@ -339,6 +339,10 @@ fn fold(onset: &[f32], period: f64) -> (f64, f32) {
     (phase.rem_euclid(1.0), best.1 / total)
 }
 
+/// Centre and width (standard deviation) of the tempo detector's lean.
+const PRIOR_BPM: f64 = 120.0;
+const PRIOR_OCTAVES: f64 = 1.0;
+
 fn detect_bpm(onset: &[f32]) -> f64 {
     let (min_bpm, max_bpm) = bpm_range();
     let lag_of = |bpm: f64| ONSET_RATE * 60.0 / bpm;
@@ -367,6 +371,11 @@ fn detect_bpm(onset: &[f32]) -> f64 {
                 .sum();
             s += c / k as f32;
         }
+        // Lean towards tempos near 120 BPM, so a half-time reading only
+        // wins when it is clearly stronger.
+        let octaves = (ONSET_RATE * 60.0 / lag as f64 / PRIOR_BPM).log2();
+        let w = (-0.5 * (octaves / PRIOR_OCTAVES).powi(2)).exp() as f32;
+        let s = if s > 0.0 { s * w } else { s / w };
         if s > best.1 {
             best = (lag, s);
         }

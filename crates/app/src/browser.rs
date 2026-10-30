@@ -3992,8 +3992,10 @@ impl Browser {
                     album: r.album.into(),
                     genre: r.genre.into(),
                     length: short_time(r.duration),
+                    // ~ marks a grid in tempo sections, as VirtualDJ does.
                     bpm: if r.bpm > 0.0 {
-                        format!("{:.1}", r.bpm).into()
+                        let sections = r.local.is_some_and(|id| library[id].grid.is_dynamic());
+                        format!("{}{:.1}", if sections { "~" } else { "" }, r.bpm).into()
                     } else {
                         SharedString::new()
                     },
