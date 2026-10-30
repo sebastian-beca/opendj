@@ -3264,24 +3264,41 @@ impl Browser {
             let analysed = !t.info.fixed_grid && !t.grid.is_empty() && t.grid != entry.grid;
             let edited = t.info.fixed_grid && t.grid != entry.grid && !t.grid.is_empty();
             let key_changed = entry.key != t.key || entry.info.key_detected != t.info.key_detected;
-            if !(analysed || edited || entry.bpm != t.bpm || key_changed) {
+            let lock_changed = entry.info.grid_locked != t.info.grid_locked;
+            if !(analysed || edited || lock_changed || entry.bpm != t.bpm || key_changed) {
                 continue;
             }
+            // An analysed grid replacing one the DJ edited or an import
+            // brought: the DJ went back to the analysed grid.
+            let reset = analysed && !matches!(entry.info.grid_from.as_str(), "" | "analysis");
             let mut e = (**entry).clone();
             e.bpm = t.bpm;
             e.key = t.key.clone();
             e.info.key_detected = t.info.key_detected;
+            e.info.grid_locked = t.info.grid_locked;
             if analysed || edited {
                 e.set_grid(t.grid.clone());
                 e.info.fixed_grid = true;
                 e.info.grid_analysed = analysed;
+                e.info.grid_from = if analysed { "analysis" } else { "user" }.into();
+                e.info.grid_unsure = t.info.grid_unsure;
             }
             if let (true, Some(db)) = (saved, &self.db) {
-                let result = if edited {
-                    db.save_grid(t.id, &t.grid, t.bpm)
+                let mut result = if lock_changed {
+                    db.set_grid_locked(t.id, t.info.grid_locked)
                 } else {
-                    db.save_analysis(t.id, t)
+                    Ok(())
                 };
+                if reset {
+                    result = result.and_then(|()| db.clear_grid(t.id));
+                }
+                result = result.and_then(|()| {
+                    if edited {
+                        db.save_grid(t.id, &t.grid, t.bpm)
+                    } else {
+                        db.save_analysis(t.id, t)
+                    }
+                });
                 if let Err(err) = result {
                     eprintln!("can't save the analysis: {err}");
                 }

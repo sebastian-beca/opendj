@@ -92,13 +92,7 @@ fn with_analysis(track: &Track, analysis: &Analysis, detected: bool) -> Track {
         info,
         ..track.clone()
     };
-    with_grid(
-        &mut t,
-        track,
-        &analysis.grid,
-        analysis.bpm,
-        analysis.first_beat,
-    );
+    with_grid(&mut t, track, analysis);
     t
 }
 
@@ -118,7 +112,7 @@ pub fn analyse_file(track: &Track, fresh: bool) -> Result<Track, String> {
     let detected = key_is_detected(track);
     let detector = key::detector();
     let mut base = track.clone();
-    if fresh && base.info.grid_analysed {
+    if fresh && base.info.grid_analysed && !base.info.grid_locked {
         base.info.fixed_grid = false;
         base.grid = BeatGrid::default();
     }
@@ -173,26 +167,28 @@ pub fn analyse_file(track: &Track, fresh: bool) -> Result<Track, String> {
 
 /// Whether a new analysis may replace `track`'s grid: it has none from the
 /// library, or the one it has came from an earlier analysis (not the DJ or
-/// an import).
+/// an import), and the DJ hasn't locked it.
 fn grid_replaceable(track: &Track) -> bool {
-    !track.info.fixed_grid || track.info.grid_analysed
+    !track.info.grid_locked && (!track.info.fixed_grid || track.info.grid_analysed)
 }
 
 /// Gives `t` the beat grid it should play with: a grid from the library is
 /// kept as the DJ left it, the synthesiser knows exactly where its beats
 /// are, and anything else takes the analysis.
-fn with_grid(t: &mut Track, base: &Track, grid: &BeatGrid, bpm: f64, first_beat: f64) {
-    if base.info.fixed_grid {
+fn with_grid(t: &mut Track, base: &Track, analysis: &Analysis) {
+    if base.info.fixed_grid || base.info.grid_locked {
         return;
     }
     match base.source {
-        Source::Synth { .. } => t.bpm = bpm,
-        Source::File(_) if !grid.is_empty() => t.set_grid(grid.clone()),
+        Source::Synth { .. } => t.bpm = analysis.bpm,
+        Source::File(_) if !analysis.grid.is_empty() => t.set_grid(analysis.grid.clone()),
         Source::File(_) => {
-            t.bpm = bpm;
-            t.first_beat = first_beat;
+            t.bpm = analysis.bpm;
+            t.first_beat = analysis.first_beat;
         }
     }
+    t.info.grid_unsure = analysis.grid_unsure;
+    t.info.grid_from = "analysis".into();
 }
 
 pub(crate) struct LoadRequest {
@@ -324,6 +320,8 @@ const UNDO_DEPTH: usize = 64;
 
 /// Applies a beat grid edit to the track loaded on `deck`, if it is still
 /// `track`. The edited grid is the DJ's from now on: re-analysis keeps it.
+/// A locked grid takes no edits but unlocking; resetting gives back the
+/// grid the analysis found (from the cache).
 fn edit_grid(
     loaded: &LoadedTracks,
     deck: usize,
@@ -333,6 +331,38 @@ fn edit_grid(
 ) -> Option<Arc<Track>> {
     let mut l = loaded.write().unwrap();
     let current = l[deck].as_ref().filter(|t| same_load(t, track))?.clone();
+    let mut t = (*current).clone();
+    match edit {
+        GridEdit::Lock(on) => {
+            if on == current.info.grid_locked {
+                return None;
+            }
+            t.info.grid_locked = on;
+            let t = Arc::new(t);
+            l[deck] = Some(t.clone());
+            return Some(t);
+        }
+        // A locked grid stays as it is.
+        _ if current.info.grid_locked => return None,
+        GridEdit::Reset => {
+            let Source::File(path) = &current.source else {
+                return None;
+            };
+            let analysed = cache::load(path).filter(|a| !a.grid.is_empty())?;
+            if current.info.grid_analysed && analysed.grid == current.grid {
+                return None;
+            }
+            t.set_grid(analysed.grid);
+            t.info.fixed_grid = false;
+            t.info.grid_analysed = true;
+            t.info.grid_from = "analysis".into();
+            t.info.grid_unsure = analysed.grid_unsure;
+            let t = Arc::new(t);
+            l[deck] = Some(t.clone());
+            return Some(t);
+        }
+        _ => {}
+    }
     let mut undo = UNDO.lock().unwrap();
     let history = &mut undo[deck];
     history.retain(|(id, _)| *id == current.id);
@@ -354,9 +384,10 @@ fn edit_grid(
             after
         }
     };
-    let mut t = (*current).clone();
     t.set_grid(grid);
     t.info.fixed_grid = true;
+    t.info.grid_from = "user".into();
+    t.info.grid_unsure = false;
     let t = Arc::new(t);
     l[deck] = Some(t.clone());
     Some(t)
@@ -508,7 +539,7 @@ fn load(shared: &Arc<Shared>, deck: usize, generation: u64, base: &Track) -> Res
         ..base.clone()
     };
     match &cached {
-        Some(c) => with_grid(&mut first, base, &c.grid, c.bpm, c.first_beat),
+        Some(c) => with_grid(&mut first, base, c),
         // Unknown until analysed; the beat grid starts at zero meanwhile.
         None if !base.info.fixed_grid && matches!(base.source, Source::File(_)) => {
             first.first_beat = 0.0
@@ -648,13 +679,7 @@ fn load(shared: &Arc<Shared>, deck: usize, generation: u64, base: &Track) -> Res
             },
             ..base.clone()
         };
-        with_grid(
-            &mut t,
-            &unfixed,
-            &analysis.grid,
-            analysis.bpm,
-            analysis.first_beat,
-        );
+        with_grid(&mut t, &unfixed, analysis);
         let t = Arc::new(t);
         if shared.update(deck, &t) {
             shared.send(Command::Analysed { deck, track: t });
@@ -673,6 +698,24 @@ mod tests {
     use std::sync::mpsc;
 
     #[test]
+    fn a_locked_grid_takes_no_edits_but_unlocking() {
+        let loaded: LoadedTracks = Default::default();
+        let mut t = (*synth::sample_library()[0]).clone();
+        t.set_grid(BeatGrid::constant(124.0, 0.2));
+        t.audio = Some(Arc::new(Audio::from_frames(44_100, vec![[0.0; 2]; 44_100])));
+        let t = Arc::new(t);
+        loaded.write().unwrap()[0] = Some(t.clone());
+        let locked = edit_grid(&loaded, 0, &t, GridEdit::Lock(true), 0.0).unwrap();
+        assert!(locked.info.grid_locked);
+        assert!(edit_grid(&loaded, 0, &locked, GridEdit::Shift(0.01), 0.0).is_none());
+        assert!(edit_grid(&loaded, 0, &locked, GridEdit::Lock(true), 0.0).is_none());
+        let open = edit_grid(&loaded, 0, &locked, GridEdit::Lock(false), 0.0).unwrap();
+        let moved = edit_grid(&loaded, 0, &open, GridEdit::Shift(0.01), 0.0).unwrap();
+        assert!((moved.first_beat - 0.21).abs() < 1e-9);
+        assert_eq!(moved.info.grid_from, "user");
+    }
+
+    #[test]
     fn only_analysed_or_missing_grids_give_way() {
         let mut t = (*synth::sample_library()[0]).clone();
         t.info.fixed_grid = false;
@@ -681,6 +724,8 @@ mod tests {
         assert!(!grid_replaceable(&t), "edited or imported");
         t.info.grid_analysed = true;
         assert!(grid_replaceable(&t), "from an earlier analysis");
+        t.info.grid_locked = true;
+        assert!(!grid_replaceable(&t), "locked");
     }
 
     /// Runs the engine like an audio callback until `done` holds.
