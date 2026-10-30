@@ -13,8 +13,9 @@ use opendj_control::ControlRegistry;
 use opendj_controllers::{device_key, own, support, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
-    analysis, cache, channel_names, deck_group, input_devices, key, InputRole, InputRoute,
-    RecordFormat, Recorder, BUFFER_SIZES, DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES,
+    analysis, beatthis, cache, channel_names, deck_group, input_devices, key, InputRole,
+    InputRoute, RecordFormat, Recorder, BUFFER_SIZES, DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS,
+    SAMPLE_RATES,
 };
 use opendj_library::query;
 use opendj_plugins::{LibraryImport, Plugin, SettingKind};
@@ -169,6 +170,7 @@ pub fn apply_saved(registry: &ControlRegistry) {
     let (lo, hi) = bpm_range();
     analysis::set_bpm_range(lo, hi);
     key::set_detector(key_detector());
+    beatthis::set_enabled(settings::flag("neural_beats", true));
     key::set_mixing(key_mixing());
     set("[Controls]", "key_match_on_load", key_match_range() as f64);
     for (id, _, _) in AUTO_RESETS {
@@ -894,6 +896,18 @@ impl Prefs {
                             MENU,
                             "BPM range",
                             "Where tempos are looked for in newly analysed tracks.",
+                        )
+                    },
+                    PrefItem {
+                        choices: strings(&["Standard", "Neural"]),
+                        chosen: i32::from(settings::flag("neural_beats", true)),
+                        ..item(
+                            "beat_detector",
+                            SEGMENTED,
+                            "Beat detection",
+                            "Neural (Beat This!) finds downbeats, so bar 1 starts on one. \
+                             It takes a few seconds more per track, after the waveform. \
+                             Edited and imported grids stay.",
                         )
                     },
                     PrefItem {
@@ -2136,6 +2150,11 @@ impl Prefs {
                 settings::set("bpm_min", json!(lo));
                 settings::set("bpm_max", json!(hi));
                 analysis::set_bpm_range(lo, hi);
+            }
+            "beat_detector" => {
+                let on = index == 1;
+                settings::set("neural_beats", json!(on));
+                beatthis::set_enabled(on);
             }
             "key_detector" => {
                 let Some(&d) = key::Detector::ALL.get(index) else {

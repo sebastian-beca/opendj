@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use crate::analysis::{analyse, detect_key, Analyser, Analysis};
 use crate::beats::BeatGrid;
 use crate::beats::GridEdit;
+use crate::beatthis;
 use crate::cache;
 use crate::cover::{self, Cover};
 use crate::decode::{decode, Decoder};
@@ -116,28 +117,42 @@ pub fn analyse_file(track: &Track, fresh: bool) -> Result<Track, String> {
     };
     let detected = key_is_detected(track);
     let detector = key::detector();
-    let cached = if fresh { None } else { cache::load(path) };
-    let analysis = match cached {
-        Some(c) if !(detected && c.key_detector != detector) => c,
-        cached => {
-            let audio = decode(path)?;
-            let analysis = match cached {
-                Some(mut c) => {
-                    c.key = detect_key(&audio, detector).or(c.key);
-                    c.key_detector = detector;
-                    c
-                }
-                // Afresh, the tempo is found without the library's as a hint.
-                None => analyse(&audio, (!fresh && track.bpm > 0.0).then_some(track.bpm)),
-            };
-            cache::store(path, &analysis);
-            analysis
-        }
-    };
     let mut base = track.clone();
     if fresh && base.info.grid_analysed {
         base.info.fixed_grid = false;
         base.grid = BeatGrid::default();
+    }
+    // Afresh, the tempo is found without the library's as a hint.
+    let hint = (!fresh && track.bpm > 0.0).then_some(track.bpm);
+    let cached = if fresh { None } else { cache::load(path) };
+    let mut audio = None;
+    let mut analysis = match cached {
+        Some(c) if !(detected && c.key_detector != detector) => c,
+        cached => {
+            let decoded = audio.insert(decode(path)?);
+            match cached {
+                Some(mut c) => {
+                    c.key = detect_key(decoded, detector).or(c.key);
+                    c.key_detector = detector;
+                    c
+                }
+                None => analyse(decoded, hint),
+            }
+        }
+    };
+    let mut changed = audio.is_some();
+    if beatthis::wanted(&analysis) && !base.info.fixed_grid {
+        let decoded = match audio.take() {
+            Some(a) => a,
+            None => decode(path)?,
+        };
+        match beatthis::refine(&mut analysis, &decoded, hint) {
+            Ok(()) => changed = true,
+            Err(e) => eprintln!("no beats from Beat This!: {e}"),
+        }
+    }
+    if changed {
+        cache::store(path, &analysis);
     }
     let mut t = with_analysis(&base, &analysis, detected);
     let finest = analysis.waveform.levels.first().map_or(0, Vec::len);
@@ -585,9 +600,44 @@ fn load(shared: &Arc<Shared>, deck: usize, generation: u64, base: &Track) -> Res
     if !latest() {
         return Ok(());
     }
-    let done = Arc::new(with_cover(analysed(base, audio, analysis, detected)));
+    // Beat This! takes a few seconds more: the deck plays on the DSP grid
+    // meanwhile, then takes the grid fitted to its beats.
+    let refine = beatthis::wanted(&analysis) && !base.info.fixed_grid && path.is_some();
+    let mut later = refine.then(|| analysis.clone());
+    let done = Arc::new(with_cover(analysed(
+        base,
+        audio.clone(),
+        analysis,
+        detected,
+    )));
     if shared.update(deck, &done) {
-        shared.send(Command::Analysed { deck, track: done });
+        shared.send(Command::Analysed {
+            deck,
+            track: done.clone(),
+        });
+    }
+    if let (Some(analysis), Some(path)) = (later.as_mut(), path) {
+        let hint = (base.bpm > 0.0).then_some(base.bpm);
+        if let Err(e) = beatthis::refine(analysis, &audio, hint) {
+            eprintln!("no beats from Beat This!: {e}");
+            return Ok(());
+        }
+        cache::store(path, analysis);
+        if !latest() {
+            return Ok(());
+        }
+        let mut t = (*done).clone();
+        with_grid(
+            &mut t,
+            base,
+            &analysis.grid,
+            analysis.bpm,
+            analysis.first_beat,
+        );
+        let t = Arc::new(t);
+        if shared.update(deck, &t) {
+            shared.send(Command::Analysed { deck, track: t });
+        }
     }
     Ok(())
 }

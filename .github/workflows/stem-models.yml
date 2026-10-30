@@ -2,6 +2,7 @@ name: Publish stem models
 
 # Builds the stem separation models openDJ downloads the first time it needs
 # them (Spleeter converted from Deezer's checkpoint, HTDemucs as safetensors),
+# and fetches the Beat This! beat detection models (ONNX, from beat-this-rs),
 # checks them against scripts/models/SHA256SUMS, which the app pins too, and
 # attaches them to the `stem-models` pre-release. Run it by hand from the
 # Actions tab once, and again only if the models change.
@@ -28,6 +29,11 @@ jobs:
           tar xzf work/4stems.tar.gz -C work/4stems
           python3 scripts/models/convert_spleeter.py work/4stems/model models/spleeter-4stems.safetensors
           curl -sSfL -o models/htdemucs.safetensors https://huggingface.co/set-soft/audio_separation/resolve/main/Demucs/htdemucs.safetensors
+      - name: Fetch Beat This!
+        run: |
+          base=https://raw.githubusercontent.com/danigb/beat-this-rs/1ae768e78f1ad83b0ed3886241dc29ffde853c40/models
+          curl -sSfL -o models/beat-this-mel.onnx "$base/mel_spectrogram.onnx"
+          curl -sSfL -o models/beat-this-small.onnx "$base/beat_this_small.onnx"
       - name: Check them against the pinned checksums
         working-directory: models
         run: sha256sum -c ../scripts/models/SHA256SUMS
@@ -38,6 +44,6 @@ jobs:
           if ! gh release view stem-models >/dev/null 2>&1; then
             gh release create stem-models --prerelease --target "$GITHUB_SHA" \
               --title "Stem separation models" \
-              --notes "Models openDJ downloads the first time it separates stems: Spleeter 4stems (MIT, Deezer) for stems on load and HTDemucs (MIT, Meta) for high-quality stems. Not an app release."
+              --notes "Models openDJ downloads the first time it needs them: Spleeter 4stems (MIT, Deezer) for stems on load, HTDemucs (MIT, Meta) for high-quality stems, and Beat This! (MIT, JKU Linz) for beats and downbeats. Not an app release."
           fi
-          gh release upload stem-models models/*.safetensors --clobber
+          gh release upload stem-models models/*.safetensors models/*.onnx --clobber

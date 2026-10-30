@@ -30,6 +30,31 @@ opt-level = 2
 [profile.dev.package.matrixmultiply]
 opt-level = 2
 
+# Beat This!'s runtime: unoptimised, a track takes minutes instead of seconds.
+[profile.dev.package.rten]
+opt-level = 2
+
+[profile.dev.package.rten-tensor]
+opt-level = 2
+
+[profile.dev.package.rten-simd]
+opt-level = 2
+
+[profile.dev.package.rten-vecmath]
+opt-level = 2
+
+[profile.dev.package.rten-gemm]
+opt-level = 2
+
+[profile.dev.package.rten-base]
+opt-level = 2
+
+[profile.dev.package.beat-this]
+opt-level = 2
+
+[profile.dev.package.rubato]
+opt-level = 2
+
 # femtovg (Slint's renderer) with a fix for its pipeline cache, which threw
 # away pipelines each flush and rebuilt them every frame. See
 # third_party/femtovg/OPENDJ.md.

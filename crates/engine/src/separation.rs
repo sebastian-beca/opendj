@@ -50,19 +50,19 @@ pub fn set_fetch(fetch: Box<Fetch>) {
 }
 
 /// The model file `name`, downloaded first if it isn't yet (one download
-/// at a time).
-fn model_or_fetch(name: &str) -> Result<PathBuf, String> {
+/// at a time), checked against its SHA-256 in `models`.
+pub(crate) fn model_or_fetch(name: &str, models: &[(&str, &str)]) -> Result<PathBuf, String> {
     static DOWNLOADING: Mutex<()> = Mutex::new(());
     let _turn = DOWNLOADING.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(p) = model(name) {
         return Ok(p);
     }
-    let fetch = FETCH.get().ok_or("the stems models aren't downloaded")?;
-    let (_, sha) = MODELS
+    let fetch = FETCH.get().ok_or("the models aren't downloaded")?;
+    let (_, sha) = models
         .iter()
         .find(|(n, _)| *n == name)
         .ok_or("unknown model")?;
-    let dir = models_dir().ok_or("no folder for the stems models")?;
+    let dir = models_dir().ok_or("no folder for the models")?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(name);
     let part = path.with_extension("part");
@@ -73,7 +73,7 @@ fn model_or_fetch(name: &str) -> Result<PathBuf, String> {
     }
     result
         .map(|()| path)
-        .map_err(|e| format!("couldn't download the stems model: {e}"))
+        .map_err(|e| format!("couldn't download {name}: {e}"))
 }
 
 /// Where the separation models are kept: `OPENDJ_MODELS`, else `models`
@@ -106,7 +106,7 @@ fn spleeter_net() -> Result<Arc<spleeter::cpu::Net>, String> {
     if let Some(n) = net.as_ref() {
         return Ok(n.clone());
     }
-    let path = model_or_fetch(SPLEETER)?;
+    let path = model_or_fetch(SPLEETER, &MODELS)?;
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let n = Arc::new(spleeter::cpu::Net::load(&bytes)?);
     // Half the cores, so a playing deck keeps its share.
@@ -228,7 +228,7 @@ pub fn separate_fast(
 /// Linux). Without the model, or when it fails, the Demucs command does it
 /// if it is installed.
 pub fn separate_hq(path: &Path) -> Result<StemSource, String> {
-    let weights = match model_or_fetch(HTDEMUCS) {
+    let weights = match model_or_fetch(HTDEMUCS, &MODELS) {
         Ok(w) => w,
         Err(e) => return crate::stems::run_demucs(path).map_err(|_| e),
     };
