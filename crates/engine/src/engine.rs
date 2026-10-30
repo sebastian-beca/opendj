@@ -152,6 +152,9 @@ struct Deck {
     loop_in_pending: bool,
     /// A beat grid edit pressed this buffer, to hand to the loader.
     grid_edit: Option<(GridEdit, f64)>,
+    /// The `bpmlock` version last seen, so the DJ turning it is told apart
+    /// from the engine showing a loaded track's lock.
+    bpmlock_seen: u32,
     /// Playback speed reached at the end of the last buffer, in multiples of
     /// normal speed; negative plays backwards.
     velocity: f64,
@@ -385,6 +388,13 @@ impl Deck {
         }
     }
 
+    /// Shows `locked` (the loaded track's grid lock) on `bpmlock`, without
+    /// taking it for the DJ turning it.
+    fn show_grid_lock(&mut self, locked: bool) {
+        self.c.bpmlock.set_bool(locked);
+        self.bpmlock_seen = self.c.bpmlock.version();
+    }
+
     fn handle_controls(&mut self) {
         let Some(track) = self.track.clone() else {
             return;
@@ -393,6 +403,14 @@ impl Deck {
         let p = self.c.playposition.get();
         if (p - self.last_written_position).abs() > 1e-9 {
             self.set_seconds(p * track.duration);
+        }
+
+        if self.c.bpmlock.version() != self.bpmlock_seen {
+            self.bpmlock_seen = self.c.bpmlock.version();
+            let on = self.c.bpmlock.get_bool();
+            if on != track.info.grid_locked {
+                self.grid_edit = Some((GridEdit::Lock(on), self.seconds()));
+            }
         }
 
         let playing = self.c.play.get_bool();
@@ -1125,6 +1143,7 @@ impl Engine {
             loop_end: 0.0,
             loop_in_pending: false,
             grid_edit: None,
+            bpmlock_seen: 0,
             velocity: 0.0,
             jog_pending: 0.0,
             search_quiet: 0.0,
@@ -1257,6 +1276,7 @@ impl Engine {
                     d.declick = None;
                     d.c.duration.set(track.duration);
                     d.c.track_loaded.set_bool(true);
+                    d.show_grid_lock(track.info.grid_locked);
                     d.c.cue_point.set(track.first_beat);
                     d.c.loop_enabled.set_bool(false);
                     d.loop_in_pending = false;
@@ -1351,6 +1371,7 @@ impl Engine {
                         d.c.cue_point.set(track.first_beat);
                     }
                     let first_beat = track.first_beat;
+                    d.show_grid_lock(track.info.grid_locked);
                     if let Some(old) = d.track.replace(track) {
                         let _ = self.returned.push(Returned::Done(old));
                     }
@@ -1365,6 +1386,7 @@ impl Engine {
                         _ => false,
                     };
                     let old = if same {
+                        d.show_grid_lock(track.info.grid_locked);
                         d.track.replace(track)
                     } else {
                         Some(track)

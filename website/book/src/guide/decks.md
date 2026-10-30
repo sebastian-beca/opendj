@@ -1,7 +1,10 @@
 # Decks and mixer
 
 Drag a track from the browser onto a deck to load it, or select it and
-press a controller's **LOAD** button.
+press a controller's **LOAD** button. You can also drag an audio file
+straight from Finder, Explorer or your file manager onto a deck: it loads
+there and joins your library. (On Linux this needs an X11 session; Wayland
+doesn't pass file drops to openDJ yet.)
 
 ## Decks
 
