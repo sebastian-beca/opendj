@@ -6,7 +6,7 @@ The library browser: the tree, the track list with its columns, selection and dr
 ## Requirements
 
 ### Requirement: Tree
-The tree SHALL start with the stages (when set up), then All Tracks with Library Health beneath, then the DJ's playlists, folders and smart lists, imported folders, and History, each with its count.
+The tree SHALL start with the stages (when set up), then All Tracks with Collection Health beneath, then the DJ's playlists, folders and smart lists, imported folders, and History, each with its count.
 
 #### Scenario: Stages first
 - **WHEN** triage and collection folders are set

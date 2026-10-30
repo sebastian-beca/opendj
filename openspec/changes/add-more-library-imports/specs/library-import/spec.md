@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: More importers
-Settings › Library › Import SHALL offer Import from rekordbox and Import from Mixxx alongside VirtualDJ, each with the three-step wizard, read-only, kept up to date at start, and removable.
+Settings › Collection › Import SHALL offer Import from rekordbox and Import from Mixxx alongside VirtualDJ, each with the three-step wizard, read-only, kept up to date at start, and removable.
 
 #### Scenario: rekordbox library
 - **WHEN** a rekordbox 6 or 7 library is imported

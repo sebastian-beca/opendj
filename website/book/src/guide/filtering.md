@@ -53,9 +53,9 @@ box for a moment to see everything search understands:
 | `~deck` | Tracks that mix with the one playing |
 | `color:red` | A track colour |
 | `crate:yoga crate:""` | In a crate with "yoga" in its name; in no crate |
-| `stage:inbox` `stage:triage` `stage:collection` | A [stage](music.md#stages-inbox-triage-and-collection) |
+| `stage:inbox` `stage:prep` `stage:playready` | A [stage](music.md#stages-inbox-in-prep-and-play-ready) |
 | `is:prepped` | Tracks with tags, rating, tempo and key |
-| `is:duplicate is:missing is:nocover` | A [Library Health](library-health.md) check |
+| `is:duplicate is:missing is:nocover` | A [Collection Health](collection-health.md) check |
 | `-genre:techno` | Leaves those out |
 | `glue \| daft` | Either one |
 

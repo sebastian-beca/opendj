@@ -20,12 +20,12 @@
 //!   track playing now, by key and tempo.
 //! - `color:red` (or orange, yellow, green, cyan, blue, purple, pink),
 //!   `is:missing`, `is:duplicate`, `is:played`, `is:cued`, `is:prepped`
-//!   (artist, title, rating, tempo and key all there), and Library
+//!   (artist, title, rating, tempo and key all there), and Collection
 //!   Health's checks: `is:notmusic`, `is:stray`, `is:outside`, `is:unanalyzed`,
 //!   `is:noinfo`, `is:junk`, `is:nocover`, `is:unrated`, `is:long` (see
 //!   [`crate::health`]).
-//! - `stage:inbox`, `stage:triage`, `stage:collection` (see
-//!   [`crate::stages`]); `stage:none` for tracks outside the stage folders.
+//! - `stage:inbox`, `stage:prep`, `stage:playready` (or the older
+//!   `stage:triage`, `stage:collection`; see [`crate::stages`]); `stage:none` for tracks outside the stage folders.
 //! - `crate:yoga` for tracks in a crate whose name has "yoga" in it,
 //!   `crate:=yoga` for that crate only, `crate:""` for tracks in no crate
 //!   (see [`crate::sets`]).
@@ -169,7 +169,7 @@ enum Flag {
     Played,
     Cued,
     Prepped,
-    /// A Library Health check (see [`crate::health`]).
+    /// A Collection Health check (see [`crate::health`]).
     Health(crate::health::Check),
 }
 
@@ -208,7 +208,7 @@ pub struct Context<'a> {
     pub deck_track: Option<usize>,
     /// Ids of tracks that are in the library more than once.
     pub duplicates: Option<&'a HashSet<usize>>,
-    /// What Library Health's checks go by (`is:notmusic` and the like).
+    /// What Collection Health's checks go by (`is:notmusic` and the like).
     pub health: Option<&'a crate::health::Facts>,
     /// The crates each track is in, by track id, for `crate:`.
     pub crates: Option<&'a HashMap<usize, Vec<String>>>,
@@ -459,7 +459,7 @@ fn parse_test(word: &str) -> Option<Test> {
         "stage" => match v.to_ascii_lowercase().as_str() {
             "none" => Test::Stage(String::new()),
             "" => return None,
-            name => match crate::stages::Stage::from_name(name) {
+            name => match crate::stages::Stage::from_search(name) {
                 Some(st) => Test::Stage(st.name().to_string()),
                 None => Test::Never,
             },

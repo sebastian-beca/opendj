@@ -1,5 +1,5 @@
 //! Looks for album art in the collection's files on a thread of its own, one
-//! file at a time, for Library Health's "No cover" check. Each answer is
+//! file at a time, for Collection Health's "No cover" check. Each answer is
 //! kept in the library with the file's modification time, so a file is
 //! only looked at again once it changes.
 

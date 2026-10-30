@@ -183,7 +183,7 @@ impl Browser {
         self.cleanup.heading = "Clean up";
         self.refresh_cleanup_ui();
         if self.cleanup.review.is_empty() {
-            "Nothing to clean up with the rules turned on in Settings › Library.".into()
+            "Nothing to clean up with the rules turned on in Settings › Collection.".into()
         } else {
             String::new()
         }
@@ -315,7 +315,7 @@ impl Browser {
         let mut s = format!("Changed {}.", tracks(n));
         if unwritten > 0 {
             s += &format!(
-                " {} couldn't be written to the file (not on this computer, or locked), only to the library.",
+                " {} couldn't be written to the file (not on this computer, or locked), only to your collection.",
                 tracks(unwritten)
             );
         }
@@ -661,7 +661,7 @@ impl Browser {
         let found = batch.found.len();
         self.health_status = if found == 0 {
             format!(
-                "Nothing found online for {}. Without an AcoustID key (Settings › Library) \
+                "Nothing found online for {}. Without an AcoustID key (Settings › Collection) \
                  tracks are looked up by artist and title only.",
                 tracks(total)
             )

@@ -7,7 +7,7 @@ and the EQ move, and you can take over at any time.
 ## Start a mix
 
 1. **Queue your tracks.** The Automix panel is the first tab of the side
-   panel on the right of the library. Drag tracks into it, or right-click a
+   panel on the right of the browser. Drag tracks into it, or right-click a
    track and choose **Add to Automix**. Drag tracks within the list to
    change their order. The top of the panel shows how long the list runs.
 2. **Pick a length and a style** from the two menus at the top of the

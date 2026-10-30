@@ -27,14 +27,14 @@ Plain words SHALL match artist, title, album, genre, comment, grouping and tags;
 - **THEN** tracks in compatible keys within 6 % of 124 BPM are listed
 
 ### Requirement: Status keywords
-`color:<name>`, `stage:inbox|triage|collection|none`, and `is:` with missing, duplicate, played, cued, prepped and each Library Health check SHALL filter by those states.
+`color:<name>`, `stage:inbox|triage|collection|none`, and `is:` with missing, duplicate, played, cued, prepped and each Collection Health check SHALL filter by those states.
 
 #### Scenario: Prepared tracks
 - **WHEN** the DJ searches `is:prepped`
 - **THEN** only tracks with artist, title, rating, tempo and key are listed
 
 ### Requirement: Own tag fields
-The DJ SHALL name the grouping field and any number of tag fields in Settings › Library › Fields. Each name SHALL work as a search word (`mood:uplifting`), as does each number (`tag1:`), with `#` optional. Removing a field SHALL keep its tags on tracks.
+The DJ SHALL name the grouping field and any number of tag fields in Settings › Collection › Fields. Each name SHALL work as a search word (`mood:uplifting`), as does each number (`tag1:`), with `#` optional. Removing a field SHALL keep its tags on tracks.
 
 #### Scenario: Named field
 - **WHEN** tag field 1 is named Mood and the DJ searches `mood:uplifting`

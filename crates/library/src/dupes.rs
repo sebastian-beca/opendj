@@ -63,9 +63,9 @@ impl Case {
 
     pub fn about(self) -> &'static str {
         match self {
-            Case::SameFile => "The same file in two places. The one in your Collection is kept.",
+            Case::SameFile => "The same file in two places. The one in your Play Ready folder is kept.",
             Case::BetterCopy => "A lossless or higher-bitrate copy is kept.",
-            Case::SameFormat => "Same format in different folders. The one in your Collection is kept.",
+            Case::SameFormat => "Same format in different folders. The one in your Play Ready folder is kept.",
             Case::Versions => "Different lengths, so maybe an edit and an extended mix. Link them as versions, or keep one.",
         }
     }

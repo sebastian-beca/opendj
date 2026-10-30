@@ -13,10 +13,10 @@ Analysis SHALL produce a 3-band waveform summary, the tempo (to 0.01 BPM), a bea
 - **THEN** it gets a waveform, BPM, beat grid, key and loudness
 
 ### Requirement: When analysis runs
-A track SHALL be analysed the first time it loads on a deck, playing meanwhile. Tracks in Triage, and tracks Library Health's Analyze asks for, SHALL be analysed in the background one at a time. Grids, keys and cues from an import SHALL be used without waiting.
+A track SHALL be analysed the first time it loads on a deck, playing meanwhile. Tracks in In Prep, and tracks Collection Health's Analyze asks for, SHALL be analysed in the background one at a time. Grids, keys and cues from an import SHALL be used without waiting.
 
-#### Scenario: Triage analysis
-- **WHEN** a track is sent to Triage
+#### Scenario: In Prep analysis
+- **WHEN** a track is sent to In Prep
 - **THEN** its tempo and key fill in without loading it on a deck
 
 ### Requirement: Tempo range
@@ -41,7 +41,7 @@ Settings › Analysis "Key detection" SHALL offer Standard (chroma template, def
 - **THEN** its key comes from the neural detector and is marked as detected
 
 ### Requirement: Analysis cache
-Results SHALL be cached on disk by file path, size and modification time, so an edited file is analysed again, and SHALL survive tag rewrites made by openDJ. Settings › Library "Clear" SHALL throw the cache away.
+Results SHALL be cached on disk by file path, size and modification time, so an edited file is analysed again, and SHALL survive tag rewrites made by openDJ. Settings › Collection "Clear" SHALL throw the cache away.
 
 #### Scenario: Edited file re-analysed
 - **WHEN** a file's audio is replaced outside openDJ

@@ -1,4 +1,4 @@
-//! Library Health in the browser (see [`opendj_library::health`]): a node in
+//! Collection Health in the browser (see [`opendj_library::health`]): a node in
 //! the collection's tree with one node per check under it, the checks'
 //! page, and the fixes each check offers for its tracks.
 
@@ -55,9 +55,9 @@ enum Fix {
 impl Fix {
     fn label(self) -> &'static str {
         match self {
-            Fix::Remove => "Remove from library",
+            Fix::Remove => "Remove from collection",
             Fix::MarkMusic => "It's music",
-            Fix::ToTriage => "Move to Triage",
+            Fix::ToTriage => "Move to In Prep",
             Fix::Analyze => "Analyze",
             Fix::FillFromName => "Fill from file name",
             Fix::Relink => "Find files",
@@ -103,9 +103,9 @@ fn copies(n: usize) -> String {
     format!("{n} cop{}", if n == 1 { "y" } else { "ies" })
 }
 
-/// The tree's Library Health node, closed, with a node per check under it.
+/// The tree's Collection Health node, closed, with a node per check under it.
 pub(super) fn health_nodes() -> Vec<Node> {
-    let mut top = Node::new("Library Health", 0, KIND_HEALTH, Contents::Health(None));
+    let mut top = Node::new("Collection Health", 0, KIND_HEALTH, Contents::Health(None));
     top.expanded = false;
     let mut nodes = vec![top];
     for check in Check::ALL {
@@ -473,9 +473,9 @@ impl Browser {
             if groups == 1 { "it" } else { "them" },
         );
         s += match (quarantine.is_some(), moving) {
-            (false, _) => " Their files stay where they are: set your Collection folder in Settings › Library to quarantine them.",
+            (false, _) => " Their files stay where they are: set your Play Ready folder in Settings › Collection to quarantine them.",
             (true, true) => " Their files are in _Quarantine.",
-            (true, false) => " Their files go to _Quarantine once Move files is on in Settings › Library.",
+            (true, false) => " Their files go to _Quarantine once Move files is on in Settings › Collection.",
         };
         if failed > 0 {
             s += &format!(" {failed} couldn't be moved.");
@@ -495,7 +495,8 @@ impl Browser {
             .collect();
         let date = chrono::Local::now().format("%Y-%m-%d").to_string();
         let Some(quarantine) = dupes::quarantine_dir(&self.folders, &date) else {
-            return "Set your Collection folder in Settings › Library to quarantine tracks.".into();
+            return "Set your Play Ready folder in Settings › Collection to quarantine tracks."
+                .into();
         };
         let moving = settings::move_files();
         let Some(db) = &mut self.db else {
@@ -527,11 +528,11 @@ impl Browser {
         });
         self.read_pending_moves();
         self.reload_library();
-        let mut s = format!("{} taken out of the library.", tracks(n));
+        let mut s = format!("{} taken out of your collection.", tracks(n));
         s += if moving {
             " Their files are in _Quarantine."
         } else {
-            " Their files go to _Quarantine once Move files is on in Settings › Library."
+            " Their files go to _Quarantine once Move files is on in Settings › Collection."
         };
         if failed > 0 {
             s += &format!(" {failed} couldn't be moved.");
@@ -698,7 +699,7 @@ impl Browser {
         }
     }
 
-    /// Selects a check's node (or the Library Health node), opening it.
+    /// Selects a check's node (or the Collection Health node), opening it.
     fn review(&mut self, check: Option<Check>) {
         let Some(n) = self.nodes.iter().position(|n| match (&n.contents, check) {
             (Contents::Health(c), _) => *c == check,
@@ -841,12 +842,12 @@ impl Browser {
                 s + "."
             }
             Check::Stray if !self.folders.is_set() => {
-                "Set your stage folders in Settings › Library first.".into()
+                "Set your stage folders in Settings › Collection first.".into()
             }
             Check::Outside
                 if settings::music_folders().is_empty() && self.folders.all().is_empty() =>
             {
-                "Add a music folder in Settings › Library first.".into()
+                "Add a music folder in Settings › Collection first.".into()
             }
             _ => String::new(),
         }
@@ -880,7 +881,7 @@ impl Browser {
             }
             Fix::ToTriage => {
                 self.change_stage(indices, Stage::Triage, None);
-                format!("{} moved to Triage.", tracks(indices.len()))
+                format!("{} moved to In Prep.", tracks(indices.len()))
             }
             Fix::Analyze => {
                 let picked: Vec<Arc<Track>> =
@@ -946,7 +947,7 @@ impl Browser {
             Ok(n) => {
                 self.reload_library();
                 format!(
-                    "{} removed from the library. The files are still there.",
+                    "{} removed from your collection. The files are still there.",
                     tracks(n)
                 )
             }
@@ -960,7 +961,7 @@ impl Browser {
         self.health_status = match db.restore_tracks(None) {
             Ok(n) => {
                 self.reload_library();
-                format!("{} back in the library.", tracks(n))
+                format!("{} back in your collection.", tracks(n))
             }
             Err(e) => format!("Couldn't bring them back: {e}"),
         };
@@ -1137,7 +1138,7 @@ impl Browser {
             s += &format!(" {many} matched more than one file, so they were left alone.");
         }
         if taken > 0 {
-            s += &format!(" {taken} matched a track the library has already: see Duplicates.");
+            s += &format!(" {taken} matched a track your collection has already: see Duplicates.");
         }
         s
     }

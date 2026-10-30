@@ -559,14 +559,15 @@ impl Browser {
                     }
                 }
                 None => {
-                    status = "The file isn't on this computer, so only the library has the change."
-                        .into()
+                    status =
+                        "The file isn't on this computer, so only your collection has the change."
+                            .into()
                 }
             }
         }
         if let Some(db) = &self.db {
             if let Err(e) = db.save_info(t.id, &t) {
-                status = format!("Couldn't save to the library: {e}");
+                status = format!("Couldn't save to your collection: {e}");
             }
             // Clean-up and Look up online leave what the DJ typed alone.
             if opendj_library::cleanup::Field::from_name(id).is_some() {
@@ -696,7 +697,7 @@ impl Browser {
                 eprintln!("can't save the track: {e}");
             }
         }
-        // Library Health looks again, so the track leaves No Cover.
+        // Collection Health looks again, so the track leaves No Cover.
         self.cover_scan.add(t.id, path, &t.album);
         // Every list showing the track, and any deck it's on, shows the
         // new cover at once.

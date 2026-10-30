@@ -14,7 +14,7 @@ more experienced DJs alike.
 - **Mixer** with gain, 3-band EQ, filter, faders, crossfader and headphone cue
 - **Effects**: four beat-synced effect units, with echo, reverb, filter, flanger and more
 - **Automix** that crossfades through a list for you, in several lengths and styles
-- **Library** of your music folder, with playlists, smart lists, ratings, colours,
+- **Collection** of your music folders, with playlists, smart lists, ratings, colours,
   play history and fast search
 - **Accurate beat grids** that follow tempo changes, with tools to fix them by hand
 - **Key detection** and harmonic mixing hints
@@ -30,7 +30,7 @@ controllers aren't supported yet.
 
 ## Streaming services and stores
 
-Streaming services and music stores are coming soon, we hope as library add-ons.
+Streaming services and music stores are coming soon, we hope as source add-ons.
 For now, openDJ plays the music on your computer.
 
 ## Beta testing

@@ -235,7 +235,7 @@ impl Worker {
             if file.archive.is_some() {
                 let _ = std::fs::remove_file(path);
             }
-            return Ok("duplicate: already in the library".into());
+            return Ok("duplicate: already in your collection".into());
         }
         let store = self.recognised(db, &file);
         let (dest, mode) = match &store {
@@ -268,7 +268,7 @@ pub fn add_download(library: &Path, path: &Path, store: &str) -> Result<Track, S
     let mut db = Library::open(library).map_err(|e| e.to_string())?;
     let (_, mut track) = describe(path, None);
     if let Ok(Some(same)) = db.find_same(&track.artist, &track.title, track.duration) {
-        return Err(format!("already in the library as track {same}"));
+        return Err(format!("already in your collection as track {same}"));
     }
     track.source = Source::File(path.to_path_buf());
     let track = db.add_purchase(&track, store).map_err(|e| e.to_string())?;

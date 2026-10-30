@@ -1,7 +1,7 @@
 //! Crates and sets, the two kinds of playlist: a crate is a long-lived
 //! list a track can sit in alongside others (Yoga, Journeys, Dance), and a
 //! set is a folder made for one gig from a template of lists (Staging, Set,
-//! Live set). Also what Library Health finds in playlists: lists left
+//! Live set). Also what Collection Health finds in playlists: lists left
 //! empty, and entries for tracks taken out of the library.
 
 use std::collections::HashMap;
@@ -16,7 +16,7 @@ pub const TEMPLATE: [&str; 3] = ["Staging", "Set", "Live set"];
 /// The list of a set that History's "Add to Set List…" fills.
 pub const LIVE_SET: &str = "Live set";
 
-/// What Library Health finds in the DJ's lists.
+/// What Collection Health finds in the DJ's lists.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ListHealth {
     /// Crates with no tracks (lists in a set are left alone: a new set

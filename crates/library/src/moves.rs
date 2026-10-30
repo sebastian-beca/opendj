@@ -170,7 +170,7 @@ impl Library {
         if taken.is_some_and(|id| Some(id) != row_id(track)) {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
-                "another track in the library is there",
+                "another track in your collection is there",
             ));
         }
         if from.exists() || !to.exists() {

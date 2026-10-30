@@ -1,7 +1,7 @@
 //! Crates and sets in the browser (see [`opendj_library::sets`]): the crates
 //! each track is in, for the Crates column and `crate:`; New set… from the
 //! template in the settings; History's "Add to Set List…"; and tidying the
-//! lists from Library Health.
+//! lists from Collection Health.
 
 use opendj_library::sets::ListHealth;
 use opendj_library::stages::{Prep, Stage};
@@ -12,7 +12,7 @@ use super::{Browser, KIND_SET};
 use crate::{settings, LibraryEdit};
 
 impl Browser {
-    /// Reads again which crates each track is in, and what Library Health
+    /// Reads again which crates each track is in, and what Collection Health
     /// finds in the lists.
     pub(super) fn refresh_crates(&mut self) {
         let Some(db) = &self.db else { return };
@@ -77,7 +77,7 @@ impl Browser {
         }
     }
 
-    /// For a set: how many of its tracks are in Triage still missing basic
+    /// For a set: how many of its tracks are in In Prep still missing basic
     /// prep, to add to the list's summary.
     pub(super) fn set_note(&self, indices: &[usize]) -> Option<String> {
         if self.nodes.get(self.current_node)?.kind != KIND_SET {
@@ -90,14 +90,14 @@ impl Browser {
             .count();
         (unready > 0).then(|| {
             format!(
-                "{} in Triage {} prep",
+                "{} in In Prep {} not play ready",
                 tracks(unready),
-                if unready == 1 { "needs" } else { "need" }
+                if unready == 1 { "is" } else { "are" }
             )
         })
     }
 
-    /// What Library Health says about the lists; empty when they're fine.
+    /// What Collection Health says about the lists; empty when they're fine.
     pub(super) fn list_health_text(&self) -> String {
         let ListHealth { empty, dead } = &self.list_health;
         let mut parts = Vec::new();
@@ -110,7 +110,7 @@ impl Browser {
         }
         if *dead > 0 {
             parts.push(format!(
-                "{dead} entr{} for tracks removed from the library",
+                "{dead} entr{} for tracks removed from your collection",
                 if *dead == 1 { "y" } else { "ies" }
             ));
         }

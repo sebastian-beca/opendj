@@ -1,7 +1,7 @@
-# Library Health
+# Collection Health
 
-**Library Health**, under All Tracks in the collection, checks the whole
-library for what needs fixing. Its page has one line per check, with how
+**Collection Health**, under All Tracks in the collection, checks the whole
+collection for what needs fixing. Its page has one line per check, with how
 many tracks it finds; **Review** lists them, and the bar above the list
 fixes them all at once. To fix only some, pick them (shift-click for a
 range) and right-click.
@@ -9,19 +9,19 @@ range) and right-click.
 | Check | Finds | Fixes |
 |---|---|---|
 | Not music | Audiobooks, podcasts and spoken word: Apple Books and Podcasts folders, `.m4b` files, genres such as Audiobook, "(Unabridged)" albums, and chapters (several tracks in one folder sharing a title) | Remove from library, It's music |
-| Strays | Files outside your Inbox, Triage and Collection folders | Move to Triage, Remove from library |
-| Outside folders | Files outside your music folders and stage folders, such as ones that came in with a VirtualDJ import | Move to Triage, Remove from library |
+| Strays | Files outside your Inbox, In Prep and Play Ready folders | Move to In Prep, Remove from collection |
+| Outside folders | Files outside your music folders and stage folders, such as ones that came in with a VirtualDJ import | Move to In Prep, Remove from collection |
 | Duplicates | The same track more than once: same artist, title and remix | Fix all easy, Keep this copy, Link as versions (see [Duplicates](#duplicates)) |
 | Not analyzed | No tempo or key | Analyze, in the background |
 | Missing info | No artist, title, album, year or genre | Fill from file name (`Artist - Title.mp3`), written to the file too; Look up online (see [Online lookup](#online-lookup)) |
 | Junk in names | Track numbers, web sites, "(Official Video)", underscores, or a remix or guest in the title | Clean up… (see [Clean-up](#clean-up)), Look up online |
 | No cover | No picture in the file's tags or its folder | Find covers online, or one by one from the track's info panel |
 | No rating | No stars | Rate them in the list |
-| Missing files | The file isn't where the library expects it | Find files (looks for the same file name in your stage folders and music folders), Remove from library |
+| Missing files | The file isn't where your collection expects it | Find files (looks for the same file name in your stage folders and music folders), Remove from collection |
 | Long tracks | Over 20 minutes: recorded sets and long pieces | Tag as #mix |
 
 **Lists** at the bottom of the page shows up when crates are empty or lists
-still hold tracks you removed from the library. **Tidy up** deletes the
+still hold tracks you removed from your collection. **Tidy up** deletes the
 empty crates and takes those tracks out of the lists. The lists of a set
 are left alone, since a new set starts empty.
 
@@ -29,7 +29,7 @@ are left alone, since a new set starts empty.
 alone. A track that isn't music is left out of the other checks, so an
 audiobook doesn't also show up as missing its cover.
 
-**Remove from library** keeps the file where it is. The track no longer
+**Remove from collection** keeps the file where it is. The track no longer
 shows, and a rescan or a VirtualDJ import doesn't bring it back; adding the
 file again does, and so does **Bring back** at the bottom of the page.
 
@@ -42,7 +42,7 @@ only when it changes. On a Mac, files that iCloud has taken off the disk
 are skipped, so the check doesn't download your whole collection.
 
 **Find covers** looks online (Cover Art Archive, iTunes, and Discogs with
-a Discogs token in Settings › Library) for each track, one at a time in the
+a Discogs token in Settings › Collection) for each track, one at a time in the
 background, and embeds the largest cover found, scaled down to 1024 pixels
 when it is bigger. Tracks it finds nothing for stay in the list: search
 those from the track's info panel.
@@ -52,7 +52,7 @@ those from the track's info panel.
 **Clean up…** on Junk in names (or a right-click on some of its tracks)
 shows every change before anything happens: the track, the field, what it
 says now and what it becomes. Untick a change to leave it, then **Apply**.
-The changes go to the library and to the files' tags. **Undo** in the bar
+The changes go to your collection and to the files' tags. **Undo** in the bar
 or the track menu takes the whole batch back.
 
 | Rule | Example |
@@ -65,11 +65,11 @@ or the track menu takes the whole batch back.
 | Featured artists | `Road (feat. Arctic Lake)` by Lane 8 becomes `Road` by `Lane 8 feat. Arctic Lake` |
 | Title Case (off) | `CARBON BASED LIFEFORMS` becomes `Carbon Based Lifeforms` |
 
-Each rule can be turned off in Settings › Library › Stages, under
+Each rule can be turned off in Settings › Collection › Stages, under
 Clean-up. Titles that start with a number, such as `99 Luftballons`, stay
 as they are.
 
-**Genres…** at the bottom of the Library Health page lists every genre with
+**Genres…** at the bottom of the Collection Health page lists every genre with
 how many tracks have it. Genres spelled like another but for capitals,
 spaces or punctuation (`Electronica` and `electronica`) are lilac. Tick the
 ones that mean the same, type the name to keep (the most used one is
@@ -88,10 +88,10 @@ Only changes that fill an empty field from a match at least 80% sure are
 ticked. A change to something the track already has is shown unticked, so
 nothing you named yourself is overwritten unless you tick it. Fields you
 typed in the track's info panel are never proposed. **Apply** writes the
-ticked changes to the library and the files, and Undo takes them back.
+ticked changes to your collection and the files, and Undo takes them back.
 
 With an **AcoustID key** (free on acoustid.org; paste it in Settings ›
-Library under Online lookup) openDJ recognises tracks by their sound, so
+Collection under Online lookup) openDJ recognises tracks by their sound, so
 files called `track01.mp3` are found too. Without one, tracks are looked up
 by artist and title, and those with neither are skipped.
 
@@ -109,7 +109,7 @@ sorts them into groups by what tells them apart:
 | Different lengths | More than 3 seconds apart: an edit and an extended mix, say | You decide: **Link as versions** or **Keep the best copies** |
 
 In each group the copy kept comes first and the others are dimmed. openDJ
-keeps the copy in your Collection folder, then a lossless file over a lossy
+keeps the copy in your Play Ready folder, then a lossless file over a lossy
 one, then the higher bitrate, then the one with cues or a checked grid,
 then the most played. To keep another one, right-click it and choose
 **Keep this copy**. The **Location** column (right-click a heading) shows
@@ -118,11 +118,11 @@ which folder each copy is in.
 **Fix all easy** merges every group but Different lengths at once. Merging
 loses nothing: the kept copy takes the others' lists and history, cues and
 grid (when it has none), links, the highest rating, all their plays, the
-earliest date added, and any tags it lacks. The other copies leave the
-library and their files go to `_Quarantine/<date>/`, next to your
-Collection folder. With **Move files** off in Settings › Library, the moves
+earliest date added, and any tags it lacks. The other copies leave your
+collection and their files go to `_Quarantine/<date>/`, next to your
+Play Ready folder. With **Move files** off in Settings › Collection, the moves
 wait until you turn it on. openDJ never deletes anything there: the bottom
-of the Library Health page shows how many files are waiting, and
+of the Collection Health page shows how many files are waiting, and
 **Show folder** opens it, so you can empty it once you're sure.
 
 **Undo** in the bar (or the track menu) brings the copies back and moves
@@ -134,5 +134,5 @@ each shows the others on its Linked tab, and they leave the Duplicates list.
 ## Quarantine
 
 To put away a track you don't want, without deleting it, right-click it and
-choose **Move to Quarantine**. It leaves the library and its file goes to the
+choose **Move to Quarantine**. It leaves your collection and its file goes to the
 same `_Quarantine/<date>/` folder as duplicates, and **Undo** brings it back.

@@ -1,6 +1,6 @@
 # Decks and mixer
 
-Drag a track from the library onto a deck to load it, or select it and
+Drag a track from the browser onto a deck to load it, or select it and
 press a controller's **LOAD** button.
 
 ## Decks
@@ -53,7 +53,7 @@ it's lit, moving the tempo fader keeps the track's key. The **+** and **−**
 beside the deck's key shift it a semitone at a time, and clicking the key
 lists every shift with the key it gives.
 
-The library shows in lilac the keys that mix with the track playing now.
+The track list shows in lilac the keys that mix with the track playing now.
 **Settings › Decks › Key mixing** picks which ones count:
 
 - **Harmonic** (4 keys): the same Camelot number, or the next number up or

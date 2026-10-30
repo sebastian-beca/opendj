@@ -1,4 +1,4 @@
-//! Library Health: checks that find what needs fixing in the collection
+//! Collection Health: checks that find what needs fixing in the collection
 //! (audiobooks and podcasts, files outside the stage folders or the music
 //! folders, tracks not
 //! analysed or missing their tags, cover or rating, files gone, long
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS covers (
 );
 ";
 
-/// Something Library Health looks for.
+/// Something Collection Health looks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Check {
     NotMusic,
@@ -139,13 +139,13 @@ impl Check {
             Check::NotMusic => {
                 "Audiobooks, podcasts and spoken word that came in with another library."
             }
-            Check::Stray => "Files outside your Inbox, Triage and Collection folders.",
+            Check::Stray => "Files outside your Inbox, In Prep and Play Ready folders.",
             Check::Outside => "Files outside your music folders and stage folders.",
             Check::NotAnalyzed => "No tempo or key yet.",
             Check::MissingInfo => "No artist, title, album, year or genre.",
             Check::NoCover => "No picture in the file's tags or its folder.",
             Check::NoRating => "No stars yet.",
-            Check::Missing => "The file isn't where the library expects it.",
+            Check::Missing => "The file isn't where your collection expects it.",
             Check::Long => "Over 20 minutes: recorded sets and long pieces.",
             Check::Duplicate => "The same track more than once.",
             Check::Junk => {

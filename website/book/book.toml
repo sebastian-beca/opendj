@@ -25,3 +25,7 @@ level = 1
 
 [output.html.search]
 limit-results = 20
+
+# Pages that moved, so old links keep working.
+[output.html.redirect]
+"/guide/library-health.html" = "collection-health.html"

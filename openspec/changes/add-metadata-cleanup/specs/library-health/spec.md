@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Clean-up check
-Library Health SHALL have a Clean up check listing tracks whose tags break house-style rules (stray spaces, case, remix or feat. in the title, near-identical artist or genre spellings).
+Collection Health SHALL have a Clean up check listing tracks whose tags break house-style rules (stray spaces, case, remix or feat. in the title, near-identical artist or genre spellings).
 
 #### Scenario: Feat in title
 - **WHEN** a title is "Track (feat. X)"
