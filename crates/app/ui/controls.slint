@@ -5,6 +5,7 @@
 // per-control wiring.
 import { Theme } from "theme.slint";
 import { TourMark } from "tourmark.slint";
+import { MapMark } from "mapmark.slint";
 
 export global Controls {
     in property <int> tick;
@@ -164,6 +165,7 @@ export component ControlKnob inherits Rectangle {
         }
     }
     TourMark { id: root.tour-id; }
+    MapMark { key: root.group + "," + root.key; }
 }
 
 // Flat dark button with a thin border. When its light is on, the label and
@@ -290,6 +292,7 @@ export component ControlButton inherits Rectangle {
         }
     }
     TourMark { id: root.tour-id; }
+    MapMark { key: root.group + "," + root.key; }
 }
 
 // Fader with tick marks either side of a dark slot and a grey metal-look cap.
@@ -408,6 +411,7 @@ export component ControlFader inherits Rectangle {
         inv ? 1 - c : c
     }
     TourMark { id: root.tour-id; }
+    MapMark { key: root.group + "," + root.key; }
 }
 
 // The crossfader. A right-click switches it off and on again

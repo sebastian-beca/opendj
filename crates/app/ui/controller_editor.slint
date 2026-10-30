@@ -9,6 +9,7 @@ import { Theme } from "theme.slint";
 import { MenuField } from "mixer.slint";
 import { SearchField, CloseButton, Switch } from "preferences.slint";
 import { ListView, ScrollView } from "scroll.slint";
+import { MapMode } from "mapmark.slint";
 
 // A row of the Controls or Lights list, or a heading above them: a group
 // (Deck, Pads, Mixer…) or a category within it (Hot cues, Loops…).
@@ -836,6 +837,17 @@ export component ControllerEditorOverlay inherits Rectangle {
                 VerticalLayout {
                     alignment: center;
                     Chip { text: ControllerEditor.original ? "Original · a change makes your own copy" : "Your mapping"; }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    // Map mode over the main window: the editor closes for it.
+                    SmallButton {
+                        text: "MIDI map";
+                        clicked => {
+                            ControllerEditor.open = false;
+                            MapMode.start();
+                        }
+                    }
                 }
                 if ControllerEditor.support != "": VerticalLayout {
                     alignment: center;

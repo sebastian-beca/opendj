@@ -15,7 +15,7 @@
 
 ## 3. Map mode
 
-- [ ] 3.1 Map mode over the main window with learn, undo and conflicts; test on the Xone K2
+- [x] 3.1 Map mode over the main window with learn, undo and conflicts (replace, Keep both); MIDI button in the top bar and the editor (Seba, 2026-10-29). Tried with the FLX4 stand-in; still to try on the Xone K2
 - [ ] 3.2 Quick map for a controller with no mapping; test with the FLX4 pretending to be unknown
 - [ ] 3.3 Update the matching user guide page in website/book/src/guide (controllers.md)
 
