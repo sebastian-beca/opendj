@@ -666,6 +666,12 @@ export component AppWindow inherits Window {
                 Preferences.open = false;
                 return accept;
             }
+            // ⌘A (Ctrl+A on Linux and Windows) picks every track in the
+            // list; the side list and text fields take it first themselves.
+            if (e.text == "a" || e.text == "A") && e.modifiers.control && !e.modifiers.alt && !e.modifiers.shift && !Preferences.open {
+                browser.select-all();
+                return accept;
+            }
             if !Preferences.open && shortcut(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift, master-deck, browser.first-picked, browser.last-picked) {
                 return accept;
             }
@@ -825,6 +831,7 @@ export component AppWindow inherits Window {
                 ascending: sort-ascending;
                 side-rows: side-rows;
                 side-total: side-total;
+                list-clicked => { keys.focus(); }
                 select-folder(i) => { select-folder(i); }
                 toggle-folder(i) => { toggle-folder(i); }
                 sort(c) => { sort(c); }
