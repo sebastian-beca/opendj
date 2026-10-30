@@ -117,6 +117,7 @@ impl Worker {
                         Saved {
                             client_id: s.client_id,
                             refresh_token: String::new(),
+                            ..Default::default()
                         }
                         .store(SAVED);
                     }
@@ -258,6 +259,7 @@ impl Worker {
         Saved {
             client_id: client_id.to_string(),
             refresh_token: refresh_token.clone(),
+            ..Default::default()
         }
         .store(SAVED);
         Ok(Session {

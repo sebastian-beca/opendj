@@ -173,9 +173,12 @@ impl Service {
 const SAVED: &str = "spotify.json";
 
 /// What is kept between runs, in a file of the config folder.
+#[derive(Default)]
 pub(crate) struct Saved {
     pub client_id: String,
     pub refresh_token: String,
+    /// The app's client secret, for a service that needs one (SoundCloud).
+    pub secret: String,
 }
 
 impl Saved {
@@ -188,13 +191,17 @@ impl Saved {
         Some(Self {
             client_id: v["client_id"].as_str()?.to_string(),
             refresh_token: v["refresh_token"].as_str().unwrap_or_default().to_string(),
+            secret: v["secret"].as_str().unwrap_or_default().to_string(),
         })
     }
 
     pub fn store(&self, file: &str) {
         let Some(path) = Self::path(file) else { return };
         let _ = std::fs::create_dir_all(path.parent().unwrap());
-        let body = json!({ "client_id": self.client_id, "refresh_token": self.refresh_token });
+        let mut body = json!({ "client_id": self.client_id, "refresh_token": self.refresh_token });
+        if !self.secret.is_empty() {
+            body["secret"] = json!(self.secret);
+        }
         let mut options = std::fs::OpenOptions::new();
         options.write(true).create(true).truncate(true);
         // The refresh token is a credential: readable by this user only.
@@ -271,6 +278,7 @@ impl Worker {
                         Saved {
                             client_id: s.client_id,
                             refresh_token: String::new(),
+                            ..Default::default()
                         }
                         .store(SAVED);
                     }
@@ -385,6 +393,7 @@ impl Worker {
         Saved {
             client_id: client_id.to_string(),
             refresh_token: refresh_token.clone(),
+            ..Default::default()
         }
         .store(SAVED);
         Ok(Session {

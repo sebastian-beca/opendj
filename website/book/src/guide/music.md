@@ -18,9 +18,35 @@ The rail at the far left picks where the tree and the track list come from:
 - **Collection**: all your tracks, with their stages, crates, sets, playlists
   and history.
 - **Files**: any folder on your computer, as it is on disk.
-- **Spotify**, **TIDAL**, **Apple Music**, **Bandcamp**, **Beatport**,
-  **OneLibrary** and **SoundCloud**: coming soon. Streaming services will be
-  for browsing only.
+- **Spotify**, **TIDAL**, **SoundCloud** and **Mixcloud**: your playlists
+  and saved tracks on those services, for browsing (see
+  [Streaming services](#streaming-services)).
+- **Apple Music**, **Bandcamp**, **Beatport** and **OneLibrary**: coming
+  soon.
+
+### Streaming services
+
+openDJ shows what you saved on a streaming service, but doesn't play its
+audio: a track plays on a deck when your collection holds the same track,
+and the others are greyed out. Double-click one to open it on the service's
+own site. Tracks are matched by ISRC when both sides have one, then by
+artist and title. If a match is wrong, right-click the track and pick
+**Change Match…**. **Copy to openDJ** makes a list of a playlist in your
+collection, once; tracks you don't have are kept as wanted, for the
+stores to find later.
+
+Each service is signed in to with your own app, so openDJ ships no keys:
+
+- **Spotify**: create an app at developer.spotify.com with the redirect URI
+  `http://127.0.0.1:8898/callback` and paste its client ID.
+- **TIDAL**: create an app at developer.tidal.com with the same redirect
+  URI and the scopes `user.read`, `playlists.read` and `collection.read`,
+  and paste its client ID.
+- **SoundCloud**: register an app at soundcloud.com/you/apps with the same
+  redirect URI and paste its client ID and secret. You see your Likes, your
+  own tracks and your playlists.
+- **Mixcloud**: just type your username. You see your shows, favourites,
+  listening history and playlists; shows play on mixcloud.com.
 
 ## How tracks come in
 

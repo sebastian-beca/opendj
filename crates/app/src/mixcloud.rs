@@ -94,6 +94,7 @@ impl Worker {
                         Saved {
                             client_id: user,
                             refresh_token: String::new(),
+                            ..Default::default()
                         }
                         .store(SAVED);
                     }
@@ -129,6 +130,7 @@ impl Worker {
         Saved {
             client_id: user.to_string(),
             refresh_token: "username".into(),
+            ..Default::default()
         }
         .store(SAVED);
         self.user = Some(user.to_string());
