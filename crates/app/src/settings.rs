@@ -430,6 +430,29 @@ pub fn set_controller_shown(key: &str, shown: bool) {
     });
 }
 
+/// Controllers whose knobs and faders use Scale rather than Pick-up, by
+/// device key (see `opendj_controllers::pickup`).
+pub fn controllers_scaled() -> Vec<String> {
+    load()["controller_scale"]
+        .as_object()
+        .map(|m| {
+            m.iter()
+                .filter(|(_, v)| v.as_bool() == Some(true))
+                .map(|(k, _)| k.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn set_controller_scaled(key: &str, on: bool) {
+    save(|v| {
+        if !v["controller_scale"].is_object() {
+            v["controller_scale"] = json!({});
+        }
+        v["controller_scale"][key] = json!(on);
+    });
+}
+
 /// The mapping picked for each controller, by its device key.
 pub fn controller_mappings() -> HashMap<String, MappingChoice> {
     load()["controller_mappings"]
