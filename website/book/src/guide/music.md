@@ -212,10 +212,26 @@ stay. Either one closes the section again, back to **Set up…**.
 
 ### Lists of online tracks
 
-Streamed tracks (VirtualDJ's online catalogues, a streaming service in
-rekordbox) never come in, as there is no file to play. A list made only of
-them starts unticked, marked **Online only**, and stays out even if you tick
-it, rather than coming in empty.
+Streamed tracks (TIDAL and VirtualDJ's other online catalogues, or TIDAL,
+Spotify and the other streaming services in rekordbox) have no file to
+play, so they stay in their lists as placeholders, in their place. A
+placeholder is greyed out and shows its service (**TIDAL**) where the album
+would be. It keeps the artist, title and length the app saved, and the
+service's own track id. Double-click one to open it on the service's site.
+Lists made only of streamed tracks come in too, marked **online only** in
+the list picker.
+
+When the song comes into your collection later (you buy it and it lands in
+the inbox, or a scan finds the file), the placeholder becomes that track,
+in the same place. openDJ matches by ISRC when both sides have one, then by
+artist and title at the same length (within 2 seconds). While you're signed
+in to TIDAL or Spotify, openDJ asks the service for its tracks' ISRCs, so
+the match is sure. If a match is wrong, or one is missed, right-click the
+track and pick **Change Match…**.
+
+Placeholders with a page on their service also wait on the **Wanted** list.
+While the stores are off, the Wanted list is under Collection. A track
+leaves the list once your collection has it.
 
 ## Bringing in a rekordbox library
 

@@ -159,9 +159,15 @@ impl LibraryImport for VirtualDj {
                 "days of history"
             ),
         );
-        let left_out = import.streaming + import.cached + import.missing;
+        if import.streaming > 0 {
+            out += &format!(
+                " {} streamed tracks stay in their lists as placeholders.",
+                import.streaming
+            );
+        }
+        let left_out = import.cached + import.missing;
         if left_out > 0 {
-            out += &format!(" {left_out} streamed or missing files stay out.");
+            out += &format!(" {left_out} cached or missing files stay out.");
         }
         Ok(out)
     }
@@ -182,7 +188,8 @@ impl LibraryImport for VirtualDj {
         );
         let home = database.parent().unwrap_or(Path::new("."));
         let mut skipped = lists::Skipped::default();
-        let lists = lists::read(home, groups, &mut skipped);
+        let mut lists = lists::read(home, groups, &mut skipped);
+        describe_streamed(&mut lists, &import.streamed);
         if !skipped.filters.is_empty() {
             eprintln!(
                 "VirtualDJ filter folders openDJ's search can't say yet: {}",
@@ -193,6 +200,29 @@ impl LibraryImport for VirtualDj {
             tracks: import.tracks.iter().map(|t| (**t).clone()).collect(),
             lists,
         })
+    }
+}
+
+/// Fills in what a list didn't save of its streamed tracks from what the
+/// database knows of them.
+fn describe_streamed(
+    lists: &mut [ImportedList],
+    known: &std::collections::HashMap<String, (String, String, f64)>,
+) {
+    for e in lists.iter_mut().flat_map(|l| l.entries.iter_mut()) {
+        let Some(s) = &mut e.streamed else { continue };
+        let Some((artist, title, length)) = known.get(&s.uri) else {
+            continue;
+        };
+        if s.artist.is_empty() {
+            s.artist = artist.clone();
+        }
+        if s.title.is_empty() {
+            s.title = title.clone();
+        }
+        if s.duration <= 0.0 {
+            s.duration = *length;
+        }
     }
 }
 

@@ -37,6 +37,7 @@ mod health;
 mod info;
 mod sets;
 mod staging;
+mod streamed;
 mod usb;
 
 pub use filters::DEFAULT_PINNED;
@@ -75,6 +76,13 @@ const MIXED_SETS: i32 = 10;
 fn is_stores(source: i32) -> bool {
     source == STORES
 }
+
+/// Matches the DJ set by hand for a service's tracks, by
+/// [`StreamTrack::match_key`]: the collection track's id, or None.
+type Manual = HashMap<String, Option<usize>>;
+
+/// The wanted list's kind in the tree (see `Folder` in library.slint).
+const KIND_WANTED: i32 = 4;
 
 #[derive(Clone)]
 enum Contents {
@@ -397,8 +405,13 @@ pub struct Browser {
     /// Indices into `library` shown in the list, in display order; `None`
     /// for a Spotify track the collection doesn't have.
     rows: Vec<Option<usize>>,
-    /// For each row of a Spotify playlist, where its track is in the playlist.
+    /// For each row of a Spotify playlist, where its track is in the
+    /// playlist; of an imported list, which of its streamed tracks it is.
     stream_rows: Vec<Option<usize>>,
+    /// Streamed tracks standing in the imported list shown.
+    placed: streamed::Placeholders,
+    /// What the match menu offers, by index into the library.
+    match_candidates: Vec<usize>,
     /// Ids (not indices) of the tracks on each deck.
     loaded: [Option<usize>; NUM_DECKS],
     /// The decks the layout shows: 4 in 4-Deck, else 2. "Load on a free
@@ -575,8 +588,6 @@ struct StreamState {
     /// Matches the DJ set by hand, by [`StreamTrack::match_key`]: the
     /// collection track's id, or None for none of them.
     manual: HashMap<String, Option<usize>>,
-    /// What the match menu offers, by index into the library.
-    candidates: Vec<usize>,
 }
 
 /// What the list shows of a track, from the collection or Spotify.
@@ -880,6 +891,8 @@ impl Browser {
             ascending: true,
             rows: Vec::new(),
             stream_rows: Vec::new(),
+            placed: Default::default(),
+            match_candidates: Vec::new(),
             loaded: [None; NUM_DECKS],
             decks_shown: 2,
             side: [Vec::new(), Vec::new()],
@@ -1082,14 +1095,16 @@ impl Browser {
         let w = with.clone();
         app.on_activate_track(move |row| {
             w(Box::new(move |b| {
-                if is_stores(b.tree) {
+                if b.shows_store_rows() {
                     b.activate_store_row(row as usize);
                 } else if let Some(&Some(id)) = b.rows.get(row as usize) {
                     b.adopt(&[id]);
                     b.load_to_free_deck(id);
                 } else if let Some(t) = b.stream_track(row as usize) {
                     // Not in the collection: it plays on the service's page.
-                    open_in_browser(&t.page);
+                    if !t.page.is_empty() {
+                        open_in_browser(&t.page);
+                    }
                 }
             }))
         });
@@ -1284,9 +1299,7 @@ impl Browser {
             let w = with.clone();
             ui.on_pick(move |row, c| {
                 w(Box::new(move |b| {
-                    let pick = b
-                        .shown_stream()
-                        .and_then(|st| st.state.candidates.get(c as usize).copied());
+                    let pick = b.match_candidates.get(c as usize).copied();
                     if pick.is_some() {
                         b.set_match(row as usize, pick, false);
                     }
@@ -1607,7 +1620,7 @@ impl Browser {
             nodes.push(Node::new("All other stores", 0, 0, Contents::OtherStores));
             nodes.extend(others.into_iter().map(node));
         }
-        nodes.push(Node::new("Wanted", 0, 4, Contents::Wanted));
+        nodes.push(Node::new("Wanted", 0, KIND_WANTED, Contents::Wanted));
         self.current_node = self.current_node.min(nodes.len() - 1);
         self.nodes = nodes;
         self.store.wanted = self
@@ -1649,6 +1662,16 @@ impl Browser {
             self.search_stores(query);
             self.select_source(STORES);
         }
+    }
+
+    /// Whether the list shows store rows: the stores' results, or the
+    /// wanted list wherever it is.
+    fn shows_store_rows(&self) -> bool {
+        is_stores(self.tree)
+            || self
+                .nodes
+                .get(self.current_node)
+                .is_some_and(|n| matches!(n.contents, Contents::Wanted))
     }
 
     /// A store row's button: open its page (and remember the track as
@@ -1718,7 +1741,7 @@ impl Browser {
                 crate::inbox::Event::Imported(track) => self.add_imported(*track),
             }
         }
-        if changed && is_stores(self.tree) {
+        if changed && self.shows_store_rows() {
             self.refresh_rows();
         }
     }
@@ -1767,7 +1790,30 @@ impl Browser {
         let mut summary = String::new();
         match selected {
             Some(Contents::Wanted) => {
-                rows.extend(self.store.wanted.iter().cloned().map(StoreRow::Wanted));
+                if let Some(db) = &self.db {
+                    self.store.wanted = db.wanted().unwrap_or_default();
+                }
+                // A streamed track whose file has since come into the
+                // collection some other way isn't wanted any more.
+                let have: HashSet<(String, String)> = self
+                    .library
+                    .iter()
+                    .filter(|t| !is_browsed(t))
+                    .map(|t| (spotify::normalize(&t.artist), spotify::normalize(&t.title)))
+                    .collect();
+                rows.extend(
+                    self.store
+                        .wanted
+                        .iter()
+                        .filter(|w| {
+                            !have.contains(&(
+                                spotify::normalize(&w.artist),
+                                spotify::normalize(&w.title),
+                            ))
+                        })
+                        .cloned()
+                        .map(StoreRow::Wanted),
+                );
                 if rows.is_empty() {
                     notice =
                         "Tracks you click Buy on wait here until they arrive in the inbox.".into();
@@ -2354,6 +2400,7 @@ impl Browser {
                         };
                         st.user = user;
                         st.status.clear();
+                        self.look_up_placed(i);
                         self.rebuild_stream_tree(source);
                         if shown {
                             self.refresh_tree();
@@ -2375,6 +2422,7 @@ impl Browser {
                             self.refresh_rows();
                         }
                     }
+                    Event::Found(found) => self.found_placed(i, found),
                     Event::Disconnected => {
                         st.state = StreamState::default();
                         st.user.clear();
@@ -2500,6 +2548,16 @@ impl Browser {
             vec![Node::new("Collection", 0, 0, Contents::All)]
         };
         tree.extend(health::health_nodes());
+        // While the stores are off, tracks waiting to be bought (streamed
+        // tracks in imported lists) wait here.
+        if !STORES_ENABLED
+            && self
+                .db
+                .as_ref()
+                .is_some_and(|db| db.wanted().is_ok_and(|w| !w.is_empty()))
+        {
+            tree.push(Node::new("Wanted", 0, KIND_WANTED, Contents::Wanted));
+        }
         let playlists = self
             .db
             .as_ref()
@@ -3599,6 +3657,38 @@ impl Browser {
                 stream: None,
             }
         };
+        // An imported list with streamed tracks standing in it: those the
+        // collection has now show as its tracks.
+        if let Some(placed) = &self.placed.entries {
+            let found = self.placed_matches();
+            return placed
+                .iter()
+                .map(|p| match *p {
+                    streamed::Placed::Track(i) => local(i),
+                    streamed::Placed::Streamed(n) => match found[n] {
+                        Some(id) => RowData {
+                            stream: Some(n),
+                            ..local(id)
+                        },
+                        None => {
+                            let t = &self.placed.tracks[n].1;
+                            RowData {
+                                title: &t.title,
+                                artist: t.artist(),
+                                album: &t.album,
+                                genre: "",
+                                bpm: 0.0,
+                                key: "",
+                                duration: t.duration,
+                                rating: 0,
+                                local: None,
+                                stream: Some(n),
+                            }
+                        }
+                    },
+                })
+                .collect();
+        }
         let Some(key) = self.current_playlist() else {
             return self
                 .node_tracks(self.current_node)
@@ -3644,6 +3734,22 @@ impl Browser {
     /// The collection track (by index into `library`) that each Spotify
     /// track is, if any: the same ISRC first, else the same title and artist.
     fn spotify_matches(&self, tracks: &[StreamTrack]) -> Vec<Option<usize>> {
+        let none = HashMap::new();
+        let manual = self.shown_stream().map_or(&none, |st| &st.state.manual);
+        let tracks: Vec<_> = tracks.iter().map(|t| (t, Some(manual))).collect();
+        self.match_streamed(&tracks, false)
+    }
+
+    /// The collection track (by index into `library`) that each streaming
+    /// service's track is, if any: the one the DJ set by hand (in its
+    /// `manual` matches), else the same ISRC, else the same title and
+    /// artist, with `same_length` at the same length too where both are
+    /// known.
+    fn match_streamed(
+        &self,
+        tracks: &[(&StreamTrack, Option<&Manual>)],
+        same_length: bool,
+    ) -> Vec<Option<usize>> {
         // Files only shown in Files don't count as in the collection.
         let normalized: Vec<(String, String)> = self
             .library
@@ -3660,13 +3766,15 @@ impl Browser {
                 by_isrc.entry(isrc).or_insert(i);
             }
         }
-        let none = HashMap::new();
-        let manual = self.shown_stream().map_or(&none, |st| &st.state.manual);
+        let length_fits = |sp: &StreamTrack, i: usize| {
+            let d = self.library[i].duration;
+            !same_length || sp.duration <= 0.0 || d <= 0.0 || (sp.duration - d).abs() <= 2.0
+        };
         tracks
             .iter()
-            .map(|sp| {
+            .map(|(sp, manual)| {
                 // A match the DJ set by hand wins.
-                if let Some(set) = manual.get(&sp.match_key()) {
+                if let Some(set) = manual.and_then(|m| m.get(&sp.match_key())) {
                     return (*set).and_then(|id| self.index_of.get(&id).copied());
                 }
                 by_isrc
@@ -3675,14 +3783,21 @@ impl Browser {
                     .or_else(|| {
                         normalized
                             .iter()
-                            .position(|(title, artist)| spotify::matches(sp, title, artist))
+                            .enumerate()
+                            .position(|(i, (title, artist))| {
+                                spotify::matches(sp, title, artist) && length_fits(sp, i)
+                            })
                     })
             })
             .collect()
     }
 
-    /// The Spotify track shown at `row`, if a playlist is shown.
+    /// The Spotify track shown at `row`, if a playlist is shown, or the
+    /// streamed track standing in an imported list there.
     fn stream_track(&self, row: usize) -> Option<&StreamTrack> {
+        if self.placed.entries.is_some() {
+            return self.placed_at(row).map(|(_, t)| t);
+        }
         let n = (*self.stream_rows.get(row)?)?;
         self.shown_stream()?
             .state
@@ -3697,11 +3812,18 @@ impl Browser {
         let Some(sp) = self.stream_track(row) else {
             return;
         };
-        let (query, manual) = (
-            format!("{} {}", sp.artist(), sp.title),
-            self.shown_stream()
-                .is_some_and(|st| st.state.manual.contains_key(&sp.match_key())),
-        );
+        let key = sp.match_key();
+        let query = format!("{} {}", sp.artist(), sp.title);
+        let manual = match self.placed_at(row) {
+            Some((service, _)) => self
+                .placed
+                .manual
+                .get(service)
+                .is_some_and(|m| m.contains_key(&key)),
+            None => self
+                .shown_stream()
+                .is_some_and(|st| st.state.manual.contains_key(&key)),
+        };
         if let Some(app) = self.app.upgrade() {
             let ui = app.global::<StreamMatch>();
             ui.set_query(query.clone().into());
@@ -3738,9 +3860,7 @@ impl Browser {
                 format!("{} – {}", t.artist, t.title).into()
             })
             .collect();
-        if let Some(st) = self.shown_stream_mut() {
-            st.state.candidates = found;
-        }
+        self.match_candidates = found;
         if let Some(app) = self.app.upgrade() {
             app.global::<StreamMatch>()
                 .set_candidates(ModelRc::new(VecModel::from(lines)));
@@ -3754,22 +3874,30 @@ impl Browser {
             return;
         };
         let id = track.map(|i| self.library[i].id);
-        let Some(service) = self.shown_stream().map(|st| st.id) else {
+        let placed = self.placed_at(row).map(|(service, _)| service.clone());
+        let Some(service) = placed
+            .clone()
+            .or_else(|| self.shown_stream().map(|st| st.id.to_string()))
+        else {
             return;
         };
         if let Some(db) = &self.db {
-            if let Err(e) = db.set_stream_match(service, &key, id, forget) {
+            if let Err(e) = db.set_stream_match(&service, &key, id, forget) {
                 eprintln!("can't save the match: {e}");
                 return;
             }
         }
-        let Some(st) = self.shown_stream_mut() else {
-            return;
+        let manual = match placed {
+            Some(service) => self.placed.manual.entry(service).or_default(),
+            None => match self.shown_stream_mut() {
+                Some(st) => &mut st.state.manual,
+                None => return,
+            },
         };
         if forget {
-            st.state.manual.remove(&key);
+            manual.remove(&key);
         } else {
-            st.state.manual.insert(key, id);
+            manual.insert(key, id);
         }
         self.refresh_rows();
     }
@@ -3887,10 +4015,11 @@ impl Browser {
     }
 
     fn refresh_rows(&mut self) {
-        if is_stores(self.tree) {
+        if self.shows_store_rows() {
             self.refresh_store_rows();
             return;
         }
+        self.load_placed();
         // Collection tracks are searched with the full syntax, filters
         // included; Spotify tracks the collection doesn't have, by their
         // names, and only while nothing is filtered.
@@ -3915,6 +4044,7 @@ impl Browser {
         // Copies stay in their groups, the one kept first.
         let dupes = self.dupe_view();
         let keep_order = ((self.current_playlist().is_some()
+            || self.placed.entries.is_some()
             || matches!(self.tree, FILES | ALBUMS | MIXED_SETS))
             && self.sort_column < 0)
             || dupes.is_some();
@@ -4006,6 +4136,7 @@ impl Browser {
                     has_wave: false,
                     analysing: 0,
                     fade: r.local.is_some_and(|id| fade.contains(&library[id].id)),
+                    streamed: r.stream.is_some(),
                 };
                 let crates = r.local.and_then(|id| self.crates.get(&library[id].id));
                 TrackRow {
@@ -4021,7 +4152,8 @@ impl Browser {
             .collect();
         let total: f64 = data.iter().map(|r| r.duration).sum();
         let mut summary = total_time(total);
-        if self.current_playlist().is_some() && !data.is_empty() {
+        if (self.current_playlist().is_some() || self.placed.entries.is_some()) && !data.is_empty()
+        {
             let have = data.iter().filter(|r| r.local.is_some()).count();
             summary = format!("{summary} · {have} in your collection");
         }
@@ -4067,7 +4199,7 @@ impl Browser {
     /// selected at its new place (the list then scrolls to it).
     fn refresh_rows_keeping_current(&mut self) {
         let app = match self.app.upgrade() {
-            Some(app) if !is_stores(self.tree) => app,
+            Some(app) if !self.shows_store_rows() => app,
             _ => return self.refresh_rows(),
         };
         let current = usize::try_from(app.get_current_track()).ok();

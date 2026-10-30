@@ -67,6 +67,9 @@ export struct TrackRow {
     analysing: int,
     // Shown dimmed: a duplicate copy that a fix would merge away.
     fade: bool,
+    // A streaming service's track (in a streaming playlist, or standing in
+    // an imported list): which collection track it is can be changed.
+    streamed: bool,
 }
 
 // One of the track list's columns. kind: 0 text, 1 the title (takes the
@@ -502,6 +505,8 @@ component TrackMenu inherits PopupWindow {
     // The last row picked with shift-click, when the menu is for several.
     in property <int> track-last: track-row;
     in property <int> rating;
+    // The row is a streaming service's track, matched to the collection.
+    in property <bool> streamed;
     width: 230px;
     close-policy: close-on-click-outside;
     MenuBackground {}
@@ -539,7 +544,7 @@ component TrackMenu inherits PopupWindow {
                 root.close();
             }
         }
-        if StoreUi.streaming && StoreUi.stream(StoreUi.source) && track-last == track-row: MenuLine {
+        if streamed && track-last == track-row: MenuLine {
             text: "Change Match…";
             clicked => {
                 root.close();
@@ -2018,6 +2023,7 @@ component TrackList inherits Rectangle {
         track-row: menu-row;
         track-last: menu-last;
         rating: menu-rating;
+        streamed: menu-row >= 0 && menu-row < rows.length && rows[menu-row].streamed;
         change-match => {
             menu-matched = true;
             StreamMatch.open(menu-row);
@@ -2316,7 +2322,7 @@ component TrackList inherits Rectangle {
                                 shift-held = e.modifiers.shift;
                             }
                             // A Spotify track the collection doesn't have: pick which it is.
-                            if !r.available && StoreUi.streaming && StoreUi.stream(StoreUi.source) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                            if !r.available && r.streamed && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                                 pick(i);
                                 menu-row = i;
                                 menu-matched = false;

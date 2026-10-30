@@ -12,6 +12,7 @@
 //! (`netsearch://…`) and VirtualDJ's protected offline copies
 //! (`.vdjcache`) are counted but not imported: they can't be played here.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -43,6 +44,10 @@ pub struct Import {
     pub tracks: Vec<Arc<Track>>,
     /// Streaming entries (TIDAL, SoundCloud, Deezer…), not imported.
     pub streaming: usize,
+    /// What the database knows of each streamed track, by its address
+    /// (`netsearch://td…`): artist, title and length in seconds, for lists
+    /// that didn't save them.
+    pub streamed: HashMap<String, (String, String, f64)>,
     /// VirtualDJ's offline copies of streamed tracks, not imported.
     pub cached: usize,
     /// Local files that are no longer where the database says.
@@ -99,6 +104,22 @@ fn songs(
         };
         if file.contains("://") {
             out.streaming += 1;
+            let tags = song.children().find(|n| n.has_tag_name("Tags"));
+            let infos = song.children().find(|n| n.has_tag_name("Infos"));
+            let attr = |n: Option<roxmltree::Node>, name: &str| {
+                n.and_then(|n| n.attribute(name))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string()
+            };
+            out.streamed.insert(
+                file.to_string(),
+                (
+                    attr(tags, "Author"),
+                    attr(tags, "Title"),
+                    attr(infos, "SongLength").parse().unwrap_or(0.0),
+                ),
+            );
             continue;
         }
         let lower = file.to_ascii_lowercase();

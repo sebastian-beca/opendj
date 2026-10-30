@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use opendj_engine::beats::BeatGrid;
-use opendj_engine::import::{ImportedLibrary, ImportedList, ImportedListKind};
+use opendj_engine::import::{ImportedLibrary, ImportedList, ImportedListKind, StreamedTrack};
 use opendj_engine::{Hotcue, LibraryInfo, Marker, MarkerKind, Source, Track, MEMORY_CUE};
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -241,6 +241,28 @@ CREATE TABLE IF NOT EXISTS stream_matches (
 );
 ";
 
+/// Streamed tracks in lists brought in from another app (TIDAL, Spotify…),
+/// standing in their place until the collection has the song: `position`
+/// shares the list's order with `playlist_tracks`. `stream_id` is the
+/// service's id for it, `uri` as the app wrote it. Created on every open,
+/// as [`LINKS_SCHEMA`] is.
+const LIST_STREAMS_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS list_streams (
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    service TEXT NOT NULL,
+    stream_id TEXT NOT NULL DEFAULT '',
+    uri TEXT NOT NULL,
+    artist TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    duration REAL NOT NULL DEFAULT 0,
+    isrc TEXT NOT NULL DEFAULT '',
+    played_at INTEGER,
+    PRIMARY KEY (playlist_id, position)
+);
+CREATE INDEX IF NOT EXISTS list_streams_id ON list_streams(service, stream_id);
+";
+
 /// Stores the tags a scan reads beyond the basic ones (`?1` is the row),
 /// for tracks whose tags come from their files. A rating in the tags fills
 /// in one the library doesn't have.
@@ -343,8 +365,23 @@ pub struct SyncReport {
     /// Tracks found to be another copy of a song the library has, whose
     /// lists now point at that one.
     pub matched: usize,
-    /// Lists left out as none of their tracks are here (online only).
+    /// Lists left out as none of their tracks are here (files that have
+    /// all gone).
     pub left_out: usize,
+    /// Streamed tracks standing in their lists until the collection has
+    /// the song.
+    pub streamed: usize,
+    /// Streamed tracks the collection already has, which their lists now
+    /// point at.
+    pub filled: usize,
+}
+
+/// An entry of a list: a collection track, or a streamed track standing in
+/// for one (see [`Library::playlist_entries`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum ListEntry {
+    Track(usize),
+    Streamed(StreamedTrack),
 }
 
 /// What [`Library::remove_import`] took out.
@@ -479,6 +516,15 @@ impl Library {
         db.execute_batch(MOVES_SCHEMA)?;
         db.execute_batch(ALIASES_SCHEMA)?;
         db.execute_batch(STREAM_MATCHES_SCHEMA)?;
+        db.execute_batch(LIST_STREAMS_SCHEMA)?;
+        // The import that put a wanted track there (its streamed tracks),
+        // NULL for tracks the DJ went to buy.
+        let has_wanted_source = db
+            .prepare("SELECT 1 FROM pragma_table_info('wanted') WHERE name = 'source'")?
+            .exists([])?;
+        if !has_wanted_source {
+            db.execute_batch("ALTER TABLE wanted ADD COLUMN source TEXT")?;
+        }
         db.execute_batch(health::HEALTH_SCHEMA)?;
         db.execute_batch(cleanup::CHANGES_SCHEMA)?;
         let lib = Library { db };
@@ -793,6 +839,10 @@ impl Library {
         tx.execute("DELETE FROM markers WHERE source = ?1", [source])?;
         tx.execute("DELETE FROM cues WHERE source = ?1", [source])?;
         tx.execute("DELETE FROM track_aliases WHERE source = ?1", [source])?;
+        tx.execute(
+            "DELETE FROM wanted WHERE source = ?1 AND track_id IS NULL",
+            [source],
+        )?;
         tx.execute(
             "UPDATE tracks SET grid = NULL, grid_source = NULL WHERE grid_source = ?1",
             [source],
@@ -1141,11 +1191,79 @@ impl Library {
         ids
     }
 
+    /// A list in order, streamed tracks that stand in it included.
+    pub fn playlist_entries(&self, id: i64) -> Result<Vec<ListEntry>, Error> {
+        let mut q = self.db.prepare(
+            "SELECT position, track_id, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+               FROM playlist_tracks WHERE playlist_id = ?1
+             UNION ALL
+             SELECT position, NULL, service, stream_id, uri, artist, title, duration, isrc
+               FROM list_streams WHERE playlist_id = ?1
+             ORDER BY 1",
+        )?;
+        let rows = q.query_map([id], |r| {
+            Ok(match r.get::<_, Option<i64>>(1)? {
+                Some(track) => ListEntry::Track(track_id(track)),
+                None => ListEntry::Streamed(StreamedTrack {
+                    service: r.get(2)?,
+                    id: r.get(3)?,
+                    uri: r.get(4)?,
+                    artist: r.get(5)?,
+                    title: r.get(6)?,
+                    duration: r.get(7)?,
+                    isrc: r.get(8)?,
+                }),
+            })
+        })?;
+        rows.collect()
+    }
+
+    /// Whether any list has streamed tracks standing in it.
+    pub fn has_streamed_entries(&self) -> Result<bool, Error> {
+        self.db
+            .prepare("SELECT 1 FROM list_streams LIMIT 1")?
+            .exists([])
+    }
+
+    /// The ids of the lists' streamed tracks on `service` whose ISRC isn't
+    /// known yet, to ask the service.
+    pub fn streamed_without_isrc(&self, service: &str) -> Result<Vec<String>, Error> {
+        let mut q = self.db.prepare(
+            "SELECT DISTINCT stream_id FROM list_streams
+             WHERE service = ?1 AND isrc = '' AND stream_id != ''",
+        )?;
+        let ids = q.query_map([service], |r| r.get(0))?.collect();
+        ids
+    }
+
+    /// Fills in what the lists' streamed tracks with this id don't say yet,
+    /// from what their service told: its ISRC, artist, title and length.
+    pub fn describe_streamed(&self, found: &StreamedTrack) -> Result<(), Error> {
+        self.db.execute(
+            "UPDATE list_streams SET
+                 isrc = CASE WHEN isrc = '' THEN ?3 ELSE isrc END,
+                 artist = CASE WHEN artist = '' THEN ?4 ELSE artist END,
+                 title = CASE WHEN title = '' THEN ?5 ELSE title END,
+                 duration = CASE WHEN duration <= 0 THEN ?6 ELSE duration END
+             WHERE service = ?1 AND stream_id = ?2",
+            params![
+                found.service,
+                found.id,
+                found.isrc,
+                found.artist,
+                found.title,
+                found.duration
+            ],
+        )?;
+        Ok(())
+    }
+
     /// Appends tracks to a list. Tracks not in the library are skipped.
     pub fn add_to_playlist(&mut self, id: i64, tracks: &[usize]) -> Result<(), Error> {
         let tx = self.db.transaction()?;
         let start: i64 = tx.query_row(
-            "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?1",
+            "SELECT MAX(COALESCE((SELECT MAX(position) FROM playlist_tracks WHERE playlist_id = ?1), -1),
+                        COALESCE((SELECT MAX(position) FROM list_streams WHERE playlist_id = ?1), -1)) + 1",
             [id],
             |r| r.get(0),
         )?;
@@ -1815,15 +1933,27 @@ impl SongIndex {
 
     /// The library's copy of `t`, the first added when there are several.
     fn find(&mut self, t: &Track) -> Option<i64> {
-        if t.duration <= 0.0 {
+        self.find_song(&t.artist, &t.title, t.duration)
+    }
+
+    fn find_song(&self, artist: &str, title: &str, duration: f64) -> Option<i64> {
+        if duration <= 0.0 {
             return None;
         }
         self.songs
-            .get(&song_key(&t.artist, &t.title)?)?
+            .get(&song_key(artist, title)?)?
             .iter()
-            .find(|(_, d)| *d > 0.0 && (d - t.duration).abs() <= SAME_SONG_SECONDS)
+            .find(|(_, d)| *d > 0.0 && (d - duration).abs() <= SAME_SONG_SECONDS)
             .map(|(id, _)| *id)
     }
+}
+
+/// An ISRC as compared: letters and digits in upper case.
+fn isrc_key(s: &str) -> String {
+    s.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_uppercase())
+        .collect()
 }
 
 /// Artist and title as they are compared: lower case, letters and digits
@@ -1927,20 +2057,67 @@ fn import_lists(
         "INSERT INTO playlist_tracks (playlist_id, position, track_id, played_at)
          VALUES (?1, ?2, ?3, ?4)",
     )?;
+    let mut stand_in = tx.prepare(
+        "INSERT INTO list_streams
+             (playlist_id, position, service, stream_id, uri, artist, title, duration, isrc, played_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+    )?;
+    // Streamed tracks go on the wanted list, made again on each import.
+    tx.execute(
+        "DELETE FROM wanted WHERE source = ?1 AND track_id IS NULL",
+        [source],
+    )?;
+    let mut want = tx.prepare(
+        "INSERT OR IGNORE INTO wanted (store, artist, title, page_url, added, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )?;
+    // The collection's copy of a streamed track: the same ISRC, else the
+    // same artist and title at the same length.
+    let songs = SongIndex::new(tx, "")?;
+    let mut by_isrc: HashMap<String, i64> = HashMap::new();
+    {
+        let mut q = tx.prepare("SELECT id, isrc FROM tracks WHERE isrc != '' ORDER BY id")?;
+        let rows = q.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        for row in rows {
+            let (id, isrc) = row?;
+            by_isrc.entry(isrc_key(&isrc)).or_insert(id);
+        }
+    }
+    let have = |s: &StreamedTrack| {
+        let isrc = isrc_key(&s.isrc);
+        (!isrc.is_empty())
+            .then(|| by_isrc.get(&isrc).copied())
+            .flatten()
+            .or_else(|| songs.find_song(&s.artist, &s.title, s.duration))
+    };
+    enum Kept<'a> {
+        Track(i64),
+        Streamed(&'a StreamedTrack),
+    }
     for (i, list) in lists.iter().enumerate() {
-        // The library's track for each entry; streamed tracks and files
-        // that aren't here have none.
+        // The library's track for each entry, or the streamed track
+        // standing in for one; files that aren't here are left out.
         let mut rows = Vec::with_capacity(list.entries.len());
         for e in &list.entries {
             let row: Option<i64> = find
                 .query_row([path_text(&e.path)], |r| r.get(0))
                 .optional()?;
-            match row {
-                Some(row) => rows.push((row, e.played_at)),
-                None => report.unmatched += 1,
+            match (row, &e.streamed) {
+                (Some(row), _) => rows.push((Kept::Track(row), e.played_at)),
+                (None, Some(s)) => match have(s) {
+                    Some(row) => {
+                        report.filled += 1;
+                        rows.push((Kept::Track(row), e.played_at));
+                    }
+                    None => {
+                        report.streamed += 1;
+                        rows.push((Kept::Streamed(s), e.played_at));
+                    }
+                },
+                (None, None) => report.unmatched += 1,
             }
         }
-        // A list of only online tracks would come in empty: it stays out.
+        // A list whose files have all gone would come in empty: it stays out.
         if rows.is_empty() && !list.entries.is_empty() {
             report.left_out += 1;
             continue;
@@ -1973,12 +2150,36 @@ fn import_lists(
         let id = make(Some(parent), &list.name, kind, i as i64, created, query)?;
         report.lists += 1;
         for (position, (row, played_at)) in rows.into_iter().enumerate() {
-            add.execute(params![
-                id,
-                position as i64,
-                row,
-                played_at.unwrap_or(created)
-            ])?;
+            let played_at = played_at.unwrap_or(created);
+            match row {
+                Kept::Track(row) => {
+                    add.execute(params![id, position as i64, row, played_at])?;
+                }
+                Kept::Streamed(s) => {
+                    stand_in.execute(params![
+                        id,
+                        position as i64,
+                        s.service,
+                        s.id,
+                        s.uri,
+                        s.artist,
+                        s.title,
+                        s.duration,
+                        s.isrc,
+                        played_at
+                    ])?;
+                    if let Some(url) = s.page_url() {
+                        want.execute(params![
+                            s.service_name(),
+                            s.artist,
+                            s.title,
+                            url,
+                            now(),
+                            source
+                        ])?;
+                    }
+                }
+            }
         }
     }
     Ok(())
@@ -2277,10 +2478,7 @@ mod tests {
             folders: Vec::new(),
             name: "Friday".into(),
             kind: ImportedListKind::List,
-            entries: vec![ImportedEntry {
-                path: PathBuf::from("/rb/Bicep - Glue.mp3"),
-                played_at: None,
-            }],
+            entries: vec![ImportedEntry::new("/rb/Bicep - Glue.mp3", None)],
         };
         let read = || {
             Ok(ImportedLibrary {
@@ -2325,42 +2523,115 @@ mod tests {
     }
 
     #[test]
-    fn lists_of_only_online_tracks_stay_out() {
+    fn streamed_tracks_stand_in_their_lists() {
         use opendj_engine::import::ImportedEntry;
         let mut lib = Library::in_memory().unwrap();
-        let list = |name: &str, path: &str| ImportedList {
+        lib.sync(&[file_track("/m/a.mp3", "Have It")]).unwrap();
+        let streamed = |id: &str, title: &str| {
+            let mut e = ImportedEntry::new(format!("netsearch://td{id}"), None);
+            let s = e.streamed.as_mut().unwrap();
+            s.artist = "Artist".into();
+            s.title = title.into();
+            s.duration = 201.0;
+            e
+        };
+        let list = |name: &str, entries: Vec<ImportedEntry>| ImportedList {
             folders: vec!["Online".into()],
             name: name.into(),
             kind: ImportedListKind::List,
-            entries: vec![ImportedEntry {
-                path: PathBuf::from(path),
-                played_at: None,
-            }],
+            entries,
         };
         let read = || {
             Ok(ImportedLibrary {
                 tracks: vec![imported_track("/m/b.mp3")],
                 lists: vec![
-                    list("Streams", "netsearch://td1"),
-                    list("Mine", "/m/b.mp3"),
-                    ImportedList {
-                        entries: Vec::new(),
-                        ..list("Empty on purpose", "")
-                    },
+                    list(
+                        "Mixed",
+                        vec![
+                            streamed("1", "Want It"),
+                            ImportedEntry::new("/m/b.mp3", None),
+                            ImportedEntry::new("/m/gone.mp3", None),
+                            // The collection has this one: the list gets it.
+                            streamed("2", "Have It"),
+                        ],
+                    ),
+                    list("Streams", vec![streamed("3", "Online Only")]),
+                    list("Gone", vec![ImportedEntry::new("/m/gone.mp3", None)]),
+                    list("Empty on purpose", Vec::new()),
                 ],
             })
         };
         let report = lib.import("vdj", "VirtualDJ", "1", read).unwrap().unwrap();
-        assert_eq!((report.left_out, report.unmatched), (1, 1));
-        let names: Vec<String> = lib
-            .playlists()
+        assert_eq!(
+            (
+                report.left_out,
+                report.unmatched,
+                report.streamed,
+                report.filled
+            ),
+            (1, 2, 2, 1)
+        );
+        let lists = lib.playlists().unwrap();
+        let id = |name: &str| lists.iter().find(|p| p.name == name).map(|p| p.id);
+        assert!(id("Gone").is_none());
+        assert!(id("Streams").is_some() && id("Empty on purpose").is_some());
+        let tracks = lib.tracks(|_| true).unwrap();
+        let title = |id: usize| tracks.iter().find(|t| t.id == id).unwrap().title.clone();
+        let entries = lib.playlist_entries(id("Mixed").unwrap()).unwrap();
+        let shown: Vec<String> = entries
+            .iter()
+            .map(|e| match e {
+                ListEntry::Track(t) => title(*t),
+                ListEntry::Streamed(s) => format!("{}:{} {}", s.service, s.id, s.title),
+            })
+            .collect();
+        assert_eq!(shown, ["tidal:1 Want It", "Imported", "Have It"]);
+        // Appending goes after the placeholders.
+        let a = tracks.iter().find(|t| t.title == "Have It").unwrap().id;
+        lib.add_to_playlist(id("Mixed").unwrap(), &[a]).unwrap();
+        assert_eq!(lib.playlist_entries(id("Mixed").unwrap()).unwrap().len(), 4);
+        // Streamed tracks wait on the wanted list, until the import goes.
+        let mut wanted: Vec<(String, String)> = lib
+            .wanted()
             .unwrap()
             .into_iter()
-            .map(|p| p.name)
+            .map(|w| (w.store, w.page_url))
             .collect();
-        assert!(!names.contains(&"Streams".to_string()));
-        assert!(names.contains(&"Mine".to_string()));
-        assert!(names.contains(&"Empty on purpose".to_string()));
+        wanted.sort();
+        assert_eq!(
+            wanted,
+            [
+                (
+                    "TIDAL".to_string(),
+                    "https://tidal.com/browse/track/1".to_string()
+                ),
+                (
+                    "TIDAL".to_string(),
+                    "https://tidal.com/browse/track/3".to_string()
+                ),
+            ]
+        );
+        // What the service says fills in what the list didn't.
+        lib.describe_streamed(&StreamedTrack {
+            service: "tidal".into(),
+            id: "3".into(),
+            isrc: "GBARL9600049".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        let Some(ListEntry::Streamed(s)) =
+            lib.playlist_entries(id("Streams").unwrap()).unwrap().pop()
+        else {
+            panic!("no placeholder")
+        };
+        assert_eq!(
+            (s.isrc.as_str(), s.title.as_str()),
+            ("GBARL9600049", "Online Only")
+        );
+        assert_eq!(lib.streamed_without_isrc("tidal").unwrap(), ["1"]);
+        lib.remove_import("vdj", |_| false).unwrap();
+        assert!(lib.wanted().unwrap().is_empty());
+        assert!(!lib.has_streamed_entries().unwrap());
     }
 
     #[test]
@@ -2390,10 +2661,7 @@ mod tests {
             color: None,
             detected: false,
         }];
-        let entry = |p: &str, at| ImportedEntry {
-            path: PathBuf::from(p),
-            played_at: at,
-        };
+        let entry = |p: &str, at| ImportedEntry::new(p, at);
         let lists = vec![
             ImportedList {
                 folders: vec!["Sets".into(), "2023".into()],
@@ -2430,7 +2698,7 @@ mod tests {
         };
         let report = lib.import("vdj", "VirtualDJ", "1", read).unwrap().unwrap();
         // VirtualDJ, Sets, 2023, Friday, the session, Filters, Old ones.
-        assert_eq!((report.lists, report.unmatched), (7, 1));
+        assert_eq!((report.lists, report.unmatched, report.streamed), (7, 0, 1));
         let t = lib
             .tracks(|_| true)
             .unwrap()

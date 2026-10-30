@@ -7,12 +7,15 @@
 //!   language), with a `<name>.subfolders/` folder for what sits inside.
 //! - `History/`: one `.m3u` per day played, each line with when it played.
 //!
-//! Streamed tracks in them (`netsearch://…`) are kept as entries; the
-//! library leaves out what it has no file for.
+//! Streamed tracks in them (`netsearch://td…` for TIDAL) are kept as
+//! entries with the artist, title and length VirtualDJ saved, and stand in
+//! their lists as placeholders until the collection has the song.
 
 use std::path::{Path, PathBuf};
 
-use opendj_engine::import::{ImportedEntry, ImportedList, ImportedListKind, ListGroup};
+use opendj_engine::import::{
+    ImportedEntry, ImportedList, ImportedListKind, ListGroup, StreamedTrack,
+};
 
 pub const PLAYLISTS: &str = "playlists";
 pub const FOLDERS: &str = "folders";
@@ -172,6 +175,7 @@ fn is_m3u(p: &Path) -> bool {
 pub fn m3u(text: &str) -> Vec<ImportedEntry> {
     let mut out = Vec::new();
     let mut played_at = None;
+    let mut tags = None;
     for line in text.lines() {
         let line = line.trim_start_matches('\u{feff}').trim();
         if line.is_empty() {
@@ -181,17 +185,40 @@ pub fn m3u(text: &str) -> Vec<ImportedEntry> {
             played_at = between(info, "<lastplaytime>", "</lastplaytime>")
                 .and_then(|t| t.trim().parse::<i64>().ok())
                 .filter(|t| *t > 0);
+            let tag = |name: &str| {
+                between(info, &format!("<{name}>"), &format!("</{name}>"))
+                    .map(|v| unescape(v.trim()))
+                    .unwrap_or_default()
+            };
+            tags = Some((tag("artist"), tag("title"), tag("songlength")));
             continue;
         }
         if line.starts_with('#') {
             continue;
         }
-        out.push(ImportedEntry {
-            path: PathBuf::from(line),
-            played_at: played_at.take(),
-        });
+        let mut entry = ImportedEntry::new(line, played_at.take());
+        if let (Some(s), Some((artist, title, length))) = (&mut entry.streamed, tags.take()) {
+            describe(s, &artist, &title, &length);
+        }
+        out.push(entry);
     }
     out
+}
+
+/// What VirtualDJ saved of a streamed track in a list.
+fn describe(s: &mut StreamedTrack, artist: &str, title: &str, length: &str) {
+    s.artist = artist.to_string();
+    s.title = title.to_string();
+    s.duration = length.trim().parse::<f64>().unwrap_or(0.0).max(0.0);
+}
+
+/// `&amp;` and friends, as VirtualDJ writes them in `#EXTVDJ:` tags.
+fn unescape(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
 }
 
 fn between<'a>(text: &'a str, open: &str, close: &str) -> Option<&'a str> {
@@ -284,13 +311,12 @@ fn folder(root: roxmltree::Node) -> Option<Folder> {
                     .attribute("idx")
                     .and_then(|v| v.parse::<f64>().ok())
                     .unwrap_or(i as f64);
-                Some((
-                    idx,
-                    ImportedEntry {
-                        path: PathBuf::from(n.attribute("path")?),
-                        played_at: None,
-                    },
-                ))
+                let mut entry = ImportedEntry::new(n.attribute("path")?, None);
+                if let Some(s) = &mut entry.streamed {
+                    let attr = |name: &str| n.attribute(name).unwrap_or_default().trim();
+                    describe(s, attr("artist"), attr("title"), attr("songlength"));
+                }
+                Some((idx, entry))
             })
             .collect();
         songs.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -555,13 +581,25 @@ mod tests {
     fn reads_vdj_m3u_with_play_times() {
         let text = "\u{feff}#EXTVDJ:<filesize>1</filesize><artist>A</artist><title>T</title>\n\
                     /music/a.m4a\n\
-                    #EXTVDJ:<time>18:22</time><lastplaytime>1699928555</lastplaytime><artist>B</artist>\n\
+                    #EXTVDJ:<time>18:22</time><lastplaytime>1699928555</lastplaytime><artist>B &amp; C</artist><title>Glue</title><songlength>270.5</songlength>\n\
                     netsearch://td172486431\n";
         let entries = m3u(text);
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].path, PathBuf::from("/music/a.m4a"));
         assert_eq!(entries[0].played_at, None);
         assert_eq!(entries[1].played_at, Some(1_699_928_555));
+        assert_eq!(entries[0].streamed, None);
+        let s = entries[1].streamed.as_ref().unwrap();
+        assert_eq!(
+            (
+                s.service.as_str(),
+                s.id.as_str(),
+                s.artist.as_str(),
+                s.title.as_str(),
+                s.duration
+            ),
+            ("tidal", "172486431", "B & C", "Glue", 270.5)
+        );
     }
 
     #[test]
