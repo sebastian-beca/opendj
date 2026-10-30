@@ -25,6 +25,7 @@ pub mod archive;
 pub mod bandcamp;
 pub mod inbox;
 pub mod links;
+pub mod mixxx;
 pub mod rekordbox;
 pub mod remote;
 pub mod source;
@@ -308,6 +309,7 @@ pub fn importers() -> Vec<Box<dyn LibraryImport>> {
     vec![
         Box::new(virtualdj::VirtualDj),
         Box::new(rekordbox::Rekordbox),
+        Box::new(mixxx::Mixxx),
     ]
 }
 

@@ -36,11 +36,7 @@ const LIBRARY_TABS: [&str; 4] = ["General", "Stages", "Fields", "Import"];
 const IMPORT_TAB: usize = 3;
 /// Other DJ apps whose libraries openDJ can't bring in yet, listed on the
 /// Import tab so the DJ sees what's coming.
-const COMING_IMPORTS: [(&str, &str); 3] = [
-    (
-        "Mixxx",
-        "Tracks, cues, loops, crates and playlists from Mixxx's library.",
-    ),
+const COMING_IMPORTS: [(&str, &str); 2] = [
     ("Serato DJ", "Tracks, cues, loops and crates."),
     (
         "Traktor",
