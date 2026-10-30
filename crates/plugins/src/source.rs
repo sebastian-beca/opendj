@@ -95,6 +95,9 @@ pub struct SourceQuery {
     pub text: String,
     pub kind: QueryKind,
     pub prefer: Prefer,
+    /// A playlist searched again: the entries (each a [`Found::group`])
+    /// the DJ already has, so they aren't searched for again.
+    pub skip: Vec<String>,
 }
 
 /// One result: a file, or a folder of them (an album).
@@ -165,6 +168,13 @@ pub struct DownloadUpdate {
 /// its own; every call may block on the network.
 pub trait SearchSource: Send {
     fn info(&self) -> SourceInfo;
+
+    /// Sites whose playlist and track links the source can search, e.g.
+    /// "open.spotify.com". The app offers "Add to Downloads" on those
+    /// sites' playlists and tracks, searched here and downloaded right away.
+    fn sites(&self) -> &'static [&'static str] {
+        &[]
+    }
 
     /// How the source reads a query, a line for each search it will run,
     /// e.g. "Album: artist Bonobo, album Migration". Shown while typing, so

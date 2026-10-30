@@ -67,7 +67,11 @@ fn answer(plugin: &mut dyn Plugin, method: &str, p: &Value) -> Result<Value, Plu
     match method {
         "initialize" => {
             let m = plugin.manifest().clone();
-            let source = plugin.source().map(|s| info_json(&s.info()));
+            let source = plugin.source().map(|s| {
+                let mut info = info_json(&s.info());
+                info["sites"] = json!(s.sites());
+                info
+            });
             Ok(json!({
                 "protocol": PROTOCOL,
                 "manifest": {
@@ -128,6 +132,7 @@ fn answer(plugin: &mut dyn Plugin, method: &str, p: &Value) -> Result<Value, Plu
 struct Described {
     manifest: Manifest,
     source: Option<SourceInfo>,
+    sites: &'static [&'static str],
 }
 
 fn described() -> &'static Mutex<HashMap<PathBuf, Described>> {
@@ -322,6 +327,9 @@ impl SearchSource for RemotePlugin {
             hint: "",
         })
     }
+    fn sites(&self) -> &'static [&'static str] {
+        self.described.sites
+    }
     fn describe(&self, query: &SourceQuery) -> Vec<String> {
         self.call("source.describe", json!({ "query": query_json(query) }))
             .map(|v| list(&v).iter().map(|s| str_of(s).to_string()).collect())
@@ -458,7 +466,15 @@ fn described_from(hello: &Value) -> Result<Described, PluginError> {
         downloads: m["downloads"].as_bool().unwrap_or(false),
     };
     let source = (!hello["source"].is_null()).then(|| info_from(&hello["source"]));
-    Ok(Described { manifest, source })
+    let sites: Vec<&'static str> = list(&hello["source"]["sites"])
+        .iter()
+        .map(|s| intern(str_of(s)))
+        .collect();
+    Ok(Described {
+        manifest,
+        source,
+        sites: Box::leak(sites.into_boxed_slice()),
+    })
 }
 
 fn info_json(i: &SourceInfo) -> Value {
@@ -483,11 +499,17 @@ fn kind_name(k: SettingKind) -> &'static str {
         SettingKind::Secret => "secret",
         SettingKind::Note => "note",
         SettingKind::Folder => "folder",
+        SettingKind::Switch(_) => "switch",
     }
 }
 
 fn setting_json(s: &Setting) -> Value {
-    json!({ "key": s.key, "kind": kind_name(s.kind), "title": s.title, "detail": s.detail })
+    let mut v =
+        json!({ "key": s.key, "kind": kind_name(s.kind), "title": s.title, "detail": s.detail });
+    if let SettingKind::Switch(on) = s.kind {
+        v["on"] = json!(on);
+    }
+    v
 }
 
 fn setting_from(v: &Value) -> Setting {
@@ -495,6 +517,7 @@ fn setting_from(v: &Value) -> Setting {
         "secret" => SettingKind::Secret,
         "note" => SettingKind::Note,
         "folder" => SettingKind::Folder,
+        "switch" => SettingKind::Switch(v["on"].as_bool().unwrap_or(false)),
         _ => SettingKind::Text,
     };
     Setting::new(
@@ -506,7 +529,11 @@ fn setting_from(v: &Value) -> Setting {
 }
 
 fn config_json(c: &PluginConfig) -> Value {
-    json!({ "values": c.values, "dir": c.dir.as_ref().map(|d| d.to_string_lossy()) })
+    json!({
+        "values": c.values,
+        "dir": c.dir.as_ref().map(|d| d.to_string_lossy()),
+        "music_folders": c.music_folders.iter().map(|d| d.to_string_lossy()).collect::<Vec<_>>(),
+    })
 }
 
 fn config_from(v: &Value) -> PluginConfig {
@@ -517,11 +544,15 @@ fn config_from(v: &Value) -> PluginConfig {
     PluginConfig {
         values,
         dir: v["dir"].as_str().map(PathBuf::from),
+        music_folders: list(&v["music_folders"])
+            .iter()
+            .filter_map(|d| d.as_str().map(PathBuf::from))
+            .collect(),
     }
 }
 
 fn query_json(q: &SourceQuery) -> Value {
-    json!({ "text": q.text, "kind": q.kind.name(), "prefer": q.prefer.name() })
+    json!({ "text": q.text, "kind": q.kind.name(), "prefer": q.prefer.name(), "skip": q.skip })
 }
 
 fn query_from(v: &Value) -> SourceQuery {
@@ -529,6 +560,7 @@ fn query_from(v: &Value) -> SourceQuery {
         text: string(&v["text"]),
         kind: QueryKind::from_name(str_of(&v["kind"])),
         prefer: Prefer::from_name(str_of(&v["prefer"])),
+        skip: list(&v["skip"]).iter().map(string).collect(),
     }
 }
 
@@ -639,6 +671,33 @@ mod tests {
     }
 
     #[test]
+    fn reads_the_sites_a_source_takes_links_from() {
+        let hello = json!({
+            "protocol": PROTOCOL,
+            "manifest": { "id": "x", "name": "X" },
+            "source": { "name": "X", "icon_svg": "", "hint": "", "sites": ["open.spotify.com"] },
+        });
+        assert_eq!(described_from(&hello).unwrap().sites, ["open.spotify.com"]);
+        // An add-on from before sites takes none.
+        let old = json!({ "manifest": { "id": "x" }, "source": { "name": "X" } });
+        assert!(described_from(&old).unwrap().sites.is_empty());
+    }
+
+    #[test]
+    fn queries_round_trip() {
+        let q = SourceQuery {
+            text: "https://open.spotify.com/playlist/x".into(),
+            kind: QueryKind::Playlist,
+            prefer: Prefer::Mp3,
+            skip: vec!["3. Bonobo – Kerala".into()],
+        };
+        assert_eq!(query_from(&query_json(&q)), q);
+        // An older app sends no skip.
+        let old = query_from(&json!({ "text": "Kerala", "kind": "track", "prefer": "any" }));
+        assert!(old.skip.is_empty());
+    }
+
+    #[test]
     fn updates_round_trip() {
         for progress in [
             Progress::Queued,
@@ -674,10 +733,17 @@ mod tests {
             "Where",
         );
         assert_eq!(setting_from(&setting_json(&s)), s);
+        for on in [true, false] {
+            let s = Setting::new("share", SettingKind::Switch(on), "Share", "");
+            assert_eq!(setting_from(&setting_json(&s)), s);
+        }
         let c = PluginConfig {
             values: [("username".to_string(), "dj".to_string())].into(),
             dir: Some(PathBuf::from("/c/plugins/x")),
+            music_folders: vec![PathBuf::from("/m/DB"), PathBuf::from("/m/Sets")],
         };
         assert_eq!(config_from(&config_json(&c)), c);
+        assert!(c.is_on("share", true));
+        assert!(!c.is_on("share", false));
     }
 }
