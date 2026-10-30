@@ -1311,9 +1311,13 @@ impl Prefs {
                 .unwrap_or_else(|| {
                     port.running.is_some()
                         || c.auto_mapping(&port.name).is_some()
-                        || matches!(c.choice(&port.name), MappingChoice::File(_))
+                        || matches!(
+                            c.choice(&port.name),
+                            MappingChoice::File(_) | MappingChoice::Own(_)
+                        )
                 })
         });
+        let quick = quick_maps();
         let mut items: Vec<PrefItem> = visible
             .iter()
             .flat_map(|port| {
@@ -1327,6 +1331,8 @@ impl Prefs {
                     "Off".to_string(),
                 ];
                 choices.extend(mappings.iter().map(|(n, _)| n.clone()));
+                // Then the ones made with Quick map.
+                choices.extend(quick.iter().map(|m| m.name.clone()));
                 let chosen = match &choice {
                     MappingChoice::Auto => 0,
                     MappingChoice::Off => 1,
@@ -1334,6 +1340,10 @@ impl Prefs {
                         .iter()
                         .position(|(_, m)| m == f)
                         .map_or(0, |i| i + 2),
+                    MappingChoice::Own(p) => quick
+                        .iter()
+                        .position(|m| p.file_stem().is_some_and(|s| *s == *m.id))
+                        .map_or(0, |i| i + 2 + mappings.len()),
                 };
                 let detail = match (&port.running, &choice, &port.mapping_file) {
                     (Some(m), _, _) => match port
@@ -1352,16 +1362,23 @@ impl Prefs {
                     },
                     (None, MappingChoice::Off, _) => "Not used".to_string(),
                     (None, _, None) => {
-                        "No Mixxx mapping matches this device: pick one.".to_string()
+                        "No mapping matches this device: pick one, or make one with Quick map."
+                            .to_string()
                     }
                     (None, _, Some(_)) => "Starting, or its mapping failed to load".to_string(),
                 };
                 // Edit opens the Controller Editor on the mapping it uses.
                 let editable = edit_file(c, port).is_some() && choice != MappingChoice::Off;
+                // Without one, Quick map makes one.
+                let action = match (editable, &port.mapping_file) {
+                    (true, _) => "Edit",
+                    (false, None) => "Quick map",
+                    _ => "",
+                };
                 let mut rows = vec![PrefItem {
                     choices: strings(&choices),
                     chosen: chosen as i32,
-                    action: if editable { "Edit" } else { "" }.into(),
+                    action: action.into(),
                     ..item(
                         &format!("controller:{}", port.name),
                         CONTROLLER,
@@ -2119,7 +2136,7 @@ impl Prefs {
                         own.mapping.deck_order = Some(*o);
                     }
                     if own::save(&dir, &own).is_ok() {
-                        c.reload(&own.based_on);
+                        c.reload(&edit_file(c, &port).unwrap_or_default());
                     }
                 }
             }
@@ -2131,10 +2148,19 @@ impl Prefs {
                 let choice = match index {
                     0 => MappingChoice::Auto,
                     1 => MappingChoice::Off,
-                    i => match c.mappings().get(i - 2) {
-                        Some((_, file)) => MappingChoice::File(file.clone()),
-                        None => return,
-                    },
+                    i => {
+                        let mappings = c.mappings();
+                        match mappings.get(i - 2) {
+                            Some((_, file)) => MappingChoice::File(file.clone()),
+                            None => match (
+                                quick_maps().get(i - 2 - mappings.len()),
+                                settings::own_mappings_dir(),
+                            ) {
+                                (Some(m), Some(d)) => MappingChoice::Own(own::path(&d, &m.id)),
+                                _ => return,
+                            },
+                        }
+                    }
                 };
                 c.set_choice(port, choice);
                 settings::set_controller_mappings(&c.choices());
@@ -2588,6 +2614,11 @@ impl Prefs {
                             .invoke_show_mapping(file.into());
                     }
                 }
+                "quick" => {
+                    if let Some(app) = self.app.upgrade() {
+                        app.global::<crate::MapMode>().invoke_quick_map(port.into());
+                    }
+                }
                 "remove" => {
                     // Taken off the list and not used, until added again.
                     settings::set_controller_shown(&device_key(port), false);
@@ -2726,9 +2757,23 @@ fn set_field_names(names: query::FieldNames) {
 /// The four-deck orders a controller can follow, left to right.
 const DECK_ORDERS: [(&str, [u8; 4]); 2] = [("3 1 2 4", [3, 1, 2, 4]), ("1 2 3 4", [1, 2, 3, 4])];
 
+/// The DJ's own mappings that stand alone, made with Quick map.
+fn quick_maps() -> Vec<own::OwnMapping> {
+    settings::own_mappings_dir()
+        .map(|d| own::all(&d))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|m| m.based_on.is_empty())
+        .collect()
+}
+
 /// The DJ's own mapping `port` runs, if it runs one.
 fn own_in_use(c: &Controllers, port: &Port) -> Option<own::OwnMapping> {
     let base = edit_file(c, port)?;
+    if opendj_controllers::is_own_file(&base) {
+        let id = base.trim_end_matches(".json");
+        return own::OwnMapping::read(&own::path(&settings::own_mappings_dir()?, id));
+    }
     let id = settings::controller_version(&base)?;
     own::OwnMapping::read(&own::path(&settings::own_mappings_dir()?, &id))
 }
