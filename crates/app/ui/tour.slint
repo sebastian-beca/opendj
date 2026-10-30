@@ -51,8 +51,8 @@ component PartRow inherits Rectangle {
         }
         Text {
             text: name;
-            color: current ? Theme.text : Theme.text-dim;
-            font-size: 13px;
+            color: current ? Theme.text : #c8c8cd;
+            font-size: 14px;
             font-weight: current ? 600 : 400;
             vertical-alignment: center;
         }
@@ -121,8 +121,8 @@ export component TourSetupDialog inherits Rectangle {
                 }
                 if TourSetup.body != "": Text {
                     text: TourSetup.body;
-                    color: Theme.text-dim;
-                    font-size: 13px;
+                    color: #c8c8cd;
+                    font-size: 14px;
                     wrap: word-wrap;
                 }
                 Rectangle { height: 4px; }
@@ -133,7 +133,7 @@ export component TourSetupDialog inherits Rectangle {
                         width: parent.width;
                         padding-right: 8px;
                         alignment: start;
-                        for item in TourSetup.items: PrefRow { item: item; }
+                        for item in TourSetup.items: PrefRow { item: item; bright: true; }
                     }
                 }
                 HorizontalLayout {

@@ -560,14 +560,10 @@ impl Tour {
                 kind: 6,
                 title: part.name().into(),
                 detail: match part {
-                    Part::Audio => {
-                        "Pick your speakers and headphones, and hear a test tone in each."
-                    }
-                    Part::Controller => "Check your controller is found and heard.",
-                    Part::Library => {
-                        "Add your music folders, or bring in another DJ app's library."
-                    }
-                    Part::Mixing => "Mix two demo tracks together, one control at a time.",
+                    Part::Audio => "Speakers and headphones, with a test tone.",
+                    Part::Controller => "Check it's found and working.",
+                    Part::Library => "Music folders and libraries to import.",
+                    Part::Mixing => "Mix two demo tracks, step by step.",
                 }
                 .into(),
                 ..Default::default()
@@ -582,10 +578,7 @@ impl Tour {
         };
         let seen = c.take_monitored();
         if let Some((port, _)) = seen.last() {
-            let heard = format!(
-                "✓ Heard your {}: it's working. Try the rest of its controls whenever you like.",
-                short_port_name(port)
-            );
+            let heard = format!("✓ {} is working.", short_port_name(port));
             if heard != self.heard {
                 self.heard = heard;
                 self.refill = true;
@@ -762,43 +755,27 @@ fn page_words(page: Page, controllers: &[String]) -> (String, String) {
     let (title, body) = match page {
         Page::Welcome => (
             "Welcome to openDJ",
-            "Let's get you mixing. A few quick steps set up your sound, your controller and \
-             your music, then a short lesson mixes two tracks with you. Every step can be \
-             skipped, and Settings › Help runs the tour again whenever you like."
+            "A few quick steps to get you set up. Skip any of them; Settings › Help has the \
+             tour again."
                 .to_string(),
         ),
-        Page::Part(Part::Audio) => (
-            "Sound",
-            "Choose where the master (your speakers) and the headphones play, then test \
-             each one."
-                .to_string(),
-        ),
+        Page::Part(Part::Audio) => ("Sound", "Where the master and headphones play.".to_string()),
         Page::Part(Part::Controller) => (
             "Controller",
             if controllers.is_empty() {
-                "No controller is plugged in. Plug one in now, or go on: openDJ finds it \
-                 whenever you plug it in."
-                    .to_string()
+                "No controller plugged in. openDJ finds one whenever you plug it in.".to_string()
             } else {
-                format!(
-                    "openDJ found {}. It runs Mixxx's mapping for it by itself; change it \
-                     below if you need to.",
-                    controllers.join(" and ")
-                )
+                format!("Found {}.", controllers.join(" and "))
             },
         ),
         Page::Part(Part::Library) => (
             "Your music",
-            "Add the folders your music is in; openDJ reads them and keeps your collection up to \
-             date. Already use another DJ app? Bring its library in, with cues, grids and \
-             playlists."
-                .to_string(),
+            "Where your tracks are, and libraries to bring in.".to_string(),
         ),
         Page::Part(Part::Mixing) => (
             "Your first mix",
-            "Two demo tracks are ready. The lesson points at each control in turn and waits \
-             for you to use it, on screen or on your controller. It switches to the 2-Deck \
-             layout while it runs and back after."
+            "A short lesson on two demo tracks, in the 2-Deck layout. Each step waits for \
+             you, on screen or on your controller."
                 .to_string(),
         ),
     };

@@ -21,6 +21,27 @@ export struct OutputRow {
     ok: bool,
 }
 
+// One input in the settings table: what it is, the device and the
+// channels it comes in on.
+export struct InputRow {
+    // "Microphone" or "Auxiliary".
+    name: string,
+    // "None" first, then the input devices.
+    devices: [string],
+    device: int,
+    channels: [string],
+    channel: int,
+    status: string,
+    ok: bool,
+}
+
+// The settings' inputs table (see InputsTable).
+export global InputSettings {
+    in property <[InputRow]> rows;
+    callback set-device(row: int, device: int);
+    callback set-channel(row: int, channel: int);
+}
+
 // The audio settings: the output routes table, and
 // the connected controllers.
 export global AudioSettings {
@@ -116,10 +137,28 @@ export component MenuField inherits Rectangle {
 
 // The output routes table: a row per mix with
 // its device and channel pair, and + to add one.
+// Column titles over the outputs and inputs tables, lined up with
+// their fields.
+component ColumnTitles inherits HorizontalLayout {
+    in property <string> first;
+    in property <length> first-width;
+    in property <length> last-width;
+    in property <bool> bright;
+    spacing: 3px;
+    padding-left: 2px;
+    Text { text: first; width: first-width; color: bright ? Theme.text : Theme.text-dim; font-size: 11px; font-weight: 600; }
+    Text { text: "Device"; horizontal-stretch: 1; color: bright ? Theme.text : Theme.text-dim; font-size: 11px; font-weight: 600; }
+    Text { text: "Channels"; width: last-width; color: bright ? Theme.text : Theme.text-dim; font-size: 11px; font-weight: 600; }
+    Rectangle { width: 20px; }
+}
+
 export component OutputsTable inherits VerticalLayout {
     // Wider fields, for the settings window.
     in property <bool> roomy;
+    // Lighter words, for the tour's setup dialog.
+    in property <bool> bright;
     spacing: roomy ? 8px : 6px;
+    ColumnTitles { first: "Output"; first-width: roomy ? 120px : 78px; last-width: roomy ? 90px : 62px; bright: bright; }
     for row[r] in AudioSettings.rows: VerticalLayout {
         spacing: 2px;
         HorizontalLayout {
@@ -155,7 +194,7 @@ export component OutputsTable inherits VerticalLayout {
                 xta := TouchArea { mouse-cursor: pointer; clicked => { AudioSettings.remove(r); } }
             }
         }
-        Text { text: row.status; color: row.ok ? Theme.text-dim : #ff9f0a; font-size: 10px; overflow: elide; x: 4px; }
+        Text { text: row.status; color: !row.ok ? #ff9f0a : bright ? #c8c8cd : Theme.text-dim; font-size: bright ? 12px : 10px; overflow: elide; x: 4px; }
     }
     HorizontalLayout {
         alignment: end;
@@ -169,6 +208,46 @@ export component OutputsTable inherits VerticalLayout {
             Text { text: "+"; color: Theme.text; font-size: 15px; }
             ata := TouchArea { mouse-cursor: pointer; clicked => { AudioSettings.add(); } }
         }
+    }
+}
+
+// The settings' inputs: the microphone and the auxiliary input, each on a
+// device and its channels, laid out as the outputs are.
+export component InputsTable inherits VerticalLayout {
+    spacing: 8px;
+    ColumnTitles { first: "Input"; first-width: 120px; last-width: 90px; }
+    for row[r] in InputSettings.rows: VerticalLayout {
+        spacing: 2px;
+        HorizontalLayout {
+            spacing: 3px;
+            Rectangle {
+                width: 120px;
+                height: 26px;
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.border;
+                Text { x: 8px; text: row.name; color: Theme.text; font-size: 12px; vertical-alignment: center; height: parent.height; }
+            }
+            MenuField {
+                horizontal-stretch: 1;
+                text: row.devices[row.device];
+                choices: row.devices;
+                chosen: row.device;
+                menu-width: 260px;
+                picked(i) => { InputSettings.set-device(r, i); }
+            }
+            MenuField {
+                width: 90px;
+                text: row.channels[row.channel];
+                choices: row.channels;
+                chosen: row.channel;
+                menu-width: 110px;
+                opacity: row.device == 0 ? 0.4 : 1;
+                picked(i) => { InputSettings.set-channel(r, i); }
+            }
+            Rectangle { width: 20px; }
+        }
+        if row.status != "": Text { text: row.status; color: row.ok ? Theme.text-dim : #ff9f0a; font-size: 10px; overflow: elide; x: 4px; }
     }
 }
 
