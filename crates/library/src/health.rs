@@ -1,14 +1,15 @@
 //! Collection Health: checks that find what needs fixing in the collection
 //! (audiobooks and podcasts, files outside the stage folders or the music
 //! folders, tracks not
-//! analysed or missing their tags, cover or rating, files gone, long
-//! recordings), so it can be fixed in batches. Each check is also a
+//! analysed, missing their tags (or with tags that say nothing), cover or
+//! rating, low bitrates, files gone, long recordings), so it can be fixed in batches. Each check is also a
 //! search (`is:notmusic`, `is:stray`…), and a track can be set to be
 //! ignored by a check, so it stops showing up there.
 //!
 //! What the DJ decided is kept in the library: tracks ignored per check,
 //! tracks taken out of the library (their files stay, and an import or a
-//! scan doesn't bring them back), and which files have a cover.
+//! scan doesn't bring them back), and which files have a cover and at
+//! what bitrate.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -22,6 +23,9 @@ use crate::{now, row_id, track_id, Error, Library};
 /// Tracks longer than this (in seconds) are recordings of whole sets or
 /// long ambient pieces, rather than tracks to mix.
 pub const LONG_TRACK: f64 = 20.0 * 60.0;
+
+/// Lossy files under this bitrate (kb/s) can sound dull on a big system.
+pub const LOW_BITRATE: u32 = 192;
 
 /// Tracks in one folder sharing a title, from which they are taken to be
 /// an audiobook's chapters.
@@ -40,9 +44,20 @@ CREATE TABLE IF NOT EXISTS removed (
 CREATE TABLE IF NOT EXISTS covers (
     track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
     file_mtime INTEGER NOT NULL,
-    has_cover INTEGER NOT NULL
+    has_cover INTEGER NOT NULL,
+    bitrate INTEGER
 );
 ";
+
+/// What a look at a track's file found: whether it has a cover and its
+/// bitrate (kb/s; 0 when the file doesn't say, `None` from before bitrates
+/// were looked at), and the file's modification time then.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FileLook {
+    pub mtime: i64,
+    pub cover: bool,
+    pub bitrate: Option<u32>,
+}
 
 /// Something Collection Health looks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -51,7 +66,9 @@ pub enum Check {
     Stray,
     Outside,
     NotAnalyzed,
+    /// Tags left empty, or that say nothing ("Unknown Artist", "Track 01").
     MissingInfo,
+    LowBitrate,
     NoCover,
     NoRating,
     Missing,
@@ -63,13 +80,14 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 12] = [
+    pub const ALL: [Check; 13] = [
         Check::NotMusic,
         Check::Stray,
         Check::Outside,
         Check::Duplicate,
         Check::NotAnalyzed,
         Check::MissingInfo,
+        Check::LowBitrate,
         Check::Junk,
         Check::AlbumTags,
         Check::NoCover,
@@ -86,6 +104,7 @@ impl Check {
             Check::Outside => "outside",
             Check::NotAnalyzed => "unanalyzed",
             Check::MissingInfo => "noinfo",
+            Check::LowBitrate => "lowbitrate",
             Check::NoCover => "nocover",
             Check::NoRating => "unrated",
             Check::Missing => "missing",
@@ -103,7 +122,8 @@ impl Check {
             "stray" | "strays" => Check::Stray,
             "outside" | "unwatched" => Check::Outside,
             "unanalyzed" | "unanalysed" | "notanalyzed" => Check::NotAnalyzed,
-            "noinfo" | "untagged" | "incomplete" => Check::MissingInfo,
+            "noinfo" | "untagged" | "incomplete" | "poorinfo" | "metadata" => Check::MissingInfo,
+            "lowbitrate" | "bitrate" | "lowquality" => Check::LowBitrate,
             "nocover" | "noart" => Check::NoCover,
             "unrated" => Check::NoRating,
             "missing" => Check::Missing,
@@ -122,7 +142,8 @@ impl Check {
             Check::Stray => "Strays",
             Check::Outside => "Outside folders",
             Check::NotAnalyzed => "Not analyzed",
-            Check::MissingInfo => "Missing info",
+            Check::MissingInfo => "Missing or poor metadata",
+            Check::LowBitrate => "Low bitrate",
             Check::NoCover => "No cover",
             Check::NoRating => "No rating",
             Check::Missing => "Missing files",
@@ -142,7 +163,10 @@ impl Check {
             Check::Stray => "Files outside your Inbox, In Prep and Play Ready folders.",
             Check::Outside => "Files outside your music folders and stage folders.",
             Check::NotAnalyzed => "No tempo or key yet.",
-            Check::MissingInfo => "No artist, title, album, year or genre.",
+            Check::MissingInfo => {
+                "No artist, title, album, year or genre, or one that says nothing, like \"Unknown Artist\" or \"Track 01\"."
+            }
+            Check::LowBitrate => "Compressed files under 192 kb/s: they can sound dull on a big system.",
             Check::NoCover => "No picture in the file's tags or its folder.",
             Check::NoRating => "No stars yet.",
             Check::Missing => "The file isn't where your collection expects it.",
@@ -219,6 +243,48 @@ pub fn looks_like_not_music(t: &Track) -> bool {
     .any(|w| p.contains(w))
 }
 
+/// Whether a tag is empty or says nothing: "Unknown Artist", "Untitled",
+/// "Track 01", "-".
+fn says_nothing(tag: &str) -> bool {
+    let t = tag
+        .trim()
+        .trim_matches(['<', '>', '[', ']', '(', ')'])
+        .to_lowercase();
+    if t.chars().all(|c| !c.is_alphanumeric()) {
+        return true;
+    }
+    if [
+        "unknown",
+        "unknown artist",
+        "unknown album",
+        "unknown title",
+        "unknown genre",
+        "untitled",
+        "no title",
+        "no artist",
+        "n/a",
+        "none",
+        "artist",
+        "title",
+        "album",
+        "other",
+        "0",
+    ]
+    .contains(&t.as_str())
+    {
+        return true;
+    }
+    // "Track 01", "Audio Track 3", "Track01"
+    let rest = t
+        .strip_prefix("audio track")
+        .or_else(|| t.strip_prefix("audiotrack"))
+        .or_else(|| t.strip_prefix("track"));
+    rest.is_some_and(|r| {
+        let r = r.trim();
+        !r.is_empty() && r.chars().all(|c| c.is_ascii_digit())
+    })
+}
+
 /// What the checks go by beyond each track: the DJ's choices, what was
 /// found across tracks, and which files have a cover.
 #[derive(Debug, Default)]
@@ -229,6 +295,8 @@ pub struct Facts {
     ignored: HashMap<Check, HashSet<usize>>,
     /// Whether each file has a cover, for those looked at.
     covers: HashMap<usize, bool>,
+    /// Each file's bitrate in kb/s, for those looked at.
+    bitrates: HashMap<usize, u32>,
     /// The DJ has set up the stage folders, so a track outside them is a stray.
     stages: bool,
     /// The music folders and stage folders: a file in none of them is outside.
@@ -269,6 +337,7 @@ impl Facts {
             not_music,
             ignored,
             covers,
+            bitrates: HashMap::new(),
             stages,
             folders: Vec::new(),
             rules: Rules::default(),
@@ -340,7 +409,11 @@ impl Facts {
             Check::NotAnalyzed => t.bpm <= 0.0 || t.key.is_empty(),
             Check::MissingInfo => [&t.artist, &t.title, &t.album, &t.info.year, &t.genre]
                 .iter()
-                .any(|f| f.trim().is_empty()),
+                .any(|f| says_nothing(f)),
+            Check::LowBitrate => self
+                .bitrates
+                .get(&t.id)
+                .is_some_and(|&b| b > 0 && b < LOW_BITRATE),
             Check::NoCover => self.covers.get(&t.id) == Some(&false),
             Check::NoRating => t.rating == 0,
             Check::Missing => t.info.missing,
@@ -368,6 +441,11 @@ impl Facts {
     /// Notes whether a track has a cover.
     pub fn set_cover(&mut self, id: usize, has: bool) {
         self.covers.insert(id, has);
+    }
+
+    /// Notes a track's bitrate in kb/s.
+    pub fn set_bitrate(&mut self, id: usize, kbps: u32) {
+        self.bitrates.insert(id, kbps);
     }
 
     /// Tells `check` to leave these tracks alone, or (with `on` false) to
@@ -568,33 +646,38 @@ impl Library {
             .map(|n| n as usize)
     }
 
-    /// Whether each track's file has a cover, as last looked at, with the
-    /// file's modification time then (to look again once it changes).
-    pub fn covers(&self) -> Result<HashMap<usize, (i64, bool)>, Error> {
+    /// What was found in each track's file when it was last looked at,
+    /// with the file's modification time then (to look again once it
+    /// changes).
+    pub fn covers(&self) -> Result<HashMap<usize, FileLook>, Error> {
         let mut q = self
             .db
-            .prepare("SELECT track_id, file_mtime, has_cover FROM covers")?;
+            .prepare("SELECT track_id, file_mtime, has_cover, bitrate FROM covers")?;
         let rows = q.query_map([], |r| {
             Ok((
                 track_id(r.get(0)?),
-                (r.get::<_, i64>(1)?, r.get::<_, bool>(2)?),
+                FileLook {
+                    mtime: r.get(1)?,
+                    cover: r.get(2)?,
+                    bitrate: r.get(3)?,
+                },
             ))
         })?;
         rows.collect()
     }
 
-    /// Notes whether tracks' files have a cover: id, the file's
-    /// modification time and the answer.
-    pub fn save_covers(&mut self, found: &[(usize, i64, bool)]) -> Result<(), Error> {
+    /// Notes what was found in tracks' files, by track id.
+    pub fn save_covers(&mut self, found: &[(usize, FileLook)]) -> Result<(), Error> {
         let tx = self.db.transaction()?;
         {
             let mut put = tx.prepare(
-                "INSERT INTO covers (track_id, file_mtime, has_cover) VALUES (?1, ?2, ?3)
-                 ON CONFLICT(track_id) DO UPDATE SET file_mtime = ?2, has_cover = ?3",
+                "INSERT INTO covers (track_id, file_mtime, has_cover, bitrate)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(track_id) DO UPDATE SET file_mtime = ?2, has_cover = ?3, bitrate = ?4",
             )?;
-            for (id, mtime, has) in found {
+            for (id, look) in found {
                 if let Some(row) = row_id(*id) {
-                    put.execute(params![row, mtime, has])?;
+                    put.execute(params![row, look.mtime, look.cover, look.bitrate])?;
                 }
             }
         }
@@ -754,6 +837,36 @@ mod tests {
     }
 
     #[test]
+    fn poor_metadata_and_low_bitrates() {
+        let mut t = track(1, "/m/DB/Library/x.mp3", "Song");
+        t.artist = "Bonobo".into();
+        t.album = "Migration".into();
+        t.info.year = "2020".into();
+        t.genre = "House".into();
+        let none = HashSet::new();
+        let mut facts = Facts::new([&t], HashMap::new(), HashMap::new(), true);
+        assert!(!facts.finds(Check::MissingInfo, &t, &none));
+        for poor in [
+            "Unknown Artist",
+            "<unknown>",
+            "-",
+            "Track 01",
+            "Audio Track 3",
+        ] {
+            t.artist = poor.into();
+            assert!(facts.finds(Check::MissingInfo, &t, &none), "{poor}");
+        }
+        t.artist = "Track Star".into();
+        assert!(!facts.finds(Check::MissingInfo, &t, &none));
+        assert!(!facts.finds(Check::LowBitrate, &t, &none), "not read yet");
+        facts.set_bitrate(1, 128);
+        assert!(facts.finds(Check::LowBitrate, &t, &none));
+        facts.set_bitrate(1, 256);
+        assert!(!facts.finds(Check::LowBitrate, &t, &none));
+        assert_eq!(Check::from_name("lowbitrate"), Some(Check::LowBitrate));
+    }
+
+    #[test]
     fn files_outside_the_folders() {
         let inside = track(1, "/m/DB/Library/x.mp3", "Song");
         let outside = track(2, "/Users/s/Downloads/y.mp3", "Song");
@@ -847,7 +960,12 @@ mod tests {
         lib.set_health_ignored(Check::NoCover, &[t.id], false)
             .unwrap();
         assert!(lib.health_ignored().unwrap().is_empty());
-        lib.save_covers(&[(t.id, 42, true)]).unwrap();
-        assert_eq!(lib.covers().unwrap()[&t.id], (42, true));
+        let look = FileLook {
+            mtime: 42,
+            cover: true,
+            bitrate: Some(320),
+        };
+        lib.save_covers(&[(t.id, look)]).unwrap();
+        assert_eq!(lib.covers().unwrap()[&t.id], look);
     }
 }

@@ -90,10 +90,10 @@ play. Set them up in **Settings › Collection › Stages**:
 - **Play Ready folder**: where prepared tracks are kept. Its subfolders
   (such as `Albums`) stay as they are.
 
-Once the In Prep and Play Ready folders are set, the tree starts with
-**Inbox**, **In Prep** and **Play Ready**, each with its track count and
-subfolders, followed by **All Tracks**. Every track gets the stage of the
-folder it is in.
+Once the In Prep and Play Ready folders are set, **Inbox**, **In Prep**
+and **Play Ready** show under **Collection** at the top of the tree, after
+**Wanted**, each with its track count and subfolders. Every track gets the
+stage of the folder it is in.
 
 Right-click tracks to move them along, or drag them onto a stage:
 
@@ -276,32 +276,35 @@ another app, and its hot cues come in as memory cues when the track already
 has hot cues, so nothing is lost. Removing the second import takes out what
 it added and leaves the track as it was.
 
-## Crates and sets
+## The tree
 
-Your lists come in two kinds. A **crate** is a list you keep: Yoga,
-Journeys, Dance, a style. A track can be in as many crates as you like,
-and the **Crates** column (right-click a heading) shows which ones it is
-in. Search with `crate:yoga` for tracks in a crate with "yoga" in its
-name, `crate:=yoga` for that crate only, and `crate:""` for tracks in no
-crate yet.
+The collection's tree has three parts:
 
-A **set** is a lilac folder made for one gig. **+ › New set…** makes one
-with a list for each step of the template: **Staging** (what you'd like
-to play), **Set** (what you plan to play, about twice what you'll need)
-and **Live set** (what you actually played). Change the template in
-**Settings › Collection › Stages** under Sets, for example to add Openers,
-Closers or Transitions. Selecting a set shows all its tracks with their
-total length, and how many are still in In Prep without their basic prep.
+- **Collection**, with how many tracks you have. Select it for all of
+  them; open it for **Wanted** (tracks you went to buy, or streamed tracks
+  in imported lists you don't have a file for yet) and the stages.
+- **Crates**: lists you keep, such as Yoga, Journeys, Dance or a style.
+  The **+** beside the heading adds one.
+- **Playlists**: folders of lists, for gigs or anything else. The **+**
+  beside the heading adds a folder; right-click a folder for **New
+  Playlist** or **New Folder**, so folders can hold folders. Lists brought
+  in from other apps and your smart lists are here too.
 
-After the gig, open the **History** tab, pick what you played (or the
-whole session) and right-click: **Add to Set List** lists your sets,
-newest first, and puts the tracks in that set's Live set.
+Everything starts closed, and the tree remembers which folders you left
+open. Drag tracks onto a crate or playlist to add them, or onto a stage to
+move them there.
+
+A track can be in as many crates as you like, and the **Crates** column
+(right-click a heading) shows which ones it is in. Search with
+`crate:yoga` for tracks in a crate with "yoga" in its name, `crate:=yoga`
+for that crate only, and `crate:""` for tracks in no crate yet.
 
 ## Collection Health
 
-[Collection Health](collection-health.md), under All Tracks in the
-collection, finds what needs fixing in your collection: duplicates, junk in names, missing
-tags and covers, files that went missing, and more.
+[Collection Health](collection-health.md), the heart under Collection in the
+rail, finds what needs fixing in your collection: duplicates, junk in names,
+missing or poor tags, covers, low bitrates, files that went missing, and
+more.
 
 ## Search and filters
 

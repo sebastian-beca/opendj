@@ -20,6 +20,7 @@ use opendj_engine::{deck_group, AudioEngine, Hotcue, Track, NUM_DECKS, NUM_HOTCU
 use opendj_library::dupes::{Case, Group};
 use opendj_library::health::{Check, Facts};
 use opendj_library::query::{self, Context, Indexed, Query};
+use opendj_library::sets::is_crate;
 use opendj_library::stages::{Folders, Stage};
 use opendj_library::{Library, PlaylistKind};
 use slint::{ComponentHandle, DataTransfer, Model, ModelRc, SharedString, VecModel};
@@ -219,6 +220,8 @@ struct Node {
     history: bool,
     /// A folder in Files whose subfolders haven't been read yet.
     lazy: bool,
+    /// Drawn with a line above it, setting it apart from what's before.
+    separator: bool,
 }
 
 impl Node {
@@ -232,6 +235,7 @@ impl Node {
             playlist: None,
             history: false,
             lazy: false,
+            separator: false,
         }
     }
 
@@ -349,6 +353,7 @@ fn smart_node(p: &opendj_library::Playlist, depth: i32) -> Node {
 const KIND_FOLDER: i32 = 1;
 const KIND_LIST: i32 = 2;
 const KIND_SMART: i32 = 3;
+const KIND_WANTED: i32 = 4;
 const KIND_HISTORY: i32 = 5;
 /// Bandcamp in the stores list, shown with its logo.
 const KIND_BANDCAMP: i32 = 6;
@@ -364,7 +369,9 @@ const KIND_TRIAGE: i32 = 11;
 const KIND_HEALTH: i32 = 12;
 const KIND_CHECK: i32 = 13;
 /// A set: a folder made for one gig, drawn in lilac.
-const KIND_SET: i32 = 14;
+/// One of the DJ's crates, and the Crates and Playlists headings.
+const KIND_CRATE: i32 = 17;
+const KIND_SECTION: i32 = 18;
 /// An album's folder, and a folder of mixed sets.
 const KIND_ALBUM: i32 = 15;
 const KIND_MIX: i32 = 16;
@@ -470,14 +477,15 @@ pub struct Browser {
     deck_track: Option<usize>,
     /// The sidebar shows the history sessions instead of the library tree.
     history_tab: bool,
+    /// The collection's tree shows Collection Health's checks, picked in
+    /// the rail.
+    health_view: bool,
     /// The node selected on the other tab, to go back to.
     other_tab_node: usize,
     /// This run's history session, made when the first track is played.
     session: Option<i64>,
     /// Lists tracks can be added to, as offered in the track menu.
     menu_lists: Vec<i64>,
-    /// Sets, as History's "Add to Set List…" offers them.
-    menu_sets: Vec<i64>,
     /// The crates each track is in, by track id.
     crates: HashMap<usize, Vec<String>>,
     /// Empty crates and entries for removed tracks.
@@ -969,10 +977,10 @@ impl Browser {
             deck_ref: None,
             deck_track: None,
             history_tab: false,
+            health_view: false,
             other_tab_node: 0,
             session: None,
             menu_lists: Vec::new(),
-            menu_sets: Vec::new(),
             crates: HashMap::new(),
             list_health: Default::default(),
             hotcues: std::array::from_fn(|d| {
@@ -1060,6 +1068,7 @@ impl Browser {
                         open_dir(&mut b.nodes, n);
                     } else {
                         b.nodes[n].expanded = !b.nodes[n].expanded;
+                        b.save_open_folders();
                     }
                     b.refresh_tree();
                 }
@@ -1091,7 +1100,7 @@ impl Browser {
         let w = with.clone();
         app.on_activate_track(move |row| {
             w(Box::new(move |b| {
-                if is_stores(b.tree) {
+                if b.store_rows() {
                     b.activate_store_row(row as usize);
                 } else if let Some(&Some(id)) = b.rows.get(row as usize) {
                     b.adopt(&[id]);
@@ -1420,15 +1429,9 @@ impl Browser {
             }
         };
         let w = with.clone();
-        edit.on_create(move |kind| {
+        edit.on_create(move |what, at| {
             let row = std::cell::Cell::new(-1);
-            w(&|b| {
-                row.set(if kind == 2 {
-                    b.create_set()
-                } else {
-                    b.create_list(kind == 1)
-                })
-            });
+            w(&|b| row.set(b.create_list(what, at)));
             row.get()
         });
         let w = with.clone();
@@ -1461,16 +1464,6 @@ impl Browser {
         });
         let w = with.clone();
         edit.on_remove_from_list(move |row| w(&|b| b.remove_row_from_list(row as usize)));
-        let w = with.clone();
-        edit.on_add_to_set(move |first, last, set| {
-            w(&|b| {
-                b.add_rows_to_set(
-                    first.max(0) as usize,
-                    last.max(0) as usize,
-                    set.max(0) as usize,
-                )
-            })
-        });
         let w = with.clone();
         edit.on_show_history(move |on| w(&|b| b.show_history(on)));
         let w = with.clone();
@@ -1553,8 +1546,18 @@ impl Browser {
             STORES => STORES_ENABLED,
             _ => false,
         };
+        if source == COLLECTION && self.tree == COLLECTION && self.health_view {
+            return self.show_health(false);
+        }
         if !usable || source == self.tree {
             return;
+        }
+        // Health's checks aren't kept: the collection comes back as itself.
+        if self.tree == COLLECTION && self.health_view {
+            self.health_view = false;
+            self.collection_stale = true;
+            self.nodes.clear();
+            self.current_node = 0;
         }
         let leaving = Parked {
             nodes: std::mem::take(&mut self.nodes),
@@ -1597,6 +1600,42 @@ impl Browser {
         if is_stores(source) && self.store.query != self.search {
             self.search_stores(StoreQuery::text(&self.search.clone()));
         }
+    }
+
+    /// Whether the list shows store rows: the stores' results, or Wanted.
+    fn store_rows(&self) -> bool {
+        is_stores(self.tree)
+            || matches!(
+                self.nodes.get(self.current_node).map(|n| &n.contents),
+                Some(Contents::Wanted)
+            )
+    }
+
+    /// Shows Collection Health's checks in the collection's place (`on`),
+    /// or the collection again.
+    fn show_health(&mut self, on: bool) {
+        if self.tree != COLLECTION {
+            if !on {
+                return;
+            }
+            self.select_source(COLLECTION);
+        }
+        if self.history_tab {
+            self.show_history(false);
+        }
+        if self.health_view == on {
+            return;
+        }
+        self.health_view = on;
+        self.nodes.clear();
+        self.current_node = 0;
+        self.close_cleanup();
+        self.health_status.clear();
+        self.reload_tree(None);
+        if let Some(app) = self.app.upgrade() {
+            app.set_current_track(-1);
+        }
+        self.fetch_current_playlist();
     }
 
     /// The stores tree: Bandcamp, the other stores (together and each),
@@ -2440,6 +2479,9 @@ impl Browser {
         self.queue_triage_analysis();
         self.refresh_health();
         self.refresh_dupes();
+        if let Some(db) = &self.db {
+            self.store.wanted = db.wanted().unwrap_or_default();
+        }
         let tree = self.collection_tree();
         if self.tree == COLLECTION {
             self.nodes = tree;
@@ -2491,10 +2533,23 @@ impl Browser {
                 .is_some_and(|t| opendj_library::row_id(t.id).is_some())
     }
 
-    /// The collection's tree: everything, the DJ's lists and folders,
-    /// groupings and tags, smart lists, and (on the history
-    /// tab) the history sessions.
+    /// The collection's tree: the collection with Wanted and the stages
+    /// under it; the crates; the playlists in their folders, with
+    /// groupings and tags and smart lists; and (on the history tab) the
+    /// history sessions. Collection Health shows its checks instead.
+    /// Folders start closed, and open as the DJ left them.
     fn collection_tree(&self) -> Vec<Node> {
+        let mut nodes = self.collection_nodes();
+        if self.saved() {
+            let open: HashSet<String> = crate::settings::open_folders().into_iter().collect();
+            for n in &mut nodes {
+                n.expanded = open.contains(&Self::node_key(n));
+            }
+        }
+        nodes
+    }
+
+    fn collection_nodes(&self) -> Vec<Node> {
         if !self.saved() {
             let mut tree = sample_tree(self.library.len());
             let imported = imported_tree(&self.library);
@@ -2507,38 +2562,69 @@ impl Browser {
             }
             return tree;
         }
-        let mut tree = if self.folders.is_set() {
-            let mut t = staging::stage_nodes(&self.folders);
-            t.push(Node::new("All Tracks", 0, KIND_LIST, Contents::All));
-            t
-        } else {
-            vec![Node::new("Collection", 0, 0, Contents::All)]
-        };
-        tree.extend(health::health_nodes());
+        if self.health_view {
+            return health::health_nodes();
+        }
         let playlists = self
             .db
             .as_ref()
             .and_then(|db| db.playlists().ok())
             .unwrap_or_default();
+        let inbox = self.db.as_ref().and_then(|db| db.inbox_list_id());
+        let stages = self.folders.is_set();
+        let mut tree = vec![
+            Node::new("Collection", 0, 0, Contents::All),
+            Node::new("Wanted", 1, KIND_WANTED, Contents::Wanted),
+        ];
+        if stages {
+            tree.extend(
+                staging::stage_nodes(&self.folders)
+                    .into_iter()
+                    .map(|mut n| {
+                        n.depth += 1;
+                        n
+                    }),
+            );
+        }
+        // Without stages, the Inbox list downloads go into stands in for one.
+        let mut sections = Vec::new();
+        for p in playlists.iter().filter(|p| Some(p.id) == inbox) {
+            if !stages {
+                let mut n = Node::new(p.name.clone(), 1, KIND_INBOX, Contents::Playlist(p.id));
+                n.playlist = Some(p.id);
+                tree.push(n);
+            }
+        }
+        let mut crates = Node::new("Crates", 0, KIND_SECTION, Contents::Folder);
+        crates.separator = true;
+        sections.push(crates);
+        for p in playlists
+            .iter()
+            .filter(|p| is_crate(p) && Some(p.id) != inbox)
+        {
+            let mut n = Node::new(p.name.clone(), 1, KIND_CRATE, Contents::Playlist(p.id));
+            n.playlist = Some(p.id);
+            sections.push(n);
+        }
+        sections.push(Node::new("Playlists", 0, KIND_SECTION, Contents::Folder));
         let mut depth: HashMap<i64, i32> = HashMap::new();
         let mut sessions = Vec::new();
         let mut smart = Vec::new();
         for p in &playlists {
-            let d = p.parent.and_then(|id| depth.get(&id)).map_or(0, |d| d + 1);
+            let d = p.parent.and_then(|id| depth.get(&id)).map_or(1, |d| d + 1);
             depth.insert(p.id, d);
+            if is_crate(p) || Some(p.id) == inbox {
+                continue;
+            }
             match p.kind {
                 // Smart lists at the top level go under "Smart Lists".
                 PlaylistKind::Smart if p.parent.is_none() => smart.push(p),
-                PlaylistKind::Smart => tree.push(smart_node(p, d)),
+                PlaylistKind::Smart => sections.push(smart_node(p, d)),
                 PlaylistKind::History if p.parent.is_some() => sessions.push(p),
                 PlaylistKind::History => {}
-                PlaylistKind::Set => {
-                    let mut n = Node::new(p.name.clone(), d, KIND_SET, Contents::Folder);
-                    n.playlist = Some(p.id);
-                    tree.push(n);
-                }
-                PlaylistKind::Folder | PlaylistKind::List => {
-                    let folder = p.kind == PlaylistKind::Folder;
+                // Sets made for a gig are folders like any other now.
+                PlaylistKind::Folder | PlaylistKind::Set | PlaylistKind::List => {
+                    let folder = p.kind != PlaylistKind::List;
                     let mut n = Node::new(
                         p.name.clone(),
                         d,
@@ -2550,15 +2636,19 @@ impl Browser {
                         },
                     );
                     n.playlist = Some(p.id);
-                    tree.push(n);
+                    sections.push(n);
                 }
             }
         }
-        tree.extend(imported_tree(&self.library));
+        sections.extend(imported_tree(&self.library).into_iter().map(|mut n| {
+            n.depth += 1;
+            n
+        }));
         if !smart.is_empty() {
-            tree.push(Node::new("Smart Lists", 0, KIND_FOLDER, Contents::Folder));
-            tree.extend(smart.into_iter().map(|p| smart_node(p, 1)));
+            sections.push(Node::new("Smart Lists", 1, KIND_FOLDER, Contents::Folder));
+            sections.extend(smart.into_iter().map(|p| smart_node(p, 2)));
         }
+        tree.extend(sections);
         // Newest session first, sessions brought in from other apps among
         // the DJ's own.
         sessions.sort_by_key(|p| (p.created, p.id));
@@ -2572,17 +2662,38 @@ impl Browser {
 
     /// The first node shown on the library tab (or the history tab).
     fn first_node(&self, history: bool) -> usize {
-        // With stages, the library tab opens on the collection, not the inbox.
-        let collection = (!history)
-            .then(|| {
-                self.nodes
-                    .iter()
-                    .position(|n| matches!(n.contents, Contents::Stage(Stage::Collection, None)))
-            })
-            .flatten();
-        collection
-            .or_else(|| self.nodes.iter().position(|n| n.history == history))
+        self.nodes
+            .iter()
+            .position(|n| n.history == history)
             .unwrap_or(0)
+    }
+
+    /// What the tree remembers a node's being open by: its list's id, or its
+    /// name and depth.
+    fn node_key(n: &Node) -> String {
+        match n.playlist {
+            Some(id) => format!("list:{id}"),
+            None => format!("{}:{}", n.depth, n.name),
+        }
+    }
+
+    /// Remembers which of the collection's folders are open, for next time.
+    fn save_open_folders(&self) {
+        if self.tree != COLLECTION || !self.saved() {
+            return;
+        }
+        let mut open: Vec<String> = crate::settings::open_folders();
+        for (i, n) in self.nodes.iter().enumerate() {
+            if n.history || !self.has_children(i) {
+                continue;
+            }
+            let key = Self::node_key(n);
+            open.retain(|k| *k != key);
+            if n.expanded {
+                open.push(key);
+            }
+        }
+        crate::settings::set_open_folders(&open);
     }
 
     /// Rebuilds the tree from the database, keeping the selection where it can.
@@ -2593,19 +2704,12 @@ impl Browser {
         self.folders = crate::settings::stage_folders();
         self.mixed_sets = crate::settings::mixed_sets_folder();
         self.refresh_crates();
+        if let Some(db) = &self.db {
+            self.store.wanted = db.wanted().unwrap_or_default();
+        }
         let selected = select.or_else(|| self.nodes.get(self.current_node)?.playlist);
         let name = self.nodes.get(self.current_node).map(|n| n.name.clone());
-        let expanded: HashMap<(String, i32), bool> = self
-            .nodes
-            .iter()
-            .map(|n| ((n.name.clone(), n.depth), n.expanded))
-            .collect();
         self.nodes = self.collection_tree();
-        for n in &mut self.nodes {
-            if let Some(&e) = expanded.get(&(n.name.clone(), n.depth)) {
-                n.expanded = e;
-            }
-        }
         self.current_node = selected
             .and_then(|id| self.nodes.iter().position(|n| n.playlist == Some(id)))
             .or_else(|| {
@@ -2626,22 +2730,27 @@ impl Browser {
         self.refresh_rows();
     }
 
-    /// Makes a new list or folder, inside the selected folder if it is one
-    /// of the DJ's, and selects it. Returns its row in the tree.
-    fn create_list(&mut self, folder: bool) -> i32 {
+    /// Makes a new crate (`what` 0), folder (1) or playlist (2), and
+    /// selects it. A folder or playlist goes in the DJ's folder at tree row
+    /// `at`, or (-1) at the top of Playlists; a playlist needs a folder.
+    /// Returns its row in the tree.
+    fn create_list(&mut self, what: i32, at: i32) -> i32 {
         let Some(db) = &self.db else { return -1 };
-        if !self.saved() || self.tree != COLLECTION || self.history_tab {
+        if !self.saved() || self.tree != COLLECTION || self.history_tab || self.health_view {
             return -1;
         }
-        let parent = self
-            .nodes
-            .get(self.current_node)
-            .filter(|n| n.kind == KIND_FOLDER || n.kind == KIND_SET)
+        let parent = usize::try_from(at)
+            .ok()
+            .and_then(|row| self.visible_nodes.get(row))
+            .map(|&n| &self.nodes[n])
+            .filter(|n| n.kind == KIND_FOLDER)
             .and_then(|n| n.playlist);
-        let (name, kind) = if folder {
-            ("New folder", PlaylistKind::Folder)
-        } else {
-            ("New list", PlaylistKind::List)
+        let (name, kind, parent) = match (what, parent) {
+            (0, _) => ("New crate", PlaylistKind::List, None),
+            (1, parent) => ("New folder", PlaylistKind::Folder, parent),
+            (_, Some(parent)) => ("New playlist", PlaylistKind::List, Some(parent)),
+            // A list at the top would be a crate.
+            (_, None) => return -1,
         };
         match db.create_playlist(name, parent, kind) {
             Ok(id) => {
@@ -3096,6 +3205,7 @@ impl Browser {
         if take(&self.lib.toggle_folder) > 0.0 {
             if let Some(n) = self.nodes.get_mut(self.current_node) {
                 n.expanded = !n.expanded;
+                self.save_open_folders();
                 self.refresh_tree();
             }
         }
@@ -3103,6 +3213,7 @@ impl Browser {
             // Like pressing the browse knob on a folder: open or close it.
             if let Some(n) = self.nodes.get_mut(self.current_node) {
                 n.expanded = !n.expanded;
+                self.save_open_folders();
                 self.refresh_tree();
             }
         } else if (go || take(&self.lib.load_first_stopped) > 0.0) && selected.is_some() {
@@ -3365,7 +3476,17 @@ impl Browser {
                     editable: n.playlist.is_some() && !n.history,
                     analysable: !n.history && Self::analysable(&n.contents),
                     stage: matches!(n.contents, Contents::Stage(..)),
+                    separator: n.separator,
                     count: match &n.contents {
+                        Contents::All if self.saved() && self.tree == COLLECTION => {
+                            self.library
+                                .iter()
+                                .filter(|t| !t.info.missing && self.in_collection(t))
+                                .count() as i32
+                        }
+                        Contents::Wanted if self.tree == COLLECTION => {
+                            self.store.wanted.len() as i32
+                        }
                         Contents::Stage(stage, dir) => self
                             .library
                             .iter()
@@ -3388,8 +3509,9 @@ impl Browser {
             .filter(|n| n.playlist.is_some() && !n.history)
         {
             path.truncate(n.depth as usize);
-            if n.kind == KIND_LIST {
-                let mut name = path.join(" › ");
+            if n.kind == KIND_LIST || n.kind == KIND_CRATE {
+                // Named by their folders, without the Playlists heading.
+                let mut name = path[path.len().min(1)..].join(" › ");
                 if !name.is_empty() {
                     name.push_str(" › ");
                 }
@@ -3403,7 +3525,7 @@ impl Browser {
         let in_list = self
             .nodes
             .get(self.current_node)
-            .is_some_and(|n| n.kind == KIND_LIST && n.playlist.is_some());
+            .is_some_and(|n| (n.kind == KIND_LIST || n.kind == KIND_CRATE) && n.playlist.is_some());
         if let Some(app) = self.app.upgrade() {
             let edit = app.global::<LibraryEdit>();
             edit.set_lists(ModelRc::new(VecModel::from(names)));
@@ -3415,7 +3537,6 @@ impl Browser {
             };
             edit.set_rule(rule.into());
             self.refresh_stage_ui(&edit);
-            self.refresh_set_menu(&edit);
             self.refresh_health_ui();
             app.set_folders(ModelRc::new(VecModel::from(folders)));
             let current = self
@@ -3956,7 +4077,7 @@ impl Browser {
     }
 
     fn refresh_rows(&mut self) {
-        if is_stores(self.tree) {
+        if self.store_rows() {
             self.refresh_store_rows();
             return;
         }
@@ -4096,10 +4217,6 @@ impl Browser {
             let have = data.iter().filter(|r| r.local.is_some()).count();
             summary = format!("{summary} · {have} in your collection");
         }
-        let local: Vec<usize> = data.iter().filter_map(|r| r.local).collect();
-        if let Some(note) = self.set_note(&local) {
-            summary = format!("{summary} · {note}");
-        }
         if self.tree == FILES && self.files.reading && !data.is_empty() {
             summary = format!(
                 "{summary} · reading {} of {}…",
@@ -4139,7 +4256,7 @@ impl Browser {
     /// selected at its new place (the list then scrolls to it).
     fn refresh_rows_keeping_current(&mut self) {
         let app = match self.app.upgrade() {
-            Some(app) if !is_stores(self.tree) => app,
+            Some(app) if !self.store_rows() => app,
             _ => return self.refresh_rows(),
         };
         let current = usize::try_from(app.get_current_track()).ok();
