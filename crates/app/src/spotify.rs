@@ -25,13 +25,13 @@ use base64::Engine;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-const PORT: u16 = 8898;
+pub(crate) const PORT: u16 = 8898;
 pub const REDIRECT_URI: &str = "http://127.0.0.1:8898/callback";
 const SCOPES: &str = "playlist-read-private playlist-read-collaborative user-library-read";
 const API: &str = "https://api.spotify.com/v1";
 const ACCOUNTS: &str = "https://accounts.spotify.com";
 /// How long to wait for the user to finish signing in in the browser.
-const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
+pub(crate) const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// The key of the liked songs list, which is not a playlist in the API.
 pub const LIKED: &str = "liked";
@@ -45,9 +45,11 @@ pub struct Playlist {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct SpotifyTrack {
-    /// Spotify's track id; empty for the DJ's own local files.
+pub struct StreamTrack {
+    /// The service's track id; empty for the DJ's own local files.
     pub id: String,
+    /// The track's page on the service, or a search for it.
+    pub page: String,
     /// The recording's ISRC, when Spotify knows it.
     pub isrc: String,
     pub title: String,
@@ -56,20 +58,34 @@ pub struct SpotifyTrack {
     pub duration: f64,
 }
 
-impl SpotifyTrack {
+impl StreamTrack {
     pub fn artist(&self) -> String {
         self.artists.join(", ")
     }
 
-    /// The track's page on Spotify, or a search for it when it has no id.
-    pub fn page_url(&self) -> String {
+    /// What a match set by hand is saved under: Spotify's id, or for the
+    /// DJ's own local files (which have none) its artist and title.
+    pub fn match_key(&self) -> String {
         if self.id.is_empty() {
             format!(
-                "https://open.spotify.com/search/{}",
-                encode(&format!("{} {}", self.artist(), self.title))
+                "local:{}|{}",
+                normalize(&self.artist()),
+                normalize(&self.title)
             )
         } else {
-            format!("https://open.spotify.com/track/{}", self.id)
+            self.id.clone()
+        }
+    }
+
+    /// The track's page on Spotify, or a search for it when it has no id.
+    fn spotify_page(id: &str, artist: &str, title: &str) -> String {
+        if id.is_empty() {
+            format!(
+                "https://open.spotify.com/search/{}",
+                encode(&format!("{artist} {title}"))
+            )
+        } else {
+            format!("https://open.spotify.com/track/{id}")
         }
     }
 }
@@ -91,7 +107,7 @@ pub enum Event {
     },
     Tracks {
         key: String,
-        tracks: Vec<SpotifyTrack>,
+        tracks: Vec<StreamTrack>,
     },
     /// Fetching a playlist failed.
     TracksFailed {
@@ -101,20 +117,33 @@ pub enum Event {
     Disconnected,
 }
 
-pub struct Spotify {
+/// A streaming service's worker, as the UI talks to it.
+pub struct Service {
     requests: Sender<Request>,
     events: Receiver<Event>,
     /// The client ID last used, to fill in the sign-in form.
     pub client_id: String,
 }
 
-impl Spotify {
-    /// Starts the worker. With a saved sign-in it reconnects straight away.
-    pub fn start() -> Self {
+impl Service {
+    pub(crate) fn new(
+        requests: Sender<Request>,
+        events: Receiver<Event>,
+        client_id: String,
+    ) -> Self {
+        Self {
+            requests,
+            events,
+            client_id,
+        }
+    }
+
+    /// Starts Spotify's worker. With a saved sign-in it reconnects straight away.
+    pub fn spotify() -> Self {
         let (requests, rx) = channel();
         let (tx, events) = channel();
         // Without streaming, no sign-in from last time either.
-        let saved = Saved::load().filter(|_| crate::browser::STREAMING_ENABLED);
+        let saved = Saved::load(SAVED).filter(|_| crate::browser::STREAMING_ENABLED);
         let client_id = std::env::var("OPENDJ_SPOTIFY_CLIENT_ID")
             .ok()
             .filter(|s| !s.is_empty())
@@ -140,27 +169,30 @@ impl Spotify {
     }
 }
 
-/// What is kept between runs.
-struct Saved {
-    client_id: String,
-    refresh_token: String,
+/// Where Spotify's sign-in is kept, in the config folder.
+const SAVED: &str = "spotify.json";
+
+/// What is kept between runs, in a file of the config folder.
+pub(crate) struct Saved {
+    pub client_id: String,
+    pub refresh_token: String,
 }
 
 impl Saved {
-    fn path() -> Option<PathBuf> {
-        crate::settings::config_dir().map(|d| d.join("spotify.json"))
+    fn path(file: &str) -> Option<PathBuf> {
+        crate::settings::config_dir().map(|d| d.join(file))
     }
 
-    fn load() -> Option<Self> {
-        let v: Value = serde_json::from_slice(&std::fs::read(Self::path()?).ok()?).ok()?;
+    pub fn load(file: &str) -> Option<Self> {
+        let v: Value = serde_json::from_slice(&std::fs::read(Self::path(file)?).ok()?).ok()?;
         Some(Self {
             client_id: v["client_id"].as_str()?.to_string(),
             refresh_token: v["refresh_token"].as_str().unwrap_or_default().to_string(),
         })
     }
 
-    fn store(&self) {
-        let Some(path) = Self::path() else { return };
+    pub fn store(&self, file: &str) {
+        let Some(path) = Self::path(file) else { return };
         let _ = std::fs::create_dir_all(path.parent().unwrap());
         let body = json!({ "client_id": self.client_id, "refresh_token": self.refresh_token });
         let mut options = std::fs::OpenOptions::new();
@@ -240,7 +272,7 @@ impl Worker {
                             client_id: s.client_id,
                             refresh_token: String::new(),
                         }
-                        .store();
+                        .store(SAVED);
                     }
                     self.emit(Event::Disconnected);
                 }
@@ -268,7 +300,7 @@ impl Worker {
         Ok(())
     }
 
-    fn tracks(&mut self, key: &str) -> Result<Vec<SpotifyTrack>, String> {
+    fn tracks(&mut self, key: &str) -> Result<Vec<StreamTrack>, String> {
         let items = if key == LIKED {
             self.get_all(&format!("{API}/me/tracks?limit=50"))?
         } else {
@@ -294,7 +326,7 @@ impl Worker {
             eprintln!("Open this address to sign in to Spotify: {url}");
         }
         self.emit(Event::Status("Finish signing in in your browser…".into()));
-        let code = wait_for_code(&listener, &state)?;
+        let code = wait_for_code(&listener, &state, "Spotify")?;
         let response = self.token(&[
             ("grant_type", "authorization_code"),
             ("code", &code),
@@ -354,7 +386,7 @@ impl Worker {
             client_id: client_id.to_string(),
             refresh_token: refresh_token.clone(),
         }
-        .store();
+        .store(SAVED);
         Ok(Session {
             client_id: client_id.to_string(),
             access_token,
@@ -448,7 +480,7 @@ fn parse_playlist(p: &Value) -> Option<Playlist> {
 }
 
 /// A playlist entry or liked song; episodes and missing tracks give `None`.
-fn parse_item(item: &Value) -> Option<SpotifyTrack> {
+fn parse_item(item: &Value) -> Option<StreamTrack> {
     let t = if item["item"].is_object() {
         &item["item"]
     } else {
@@ -457,21 +489,25 @@ fn parse_item(item: &Value) -> Option<SpotifyTrack> {
     if !t.is_object() || t["type"].as_str().is_some_and(|k| k != "track") {
         return None;
     }
-    Some(SpotifyTrack {
-        id: t["id"].as_str().unwrap_or_default().to_string(),
+    let id = t["id"].as_str().unwrap_or_default().to_string();
+    let title = t["name"].as_str()?.to_string();
+    let artists: Vec<String> = t["artists"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x["name"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(StreamTrack {
+        page: StreamTrack::spotify_page(&id, &artists.join(", "), &title),
+        id,
         isrc: t["external_ids"]["isrc"]
             .as_str()
             .unwrap_or_default()
             .to_string(),
-        title: t["name"].as_str()?.to_string(),
-        artists: t["artists"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|x| x["name"].as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default(),
+        title,
+        artists,
         album: t["album"]["name"].as_str().unwrap_or_default().to_string(),
         duration: t["duration_ms"].as_f64().unwrap_or(0.0) / 1000.0,
     })
@@ -503,7 +539,7 @@ pub fn normalize_isrc(s: &str) -> String {
 
 /// Whether a collection track with this (normalized) title and artist is the
 /// Spotify track. Untagged files whose title is "Artist - Title" match too.
-pub fn matches(track: &SpotifyTrack, title: &str, artist: &str) -> bool {
+pub fn matches(track: &StreamTrack, title: &str, artist: &str) -> bool {
     let want = normalize(&track.title);
     if want.is_empty() {
         return false;
@@ -515,18 +551,18 @@ pub fn matches(track: &SpotifyTrack, title: &str, artist: &str) -> bool {
     })
 }
 
-fn random_token(bytes: usize) -> String {
+pub(crate) fn random_token(bytes: usize) -> String {
     let mut buf = vec![0u8; bytes];
     getrandom::fill(&mut buf).expect("random bytes");
     URL_SAFE_NO_PAD.encode(buf)
 }
 
 /// PKCE S256: the base64url SHA-256 of the verifier.
-fn code_challenge(verifier: &str) -> String {
+pub(crate) fn code_challenge(verifier: &str) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
 }
 
-fn encode(s: &str) -> String {
+pub(crate) fn encode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
@@ -615,7 +651,11 @@ fn callback_query(request_line: &str) -> Option<Vec<(String, String)>> {
 }
 
 /// Waits for the browser to come back with the authorization code.
-fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String, String> {
+pub(crate) fn wait_for_code(
+    listener: &TcpListener,
+    state: &str,
+    service: &str,
+) -> Result<String, String> {
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     let deadline = Instant::now() + LOGIN_TIMEOUT;
     while Instant::now() < deadline {
@@ -644,7 +684,7 @@ fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String, String> 
             respond(
                 &mut stream,
                 "200 OK",
-                "Signed in to Spotify. You can close this tab and go back to openDJ.",
+                &format!("Signed in to {service}. You can close this tab and go back to openDJ."),
             );
             return Ok(code);
         }
@@ -652,15 +692,15 @@ fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String, String> 
         respond(
             &mut stream,
             "200 OK",
-            "Spotify sign-in was cancelled. You can close this tab.",
+            &format!("{service} sign-in was cancelled. You can close this tab."),
         );
         return Err(if error == "access_denied" {
-            "Spotify sign-in was cancelled.".into()
+            format!("{service} sign-in was cancelled.")
         } else {
-            format!("Spotify sign-in failed: {error}")
+            format!("{service} sign-in failed: {error}")
         });
     }
-    Err("Spotify sign-in timed out.".into())
+    Err(format!("{service} sign-in timed out."))
 }
 
 fn read_request_line(stream: &mut TcpStream) -> Option<String> {
@@ -761,8 +801,9 @@ mod tests {
 
     #[test]
     fn matches_collection_tracks() {
-        let sp = SpotifyTrack {
+        let sp = StreamTrack {
             id: String::new(),
+            page: String::new(),
             isrc: String::new(),
             title: "Insomnia - Extended Mix".into(),
             artists: vec!["Faithless".into(), "Rollo".into()],
@@ -785,8 +826,14 @@ mod tests {
             "external_ids": { "isrc": "gb-arl-96-00049" },
         }}))
         .unwrap();
-        assert_eq!(t.page_url(), "https://open.spotify.com/track/abc");
+        assert_eq!(t.page, "https://open.spotify.com/track/abc");
         assert_eq!(normalize_isrc(&t.isrc), "GBARL9600049");
         assert_eq!(normalize_isrc("not one"), "");
+        assert_eq!(t.match_key(), "abc");
+        let own = StreamTrack {
+            id: String::new(),
+            ..t
+        };
+        assert_eq!(own.match_key(), "local:faithless|insomnia");
     }
 }

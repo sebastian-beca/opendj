@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::list_picker::{Picker, Ticked};
 use opendj_control::ControlRegistry;
-use opendj_controllers::{device_key, support, Controllers, MappingChoice, Port};
+use opendj_controllers::{device_key, own, support, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
     analysis, cache, channel_names, deck_group, input_devices, key, InputRole, InputRoute,
@@ -36,11 +36,7 @@ const LIBRARY_TABS: [&str; 4] = ["General", "Stages", "Fields", "Import"];
 const IMPORT_TAB: usize = 3;
 /// Other DJ apps whose libraries openDJ can't bring in yet, listed on the
 /// Import tab so the DJ sees what's coming.
-const COMING_IMPORTS: [(&str, &str); 3] = [
-    (
-        "Mixxx",
-        "Tracks, cues, loops, crates and playlists from Mixxx's library.",
-    ),
+const COMING_IMPORTS: [(&str, &str); 2] = [
     ("Serato DJ", "Tracks, cues, loops and crates."),
     (
         "Traktor",
@@ -1365,7 +1361,7 @@ impl Prefs {
         });
         let mut items: Vec<PrefItem> = visible
             .iter()
-            .map(|port| {
+            .flat_map(|port| {
                 let choice = c.choice(&port.name);
                 let matched = c.auto_mapping(&port.name);
                 let mut choices = vec![
@@ -1407,7 +1403,7 @@ impl Prefs {
                 };
                 // Edit opens the Controller Editor on the mapping it uses.
                 let editable = edit_file(c, port).is_some() && choice != MappingChoice::Off;
-                PrefItem {
+                let mut rows = vec![PrefItem {
                     choices: strings(&choices),
                     chosen: chosen as i32,
                     action: if editable { "Edit" } else { "" }.into(),
@@ -1417,7 +1413,39 @@ impl Prefs {
                         short_port_name(&port.name),
                         &detail,
                     )
+                }];
+                // A mapping of the DJ's own with two-deck and four-deck
+                // layouts (VirtualDJ's K2): which one, and the deck order.
+                if let Some(own) = own_in_use(c, port).filter(|o| o.mapping.decks.is_some()) {
+                    let four = own.mapping.decks == Some(4);
+                    rows.push(PrefItem {
+                        choices: strings(&["2 decks", "4 decks"]),
+                        chosen: four as i32,
+                        ..item(
+                            &format!("controller_decks:{}", port.name),
+                            MENU,
+                            "Use with",
+                            "The mapping has a layout for two decks and one for four.",
+                        )
+                    });
+                    if four {
+                        let order = own.mapping.deck_order.unwrap_or([1, 2, 3, 4]);
+                        rows.push(PrefItem {
+                            choices: strings(&DECK_ORDERS.map(|(name, _)| name)),
+                            chosen: DECK_ORDERS
+                                .iter()
+                                .position(|(_, o)| *o == order)
+                                .unwrap_or(0) as i32,
+                            ..item(
+                                &format!("controller_deck_order:{}", port.name),
+                                MENU,
+                                "Deck order",
+                                "Which deck each column is, from left to right.",
+                            )
+                        });
+                    }
                 }
+                rows
             })
             .collect();
         if items.is_empty() {
@@ -2121,6 +2149,28 @@ impl Prefs {
             self.refresh();
             return;
         }
+        let decks = id.strip_prefix("controller_decks:");
+        let order = id.strip_prefix("controller_deck_order:");
+        if let Some(port_name) = decks.or(order) {
+            let port = self.ports.iter().find(|p| p.name == port_name).cloned();
+            if let (Some(c), Some(port), Some(dir)) =
+                (&self.controllers, port, settings::own_mappings_dir())
+            {
+                if let Some(mut own) = own_in_use(c, &port) {
+                    if decks.is_some() {
+                        own.mapping.decks = Some(if index == 1 { 4 } else { 2 });
+                        own.mapping.deck_order.get_or_insert([3, 1, 2, 4]);
+                    } else if let Some((_, o)) = DECK_ORDERS.get(index) {
+                        own.mapping.deck_order = Some(*o);
+                    }
+                    if own::save(&dir, &own).is_ok() {
+                        c.reload(&own.based_on);
+                    }
+                }
+            }
+            self.refresh();
+            return;
+        }
         if let Some(port) = id.strip_prefix("controller:") {
             if let Some(c) = &self.controllers {
                 let choice = match index {
@@ -2695,6 +2745,16 @@ fn set_field_names(names: query::FieldNames) {
 
 /// The mapping file a controller's Edit opens: the one it uses, or, for a
 /// stand-in device, the one named as running.
+/// The four-deck orders a controller can follow, left to right.
+const DECK_ORDERS: [(&str, [u8; 4]); 2] = [("3 1 2 4", [3, 1, 2, 4]), ("1 2 3 4", [1, 2, 3, 4])];
+
+/// The DJ's own mapping `port` runs, if it runs one.
+fn own_in_use(c: &Controllers, port: &Port) -> Option<own::OwnMapping> {
+    let base = edit_file(c, port)?;
+    let id = settings::controller_version(&base)?;
+    own::OwnMapping::read(&own::path(&settings::own_mappings_dir()?, &id))
+}
+
 fn edit_file(c: &Controllers, port: &Port) -> Option<String> {
     port.mapping_file.clone().or_else(|| {
         let running = port.running.as_ref()?;

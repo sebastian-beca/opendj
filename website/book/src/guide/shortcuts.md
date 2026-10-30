@@ -4,12 +4,13 @@
 |---|---|
 | <kbd>Space</kbd> | Play or pause the master deck |
 | <kbd>⌘</kbd> <kbd>1</kbd> to <kbd>⌘</kbd> <kbd>5</kbd> (Linux and Windows: <kbd>Ctrl</kbd>) | Rate the tracks picked in the browser 1 to 5 stars |
+| <kbd>⌘</kbd> <kbd>A</kbd> (Linux and Windows: <kbd>Ctrl</kbd> <kbd>A</kbd>) | Pick every track in the track list or side list you last clicked, to drag or analyze them together |
 | <kbd>⌘</kbd> <kbd>,</kbd> (Linux and Windows: <kbd>Ctrl</kbd> <kbd>,</kbd>) | Open or close Settings |
 | <kbd>Esc</kbd> | Close Settings |
 
 ## openDJscript
 
-Each shortcut, apart from Space, ⌘, and Esc, runs a line of openDJscript,
+Each shortcut, apart from Space, ⌘A, ⌘, and Esc, runs a line of openDJscript,
 a short action language in the style of VirtualDJ's VDJscript. ⌘3 runs
 `rating 3`.
 
@@ -37,6 +38,8 @@ set '[Master],gain' 1             a control of another group
 | `rating 0` to `rating 5` | Rate tracks; 0 clears the rating |
 | `set`, `toggle`, `press`, `get` | Any control; `get` only asks, in a condition |
 | `adjust 'rate' 50%` | Any control by its 0 to 1 position; a controller's knob gives the level when none is written |
+| `jump 4`, `loop_move` | Jump beats, move the loop by its length; on an encoder, each click (back when turned left) |
+| `expand_browser` | Expand the browser over the decks, or back (the button at the bottom left of the browser) |
 | `value` | What the controller sent, 0 to 1; only in a controller's line, such as `value > 50% ? play : pause` |
 
 In a condition a verb asks rather than does: `play ? …` asks whether the

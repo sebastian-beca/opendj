@@ -50,6 +50,7 @@ mod lookup;
 mod mac_menu;
 #[cfg(target_os = "macos")]
 mod mac_titlebar;
+mod mixcloud;
 mod prefs;
 mod sampler;
 mod settings;
@@ -58,6 +59,7 @@ mod smooth;
 mod sources;
 mod spotify;
 mod stores;
+mod tidal;
 mod tour;
 mod ui_font;
 mod update;
@@ -707,6 +709,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         opendj_control::Behavior::Toggle,
     );
     let xfader_version = Cell::new(xfader_enabled.version());
+    // The big browser (the button above the browser), also from a controller
+    // as Mixxx's `[Skin],show_maximized_library`.
+    let big_browser = registry.toggle("[Skin]", "show_maximized_library");
+    let big_browser_version = Cell::new(big_browser.version());
     // What the screen last showed, to redraw only when something changed.
     let shown_controls = Cell::new(u64::MAX);
     let shown_tracks: RefCell<[Option<Arc<Track>>; NUM_DECKS]> = Default::default();
@@ -742,6 +748,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     settings::set("layout", serde_json::json!(layout));
                     reset_layers(layout);
                 }
+                if big_browser_version.get() != big_browser.version() {
+                    app.set_library_expanded(big_browser.get_bool());
+                } else if big_browser.get_bool() != app.get_library_expanded() {
+                    big_browser.set_bool(app.get_library_expanded());
+                }
+                big_browser_version.set(big_browser.version());
                 if xfader_version.replace(xfader_enabled.version()) != xfader_enabled.version() {
                     let on = xfader_enabled.get_bool();
                     if settings::flag("xfader_enabled", true) != on {
@@ -809,7 +821,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     browser.borrow_mut().set_library(scanned);
                 }
                 browser.borrow_mut().poll_controllers(&app);
-                browser.borrow_mut().poll_spotify(&app);
+                browser.borrow_mut().poll_streams();
                 browser.borrow_mut().poll_stores(&app);
                 for track in sources.borrow_mut().poll() {
                     browser.borrow_mut().add_imported(track);

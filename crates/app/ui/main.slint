@@ -1,13 +1,13 @@
 import { Palette } from "std-widgets.slint";
 import { Theme, KeyNotation, CloseIcon } from "theme.slint";
-import { Controls, VuMeter, ControlKnob, HoverTipView } from "controls.slint";
+import { Controls, VuMeter, ControlKnob, HoverTipView, HoverTip } from "controls.slint";
 import { Deck, DeckInfo, KeyItem, EffectList, DeckActions, PhraseView, PhraseTip } from "deck.slint";
 import { Mixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } from "mixer.slint";
 import { MasterPanel, MicPanel } from "toppanels.slint";
 import { PlayerDeck, PlayerMixer } from "player.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { FxBar } from "fxbar.slint";
-import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, ColumnUi, ListColumn, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow } from "library.slint";
+import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, StreamMatch, FilesUi, ColumnUi, ListColumn, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow } from "library.slint";
 import { Preferences, PreferencesOverlay, PrefItem, ImportWizard } from "preferences.slint";
 import { UsbExport, UsbExportDialog } from "usb_export.slint";
 import { Tour, TourSetup, TourSetupDialog, TourTip, TourOffer } from "tour.slint";
@@ -20,7 +20,7 @@ export { SamplerUi, SamplerPad, SamplePack, SampleChoice } from "sampler.slint";
 export { ColumnUi, ListColumn }
 export { Tour, TourSetup }
 export { MixerMode, InputSettings, InputRow }
-export { Theme, Controls, DeckActions, PhraseView, PhraseTip, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, UsbExport }
+export { Theme, Controls, DeckActions, PhraseView, PhraseTip, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, StreamMatch, FilesUi, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, UsbExport }
 
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
 // the track under the pointer, like a hand on a record, and drag left or
@@ -80,6 +80,10 @@ component FooterButton inherits Rectangle {
     // commands change, so each icon is its own.)
     in property <string> lit-icon: icon;
     in property <bool> lit;
+    // Named in a tooltip beside it after a moment's hover.
+    in property <string> tip;
+    in property <string> tip-body;
+    property <bool> tip-mine;
     callback clicked();
     property <color> ink: lit ? Theme.accent : ta.has-hover ? Theme.text : Theme.text-dim;
     width: 34px;
@@ -88,7 +92,28 @@ component FooterButton inherits Rectangle {
     background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2a2e : transparent;
     if !lit: Path { width: 18px; height: 18px; viewbox-width: 20; viewbox-height: 20; stroke: ink; stroke-width: 1.5px; fill: transparent; commands: icon; }
     if lit: Path { width: 18px; height: 18px; viewbox-width: 20; viewbox-height: 20; stroke: ink; stroke-width: 1.5px; fill: transparent; commands: lit-icon; }
-    ta := TouchArea { clicked => { root.clicked(); } }
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+        changed has-hover => {
+            if !self.has-hover && tip-mine {
+                tip-mine = false;
+                HoverTip.shown = false;
+            }
+        }
+    }
+    Timer {
+        interval: 600ms;
+        running: tip != "" && ta.has-hover && !tip-mine;
+        triggered => {
+            tip-mine = true;
+            HoverTip.title = tip;
+            HoverTip.body = tip-body;
+            HoverTip.right-aligned = false;
+            HoverTip.x = root.absolute-position.x + root.width + 6px;
+            HoverTip.y = root.absolute-position.y - 8px;
+            HoverTip.shown = true;
+        }
+    }
 }
 
 // MIC: puts the microphone on (`[Microphone],talkover`), lit amber while it
@@ -561,7 +586,7 @@ export component AppWindow inherits Window {
 
     callback select-source(source: int);
     // Which sources the library rail shows, by index.
-    in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true, true, true];
+    in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true, true, true, true];
     callback source-shown-changed(source: int, on: bool);
     callback spotify-connect(client-id: string);
     callback spotify-disconnect();
@@ -664,6 +689,12 @@ export component AppWindow inherits Window {
             }
             if e.text == Key.Escape && Preferences.open {
                 Preferences.open = false;
+                return accept;
+            }
+            // ⌘A (Ctrl+A on Linux and Windows) picks every track in the
+            // list; the side list and text fields take it first themselves.
+            if (e.text == "a" || e.text == "A") && e.modifiers.control && !e.modifiers.alt && !e.modifiers.shift && !Preferences.open {
+                browser.select-all();
                 return accept;
             }
             if !Preferences.open && shortcut(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift, master-deck, browser.first-picked, browser.last-picked) {
@@ -825,6 +856,7 @@ export component AppWindow inherits Window {
                 ascending: sort-ascending;
                 side-rows: side-rows;
                 side-total: side-total;
+                list-clicked => { keys.focus(); }
                 select-folder(i) => { select-folder(i); }
                 toggle-folder(i) => { toggle-folder(i); }
                 sort(c) => { sort(c); }
@@ -856,6 +888,8 @@ export component AppWindow inherits Window {
                     FooterButton {
                         y: 5px;
                         lit: library-expanded;
+                        tip: library-expanded ? "Shrink Browser" : "Expand Browser";
+                        tip-body: "Also from a controller or key: expand_browser";
                         // A screen with an arrow pointing up, or down to fold back.
                         icon: "M 2 4 L 18 4 L 18 16 L 2 16 Z M 10 13 L 10 7 M 7 10 L 10 7 L 13 10";
                         lit-icon: "M 2 4 L 18 4 L 18 16 L 2 16 Z M 10 7 L 10 13 M 7 10 L 10 13 L 13 10";
