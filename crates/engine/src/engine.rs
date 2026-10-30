@@ -9,7 +9,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use opendj_control::ControlRegistry;
+use opendj_control::{ControlHandle, ControlRegistry};
 
 use crate::beats::GridEdit;
 use crate::controls::{
@@ -107,6 +107,15 @@ const BEND_SMOOTH: f64 = 0.15;
 const BEND_PAUSED_SECONDS: f64 = 0.008;
 /// How long a clip lights a PeakIndicator, in seconds.
 const PEAK_HOLD: f32 = 0.5;
+/// A control set to a value that is used once, put back to 0.
+fn take_value(c: &ControlHandle) -> f64 {
+    let v = c.get();
+    if v != 0.0 {
+        c.set(0.0);
+    }
+    v
+}
+
 /// Rate offsets of rate_temp_up, _down, _up_small and _down_small while held
 /// (Mixxx's default temporary pitch bends: 4% coarse, 2% fine).
 const RATE_TEMP: [f64; 4] = [0.04, -0.04, 0.02, -0.02];
@@ -523,6 +532,18 @@ impl Deck {
             self.c.beatjump.set(0.0);
             let by = beats_from(self.seconds(), jump);
             self.jump(by);
+        }
+        // A playing loop takes the position with it, as a beat jump does.
+        let beats = take_value(&self.c.loop_move[0]);
+        let loops = take_value(&self.c.loop_move[1]);
+        if (beats != 0.0 || loops != 0.0) && self.loop_end > self.loop_start {
+            let by = beats_from(self.loop_start, beats) + (self.loop_end - self.loop_start) * loops;
+            if self.c.loop_enabled.get_bool() {
+                self.jump(by);
+            } else {
+                self.loop_start += by;
+                self.loop_end += by;
+            }
         }
         // As in Mixxx, loop_scale moves the loop's end and leaves beatloop_size.
         let scale = self.c.loop_scale.get();
@@ -1221,6 +1242,15 @@ impl Engine {
         while let Ok(cmd) = self.commands.pop() {
             match cmd {
                 Command::Load { deck, track } => {
+                    // The tempo a playing deck follows from this one, kept
+                    // below so that deck doesn't jump to the new track's.
+                    let followed = self.sync_leader == Some(deck)
+                        && (0..NUM_DECKS).any(|k| {
+                            k != deck && self.decks[k].following && self.decks[k].c.play.get_bool()
+                        });
+                    let held_bpm = followed
+                        .then(|| self.decks[deck].effective_bpm())
+                        .filter(|&b| b > 0.0);
                     let d = &mut self.decks[deck];
                     d.c.play.set_bool(false);
                     d.expected_pos = None;
@@ -1289,6 +1319,14 @@ impl Engine {
                         let _ = self.returned.push(Returned::Done(old));
                     }
                     d.set_seconds(track.first_beat);
+                    if let Some(held) = held_bpm.filter(|_| track.bpm > 0.0) {
+                        // At the held tempo, or half or double it, whichever
+                        // is nearest the track's own.
+                        let own = track.bpm_at(track.first_beat);
+                        let speed = held * sync_ratio(held, own) / own;
+                        let range = d.c.rate_range.get() * d.rate_dir();
+                        d.c.rate.set((speed - 1.0) / range);
+                    }
                     self.match_key_on_load(deck, &track);
                 }
                 Command::Analysed { deck, track } => {
@@ -1509,7 +1547,9 @@ impl Engine {
     /// Writes the leader back to the decks' `sync_leader` controls: 2 on the
     /// pinned deck, 1 on the leader while another deck follows it.
     fn show_sync_leader(&self, synced: [bool; NUM_DECKS]) {
-        let followed = (0..NUM_DECKS).any(|i| synced[i] && self.sync_leader != Some(i));
+        // Lit while any deck syncs: on the deck it follows, or on a synced
+        // deck leading on its own.
+        let followed = synced.iter().any(|&s| s);
         for (k, d) in self.decks.iter().enumerate() {
             let v = if self.sync_pinned == Some(k) {
                 2.0
@@ -1526,11 +1566,16 @@ impl Engine {
         let candidate = |k: usize| if count == 1 { !synced[k] } else { synced[k] };
         let playing =
             |d: &Deck| d.c.play.get_bool() && d.track.as_ref().is_some_and(|t| t.bpm > 0.0);
-        let current = self.sync_leader.filter(|&k| candidate(k));
+        // A synced deck left playing on its own after a mix leads, so the
+        // stopped deck's next track doesn't move it, and keeps leading
+        // while it plays.
+        let alone = |k: usize| count == 1 && synced[k];
+        let current = self.sync_leader.filter(|&k| candidate(k) || alone(k));
         self.sync_leader = current
             .filter(|&k| playing(&self.decks[k]))
             .or_else(|| (0..NUM_DECKS).find(|&k| candidate(k) && playing(&self.decks[k])))
-            .or(current)
+            .or_else(|| (0..NUM_DECKS).find(|&k| alone(k) && playing(&self.decks[k])))
+            .or(current.filter(|&k| candidate(k)))
             .or_else(|| (0..NUM_DECKS).find(|&k| candidate(k) && self.decks[k].track.is_some()))
             .or_else(|| (0..NUM_DECKS).find(|&k| candidate(k)));
     }
@@ -3768,6 +3813,18 @@ mod tests {
         assert_eq!(ctl("beatloop_size").get(), 4.0);
         assert_eq!(ctl("loop_scale").get(), 0.0);
 
+        // loop_move_loops moves the 1 s loop by its length, loop_move by
+        // beats; the playing position goes along.
+        let at = seconds();
+        ctl("loop_move_loops").set(1.0);
+        run(&mut engine, 0.01);
+        assert!((ctl("loop_start_position").get() - a - 1.0).abs() < 1e-6);
+        assert!((seconds() - at - 1.01).abs() < 0.03, "{}", seconds());
+        ctl("loop_move").set(-2.0);
+        run(&mut engine, 0.01);
+        assert!((ctl("loop_start_position").get() - a).abs() < 1e-6);
+        assert_eq!(ctl("loop_move").get(), 0.0);
+
         // CUP: back to the cue point while held, playing from it on release.
         ctl("loop_enabled").set_bool(false);
         ctl("cue_play").set_bool(true);
@@ -4255,6 +4312,49 @@ mod tests {
             out.extend_from_slice(&buf);
         }
         out
+    }
+
+    #[test]
+    fn loading_the_master_deck_keeps_the_synced_deck_steady() {
+        // Deck 1 syncs to deck 2, which is stopped; deck 2 then loads a
+        // faster track, with the master pinned there or picked by openDJ.
+        for (pinned, keylock) in [(true, false), (true, true), (false, true)] {
+            let (reg, mut engine, mut input) = setup();
+            load(&mut input, 0, long_tone_track(150.0, "", 30.0));
+            load(&mut input, 1, long_tone_track(150.0, "", 30.0));
+            run(&mut engine, 0.01);
+            let c1 = |k: &str| reg.get("[Channel1]", k).unwrap();
+            let c2 = |k: &str| reg.get("[Channel2]", k).unwrap();
+            c2("volume").set(0.0);
+            if pinned {
+                c2("sync_leader").set(2.0);
+            }
+            c1("keylock").set_bool(keylock);
+            c1("sync_enabled").set_bool(true);
+            c1("playposition").set(0.3);
+            c1("play").set_bool(true);
+            run(&mut engine, 0.3);
+            let leader = if pinned { 1 } else { 0 };
+            assert_eq!(engine.sync_leader, Some(leader), "pinned {pinned}");
+            let rate = c1("rate").get();
+            let mut faster = (*long_tone_track(440.0, "", 30.0)).clone();
+            faster.bpm = 128.0;
+            load(&mut input, 1, Arc::new(faster));
+            let out = record(&mut engine, 0.3);
+            assert!(
+                roughness(&out) < 0.0003,
+                "pinned {pinned}: {}",
+                roughness(&out)
+            );
+            assert_eq!(c1("rate").get(), rate, "pinned {pinned}");
+            if pinned {
+                // Deck 2 waits at deck 1's tempo, 120 BPM.
+                let speed = 1.0 + c2("rate").get() * c2("rateRange").get();
+                assert!((128.0 * speed - 120.0).abs() < 1e-6, "{speed}");
+            }
+            // The MASTER badge is lit on the deck leading.
+            assert!(engine.decks[leader].c.sync_leader.get() >= 1.0);
+        }
     }
 
     #[test]
