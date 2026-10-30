@@ -125,8 +125,9 @@ pub const STORES_ENABLED: bool = false;
 /// How many collection tracks the match menu offers.
 const MATCH_CANDIDATES: usize = 8;
 
-/// The sources in the rail, in order, as saved when hidden.
-const SOURCE_NAMES: [&str; 12] = [
+/// The sources in the rail, in order, as saved when hidden. The rail's
+/// `names` and `source-names` in `library.slint` must list the same.
+pub const SOURCE_NAMES: [&str; 12] = [
     "Collection",
     "Files",
     "Spotify",
