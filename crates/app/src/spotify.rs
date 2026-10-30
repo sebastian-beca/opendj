@@ -61,6 +61,20 @@ impl SpotifyTrack {
         self.artists.join(", ")
     }
 
+    /// What a match set by hand is saved under: Spotify's id, or for the
+    /// DJ's own local files (which have none) its artist and title.
+    pub fn match_key(&self) -> String {
+        if self.id.is_empty() {
+            format!(
+                "local:{}|{}",
+                normalize(&self.artist()),
+                normalize(&self.title)
+            )
+        } else {
+            self.id.clone()
+        }
+    }
+
     /// The track's page on Spotify, or a search for it when it has no id.
     pub fn page_url(&self) -> String {
         if self.id.is_empty() {
@@ -788,5 +802,11 @@ mod tests {
         assert_eq!(t.page_url(), "https://open.spotify.com/track/abc");
         assert_eq!(normalize_isrc(&t.isrc), "GBARL9600049");
         assert_eq!(normalize_isrc("not one"), "");
+        assert_eq!(t.match_key(), "abc");
+        let own = SpotifyTrack {
+            id: String::new(),
+            ..t
+        };
+        assert_eq!(own.match_key(), "local:faithless|insomnia");
     }
 }
