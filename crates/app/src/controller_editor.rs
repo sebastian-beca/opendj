@@ -23,7 +23,7 @@ use opendj_controllers::own::{self, OwnMapping};
 use opendj_controllers::probe::{message_key, MessageKey};
 use opendj_controllers::support;
 use opendj_controllers::view::{self, LightRow, MappingView, Row};
-use opendj_controllers::Controllers;
+use opendj_controllers::{is_own_file, Controllers, MappingChoice};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use crate::{
@@ -303,6 +303,15 @@ impl Editor {
         };
         let pictured = Layout::files();
         let mut choices = c.mappings();
+        // Mappings of the DJ's own that stand alone (made with Quick map).
+        choices.extend(
+            settings::own_mappings_dir()
+                .map(|d| own::all(&d))
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|m| m.based_on.is_empty())
+                .map(|m| (m.name, format!("{}.json", m.id))),
+        );
         choices.sort_by_key(|(name, file)| {
             (
                 !runs(file, name),
@@ -391,7 +400,10 @@ impl Editor {
         }
         let own: Option<OpenDjMapping> = self.current_own().map(|m| m.mapping.clone());
         let (tx, rx) = mpsc::channel();
-        let path = dir.join(&file);
+        let path = match settings::own_mappings_dir() {
+            Some(d) if is_own_file(&file) => d.join(&file),
+            _ => dir.join(&file),
+        };
         std::thread::Builder::new()
             .name("controller-editor".into())
             .spawn(move || {
@@ -435,6 +447,29 @@ impl Editor {
             return;
         };
         let g = app.global::<ControllerEditor>();
+        if is_own_file(base) {
+            // One that stands alone: there's no original to go back to.
+            let id = base.trim_end_matches(".json");
+            self.own = settings::own_mappings_dir()
+                .and_then(|d| OwnMapping::read(&own::path(&d, id)))
+                .into_iter()
+                .collect();
+            self.version = self.own.first().map(|m| m.id.clone());
+            let name = self.own.first().map(|m| m.name.clone()).unwrap_or_default();
+            self.actions = vec![
+                Action::Rename,
+                Action::Delete,
+                Action::Export,
+                Action::ExportMixxx,
+            ];
+            let mut items: Vec<SharedString> = vec![name.as_str().into()];
+            items.extend(self.actions.iter().map(|a| SharedString::from(a.label())));
+            g.set_versions(ModelRc::new(VecModel::from(items)));
+            g.set_version(0);
+            g.set_version_name(name.into());
+            g.set_original(false);
+            return;
+        }
         self.own = settings::own_mappings_dir()
             .map(|d| own::list(&d, base))
             .unwrap_or_default();
@@ -475,7 +510,8 @@ impl Editor {
             return;
         };
         let g = app.global::<ControllerEditor>();
-        let n = self.own.len();
+        let alone = is_own_file(&base);
+        let n = if alone { 0 } else { self.own.len() };
         let open_dialog = |kind: Dialog, title: &str, detail: &str, action: &str, text: String| {
             g.set_dialog_title(title.into());
             g.set_dialog_detail(detail.into());
@@ -496,6 +532,7 @@ impl Editor {
             .and_then(|i| self.actions.get(i).copied());
         let before = self.version.clone();
         match (index, action) {
+            (0, _) if alone => {}
             (0, _) => self.use_version(&base, None),
             (i, _) if i <= n => self.use_version(&base, Some(&self.own[i - 1].id)),
             (_, Some(Action::Duplicate)) => {
@@ -575,6 +612,19 @@ impl Editor {
             (Dialog::Duplicate, _) => own::create(&dir, &name, &base, self.current_own())
                 .map(|m| self.use_version(&base, Some(&m.id))),
             (Dialog::Rename, Some(id)) => own::rename(&dir, id, &name),
+            (Dialog::Delete, Some(id)) if is_own_file(&base) => {
+                // Controllers using it go back to the mapping that matches.
+                let path = own::path(&dir, id);
+                if let Some(c) = &self.controllers {
+                    for (port, choice) in c.choices() {
+                        if choice == MappingChoice::Own(path.clone()) {
+                            c.set_choice(&port, MappingChoice::Auto);
+                        }
+                    }
+                    settings::set_controller_mappings(&c.choices());
+                }
+                own::delete(&dir, id)
+            }
             (Dialog::Delete, Some(id)) => {
                 own::delete(&dir, id).map(|_| self.use_version(&base, None))
             }

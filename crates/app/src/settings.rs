@@ -439,6 +439,9 @@ pub fn controller_mappings() -> HashMap<String, MappingChoice> {
                 .filter_map(|(k, v)| {
                     let choice = match v.as_str()? {
                         "off" => MappingChoice::Off,
+                        own if own.starts_with("own:") => MappingChoice::Own(
+                            own_mappings_dir()?.join(format!("{}.json", &own[4..])),
+                        ),
                         file => MappingChoice::File(file.to_string()),
                     };
                     Some((k.clone(), choice))
@@ -456,6 +459,10 @@ pub fn set_controller_mappings(choices: &HashMap<String, MappingChoice>) {
                 MappingChoice::Auto => None,
                 MappingChoice::Off => Some((k.clone(), json!("off"))),
                 MappingChoice::File(f) => Some((k.clone(), json!(f))),
+                MappingChoice::Own(p) => {
+                    let id = p.file_stem()?.to_string_lossy();
+                    Some((k.clone(), json!(format!("own:{id}"))))
+                }
             })
             .collect::<serde_json::Map<_, _>>()
             .into();
