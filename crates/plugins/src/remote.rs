@@ -499,11 +499,17 @@ fn kind_name(k: SettingKind) -> &'static str {
         SettingKind::Secret => "secret",
         SettingKind::Note => "note",
         SettingKind::Folder => "folder",
+        SettingKind::Switch(_) => "switch",
     }
 }
 
 fn setting_json(s: &Setting) -> Value {
-    json!({ "key": s.key, "kind": kind_name(s.kind), "title": s.title, "detail": s.detail })
+    let mut v =
+        json!({ "key": s.key, "kind": kind_name(s.kind), "title": s.title, "detail": s.detail });
+    if let SettingKind::Switch(on) = s.kind {
+        v["on"] = json!(on);
+    }
+    v
 }
 
 fn setting_from(v: &Value) -> Setting {
@@ -511,6 +517,7 @@ fn setting_from(v: &Value) -> Setting {
         "secret" => SettingKind::Secret,
         "note" => SettingKind::Note,
         "folder" => SettingKind::Folder,
+        "switch" => SettingKind::Switch(v["on"].as_bool().unwrap_or(false)),
         _ => SettingKind::Text,
     };
     Setting::new(
@@ -522,7 +529,11 @@ fn setting_from(v: &Value) -> Setting {
 }
 
 fn config_json(c: &PluginConfig) -> Value {
-    json!({ "values": c.values, "dir": c.dir.as_ref().map(|d| d.to_string_lossy()) })
+    json!({
+        "values": c.values,
+        "dir": c.dir.as_ref().map(|d| d.to_string_lossy()),
+        "music_folders": c.music_folders.iter().map(|d| d.to_string_lossy()).collect::<Vec<_>>(),
+    })
 }
 
 fn config_from(v: &Value) -> PluginConfig {
@@ -533,6 +544,10 @@ fn config_from(v: &Value) -> PluginConfig {
     PluginConfig {
         values,
         dir: v["dir"].as_str().map(PathBuf::from),
+        music_folders: list(&v["music_folders"])
+            .iter()
+            .filter_map(|d| d.as_str().map(PathBuf::from))
+            .collect(),
     }
 }
 
@@ -718,10 +733,17 @@ mod tests {
             "Where",
         );
         assert_eq!(setting_from(&setting_json(&s)), s);
+        for on in [true, false] {
+            let s = Setting::new("share", SettingKind::Switch(on), "Share", "");
+            assert_eq!(setting_from(&setting_json(&s)), s);
+        }
         let c = PluginConfig {
             values: [("username".to_string(), "dj".to_string())].into(),
             dir: Some(PathBuf::from("/c/plugins/x")),
+            music_folders: vec![PathBuf::from("/m/DB"), PathBuf::from("/m/Sets")],
         };
         assert_eq!(config_from(&config_json(&c)), c);
+        assert!(c.is_on("share", true));
+        assert!(!c.is_on("share", false));
     }
 }
