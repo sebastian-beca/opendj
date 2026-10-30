@@ -332,6 +332,8 @@ fn deck_function(key: &str, target: &str) -> Function {
         "beatjump_backward" => ("Beat jump", "Beat jump back"),
         "beatjump_size" => ("Beat jump", "Beat jump size"),
         "beatjump" => ("Beat jump", "Beat jump"),
+        "loop_move" => ("Loops", "Move loop"),
+        "loop_move_loops" => ("Loops", "Move loop by its length"),
         "rate" => ("Tempo & sync", "Tempo"),
         "rate_perm_up" => ("Tempo & sync", "Tempo up"),
         "rate_perm_down" => ("Tempo & sync", "Tempo down"),
@@ -578,6 +580,7 @@ pub fn describe(group: &str, key: &str) -> Function {
                 "SelectNextPlaylist" => "Next playlist",
                 "SelectPrevPlaylist" => "Previous playlist",
                 "ToggleSelectedSidebarItem" => "Open or close folder",
+                "focused_widget" => "Folders or tracks",
                 "AutoDjAddBottom" => "Add to Automix",
                 "AutoDjAddTop" => "Add to top of Automix",
                 "ShowLinked" => "Show linked tracks",
@@ -606,6 +609,7 @@ pub fn describe(group: &str, key: &str) -> Function {
         Group::Skin => {
             let n = match key {
                 "layout" => "Switch layout".into(),
+                "show_maximized_library" => "Big browser".into(),
                 _ => humanize(key),
             };
             Function::new("View", n, "View")
