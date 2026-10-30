@@ -205,6 +205,8 @@
 [Channel1],loop_halve
 [Channel1],loop_in
 [Channel1],loop_in_pending
+[Channel1],loop_move
+[Channel1],loop_move_loops
 [Channel1],loop_out
 [Channel1],loop_scale
 [Channel1],loop_start_position
@@ -473,6 +475,8 @@
 [Channel2],loop_halve
 [Channel2],loop_in
 [Channel2],loop_in_pending
+[Channel2],loop_move
+[Channel2],loop_move_loops
 [Channel2],loop_out
 [Channel2],loop_scale
 [Channel2],loop_start_position
@@ -741,6 +745,8 @@
 [Channel3],loop_halve
 [Channel3],loop_in
 [Channel3],loop_in_pending
+[Channel3],loop_move
+[Channel3],loop_move_loops
 [Channel3],loop_out
 [Channel3],loop_scale
 [Channel3],loop_start_position
@@ -1009,6 +1015,8 @@
 [Channel4],loop_halve
 [Channel4],loop_in
 [Channel4],loop_in_pending
+[Channel4],loop_move
+[Channel4],loop_move_loops
 [Channel4],loop_out
 [Channel4],loop_scale
 [Channel4],loop_start_position
@@ -1937,6 +1945,7 @@
 [Library],MoveVertical
 [Library],ScrollVertical
 [Library],ShowLinked
+[Library],focused_widget
 [Link],bpm
 [Link],enabled
 [Link],master_deck
@@ -1996,9 +2005,11 @@
 [Playlist],LoadSelectedIntoFirstStopped
 [Playlist],SelectNextPlaylist
 [Playlist],SelectNextTrack
+[Playlist],SelectPlaylist
 [Playlist],SelectPrevPlaylist
 [Playlist],SelectPrevTrack
 [Playlist],SelectTrackKnob
+[Playlist],ToggleSelectedSidebarItem
 [PreviewDeck1],duration
 [PreviewDeck1],play
 [PreviewDeck1],playposition
