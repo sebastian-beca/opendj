@@ -61,6 +61,7 @@ const COLLECTION: i32 = 0;
 const FILES: i32 = 1;
 const SPOTIFY: i32 = 2;
 const TIDAL: i32 = 3;
+const SOUNDCLOUD: i32 = 8;
 const MIXCLOUD: i32 = 11;
 /// Bandcamp in the rail, with the other stores in its tree.
 const STORES: i32 = 5;
@@ -541,9 +542,10 @@ struct FilesState {
 
 /// The rail sources that are streaming services: their source, name, and
 /// how matches set by hand are saved for them.
-const STREAMS: [(i32, &str, &str); 3] = [
+const STREAMS: [(i32, &str, &str); 4] = [
     (SPOTIFY, "Spotify", "spotify"),
     (TIDAL, "TIDAL", "tidal"),
+    (SOUNDCLOUD, "SoundCloud", "soundcloud"),
     (MIXCLOUD, "Mixcloud", "mixcloud"),
 ];
 
@@ -905,6 +907,7 @@ impl Browser {
                     service: match source {
                         TIDAL => crate::tidal::start(),
                         MIXCLOUD => crate::mixcloud::start(),
+                        SOUNDCLOUD => crate::soundcloud::start(),
                         _ => Service::spotify(),
                     },
                     state: StreamState::default(),
@@ -1248,7 +1251,9 @@ impl Browser {
                     return;
                 };
                 st.status = format!("Opening {} in your browser…", st.name);
-                st.service.client_id = id.clone();
+                // SoundCloud's form sends its secret after the client ID;
+                // only the ID stays in the box.
+                st.service.client_id = id.split_whitespace().next().unwrap_or_default().into();
                 st.service.send(Request::Connect(id.clone()));
                 b.show_stream();
             }))
@@ -1531,7 +1536,7 @@ impl Browser {
     fn select_source(&mut self, source: i32) {
         let usable = match source {
             COLLECTION | FILES | ALBUMS | MIXED_SETS => true,
-            SPOTIFY | TIDAL | MIXCLOUD => STREAMING_ENABLED,
+            SPOTIFY | TIDAL | SOUNDCLOUD | MIXCLOUD => STREAMING_ENABLED,
             STORES => STORES_ENABLED,
             _ => false,
         };
@@ -1556,7 +1561,7 @@ impl Browser {
         match source {
             FILES => self.rebuild_files_tree(),
             ALBUMS | MIXED_SETS => self.rebuild_folder_tree(source),
-            SPOTIFY | TIDAL | MIXCLOUD => self.rebuild_stream_tree(source),
+            SPOTIFY | TIDAL | SOUNDCLOUD | MIXCLOUD => self.rebuild_stream_tree(source),
             STORES => self.rebuild_stores_tree(),
             _ => {}
         }
