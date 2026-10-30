@@ -229,6 +229,18 @@ CREATE TABLE IF NOT EXISTS file_moves (
 CREATE INDEX IF NOT EXISTS file_moves_track ON file_moves(track_id);
 ";
 
+/// Which collection track a streaming service's track is, as the DJ set it
+/// by hand: `track_id` NULL means it is none of them. Created on every
+/// open, as [`LINKS_SCHEMA`] is.
+const STREAM_MATCHES_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS stream_matches (
+    service TEXT NOT NULL,
+    key TEXT NOT NULL,
+    track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
+    PRIMARY KEY (service, key)
+);
+";
+
 /// Stores the tags a scan reads beyond the basic ones (`?1` is the row),
 /// for tracks whose tags come from their files. A rating in the tags fills
 /// in one the library doesn't have.
@@ -331,6 +343,8 @@ pub struct SyncReport {
     /// Tracks found to be another copy of a song the library has, whose
     /// lists now point at that one.
     pub matched: usize,
+    /// Lists left out as none of their tracks are here (online only).
+    pub left_out: usize,
 }
 
 /// What [`Library::remove_import`] took out.
@@ -464,6 +478,7 @@ impl Library {
         db.execute_batch(LINKS_SCHEMA)?;
         db.execute_batch(MOVES_SCHEMA)?;
         db.execute_batch(ALIASES_SCHEMA)?;
+        db.execute_batch(STREAM_MATCHES_SCHEMA)?;
         db.execute_batch(health::HEALTH_SCHEMA)?;
         db.execute_batch(cleanup::CHANGES_SCHEMA)?;
         let lib = Library { db };
@@ -1265,6 +1280,45 @@ impl Library {
         Ok(())
     }
 
+    /// The matches the DJ set by hand for a streaming service's tracks, by
+    /// the service's key: the collection track, or None for none of them.
+    pub fn stream_matches(&self, service: &str) -> Result<HashMap<String, Option<usize>>, Error> {
+        let mut q = self
+            .db
+            .prepare("SELECT key, track_id FROM stream_matches WHERE service = ?1")?;
+        let rows = q.query_map([service], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<i64>>(1)?.map(track_id),
+            ))
+        })?;
+        rows.collect()
+    }
+
+    /// Sets which collection track a streaming service's track is (None:
+    /// none of them), or with `forget` goes back to matching it by its tags.
+    pub fn set_stream_match(
+        &self,
+        service: &str,
+        key: &str,
+        track: Option<usize>,
+        forget: bool,
+    ) -> Result<(), Error> {
+        if forget {
+            self.db.execute(
+                "DELETE FROM stream_matches WHERE service = ?1 AND key = ?2",
+                params![service, key],
+            )?;
+        } else {
+            self.db.execute(
+                "INSERT INTO stream_matches (service, key, track_id) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(service, key) DO UPDATE SET track_id = excluded.track_id",
+                params![service, key, track.and_then(row_id)],
+            )?;
+        }
+        Ok(())
+    }
+
     /// Removes a link between two tracks, whichever way it was made.
     pub fn unlink(&self, track: usize, linked: usize) -> Result<(), Error> {
         let (Some(a), Some(b)) = (row_id(track), row_id(linked)) else {
@@ -1874,6 +1928,23 @@ fn import_lists(
          VALUES (?1, ?2, ?3, ?4)",
     )?;
     for (i, list) in lists.iter().enumerate() {
+        // The library's track for each entry; streamed tracks and files
+        // that aren't here have none.
+        let mut rows = Vec::with_capacity(list.entries.len());
+        for e in &list.entries {
+            let row: Option<i64> = find
+                .query_row([path_text(&e.path)], |r| r.get(0))
+                .optional()?;
+            match row {
+                Some(row) => rows.push((row, e.played_at)),
+                None => report.unmatched += 1,
+            }
+        }
+        // A list of only online tracks would come in empty: it stays out.
+        if rows.is_empty() && !list.entries.is_empty() {
+            report.left_out += 1;
+            continue;
+        }
         let mut parent = top;
         for depth in 1..=list.folders.len() {
             let path = list.folders[..depth].to_vec();
@@ -1901,17 +1972,13 @@ fn import_lists(
         };
         let id = make(Some(parent), &list.name, kind, i as i64, created, query)?;
         report.lists += 1;
-        let mut position = 0;
-        for e in &list.entries {
-            let row: Option<i64> = find
-                .query_row([path_text(&e.path)], |r| r.get(0))
-                .optional()?;
-            let Some(row) = row else {
-                report.unmatched += 1;
-                continue;
-            };
-            add.execute(params![id, position, row, e.played_at.unwrap_or(created)])?;
-            position += 1;
+        for (position, (row, played_at)) in rows.into_iter().enumerate() {
+            add.execute(params![
+                id,
+                position as i64,
+                row,
+                played_at.unwrap_or(created)
+            ])?;
         }
     }
     Ok(())
@@ -2255,6 +2322,45 @@ mod tests {
         let tracks = lib.tracks(|_| true).unwrap();
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].info.hotcues.len(), 1);
+    }
+
+    #[test]
+    fn lists_of_only_online_tracks_stay_out() {
+        use opendj_engine::import::ImportedEntry;
+        let mut lib = Library::in_memory().unwrap();
+        let list = |name: &str, path: &str| ImportedList {
+            folders: vec!["Online".into()],
+            name: name.into(),
+            kind: ImportedListKind::List,
+            entries: vec![ImportedEntry {
+                path: PathBuf::from(path),
+                played_at: None,
+            }],
+        };
+        let read = || {
+            Ok(ImportedLibrary {
+                tracks: vec![imported_track("/m/b.mp3")],
+                lists: vec![
+                    list("Streams", "netsearch://td1"),
+                    list("Mine", "/m/b.mp3"),
+                    ImportedList {
+                        entries: Vec::new(),
+                        ..list("Empty on purpose", "")
+                    },
+                ],
+            })
+        };
+        let report = lib.import("vdj", "VirtualDJ", "1", read).unwrap().unwrap();
+        assert_eq!((report.left_out, report.unmatched), (1, 1));
+        let names: Vec<String> = lib
+            .playlists()
+            .unwrap()
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+        assert!(!names.contains(&"Streams".to_string()));
+        assert!(names.contains(&"Mine".to_string()));
+        assert!(names.contains(&"Empty on purpose".to_string()));
     }
 
     #[test]
@@ -2621,6 +2727,25 @@ mod tests {
             lists.len()
         );
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn streaming_matches_set_by_hand() {
+        let mut lib = Library::in_memory().unwrap();
+        lib.sync(&[file_track("/m/a.mp3", "a")]).unwrap();
+        let a = lib.tracks(|_| true).unwrap()[0].id;
+        lib.set_stream_match("spotify", "t1", Some(a), false)
+            .unwrap();
+        lib.set_stream_match("spotify", "t2", None, false).unwrap();
+        lib.set_stream_match("tidal", "t1", None, false).unwrap();
+        let m = lib.stream_matches("spotify").unwrap();
+        assert_eq!((m["t1"], m["t2"], m.len()), (Some(a), None, 2));
+        // Set again, and forgotten.
+        lib.set_stream_match("spotify", "t2", Some(a), false)
+            .unwrap();
+        lib.set_stream_match("spotify", "t1", None, true).unwrap();
+        let m = lib.stream_matches("spotify").unwrap();
+        assert_eq!((m.get("t1"), m["t2"]), (None, Some(a)));
     }
 
     #[test]

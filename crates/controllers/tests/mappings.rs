@@ -548,3 +548,37 @@ fn ddj_flx4_pads_follow_the_tabs() {
     assert_eq!(get(&reg, "[Channel1]", "hotcue_3_activate"), 1.0);
     assert_eq!(c.errors(), Vec::<String>::new());
 }
+
+/// The controllers openDJ looks after start without script errors.
+#[test]
+fn looked_after_mappings_start_cleanly() {
+    for c in opendj_controllers::support::all() {
+        if let Some(file) = c.file {
+            let (_reg, mut c) = load(&file);
+            settle(&mut c, 50);
+            assert_eq!(c.errors(), Vec::<String>::new(), "{file}");
+            c.shutdown();
+        }
+    }
+}
+
+/// The Mixtrack Platinum FX's jog wheel screens get the deck's BPM and
+/// time over SysEx.
+#[test]
+fn mixtrack_platinum_fx_screens() {
+    let (reg, mut c) = load("Numark Mixtrack Platinum FX.midi.xml");
+    settle(&mut c, 20);
+    c.take_output();
+    reg.get("[Channel1]", "duration").unwrap().set(200.0);
+    reg.get("[Channel1]", "bpm").unwrap().set(128.0);
+    reg.get("[Channel1]", "playposition").unwrap().set(0.25);
+    settle(&mut c, 20);
+    let out = c.take_output();
+    let screen = |kind: u8| {
+        out.iter()
+            .any(|m| m.starts_with(&[0xF0, 0x00, 0x20, 0x7F, 0x01, kind]))
+    };
+    assert!(screen(0x01), "BPM: {out:02X?}");
+    assert!(screen(0x03), "duration");
+    assert!(screen(0x04), "time");
+}
