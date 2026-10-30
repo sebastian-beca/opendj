@@ -2294,12 +2294,6 @@ component TrackList inherits Rectangle {
     property <length> list-width: max(lv.visible-width, ColumnUi.min-width + (results ? w-action + 8px : 0px));
     // Right-click on the header: which columns to show.
     property <length> column-menu-x;
-    property <bool> search-tip;
-    Timer {
-        interval: 1.2s;
-        running: search-ta.has-hover && !search-tip;
-        triggered => { search-tip = true; }
-    }
     column-menu := PopupWindow {
         x: min(column-menu-x, root.width - 220px);
         y: 66px;
@@ -2370,24 +2364,11 @@ component TrackList inherits Rectangle {
                 horizontal-stretch: 1;
                 overflow: elide;
             }
-            // Hovering the search box for a moment shows how to search.
-            search-ta := TouchArea {
+            LineEdit {
                 width: 240px;
-                LineEdit {
-                    width: 100%;
-                    height: 100%;
-                    placeholder-text: "Search " + folder-name;
-                    text <=> search-text;
-                    edited(t) => {
-                        search-tip = false;
-                        search(t);
-                    }
-                }
-                changed has-hover => {
-                    if !self.has-hover {
-                        search-tip = false;
-                    }
-                }
+                placeholder-text: "Search " + folder-name;
+                text <=> search-text;
+                edited(t) => { search(t); }
             }
             // Save the search as a smart list.
             if (search-text != "" || FilterUi.any-active) && LibraryEdit.can-save-search: Rectangle {
@@ -2713,41 +2694,6 @@ component TrackList inherits Rectangle {
     }
     pure function stars(n: int) -> string {
         n == 1 ? "★" : n == 2 ? "★★" : n == 3 ? "★★★" : n == 4 ? "★★★★" : "★★★★★"
-    }
-    // How to search: Mixxx's syntax, shown while hovering the search box.
-    if search-tip: Rectangle {
-        x: search-ta.absolute-position.x - root.absolute-position.x + search-ta.width - self.width;
-        y: search-ta.absolute-position.y - root.absolute-position.y + search-ta.height + 6px;
-        width: 520px;
-        height: tip.preferred-height;
-        MenuBackground {}
-        tip := VerticalLayout {
-            padding: 12px;
-            spacing: 5px;
-            Text { text: "Search"; color: Theme.text; font-size: 14px; font-weight: 600; }
-            for line in [
-                ["daft punk", "words in any field"],
-                ["artist:\"daft punk\"", "one field: title, album, genre, tag…"],
-                ["mood:uplifting  tag2:synth", "your tag fields, by name or number"],
-                ["title:=glue  album:\"\"", "whole field; empty field"],
-                ["bpm:120-128  rating:>=4", "numbers: > >= < <= and ranges"],
-                ["duration:>6m  played:0", "length; times played"],
-                ["added:<7d  added:>=2026-01-31", "days or weeks ago, or a date"],
-                ["~key:8A  ~bpm:124", "keys that mix; tempo within 6%"],
-                ["~deck", "mixes with the track playing"],
-                ["color:red  is:duplicate  is:missing", "colour; duplicates; missing files"],
-                ["is:notmusic  is:nocover  is:unrated", "Collection Health's checks"],
-                ["crate:yoga  crate:\"\"", "in a crate; in none"],
-                ["-genre:techno", "leave out"],
-                ["glue | daft", "either"],
-            ]: HorizontalLayout {
-                spacing: 10px;
-                // Kept to one line each, so the box's height comes out right.
-                Text { text: line[0]; color: Theme.accent; font-size: 12px; width: 215px; }
-                Text { text: line[1]; color: Theme.text-dim; font-size: 12px; horizontal-stretch: 1; overflow: elide; }
-            }
-            Text { text: "Save turns a search into a smart list."; color: Theme.text-dim; font-size: 12px; }
-        }
     }
 }
 
