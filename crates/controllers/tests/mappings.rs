@@ -582,3 +582,111 @@ fn mixtrack_platinum_fx_screens() {
     assert!(screen(0x03), "duration");
     assert!(screen(0x04), "time");
 }
+
+#[test]
+fn ddj_flx6_four_decks_and_mixer() {
+    let (reg, mut c) = load("Pioneer-DDJ-FLX6.midi.xml");
+    settle(&mut c, 50);
+    c.take_output();
+
+    // Each deck has its own channel: PLAY on channel 3 plays deck 3.
+    c.receive(&[0x92, 0x0B, 0x7F]);
+    c.receive(&[0x92, 0x0B, 0x00]);
+    assert_eq!(get(&reg, "[Channel3]", "play"), 1.0);
+    assert_eq!(get(&reg, "[Channel1]", "play"), 0.0);
+    reg.get("[Channel3]", "play_indicator").unwrap().set(1.0);
+    c.poll(Instant::now());
+    let out = c.take_output();
+    assert!(
+        out.iter().any(|m| m[..] == [0x92, 0x0B, 0x7F]),
+        "deck 3 play LED on its own channel: {out:x?}"
+    );
+
+    // The mixer has all four channels, whichever deck a side plays.
+    for (status, deck) in [(0xB0, 1), (0xB1, 2), (0xB2, 3), (0xB3, 4)] {
+        c.receive(&[status, 0x13, 0x20]);
+        c.receive(&[status, 0x33, 0x00]);
+        let v = get(&reg, &format!("[Channel{deck}]"), "volume");
+        assert!((v - 0.25).abs() < 0.02, "deck {deck} volume {v}");
+    }
+    c.receive(&[0xB6, 0x1A, 0x10]);
+    c.receive(&[0xB6, 0x3A, 0x00]);
+    let filter = reg
+        .get("[QuickEffectRack1_[Channel4]]", "super1")
+        .unwrap()
+        .get_parameter();
+    assert!((filter - 0.125).abs() < 0.01, "deck 4 filter {filter}");
+    c.receive(&[0x96, 0x49, 0x7F]);
+    c.receive(&[0x96, 0x49, 0x00]);
+
+    // Deck 4's pads: hot cue 1, and its pad mode buttons open its tabs.
+    c.receive(&[0x9D, 0x00, 0x7F]);
+    assert_eq!(get(&reg, "[Channel4]", "hotcue_1_activate"), 1.0);
+    c.receive(&[0x9D, 0x00, 0x00]);
+    c.receive(&[0x93, 0x20, 0x7F]);
+    assert_eq!(get(&reg, "[Channel4]", "pad_tab"), 2.0);
+    assert_ne!(get(&reg, "[Channel2]", "pad_tab"), 2.0);
+
+    // Deck 3's jog scratches deck 3.
+    c.receive(&[0x92, 0x36, 0x7F]);
+    c.poll(Instant::now());
+    assert_eq!(get(&reg, "[Channel3]", "scratch2_enable"), 1.0);
+    c.receive(&[0x92, 0x36, 0x00]);
+
+    // MASTER pins the sync leader, and again lets go.
+    c.receive(&[0x91, 0x5C, 0x7F]);
+    assert_eq!(get(&reg, "[Channel2]", "sync_leader"), 2.0);
+    c.receive(&[0x91, 0x5C, 0x7F]);
+    assert_eq!(get(&reg, "[Channel2]", "sync_leader"), 0.0);
+
+    // BEAT FX: FX2's slots drive the Beat FX too; CH SELECT picks a deck
+    // or, on MST, all four.
+    let unit = "[EffectRack1_EffectUnit5]";
+    let fx = "[EffectRack1_EffectUnit5_Effect1]";
+    c.receive(&[0x95, 0x48, 0x7F]);
+    assert_eq!(get(&reg, fx, "enabled"), 1.0);
+    c.receive(&[0x94, 0x1E, 0x7F]);
+    assert_eq!(get(&reg, unit, "group_[Channel3]_enable"), 1.0);
+    assert_eq!(get(&reg, unit, "group_[Channel1]_enable"), 0.0);
+    c.receive(&[0x94, 0x14, 0x7F]);
+    for deck in 1..=4 {
+        assert_eq!(
+            get(&reg, unit, &format!("group_[Channel{deck}]_enable")),
+            1.0
+        );
+    }
+
+    // MERGE FX follows the deck the side plays: after DECK 3, the left
+    // knob drives deck 3's FX unit.
+    c.receive(&[0x92, 0x3C, 0x7F]);
+    for _ in 0..16 {
+        c.receive(&[0xB4, 0x08, 0x02]);
+    }
+    let super1 = get(&reg, "[EffectRack1_EffectUnit3]", "super1");
+    assert!((super1 - 0.5).abs() < 0.01, "deck 3 FX super {super1}");
+    c.receive(&[0x94, 0x2E, 0x7F]);
+    assert_eq!(
+        get(&reg, "[EffectRack1_EffectUnit3_Effect1]", "enabled"),
+        1.0
+    );
+    c.poll(Instant::now());
+    let out = c.take_output();
+    assert!(
+        out.iter().any(|m| m[..] == [0xB4, 0x10, 0x7F]),
+        "MERGE FX lit: {out:x?}"
+    );
+
+    // The jog ring shows the playhead.
+    reg.get("[Channel1]", "track_loaded").unwrap().set(1.0);
+    reg.get("[Channel1]", "duration").unwrap().set(180.0);
+    reg.get("[Channel1]", "playposition")
+        .unwrap()
+        .set(0.5 / 180.0);
+    settle(&mut c, 100);
+    let out = c.take_output();
+    assert!(
+        out.iter().any(|m| m[0] == 0xBB && m[1] == 0x00 && m[2] > 0),
+        "jog ring moved: {out:x?}"
+    );
+    assert_eq!(c.errors(), Vec::<String>::new());
+}
