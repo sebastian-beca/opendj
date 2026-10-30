@@ -211,6 +211,34 @@ export global LibraryEdit {
 }
 
 // The Files source: folders on the computer.
+// One album in the Albums source's covers view.
+export struct AlbumTile {
+    name: string,
+    artist: string,
+    cover: image,
+    has-cover: bool,
+}
+
+// The Albums source: its list / covers switch and the covers view.
+export global AlbumsUi {
+    // The Albums source is shown, so the switch is offered.
+    in property <bool> offered;
+    // Covers rather than a list; remembered.
+    in property <bool> covers;
+    // The covers view is shown instead of the list (an artist or All
+    // Albums is selected).
+    in property <bool> grid;
+    // An album opened from the covers: "‹ Albums" goes back.
+    in property <bool> opened;
+    in property <[AlbumTile]> tiles;
+    callback set-covers(on: bool);
+    // Opens the album at `index` of `tiles`: its tracks in the list.
+    callback open(index: int);
+    callback back();
+    // Plays the album at `index`, or adds it to Automix (`add`).
+    callback play(index: int, add: bool);
+}
+
 export global FilesUi {
     // Listings include the files in subfolders.
     in-out property <bool> recursive;
@@ -1983,6 +2011,138 @@ component HealthBar inherits Rectangle {
     }
 }
 
+// List or covers, at the top right of the Albums source's list.
+component ViewSwitch inherits HorizontalLayout {
+    spacing: 4px;
+    alignment: center;
+    for covers in [false, true]: Rectangle {
+        width: 26px;
+        height: 26px;
+        border-radius: 4px;
+        background: vta.has-hover ? #ffffff14 : transparent;
+        Path {
+            width: 16px;
+            height: 16px;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            property <color> c: covers == AlbumsUi.covers ? Theme.accent : Theme.text-dim;
+            stroke: covers ? transparent : c;
+            stroke-width: 1.8px;
+            stroke-line-cap: round;
+            fill: covers ? c : transparent;
+            // Three lines, or four squares.
+            commands: covers
+                ? "M 1 1 L 6.5 1 L 6.5 6.5 L 1 6.5 Z M 9.5 1 L 15 1 L 15 6.5 L 9.5 6.5 Z M 1 9.5 L 6.5 9.5 L 6.5 15 L 1 15 Z M 9.5 9.5 L 15 9.5 L 15 15 L 9.5 15 Z"
+                : "M 1.5 3 L 14.5 3 M 1.5 8 L 14.5 8 M 1.5 13 L 14.5 13";
+        }
+        vta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { AlbumsUi.set-covers(covers); }
+        }
+    }
+}
+
+// The Albums source's covers: each album's art, name and artist. A click
+// opens its tracks; a right-click plays it.
+component AlbumGrid inherits Rectangle {
+    property <length> gap: 14px;
+    property <int> columns: max(1, floor((sv.visible-width - gap) / (170px + gap)));
+    property <length> tile-width: (sv.visible-width - gap * (columns + 1)) / columns;
+    property <length> tile-height: tile-width + 50px;
+    property <int> menu-index;
+    property <length> menu-x;
+    property <length> menu-y;
+    sv := ScrollView {
+        content-width: self.visible-width;
+        content-height: ceil(AlbumsUi.tiles.length / columns) * (tile-height + gap) + gap;
+        for t[i] in AlbumsUi.tiles: Rectangle {
+            x: gap + mod(i, columns) * (tile-width + gap);
+            y: gap + floor(i / columns) * (tile-height + gap);
+            width: tile-width;
+            height: tile-height;
+            border-radius: 6px;
+            background: ta.has-hover ? #2a2a2e : Theme.row-alt;
+            Rectangle {
+                x: 8px;
+                y: 8px;
+                width: parent.width - 16px;
+                height: self.width;
+                border-radius: 4px;
+                clip: true;
+                background: #2a2a2d;
+                if t.has-cover: Image {
+                    width: 100%;
+                    height: 100%;
+                    source: t.cover;
+                    image-fit: cover;
+                }
+                if !t.has-cover: Text {
+                    text: "♪";
+                    color: #4a4a4d;
+                    font-size: parent.width * 0.4;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            Text {
+                x: 8px;
+                y: tile-width + 2px;
+                width: parent.width - 16px;
+                text: t.name;
+                color: Theme.text;
+                font-size: 14px;
+                font-weight: 600;
+                overflow: elide;
+            }
+            Text {
+                x: 8px;
+                y: tile-width + 21px;
+                width: parent.width - 16px;
+                text: t.artist;
+                color: Theme.text-dim;
+                font-size: 13px;
+                overflow: elide;
+            }
+            ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { AlbumsUi.open(i); }
+                pointer-event(e) => {
+                    if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                        menu-index = i;
+                        menu-x = parent.x + sv.content-x + self.mouse-x;
+                        menu-y = parent.y + sv.content-y + self.mouse-y;
+                        menu.show();
+                    }
+                }
+            }
+        }
+    }
+    menu := PopupWindow {
+        x: min(menu-x, root.width - 220px);
+        y: min(menu-y, root.height - 90px);
+        width: 210px;
+        close-policy: close-on-click-outside;
+        MenuBackground {}
+        VerticalLayout {
+            padding: 6px;
+            MenuLine {
+                text: "Play Album";
+                clicked => {
+                    AlbumsUi.play(menu-index, false);
+                    menu.close();
+                }
+            }
+            MenuLine {
+                text: "Add Album to Automix";
+                clicked => {
+                    AlbumsUi.play(menu-index, true);
+                    menu.close();
+                }
+            }
+        }
+    }
+}
+
 component TrackList inherits Rectangle {
     in property <[TrackRow]> rows;
     // Its selection is lilac while it has focus, gray while the folders do.
@@ -2142,8 +2302,24 @@ component TrackList inherits Rectangle {
             spacing: 10px;
             height: 32px;
             padding-left: 6px;
+            // Back from an album opened in the covers view.
+            if AlbumsUi.opened: Rectangle {
+                width: 70px;
+                Text {
+                    text: "‹ Albums";
+                    color: bta.has-hover ? Theme.text : Theme.accent;
+                    font-size: 14px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+                bta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { AlbumsUi.back(); }
+                }
+            }
             Text { text: folder-name; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; }
-            if empty-title == "": Text { text: rows.length + (results ? (rows.length == 1 ? " Result" : " Results") : (rows.length == 1 ? " Song" : " Songs")); color: Theme.text-dim; font-size: 14px; vertical-alignment: center; }
+            if empty-title == "" && AlbumsUi.grid: Text { text: AlbumsUi.tiles.length + (AlbumsUi.tiles.length == 1 ? " Album" : " Albums"); color: Theme.text-dim; font-size: 14px; vertical-alignment: center; }
+            if empty-title == "" && !AlbumsUi.grid: Text { text: rows.length + (results ? (rows.length == 1 ? " Result" : " Results") : (rows.length == 1 ? " Song" : " Songs")); color: Theme.text-dim; font-size: 14px; vertical-alignment: center; }
             Text { text: duration; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
             // A smart list's search, so it's clear why these tracks are here.
             Text {
@@ -2229,12 +2405,14 @@ component TrackList inherits Rectangle {
                     }
                 }
             }
+            if AlbumsUi.offered: ViewSwitch {}
         }
         if FilterUi.shown && !results: FilterBar {}
         // Column headers, scrolled sideways with the list when the columns
         // are wider than it.
         Rectangle {
-            height: 24px;
+            height: AlbumsUi.grid ? 0px : 24px;
+            visible: !AlbumsUi.grid;
             clip: true;
         header := HorizontalLayout {
             x: lv.content-x;
@@ -2283,9 +2461,10 @@ component TrackList inherits Rectangle {
             title: empty-title;
             text: empty-text;
         }
+        if AlbumsUi.grid && empty-title == "": AlbumGrid { vertical-stretch: 1; }
         lv := ListView {
-            vertical-stretch: empty-title != "" ? 0 : 1;
-            visible: empty-title == "";
+            vertical-stretch: empty-title != "" || AlbumsUi.grid ? 0 : 1;
+            visible: empty-title == "" && !AlbumsUi.grid;
             content-width: list-width;
             for r[i] in rows: Rectangle {
                 width: list-width;

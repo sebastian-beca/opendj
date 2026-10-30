@@ -498,6 +498,12 @@ pub struct Browser {
     mixed_sets: Option<PathBuf>,
     /// Play Album was picked, for Automix to play the list gaplessly.
     album_request: bool,
+    /// The Albums source's covers, bigger than the list's thumbnails.
+    album_art: Art,
+    /// The album folders the covers view shows, in its order, and the
+    /// node to go back to from an album opened there.
+    album_tiles: Vec<PathBuf>,
+    album_back: Option<usize>,
     /// Tempo and key for tracks in triage, found in the background.
     analysis: AnalysisQueue,
     analysis_shown: analysis::Shown,
@@ -988,6 +994,9 @@ impl Browser {
             folders: crate::settings::stage_folders(),
             mixed_sets: crate::settings::mixed_sets_folder(),
             album_request: false,
+            album_art: Art::sized(albums::COVER_SIZE),
+            album_tiles: Vec::new(),
+            album_back: None,
             analysis: AnalysisQueue::start(),
             analysis_shown: Default::default(),
             usb: Default::default(),
@@ -1483,6 +1492,7 @@ impl Browser {
         Self::install_cleanup(&app.global::<crate::CleanupUi>(), &with);
         Self::install_analysis(&edit, &with);
         Self::install_albums(&edit, &with);
+        Self::install_album_covers(&app.global::<crate::AlbumsUi>(), &with);
         Self::install_usb_export(app, &edit, &with);
     }
 
@@ -1579,8 +1589,10 @@ impl Browser {
             self.collection_stale = false;
             self.reload_tree(None);
         }
+        self.album_back = None;
         self.refresh_tree();
         self.refresh_rows();
+        self.refresh_album_ui();
         self.fetch_current_playlist();
         if is_stores(source) && self.store.query != self.search {
             self.search_stores(StoreQuery::text(&self.search.clone()));
@@ -2234,6 +2246,9 @@ impl Browser {
     /// Takes in what the Spotify worker has done. Called every frame.
     /// Puts newly found album art into the rows showing it.
     pub fn poll_art(&mut self) {
+        if self.album_art.poll() {
+            self.refresh_album_ui();
+        }
         if !self.art.poll() {
             return;
         }
@@ -4061,6 +4076,7 @@ impl Browser {
                 app.set_current_track(-1);
             }
         }
+        self.refresh_album_ui();
     }
 
     /// Lists the rows again, re-sorted, with the selected track still
