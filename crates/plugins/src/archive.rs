@@ -772,6 +772,7 @@ mod tests {
             text: "Polish Ambassador".into(),
             kind: QueryKind::Artist,
             prefer: Prefer::Lossless,
+            ..Default::default()
         });
         assert!(url.starts_with(
             "https://archive.org/advancedsearch.php?q=creator%3A%28Polish%20Ambassador%29"

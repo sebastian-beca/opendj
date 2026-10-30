@@ -35,6 +35,10 @@ type Thumbnail = (u32, Vec<u8>);
 /// How big a result's cover is fetched, in pixels (shown at 40).
 const COVER_SIDE: u32 = 96;
 
+/// Looks in a row (about a second apart) a playlist entry's results must
+/// stay the same before its best copy is downloaded by itself.
+const SETTLED: u32 = 3;
+
 /// Formats that count as lossless for "Lossless only".
 const LOSSLESS: [&str; 5] = ["FLAC", "WAV", "AIFF", "ALAC", "APE"];
 
@@ -233,8 +237,18 @@ struct Search {
     /// What the source calls it, e.g. a playlist's name; empty for none.
     title: String,
     error: Option<String>,
-    /// Folders the DJ has opened, by key.
+    /// Folders the DJ has opened, by key, and playlist entries showing all
+    /// their copies, by [`song_key`].
     open: HashSet<String>,
+    /// Download each playlist entry's best copy once its results settle,
+    /// and its next copy when one fails. For this run only, not saved.
+    auto: bool,
+    /// Each entry's results at the last looks, and how many looks in a
+    /// row they've stayed the same.
+    settling: HashMap<String, (Vec<String>, u32)>,
+    /// Entries kept from before "Search again", which isn't looking for
+    /// them.
+    kept: Vec<Found>,
 }
 
 impl Search {
@@ -316,7 +330,9 @@ impl Source {
 /// What a row of the list is.
 #[derive(Clone, PartialEq)]
 enum Row {
-    Heading,
+    /// "Albums", "Tracks", or a playlist entry (by its group), whose other
+    /// copies show under it when it's open.
+    Heading(Option<String>),
     /// A result, by its key.
     Item(String),
     /// A download in the Downloads list, by its index.
@@ -420,8 +436,9 @@ impl Sources {
                     text,
                     kind: QueryKind::from_name(&kind),
                     prefer: Prefer::from_name(&prefer),
+                    skip: Vec::new(),
                 };
-                me.start(s, query, added);
+                me.start(s, query, added, false);
             }
         }
         let ui = app.global::<SourceUi>();
@@ -449,9 +466,9 @@ impl Sources {
             w(Box::new(move |s| s.describe(&query)))
         });
         let w = with.clone();
-        ui.on_search(move |text, kind, prefer| {
+        ui.on_search(move |text, kind, prefer, auto| {
             let query = query(&text, kind, prefer);
-            w(Box::new(move |s| s.add_search(query.clone())))
+            w(Box::new(move |s| s.add_search(query.clone(), auto)))
         });
         let w = with.clone();
         ui.on_select_search(move |i| w(Box::new(move |s| s.select(i))));
@@ -545,6 +562,12 @@ impl Sources {
                                 }
                             }
                         }
+                        if !search.kept.is_empty() {
+                            items = with_kept(&search.kept, items);
+                        }
+                        if search.auto {
+                            settle(&mut search.settling, &items);
+                        }
                         search.items = items;
                         search.done = snap.done;
                         search.note = snap.note;
@@ -579,6 +602,13 @@ impl Sources {
                 Event::Imported(track) => imported.push(*track),
             }
         }
+        if changed {
+            for s in 0..self.sources.len() {
+                for i in 0..self.sources[s].searches.len() {
+                    self.auto_download(s, i);
+                }
+            }
+        }
         if let Some(app) = self.app.upgrade() {
             let picked = app.global::<StoreUi>().get_source();
             let shown = (picked >= FIRST_SOURCE)
@@ -609,7 +639,7 @@ impl Sources {
 
     /// Starts a search and lists it by when it was added, newest first;
     /// returns its place in the list.
-    fn start(&mut self, s: usize, query: SourceQuery, added: u64) -> usize {
+    fn start(&mut self, s: usize, query: SourceQuery, added: u64, auto: bool) -> usize {
         self.next_local += 1;
         let local = self.next_local;
         let _ = self.sources[s]
@@ -629,6 +659,9 @@ impl Sources {
                 title: String::new(),
                 error: None,
                 open: HashSet::new(),
+                auto,
+                settling: HashMap::new(),
+                kept: Vec::new(),
             },
         );
         at
@@ -648,12 +681,12 @@ impl Sources {
         }
     }
 
-    fn add_search(&mut self, query: SourceQuery) {
+    fn add_search(&mut self, query: SourceQuery, auto: bool) {
         let Some(s) = self.shown else { return };
         if query.text.trim().is_empty() {
             return;
         }
-        let at = self.start(s, query, now());
+        let at = self.start(s, query, now(), auto);
         self.sources[s].save();
         self.search = Some(at);
         self.checked.clear();
@@ -711,14 +744,24 @@ impl Sources {
         self.next_local += 1;
         let local = self.next_local;
         let source = &mut self.sources[s];
+        // A playlist's entries already found or downloaded stay as they
+        // are; only the rest are searched for.
+        let skip = found_entries(source, &source.searches[i]);
         let old = std::mem::replace(&mut source.searches[i].local, local);
         let _ = source.requests.send(Request::Stop(old));
         let search = &mut source.searches[i];
-        (search.items, search.done, search.note, search.error) =
-            (Vec::new(), false, String::new(), None);
-        let _ = source
-            .requests
-            .send(Request::Start(local, search.query.clone()));
+        search.kept = std::mem::take(&mut search.items)
+            .into_iter()
+            .filter(|f| skip.contains(&f.group))
+            .collect();
+        search.items = search.kept.clone();
+        (search.done, search.note, search.error) = (false, String::new(), None);
+        search.settling.clear();
+        let query = SourceQuery {
+            skip: skip.into_iter().collect(),
+            ..search.query.clone()
+        };
+        let _ = source.requests.send(Request::Start(local, query));
         // Downloads from before stay with the new search's results.
         for d in source.downloads.iter_mut().filter(|d| d.local == old) {
             d.local = local;
@@ -754,8 +797,10 @@ impl Sources {
     }
 
     fn toggle_open(&mut self, row: usize) {
-        let Some(Row::Item(key)) = self.rows.get(row).cloned() else {
-            return;
+        let key = match self.rows.get(row).cloned() {
+            Some(Row::Item(key)) => key,
+            Some(Row::Heading(Some(group))) => song_key(&group),
+            _ => return,
         };
         let Some(s) = self.shown else { return };
         let Some(i) = self.search else { return };
@@ -860,6 +905,44 @@ impl Sources {
         self.refresh();
     }
 
+    /// For a search set to download by itself: each playlist entry whose
+    /// results have settled and has no copy downloading or downloaded gets
+    /// its best copy not yet tried, so a failed copy makes way for the next.
+    fn auto_download(&mut self, s: usize, i: usize) {
+        let source = &self.sources[s];
+        let search = &source.searches[i];
+        if !search.auto {
+            return;
+        }
+        let mut keys = Vec::new();
+        for group in entries(&search.items) {
+            let settled = search.done
+                || search
+                    .settling
+                    .get(group)
+                    .is_some_and(|(_, looks)| *looks >= SETTLED);
+            let copies: Vec<&Found> = search
+                .items
+                .iter()
+                .filter(|f| f.group == group && !f.folder)
+                .collect();
+            let going = copies.iter().any(|f| {
+                source
+                    .download(&f.key)
+                    .is_some_and(|d| !matches!(d.progress, Progress::Failed(_)))
+            });
+            if !settled || going {
+                continue;
+            }
+            if let Some(next) = copies.iter().find(|f| source.download(&f.key).is_none()) {
+                keys.push(next.key.clone());
+            }
+        }
+        if !keys.is_empty() {
+            self.download_in(s, i, keys);
+        }
+    }
+
     fn download_selected(&mut self) {
         let keys = self.checked.drain().collect();
         self.download_keys(keys);
@@ -868,9 +951,13 @@ impl Sources {
     /// Downloads results of the shown search: folders whole, and files
     /// that aren't in a folder also being downloaded.
     fn download_keys(&mut self, keys: Vec<String>) {
-        let (Some(s), Some(i)) = (self.shown, self.search) else {
-            return;
-        };
+        if let (Some(s), Some(i)) = (self.shown, self.search) {
+            self.download_in(s, i, keys);
+        }
+    }
+
+    /// [`Self::download_keys`] for search `i` of source `s`, shown or not.
+    fn download_in(&mut self, s: usize, i: usize, keys: Vec<String>) {
         let Some(dir) = download_dir(
             self.sources[s].id,
             self.sources[s].info.name,
@@ -899,7 +986,7 @@ impl Sources {
         if items.is_empty() {
             return;
         }
-        // Keep the order they're listed in.
+        // Keep the order they're listed in (when they're listed).
         let order: Vec<String> = self
             .rows
             .iter()
@@ -1081,7 +1168,7 @@ impl Sources {
             ));
         };
         let heading = |rows: &mut Vec<Row>, list: &mut Vec<FoundRow>, text: String| {
-            rows.push(Row::Heading);
+            rows.push(Row::Heading(None));
             list.push(FoundRow {
                 kind: 0,
                 title: text.into(),
@@ -1090,13 +1177,43 @@ impl Sources {
         };
         let grouped = search.items.iter().any(|f| !f.group.is_empty());
         if grouped {
-            let mut last = None;
-            for f in search.items.iter().filter(|f| keep(f)) {
-                if last != Some(&f.group) {
-                    heading(&mut rows, &mut list, f.group.clone());
-                    last = Some(&f.group);
+            // A playlist: each entry shows one copy, the one downloading or
+            // downloaded if there is one, with the others under it when open.
+            for group in entries(&search.items) {
+                let copies: Vec<&Found> = search
+                    .items
+                    .iter()
+                    .filter(|f| f.group == group && keep(f))
+                    .collect();
+                if copies.is_empty() {
+                    continue;
                 }
-                push(&mut rows, &mut list, f, 0);
+                let tried = |f: &&Found| source.download(&f.key).map(|d| &d.progress);
+                let lead = copies
+                    .iter()
+                    .position(|f| tried(f).is_some_and(|p| !matches!(p, Progress::Failed(_))))
+                    .or_else(|| copies.iter().position(|f| tried(f).is_none()))
+                    .unwrap_or(0);
+                let open = search.open.contains(&song_key(group));
+                let more = copies.len() - 1;
+                rows.push(Row::Heading(Some(group.to_string())));
+                list.push(FoundRow {
+                    kind: 0,
+                    title: group.into(),
+                    open,
+                    note: match more {
+                        0 => String::new(),
+                        n => plural(n, "other copy", "other copies"),
+                    }
+                    .into(),
+                    ..Default::default()
+                });
+                push(&mut rows, &mut list, copies[lead], 0);
+                if open {
+                    for (_, f) in copies.iter().enumerate().filter(|(n, _)| *n != lead) {
+                        push(&mut rows, &mut list, f, 1);
+                    }
+                }
             }
             return (rows, list);
         }
@@ -1165,6 +1282,80 @@ impl Sources {
 
 /// Where a search added at `added` goes in a list kept newest first: after
 /// any added at the same time, so a list read back keeps its order.
+/// The playlist entries among results, in the order they're listed.
+fn entries(items: &[Found]) -> Vec<&str> {
+    let mut seen = HashSet::new();
+    items
+        .iter()
+        .filter(|f| !f.group.is_empty() && seen.insert(f.group.as_str()))
+        .map(|f| f.group.as_str())
+        .collect()
+}
+
+/// How an open playlist entry is kept in [`Search::open`], apart from keys.
+fn song_key(group: &str) -> String {
+    format!("song:{group}")
+}
+
+/// Counts how many looks in a row each entry's results stayed the same.
+fn settle(settling: &mut HashMap<String, (Vec<String>, u32)>, items: &[Found]) {
+    for group in entries(items) {
+        let keys: Vec<String> = items
+            .iter()
+            .filter(|f| f.group == group)
+            .map(|f| f.key.clone())
+            .collect();
+        let entry = settling
+            .entry(group.to_string())
+            .or_insert_with(|| (Vec::new(), 0));
+        if entry.0 == keys {
+            entry.1 += 1;
+        } else {
+            *entry = (keys, 1);
+        }
+    }
+}
+
+/// A playlist's entries that needn't be searched for again: one of their
+/// copies was downloaded, or they were found and none failed.
+fn found_entries(source: &Source, search: &Search) -> HashSet<String> {
+    entries(&search.items)
+        .into_iter()
+        .filter(|group| {
+            let progress: Vec<Option<&Progress>> = search
+                .items
+                .iter()
+                .filter(|f| f.group == *group)
+                .map(|f| source.download(&f.key).map(|d| &d.progress))
+                .collect();
+            progress
+                .iter()
+                .any(|p| matches!(p, Some(Progress::Done(_))))
+                || !progress
+                    .iter()
+                    .any(|p| matches!(p, Some(Progress::Failed(_))))
+        })
+        .map(str::to_string)
+        .collect()
+}
+
+/// Results of a search again with the entries kept from before, listed by
+/// their number in the playlist ("3. Bonobo – Kerala").
+fn with_kept(kept: &[Found], items: Vec<Found>) -> Vec<Found> {
+    let number = |f: &Found| -> u32 {
+        let digits: String = f.group.chars().take_while(char::is_ascii_digit).collect();
+        digits.parse().unwrap_or(u32::MAX)
+    };
+    let mut all: Vec<Found> = kept
+        .iter()
+        .filter(|k| !items.iter().any(|f| f.group == k.group))
+        .cloned()
+        .collect();
+    all.extend(items);
+    all.sort_by_key(number);
+    all
+}
+
 fn place(searches: &[Search], added: u64) -> usize {
     searches
         .iter()
@@ -1203,6 +1394,7 @@ fn query(text: &str, kind: i32, prefer: i32) -> SourceQuery {
             .get(prefer as usize)
             .copied()
             .unwrap_or_default(),
+        skip: Vec::new(),
     }
 }
 
@@ -1341,6 +1533,9 @@ mod tests {
             title: String::new(),
             error: None,
             open: HashSet::new(),
+            auto: false,
+            settling: HashMap::new(),
+            kept: Vec::new(),
         }
     }
 
@@ -1367,6 +1562,83 @@ mod tests {
         for list in lists {
             assert_eq!(list, crate::browser::SOURCE_NAMES);
         }
+    }
+
+    fn copy(key: &str, group: &str) -> Found {
+        Found {
+            group: group.into(),
+            ..file(key, "Kerala")
+        }
+    }
+
+    #[test]
+    fn entries_settle_when_their_results_stop_changing() {
+        let mut settling = HashMap::new();
+        let first = vec![copy("a", "1. Kerala")];
+        settle(&mut settling, &first);
+        settle(&mut settling, &first);
+        assert_eq!(settling["1. Kerala"].1, 2);
+        let more = vec![copy("a", "1. Kerala"), copy("b", "1. Kerala")];
+        settle(&mut settling, &more);
+        assert_eq!(settling["1. Kerala"].1, 1);
+    }
+
+    #[test]
+    fn search_again_keeps_entries_in_playlist_order() {
+        let kept = vec![copy("a", "1. Kerala"), copy("c", "10. Kong")];
+        let new = vec![copy("b", "2. Cirrus"), copy("d", "11. Grains")];
+        let all: Vec<String> = with_kept(&kept, new).into_iter().map(|f| f.key).collect();
+        assert_eq!(all, ["a", "b", "c", "d"]);
+        assert_eq!(
+            entries(&[
+                copy("a", "1. Kerala"),
+                copy("b", "1. Kerala"),
+                copy("c", "2. Kong")
+            ]),
+            ["1. Kerala", "2. Kong"]
+        );
+    }
+
+    #[test]
+    fn found_or_downloaded_entries_are_not_searched_again() {
+        let (requests, _rx) = channel();
+        let mut source = Source {
+            id: "x",
+            info: SourceInfo {
+                name: "X",
+                icon_svg: b"",
+                hint: "",
+            },
+            requests,
+            searches: Vec::new(),
+            downloads: Vec::new(),
+        };
+        let progress = |key: &str, progress| Download {
+            key: key.into(),
+            local: 1,
+            label: String::new(),
+            progress,
+        };
+        source.downloads = vec![
+            progress("a", Progress::Done(Vec::new())),
+            progress("b", Progress::Failed("gone".into())),
+            progress("c", Progress::Failed("gone".into())),
+            progress("d", Progress::Done(Vec::new())),
+        ];
+        let s = search(
+            vec![
+                copy("a", "1. Kerala"),
+                copy("b", "2. Kong"),
+                copy("c", "3. Cirrus"),
+                copy("d", "3. Cirrus"),
+                copy("e", "4. Grains"),
+            ],
+            true,
+        );
+        let mut skip: Vec<String> = found_entries(&source, &s).into_iter().collect();
+        skip.sort();
+        // Kong's only copy failed, so it's searched for again.
+        assert_eq!(skip, ["1. Kerala", "3. Cirrus", "4. Grains"]);
     }
 
     #[test]

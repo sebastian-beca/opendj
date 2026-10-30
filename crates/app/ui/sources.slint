@@ -87,7 +87,8 @@ export global SourceUi {
     // Opens the search box.
     in-out property <bool> dialog-open;
     callback describe(text: string, kind: int, prefer: int);
-    callback search(text: string, kind: int, prefer: int);
+    // auto: download each playlist entry's best copy right away.
+    callback search(text: string, kind: int, prefer: int, auto: bool);
     callback select-search(index: int);
     callback remove-search(index: int);
     callback clear-searches();
@@ -329,6 +330,7 @@ component SearchBox inherits Rectangle {
     in-out property <string> text;
     in-out property <int> kind;
     in-out property <int> prefer;
+    in-out property <bool> auto;
     callback cancel();
     callback go();
     width: 600px;
@@ -379,6 +381,17 @@ component SearchBox inherits Rectangle {
                     for l in SourceUi.preview: Text { text: l; color: Theme.text; font-size: 12px; wrap: word-wrap; }
                 }
             }
+        }
+        // Only playlists are downloaded entry by entry.
+        if kind == 0 || kind == 4: HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Pill {
+                text: "Download each song right away";
+                on: auto;
+                clicked => { auto = !auto; }
+            }
+            Text { text: "For playlists: the best copy of each song, then the next if one fails."; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
         }
         HorizontalLayout {
             spacing: 6px;
@@ -486,6 +499,7 @@ export component SourceResults inherits Rectangle {
     property <string> dialog-text;
     property <int> dialog-kind;
     property <int> dialog-prefer;
+    property <bool> dialog-auto;
     changed want-dialog => {
         if want-dialog {
             dialog-text = "";
@@ -583,13 +597,33 @@ export component SourceResults inherits Rectangle {
                     : ta.has-hover ? #2a2a2e : mod(i, 2) == 1 ? Theme.row-alt : Theme.row;
                 ta := TouchArea {
                     clicked => {
-                        if r.kind == 1 { SourceUi.toggle-open(i); }
+                        if r.kind == 1 || (r.kind == 0 && r.note != "") { SourceUi.toggle-open(i); }
                     }
                     double-clicked => {
                         if r.kind == 2 && r.state == 0 { SourceUi.download(i); }
                     }
                 }
-                if r.kind == 0: Text {
+                // A playlist entry with other copies: an arrow and how many.
+                if r.kind == 0 && r.note != "": HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 12px;
+                    spacing: 8px;
+                    Path {
+                        width: 10px;
+                        height: 10px;
+                        y: (parent.height - self.height) / 2;
+                        viewbox-width: 10;
+                        viewbox-height: 10;
+                        stroke: Theme.text-dim;
+                        stroke-width: 1.6px;
+                        stroke-line-cap: round;
+                        fill: transparent;
+                        commands: r.open ? "M 2 3.5 L 5 6.5 L 8 3.5" : "M 3.5 2 L 6.5 5 L 3.5 8";
+                    }
+                    Text { text: r.title; color: Theme.text-dim; font-size: 12px; font-weight: 600; letter-spacing: 0.5px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                    Text { text: r.note; color: ta.has-hover ? Theme.text : Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+                }
+                if r.kind == 0 && r.note == "": Text {
                     x: 8px;
                     text: r.title;
                     color: Theme.text-dim;
@@ -730,11 +764,12 @@ export component SourceResults inherits Rectangle {
                 text <=> dialog-text;
                 kind <=> dialog-kind;
                 prefer <=> dialog-prefer;
+                auto <=> dialog-auto;
                 init => { self.focus-field(); }
                 cancel => { SourceUi.dialog-open = false; }
                 go => {
                     if dialog-text != "" {
-                        SourceUi.search(dialog-text, dialog-kind, dialog-prefer);
+                        SourceUi.search(dialog-text, dialog-kind, dialog-prefer, dialog-kind == 0 || dialog-kind == 4 ? dialog-auto : false);
                         SourceUi.dialog-open = false;
                     }
                 }

@@ -95,6 +95,9 @@ pub struct SourceQuery {
     pub text: String,
     pub kind: QueryKind,
     pub prefer: Prefer,
+    /// A playlist searched again: the entries (each a [`Found::group`])
+    /// the DJ already has, so they aren't searched for again.
+    pub skip: Vec<String>,
 }
 
 /// One result: a file, or a folder of them (an album).
