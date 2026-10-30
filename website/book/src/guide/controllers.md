@@ -58,6 +58,11 @@ the list by any of those words.
   greyed, with the reason, and the original keeps working for them; a report
   says how many came across. A VirtualDJ keyboard file becomes a keyboard
   shortcut set instead (see [Keyboard shortcuts](shortcuts.md)).
+- **2 or 4 decks.** A mapping with a layout for two decks and one for four,
+  such as VirtualDJ's Xone K2, adds **Use with** under the controller in
+  **Settings › Controllers**, and with four decks **Deck order**: which deck
+  each column is from left to right (3 1 2 4 to start, as on the 4-Deck
+  screen).
 - **Export…** writes the mapping as one `.opendj-mapping` file that works on
   another computer, and **Export for Mixxx…** writes a `.midi.xml` with its
   scripts; a report lists anything Mixxx can't do.
