@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use opendj_engine::beats::{BeatGrid, GridMarker};
-use opendj_engine::import::{ImportedEntry, ImportedList, ImportedListKind};
+use opendj_engine::import::{ImportedEntry, ImportedList, ImportedListKind, StreamedTrack};
 use opendj_engine::{Hotcue, LibraryInfo, Source, Track, MEMORY_CUE};
 use roxmltree::{Document, Node};
 
@@ -45,14 +45,14 @@ pub fn read(
     let mut ids = HashMap::new();
     let mut tracks = Vec::new();
     for n in collection(&doc) {
-        let Some(file) = n.attribute("Location").and_then(location) else {
+        let Some(entry) = entry(n) else {
             continue;
         };
         if let Some(id) = n.attribute("TrackID") {
-            ids.insert(id.to_string(), file.clone());
+            ids.insert(id.to_string(), entry.clone());
         }
-        if exists(&file) {
-            tracks.push(track(n, file));
+        if entry.streamed.is_none() && exists(&entry.path) {
+            tracks.push(track(n, entry.path));
         }
     }
     let lists = if groups.contains(&PLAYLISTS) {
@@ -72,6 +72,26 @@ fn collection<'a>(doc: &'a Document) -> impl Iterator<Item = Node<'a, 'a>> {
         .children()
         .filter(|n| n.has_tag_name("COLLECTION"))
         .flat_map(|c| c.children().filter(|n| n.has_tag_name("TRACK")))
+}
+
+/// A collection track as a list entry: its file, or the streaming
+/// service's track its location names, with what the export knows of it.
+fn entry(n: Node) -> Option<ImportedEntry> {
+    let url = n.attribute("Location")?;
+    let Some(mut s) =
+        StreamedTrack::parse(url).or_else(|| StreamedTrack::parse(&percent_decode(url)))
+    else {
+        return location(url).map(|path| ImportedEntry::new(path, None));
+    };
+    s.artist = text(n, "Artist");
+    s.title = text(n, "Name");
+    s.duration = number(n, "TotalTime").unwrap_or(0.0);
+    s.isrc = text(n, "ISRC");
+    Some(ImportedEntry {
+        path: PathBuf::from(&s.uri),
+        played_at: None,
+        streamed: Some(s),
+    })
 }
 
 /// A file from a `file://localhost/…` location.
@@ -210,7 +230,7 @@ fn track(n: Node, file: PathBuf) -> Track {
 
 /// The playlist tree under `ROOT`: `Type="0"` is a folder, `1` a list whose
 /// `TRACK`s name collection tracks by id (or by location, `KeyType="1"`).
-fn playlists(doc: &Document, ids: &HashMap<String, PathBuf>) -> Vec<ImportedList> {
+fn playlists(doc: &Document, ids: &HashMap<String, ImportedEntry>) -> Vec<ImportedList> {
     let mut out = Vec::new();
     let Some(root) = doc
         .root_element()
@@ -227,7 +247,7 @@ fn playlists(doc: &Document, ids: &HashMap<String, PathBuf>) -> Vec<ImportedList
 fn walk(
     node: Node,
     folders: &mut Vec<String>,
-    ids: &HashMap<String, PathBuf>,
+    ids: &HashMap<String, ImportedEntry>,
     out: &mut Vec<ImportedList>,
 ) {
     for n in node.children().filter(|n| n.has_tag_name("NODE")) {
@@ -246,14 +266,13 @@ fn walk(
                     .filter_map(|t| {
                         let key = t.attribute("Key")?;
                         if by_location {
-                            location(key)
+                            match StreamedTrack::parse(key) {
+                                Some(_) => Some(ImportedEntry::new(key, None)),
+                                None => location(key).map(|p| ImportedEntry::new(p, None)),
+                            }
                         } else {
                             ids.get(key).cloned()
                         }
-                    })
-                    .map(|path| ImportedEntry {
-                        path,
-                        played_at: None,
                     })
                     .collect();
                 out.push(ImportedList {

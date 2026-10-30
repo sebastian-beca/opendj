@@ -2,7 +2,7 @@
 // and MIC (the microphone and auxiliary inputs and the microphone's
 // effects). Both close on a click outside them.
 import { Theme, EdgeLine } from "theme.slint";
-import { Caption, Controls, ControlButton, CueHeadphones, VuMeter } from "controls.slint";
+import { Caption, Controls, ControlButton, CueHeadphones, PickupGhost, VuMeter } from "controls.slint";
 import { EffectList, FxSlot } from "deck.slint";
 import { AudioSettings, Knob } from "mixer.slint";
 import { Preferences } from "preferences.slint";
@@ -33,6 +33,7 @@ export component LevelSlider inherits Rectangle {
     in property <color> tint: Theme.accent;
     property <int> index: Controls.resolve(group, key);
     property <float> pos: Controls.parameter(index, Controls.tick);
+    property <float> hardware: Controls.hardware(index, Controls.tick);
     property <length> thumb: 18px;
     property <length> travel: self.width - thumb;
     property <float> origin: detent ? 0.5 : 0;
@@ -63,6 +64,14 @@ export component LevelSlider inherits Rectangle {
         height: 4px;
         border-radius: 1px;
         background: Theme.text-dim;
+    }
+    if hardware >= 0: PickupGhost {
+        x: hardware * travel;
+        width: thumb;
+        height: 14px;
+        border-radius: 7px;
+        tint: tint;
+        arrow: false;
     }
     Rectangle {
         x: pos * travel;

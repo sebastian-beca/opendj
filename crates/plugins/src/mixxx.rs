@@ -530,10 +530,10 @@ fn lists(
     let entries = |rows: Vec<(i64, Option<String>)>| -> Vec<ImportedEntry> {
         rows.into_iter()
             .filter_map(|(id, at)| {
-                Some(ImportedEntry {
-                    path: files.get(&id)?.clone(),
-                    played_at: at.as_deref().and_then(unix_time),
-                })
+                Some(ImportedEntry::new(
+                    files.get(&id)?.clone(),
+                    at.as_deref().and_then(unix_time),
+                ))
             })
             .collect()
     };

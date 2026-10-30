@@ -105,6 +105,22 @@ fn compute_value(options: Options, prev: f64, value: f64) -> f64 {
     }
 }
 
+/// Whether a binding's values say where the hardware is (a knob or fader),
+/// rather than steps (an encoder) or presses.
+fn is_absolute(options: Options) -> bool {
+    const RELATIVE: u32 = Options::ROT64
+        | Options::ROT64_INV
+        | Options::ROT64_FAST
+        | Options::DIFF
+        | Options::BUTTON
+        | Options::SWITCH
+        | Options::HERC_JOG
+        | Options::HERC_JOG_FAST
+        | Options::SPREAD64
+        | Options::SELECT_KNOB;
+    !options.has(RELATIVE)
+}
+
 /// `getParameterForMidi` of a potmeter, for soft takeover.
 fn parameter_for_midi(midi: f64) -> f64 {
     if midi > 64.0 {
@@ -242,6 +258,7 @@ impl Controller {
             .borrow()
             .routed_input(status, msg.get(1).copied().unwrap_or(0));
         let value = msg.get(2).copied().unwrap_or(0);
+        self.host.borrow_mut().input = Some((status, control));
         if let Some(inputs) = self.mapping.inputs.get(&(status, control)).cloned() {
             for input in inputs {
                 self.process(&input, status, control, value);
@@ -251,6 +268,7 @@ impl Controller {
         if self.host.borrow().has_input_handlers(status, control) {
             self.script.fire_input(status, control, value);
         }
+        self.host.borrow_mut().input = None;
     }
 
     fn process(&mut self, input: &Input, status: u8, control: u8, value: u8) {
@@ -327,15 +345,26 @@ impl Controller {
         };
         let note_off = opcode == 0x80
             && !(input.options.has(Options::BUTTON) || input.options.has(Options::SWITCH));
-        if input.options.has(Options::SOFT_TAKEOVER) && target.is_potmeter() {
+        // Every knob and fader picks up (see `pickup`), whatever the
+        // mapping says. Not encoders and buttons: their values are steps or
+        // presses, not where the hardware is.
+        if target.is_potmeter() && (opcode == 0xB0 || opcode == 0xE0) && is_absolute(input.options)
+        {
             let mut h = self.host.borrow_mut();
             h.soft_takeover(&input.group, &input.key, true);
-            if h.soft_ignores(
+            if let Some(p) = h.soft_take(
                 &input.group,
                 &input.key,
                 &target,
                 parameter_for_midi(new_value),
             ) {
+                drop(h);
+                if let Target::Control(c) = &target {
+                    c.set_parameter(p);
+                }
+                return;
+            }
+            if h.soft_has(&input.group, &input.key) {
                 return;
             }
         }
@@ -379,6 +408,7 @@ impl Controller {
         let layers = h.layer_state();
         if layers != self.layers {
             self.layers = layers;
+            h.layers_moved();
             for o in &mut self.outputs {
                 o.control = match h.resolve(&o.output.group, &o.output.key) {
                     Target::Control(c) | Target::Sub(c, _) => c,
@@ -426,6 +456,12 @@ impl Controller {
     /// MIDI messages to send to the device, oldest first.
     pub fn take_output(&mut self) -> Vec<Vec<u8>> {
         let out = self.host.borrow_mut().take_routed();
+        {
+            let mut h = self.host.borrow_mut();
+            for m in &out {
+                h.sent_back(m);
+            }
+        }
         if self.debug {
             for m in &out {
                 eprintln!("{} <- {m:02X?}", self.name);
@@ -434,8 +470,15 @@ impl Controller {
         out
     }
 
+    /// Shows where this controller's knobs and faders are on screen (see
+    /// [`crate::pickup`]). Off for stand-ins such as the editor's probe.
+    pub fn publish_positions(&mut self) {
+        self.host.borrow_mut().publish = true;
+    }
+
     /// Calls the scripts' `shutdown` functions (they usually turn LEDs off).
     pub fn shutdown(&mut self) {
+        crate::pickup::forget_port(&self.name);
         for p in self.prefixes.clone() {
             if self.script.has_function(&format!("{p}.shutdown")) {
                 self.script.eval(&format!("{p}.shutdown()"));

@@ -17,6 +17,9 @@ export global Controls {
     pure callback parameter(index: int, tick: int) -> float;
     // raw control value (buttons, meters)
     pure callback value(index: int, tick: int) -> float;
+    // Where a controller's knob or fader is (0..1) while it waits to pick
+    // the control up after it moved on screen; -1 otherwise.
+    pure callback hardware(index: int, tick: int) -> float;
     callback set-parameter(index: int, parameter: float);
     callback set-value(index: int, value: float);
     callback toggle(index: int);
@@ -52,6 +55,58 @@ component KnobArc inherits Path {
     ArcTo { radius-x: r; radius-y: r; sweep: clockwise; x: 50 + r * sin(to); y: 50 - r * cos(to); }
 }
 
+// Where a controller's knob or fader is while it waits to pick a control
+// up (see `Controls.hardware`): a hollow outline of the thumb, with an
+// arrow pointing the way to move the hardware. `towards` is the direction
+// from the outline to the control: 0 up, 1 down, 2 left, 3 right.
+export component PickupGhost inherits Rectangle {
+    in property <color> tint: Theme.accent;
+    in property <int> towards;
+    in property <bool> arrow: true;
+    border-radius: 4px;
+    border-width: 1.5px;
+    border-color: tint;
+    background: tint.with-alpha(0.12);
+    property <length> a: min(self.width, self.height) - 6px;
+    if arrow && towards == 0: Path {
+        width: a; height: a; viewbox-width: 10; viewbox-height: 10; fill: tint;
+        commands: "M 5 1.5 L 9 8.5 L 1 8.5 Z";
+    }
+    if arrow && towards == 1: Path {
+        width: a; height: a; viewbox-width: 10; viewbox-height: 10; fill: tint;
+        commands: "M 1 1.5 L 9 1.5 L 5 8.5 Z";
+    }
+    if arrow && towards == 2: Path {
+        width: a; height: a; viewbox-width: 10; viewbox-height: 10; fill: tint;
+        commands: "M 1.5 5 L 8.5 1 L 8.5 9 Z";
+    }
+    if arrow && towards == 3: Path {
+        width: a; height: a; viewbox-width: 10; viewbox-height: 10; fill: tint;
+        commands: "M 1.5 1 L 8.5 5 L 1.5 9 Z";
+    }
+}
+
+// A hollow dot on a knob's rim where the controller's knob points, while
+// it waits to pick the control up. Place it over the knob's cap.
+export component PickupDot inherits Rectangle {
+    // 0..1, as the knob's parameter.
+    in property <float> at;
+    in property <color> tint: Theme.accent;
+    property <angle> angle: -135deg + at * 270deg;
+    property <length> d: max(6px, self.width / 4);
+    property <length> r: self.width / 2 - d / 2 + 1px;
+    Rectangle {
+        x: root.width / 2 + r * sin(angle) - d / 2;
+        y: root.height / 2 - r * cos(angle) - d / 2;
+        width: d;
+        height: d;
+        border-radius: d / 2;
+        background: #050506;
+        border-width: 1.5px;
+        border-color: tint;
+    }
+}
+
 // A round knob (see below).
 export component ControlKnob inherits Rectangle {
     // Names it for the guided tour (see TourMark).
@@ -68,6 +123,8 @@ export component ControlKnob inherits Rectangle {
     property <float> param: Controls.parameter(index, Controls.tick);
     property <float> drag-start;
     property <angle> value-angle: -135deg + param * 270deg;
+    // Where a controller's knob is while it waits to pick this one up.
+    property <float> hardware: Controls.hardware(index, Controls.tick);
 
     width: size + 8px;
     height: size + (label == "" ? 6px : 20px);
@@ -128,6 +185,14 @@ export component ControlKnob inherits Rectangle {
         stroke-line-cap: round;
         MoveTo { x: 50 + 8 * sin(value-angle); y: 50 - 8 * cos(value-angle); }
         LineTo { x: 50 + 40 * sin(value-angle); y: 50 - 40 * cos(value-angle); }
+    }
+    if hardware >= 0: PickupDot {
+        x: cap.x;
+        y: cap.y;
+        width: cap.width;
+        height: cap.height;
+        at: hardware;
+        tint: root.tint == Theme.text ? Theme.accent : root.tint;
     }
     if bipolar && origin == 0.5: Rectangle {
         x: 4px + size / 2 - 1px;
@@ -315,6 +380,9 @@ export component ControlFader inherits Rectangle {
     property <int> index: Controls.resolve(group, key);
     property <float> param: Controls.parameter(index, Controls.tick);
     property <float> pos: disabled ? 0.5 : inverted ? 1 - param : param;
+    // Where a controller's fader is while it waits to pick this one up.
+    property <float> hardware: disabled ? -1 : Controls.hardware(index, Controls.tick);
+    property <float> hardware-pos: inverted ? 1 - hardware : hardware;
     property <float> drag-start;
     // Only a left-button drag moves it.
     property <bool> dragging;
@@ -346,6 +414,15 @@ export component ControlFader inherits Rectangle {
         background: #050506;
         border-width: 1px;
         border-color: #2a2a2d;
+    }
+    // The controller's fader, under the handle.
+    if hardware >= 0: PickupGhost {
+        x: vertical ? 2px : hardware-pos * travel;
+        y: vertical ? (1 - hardware-pos) * travel : 2px;
+        width: vertical ? root.width - 4px : handle;
+        height: vertical ? handle : root.height - 4px;
+        tint: root.tint;
+        towards: vertical ? (hardware-pos < pos ? 0 : 1) : (hardware-pos < pos ? 3 : 2);
     }
     // Handle
     Rectangle {
