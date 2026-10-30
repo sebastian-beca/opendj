@@ -61,6 +61,7 @@ const COLLECTION: i32 = 0;
 const FILES: i32 = 1;
 const SPOTIFY: i32 = 2;
 const TIDAL: i32 = 3;
+const MIXCLOUD: i32 = 11;
 /// Bandcamp in the rail, with the other stores in its tree.
 const STORES: i32 = 5;
 /// The albums folder and the mixed sets folder (see [`albums`]); drawn
@@ -125,7 +126,7 @@ pub const STORES_ENABLED: bool = false;
 const MATCH_CANDIDATES: usize = 8;
 
 /// The sources in the rail, in order, as saved when hidden.
-const SOURCE_NAMES: [&str; 11] = [
+const SOURCE_NAMES: [&str; 12] = [
     "Collection",
     "Files",
     "Spotify",
@@ -137,6 +138,7 @@ const SOURCE_NAMES: [&str; 11] = [
     "SoundCloud",
     "Albums",
     "Mixed Sets",
+    "Mixcloud",
 ];
 
 /// Every source in the rail: the built-in ones, then add-ons' own (see
@@ -539,8 +541,11 @@ struct FilesState {
 
 /// The rail sources that are streaming services: their source, name, and
 /// how matches set by hand are saved for them.
-const STREAMS: [(i32, &str, &str); 2] =
-    [(SPOTIFY, "Spotify", "spotify"), (TIDAL, "TIDAL", "tidal")];
+const STREAMS: [(i32, &str, &str); 3] = [
+    (SPOTIFY, "Spotify", "spotify"),
+    (TIDAL, "TIDAL", "tidal"),
+    (MIXCLOUD, "Mixcloud", "mixcloud"),
+];
 
 /// A streaming service: its worker, and what it has sent.
 struct Stream {
@@ -897,10 +902,10 @@ impl Browser {
                     source,
                     name,
                     id,
-                    service: if source == TIDAL {
-                        crate::tidal::start()
-                    } else {
-                        Service::spotify()
+                    service: match source {
+                        TIDAL => crate::tidal::start(),
+                        MIXCLOUD => crate::mixcloud::start(),
+                        _ => Service::spotify(),
                     },
                     state: StreamState::default(),
                     user: String::new(),
@@ -1075,6 +1080,9 @@ impl Browser {
                 } else if let Some(&Some(id)) = b.rows.get(row as usize) {
                     b.adopt(&[id]);
                     b.load_to_free_deck(id);
+                } else if let Some(t) = b.stream_track(row as usize) {
+                    // Not in the collection: it plays on the service's page.
+                    open_in_browser(&t.page);
                 }
             }))
         });
@@ -1523,7 +1531,7 @@ impl Browser {
     fn select_source(&mut self, source: i32) {
         let usable = match source {
             COLLECTION | FILES | ALBUMS | MIXED_SETS => true,
-            SPOTIFY | TIDAL => STREAMING_ENABLED,
+            SPOTIFY | TIDAL | MIXCLOUD => STREAMING_ENABLED,
             STORES => STORES_ENABLED,
             _ => false,
         };
@@ -1548,7 +1556,7 @@ impl Browser {
         match source {
             FILES => self.rebuild_files_tree(),
             ALBUMS | MIXED_SETS => self.rebuild_folder_tree(source),
-            SPOTIFY | TIDAL => self.rebuild_stream_tree(source),
+            SPOTIFY | TIDAL | MIXCLOUD => self.rebuild_stream_tree(source),
             STORES => self.rebuild_stores_tree(),
             _ => {}
         }

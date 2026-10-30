@@ -50,6 +50,7 @@ mod lookup;
 mod mac_menu;
 #[cfg(target_os = "macos")]
 mod mac_titlebar;
+mod mixcloud;
 mod prefs;
 mod sampler;
 mod settings;
