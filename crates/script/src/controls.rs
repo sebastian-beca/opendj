@@ -81,6 +81,15 @@ pub fn run_control(reg: &ControlRegistry, call: &Call) -> Result<(), Error> {
         }
         Kind::Set => control(reg, call, named())?.set(arg(1)),
         Kind::Adjust => control(reg, call, named())?.set_parameter(level(call, 1)?),
+        // An encoder's clicks arrive as signed steps; a button's press as 1.
+        Kind::Step(item) => {
+            let size = match call.args.first().map(|a| a.number()) {
+                Some(n) if !n.is_nan() => n,
+                _ => 1.0,
+            };
+            let clicks = call.input.filter(|v| *v != 0.0).unwrap_or(1.0);
+            control(reg, call, item)?.set(size * clicks)
+        }
         Kind::ToggleNamed => control(reg, call, named())?.toggle(),
         Kind::PressNamed => press(&control(reg, call, named())?),
         Kind::Get => {
@@ -121,6 +130,7 @@ pub fn query_control(reg: &ControlRegistry, call: &Call) -> Result<bool, Error> 
         Kind::Value(item) | Kind::Reading(item) => control(reg, call, item)?.get_parameter() > 0.0,
         Kind::Input => call.input.is_some_and(|v| v > 0.0),
         Kind::Press(_)
+        | Kind::Step(_)
         | Kind::Level(_)
         | Kind::Set
         | Kind::PressNamed

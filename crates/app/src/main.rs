@@ -707,6 +707,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         opendj_control::Behavior::Toggle,
     );
     let xfader_version = Cell::new(xfader_enabled.version());
+    // The big browser (the button above the browser), also from a controller
+    // as Mixxx's `[Skin],show_maximized_library`.
+    let big_browser = registry.toggle("[Skin]", "show_maximized_library");
+    let big_browser_version = Cell::new(big_browser.version());
     // What the screen last showed, to redraw only when something changed.
     let shown_controls = Cell::new(u64::MAX);
     let shown_tracks: RefCell<[Option<Arc<Track>>; NUM_DECKS]> = Default::default();
@@ -742,6 +746,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     settings::set("layout", serde_json::json!(layout));
                     reset_layers(layout);
                 }
+                if big_browser_version.get() != big_browser.version() {
+                    app.set_library_expanded(big_browser.get_bool());
+                } else if big_browser.get_bool() != app.get_library_expanded() {
+                    big_browser.set_bool(app.get_library_expanded());
+                }
+                big_browser_version.set(big_browser.version());
                 if xfader_version.replace(xfader_enabled.version()) != xfader_enabled.version() {
                     let on = xfader_enabled.get_bool();
                     if settings::flag("xfader_enabled", true) != on {

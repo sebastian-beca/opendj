@@ -27,3 +27,10 @@ Settings › Keyboard SHALL pick the shortcut set in use from a menu, make a new
 #### Scenario: Import keys
 - **WHEN** the DJ imports a VirtualDJ keyboard mapping
 - **THEN** a new set named after the file is in use and the page says how many keys were left out
+
+### Requirement: Two-deck and four-deck use
+A mapping with a layout for two decks and one for four SHALL be set to one of them per controller in Settings › Controllers, with a deck order for four decks, and only the rows for that use SHALL run and be listed.
+
+#### Scenario: K2 with four decks
+- **WHEN** Seba sets his imported Xone K2 mapping to 4 decks with deck order 3 1 2 4
+- **THEN** the first column works deck 3 and the second deck 1, and the two-deck rows are gone from the editor

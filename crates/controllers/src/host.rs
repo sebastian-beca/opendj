@@ -39,10 +39,12 @@ const SUBS: [(&str, Sub); 10] = [
 /// Controls whose writes are steps to apply rather than positions: two
 /// identical steps arriving between polls must both count, so writes add up
 /// and whoever acts on them takes the total and sets it back to 0.
-const RELATIVE: [&str; 9] = [
+const RELATIVE: [&str; 11] = [
     "jog",
     "jog_bend",
     "beatjump",
+    "loop_move",
+    "loop_move_loops",
     "MoveVertical",
     "MoveHorizontal",
     "MoveFocus",

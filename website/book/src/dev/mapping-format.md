@@ -47,6 +47,8 @@ press, LED scripts with colours, variables). A mapping can stand alone or be
 | `imported` | optional | Where it came from: `app` (`VirtualDJ`, `Traktor`, `rekordbox`, `djay Pro`, `Mixxx`), `file`, `date`. |
 | `scripts` | optional | JavaScript files run as Mixxx runs them: `[{ "file": "...", "prefix": "..." }]`. A shared file carries them in `sources` (below). |
 | `settings` | optional | The mapping's options: Mixxx's `<settings>` definitions as `[{ "variable", "type", "label", "default", "choices" }]`, plus `values` with the DJ's picks. |
+| `decks` | optional | `2` or `4`: whether the controller is used with two decks or four, for a mapping with a layout for each (VirtualDJ's Xone K2). Rows and lights on the layer `decks=2` or `decks=4` work only in that use; the rest of their layer still applies. Chosen in Settings › Controllers. |
+| `deck_order` | optional | With four decks, the deck at each position from left to right, `[3, 1, 2, 4]` as on openDJ's 4-Deck screen. Rows and lights marked `by_position` have their decks (`deck 2`, `[Channel2]`, effect unit 2) moved to it. |
 | `variables` | optional | Variables the scripts use: `{ "k2mode": { "default": 0, "saved": true } }`. `saved` keeps the value across restarts (VirtualDJ's `@$`). |
 | `rows` | optional | What the controls do, below. |
 | `lights` | optional | What the LEDs show, below. |
@@ -69,12 +71,17 @@ A row says what one MIDI message does, on one layer.
 | `original` | optional | The action as the other app wrote it (`"touchwheel 'search'"`). |
 | `note`, `description` | optional | Why it's off; what the author wrote about it. |
 | `remove` | optional | `true`: take the `based_on` mapping's bindings for this message away. |
+| `steps` | optional | For a `script` row on a relative encoder (1 a click right, 127 a click left): the line gets the clicks, `1`, `-1` or more, so `deck 1 jump 1` jumps a beat a click and `deck 1 jump 4` four. |
+| `by_position` | optional | The row's deck is where its control sits (a column of the K2), so `deck_order` picks it. |
 
 **Merging with `based_on`.** Rows are matched to the base mapping by `midi`,
 `layer` and `when`. A row replaces every base binding of that message on that
-layer; a row with `remove` deletes them; anything else is added. An `off`
-row replaces nothing: the base binding keeps working underneath, so an
-import can never make a control go dead that worked before.
+layer; a row with `remove` deletes them; anything else is added. In an
+imported mapping (one with `imported`) the rows say everything a message
+does, so a row replaces the base's bindings of that message on every layer.
+An `off` row replaces nothing: when all of a message's rows are `off`, the
+base binding keeps working underneath, so an import can't make a control go
+dead that worked before.
 
 **Values.** A `script` row on a fader, knob or encoder gets the control's
 value: verbs that set a level (`volume`, `eq_high`, `filter`) take it when
@@ -91,6 +98,7 @@ encoder (`options: ["rot64"]` or `["diff"]`), as steps.
 | `script` | one of | An openDJscript line asked several times a second; it ends in `on`, `off`, `blink` (with a time: `blink 500ms`), `color 'red'` or a number 0 to 127. A condition picks between them: `get_vu_meter > 75% ? off : color 'orange'`. A line that is only a level (`vu_meter`, `adjust 'rate'`, `value`) sends that level, 0 to 127, for LED rings and meters. | |
 | `colors` | optional | What `color` sends on this controller: `{ "red": 15, "orange": 51, "green": 60 }`. |
 | `color_notes` | optional | `true` when the controller picks a colour by note, not velocity (the Xone K2: red is the button's note, amber 36 above it, green 72 above). `color` then sends the note plus the colour's number at full velocity. |
+| `layer`, `by_position` | optional | As for rows; a `script` light on a layer is off while the layer doesn't hold. |
 | `name`, `off`, `original`, `note` | optional | As for rows. |
 
 ## Imports

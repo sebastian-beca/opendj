@@ -265,6 +265,13 @@ impl Controller {
             }
             let v = if opcode == 0xE0 {
                 (((value as u32) << 7) | control as u32) as f64 / 16383.0
+            } else if input.options.has(Options::SELECT_KNOB) {
+                // A relative encoder's clicks, 127 being one to the left.
+                if value >= 64 {
+                    value as f64 - 128.0
+                } else {
+                    value as f64
+                }
             } else {
                 value as f64 / 127.0
             };

@@ -21,7 +21,15 @@
 - [x] 4.1 Sets in Settings › Keyboard: new, rename, delete, Import…
 - [x] 4.2 Update website/book/src/guide (controllers.md, shortcuts.md)
 
-## 5. Later
+## 5. VirtualDJ K2 follow-up (Seba, 2026-10-30)
 
-- [ ] 5.1 Try the imported K2 VU meters and Twister on the hardware
-- [ ] 5.2 More VirtualDJ device tables as DJs send mappings
+- [x] 5.1 Imported rows replace the base mapping's bindings on every layer (the K2's Mixxx script ran underneath)
+- [x] 5.2 Pitch bend while held, loop move by its length, song position, browser folders and focus, Expand Browser
+- [x] 5.3 openDJscript `jump`, `loop_move`, `expand_browser`; `steps` rows get an encoder's clicks
+- [x] 5.4 `decks` and `deck_order` in the format; Use with 2/4 decks and Deck order in Settings › Controllers
+- [x] 5.5 Imported script rows named in plain words in the Controller Editor
+
+## 6. Later
+
+- [ ] 6.1 Try the imported K2 VU meters and Twister on the hardware
+- [ ] 6.2 More VirtualDJ device tables as DJs send mappings

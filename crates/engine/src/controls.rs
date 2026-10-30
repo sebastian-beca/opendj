@@ -199,6 +199,9 @@ pub(crate) struct DeckControls {
     pub(crate) beatjump: ControlHandle,
     /// Set to N to multiply the loop length by N; the engine zeroes it.
     pub(crate) loop_scale: ControlHandle,
+    /// Moves the loop by that many beats (Mixxx's loop_move), or by that many
+    /// of its own lengths (openDJ's loop_move_loops, VirtualDJ's loop_move).
+    pub(crate) loop_move: [ControlHandle; 2],
     pub(crate) eject: ControlHandle,
     pub(crate) beatsync: ControlHandle,
     /// beatlooproll_N_activate by size, plus beatlooproll_activate as size 0
@@ -418,6 +421,8 @@ impl DeckControls {
             beatjump_size: reg.create(g, "beatjump_size", 4.0, 1.0 / 32.0, 512.0, Behavior::Linear),
             beatjump: reg.create(g, "beatjump", 0.0, -512.0, 512.0, Behavior::Free),
             loop_scale: reg.create(g, "loop_scale", 0.0, 0.0, 64.0, Behavior::Free),
+            loop_move: ["loop_move", "loop_move_loops"]
+                .map(|k| reg.create(g, k, 0.0, -512.0, 512.0, Behavior::Free)),
             eject: reg.push(g, "eject"),
             beatsync: reg.push(g, "beatsync"),
             rolls,

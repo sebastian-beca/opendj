@@ -37,6 +37,8 @@ set '[Master],gain' 1             a control of another group
 | `rating 0` to `rating 5` | Rate tracks; 0 clears the rating |
 | `set`, `toggle`, `press`, `get` | Any control; `get` only asks, in a condition |
 | `adjust 'rate' 50%` | Any control by its 0 to 1 position; a controller's knob gives the level when none is written |
+| `jump 4`, `loop_move` | Jump beats, move the loop by its length; on an encoder, each click (back when turned left) |
+| `expand_browser` | Expand the browser over the decks, or back (the button at the bottom left of the browser) |
 | `value` | What the controller sent, 0 to 1; only in a controller's line, such as `value > 50% ? play : pause` |
 
 In a condition a verb asks rather than does: `play ? …` asks whether the

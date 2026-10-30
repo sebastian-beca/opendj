@@ -464,7 +464,114 @@ fn script_function(line: &str, name: String) -> Function {
             return describe(&group, control);
         }
     }
-    Function::new("Controller", name, "")
+    // `(var 'k2mode' ? hot_cue 1 : play_pause)`: both, as "Hot cue 1 /
+    // Play pause".
+    let l = unwrap_parens(line.trim());
+    if let Some((_, rest)) = split_top(l, '?') {
+        if let Some((a, b)) = split_top(rest, ':') {
+            if let (Some(a), Some(b)) = (line_function(a), line_function(b)) {
+                let target = if a.target == b.target {
+                    a.target
+                } else {
+                    String::new()
+                };
+                return Function::new(a.category, format!("{} / {}", a.name, b.name), target);
+            }
+        }
+    }
+    line_function(l).unwrap_or_else(|| Function::new("Controller", name, ""))
+}
+
+fn unwrap_parens(s: &str) -> &str {
+    let s = s.trim();
+    match s.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
+        // Only when the two belong together: `(a) & (b)` stays.
+        Some(inner) if split_top(inner, ')').is_none() || !inner.contains(')') => inner.trim(),
+        _ => s,
+    }
+}
+
+/// `s` split at its first `sep` outside parentheses and quotes.
+fn split_top(s: &str, sep: char) -> Option<(&str, &str)> {
+    let mut depth = 0i32;
+    let mut quoted = false;
+    for (i, c) in s.char_indices() {
+        match c {
+            '\'' => quoted = !quoted,
+            '(' if !quoted => depth += 1,
+            ')' if !quoted && depth > 0 => depth -= 1,
+            c if c == sep && !quoted && depth == 0 => return Some((&s[..i], &s[i + 1..])),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// One plain action in an openDJscript line, in words: `deck 1 hot_cue 4`
+/// is "Hot cue 4" on Deck 1, `press '[Channel2],hotcue_3_clear'` what
+/// Mixxx's control does.
+fn line_function(line: &str) -> Option<Function> {
+    let line = unwrap_parens(line);
+    if line.contains('&') || line.contains('?') {
+        return None;
+    }
+    let mut words = line.split_whitespace().peekable();
+    let mut deck = None;
+    if words.peek() == Some(&"deck") {
+        words.next();
+        deck = words.next().map(str::to_string);
+    }
+    let verb = words.next()?;
+    let rest: Vec<&str> = words.collect();
+    let group = deck.as_ref().map(|d| format!("[Channel{d}]"));
+    let target = deck
+        .as_ref()
+        .map(|d| format!("Deck {d}"))
+        .unwrap_or_default();
+    if matches!(verb, "press" | "toggle" | "set" | "adjust" | "get") {
+        let quoted = rest.first()?.trim_matches('\'');
+        let (g, k) = match quoted.strip_prefix('[').and_then(|r| r.split_once("],")) {
+            Some((g, k)) => (format!("[{g}]"), k.to_string()),
+            None => (group?, quoted.to_string()),
+        };
+        return Some(describe(&g, &k));
+    }
+    // Verbs that are a Mixxx control underneath read as that control.
+    let n = rest.first().map(|a| a.trim_matches('\'')).unwrap_or("");
+    let key = match verb {
+        "play" | "pause" | "play_pause" => Some("play".to_string()),
+        "sync" => Some("sync_enabled".into()),
+        "key_lock" => Some("keylock".into()),
+        "slip" => Some("slip_enabled".into()),
+        "pfl" => Some("pfl".into()),
+        "hot_cue" if !n.is_empty() => Some(format!("hotcue_{n}_activate")),
+        "loop" if !n.is_empty() => Some(format!("beatloop_{n}_toggle")),
+        "loop_exit" => Some("reloop_toggle".into()),
+        "loop_half" => Some("loop_halve".into()),
+        "loop_double" => Some("loop_double".into()),
+        "loop_in" => Some("loop_in".into()),
+        "loop_out" => Some("loop_out".into()),
+        "pitch_zero" => Some("rate_set_zero".into()),
+        "goto_start" => Some("start".into()),
+        "load" => Some("LoadSelectedTrack".into()),
+        "volume" | "level" => Some("volume".into()),
+        "gain" => Some("pregain".into()),
+        "jump" => Some("beatjump".into()),
+        "loop_move" => Some("loop_move_loops".into()),
+        _ => None,
+    };
+    if let (Some(g), Some(k)) = (&group, key) {
+        let f = describe(g, &k);
+        if f.category != "Controller" {
+            return Some(f);
+        }
+    }
+    let mut name = humanize(verb);
+    for a in &rest {
+        name.push(' ');
+        name.push_str(a.trim_matches('\''));
+    }
+    Some(Function::new("Controller", name, target))
 }
 
 /// Reads the mapping at `path` and works out what it does. `registry` must
@@ -694,6 +801,23 @@ pub fn build_from(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn script_rows_read_in_words() {
+        let f = script_function(
+            "(var 'k2mode' ? deck 1 hot_cue 4 : deck 1 play_pause)",
+            "K22D_BUTTON_MNOP_INNER".into(),
+        );
+        assert_eq!(f.category, "Hot cues");
+        assert!(f.name.contains(" / "), "{}", f.name);
+        assert_eq!(f.target, "Deck 1");
+        let f = script_function("press '[Channel2],hotcue_3_clear'", String::new());
+        assert_eq!(f.target, "Deck 2");
+        assert_eq!(
+            script_function("expand_browser", String::new()).name,
+            "Expand browser"
+        );
+    }
 
     #[test]
     fn splits_descriptions() {

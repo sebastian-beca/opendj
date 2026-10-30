@@ -443,6 +443,17 @@ fn deck_number(sel: &Sel, ctx: Ctx) -> Option<u8> {
     }
 }
 
+/// The Mixxx temporary bend for VirtualDJ's `pitch_bend +2%`: small up to
+/// 3%, the 4% one beyond.
+fn bend(percent: f64) -> &'static str {
+    match (percent > 0.0, percent.abs() < 3.0) {
+        (true, true) => "rate_temp_up_small",
+        (true, false) => "rate_temp_up",
+        (false, true) => "rate_temp_down_small",
+        (false, false) => "rate_temp_down",
+    }
+}
+
 fn ch(d: u8, item: &str) -> String {
     format!("[Channel{d}],{item}")
 }
@@ -567,6 +578,25 @@ fn action(name: &str, args: &[Arg], ctx: Ctx) -> R {
             _ => return no("set needs a variable"),
         },
         "browser_enter" => return press("[Library],GoToItem".into()),
+        "browser_folder" => match num(args, 0) {
+            Some(n) if n < 0.0 => return press("[Playlist],SelectPrevPlaylist".into()),
+            Some(_) => return press("[Playlist],SelectNextPlaylist".into()),
+            None => return press("[Playlist],ToggleSelectedSidebarItem".into()),
+        },
+        "browser_window" if args.is_empty() => return press("[Library],MoveFocusForward".into()),
+        "browser_zoom" => "expand_browser".into(),
+        // Held: the bend lasts until the release row lets go (see
+        // `translate`). openDJ bends by Mixxx's 2% or 4% at once, without
+        // VirtualDJ's easing in.
+        "pitch_bend" => match num(args, 0) {
+            Some(n) if n != 0.0 => return Ok(format!("set '{}' 1", ch(d, bend(n)))),
+            _ => return no("a pitch bend without an amount"),
+        },
+        "loop_move" => format!("loop_move {}", trim(num(args, 0).unwrap_or(1.0))),
+        "song_pos" => match level(args) {
+            Some(l) => return Ok(format!("adjust '{}' {l}", ch(d, "playposition"))),
+            None => return no("song_pos without a position, on a button"),
+        },
         "pad" | "padshift" => {
             return pad(name == "padshift", num(args, 0).unwrap_or(1.0) as u8, ctx)
         }
@@ -665,6 +695,12 @@ fn query(name: &str, args: &[Arg], ctx: Ctx) -> R {
             None => "filter > 50%".into(),
         },
         "true" => "var '_always' 0".into(),
+        // Mixxx's focused_widget: 2 the folders, 3 the track list.
+        "browser_window" => match text(args, 0) {
+            Some("folders") => "get '[Library],focused_widget' < 2.5".into(),
+            Some("songs") => "get '[Library],focused_widget' > 2.5".into(),
+            _ => return no("asking about that browser window"),
+        },
         _ => return no(&format!("openDJ can't ask '{name}' yet")),
     };
     Ok(s)
@@ -693,6 +729,12 @@ fn fader(name: &str, args: &[Arg], d: u8, encoder: bool) -> Option<Out> {
         "headphone_volume" => b("[Master],headGain".into()),
         "headphone_mix" => b("[Master],headMix".into()),
         "booth_volume" => b("[Master],booth_gain".into()),
+        // Each click: the loop moves by its length, the track by a beat
+        // (the DJ can change the size in the line).
+        "loop_move" if encoder => Some(Out::Script(format!("deck {d} loop_move 1"))),
+        "song_pos" if encoder => Some(Out::Script(format!("deck {d} jump 1"))),
+        "browser_folder" if encoder => b("[Playlist],SelectPlaylist".into()),
+        "browser_window" if encoder => b("[Library],MoveFocus".into()),
         "browser_scroll" => Some(Out::Bind(
             "[Library],MoveVertical".into(),
             vec!["selectknob"],
@@ -720,8 +762,6 @@ fn fixed(v: &V, ctx: Ctx) -> Option<bool> {
             let _ = a;
             None
         }
-        // openDJ has no folders pane to be in.
-        V::Verb(n, _) if n == "browser_window" => Some(false),
         V::Verb(n, _) if n == "doubleclick" => Some(false),
         // VirtualDJ asks whether its effect chooser is open; openDJ's isn't
         // opened from a controller.
@@ -877,7 +917,19 @@ fn translate(src: &str, ctx: Ctx, encoder: bool) -> Vec<(When, Result<Out, Strin
             return out;
         }
     }
-    vec![(When::Press, one(&v, ctx, encoder))]
+    let mut out = vec![(When::Press, one(&v, ctx, encoder))];
+    if !encoder && !ctx.light && src.contains("pitch_bend") {
+        let line = [
+            "rate_temp_up",
+            "rate_temp_down",
+            "rate_temp_up_small",
+            "rate_temp_down_small",
+        ]
+        .map(|k| format!("set '{}' 0", ch(ctx.deck, k)))
+        .join(" & ");
+        out.push((When::Release, Ok(Out::Script(line))));
+    }
+    out
 }
 
 fn one(v: &V, ctx: Ctx, encoder: bool) -> Result<Out, String> {
@@ -924,6 +976,8 @@ struct Place {
     light: Option<Midi>,
     /// For the light: colours when they differ from the controller's.
     colors: Option<&'static [(&'static str, u8)]>,
+    /// The deck is the column's, so the mapping's deck order picks it.
+    by_position: bool,
 }
 
 struct Device {
@@ -933,6 +987,9 @@ struct Device {
     color_notes: bool,
     places: fn(&Device, &str) -> Vec<Place>,
     variables: &'static [(&'static str, bool)],
+    /// A controller with two-deck and four-deck layouts: the use it starts
+    /// in and its four-deck order.
+    decks: Option<(u8, [u8; 4])>,
     note: &'static str,
 }
 
@@ -978,6 +1035,7 @@ impl Device {
                 .any(|p| p.id == id && p.kind == "encoder"),
             light: None,
             colors: None,
+            by_position: false,
         })
     }
 }
@@ -1086,6 +1144,7 @@ fn flx4_places(dev: &Device, name: &str) -> Vec<Place> {
                             encoder: false,
                             light: None,
                             colors: None,
+                            by_position: false,
                         })
                     })
                 })
@@ -1113,17 +1172,19 @@ fn k2_places(dev: &Device, name: &str) -> Vec<Place> {
     let columns: Vec<(u8, u8, Side)> = match family {
         "2" if rest.ends_with("_OUTER") => vec![(1, 1, Side::Left), (4, 2, Side::Right)],
         "2" if rest.ends_with("_INNER") => vec![(2, 1, Side::Left), (3, 2, Side::Right)],
+        // Columns 1 to 4; the mapping's deck order (3 1 2 4 to start, as
+        // VirtualDJ and openDJ's 4-Deck screen) says which deck each is.
         "4" => vec![
-            (1, 3, Side::Left),
-            (2, 1, Side::Left),
-            (3, 2, Side::Right),
+            (1, 1, Side::Left),
+            (2, 2, Side::Left),
+            (3, 3, Side::Right),
             (4, 4, Side::Right),
         ],
         _ => vec![(1, 1, Side::Left)],
     };
     let layer = match family {
-        "2" => "4decks=0",
-        "4" => "4decks",
+        "2" => "decks=2",
+        "4" => "decks=4",
         _ => "2xk2",
     };
     let part = rest.trim_end_matches("_OUTER").trim_end_matches("_INNER");
@@ -1139,6 +1200,7 @@ fn k2_places(dev: &Device, name: &str) -> Vec<Place> {
             encoder: label.is_empty() && id.starts_with("enc"),
             light: None,
             colors: None,
+            by_position: false,
         })
     };
     let each = |f: &dyn Fn(u8) -> (String, &'static str)| -> Vec<Place> {
@@ -1146,7 +1208,9 @@ fn k2_places(dev: &Device, name: &str) -> Vec<Place> {
             .iter()
             .filter_map(|(c, d, s)| {
                 let (id, label) = f(*c);
-                at(id, label, *d, *s)
+                let mut p = at(id, label, *d, *s)?;
+                p.by_position = family == "4";
+                Some(p)
             })
             .collect()
     };
@@ -1280,6 +1344,7 @@ fn twister_places(dev: &Device, name: &str) -> Vec<Place> {
             encoder,
             light: None,
             colors: None,
+            by_position: false,
         })
     };
     let grid = |press: bool, r: &str| -> Option<Place> {
@@ -1322,6 +1387,7 @@ fn device(name: &str) -> Option<Device> {
             color_notes: false,
             places: flx4_places,
             variables: &[("shift", false)],
+            decks: None,
             note: "",
         }),
         "XONEK2" | "XONE:K2" | "K2" => Some(Device {
@@ -1330,8 +1396,9 @@ fn device(name: &str) -> Option<Device> {
             colors: colors(&[("red", 0), ("orange", 36), ("amber", 36), ("yellow", 36), ("green", 72)]),
             color_notes: true,
             places: k2_places,
-            variables: &[("shift", false), ("4decks", true), ("2xk2", true)],
-            note: "VirtualDJ's two-deck K2 layout is on when the 4decks variable is 0 (the start), its four-deck layout when it's 1. Its rows for two K2s (2XK2) wait on the 2xk2 variable.",
+            variables: &[("shift", false), ("2xk2", true)],
+            decks: Some((2, [3, 1, 2, 4])),
+            note: "VirtualDJ's K2 has a two-deck and a four-deck layout: Settings › Controllers picks which one you use, and the deck order for four decks (3 1 2 4 to start). Its rows for two K2s (2XK2) wait on the 2xk2 variable.",
         }),
         "FIGHTERTW" | "MIDIFIGHTERTWISTER" => Some(Device {
             name: "DJ TechTools Midi Fighter Twister",
@@ -1350,6 +1417,7 @@ fn device(name: &str) -> Option<Device> {
             color_notes: false,
             places: twister_places,
             variables: &[("shift", false)],
+            decks: None,
             note: "",
         }),
         _ => None,
@@ -1441,20 +1509,10 @@ pub(super) fn import(text: &str, file: &str) -> Result<Import, String> {
                 let msg = if shift { msg } else { p.light.unwrap_or(msg) };
                 let mut light = match translate(src, ctx, false).pop() {
                     Some((_, Ok(Out::Script(s)))) => {
-                        let s = if layer.is_empty() {
-                            s
-                        } else {
-                            // A light on a layer shows only while the layer holds.
-                            let conds: Vec<String> = crate::format::parse_layer(&layer)
-                                .into_iter()
-                                .map(|(n, v)| match v {
-                                    Some(v) => format!("var '{n}' {}", trim(v)),
-                                    None => format!("var '{n}'"),
-                                })
-                                .collect();
-                            format!("({} ? {s} : off)", conds.join(" & "))
-                        };
-                        Light::new(msg, LightSource::Script(s))
+                        // A light on a layer shows only while the layer holds.
+                        let mut l = Light::new(msg, LightSource::Script(s));
+                        l.layer = layer.clone();
+                        l
                     }
                     Some((_, Err(why))) => {
                         let mut l = Light::new(msg, LightSource::Nothing);
@@ -1473,6 +1531,7 @@ pub(super) fn import(text: &str, file: &str) -> Result<Import, String> {
                     None => dev.colors.clone(),
                 };
                 light.color_notes = dev.color_notes;
+                light.by_position = p.by_position;
                 m.lights.push(light);
                 continue;
             }
@@ -1496,7 +1555,12 @@ pub(super) fn import(text: &str, file: &str) -> Result<Import, String> {
                 };
                 let mut row = match out {
                     Ok(Out::Bind(c, o)) => Row::bind(msg, &c, &o),
-                    Ok(Out::Script(s)) => Row::script(msg, &s),
+                    Ok(Out::Script(s)) => {
+                        let mut r = Row::script(msg, &s);
+                        // jump and loop_move count an encoder's clicks.
+                        r.steps = p.encoder && (s.contains(" jump ") || s.contains(" loop_move "));
+                        r
+                    }
                     Err(why) => {
                         let mut r = Row::unsupported(msg, value, src.trim(), &why);
                         r.when = when;
@@ -1505,6 +1569,7 @@ pub(super) fn import(text: &str, file: &str) -> Result<Import, String> {
                 };
                 row.name = value.clone();
                 row.layer = layer.clone();
+                row.by_position = p.by_position;
                 row.when = when;
                 // Two names on one button: VirtualDJ picks by its own rules;
                 // openDJ keeps the first.
@@ -1563,6 +1628,10 @@ pub(super) fn import(text: &str, file: &str) -> Result<Import, String> {
     ));
     if !dev.note.is_empty() {
         import.notes.push(dev.note.to_string());
+    }
+    if let Some((decks, order)) = dev.decks {
+        m.decks = Some(decks);
+        m.deck_order = Some(order);
     }
     if !unknown.is_empty() {
         import.notes.push(format!(
@@ -1730,7 +1799,41 @@ mod tests {
         );
         let held = translate("holding ? browser_folder : deck right load", c, false);
         assert_eq!(held[0].0, When::Long);
-        assert!(held[0].1.is_err());
+        assert_eq!(
+            held[0].1,
+            Ok(Out::Script(
+                "press '[Playlist],ToggleSelectedSidebarItem'".into()
+            ))
+        );
+        // The bend lasts while held: a release row lets go.
+        let bend = translate(
+            "var '@$k2mode' ? hot_cue 1 : pitch_bend +2% 500ms",
+            c,
+            false,
+        );
+        assert_eq!(
+            bend[0].1,
+            Ok(Out::Script(
+                "(var 'k2mode' ? hot_cue 1 : set '[Channel2],rate_temp_up_small' 1)".into()
+            ))
+        );
+        assert_eq!(bend[1].0, When::Release);
+        assert_eq!(
+            translate("loop_move", c, true)[0].1,
+            Ok(Out::Script("deck 2 loop_move 1".into()))
+        );
+        assert_eq!(
+            translate(
+                "browser_window 'folders' ? browser_enter : deck right load",
+                c,
+                false
+            )[0]
+            .1,
+            Ok(Out::Script(
+                "(get '[Library],focused_widget' < 2.5 ? press '[Library],GoToItem' : deck 2 load)"
+                    .into()
+            ))
+        );
         assert_eq!(held[1], (When::Tap, Ok(Out::Script("deck 2 load".into()))));
     }
 
@@ -1784,7 +1887,7 @@ mod tests {
             .collect();
         assert_eq!(faders.len(), 2);
         assert_eq!(faders[0].midi, Midi::new(0xBE, 0x11));
-        assert_eq!(faders[0].layer, "4decks=0");
+        assert_eq!(faders[0].layer, "decks=2");
         assert!(
             matches!(&faders[1].action, Action::Bind { control, .. } if control == "[Channel2],volume")
         );
@@ -1793,7 +1896,7 @@ mod tests {
             .iter()
             .filter(|r| r.name.starts_with("SHIFT_K22D_BUTTON_EFGH"))
             .collect();
-        assert_eq!(del[0].layer, "4decks=0 & shift");
+        assert_eq!(del[0].layer, "decks=2 & shift");
         assert_eq!(
             del[0].action,
             Action::Script("press '[Channel1],hotcue_3_clear'".into())
@@ -1813,15 +1916,23 @@ mod tests {
         assert!(matches!(&vu.source, LightSource::Script(s) if s.contains("vu_meter > 75%")));
         let k4: Vec<_> = m.rows.iter().filter(|r| r.name == "K2_KNOB_1").collect();
         assert_eq!(k4.len(), 4);
-        assert_eq!(k4[0].layer, "4decks");
+        assert_eq!(k4[0].layer, "decks=4");
+        // Columns are positions; the deck order says which deck each is.
+        assert!(k4.iter().all(|r| r.by_position));
+        assert_eq!((m.decks, m.deck_order), (Some(2), Some([3, 1, 2, 4])));
         let load: Vec<_> = m
             .rows
             .iter()
             .filter(|r| r.name == "K22D_ENC_BTM_L_PUSH")
             .collect();
-        assert_eq!(load[1].action, Action::Script("deck 1 load".into()));
+        assert_eq!(
+            load[1].action,
+            Action::Script(
+                "(get '[Library],focused_widget' < 2.5 ? press '[Library],GoToItem' : deck 1 load)"
+                    .into()
+            )
+        );
         assert!(i.notes.iter().any(|n| n.contains("MYSTERY_KNOB")));
-        assert!(m.variables.iter().any(|v| v.name == "4decks" && v.saved));
         for r in &m.rows {
             if let Action::Script(s) = &r.action {
                 opendj_script::parse(s).unwrap();
@@ -1868,10 +1979,25 @@ mod tests {
         let m = &import(K2, "k2.xml").unwrap().mappings[0];
         let built = m.build(Some(&base), &dir);
         // The inner fader of deck 1 now runs the imported row.
+        // The inner fader of deck 1 runs the imported row alone: used with
+        // two decks, the four-deck rows and the base's binding are gone.
         let fader = &built.inputs[&(0xBE, 0x11)];
-        assert!(fader.iter().any(|i| i.group == "[Channel1]"
-            && i.key == "volume"
-            && i.layer.contains(&("4decks".into(), Some(0.0)))));
+        assert_eq!(fader.len(), 1, "{fader:?}");
+        assert!(
+            fader[0].group == "[Channel1]" && fader[0].key == "volume" && fader[0].layer.is_empty()
+        );
+        // Used with four decks, column 1 is deck 3 and column 2 deck 1.
+        let mut four = m.clone();
+        four.decks = Some(4);
+        let (rows, _) = four.for_decks();
+        let eq: Vec<_> = rows.iter().filter(|r| r.name == "K2_KNOB_1").collect();
+        assert!(
+            matches!(&eq[0].action, Action::Bind { control, .. } if control.contains("[Channel3]"))
+        );
+        assert!(
+            matches!(&eq[1].action, Action::Bind { control, .. } if control.contains("[Channel1]"))
+        );
+        assert!(rows.iter().all(|r| r.name != "K22D_FADER_INNER"));
         // The VU meter light is a script light.
         assert!(built.outputs.iter().any(|o| o
             .script
