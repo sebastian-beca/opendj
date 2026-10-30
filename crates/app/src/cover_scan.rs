@@ -1,5 +1,6 @@
-//! Looks for album art in the collection's files on a thread of its own, one
-//! file at a time, for Collection Health's "No cover" check. Each answer is
+//! Looks for album art and the bitrate in the collection's files on a thread
+//! of its own, one file at a time, for Collection Health's "No cover" and
+//! "Low bitrate" checks. Each answer is
 //! kept in the library with the file's modification time, so a file is
 //! only looked at again once it changes.
 
@@ -8,15 +9,16 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::UNIX_EPOCH;
 
-use opendj_engine::cover;
+use opendj_engine::{cover, tags};
+use opendj_library::health::FileLook;
 
 /// A file to look at: the track's id, its path and album.
 type Request = (usize, PathBuf, String);
 
 pub struct CoverScan {
     requests: Sender<Request>,
-    /// Id, the file's modification time, and whether it has a cover.
-    done: Receiver<(usize, i64, bool)>,
+    /// Id and what was found.
+    done: Receiver<(usize, FileLook)>,
     /// Ids sent and not yet back.
     queued: HashSet<usize>,
 }
@@ -53,8 +55,13 @@ impl CoverScan {
             .name("cover-scan".into())
             .spawn(move || {
                 for (id, path, album) in rx {
-                    let has = cover::has_cover(&path, &album);
-                    if tx.send((id, mtime(&path), has)).is_err() {
+                    let look = FileLook {
+                        mtime: mtime(&path),
+                        cover: cover::has_cover(&path, &album),
+                        // 0: looked, but the file doesn't say.
+                        bitrate: Some(tags::file_info(&path).bitrate.unwrap_or(0)),
+                    };
+                    if tx.send((id, look)).is_err() {
                         break;
                     }
                 }
@@ -77,7 +84,7 @@ impl CoverScan {
     }
 
     /// Files looked at since the last call.
-    pub fn take(&mut self) -> Vec<(usize, i64, bool)> {
+    pub fn take(&mut self) -> Vec<(usize, FileLook)> {
         let done: Vec<_> = self.done.try_iter().collect();
         for (id, ..) in &done {
             self.queued.remove(id);

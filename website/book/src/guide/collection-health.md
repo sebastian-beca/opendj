@@ -1,7 +1,8 @@
 # Collection Health
 
-**Collection Health**, under All Tracks in the collection, checks the whole
-collection for what needs fixing. Its page has one line per check, with how
+**Collection Health**, the heart under Collection in the rail, checks the whole
+collection for what needs fixing. Its badge counts the checks that found
+something. Its page has one line per check, with how
 many tracks it finds; **Review** lists them, and the bar above the list
 fixes them all at once. To fix only some, pick them (shift-click for a
 range) and right-click.
@@ -13,7 +14,8 @@ range) and right-click.
 | Outside folders | Files outside your music folders and stage folders, such as ones that came in with a VirtualDJ import | Move to In Prep, Remove from collection |
 | Duplicates | The same track more than once: same artist, title and remix | Fix all easy, Keep this copy, Link as versions (see [Duplicates](#duplicates)) |
 | Not analyzed | No tempo or key | Analyze, in the background |
-| Missing info | No artist, title, album, year or genre | Fill from file name (`Artist - Title.mp3`), written to the file too; Look up online (see [Online lookup](#online-lookup)) |
+| Missing or poor metadata | No artist, title, album, year or genre, or one that says nothing, like "Unknown Artist", "Untitled" or "Track 01" | Fill from file name (`Artist - Title.mp3`), written to the file too; Look up online (see [Online lookup](#online-lookup)) |
+| Low bitrate | Compressed files under 192 kb/s, which can sound dull on a big system | None yet: replace them with a better copy |
 | Junk in names | Track numbers, web sites, "(Official Video)", underscores, or a remix or guest in the title | Clean up… (see [Clean-up](#clean-up)), Look up online |
 | No cover | No picture in the file's tags or its folder | Find covers online, or one by one from the track's info panel |
 | No rating | No stars | Rate them in the list |
@@ -22,8 +24,8 @@ range) and right-click.
 
 **Lists** at the bottom of the page shows up when crates are empty or lists
 still hold tracks you removed from your collection. **Tidy up** deletes the
-empty crates and takes those tracks out of the lists. The lists of a set
-are left alone, since a new set starts empty.
+empty crates and takes those tracks out of the lists. Playlists are left
+alone, since a new one starts empty.
 
 **Ignore for** in the right-click menu tells a check to leave a track
 alone. A track that isn't music is left out of the other checks, so an
@@ -34,7 +36,7 @@ shows, and a rescan or a VirtualDJ import doesn't bring it back; adding the
 file again does, and so does **Bring back** at the bottom of the page.
 
 Each check is also a search: `is:notmusic`, `is:stray`, `is:outside`, `is:unanalyzed`,
-`is:noinfo`, `is:junk`, `is:nocover`, `is:unrated`, `is:missing`, `is:long` and
+`is:noinfo`, `is:lowbitrate`, `is:junk`, `is:nocover`, `is:unrated`, `is:missing`, `is:long` and
 `is:duplicate`.
 
 Covers are looked for in the background, and a file is looked at again
@@ -77,7 +79,7 @@ filled in), and **Merge**. Undo takes a merge back too.
 
 ## Online lookup
 
-**Look up online** on Missing info or Junk in names (or a right-click on
+**Look up online** on Missing or poor metadata or Junk in names (or a right-click on
 some of their tracks) looks each track up on MusicBrainz, one a second in
 the background, and opens the same review table as Clean-up with what it
 found: artist, title, album, year, and with a Discogs token also the label

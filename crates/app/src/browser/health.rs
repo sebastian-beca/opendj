@@ -89,7 +89,7 @@ fn fixes(check: Check, stages: bool) -> Vec<Fix> {
         Check::Junk => vec![Fix::CleanUp, Fix::LookUp],
         Check::NoCover => vec![Fix::FindCovers],
         Check::AlbumTags => vec![Fix::SameAlbum],
-        Check::NoRating => Vec::new(),
+        Check::NoRating | Check::LowBitrate => Vec::new(),
     }
 }
 
@@ -103,21 +103,24 @@ fn copies(n: usize) -> String {
     format!("{n} cop{}", if n == 1 { "y" } else { "ies" })
 }
 
-/// The tree's Collection Health node, closed, with a node per check under it.
+/// Collection Health's tree: the overview page, then a node per check, the
+/// cases of copies under Duplicates (closed: they read the copies' files).
 pub(super) fn health_nodes() -> Vec<Node> {
-    let mut top = Node::new("Collection Health", 0, KIND_HEALTH, Contents::Health(None));
-    top.expanded = false;
-    let mut nodes = vec![top];
+    let mut nodes = vec![Node::new(
+        "Overview",
+        0,
+        KIND_HEALTH,
+        Contents::Health(None),
+    )];
     for check in Check::ALL {
-        let mut node = Node::new(check.title(), 1, KIND_CHECK, Contents::Health(Some(check)));
-        // Its cases read the copies' files, so they wait to be opened.
-        node.expanded = check != Check::Duplicate;
+        let mut node = Node::new(check.title(), 0, KIND_CHECK, Contents::Health(Some(check)));
+        node.expanded = false;
         nodes.push(node);
         if check == Check::Duplicate {
             for case in Case::ALL {
                 nodes.push(Node::new(
                     case.title(),
-                    2,
+                    1,
                     KIND_CHECK,
                     Contents::Dupes(case),
                 ));
@@ -160,6 +163,8 @@ impl Browser {
         ui: &HealthUi,
         with: &(impl Fn(&dyn Fn(&mut Browser)) + Clone + 'static),
     ) {
+        let w = with.clone();
+        ui.on_show(move |on| w(&|b| b.show_health(on)));
         let w = with.clone();
         ui.on_review(move |i| {
             w(&|b| {
@@ -617,6 +622,7 @@ impl Browser {
             .map(|t| &**t)
             .collect();
         let mut covers = HashMap::new();
+        let mut bitrates = Vec::new();
         let mut look = Vec::new();
         for t in &tracks {
             let Some(path) = file_path(t) else { continue };
@@ -624,8 +630,12 @@ impl Browser {
                 continue;
             }
             match saved.get(&t.id) {
-                Some(&(mtime, has)) if mtime == cover_scan::mtime(path) => {
-                    covers.insert(t.id, has);
+                // Looked at before bitrates were: look again.
+                Some(found)
+                    if found.mtime == cover_scan::mtime(path) && found.bitrate.is_some() =>
+                {
+                    covers.insert(t.id, found.cover);
+                    bitrates.extend(found.bitrate.map(|b| (t.id, b)));
                 }
                 _ => look.push((t.id, path.to_path_buf(), t.album.clone())),
             }
@@ -643,6 +653,9 @@ impl Browser {
         .with_rules(settings::cleanup_rules());
         if let Some(albums) = &self.folders.albums {
             facts = facts.with_albums(albums, tracks.iter().copied());
+        }
+        for (id, kbps) in bitrates {
+            facts.set_bitrate(id, kbps);
         }
         self.health = facts;
         self.removed = db.removed_count().unwrap_or(0);
@@ -687,13 +700,16 @@ impl Browser {
                 eprintln!("can't save covers: {e}");
             }
         }
-        for (id, _, has) in found {
-            self.health.set_cover(id, has);
+        for (id, look) in found {
+            self.health.set_cover(id, look.cover);
+            if let Some(kbps) = look.bitrate {
+                self.health.set_bitrate(id, kbps);
+            }
         }
         self.refresh_tree();
         if matches!(
             self.nodes.get(self.current_node).map(|n| &n.contents),
-            Some(Contents::Health(Some(Check::NoCover)))
+            Some(Contents::Health(Some(Check::NoCover | Check::LowBitrate)))
         ) {
             self.refresh_rows();
         }
@@ -701,18 +717,21 @@ impl Browser {
 
     /// Selects a check's node (or the Collection Health node), opening it.
     fn review(&mut self, check: Option<Check>) {
+        self.show_health(true);
         let Some(n) = self.nodes.iter().position(|n| match (&n.contents, check) {
             (Contents::Health(c), _) => *c == check,
             _ => false,
         }) else {
             return;
         };
-        if let Some(top) = self
+        // A case of copies sits under Duplicates.
+        if let Some(dupes) = self
             .nodes
             .iter()
-            .position(|n| matches!(n.contents, Contents::Health(None)))
+            .position(|n| matches!(n.contents, Contents::Health(Some(Check::Duplicate))))
+            .filter(|&d| d < n && self.nodes[n].depth > 0)
         {
-            self.nodes[top].expanded = true;
+            self.nodes[dupes].expanded = true;
         }
         self.health_status.clear();
         self.current_node = n;
@@ -773,6 +792,11 @@ impl Browser {
                 }
             })
             .collect();
+        // The rail's badge: the checks that find something to fix.
+        if self.saved() {
+            ui.set_issues(cards.iter().filter(|c| c.count > 0).count() as i32);
+        }
+        ui.set_view(self.health_view && self.tree == super::COLLECTION);
         ui.set_cards(ModelRc::new(VecModel::from(cards)));
         ui.set_status(self.health_status.clone().into());
         ui.set_removed(self.removed as i32);
@@ -1188,7 +1212,8 @@ mod tests {
     fn every_check_has_a_node_and_fixes_fit() {
         let nodes = health_nodes();
         assert_eq!(nodes.len(), Check::ALL.len() + Case::ALL.len() + 1);
-        assert!(!nodes[0].expanded);
+        assert_eq!(nodes[0].name, "Overview");
+        assert!(nodes.iter().all(|n| n.depth <= 1));
         assert_eq!(fixes(Check::Stray, false), [Fix::Remove]);
         assert_eq!(fixes(Check::Stray, true)[0], Fix::ToTriage);
     }

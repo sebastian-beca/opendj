@@ -1,25 +1,16 @@
-//! Crates and sets, the two kinds of playlist: a crate is a long-lived
-//! list a track can sit in alongside others (Yoga, Journeys, Dance), and a
-//! set is a folder made for one gig from a template of lists (Staging, Set,
-//! Live set). Also what Collection Health finds in playlists: lists left
-//! empty, and entries for tracks taken out of the library.
+//! Crates: the DJ's long-lived lists at the top of the tree, a track in
+//! as many as it fits (Yoga, Journeys, Dance), as against playlists, which
+//! sit in folders. Also what Collection Health finds in playlists: crates
+//! left empty, and entries for tracks taken out of the library.
 
 use std::collections::HashMap;
 
-use rusqlite::params;
-
-use crate::{now, track_id, Error, Library, PlaylistKind};
-
-/// The lists a new set gets when the DJ hasn't changed the template.
-pub const TEMPLATE: [&str; 3] = ["Staging", "Set", "Live set"];
-
-/// The list of a set that History's "Add to Set List…" fills.
-pub const LIVE_SET: &str = "Live set";
+use crate::{track_id, Error, Library, PlaylistKind};
 
 /// What Collection Health finds in the DJ's lists.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ListHealth {
-    /// Crates with no tracks (lists in a set are left alone: a new set
+    /// Crates with no tracks (playlists are left alone: one made for a gig
     /// starts empty).
     pub empty: Vec<i64>,
     /// Entries in lists for tracks removed from the library.
@@ -32,89 +23,22 @@ impl ListHealth {
     }
 }
 
+/// Whether a list is a crate: one of the DJ's own lists at the top of the
+/// tree, not in a folder.
+pub fn is_crate(p: &crate::Playlist) -> bool {
+    p.kind == PlaylistKind::List && p.parent.is_none() && p.source.is_none()
+}
+
 impl Library {
-    /// Makes a set folder named `name` at the top of the tree with a list
-    /// for each of `lists`, and returns the folder's id.
-    pub fn create_set(&mut self, name: &str, lists: &[String]) -> Result<i64, Error> {
-        let tx = self.db.transaction()?;
-        let position: i64 = tx.query_row(
-            "SELECT COALESCE(MAX(position), -1) + 1 FROM playlists WHERE parent IS NULL",
-            [],
-            |r| r.get(0),
-        )?;
-        tx.execute(
-            "INSERT INTO playlists (parent, name, kind, position, created)
-             VALUES (NULL, ?1, ?2, ?3, ?4)",
-            params![name, PlaylistKind::Set.to_i64(), position, now()],
-        )?;
-        let set = tx.last_insert_rowid();
-        let names = lists.iter().map(|l| l.trim()).filter(|l| !l.is_empty());
-        for (position, list) in names.enumerate() {
-            tx.execute(
-                "INSERT INTO playlists (parent, name, kind, position, created)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    set,
-                    list,
-                    PlaylistKind::List.to_i64(),
-                    position as i64,
-                    now()
-                ],
-            )?;
-        }
-        tx.commit()?;
-        Ok(set)
-    }
-
-    /// The set folders, newest first: (id, name).
-    pub fn sets(&self) -> Result<Vec<(i64, String)>, Error> {
-        let mut q = self.db.prepare(
-            "SELECT id, name FROM playlists WHERE kind = ?1 ORDER BY created DESC, id DESC",
-        )?;
-        let sets = q
-            .query_map([PlaylistKind::Set.to_i64()], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect();
-        sets
-    }
-
-    /// The set's Live set list, made at its end when the set has none.
-    pub fn live_set(&self, set: i64) -> Result<i64, Error> {
-        let mut q = self
-            .db
-            .prepare("SELECT id, name FROM playlists WHERE parent = ?1 AND kind = ?2")?;
-        let lists: Vec<(i64, String)> = q
-            .query_map(params![set, PlaylistKind::List.to_i64()], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })?
-            .collect::<Result<_, _>>()?;
-        if let Some((id, _)) = lists
-            .iter()
-            .find(|(_, n)| n.trim().eq_ignore_ascii_case(LIVE_SET))
-        {
-            return Ok(*id);
-        }
-        self.create_playlist(LIVE_SET, Some(set), PlaylistKind::List)
-    }
-
-    /// The lists that are crates: the DJ's lists outside any set.
+    /// The crates: the DJ's own lists at the top of the tree, all but the
+    /// Inbox list downloads are noted in.
     fn crate_ids(&self) -> Result<HashMap<i64, String>, Error> {
-        let all = self.playlists()?;
-        let kind: HashMap<i64, (Option<i64>, PlaylistKind)> =
-            all.iter().map(|p| (p.id, (p.parent, p.kind))).collect();
-        let in_set = |mut parent: Option<i64>| {
-            while let Some(id) = parent {
-                match kind.get(&id) {
-                    Some((_, PlaylistKind::Set)) => return true,
-                    Some((up, _)) => parent = *up,
-                    None => return false,
-                }
-            }
-            false
-        };
-        Ok(all
-            .iter()
-            .filter(|p| p.kind == PlaylistKind::List && !in_set(p.parent))
-            .map(|p| (p.id, p.name.clone()))
+        let inbox = self.inbox_list_id();
+        Ok(self
+            .playlists()?
+            .into_iter()
+            .filter(|p| is_crate(p) && Some(p.id) != inbox)
+            .map(|p| (p.id, p.name))
             .collect())
     }
 
@@ -201,53 +125,23 @@ mod tests {
     }
 
     #[test]
-    fn a_set_gets_its_lists_and_a_live_set() {
-        let (mut lib, _) = library();
-        let lists: Vec<String> = ["Staging", "Set", " ", "Openers"]
-            .map(String::from)
-            .to_vec();
-        let set = lib.create_set("Fri 31 Oct", &lists).unwrap();
-        let tree = lib.playlists().unwrap();
-        let names: Vec<(&str, PlaylistKind)> = tree
-            .iter()
-            .filter(|p| p.kind != PlaylistKind::Smart)
-            .map(|p| (p.name.as_str(), p.kind))
-            .collect();
-        assert_eq!(
-            names,
-            [
-                ("Fri 31 Oct", PlaylistKind::Set),
-                ("Staging", PlaylistKind::List),
-                ("Set", PlaylistKind::List),
-                ("Openers", PlaylistKind::List),
-            ]
-        );
-        assert_eq!(lib.sets().unwrap(), [(set, "Fri 31 Oct".to_string())]);
-        // No Live set in this template: one is made, and found after.
-        let live = lib.live_set(set).unwrap();
-        assert_eq!(lib.live_set(set).unwrap(), live);
-        assert_eq!(lib.playlists().unwrap().len(), tree.len() + 1);
-    }
-
-    #[test]
-    fn crates_are_lists_outside_sets() {
+    fn crates_are_lists_at_the_top() {
         let (mut lib, ids) = library();
         let yoga = lib
             .create_playlist("Yoga", None, PlaylistKind::List)
             .unwrap();
         let folder = lib
-            .create_playlist("Styles", None, PlaylistKind::Folder)
+            .create_playlist("Gigs", None, PlaylistKind::Folder)
             .unwrap();
-        let dance = lib
-            .create_playlist("Dance", Some(folder), PlaylistKind::List)
+        let friday = lib
+            .create_playlist("Friday", Some(folder), PlaylistKind::List)
             .unwrap();
-        let set = lib.create_set("Gig", &TEMPLATE.map(String::from)).unwrap();
-        let live = lib.live_set(set).unwrap();
+        let inbox = lib.inbox_list().unwrap();
         lib.add_to_playlist(yoga, &[ids[0], ids[1]]).unwrap();
-        lib.add_to_playlist(dance, &[ids[0], ids[0]]).unwrap();
-        lib.add_to_playlist(live, &[ids[2]]).unwrap();
+        lib.add_to_playlist(friday, &[ids[0], ids[2]]).unwrap();
+        lib.add_to_playlist(inbox, &[ids[2]]).unwrap();
         let crates = lib.crates_by_track().unwrap();
-        assert_eq!(crates[&ids[0]], ["Dance", "Yoga"]);
+        assert_eq!(crates[&ids[0]], ["Yoga"]);
         assert_eq!(crates[&ids[1]], ["Yoga"]);
         assert!(!crates.contains_key(&ids[2]));
     }
@@ -261,11 +155,15 @@ mod tests {
         let yoga = lib
             .create_playlist("Yoga", None, PlaylistKind::List)
             .unwrap();
-        lib.create_set("Gig", &TEMPLATE.map(String::from)).unwrap();
+        let gig = lib
+            .create_playlist("Gig", None, PlaylistKind::Folder)
+            .unwrap();
+        lib.create_playlist("Set", Some(gig), PlaylistKind::List)
+            .unwrap();
         lib.add_to_playlist(yoga, &[ids[0], ids[1]]).unwrap();
         lib.remove_tracks(&[ids[1]]).unwrap();
         let health = lib.list_health().unwrap();
-        // The set's lists are empty too, but a new set is meant to be.
+        // The gig's playlist is empty too, but a new one is meant to be.
         assert_eq!(
             health,
             ListHealth {

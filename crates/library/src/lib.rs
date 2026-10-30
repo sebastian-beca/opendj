@@ -48,17 +48,22 @@ pub const ID_BASE: usize = 1_000_000;
 /// 9 added `tracks.stage` (see [`stages`]).
 /// 10 added `tracks.grid_locked` and `grid_unsure`; imported grids start
 /// locked.
-const VERSION: i32 = 10;
+const VERSION: i32 = 11;
 
 /// The `source` of grids, keys and markers found by this app's analysis.
 const ANALYSIS: &str = "analysis";
 
 /// The smart lists a new library starts with: name and search.
-const STARTER_SMART_LISTS: [(&str, &str); 6] = [
+const STARTER_SMART_LISTS: [(&str, &str); 4] = [
     ("Mixes with deck", "~deck"),
     ("Recently added", "added:<30d"),
     ("Top rated", "rating:>=4"),
     ("Never played", "played:0"),
+];
+
+/// Starter smart lists Collection Health took over: taken out of the tree
+/// when the DJ left them as they came.
+const RETIRED_SMART_LISTS: [(&str, &str); 2] = [
     ("Duplicates", "is:duplicate"),
     ("Missing files", "is:missing"),
 ];
@@ -515,6 +520,15 @@ impl Library {
                      WHERE grid IS NOT NULL AND grid_source NOT IN ('analysis', 'user')",
                 )?;
             }
+            if (2..11).contains(&version) {
+                for (name, query) in RETIRED_SMART_LISTS {
+                    db.execute(
+                        "DELETE FROM playlists
+                         WHERE kind = 3 AND parent IS NULL AND name = ?1 AND query = ?2",
+                        params![name, query],
+                    )?;
+                }
+            }
             if version < 5 {
                 // Keys brought in from another app came from there.
                 db.execute_batch(
@@ -539,6 +553,13 @@ impl Library {
             db.execute_batch("ALTER TABLE wanted ADD COLUMN source TEXT")?;
         }
         db.execute_batch(health::HEALTH_SCHEMA)?;
+        // Bitrates came after covers: files looked at before get read again.
+        let has_bitrate = db
+            .prepare("SELECT 1 FROM pragma_table_info('covers') WHERE name = 'bitrate'")?
+            .exists([])?;
+        if !has_bitrate {
+            db.execute_batch("ALTER TABLE covers ADD COLUMN bitrate INTEGER")?;
+        }
         db.execute_batch(cleanup::CHANGES_SCHEMA)?;
         let lib = Library { db };
         if version < 2 {
@@ -1642,6 +1663,12 @@ impl Library {
             id: track_id(row),
             ..track.clone()
         })
+    }
+
+    /// The Inbox list's id, if it has been made: the browser leaves it out
+    /// of the tree once the Inbox stage shows the same tracks.
+    pub fn inbox_list_id(&self) -> Option<i64> {
+        self.meta("inbox_list").and_then(|v| v.parse::<i64>().ok())
     }
 
     /// The list new purchases go into for the DJ to look through, made the
