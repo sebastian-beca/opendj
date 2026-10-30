@@ -245,6 +245,13 @@ impl Controllers {
         *MONITOR.lock().unwrap() = on.then(Vec::new);
     }
 
+    /// While on, messages from the controllers are only watched (see
+    /// [`Controllers::set_monitor`]), not acted on: for Map mode, where moving
+    /// a control teaches it rather than playing a deck.
+    pub fn set_learning(&self, on: bool) {
+        LEARNING.store(on, Ordering::Relaxed);
+    }
+
     /// The messages received since the last call, with the port each came
     /// from, while the monitor is on.
     pub fn take_monitored(&self) -> Vec<Monitored> {
@@ -262,6 +269,9 @@ type Monitored = (String, Vec<u8>);
 
 /// Messages kept for [`Controllers::take_monitored`]; `None` while off.
 static MONITOR: Mutex<Option<Vec<Monitored>>> = Mutex::new(None);
+
+/// See [`Controllers::set_learning`].
+static LEARNING: AtomicBool = AtomicBool::new(false);
 
 fn monitor(port: &str, msg: &[u8]) {
     if let Some(seen) = MONITOR.lock().unwrap().as_mut() {
@@ -630,11 +640,16 @@ fn run_controller(
             .map_or(now + POLL, |d| d.min(now + POLL));
         match rx.recv_timeout(deadline.saturating_duration_since(now)) {
             Ok(msg) => {
+                let learning = LEARNING.load(Ordering::Relaxed);
                 monitor(port, &msg);
-                controller.receive(&msg);
+                if !learning {
+                    controller.receive(&msg);
+                }
                 while let Ok(msg) = rx.try_recv() {
                     monitor(port, &msg);
-                    controller.receive(&msg);
+                    if !learning {
+                        controller.receive(&msg);
+                    }
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}
