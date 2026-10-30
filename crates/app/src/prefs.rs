@@ -25,7 +25,7 @@ use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use crate::tour::Part;
 use crate::{
     settings, short_port_name, shortcuts, AppWindow, AudioSettings, ControllerEditor, ImportWizard,
-    KeyNotation, PrefItem, Preferences, Tour,
+    InputRow, InputSettings, KeyNotation, PrefItem, Preferences, Tour,
 };
 
 const AUDIO: i32 = 0;
@@ -67,6 +67,8 @@ const SHORTCUT: i32 = 11;
 /// A tick box, indented by `chosen`; `value` "some" shows a folder partly
 /// ticked, and `action` its open or closed arrow, pressing id + "#fold".
 const TICK: i32 = 12;
+/// The inputs table (see [`Prefs::inputs_item`]).
+const INPUTS_TABLE: i32 = 13;
 
 /// Tempo fader ranges, as fractions of normal speed.
 const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
@@ -394,8 +396,9 @@ pub struct Prefs {
     /// Opens the inputs again with the saved audio settings, and tells
     /// each input's state (see [`opendj_engine::AudioEngine::input_status`]).
     inputs: InputHooks,
-    /// What each input's menu offered last, by [`InputRole::index`].
-    input_choices: [Vec<Option<InputRoute>>; 2],
+    /// What each input's menus offered last, by [`InputRole::index`]:
+    /// the devices ("" for None) and the first channel of each choice.
+    input_menus: [(Vec<String>, Vec<u16>); 2],
     /// The import being set up, if any.
     wizard: Option<WizardState>,
     /// The import whose Remove was pressed once, waiting for a second press.
@@ -455,7 +458,7 @@ impl Prefs {
             plugin_changed,
             audio_changed,
             inputs,
-            input_choices: Default::default(),
+            input_menus: Default::default(),
             wizard: None,
             removing: None,
             shortcut_note: String::new(),
@@ -474,6 +477,17 @@ impl Prefs {
         let p = prefs.clone();
         g.on_key_captured(move |id, text, cmd, alt, shift| {
             p.borrow_mut().key_captured(&id, &text, cmd, alt, shift)
+        });
+        let inputs = app.global::<InputSettings>();
+        let p = prefs.clone();
+        inputs.on_set_device(move |row, i| {
+            p.borrow_mut()
+                .input_picked(row.max(0) as usize, Some(i.max(0) as usize), None)
+        });
+        let p = prefs.clone();
+        inputs.on_set_channel(move |row, i| {
+            p.borrow_mut()
+                .input_picked(row.max(0) as usize, None, Some(i.max(0) as usize))
         });
         prefs
     }
@@ -680,7 +694,7 @@ impl Prefs {
                         "tour_tone:1",
                         BUTTON,
                         "Test the speakers",
-                        "Beeps for a few seconds in the master output.",
+                        "A short beep in the master.",
                     )
                 });
                 items.push(PrefItem {
@@ -689,15 +703,15 @@ impl Prefs {
                         "tour_tone:2",
                         BUTTON,
                         "Test the headphones",
-                        "Beeps for a few seconds in the headphones only.",
+                        "A short beep in the headphones.",
                     )
                 });
                 items.push(item(
                     "",
                     NOTE,
                     "",
-                    "A controller with its own sound card, such as the DDJ-FLX4, is its own \
-                     device: pick it for the master and headphones, on channels 1 & 2 and 3 & 4.",
+                    "Controller with a sound card, such as the DDJ-FLX4: pick it for both, on \
+                     channels 1 & 2 and 3 & 4.",
                 ));
                 items
             }
@@ -707,8 +721,7 @@ impl Prefs {
                     NOTE,
                     "",
                     if heard.is_empty() {
-                        "Press a button or move a knob on your controller to check it's \
-                         heard."
+                        "Press a button or move a knob to check it's working."
                     } else {
                         heard
                     },
@@ -718,13 +731,16 @@ impl Prefs {
             }
             Part::Library => {
                 let mut items = self.music_folder_items();
-                items.push(item("", HEADING, "FROM YOUR OTHER DJ APPS", ""));
+                for i in items.iter_mut().filter(|i| i.id == "music_folder_add") {
+                    i.detail = "Where openDJ finds your tracks.".into();
+                }
+                items.push(item("", HEADING, "IMPORT", ""));
                 let mut found = false;
                 let importers = crate::stores::importers();
                 for i in &importers {
-                    let Some(db) = settings::import_database(i.as_ref()) else {
+                    if settings::import_database(i.as_ref()).is_none() {
                         continue;
-                    };
+                    }
                     found = true;
                     let title = i.title();
                     if settings::import_enabled(i.id()) {
@@ -732,7 +748,7 @@ impl Prefs {
                             "",
                             NOTE,
                             &format!("Importing from {title}"),
-                            &format!("openDJ brings in {title}'s library and keeps it up to date."),
+                            "Kept up to date.",
                         ));
                     } else {
                         items.push(PrefItem {
@@ -741,11 +757,7 @@ impl Prefs {
                                 &format!("import_start:{}", i.id()),
                                 BUTTON,
                                 &format!("Import from {title}"),
-                                &format!(
-                                    "Found its library at {}. Brings in tracks, cues, grids \
-                                     and lists.",
-                                    db.display()
-                                ),
+                                "Tracks, cues, grids and lists.",
                             )
                         });
                     }
@@ -761,7 +773,7 @@ impl Prefs {
                             "",
                             BUTTON,
                             &format!("Import from {app_name}"),
-                            "Found it on this computer. Its import is on the way.",
+                            "Found on this computer.",
                         )
                     });
                 }
@@ -770,8 +782,7 @@ impl Prefs {
                         "",
                         NOTE,
                         "",
-                        "No other DJ app's library turned up. You can import one later in \
-                         Settings › Collection › Import.",
+                        "No other DJ app found. Settings › Collection › Import has them later.",
                     ));
                 }
                 if !self.library_note.is_empty() {
@@ -803,8 +814,7 @@ impl Prefs {
                 self.sample_rate_item(),
                 self.buffer_item(),
                 item("inputs", HEADING, "INPUTS", ""),
-                self.input_item(InputRole::Microphone),
-                self.input_item(InputRole::Auxiliary),
+                self.inputs_item(),
                 PrefItem {
                     choices: strings(&["Off", "Auto", "Manual"]),
                     chosen: settings::number("talkover_ducking", DUCK_AUTO) as i32,
@@ -1208,70 +1218,120 @@ impl Prefs {
 
     /// The menu choosing `role`'s device and channels: None, then each
     /// input device's channels (pairs for the auxiliary input).
-    fn input_item(&mut self, role: InputRole) -> PrefItem {
-        let saved = settings::audio_setup()
-            .inputs
-            .into_iter()
-            .find(|r| r.role == role);
-        let width = role.channels();
-        let mut names = vec!["None".to_string()];
-        let mut choices = vec![None];
-        for d in input_devices() {
-            for channel in (0..d.channels).step_by(width as usize) {
-                if channel + width > d.channels {
-                    break;
+    /// The inputs table: fills its rows (see InputsTable in mixer.slint)
+    /// and returns the settings row that shows it.
+    fn inputs_item(&mut self) -> PrefItem {
+        let setup = settings::audio_setup();
+        let status = (self.inputs.status)();
+        let devices = input_devices();
+        let rows: Vec<InputRow> = InputRole::ALL
+            .iter()
+            .map(|&role| {
+                let saved = setup.inputs.iter().find(|r| r.role == role);
+                let width = role.channels();
+                // "None", then each device with room for the input.
+                let mut names = vec![String::new()];
+                let mut shown = vec!["None".to_string()];
+                for d in devices.iter().filter(|d| d.channels >= width) {
+                    names.push(d.name.clone());
+                    shown.push(d.name.clone());
                 }
-                names.push(format!("{} · {}", d.name, channel_names(channel, width)));
-                choices.push(Some(InputRoute {
-                    role,
-                    device: d.name.clone(),
-                    channel,
-                }));
-            }
-        }
-        if let Some(r) = &saved {
-            if !choices.contains(&Some(r.clone())) {
-                let device = if r.device.is_empty() {
-                    "System default"
+                let mut device = 0;
+                let mut starts: Vec<u16> = Vec::new();
+                if let Some(r) = saved {
+                    match devices
+                        .iter()
+                        .find(|d| d.name == r.device && d.channels >= width)
+                    {
+                        Some(d) => {
+                            device = names.iter().position(|n| *n == r.device).unwrap_or(0);
+                            starts = (0..d.channels)
+                                .step_by(width as usize)
+                                .take_while(|c| c + width <= d.channels)
+                                .collect();
+                        }
+                        None => {
+                            let name = if r.device.is_empty() {
+                                "System default"
+                            } else {
+                                &r.device
+                            };
+                            names.push(r.device.clone());
+                            shown.push(format!("{name} (not connected)"));
+                            device = names.len() - 1;
+                            starts = vec![r.channel];
+                        }
+                    }
+                }
+                let channel = saved
+                    .and_then(|r| starts.iter().position(|&c| c == r.channel))
+                    .unwrap_or(0);
+                let channels: Vec<String> = if starts.is_empty() {
+                    vec!["–".to_string()]
                 } else {
-                    &r.device
+                    starts.iter().map(|&c| channel_names(c, width)).collect()
                 };
-                names.push(format!(
-                    "{device} · {} (not connected)",
-                    channel_names(r.channel, width)
-                ));
-                choices.push(Some(r.clone()));
-            }
+                let state = status.get(role.index()).cloned().unwrap_or_default();
+                self.input_menus[role.index()] = (names, starts);
+                InputRow {
+                    name: match role {
+                        InputRole::Microphone => "Microphone",
+                        InputRole::Auxiliary => "Auxiliary",
+                    }
+                    .into(),
+                    devices: strings(&shown),
+                    device: device as i32,
+                    channels: strings(&channels),
+                    channel: channel as i32,
+                    ok: !state.contains("can't") && !state.contains("not "),
+                    status: if saved.is_some() {
+                        state
+                    } else {
+                        String::new()
+                    }
+                    .into(),
+                }
+            })
+            .collect();
+        if let Some(app) = self.app.upgrade() {
+            app.global::<InputSettings>()
+                .set_rows(ModelRc::new(VecModel::from(rows)));
         }
-        let chosen = choices.iter().position(|c| *c == saved).unwrap_or(0);
-        self.input_choices[role.index()] = choices;
-        let status = (self.inputs.status)()
-            .get(role.index())
-            .cloned()
-            .unwrap_or_default();
-        let (id, title, detail) = match role {
-            InputRole::Microphone => (
-                "microphone_input",
-                "Microphone",
-                "One channel of an input device. Turn it on with MIC; its effects are on the mixer's MIC page.",
-            ),
-            InputRole::Auxiliary => (
-                "auxiliary_input",
-                "Auxiliary",
-                "A pair of channels, such as a turntable, a phone or another mixer, mixed in with the decks.",
-            ),
+        item(
+            "inputs_table",
+            INPUTS_TABLE,
+            "Microphone and auxiliary",
+            "The microphone turns on with MIC; the auxiliary input mixes in with the decks.",
+        )
+    }
+
+    /// An input's device (`device`) or channels (`channel`) picked in the
+    /// inputs table, by their place in its menus.
+    fn input_picked(&mut self, row: usize, device: Option<usize>, channel: Option<usize>) {
+        let Some(&role) = InputRole::ALL.get(row) else {
+            return;
         };
-        // While a device is chosen, the row says how it is going.
-        let detail = if saved.is_some() && !status.is_empty() {
-            status
-        } else {
-            detail.to_string()
+        let (names, starts) = &self.input_menus[row];
+        let mut setup = settings::audio_setup();
+        let old = setup.inputs.iter().find(|r| r.role == role).cloned();
+        let route = match (device, channel) {
+            (Some(0), _) => None,
+            (Some(d), _) => names.get(d).map(|name| InputRoute {
+                role,
+                device: name.clone(),
+                channel: 0,
+            }),
+            (None, Some(c)) => match (old, starts.get(c)) {
+                (Some(r), Some(&channel)) => Some(InputRoute { channel, ..r }),
+                (old, _) => old,
+            },
+            (None, None) => return,
         };
-        PrefItem {
-            choices: strings(&names),
-            chosen: chosen as i32,
-            ..item(id, MENU, title, &detail)
-        }
+        setup.inputs.retain(|r| r.role != role);
+        setup.inputs.extend(route);
+        settings::set_audio_setup(&setup);
+        (self.inputs.changed)();
+        self.refresh();
     }
 
     fn buffer_item(&self) -> PrefItem {
@@ -2251,21 +2311,6 @@ impl Prefs {
             "xfader_shape" => {
                 settings::set("xfader_shape", json!(index));
                 self.set("[Mixer Profile]", "xFaderShape", index as f64);
-            }
-            "microphone_input" | "auxiliary_input" => {
-                let role = if id == "microphone_input" {
-                    InputRole::Microphone
-                } else {
-                    InputRole::Auxiliary
-                };
-                let Some(choice) = self.input_choices[role.index()].get(index).cloned() else {
-                    return;
-                };
-                let mut setup = settings::audio_setup();
-                setup.inputs.retain(|r| r.role != role);
-                setup.inputs.extend(choice);
-                settings::set_audio_setup(&setup);
-                (self.inputs.changed)();
             }
             "talkover_ducking" => {
                 settings::set("talkover_ducking", json!(index));
