@@ -95,6 +95,8 @@ pub enum Request {
     Connect(String),
     /// Fetch the tracks of a playlist (or [`LIKED`]).
     Tracks(String),
+    /// Fetch these tracks by the service's ids, for their ISRCs.
+    Lookup(Vec<String>),
     Disconnect,
 }
 
@@ -114,6 +116,8 @@ pub enum Event {
         key: String,
         error: String,
     },
+    /// Tracks asked for with [`Request::Lookup`] (those the service has).
+    Found(Vec<StreamTrack>),
     Disconnected,
 }
 
@@ -273,6 +277,10 @@ impl Worker {
                     Ok(tracks) => self.emit(Event::Tracks { key, tracks }),
                     Err(error) => self.emit(Event::TracksFailed { key, error }),
                 },
+                Request::Lookup(ids) => match self.lookup(&ids) {
+                    Ok(tracks) => self.emit(Event::Found(tracks)),
+                    Err(e) => eprintln!("Spotify: can't look tracks up: {e}"),
+                },
                 Request::Disconnect => {
                     if let Some(s) = self.session.take() {
                         Saved {
@@ -319,6 +327,18 @@ impl Worker {
             }
         };
         Ok(items.iter().filter_map(parse_item).collect())
+    }
+
+    /// Tracks by their ids, 50 at a time.
+    fn lookup(&mut self, ids: &[String]) -> Result<Vec<StreamTrack>, String> {
+        let mut out = Vec::new();
+        for batch in ids.chunks(50) {
+            let page = self.get(&format!("{API}/tracks?ids={}", batch.join(",")))?;
+            for t in page["tracks"].as_array().into_iter().flatten() {
+                out.extend(parse_item(&json!({ "track": t })));
+            }
+        }
+        Ok(out)
     }
 
     fn login(&mut self, client_id: &str) -> Result<Session, String> {
