@@ -98,6 +98,14 @@ Library** throws those results away.
 Grids, keys and cues brought in from VirtualDJ are used as they are, so
 those tracks don't wait for analysis.
 
+The beat grid stays at one steady tempo unless the track really drifts,
+as live drums and older recordings do; only then does it get tempo
+sections. With **Beat detection** set to **Neural** (the default, in
+**Settings › Analysis**), openDJ then listens for each beat and downbeat
+with Beat This!, so bar 1 starts on a downbeat. That takes a few seconds
+more, after the waveform appears: the track plays on its first grid
+meanwhile. The first time, openDJ downloads the model (about 11 MB).
+
 To analyse tracks yourself, right-click them and choose **Analyze Track**
 (or **Analyze 12 Tracks** for a shift-click selection), or right-click a
 list, folder or stage and choose **Analyze All**. They are analysed again
