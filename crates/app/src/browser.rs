@@ -1806,10 +1806,11 @@ impl Browser {
                         .wanted
                         .iter()
                         .filter(|w| {
-                            !have.contains(&(
-                                spotify::normalize(&w.artist),
-                                spotify::normalize(&w.title),
-                            ))
+                            let (artist, title) =
+                                (spotify::normalize(&w.artist), spotify::normalize(&w.title));
+                            // Untagged files named "Artist - Title" count too.
+                            !have.contains(&(artist.clone(), title.clone()))
+                                && !have.contains(&(String::new(), artist + &title))
                         })
                         .cloned()
                         .map(StoreRow::Wanted),
