@@ -28,10 +28,15 @@ pub enum GridEdit {
     Scale(f64),
     /// Takes back the last edit (`beats_undo_adjustment`).
     Undo,
+    /// Locks or unlocks the grid against edits and analysis (`bpmlock`).
+    Lock(bool),
+    /// Goes back to the grid analysis found (`beats_reset`).
+    Reset,
 }
 
 impl BeatGrid {
-    /// The grid after `edit` at `seconds` (`Undo` is the caller's to handle).
+    /// The grid after `edit` at `seconds` (`Undo`, `Lock` and `Reset` are the
+    /// caller's to handle).
     pub fn edited(&self, edit: GridEdit, seconds: f64) -> Self {
         match edit {
             GridEdit::BeatHere => self.with_beat_at(seconds),
@@ -48,7 +53,7 @@ impl BeatGrid {
                     })
                     .collect(),
             ),
-            GridEdit::Undo => self.clone(),
+            GridEdit::Undo | GridEdit::Lock(_) | GridEdit::Reset => self.clone(),
         }
     }
 }

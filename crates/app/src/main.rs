@@ -1456,6 +1456,8 @@ impl Decks {
             rate,
             range,
             grid_sections: t.grid.markers().len().max(1) as i32,
+            grid_source: grid_source(&t.info.grid_from).into(),
+            grid_unsure: t.info.grid_unsure,
             stem_names: kept(
                 &h.stem_names,
                 stems.map_or(Vec::new(), |s| {
@@ -1796,6 +1798,17 @@ fn phrase_tip(phrases: &Phrases, duration: f64, bpm: f64, seconds: f64) -> Optio
         title: title.into(),
         body: body.into(),
     })
+}
+
+/// Where a track's grid came from, as the grid menu says it.
+fn grid_source(from: &str) -> String {
+    match from {
+        "" | "analysis" => "Detected".into(),
+        "user" => "Edited".into(),
+        "vdj" | "virtualdj" => "From VirtualDJ".into(),
+        "mixxx" => "From Mixxx".into(),
+        app => format!("From {app}"),
+    }
 }
 
 /// The beat number of the track's first bar: the first bar line at or

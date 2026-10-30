@@ -140,6 +140,14 @@ with Beat This!, so bar 1 starts on a downbeat. That takes a few seconds
 more, after the waveform appears: the track plays on its first grid
 meanwhile. The first time, openDJ downloads the model (about 11 MB).
 
+The grid menu (click the BPM on a deck) says where the grid came from:
+**Detected**, **Edited** or the app it was imported from. A detected grid
+that fits the beats poorly says **may be off, check by ear**. **Lock grid**
+keeps a grid as it is: a locked grid can't be edited, and analysing the
+track again leaves it alone. Grids imported from another app come in
+locked. **Back to the detected grid** throws away your edits or the
+imported grid and uses openDJ's own.
+
 To analyse tracks yourself, right-click them and choose **Analyze Track**
 (or **Analyze 12 Tracks** for a shift-click selection), or right-click a
 list, folder or stage and choose **Analyze All**. They are analysed again

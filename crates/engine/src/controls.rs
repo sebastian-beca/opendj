@@ -208,6 +208,9 @@ pub(crate) struct DeckControls {
     /// (meaning beatloop_size). Each loops while held.
     pub(crate) rolls: Vec<(f64, ControlHandle, Edge)>,
     pub(crate) keylock: ControlHandle,
+    /// The loaded track's beat grid is locked (Mixxx's `bpmlock`): turning
+    /// it on or off locks or unlocks the grid.
+    pub(crate) bpmlock: ControlHandle,
     /// Key shift in semitones on top of the file's key (Mixxx's `pitch`;
     /// `pitch_adjust` is the same control here).
     pub(crate) pitch: ControlHandle,
@@ -427,6 +430,7 @@ impl DeckControls {
             beatsync: reg.push(g, "beatsync"),
             rolls,
             keylock: reg.toggle(g, "keylock"),
+            bpmlock: reg.toggle(g, "bpmlock"),
             pitch: reg.create(g, "pitch", 0.0, -6.0, 6.0, Behavior::Linear),
             key: reg.indicator(g, "key", 24.0),
             file_key: reg.indicator(g, "file_key", 24.0),
@@ -537,6 +541,8 @@ pub(crate) fn deck_pushes(reg: &ControlRegistry, g: &str) -> Vec<Push> {
             Action::Grid(GridEdit::Tempo(-0.01)),
         ),
         ("beats_undo_adjustment".into(), Action::Grid(GridEdit::Undo)),
+        // Not in Mixxx: back to the grid analysis found.
+        ("beats_reset".into(), Action::Grid(GridEdit::Reset)),
         // Not in Mixxx: tempo sections and halving or doubling.
         (
             "beats_section_add".into(),

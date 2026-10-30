@@ -93,6 +93,7 @@
 [Channel1],beatlooproll_activate
 [Channel1],beats_adjust_faster
 [Channel1],beats_adjust_slower
+[Channel1],beats_reset
 [Channel1],beats_scale_double
 [Channel1],beats_scale_half
 [Channel1],beats_section_add
@@ -103,6 +104,7 @@
 [Channel1],beats_undo_adjustment
 [Channel1],beatsync
 [Channel1],bpm
+[Channel1],bpmlock
 [Channel1],cue_default
 [Channel1],cue_gotoandplay
 [Channel1],cue_gotoandstop
@@ -363,6 +365,7 @@
 [Channel2],beatlooproll_activate
 [Channel2],beats_adjust_faster
 [Channel2],beats_adjust_slower
+[Channel2],beats_reset
 [Channel2],beats_scale_double
 [Channel2],beats_scale_half
 [Channel2],beats_section_add
@@ -373,6 +376,7 @@
 [Channel2],beats_undo_adjustment
 [Channel2],beatsync
 [Channel2],bpm
+[Channel2],bpmlock
 [Channel2],cue_default
 [Channel2],cue_gotoandplay
 [Channel2],cue_gotoandstop
@@ -633,6 +637,7 @@
 [Channel3],beatlooproll_activate
 [Channel3],beats_adjust_faster
 [Channel3],beats_adjust_slower
+[Channel3],beats_reset
 [Channel3],beats_scale_double
 [Channel3],beats_scale_half
 [Channel3],beats_section_add
@@ -643,6 +648,7 @@
 [Channel3],beats_undo_adjustment
 [Channel3],beatsync
 [Channel3],bpm
+[Channel3],bpmlock
 [Channel3],cue_default
 [Channel3],cue_gotoandplay
 [Channel3],cue_gotoandstop
@@ -903,6 +909,7 @@
 [Channel4],beatlooproll_activate
 [Channel4],beats_adjust_faster
 [Channel4],beats_adjust_slower
+[Channel4],beats_reset
 [Channel4],beats_scale_double
 [Channel4],beats_scale_half
 [Channel4],beats_section_add
@@ -913,6 +920,7 @@
 [Channel4],beats_undo_adjustment
 [Channel4],beatsync
 [Channel4],bpm
+[Channel4],bpmlock
 [Channel4],cue_default
 [Channel4],cue_gotoandplay
 [Channel4],cue_gotoandstop
