@@ -1,6 +1,6 @@
 //! Keyboard shortcuts: a key, written like `cmd+1`, runs an openDJscript
 //! line. The defaults are here; the DJ's own replace them key by key
-//! (settings `keyboard_shortcuts`). Space, ⌘, and Esc stay fixed in
+//! (settings `keyboard_shortcuts`). Space, ⌘comma, ⌘A and Esc stay fixed in
 //! main.slint and never reach this.
 
 use opendj_control::ControlRegistry;
@@ -186,7 +186,7 @@ fn script_for_in(own: &[(String, String)], key: &str) -> Option<String> {
 }
 
 /// Keys main.slint keeps for itself; a shortcut on them would never run.
-pub const FIXED: [&str; 3] = ["space", "cmd+,", "escape"];
+pub const FIXED: [&str; 4] = ["space", "cmd+,", "cmd+a", "escape"];
 
 /// One shortcut as the editor lists it.
 #[derive(Debug, PartialEq)]
