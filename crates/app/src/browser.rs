@@ -564,7 +564,12 @@ pub(crate) struct LibraryControls {
     add_to_automix: [ControlHandle; 2],
     /// Opens the Linked tab (the DDJ-FLX4's SHIFT + left LOAD).
     show_linked: ControlHandle,
-    folder_steps: [(ControlHandle, f64); 2],
+    folder_steps: [(ControlHandle, f64); 3],
+    /// Opens or closes the folder picked in the folders pane.
+    toggle_folder: ControlHandle,
+    /// Which pane the browse knob moves in, as Mixxx's `focused_widget`:
+    /// 2 the folders, 3 the track list.
+    focused_widget: ControlHandle,
 }
 
 impl LibraryControls {
@@ -597,7 +602,10 @@ impl LibraryControls {
             folder_steps: [
                 (playlist("SelectNextPlaylist"), 1.0),
                 (playlist("SelectPrevPlaylist"), -1.0),
+                (playlist("SelectPlaylist"), 1.0),
             ],
+            toggle_folder: playlist("ToggleSelectedSidebarItem"),
+            focused_widget: lib("focused_widget"),
         }
     }
 }
@@ -2925,7 +2933,17 @@ impl Browser {
         let selected = usize::try_from(app.get_current_track())
             .ok()
             .and_then(|r| self.rows.get(r).copied().flatten());
+        let widget = if self.folders_focused { 2.0 } else { 3.0 };
+        if self.lib.focused_widget.get() != widget {
+            self.lib.focused_widget.set(widget);
+        }
         let go = take(&self.lib.go_to_item) > 0.0;
+        if take(&self.lib.toggle_folder) > 0.0 {
+            if let Some(n) = self.nodes.get_mut(self.current_node) {
+                n.expanded = !n.expanded;
+                self.refresh_tree();
+            }
+        }
         if go && self.folders_focused {
             // Like pressing the browse knob on a folder: open or close it.
             if let Some(n) = self.nodes.get_mut(self.current_node) {

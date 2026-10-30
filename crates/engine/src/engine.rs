@@ -9,7 +9,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use opendj_control::ControlRegistry;
+use opendj_control::{ControlHandle, ControlRegistry};
 
 use crate::beats::GridEdit;
 use crate::controls::{
@@ -107,6 +107,15 @@ const BEND_SMOOTH: f64 = 0.15;
 const BEND_PAUSED_SECONDS: f64 = 0.008;
 /// How long a clip lights a PeakIndicator, in seconds.
 const PEAK_HOLD: f32 = 0.5;
+/// A control set to a value that is used once, put back to 0.
+fn take_value(c: &ControlHandle) -> f64 {
+    let v = c.get();
+    if v != 0.0 {
+        c.set(0.0);
+    }
+    v
+}
+
 /// Rate offsets of rate_temp_up, _down, _up_small and _down_small while held
 /// (Mixxx's default temporary pitch bends: 4% coarse, 2% fine).
 const RATE_TEMP: [f64; 4] = [0.04, -0.04, 0.02, -0.02];
@@ -523,6 +532,18 @@ impl Deck {
             self.c.beatjump.set(0.0);
             let by = beats_from(self.seconds(), jump);
             self.jump(by);
+        }
+        // A playing loop takes the position with it, as a beat jump does.
+        let beats = take_value(&self.c.loop_move[0]);
+        let loops = take_value(&self.c.loop_move[1]);
+        if (beats != 0.0 || loops != 0.0) && self.loop_end > self.loop_start {
+            let by = beats_from(self.loop_start, beats) + (self.loop_end - self.loop_start) * loops;
+            if self.c.loop_enabled.get_bool() {
+                self.jump(by);
+            } else {
+                self.loop_start += by;
+                self.loop_end += by;
+            }
         }
         // As in Mixxx, loop_scale moves the loop's end and leaves beatloop_size.
         let scale = self.c.loop_scale.get();
@@ -3767,6 +3788,18 @@ mod tests {
         assert!((b - a - 1.0).abs() < 1e-9, "{a}..{b}");
         assert_eq!(ctl("beatloop_size").get(), 4.0);
         assert_eq!(ctl("loop_scale").get(), 0.0);
+
+        // loop_move_loops moves the 1 s loop by its length, loop_move by
+        // beats; the playing position goes along.
+        let at = seconds();
+        ctl("loop_move_loops").set(1.0);
+        run(&mut engine, 0.01);
+        assert!((ctl("loop_start_position").get() - a - 1.0).abs() < 1e-6);
+        assert!((seconds() - at - 1.01).abs() < 0.03, "{}", seconds());
+        ctl("loop_move").set(-2.0);
+        run(&mut engine, 0.01);
+        assert!((ctl("loop_start_position").get() - a).abs() < 1e-6);
+        assert_eq!(ctl("loop_move").get(), 0.0);
 
         // CUP: back to the cue point while held, playing from it on release.
         ctl("loop_enabled").set_bool(false);

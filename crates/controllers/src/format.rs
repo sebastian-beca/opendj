@@ -123,6 +123,12 @@ pub struct Row {
     pub description: String,
     /// Takes the base mapping's bindings for this message away.
     pub remove: bool,
+    /// A `script` row on a relative encoder (1 a click right, 127 a click
+    /// left): the line gets the clicks, -1 or 1 or more, instead of a level.
+    pub steps: bool,
+    /// The row's deck is where its control sits (a column of a K2), so the
+    /// mapping's `deck_order` picks it when used with four decks.
+    pub by_position: bool,
     /// Fields this version doesn't know, kept when written back.
     pub extra: Map<String, Value>,
 }
@@ -142,6 +148,8 @@ impl Row {
             note: String::new(),
             description: String::new(),
             remove: false,
+            steps: false,
+            by_position: false,
             extra: Map::new(),
         }
     }
@@ -220,6 +228,11 @@ pub struct Light {
     /// The colours are notes above this one, sent at full velocity (Xone
     /// K2), rather than velocities of this note.
     pub color_notes: bool,
+    /// As for rows: the light's deck follows `deck_order`.
+    pub by_position: bool,
+    /// As for rows: a `script` light shows only while the layer holds, and
+    /// is off otherwise.
+    pub layer: String,
     pub off: bool,
     pub original: String,
     pub note: String,
@@ -234,6 +247,8 @@ impl Light {
             source,
             colors: Vec::new(),
             color_notes: false,
+            by_position: false,
+            layer: String::new(),
             off: false,
             original: String::new(),
             note: String::new(),
@@ -282,6 +297,13 @@ pub struct OpenDjMapping {
     /// Mixxx's `<settings>` definitions and the DJ's `values`, as JSON.
     pub settings: Value,
     pub variables: Vec<Variable>,
+    /// Whether the controller is used with two decks or four. Rows and
+    /// lights on the layer `decks=2` or `decks=4` only work in that use, and
+    /// the variable `decks` holds it.
+    pub decks: Option<u8>,
+    /// With four decks, the deck at each position from left to right:
+    /// `[3, 1, 2, 4]` as on openDJ's 4-Deck screen.
+    pub deck_order: Option<[u8; 4]>,
     pub rows: Vec<Row>,
     pub lights: Vec<Light>,
     /// In a shared file: script files (and a `based_on` mapping openDJ
@@ -357,6 +379,8 @@ impl Row {
             note: take_str(&mut o, "note"),
             description: take_str(&mut o, "description"),
             remove: take_bool(&mut o, "remove"),
+            steps: take_bool(&mut o, "steps"),
+            by_position: take_bool(&mut o, "by_position"),
             extra: o,
         })
     }
@@ -397,6 +421,12 @@ impl Row {
         put(&mut o, "original", &self.original);
         put(&mut o, "note", &self.note);
         put(&mut o, "description", &self.description);
+        if self.steps {
+            o.insert("steps".into(), json!(true));
+        }
+        if self.by_position {
+            o.insert("by_position".into(), json!(true));
+        }
         if self.remove {
             o.insert("remove".into(), json!(true));
         }
@@ -446,6 +476,8 @@ impl Light {
             source,
             colors,
             color_notes: take_bool(&mut o, "color_notes"),
+            by_position: take_bool(&mut o, "by_position"),
+            layer: take_str(&mut o, "layer"),
             off: take_bool(&mut o, "off"),
             original: take_str(&mut o, "original"),
             note: take_str(&mut o, "note"),
@@ -490,6 +522,10 @@ impl Light {
         if self.color_notes {
             o.insert("color_notes".into(), json!(true));
         }
+        if self.by_position {
+            o.insert("by_position".into(), json!(true));
+        }
+        put(&mut o, "layer", &self.layer);
         if self.off {
             o.insert("off".into(), json!(true));
         }
@@ -511,7 +547,138 @@ pub fn split_control(control: &str) -> Option<(String, String)> {
         .then(|| (format!("{group}]"), key.trim().to_string()))
 }
 
+/// The variable that holds whether the controller is used with two decks or
+/// four (see [`OpenDjMapping::decks`]).
+pub const DECKS: &str = "decks";
+
+/// `text` with the decks 1 to 4 it names (`deck 2`, `[Channel2]`, effect
+/// unit 2) moved to `order`: deck n becomes `order[n - 1]`.
+pub fn reorder_decks(text: &str, order: [u8; 4]) -> String {
+    const BEFORE: [&str; 3] = ["deck ", "[Channel", "EffectUnit"];
+    let b = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hit = BEFORE
+            .iter()
+            .find(|p| text[i..].starts_with(*p))
+            .map(|p| p.len());
+        if let Some(n) = hit {
+            let d = i + n;
+            let digit = b.get(d).filter(|c| (b'1'..=b'4').contains(c));
+            let alone = !b.get(d + 1).is_some_and(|c| c.is_ascii_digit());
+            if let (Some(&c), true) = (digit, alone) {
+                out.push_str(&text[i..d]);
+                out.push((b'0' + order[(c - b'1') as usize]) as char);
+                i = d + 1;
+                continue;
+            }
+        }
+        let ch = text[i..].chars().next().unwrap_or(' ');
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
 impl OpenDjMapping {
+    /// The rows and lights for the decks the controller is used with: those
+    /// on the other use's layer go, the `decks=` condition goes from the
+    /// rest, and with four decks the ones `by_position` follow `deck_order`.
+    pub fn for_decks(&self) -> (Vec<Row>, Vec<Light>) {
+        let order = match (self.decks, self.deck_order) {
+            (Some(4), Some(o)) => Some(o),
+            _ => None,
+        };
+        // The layer without its `decks=` part, or None when it's for the
+        // other use.
+        let layer_for = |layer: &str| -> Option<String> {
+            let Some(d) = self.decks else {
+                return Some(layer.to_string());
+            };
+            let conds = parse_layer(layer);
+            if conds
+                .iter()
+                .any(|(n, v)| n == DECKS && v.is_some_and(|v| v != d as f64))
+            {
+                return None;
+            }
+            Some(
+                conds
+                    .into_iter()
+                    .filter(|(n, _)| n != DECKS)
+                    .map(|(n, v)| match v {
+                        Some(v) => format!("{n}={v}"),
+                        None => n,
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" & "),
+            )
+        };
+        let rows = self
+            .rows
+            .iter()
+            .filter_map(|r| {
+                let mut r = r.clone();
+                r.layer = layer_for(&r.layer)?;
+                if let (Some(o), true) = (order, r.by_position) {
+                    r.action = match r.action {
+                        Action::Bind { control, options } => Action::Bind {
+                            control: reorder_decks(&control, o),
+                            options,
+                        },
+                        Action::Script(line) => Action::Script(reorder_decks(&line, o)),
+                        a => a,
+                    };
+                }
+                Some(r)
+            })
+            .collect();
+        let lights = self
+            .lights
+            .iter()
+            .filter_map(|l| {
+                let mut l = l.clone();
+                l.layer = layer_for(&l.layer)?;
+                if !l.layer.is_empty() {
+                    if let LightSource::Script(line) = &l.source {
+                        let conds: Vec<String> = parse_layer(&l.layer)
+                            .into_iter()
+                            .map(|(n, v)| match v {
+                                Some(v) => format!("var '{n}' {v}"),
+                                None => format!("var '{n}'"),
+                            })
+                            .collect();
+                        l.source =
+                            LightSource::Script(format!("({} ? {line} : off)", conds.join(" & ")));
+                    }
+                    l.layer.clear();
+                }
+                if let (Some(o), true) = (order, l.by_position) {
+                    l.source = match l.source {
+                        LightSource::Bind {
+                            control,
+                            min,
+                            max,
+                            on,
+                            off,
+                        } => LightSource::Bind {
+                            control: reorder_decks(&control, o),
+                            min,
+                            max,
+                            on,
+                            off,
+                        },
+                        LightSource::Script(line) => LightSource::Script(reorder_decks(&line, o)),
+                        s => s,
+                    };
+                }
+                Some(l)
+            })
+            .collect();
+        (rows, lights)
+    }
+
     pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
@@ -616,6 +783,22 @@ impl OpenDjMapping {
             scripts,
             settings: o.remove("settings").unwrap_or(Value::Null),
             variables,
+            decks: o
+                .remove("decks")
+                .and_then(|d| d.as_u64())
+                .filter(|d| *d == 2 || *d == 4)
+                .map(|d| d as u8),
+            deck_order: o.remove("deck_order").and_then(|d| {
+                let a: Vec<u8> = d
+                    .as_array()?
+                    .iter()
+                    .filter_map(|x| x.as_u64())
+                    .map(|x| x as u8)
+                    .collect();
+                let mut sorted = a.clone();
+                sorted.sort_unstable();
+                (sorted == [1, 2, 3, 4]).then(|| [a[0], a[1], a[2], a[3]])
+            }),
             rows,
             lights,
             sources,
@@ -675,6 +858,12 @@ impl OpenDjMapping {
                 })
                 .collect();
             o.insert("variables".into(), Value::Object(v));
+        }
+        if let Some(d) = self.decks {
+            o.insert("decks".into(), json!(d));
+        }
+        if let Some(order) = self.deck_order {
+            o.insert("deck_order".into(), json!(order));
         }
         o.insert(
             "rows".into(),
@@ -889,11 +1078,16 @@ impl OpenDjMapping {
             m.variables.retain(|(n, _)| n != &v.name);
             m.variables.push((v.name.clone(), v.default));
         }
+        if let Some(d) = self.decks {
+            m.variables.retain(|(n, _)| n != DECKS);
+            m.variables.push((DECKS.into(), d as f64));
+        }
+        let (rows, lights) = self.for_decks();
 
         // First the base's bindings the rows replace go, so rows of this
         // file sharing a message all stay.
-        let own_messages: Vec<(u8, u8)> = self.rows.iter().map(|r| r.midi.key()).collect();
-        for row in self.rows.iter().filter(|r| !r.off) {
+        let own_messages: Vec<(u8, u8)> = rows.iter().map(|r| r.midi.key()).collect();
+        for row in rows.iter().filter(|r| !r.off) {
             let layer = row.layer_conditions();
             let mut keys = vec![row.midi.key()];
             keys.extend(row.midi.lsb);
@@ -905,16 +1099,20 @@ impl OpenDjMapping {
                     keys.push(off);
                 }
             }
+            // An import says everything the message does on every layer, so
+            // the base's bindings of it all go; the DJ's own rows replace
+            // only the layer and press they're on.
+            let whole = self.imported.is_some();
             for k in &keys {
                 if let Some(list) = m.inputs.get_mut(k) {
-                    list.retain(|i| !(i.layer == layer && i.when == row.when));
+                    list.retain(|i| !whole && !(i.layer == layer && i.when == row.when));
                     if list.is_empty() {
                         m.inputs.remove(k);
                     }
                 }
             }
         }
-        for row in self.rows.iter().filter(|r| !r.off && !r.remove) {
+        for row in rows.iter().filter(|r| !r.off && !r.remove) {
             let layer = row.layer_conditions();
             let base_input = Input {
                 layer: layer.clone(),
@@ -979,6 +1177,11 @@ impl OpenDjMapping {
                 Action::Script(line) => {
                     let input = Input {
                         action: Some(line.clone()),
+                        options: if row.steps {
+                            Options::new(Options::SELECT_KNOB)
+                        } else {
+                            Options::default()
+                        },
                         ..base_input
                     };
                     match row.midi.lsb {
@@ -1007,13 +1210,13 @@ impl OpenDjMapping {
             }
         }
 
-        for light in self.lights.iter().filter(|l| !l.off) {
+        for light in lights.iter().filter(|l| !l.off) {
             let key = light.midi.key();
             if !matches!(light.source, LightSource::Js(_) | LightSource::Nothing) {
                 m.outputs.retain(|o| (o.status, o.control) != key);
             }
         }
-        for light in self.lights.iter().filter(|l| !l.off) {
+        for light in lights.iter().filter(|l| !l.off) {
             let (s, n) = light.midi.key();
             let output = match &light.source {
                 LightSource::Bind {

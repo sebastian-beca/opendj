@@ -1,6 +1,6 @@
 import { Palette } from "std-widgets.slint";
 import { Theme, KeyNotation, CloseIcon } from "theme.slint";
-import { Controls, VuMeter, ControlKnob, HoverTipView } from "controls.slint";
+import { Controls, VuMeter, ControlKnob, HoverTipView, HoverTip } from "controls.slint";
 import { Deck, DeckInfo, KeyItem, EffectList, DeckActions, PhraseView, PhraseTip } from "deck.slint";
 import { Mixer, AudioSettings, OutputRow, MixerMode } from "mixer.slint";
 import { MasterPanel, MicPanel } from "toppanels.slint";
@@ -80,6 +80,10 @@ component FooterButton inherits Rectangle {
     // commands change, so each icon is its own.)
     in property <string> lit-icon: icon;
     in property <bool> lit;
+    // Named in a tooltip beside it after a moment's hover.
+    in property <string> tip;
+    in property <string> tip-body;
+    property <bool> tip-mine;
     callback clicked();
     property <color> ink: lit ? Theme.accent : ta.has-hover ? Theme.text : Theme.text-dim;
     width: 34px;
@@ -88,7 +92,28 @@ component FooterButton inherits Rectangle {
     background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2a2e : transparent;
     if !lit: Path { width: 18px; height: 18px; viewbox-width: 20; viewbox-height: 20; stroke: ink; stroke-width: 1.5px; fill: transparent; commands: icon; }
     if lit: Path { width: 18px; height: 18px; viewbox-width: 20; viewbox-height: 20; stroke: ink; stroke-width: 1.5px; fill: transparent; commands: lit-icon; }
-    ta := TouchArea { clicked => { root.clicked(); } }
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+        changed has-hover => {
+            if !self.has-hover && tip-mine {
+                tip-mine = false;
+                HoverTip.shown = false;
+            }
+        }
+    }
+    Timer {
+        interval: 600ms;
+        running: tip != "" && ta.has-hover && !tip-mine;
+        triggered => {
+            tip-mine = true;
+            HoverTip.title = tip;
+            HoverTip.body = tip-body;
+            HoverTip.right-aligned = false;
+            HoverTip.x = root.absolute-position.x + root.width + 6px;
+            HoverTip.y = root.absolute-position.y - 8px;
+            HoverTip.shown = true;
+        }
+    }
 }
 
 // MIC: puts the microphone on (`[Microphone],talkover`), lit amber while it
@@ -856,6 +881,8 @@ export component AppWindow inherits Window {
                     FooterButton {
                         y: 5px;
                         lit: library-expanded;
+                        tip: library-expanded ? "Shrink Browser" : "Expand Browser";
+                        tip-body: "Also from a controller or key: expand_browser";
                         // A screen with an arrow pointing up, or down to fold back.
                         icon: "M 2 4 L 18 4 L 18 16 L 2 16 Z M 10 13 L 10 7 M 7 10 L 10 7 L 13 10";
                         lit-icon: "M 2 4 L 18 4 L 18 16 L 2 16 Z M 10 7 L 10 13 M 7 10 L 10 13 L 13 10";

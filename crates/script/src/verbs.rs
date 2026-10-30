@@ -40,6 +40,9 @@ pub enum Kind {
     /// `value`: only asked, the controller's fader or knob in a comparison
     /// (`value > 50%`).
     Input,
+    /// Moves by the size given (1 if none) for each click of a controller's
+    /// encoder, or once for a button or key: `jump 4` jumps 4 beats.
+    Step(&'static str),
     /// `var 'name' [value]`: only asks, whether a variable is that value
     /// (or above 0). Variables belong to the host, see [`crate::Host`].
     Var,
@@ -358,6 +361,35 @@ pub static VERBS: &[Verb] = &[
             default: None,
         }],
         "Rate the tracks picked in the browser, or the deck's track; 0 clears",
+    ),
+    def(
+        "expand_browser",
+        Toggle("[Skin],show_maximized_library"),
+        TakesDeck::No,
+        &[],
+        "Expand the browser over the decks, or back",
+    ),
+    def(
+        "jump",
+        Step("beatjump"),
+        Yes,
+        &[ArgSpec {
+            name: "beats",
+            kind: ANY_NUMBER,
+            default: Some(1.0),
+        }],
+        "Jump that many beats; on an encoder, each click (back when turned left)",
+    ),
+    def(
+        "loop_move",
+        Step("loop_move_loops"),
+        Yes,
+        &[ArgSpec {
+            name: "loops",
+            kind: ANY_NUMBER,
+            default: Some(1.0),
+        }],
+        "Move the loop by its own length; on an encoder, each click",
     ),
     def(
         "set",
