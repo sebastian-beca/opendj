@@ -589,6 +589,12 @@ impl Prefs {
     /// brings in what is there and finds what is now outside.
     fn music_folders_changed(&mut self) {
         (self.rescan)();
+        // Plugins are told the music folders with their settings.
+        for plugin in &mut self.plugins {
+            let id = plugin.manifest().id;
+            plugin.configure(&settings::plugin_config(id));
+            (self.plugin_changed)(id);
+        }
         self.library_note =
             "Updating… new tracks appear in your collection as they are found.".into();
         self.refresh();
@@ -2024,6 +2030,11 @@ impl Prefs {
             self.refresh();
             return;
         }
+        if id.starts_with("plugin:") {
+            self.set_plugin_value(id, if on { "on" } else { "off" });
+            self.refresh();
+            return;
+        }
         settings::set(id, json!(on));
         if id == settings::MOVE_FILES && on {
             // The library update makes the moves that were waiting.
@@ -2453,6 +2464,10 @@ impl Prefs {
                 let id = format!("plugin:{index}:{}", s.key);
                 match s.kind {
                     SettingKind::Note => item(&id, NOTE, &s.title, &s.detail),
+                    SettingKind::Switch(default) => PrefItem {
+                        on: config.is_on(s.key, default),
+                        ..item(&id, SWITCH, &s.title, &s.detail)
+                    },
                     SettingKind::Folder => PrefItem {
                         value: match config.get(s.key) {
                             "" => "Default".into(),
@@ -2511,6 +2526,12 @@ impl Prefs {
             set_field_names(names);
             return;
         }
+        self.set_plugin_value(id, text);
+    }
+
+    /// A value on a plugin's page (`plugin:<index>:<key>`) changed: it's
+    /// saved, and the plugin hears of it.
+    fn set_plugin_value(&mut self, id: &str, value: &str) {
         let mut parts = id.splitn(3, ':');
         let (Some("plugin"), Some(index), Some(key)) = (parts.next(), parts.next(), parts.next())
         else {
@@ -2524,7 +2545,7 @@ impl Prefs {
             return;
         };
         let plugin_id = plugin.manifest().id;
-        settings::set_plugin_value(plugin_id, key, text);
+        settings::set_plugin_value(plugin_id, key, value);
         plugin.configure(&settings::plugin_config(plugin_id));
         (self.plugin_changed)(plugin_id);
     }

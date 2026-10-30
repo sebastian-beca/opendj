@@ -89,6 +89,9 @@ pub enum SettingKind {
     /// A folder, picked with the system's dialog. Its detail says what an
     /// empty one means.
     Folder,
+    /// An on/off switch, on when the bool says so until the DJ flips it.
+    /// Its value is "on" or "off"; see [`PluginConfig::is_on`].
+    Switch(bool),
 }
 
 impl Setting {
@@ -111,12 +114,23 @@ pub struct PluginConfig {
     /// A folder of the plugin's own in the app's config folder, for files
     /// it keeps between runs.
     pub dir: Option<PathBuf>,
+    /// The DJ's music folders, the ones the collection is scanned from.
+    pub music_folders: Vec<PathBuf>,
 }
 
 impl PluginConfig {
     /// A value, or "" when it was never filled in.
     pub fn get(&self, key: &str) -> &str {
         self.values.get(key).map(String::as_str).unwrap_or_default()
+    }
+
+    /// A [`SettingKind::Switch`]: `default` until the DJ flips it.
+    pub fn is_on(&self, key: &str, default: bool) -> bool {
+        match self.get(key) {
+            "on" => true,
+            "off" => false,
+            _ => default,
+        }
     }
 }
 

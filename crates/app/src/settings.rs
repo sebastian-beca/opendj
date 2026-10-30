@@ -665,6 +665,7 @@ pub fn plugin_config(id: &str) -> PluginConfig {
     PluginConfig {
         values,
         dir: config_dir().map(|d| d.join("plugins").join(id)),
+        music_folders: music_folders(),
     }
 }
 
