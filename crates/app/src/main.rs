@@ -25,6 +25,7 @@ use opendj_engine::{
     AVAILABLE_EFFECTS, COLOR_FX, EFFECTS_PER_UNIT, NUM_DECKS,
 };
 use opendj_library::Library;
+use opendj_plugins::source::{QueryKind, SourceQuery};
 use opendj_waveform::{
     steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, PhraseKind, Style, WaveformRenderer,
     WaveformView, GRID_SECTIONS,
@@ -477,6 +478,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &registry,
     );
     let sources = sources::Sources::install(&app, library_path.clone());
+    {
+        // Spotify's "Open in Browser" and "Add to Downloads", the latter
+        // when an add-on source searches Spotify links.
+        const SPOTIFY_SITE: &str = "open.spotify.com";
+        let ui = app.global::<StoreUi>();
+        let to = sources
+            .borrow()
+            .takes_links(SPOTIFY_SITE)
+            .unwrap_or_default();
+        ui.set_downloads_to(to.into());
+        let b = browser.clone();
+        ui.on_open_playlist(move |i| {
+            if let Some(link) = b.borrow().spotify_playlist_link(i as usize) {
+                spotify::open_in_browser(&link);
+            }
+        });
+        let (b, s) = (browser.clone(), sources.clone());
+        ui.on_download_playlist(move |i| {
+            let Some(link) = b.borrow().spotify_playlist_link(i as usize) else {
+                return;
+            };
+            s.borrow_mut().add_download(
+                SPOTIFY_SITE,
+                SourceQuery {
+                    text: link,
+                    kind: QueryKind::Playlist,
+                    ..Default::default()
+                },
+            );
+            b.borrow_mut()
+                .set_stream_status(format!("Downloading the playlist in {to}."));
+        });
+        let (b, s) = (browser.clone(), sources.clone());
+        ui.on_download_tracks(move |first, last| {
+            let tracks = b.borrow().spotify_tracks(first as usize, last as usize);
+            let n = tracks.len();
+            for text in tracks {
+                s.borrow_mut().add_download(
+                    SPOTIFY_SITE,
+                    SourceQuery {
+                        text,
+                        kind: QueryKind::Track,
+                        ..Default::default()
+                    },
+                );
+            }
+            if n > 0 {
+                let what = if n == 1 {
+                    "the track".to_string()
+                } else {
+                    format!("{n} tracks")
+                };
+                b.borrow_mut()
+                    .set_stream_status(format!("Downloading {what} in {to}."));
+            }
+        });
+    }
     let sampler = sampler::Sampler::install(&app, engine.clone(), browser.clone(), &registry);
     let automix = Rc::new(RefCell::new(automix::AutoMix::new(&registry)));
     {

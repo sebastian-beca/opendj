@@ -386,6 +386,14 @@ export global StoreUi {
     callback set-inbox-mode(mode: int);
     // "Find in stores" on a track's menu.
     callback find(row: int);
+    // The add-on source that downloads Spotify playlists and tracks
+    // ("Add to Downloads"), by name; empty when none is installed.
+    in property <string> downloads-to;
+    // A Spotify playlist in the tree, by its row: its page, or downloading it.
+    callback open-playlist(index: int);
+    callback download-playlist(index: int);
+    // The Spotify tracks in rows first to last.
+    callback download-tracks(first: int, last: int);
 }
 
 // A line of a popup menu.
@@ -554,6 +562,13 @@ component TrackMenu inherits PopupWindow {
             clicked => {
                 root.close();
                 root.change-match();
+            }
+        }
+        if StoreUi.source == 2 && StoreUi.downloads-to != "": MenuLine {
+            text: "Add to Downloads";
+            clicked => {
+                StoreUi.download-tracks(track-row, track-last);
+                root.close();
             }
         }
         if StoreUi.stores: MenuLine {
@@ -1170,6 +1185,21 @@ component FolderTree inherits Rectangle {
                     folder-menu.close();
                 }
             }
+            // A Spotify playlist; Liked Songs (kind 4) has no link to download.
+            if StoreUi.source == 2: MenuLine {
+                text: "Open in Browser";
+                clicked => {
+                    StoreUi.open-playlist(menu-index);
+                    folder-menu.close();
+                }
+            }
+            if StoreUi.source == 2 && StoreUi.downloads-to != "" && menu-kind != 4: MenuLine {
+                text: "Add to Downloads";
+                clicked => {
+                    StoreUi.download-playlist(menu-index);
+                    folder-menu.close();
+                }
+            }
             if menu-analysable: MenuLine {
                 text: "Analyze All";
                 clicked => {
@@ -1396,7 +1426,7 @@ component FolderTree inherits Rectangle {
                         clicked => { select(i); }
                         double-clicked => { toggle(i); }
                         pointer-event(e) => {
-                            if (f.editable || f.analysable || source == 1) && tab == 0 && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                            if (f.editable || f.analysable || source == 1 || source == 2) && tab == 0 && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                                 menu-index = i;
                                 menu-name = f.name;
                                 menu-kind = f.kind;

@@ -3698,6 +3698,43 @@ impl Browser {
             .collect()
     }
 
+    /// The page of Spotify playlist `index` in the tree (Liked Songs: the
+    /// DJ's liked songs), when Spotify is shown.
+    pub fn spotify_playlist_link(&self, index: usize) -> Option<String> {
+        if self.tree != SPOTIFY {
+            return None;
+        }
+        match &self.nodes.get(index)?.contents {
+            Contents::Stream(k) if k == spotify::LIKED => {
+                Some("https://open.spotify.com/collection/tracks".into())
+            }
+            Contents::Stream(k) => Some(format!("https://open.spotify.com/playlist/{k}")),
+            _ => None,
+        }
+    }
+
+    /// The Spotify tracks in rows `first` to `last`, as "Artist - Title".
+    pub fn spotify_tracks(&self, first: usize, last: usize) -> Vec<String> {
+        if self.tree != SPOTIFY {
+            return Vec::new();
+        }
+        (first.min(last)..=first.max(last))
+            .filter_map(|row| self.stream_track(row))
+            .map(|t| match t.artists.first() {
+                Some(a) => format!("{a} - {}", t.title),
+                None => t.title.clone(),
+            })
+            .collect()
+    }
+
+    /// A line under the shown service's playlists, e.g. where downloads went.
+    pub fn set_stream_status(&mut self, text: String) {
+        if let Some(st) = self.shown_stream_mut() {
+            st.status = text;
+        }
+        self.show_stream();
+    }
+
     /// The Spotify track shown at `row`, if a playlist is shown.
     fn stream_track(&self, row: usize) -> Option<&StreamTrack> {
         let n = (*self.stream_rows.get(row)?)?;

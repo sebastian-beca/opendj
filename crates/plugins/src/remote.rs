@@ -67,7 +67,11 @@ fn answer(plugin: &mut dyn Plugin, method: &str, p: &Value) -> Result<Value, Plu
     match method {
         "initialize" => {
             let m = plugin.manifest().clone();
-            let source = plugin.source().map(|s| info_json(&s.info()));
+            let source = plugin.source().map(|s| {
+                let mut info = info_json(&s.info());
+                info["sites"] = json!(s.sites());
+                info
+            });
             Ok(json!({
                 "protocol": PROTOCOL,
                 "manifest": {
@@ -128,6 +132,7 @@ fn answer(plugin: &mut dyn Plugin, method: &str, p: &Value) -> Result<Value, Plu
 struct Described {
     manifest: Manifest,
     source: Option<SourceInfo>,
+    sites: &'static [&'static str],
 }
 
 fn described() -> &'static Mutex<HashMap<PathBuf, Described>> {
@@ -322,6 +327,9 @@ impl SearchSource for RemotePlugin {
             hint: "",
         })
     }
+    fn sites(&self) -> &'static [&'static str] {
+        self.described.sites
+    }
     fn describe(&self, query: &SourceQuery) -> Vec<String> {
         self.call("source.describe", json!({ "query": query_json(query) }))
             .map(|v| list(&v).iter().map(|s| str_of(s).to_string()).collect())
@@ -458,7 +466,15 @@ fn described_from(hello: &Value) -> Result<Described, PluginError> {
         downloads: m["downloads"].as_bool().unwrap_or(false),
     };
     let source = (!hello["source"].is_null()).then(|| info_from(&hello["source"]));
-    Ok(Described { manifest, source })
+    let sites: Vec<&'static str> = list(&hello["source"]["sites"])
+        .iter()
+        .map(|s| intern(str_of(s)))
+        .collect();
+    Ok(Described {
+        manifest,
+        source,
+        sites: Box::leak(sites.into_boxed_slice()),
+    })
 }
 
 fn info_json(i: &SourceInfo) -> Value {
@@ -637,6 +653,19 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(found_from(&found_json(&f)), f);
+    }
+
+    #[test]
+    fn reads_the_sites_a_source_takes_links_from() {
+        let hello = json!({
+            "protocol": PROTOCOL,
+            "manifest": { "id": "x", "name": "X" },
+            "source": { "name": "X", "icon_svg": "", "hint": "", "sites": ["open.spotify.com"] },
+        });
+        assert_eq!(described_from(&hello).unwrap().sites, ["open.spotify.com"]);
+        // An add-on from before sites takes none.
+        let old = json!({ "manifest": { "id": "x" }, "source": { "name": "X" } });
+        assert!(described_from(&old).unwrap().sites.is_empty());
     }
 
     #[test]

@@ -169,6 +169,13 @@ pub struct DownloadUpdate {
 pub trait SearchSource: Send {
     fn info(&self) -> SourceInfo;
 
+    /// Sites whose playlist and track links the source can search, e.g.
+    /// "open.spotify.com". The app offers "Add to Downloads" on those
+    /// sites' playlists and tracks, searched here and downloaded right away.
+    fn sites(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// How the source reads a query, a line for each search it will run,
     /// e.g. "Album: artist Bonobo, album Migration". Shown while typing, so
     /// it must not touch the network.
