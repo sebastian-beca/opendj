@@ -4,12 +4,13 @@
 |---|---|
 | <kbd>Space</kbd> | Play or pause the master deck |
 | <kbd>⌘</kbd> <kbd>1</kbd> to <kbd>⌘</kbd> <kbd>5</kbd> (Linux and Windows: <kbd>Ctrl</kbd>) | Rate the tracks picked in the browser 1 to 5 stars |
+| <kbd>⌘</kbd> <kbd>A</kbd> (Linux and Windows: <kbd>Ctrl</kbd> <kbd>A</kbd>) | Pick every track in the track list or side list you last clicked, to drag or analyze them together |
 | <kbd>⌘</kbd> <kbd>,</kbd> (Linux and Windows: <kbd>Ctrl</kbd> <kbd>,</kbd>) | Open or close Settings |
 | <kbd>Esc</kbd> | Close Settings |
 
 ## openDJscript
 
-Each shortcut, apart from Space, ⌘, and Esc, runs a line of openDJscript,
+Each shortcut, apart from Space, ⌘A, ⌘, and Esc, runs a line of openDJscript,
 a short action language in the style of VirtualDJ's VDJscript. ⌘3 runs
 `rating 3`.
 

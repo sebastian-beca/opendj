@@ -2037,6 +2037,15 @@ component TrackList inherits Rectangle {
         range-end = i;
         current = i;
     }
+    // ⌘A (Ctrl+A on Linux and Windows): every row, the first one current.
+    public function select-all() {
+        if rows.length > 0 {
+            anchor = rows.length - 1;
+            range-end = 0;
+            current = 0;
+            took-focus();
+        }
+    }
     // Keep the selection in view when a controller moves it.
     changed current => {
         if current >= 0 {
@@ -2637,6 +2646,13 @@ component SidePanel inherits Rectangle {
         range-end = i;
         selected = i;
     }
+    function select-all() {
+        if rows.length > 0 {
+            anchor = rows.length - 1;
+            range-end = 0;
+            selected = 0;
+        }
+    }
     // Where a row was just removed, so the one taking its place gets selected.
     property <int> removed-at: -1;
     property <length> row-height: 56px;
@@ -2693,6 +2709,11 @@ component SidePanel inherits Rectangle {
         height: parent.height - tab-bar.height;
         visible: tab < 3;
         key-pressed(e) => {
+            // ⌘A (Ctrl+A on Linux and Windows) picks every row, to drag or remove them all.
+            if (e.text == "a" || e.text == "A") && e.modifiers.control && !e.modifiers.alt && !e.modifiers.shift {
+                select-all();
+                return accept;
+            }
             if selected >= 0 && selected < rows.length && (e.text == Key.Delete || e.text == Key.Backspace) {
                 remove-picked();
                 return accept;
@@ -2950,6 +2971,12 @@ export component Browser inherits HorizontalLayout {
     // The rows picked in the track list, for keyboard shortcuts.
     out property <int> first-picked: list.first-picked;
     out property <int> last-picked: list.last-picked;
+    // ⌘A in the track list, when it has the focus rather than the folders.
+    public function select-all() {
+        if !folders-focused && list.visible {
+            list.select-all();
+        }
+    }
     in property <[SideRow]> side-rows;
     in property <string> side-total;
     in-out property <int> side-tab;
@@ -2962,6 +2989,9 @@ export component Browser inherits HorizontalLayout {
     in-out property <string> spotify-client-id;
     // Shown instead of a Spotify playlist's rows while it loads or fails.
     in property <string> list-notice;
+    // A track in the list was picked, so the keys go back to the window's
+    // shortcuts (⌘A among them) from the side list or the search field.
+    callback list-clicked();
     callback select-source(source: int);
     callback spotify-connect(client-id: string);
     callback spotify-disconnect();
@@ -3064,7 +3094,10 @@ export component Browser inherits HorizontalLayout {
             sort(c) => { sort(c); }
             search(t) => { search(t); }
             activate(r) => { activate(r); }
-            took-focus => { folders-focused = false; }
+            took-focus => {
+                folders-focused = false;
+                list-clicked();
+            }
         }
         if health-page: HealthPanel {
             width: 100%;
