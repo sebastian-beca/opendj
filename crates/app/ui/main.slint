@@ -586,7 +586,7 @@ export component AppWindow inherits Window {
 
     callback select-source(source: int);
     // Which sources the library rail shows, by index.
-    in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true, true, true];
+    in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true, true, true, true];
     callback source-shown-changed(source: int, on: bool);
     callback spotify-connect(client-id: string);
     callback spotify-disconnect();
@@ -689,6 +689,12 @@ export component AppWindow inherits Window {
             }
             if e.text == Key.Escape && Preferences.open {
                 Preferences.open = false;
+                return accept;
+            }
+            // ⌘A (Ctrl+A on Linux and Windows) picks every track in the
+            // list; the side list and text fields take it first themselves.
+            if (e.text == "a" || e.text == "A") && e.modifiers.control && !e.modifiers.alt && !e.modifiers.shift && !Preferences.open {
+                browser.select-all();
                 return accept;
             }
             if !Preferences.open && shortcut(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift, master-deck, browser.first-picked, browser.last-picked) {
@@ -850,6 +856,7 @@ export component AppWindow inherits Window {
                 ascending: sort-ascending;
                 side-rows: side-rows;
                 side-total: side-total;
+                list-clicked => { keys.focus(); }
                 select-folder(i) => { select-folder(i); }
                 toggle-folder(i) => { toggle-folder(i); }
                 sort(c) => { sort(c); }
