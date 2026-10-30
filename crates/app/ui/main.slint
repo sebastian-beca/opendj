@@ -250,7 +250,8 @@ component MapBarButton inherits Rectangle {
 }
 
 // Map mode's bar under the top bar: what to do next, what the last control
-// learned, and Undo, Keep both and Done.
+// learned, and Undo, Keep both and Done. Quick map walks through the usual
+// controls here too, with Skip.
 component MapBar inherits Rectangle {
     height: 40px;
     width: bl.preferred-width;
@@ -264,12 +265,19 @@ component MapBar inherits Rectangle {
         padding-left: 16px;
         padding-right: 8px;
         spacing: 12px;
-        Text { text: "MIDI MAP"; color: Theme.lilac; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; vertical-alignment: center; }
-        Text { text: MapMode.last != "" ? MapMode.last : MapMode.status; color: Theme.text; font-size: 12px; vertical-alignment: center; }
-        if MapMode.replaced != "": Text { text: "(was " + MapMode.replaced + ")"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
-        if MapMode.replaced != "": MapBarButton { text: "Keep both"; clicked => { MapMode.keep-both(); } }
+        Text { text: MapMode.walking || MapMode.asking-decks ? "QUICK MAP" : "MIDI MAP"; color: Theme.lilac; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; vertical-alignment: center; }
+        if MapMode.walking: Text { text: MapMode.step; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+        // While walking, what to do now; otherwise what was learned last.
+        Text { text: MapMode.last != "" && !MapMode.walking ? MapMode.last : MapMode.status; color: Theme.text; font-size: 12px; vertical-alignment: center; }
+        if MapMode.walking && MapMode.last != "": Text { text: MapMode.last; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+        if MapMode.replaced != "" && !MapMode.walking: Text { text: "(was " + MapMode.replaced + ")"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+        if MapMode.replaced != "" && !MapMode.walking: MapBarButton { text: "Keep both"; clicked => { MapMode.keep-both(); } }
+        if MapMode.asking-decks: MapBarButton { text: "2 decks"; primary: true; clicked => { MapMode.choose-decks(2); } }
+        if MapMode.asking-decks: MapBarButton { text: "4 decks"; primary: true; clicked => { MapMode.choose-decks(4); } }
+        if MapMode.walking: MapBarButton { text: "Skip"; clicked => { MapMode.skip(); } }
         if MapMode.can-undo: MapBarButton { text: "Undo"; clicked => { MapMode.undo(); } }
-        MapBarButton { text: "Done"; primary: true; clicked => { MapMode.done(); } }
+        if !MapMode.walking && !MapMode.asking-decks: MapBarButton { text: "Quick map"; clicked => { MapMode.quick-map(""); } }
+        MapBarButton { text: "Done"; primary: !MapMode.asking-decks; clicked => { MapMode.done(); } }
     }
 }
 

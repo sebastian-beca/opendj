@@ -465,12 +465,15 @@ export component PrefRow inherits Rectangle {
                 }
                 VerticalLayout {
                     alignment: center;
+                    // Edit, or Quick map for a controller with no mapping.
                     Button {
-                        text: "Edit";
+                        text: item.action == "Quick map" ? "Quick map" : "Edit";
                         min-width: 64px;
                         opacity: item.action != "" ? 1 : 0.4;
                         clicked => {
-                            if item.action != "" {
+                            if item.action == "Quick map" {
+                                Preferences.pressed(item.id + "#quick");
+                            } else if item.action != "" {
                                 Preferences.pressed(item.id + "#edit");
                             }
                         }

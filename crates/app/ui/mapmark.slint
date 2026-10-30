@@ -18,6 +18,12 @@ export global MapMode {
     // What the last control did before, now replaced; "" for nothing.
     in property <string> replaced;
     in property <bool> can-undo;
+    // Quick map: a walk through the usual controls, one after another.
+    // First it asks whether the controller is used with two decks or four,
+    // then `step` says how far along it is ("3 of 19").
+    in property <bool> asking-decks;
+    in property <bool> walking;
+    in property <string> step;
     pure callback mapped(key: string, tick: int) -> bool;
     callback start();
     callback done();
@@ -25,6 +31,11 @@ export global MapMode {
     callback undo();
     // The last control does what it did before too.
     callback keep-both();
+    // Starts Quick map for the controller on `port` ("" for the one
+    // plugged in), from Settings or the bar.
+    callback quick-map(port: string);
+    callback choose-decks(decks: int);
+    callback skip();
 }
 
 export component MapMark inherits Rectangle {

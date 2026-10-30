@@ -41,6 +41,9 @@ pub enum MappingChoice {
     Off,
     /// This mapping file, by file name in the mappings folder.
     File(String),
+    /// One of the DJ's own mappings, by its file: one made with Quick map,
+    /// standing alone (or put over the Mixxx mapping it names).
+    Own(PathBuf),
 }
 
 /// A MIDI device that is plugged in, whether or not it has a mapping.
@@ -131,7 +134,7 @@ impl Controllers {
     /// The MIDI devices plugged in now, and what each one runs.
     pub fn ports(&self) -> Vec<Port> {
         let connected = self.connected();
-        let mut ports: Vec<Port> = self
+        let ports: Vec<Port> = self
             .shared
             .ports
             .lock()
@@ -149,16 +152,6 @@ impl Controllers {
                     .map(|c| c.mapping.clone()),
             })
             .collect();
-        // Stand-in devices (OPENDJ_VIRTUAL_MIDI) are not MIDI ports.
-        for c in connected {
-            if !ports.iter().any(|p| p.name == c.port) {
-                ports.push(Port {
-                    name: c.port,
-                    mapping_file: Some(c.file),
-                    running: Some(c.mapping),
-                });
-            }
-        }
         ports
     }
 
@@ -353,9 +346,24 @@ fn own_for(path: &Path, versions: &HashMap<String, PathBuf>) -> Option<PathBuf> 
     versions.get(file.as_ref()).filter(|p| p.is_file()).cloned()
 }
 
+/// Whether `file` is one of the DJ's own mappings rather than a Mixxx one.
+pub fn is_own_file(file: &str) -> bool {
+    file.ends_with(".json")
+}
+
 /// The mapping a controller runs: the Mixxx mapping at `path`, or the own
-/// mapping `own` put over it.
+/// mapping `own` put over it; or the own mapping at `path`, put over the
+/// Mixxx mapping it names, if any.
 pub(crate) fn load_mapping(path: &Path, own: Option<&Path>) -> Result<Mapping, String> {
+    if is_own_file(&path.to_string_lossy()) {
+        let mine = OpenDjMapping::read(path)?;
+        let dir = crate::default_mappings_dir().unwrap_or_default();
+        let base = match &mine.based_on {
+            Some(b) => Some(Mapping::load(&dir.join(b))?),
+            None => None,
+        };
+        return Ok(mine.build(base.as_ref(), &dir));
+    }
     let base = Mapping::load(path)?;
     let Some(own) = own else {
         return Ok(base);
@@ -375,6 +383,7 @@ fn pick_mapping(
     match choices.get(&device_key(port)) {
         Some(MappingChoice::Off) => None,
         Some(MappingChoice::File(f)) if dir.join(f).is_file() => Some(dir.join(f)),
+        Some(MappingChoice::Own(p)) if p.is_file() => Some(p.clone()),
         _ => match_mapping(port, mappings).map(Path::to_path_buf),
     }
 }
@@ -387,15 +396,12 @@ fn watch_devices(
     shared: Arc<Shared>,
     stop: Arc<AtomicBool>,
 ) {
-    let versions = shared.versions.lock().unwrap().clone();
-    let virtual_devices = start_virtual_devices(&registry, &mappings, &versions, &connected, &stop);
-    let Ok(mut input) = MidiInput::new(CLIENT) else {
+    let stand_ins = stand_in_devices();
+    let mut input = MidiInput::new(CLIENT).ok();
+    if input.is_none() && stand_ins.is_empty() {
         eprintln!("MIDI is unavailable; controllers are disabled");
-        for t in virtual_devices {
-            let _ = t.join();
-        }
         return;
-    };
+    }
     let mut devices: HashMap<String, Device> = HashMap::new();
     let mut last_scan: Option<Instant> = None;
     while !stop.load(Ordering::Relaxed) {
@@ -408,17 +414,23 @@ fn watch_devices(
                 connected.lock().unwrap().retain(|c| c.port != port);
             }
             if let Ok(fresh) = MidiInput::new(CLIENT) {
-                input = fresh;
+                input = Some(fresh);
             }
         }
         if rescan || last_scan.is_none_or(|t| t.elapsed() >= RESCAN) {
             last_scan = Some(Instant::now());
-            let ports: Vec<String> = input
-                .ports()
+            let mut ports: Vec<String> = input
                 .iter()
-                .filter_map(|p| input.port_name(p).ok())
+                .flat_map(|input| {
+                    input
+                        .ports()
+                        .iter()
+                        .filter_map(|p| input.port_name(p).ok())
+                        .collect::<Vec<_>>()
+                })
                 .filter(|n| !n.contains(CLIENT) && !n.contains("Midi Through"))
                 .collect();
+            ports.extend(stand_ins.iter().map(|s| s.name.clone()));
             let picked: Vec<(String, Option<PathBuf>)> = {
                 let choices = shared.choices.lock().unwrap();
                 ports
@@ -461,6 +473,11 @@ fn watch_devices(
                 };
                 let own = own_for(&path, &versions);
                 let d_stop = Arc::new(AtomicBool::new(false));
+                let stand_in = stand_ins.iter().find(|s| s.name == port).map(|s| {
+                    let (tx, rx) = mpsc::channel();
+                    *s.sender.lock().unwrap() = Some(tx);
+                    rx
+                });
                 let thread = {
                     let (registry, path, own, port, d_stop, connected) = (
                         registry.clone(),
@@ -472,8 +489,28 @@ fn watch_devices(
                     );
                     std::thread::Builder::new()
                         .name(format!("midi {port}"))
-                        .spawn(move || {
-                            run_device(&port, &path, own.as_deref(), registry, &d_stop, &connected)
+                        .spawn(move || match stand_in {
+                            Some(rx) => {
+                                let name = port.clone();
+                                run_controller(
+                                    &port,
+                                    &path,
+                                    own.as_deref(),
+                                    registry,
+                                    &d_stop,
+                                    &connected,
+                                    rx,
+                                    |m| eprintln!("{name} <- {m:02X?}"),
+                                )
+                            }
+                            None => run_device(
+                                &port,
+                                &path,
+                                own.as_deref(),
+                                registry,
+                                &d_stop,
+                                &connected,
+                            ),
                         })
                         .expect("spawn controller thread")
                 };
@@ -493,9 +530,6 @@ fn watch_devices(
     for (_, d) in devices.drain() {
         d.stop.store(true, Ordering::Relaxed);
         let _ = d.thread.join();
-    }
-    for t in virtual_devices {
-        let _ = t.join();
     }
 }
 
@@ -667,29 +701,25 @@ fn run_controller(
 /// A stand-in device for trying mappings without hardware:
 /// `OPENDJ_VIRTUAL_MIDI="Midi Fighter Twister=/tmp/twister"` reads MIDI
 /// messages as hex lines ("B0 11 40") from that file or FIFO, as if they came
-/// from a device with that name. Messages to the device are printed.
-fn start_virtual_devices(
-    registry: &Arc<ControlRegistry>,
-    mappings: &[(String, PathBuf)],
-    versions: &HashMap<String, PathBuf>,
-    connected: &Arc<Mutex<Vec<ConnectedController>>>,
-    stop: &Arc<AtomicBool>,
-) -> Vec<JoinHandle<()>> {
+/// from a device with that name. It's listed with the devices plugged in,
+/// so it gets a mapping the same way. Messages to the device are printed.
+struct StandIn {
+    name: String,
+    /// Where the lines read go: the controller running for it now.
+    sender: Arc<Mutex<Option<mpsc::Sender<Vec<u8>>>>>,
+}
+
+fn stand_in_devices() -> Vec<StandIn> {
     let Ok(spec) = std::env::var("OPENDJ_VIRTUAL_MIDI") else {
         return Vec::new();
     };
-    let mut threads = Vec::new();
+    let mut out = Vec::new();
     for entry in spec.split(';').filter(|e| !e.is_empty()) {
         let Some((port, file)) = entry.split_once('=') else {
             continue;
         };
-        let Some(path) = match_mapping(port, mappings).map(Path::to_path_buf) else {
-            eprintln!("{port}: no mapping matches this name");
-            continue;
-        };
-        let own = own_for(&path, versions);
-        let (port, file) = (port.to_string(), PathBuf::from(file));
-        let (tx, rx) = mpsc::channel();
+        let sender: Arc<Mutex<Option<mpsc::Sender<Vec<u8>>>>> = Arc::default();
+        let (to, file) = (sender.clone(), PathBuf::from(file));
         std::thread::spawn(move || {
             use std::io::BufRead;
             let Ok(f) = std::fs::File::open(&file) else {
@@ -700,27 +730,17 @@ fn start_virtual_devices(
                     .split_whitespace()
                     .filter_map(|b| u8::from_str_radix(b, 16).ok())
                     .collect();
-                if !bytes.is_empty() && tx.send(bytes).is_err() {
-                    break;
+                if let (false, Some(tx)) = (bytes.is_empty(), to.lock().unwrap().as_ref()) {
+                    let _ = tx.send(bytes);
                 }
             }
         });
-        let (registry, connected, stop) = (registry.clone(), connected.clone(), stop.clone());
-        threads.push(std::thread::spawn(move || {
-            let name = port.clone();
-            run_controller(
-                &port,
-                &path,
-                own.as_deref(),
-                registry,
-                &stop,
-                &connected,
-                rx,
-                |m| eprintln!("{name} <- {m:02X?}"),
-            );
-        }));
+        out.push(StandIn {
+            name: port.to_string(),
+            sender,
+        });
     }
-    threads
+    out
 }
 
 #[cfg(test)]
