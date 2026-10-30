@@ -332,6 +332,13 @@ pub struct LibraryInfo {
     /// the track again on request may replace it (unlike one the DJ edited
     /// or an import brought).
     pub grid_analysed: bool,
+    /// Where the library's grid came from: "analysis", "user", or the app
+    /// it was brought in from; empty without one.
+    pub grid_from: String,
+    /// The DJ locked the grid: edits and analysis leave it alone.
+    pub grid_locked: bool,
+    /// The analysed grid fits the beats poorly: worth checking by ear.
+    pub grid_unsure: bool,
     /// When the track joined the library, as a Unix time (0 if unknown).
     pub added: i64,
     /// The library has the track but its file is not on disk.

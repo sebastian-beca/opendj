@@ -54,6 +54,10 @@ export struct DeckInfo {
     loop-size: string,
     // How many tempo sections the beat grid has (1 for a steady tempo).
     grid-sections: int,
+    // Where the grid came from: "Detected", "Edited" or "From VirtualDJ".
+    grid-source: string,
+    // The detected grid fits the beats poorly: worth checking by ear.
+    grid-unsure: bool,
     // The loaded track's stems (none without stems), and how preparing
     // high-quality stems is going ("" when it isn't).
     stem-names: [string],
@@ -121,7 +125,8 @@ component GridNudge inherits HorizontalLayout {
 
 // Beat grid editing, opened from the tempo on the jog: move the grid,
 // adjust the tempo, and add or remove tempo sections for tracks whose
-// tempo drifts.
+// tempo drifts. Shows where the grid came from, locks it, and goes back
+// to the detected grid.
 component GridMenu inherits PopupWindow {
     in property <string> group;
     in property <DeckInfo> info;
@@ -135,26 +140,51 @@ component GridMenu inherits PopupWindow {
         drop-shadow-blur: 12px;
         drop-shadow-color: #000000a0;
     }
+    property <bool> locked: Controls.value(Controls.resolve(group, "bpmlock"), Controls.tick) > 0;
     VerticalLayout {
         padding: 6px;
         spacing: 2px;
         Text {
-            height: 24px;
+            height: 20px;
             x: 10px;
             text: info.grid-sections > 1 ? "Beat grid: " + info.grid-sections + " tempo sections" : "Beat grid: steady tempo";
             color: Theme.text-dim;
             font-size: 12px;
             vertical-alignment: center;
         }
-        GridMenuItem { group: group; key: "beats_translate_curpos"; text: "Put a beat here"; }
-        GridNudge { group: group; label: "Move grid"; less-key: "beats_translate_earlier"; more-key: "beats_translate_later"; less-text: "‹"; more-text: "›"; }
-        GridNudge { group: group; label: "Tempo here"; less-key: "beats_adjust_slower"; more-key: "beats_adjust_faster"; less-text: "−"; more-text: "+"; }
-        GridNudge { group: group; label: "Tempo × ½ / × 2"; less-key: "beats_scale_half"; more-key: "beats_scale_double"; less-text: "½"; more-text: "2"; }
+        Text {
+            height: 18px;
+            x: 10px;
+            text: info.grid-unsure && info.grid-source == "Detected" ? "Detected · may be off, check by ear" : info.grid-source;
+            color: info.grid-unsure && info.grid-source == "Detected" ? #e0b050 : Theme.text-dim;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+        HorizontalLayout {
+            height: 26px;
+            padding-left: 10px;
+            Text { text: "Lock grid"; color: Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+            ControlButton { group: group; key: "bpmlock"; text: locked ? "On" : "Off"; font-size: 13px; width: 44px; }
+        }
         Rectangle { height: 9px; Rectangle { height: 1px; background: Theme.border; } }
-        GridMenuItem { group: group; key: "beats_section_add"; text: "New tempo section from here"; }
-        if info.grid-sections > 1: GridMenuItem { group: group; key: "beats_section_remove"; text: "Remove this tempo section"; }
-        Rectangle { height: 9px; Rectangle { height: 1px; background: Theme.border; } }
-        GridMenuItem { group: group; key: "beats_undo_adjustment"; text: "Undo"; }
+        if locked: Text {
+            height: 26px;
+            x: 10px;
+            text: "Unlock the grid to edit it.";
+            color: Theme.text-dim;
+            font-size: 13px;
+            vertical-alignment: center;
+        }
+        if !locked: GridMenuItem { group: group; key: "beats_translate_curpos"; text: "Put a beat here"; }
+        if !locked: GridNudge { group: group; label: "Move grid"; less-key: "beats_translate_earlier"; more-key: "beats_translate_later"; less-text: "‹"; more-text: "›"; }
+        if !locked: GridNudge { group: group; label: "Tempo here"; less-key: "beats_adjust_slower"; more-key: "beats_adjust_faster"; less-text: "−"; more-text: "+"; }
+        if !locked: GridNudge { group: group; label: "Tempo × ½ / × 2"; less-key: "beats_scale_half"; more-key: "beats_scale_double"; less-text: "½"; more-text: "2"; }
+        if !locked: Rectangle { height: 9px; Rectangle { height: 1px; background: Theme.border; } }
+        if !locked: GridMenuItem { group: group; key: "beats_section_add"; text: "New tempo section from here"; }
+        if !locked && info.grid-sections > 1: GridMenuItem { group: group; key: "beats_section_remove"; text: "Remove this tempo section"; }
+        if !locked: Rectangle { height: 9px; Rectangle { height: 1px; background: Theme.border; } }
+        if !locked: GridMenuItem { group: group; key: "beats_undo_adjustment"; text: "Undo"; }
+        if !locked && info.grid-source != "Detected": GridMenuItem { group: group; key: "beats_reset"; text: "Back to the detected grid"; }
     }
 }
 
