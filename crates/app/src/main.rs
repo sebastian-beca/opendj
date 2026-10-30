@@ -57,6 +57,7 @@ mod sampler;
 mod settings;
 mod shortcuts;
 mod smooth;
+mod soundcloud;
 mod sources;
 mod spotify;
 mod stores;
