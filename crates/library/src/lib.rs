@@ -331,6 +331,8 @@ pub struct SyncReport {
     /// Tracks found to be another copy of a song the library has, whose
     /// lists now point at that one.
     pub matched: usize,
+    /// Lists left out as none of their tracks are here (online only).
+    pub left_out: usize,
 }
 
 /// What [`Library::remove_import`] took out.
@@ -1874,6 +1876,23 @@ fn import_lists(
          VALUES (?1, ?2, ?3, ?4)",
     )?;
     for (i, list) in lists.iter().enumerate() {
+        // The library's track for each entry; streamed tracks and files
+        // that aren't here have none.
+        let mut rows = Vec::with_capacity(list.entries.len());
+        for e in &list.entries {
+            let row: Option<i64> = find
+                .query_row([path_text(&e.path)], |r| r.get(0))
+                .optional()?;
+            match row {
+                Some(row) => rows.push((row, e.played_at)),
+                None => report.unmatched += 1,
+            }
+        }
+        // A list of only online tracks would come in empty: it stays out.
+        if rows.is_empty() && !list.entries.is_empty() {
+            report.left_out += 1;
+            continue;
+        }
         let mut parent = top;
         for depth in 1..=list.folders.len() {
             let path = list.folders[..depth].to_vec();
@@ -1901,17 +1920,13 @@ fn import_lists(
         };
         let id = make(Some(parent), &list.name, kind, i as i64, created, query)?;
         report.lists += 1;
-        let mut position = 0;
-        for e in &list.entries {
-            let row: Option<i64> = find
-                .query_row([path_text(&e.path)], |r| r.get(0))
-                .optional()?;
-            let Some(row) = row else {
-                report.unmatched += 1;
-                continue;
-            };
-            add.execute(params![id, position, row, e.played_at.unwrap_or(created)])?;
-            position += 1;
+        for (position, (row, played_at)) in rows.into_iter().enumerate() {
+            add.execute(params![
+                id,
+                position as i64,
+                row,
+                played_at.unwrap_or(created)
+            ])?;
         }
     }
     Ok(())
@@ -2255,6 +2270,45 @@ mod tests {
         let tracks = lib.tracks(|_| true).unwrap();
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].info.hotcues.len(), 1);
+    }
+
+    #[test]
+    fn lists_of_only_online_tracks_stay_out() {
+        use opendj_engine::import::ImportedEntry;
+        let mut lib = Library::in_memory().unwrap();
+        let list = |name: &str, path: &str| ImportedList {
+            folders: vec!["Online".into()],
+            name: name.into(),
+            kind: ImportedListKind::List,
+            entries: vec![ImportedEntry {
+                path: PathBuf::from(path),
+                played_at: None,
+            }],
+        };
+        let read = || {
+            Ok(ImportedLibrary {
+                tracks: vec![imported_track("/m/b.mp3")],
+                lists: vec![
+                    list("Streams", "netsearch://td1"),
+                    list("Mine", "/m/b.mp3"),
+                    ImportedList {
+                        entries: Vec::new(),
+                        ..list("Empty on purpose", "")
+                    },
+                ],
+            })
+        };
+        let report = lib.import("vdj", "VirtualDJ", "1", read).unwrap().unwrap();
+        assert_eq!((report.left_out, report.unmatched), (1, 1));
+        let names: Vec<String> = lib
+            .playlists()
+            .unwrap()
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+        assert!(!names.contains(&"Streams".to_string()));
+        assert!(names.contains(&"Mine".to_string()));
+        assert!(names.contains(&"Empty on purpose".to_string()));
     }
 
     #[test]

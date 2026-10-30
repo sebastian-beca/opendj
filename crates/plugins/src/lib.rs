@@ -21,9 +21,11 @@ use std::path::{Path, PathBuf};
 
 pub use opendj_engine::import::{ImportedLibrary, ImportedList, ListGroup};
 
+pub mod archive;
 pub mod bandcamp;
 pub mod inbox;
 pub mod links;
+pub mod rekordbox;
 pub mod remote;
 pub mod source;
 pub mod virtualdj;
@@ -288,7 +290,10 @@ pub trait LibraryImport: Send {
 
 /// The plugins that come with the app: Bandcamp, then the stores we link to.
 pub fn builtin() -> Vec<Box<dyn Plugin>> {
-    let mut out: Vec<Box<dyn Plugin>> = vec![Box::new(bandcamp::Bandcamp::new())];
+    let mut out: Vec<Box<dyn Plugin>> = vec![
+        Box::new(bandcamp::Bandcamp::new()),
+        Box::new(archive::InternetArchive::new()),
+    ];
     out.extend(
         links::STORES
             .iter()
@@ -300,7 +305,10 @@ pub fn builtin() -> Vec<Box<dyn Plugin>> {
 /// The other DJ apps whose libraries openDJ can bring in. Each is off until
 /// the DJ turns it on in Settings > Library.
 pub fn importers() -> Vec<Box<dyn LibraryImport>> {
-    vec![Box::new(virtualdj::VirtualDj)]
+    vec![
+        Box::new(virtualdj::VirtualDj),
+        Box::new(rekordbox::Rekordbox),
+    ]
 }
 
 /// The User-Agent plugins send, so stores can see who is asking.
