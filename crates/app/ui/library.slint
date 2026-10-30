@@ -40,7 +40,7 @@ export struct TrackRow {
     rating: int,
     // -1 = not loaded, else the deck it is loaded on (0 is deck 1)
     deck: int,
-    // False for a Spotify track that isn't in the collection, so can't play.
+    // False for a streaming track that isn't in the collection, so can't play.
     available: bool,
     // In the library, but its file is not on disk (moved or deleted).
     missing: bool,
@@ -336,7 +336,7 @@ export global CleanupUi {
     callback close-genres();
 }
 
-// Fixing which collection track a Spotify track is, by hand.
+// Fixing which collection track a streaming track is, by hand.
 export global StreamMatch {
     // What the DJ typed to find the track, and what it found.
     in-out property <string> query;
@@ -356,7 +356,7 @@ export global StreamMatch {
 export global StoreUi {
     // The source picked in the rail, so the app can switch to the stores.
     in-out property <int> source;
-    // Whether the built streaming services (Spotify) can be browsed, and
+    // Whether the built streaming services (Spotify, TIDAL) can be browsed, and
     // whether the stores and purchase inbox can be used. A source that
     // can't shows "Coming soon".
     in property <bool> streaming;
@@ -523,7 +523,7 @@ component TrackMenu inherits PopupWindow {
                 root.close();
             }
         }
-        if StoreUi.streaming && StoreUi.source == 2 && track-last == track-row: MenuLine {
+        if StoreUi.streaming && (StoreUi.source == 2 || StoreUi.source == 3) && track-last == track-row: MenuLine {
             text: "Change Match…";
             clicked => {
                 root.close();
@@ -991,8 +991,12 @@ component InboxPanel inherits Rectangle {
     }
 }
 
-// Signing in to Spotify, shown in the sidebar until connected.
+// Signing in to a streaming service (2 = Spotify, 3 = TIDAL), shown in the
+// sidebar until connected.
 component SpotifyConnect inherits Rectangle {
+    in property <int> source: 2;
+    property <bool> tidal: source == 3;
+    property <string> service: tidal ? "TIDAL" : "Spotify";
     in-out property <string> client-id;
     in property <string> status;
     callback connect(client-id: string);
@@ -1000,23 +1004,25 @@ component SpotifyConnect inherits Rectangle {
         alignment: center;
         spacing: 10px;
         padding: 14px;
-        HorizontalLayout { alignment: center; SourceIcon { kind: 2; } }
-        Text { text: "Connect Spotify"; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; }
+        HorizontalLayout { alignment: center; SourceIcon { kind: source; } }
+        Text { text: "Connect " + service; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; }
         Text {
-            text: "See your playlists and liked songs here. Tracks that are also in your collection can be played.";
+            text: tidal ? "See your playlists and favourite tracks here. Tracks that are also in your collection can be played."
+                : "See your playlists and liked songs here. Tracks that are also in your collection can be played.";
             color: Theme.text-dim; font-size: 13px; horizontal-alignment: center; wrap: word-wrap;
         }
-        LineEdit { text <=> client-id; placeholder-text: "Client ID of your Spotify app"; }
+        LineEdit { text <=> client-id; placeholder-text: "Client ID of your " + service + " app"; }
         Rectangle {
             height: 32px;
             border-radius: 16px;
-            background: cta.pressed ? #1db954 : #1ed760;
-            Text { text: "Sign in with Spotify"; color: #000000; font-size: 13px; font-weight: 700; }
+            background: tidal ? (cta.pressed ? #dddddd : #ffffff) : cta.pressed ? #1db954 : #1ed760;
+            Text { text: "Sign in with " + service; color: #000000; font-size: 13px; font-weight: 700; }
             cta := TouchArea { clicked => { connect(client-id); } }
         }
         if status != "": Text { text: status; color: Theme.text; font-size: 13px; horizontal-alignment: center; wrap: word-wrap; }
         Text {
-            text: "First time? Create an app at developer.spotify.com with the redirect URI http://127.0.0.1:8898/callback, then paste its client ID above.";
+            text: tidal ? "First time? Create an app at developer.tidal.com with the redirect URI http://127.0.0.1:8898/callback and the scopes user.read, playlists.read and collection.read, then paste its client ID above."
+                : "First time? Create an app at developer.spotify.com with the redirect URI http://127.0.0.1:8898/callback, then paste its client ID above.";
             color: Theme.text-dim; font-size: 12px; horizontal-alignment: center; wrap: word-wrap;
         }
     }
@@ -1263,18 +1269,19 @@ component FolderTree inherits Rectangle {
             title: "History";
             text: "Tracks you play will be listed here, one list per session.";
         }
-        if tab == 0 && source == 2 && StoreUi.streaming && !spotify-connected: SpotifyConnect {
+        if tab == 0 && (source == 2 || source == 3) && StoreUi.streaming && !spotify-connected: SpotifyConnect {
+            source: source;
             vertical-stretch: 1;
             client-id <=> spotify-client-id;
             status: spotify-status;
             connect(id) => { spotify-connect(id); }
         }
-        if tab == 0 && source >= 2 && source != 9 && source != 10 && !(StoreUi.streaming && source == 2) && !(StoreUi.stores && source == 5): Placeholder {
+        if tab == 0 && source >= 2 && source != 9 && source != 10 && !(StoreUi.streaming && (source == 2 || source == 3)) && !(StoreUi.stores && source == 5): Placeholder {
             vertical-stretch: 1;
             title: ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets"][source];
             text: "Coming soon.";
         }
-        if (tab == 0 && (source == 0 || source == 1 || source == 9 || source == 10 || (StoreUi.stores && source == 5) || (StoreUi.streaming && source == 2 && spotify-connected))) || (tab == 1 && folders.length > 0): VerticalLayout {
+        if (tab == 0 && (source == 0 || source == 1 || source == 9 || source == 10 || (StoreUi.stores && source == 5) || (StoreUi.streaming && (source == 2 || source == 3) && spotify-connected))) || (tab == 1 && folders.length > 0): VerticalLayout {
             spacing: 6px;
             HorizontalLayout {
                 padding-left: 8px;
@@ -1392,13 +1399,13 @@ component FolderTree inherits Rectangle {
             if StoreUi.stores && source == 5: InboxPanel {}
             if source == 1 && tab == 0: FilesOptions {}
             // What copying a playlist did.
-            if StoreUi.streaming && source == 2 && spotify-status != "": Text {
+            if StoreUi.streaming && (source == 2 || source == 3) && spotify-status != "": Text {
                 text: spotify-status; color: Theme.text-dim; font-size: 12px;
                 wrap: word-wrap;
                 x: 8px;
                 width: parent.width - 16px;
             }
-            if StoreUi.streaming && source == 2: HorizontalLayout {
+            if StoreUi.streaming && (source == 2 || source == 3): HorizontalLayout {
                 height: 28px;
                 padding-left: 8px;
                 padding-right: 8px;
@@ -1409,7 +1416,7 @@ component FolderTree inherits Rectangle {
                 }
                 Rectangle { horizontal-stretch: 1; }
             }
-            if StoreUi.streaming && source == 2: HorizontalLayout {
+            if StoreUi.streaming && (source == 2 || source == 3): HorizontalLayout {
                 height: 28px;
                 padding-left: 8px;
                 spacing: 8px;
@@ -2256,7 +2263,7 @@ component TrackList inherits Rectangle {
                                 shift-held = e.modifiers.shift;
                             }
                             // A Spotify track the collection doesn't have: pick which it is.
-                            if !r.available && StoreUi.streaming && StoreUi.source == 2 && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                            if !r.available && StoreUi.streaming && (StoreUi.source == 2 || StoreUi.source == 3) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                                 pick(i);
                                 menu-row = i;
                                 menu-matched = false;
@@ -2969,7 +2976,7 @@ export component Browser inherits HorizontalLayout {
     spacing: 1px;
     // Sources with a list of their own: the collection, Files, the stores,
     // and Spotify once signed in.
-    property <bool> listing: source == 0 || source == 1 || source == 9 || source == 10 || (StoreUi.stores && source == 5) || (StoreUi.streaming && source == 2 && spotify-connected);
+    property <bool> listing: source == 0 || source == 1 || source == 9 || source == 10 || (StoreUi.stores && source == 5) || (StoreUi.streaming && (source == 2 || source == 3) && spotify-connected);
     SourceRail {
         source <=> source;
         shown <=> sources-shown;
@@ -3033,8 +3040,8 @@ export component Browser inherits HorizontalLayout {
             folder-name: listing ? folder-name : source-names[source];
             duration: listing ? folder-duration : "";
             empty-title: source == 0 ? "" : listing ? (list-notice != "" ? " " : "") : source-names[source];
-            empty-text: source >= 2 && source != 9 && source != 10 && !(StoreUi.streaming && source == 2) && !(StoreUi.stores && source == 5) ? "Coming soon."
-                : source == 2 && !spotify-connected ? "Sign in on the left to see your playlists here."
+            empty-text: source >= 2 && source != 9 && source != 10 && !(StoreUi.streaming && (source == 2 || source == 3)) && !(StoreUi.stores && source == 5) ? "Coming soon."
+                : (source == 2 || source == 3) && !spotify-connected ? "Sign in on the left to see your playlists here."
                 : listing ? list-notice
                 : source-names[source] + " isn't connected yet.";
             sort(c) => { sort(c); }
