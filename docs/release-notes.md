@@ -1,51 +1,42 @@
-openDJ 0.4 is about cleaning up your collection. Library Health can now merge duplicate copies, tidy up track names and genres, look tags up online, find missing covers and quarantine files you don't want. Sets and crates organise your lists. Effects move into an FX bar of their own, the 2-Deck layout gets more compact, and openDJ comes to Windows as a preview.
+openDJ 0.4.5 is about switching over. Bring your rekordbox or Mixxx library across, bring your controller mappings from VirtualDJ, Traktor, rekordbox or djay Pro, or map a controller yourself by clicking a control on screen and moving one on the hardware. Beat grids now come from the Beat This! neural detector, a guided tour sets openDJ up the first time it starts, and your Spotify, TIDAL, Apple Music, SoundCloud and Mixcloud playlists show next to your collection.
 
 ## What's new
 
-**Collection clean-up**
+**Switching from another app**
 
-- Duplicates in Library Health groups copies of a track and picks the one to keep: the copy in your Collection folder first, then lossless, higher bitrate, with cues or a grid, most played. Fix all easy merges every safe group at once; Keep this copy picks another; Link as versions keeps copies of different lengths, linked. Lists, history, cues, ratings, plays and missing tags move onto the kept copy, and the other files go to `_Quarantine/<date>` beside your Collection folder. Undo brings them back.
-- Move to Quarantine in the track menu sends tracks you don't want to the same quarantine folder, with undo.
-- Junk in names (`is:junk`) finds track numbers, web sites, "(Official Video)" and similar, underscores and double spaces, and moves remixes and featured artists into their own fields. Clean up… shows every change in a review table to tick or untick before anything is written, and every change can be undone. Each rule can be switched off in Settings → Library → Stages → Clean-up.
-- A Genres page lists every genre with its track count, shows the ones spelled almost alike, and merges them.
-- Look up online fills in missing tags from MusicBrainz, finding badly named files by their sound when you add an AcoustID key, and adding label, year and style from Discogs with a Discogs token. Results open in the review table, and fields you typed yourself are never changed.
-- Find covers looks online for tracks with no cover, and Analyze Track now does the same, embedding the first cover at least 600 px big.
-- Several music folders in Settings → Library, each with Remove. A new Outside folders check finds files in none of them. openDJ no longer scans `~/Music` unless you add it, and tracks from a folder you remove leave the library (rated, played, staged and listed tracks stay; files on disk are never touched).
+- Settings → Collection → Import now brings in **rekordbox** (6 and 7, from `master.db` or an XML export) and **Mixxx**, next to VirtualDJ. Tags, stars, colours, hot cues with names and colours, memory cues, saved loops, beat grids and playlists in their folders come across, and Mixxx history too. rekordbox phrases become openDJ phrases, My Tags become `#tags`, and intelligent playlists become smart lists where openDJ's search can say the same thing.
+- Pick which lists to import in a tree of tick boxes, in the wizard or with Lists › Choose… on the Import tab.
+- A second import matches tracks the collection already has by artist, title and length, so the same song isn't added twice.
+- A first-run guided tour sets up your sound (with a test tone per output), your controller and your music folders, then walks you through your first mix on the real controls, on screen or on the controller. Every step can be skipped.
 
-**Sets and crates**
+**Controllers**
 
-- + → New set… makes a set, a lilac folder holding Staging, Set and Live set lists (change the template in Settings → Library → Stages → Sets). A set shows all its tracks with their total length and which still need prep.
-- Add to Set List on the History tab puts the tracks you played into a set's Live set.
-- Crates are your own lists outside sets. A Crates column shows which crates a track is in, and `crate:name` searches them. Library Health's Lists line finds empty crates and lists holding removed tracks, and Tidy up clears them.
+- Import a mapping from VirtualDJ (controllers and keyboard), Traktor (`.tsi`), rekordbox (`.midi.csv`) or djay Pro, from the Controller Editor's Mapping menu. Rows that can't come across stay greyed with the reason. Export writes an openDJ mapping, or a Mixxx `.midi.xml`.
+- Your own mappings: click a row in the Controller Editor to change what the control does, make it do nothing, or put it back.
+- **Map mode** (the MIDI button in the top bar): click a control on screen, then move one on the controller. Keep both, Undo and Done are on the bar.
+- **Quick map** walks through a controller's usual controls one by one, for 2 or 4 decks, and copies deck 1 to the other decks. It is the button for a controller with no mapping.
+- openDJ's own **Pioneer DDJ-FLX6** mapping, four decks, in Beta. Six more controllers with Mixxx mappings get drawings in the Controller Editor and a Beta label: DDJ-400, DDJ-200, DDJ-SB3, Mixtrack Platinum FX, Mixtrack Pro FX and DJControl Inpulse 500.
 
-**Decks and effects**
+**Beat grids**
 
-- An FX bar under the decks holds all the effects, shown or hidden with the FX button in the top bar: each deck's three effects across its width, and the Beat FX under the mixer. Deck effects start as Reverb, Echo and Gate.
-- Color FX on each deck's filter knob (Filter, Space, Dub Echo, Noise, Crush), picked from a small ▾ beside the knob. Each deck keeps its own.
-- A more compact 2-Deck layout: tempo, pads, loop controls and the jog with PLAY and CUE under it, a narrower mixer and wider pads. PLAY, CUE and SYNC light up as an outline in the deck colour.
-- SYNC sits over the tempo fader. Right-click it for quantize and its step (1/16 to 4 beats); Shift-click syncs once. A small MASTER badge under the key shows which deck the others follow; click it to pin.
-- The 4-Deck layout is cleaned up: no centre mixer, bigger strip controls, and a bar under the strips with each deck's crossfader side, SYNC and tempo.
-- The MASTER button in the top bar opens master, phones, booth and cue mix sliders and the Ableton Link switch; the MIC button opens the mic and aux. Levels are remembered between runs, and the aux input starts off.
-- A crossfader on/off switch (Settings → Mixer or right-click the crossfader).
-- Dragging a deck's overview waveform moves silently instead of playing what it passes.
+- Beats and downbeats come from Beat This!, a neural detector, so bar 1 lands on a downbeat. Grids stay steady unless a track really drifts, and tracks analysed before get refined on their next load.
+- Slow tracks get the right tempo: the default BPM range is now 60 to 180, and ambient and acoustic tracks no longer read double. A `~` before the BPM marks a grid with tempo changes.
+- Click a deck's BPM to see where its grid came from (Detected, Edited, From VirtualDJ, From Mixxx), lock it, or go back to the detected grid. Imported grids are locked.
+- A synced deck stays steady when the master deck loads a new track, and a synced deck that plays on alone takes over as master.
 
-**Stems**
+**Streaming and sources**
 
-- Every loaded track gets stems straight away, separated while it plays starting from the cue point. Prepare High Quality Stems in the track menu makes studio-quality stems in the background and swaps them in.
-- The STEMS pads are now 8: Vocal, Instru, Bass, Acapella, Kick, HiHat, Stems FX and Instrumental.
+- Browse your **Spotify**, **TIDAL**, **Apple Music**, **SoundCloud** and **Mixcloud** playlists, likes and favourites, signing in with your own developer app. Tracks your collection has play on a deck; the rest open in the browser. Browse only: nothing is streamed or downloaded from these services.
+- Change Match… fixes a wrong match by hand, and Copy to openDJ makes a list from a playlist, with the missing tracks put on your wanted list.
+- **Internet Archive**, a new source of freely licensed music with covers.
+- Add-on sources such as Soulseek can download each song of a playlist search right away, one row per song, and Search again looks only for the songs still missing. Spotify playlists and tracks get Add to Downloads when an add-on takes their links. Add-ons can have on/off switches in Settings.
 
-**Pads, keyboard and controllers**
+**Collection**
 
-- A page shifter left of the pads, and pad pages in the DDJ-FLX4's order. Each FLX4 pad mode plays whatever page is in its tab, so you can put stems where the sampler was.
-- Settings → Keyboard lists every shortcut to change, turn off or add. ⌘1 to ⌘5 (Ctrl on Linux and Windows) rate the selected tracks.
-- Settings → Controllers lists only controllers with a mapping, with Add, Remove and Edit. The Controller Editor groups controls into sections and can duplicate and rename a mapping as your own copy.
-- ⌘, (Ctrl+,) opens Settings.
-
-**Library**
-
-- Settings → Library has General, Stages, Fields and Import tabs. Import from VirtualDJ is on the Import tab; more apps are coming.
-- Sorting by a column keeps the selected track selected and in view.
-- Export to USB… on a list writes a stick for Pioneer players. It is experimental: it hasn't been tried on a player yet.
+- openDJ says **collection** for your own tracks: Settings → Collection and Collection Health. Stages are now **Inbox → In Prep → Play Ready**.
+- An **Albums** folder and a **Mixed Sets** folder in Settings → Collection → General, each with its own source in the rail. Albums show as a wall of covers or a list; Play Album plays one gaplessly through Automix. Collection Health finds tracks whose album tag differs from the rest of their folder.
+- Drop audio files from Finder, Explorer or a file manager onto a deck to load them.
+- Cmd+A (Ctrl+A) selects every track in the list.
 
 ## Install
 
@@ -65,12 +56,12 @@ The Windows build isn't signed yet, so on first run SmartScreen says "Windows pr
 
 openDJ needs ALSA and a Vulkan driver, which most desktops already have.
 
-Add your music folders in Settings → Library. MIDI controllers that Mixxx supports load their mapping when plugged in.
+Add your music folders in Settings → Collection, or let the guided tour do it the first time openDJ starts. MIDI controllers that Mixxx supports load their mapping when plugged in.
 
 ## Known limits
 
 - Windows is a preview: unsigned, and less tested than macOS and Linux.
-- Streaming services and stores are coming soon.
+- Streaming services are browse only, and stores are coming soon.
 - Automix uses decks 1 and 2 only.
-- The Controller Editor can copy mappings but not change them yet.
+- Controllers marked Beta, including the new DDJ-FLX6 mapping, haven't all been tried on the hardware yet.
 - USB export for Pioneer players is experimental.
