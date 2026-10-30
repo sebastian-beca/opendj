@@ -13,7 +13,7 @@ use std::sync::Mutex;
 
 use beat_this::{BeatThis, RtenRuntime, Runtime};
 
-use crate::analysis::{tag_tempo, Analysis};
+use crate::analysis::{bpm_range, tag_tempo, Analysis};
 use crate::beats::BeatGrid;
 use crate::gridfit;
 use crate::separation::model_or_fetch;
@@ -95,14 +95,16 @@ fn detect(audio: &Audio) -> Result<(Vec<f64>, Vec<f64>), String> {
     Ok((secs(found.beats), secs(found.downbeats)))
 }
 
-/// Gives `analysis` the grid Beat This!'s beats and downbeats fit, near the
-/// tempo the DSP analysis found (so its BPM range still holds). A tempo
+/// Gives `analysis` the grid Beat This!'s beats and downbeats fit, at the
+/// tempo of those beats folded into the BPM range (the DSP tempo can be
+/// far off on slow, soft music, so it isn't used). A tempo
 /// from tags (`bpm_hint`, as [`crate::analysis::analyse`] takes it) stays
 /// steady, with bar 1 moved onto a downbeat.
 pub fn refine(analysis: &mut Analysis, audio: &Audio, bpm_hint: Option<f64>) -> Result<(), String> {
     let (beats, downbeats) = detect(audio)?;
-    let fitted = gridfit::fit(&beats, Some(&downbeats), analysis.bpm)
-        .ok_or("too few beats to fit a grid")?;
+    let (beats, bpm) = in_range(beats, &downbeats, bpm_range());
+    let fitted =
+        gridfit::fit(&beats, Some(&downbeats), bpm).ok_or("too few beats to fit a grid")?;
     let grid = match tag_tempo(bpm_hint) {
         Some(bpm) => BeatGrid::constant(bpm, fitted.grid.markers()[0].seconds),
         None => fitted.grid,
@@ -115,11 +117,74 @@ pub fn refine(analysis: &mut Analysis, audio: &Audio, bpm_hint: Option<f64>) -> 
     Ok(())
 }
 
+/// The tempo of `beats` (from the median gap) and the beats at that tempo,
+/// halved or doubled into `range`: halving keeps the beats that fall on
+/// more downbeats, doubling adds one between each two.
+fn in_range(mut beats: Vec<f64>, downbeats: &[f64], (lo, hi): (f64, f64)) -> (Vec<f64>, f64) {
+    let tempo = |beats: &[f64]| {
+        let mut gaps: Vec<f64> = beats.windows(2).map(|w| w[1] - w[0]).collect();
+        if gaps.is_empty() {
+            return 0.0;
+        }
+        let mid = gaps.len() / 2;
+        60.0 / *gaps.select_nth_unstable_by(mid, f64::total_cmp).1
+    };
+    let mut bpm = tempo(&beats);
+    // Twice is enough for any range at least an octave wide.
+    for _ in 0..2 {
+        if bpm > hi {
+            let on_downbeat = |&b: &f64| downbeats.iter().any(|d| (d - b).abs() < 0.07);
+            let odd = beats
+                .iter()
+                .skip(1)
+                .step_by(2)
+                .filter(|b| on_downbeat(b))
+                .count();
+            let even = beats.iter().step_by(2).filter(|b| on_downbeat(b)).count();
+            beats = beats
+                .into_iter()
+                .skip(usize::from(odd > even))
+                .step_by(2)
+                .collect();
+        } else if bpm > 0.0 && bpm < lo {
+            let mids: Vec<f64> = beats.windows(2).map(|w| (w[0] + w[1]) / 2.0).collect();
+            beats.extend(mids);
+            beats.sort_by(f64::total_cmp);
+        } else {
+            break;
+        }
+        bpm = tempo(&beats);
+    }
+    (beats, bpm)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::analysis::analyse;
     use crate::synth;
+
+    #[test]
+    fn folds_the_beats_tempo_into_the_range() {
+        let at = |bpm: f64, n: usize| {
+            (0..n)
+                .map(|k| 0.3 + k as f64 * 60.0 / bpm)
+                .collect::<Vec<_>>()
+        };
+        let (beats, bpm) = in_range(at(67.2, 100), &[], (60.0, 180.0));
+        assert_eq!(beats.len(), 100);
+        assert!((bpm - 67.2).abs() < 0.01, "{bpm}");
+        // Too fast: every other beat, the ones on downbeats.
+        let fast = at(200.0, 100);
+        let downbeats: Vec<f64> = fast.iter().skip(1).step_by(8).copied().collect();
+        let (beats, bpm) = in_range(fast.clone(), &downbeats, (60.0, 180.0));
+        assert!((bpm - 100.0).abs() < 0.01, "{bpm}");
+        assert_eq!(beats[0], fast[1]);
+        // Too slow: a beat between each two.
+        let (beats, bpm) = in_range(at(62.0, 50), &[], (70.0, 180.0));
+        assert!((bpm - 124.0).abs() < 0.01, "{bpm}");
+        assert_eq!(beats.len(), 99);
+    }
 
     /// Runs only where the models are in `OPENDJ_MODELS` (they aren't
     /// downloaded in tests).

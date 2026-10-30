@@ -134,11 +134,18 @@ those tracks don't wait for analysis.
 
 The beat grid stays at one steady tempo unless the track really drifts,
 as live drums and older recordings do; only then does it get tempo
-sections. With **Beat detection** set to **Neural** (the default, in
+sections, and its BPM in the list shows a ~ (as in VirtualDJ). With
+**Beat detection** set to **Neural** (the default, in
 **Settings › Analysis**), openDJ then listens for each beat and downbeat
 with Beat This!, so bar 1 starts on a downbeat. That takes a few seconds
 more, after the waveform appears: the track plays on its first grid
 meanwhile. The first time, openDJ downloads the model (about 11 MB).
+
+Beat This! also sets the tempo, from the beats it hears, which suits slow
+and soft music (ambient, acoustic) far better than the standard detector.
+Tempos are kept within **BPM range** (**Settings › Analysis**, 60 to 180
+BPM unless you change it): a faster reading is halved, a slower one
+doubled.
 
 The grid menu (click the BPM on a deck) says where the grid came from:
 **Detected**, **Edited** or the app it was imported from. A detected grid
