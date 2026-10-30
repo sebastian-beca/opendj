@@ -28,7 +28,9 @@ The rail at the far left picks where the tree and the track list come from:
 openDJ shows what you saved on a streaming service, but doesn't play its
 audio: a track plays on a deck when your collection holds the same track,
 and the others are greyed out. Double-click one to open it on the service's
-own site. Tracks are matched by ISRC when both sides have one, then by
+own site; SoundCloud tracks and Mixcloud shows also have a **▶** button
+(and **Play on…** when you right-click) that plays them there in your
+browser. Tracks are matched by ISRC when both sides have one, then by
 artist and title. If a match is wrong, right-click the track and pick
 **Change Match…**. **Copy to openDJ** makes a list of a playlist in your
 collection, once; tracks you don't have are kept as wanted, for the
