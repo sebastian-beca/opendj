@@ -18,11 +18,10 @@ The rail at the far left picks where the tree and the track list come from:
 - **Collection**: all your tracks, with their stages, crates, sets, playlists
   and history.
 - **Files**: any folder on your computer, as it is on disk.
-- **Spotify**, **TIDAL**, **SoundCloud** and **Mixcloud**: your playlists
-  and saved tracks on those services, for browsing (see
-  [Streaming services](#streaming-services)).
-- **Apple Music**, **Bandcamp**, **Beatport** and **OneLibrary**: coming
-  soon.
+- **Spotify**, **TIDAL**, **Apple Music**, **SoundCloud** and
+  **Mixcloud**: your playlists and saved tracks on those services, for
+  browsing (see [Streaming services](#streaming-services)).
+- **Bandcamp**, **Beatport** and **OneLibrary**: coming soon.
 
 ### Streaming services
 
@@ -42,6 +41,11 @@ Each service is signed in to with your own app, so openDJ ships no keys:
 - **TIDAL**: create an app at developer.tidal.com with the same redirect
   URI and the scopes `user.read`, `playlists.read` and `collection.read`,
   and paste its client ID.
+- **Apple Music**: needs an Apple Developer account. Under **Certificates,
+  Identifiers & Profiles › Keys**, create a key with **MusicKit** and
+  download its `.p8` file. Enter your Team ID, the key's Key ID and the
+  file's path, then sign in with your Apple ID on the page that opens. You
+  see your library's songs and playlists.
 - **SoundCloud**: register an app at soundcloud.com/you/apps with the same
   redirect URI and paste its client ID and secret. You see your Likes, your
   own tracks and your playlists.

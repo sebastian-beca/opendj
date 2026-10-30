@@ -665,6 +665,17 @@ pub(crate) fn wait_for_code(
     state: &str,
     service: &str,
 ) -> Result<String, String> {
+    wait_for_code_after(listener, state, service, None)
+}
+
+/// [`wait_for_code`], serving `page` at `/start` first: a sign-in page of
+/// openDJ's own, for a service whose sign-in runs in the browser.
+pub(crate) fn wait_for_code_after(
+    listener: &TcpListener,
+    state: &str,
+    service: &str,
+    page: Option<&str>,
+) -> Result<String, String> {
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     let deadline = Instant::now() + LOGIN_TIMEOUT;
     while Instant::now() < deadline {
@@ -676,7 +687,12 @@ pub(crate) fn wait_for_code(
             }
             Err(e) => return Err(e.to_string()),
         };
-        let Some(query) = read_request_line(&mut stream).and_then(|l| callback_query(&l)) else {
+        let line = read_request_line(&mut stream).unwrap_or_default();
+        if let Some(page) = page.filter(|_| line.starts_with("GET /start ")) {
+            send_html(&mut stream, "200 OK", page);
+            continue;
+        }
+        let Some(query) = callback_query(&line) else {
             respond(&mut stream, "404 Not Found", "");
             continue;
         };
@@ -734,6 +750,10 @@ fn respond(stream: &mut TcpStream, status: &str, message: &str) {
          <body style=\"font:16px -apple-system,sans-serif;background:#1c1c1e;color:#eee;\
          display:grid;place-items:center;height:90vh\"><p>{message}</p>"
     );
+    send_html(stream, status, &body);
+}
+
+fn send_html(stream: &mut TcpStream, status: &str, body: &str) {
     let _ = write!(
         stream,
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",

@@ -361,10 +361,10 @@ export global StoreUi {
     // can't shows "Coming soon".
     in property <bool> streaming;
     in property <bool> stores;
-    // Whether a rail source is a streaming service: Spotify, TIDAL,
-    // SoundCloud, Mixcloud.
+    // Whether a rail source is a streaming service: Spotify, TIDAL, Apple
+    // Music, SoundCloud, Mixcloud.
     pure public function stream(source: int) -> bool {
-        return source == 2 || source == 3 || source == 8 || source == 11;
+        return source == 2 || source == 3 || source == 4 || source == 8 || source == 11;
     }
     // The text in the list's search box, so the app can fill it in.
     in-out property <string> search-text;
@@ -1006,18 +1006,22 @@ component InboxPanel inherits Rectangle {
     }
 }
 
-// Signing in to a streaming service (2 = Spotify, 3 = TIDAL, 8 = SoundCloud,
-// 11 = Mixcloud), shown in the sidebar until connected.
+// Signing in to a streaming service (2 = Spotify, 3 = TIDAL, 4 = Apple
+// Music, 8 = SoundCloud, 11 = Mixcloud), shown in the sidebar until connected.
 component SpotifyConnect inherits Rectangle {
     in property <int> source: 2;
     property <bool> tidal: source == 3;
+    // Apple Music signs with the DJ's MusicKit key: Team ID, Key ID and the
+    // .p8 file.
+    property <bool> apple: source == 4;
     // SoundCloud's sign-in needs the app's secret as well.
     property <bool> soundcloud: source == 8;
     // Mixcloud needs only the DJ's username.
     property <bool> mixcloud: source == 11;
-    property <string> service: tidal ? "TIDAL" : soundcloud ? "SoundCloud" : mixcloud ? "Mixcloud" : "Spotify";
+    property <string> service: tidal ? "TIDAL" : apple ? "Apple Music" : soundcloud ? "SoundCloud" : mixcloud ? "Mixcloud" : "Spotify";
     in-out property <string> client-id;
     property <string> secret;
+    property <string> key-id;
     in property <string> status;
     callback connect(client-id: string);
     VerticalLayout {
@@ -1029,22 +1033,26 @@ component SpotifyConnect inherits Rectangle {
         Text {
             text: mixcloud ? "See your shows, favourites, listening history and playlists here. Shows play on mixcloud.com."
                 : soundcloud ? "See your likes, tracks and playlists here. Tracks that are also in your collection can be played; others open on soundcloud.com."
+                : apple ? "See your library's playlists and songs here. Songs that are also in your collection can be played."
                 : tidal ? "See your playlists and favourite tracks here. Tracks that are also in your collection can be played."
                 : "See your playlists and liked songs here. Tracks that are also in your collection can be played.";
             color: Theme.text-dim; font-size: 13px; horizontal-alignment: center; wrap: word-wrap;
         }
-        LineEdit { text <=> client-id; placeholder-text: mixcloud ? "Your Mixcloud username" : "Client ID of your " + service + " app"; }
+        LineEdit { text <=> client-id; placeholder-text: mixcloud ? "Your Mixcloud username" : apple ? "Your Team ID" : "Client ID of your " + service + " app"; }
+        if apple: LineEdit { text <=> key-id; placeholder-text: "MusicKit Key ID (kept from last time if empty)"; }
+        if apple: LineEdit { text <=> secret; placeholder-text: "Path to the key's .p8 file (kept if empty)"; }
         if soundcloud: LineEdit { text <=> secret; input-type: password; placeholder-text: "Client secret (kept from last time if empty)"; }
         Rectangle {
             height: 32px;
             border-radius: 16px;
-            background: tidal || mixcloud ? (cta.pressed ? #dddddd : #ffffff) : soundcloud ? (cta.pressed ? #e64d00 : #ff5500) : cta.pressed ? #1db954 : #1ed760;
-            Text { text: mixcloud ? "Connect" : "Sign in with " + service; color: soundcloud ? #ffffff : #000000; font-size: 13px; font-weight: 700; }
-            cta := TouchArea { clicked => { connect(soundcloud ? client-id + " " + secret : client-id); } }
+            background: tidal || mixcloud ? (cta.pressed ? #dddddd : #ffffff) : apple ? (cta.pressed ? #d9263d : #fa2d48) : soundcloud ? (cta.pressed ? #e64d00 : #ff5500) : cta.pressed ? #1db954 : #1ed760;
+            Text { text: mixcloud ? "Connect" : "Sign in with " + service; color: soundcloud || apple ? #ffffff : #000000; font-size: 13px; font-weight: 700; }
+            cta := TouchArea { clicked => { connect(soundcloud ? client-id + " " + secret : apple ? client-id + "\n" + key-id + "\n" + secret : client-id); } }
         }
         if status != "": Text { text: status; color: Theme.text; font-size: 13px; horizontal-alignment: center; wrap: word-wrap; }
         if !mixcloud: Text {
             text: soundcloud ? "First time? Register an app at soundcloud.com/you/apps with the redirect URI http://127.0.0.1:8898/callback, then paste its client ID and secret above."
+                : apple ? "Needs an Apple Developer account. First time? Under Certificates, Identifiers & Profiles › Keys, create a key with MusicKit, download its .p8 file, and enter its Key ID, your Team ID and the file's path above."
                 : tidal ? "First time? Create an app at developer.tidal.com with the redirect URI http://127.0.0.1:8898/callback and the scopes user.read, playlists.read and collection.read, then paste its client ID above."
                 : "First time? Create an app at developer.spotify.com with the redirect URI http://127.0.0.1:8898/callback, then paste its client ID above.";
             color: Theme.text-dim; font-size: 12px; horizontal-alignment: center; wrap: word-wrap;
