@@ -24,7 +24,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use crate::{AppWindow, FoundRow, QueueLine, SearchItem, SourceTab, SourceUi, StoreUi};
 
 /// Where plugin sources start in the rail, after the built-in ones.
-pub const FIRST_SOURCE: i32 = 12;
+pub const FIRST_SOURCE: i32 = crate::browser::SOURCE_NAMES.len() as i32;
 
 /// How often searches and downloads are asked how they're getting on.
 const TICK: Duration = Duration::from_millis(900);
@@ -1341,6 +1341,31 @@ mod tests {
             title: String::new(),
             error: None,
             open: HashSet::new(),
+        }
+    }
+
+    /// The rail numbers add-on sources on from its own list of built-in
+    /// sources. If that list and ours differ, picking an add-on's source
+    /// shows its panel but its searches are neither listed nor started.
+    #[test]
+    fn rail_lists_the_built_in_sources() {
+        let ui = include_str!("../ui/library.slint");
+        let lists: Vec<Vec<&str>> = [
+            "property <[string]> names: [",
+            "property <[string]> source-names: [",
+        ]
+        .iter()
+        .map(|start| {
+            let from = ui.find(start).expect(start) + start.len();
+            let len = ui[from..].find(']').expect("a closing ]");
+            ui[from..from + len]
+                .split(',')
+                .map(|n| n.trim().trim_matches('"'))
+                .collect()
+        })
+        .collect();
+        for list in lists {
+            assert_eq!(list, crate::browser::SOURCE_NAMES);
         }
     }
 
