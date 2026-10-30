@@ -6268,6 +6268,7 @@ dependencies = [
  "rbox-core",
  "rbox-masterdb",
  "roxmltree",
+ "rusqlite",
  "serde_json",
  "ureq",
  "zip 9.1.0",
