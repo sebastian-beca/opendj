@@ -1,12 +1,12 @@
 # library-health Specification
 
 ## Purpose
-Library Health finds what needs fixing across the library and fixes it in batches: not music, strays, files outside the music folders, duplicates, unanalysed, missing info, no cover, no rating, missing files and long tracks.
+Collection Health finds what needs fixing across the library and fixes it in batches: not music, strays, files outside the music folders, duplicates, unanalysed, missing info, no cover, no rating, missing files and long tracks.
 
 ## Requirements
 
 ### Requirement: Health page
-Library Health, under All Tracks, SHALL show one line per check with how many tracks it finds; Review lists them, the bar above the list fixes all, and the right-click menu fixes a selection.
+Collection Health, under All Tracks, SHALL show one line per check with how many tracks it finds; Review lists them, the bar above the list fixes all, and the right-click menu fixes a selection.
 
 #### Scenario: Review a check
 - **WHEN** Review is pressed on No rating

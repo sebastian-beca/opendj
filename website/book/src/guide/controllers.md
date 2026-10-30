@@ -21,7 +21,7 @@ To see what every control does, press **Edit** next to a controller in
 pick another at the top. Its controls are listed in three columns: the control
 you press (with the layer it works in, such as SHIFT, a pad mode or a bank),
 what it does, and the MIDI message it sends. They're grouped into sections
-(Deck, Pads, Mixer, Effects, Library, More) with smaller sections inside, such
+(Deck, Pads, Mixer, Effects, Browser, More) with smaller sections inside, such
 as Hot cues and Loops under Pads. Click a heading to open or close it. Search
 the list by any of those words.
 
@@ -67,15 +67,51 @@ the list by any of those words.
   another computer, and **Export for Mixxx…** writes a `.midi.xml` with its
   scripts; a report lists anything Mixxx can't do.
 
+## Map mode
+
+The quickest way to change a few controls: press **MIDI** in the top bar (or
+**MIDI map** in the Controller Editor). Every control on screen that can be
+mapped turns lilac, brighter where the controller already does it. Click
+one, then press, turn or move a control on the controller, and from then on
+it does that. The bar says what changed and what the control did before.
+**Keep both** makes it do both, **Undo** (or ⌘Z, Ctrl+Z on Windows and
+Linux) takes the last one back, and **Done** or Esc ends Map mode. While Map
+mode is on, the controller only teaches: pressing PLAY doesn't start a deck.
+
+Map mode works out endless encoders and 14-bit faders by itself. The
+changes go into your own mapping, as in the editor ("My" and the
+controller's name the first time), so the original stays as it is.
+
 Mappings that run a script are tried out in a sandbox to see what each
 control does, so even those read in plain words.
+
+## Quick map
+
+For a controller openDJ has no mapping for, or to map one from scratch:
+press **Quick map** next to it in **Settings › Controllers**, or in the Map
+mode bar. It asks whether the controller is used with two decks or four,
+then walks through the usual controls one at a time, lighting each up on
+screen: deck 1's PLAY, CUE, SYNC, jog wheel, tempo fader, headphone cue,
+gain, EQs, filter, channel fader, pads 1 and 2 and LOAD, then the crossfader
+and the browse knob. Press or move each on the controller, or **Skip** one
+it doesn't have. Pads 3 to 8 follow on from pads 1 and 2.
+
+The other decks aren't walked: pressing PLAY on deck 2 (and 3 and 4) shows
+how they differ from deck 1, usually another MIDI channel, and deck 1's
+controls are copied over. With four decks, **Use with** and **Deck order**
+in **Settings › Controllers** then work for it as for any four-deck mapping.
+
+Quick map makes a new mapping called "My" and the controller's name and puts
+it in use; the mapping the controller ran before stays in the menu next to
+it. When the walk is done Map mode stays on, so you can try it and change
+anything by clicking a control on screen.
 
 ## Popular controllers
 
 openDJ looks after a list of popular controllers itself: the DDJ-FLX4,
-DDJ-400, DDJ-200, DDJ-SB3, Mixtrack Platinum FX, Mixtrack Pro FX,
+DDJ-FLX6, DDJ-400, DDJ-200, DDJ-SB3, Mixtrack Platinum FX, Mixtrack Pro FX,
 DJControl Inpulse 500, Xone K2 and Midi Fighter Twister so far, with the
-DDJ-FLX6, DDJ-REV1, DDJ-1000, DDJ-FLX10 and Traktor Kontrol S2 MK3 coming.
+DDJ-REV1, DDJ-1000, DDJ-FLX10 and Traktor Kontrol S2 MK3 coming.
 Each has a drawing in the Controller Editor and a guide page.
 
 They're marked **Beta** in **Settings › Controllers** and the editor until

@@ -25,6 +25,7 @@ use opendj_engine::{
     AVAILABLE_EFFECTS, COLOR_FX, EFFECTS_PER_UNIT, NUM_DECKS,
 };
 use opendj_library::Library;
+use opendj_plugins::source::{QueryKind, SourceQuery};
 use opendj_waveform::{
     steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, PhraseKind, Style, WaveformRenderer,
     WaveformView, GRID_SECTIONS,
@@ -35,6 +36,7 @@ use smooth::SmoothClock;
 slint::include_modules!();
 
 mod analysis_queue;
+mod apple_music;
 mod art;
 mod automix;
 mod browser;
@@ -42,6 +44,7 @@ mod controller_editor;
 mod cover_scan;
 mod coverart;
 mod diagnostics;
+mod file_drop;
 mod files;
 mod inbox;
 mod list_picker;
@@ -50,12 +53,14 @@ mod lookup;
 mod mac_menu;
 #[cfg(target_os = "macos")]
 mod mac_titlebar;
+mod map_mode;
 mod mixcloud;
 mod prefs;
 mod sampler;
 mod settings;
 mod shortcuts;
 mod smooth;
+mod soundcloud;
 mod sources;
 mod spotify;
 mod stores;
@@ -334,20 +339,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let samples = saved.is_empty();
     let library = if samples { sample_library() } else { saved };
     let app = AppWindow::new()?;
-    #[cfg(target_os = "macos")]
     {
         use slint::winit_030::{EventResult, WinitWindowAccessor};
+        #[cfg(target_os = "macos")]
         app.set_traffic_light_inset(76.0);
-        // The traffic lights, centred in the top bar after anything that
-        // might have moved them back.
-        app.window().on_winit_window_event(|window, event| {
-            use slint::winit_030::winit::event::WindowEvent;
-            if !matches!(
-                event,
-                WindowEvent::CursorMoved { .. } | WindowEvent::RedrawRequested
-            ) {
-                window
-                    .with_winit_window(|w| mac_titlebar::center_traffic_lights(w, TOP_BAR_HEIGHT));
+        // Audio files dragged in from Finder or a file manager load on the
+        // deck they're dropped on.
+        let file_drop = file_drop::FileDrop::new(&app);
+        app.window().on_winit_window_event(move |window, event| {
+            file_drop.window_event(window, event);
+            // The traffic lights, centred in the top bar after anything that
+            // might have moved them back.
+            #[cfg(target_os = "macos")]
+            {
+                use slint::winit_030::winit::event::WindowEvent;
+                if !matches!(
+                    event,
+                    WindowEvent::CursorMoved { .. } | WindowEvent::RedrawRequested
+                ) {
+                    window.with_winit_window(|w| {
+                        mac_titlebar::center_traffic_lights(w, TOP_BAR_HEIGHT)
+                    });
+                }
             }
             EventResult::Propagate
         });
@@ -465,6 +478,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &registry,
     );
     let sources = sources::Sources::install(&app, library_path.clone());
+    {
+        // Spotify's "Open in Browser" and "Add to Downloads", the latter
+        // when an add-on source searches Spotify links.
+        const SPOTIFY_SITE: &str = "open.spotify.com";
+        let ui = app.global::<StoreUi>();
+        let to = sources
+            .borrow()
+            .takes_links(SPOTIFY_SITE)
+            .unwrap_or_default();
+        ui.set_downloads_to(to.into());
+        let b = browser.clone();
+        ui.on_open_playlist(move |i| {
+            if let Some(link) = b.borrow().spotify_playlist_link(i as usize) {
+                spotify::open_in_browser(&link);
+            }
+        });
+        let (b, s) = (browser.clone(), sources.clone());
+        ui.on_download_playlist(move |i| {
+            let Some(link) = b.borrow().spotify_playlist_link(i as usize) else {
+                return;
+            };
+            s.borrow_mut().add_download(
+                SPOTIFY_SITE,
+                SourceQuery {
+                    text: link,
+                    kind: QueryKind::Playlist,
+                    ..Default::default()
+                },
+            );
+            b.borrow_mut()
+                .set_stream_status(format!("Downloading the playlist in {to}."));
+        });
+        let (b, s) = (browser.clone(), sources.clone());
+        ui.on_download_tracks(move |first, last| {
+            let tracks = b.borrow().spotify_tracks(first as usize, last as usize);
+            let n = tracks.len();
+            for text in tracks {
+                s.borrow_mut().add_download(
+                    SPOTIFY_SITE,
+                    SourceQuery {
+                        text,
+                        kind: QueryKind::Track,
+                        ..Default::default()
+                    },
+                );
+            }
+            if n > 0 {
+                let what = if n == 1 {
+                    "the track".to_string()
+                } else {
+                    format!("{n} tracks")
+                };
+                b.borrow_mut()
+                    .set_stream_status(format!("Downloading {what} in {to}."));
+            }
+        });
+    }
     let sampler = sampler::Sampler::install(&app, engine.clone(), browser.clone(), &registry);
     let automix = Rc::new(RefCell::new(automix::AutoMix::new(&registry)));
     {
@@ -534,6 +604,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sync_library(library_path.clone(), scan_tx.clone());
     }
     let controller_editor = controller_editor::Editor::install(&app, controllers.clone());
+    let map_mode = map_mode::Mapper::install(&app, controllers.clone());
     prefs::apply_saved(&registry);
     let _levels = prefs::remember_levels(registry.clone());
     let prefs = prefs::Prefs::install(
@@ -837,6 +908,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 prefs.borrow_mut().poll();
                 tour.borrow_mut().poll();
                 controller_editor.borrow_mut().poll();
+                map_mode.borrow_mut().poll();
                 if let Some(c) = &controllers {
                     let names: Vec<String> = c.connected().into_iter().map(|c| c.port).collect();
                     let status = if names.is_empty() {
@@ -1451,6 +1523,8 @@ impl Decks {
             rate,
             range,
             grid_sections: t.grid.markers().len().max(1) as i32,
+            grid_source: grid_source(&t.info.grid_from).into(),
+            grid_unsure: t.info.grid_unsure,
             stem_names: kept(
                 &h.stem_names,
                 stems.map_or(Vec::new(), |s| {
@@ -1791,6 +1865,17 @@ fn phrase_tip(phrases: &Phrases, duration: f64, bpm: f64, seconds: f64) -> Optio
         title: title.into(),
         body: body.into(),
     })
+}
+
+/// Where a track's grid came from, as the grid menu says it.
+fn grid_source(from: &str) -> String {
+    match from {
+        "" | "analysis" => "Detected".into(),
+        "user" => "Edited".into(),
+        "vdj" | "virtualdj" => "From VirtualDJ".into(),
+        "mixxx" => "From Mixxx".into(),
+        app => format!("From {app}"),
+    }
 }
 
 /// The beat number of the track's first bar: the first bar line at or

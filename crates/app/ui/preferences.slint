@@ -46,7 +46,7 @@ export global Preferences {
     in-out property <int> tab;
     in property <[PrefItem]> items;
     // The app adds a page for each plugin with settings after these.
-    in-out property <[string]> pages: ["Audio", "Controllers", "Library", "Analysis", "Decks", "Mixer", "Keyboard", "Help"];
+    in-out property <[string]> pages: ["Audio", "Controllers", "Collection", "Analysis", "Decks", "Mixer", "Keyboard", "Help"];
     // The page or the search changed: the app fills `items` again.
     callback changed();
     callback toggled(id: string, on: bool);
@@ -467,12 +467,15 @@ export component PrefRow inherits Rectangle {
                 }
                 VerticalLayout {
                     alignment: center;
+                    // Edit, or Quick map for a controller with no mapping.
                     Button {
-                        text: "Edit";
+                        text: item.action == "Quick map" ? "Quick map" : "Edit";
                         min-width: 64px;
                         opacity: item.action != "" ? 1 : 0.4;
                         clicked => {
-                            if item.action != "" {
+                            if item.action == "Quick map" {
+                                Preferences.pressed(item.id + "#quick");
+                            } else if item.action != "" {
                                 Preferences.pressed(item.id + "#edit");
                             }
                         }

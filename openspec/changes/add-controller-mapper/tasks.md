@@ -15,9 +15,9 @@
 
 ## 3. Map mode
 
-- [ ] 3.1 Map mode over the main window with learn, undo and conflicts; test on the Xone K2
-- [ ] 3.2 Quick map for a controller with no mapping; test with the FLX4 pretending to be unknown
-- [ ] 3.3 Update the matching user guide page in website/book/src/guide (controllers.md)
+- [x] 3.1 Map mode over the main window with learn, undo and conflicts (replace, Keep both); MIDI button in the top bar and the editor (Seba, 2026-10-29). Tried with the FLX4 stand-in; still to try on the Xone K2
+- [x] 3.2 Quick map for a controller with no mapping, or from scratch: 2 or 4 decks, walk with Skip, pads 3-8 and decks 2-4 guessed (Seba, 2026-10-29). Tried with an unknown stand-in device
+- [x] 3.3 Update the matching user guide page in website/book/src/guide (controllers.md)
 
 ## Workflow follow-up
 

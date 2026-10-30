@@ -46,7 +46,9 @@ pub const ID_BASE: usize = 1_000_000;
 /// `markers`, and `playlists.source` for lists brought in from another app.
 /// 8 added `tracks.user_more`: tag fields from Tag 3 up.
 /// 9 added `tracks.stage` (see [`stages`]).
-const VERSION: i32 = 9;
+/// 10 added `tracks.grid_locked` and `grid_unsure`; imported grids start
+/// locked.
+const VERSION: i32 = 10;
 
 /// The `source` of grids, keys and markers found by this app's analysis.
 const ANALYSIS: &str = "analysis";
@@ -156,7 +158,7 @@ CREATE TABLE IF NOT EXISTS inbox_log (
 ";
 
 /// Columns added to `tracks` after version 1: name and definition.
-const ADDED_COLUMNS: [(&str, &str); 16] = [
+const ADDED_COLUMNS: [(&str, &str); 18] = [
     ("store", "store TEXT NOT NULL DEFAULT ''"),
     ("store_url", "store_url TEXT"),
     // Where the key came from: 'analysis', 'tags', or another app's name;
@@ -182,6 +184,10 @@ const ADDED_COLUMNS: [(&str, &str); 16] = [
     ("user_more", "user_more TEXT NOT NULL DEFAULT ''"),
     // Inbox, triage or collection, as `Stage::name`; empty for none (version 9).
     ("stage", "stage TEXT NOT NULL DEFAULT ''"),
+    // The DJ locked the beat grid against edits and analysis (version 10).
+    ("grid_locked", "grid_locked INTEGER NOT NULL DEFAULT 0"),
+    // The analysed grid fits the beats poorly: worth a check (version 10).
+    ("grid_unsure", "grid_unsure INTEGER NOT NULL DEFAULT 0"),
 ];
 
 /// Tracks the DJ linked as going well together: `track` links to `linked`. Created on every open rather than by
@@ -465,6 +471,13 @@ impl Library {
                     db.execute_batch(&format!("ALTER TABLE tracks ADD COLUMN {definition}"))?;
                 }
             }
+            if version < 10 {
+                // Grids brought in from another app are kept as they came.
+                db.execute_batch(
+                    "UPDATE tracks SET grid_locked = 1
+                     WHERE grid IS NOT NULL AND grid_source NOT IN ('analysis', 'user')",
+                )?;
+            }
             if version < 5 {
                 // Keys brought in from another app came from there.
                 db.execute_batch(
@@ -581,7 +594,8 @@ impl Library {
             "SELECT id, path, artist, title, album, genre, duration, bpm, key, rating, color,
                     comment, grouping, labels, play_count, grid, added, key_source,
                     remix, year, track_number, user1, user2, gain, last_played,
-                    disc_number, label, composer, remixer, isrc, user_more, stage, grid_source
+                    disc_number, label, composer, remixer, isrc, user_more, stage, grid_source,
+                    grid_locked, grid_unsure
              FROM tracks WHERE id NOT IN (SELECT track_id FROM removed) ORDER BY id",
         )?;
         let rows = q.query_map([], |r| {
@@ -620,6 +634,9 @@ impl Library {
                         hotcues: Vec::new(),
                         fixed_grid: false,
                         grid_analysed: grid_source.as_deref() == Some(ANALYSIS),
+                        grid_from: grid_source.unwrap_or_default(),
+                        grid_locked: r.get(33)?,
+                        grid_unsure: r.get(34)?,
                         added: r.get(16)?,
                         missing: false,
                         key_detected: key_source.map(|s| s == "analysis"),
@@ -903,6 +920,8 @@ impl Library {
                                THEN ?2 ELSE bpm END,
                     grid = CASE WHEN grid_source IS NULL OR grid_source = 'analysis'
                                 THEN ?5 ELSE grid END,
+                    grid_unsure = CASE WHEN grid_source IS NULL OR grid_source = 'analysis'
+                                       THEN ?7 ELSE grid_unsure END,
                     grid_source = COALESCE(grid_source, 'analysis')
              WHERE id = ?1",
             params![
@@ -911,7 +930,8 @@ impl Library {
                 track.key,
                 track.duration,
                 (!grid.is_empty()).then(|| grid.to_text()),
-                key_source
+                key_source,
+                track.info.grid_unsure
             ],
         )?;
         Ok(())
@@ -943,6 +963,27 @@ impl Library {
             }
         }
         tx.commit()?;
+        Ok(())
+    }
+
+    /// Locks or unlocks a track's beat grid against edits and analysis.
+    pub fn set_grid_locked(&self, id: usize, locked: bool) -> Result<(), Error> {
+        let Some(row) = row_id(id) else { return Ok(()) };
+        self.db.execute(
+            "UPDATE tracks SET grid_locked = ?2 WHERE id = ?1",
+            params![row, locked],
+        )?;
+        Ok(())
+    }
+
+    /// Forgets a track's beat grid, edited or imported, so the next analysis
+    /// (see [`Library::save_analysis`]) gives it one.
+    pub fn clear_grid(&self, id: usize) -> Result<(), Error> {
+        let Some(row) = row_id(id) else { return Ok(()) };
+        self.db.execute(
+            "UPDATE tracks SET grid = NULL, grid_source = NULL, grid_unsure = 0 WHERE id = ?1",
+            [row],
+        )?;
         Ok(())
     }
 
@@ -1614,8 +1655,9 @@ fn import_tracks(
          WHERE id = ?1",
     )?;
     let mut set_grid = tx.prepare(
-        "UPDATE tracks SET grid = ?2, bpm = ?3, grid_source = ?4
-         WHERE id = ?1 AND (grid_source IS NULL OR grid_source != 'user')",
+        "UPDATE tracks SET grid = ?2, bpm = ?3, grid_source = ?4, grid_locked = 1
+         WHERE id = ?1 AND (grid_source IS NULL OR grid_source != 'user')
+           AND (grid_locked = 0 OR grid_source = ?4)",
     )?;
     let mut grid_source = tx.prepare("SELECT grid_source FROM tracks WHERE id = ?1")?;
     let mut user_cues =
@@ -2115,6 +2157,9 @@ mod tests {
         assert!(b.info.fixed_grid);
         assert!((b.bpm - 128.0).abs() < 1e-9);
         assert!((b.first_beat - 0.25).abs() < 1e-9);
+        // Imported grids come in locked.
+        assert!(b.info.grid_locked);
+        assert_eq!(b.info.grid_from, "other");
 
         // The DJ edits the grid and the cues here; a later import keeps them.
         let grid = BeatGrid::new(vec![
@@ -2533,6 +2578,35 @@ mod tests {
                 ("Drop", 60.0, true)
             ]
         );
+    }
+
+    #[test]
+    fn grids_lock_and_go_back_to_the_analysed_one() {
+        let mut lib = Library::in_memory().unwrap();
+        lib.sync(&[file_track("/m/a.mp3", "A")]).unwrap();
+        let mut a = lib.tracks(|_| true).unwrap().remove(0);
+        a.set_grid(BeatGrid::constant(126.0, 0.1));
+        a.info.grid_unsure = true;
+        lib.save_analysis(a.id, &a).unwrap();
+        let t = lib.tracks(|_| true).unwrap().remove(0);
+        assert_eq!(t.info.grid_from, "analysis");
+        assert!(t.info.grid_unsure && !t.info.grid_locked);
+
+        lib.set_grid_locked(a.id, true).unwrap();
+        assert!(lib.tracks(|_| true).unwrap()[0].info.grid_locked);
+
+        lib.save_grid(a.id, &BeatGrid::constant(125.0, 0.0), 125.0)
+            .unwrap();
+        assert_eq!(lib.tracks(|_| true).unwrap()[0].info.grid_from, "user");
+        // Back to the analysed grid: forgotten, then analysis stores it.
+        lib.clear_grid(a.id).unwrap();
+        a.info.grid_unsure = false;
+        lib.save_analysis(a.id, &a).unwrap();
+        let t = lib.tracks(|_| true).unwrap().remove(0);
+        assert_eq!(t.info.grid_from, "analysis");
+        assert_eq!(t.grid, BeatGrid::constant(126.0, 0.1));
+        assert!(!t.info.grid_unsure);
+        assert!(t.info.grid_locked, "the lock stays");
     }
 
     #[test]

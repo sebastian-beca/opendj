@@ -546,6 +546,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "audio-core"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f93ebbf82d06013f4c41fe71303feb980cddd78496d904d06be627972de51a24"
+
+[[package]]
+name = "audioadapter"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91f87b70b051c5866680ad79f6743a42ccab264c009d1a71f4d33a3872ae60c8"
+dependencies = [
+ "audio-core",
+ "num-traits",
+]
+
+[[package]]
+name = "audioadapter-buffers"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9097d67933fb083d382ce980430afdb758aada60846010aee6be068c06cef0ca"
+dependencies = [
+ "audioadapter",
+ "audioadapter-sample",
+ "num-traits",
+]
+
+[[package]]
+name = "audioadapter-sample"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34ab94f2bc04a14e1f49ee5f222f66460e8a1b51627bdfedf34eed394d747938"
+dependencies = [
+ "audio-core",
+ "num-traits",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -620,6 +657,18 @@ name = "base64"
 version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
+
+[[package]]
+name = "beat-this"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5925c69d6dff67e29ebde0831808d778a8aa9af51b0acc76903d882ce17737e9"
+dependencies = [
+ "anyhow",
+ "rten",
+ "rten-tensor",
+ "rubato 3.0.0",
+]
 
 [[package]]
 name = "bincode"
@@ -3154,6 +3203,16 @@ dependencies = [
  "num-traits",
  "rustversion",
  "seq-macro",
+]
+
+[[package]]
+name = "flatbuffers"
+version = "24.12.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f1baf0dbf96932ec9a3038d57900329c015b0bfb7b63d904f3bc27e2b02a096"
+dependencies = [
+ "bitflags 1.3.2",
+ "rustc_version",
 ]
 
 [[package]]
@@ -6183,6 +6242,7 @@ dependencies = [
  "opendj-waveform",
  "read-fonts",
  "rfd",
+ "ring",
  "rusty-chromaprint",
  "serde_json",
  "sha2",
@@ -6193,6 +6253,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "winresource",
  "write-fonts",
+ "x11-dl",
 ]
 
 [[package]]
@@ -6217,6 +6278,7 @@ dependencies = [
 name = "opendj-engine"
 version = "0.4.0"
 dependencies = [
+ "beat-this",
  "chrono",
  "cpal",
  "flacenc",
@@ -7502,6 +7564,105 @@ dependencies = [
 ]
 
 [[package]]
+name = "rten"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43c230fa4ade87c913f61dbd911b7eb0d49460ceff3f1e4fabc837fac191137c"
+dependencies = [
+ "flatbuffers",
+ "num_cpus",
+ "rayon",
+ "rten-base",
+ "rten-gemm",
+ "rten-model-file",
+ "rten-onnx",
+ "rten-shape-inference",
+ "rten-simd",
+ "rten-tensor",
+ "rten-vecmath",
+ "rustc-hash 2.1.3",
+ "rustfft",
+ "smallvec",
+ "typeid",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "rten-base"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2738cf8bb4c27f828ac788d01ccf4e367e8e773cfec6851f81851b5211de6a79"
+dependencies = [
+ "rayon",
+]
+
+[[package]]
+name = "rten-gemm"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330a81a0ca209fb5ce21bd17efa0bd287d5881c6cebfbff0b21c4294a1a14a9e"
+dependencies = [
+ "rayon",
+ "rten-base",
+ "rten-simd",
+ "rten-tensor",
+]
+
+[[package]]
+name = "rten-model-file"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed2f8d270f07ab1bbfff47250c6039f6caa5da59d6da7d74f66aa48559aa6fea"
+dependencies = [
+ "flatbuffers",
+ "rten-base",
+]
+
+[[package]]
+name = "rten-onnx"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23086eef75bfb55278cb0b45cf9f5a877d466d914914aafebee4ffca9b24d20c"
+
+[[package]]
+name = "rten-shape-inference"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e8a913c7ca40e2bfbb2a0cd447cce56b33ab19435f56693271a2ef37cf58984"
+dependencies = [
+ "rten-tensor",
+ "smallvec",
+]
+
+[[package]]
+name = "rten-simd"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b19a0032dfcb70dd20960c1c51a37674b237586cbc1ce586f45b46605d108e82"
+
+[[package]]
+name = "rten-tensor"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05dc744a270aa32d154f1a3df8e48740ccc1be9dfbcf23295ada66d83aa98de6"
+dependencies = [
+ "rayon",
+ "rten-base",
+ "smallvec",
+ "typeid",
+]
+
+[[package]]
+name = "rten-vecmath"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9574ddebf5671bc08ceb76e2e1638fadc57fdeff318634eab2c29e9a803cff64"
+dependencies = [
+ "rten-base",
+ "rten-simd",
+]
+
+[[package]]
 name = "rtrb"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7517,6 +7678,22 @@ dependencies = [
  "num-integer",
  "num-traits",
  "realfft",
+]
+
+[[package]]
+name = "rubato"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4be9c88e3d722d3d36939e41941f6b6f52810c1235bf19998a7d4535b402892"
+dependencies = [
+ "audioadapter",
+ "audioadapter-buffers",
+ "num-complex",
+ "num-integer",
+ "num-traits",
+ "realfft",
+ "visibility",
+ "windowfunctions",
 ]
 
 [[package]]
@@ -7649,7 +7826,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59e4234523e38d9c12201955f8216e1a60313e64c5077f4e1cf49b0db77bd7e8"
 dependencies = [
- "rubato",
+ "rubato 0.16.2",
  "rustfft",
 ]
 
@@ -9232,6 +9409,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ce898823d8cd0f028662d2f349694b1af0a5cc9be83f1d213a00d3147445e1e"
 
 [[package]]
+name = "typeid"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9476,6 +9659,17 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "visibility"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d674d135b4a8c1d7e813e2f8d1c9a58308aee4a680323066025e53132218bd91"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "void"
@@ -10119,6 +10313,15 @@ name = "winapi-x86_64-pc-windows-gnu"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
+
+[[package]]
+name = "windowfunctions"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90628d739333b7c5d2ee0b70210b97b8cddc38440c682c96fd9e2c24c2db5f3a"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "windows"

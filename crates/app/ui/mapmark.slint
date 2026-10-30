@@ -1,0 +1,57 @@
+// Map mode, as in Ableton: the MIDI button in the top bar (or in the
+// Controller Editor) tints every control that can be mapped. Click one,
+// then move or press a control on the controller, and the controller does
+// that from then on, in the DJ's own mapping. Each mappable widget holds a
+// MapMark with its control ("[Channel1],play"), which covers it while Map
+// mode is on and takes the click.
+import { Theme } from "theme.slint";
+
+export global MapMode {
+    in property <bool> active;
+    // The control picked on screen, waiting for a hardware control.
+    in property <string> armed;
+    // Bumped when the controls already mapped change.
+    in property <int> tick;
+    // What the bar says: what to do next, and what the last control learned.
+    in property <string> status;
+    in property <string> last;
+    // What the last control did before, now replaced; "" for nothing.
+    in property <string> replaced;
+    in property <bool> can-undo;
+    // Quick map: a walk through the usual controls, one after another.
+    // First it asks whether the controller is used with two decks or four,
+    // then `step` says how far along it is ("3 of 19").
+    in property <bool> asking-decks;
+    in property <bool> walking;
+    in property <string> step;
+    pure callback mapped(key: string, tick: int) -> bool;
+    callback start();
+    callback done();
+    callback pick(key: string);
+    callback undo();
+    // The last control does what it did before too.
+    callback keep-both();
+    // Starts Quick map for the controller on `port` ("" for the one
+    // plugged in), from Settings or the bar.
+    callback quick-map(port: string);
+    callback choose-decks(decks: int);
+    callback skip();
+}
+
+export component MapMark inherits Rectangle {
+    in property <string> key;
+    if MapMode.active: Rectangle {
+        property <bool> armed: MapMode.armed == root.key;
+        property <bool> mapped: MapMode.mapped(root.key, MapMode.tick);
+        border-radius: 4px;
+        background: armed ? Theme.lilac.with-alpha(0.5)
+            : ta.has-hover ? Theme.lilac.with-alpha(0.35)
+            : mapped ? Theme.lilac.with-alpha(0.24) : Theme.lilac.with-alpha(0.08);
+        border-width: armed ? 2px : 1px;
+        border-color: armed ? Theme.lilac : Theme.lilac.with-alpha(mapped ? 0.7 : 0.35);
+        ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { MapMode.pick(root.key); }
+        }
+    }
+}

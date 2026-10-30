@@ -13,8 +13,9 @@ use opendj_control::ControlRegistry;
 use opendj_controllers::{device_key, own, support, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
-    analysis, cache, channel_names, deck_group, input_devices, key, InputRole, InputRoute,
-    RecordFormat, Recorder, BUFFER_SIZES, DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES,
+    analysis, beatthis, cache, channel_names, deck_group, input_devices, key, InputRole,
+    InputRoute, RecordFormat, Recorder, BUFFER_SIZES, DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS,
+    SAMPLE_RATES,
 };
 use opendj_library::query;
 use opendj_plugins::{LibraryImport, Plugin, SettingKind};
@@ -30,7 +31,7 @@ use crate::{
 const AUDIO: i32 = 0;
 const CONTROLLERS: i32 = 1;
 const LIBRARY: i32 = 2;
-/// Settings › Library's tabs.
+/// Settings › Collection's tabs.
 const LIBRARY_TABS: [&str; 4] = ["General", "Stages", "Fields", "Import"];
 /// The Import tab's place in LIBRARY_TABS.
 const IMPORT_TAB: usize = 3;
@@ -73,8 +74,9 @@ const INPUTS_TABLE: i32 = 13;
 const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
 const DEFAULT_RATE_RANGE: f64 = 0.08;
 /// Analysis tempo ranges, plus our default.
-const BPM_RANGES: [(f64, f64); 5] = [
+const BPM_RANGES: [(f64, f64); 6] = [
     (60.0, 120.0),
+    (60.0, 180.0),
     (70.0, 180.0),
     (88.0, 175.0),
     (98.0, 195.0),
@@ -171,6 +173,7 @@ pub fn apply_saved(registry: &ControlRegistry) {
     let (lo, hi) = bpm_range();
     analysis::set_bpm_range(lo, hi);
     key::set_detector(key_detector());
+    beatthis::set_enabled(settings::flag("neural_beats", true));
     key::set_mixing(key_mixing());
     set("[Controls]", "key_match_on_load", key_match_range() as f64);
     for (id, _, _) in AUTO_RESETS {
@@ -600,7 +603,14 @@ impl Prefs {
     /// brings in what is there and finds what is now outside.
     fn music_folders_changed(&mut self) {
         (self.rescan)();
-        self.library_note = "Updating… new tracks appear in the library as they are found.".into();
+        // Plugins are told the music folders with their settings.
+        for plugin in &mut self.plugins {
+            let id = plugin.manifest().id;
+            plugin.configure(&settings::plugin_config(id));
+            (self.plugin_changed)(id);
+        }
+        self.library_note =
+            "Updating… new tracks appear in your collection as they are found.".into();
         self.refresh();
     }
 
@@ -772,7 +782,7 @@ impl Prefs {
                         "",
                         NOTE,
                         "",
-                        "No other DJ app found. Settings › Library › Import has them later.",
+                        "No other DJ app found. Settings › Collection › Import has them later.",
                     ));
                 }
                 if !self.library_note.is_empty() {
@@ -861,11 +871,11 @@ impl Prefs {
                             PATH,
                             "Recordings folder",
                             if in_sets {
-                                "In your Mixed Sets folder (Settings › Library). Each mix is \
+                                "In your Mixed Sets folder (Settings › Collection). Each mix is \
                                  saved with a .cue tracklist and a log of every control move."
                             } else {
                                 "Each mix is saved with a .cue tracklist and a log of every \
-                                 control move. Choose a Mixed Sets folder in Settings › Library \
+                                 control move. Choose a Mixed Sets folder in Settings › Collection \
                                  to keep them with your other sets."
                             },
                         )
@@ -907,6 +917,18 @@ impl Prefs {
                     },
                     PrefItem {
                         choices: strings(&["Standard", "Neural"]),
+                        chosen: i32::from(settings::flag("neural_beats", true)),
+                        ..item(
+                            "beat_detector",
+                            SEGMENTED,
+                            "Beat detection",
+                            "Neural (Beat This!) finds downbeats, so bar 1 starts on one. \
+                             It takes a few seconds more per track, after the waveform. \
+                             Edited and imported grids stay.",
+                        )
+                    },
+                    PrefItem {
+                        choices: strings(&["Standard", "Neural"]),
                         chosen: key_detector().id() as i32,
                         ..item(
                             "key_detector",
@@ -923,7 +945,7 @@ impl Prefs {
                             "key_notation",
                             SEGMENTED,
                             "Key notation",
-                            "How keys are written on the decks and in the library.",
+                            "How keys are written on the decks and in the track list.",
                         )
                     },
                 ]
@@ -983,7 +1005,7 @@ impl Prefs {
                             "key_mixing",
                             SEGMENTED,
                             "Key mixing",
-                            "Which keys the library marks in lilac as mixing with the track \
+                            "Which keys the track list marks in lilac as mixing with the track \
                              playing. Harmonic: the same number, or the next one with the same \
                              letter (8A: 8A, 8B, 7A, 9A). Fuzzy ignores the letter, so 7B and 9B \
                              mix too.",
@@ -997,7 +1019,7 @@ impl Prefs {
                             SEGMENTED,
                             "Match key on load",
                             "A track loaded while another deck plays is shifted up or down to \
-                             mix with it, with key lock on. The library marks those tracks with \
+                             mix with it, with key lock on. The track list marks those tracks with \
                              the shift they'd get.",
                         )
                     },
@@ -1356,9 +1378,13 @@ impl Prefs {
                 .unwrap_or_else(|| {
                     port.running.is_some()
                         || c.auto_mapping(&port.name).is_some()
-                        || matches!(c.choice(&port.name), MappingChoice::File(_))
+                        || matches!(
+                            c.choice(&port.name),
+                            MappingChoice::File(_) | MappingChoice::Own(_)
+                        )
                 })
         });
+        let quick = quick_maps();
         let mut items: Vec<PrefItem> = visible
             .iter()
             .flat_map(|port| {
@@ -1372,6 +1398,8 @@ impl Prefs {
                     "Off".to_string(),
                 ];
                 choices.extend(mappings.iter().map(|(n, _)| n.clone()));
+                // Then the ones made with Quick map.
+                choices.extend(quick.iter().map(|m| m.name.clone()));
                 let chosen = match &choice {
                     MappingChoice::Auto => 0,
                     MappingChoice::Off => 1,
@@ -1379,6 +1407,10 @@ impl Prefs {
                         .iter()
                         .position(|(_, m)| m == f)
                         .map_or(0, |i| i + 2),
+                    MappingChoice::Own(p) => quick
+                        .iter()
+                        .position(|m| p.file_stem().is_some_and(|s| *s == *m.id))
+                        .map_or(0, |i| i + 2 + mappings.len()),
                 };
                 let detail = match (&port.running, &choice, &port.mapping_file) {
                     (Some(m), _, _) => match port
@@ -1397,16 +1429,23 @@ impl Prefs {
                     },
                     (None, MappingChoice::Off, _) => "Not used".to_string(),
                     (None, _, None) => {
-                        "No Mixxx mapping matches this device: pick one.".to_string()
+                        "No mapping matches this device: pick one, or make one with Quick map."
+                            .to_string()
                     }
                     (None, _, Some(_)) => "Starting, or its mapping failed to load".to_string(),
                 };
                 // Edit opens the Controller Editor on the mapping it uses.
                 let editable = edit_file(c, port).is_some() && choice != MappingChoice::Off;
+                // Without one, Quick map makes one.
+                let action = match (editable, &port.mapping_file) {
+                    (true, _) => "Edit",
+                    (false, None) => "Quick map",
+                    _ => "",
+                };
                 let mut rows = vec![PrefItem {
                     choices: strings(&choices),
                     chosen: chosen as i32,
-                    action: if editable { "Edit" } else { "" }.into(),
+                    action: action.into(),
                     ..item(
                         &format!("controller:{}", port.name),
                         CONTROLLER,
@@ -1494,7 +1533,7 @@ impl Prefs {
         items
     }
 
-    /// Settings › Library: the music folders, each with Remove, then Add.
+    /// Settings › Collection: the music folders, each with Remove, then Add.
     fn music_folder_items(&self) -> Vec<PrefItem> {
         let env = std::env::var_os("OPENDJ_MUSIC").is_some();
         let folders = settings::music_folders();
@@ -1526,7 +1565,7 @@ impl Prefs {
                     } else {
                         "Add a music folder"
                     },
-                    "Where openDJ looks for your music. Tracks elsewhere show up in Library \
+                    "Where openDJ looks for your music. Tracks elsewhere show up in Collection \
                      Health under Outside folders.",
                 )
             });
@@ -1534,7 +1573,7 @@ impl Prefs {
         items
     }
 
-    /// Settings › Library › Stages: the inbox folders, the triage and
+    /// Settings › Collection › Stages: the inbox folders, the triage and
     /// collection folders, and what happens to files between them.
     fn stage_items(&self) -> Vec<PrefItem> {
         let folders = settings::stage_folders();
@@ -1542,9 +1581,9 @@ impl Prefs {
             "",
             NOTE,
             "",
-            "New music lands in the Inbox. Send what you like to Triage to prepare it \
-                 (tags, cover, rating, tempo and key), then add it to the Collection. \
-                 Subfolders of the Triage folder are triage crates.",
+            "New music lands in the Inbox. Send what you like to In Prep to prepare it \
+                 (tags, cover, rating, tempo and key), then send it to Play Ready. \
+                 Subfolders of the In Prep folder are prep crates.",
         )];
         for (i, dir) in folders.inbox.iter().enumerate() {
             items.push(PrefItem {
@@ -1573,7 +1612,7 @@ impl Prefs {
             ..item(
                 settings::STAGE_TRIAGE,
                 PATH,
-                "Triage folder",
+                "In Prep folder",
                 "Where tracks you are preparing are kept.",
             )
         });
@@ -1583,7 +1622,7 @@ impl Prefs {
             ..item(
                 settings::STAGE_COLLECTION,
                 PATH,
-                "Collection folder",
+                "Play Ready folder",
                 "Where prepared tracks are kept. Its subfolders (such as Albums) stay as they are.",
             )
         });
@@ -1596,7 +1635,7 @@ impl Prefs {
         ));
         items.push(switch(
             settings::RENAME_TO_TRIAGE,
-            "Rename files sent to Triage",
+            "Rename files sent to In Prep",
             "Names them \"Artist - Title (Remix)\" from their tags.",
             settings::rename_to_triage(),
         ));
@@ -1605,7 +1644,7 @@ impl Prefs {
             "",
             NOTE,
             "",
-            "What Library Health's \"Junk in names\" looks for. Clean up shows every change before \
+            "What Collection Health's \"Junk in names\" looks for. Clean up shows every change before \
              it is made.",
         ));
         for (key, name, about, default) in opendj_library::cleanup::Rules::ALL {
@@ -1635,7 +1674,7 @@ impl Prefs {
         LIBRARY_TABS.iter().map(|t| t.to_string()).collect()
     }
 
-    /// Settings › Library: General, Stages, Fields and Import. `tab` None
+    /// Settings › Collection: General, Stages, Fields and Import. `tab` None
     /// is every tab, for a search.
     fn library_page(&mut self, tab: Option<usize>) -> Vec<PrefItem> {
         let shows = |t: usize| tab.is_none_or(|x| x == t);
@@ -1655,7 +1694,7 @@ impl Prefs {
         items
     }
 
-    /// Settings › Library › Import: each DJ app openDJ can bring a library
+    /// Settings › Collection › Import: each DJ app openDJ can bring a library
     /// in from. One not set up offers Set up…; once it's on, its own
     /// settings open up under its name. Apps still to come say so.
     fn import_items(&self) -> Vec<PrefItem> {
@@ -1663,7 +1702,7 @@ impl Prefs {
             "",
             NOTE,
             "",
-            "Bring in another DJ app's library: its tracks, cues, grids and lists. openDJ \
+            "Bring in another DJ app's library: its tracks, cues, grids and lists join your collection. openDJ \
              keeps them up to date while you still use that app.",
         )];
         if !self.import_note.is_empty() {
@@ -1699,7 +1738,7 @@ impl Prefs {
         items
     }
 
-    /// Settings › Library › General: the music folders, the cache and
+    /// Settings › Collection › General: the music folders, the cache and
     /// cover art.
     fn library_general(&self) -> Vec<PrefItem> {
         let (count, bytes) = cache::analysis_usage();
@@ -1739,7 +1778,7 @@ impl Prefs {
                 ..item(
                     "rescan",
                     BUTTON,
-                    "Update library",
+                    "Update collection",
                     if self.library_note.is_empty() {
                         "Looks for new and changed tracks in the music folders now."
                     } else {
@@ -1749,9 +1788,9 @@ impl Prefs {
             },
             switch(
                 settings::SCAN_ON_START,
-                "Update library on start",
+                "Update collection on start",
                 "Looks for new and changed tracks each time openDJ starts. Turn it off for a \
-                 big collection and use Update library when you add music.",
+                 big collection and use Update collection when you add music.",
                 settings::scan_on_start(),
             ),
             PrefItem {
@@ -1786,7 +1825,7 @@ impl Prefs {
         items
     }
 
-    /// Settings › Library › Fields: names for grouping and the tag fields.
+    /// Settings › Collection › Fields: names for grouping and the tag fields.
     fn field_items(&self) -> Vec<PrefItem> {
         let mut items = vec![item(
             "",
@@ -2023,7 +2062,7 @@ impl Prefs {
         self.show_tab(IMPORT_TAB);
         (self.rescan)();
         self.library_note = format!(
-            "Bringing in {}… tracks appear in the library when it is done.",
+            "Bringing in {}… tracks appear in your collection when it is done.",
             i.title()
         );
         self.import_note = self.library_note.clone();
@@ -2048,6 +2087,11 @@ impl Prefs {
                     }
                 }
             }
+            self.refresh();
+            return;
+        }
+        if id.starts_with("plugin:") {
+            self.set_plugin_value(id, if on { "on" } else { "off" });
             self.refresh();
             return;
         }
@@ -2164,7 +2208,7 @@ impl Prefs {
                         own.mapping.deck_order = Some(*o);
                     }
                     if own::save(&dir, &own).is_ok() {
-                        c.reload(&own.based_on);
+                        c.reload(&edit_file(c, &port).unwrap_or_default());
                     }
                 }
             }
@@ -2176,10 +2220,19 @@ impl Prefs {
                 let choice = match index {
                     0 => MappingChoice::Auto,
                     1 => MappingChoice::Off,
-                    i => match c.mappings().get(i - 2) {
-                        Some((_, file)) => MappingChoice::File(file.clone()),
-                        None => return,
-                    },
+                    i => {
+                        let mappings = c.mappings();
+                        match mappings.get(i - 2) {
+                            Some((_, file)) => MappingChoice::File(file.clone()),
+                            None => match (
+                                quick_maps().get(i - 2 - mappings.len()),
+                                settings::own_mappings_dir(),
+                            ) {
+                                (Some(m), Some(d)) => MappingChoice::Own(own::path(&d, &m.id)),
+                                _ => return,
+                            },
+                        }
+                    }
                 };
                 c.set_choice(port, choice);
                 settings::set_controller_mappings(&c.choices());
@@ -2195,6 +2248,11 @@ impl Prefs {
                 settings::set("bpm_min", json!(lo));
                 settings::set("bpm_max", json!(hi));
                 analysis::set_bpm_range(lo, hi);
+            }
+            "beat_detector" => {
+                let on = index == 1;
+                settings::set("neural_beats", json!(on));
+                beatthis::set_enabled(on);
             }
             "key_detector" => {
                 let Some(&d) = key::Detector::ALL.get(index) else {
@@ -2451,6 +2509,10 @@ impl Prefs {
                 let id = format!("plugin:{index}:{}", s.key);
                 match s.kind {
                     SettingKind::Note => item(&id, NOTE, &s.title, &s.detail),
+                    SettingKind::Switch(default) => PrefItem {
+                        on: config.is_on(s.key, default),
+                        ..item(&id, SWITCH, &s.title, &s.detail)
+                    },
                     SettingKind::Folder => PrefItem {
                         value: match config.get(s.key) {
                             "" => "Default".into(),
@@ -2509,6 +2571,12 @@ impl Prefs {
             set_field_names(names);
             return;
         }
+        self.set_plugin_value(id, text);
+    }
+
+    /// A value on a plugin's page (`plugin:<index>:<key>`) changed: it's
+    /// saved, and the plugin hears of it.
+    fn set_plugin_value(&mut self, id: &str, value: &str) {
         let mut parts = id.splitn(3, ':');
         let (Some("plugin"), Some(index), Some(key)) = (parts.next(), parts.next(), parts.next())
         else {
@@ -2522,7 +2590,7 @@ impl Prefs {
             return;
         };
         let plugin_id = plugin.manifest().id;
-        settings::set_plugin_value(plugin_id, key, text);
+        settings::set_plugin_value(plugin_id, key, value);
         plugin.configure(&settings::plugin_config(plugin_id));
         (self.plugin_changed)(plugin_id);
     }
@@ -2574,8 +2642,8 @@ impl Prefs {
             }
             settings::set_music_folders(&folders);
             self.music_folders_changed();
-            self.library_note = "Its tracks leave the library on the next update, except ones \
-                                 you rated, played, staged or put in a list: Library Health shows \
+            self.library_note = "Its tracks leave your collection on the next update, except ones \
+                                 you rated, played, staged or put in a list: Collection Health shows \
                                  those under Outside folders. The files stay."
                 .into();
             self.refresh();
@@ -2613,6 +2681,11 @@ impl Prefs {
                             .invoke_show_mapping(file.into());
                     }
                 }
+                "quick" => {
+                    if let Some(app) = self.app.upgrade() {
+                        app.global::<crate::MapMode>().invoke_quick_map(port.into());
+                    }
+                }
                 "remove" => {
                     // Taken off the list and not used, until added again.
                     settings::set_controller_shown(&device_key(port), false);
@@ -2638,12 +2711,15 @@ impl Prefs {
                 true,
                 self.chosen_tx.clone(),
             ),
-            settings::STAGE_TRIAGE => {
-                choose(id, "Choose the Triage folder", true, self.chosen_tx.clone())
-            }
+            settings::STAGE_TRIAGE => choose(
+                id,
+                "Choose the In Prep folder",
+                true,
+                self.chosen_tx.clone(),
+            ),
             settings::STAGE_COLLECTION => choose(
                 id,
-                "Choose the Collection folder",
+                "Choose the Play Ready folder",
                 true,
                 self.chosen_tx.clone(),
             ),
@@ -2677,7 +2753,7 @@ impl Prefs {
             "rescan" => {
                 (self.rescan)();
                 self.library_note =
-                    "Updating… new tracks appear in the library as they are found.".into();
+                    "Updating… new tracks appear in your collection as they are found.".into();
             }
             "report_bug" => {
                 crate::spotify::open_in_browser(&crate::diagnostics::issue_url("bug_report.yml"));
@@ -2748,9 +2824,23 @@ fn set_field_names(names: query::FieldNames) {
 /// The four-deck orders a controller can follow, left to right.
 const DECK_ORDERS: [(&str, [u8; 4]); 2] = [("3 1 2 4", [3, 1, 2, 4]), ("1 2 3 4", [1, 2, 3, 4])];
 
+/// The DJ's own mappings that stand alone, made with Quick map.
+fn quick_maps() -> Vec<own::OwnMapping> {
+    settings::own_mappings_dir()
+        .map(|d| own::all(&d))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|m| m.based_on.is_empty())
+        .collect()
+}
+
 /// The DJ's own mapping `port` runs, if it runs one.
 fn own_in_use(c: &Controllers, port: &Port) -> Option<own::OwnMapping> {
     let base = edit_file(c, port)?;
+    if opendj_controllers::is_own_file(&base) {
+        let id = base.trim_end_matches(".json");
+        return own::OwnMapping::read(&own::path(&settings::own_mappings_dir()?, id));
+    }
     let id = settings::controller_version(&base)?;
     own::OwnMapping::read(&own::path(&settings::own_mappings_dir()?, &id))
 }
@@ -2889,7 +2979,7 @@ fn wizard_rows(importer: &dyn LibraryImport, w: &WizardState) -> Vec<PrefItem> {
                 &format!(
                     "Grids and cues you edit in openDJ stay either way. Import brings it in \
                      now. openDJ checks {title}'s files each time it starts and brings in \
-                     what changed; you can change these choices in Settings › Library."
+                     what changed; you can change these choices in Settings › Collection."
                 ),
             ),
         ],

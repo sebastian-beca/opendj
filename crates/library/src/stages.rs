@@ -37,6 +37,8 @@ impl Stage {
     ];
 
     /// The name kept in the library and used in searches (`stage:triage`).
+    /// The titles changed since (Triage is In Prep, Collection is Play
+    /// Ready), but these stay so saved libraries and searches keep working.
     pub fn name(self) -> &'static str {
         match self {
             Stage::Inbox => "inbox",
@@ -50,12 +52,22 @@ impl Stage {
         Self::ALL.into_iter().find(|st| st.name() == s)
     }
 
+    /// A stage as typed after `stage:`: its stored name, or its title
+    /// without spaces (`stage:prep`, `stage:playready`).
+    pub fn from_search(s: &str) -> Option<Self> {
+        match s {
+            "prep" | "inprep" => Some(Stage::Triage),
+            "playready" => Some(Stage::Collection),
+            _ => Self::from_name(s),
+        }
+    }
+
     /// What the browser calls it.
     pub fn title(self) -> &'static str {
         match self {
             Stage::Inbox => "Inbox",
-            Stage::Triage => "Triage",
-            Stage::Collection => "Collection",
+            Stage::Triage => "In Prep",
+            Stage::Collection => "Play Ready",
             Stage::Dismissed => "Not interested",
         }
     }
@@ -265,6 +277,15 @@ impl Prep {
 mod tests {
     use super::*;
     use opendj_engine::Source;
+
+    #[test]
+    fn searches_take_old_and_new_names() {
+        assert_eq!(Stage::from_search("prep"), Some(Stage::Triage));
+        assert_eq!(Stage::from_search("triage"), Some(Stage::Triage));
+        assert_eq!(Stage::from_search("playready"), Some(Stage::Collection));
+        assert_eq!(Stage::from_search("collection"), Some(Stage::Collection));
+        assert_eq!(Stage::from_search("ready"), None);
+    }
 
     fn folders() -> Folders {
         Folders {

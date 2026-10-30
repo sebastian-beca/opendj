@@ -588,22 +588,34 @@ pub fn build(path: &Path, registry: Arc<ControlRegistry>) -> Result<MappingView,
 
 /// Like [`build`], for the DJ's own mapping `own` put over the Mixxx mapping
 /// at `path` (the one it's based on): rows it changes are marked, and rows
-/// it keeps greyed are listed with why.
+/// it keeps greyed are listed with why. `path` can also be the own
+/// mapping's file, for one that stands alone (made with Quick map).
 pub fn build_own(
     path: &Path,
     own: &OpenDjMapping,
     registry: Arc<ControlRegistry>,
 ) -> Result<MappingView, String> {
-    let base = Mapping::load(path)?;
-    let dir = path.parent().unwrap_or(Path::new("."));
-    let mapping = own.build(Some(&base), dir);
+    let (base, dir) = if crate::is_own_file(&path.to_string_lossy()) {
+        let dir = crate::default_mappings_dir().unwrap_or_default();
+        let base = match &own.based_on {
+            Some(b) => Some(Mapping::load(&dir.join(b))?),
+            None => None,
+        };
+        (base, dir)
+    } else {
+        let dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+        (Some(Mapping::load(path)?), dir)
+    };
+    let mapping = own.build(base.as_ref(), &dir);
+    // One that stands alone changes nothing: all its rows are its own.
+    let alone = base.is_none();
     let file = path
         .file_name()
         .map(|f| f.to_string_lossy().into_owned())
         .unwrap_or_default();
     let mut v = build_from(&mapping, file, registry)?;
     for row in &mut v.rows {
-        row.edited = crate::edit::is_edited(own, row);
+        row.edited = !alone && crate::edit::is_edited(own, row);
     }
     let layout = v.layout.clone();
     // A message the own mapping takes away and gives nothing else on its

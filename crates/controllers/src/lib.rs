@@ -15,10 +15,12 @@ pub mod format;
 mod host;
 pub mod import;
 pub mod layout;
+pub mod learn;
 mod manager;
 pub mod mapping;
 pub mod own;
 pub mod probe;
+pub mod quick;
 mod rows;
 mod script;
 pub mod support;
@@ -29,7 +31,8 @@ use std::path::PathBuf;
 pub use controller::Controller;
 pub use host::{LAYER_GROUP, LAYER_KEYS};
 pub use manager::{
-    device_key, list_mappings, match_mapping, ConnectedController, Controllers, MappingChoice, Port,
+    device_key, is_own_file, list_mappings, match_mapping, ConnectedController, Controllers,
+    MappingChoice, Port,
 };
 pub use mapping::Mapping;
 

@@ -6,12 +6,12 @@ Bringing in another DJ app's library, today VirtualDJ's, and keeping it up to da
 ## Requirements
 
 ### Requirement: Import wizard
-Settings › Library › General › Import from VirtualDJ › Set up… SHALL walk through three steps: find `database.xml` (default `~/Library/Application Support/VirtualDJ`, `~/.vdj` on Linux) and show what it holds; choose which lists come (playlists, virtual folders, filter folders as smart lists, history); choose whose tags win when they differ.
+Settings › Collection › General › Import from VirtualDJ › Set up… SHALL walk through three steps: find `database.xml` (default `~/Library/Application Support/VirtualDJ`, `~/.vdj` on Linux) and show what it holds; choose which lists come (playlists, virtual folders, filter folders as smart lists, history); choose whose tags win when they differ.
 
-Once an import is on it SHALL get its own tab in Settings › Library (after General, Stages and Fields) holding its settings, Stop importing and Remove import; a DJ who has not set one up SHALL not see one. Stopping or removing it SHALL take the tab away.
+Once an import is on it SHALL get its own tab in Settings › Collection (after General, Stages and Fields) holding its settings, Stop importing and Remove import; a DJ who has not set one up SHALL not see one. Stopping or removing it SHALL take the tab away.
 
 #### Scenario: VirtualDJ tab
-- **WHEN** a DJ who never imported from VirtualDJ opens Settings › Library
+- **WHEN** a DJ who never imported from VirtualDJ opens Settings › Collection
 - **THEN** there is no VirtualDJ tab, only Import from VirtualDJ under General
 
 #### Scenario: Pick lists

@@ -116,7 +116,7 @@ pub const FIRST_MIX: Lesson = Lesson {
         Step {
             target: "[Channel1],load",
             title: "Load a track on deck A",
-            body: "Drag a track from the library onto deck A, or load the first demo track.",
+            body: "Drag a track from the browser onto deck A, or load the first demo track.",
             wait: Wait::Loaded(0),
             action: Some(("Load demo track", Action::LoadDemo { deck: 0, demo: 0 })),
         },

@@ -173,9 +173,12 @@ impl Service {
 const SAVED: &str = "spotify.json";
 
 /// What is kept between runs, in a file of the config folder.
+#[derive(Default)]
 pub(crate) struct Saved {
     pub client_id: String,
     pub refresh_token: String,
+    /// The app's client secret, for a service that needs one (SoundCloud).
+    pub secret: String,
 }
 
 impl Saved {
@@ -188,13 +191,17 @@ impl Saved {
         Some(Self {
             client_id: v["client_id"].as_str()?.to_string(),
             refresh_token: v["refresh_token"].as_str().unwrap_or_default().to_string(),
+            secret: v["secret"].as_str().unwrap_or_default().to_string(),
         })
     }
 
     pub fn store(&self, file: &str) {
         let Some(path) = Self::path(file) else { return };
         let _ = std::fs::create_dir_all(path.parent().unwrap());
-        let body = json!({ "client_id": self.client_id, "refresh_token": self.refresh_token });
+        let mut body = json!({ "client_id": self.client_id, "refresh_token": self.refresh_token });
+        if !self.secret.is_empty() {
+            body["secret"] = json!(self.secret);
+        }
         let mut options = std::fs::OpenOptions::new();
         options.write(true).create(true).truncate(true);
         // The refresh token is a credential: readable by this user only.
@@ -271,6 +278,7 @@ impl Worker {
                         Saved {
                             client_id: s.client_id,
                             refresh_token: String::new(),
+                            ..Default::default()
                         }
                         .store(SAVED);
                     }
@@ -385,6 +393,7 @@ impl Worker {
         Saved {
             client_id: client_id.to_string(),
             refresh_token: refresh_token.clone(),
+            ..Default::default()
         }
         .store(SAVED);
         Ok(Session {
@@ -656,6 +665,17 @@ pub(crate) fn wait_for_code(
     state: &str,
     service: &str,
 ) -> Result<String, String> {
+    wait_for_code_after(listener, state, service, None)
+}
+
+/// [`wait_for_code`], serving `page` at `/start` first: a sign-in page of
+/// openDJ's own, for a service whose sign-in runs in the browser.
+pub(crate) fn wait_for_code_after(
+    listener: &TcpListener,
+    state: &str,
+    service: &str,
+    page: Option<&str>,
+) -> Result<String, String> {
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     let deadline = Instant::now() + LOGIN_TIMEOUT;
     while Instant::now() < deadline {
@@ -667,7 +687,12 @@ pub(crate) fn wait_for_code(
             }
             Err(e) => return Err(e.to_string()),
         };
-        let Some(query) = read_request_line(&mut stream).and_then(|l| callback_query(&l)) else {
+        let line = read_request_line(&mut stream).unwrap_or_default();
+        if let Some(page) = page.filter(|_| line.starts_with("GET /start ")) {
+            send_html(&mut stream, "200 OK", page);
+            continue;
+        }
+        let Some(query) = callback_query(&line) else {
             respond(&mut stream, "404 Not Found", "");
             continue;
         };
@@ -725,6 +750,10 @@ fn respond(stream: &mut TcpStream, status: &str, message: &str) {
          <body style=\"font:16px -apple-system,sans-serif;background:#1c1c1e;color:#eee;\
          display:grid;place-items:center;height:90vh\"><p>{message}</p>"
     );
+    send_html(stream, status, &body);
+}
+
+fn send_html(stream: &mut TcpStream, status: &str, body: &str) {
     let _ = write!(
         stream,
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",

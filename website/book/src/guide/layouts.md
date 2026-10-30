@@ -2,7 +2,7 @@
 
 The menu at the top left of the window switches layouts:
 
-- **Simple** shrinks decks 1 and 2 to a single row, so the library gets most
+- **Simple** shrinks decks 1 and 2 to a single row, so the browser gets most
   of the screen.
 - **2-Deck** shows the full decks, with pads and loops, and the mixer between
   them (see [Decks and mixer](decks.md)).
