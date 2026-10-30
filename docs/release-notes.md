@@ -8,10 +8,12 @@ openDJ 0.4.5 is about switching over. Bring your rekordbox or Mixxx library acro
 - Pick which lists to import in a tree of tick boxes, in the wizard or with Lists › Choose… on the Import tab.
 - A second import matches tracks the collection already has by artist, title and length, so the same song isn't added twice.
 - A first-run guided tour sets up your sound (with a test tone per output), your controller and your music folders, then walks you through your first mix on the real controls, on screen or on the controller. Every step can be skipped.
+- Streamed TIDAL and Spotify tracks in imported VirtualDJ and rekordbox lists stay in their place as greyed placeholders, and become the real track once it reaches your collection.
 
 **Controllers**
 
 - Import a mapping from VirtualDJ (controllers and keyboard), Traktor (`.tsi`), rekordbox (`.midi.csv`) or djay Pro, from the Controller Editor's Mapping menu. Rows that can't come across stay greyed with the reason. Export writes an openDJ mapping, or a Mixxx `.midi.xml`.
+- Knobs and faders pick up: after a control moves on screen, the hardware does nothing until it reaches it, and a hollow marker shows where the hardware is. The crossfader always follows the hardware. Choose Scale instead per controller in Settings → Controllers.
 - Your own mappings: click a row in the Controller Editor to change what the control does, make it do nothing, or put it back.
 - **Map mode** (the MIDI button in the top bar): click a control on screen, then move one on the controller. Keep both, Undo and Done are on the bar.
 - **Quick map** walks through a controller's usual controls one by one, for 2 or 4 decks, and copies deck 1 to the other decks. It is the button for a controller with no mapping.
@@ -34,9 +36,13 @@ openDJ 0.4.5 is about switching over. Bring your rekordbox or Mixxx library acro
 **Collection**
 
 - openDJ says **collection** for your own tracks: Settings → Collection and Collection Health. Stages are now **Inbox → In Prep → Play Ready**.
+- A new sidebar: **Collection** (with Wanted and your stages under it), then **Crates** and **Playlists**, with folders that nest and stay open or closed as you left them. Sets are gone for now; old set folders show as plain folders.
+- Collection Health moves to the rail, with a badge counting the checks that find something. New checks: **Low bitrate** (under 192 kb/s) and **Missing or poor metadata** ("Unknown Artist", "Track 01" and the like).
 - An **Albums** folder and a **Mixed Sets** folder in Settings → Collection → General, each with its own source in the rail. Albums show as a wall of covers or a list; Play Album plays one gaplessly through Automix. Collection Health finds tracks whose album tag differs from the rest of their folder.
 - Drop audio files from Finder, Explorer or a file manager onto a deck to load them.
 - Cmd+A (Ctrl+A) selects every track in the list.
+- Settings → Audio lists inputs in a table like the outputs, with a device and channel menu for the microphone and aux.
+- The search box no longer pops up the search help when you hover it.
 
 ## Install
 
