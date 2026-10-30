@@ -72,8 +72,9 @@ const TICK: i32 = 12;
 const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
 const DEFAULT_RATE_RANGE: f64 = 0.08;
 /// Analysis tempo ranges, plus our default.
-const BPM_RANGES: [(f64, f64); 5] = [
+const BPM_RANGES: [(f64, f64); 6] = [
     (60.0, 120.0),
+    (60.0, 180.0),
     (70.0, 180.0),
     (88.0, 175.0),
     (98.0, 195.0),
