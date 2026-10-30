@@ -23,7 +23,7 @@ use crate::scan;
 use crate::separation;
 use crate::stems::{self, StemSource};
 use crate::synth;
-use crate::track::{Audio, Source, Track};
+use crate::track::{Audio, LibraryInfo, Source, Track};
 use crate::{LoadedTracks, NUM_DECKS};
 
 /// How often a growing waveform is handed to the UI while analysing.
@@ -141,13 +141,16 @@ pub fn analyse_file(track: &Track, fresh: bool) -> Result<Track, String> {
         }
     };
     let mut changed = audio.is_some();
-    if beatthis::wanted(&analysis) && !base.info.fixed_grid {
+    if beatthis::wanted(&analysis) && grid_replaceable(&base) {
         let decoded = match audio.take() {
             Some(a) => a,
             None => decode(path)?,
         };
         match beatthis::refine(&mut analysis, &decoded, hint) {
-            Ok(()) => changed = true,
+            Ok(()) => {
+                changed = true;
+                base.info.fixed_grid = false;
+            }
             Err(e) => eprintln!("no beats from Beat This!: {e}"),
         }
     }
@@ -166,6 +169,13 @@ pub fn analyse_file(track: &Track, fresh: bool) -> Result<Track, String> {
         t.waveform = Arc::default();
     }
     Ok(t)
+}
+
+/// Whether a new analysis may replace `track`'s grid: it has none from the
+/// library, or the one it has came from an earlier analysis (not the DJ or
+/// an import).
+fn grid_replaceable(track: &Track) -> bool {
+    !track.info.fixed_grid || track.info.grid_analysed
 }
 
 /// Gives `t` the beat grid it should play with: a grid from the library is
@@ -602,7 +612,7 @@ fn load(shared: &Arc<Shared>, deck: usize, generation: u64, base: &Track) -> Res
     }
     // Beat This! takes a few seconds more: the deck plays on the DSP grid
     // meanwhile, then takes the grid fitted to its beats.
-    let refine = beatthis::wanted(&analysis) && !base.info.fixed_grid && path.is_some();
+    let refine = beatthis::wanted(&analysis) && grid_replaceable(base) && path.is_some();
     let mut later = refine.then(|| analysis.clone());
     let done = Arc::new(with_cover(analysed(
         base,
@@ -626,10 +636,21 @@ fn load(shared: &Arc<Shared>, deck: usize, generation: u64, base: &Track) -> Res
         if !latest() {
             return Ok(());
         }
+        // An earlier analysis's grid from the library gives way too, and
+        // the track comes back as analysed (not edited) so the library
+        // takes the new grid.
         let mut t = (*done).clone();
+        t.info.fixed_grid = false;
+        let unfixed = Track {
+            info: LibraryInfo {
+                fixed_grid: false,
+                ..base.info.clone()
+            },
+            ..base.clone()
+        };
         with_grid(
             &mut t,
-            base,
+            &unfixed,
             &analysis.grid,
             analysis.bpm,
             analysis.first_beat,
@@ -650,6 +671,17 @@ mod tests {
     use crate::key::Key;
     use opendj_control::ControlRegistry;
     use std::sync::mpsc;
+
+    #[test]
+    fn only_analysed_or_missing_grids_give_way() {
+        let mut t = (*synth::sample_library()[0]).clone();
+        t.info.fixed_grid = false;
+        assert!(grid_replaceable(&t));
+        t.info.fixed_grid = true;
+        assert!(!grid_replaceable(&t), "edited or imported");
+        t.info.grid_analysed = true;
+        assert!(grid_replaceable(&t), "from an earlier analysis");
+    }
 
     /// Runs the engine like an audio callback until `done` holds.
     fn run_until(engine: &mut Engine, mut done: impl FnMut() -> bool) {
