@@ -5,7 +5,7 @@
 // once: there is no OK or Apply.
 import { Theme } from "theme.slint";
 import { ControlKnob } from "controls.slint";
-import { MenuField, OutputsTable } from "mixer.slint";
+import { MenuField, OutputsTable, InputsTable } from "mixer.slint";
 
 // One row of a settings page. The app builds the rows for the page shown,
 // or for a search.
@@ -20,7 +20,7 @@ export struct PrefItem {
     // and id + "#remove", 11 a keyboard shortcut: its key in `title` (none
     // for the row that adds one), its openDJscript line in `value`, the
     // verbs to pick from in `choices`, the button's label in `action`; `on`
-    // shows `detail` as a mistake.
+    // shows `detail` as a mistake, 12 a tick box, 13 the inputs table.
     kind: int,
     title: string,
     detail: string,
@@ -285,6 +285,8 @@ component ScriptField inherits Rectangle {
 export component PrefRow inherits Rectangle {
     in property <PrefItem> item;
     in property <bool> searching;
+    // Larger, lighter words, for the tour's setup dialog.
+    in property <bool> bright;
     min-height: item.kind == 7 ? 34px : item.kind == 12 ? 30px : 52px;
     VerticalLayout {
         padding-top: item.kind == 7 ? 14px : item.kind == 12 ? 4px : 10px;
@@ -415,8 +417,8 @@ export component PrefRow inherits Rectangle {
                 if searching: Text { text: item.page-name; color: Theme.knob-arc; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
                 if item.title != "": Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; overflow: elide; }
                 // Add-on pages (notes and text fields) wrap: their help is longer.
-                if item.detail != "" && item.kind != 6 && item.kind != 9: Text { text: item.detail; color: Theme.text-dim; font-size: 12px; overflow: elide; }
-                if item.detail != "" && (item.kind == 6 || item.kind == 9): Text { text: item.detail; color: Theme.text-dim; font-size: 12px; wrap: word-wrap; }
+                if item.detail != "" && item.kind != 6 && item.kind != 9: Text { text: item.detail; color: bright ? #c8c8cd : Theme.text-dim; font-size: bright ? 13px : 12px; overflow: elide; }
+                if item.detail != "" && (item.kind == 6 || item.kind == 9): Text { text: item.detail; color: bright ? #c8c8cd : Theme.text-dim; font-size: bright ? 13px : 12px; wrap: word-wrap; }
             }
             if item.kind == 0: VerticalLayout {
                 alignment: center;
@@ -513,7 +515,8 @@ export component PrefRow inherits Rectangle {
             }
             if item.action != "": Button { text: item.action; clicked => { Preferences.pressed(item.id); } }
         }
-        if item.kind == 4: OutputsTable { roomy: true; }
+        if item.kind == 4: OutputsTable { roomy: true; bright: bright; }
+        if item.kind == 13: InputsTable { }
         if item.kind == 5: HorizontalLayout {
             alignment: start;
             spacing: 36px;

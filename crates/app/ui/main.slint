@@ -2,7 +2,7 @@ import { Palette } from "std-widgets.slint";
 import { Theme, KeyNotation, CloseIcon } from "theme.slint";
 import { Controls, VuMeter, ControlKnob, HoverTipView } from "controls.slint";
 import { Deck, DeckInfo, KeyItem, EffectList, DeckActions, PhraseView, PhraseTip } from "deck.slint";
-import { Mixer, AudioSettings, OutputRow, MixerMode } from "mixer.slint";
+import { Mixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } from "mixer.slint";
 import { MasterPanel, MicPanel } from "toppanels.slint";
 import { PlayerDeck, PlayerMixer } from "player.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
@@ -19,7 +19,7 @@ export { FilterUi, FilterChip, FilterChoice } from "filters.slint";
 export { SamplerUi, SamplerPad, SamplePack, SampleChoice } from "sampler.slint";
 export { ColumnUi, ListColumn }
 export { Tour, TourSetup }
-export { MixerMode }
+export { MixerMode, InputSettings, InputRow }
 export { Theme, Controls, DeckActions, PhraseView, PhraseTip, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, FilesUi, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, UsbExport }
 
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
@@ -650,7 +650,7 @@ export component AppWindow inherits Window {
                 UsbExport.open = false;
                 return accept;
             }
-            if e.text == Key.Escape && Tour.mode == 1 && !ImportWizard.open {
+            if e.text == Key.Escape && Tour.mode == 1 && !ImportWizard.open && !ControllerEditor.open && !Preferences.open {
                 Tour.end();
                 return accept;
             }
@@ -971,6 +971,11 @@ export component AppWindow inherits Window {
 
         HoverTipView { width: root.width; height: root.height; }
 
+        // Under Settings and the Controller Editor, which it can open.
+        if Tour.mode == 1: TourSetupDialog {
+            width: root.width;
+            height: root.height;
+        }
         // Inside the shortcuts' scope, so Esc reaches it from the search box.
         if Preferences.open: PreferencesOverlay {
             width: root.width;
@@ -982,10 +987,6 @@ export component AppWindow inherits Window {
             height: root.height;
         }
         if UsbExport.open: UsbExportDialog {
-            width: root.width;
-            height: root.height;
-        }
-        if Tour.mode == 1: TourSetupDialog {
             width: root.width;
             height: root.height;
         }
