@@ -437,13 +437,13 @@ fn is_newer(candidate: &str, current: &str) -> bool {
     }
 }
 
-/// Where the stem separation models are published: assets of the
-/// `stem-models` pre-release (so the updater and the website, which look
-/// at the latest release, skip it).
+/// Where the stem separation and beat detection models are published:
+/// assets of the `stem-models` pre-release (so the updater and the website,
+/// which look at the latest release, skip it).
 const MODELS_URL: &str = "https://github.com/sebastian-beca/opendj/releases/download/stem-models";
 
-/// Lets the engine download a stem separation model the first time it is
-/// needed, checked against the SHA-256 the engine knows it by.
+/// Lets the engine download a model (stem separation, Beat This!) the first
+/// time it is needed, checked against the SHA-256 the engine knows it by.
 pub fn install_model_fetch() {
     opendj_engine::separation::set_fetch(Box::new(|name, sha, to| {
         download(&format!("{MODELS_URL}/{name}"), to)?;

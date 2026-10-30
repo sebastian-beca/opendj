@@ -11,6 +11,7 @@
 
 pub mod analysis;
 pub mod beats;
+pub mod beatthis;
 pub mod cache;
 mod controls;
 pub mod cover;
