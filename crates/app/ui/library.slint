@@ -441,12 +441,23 @@ component StageLines inherits VerticalLayout {
 component MatchMenu inherits PopupWindow {
     in property <int> track-row;
     in property <bool> matched;
+    // SoundCloud tracks and Mixcloud shows play on the service's own page.
+    property <string> plays-on: StoreUi.source == 8 ? "SoundCloud" : StoreUi.source == 11 ? "Mixcloud" : "";
+    callback play();
     width: 320px;
     close-policy: close-on-click-outside;
     MenuBackground {}
     VerticalLayout {
         padding: 8px;
         spacing: 4px;
+        if plays-on != "": MenuLine {
+            text: "Play on " + plays-on;
+            clicked => {
+                root.close();
+                root.play();
+            }
+        }
+        if plays-on != "": MenuSeparator {}
         Text { text: "Match to a track in your collection"; color: Theme.text-dim; font-size: 12px; }
         LineEdit {
             text <=> StreamMatch.query;
@@ -2019,6 +2030,7 @@ component TrackList inherits Rectangle {
         y: min(menu-y, root.height - 380px);
         track-row: menu-row;
         matched: menu-matched;
+        play => { activate(menu-row); }
     }
     property <length> row-height: 32px;
     // Which rows are in view, for their mini waveforms.
@@ -2367,7 +2379,17 @@ component TrackList inherits Rectangle {
                             font-size: 14px;
                             font-weight: 700;
                         }
-                        if !r.available && r.action == "": Rectangle {
+                        // A SoundCloud track or Mixcloud show the collection
+                        // doesn't have: a play button for its page.
+                        if !r.available && r.action == "" && (StoreUi.source == 8 || StoreUi.source == 11): Rectangle {
+                            width: 18px;
+                            height: 18px;
+                            border-radius: 9px;
+                            background: pta.has-hover ? (StoreUi.source == 8 ? #ff5500 : #5000ff) : #ffffff20;
+                            Text { text: "▶"; color: #ffffff; font-size: 9px; x: 6px; }
+                            pta := TouchArea { mouse-cursor: pointer; clicked => { current = i; activate(i); } }
+                        }
+                        if !r.available && r.action == "" && StoreUi.source != 8 && StoreUi.source != 11: Rectangle {
                             width: 10px;
                             height: 10px;
                             border-radius: 5px;
