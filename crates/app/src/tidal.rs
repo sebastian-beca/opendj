@@ -112,6 +112,10 @@ impl Worker {
                     Ok(tracks) => self.emit(Event::Tracks { key, tracks }),
                     Err(error) => self.emit(Event::TracksFailed { key, error }),
                 },
+                Request::Lookup(ids) => match self.lookup(&ids) {
+                    Ok(found) => self.emit(Event::Found(found.into_values().collect())),
+                    Err(e) => eprintln!("TIDAL: can't look tracks up: {e}"),
+                },
                 Request::Disconnect => {
                     if let Some(s) = self.session.take() {
                         Saved {
@@ -169,7 +173,12 @@ impl Worker {
             .filter(|i| i["type"] == "tracks")
             .filter_map(|i| i["id"].as_str().map(str::to_string))
             .collect();
-        // Each batch of tracks with their artists and albums.
+        let found = self.lookup(&ids)?;
+        Ok(ids.iter().filter_map(|id| found.get(id).cloned()).collect())
+    }
+
+    /// Tracks by their ids, with their artists and albums, a batch at a time.
+    fn lookup(&mut self, ids: &[String]) -> Result<HashMap<String, StreamTrack>, String> {
         let mut found: HashMap<String, StreamTrack> = HashMap::new();
         for batch in ids.chunks(TRACK_BATCH) {
             let mut url = format!("{API}/tracks?include=artists&include=albums");
@@ -182,7 +191,7 @@ impl Worker {
                 found.insert(t.id.clone(), t);
             }
         }
-        Ok(ids.iter().filter_map(|id| found.get(id).cloned()).collect())
+        Ok(found)
     }
 
     fn login(&mut self, client_id: &str) -> Result<Session, String> {

@@ -7,10 +7,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use opendj_engine::import::{ImportedEntry, ImportedList, ImportedListKind};
+use opendj_engine::import::{ImportedEntry, ImportedList, ImportedListKind, StreamedTrack};
 use opendj_engine::{Hotcue, LibraryInfo, Source, Track, MEMORY_CUE};
 use rbox_masterdb::{
-    DjmdContentView, HistoryType, LogicalOperator, MasterDb, PlaylistType, SmartList,
+    DjmdContent, DjmdContentView, HistoryType, LogicalOperator, MasterDb, PlaylistType, SmartList,
 };
 
 use super::common::{self, Condition, Mood};
@@ -94,9 +94,12 @@ pub fn read(
         analysis(&mut db, &c.id, &mut t);
         tracks.push(t);
     }
-    let paths: HashMap<String, PathBuf> = contents
+    let paths: HashMap<String, ImportedEntry> = contents
         .iter()
-        .filter_map(|c| Some((c.id.clone(), file_path(c)?)))
+        .filter_map(|c| {
+            let artist = c.artist.as_ref().map(|a| a.name.as_str());
+            Some((c.id.clone(), entry(c, artist)?))
+        })
         .collect();
     let lists = read_lists_with(&mut db, groups, &paths, &tag_names)?;
     Ok(ImportedLibrary { tracks, lists })
@@ -105,12 +108,7 @@ pub fn read(
 /// The lists in `groups`, for the picker.
 pub fn lists(path: &Path, groups: &[&str]) -> Result<Vec<ImportedList>, String> {
     let mut db = open(path)?;
-    let paths: HashMap<String, PathBuf> = db
-        .get_contents()
-        .map_err(err)?
-        .iter()
-        .filter_map(|c| Some((c.id.clone(), PathBuf::from(c.folder_path.as_deref()?))))
-        .collect();
+    let paths = entries_of(&mut db)?;
     let tag_names = db
         .get_my_tags()
         .map_err(err)?
@@ -125,22 +123,82 @@ fn read_lists(
     groups: &[&str],
     tag_names: &HashMap<String, String>,
 ) -> Result<Vec<ImportedList>, String> {
-    let paths: HashMap<String, PathBuf> = db
+    let paths = entries_of(db)?;
+    read_lists_with(db, groups, &paths, tag_names)
+}
+
+/// What each track (by its id) is in a list: its file, or the streamed
+/// track it stands for.
+fn entries_of(db: &mut MasterDb) -> Result<HashMap<String, ImportedEntry>, String> {
+    Ok(db
         .get_contents()
         .map_err(err)?
         .iter()
-        .filter_map(|c| Some((c.id.clone(), PathBuf::from(c.folder_path.as_deref()?))))
-        .collect();
-    read_lists_with(db, groups, &paths, tag_names)
+        .filter(|c| c.rb_local_deleted == 0)
+        .filter_map(|c| Some((c.id.clone(), entry(c, None)?)))
+        .collect())
 }
 
 /// The file of a track that has one here; streamed tracks have none.
 fn file_path(c: &DjmdContentView) -> Option<PathBuf> {
     let p = c.folder_path.as_deref()?.trim();
-    if p.is_empty() || p.contains("://") {
+    if p.is_empty() || StreamedTrack::parse(p).is_some() {
         return None;
     }
     Some(PathBuf::from(p))
+}
+
+/// A track in a list: its file, or for a track from a streaming service
+/// (a `ServiceID`, or a service's address where the file would be), the
+/// streamed track with what rekordbox knows of it. `artist` is its
+/// artist's name when the caller has it.
+fn entry(c: &DjmdContent, artist: Option<&str>) -> Option<ImportedEntry> {
+    let path = c.folder_path.as_deref().unwrap_or_default().trim();
+    let parsed = StreamedTrack::parse(path);
+    let service = c.service_id.unwrap_or(0);
+    if parsed.is_none() && (service == 0 || looks_like_a_file(path)) {
+        return (!path.is_empty()).then(|| ImportedEntry::new(path, None));
+    }
+    let mut s = parsed.unwrap_or_else(|| StreamedTrack {
+        service: "online".into(),
+        uri: if path.is_empty() {
+            format!("rekordbox:{service}:{}", c.id)
+        } else {
+            path.to_string()
+        },
+        ..Default::default()
+    });
+    let text = |v: &Option<String>| v.as_deref().unwrap_or_default().trim().to_string();
+    if s.id.is_empty() && s.service != "online" {
+        s.id = text(&c.src_id);
+    }
+    s.title = Some(text(&c.title))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| text(&c.src_title));
+    s.artist = artist
+        .map(|a| a.trim().to_string())
+        .filter(|a| !a.is_empty())
+        .unwrap_or_else(|| text(&c.src_artist_name));
+    s.duration = match c.length.unwrap_or(0) {
+        l if l > 0 => l as f64,
+        _ => c.src_length.unwrap_or(0).max(0) as f64 / 1000.0,
+    };
+    s.isrc = text(&c.isrc);
+    Some(ImportedEntry {
+        path: PathBuf::from(&s.uri),
+        played_at: None,
+        streamed: Some(s),
+    })
+}
+
+/// A path on a disk: "/Users/…", "C:/…" or "C:\…".
+fn looks_like_a_file(p: &str) -> bool {
+    let b = p.as_bytes();
+    p.starts_with('/')
+        || (b.len() > 2
+            && b[0].is_ascii_alphabetic()
+            && b[1] == b':'
+            && (b[2] == b'/' || b[2] == b'\\'))
 }
 
 fn name(n: Option<&str>) -> String {
@@ -263,22 +321,16 @@ fn analysis(db: &mut MasterDb, id: &str, t: &mut Track) {
 }
 
 /// The playlists, intelligent playlists and history in `groups`, with the
-/// file of each track (by its id in `paths`).
+/// entry each track makes (by its id in `paths`).
 fn read_lists_with(
     db: &mut MasterDb,
     groups: &[&str],
-    paths: &HashMap<String, PathBuf>,
+    paths: &HashMap<String, ImportedEntry>,
     tag_names: &HashMap<String, String>,
 ) -> Result<Vec<ImportedList>, String> {
     let mut out = Vec::new();
     let entries = |ids: Vec<String>| -> Vec<ImportedEntry> {
-        ids.iter()
-            .filter_map(|id| paths.get(id))
-            .map(|p| ImportedEntry {
-                path: p.clone(),
-                played_at: None,
-            })
-            .collect()
+        ids.iter().filter_map(|id| paths.get(id)).cloned().collect()
     };
     if groups.contains(&PLAYLISTS) || groups.contains(&SMART) {
         let all: Vec<_> = db

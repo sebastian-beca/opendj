@@ -137,6 +137,8 @@ impl Worker {
                     Ok(tracks) => self.emit(Event::Tracks { key, tracks }),
                     Err(error) => self.emit(Event::TracksFailed { key, error }),
                 },
+                // Only playlists' tracks are fetched from here.
+                Request::Lookup(_) => {}
                 Request::Disconnect => {
                     if let Some(s) = self.session.take() {
                         Saved {

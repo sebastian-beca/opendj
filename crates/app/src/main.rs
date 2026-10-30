@@ -1158,13 +1158,16 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                     }) {
                         Ok(Some(r)) => eprintln!(
                             "{}: {} tracks added, {} updated, {} matched to a copy already \
-                             here; {} lists, folders and sessions ({} entries without a file \
-                             here left out)",
+                             here; {} lists, folders and sessions ({} streamed tracks standing \
+                             in, {} already in the collection, {} entries without a file here \
+                             left out)",
                             importer.id(),
                             r.added,
                             r.updated,
                             r.matched,
                             r.lists,
+                            r.streamed,
+                            r.filled,
                             r.unmatched
                         ),
                         Ok(None) => {}
