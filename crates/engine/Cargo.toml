@@ -21,6 +21,8 @@ serde_json = "1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 rusty_link = "0.4"
 flacenc = { version = "0.5", default-features = false }
+# Beat and downbeat tracking (Beat This!, MIT) on the pure-Rust rten runtime.
+beat-this = { version = "1.1", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 # ASIO drivers next to Windows Audio. The build downloads Steinberg's ASIO
