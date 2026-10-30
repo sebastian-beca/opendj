@@ -250,3 +250,16 @@ td { color: var(--text-2); }
 .switch-note { color: var(--text-2); margin-top: 28px; max-width: 780px; }
 @media (max-width: 900px) { .switch-cards { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .switch { padding: 72px 0; } }
+
+/* Controllers */
+.controllers { padding: 112px 0; border-bottom: 1px solid var(--line); }
+.ctl-intro { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: start; }
+.ctl-intro > div > p:not(.eyebrow):not(.note) { color: var(--text-2); font-size: 18px; }
+.ctl-lists { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 26px 28px; }
+.ctl-lists h3 { margin: 0 0 8px; display: flex; align-items: center; gap: 10px; }
+.ctl-lists h3 + .ctl-names { margin-bottom: 22px; }
+.ctl-names { color: var(--text-2); font-size: 15.5px; line-height: 1.7; }
+.ctl-lists .ctl-names:last-child { margin-bottom: 0; }
+.ctl-shot { margin: 48px 0 0; }
+@media (max-width: 900px) { .ctl-intro { grid-template-columns: 1fr; gap: 28px; } }
+@media (max-width: 600px) { .controllers { padding: 72px 0; } }

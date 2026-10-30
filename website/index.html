@@ -177,29 +177,25 @@
   </section>
 
   <!-- Controllers -->
-  <section class="split" id="controllers">
-    <div class="wrap split-inner">
-      <div class="split-text">
-        <p class="eyebrow">Controllers · Mixxx mappings</p>
-        <h2>Plug in your controller.</h2>
-        <p>openDJ uses Mixxx's controller mappings, so most MIDI controllers Mixxx supports work as soon as they're plugged in. No setup, no mapping files to hunt for.</p>
-        <p>The Controller Editor shows what every control does and lets you change it in your own copy of a mapping. Import and export mappings to share them, and find popular controllers with a picture and a guide. Every mapping also has <a href="docs/controllers/">its own page in the docs</a>.</p>
-        <p class="note">HID controllers aren't supported yet. If yours doesn't work right, <a href="https://github.com/sebastian-beca/opendj/issues/new?template=controller.yml">tell us which one</a> and testers' controllers are fixed first.</p>
+  <section class="controllers" id="controllers">
+    <div class="wrap">
+      <div class="ctl-intro">
+        <div>
+          <p class="eyebrow">Controllers</p>
+          <h2>Plug in your controller.</h2>
+          <p>openDJ runs Mixxx's controller mappings, so more than 140 MIDI controllers work as soon as they're plugged in. The Controller Editor shows what every control does, and lets you change it in your own copy of a mapping.</p>
+          <p class="note">Yours not listed, or not working right? <a href="https://github.com/sebastian-beca/opendj/issues/new?template=controller.yml">Tell us which one</a>. <a href="docs/controllers/">All controllers →</a></p>
+        </div>
+        <div class="ctl-lists">
+          <h3>Getting the full treatment <span class="soon">Beta</span></h3>
+          <p class="ctl-names">Pioneer DDJ-FLX4 · DDJ-400 · DDJ-200 · DDJ-SB3 · Numark Mixtrack Platinum FX · Mixtrack Pro FX · Hercules DJControl Inpulse 500 · Allen &amp; Heath Xone:K2 · DJ TechTools Midi Fighter Twister</p>
+          <h3>Coming soon</h3>
+          <p class="ctl-names">Pioneer DDJ-FLX6 · DDJ-REV1 · DDJ-1000 · DDJ-FLX10 · Native Instruments Traktor Kontrol S2 MK3</p>
+        </div>
       </div>
-      <figure class="split-media controller" aria-hidden="true">
-        <svg viewBox="0 0 480 260" role="presentation">
-          <rect x="10" y="20" width="460" height="220" rx="26" class="body"/>
-          <g class="jog"><circle cx="120" cy="120" r="62"/><circle cx="120" cy="120" r="32" class="thin"/><circle cx="120" cy="120" r="7" class="dot"/></g>
-          <g class="jog"><circle cx="360" cy="120" r="62"/><circle cx="360" cy="120" r="32" class="thin"/><circle cx="360" cy="120" r="7" class="dot"/></g>
-          <g class="fader"><line x1="220" y1="50" x2="220" y2="160"/><rect x="211" y="78" width="18" height="10" rx="3"/></g>
-          <g class="fader"><line x1="260" y1="50" x2="260" y2="160"/><rect x="251" y="112" width="18" height="10" rx="3"/></g>
-          <g class="fader"><line x1="205" y1="200" x2="275" y2="200"/><rect x="232" y="191" width="10" height="18" rx="3"/></g>
-          <g class="pads">
-            <rect x="60" y="196" width="26" height="22" rx="5"/><rect x="92" y="196" width="26" height="22" rx="5"/><rect x="124" y="196" width="26" height="22" rx="5"/><rect x="156" y="196" width="26" height="22" rx="5" class="lit"/>
-            <rect x="298" y="196" width="26" height="22" rx="5" class="lit"/><rect x="330" y="196" width="26" height="22" rx="5"/><rect x="362" y="196" width="26" height="22" rx="5"/><rect x="394" y="196" width="26" height="22" rx="5"/>
-          </g>
-        </svg>
-        <div class="tags"><span>Plug in</span><span>Mapping loads</span><span>Play</span></div>
+      <figure class="shot ctl-shot">
+        <img src="assets/controller-editor.webp" width="1240" height="780" loading="lazy" alt="The Controller Editor for the Pioneer DDJ-FLX4: a drawing of the controller on the left with the pressed button lit, and on the right every control with its function, where PLAY/PAUSE has been changed to Sync.">
+        <figcaption>The Controller Editor with a DDJ-FLX4: press a control to find it, then change what it does.</figcaption>
       </figure>
     </div>
   </section>
