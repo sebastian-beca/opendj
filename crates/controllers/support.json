@@ -10,7 +10,7 @@
   {"name": "Hercules DJControl Inpulse 500", "file": "Hercules_DJControl_Inpulse_500.midi.xml", "status": "beta", "note": ""},
   {"name": "Allen & Heath Xone:K2", "file": "Allen and Heath Xone K2.midi.xml", "status": "beta", "note": "Tried on the hardware; the mapping is still settling."},
   {"name": "DJ TechTools Midi Fighter Twister", "file": "DJ TechTools MIDI Fighter Twister.midi.xml", "status": "beta", "note": "Tried on the hardware; the mapping is still settling."},
-  {"name": "Pioneer DDJ-FLX6", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list."},
+  {"name": "Pioneer DDJ-FLX6", "file": "Pioneer-DDJ-FLX6.midi.xml", "status": "beta", "note": "openDJ's own mapping, written from Pioneer's MIDI message list."},
   {"name": "Pioneer DDJ-REV1", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list."},
   {"name": "Pioneer DDJ-1000", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list. The jog screens stay dark: they need Pioneer's own protocol."},
   {"name": "Pioneer DDJ-FLX10", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list."},
