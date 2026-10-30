@@ -58,6 +58,7 @@ mod smooth;
 mod sources;
 mod spotify;
 mod stores;
+mod tidal;
 mod tour;
 mod ui_font;
 mod update;
@@ -819,7 +820,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     browser.borrow_mut().set_library(scanned);
                 }
                 browser.borrow_mut().poll_controllers(&app);
-                browser.borrow_mut().poll_spotify(&app);
+                browser.borrow_mut().poll_streams();
                 browser.borrow_mut().poll_stores(&app);
                 for track in sources.borrow_mut().poll() {
                     browser.borrow_mut().add_imported(track);

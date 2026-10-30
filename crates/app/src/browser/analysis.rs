@@ -81,7 +81,7 @@ impl Browser {
     pub(super) fn analysable(contents: &Contents) -> bool {
         !matches!(
             contents,
-            Contents::Spotify(_)
+            Contents::Stream(_)
                 | Contents::Store(_)
                 | Contents::OtherStores
                 | Contents::Wanted
