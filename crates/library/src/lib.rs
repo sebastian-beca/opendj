@@ -229,6 +229,18 @@ CREATE TABLE IF NOT EXISTS file_moves (
 CREATE INDEX IF NOT EXISTS file_moves_track ON file_moves(track_id);
 ";
 
+/// Which collection track a streaming service's track is, as the DJ set it
+/// by hand: `track_id` NULL means it is none of them. Created on every
+/// open, as [`LINKS_SCHEMA`] is.
+const STREAM_MATCHES_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS stream_matches (
+    service TEXT NOT NULL,
+    key TEXT NOT NULL,
+    track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
+    PRIMARY KEY (service, key)
+);
+";
+
 /// Stores the tags a scan reads beyond the basic ones (`?1` is the row),
 /// for tracks whose tags come from their files. A rating in the tags fills
 /// in one the library doesn't have.
@@ -466,6 +478,7 @@ impl Library {
         db.execute_batch(LINKS_SCHEMA)?;
         db.execute_batch(MOVES_SCHEMA)?;
         db.execute_batch(ALIASES_SCHEMA)?;
+        db.execute_batch(STREAM_MATCHES_SCHEMA)?;
         db.execute_batch(health::HEALTH_SCHEMA)?;
         db.execute_batch(cleanup::CHANGES_SCHEMA)?;
         let lib = Library { db };
@@ -1262,6 +1275,45 @@ impl Library {
             self.db.execute(
                 "INSERT OR IGNORE INTO track_links (track, linked, added) VALUES (?1, ?2, ?3)",
                 params![a, b, now()],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// The matches the DJ set by hand for a streaming service's tracks, by
+    /// the service's key: the collection track, or None for none of them.
+    pub fn stream_matches(&self, service: &str) -> Result<HashMap<String, Option<usize>>, Error> {
+        let mut q = self
+            .db
+            .prepare("SELECT key, track_id FROM stream_matches WHERE service = ?1")?;
+        let rows = q.query_map([service], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<i64>>(1)?.map(track_id),
+            ))
+        })?;
+        rows.collect()
+    }
+
+    /// Sets which collection track a streaming service's track is (None:
+    /// none of them), or with `forget` goes back to matching it by its tags.
+    pub fn set_stream_match(
+        &self,
+        service: &str,
+        key: &str,
+        track: Option<usize>,
+        forget: bool,
+    ) -> Result<(), Error> {
+        if forget {
+            self.db.execute(
+                "DELETE FROM stream_matches WHERE service = ?1 AND key = ?2",
+                params![service, key],
+            )?;
+        } else {
+            self.db.execute(
+                "INSERT INTO stream_matches (service, key, track_id) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(service, key) DO UPDATE SET track_id = excluded.track_id",
+                params![service, key, track.and_then(row_id)],
             )?;
         }
         Ok(())
@@ -2675,6 +2727,25 @@ mod tests {
             lists.len()
         );
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn streaming_matches_set_by_hand() {
+        let mut lib = Library::in_memory().unwrap();
+        lib.sync(&[file_track("/m/a.mp3", "a")]).unwrap();
+        let a = lib.tracks(|_| true).unwrap()[0].id;
+        lib.set_stream_match("spotify", "t1", Some(a), false)
+            .unwrap();
+        lib.set_stream_match("spotify", "t2", None, false).unwrap();
+        lib.set_stream_match("tidal", "t1", None, false).unwrap();
+        let m = lib.stream_matches("spotify").unwrap();
+        assert_eq!((m["t1"], m["t2"], m.len()), (Some(a), None, 2));
+        // Set again, and forgotten.
+        lib.set_stream_match("spotify", "t2", Some(a), false)
+            .unwrap();
+        lib.set_stream_match("spotify", "t1", None, true).unwrap();
+        let m = lib.stream_matches("spotify").unwrap();
+        assert_eq!((m.get("t1"), m["t2"]), (None, Some(a)));
     }
 
     #[test]

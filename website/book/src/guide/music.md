@@ -134,8 +134,8 @@ phrases**) to turn the bars off or on for every deck.
 
 Press **Set up…** next to **Import from VirtualDJ** in **Settings ›
 Collection › Import**. That tab is always there and lists every DJ app openDJ
-can bring a library in from; Mixxx, Serato DJ and Traktor are marked coming
-soon. Three steps follow:
+can bring a library in from; Serato DJ and Traktor are marked coming soon.
+Three steps follow:
 
 1. **Find your library.** openDJ looks for `database.xml` in
    `~/Library/Application Support/VirtualDJ` (or `~/.vdj` on Linux) and
@@ -195,6 +195,20 @@ folders, intelligent playlists as smart lists where openDJ's search can say
 the same thing, and history into the History tab. An XML export holds
 tracks, grids, cues and playlists, but no phrases, history or intelligent
 playlists.
+## Bringing in a Mixxx library
+
+**Import from Mixxx** works the same way. openDJ reads Mixxx's
+`mixxxdb.sqlite` (only reading it, so Mixxx can stay open), which it finds
+where Mixxx keeps it: `~/Library/Containers/org.mixxx.mixxx/Data/Library/Application Support/Mixxx`
+or `~/Library/Application Support/Mixxx` on a Mac, `~/.mixxx` on Linux and
+`AppData\Local\Mixxx` on Windows.
+
+Each track keeps its tags, stars, colour, comment, play count, dates, key,
+hot cues with their labels and colours, saved loops, the main cue (as a
+memory cue), intro and outro (as sections) and its beat grid, whether a
+steady grid or a beat map with tempo changes. Playlists come in a
+**Playlists** folder, crates in a **Crates** folder, and history sessions go
+to the History tab. Auto DJ's queue stays in Mixxx.
 
 ### The same song from two apps
 

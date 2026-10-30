@@ -47,12 +47,12 @@ use crate::cover_scan::CoverScan;
 use crate::files::{self, Found, Place};
 use crate::inbox::Inbox;
 use crate::settings::show_key;
-use crate::spotify::{self, open_in_browser, Event, Request, Spotify, SpotifyTrack};
+use crate::spotify::{self, open_in_browser, Event, Request, Service, StreamTrack};
 use crate::stores::{self, Stores};
 use crate::waves::Waves;
 use crate::{
     fmt_time, AppWindow, ColumnUi, FilesUi, Folder, HealthUi, KeyNotation, LibraryEdit, SideRow,
-    StoreUi, TrackDrag, TrackInfo, TrackRow,
+    StoreUi, StreamMatch, TrackDrag, TrackInfo, TrackRow,
 };
 
 /// Sources in the rail that have a tree of their own.
@@ -60,6 +60,7 @@ const COLLECTION: i32 = 0;
 /// Folders on the computer (see [`crate::files`]).
 const FILES: i32 = 1;
 const SPOTIFY: i32 = 2;
+const TIDAL: i32 = 3;
 /// Bandcamp in the rail, with the other stores in its tree.
 const STORES: i32 = 5;
 /// The albums folder and the mixed sets folder (see [`albums`]); drawn
@@ -85,8 +86,8 @@ enum Contents {
     Label(String),
     /// A folder shows everything in the lists below it.
     Folder,
-    /// A Spotify playlist, by its key.
-    Spotify(String),
+    /// A streaming service's playlist, by its key.
+    Stream(String),
     /// One of the DJ's lists (or a history session) in the library database.
     Playlist(i64),
     /// Search results from every store but Bandcamp.
@@ -111,13 +112,17 @@ enum Contents {
     Dupes(Case),
 }
 
-/// Whether the streaming services that are built (Spotify) can be browsed.
+/// Whether the streaming services that are built (Spotify, TIDAL) can be
+/// browsed.
 /// The others in the rail say "Coming soon".
 pub const STREAMING_ENABLED: bool = true;
 
 /// Whether the stores (Bandcamp, the other stores) and the purchase inbox
 /// can be used. While false, their source says "Coming soon".
 pub const STORES_ENABLED: bool = false;
+
+/// How many collection tracks the match menu offers.
+const MATCH_CANDIDATES: usize = 8;
 
 /// The sources in the rail, in order, as saved when hidden.
 const SOURCE_NAMES: [&str; 11] = [
@@ -387,6 +392,8 @@ pub struct Browser {
     /// Indices into `library` shown in the list, in display order; `None`
     /// for a Spotify track the collection doesn't have.
     rows: Vec<Option<usize>>,
+    /// For each row of a Spotify playlist, where its track is in the playlist.
+    stream_rows: Vec<Option<usize>>,
     /// Ids (not indices) of the tracks on each deck.
     loaded: [Option<usize>; NUM_DECKS],
     /// The decks the layout shows: 4 in 4-Deck, else 2. "Load on a free
@@ -415,8 +422,8 @@ pub struct Browser {
     folders_focused: bool,
     /// Tracks loaded with LoadSelectedTrackAndPlay, to start once they arrive.
     play_when_loaded: [Option<usize>; NUM_DECKS],
-    spotify: Spotify,
-    spotify_state: SpotifyState,
+    /// The streaming services, in the order of [`STREAMS`].
+    streams: Vec<Stream>,
     store: StoreState,
     inbox: Inbox,
     /// Tracks arrived from the inbox while another source was shown, so
@@ -530,13 +537,36 @@ struct FilesState {
     added: usize,
 }
 
+/// The rail sources that are streaming services: their source, name, and
+/// how matches set by hand are saved for them.
+const STREAMS: [(i32, &str, &str); 2] =
+    [(SPOTIFY, "Spotify", "spotify"), (TIDAL, "TIDAL", "tidal")];
+
+/// A streaming service: its worker, and what it has sent.
+struct Stream {
+    source: i32,
+    name: &'static str,
+    id: &'static str,
+    service: Service,
+    state: StreamState,
+    user: String,
+    /// Progress or an error to show while signing in, or what copying a
+    /// playlist did.
+    status: String,
+}
+
 #[derive(Default)]
-struct SpotifyState {
+struct StreamState {
     connected: bool,
     playlists: Vec<spotify::Playlist>,
-    tracks: HashMap<String, Vec<SpotifyTrack>>,
+    tracks: HashMap<String, Vec<StreamTrack>>,
     loading: HashSet<String>,
     errors: HashMap<String, String>,
+    /// Matches the DJ set by hand, by [`StreamTrack::match_key`]: the
+    /// collection track's id, or None for none of them.
+    manual: HashMap<String, Option<usize>>,
+    /// What the match menu offers, by index into the library.
+    candidates: Vec<usize>,
 }
 
 /// What the list shows of a track, from the collection or Spotify.
@@ -550,6 +580,8 @@ struct RowData<'a> {
     duration: f64,
     rating: u8,
     local: Option<usize>,
+    /// A Spotify track: where it is in its playlist.
+    stream: Option<usize>,
 }
 
 /// Mixxx's library controls, which controller mappings use to browse and load.
@@ -564,7 +596,12 @@ pub(crate) struct LibraryControls {
     add_to_automix: [ControlHandle; 2],
     /// Opens the Linked tab (the DDJ-FLX4's SHIFT + left LOAD).
     show_linked: ControlHandle,
-    folder_steps: [(ControlHandle, f64); 2],
+    folder_steps: [(ControlHandle, f64); 3],
+    /// Opens or closes the folder picked in the folders pane.
+    toggle_folder: ControlHandle,
+    /// Which pane the browse knob moves in, as Mixxx's `focused_widget`:
+    /// 2 the folders, 3 the track list.
+    focused_widget: ControlHandle,
 }
 
 impl LibraryControls {
@@ -597,7 +634,10 @@ impl LibraryControls {
             folder_steps: [
                 (playlist("SelectNextPlaylist"), 1.0),
                 (playlist("SelectPrevPlaylist"), -1.0),
+                (playlist("SelectPlaylist"), 1.0),
             ],
+            toggle_folder: playlist("ToggleSelectedSidebarItem"),
+            focused_widget: lib("focused_widget"),
         }
     }
 }
@@ -829,6 +869,7 @@ impl Browser {
             sort_column: 1,
             ascending: true,
             rows: Vec::new(),
+            stream_rows: Vec::new(),
             loaded: [None; NUM_DECKS],
             decks_shown: 2,
             side: [Vec::new(), Vec::new()],
@@ -850,8 +891,22 @@ impl Browser {
             lib: LibraryControls::create(registry),
             folders_focused: false,
             play_when_loaded: [None; NUM_DECKS],
-            spotify: Spotify::start(),
-            spotify_state: SpotifyState::default(),
+            streams: STREAMS
+                .iter()
+                .map(|&(source, name, id)| Stream {
+                    source,
+                    name,
+                    id,
+                    service: if source == TIDAL {
+                        crate::tidal::start()
+                    } else {
+                        Service::spotify()
+                    },
+                    state: StreamState::default(),
+                    user: String::new(),
+                    status: String::new(),
+                })
+                .collect(),
             store: StoreState {
                 stores,
                 generation: 0,
@@ -936,7 +991,6 @@ impl Browser {
         }));
         b.borrow_mut().set_library(library);
         app.global::<KeyNotation>().set_camelot(b.borrow().camelot);
-        app.set_spotify_client_id(b.borrow().spotify.client_id.clone().into());
         {
             let ui = app.global::<StoreUi>();
             ui.set_streaming(STREAMING_ENABLED);
@@ -1182,16 +1236,50 @@ impl Browser {
         app.on_spotify_connect(move |id| {
             let id = id.to_string();
             w(Box::new(move |b| {
-                if let Some(app) = b.app.upgrade() {
-                    app.set_spotify_status("Opening Spotify in your browser…".into());
-                }
-                b.spotify.send(Request::Connect(id.clone()));
+                let Some(st) = b.shown_stream_mut() else {
+                    return;
+                };
+                st.status = format!("Opening {} in your browser…", st.name);
+                st.service.client_id = id.clone();
+                st.service.send(Request::Connect(id.clone()));
+                b.show_stream();
             }))
         });
         let w = with.clone();
-        app.on_spotify_disconnect(move || w(Box::new(|b| b.spotify.send(Request::Disconnect))));
+        app.on_spotify_disconnect(move || {
+            w(Box::new(|b| {
+                if let Some(st) = b.shown_stream_mut() {
+                    st.service.send(Request::Disconnect);
+                }
+            }))
+        });
         let w = with.clone();
-        app.on_spotify_copy(move || w(Box::new(|b| b.copy_spotify_playlist())));
+        app.on_spotify_copy(move || w(Box::new(|b| b.copy_stream_playlist())));
+        {
+            let ui = app.global::<StreamMatch>();
+            let w = with.clone();
+            ui.on_open(move |row| w(Box::new(move |b| b.open_match(row as usize))));
+            let w = with.clone();
+            ui.on_search(move |text| {
+                let text = text.to_string();
+                w(Box::new(move |b| b.search_match(&text)))
+            });
+            let w = with.clone();
+            ui.on_pick(move |row, c| {
+                w(Box::new(move |b| {
+                    let pick = b
+                        .shown_stream()
+                        .and_then(|st| st.state.candidates.get(c as usize).copied());
+                    if pick.is_some() {
+                        b.set_match(row as usize, pick, false);
+                    }
+                }))
+            });
+            let w = with.clone();
+            ui.on_none(move |row| w(Box::new(move |b| b.set_match(row as usize, None, false))));
+            let w = with.clone();
+            ui.on_auto(move |row| w(Box::new(move |b| b.set_match(row as usize, None, true))));
+        }
         Self::install_editing(app, &b);
         Self::install_files(app, &b);
         Self::install_info(app, &b);
@@ -1435,7 +1523,7 @@ impl Browser {
     fn select_source(&mut self, source: i32) {
         let usable = match source {
             COLLECTION | FILES | ALBUMS | MIXED_SETS => true,
-            SPOTIFY => STREAMING_ENABLED,
+            SPOTIFY | TIDAL => STREAMING_ENABLED,
             STORES => STORES_ENABLED,
             _ => false,
         };
@@ -1460,7 +1548,7 @@ impl Browser {
         match source {
             FILES => self.rebuild_files_tree(),
             ALBUMS | MIXED_SETS => self.rebuild_folder_tree(source),
-            SPOTIFY => self.rebuild_spotify_tree(),
+            SPOTIFY | TIDAL => self.rebuild_stream_tree(source),
             STORES => self.rebuild_stores_tree(),
             _ => {}
         }
@@ -1468,6 +1556,7 @@ impl Browser {
             app.set_current_track(-1);
             app.global::<StoreUi>().set_source(source);
         }
+        self.show_stream();
         if source == COLLECTION && self.collection_stale {
             self.collection_stale = false;
             self.reload_tree(None);
@@ -2018,9 +2107,14 @@ impl Browser {
         pick.len()
     }
 
-    fn rebuild_spotify_tree(&mut self) {
-        let nodes: Vec<Node> = self
-            .spotify_state
+    /// Lists a streaming service's playlists as tree nodes, keeping the
+    /// selection.
+    fn rebuild_stream_tree(&mut self, source: i32) {
+        let Some(st) = self.streams.iter().find(|s| s.source == source) else {
+            return;
+        };
+        let nodes: Vec<Node> = st
+            .state
             .playlists
             .iter()
             .map(|p| {
@@ -2028,38 +2122,60 @@ impl Browser {
                     p.name.clone(),
                     0,
                     if p.key == spotify::LIKED { 4 } else { 2 },
-                    Contents::Spotify(p.key.clone()),
+                    Contents::Stream(p.key.clone()),
                 )
             })
             .collect();
-        let parked = self.parked.entry(SPOTIFY).or_insert(Parked {
+        let parked = self.parked.entry(source).or_insert(Parked {
             nodes: Vec::new(),
             current: 0,
             sort: (-1, true),
         });
-        let (nodes_ref, current) = if self.tree == SPOTIFY {
+        let (nodes_ref, current) = if self.tree == source {
             (&mut self.nodes, &mut self.current_node)
         } else {
             (&mut parked.nodes, &mut parked.current)
         };
         let selected = match nodes_ref.get(*current).map(|n| &n.contents) {
-            Some(Contents::Spotify(k)) => Some(k.clone()),
+            Some(Contents::Stream(k)) => Some(k.clone()),
             _ => None,
         };
         *current = selected
             .and_then(|k| {
                 nodes
                     .iter()
-                    .position(|n| matches!(&n.contents, Contents::Spotify(x) if *x == k))
+                    .position(|n| matches!(&n.contents, Contents::Stream(x) if *x == k))
             })
             .unwrap_or(0);
         *nodes_ref = nodes;
     }
 
-    /// The Spotify playlist selected in the tree, if Spotify is shown.
+    /// The streaming service shown in the tree, if one is.
+    fn shown_stream(&self) -> Option<&Stream> {
+        self.streams.iter().find(|s| s.source == self.tree)
+    }
+
+    fn shown_stream_mut(&mut self) -> Option<&mut Stream> {
+        let tree = self.tree;
+        self.streams.iter_mut().find(|s| s.source == tree)
+    }
+
+    /// Shows the shown service's sign-in, name and status in the sidebar.
+    fn show_stream(&self) {
+        let (Some(app), Some(st)) = (self.app.upgrade(), self.shown_stream()) else {
+            return;
+        };
+        app.set_spotify_connected(st.state.connected);
+        app.set_spotify_user(st.user.as_str().into());
+        app.set_spotify_status(st.status.as_str().into());
+        app.set_spotify_client_id(st.service.client_id.as_str().into());
+    }
+
+    /// The streaming playlist selected in the tree, if a service is shown.
     fn current_playlist(&self) -> Option<&str> {
+        self.shown_stream()?;
         match &self.nodes.get(self.current_node)?.contents {
-            Contents::Spotify(k) => Some(k),
+            Contents::Stream(k) => Some(k),
             _ => None,
         }
     }
@@ -2069,16 +2185,18 @@ impl Browser {
         let Some(key) = self.current_playlist().map(str::to_string) else {
             return;
         };
+        let Some(stream) = self.shown_stream_mut() else {
+            return;
+        };
         // What copying the last playlist did is for that playlist only.
-        if let Some(app) = self.app.upgrade() {
-            app.set_spotify_status("".into());
-        }
-        let st = &mut self.spotify_state;
+        stream.status.clear();
+        let st = &mut stream.state;
         if !st.tracks.contains_key(&key) && !st.loading.contains(&key) {
             st.loading.insert(key.clone());
             st.errors.remove(&key);
-            self.spotify.send(Request::Tracks(key));
+            stream.service.send(Request::Tracks(key));
         }
+        self.show_stream();
     }
 
     /// Follows the key notation picked by clicking a deck's key, and keeps it
@@ -2195,51 +2313,63 @@ impl Browser {
         }
     }
 
-    pub fn poll_spotify(&mut self, app: &AppWindow) {
-        for event in self.spotify.poll() {
-            match event {
-                Event::Status(s) => app.set_spotify_status(s.into()),
-                Event::Connected { user, playlists } => {
-                    let st = &mut self.spotify_state;
-                    st.connected = true;
-                    st.playlists = playlists;
-                    st.tracks.clear();
-                    st.loading.clear();
-                    st.errors.clear();
-                    app.set_spotify_connected(true);
-                    app.set_spotify_user(user.into());
-                    app.set_spotify_status("".into());
-                    self.rebuild_spotify_tree();
-                    if self.tree == SPOTIFY {
-                        self.refresh_tree();
-                        self.refresh_rows();
-                        self.fetch_current_playlist();
+    /// Takes in what the streaming services' workers have done. Called
+    /// every frame.
+    pub fn poll_streams(&mut self) {
+        for i in 0..self.streams.len() {
+            let source = self.streams[i].source;
+            for event in self.streams[i].service.poll() {
+                let shown = self.tree == source;
+                let st = &mut self.streams[i];
+                match event {
+                    Event::Status(s) => st.status = s,
+                    Event::Connected { user, playlists } => {
+                        st.state = StreamState {
+                            connected: true,
+                            playlists,
+                            manual: self
+                                .db
+                                .as_ref()
+                                .and_then(|db| db.stream_matches(st.id).ok())
+                                .unwrap_or_default(),
+                            ..Default::default()
+                        };
+                        st.user = user;
+                        st.status.clear();
+                        self.rebuild_stream_tree(source);
+                        if shown {
+                            self.refresh_tree();
+                            self.refresh_rows();
+                            self.fetch_current_playlist();
+                        }
+                    }
+                    Event::Tracks { key, tracks } => {
+                        st.state.loading.remove(&key);
+                        st.state.tracks.insert(key.clone(), tracks);
+                        if shown && self.current_playlist() == Some(key.as_str()) {
+                            self.refresh_rows();
+                        }
+                    }
+                    Event::TracksFailed { key, error } => {
+                        st.state.loading.remove(&key);
+                        st.state.errors.insert(key.clone(), error);
+                        if shown && self.current_playlist() == Some(key.as_str()) {
+                            self.refresh_rows();
+                        }
+                    }
+                    Event::Disconnected => {
+                        st.state = StreamState::default();
+                        st.user.clear();
+                        st.status.clear();
+                        self.rebuild_stream_tree(source);
+                        if shown {
+                            self.refresh_tree();
+                            self.refresh_rows();
+                        }
                     }
                 }
-                Event::Tracks { key, tracks } => {
-                    self.spotify_state.loading.remove(&key);
-                    self.spotify_state.tracks.insert(key.clone(), tracks);
-                    if self.current_playlist() == Some(key.as_str()) {
-                        self.refresh_rows();
-                    }
-                }
-                Event::TracksFailed { key, error } => {
-                    self.spotify_state.loading.remove(&key);
-                    self.spotify_state.errors.insert(key.clone(), error);
-                    if self.current_playlist() == Some(key.as_str()) {
-                        self.refresh_rows();
-                    }
-                }
-                Event::Disconnected => {
-                    self.spotify_state = SpotifyState::default();
-                    app.set_spotify_connected(false);
-                    app.set_spotify_user("".into());
-                    app.set_spotify_status("".into());
-                    self.rebuild_spotify_tree();
-                    if self.tree == SPOTIFY {
-                        self.refresh_tree();
-                        self.refresh_rows();
-                    }
+                if shown {
+                    self.show_stream();
                 }
             }
         }
@@ -2925,7 +3055,17 @@ impl Browser {
         let selected = usize::try_from(app.get_current_track())
             .ok()
             .and_then(|r| self.rows.get(r).copied().flatten());
+        let widget = if self.folders_focused { 2.0 } else { 3.0 };
+        if self.lib.focused_widget.get() != widget {
+            self.lib.focused_widget.set(widget);
+        }
         let go = take(&self.lib.go_to_item) > 0.0;
+        if take(&self.lib.toggle_folder) > 0.0 {
+            if let Some(n) = self.nodes.get_mut(self.current_node) {
+                n.expanded = !n.expanded;
+                self.refresh_tree();
+            }
+        }
         if go && self.folders_focused {
             // Like pressing the browse knob on a folder: open or close it.
             if let Some(n) = self.nodes.get_mut(self.current_node) {
@@ -3240,7 +3380,9 @@ impl Browser {
                 None if self.tree == FILES => "Files".into(),
                 None if self.tree == ALBUMS => "Albums".into(),
                 None if self.tree == MIXED_SETS => "Mixed Sets".into(),
-                None if self.tree == SPOTIFY => "Spotify".into(),
+                None if self.shown_stream().is_some() => {
+                    self.shown_stream().map_or("", |st| st.name).into()
+                }
                 None if self.tree == STORES => "Bandcamp".into(),
                 None => String::new(),
             };
@@ -3365,10 +3507,9 @@ impl Browser {
             return Vec::new();
         };
         match &node.contents {
-            Contents::Spotify(_)
-            | Contents::Store(_)
-            | Contents::OtherStores
-            | Contents::Wanted => Vec::new(),
+            Contents::Stream(_) | Contents::Store(_) | Contents::OtherStores | Contents::Wanted => {
+                Vec::new()
+            }
             Contents::Playlist(id) => self
                 .db
                 .as_ref()
@@ -3437,6 +3578,7 @@ impl Browser {
                 duration: t.duration,
                 rating: t.rating,
                 local: Some(id),
+                stream: None,
             }
         };
         let Some(key) = self.current_playlist() else {
@@ -3446,13 +3588,14 @@ impl Browser {
                 .map(local)
                 .collect();
         };
-        let Some(tracks) = self.spotify_state.tracks.get(key) else {
+        let Some(tracks) = self.shown_stream().and_then(|st| st.state.tracks.get(key)) else {
             return Vec::new();
         };
         tracks
             .iter()
             .zip(self.spotify_matches(tracks))
-            .map(|(sp, found)| {
+            .enumerate()
+            .map(|(n, (sp, found))| {
                 match found {
                     // Show what Spotify calls it, with what the collection knows.
                     Some(id) => RowData {
@@ -3460,6 +3603,7 @@ impl Browser {
                         artist: sp.artist(),
                         album: &sp.album,
                         duration: sp.duration,
+                        stream: Some(n),
                         ..local(id)
                     },
                     None => RowData {
@@ -3472,6 +3616,7 @@ impl Browser {
                         duration: sp.duration,
                         rating: 0,
                         local: None,
+                        stream: Some(n),
                     },
                 }
             })
@@ -3480,7 +3625,7 @@ impl Browser {
 
     /// The collection track (by index into `library`) that each Spotify
     /// track is, if any: the same ISRC first, else the same title and artist.
-    fn spotify_matches(&self, tracks: &[SpotifyTrack]) -> Vec<Option<usize>> {
+    fn spotify_matches(&self, tracks: &[StreamTrack]) -> Vec<Option<usize>> {
         // Files only shown in Files don't count as in the collection.
         let normalized: Vec<(String, String)> = self
             .library
@@ -3497,9 +3642,15 @@ impl Browser {
                 by_isrc.entry(isrc).or_insert(i);
             }
         }
+        let none = HashMap::new();
+        let manual = self.shown_stream().map_or(&none, |st| &st.state.manual);
         tracks
             .iter()
             .map(|sp| {
+                // A match the DJ set by hand wins.
+                if let Some(set) = manual.get(&sp.match_key()) {
+                    return (*set).and_then(|id| self.index_of.get(&id).copied());
+                }
                 by_isrc
                     .get(&spotify::normalize_isrc(&sp.isrc))
                     .copied()
@@ -3512,28 +3663,132 @@ impl Browser {
             .collect()
     }
 
-    /// Copies the Spotify playlist being shown into a new list of the DJ's
-    /// own, once: the tracks the collection has go in the list, the rest on
-    /// the wanted list.
-    fn copy_spotify_playlist(&mut self) {
-        let status = |b: &Self, s: &str| {
-            if let Some(app) = b.app.upgrade() {
-                app.set_spotify_status(s.into());
+    /// The Spotify track shown at `row`, if a playlist is shown.
+    fn stream_track(&self, row: usize) -> Option<&StreamTrack> {
+        let n = (*self.stream_rows.get(row)?)?;
+        self.shown_stream()?
+            .state
+            .tracks
+            .get(self.current_playlist()?)?
+            .get(n)
+    }
+
+    /// Fills the match menu for the track at `row`: its name as the query,
+    /// and the collection tracks that fit it.
+    fn open_match(&mut self, row: usize) {
+        let Some(sp) = self.stream_track(row) else {
+            return;
+        };
+        let (query, manual) = (
+            format!("{} {}", sp.artist(), sp.title),
+            self.shown_stream()
+                .is_some_and(|st| st.state.manual.contains_key(&sp.match_key())),
+        );
+        if let Some(app) = self.app.upgrade() {
+            let ui = app.global::<StreamMatch>();
+            ui.set_query(query.clone().into());
+            ui.set_manual(manual);
+        }
+        self.search_match(&query);
+    }
+
+    /// The collection tracks whose artist and title hold every word typed,
+    /// best known first.
+    fn search_match(&mut self, text: &str) {
+        let words: Vec<String> = text
+            .split_whitespace()
+            .map(spotify::normalize)
+            .filter(|w| !w.is_empty())
+            .collect();
+        let mut found: Vec<usize> = self
+            .library
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| !is_browsed(t))
+            .filter(|(_, t)| {
+                let hay = spotify::normalize(&format!("{} {}", t.artist, t.title));
+                !words.is_empty() && words.iter().all(|w| hay.contains(w.as_str()))
+            })
+            .map(|(i, _)| i)
+            .collect();
+        found.sort_by_key(|&i| std::cmp::Reverse(self.library[i].info.play_count));
+        found.truncate(MATCH_CANDIDATES);
+        let lines: Vec<SharedString> = found
+            .iter()
+            .map(|&i| {
+                let t = &self.library[i];
+                format!("{} – {}", t.artist, t.title).into()
+            })
+            .collect();
+        if let Some(st) = self.shown_stream_mut() {
+            st.state.candidates = found;
+        }
+        if let Some(app) = self.app.upgrade() {
+            app.global::<StreamMatch>()
+                .set_candidates(ModelRc::new(VecModel::from(lines)));
+        }
+    }
+
+    /// Saves which collection track (None: none of them) the track at `row`
+    /// is, or with `forget` goes back to matching it automatically.
+    fn set_match(&mut self, row: usize, track: Option<usize>, forget: bool) {
+        let Some(key) = self.stream_track(row).map(StreamTrack::match_key) else {
+            return;
+        };
+        let id = track.map(|i| self.library[i].id);
+        let Some(service) = self.shown_stream().map(|st| st.id) else {
+            return;
+        };
+        if let Some(db) = &self.db {
+            if let Err(e) = db.set_stream_match(service, &key, id, forget) {
+                eprintln!("can't save the match: {e}");
+                return;
             }
+        }
+        let Some(st) = self.shown_stream_mut() else {
+            return;
+        };
+        if forget {
+            st.state.manual.remove(&key);
+        } else {
+            st.state.manual.insert(key, id);
+        }
+        self.refresh_rows();
+    }
+
+    /// Copies the streaming playlist being shown into a new list of the
+    /// DJ's own, once: the tracks the collection has go in the list, the
+    /// rest on the wanted list.
+    fn copy_stream_playlist(&mut self) {
+        let status = |b: &mut Self, s: &str| {
+            if let Some(st) = b.shown_stream_mut() {
+                st.status = s.to_string();
+            }
+            b.show_stream();
         };
         let Some(key) = self.current_playlist().map(str::to_string) else {
             return status(self, "Pick a playlist to copy.");
         };
-        let Some(tracks) = self.spotify_state.tracks.get(&key).cloned() else {
+        let Some((service, tracks, playlist)) = self.shown_stream().map(|st| {
+            (
+                st.name,
+                st.state.tracks.get(&key).cloned(),
+                st.state
+                    .playlists
+                    .iter()
+                    .find(|p| p.key == key)
+                    .map(|p| p.name.clone()),
+            )
+        }) else {
+            return;
+        };
+        let Some(tracks) = tracks else {
             return status(self, "Wait for the playlist to load, then copy it.");
         };
         if !self.saved() {
             return status(self, "There's no collection to copy into.");
         }
-        let name = match self.spotify_state.playlists.iter().find(|p| p.key == key) {
-            Some(p) => p.name.clone(),
-            None => "Spotify playlist".into(),
-        };
+        let name = playlist.unwrap_or_else(|| format!("{service} playlist"));
         let found = self.spotify_matches(&tracks);
         let mut have: Vec<usize> = Vec::new();
         let mut missing = 0;
@@ -3549,7 +3804,7 @@ impl Browser {
                 Some(_) => {}
                 None => {
                     missing += 1;
-                    let _ = db.add_wanted("Spotify", &sp.artist(), &sp.title, &sp.page_url());
+                    let _ = db.add_wanted(service, &sp.artist(), &sp.title, &sp.page);
                 }
             }
         }
@@ -3599,7 +3854,9 @@ impl Browser {
         let Some(key) = self.current_playlist() else {
             return String::new();
         };
-        let st = &self.spotify_state;
+        let Some(st) = self.shown_stream().map(|st| &st.state) else {
+            return String::new();
+        };
         if let Some(e) = st.errors.get(key) {
             e.clone()
         } else if st.loading.contains(key) {
@@ -3762,7 +4019,9 @@ impl Browser {
             );
         }
         let notice = self.list_notice();
+        let streams: Vec<Option<usize>> = data.iter().map(|r| r.stream).collect();
         self.rows = data.iter().map(|r| r.local).collect();
+        self.stream_rows = streams;
         if let Some(app) = self.app.upgrade() {
             let current = app.get_current_track();
             app.set_folder_duration(summary.into());
