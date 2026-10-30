@@ -511,6 +511,12 @@ pub struct Browser {
     mixed_sets: Option<PathBuf>,
     /// Play Album was picked, for Automix to play the list gaplessly.
     album_request: bool,
+    /// The Albums source's covers, bigger than the list's thumbnails.
+    album_art: Art,
+    /// The album folders the covers view shows, in its order, and the
+    /// node to go back to from an album opened there.
+    album_tiles: Vec<PathBuf>,
+    album_back: Option<usize>,
     /// Tempo and key for tracks in triage, found in the background.
     analysis: AnalysisQueue,
     analysis_shown: analysis::Shown,
@@ -1001,6 +1007,9 @@ impl Browser {
             folders: crate::settings::stage_folders(),
             mixed_sets: crate::settings::mixed_sets_folder(),
             album_request: false,
+            album_art: Art::sized(albums::COVER_SIZE),
+            album_tiles: Vec::new(),
+            album_back: None,
             analysis: AnalysisQueue::start(),
             analysis_shown: Default::default(),
             usb: Default::default(),
@@ -1496,6 +1505,7 @@ impl Browser {
         Self::install_cleanup(&app.global::<crate::CleanupUi>(), &with);
         Self::install_analysis(&edit, &with);
         Self::install_albums(&edit, &with);
+        Self::install_album_covers(&app.global::<crate::AlbumsUi>(), &with);
         Self::install_usb_export(app, &edit, &with);
     }
 
@@ -1592,8 +1602,10 @@ impl Browser {
             self.collection_stale = false;
             self.reload_tree(None);
         }
+        self.album_back = None;
         self.refresh_tree();
         self.refresh_rows();
+        self.refresh_album_ui();
         self.fetch_current_playlist();
         if is_stores(source) && self.store.query != self.search {
             self.search_stores(StoreQuery::text(&self.search.clone()));
@@ -2281,6 +2293,9 @@ impl Browser {
     /// Takes in what the Spotify worker has done. Called every frame.
     /// Puts newly found album art into the rows showing it.
     pub fn poll_art(&mut self) {
+        if self.album_art.poll() {
+            self.refresh_album_ui();
+        }
         if !self.art.poll() {
             return;
         }
@@ -3323,24 +3338,41 @@ impl Browser {
             let analysed = !t.info.fixed_grid && !t.grid.is_empty() && t.grid != entry.grid;
             let edited = t.info.fixed_grid && t.grid != entry.grid && !t.grid.is_empty();
             let key_changed = entry.key != t.key || entry.info.key_detected != t.info.key_detected;
-            if !(analysed || edited || entry.bpm != t.bpm || key_changed) {
+            let lock_changed = entry.info.grid_locked != t.info.grid_locked;
+            if !(analysed || edited || lock_changed || entry.bpm != t.bpm || key_changed) {
                 continue;
             }
+            // An analysed grid replacing one the DJ edited or an import
+            // brought: the DJ went back to the analysed grid.
+            let reset = analysed && !matches!(entry.info.grid_from.as_str(), "" | "analysis");
             let mut e = (**entry).clone();
             e.bpm = t.bpm;
             e.key = t.key.clone();
             e.info.key_detected = t.info.key_detected;
+            e.info.grid_locked = t.info.grid_locked;
             if analysed || edited {
                 e.set_grid(t.grid.clone());
                 e.info.fixed_grid = true;
                 e.info.grid_analysed = analysed;
+                e.info.grid_from = if analysed { "analysis" } else { "user" }.into();
+                e.info.grid_unsure = t.info.grid_unsure;
             }
             if let (true, Some(db)) = (saved, &self.db) {
-                let result = if edited {
-                    db.save_grid(t.id, &t.grid, t.bpm)
+                let mut result = if lock_changed {
+                    db.set_grid_locked(t.id, t.info.grid_locked)
                 } else {
-                    db.save_analysis(t.id, t)
+                    Ok(())
                 };
+                if reset {
+                    result = result.and_then(|()| db.clear_grid(t.id));
+                }
+                result = result.and_then(|()| {
+                    if edited {
+                        db.save_grid(t.id, &t.grid, t.bpm)
+                    } else {
+                        db.save_analysis(t.id, t)
+                    }
+                });
                 if let Err(err) = result {
                     eprintln!("can't save the analysis: {err}");
                 }
@@ -3793,6 +3825,43 @@ impl Browser {
             .collect()
     }
 
+    /// The page of Spotify playlist `index` in the tree (Liked Songs: the
+    /// DJ's liked songs), when Spotify is shown.
+    pub fn spotify_playlist_link(&self, index: usize) -> Option<String> {
+        if self.tree != SPOTIFY {
+            return None;
+        }
+        match &self.nodes.get(index)?.contents {
+            Contents::Stream(k) if k == spotify::LIKED => {
+                Some("https://open.spotify.com/collection/tracks".into())
+            }
+            Contents::Stream(k) => Some(format!("https://open.spotify.com/playlist/{k}")),
+            _ => None,
+        }
+    }
+
+    /// The Spotify tracks in rows `first` to `last`, as "Artist - Title".
+    pub fn spotify_tracks(&self, first: usize, last: usize) -> Vec<String> {
+        if self.tree != SPOTIFY {
+            return Vec::new();
+        }
+        (first.min(last)..=first.max(last))
+            .filter_map(|row| self.stream_track(row))
+            .map(|t| match t.artists.first() {
+                Some(a) => format!("{a} - {}", t.title),
+                None => t.title.clone(),
+            })
+            .collect()
+    }
+
+    /// A line under the shown service's playlists, e.g. where downloads went.
+    pub fn set_stream_status(&mut self, text: String) {
+        if let Some(st) = self.shown_stream_mut() {
+            st.status = text;
+        }
+        self.show_stream();
+    }
+
     /// The Spotify track shown at `row`, if a playlist is shown, or the
     /// streamed track standing in an imported list there.
     fn stream_track(&self, row: usize) -> Option<&StreamTrack> {
@@ -4106,8 +4175,10 @@ impl Browser {
                     album: r.album.into(),
                     genre: r.genre.into(),
                     length: short_time(r.duration),
+                    // ~ marks a grid in tempo sections, as VirtualDJ does.
                     bpm: if r.bpm > 0.0 {
-                        format!("{:.1}", r.bpm).into()
+                        let sections = r.local.is_some_and(|id| library[id].grid.is_dynamic());
+                        format!("{}{:.1}", if sections { "~" } else { "" }, r.bpm).into()
                     } else {
                         SharedString::new()
                     },
@@ -4194,6 +4265,7 @@ impl Browser {
                 app.set_current_track(-1);
             }
         }
+        self.refresh_album_ui();
     }
 
     /// Lists the rows again, re-sorted, with the selected track still
