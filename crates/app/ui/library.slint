@@ -140,6 +140,16 @@ export global TrackDrag {
     callback drop(deck: int, data: data-transfer);
     // Dropped on the side panel's list, to go in before `index`.
     callback drop-side(index: int, data: data-transfer);
+    // Files dragged in from Finder or a file manager. The system tells the
+    // window where the cursor is (in window coordinates) rather than handing
+    // the files to a drop area, so each deck checks `files-x` and `files-y`
+    // itself: it lights up while `files-over`, and the one under the cursor
+    // asks for the files with `drop-files` when `files-dropped` counts up.
+    in property <bool> files-over;
+    in property <length> files-x: -1px;
+    in property <length> files-y: -1px;
+    in property <int> files-dropped;
+    callback drop-files(deck: int);
 }
 
 // Editing the library: lists and folders, and ratings.

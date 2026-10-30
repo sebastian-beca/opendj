@@ -43,6 +43,7 @@ mod controller_editor;
 mod cover_scan;
 mod coverart;
 mod diagnostics;
+mod file_drop;
 mod files;
 mod inbox;
 mod list_picker;
@@ -337,20 +338,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let samples = saved.is_empty();
     let library = if samples { sample_library() } else { saved };
     let app = AppWindow::new()?;
-    #[cfg(target_os = "macos")]
     {
         use slint::winit_030::{EventResult, WinitWindowAccessor};
+        #[cfg(target_os = "macos")]
         app.set_traffic_light_inset(76.0);
-        // The traffic lights, centred in the top bar after anything that
-        // might have moved them back.
-        app.window().on_winit_window_event(|window, event| {
-            use slint::winit_030::winit::event::WindowEvent;
-            if !matches!(
-                event,
-                WindowEvent::CursorMoved { .. } | WindowEvent::RedrawRequested
-            ) {
-                window
-                    .with_winit_window(|w| mac_titlebar::center_traffic_lights(w, TOP_BAR_HEIGHT));
+        // Audio files dragged in from Finder or a file manager load on the
+        // deck they're dropped on.
+        let file_drop = file_drop::FileDrop::new(&app);
+        app.window().on_winit_window_event(move |window, event| {
+            file_drop.window_event(window, event);
+            // The traffic lights, centred in the top bar after anything that
+            // might have moved them back.
+            #[cfg(target_os = "macos")]
+            {
+                use slint::winit_030::winit::event::WindowEvent;
+                if !matches!(
+                    event,
+                    WindowEvent::CursorMoved { .. } | WindowEvent::RedrawRequested
+                ) {
+                    window.with_winit_window(|w| {
+                        mac_titlebar::center_traffic_lights(w, TOP_BAR_HEIGHT)
+                    });
+                }
             }
             EventResult::Propagate
         });

@@ -30,6 +30,17 @@ export component PlayerDeck inherits Rectangle {
         group: "[Channel" + (deck + 1) + "]";
     }
 
+    // Files dragged in from Finder or a file manager (see TrackDrag.files-over).
+    property <bool> under-files: TrackDrag.files-x >= self.absolute-position.x && TrackDrag.files-x < self.absolute-position.x + self.width
+        && TrackDrag.files-y >= self.absolute-position.y && TrackDrag.files-y < self.absolute-position.y + self.height;
+    property <bool> files-here: TrackDrag.files-over && under-files;
+    property <int> files-dropped: TrackDrag.files-dropped;
+    changed files-dropped => {
+        if under-files {
+            TrackDrag.drop-files(deck);
+        }
+    }
+
     // Tracks dragged from the browser load here, as on the Pro deck.
     drop := DropArea {
         can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
@@ -39,11 +50,11 @@ export component PlayerDeck inherits Rectangle {
             DragAction.copy
         }
     }
-    if TrackDrag.active || drop.has-drag: Rectangle {
+    if TrackDrag.active || TrackDrag.files-over || drop.has-drag: Rectangle {
         border-radius: Theme.radius + 2px;
-        border-width: drop.has-drag ? 3px : 2px;
-        border-color: drop.has-drag ? tint : tint.transparentize(0.55);
-        background: drop.has-drag ? tint.transparentize(0.9) : transparent;
+        border-width: drop.has-drag || files-here ? 3px : 2px;
+        border-color: drop.has-drag || files-here ? tint : tint.transparentize(0.55);
+        background: drop.has-drag || files-here ? tint.transparentize(0.9) : transparent;
     }
 }
 
