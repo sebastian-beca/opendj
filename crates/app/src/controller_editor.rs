@@ -237,8 +237,6 @@ impl Editor {
         let e = editor.clone();
         g.on_set_invert(move |on| e.borrow_mut().change(|b| b.invert = on));
         let e = editor.clone();
-        g.on_set_pickup(move |on| e.borrow_mut().change(|b| b.pickup = on));
-        let e = editor.clone();
         g.on_set_nothing(move || e.borrow_mut().change(|b| b.control = None));
         let e = editor.clone();
         g.on_reset_row(move || e.borrow_mut().apply(edit::reset));
@@ -1181,7 +1179,6 @@ impl Editor {
                 .unwrap_or(0) as i32,
         );
         g.set_edit_invert(b.invert);
-        g.set_edit_pickup(b.pickup);
         let first = row.sources.first();
         g.set_edit_is_button(first.is_none_or(|s| matches!(s.status & 0xF0, 0x80 | 0x90)));
         g.set_edit_edited(row.edited);

@@ -510,6 +510,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // MIDI controllers, driven by Mixxx's mappings. Started after the browser
     // so the library controls the mappings use already exist.
+    for key in settings::controllers_scaled() {
+        opendj_controllers::pickup::set_scale(&key, true);
+    }
     let controllers = match opendj_controllers::default_mappings_dir() {
         Some(dir) => Some(Rc::new(opendj_controllers::Controllers::start(
             registry.clone(),
@@ -1202,6 +1205,17 @@ fn bind_controls(app: &AppWindow, registry: Arc<ControlRegistry>) -> impl Fn() -
     controls.on_parameter(move |i, _| g(i).map(|c| c.get_parameter() as f32).unwrap_or(0.0));
     let g = get.clone();
     controls.on_value(move |i, _| g(i).map(|c| c.get() as f32).unwrap_or(0.0));
+    // Where a controller's knob or fader is while it waits to pick the
+    // control up; -1 while it is where the control is, or not known.
+    let g = get.clone();
+    controls.on_hardware(move |i, _| {
+        g(i).and_then(|c| {
+            let hw = opendj_controllers::pickup::hardware_position(c.key())?;
+            ((hw - c.get_parameter()).abs() > opendj_controllers::pickup::THRESHOLD)
+                .then_some(hw as f32)
+        })
+        .unwrap_or(-1.0)
+    });
     let g = get.clone();
     controls.on_set_parameter(move |i, p| {
         if let Some(c) = g(i) {
@@ -1229,7 +1243,9 @@ fn bind_controls(app: &AppWindow, registry: Arc<ControlRegistry>) -> impl Fn() -
         let h = handles.borrow();
         // Each version only goes up, so their sum moves when any one does;
         // a newly resolved control adds to it too.
-        h.handles.iter().map(|c| c.version() as u64).sum::<u64>() + h.handles.len() as u64
+        h.handles.iter().map(|c| c.version() as u64).sum::<u64>()
+            + h.handles.len() as u64
+            + opendj_controllers::pickup::version()
     }
 }
 

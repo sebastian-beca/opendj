@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 
 use opendj_control::{Behavior, ConfigKey, ControlHandle, ControlRegistry};
 
+use crate::pickup::{self, Takeover};
+
 /// Shortcut controls Mixxx adds next to every knob, e.g. `pregain_set_default`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Sub {
@@ -264,62 +266,6 @@ fn apply_sub(h: &ControlHandle, sub: Sub) {
     }
 }
 
-/// Mixxx's soft takeover: after a knob was moved elsewhere (on screen, or
-/// another layer), ignore the hardware until it reaches the current value.
-struct SoftTakeover {
-    time: Option<Instant>,
-    prev: f64,
-    /// Set by `softTakeoverIgnoreNextValue` and initially.
-    ignore_next: bool,
-}
-
-const TAKEOVER_THRESHOLD: f64 = 3.0 / 128.0;
-const TAKEOVER_OVERRIDE: Duration = Duration::from_millis(50);
-
-impl SoftTakeover {
-    fn new() -> Self {
-        Self {
-            time: None,
-            prev: 0.0,
-            ignore_next: true,
-        }
-    }
-
-    fn will_ignore(&self, current: f64, new: f64, now: Instant) -> bool {
-        let Some(time) = self.time else { return true };
-        if self.ignore_next {
-            return true;
-        }
-        if now < time + TAKEOVER_OVERRIDE {
-            return false;
-        }
-        let difference = current - new;
-        let prev_diff = current - self.prev;
-        if difference.is_sign_negative() != prev_diff.is_sign_negative() {
-            return false;
-        }
-        !(difference.abs() <= TAKEOVER_THRESHOLD || prev_diff.abs() <= TAKEOVER_THRESHOLD)
-    }
-
-    fn ignore(&mut self, current: f64, new: f64) -> bool {
-        let now = Instant::now();
-        let ignore = if self.ignore_next {
-            self.ignore_next = false;
-            // The first value after enabling (or after a jump) is dropped so
-            // the control does not leap; afterwards the usual rules apply.
-            self.time = Some(now - TAKEOVER_OVERRIDE * 4);
-            true
-        } else {
-            self.will_ignore(current, new, now)
-        };
-        if !ignore {
-            self.time = Some(now);
-        }
-        self.prev = new;
-        ignore
-    }
-}
-
 /// Mixxx's alpha-beta filter, which turns jog wheel ticks into a smooth
 /// playback speed.
 #[derive(Default)]
@@ -407,7 +353,16 @@ pub(crate) struct Host {
     input_handlers: HashMap<(u8, u8), u32>,
     timers: BTreeMap<u32, Timer>,
     next_timer: u32,
-    soft: HashMap<(String, String), SoftTakeover>,
+    soft: HashMap<(String, String), Takeover>,
+    /// The message being handled, while a controller's MIDI is: writes it
+    /// makes are the hardware moving.
+    pub(crate) input: Option<(u8, u8)>,
+    /// Whether hardware positions are shown on screen (a real controller,
+    /// not the Controller Editor's probe).
+    pub(crate) publish: bool,
+    /// Messages the mapping also sends back, as motorised faders and LED
+    /// rings do: the hardware follows the screen, so needs no marker.
+    followed: HashSet<(u8, u8)>,
     scratch: Vec<Scratch>,
     scratch_tick: Instant,
     /// The deck 3 and 4 switches, for a mapping written for two decks; a
@@ -452,6 +407,9 @@ impl Host {
             timers: BTreeMap::new(),
             next_timer: 1,
             soft: HashMap::new(),
+            input: None,
+            publish: false,
+            followed: HashSet::new(),
             scratch: (0..=MAX_DECKS).map(|_| Scratch::default()).collect(),
             scratch_tick: Instant::now(),
             layers: None,
@@ -566,24 +524,26 @@ impl Host {
         }
     }
 
-    /// Script writes. Values for knobs with soft takeover enabled may be dropped.
+    /// Script writes. Values for knobs with soft takeover enabled may be
+    /// dropped, or scaled.
     pub(crate) fn set_value(&mut self, group: &str, key: &str, v: f64) {
         let t = self.resolve(group, key);
         self.record(key, &t, v);
-        if self.soft_ignores(group, key, &t, t.parameter_for_value(v)) {
-            return;
+        match self.soft_take(group, key, &t, t.parameter_for_value(v)) {
+            Some(p) => t.set(t.value_for_parameter(p)),
+            None if self.soft_has(group, key) => {}
+            None => t.set(v),
         }
-        t.set(v);
     }
 
     pub(crate) fn set_parameter(&mut self, group: &str, key: &str, p: f64) {
         let t = self.resolve(group, key);
         self.record(key, &t, t.value_for_parameter(p));
-        if self.soft_ignores(group, key, &t, p) {
-            return;
+        match self.soft_take(group, key, &t, p) {
+            Some(p) => t.set(t.value_for_parameter(p)),
+            None if self.soft_has(group, key) => {}
+            None => t.set(t.value_for_parameter(p)),
         }
-        let v = t.value_for_parameter(p);
-        t.set(v);
     }
 
     /// Notes a script write while tracing; `key` as the script named it.
@@ -602,20 +562,50 @@ impl Host {
         }
     }
 
-    /// Whether soft takeover drops this write; `p` is the new parameter.
-    pub(crate) fn soft_ignores(&mut self, group: &str, key: &str, t: &Target, p: f64) -> bool {
-        match self.soft.get_mut(&(group.to_string(), key.to_string())) {
-            Some(st) => st.ignore(t.parameter(), p),
-            None => false,
+    pub(crate) fn soft_has(&self, group: &str, key: &str) -> bool {
+        self.soft
+            .contains_key(&(group.to_string(), key.to_string()))
+    }
+
+    /// Soft takeover of a write of parameter `p`: the parameter to set, or
+    /// `None` when it is dropped or the control has no soft takeover.
+    pub(crate) fn soft_take(&mut self, group: &str, key: &str, t: &Target, p: f64) -> Option<f64> {
+        let input = self.input;
+        let publish = self.publish;
+        let scale = pickup::scale(&crate::device_key(&self.name));
+        let followed = input.is_some_and(|i| self.followed.contains(&i));
+        let st = self.soft.get_mut(&(group.to_string(), key.to_string()))?;
+        let out = st.take(t.parameter(), p, scale);
+        if let (Some(i), Target::Control(h)) = (input, t) {
+            st.source = Some(i);
+            let k = h.key().clone();
+            if publish && !followed {
+                if let Some(old) = st.moved.as_ref().filter(|old| **old != k) {
+                    pickup::forget(old, &self.name);
+                }
+                pickup::note(&k, p, &self.name);
+            }
+            st.moved = Some(k);
         }
+        out
     }
 
     pub(crate) fn soft_takeover(&mut self, group: &str, key: &str, enable: bool) {
         let k = (group.to_string(), key.to_string());
         if !enable {
-            self.soft.remove(&k);
-        } else if !self.soft.contains_key(&k) && self.resolve(group, key).is_potmeter() {
-            self.soft.insert(k, SoftTakeover::new());
+            if let Some(old) = self.soft.remove(&k).and_then(|st| st.moved) {
+                pickup::forget(&old, &self.name);
+            }
+            return;
+        }
+        if self.soft.contains_key(&k) {
+            return;
+        }
+        let t = self.resolve(group, key);
+        if let Target::Control(h) = &t {
+            if t.is_potmeter() && !pickup::always_jumps(h.key()) {
+                self.soft.insert(k, Takeover::new());
+            }
         }
     }
 
@@ -629,6 +619,55 @@ impl Host {
         match self.soft.get(&(group.to_string(), key.to_string())) {
             Some(st) => st.will_ignore(self.resolve(group, key).parameter(), p, Instant::now()),
             None => false,
+        }
+    }
+
+    /// The mapping sent `msg`: a knob or fader it moves is driven from here
+    /// too (motorised, or an LED ring), so the hardware is where the screen
+    /// is and needs no marker.
+    pub(crate) fn sent_back(&mut self, msg: &[u8]) {
+        let [status, control, _] = *msg else { return };
+        if status & 0xF0 != 0xB0 || self.followed.contains(&(status, control)) {
+            return;
+        }
+        let moved: Vec<ConfigKey> = self
+            .soft
+            .values()
+            .filter(|st| st.source == Some((status, control)))
+            .filter_map(|st| st.moved.clone())
+            .collect();
+        if moved.is_empty() {
+            return;
+        }
+        self.followed.insert((status, control));
+        for k in moved {
+            pickup::forget(&k, &self.name);
+        }
+    }
+
+    /// A deck switch moved the hardware over to other controls: its markers
+    /// move with it.
+    pub(crate) fn layers_moved(&mut self) {
+        if !self.publish {
+            return;
+        }
+        let names: Vec<(String, String)> = self.soft.keys().cloned().collect();
+        for (group, key) in names {
+            let Target::Control(h) = self.resolve(&group, &key) else {
+                continue;
+            };
+            let k = h.key().clone();
+            let st = self.soft.get_mut(&(group, key)).unwrap();
+            let (Some(source), Some(old), Some(p)) = (st.source, st.moved.clone(), st.hardware())
+            else {
+                continue;
+            };
+            if old == k || self.followed.contains(&source) {
+                continue;
+            }
+            pickup::forget(&old, &self.name);
+            pickup::note(&k, p, &self.name);
+            st.moved = Some(k);
         }
     }
 

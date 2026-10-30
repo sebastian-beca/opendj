@@ -618,6 +618,7 @@ fn run_controller(
             return;
         }
     };
+    controller.publish_positions();
     eprintln!("{port}: using mapping {mapping_name}");
     connected.lock().unwrap().push(ConnectedController {
         port: port.to_string(),

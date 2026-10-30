@@ -19,6 +19,7 @@ pub mod learn;
 mod manager;
 pub mod mapping;
 pub mod own;
+pub mod pickup;
 pub mod probe;
 mod rows;
 mod script;

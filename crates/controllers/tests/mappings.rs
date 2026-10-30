@@ -29,6 +29,16 @@ fn get(reg: &ControlRegistry, group: &str, key: &str) -> f64 {
         .get()
 }
 
+/// Moves a 14-bit fader or knob from the bottom to the top and down to
+/// `msb`, as a hand would: with pick-up, it only takes over once it passes
+/// the control's value.
+fn sweep14(c: &mut Controller, status: u8, msb_cc: u8, lsb_cc: u8, msb: u8) {
+    for v in (0..=0x7F).chain((msb..0x7F).rev()) {
+        c.receive(&[status, msb_cc, v]);
+        c.receive(&[status, lsb_cc, 0x00]);
+    }
+}
+
 /// Lets timers and connections run for a while.
 fn settle(c: &mut Controller, ms: u64) {
     let start = Instant::now();
@@ -56,9 +66,12 @@ fn ddj_flx4() {
         "play LED lit: {out:x?}"
     );
 
-    // Channel fader, 14-bit (MSB 0x13, LSB 0x33).
+    // Channel fader, 14-bit (MSB 0x13, LSB 0x33). Pick-up: away from the
+    // fader on screen, it waits.
     c.receive(&[0xB0, 0x13, 0x20]);
     c.receive(&[0xB0, 0x33, 0x00]);
+    assert_eq!(get(&reg, "[Channel1]", "volume"), 1.0);
+    sweep14(&mut c, 0xB0, 0x13, 0x33, 0x20);
     let v = get(&reg, "[Channel1]", "volume");
     assert!((v - 0.25).abs() < 0.02, "volume {v}");
 
@@ -103,8 +116,7 @@ fn ddj_flx4_left_side_moves_to_deck_3() {
     c.receive(&[0x90, 0x0B, 0x00]);
     assert_eq!(get(&reg, "[Channel3]", "play"), 1.0);
     assert_eq!(get(&reg, "[Channel1]", "play"), 0.0);
-    c.receive(&[0xB0, 0x13, 0x20]);
-    c.receive(&[0xB0, 0x33, 0x00]);
+    sweep14(&mut c, 0xB0, 0x13, 0x33, 0x20);
     let v = get(&reg, "[Channel3]", "volume");
     assert!((v - 0.25).abs() < 0.02, "deck 3 volume {v}");
     // The play LED follows deck 3.
@@ -317,13 +329,11 @@ fn ddj_flx4_mixer_pads_and_eq_modes() {
     assert_eq!(get(&reg, "[Channel1]", "rate"), 1.0);
     // Master and headphones level, and the headphones mix.
     for (msb, lsb, key) in [(0x08, 0x28, "gain"), (0x0D, 0x2D, "headGain")] {
-        c.receive(&[0xB6, msb, 0x40]);
-        c.receive(&[0xB6, lsb, 0x00]);
+        sweep14(&mut c, 0xB6, msb, lsb, 0x40);
         let v = get(&reg, "[Master]", key);
         assert!((v - 0.5).abs() < 0.01, "{key} {v}");
     }
-    c.receive(&[0xB6, 0x0C, 0x00]);
-    c.receive(&[0xB6, 0x2C, 0x00]);
+    sweep14(&mut c, 0xB6, 0x0C, 0x2C, 0x00);
     assert_eq!(get(&reg, "[Master]", "headMix"), -1.0);
     // Its centre detent is half cue, half main.
     for msb in 0x01..=0x40 {
@@ -386,16 +396,14 @@ fn ddj_flx4_mixer_pads_and_eq_modes() {
     assert_eq!(get(&reg, "[Library]", "ShowLinked"), 1.0);
     // In stems mode the low EQ knob turns the kick stem.
     reg.get("[Mixer]", "knob_mode").unwrap().set(1.0);
-    c.receive(&[0xB0, 0x0F, 0x10]);
-    c.receive(&[0xB0, 0x2F, 0x00]);
+    sweep14(&mut c, 0xB0, 0x0F, 0x2F, 0x10);
     let kick = reg
         .get("[Channel1_Stem1]", "volume")
         .unwrap()
         .get_parameter();
     assert!((kick - 0.125).abs() < 0.01, "kick {kick}");
     reg.get("[Mixer]", "knob_mode").unwrap().set(2.0);
-    c.receive(&[0xB6, 0x17, 0x40]);
-    c.receive(&[0xB6, 0x37, 0x00]);
+    sweep14(&mut c, 0xB6, 0x17, 0x37, 0x40);
     let hpf = reg
         .get("[Sculpt_[Channel1]]", "hpf")
         .unwrap()
@@ -581,4 +589,34 @@ fn mixtrack_platinum_fx_screens() {
     assert!(screen(0x01), "BPM: {out:02X?}");
     assert!(screen(0x03), "duration");
     assert!(screen(0x04), "time");
+}
+
+#[test]
+fn pickup_shows_where_the_hardware_is() {
+    use opendj_control::ConfigKey;
+    use opendj_controllers::pickup;
+    let (reg, mut c) = load("Pioneer-DDJ-FLX4.midi.xml");
+    c.publish_positions();
+    settle(&mut c, 10);
+    // Deck 2's channel fader brought to the middle: it picked up.
+    sweep14(&mut c, 0xB1, 0x13, 0x33, 0x40);
+    let key = ConfigKey::new("[Channel2]", "volume");
+    let hw = pickup::hardware_position(&key).unwrap();
+    assert!((hw - 0.5).abs() < 0.01, "hardware {hw}");
+    // Moved up on screen: the hardware stays where it is and does nothing
+    // until it reaches the fader again.
+    std::thread::sleep(Duration::from_millis(60));
+    reg.get("[Channel2]", "volume").unwrap().set(1.0);
+    c.receive(&[0xB1, 0x13, 0x41]);
+    c.receive(&[0xB1, 0x33, 0x00]);
+    assert_eq!(get(&reg, "[Channel2]", "volume"), 1.0);
+    assert!(pickup::hardware_position(&key).unwrap() < 0.6);
+    // The crossfader always follows the hardware, and needs no marker.
+    c.receive(&[0xB6, 0x1F, 0x00]);
+    c.receive(&[0xB6, 0x3F, 0x00]);
+    assert_eq!(get(&reg, "[Master]", "crossfader"), -1.0);
+    assert!(pickup::hardware_position(&ConfigKey::new("[Master]", "crossfader")).is_none());
+    // Unplugged: its positions go.
+    c.shutdown();
+    assert!(pickup::hardware_position(&key).is_none());
 }
