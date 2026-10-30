@@ -20,7 +20,7 @@ Edits to the file's own tags (title, artist, album, year, genre, rating and the 
 - **THEN** the file's tags carry the rating and it isn't re-analysed on next load
 
 ### Requirement: Cover art search
-Right-clicking a cover (or clicking a missing one) SHALL open a dialog offering covers from the file's tags, its folder, Cover Art Archive, iTunes Search and Discogs (with a token in Settings › Library).
+Right-clicking a cover (or clicking a missing one) SHALL open a dialog offering covers from the file's tags, its folder, Cover Art Archive, iTunes Search and Discogs (with a token in Settings › Collection).
 
 #### Scenario: Pick a cover
 - **WHEN** a found cover is chosen

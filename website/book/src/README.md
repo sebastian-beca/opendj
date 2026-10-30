@@ -16,12 +16,12 @@ These docs cover openDJ 0.4. They have two parts:
 ## Where to start
 
 - **New to openDJ?** [Install](guide/install.md) it, add your music in
-  [Your library](guide/music.md), then learn the [decks and mixer](guide/decks.md).
+  [Your collection](guide/music.md), then learn the [decks and mixer](guide/decks.md).
 - **Coming from VirtualDJ?** [Bring in your library](guide/music.md#bringing-in-a-virtualdj-library):
   cues, grids, lists and history come across.
-- **Tidying a big collection?** [Stages](guide/music.md#stages-inbox-triage-and-collection),
+- **Tidying a big collection?** [Stages](guide/music.md#stages-inbox-in-prep-and-play-ready),
   [crates and sets](guide/music.md#crates-and-sets) and
-  [Library Health](guide/library-health.md).
+  [Collection Health](guide/collection-health.md).
 - **Mixing:** [Pads](guide/pads.md), [Looping](guide/looping.md),
   [Effects](guide/fx.md), [Stems](guide/stems.md) and [Automix](guide/automix.md).
 - **Got a DDJ-FLX4?** See its [own page](guide/controllers/ddj-flx4.md).

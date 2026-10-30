@@ -90,9 +90,9 @@ fn stage_from_number(n: i32) -> Option<Stage> {
 /// What the undo line calls a change.
 fn change_label(stage: Stage, crate_name: Option<&str>) -> String {
     match (stage, crate_name) {
-        (Stage::Triage, Some(c)) => format!("To Triage › {c}"),
-        (Stage::Triage, None) => "To Triage".into(),
-        (Stage::Collection, _) => "Add to Collection".into(),
+        (Stage::Triage, Some(c)) => format!("Send to In Prep › {c}"),
+        (Stage::Triage, None) => "Send to In Prep".into(),
+        (Stage::Collection, _) => "Send to Play Ready".into(),
         (Stage::Inbox, _) => "Back to Inbox".into(),
         (Stage::Dismissed, _) => "Not interested".into(),
     }
@@ -349,7 +349,7 @@ impl Browser {
                 eprintln!("can't bring the copies back: {e}");
             }
             self.health_status = format!(
-                "{} back in the library.",
+                "{} back in your collection.",
                 super::health::tracks(undo.restore.len())
             );
             self.reload_library();

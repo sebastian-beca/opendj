@@ -1,20 +1,21 @@
-# Your library
+# Your collection
 
-openDJ keeps everything it knows about your music in its **library**: one
-database file with every track's tags, rating, colour, cues, loops and beat
-grid, your playlists, smart lists and folders, and the history of what you
-played. The library points at your audio files where they are, and only
-moves them between your stage folders when you turn that on (see
-[Stages](#stages-inbox-triage-and-collection)).
+Your **collection** is every track openDJ knows about, with everything it
+knows about them: one database file with every track's tags, rating,
+colour, cues, loops and beat grid, your playlists, smart lists and folders,
+and the history of what you played. It points at your audio files where
+they are, and only moves them between your stage folders when you turn that
+on (see [Stages](#stages-inbox-in-prep-and-play-ready)).
 
-The **Collection** is the list of every track in the library. It is the top
-of the tree on the left, and the first source in the rail.
+**Collection** is the top of the tree on the left, and the first source in
+the rail. Together with Files and the streaming services it makes up the
+**browser**, the lower half of the screen.
 
 ## Sources
 
 The rail at the far left picks where the tree and the track list come from:
 
-- **Collection**: your library, with its stages, crates, sets, playlists
+- **Collection**: all your tracks, with their stages, crates, sets, playlists
   and history.
 - **Files**: any folder on your computer, as it is on disk.
 - **Spotify**, **TIDAL**, **Apple Music**, **Bandcamp**, **Beatport**,
@@ -23,18 +24,18 @@ The rail at the far left picks where the tree and the track list come from:
 
 ## How tracks come in
 
-Tracks come into the library in three ways:
+Tracks come into your collection in three ways:
 
 - **Your music folders.** openDJ looks through them each time it starts,
-  and when you press **Rescan** in **Settings › Library**. New files are
+  and when you press **Rescan** in **Settings › Collection**. New files are
   added, and changed files have their tags read again. With a big collection
-  you can turn off **Update library on start** there, and press **Rescan**
+  you can turn off **Update collection on start** there, and press **Rescan**
   when you add music. Add as many folders as you like there with
   **Add…**, and take one out with **Remove**, or start openDJ with the
   `OPENDJ_MUSIC` environment variable set to one. There's no default folder:
   `~/Music` is where Ableton, GarageBand and other apps keep their samples,
   so openDJ only looks there if you add it. When a folder is no longer looked through,
-  its tracks leave the library, except ones you rated, played, staged or put
+  its tracks leave your collection, except ones you rated, played, staged or put
   in a list. The files stay where they are.
 - **Files.** The **Files** source in the rail browses any folder on your
   computer. Load or drag a track from there to add it.
@@ -44,56 +45,57 @@ Bringing a track in only reads its tags: title, artist, album, genre, year,
 key, BPM, rating, comment and cover art. It is quick, and nothing is played
 or analysed yet.
 
-## Stages: Inbox, Triage and Collection
+## Stages: Inbox, In Prep and Play Ready
 
-Stages take new music from wherever it lands to a prepared collection.
-Set them up in **Settings › Library › Stages**:
+Stages take new music from wherever it lands to tracks that are ready to
+play. Set them up in **Settings › Collection › Stages**:
 
 - **Inbox folders**: any number of folders where new music arrives, such
   as Downloads, a Soulseek folder, or where purchases land.
-- **Triage folder**: where tracks you are preparing are kept. Its
-  subfolders are **triage crates** (for example `Yoga STG` or
+- **In Prep folder**: where tracks you are preparing are kept. Its
+  subfolders are **prep crates** (for example `Yoga STG` or
   `Journey STG`), for sorting tracks by where they'll go.
-- **Collection folder**: where prepared tracks are kept. Its subfolders
+- **Play Ready folder**: where prepared tracks are kept. Its subfolders
   (such as `Albums`) stay as they are.
 
-Once the triage and collection folders are set, the tree starts with
-**Inbox**, **Triage** and **Collection**, each with its track count and
+Once the In Prep and Play Ready folders are set, the tree starts with
+**Inbox**, **In Prep** and **Play Ready**, each with its track count and
 subfolders, followed by **All Tracks**. Every track gets the stage of the
 folder it is in.
 
 Right-click tracks to move them along, or drag them onto a stage:
 
-1. **To Triage** (or **To Triage › a crate**) for inbox tracks worth
-   keeping. **Not interested** hides the rest.
-2. In Triage, prepare each track: tags, cover, rating, tempo and key. Show
+1. **Send to In Prep** (or **Send to In Prep › a crate**) for inbox
+   tracks worth keeping. **Not interested** hides the rest.
+2. In In Prep, prepare each track: tags, cover, rating, tempo and key. Show
    the **Prep** column (right-click a column heading) for a dot each for
-   tags, rating, and tempo and key; tracks in Triage are analysed in the
+   tags, rating, and tempo and key; tracks in In Prep are analysed in the
    background, so tempo and key fill in on their own.
-3. **Add to Collection** when it's ready. A track from a triage crate also
+3. **Send to Play Ready** when it's ready. A track from a prep crate also
    joins the list named after the crate (`Yoga STG` goes to **Yoga**).
 
-**Back to Triage** and **Back to Inbox** move a track back a stage, and
+**Back to In Prep** and **Back to Inbox** move a track back a stage, and
 the track menu's **Undo** line takes back the last change.
 
 Files only move between the folders when **Move files** is on. Leave it
 off while another app, such as VirtualDJ, still uses them: tracks change
 stage in openDJ at once, their moves wait, and they are made when you turn
-it on. Files going from the inbox to triage are renamed `Artist - Title
-(Remix)` from their tags, unless you turn **Rename files sent to Triage**
+it on. Files going from the inbox to In Prep are renamed `Artist - Title
+(Remix)` from their tags, unless you turn **Rename files sent to In Prep**
 off. A file is never moved over another one.
 
-Search with `stage:inbox`, `stage:triage` or `stage:collection`, and
+Search with `stage:inbox`, `stage:prep` or `stage:playready` (the older
+`stage:triage` and `stage:collection` work too), and
 `is:prepped` for tracks with tags, rating, tempo and key.
 
 ## When tracks are analysed
 
-Tracks in Triage are analysed in the background. Any other track is
+Tracks in In Prep are analysed in the background. Any other track is
 analysed the first time it is loaded on a deck: its waveform,
 tempo and beat grid, and its key when the tags don't have one. It plays
 while that happens, and the waveform fills in as it goes. The result is
 saved, so the track loads at once next time; **Clear** in **Settings ›
-Library** throws those results away.
+Collection** throws those results away.
 
 Grids, keys and cues brought in from VirtualDJ are used as they are, so
 those tracks don't wait for analysis.
@@ -119,8 +121,8 @@ bars: intro, build (up), drop (peak), chorus (main groove), break and
 outro. Each deck's overview shows them as a bar under the minute dots:
 deep blue for the intro and outro, violet for a build, rose for a drop,
 green for a chorus and tangerine for a break. Phrases are 8 to 32 bars
-long, so a short fill never gets one of its own. They are saved in the
-library with the track, and move with the grid when you edit it.
+long, so a short fill never gets one of its own. They are saved in your
+collection with the track, and move with the grid when you edit it.
 
 Rest the pointer on a deck's overview to see the phrase under it: its
 kind, how many bars it runs and where it starts and ends.
@@ -131,7 +133,7 @@ phrases**) to turn the bars off or on for every deck.
 ## Bringing in a VirtualDJ library
 
 Press **Set up…** next to **Import from VirtualDJ** in **Settings ›
-Library › Import**. That tab is always there and lists every DJ app openDJ
+Collection › Import**. That tab is always there and lists every DJ app openDJ
 can bring a library in from; Serato DJ and Traktor are marked coming soon.
 Three steps follow:
 
@@ -213,7 +215,7 @@ to the History tab. Auto DJ's queue stays in Mixxx.
 When a second app's library has a different file of a song you already have
 (the same artist and title, ignoring case and punctuation, and a length
 within two seconds), openDJ doesn't add it twice. The copy already in your
-library stays, and the second app only fills in what it left empty. Its
+collection stays, and the second app only fills in what it left empty. Its
 lists point at that copy. Its grid is only used when the track has none from
 another app, and its hot cues come in as memory cues when the track already
 has hot cues, so nothing is lost. Removing the second import takes out what
@@ -232,18 +234,18 @@ A **set** is a lilac folder made for one gig. **+ › New set…** makes one
 with a list for each step of the template: **Staging** (what you'd like
 to play), **Set** (what you plan to play, about twice what you'll need)
 and **Live set** (what you actually played). Change the template in
-**Settings › Library › Stages** under Sets, for example to add Openers,
+**Settings › Collection › Stages** under Sets, for example to add Openers,
 Closers or Transitions. Selecting a set shows all its tracks with their
-total length, and how many are still in Triage without their basic prep.
+total length, and how many are still in In Prep without their basic prep.
 
 After the gig, open the **History** tab, pick what you played (or the
 whole session) and right-click: **Add to Set List** lists your sets,
 newest first, and puts the tracks in that set's Live set.
 
-## Library Health
+## Collection Health
 
-[Library Health](library-health.md), under All Tracks in the collection,
-finds what needs fixing in your library: duplicates, junk in names, missing
+[Collection Health](collection-health.md), under All Tracks in the
+collection, finds what needs fixing in your collection: duplicates, junk in names, missing
 tags and covers, files that went missing, and more.
 
 ## Search and filters
@@ -261,7 +263,7 @@ to move it. Click a heading to sort by it. openDJ remembers your columns.
 
 ## Your own fields
 
-Name grouping and your tag fields in **Settings › Library › Fields**,
+Name grouping and your tag fields in **Settings › Collection › Fields**,
 for example Trip Stage, Mood and Instrument, and add as many tag fields as
 you need. VirtualDJ's User 1 and User 2 come in as the first two. Each name
 works as a search word too (`mood:uplifting`, `tripstage:"4 peak"`), and so

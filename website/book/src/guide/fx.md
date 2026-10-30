@@ -14,7 +14,7 @@ beat.
 
 The **FX** button in the top bar, beside **WAVEFORMS**, shows or hides the
 FX bar. It runs the width of the window, under the decks and above the
-library: each deck's three effects across that deck's width, and the Beat
+browser: each deck's three effects across that deck's width, and the Beat
 FX in the middle, under the mixer.
 
 Each effect has:

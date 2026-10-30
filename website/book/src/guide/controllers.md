@@ -21,7 +21,7 @@ To see what every control does, press **Edit** next to a controller in
 pick another at the top. Its controls are listed in three columns: the control
 you press (with the layer it works in, such as SHIFT, a pad mode or a bank),
 what it does, and the MIDI message it sends. They're grouped into sections
-(Deck, Pads, Mixer, Effects, Library, More) with smaller sections inside, such
+(Deck, Pads, Mixer, Effects, Browser, More) with smaller sections inside, such
 as Hot cues and Loops under Pads. Click a heading to open or close it. Search
 the list by any of those words.
 

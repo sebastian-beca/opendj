@@ -5,9 +5,9 @@
 # User guide
 
 - [Install](guide/install.md)
-- [Your library](guide/music.md)
+- [Your collection](guide/music.md)
 - [Filtering tracks](guide/filtering.md)
-- [Library Health](guide/library-health.md)
+- [Collection Health](guide/collection-health.md)
 - [Export to USB](guide/usb-export.md)
 - [Decks and mixer](guide/decks.md)
 - [Pads](guide/pads.md)

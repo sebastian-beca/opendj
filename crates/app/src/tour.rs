@@ -116,7 +116,7 @@ pub const FIRST_MIX: Lesson = Lesson {
         Step {
             target: "[Channel1],load",
             title: "Load a track on deck A",
-            body: "Drag a track from the library onto deck A, or load the first demo track.",
+            body: "Drag a track from the browser onto deck A, or load the first demo track.",
             wait: Wait::Loaded(0),
             action: Some(("Load demo track", Action::LoadDemo { deck: 0, demo: 0 })),
         },
@@ -789,7 +789,7 @@ fn page_words(page: Page, controllers: &[String]) -> (String, String) {
         ),
         Page::Part(Part::Library) => (
             "Your music",
-            "Add the folders your music is in; openDJ reads them and keeps the library up to \
+            "Add the folders your music is in; openDJ reads them and keeps your collection up to \
              date. Already use another DJ app? Bring its library in, with cues, grids and \
              playlists."
                 .to_string(),
