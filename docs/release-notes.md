@@ -36,6 +36,8 @@ openDJ 0.4.5 is about switching over. Bring your rekordbox or Mixxx library acro
 **Collection**
 
 - openDJ says **collection** for your own tracks: Settings → Collection and Collection Health. Stages are now **Inbox → In Prep → Play Ready**.
+- A new sidebar: **Collection** (with Wanted and your stages under it), then **Crates** and **Playlists**, with folders that nest and stay open or closed as you left them. Sets are gone for now; old set folders show as plain folders.
+- Collection Health moves to the rail, with a badge counting the checks that find something. New checks: **Low bitrate** (under 192 kb/s) and **Missing or poor metadata** ("Unknown Artist", "Track 01" and the like).
 - An **Albums** folder and a **Mixed Sets** folder in Settings → Collection → General, each with its own source in the rail. Albums show as a wall of covers or a list; Play Album plays one gaplessly through Automix. Collection Health finds tracks whose album tag differs from the rest of their folder.
 - Drop audio files from Finder, Explorer or a file manager onto a deck to load them.
 - Cmd+A (Ctrl+A) selects every track in the list.
