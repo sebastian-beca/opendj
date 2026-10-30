@@ -300,6 +300,8 @@ struct Source {
     /// The plugin's id, as its settings are saved under.
     id: &'static str,
     info: SourceInfo,
+    /// Sites whose links it searches (see [`SearchSource::sites`]).
+    sites: &'static [&'static str],
     requests: Sender<Request>,
     searches: Vec<Search>,
     downloads: Vec<Download>,
@@ -377,8 +379,9 @@ impl Sources {
         let sources: Vec<Source> = source_plugins()
             .into_iter()
             .enumerate()
-            .map(|(index, (plugin, info))| {
+            .map(|(index, (mut plugin, info))| {
                 let id = plugin.manifest().id;
+                let sites = plugin.source().map(|s| s.sites()).unwrap_or_default();
                 let (requests, rx) = channel();
                 let (tx, library) = (tx.clone(), library.clone());
                 std::thread::Builder::new()
@@ -388,6 +391,7 @@ impl Sources {
                 Source {
                     id,
                     info,
+                    sites,
                     requests,
                     searches: Vec::new(),
                     downloads: Vec::new(),
@@ -566,7 +570,8 @@ impl Sources {
                             items = with_kept(&search.kept, items);
                         }
                         if search.auto {
-                            settle(&mut search.settling, &items);
+                            let wanted = wanted(&items, search.query.kind);
+                            settle(&mut search.settling, &items, &wanted);
                         }
                         search.items = items;
                         search.done = snap.done;
@@ -690,6 +695,28 @@ impl Sources {
         self.sources[s].save();
         self.search = Some(at);
         self.checked.clear();
+        self.refresh();
+    }
+
+    /// The source that searches links from `site`, by its name, if one does.
+    pub fn takes_links(&self, site: &str) -> Option<&'static str> {
+        self.sources
+            .iter()
+            .find(|s| s.sites.contains(&site))
+            .map(|s| s.info.name)
+    }
+
+    /// "Add to Downloads" from elsewhere in the app: a search on the source
+    /// taking links from `site`, downloading right away.
+    pub fn add_download(&mut self, site: &str, query: SourceQuery) {
+        let Some(s) = self.sources.iter().position(|x| x.sites.contains(&site)) else {
+            return;
+        };
+        let at = self.start(s, query, now(), true);
+        self.sources[s].save();
+        if self.shown == Some(s) {
+            self.search = Some(at);
+        }
         self.refresh();
     }
 
@@ -915,7 +942,8 @@ impl Sources {
             return;
         }
         let mut keys = Vec::new();
-        for group in entries(&search.items) {
+        for group in wanted(&search.items, search.query.kind) {
+            let group = group.as_str();
             let settled = search.done
                 || search
                     .settling
@@ -1297,12 +1325,27 @@ fn song_key(group: &str) -> String {
     format!("song:{group}")
 }
 
-/// Counts how many looks in a row each entry's results stayed the same.
-fn settle(settling: &mut HashMap<String, (Vec<String>, u32)>, items: &[Found]) {
-    for group in entries(items) {
+/// What a search set to download by itself gets one copy of: each
+/// playlist entry, or for a track search the track (results with no group).
+fn wanted(items: &[Found], kind: QueryKind) -> Vec<String> {
+    let groups = entries(items);
+    if !groups.is_empty() {
+        return groups.into_iter().map(str::to_string).collect();
+    }
+    if kind == QueryKind::Track && items.iter().any(|f| !f.folder) {
+        return vec![String::new()];
+    }
+    Vec::new()
+}
+
+/// Counts how many looks in a row each wanted entry's results stayed the
+/// same.
+fn settle(settling: &mut HashMap<String, (Vec<String>, u32)>, items: &[Found], wanted: &[String]) {
+    for group in wanted {
+        let group = group.as_str();
         let keys: Vec<String> = items
             .iter()
-            .filter(|f| f.group == group)
+            .filter(|f| f.group == group && !f.folder)
             .map(|f| f.key.clone())
             .collect();
         let entry = settling
@@ -1574,13 +1617,19 @@ mod tests {
     #[test]
     fn entries_settle_when_their_results_stop_changing() {
         let mut settling = HashMap::new();
+        let kerala = ["1. Kerala".to_string()];
         let first = vec![copy("a", "1. Kerala")];
-        settle(&mut settling, &first);
-        settle(&mut settling, &first);
+        settle(&mut settling, &first, &kerala);
+        settle(&mut settling, &first, &kerala);
         assert_eq!(settling["1. Kerala"].1, 2);
         let more = vec![copy("a", "1. Kerala"), copy("b", "1. Kerala")];
-        settle(&mut settling, &more);
+        settle(&mut settling, &more, &kerala);
         assert_eq!(settling["1. Kerala"].1, 1);
+        // A track search downloads one copy of the track; an album search
+        // nothing by itself.
+        assert_eq!(wanted(&first, QueryKind::Track), ["1. Kerala"]);
+        assert_eq!(wanted(&[file("a", "Kerala")], QueryKind::Track), [""]);
+        assert!(wanted(&[file("a", "Kerala")], QueryKind::Album).is_empty());
     }
 
     #[test]
@@ -1609,6 +1658,7 @@ mod tests {
                 icon_svg: b"",
                 hint: "",
             },
+            sites: &[],
             requests,
             searches: Vec::new(),
             downloads: Vec::new(),
