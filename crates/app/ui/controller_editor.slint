@@ -147,7 +147,6 @@ export global ControllerEditor {
     in property <[string]> encoder-modes;
     in property <int> edit-encoder;
     in property <bool> edit-invert;
-    in property <bool> edit-pickup;
     // A button (notes) rather than a knob, fader or encoder.
     in property <bool> edit-is-button;
     // Changed from the original, so it can be reset.
@@ -181,7 +180,6 @@ export global ControllerEditor {
     callback set-buttons(index: int);
     callback set-encoder(index: int);
     callback set-invert(on: bool);
-    callback set-pickup(on: bool);
     callback set-nothing();
     callback reset-row();
 }
@@ -651,12 +649,6 @@ component RowEditor inherits Rectangle {
                     chosen: ControllerEditor.edit-encoder;
                     picked(i) => { ControllerEditor.set-encoder(i); }
                 }
-                Rectangle { horizontal-stretch: 1; }
-            }
-            if !ControllerEditor.edit-is-button: EditField {
-                label: "Pick-up";
-                hint: "The knob only takes over once it passes the value on screen, so nothing jumps.";
-                Switch { on: ControllerEditor.edit-pickup; toggled(on) => { ControllerEditor.set-pickup(on); } }
                 Rectangle { horizontal-stretch: 1; }
             }
             EditField {

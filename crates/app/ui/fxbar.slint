@@ -8,7 +8,7 @@
 // in 4-Deck each deck's three are stacked in one-line rows. The FX button
 // in the top bar shows and hides the bar.
 import { Theme } from "theme.slint";
-import { Controls } from "controls.slint";
+import { Controls, PickupDot, PickupGhost } from "controls.slint";
 import { EffectList } from "deck.slint";
 
 // ‹ or ›, stepping to the previous or next effect.
@@ -93,6 +93,7 @@ component BeatChooser inherits HorizontalLayout {
 component ParamSlider inherits Rectangle {
     in property <int> index;
     property <float> pos: Controls.parameter(index, Controls.tick);
+    property <float> hardware: Controls.hardware(index, Controls.tick);
     property <length> thumb: 14px;
     property <length> travel: self.width - thumb;
     property <float> drag-start;
@@ -110,6 +111,13 @@ component ParamSlider inherits Rectangle {
         width: 1px;
         height: 8px;
         background: #3a3a3e;
+    }
+    if hardware >= 0: PickupGhost {
+        x: hardware * travel;
+        width: thumb;
+        height: thumb;
+        border-radius: thumb / 2;
+        arrow: false;
     }
     Rectangle {
         x: pos * travel;
@@ -154,6 +162,7 @@ component DwKnob inherits Rectangle {
     property <float> param: Controls.parameter(index, Controls.tick);
     property <float> drag-start;
     property <angle> a: -135deg + param * 270deg;
+    property <float> hardware: Controls.hardware(index, Controls.tick);
     width: 20px;
     height: 20px;
     Rectangle {
@@ -171,6 +180,7 @@ component DwKnob inherits Rectangle {
         MoveTo { x: 50 + 4 * sin(a); y: 50 - 4 * cos(a); }
         LineTo { x: 50 + 34 * sin(a); y: 50 - 34 * cos(a); }
     }
+    if hardware >= 0: PickupDot { at: hardware; tint: tint; }
     ta := TouchArea {
         mouse-cursor: ns-resize;
         pointer-event(e) => {

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::list_picker::{Picker, Ticked};
 use opendj_control::ControlRegistry;
-use opendj_controllers::{device_key, own, support, Controllers, MappingChoice, Port};
+use opendj_controllers::{device_key, own, pickup, support, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
     analysis, beatthis, cache, channel_names, deck_group, input_devices, key, InputRole,
@@ -1453,6 +1453,21 @@ impl Prefs {
                         &detail,
                     )
                 }];
+                // Knobs and faders moved on screen wait for the hardware
+                // to reach them (Pick-up), or catch up with it (Scale).
+                if choice != MappingChoice::Off {
+                    rows.push(PrefItem {
+                        choices: strings(&["Pick-up", "Scale"]),
+                        chosen: pickup::scale(&device_key(&port.name)) as i32,
+                        ..item(
+                            &format!("controller_takeover:{}", port.name),
+                            MENU,
+                            "Knobs and faders",
+                            "After one moves on screen, Pick-up waits until the hardware reaches \
+                             it; Scale takes over at once and closes the gap as you move.",
+                        )
+                    });
+                }
                 // A mapping of the DJ's own with two-deck and four-deck
                 // layouts (VirtualDJ's K2): which one, and the deck order.
                 if let Some(own) = own_in_use(c, port).filter(|o| o.mapping.decks.is_some()) {
@@ -2190,6 +2205,13 @@ impl Prefs {
                     settings::set_controller_mappings(&c.choices());
                 }
             }
+            self.refresh();
+            return;
+        }
+        if let Some(port) = id.strip_prefix("controller_takeover:") {
+            let key = device_key(port);
+            pickup::set_scale(&key, index == 1);
+            settings::set_controller_scaled(&key, index == 1);
             self.refresh();
             return;
         }
