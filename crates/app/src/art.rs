@@ -15,6 +15,8 @@ use opendj_engine::{Source, Track};
 const THUMB_SIZE: u32 = 56;
 
 pub struct Art {
+    /// Longest side of the images, in pixels.
+    size: u32,
     requests: Sender<(String, PathBuf, String)>,
     found: Receiver<(String, Option<Cover>)>,
     /// `None` while being looked for or when the track has none.
@@ -23,13 +25,19 @@ pub struct Art {
 
 impl Art {
     pub fn start() -> Self {
+        Self::sized(THUMB_SIZE)
+    }
+
+    /// Covers at most `size` pixels on their longest side, such as the
+    /// Albums source's covers.
+    pub fn sized(size: u32) -> Self {
         let (requests, rx) = mpsc::channel::<(String, PathBuf, String)>();
         let (tx, found) = mpsc::channel();
         std::thread::Builder::new()
             .name("album-art".into())
             .spawn(move || {
                 for (key, path, album) in rx {
-                    let cover = cover::find_sized(&path, &album, THUMB_SIZE);
+                    let cover = cover::find_sized(&path, &album, size);
                     if tx.send((key, cover)).is_err() {
                         break;
                     }
@@ -37,6 +45,7 @@ impl Art {
             })
             .expect("spawn album art thread");
         Self {
+            size,
             requests,
             found,
             images: RefCell::default(),
@@ -79,7 +88,7 @@ impl Art {
     /// now on (after its cover changed).
     pub fn set(&self, track: &Track, data: &[u8]) {
         if let Some(key) = Self::key(track) {
-            let image = cover::decode(data, THUMB_SIZE).map(|c| image(&c));
+            let image = cover::decode(data, self.size).map(|c| image(&c));
             self.images.borrow_mut().insert(key, image);
         }
     }

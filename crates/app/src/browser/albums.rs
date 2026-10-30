@@ -7,15 +7,50 @@
 //! Play Album puts an album on the Automix list and plays it through
 //! gaplessly.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use opendj_engine::Track;
+use slint::{ComponentHandle, ModelRc, VecModel};
 
 use super::{
     file_path, is_browsed, Browser, Contents, Node, ALBUMS, KIND_ALBUM, KIND_FOLDER, KIND_MIX,
 };
-use crate::LibraryEdit;
+use crate::{settings, AlbumTile, AlbumsUi, LibraryEdit};
+
+/// Longest side of a cover in the covers view: twice its width, for HiDPI
+/// screens.
+pub(super) const COVER_SIZE: u32 = 360;
+
+/// Whether the Albums source shows covers rather than a list.
+const ALBUMS_COVERS: &str = "albums_covers";
+
+/// What most of `values` are, ignoring empty ones and case; `None` when
+/// none is shared by more than half of them.
+fn most(values: &[&str]) -> Option<String> {
+    let mut counts: HashMap<String, (usize, &str)> = HashMap::new();
+    for v in values.iter().map(|v| v.trim()).filter(|v| !v.is_empty()) {
+        counts.entry(v.to_lowercase()).or_insert((0, v)).0 += 1;
+    }
+    counts
+        .into_values()
+        .max_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(a.1)))
+        .filter(|(n, _)| 2 * n > values.len())
+        .map(|(_, v)| v.to_string())
+}
+
+/// An album's name and artist, from its tracks' album and artist tags:
+/// the album most have (else the folder's name), and the artist most have
+/// (else "Various Artists").
+fn album_title(dir: &Path, albums: &[&str], artists: &[&str]) -> (String, String) {
+    let name = most(albums).unwrap_or_else(|| {
+        dir.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    });
+    let artist = most(artists).unwrap_or_else(|| "Various Artists".into());
+    (name, artist)
+}
 
 /// The tree of `root`'s folders that hold some of `files`, under a node
 /// for all of them. Folders with tracks right in them are `leaf` kind
@@ -231,6 +266,152 @@ impl Browser {
         self.refresh_side();
     }
 
+    pub(super) fn install_album_covers(
+        ui: &AlbumsUi,
+        with: &(impl Fn(&dyn Fn(&mut Browser)) + Clone + 'static),
+    ) {
+        ui.set_covers(settings::flag(ALBUMS_COVERS, true));
+        let w = with.clone();
+        ui.on_set_covers(move |on| {
+            w(&|b| {
+                settings::set(ALBUMS_COVERS, serde_json::json!(on));
+                b.album_back = None;
+                b.refresh_album_ui();
+            })
+        });
+        let w = with.clone();
+        ui.on_open(move |i| w(&|b| b.open_album(i as usize)));
+        let w = with.clone();
+        ui.on_back(move || {
+            w(&|b| {
+                let back = b.album_back.take().or_else(|| {
+                    // The folder above the album: its artist, or All Albums.
+                    let depth = b.nodes.get(b.current_node)?.depth;
+                    (0..b.current_node)
+                        .rev()
+                        .find(|&n| b.nodes[n].depth < depth)
+                });
+                if let Some(n) = back {
+                    b.show_node(n);
+                }
+            })
+        });
+        let w = with.clone();
+        ui.on_play(move |i, add| {
+            w(&|b| {
+                if let Some(dir) = b.album_tiles.get(i as usize).cloned() {
+                    b.play_album(&dir, add);
+                }
+            })
+        });
+    }
+
+    /// Whether the Albums source shows covers (when the folder selected
+    /// isn't an album itself).
+    fn showing_covers(&self) -> bool {
+        self.tree == ALBUMS && settings::flag(ALBUMS_COVERS, true)
+    }
+
+    /// Whether the node selected is an album.
+    fn on_album(&self) -> bool {
+        self.nodes
+            .get(self.current_node)
+            .is_some_and(|n| n.kind == KIND_ALBUM)
+    }
+
+    /// Shows the covers view (or not) for what the list now holds: one
+    /// tile per album folder among the listed tracks, in their order.
+    pub(super) fn refresh_album_ui(&mut self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let ui = app.global::<AlbumsUi>();
+        let covers = self.showing_covers();
+        let grid = covers && !self.on_album();
+        ui.set_offered(self.tree == ALBUMS);
+        ui.set_covers(covers || (self.tree != ALBUMS && settings::flag(ALBUMS_COVERS, true)));
+        ui.set_grid(grid);
+        ui.set_opened(covers && self.on_album());
+        if !grid {
+            if !self.album_tiles.is_empty() {
+                self.album_tiles.clear();
+                ui.set_tiles(ModelRc::default());
+            }
+            return;
+        }
+        let mut order: Vec<PathBuf> = Vec::new();
+        let mut tracks: HashMap<PathBuf, Vec<usize>> = HashMap::new();
+        for &i in self.rows.iter().flatten() {
+            let Some(dir) = file_path(&self.library[i]).and_then(Path::parent) else {
+                continue;
+            };
+            let list = tracks.entry(dir.to_path_buf()).or_default();
+            if list.is_empty() {
+                order.push(dir.to_path_buf());
+            }
+            list.push(i);
+        }
+        let tiles: Vec<AlbumTile> = order
+            .iter()
+            .map(|dir| {
+                let ids = &tracks[dir];
+                let albums: Vec<&str> = ids
+                    .iter()
+                    .map(|&i| self.library[i].album.as_str())
+                    .collect();
+                let artists: Vec<&str> = ids
+                    .iter()
+                    .map(|&i| self.library[i].artist.as_str())
+                    .collect();
+                let (name, artist) = album_title(dir, &albums, &artists);
+                let cover = self.album_art.get(&self.library[ids[0]]);
+                AlbumTile {
+                    name: name.into(),
+                    artist: artist.into(),
+                    has_cover: cover.is_some(),
+                    cover: cover.unwrap_or_default(),
+                }
+            })
+            .collect();
+        self.album_tiles = order;
+        ui.set_tiles(ModelRc::new(VecModel::from(tiles)));
+    }
+
+    /// Selects tree node `n` and lists it, as clicking it does.
+    fn show_node(&mut self, n: usize) {
+        self.current_node = n;
+        // The folders above it open, so it shows in the tree.
+        let mut depth = self.nodes[n].depth;
+        for i in (0..n).rev() {
+            if self.nodes[i].depth < depth {
+                self.nodes[i].expanded = true;
+                depth = self.nodes[i].depth;
+            }
+        }
+        if let Some(app) = self.app.upgrade() {
+            app.set_current_track(-1);
+        }
+        self.refresh_tree();
+        self.refresh_rows();
+    }
+
+    /// Opens the album at `index` of the covers: its tracks in the list,
+    /// with "‹ Albums" back to the covers.
+    fn open_album(&mut self, index: usize) {
+        let Some(dir) = self.album_tiles.get(index) else {
+            return;
+        };
+        let Some(n) = self
+            .nodes
+            .iter()
+            .position(|n| matches!(&n.contents, Contents::Under(d) if d == dir))
+        else {
+            return;
+        };
+        self.album_back = Some(self.current_node);
+        self.show_node(n);
+    }
+
     /// Whether Play Album was picked since this was last asked: Automix
     /// then plays the Automix list gaplessly.
     pub fn take_album_request(&mut self) -> bool {
@@ -241,6 +422,24 @@ impl Browser {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_album_is_named_by_most_of_its_tags() {
+        let dir = Path::new("/m/Albums/Air/Moon Safari");
+        assert_eq!(
+            album_title(
+                dir,
+                &["Moon Safari", "moon safari", ""],
+                &["Air", "Air", "Air"]
+            ),
+            ("Moon Safari".into(), "Air".into())
+        );
+        // No album tags: the folder's name; artists all differ: various.
+        assert_eq!(
+            album_title(dir, &["", ""], &["Air", "Beck"]),
+            ("Moon Safari".into(), "Various Artists".into())
+        );
+    }
 
     #[test]
     fn albums_nest_under_their_artist() {

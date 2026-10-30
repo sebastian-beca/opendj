@@ -702,6 +702,7 @@ impl Browser {
         // Every list showing the track, and any deck it's on, shows the
         // new cover at once.
         self.art.set(&t, data);
+        self.album_art.set(&t, data);
         let cover = cover::decode(data, cover::COVER_SIZE).map(Arc::new);
         self.engine.set_cover(path, cover);
         if self
