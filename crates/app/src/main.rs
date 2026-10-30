@@ -35,6 +35,7 @@ use smooth::SmoothClock;
 slint::include_modules!();
 
 mod analysis_queue;
+mod apple_music;
 mod art;
 mod automix;
 mod browser;

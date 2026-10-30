@@ -6242,6 +6242,7 @@ dependencies = [
  "opendj-waveform",
  "read-fonts",
  "rfd",
+ "ring",
  "rusty-chromaprint",
  "serde_json",
  "sha2",
