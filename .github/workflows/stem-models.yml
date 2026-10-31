@@ -5,7 +5,9 @@ name: Publish stem models
 # and fetches the Beat This! beat detection models (ONNX, from beat-this-rs),
 # checks them against scripts/models/SHA256SUMS, which the app pins too, and
 # attaches them to the `stem-models` pre-release. Run it by hand from the
-# Actions tab once, and again only if the models change.
+# Actions tab once, and again when a model is added. Models already on the
+# release are kept as they are: the Spleeter conversion isn't byte-for-byte
+# repeatable across TensorFlow builds, and the app pins the published bytes.
 
 on:
   workflow_dispatch:
@@ -18,10 +20,18 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - name: Keep the models already published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p models
+          gh release download stem-models -D models 2>/dev/null || true
+          ls -l models
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Convert Spleeter, fetch HTDemucs
+        if: hashFiles('models/spleeter-4stems.safetensors') == '' || hashFiles('models/htdemucs.safetensors') == ''
         run: |
           pip install tensorflow-cpu==2.21.0 numpy==2.5.4 safetensors==0.8.0
           mkdir -p models work/4stems
@@ -30,6 +40,7 @@ jobs:
           python3 scripts/models/convert_spleeter.py work/4stems/model models/spleeter-4stems.safetensors
           curl -sSfL -o models/htdemucs.safetensors https://huggingface.co/set-soft/audio_separation/resolve/main/Demucs/htdemucs.safetensors
       - name: Fetch Beat This!
+        if: hashFiles('models/beat-this-mel.onnx') == '' || hashFiles('models/beat-this-small.onnx') == ''
         run: |
           base=https://raw.githubusercontent.com/danigb/beat-this-rs/1ae768e78f1ad83b0ed3886241dc29ffde853c40/models
           curl -sSfL -o models/beat-this-mel.onnx "$base/mel_spectrogram.onnx"
