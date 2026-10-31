@@ -375,13 +375,17 @@ export component ControlFader inherits Rectangle {
     // Switched off: greyed out with the handle in the centre, and it can't
     // be moved.
     in property <bool> disabled: false;
+    // Held by something else (Automix and the crossfader): it still moves,
+    // outlined in Automix green with a lock on the handle, but can't be
+    // dragged or scrolled.
+    in property <bool> locked: false;
     // A right-click, at that point along the fader.
     callback context-menu(length, length);
     property <int> index: Controls.resolve(group, key);
     property <float> param: Controls.parameter(index, Controls.tick);
     property <float> pos: disabled ? 0.5 : inverted ? 1 - param : param;
     // Where a controller's fader is while it waits to pick this one up.
-    property <float> hardware: disabled ? -1 : Controls.hardware(index, Controls.tick);
+    property <float> hardware: disabled || locked ? -1 : Controls.hardware(index, Controls.tick);
     property <float> hardware-pos: inverted ? 1 - hardware : hardware;
     property <float> drag-start;
     // Only a left-button drag moves it.
@@ -413,7 +417,20 @@ export component ControlFader inherits Rectangle {
         border-radius: 2px;
         background: #050506;
         border-width: 1px;
-        border-color: #2a2a2d;
+        border-color: locked ? Theme.automix.with-alpha(0.6) : #2a2a2d;
+    }
+    // Locked: the slot lights green from the centre (or the bottom) to the
+    // handle.
+    if locked: Rectangle {
+        property <float> from: center-mark ? 0.5 : 0;
+        property <float> lo: min(from, pos);
+        property <float> hi: max(from, pos);
+        x: vertical ? (parent.width - 4px) / 2 : handle / 2 + lo * travel;
+        y: vertical ? handle / 2 + (1 - hi) * travel : (parent.height - 4px) / 2;
+        width: vertical ? 4px : (hi - lo) * travel;
+        height: vertical ? (hi - lo) * travel : 4px;
+        border-radius: 2px;
+        background: Theme.automix;
     }
     // The controller's fader, under the handle.
     if hardware >= 0: PickupGhost {
@@ -435,19 +452,29 @@ export component ControlFader inherits Rectangle {
             ? @linear-gradient(180deg, #b0b0b5 0%, #8a8a8f 45%, #5f5f64 100%)
             : @linear-gradient(90deg, #b0b0b5 0%, #8a8a8f 45%, #5f5f64 100%);
         border-width: 1px;
-        border-color: touch.pressed ? root.tint : #2a2a2d;
+        border-color: locked ? Theme.automix : touch.pressed ? root.tint : #2a2a2d;
         drop-shadow-blur: 4px;
         drop-shadow-color: #000000a0;
-        Rectangle {
+        if !locked: Rectangle {
             width: vertical ? parent.width - 8px : 1px;
             height: vertical ? 1px : parent.height - 8px;
             background: #2a2a2d;
         }
+        // A padlock in place of the grip line.
+        if locked: Path {
+            width: 10px;
+            height: 10px;
+            viewbox-width: 10;
+            viewbox-height: 10;
+            fill: #1d1d20;
+            commands: "M 1.5 4.5 L 8.5 4.5 L 8.5 10 L 1.5 10 Z M 3 4.5 L 3 3 A 2 2 0 0 1 7 3 L 7 4.5 L 6 4.5 L 6 3 A 1 1 0 0 0 4 3 L 4 4.5 Z";
+        }
     }
     touch := TouchArea {
+        mouse-cursor: locked ? MouseCursor.not-allowed : MouseCursor.default;
         pointer-event(e) => {
             if e.kind == PointerEventKind.down {
-                dragging = e.button == PointerEventButton.left && !disabled;
+                dragging = e.button == PointerEventButton.left && !disabled && !locked;
                 drag-start = pos;
                 if e.button == PointerEventButton.right {
                     root.context-menu(self.mouse-x, self.mouse-y);
@@ -465,7 +492,7 @@ export component ControlFader inherits Rectangle {
             }
         }
         double-clicked => {
-            if !disabled {
+            if !disabled && !locked {
                 Controls.reset(index);
             }
         }
@@ -474,7 +501,7 @@ export component ControlFader inherits Rectangle {
         // crossfader too. Small steps follow a trackpad smoothly; a mouse
         // wheel's notch moves it at most 5%.
         scroll-event(e) => {
-            if disabled {
+            if disabled || locked {
                 return reject;
             }
             let d = vertical ? e.delta-y : (abs(e.delta-x / 1px) > abs(e.delta-y / 1px) ? -e.delta-x : e.delta-y);
@@ -494,12 +521,16 @@ export component ControlFader inherits Rectangle {
 // The crossfader. A right-click switches it off and on again
 // (`[Mixer],crossfader_enabled`, also in Settings > Mixer): while it is off
 // every deck plays as if set to thru, and the fader sits greyed out in the
-// centre.
+// centre. While Automix is on it drives the crossfader and holds it locked
+// (switched off or not): it slides with each mix, with a lock on the
+// handle, and the mouse and controllers can't move it until Automix stops.
 export component Crossfader inherits Rectangle {
     // Names it for the guided tour (see TourMark).
     in property <string> tour-id;
     property <int> enabled-index: Controls.resolve("[Mixer]", "crossfader_enabled");
     property <bool> on: Controls.value(enabled-index, Controls.tick) > 0;
+    property <int> automix-index: Controls.resolve("[AutoDJ]", "enabled");
+    property <bool> automix: Controls.value(automix-index, Controls.tick) > 0;
     property <length> menu-x;
     height: 28px;
     ControlFader {
@@ -510,7 +541,8 @@ export component Crossfader inherits Rectangle {
         vertical: false;
         center-mark: true;
         ticks: 9;
-        disabled: !on;
+        disabled: !on && !automix;
+        locked: automix;
         context-menu(x, y) => {
             menu-x = x;
             menu.show();
@@ -519,7 +551,7 @@ export component Crossfader inherits Rectangle {
     menu := PopupWindow {
         x: min(menu-x, root.width - self.width);
         y: root.height + 2px;
-        width: 150px;
+        width: automix ? 250px : 150px;
         Rectangle {
             background: Theme.panel-raised;
             border-radius: Theme.radius;
@@ -543,6 +575,15 @@ export component Crossfader inherits Rectangle {
                     vertical-alignment: center;
                 }
                 ta := TouchArea { clicked => { Controls.toggle(enabled-index); } }
+            }
+            // Why it won't move, and how to get it back.
+            if automix: Text {
+                height: 22px;
+                x: 10px;
+                text: "Automix has it: turn Automix off to take over";
+                color: Theme.automix;
+                font-size: 10px;
+                vertical-alignment: center;
             }
         }
     }
