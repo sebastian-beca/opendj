@@ -152,6 +152,10 @@ pub const SOURCE_NAMES: [&str; 12] = [
 
 /// Every source in the rail: the built-in ones, then add-ons' own (see
 /// [`crate::sources`]).
+/// The name Collection Health's rail button is hidden under, beside the
+/// hidden sources' names.
+const HEALTH_RAIL_NAME: &str = "Collection Health";
+
 fn all_source_names() -> Vec<String> {
     SOURCE_NAMES
         .iter()
@@ -1237,16 +1241,22 @@ impl Browser {
             .map(|n| !hidden.iter().any(|h| h == n))
             .collect();
         app.set_sources_shown(std::rc::Rc::new(slint::VecModel::from(shown)).into());
+        // Collection Health's rail button hides the same way.
+        app.global::<HealthUi>()
+            .set_rail_shown(!hidden.iter().any(|h| h == HEALTH_RAIL_NAME));
         let weak = app.as_weak();
         app.on_source_shown_changed(move |_, _| {
             let Some(app) = weak.upgrade() else { return };
             let shown = app.get_sources_shown();
-            let hidden = names
+            let mut hidden: Vec<String> = names
                 .iter()
                 .zip(shown.iter())
                 .filter(|(_, on)| !on)
                 .map(|(n, _)| n.to_string())
                 .collect();
+            if !app.global::<HealthUi>().get_rail_shown() {
+                hidden.push(HEALTH_RAIL_NAME.to_string());
+            }
             crate::settings::set_hidden_sources(hidden);
         });
         let ui = app.global::<StoreUi>();
