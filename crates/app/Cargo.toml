@@ -14,7 +14,7 @@ opendj-control = { path = "../control" }
 opendj-controllers = { path = "../controllers" }
 opendj-script = { path = "../script" }
 opendj-engine = { path = "../engine" }
-opendj-library = { version = "0.4.5", path = "../library" }
+opendj-library = { version = "0.4.6", path = "../library" }
 opendj-export = { path = "../export" }
 opendj-plugins = { path = "../plugins" }
 opendj-waveform = { path = "../waveform" }
