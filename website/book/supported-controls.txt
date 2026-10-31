@@ -93,6 +93,7 @@
 [Channel1],beatlooproll_activate
 [Channel1],beats_adjust_faster
 [Channel1],beats_adjust_slower
+[Channel1],beats_downbeat_here
 [Channel1],beats_reset
 [Channel1],beats_scale_double
 [Channel1],beats_scale_half
@@ -212,6 +213,7 @@
 [Channel1],loop_out
 [Channel1],loop_scale
 [Channel1],loop_start_position
+[Channel1],metronome
 [Channel1],mute
 [Channel1],orientation
 [Channel1],pad_panel
@@ -365,6 +367,7 @@
 [Channel2],beatlooproll_activate
 [Channel2],beats_adjust_faster
 [Channel2],beats_adjust_slower
+[Channel2],beats_downbeat_here
 [Channel2],beats_reset
 [Channel2],beats_scale_double
 [Channel2],beats_scale_half
@@ -484,6 +487,7 @@
 [Channel2],loop_out
 [Channel2],loop_scale
 [Channel2],loop_start_position
+[Channel2],metronome
 [Channel2],mute
 [Channel2],orientation
 [Channel2],pad_panel
@@ -637,6 +641,7 @@
 [Channel3],beatlooproll_activate
 [Channel3],beats_adjust_faster
 [Channel3],beats_adjust_slower
+[Channel3],beats_downbeat_here
 [Channel3],beats_reset
 [Channel3],beats_scale_double
 [Channel3],beats_scale_half
@@ -756,6 +761,7 @@
 [Channel3],loop_out
 [Channel3],loop_scale
 [Channel3],loop_start_position
+[Channel3],metronome
 [Channel3],mute
 [Channel3],orientation
 [Channel3],pad_panel
@@ -909,6 +915,7 @@
 [Channel4],beatlooproll_activate
 [Channel4],beats_adjust_faster
 [Channel4],beats_adjust_slower
+[Channel4],beats_downbeat_here
 [Channel4],beats_reset
 [Channel4],beats_scale_double
 [Channel4],beats_scale_half
@@ -1028,6 +1035,7 @@
 [Channel4],loop_out
 [Channel4],loop_scale
 [Channel4],loop_start_position
+[Channel4],metronome
 [Channel4],mute
 [Channel4],orientation
 [Channel4],pad_panel

@@ -125,8 +125,8 @@ component GridNudge inherits HorizontalLayout {
 
 // Beat grid editing, opened from the tempo on the jog: move the grid,
 // adjust the tempo, and add or remove tempo sections for tracks whose
-// tempo drifts. Shows where the grid came from, locks it, and goes back
-// to the detected grid.
+// tempo drifts. Shows where the grid came from, clicks along with it,
+// locks it, and goes back to the detected grid.
 component GridMenu inherits PopupWindow {
     in property <string> group;
     in property <DeckInfo> info;
@@ -141,6 +141,7 @@ component GridMenu inherits PopupWindow {
         drop-shadow-color: #000000a0;
     }
     property <bool> locked: Controls.value(Controls.resolve(group, "bpmlock"), Controls.tick) > 0;
+    property <bool> clicking: Controls.value(Controls.resolve(group, "metronome"), Controls.tick) > 0;
     VerticalLayout {
         padding: 6px;
         spacing: 2px;
@@ -163,6 +164,12 @@ component GridMenu inherits PopupWindow {
         HorizontalLayout {
             height: 26px;
             padding-left: 10px;
+            Text { text: "Metronome"; color: Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+            ControlButton { group: group; key: "metronome"; text: clicking ? "On" : "Off"; font-size: 13px; width: 44px; }
+        }
+        HorizontalLayout {
+            height: 26px;
+            padding-left: 10px;
             Text { text: "Lock grid"; color: Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
             ControlButton { group: group; key: "bpmlock"; text: locked ? "On" : "Off"; font-size: 13px; width: 44px; }
         }
@@ -175,6 +182,7 @@ component GridMenu inherits PopupWindow {
             font-size: 13px;
             vertical-alignment: center;
         }
+        if !locked: GridMenuItem { group: group; key: "beats_downbeat_here"; text: "Bar 1 here"; }
         if !locked: GridMenuItem { group: group; key: "beats_translate_curpos"; text: "Put a beat here"; }
         if !locked: GridNudge { group: group; label: "Move grid"; less-key: "beats_translate_earlier"; more-key: "beats_translate_later"; less-text: "‹"; more-text: "›"; }
         if !locked: GridNudge { group: group; label: "Tempo here"; less-key: "beats_adjust_slower"; more-key: "beats_adjust_faster"; less-text: "−"; more-text: "+"; }
