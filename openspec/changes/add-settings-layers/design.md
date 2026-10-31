@@ -182,3 +182,9 @@ Layer: **1** = no setting, **2** = Settings page, **3** = Advanced, **–** = no
 
 Video, karaoke, timecode (until add-dvs), broadcast (until add-live-broadcast), VDJ login and DRM, iRemote, OS2L/OSC
 (belong to a lights add-on), AI prompt, skins.
+
+## Decisions (Seba, 2026-10-31)
+
+- Match key on load stays at ±1 by default.
+- Effect tails default to post-fader: they ring out after the fader closes.
+- Planned for v0.5.
