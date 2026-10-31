@@ -155,6 +155,14 @@ track again leaves it alone. Grids imported from another app come in
 locked. **Back to the detected grid** throws away your edits or the
 imported grid and uses openDJ's own.
 
+To check a grid by ear, turn on **Metronome** in the same menu: the deck
+clicks on every beat of the grid, higher on bar 1, through the deck's
+fader and cue like the music. If the clicks drift off the music, fix the
+grid while it plays: **Bar 1 here** on a downbeat puts bar 1 there,
+**Move grid** ‹ › nudges it, **Tempo here** − + changes the tempo, and
+**New tempo section from here** starts a new tempo where a live track
+speeds up or slows down.
+
 To analyse tracks yourself, right-click them and choose **Analyze Track**
 (or **Analyze 12 Tracks** for a shift-click selection), or right-click a
 list, folder or stage and choose **Analyze All**. They are analysed again

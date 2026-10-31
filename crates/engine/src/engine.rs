@@ -155,6 +155,10 @@ struct Deck {
     /// The `bpmlock` version last seen, so the DJ turning it is told apart
     /// from the engine showing a loaded track's lock.
     bpmlock_seen: u32,
+    /// The metronome: the last grid beat it passed, and the click playing
+    /// (samples into it, and its pitch).
+    metronome_beat: f64,
+    click: Option<(u32, f32)>,
     /// Playback speed reached at the end of the last buffer, in multiples of
     /// normal speed; negative plays backwards.
     velocity: f64,
@@ -941,6 +945,39 @@ impl Declick {
 
 /// The test tone at frame `n`: a 440 Hz beep, a quarter of full scale,
 /// 0.4 s on and 0.2 s off, faded in and out so it doesn't click.
+/// The metronome's next sample for deck `d`: a click as the play position
+/// passes each beat of its grid going forwards, higher on bar 1.
+fn metronome(d: &mut Deck, source_rate: f64, moving: bool, rate: f64) -> f32 {
+    const LENGTH: f64 = 0.05;
+    let Some(track) = &d.track else {
+        return 0.0;
+    };
+    let at = track.grid.beat_at(d.pos / source_rate);
+    if !moving {
+        // Starting right on a beat (from a cue, say) clicks it.
+        d.metronome_beat = (at - 0.001).floor();
+        return 0.0;
+    }
+    let beat = at.floor();
+    // Only a step to the next beat clicks: not a jump, a loop or reverse.
+    if beat == d.metronome_beat + 1.0 {
+        let bar_one = beat.rem_euclid(4.0) == 0.0;
+        d.click = Some((0, if bar_one { 1_760.0 } else { 1_320.0 }));
+    }
+    d.metronome_beat = beat;
+    let Some((n, hz)) = d.click else {
+        return 0.0;
+    };
+    let t = n as f64 / rate;
+    if t >= LENGTH {
+        d.click = None;
+        return 0.0;
+    }
+    d.click = Some((n + 1, hz));
+    let env = (t / 0.001).min(1.0) * (-t * 80.0).exp();
+    (0.4 * env * (std::f64::consts::TAU * hz as f64 * t).sin()) as f32
+}
+
 fn test_tone(n: u64, rate: f64) -> f32 {
     let t = n as f64 / rate;
     let at = t % 0.6;
@@ -1144,6 +1181,8 @@ impl Engine {
             loop_in_pending: false,
             grid_edit: None,
             bpmlock_seen: 0,
+            metronome_beat: f64::NAN,
+            click: None,
             velocity: 0.0,
             jog_pending: 0.0,
             search_quiet: 0.0,
@@ -1850,6 +1889,9 @@ impl Engine {
             vol: (f32, f32),
             xf: (f32, f32),
             pfl: bool,
+            /// The metronome is on and the deck has a grid: source frames
+            /// per second, to find the beat at the play position.
+            metronome: Option<f64>,
             /// This buffer's audio is in the deck's `shifted` buffer.
             shifted: bool,
             /// Dragging a scrolling waveform: fast passes are softened.
@@ -2026,6 +2068,9 @@ impl Engine {
                 vol: (d.volume, volume),
                 xf: (self.xfade[i], xfade_target[i]),
                 pfl: d.c.pfl.get_bool(),
+                metronome: (d.c.metronome.get_bool()
+                    && d.track.as_ref().is_some_and(|t| !t.grid.is_empty()))
+                .then_some(sr),
             }
         });
         let master = (self.master_gain, master_target);
@@ -2105,6 +2150,10 @@ impl Engine {
                 }
                 s = d.sculpt.process(s);
                 s = self.fx.process(i, s, r);
+                if let Some(sr) = p.metronome {
+                    let c = metronome(d, sr, p.moving, out_rate);
+                    s = [s[0] + c, s[1] + c];
+                }
                 for c in 0..2 {
                     deck_peak[i][c] = deck_peak[i][c].max(s[c].abs());
                 }
@@ -2287,6 +2336,7 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::beats::BeatGrid;
     use crate::loader::prepare;
     use crate::synth;
     use crate::track::Hotcue;
@@ -3465,6 +3515,39 @@ mod tests {
         run(&mut engine, 0.01);
         reg.get("[Channel1]", "play").unwrap().set_bool(true);
         record(&mut engine, 1.5)
+    }
+
+    #[test]
+    fn the_metronome_clicks_on_each_beat_of_the_grid() {
+        let mut t = (*short_track(120.0, 4.0)).clone();
+        t.set_grid(BeatGrid::constant(120.0, 0.1));
+        let track = Arc::new(t);
+        let dry = render(&track, |_| {});
+        let wet = render(&track, |reg| {
+            reg.get("[Channel1]", "metronome").unwrap().set_bool(true);
+        });
+        // Where the click starts after a quiet spell, in seconds.
+        let mut clicks = Vec::new();
+        let mut quiet = usize::MAX;
+        for (f, (w, d)) in wet.chunks(2).zip(dry.chunks(2)).enumerate() {
+            if (w[0] - d[0]).abs() > 0.05 {
+                if quiet > (0.1 * SR) as usize {
+                    clicks.push(f as f64 / SR);
+                }
+                quiet = 0;
+            } else {
+                quiet = quiet.saturating_add(1);
+            }
+        }
+        // The deck starts at the first beat, 0.1 s into the track.
+        assert_eq!(clicks.len(), 4, "{clicks:?}");
+        for (k, at) in clicks.iter().enumerate() {
+            let beat = 0.5 * k as f64;
+            assert!(
+                (at - beat).abs() < 0.015,
+                "click {k} at {at}, beat at {beat}"
+            );
+        }
     }
 
     fn rms_difference(a: &[f32], b: &[f32]) -> f32 {

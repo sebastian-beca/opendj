@@ -211,6 +211,9 @@ pub(crate) struct DeckControls {
     /// The loaded track's beat grid is locked (Mixxx's `bpmlock`): turning
     /// it on or off locks or unlocks the grid.
     pub(crate) bpmlock: ControlHandle,
+    /// Clicks on each beat of the grid, louder on bar 1 (openDJ's own), to
+    /// check the grid by ear.
+    pub(crate) metronome: ControlHandle,
     /// Key shift in semitones on top of the file's key (Mixxx's `pitch`;
     /// `pitch_adjust` is the same control here).
     pub(crate) pitch: ControlHandle,
@@ -431,6 +434,7 @@ impl DeckControls {
             rolls,
             keylock: reg.toggle(g, "keylock"),
             bpmlock: reg.toggle(g, "bpmlock"),
+            metronome: reg.toggle(g, "metronome"),
             pitch: reg.create(g, "pitch", 0.0, -6.0, 6.0, Behavior::Linear),
             key: reg.indicator(g, "key", 24.0),
             file_key: reg.indicator(g, "file_key", 24.0),
@@ -541,7 +545,12 @@ pub(crate) fn deck_pushes(reg: &ControlRegistry, g: &str) -> Vec<Push> {
             Action::Grid(GridEdit::Tempo(-0.01)),
         ),
         ("beats_undo_adjustment".into(), Action::Grid(GridEdit::Undo)),
-        // Not in Mixxx: back to the grid analysis found.
+        // Not in Mixxx: bar 1 on the beat here, and back to the grid
+        // analysis found.
+        (
+            "beats_downbeat_here".into(),
+            Action::Grid(GridEdit::BarHere),
+        ),
         ("beats_reset".into(), Action::Grid(GridEdit::Reset)),
         // Not in Mixxx: tempo sections and halving or doubling.
         (
