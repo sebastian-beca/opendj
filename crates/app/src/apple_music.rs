@@ -203,7 +203,7 @@ impl Worker {
             });
             if let Err(e) = result {
                 self.session = None;
-                self.emit(Event::Status(format!("Couldn't sign in again: {e}")));
+                self.emit(Event::SignInFailed(format!("Couldn't sign in again: {e}")));
             }
         }
         for request in requests {
@@ -225,6 +225,15 @@ impl Worker {
                 },
                 // Only playlists' tracks are fetched from here.
                 Request::Lookup(_) => {}
+                Request::Playlists => {
+                    let result = match self.session {
+                        Some(_) => self.connected(),
+                        None => Err("Not signed in".into()),
+                    };
+                    if let Err(e) = result {
+                        self.emit(Event::SignInFailed(format!("Couldn't refresh: {e}")));
+                    }
+                }
                 Request::Disconnect => {
                     if let Some(s) = self.session.take() {
                         s.key.saved("").store(SAVED);
@@ -242,7 +251,7 @@ impl Worker {
         let mut playlists = vec![Playlist {
             key: LIKED.into(),
             name: "Songs".into(),
-            total: 0,
+            ..Default::default()
         }];
         let items = self.get_all(&format!("{API}/v1/me/library/playlists"), MAX_TRACKS)?;
         playlists.extend(items.iter().filter_map(parse_playlist));
@@ -402,6 +411,10 @@ fn parse_playlist(v: &Value) -> Option<Playlist> {
             .unwrap_or("Playlist")
             .to_string(),
         total: 0,
+        version: v["attributes"]["lastModifiedDate"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
     })
 }
 

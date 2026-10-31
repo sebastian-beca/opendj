@@ -1238,6 +1238,8 @@ component FolderTree inherits Rectangle {
     callback spotify-connect(client-id: string);
     callback spotify-disconnect();
     callback spotify-copy();
+    // Fetch the streaming service's playlists again.
+    callback spotify-refresh();
     // The node being named, and the name typed so far.
     property <int> rename-index: -1;
     property <string> rename-text;
@@ -1606,6 +1608,10 @@ component FolderTree inherits Rectangle {
                 padding-left: 8px;
                 spacing: 8px;
                 Text { text: "Signed in as " + spotify-user; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                Text {
+                    text: "Refresh"; color: Theme.accent; font-size: 12px; vertical-alignment: center;
+                    TouchArea { clicked => { spotify-refresh(); } }
+                }
                 Text {
                     text: "Sign out"; color: Theme.accent; font-size: 12px; vertical-alignment: center;
                     TouchArea { clicked => { spotify-disconnect(); } }
@@ -3273,6 +3279,8 @@ export component Browser inherits HorizontalLayout {
     callback spotify-connect(client-id: string);
     callback spotify-disconnect();
     callback spotify-copy();
+    // Fetch the streaming service's playlists again.
+    callback spotify-refresh();
     callback select-folder(index: int);
     callback toggle-folder(index: int);
     callback sort(column: int);
@@ -3342,6 +3350,7 @@ export component Browser inherits HorizontalLayout {
         spotify-connect(id) => { spotify-connect(id); }
         spotify-disconnect => { spotify-disconnect(); }
         spotify-copy => { spotify-copy(); }
+        spotify-refresh => { spotify-refresh(); }
     }
     // The Collection Health page, or the bar over one check's tracks.
     property <bool> cleanup-page: source == 0 && (CleanupUi.open || CleanupUi.genres-open);

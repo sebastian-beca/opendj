@@ -111,7 +111,7 @@ impl Worker {
             });
             if let Err(e) = result {
                 self.session = None;
-                self.emit(Event::Status(format!("Couldn't sign in again: {e}")));
+                self.emit(Event::SignInFailed(format!("Couldn't sign in again: {e}")));
             }
         }
         for request in requests {
@@ -139,6 +139,15 @@ impl Worker {
                 },
                 // Only playlists' tracks are fetched from here.
                 Request::Lookup(_) => {}
+                Request::Playlists => {
+                    let result = match self.session {
+                        Some(_) => self.connected(),
+                        None => Err("Not signed in".into()),
+                    };
+                    if let Err(e) = result {
+                        self.emit(Event::SignInFailed(format!("Couldn't refresh: {e}")));
+                    }
+                }
                 Request::Disconnect => {
                     if let Some(s) = self.session.take() {
                         Saved {
@@ -167,11 +176,13 @@ impl Worker {
                 key: LIKED.into(),
                 name: "Likes".into(),
                 total: me["public_favorites_count"].as_u64().unwrap_or(0) as usize,
+                ..Default::default()
             },
             Playlist {
                 key: UPLOADS.into(),
                 name: "My Tracks".into(),
                 total: me["track_count"].as_u64().unwrap_or(0) as usize,
+                ..Default::default()
             },
         ];
         // Their own playlists, then those they liked.
@@ -413,6 +424,7 @@ fn parse_playlist(v: &Value) -> Option<Playlist> {
         key: urn(v, "playlists")?,
         name: v["title"].as_str().unwrap_or("Playlist").to_string(),
         total: v["track_count"].as_u64().unwrap_or(0) as usize,
+        version: v["last_modified"].as_str().unwrap_or_default().to_string(),
     })
 }
 

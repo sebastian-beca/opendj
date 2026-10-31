@@ -685,6 +685,8 @@ export component AppWindow inherits Window {
     callback spotify-connect(client-id: string);
     callback spotify-disconnect();
     callback spotify-copy();
+    // Fetch the streaming service's playlists again.
+    callback spotify-refresh();
     callback select-folder(index: int);
     callback toggle-folder(index: int);
     callback sort(column: int);
@@ -954,6 +956,7 @@ export component AppWindow inherits Window {
                 spotify-connect(id) => { spotify-connect(id); }
                 spotify-disconnect => { spotify-disconnect(); }
                 spotify-copy => { spotify-copy(); }
+                spotify-refresh => { spotify-refresh(); }
                 rows: tracks;
                 sort-column: sort-column;
                 ascending: sort-ascending;
