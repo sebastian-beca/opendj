@@ -26,6 +26,8 @@ pub enum GridEdit {
     RemoveSection,
     /// Halves or doubles the tempo of the whole grid (`beats_scale_half`/`_double`).
     Scale(f64),
+    /// Puts a beat here and makes it the first of a bar (`beats_downbeat_here`).
+    BarHere,
     /// Takes back the last edit (`beats_undo_adjustment`).
     Undo,
     /// Locks or unlocks the grid against edits and analysis (`bpmlock`).
@@ -40,6 +42,7 @@ impl BeatGrid {
     pub fn edited(&self, edit: GridEdit, seconds: f64) -> Self {
         match edit {
             GridEdit::BeatHere => self.with_beat_at(seconds),
+            GridEdit::BarHere => self.with_beat_at(seconds).with_bar_at(seconds),
             GridEdit::Shift(by) => self.shifted(by),
             GridEdit::Tempo(by) => self.with_bpm_at(seconds, self.bpm_at(seconds) + by),
             GridEdit::AddSection => self.with_marker(seconds, self.bpm_at(seconds)),
@@ -219,6 +222,25 @@ impl BeatGrid {
         self.shifted(seconds - nearest)
     }
 
+    /// The grid renumbered so the beat nearest `seconds` starts a bar (bars
+    /// are four beats from beat 0). Beats stay where they are: a marker a
+    /// few beats before the first one takes its place.
+    pub fn with_bar_at(&self, seconds: f64) -> Self {
+        let Some(&first) = self.markers.first() else {
+            return self.clone();
+        };
+        let to_bar = (4.0 - self.beat_at(seconds).round().rem_euclid(4.0)).rem_euclid(4.0);
+        if to_bar == 0.0 {
+            return self.clone();
+        }
+        let mut markers = self.markers.clone();
+        markers.push(GridMarker {
+            seconds: first.seconds - to_bar * 60.0 / first.bpm,
+            bpm: first.bpm,
+        });
+        Self::new(markers)
+    }
+
     /// The grid with a new tempo section starting on the beat nearest
     /// `seconds`, at `bpm`. Later markers are kept.
     pub fn with_marker(&self, seconds: f64, bpm: f64) -> Self {
@@ -358,6 +380,31 @@ mod tests {
         for b in [-3.0, 0.0, 5.5, 15.9, 16.0, 40.25] {
             assert!(close(g.beat_at(g.seconds_at(b)), b));
         }
+    }
+
+    #[test]
+    fn bar_here_puts_bar_one_on_the_beat_and_keeps_the_beats() {
+        let grid = BeatGrid::constant(120.0, 0.25);
+        // 2.25 s is beat 4 (a downbeat already), 2.75 s is beat 5.
+        let moved = grid.edited(GridEdit::BarHere, 2.76);
+        assert!((moved.beat_at(2.76) - 8.0).abs() < 1e-9, "{:?}", moved);
+        assert!((moved.snap(10.26, false) - 10.26).abs() < 1e-9);
+        // A grid in sections keeps its later section.
+        let two = BeatGrid::new(vec![
+            GridMarker {
+                seconds: 0.0,
+                bpm: 120.0,
+            },
+            GridMarker {
+                seconds: 16.0,
+                bpm: 125.0,
+            },
+        ]);
+        let bar = two.with_bar_at(1.5);
+        assert_eq!(bar.beat_at(1.5).round().rem_euclid(4.0), 0.0);
+        assert!((bar.bpm_at(20.0) - 125.0).abs() < 1e-9);
+        assert!((bar.snap(16.0, false) - 16.0).abs() < 1e-9);
+        assert_eq!(bar.markers().len(), 2);
     }
 
     #[test]
