@@ -93,7 +93,7 @@ impl Worker {
                 });
             if let Err(e) = result {
                 self.session = None;
-                self.emit(Event::Status(format!("Couldn't sign in again: {e}")));
+                self.emit(Event::SignInFailed(format!("Couldn't sign in again: {e}")));
             }
         }
         for request in requests {
@@ -116,6 +116,15 @@ impl Worker {
                     Ok(found) => self.emit(Event::Found(found.into_values().collect())),
                     Err(e) => eprintln!("TIDAL: can't look tracks up: {e}"),
                 },
+                Request::Playlists => {
+                    let result = match self.session {
+                        Some(_) => self.connected(),
+                        None => Err("Not signed in".into()),
+                    };
+                    if let Err(e) = result {
+                        self.emit(Event::SignInFailed(format!("Couldn't refresh: {e}")));
+                    }
+                }
                 Request::Disconnect => {
                     if let Some(s) = self.session.take() {
                         Saved {
@@ -143,7 +152,7 @@ impl Worker {
         let mut playlists = vec![Playlist {
             key: LIKED.into(),
             name: "My Tracks".into(),
-            total: 0,
+            ..Default::default()
         }];
         // Their own playlists, then those they saved.
         let (own, _) = self.get_all(&format!("{API}/playlists?filter%5Bowners.id%5D=me"))?;
@@ -398,6 +407,7 @@ fn parse_playlist(v: &Value) -> Option<Playlist> {
         key: v["id"].as_str()?.to_string(),
         name: a["name"].as_str().unwrap_or("Playlist").to_string(),
         total: a["numberOfItems"].as_u64().unwrap_or(0) as usize,
+        version: a["lastModifiedAt"].as_str().unwrap_or_default().to_string(),
     })
 }
 

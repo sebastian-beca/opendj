@@ -73,7 +73,10 @@ impl Worker {
         if let Some(saved) = saved.filter(|s| !s.refresh_token.is_empty()) {
             self.emit(Event::Status("Connecting…".into()));
             if let Err(e) = self.connect(&saved.client_id) {
-                self.emit(Event::Status(e));
+                // Kept for a refresh, so lists kept from last time can be
+                // fetched once Mixcloud answers again.
+                self.user = Some(saved.client_id.clone());
+                self.emit(Event::SignInFailed(e));
             }
         }
         for request in requests {
@@ -91,6 +94,15 @@ impl Worker {
                 },
                 // Only playlists' tracks are fetched from here.
                 Request::Lookup(_) => {}
+                Request::Playlists => {
+                    let result = match self.user.clone() {
+                        Some(user) => self.connect(&user),
+                        None => Err("Not connected".into()),
+                    };
+                    if let Err(e) = result {
+                        self.emit(Event::SignInFailed(format!("Couldn't refresh: {e}")));
+                    }
+                }
                 Request::Disconnect => {
                     if let Some(user) = self.user.take() {
                         Saved {
@@ -123,7 +135,7 @@ impl Worker {
             .map(|(key, name)| Playlist {
                 key: key.to_string(),
                 name: name.to_string(),
-                total: 0,
+                ..Default::default()
             })
             .collect();
         let own = self.get_all(&format!("{API}/{}/playlists/", encode(user)), MAX_SHOWS)?;
@@ -227,6 +239,7 @@ fn parse_playlist(v: &Value) -> Option<Playlist> {
         key: v["key"].as_str()?.to_string(),
         name: v["name"].as_str().unwrap_or("Playlist").to_string(),
         total: 0,
+        version: v["updated_time"].as_str().unwrap_or_default().to_string(),
     })
 }
 

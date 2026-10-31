@@ -64,6 +64,7 @@ mod soundcloud;
 mod sources;
 mod spotify;
 mod stores;
+mod stream_cache;
 mod tidal;
 mod tour;
 mod ui_font;

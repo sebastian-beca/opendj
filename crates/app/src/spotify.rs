@@ -36,12 +36,17 @@ pub(crate) const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
 /// The key of the liked songs list, which is not a playlist in the API.
 pub const LIKED: &str = "liked";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Playlist {
     /// Spotify's playlist id, or [`LIKED`].
     pub key: String,
     pub name: String,
     pub total: usize,
+    /// What changes whenever the playlist's tracks change (Spotify's
+    /// snapshot id), or empty when the service gives nothing like it. A
+    /// playlist kept from last time whose version is the same isn't fetched
+    /// again.
+    pub version: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -97,12 +102,18 @@ pub enum Request {
     Tracks(String),
     /// Fetch these tracks by the service's ids, for their ISRCs.
     Lookup(Vec<String>),
+    /// Fetch the list of playlists again; answered with
+    /// [`Event::Connected`], or [`Event::SignInFailed`].
+    Playlists,
     Disconnect,
 }
 
 pub enum Event {
     /// Progress or an error to show while not connected.
     Status(String),
+    /// Signing in again with the saved sign-in, or fetching the playlists
+    /// again, didn't work. Playlists kept from last time stay browsable.
+    SignInFailed(String),
     Connected {
         user: String,
         playlists: Vec<Playlist>,
@@ -258,7 +269,7 @@ impl Worker {
                 });
             if let Err(e) = result {
                 self.session = None;
-                self.emit(Event::Status(format!("Couldn't sign in again: {e}")));
+                self.emit(Event::SignInFailed(format!("Couldn't sign in again: {e}")));
             }
         }
         for request in requests {
@@ -281,6 +292,15 @@ impl Worker {
                     Ok(tracks) => self.emit(Event::Found(tracks)),
                     Err(e) => eprintln!("Spotify: can't look tracks up: {e}"),
                 },
+                Request::Playlists => {
+                    let result = match self.session {
+                        Some(_) => self.connected(),
+                        None => Err("Not signed in".into()),
+                    };
+                    if let Err(e) = result {
+                        self.emit(Event::SignInFailed(format!("Couldn't refresh: {e}")));
+                    }
+                }
                 Request::Disconnect => {
                     if let Some(s) = self.session.take() {
                         Saved {
@@ -309,6 +329,7 @@ impl Worker {
             key: LIKED.into(),
             name: "Liked Songs".into(),
             total: liked["total"].as_u64().unwrap_or(0) as usize,
+            ..Default::default()
         }];
         let items = self.get_all(&format!("{API}/me/playlists?limit=50"))?;
         playlists.extend(items.iter().filter_map(parse_playlist));
@@ -505,6 +526,7 @@ fn parse_playlist(p: &Value) -> Option<Playlist> {
         key: p["id"].as_str()?.to_string(),
         name: p["name"].as_str().unwrap_or_default().to_string(),
         total: total as usize,
+        version: p["snapshot_id"].as_str().unwrap_or_default().to_string(),
     })
 }
 

@@ -54,6 +54,13 @@ Each service is signed in to with your own app, so openDJ ships no keys:
 - **Mixcloud**: just type your username. You see your shows, favourites,
   listening history and playlists; shows play on mixcloud.com.
 
+openDJ keeps your playlists and the tracks of those you opened, so after a
+restart they show straight away. A playlist you open is checked again in
+the background and updated if it changed (Spotify, TIDAL, SoundCloud and
+Apple Music say when a playlist changed, so unchanged ones aren't fetched
+again at all). **Refresh**, beside **Sign out**, fetches the list of
+playlists again. Signing out forgets what was kept.
+
 ## How tracks come in
 
 Tracks come into your collection in three ways:

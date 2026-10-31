@@ -594,11 +594,84 @@ struct StreamState {
     connected: bool,
     playlists: Vec<spotify::Playlist>,
     tracks: HashMap<String, Vec<StreamTrack>>,
+    /// The [`spotify::Playlist::version`] each playlist's tracks were
+    /// fetched at.
+    versions: HashMap<String, String>,
+    /// Playlists whose tracks are up to date: fetched since openDJ started
+    /// or since the last refresh, or kept from last time at the version the
+    /// service gives now. Others are fetched again in the background when
+    /// opened, showing the tracks kept from last time meanwhile.
+    fresh: HashSet<String>,
     loading: HashSet<String>,
     errors: HashMap<String, String>,
     /// Matches the DJ set by hand, by [`StreamTrack::match_key`]: the
     /// collection track's id, or None for none of them.
     manual: HashMap<String, Option<usize>>,
+}
+
+impl StreamState {
+    /// The state after the service listed `playlists` again: tracks kept
+    /// for playlists still there, up to date if their version is the same.
+    fn merged(old: StreamState, playlists: Vec<spotify::Playlist>) -> Self {
+        let keys: HashSet<&str> = playlists.iter().map(|p| p.key.as_str()).collect();
+        let mut tracks = old.tracks;
+        tracks.retain(|k, _| keys.contains(k.as_str()));
+        let mut versions = old.versions;
+        versions.retain(|k, _| tracks.contains_key(k));
+        let mut fresh = old.fresh;
+        for p in &playlists {
+            let same = versions.get(&p.key) == Some(&p.version);
+            if p.version.is_empty() {
+                continue;
+            } else if same && tracks.contains_key(&p.key) {
+                fresh.insert(p.key.clone());
+            } else {
+                fresh.remove(&p.key);
+            }
+        }
+        fresh.retain(|k| keys.contains(k.as_str()));
+        Self {
+            connected: old.connected,
+            playlists,
+            tracks,
+            versions,
+            fresh,
+            loading: old.loading,
+            errors: HashMap::new(),
+            manual: old.manual,
+        }
+    }
+}
+
+impl Stream {
+    /// Keeps the service's playlists for next time.
+    fn keep(&self) {
+        crate::stream_cache::store(
+            self.id,
+            &crate::stream_cache::Kept {
+                user: self.user.clone(),
+                playlists: self.state.playlists.clone(),
+                tracks: self.state.tracks.clone(),
+                versions: self.state.versions.clone(),
+            },
+        );
+    }
+
+    /// Shows the playlists kept from last time while the service signs in.
+    fn restore(&mut self, manual: HashMap<String, Option<usize>>) {
+        let Some(kept) = crate::stream_cache::load(self.id) else {
+            return;
+        };
+        self.user = kept.user;
+        self.state = StreamState {
+            connected: true,
+            playlists: kept.playlists,
+            tracks: kept.tracks,
+            versions: kept.versions,
+            manual,
+            ..Default::default()
+        };
+    }
 }
 
 /// What the list shows of a track, from the collection or Spotify.
@@ -1029,6 +1102,9 @@ impl Browser {
             cleanup: Default::default(),
         }));
         b.borrow_mut().set_library(library);
+        if STREAMING_ENABLED {
+            b.borrow_mut().restore_streams();
+        }
         app.global::<KeyNotation>().set_camelot(b.borrow().camelot);
         {
             let ui = app.global::<StoreUi>();
@@ -1302,6 +1378,8 @@ impl Browser {
         });
         let w = with.clone();
         app.on_spotify_copy(move || w(Box::new(|b| b.copy_stream_playlist())));
+        let w = with.clone();
+        app.on_spotify_refresh(move || w(Box::new(|b| b.refresh_stream())));
         {
             let ui = app.global::<StreamMatch>();
             let w = with.clone();
@@ -2254,6 +2332,37 @@ impl Browser {
         *nodes_ref = nodes;
     }
 
+    /// Shows each service's playlists kept from last time, before it has
+    /// signed in again.
+    fn restore_streams(&mut self) {
+        for i in 0..self.streams.len() {
+            let manual = self
+                .db
+                .as_ref()
+                .and_then(|db| db.stream_matches(self.streams[i].id).ok())
+                .unwrap_or_default();
+            self.streams[i].restore(manual);
+            if self.streams[i].state.connected {
+                self.rebuild_stream_tree(self.streams[i].source);
+            }
+        }
+    }
+
+    /// Fetches the shown service's playlists again, and the open playlist's
+    /// tracks; other playlists are fetched again when next opened.
+    fn refresh_stream(&mut self) {
+        let Some(st) = self.shown_stream_mut() else {
+            return;
+        };
+        if !st.state.connected {
+            return;
+        }
+        st.state.fresh.clear();
+        st.status = "Refreshing playlists…".into();
+        st.service.send(Request::Playlists);
+        self.show_stream();
+    }
+
     /// The streaming service shown in the tree, if one is.
     fn shown_stream(&self) -> Option<&Stream> {
         self.streams.iter().find(|s| s.source == self.tree)
@@ -2295,7 +2404,7 @@ impl Browser {
         // What copying the last playlist did is for that playlist only.
         stream.status.clear();
         let st = &mut stream.state;
-        if !st.tracks.contains_key(&key) && !st.loading.contains(&key) {
+        if !st.fresh.contains(&key) && !st.loading.contains(&key) {
             st.loading.insert(key.clone());
             st.errors.remove(&key);
             stream.service.send(Request::Tracks(key));
@@ -2431,18 +2540,19 @@ impl Browser {
                 match event {
                     Event::Status(s) => st.status = s,
                     Event::Connected { user, playlists } => {
+                        let old = std::mem::take(&mut st.state);
                         st.state = StreamState {
                             connected: true,
-                            playlists,
                             manual: self
                                 .db
                                 .as_ref()
                                 .and_then(|db| db.stream_matches(st.id).ok())
                                 .unwrap_or_default(),
-                            ..Default::default()
+                            ..StreamState::merged(old, playlists)
                         };
                         st.user = user;
                         st.status.clear();
+                        st.keep();
                         self.look_up_placed(i);
                         self.rebuild_stream_tree(source);
                         if shown {
@@ -2451,16 +2561,40 @@ impl Browser {
                             self.fetch_current_playlist();
                         }
                     }
+                    Event::SignInFailed(error) => {
+                        st.state.loading.clear();
+                        st.status = if st.state.connected {
+                            format!("{error} Showing your playlists from last time.")
+                        } else {
+                            error
+                        };
+                    }
                     Event::Tracks { key, tracks } => {
                         st.state.loading.remove(&key);
+                        st.state.errors.remove(&key);
+                        let version = st
+                            .state
+                            .playlists
+                            .iter()
+                            .find(|p| p.key == key)
+                            .map(|p| p.version.clone())
+                            .unwrap_or_default();
+                        st.state.versions.insert(key.clone(), version);
+                        st.state.fresh.insert(key.clone());
                         st.state.tracks.insert(key.clone(), tracks);
+                        st.keep();
                         if shown && self.current_playlist() == Some(key.as_str()) {
                             self.refresh_rows();
                         }
                     }
                     Event::TracksFailed { key, error } => {
                         st.state.loading.remove(&key);
-                        st.state.errors.insert(key.clone(), error);
+                        if st.state.tracks.contains_key(&key) {
+                            // The tracks from last time stay.
+                            st.status = format!("Couldn't refresh this playlist: {error}");
+                        } else {
+                            st.state.errors.insert(key.clone(), error);
+                        }
                         if shown && self.current_playlist() == Some(key.as_str()) {
                             self.refresh_rows();
                         }
@@ -2468,6 +2602,7 @@ impl Browser {
                     Event::Found(found) => self.found_placed(i, found),
                     Event::Disconnected => {
                         st.state = StreamState::default();
+                        crate::stream_cache::remove(st.id);
                         st.user.clear();
                         st.status.clear();
                         self.rebuild_stream_tree(source);
@@ -4174,7 +4309,7 @@ impl Browser {
         };
         if let Some(e) = st.errors.get(key) {
             e.clone()
-        } else if st.loading.contains(key) {
+        } else if st.loading.contains(key) && !st.tracks.contains_key(key) {
             "Loading…".into()
         } else if st.tracks.get(key).is_some_and(|t| t.is_empty()) {
             "This playlist is empty.".into()
@@ -4636,5 +4771,50 @@ mod drag_tests {
             [4, 0, 1, 2, 3],
             "range past the end is clipped"
         );
+    }
+}
+
+#[cfg(test)]
+mod stream_state_tests {
+    use super::{spotify::Playlist, StreamState};
+
+    fn playlist(key: &str, version: &str) -> Playlist {
+        Playlist {
+            key: key.into(),
+            name: key.into(),
+            total: 0,
+            version: version.into(),
+        }
+    }
+
+    #[test]
+    fn keeps_tracks_and_marks_unchanged_playlists_fresh() {
+        let mut old = StreamState {
+            connected: true,
+            ..Default::default()
+        };
+        for (key, version) in [
+            ("same", "v1"),
+            ("changed", "v1"),
+            ("liked", ""),
+            ("gone", "v1"),
+        ] {
+            old.tracks.insert(key.into(), Vec::new());
+            old.versions.insert(key.into(), version.into());
+        }
+        let new = StreamState::merged(
+            old,
+            vec![
+                playlist("same", "v1"),
+                playlist("changed", "v2"),
+                playlist("liked", ""),
+            ],
+        );
+        assert!(new.connected);
+        assert!(new.fresh.contains("same"));
+        assert!(!new.fresh.contains("changed"), "fetched again when opened");
+        assert!(!new.fresh.contains("liked"), "no version: fetched again");
+        assert!(new.tracks.contains_key("changed"), "shown until then");
+        assert!(!new.tracks.contains_key("gone"));
     }
 }
