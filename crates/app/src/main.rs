@@ -285,6 +285,25 @@ const FOUR_DECK_LAYOUT: i32 = 2;
 /// Dragging the waveform (`Waveform` in main.slint) uses the same figure.
 const VISIBLE_SECONDS: f64 = 10.0;
 
+/// Opens the window filling the screen when its preferred size (1680 x 1050
+/// in main.slint) doesn't fit, as on a 1512 x 982 MacBook: left at that
+/// size it would run off the bottom of the screen, under the Dock. Maximized
+/// keeps clear of the menu bar and the Dock or taskbar.
+fn fit_to_screen(app: &AppWindow) {
+    use slint::winit_030::WinitWindowAccessor;
+    app.window().with_winit_window(|w| {
+        let Some(monitor) = w.current_monitor() else {
+            return;
+        };
+        let screen = monitor.size().to_logical::<f64>(monitor.scale_factor());
+        let window = w.outer_size().to_logical::<f64>(w.scale_factor());
+        // Room for the menu bar and the Dock or taskbar.
+        if window.width > screen.width || window.height > screen.height - 80.0 {
+            w.set_maximized(true);
+        }
+    });
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::args().nth(1).as_deref() == Some("--list-controls") {
         list_controls();
@@ -1028,6 +1047,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         timer
     };
 
+    app.show()?;
+    fit_to_screen(&app);
     app.run()?;
     // Finishes the files, with the cue sheet, if the DJ quits mid-recording.
     recorder.stop();

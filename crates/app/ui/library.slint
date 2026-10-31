@@ -924,53 +924,66 @@ component SourceRail inherits Rectangle {
     property <[int]> order: [0, 1, 9, 10, 2, 3, 4, 5, 6, 7, 8, 11];
     width: 52px;
     background: Theme.browser;
-    rail := VerticalLayout {
-        padding: 5px;
+    // On a short window the sources scroll under the "•••", which stays in
+    // view; they would otherwise set how short the whole window can be.
+    column := VerticalLayout {
         alignment: start;
-        // Hidden sources fold to nothing; each shown one carries its own gap.
-        // Collection Health sits under the collection, with how many checks
-        // find something.
-        for i in order: Rectangle {
-            height: shown[i] ? (i == 0 ? 96px : 48px) : 0px;
-            visible: shown[i];
-            Rectangle {
-                y: 0;
-                height: 42px;
-                border-radius: 8px;
-                background: i == source && !(i == 0 && HealthUi.view) ? #3a3a3d : (sta.has-hover ? #262629 : transparent);
-                SourceIcon { kind: i; }
-                sta := TouchArea { clicked => { source = i; picked(i); } }
-            }
-            if i == 0: Rectangle {
-                y: 48px;
-                height: 42px;
-                border-radius: 8px;
-                background: source == 0 && HealthUi.view ? #3a3a3d : (hta.has-hover ? #262629 : transparent);
-                HealthIcon {}
-                if HealthUi.issues > 0: Rectangle {
-                    x: parent.width - self.width - 3px;
-                    y: 3px;
-                    width: max(16px, badge.preferred-width + 8px);
-                    height: 16px;
-                    border-radius: 8px;
-                    background: Theme.accent;
-                    badge := Text { text: HealthUi.issues; color: #000000; font-size: 10px; font-weight: 700; }
+        padding: 5px;
+        rail-scroll := Flickable {
+            min-height: 0px;
+            preferred-height: rail.preferred-height;
+            max-height: rail.preferred-height;
+            content-height: rail.preferred-height;
+            interactive: self.content-height > self.height;
+            rail := VerticalLayout {
+                width: rail-scroll.width;
+                alignment: start;
+                // Hidden sources fold to nothing; each shown one carries its own gap.
+                // Collection Health sits under the collection, with how many checks
+                // find something.
+                for i in order: Rectangle {
+                    height: shown[i] ? (i == 0 ? 96px : 48px) : 0px;
+                    visible: shown[i];
+                    Rectangle {
+                        y: 0;
+                        height: 42px;
+                        border-radius: 8px;
+                        background: i == source && !(i == 0 && HealthUi.view) ? #3a3a3d : (sta.has-hover ? #262629 : transparent);
+                        SourceIcon { kind: i; }
+                        sta := TouchArea { clicked => { source = i; picked(i); } }
+                    }
+                    if i == 0: Rectangle {
+                        y: 48px;
+                        height: 42px;
+                        border-radius: 8px;
+                        background: source == 0 && HealthUi.view ? #3a3a3d : (hta.has-hover ? #262629 : transparent);
+                        HealthIcon {}
+                        if HealthUi.issues > 0: Rectangle {
+                            x: parent.width - self.width - 3px;
+                            y: 3px;
+                            width: max(16px, badge.preferred-width + 8px);
+                            height: 16px;
+                            border-radius: 8px;
+                            background: Theme.accent;
+                            badge := Text { text: HealthUi.issues; color: #000000; font-size: 10px; font-weight: 700; }
+                        }
+                        hta := TouchArea { clicked => { source = 0; health-picked(); } }
+                    }
                 }
-                hta := TouchArea { clicked => { source = 0; health-picked(); } }
-            }
-        }
-        // Sources from add-ons, numbered on from the built-in ones.
-        for p[j] in SourceUi.sources: Rectangle {
-            property <int> i: names.length + j;
-            height: shown[i] ? 48px : 0px;
-            visible: shown[i];
-            Rectangle {
-                y: 0;
-                height: 42px;
-                border-radius: 8px;
-                background: i == source ? #3a3a3d : (pta.has-hover ? #262629 : transparent);
-                Image { width: 30px; height: 30px; source: p.icon; }
-                pta := TouchArea { clicked => { source = i; picked(i); } }
+                // Sources from add-ons, numbered on from the built-in ones.
+                for p[j] in SourceUi.sources: Rectangle {
+                    property <int> i: names.length + j;
+                    height: shown[i] ? 48px : 0px;
+                    visible: shown[i];
+                    Rectangle {
+                        y: 0;
+                        height: 42px;
+                        border-radius: 8px;
+                        background: i == source ? #3a3a3d : (pta.has-hover ? #262629 : transparent);
+                        Image { width: 30px; height: 30px; source: p.icon; }
+                        pta := TouchArea { clicked => { source = i; picked(i); } }
+                    }
+                }
             }
         }
         more := Rectangle {
@@ -983,7 +996,7 @@ component SourceRail inherits Rectangle {
     }
     menu := PopupWindow {
         x: root.width + 4px;
-        y: max(4px, rail.y + more.y + more.height - self.height);
+        y: max(4px, column.y + more.y + more.height - self.height);
         width: 240px;
         height: list.preferred-height;
         close-policy: close-on-click-outside;
