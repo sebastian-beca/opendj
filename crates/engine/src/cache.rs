@@ -35,7 +35,8 @@ pub const OVERVIEW_SLICES: usize = 256;
 #[cfg(test)]
 pub(crate) static TEST_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
-fn cache_dir() -> Option<PathBuf> {
+/// openDJ's cache folder (`OPENDJ_CACHE` overrides it).
+pub fn cache_dir() -> Option<PathBuf> {
     #[cfg(test)]
     if let Some(dir) = TEST_DIR.get() {
         return Some(dir.clone());
