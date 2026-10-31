@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 /// A control's address, e.g. `[Channel1],play`.
@@ -58,6 +58,9 @@ pub struct Control {
     key: ConfigKey,
     bits: AtomicU64,
     version: AtomicU32,
+    /// Held by something driving the control on its own (Automix and the
+    /// crossfader): writes from anyone else are ignored until it lets go.
+    locked: AtomicBool,
     default: f64,
     min: f64,
     max: f64,
@@ -70,6 +73,7 @@ impl Control {
             key,
             bits: AtomicU64::new(default.to_bits()),
             version: AtomicU32::new(0),
+            locked: AtomicBool::new(false),
             default,
             min,
             max,
@@ -107,8 +111,18 @@ impl ControlHandle {
         self.get() > 0.0
     }
 
-    /// Sets the value, clamped to the control's range.
+    /// Sets the value, clamped to the control's range. Does nothing while
+    /// the control is [locked](Self::lock).
     pub fn set(&self, value: f64) {
+        if self.is_locked() {
+            return;
+        }
+        self.force(value);
+    }
+
+    /// Sets the value even while the control is locked: for whatever holds
+    /// the lock.
+    pub fn force(&self, value: f64) {
         let v = value.clamp(self.0.min, self.0.max);
         let old = self.0.bits.swap(v.to_bits(), Ordering::Relaxed);
         if old != v.to_bits() {
@@ -126,6 +140,17 @@ impl ControlHandle {
 
     pub fn reset(&self) {
         self.set(self.0.default);
+    }
+
+    /// Locks or unlocks the control. While locked, [`set`](Self::set) and
+    /// everything built on it (widgets, controller mappings, scripts) leave
+    /// the value alone; only [`force`](Self::force) moves it.
+    pub fn lock(&self, on: bool) {
+        self.0.locked.store(on, Ordering::Release);
+    }
+
+    pub fn is_locked(&self) -> bool {
+        self.0.locked.load(Ordering::Acquire)
     }
 
     /// Increments every time the value changes; lets pollers skip unchanged controls.
@@ -309,6 +334,22 @@ mod tests {
         assert_eq!(xf.get(), 1.0);
         xf.set(1.0);
         assert_eq!(xf.version(), v0 + 1);
+    }
+
+    #[test]
+    fn a_locked_control_only_moves_when_forced() {
+        let reg = ControlRegistry::new();
+        let xf = reg.create("[Master]", "crossfader", 0.0, -1.0, 1.0, Behavior::Linear);
+        xf.lock(true);
+        xf.set(-1.0);
+        xf.set_parameter(1.0);
+        xf.reset();
+        assert_eq!(xf.get(), 0.0);
+        xf.force(0.5);
+        assert_eq!(xf.get(), 0.5);
+        xf.lock(false);
+        xf.set(-1.0);
+        assert_eq!(xf.get(), -1.0);
     }
 
     #[test]

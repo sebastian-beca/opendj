@@ -2,8 +2,10 @@
 //! into the next, like Mixxx's Auto DJ.
 //!
 //! Everything goes through the same controls a user or controller moves
-//! (crossfader, volume, EQ, filter, play), so the mix shows on screen and
-//! moving the crossfader during a mix hands it back to the user. Mixxx's
+//! (crossfader, volume, EQ, filter, play), so the mix shows on screen.
+//! While Automix is on it holds the crossfader locked: it still slides on
+//! screen, but a mouse, controller or script can't move it and break into a
+//! mix. Switching Automix off hands it back. Mixxx's
 //! `[AutoDJ]` controls are created too, so controller mappings that start
 //! Auto DJ, fade now or skip the next track work.
 //!
@@ -66,7 +68,8 @@ pub const STYLES: [Style; 4] = [Style::Smooth, Style::BassSwap, Style::Filter, S
 /// Higher than that cuts off quiet fade-outs, so a 15 s mix would start
 /// well before the last 15 s the deck shows.
 const SILENCE: u8 = 8;
-/// Crossfader movement by someone else, beyond this, stops a mix.
+/// Crossfader movement by someone else, beyond this, ends the slide back to
+/// the centre after Automix is switched off.
 const TAKEOVER: f64 = 0.02;
 /// How fast Automix slides the crossfader outside a mix, in crossfader
 /// units per second: from the centre to one side in a second and a half.
@@ -154,8 +157,6 @@ struct Mix {
     end: f64,
     /// Where the crossfader was when the mix started.
     xfade_from: f64,
-    /// What the mix last set the crossfader to, to notice someone else moving it.
-    xfade_set: f64,
     /// EQ low and filter of both decks before the mix, put back after it.
     saved_low: [f64; NUM_DECKS],
     saved_filter: [f64; NUM_DECKS],
@@ -337,6 +338,8 @@ impl AutoMix {
             _ => self.step(host, tracks),
         }
         self.slide(dt);
+        // Nobody else moves the crossfader while Automix is on.
+        self.crossfader.lock(!matches!(self.phase, Phase::Off));
         // Presses while nothing could use them don't wait for later.
         self.fade_now.pressed();
         self.skip_next.pressed();
@@ -400,7 +403,6 @@ impl AutoMix {
                 start: pos,
                 end: pos + len,
                 xfade_from: x,
-                xfade_set: x,
                 saved_low: self.decks.each_ref().map(|d| d.eq_low.get()),
                 saved_filter: self.decks.each_ref().map(|d| d.filter.get()),
                 start_incoming: false,
@@ -437,7 +439,7 @@ impl AutoMix {
         } else {
             x + step * (g.target - x).signum()
         };
-        self.crossfader.set(next);
+        self.crossfader.force(next);
         g.set = self.crossfader.get();
         if next == g.target {
             self.glide = None;
@@ -469,11 +471,6 @@ impl AutoMix {
             Phase::Playing { live, next } => self.wait(live, next, host, tracks),
             Phase::Mixing(mut m) => {
                 self.glide = None;
-                if (self.crossfader.get() - m.xfade_set).abs() > TAKEOVER {
-                    self.phase = Phase::Mixing(m);
-                    self.stop("Stopped: the crossfader was moved.");
-                    return;
-                }
                 let done =
                     !self.decks[m.from].play.get_bool() || self.position(m.from, tracks) >= m.end;
                 if done {
@@ -590,7 +587,6 @@ impl AutoMix {
             start,
             end,
             xfade_from: x,
-            xfade_set: x,
             saved_low: self.decks.each_ref().map(|d| d.eq_low.get()),
             saved_filter: self.decks.each_ref().map(|d| d.filter.get()),
             start_incoming: true,
@@ -664,8 +660,7 @@ impl AutoMix {
         }
         // Even a cut slides, over the one beat it lasts.
         let x = m.xfade_from + (self.side(m.to) - m.xfade_from) * p;
-        self.crossfader.set(x);
-        m.xfade_set = self.crossfader.get();
+        self.crossfader.force(x);
         match m.style {
             Style::BassSwap => {
                 // Swapped over the middle tenth of the mix.
@@ -999,16 +994,29 @@ mod tests {
     }
 
     #[test]
-    fn moving_the_crossfader_takes_over() {
+    fn the_crossfader_is_locked_while_automix_is_on() {
         let mut r = Rig::new(vec![track(0, 20.0), track(1, 20.0)]);
         r.ctl("[AutoDJ]", "enabled").set(1.0);
         r.run(1.0);
         r.automix.fade_now.control.set(1.0);
         r.run(2.0);
         assert!(r.deck(1, "play").get_bool());
+        let x = r.xfade();
+        // A mouse or controller can't pull it back mid-mix.
+        r.ctl("[Master]", "crossfader").set(-1.0);
+        assert_eq!(r.xfade(), x, "the write is ignored");
+        r.run(0.1);
+        assert!(
+            r.ctl("[AutoDJ]", "enabled").get_bool(),
+            "the mix carries on"
+        );
+        assert!(r.xfade() > x, "and keeps sliding towards deck B");
+
+        // Switching Automix off hands it back.
+        r.ctl("[AutoDJ]", "enabled").set(0.0);
+        r.run(0.1);
         r.ctl("[Master]", "crossfader").set(-0.5);
         r.run(0.1);
-        assert!(!r.ctl("[AutoDJ]", "enabled").get_bool());
         assert_eq!(r.xfade(), -0.5, "left where the user put it");
     }
 
