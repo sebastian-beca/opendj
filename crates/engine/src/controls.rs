@@ -635,6 +635,10 @@ pub(crate) struct MasterControls {
     /// auto_reset_fx (effects off), auto_reset_eq (EQ, kills, filter and
     /// sculpt) and auto_reset_gain (the gain knob). All on to start.
     pub(crate) auto_reset: [ControlHandle; 3],
+    /// `[Controls] pfl_on_load`: loading a track cues its deck in the
+    /// headphones and takes the other decks out of the cue. On to start;
+    /// automix loads leave the cue alone.
+    pub(crate) pfl_on_load: ControlHandle,
     /// `[Master] test_tone`: beeps for checking the outputs, 1 in the
     /// master mix, 2 in the headphones, 0 off. The guided tour plays it.
     pub(crate) test_tone: ControlHandle,
@@ -730,6 +734,11 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
             c.set_bool(true);
             c
         }),
+        pfl_on_load: {
+            let c = reg.toggle("[Controls]", "pfl_on_load");
+            c.set_bool(true);
+            c
+        },
     }
 }
 

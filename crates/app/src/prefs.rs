@@ -179,6 +179,11 @@ pub fn apply_saved(registry: &ControlRegistry) {
     for (id, _, _) in AUTO_RESETS {
         set("[Controls]", id, f(settings::flag(id, true)));
     }
+    set(
+        "[Controls]",
+        "pfl_on_load",
+        f(settings::flag("pfl_on_load", true)),
+    );
     // The levels as the DJ left them; the first time, the engine's own
     // starting levels stand (master 50%, phones 25%, cue only).
     for (key, id) in LEVEL_KEYS {
@@ -1034,6 +1039,12 @@ impl Prefs {
                         "Protect playing decks",
                         "A track can't be loaded onto a deck while it plays.",
                         settings::flag("protect_playing", true),
+                    ),
+                    switch(
+                        "pfl_on_load",
+                        "Headphones follow the loaded deck",
+                        "Loading a track cues its deck in the headphones and takes the other decks out of the cue, like VirtualDJ. What the room hears doesn't change, and automix leaves the cue alone.",
+                        settings::flag("pfl_on_load", true),
                     ),
                     item("auto_reset", HEADING, "AUTO RESET ON LOAD", ""),
                 ]
@@ -2116,6 +2127,7 @@ impl Prefs {
             "xfader_reverse" => self.set("[Mixer Profile]", "xFaderReverse", f(on)),
             "xfader_enabled" => self.set("[Mixer]", "crossfader_enabled", f(on)),
             "head_split" => self.set("[Master]", "headSplit", f(on)),
+            "pfl_on_load" => self.set("[Controls]", "pfl_on_load", f(on)),
             "auto_gain" => self.set("[ReplayGain]", "ReplayGainEnabled", f(on)),
             "auto_reset_fx" | "auto_reset_eq" | "auto_reset_gain" => {
                 self.set("[Controls]", id, f(on))
