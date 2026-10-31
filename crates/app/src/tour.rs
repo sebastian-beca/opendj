@@ -145,15 +145,17 @@ pub const FIRST_MIX: Lesson = Lesson {
         Step {
             target: "[Channel2],load",
             title: "Load the next track on deck B",
-            body: "Deck B's fader is down, so nobody hears it yet.",
+            body: "Deck B's fader is down, so nobody hears it yet. Loading it also switches \
+                   your headphones to deck B.",
             wait: Wait::Loaded(1),
             action: Some(("Load demo track", Action::LoadDemo { deck: 1, demo: 1 })),
         },
         Step {
             target: "[Channel2],pfl",
             title: "Listen in your headphones",
-            body: "Press the headphones button under deck B's fader. Deck B now plays in your \
-                   headphones only, so you can get it ready.",
+            body: "The headphones button under deck B's fader lights up when it loads; press \
+                   it if it's off. Deck B now plays in your headphones only, so you can get it \
+                   ready.",
             wait: Wait::Above("[Channel2]", "pfl", 0.5),
             action: None,
         },
