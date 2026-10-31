@@ -1348,6 +1348,15 @@ impl Engine {
                         d.c.rate.set((speed - 1.0) / range);
                     }
                     self.match_key_on_load(deck, &track);
+                    // The headphones follow the deck the DJ just loaded, as
+                    // VirtualDJ's pflOnSelect does. The cue never reaches
+                    // the master, so this can't touch what the room hears.
+                    if self.master.pfl_on_load.get_bool() && !self.master.autodj_enabled.get_bool()
+                    {
+                        for (k, d) in self.decks.iter().enumerate() {
+                            d.c.pfl.set_bool(k == deck);
+                        }
+                    }
                 }
                 Command::Analysed { deck, track } => {
                     let d = &mut self.decks[deck];
@@ -2674,6 +2683,37 @@ mod tests {
         assert_eq!(deck1("pregain").get(), 2.0);
         assert_eq!(eq("parameter1").get(), 0.2);
         assert!(slot(1, "enabled").get_bool());
+    }
+
+    #[test]
+    fn loading_a_track_cues_its_deck_in_the_headphones() {
+        let (reg, mut engine, mut input) = setup();
+        let pfl = |d: usize| reg.get(&crate::deck_group(d), "pfl").unwrap();
+        let cued = || {
+            (0..NUM_DECKS)
+                .map(|d| pfl(d).get_bool())
+                .collect::<Vec<_>>()
+        };
+        pfl(0).set_bool(true);
+        pfl(2).set_bool(true);
+        load(&mut input, 1, short_track(124.0, 4.0));
+        run(&mut engine, 0.02);
+        assert_eq!(cued(), [false, true, false, false]);
+
+        // Automix picks the decks itself, so the cue stays where it is.
+        reg.get("[AutoDJ]", "enabled").unwrap().set_bool(true);
+        load(&mut input, 0, short_track(124.0, 4.0));
+        run(&mut engine, 0.02);
+        assert_eq!(cued(), [false, true, false, false]);
+        reg.get("[AutoDJ]", "enabled").unwrap().set_bool(false);
+
+        // Switched off, loading leaves the cue alone.
+        reg.get("[Controls]", "pfl_on_load")
+            .unwrap()
+            .set_bool(false);
+        load(&mut input, 3, short_track(124.0, 4.0));
+        run(&mut engine, 0.02);
+        assert_eq!(cued(), [false, true, false, false]);
     }
 
     #[test]
