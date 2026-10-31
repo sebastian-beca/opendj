@@ -423,7 +423,7 @@ export global StoreUi {
     // "Find in stores" on a track's menu.
     callback find(row: int);
     // The add-on source that downloads Spotify playlists and tracks
-    // ("Add to Downloads"), by name; empty when none is installed.
+    // ("Add to Downloads", "Download Track"), by name; empty when none is installed.
     in property <string> downloads-to;
     // A Spotify playlist in the tree, by its row: its page, or downloading it.
     callback open-playlist(index: int);
@@ -512,6 +512,16 @@ component MatchMenu inherits PopupWindow {
             }
         }
         if plays-on != "": MenuSeparator {}
+        // Spotify, with a download source installed: the tracks the
+        // collection hasn't got are the ones worth downloading.
+        if StoreUi.source == 2 && StoreUi.downloads-to != "": MenuLine {
+            text: "Download Track";
+            clicked => {
+                StoreUi.download-tracks(track-row, track-row);
+                root.close();
+            }
+        }
+        if StoreUi.source == 2 && StoreUi.downloads-to != "": MenuSeparator {}
         Text { text: "Match to a track in your collection"; color: Theme.text-dim; font-size: 12px; }
         LineEdit {
             text <=> StreamMatch.query;
@@ -603,7 +613,7 @@ component TrackMenu inherits PopupWindow {
             }
         }
         if StoreUi.source == 2 && StoreUi.downloads-to != "": MenuLine {
-            text: "Add to Downloads";
+            text: track-last > track-row ? "Download " + (track-last - track-row + 1) + " Tracks" : "Download Track";
             clicked => {
                 StoreUi.download-tracks(track-row, track-last);
                 root.close();
