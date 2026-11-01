@@ -6254,6 +6254,7 @@ dependencies = [
  "winresource",
  "write-fonts",
  "x11-dl",
+ "zip 9.1.0",
 ]
 
 [[package]]
