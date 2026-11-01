@@ -5,10 +5,11 @@ controllers that Mixxx supports load their mapping as soon as they're plugged
 in. There's nothing to set up.
 
 **Settings › Controllers** lists the controllers plugged in that openDJ has a
-mapping for. Other MIDI devices, such as virtual ports or gear without a
-mapping, wait under **Add a controller**; pick one to list it and choose its
-mapping. **Remove** takes a controller off the list and stops using it until
-you add it again.
+mapping for, each with its mapping, **Edit** and **×**. To add another MIDI
+device, such as gear without a mapping, press **+** under the list and pick
+it in the new row; the computer's own ports (macOS's Network Session and IAC
+Driver) come last. **×** takes a controller off the list and stops using it
+until you add it again.
 
 HID controllers aren't supported yet.
 
@@ -31,8 +32,10 @@ the list by any of those words.
   it does, with the messages it sends and the lights it shows.
 - **Press to find.** With the controller plugged in, press or turn a control
   and the list jumps to it.
-- **Lights** lists what each LED shows, and **Options** the mapping's own
-  settings with their defaults.
+- **Lights** lists what each LED shows, and **Options** how the controller
+  plays with this mapping (**Knobs and faders**: Pick-up waits for the
+  hardware to reach a knob moved on screen, Scale takes over at once and
+  closes the gap) and the mapping's own settings with their defaults.
 - **Your own mappings.** The **Mapping** menu next to the controller has the
   original mapping, which never changes, and your own copies of it: choose
   **Duplicate…** to make one, and **Rename…** or **Delete…** to tidy up. The
@@ -59,10 +62,9 @@ the list by any of those words.
   says how many came across. A VirtualDJ keyboard file becomes a keyboard
   shortcut set instead (see [Keyboard shortcuts](shortcuts.md)).
 - **2 or 4 decks.** A mapping with a layout for two decks and one for four,
-  such as VirtualDJ's Xone K2, adds **Use with** under the controller in
-  **Settings › Controllers**, and with four decks **Deck order**: which deck
-  each column is from left to right (3 1 2 4 to start, as on the 4-Deck
-  screen).
+  such as VirtualDJ's Xone K2, adds **Used with** to the editor's **Options**
+  tab, and with four decks **Deck order**: which deck each column is from
+  left to right (3 1 2 4 to start, as on the 4-Deck screen).
 - **Export…** writes the mapping as one `.opendj-mapping` file that works on
   another computer, and **Export for Mixxx…** writes a `.midi.xml` with its
   scripts; a report lists anything Mixxx can't do.
@@ -78,6 +80,10 @@ it does that. The bar says what changed and what the control did before.
 Linux) takes the last one back, and **Done** or Esc ends Map mode. While Map
 mode is on, the controller only teaches: pressing PLAY doesn't start a deck.
 
+Besides the deck and mixer controls, the effects (ON, D/W, the second
+control's slider and the ‹ › that step through effects), the pad mode tabs
+over the pads and the headphone cue buttons can all be mapped.
+
 Map mode works out endless encoders and 14-bit faders by itself. The
 changes go into your own mapping, as in the editor ("My" and the
 controller's name the first time), so the original stays as it is.
@@ -85,11 +91,15 @@ controller's name the first time), so the original stays as it is.
 Mappings that run a script are tried out in a sandbox to see what each
 control does, so even those read in plain words.
 
-## Quick map
+## Mapping wizard
 
 For a controller openDJ has no mapping for, or to map one from scratch:
-press **Quick map** next to it in **Settings › Controllers**, or in the Map
-mode bar. It asks whether the controller is used with two decks or four,
+press **Map it** next to it in **Settings › Controllers**, or **Mapping
+wizard** in the Map mode bar. From the bar it first asks which controller,
+with a button for each one plugged in (or press a button on one that
+already runs a mapping); the
+computer's own MIDI ports, such as macOS's Network Session, are never
+offered. Then it asks whether the controller is used with two decks or four,
 then walks through the usual controls one at a time, lighting each up on
 screen: deck 1's PLAY, CUE, SYNC, jog wheel, tempo fader, headphone cue,
 gain, EQs, filter, channel fader, pads 1 and 2 and LOAD, then the crossfader
@@ -98,10 +108,10 @@ it doesn't have. Pads 3 to 8 follow on from pads 1 and 2.
 
 The other decks aren't walked: pressing PLAY on deck 2 (and 3 and 4) shows
 how they differ from deck 1, usually another MIDI channel, and deck 1's
-controls are copied over. With four decks, **Use with** and **Deck order**
-in **Settings › Controllers** then work for it as for any four-deck mapping.
+controls are copied over. With four decks, **Used with** and **Deck order**
+in the editor's **Options** then work for it as for any four-deck mapping.
 
-Quick map makes a new mapping called "My" and the controller's name and puts
+The wizard makes a new mapping called "My" and the controller's name and puts
 it in use; the mapping the controller ran before stays in the menu next to
 it. When the walk is done Map mode stays on, so you can try it and change
 anything by clicking a control on screen.

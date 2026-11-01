@@ -5,10 +5,12 @@
 //! Mixxx mapping it's based on. Meanwhile the controllers' messages are only
 //! watched, so a press teaches rather than plays. Each change can be undone.
 //!
-//! Quick map does the picking: for a controller with no mapping, or to map
-//! one from scratch, it makes a new mapping that stands alone and walks
-//! through the usual controls (see [`opendj_controllers::quick`]), deck 1's
-//! one by one and the other decks from one press each.
+//! The mapping wizard (Quick map in the code) does the picking: it asks
+//! which controller (a button for each one plugged in, or a press on it),
+//! then two decks or four, then makes a new mapping that stands alone and
+//! walks through the usual controls (see [`opendj_controllers::quick`]),
+//! deck 1's one by one and the other decks from one press each. Ports the
+//! computer makes (macOS's Network Session) are never offered.
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -21,7 +23,9 @@ use opendj_controllers::format::{Action, Midi, OpenDjMapping, Row};
 use opendj_controllers::learn::{self, Heard};
 use opendj_controllers::own::{self, OwnMapping};
 use opendj_controllers::quick;
-use opendj_controllers::{device_key, is_own_file, Controllers, Mapping, MappingChoice};
+use opendj_controllers::{
+    device_key, is_own_file, is_system_port, Controllers, Mapping, MappingChoice,
+};
 use slint::ComponentHandle;
 
 use crate::{settings, short_port_name, AppWindow, ControllerEditor, MapMode};
@@ -69,6 +73,8 @@ pub struct Mapper {
     heard: Option<(String, Instant, Vec<Vec<u8>>)>,
     steps: Vec<Step>,
     walk: Option<Walk>,
+    /// The wizard asking which controller: the ports offered.
+    choosing: Option<Vec<String>>,
     /// The control learned last, and when it last sent: what it goes on
     /// sending as it's let go of or still turned doesn't start the next
     /// one, until it has been still for a moment.
@@ -90,6 +96,7 @@ impl Mapper {
             heard: None,
             steps: Vec::new(),
             walk: None,
+            choosing: None,
             last_heard: None,
             mapped: mapped.clone(),
             tick: 0,
@@ -108,6 +115,17 @@ impl Mapper {
         g.on_keep_both(move || e.borrow_mut().keep_both());
         let e = m.clone();
         g.on_quick_map(move |port| e.borrow_mut().quick_map(&port));
+        let e = m.clone();
+        g.on_choose_device(move |i| {
+            let mut m = e.borrow_mut();
+            let port = m
+                .choosing
+                .as_ref()
+                .and_then(|ports| ports.get(i as usize).cloned());
+            if let Some(port) = port {
+                m.start_walk(&port);
+            }
+        });
         let e = m.clone();
         g.on_choose_decks(move |n| e.borrow_mut().choose_decks(n.clamp(2, 4) as u8));
         let e = m.clone();
@@ -132,7 +150,9 @@ impl Mapper {
         self.armed = None;
         self.heard = None;
         self.walk = None;
+        self.choosing = None;
         g.set_armed("".into());
+        g.set_asking_device(false);
         g.set_asking_decks(false);
         g.set_walking(false);
         g.set_active(on);
@@ -167,7 +187,11 @@ impl Mapper {
         };
         c.ports()
             .into_iter()
-            .filter(|p| p.mapping_file.is_none() && c.choice(&p.name) != MappingChoice::Off)
+            .filter(|p| {
+                p.mapping_file.is_none()
+                    && !is_system_port(&p.name)
+                    && c.choice(&p.name) != MappingChoice::Off
+            })
             .map(|p| p.name)
             .collect()
     }
@@ -186,7 +210,7 @@ impl Mapper {
         let unmapped = self.unmapped();
         let text = match (&device, &self.armed, unmapped.first()) {
             (None, _, Some(p)) => format!(
-                "The {} has no mapping yet: Quick map makes one.",
+                "The {} has no mapping yet: the Mapping wizard makes one.",
                 short_port_name(p)
             ),
             (None, _, None) => "Plug in a controller to map its controls.".to_string(),
@@ -228,6 +252,17 @@ impl Mapper {
             return;
         };
         let seen = c.take_monitored();
+        if let Some(ports) = &self.choosing {
+            // A press on one of them picks it.
+            let pressed = seen
+                .iter()
+                .find(|(p, msg)| ports.contains(p) && learn::starts(msg))
+                .map(|(p, _)| p.clone());
+            if let Some(port) = pressed {
+                self.start_walk(&port);
+            }
+            return;
+        }
         if self.armed.is_none() {
             return;
         }
@@ -365,13 +400,7 @@ impl Mapper {
         if let Some(c) = &self.controllers {
             c.reload(&step.file);
         }
-        let (group, key) = step.control.split_once(',').unwrap_or(("", ""));
-        let f = opendj_controllers::catalog::describe(group, key);
-        let what = if f.target.is_empty() {
-            f.name
-        } else {
-            format!("{} · {}", f.name, f.target)
-        };
+        let what = describe(&step.control);
         g.set_last(format!("{} now does {what}.", step.name).into());
         g.set_replaced(if keep { String::new() } else { was.join(", ") }.into());
         self.refresh_mapped();
@@ -451,35 +480,77 @@ impl Mapper {
         self.steps.push(step);
     }
 
-    /// Starts Quick map for the controller on `port`, or for "" the one
-    /// plugged in (one with no mapping first): it asks two decks or four.
+    /// The controllers the wizard offers: every MIDI device plugged in
+    /// that isn't turned off or made by the computer, the ones with no
+    /// mapping first.
+    fn candidates(&self) -> Vec<String> {
+        let Some(c) = &self.controllers else {
+            return Vec::new();
+        };
+        let mut ports: Vec<_> = c
+            .ports()
+            .into_iter()
+            .filter(|p| !is_system_port(&p.name) && c.choice(&p.name) != MappingChoice::Off)
+            .collect();
+        ports.sort_by_key(|p| (p.mapping_file.is_some(), p.running.is_none()));
+        ports.into_iter().map(|p| p.name).collect()
+    }
+
+    /// Starts the mapping wizard for the controller on `port`, or for ""
+    /// asks which one first (a button for each, or a press on it); with one
+    /// plugged in it goes straight on.
     fn quick_map(&mut self, port: &str) {
-        let (Some(app), Some(c)) = (self.app.upgrade(), self.controllers.clone()) else {
+        let Some(app) = self.app.upgrade() else {
             return;
         };
         if !self.active {
             self.set_active(true);
         }
         let g = app.global::<MapMode>();
-        let port = if port.is_empty() {
-            c.ports()
-                .into_iter()
-                .filter(|p| c.choice(&p.name) != MappingChoice::Off)
-                .min_by_key(|p| (p.mapping_file.is_some(), p.running.is_none()))
-                .map(|p| p.name)
-        } else {
-            Some(port.to_string())
-        };
-        let Some(port) = port else {
-            g.set_status("Plug in a controller to quick map it.".into());
+        if !port.is_empty() {
+            self.start_walk(port);
+            return;
+        }
+        let ports = self.candidates();
+        match ports.as_slice() {
+            [] => g.set_status("Plug in a controller to map it.".into()),
+            [one] => {
+                let one = one.clone();
+                self.start_walk(&one);
+            }
+            _ => {
+                self.armed = None;
+                g.set_armed("".into());
+                g.set_last("".into());
+                g.set_replaced("".into());
+                let names: Vec<slint::SharedString> =
+                    ports.iter().map(|p| short_port_name(p).into()).collect();
+                g.set_devices(std::rc::Rc::new(slint::VecModel::from(names)).into());
+                g.set_asking_device(true);
+                g.set_status("Which controller do you want to map?".into());
+                if let Some(c) = &self.controllers {
+                    c.take_monitored();
+                }
+                self.choosing = Some(ports);
+            }
+        }
+    }
+
+    /// The wizard's second question, for the controller on `port`: two
+    /// decks or four.
+    fn start_walk(&mut self, port: &str) {
+        let (Some(app), Some(c)) = (self.app.upgrade(), self.controllers.clone()) else {
             return;
         };
+        let g = app.global::<MapMode>();
+        self.choosing = None;
+        g.set_asking_device(false);
         let had = c
             .ports()
             .into_iter()
             .any(|p| p.name == port && p.mapping_file.is_some());
         self.walk = Some(Walk {
-            port: port.clone(),
+            port: port.to_string(),
             file: None,
             steps: Vec::new(),
             at: 0,
@@ -497,8 +568,8 @@ impl Mapper {
         };
         g.set_status(
             format!(
-                "Quick map makes a new mapping for the {}.{keep} Is it used with two decks or four?",
-                short_port_name(&port)
+                "A new mapping for the {}.{keep} Is it used with two decks or four?",
+                short_port_name(port)
             )
             .into(),
         );
@@ -687,10 +758,8 @@ impl Mapper {
         g.set_last("".into());
         let name = mine.map_or_else(|| "The new mapping".to_string(), |m| m.name);
         g.set_status(
-            format!(
-                "Quick map is done: {name} is in use. Try it, or click any control on screen to change it."
-            )
-            .into(),
+            format!("Done: {name} is in use. Try it, or click any control on screen to change it.")
+                .into(),
         );
     }
 
@@ -724,5 +793,29 @@ impl Mapper {
         if let Some(app) = self.app.upgrade() {
             app.global::<MapMode>().set_tick(self.tick);
         }
+    }
+}
+
+/// What a control on screen does, in words: "Play · Deck 1", or for a pad
+/// mode tab (an openDJscript line, see [`learn::SCRIPT`]) "Pad mode
+/// button 2 · Deck 1".
+fn describe(control: &str) -> String {
+    if let Some(line) = control.strip_prefix(learn::SCRIPT) {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        return match words.as_slice() {
+            ["deck", d, "set", "'pad_tab'", t] => {
+                let t: u8 = t.parse().unwrap_or(0);
+                let shift = if t >= 4 { " with Shift" } else { "" };
+                format!("Pad mode button {}{shift} · Deck {d}", t % 4 + 1)
+            }
+            _ => format!("\u{201c}{line}\u{201d}"),
+        };
+    }
+    let (group, key) = control.split_once(',').unwrap_or(("", ""));
+    let f = opendj_controllers::catalog::describe(group, key);
+    if f.target.is_empty() {
+        f.name
+    } else {
+        format!("{} · {}", f.name, f.target)
     }
 }

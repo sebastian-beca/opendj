@@ -10,11 +10,14 @@
 import { Theme } from "theme.slint";
 import { Controls, PickupDot, PickupGhost } from "controls.slint";
 import { EffectList } from "deck.slint";
+import { MapMark } from "mapmark.slint";
 
 // ‹ or ›, stepping to the previous or next effect.
 component StepArrow inherits Rectangle {
     in property <bool> next;
     in property <int> index;
+    // The control, for Map mode: `[EffectRack1_EffectUnit1_Effect1],next_effect`.
+    in property <string> map-key;
     width: 28px;
     Path {
         width: 6px;
@@ -34,6 +37,7 @@ component StepArrow inherits Rectangle {
             Controls.set-value(index, 0);
         }
     }
+    MapMark { key: root.map-key; }
 }
 
 // A filled triangle halving or doubling the beats.
@@ -315,7 +319,7 @@ component FxControls inherits HorizontalLayout {
                     Controls.toggle(enabled-index);
                 }
             }
-        }
+        }        MapMark { key: root.fx + ",enabled"; }
     }
     if with-name: EffectPicker { fx: fx; tint: tint; font-size: 13px; centred: false; min-width: 64px; preferred-width: 110px; horizontal-stretch: 0; }
     Rectangle {
@@ -323,6 +327,7 @@ component FxControls inherits HorizontalLayout {
         min-width: 50px;
         if beats > 0: BeatChooser { width: parent.width; height: parent.height; index: beats-index; }
         if beats <= 0 && param >= 0: ParamSlider { width: parent.width; height: parent.height; index: Controls.resolve(fx, "parameter" + (param + 1)); }
+        if beats <= 0 && param >= 0: MapMark { width: parent.width; height: parent.height; key: root.fx + ",parameter" + (param + 1); }
     }
     HorizontalLayout {
         horizontal-stretch: 0;
@@ -330,7 +335,12 @@ component FxControls inherits HorizontalLayout {
         Text { text: "D"; color: Theme.text-dim; font-size: 10px; font-weight: 700; vertical-alignment: center; }
         VerticalLayout {
             alignment: center;
-            DwKnob { index: Controls.resolve(fx, "meta"); tint: tint; }
+            Rectangle {
+                width: 20px;
+                height: 20px;
+                DwKnob { index: Controls.resolve(fx, "meta"); tint: tint; }
+                MapMark { key: root.fx + ",meta"; }
+            }
         }
         Text { text: "W"; color: Theme.text-dim; font-size: 10px; font-weight: 700; vertical-alignment: center; }
     }
@@ -351,9 +361,9 @@ component FxCell inherits Rectangle {
         spacing: 0px;
         HorizontalLayout {
             height: 30px;
-            StepArrow { index: Controls.resolve(fx, "prev_effect"); }
+            StepArrow { index: Controls.resolve(fx, "prev_effect"); map-key: fx + ",prev_effect"; }
             EffectPicker { fx: fx; tint: tint; }
-            StepArrow { next: true; index: Controls.resolve(fx, "next_effect"); }
+            StepArrow { next: true; index: Controls.resolve(fx, "next_effect"); map-key: fx + ",next_effect"; }
         }
         Rectangle { height: 1px; background: #000000; }
         FxControls { height: 37px; fx: fx; tint: tint; }
