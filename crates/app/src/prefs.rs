@@ -1376,9 +1376,30 @@ impl Prefs {
                 "buffer_frames",
                 MENU,
                 "Buffer size",
-                "Smaller reacts faster to the controls; larger is safer from dropouts on a busy computer.",
+                &format!(
+                    "Smaller reacts faster to the controls; larger is safer from dropouts \
+                     on a busy computer. {}",
+                    self.audio_health()
+                ),
             )
         }
+    }
+
+    /// How the audio keeps up, from the engine's `[App],audio_latency_*`
+    /// controls: the share of each buffer it takes and the dropouts so far.
+    fn audio_health(&self) -> String {
+        let get = |k: &str| self.registry.get("[App]", k).map_or(0.0, |c| c.get());
+        let dropouts = get("audio_latency_overload_count") as u64;
+        format!(
+            "Audio load {:.0}% now, {:.0}% at most; {}.",
+            get("audio_latency_usage"),
+            get("audio_latency_peak"),
+            match dropouts {
+                0 => "no dropouts".to_string(),
+                1 => "1 dropout".to_string(),
+                n => format!("{n} dropouts"),
+            }
+        )
     }
 
     /// Settings › Controllers: the controllers openDJ has a mapping for,

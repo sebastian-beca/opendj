@@ -4291,6 +4291,92 @@ mod tests {
         assert!(factor > 2.0, "{factor}x realtime");
     }
 
+    /// The worst case a set can throw at the audio thread: four decks with
+    /// key lock and key shifts, every effect on, and each deck beatjumping
+    /// (which re-seeds its time-stretcher) every few buffers. Times every
+    /// 256-frame buffer, as a sound card at 5.8 ms would ask for them, and
+    /// fails if the engine needs more than the buffer's time on average or
+    /// the slowest buffer runs far past it. Run with `--nocapture` to see
+    /// the numbers; `OPENDJ_STRESS_SECONDS` runs it longer, as a soak.
+    #[test]
+    fn keeps_up_under_stress() {
+        const FRAMES: usize = 256;
+        let (reg, mut engine, mut input) = setup();
+        let seconds: f64 = std::env::var("OPENDJ_STRESS_SECONDS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(6.0);
+        let track = short_track(124.0, 30.0);
+        for deck in 0..NUM_DECKS {
+            load(&mut input, deck, track.clone());
+        }
+        run(&mut engine, 0.01);
+        for u in 1..=4 {
+            let unit = format!("[EffectRack1_EffectUnit{u}]");
+            for target in [
+                "[Channel1]",
+                "[Channel2]",
+                "[Channel3]",
+                "[Channel4]",
+                "[Master]",
+            ] {
+                reg.get(&unit, &format!("group_{target}_enable"))
+                    .unwrap()
+                    .set_bool(true);
+            }
+            for s in 1..=3 {
+                let slot = format!("[EffectRack1_EffectUnit{u}_Effect{s}]");
+                reg.get(&slot, "enabled").unwrap().set_bool(true);
+            }
+        }
+        for (d, group) in (1..=NUM_DECKS).map(|d| (d, format!("[Channel{d}]"))) {
+            let c = |k: &str| reg.get(&group, k).unwrap();
+            c("keylock").set_bool(true);
+            c("rate").set(0.02 * d as f64);
+            c("pitch").set(d as f64 - 2.0);
+            c("play").set_bool(true);
+        }
+        let buffers = (seconds * SR / FRAMES as f64).ceil() as usize;
+        let budget = FRAMES as f64 / SR;
+        let mut buf = vec![0.0f32; FRAMES * 6];
+        let mut times = Vec::with_capacity(buffers);
+        let mut peak = 0.0f32;
+        for b in 0..buffers {
+            // Each deck jumps on its own beat of a 32-buffer cycle, and every
+            // so often all four jump in the same buffer.
+            for d in 0..NUM_DECKS {
+                if b % 32 == d * 8 || b % 512 == 100 {
+                    let jump = reg.get(&format!("[Channel{}]", d + 1), "beatjump");
+                    jump.unwrap().set(if b % 64 < 32 { -4.0 } else { 4.0 });
+                }
+            }
+            let t = Instant::now();
+            engine.process(&mut buf, 6);
+            times.push(t.elapsed().as_secs_f64() / budget);
+            peak = buf.iter().fold(peak, |p, v| p.max(v.abs()));
+        }
+        let mean = times.iter().sum::<f64>() / times.len() as f64;
+        times.sort_by(f64::total_cmp);
+        let p99 = times[times.len() * 99 / 100];
+        let worst = times[times.len() - 1];
+        let late = times.iter().filter(|&&t| t > 1.0).count();
+        println!(
+            "{FRAMES}-frame buffers ({:.1} ms), 4 decks key-locked, 60 effect \
+             instances, beatjumps: mean {:.0}%, p99 {:.0}%, worst {:.0}% of the \
+             buffer; {late} of {} over",
+            budget * 1000.0,
+            mean * 100.0,
+            p99 * 100.0,
+            worst * 100.0,
+            times.len()
+        );
+        assert!(peak.is_finite() && peak > 0.01 && peak <= 1.0);
+        // Loose, for shared CI machines running other tests alongside: it
+        // catches the engine getting much slower, not a single slow buffer.
+        // A 4-core cloud machine measured a mean of 40% (2026-11-01).
+        assert!(mean < 0.75, "mean {:.0}% of the buffer", mean * 100.0);
+    }
+
     /// An input device for tests: the engine's feed, and the end to fill.
     fn mic_feed() -> (InputFeed, rtrb::Producer<f32>) {
         let (tx, rx) = rtrb::RingBuffer::new(48_000);

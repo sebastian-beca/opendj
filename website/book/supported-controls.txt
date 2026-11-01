@@ -1,3 +1,7 @@
+[App],audio_latency_overload
+[App],audio_latency_overload_count
+[App],audio_latency_peak
+[App],audio_latency_usage
 [App],num_decks
 [App],num_samplers
 [App],samplerate
