@@ -14,7 +14,6 @@ use opendj_library::query::Indexed;
 use opendj_library::stages::Stage;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
-use super::info::tag_fields;
 use super::{file_path, is_browsed, Browser, Contents, Node, Undo, KIND_CHECK, KIND_HEALTH};
 use crate::cover_scan;
 use crate::{settings, HealthCard, HealthUi};
@@ -59,7 +58,7 @@ impl Fix {
             Fix::MarkMusic => "It's music",
             Fix::ToTriage => "Move to In Prep",
             Fix::Analyze => "Analyze",
-            Fix::FillFromName => "Fill from file name",
+            Fix::FillFromName => "Fill from file name…",
             Fix::Relink => "Find files",
             Fix::TagMix => "Tag as #mix",
             Fix::AllEasy => "Fix all easy",
@@ -82,7 +81,7 @@ fn fixes(check: Check, stages: bool) -> Vec<Fix> {
         Check::Outside if stages => vec![Fix::ToTriage, Fix::Remove],
         Check::Outside => vec![Fix::Remove],
         Check::NotAnalyzed => vec![Fix::Analyze],
-        Check::MissingInfo => vec![Fix::FillFromName, Fix::LookUp],
+        Check::MissingInfo => vec![Fix::LookUp, Fix::FillFromName],
         Check::Missing => vec![Fix::Relink, Fix::Remove],
         Check::Long => vec![Fix::TagMix],
         Check::Duplicate => vec![Fix::AllEasy],
@@ -812,18 +811,39 @@ impl Browser {
     fn health_detail(&self, check: Check) -> String {
         match check {
             Check::MissingInfo => {
+                // What the flagged tracks lack, the most often lacked first.
                 let found = self.health_tracks(check);
-                let no_name = found
+                let lacking = |f: &dyn Fn(&Track) -> &str| {
+                    found
+                        .iter()
+                        .filter(|&&i| health::says_nothing(f(&self.library[i])))
+                        .count()
+                };
+                let mut counts = [
+                    (
+                        "artist or title",
+                        lacking(&|t| {
+                            if health::says_nothing(&t.artist) {
+                                ""
+                            } else {
+                                &t.title
+                            }
+                        }),
+                    ),
+                    ("album", lacking(&|t| &t.album)),
+                    ("year", lacking(&|t| &t.info.year)),
+                    ("genre", lacking(&|t| &t.genre)),
+                ];
+                counts.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
+                let parts: Vec<String> = counts
                     .iter()
-                    .filter(|&&i| {
-                        let t = &self.library[i];
-                        t.artist.trim().is_empty() || t.title.trim().is_empty()
-                    })
-                    .count();
-                if no_name > 0 {
-                    format!("{} without artist or title.", no_name)
-                } else {
+                    .filter(|&&(_, n)| n > 0)
+                    .map(|(what, n)| format!("{n} no {what}"))
+                    .collect();
+                if parts.is_empty() {
                     String::new()
+                } else {
+                    format!("{}.", parts.join(", "))
                 }
             }
             Check::NoCover => {
@@ -913,7 +933,7 @@ impl Browser {
                 self.analysis.add(&picked);
                 format!("Analyzing {} in the background.", tracks(picked.len()))
             }
-            Fix::FillFromName => self.fill_from_names(indices),
+            Fix::FillFromName => self.review_file_names(indices),
             Fix::Relink => self.relink(indices),
             Fix::TagMix => self.tag_mix(indices),
             Fix::AllEasy => {
@@ -1054,64 +1074,6 @@ impl Browser {
                 self.current_node = n;
             }
         }
-    }
-
-    /// Fills in a missing artist or title from the file's name ("Artist -
-    /// Title.mp3"), in the library and the file's tags.
-    fn fill_from_names(&mut self, indices: &[usize]) -> String {
-        let (mut filled, mut failed) = (0, 0);
-        for &i in indices {
-            let t = &self.library[i];
-            let Some(path) = file_path(t) else { continue };
-            let Some((artist, title)) = health::from_file_name(path) else {
-                continue;
-            };
-            // A file without tags is listed by its name, as its title.
-            let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned());
-            let named =
-                t.title.trim().is_empty() || Some(t.title.trim()) == stem.as_deref().map(str::trim);
-            let mut t = (**t).clone();
-            let before = (t.artist.clone(), t.title.clone());
-            if t.artist.trim().is_empty() {
-                t.artist = artist;
-                if named {
-                    t.title = title;
-                }
-            } else if t.title.trim().is_empty() {
-                t.title = title;
-            }
-            if (t.artist.clone(), t.title.clone()) == before {
-                continue;
-            }
-            if !t.info.missing && path.exists() {
-                if let Err(e) = tags::write(path, &tag_fields(&t)) {
-                    eprintln!("can't write tags to {}: {e}", path.display());
-                    failed += 1;
-                }
-            }
-            if let Some(db) = &self.db {
-                if let Err(e) = db.save_info(t.id, &t) {
-                    eprintln!("can't save: {e}");
-                    failed += 1;
-                    continue;
-                }
-            }
-            self.indexed[i] = Indexed::new(&t);
-            self.library[i] = Arc::new(t);
-            filled += 1;
-        }
-        let skipped = indices.len() - filled;
-        let mut s = format!("Filled in {}.", tracks(filled));
-        if skipped > 0 {
-            s += &format!(
-                " {} had no \"Artist - Title\" file name, or nothing missing there.",
-                tracks(skipped)
-            );
-        }
-        if failed > 0 {
-            s += &format!(" {failed} couldn't be written to the file.");
-        }
-        s
     }
 
     /// Looks for missing files by name in the stage folders and the music
