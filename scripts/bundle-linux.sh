@@ -18,6 +18,8 @@ strip "$appdir/usr/bin/opendj"
 cp -R res/controllers "$appdir/usr/share/opendj/controllers"
 # The guided tour's demo tracks, once they are in the repository.
 if [ -d res/demo ]; then cp -R res/demo "$appdir/usr/share/opendj/demo"; fi
+# Lets HID controllers (Traktor Kontrol) open without root; see the guide.
+cp res/linux/70-opendj-hid-controllers.rules "$appdir/usr/share/opendj/"
 convert res/macos/opendj-1024.png -resize 256x256 "$appdir/usr/share/icons/hicolor/256x256/apps/opendj.png"
 cat > "$appdir/usr/share/applications/opendj.desktop" <<DESKTOP
 [Desktop Entry]

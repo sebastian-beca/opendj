@@ -1052,6 +1052,7 @@ impl OpenDjMapping {
                 setting_defs: Vec::new(),
                 inputs: Default::default(),
                 outputs: Vec::new(),
+                products: Vec::new(),
                 variables: Vec::new(),
             },
         };

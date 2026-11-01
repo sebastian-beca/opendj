@@ -11,7 +11,14 @@ it in the new row; the computer's own ports (macOS's Network Session and IAC
 Driver) come last. **×** takes a controller off the list and stops using it
 until you add it again.
 
-HID controllers aren't supported yet.
+USB HID controllers work too: Native Instruments' Traktor Kontrol S2 (MK1,
+MK2 and MK3), S3, S4 (MK2 and MK3), F1, Z1 and MX2 run Mixxx's HID mappings,
+picked by the device itself rather than its name. They're listed with the
+MIDI controllers, can be turned off there, and have no picture or list in the
+Controller Editor: an HID mapping is all script. The S4 MK3's screens stay
+dark. On Linux they need openDJ's udev rule first; see the
+[Traktor Kontrol S2 MK3](../controllers/traktor-kontrol-s2-mk3.md) page. The
+Traktor Kontrol X1 (first model) is a MIDI controller and has a MIDI mapping.
 
 The **Pioneer DDJ-FLX4** has a page of its own: [Pioneer DDJ-FLX4](controllers/ddj-flx4.md).
 

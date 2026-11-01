@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 
 use opendj_control::{ControlHandle, ControlRegistry};
 
-use crate::host::{Host, Target};
+use crate::hid::{Io, Repeats};
+use crate::host::{HidLink, Host, Target};
 use crate::mapping::{Input, Mapping, Options, Output};
 use crate::rows::ScriptRows;
 use crate::script::Script;
@@ -41,6 +42,27 @@ pub struct Controller {
     layers: [bool; 2],
     /// openDJ mappings: openDJscript rows and lights.
     rows: ScriptRows,
+    /// HID: the last input report, to skip repeats.
+    repeats: Repeats,
+}
+
+/// The device an HID mapping talks to when there is none (a test, or the
+/// Controller Editor reading the mapping): writes go nowhere.
+struct NoDevice;
+
+impl Io for NoDevice {
+    fn write(&self, _: &[u8]) -> Result<(), String> {
+        Ok(())
+    }
+    fn send_feature(&self, _: &[u8]) -> Result<(), String> {
+        Ok(())
+    }
+    fn get_input(&self, _: u8) -> Option<Vec<u8>> {
+        None
+    }
+    fn get_feature(&self, _: u8) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 /// How long after loading a mapping its LEDs are sent again.
@@ -137,14 +159,41 @@ impl Controller {
         mapping: Mapping,
         registry: Arc<ControlRegistry>,
     ) -> Result<Self, String> {
+        Self::with_device(name, mapping, registry, None)
+    }
+
+    /// Like [`Self::new`], for an HID mapping talking to `device`: its
+    /// scripts' `controller.getInputReport` and the like reach it at once,
+    /// and [`Self::take_reports`] gives the output reports to write.
+    pub fn new_hid(
+        name: &str,
+        mapping: Mapping,
+        registry: Arc<ControlRegistry>,
+        device: Rc<dyn Io>,
+    ) -> Result<Self, String> {
+        Self::with_device(name, mapping, registry, Some(device))
+    }
+
+    fn with_device(
+        name: &str,
+        mapping: Mapping,
+        registry: Arc<ControlRegistry>,
+        device: Option<Rc<dyn Io>>,
+    ) -> Result<Self, String> {
         let host = Rc::new(RefCell::new(Host::new(registry, name.to_string())));
+        if mapping.is_hid() {
+            host.borrow_mut().hid = Some(HidLink {
+                io: device.unwrap_or_else(|| Rc::new(NoDevice)),
+                out: Default::default(),
+            });
+        }
         host.borrow_mut().script_bound = mapping
             .inputs
             .iter()
             .filter(|(_, inputs)| inputs.iter().any(|i| i.options.has(Options::SCRIPT)))
             .map(|(k, _)| *k)
             .collect();
-        let script = Script::new(host.clone(), &mapping.settings)?;
+        let script = Script::new(host.clone(), &mapping.settings, mapping.is_hid())?;
         let mut prefixes = Vec::new();
         // A mapping that never names deck 3 or 4 was written for two decks:
         // the deck 3 and 4 switches move its sides over.
@@ -205,6 +254,7 @@ impl Controller {
             debug: std::env::var_os("OPENDJ_MIDI_DEBUG").is_some(),
             layers: [false; 2],
             rows,
+            repeats: Repeats::default(),
         };
         let id = serde_str(&c.name);
         for p in c.prefixes.clone() {
@@ -269,6 +319,46 @@ impl Controller {
             self.script.fire_input(status, control, value);
         }
         self.host.borrow_mut().input = None;
+    }
+
+    /// Handles one HID input report, as read from the device (starting with
+    /// the report ID if the device numbers its reports): the mapping's
+    /// `incomingData` functions get it. A report the same as the last is
+    /// skipped, as Mixxx does.
+    pub fn receive_report(&mut self, report: &[u8]) {
+        if report.is_empty() || self.repeats.is_repeat(report) {
+            return;
+        }
+        if self.debug {
+            eprintln!("{} -> {report:02X?}", self.name);
+        }
+        for p in self.prefixes.clone() {
+            if self.script.has_function(&format!("{p}.incomingData")) {
+                self.script.call_incoming_report(&p, report);
+            }
+        }
+    }
+
+    /// HID output reports to write to the device, each starting with its
+    /// report ID, oldest first.
+    pub fn take_reports(&mut self) -> Vec<Vec<u8>> {
+        let out = match &mut self.host.borrow_mut().hid {
+            Some(hid) => hid.out.take(),
+            None => return Vec::new(),
+        };
+        if self.debug {
+            for r in &out {
+                eprintln!("{} <- {r:02X?}", self.name);
+            }
+        }
+        out
+    }
+
+    /// A report couldn't be written: send its next one even if unchanged.
+    pub fn report_failed(&mut self, id: u8) {
+        if let Some(hid) = &mut self.host.borrow_mut().hid {
+            hid.out.forget(id);
+        }
     }
 
     fn process(&mut self, input: &Input, status: u8, control: u8, value: u8) {

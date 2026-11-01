@@ -1,6 +1,8 @@
 //! Finds MIDI controllers, picks the Mixxx mapping for each by name, and runs
 //! each one on its own thread. Plugging a controller in or out is picked up
 //! within about a second, and [`Controllers::refresh`] reconnects them all.
+//! USB HID controllers (see [`crate::hid`]) are found the same way, by the
+//! vendor and product IDs their mappings name, and listed with the MIDI ones.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -15,6 +17,7 @@ use opendj_control::ControlRegistry;
 
 use crate::controller::Controller;
 use crate::format::OpenDjMapping;
+use crate::hid;
 use crate::mapping::Mapping;
 
 const CLIENT: &str = "openDJ";
@@ -54,6 +57,12 @@ pub struct Port {
     pub mapping_file: Option<String>,
     /// That mapping's name, while it runs.
     pub running: Option<String>,
+    /// A USB HID controller rather than a MIDI port: it runs an HID mapping,
+    /// which can't be edited or mapped by hand.
+    pub hid: bool,
+    /// Why it isn't running, when openDJ knows: an HID device the system
+    /// wouldn't open, say.
+    pub problem: Option<String>,
 }
 
 /// Running controller support. Dropping it stops every controller, which
@@ -84,6 +93,11 @@ struct Shared {
     /// Set by [`Controllers::refresh`]: every device is closed and the
     /// system's MIDI device list is read again from scratch.
     reconnect: AtomicBool,
+    /// The HID controllers plugged in, by port name: the name of the
+    /// mapping Automatic picks for each.
+    hid_ports: Mutex<HashMap<String, String>>,
+    /// Why a device couldn't be opened, by port name.
+    problems: Mutex<HashMap<String, String>>,
 }
 
 /// A device's name without the parts that change between systems or
@@ -134,6 +148,8 @@ impl Controllers {
     /// The MIDI devices plugged in now, and what each one runs.
     pub fn ports(&self) -> Vec<Port> {
         let connected = self.connected();
+        let hid_ports = self.shared.hid_ports.lock().unwrap().clone();
+        let problems = self.shared.problems.lock().unwrap().clone();
         let ports: Vec<Port> = self
             .shared
             .ports
@@ -150,6 +166,8 @@ impl Controllers {
                     .iter()
                     .find(|c| &c.port == name)
                     .map(|c| c.mapping.clone()),
+                hid: hid_ports.contains_key(name),
+                problem: problems.get(name).cloned(),
             })
             .collect();
         ports
@@ -170,6 +188,9 @@ impl Controllers {
 
     /// The name of the mapping Automatic picks for `port`.
     pub fn auto_mapping(&self, port: &str) -> Option<String> {
+        if let Some(name) = self.shared.hid_ports.lock().unwrap().get(port) {
+            return Some(name.clone());
+        }
         let path = match_mapping(port, &self.mappings)?;
         self.mappings
             .iter()
@@ -333,6 +354,51 @@ pub fn list_mappings(dir: &Path) -> Vec<(String, PathBuf)> {
     v
 }
 
+/// The HID controllers plugged in, each with a port name of its own and the
+/// mapping Automatic picks: the device's name for itself, or the mapping's,
+/// numbered if two are alike.
+fn hid_ports(
+    devices: Vec<hid::DeviceInfo>,
+    mappings: &[hid::HidMapping],
+) -> Vec<(String, hid::DeviceInfo, &hid::HidMapping)> {
+    let mut out: Vec<(String, hid::DeviceInfo, &hid::HidMapping)> = Vec::new();
+    for d in devices {
+        let Some(m) = hid::match_mapping(&d, mappings) else {
+            continue;
+        };
+        let base = if d.product.is_empty() {
+            m.0.clone()
+        } else {
+            d.product.clone()
+        };
+        let mut name = base.clone();
+        let mut n = 1;
+        while out.iter().any(|(p, _, _)| *p == name) {
+            n += 1;
+            name = format!("{base} #{n}");
+        }
+        out.push((name, d, m));
+    }
+    out
+}
+
+/// The HID mapping file `port` should run, given the choices: the one
+/// matched, or another HID mapping picked by file name; none when off.
+fn pick_hid_mapping(
+    port: &str,
+    matched: &Path,
+    dir: &Path,
+    choices: &HashMap<String, MappingChoice>,
+) -> Option<PathBuf> {
+    match choices.get(&device_key(port)) {
+        Some(MappingChoice::Off) => None,
+        Some(MappingChoice::File(f)) if f.ends_with(".hid.xml") && dir.join(f).is_file() => {
+            Some(dir.join(f))
+        }
+        _ => Some(matched.to_path_buf()),
+    }
+}
+
 struct Device {
     stop: Arc<AtomicBool>,
     thread: JoinHandle<()>,
@@ -398,10 +464,29 @@ fn watch_devices(
 ) {
     let stand_ins = stand_in_devices();
     let mut input = MidiInput::new(CLIENT).ok();
-    if input.is_none() && stand_ins.is_empty() {
+    let hid_mappings = hid::list_mappings(&dir);
+    let mut hid_vendors: Vec<u16> = hid_mappings
+        .iter()
+        .flat_map(|(_, _, products)| products.iter().map(|p| p.vendor_id))
+        .collect();
+    hid_vendors.sort_unstable();
+    hid_vendors.dedup();
+    let mut hid_api = if hid_mappings.is_empty() {
+        None
+    } else {
+        match hid::Hid::new() {
+            Ok(h) => Some(h),
+            Err(e) => {
+                eprintln!("USB HID is unavailable ({e}); HID controllers are disabled");
+                None
+            }
+        }
+    };
+    if input.is_none() && stand_ins.is_empty() && hid_api.is_none() {
         eprintln!("MIDI is unavailable; controllers are disabled");
         return;
     }
+
     let mut devices: HashMap<String, Device> = HashMap::new();
     let mut last_scan: Option<Instant> = None;
     while !stop.load(Ordering::Relaxed) {
@@ -416,6 +501,7 @@ fn watch_devices(
             if let Ok(fresh) = MidiInput::new(CLIENT) {
                 input = Some(fresh);
             }
+            shared.problems.lock().unwrap().clear();
         }
         if rescan || last_scan.is_none_or(|t| t.elapsed() >= RESCAN) {
             last_scan = Some(Instant::now());
@@ -431,13 +517,38 @@ fn watch_devices(
                 .filter(|n| !n.contains(CLIENT) && !n.contains("Midi Through"))
                 .collect();
             ports.extend(stand_ins.iter().map(|s| s.name.clone()));
-            let picked: Vec<(String, Option<PathBuf>)> = {
+            let found = match hid_api.as_mut() {
+                Some(h) => hid_ports(h.scan(&hid_vendors), &hid_mappings),
+                None => Vec::new(),
+            };
+            let mut picked: Vec<(String, Option<PathBuf>)> = {
                 let choices = shared.choices.lock().unwrap();
                 ports
                     .iter()
                     .map(|p| (p.clone(), pick_mapping(p, &dir, &mappings, &choices)))
                     .collect()
             };
+            {
+                let choices = shared.choices.lock().unwrap();
+                picked.extend(
+                    found
+                        .iter()
+                        .map(|(p, _, m)| (p.clone(), pick_hid_mapping(p, &m.1, &dir, &choices))),
+                );
+            }
+            *shared.hid_ports.lock().unwrap() = found
+                .iter()
+                .map(|(p, _, m)| (p.clone(), m.0.clone()))
+                .collect();
+            // A device unplugged may open next time it's plugged in.
+            shared
+                .problems
+                .lock()
+                .unwrap()
+                .retain(|p, _| found.iter().any(|(f, _, _)| f == p));
+            // HID devices found, by port name.
+            let hid_found: HashMap<String, hid::DeviceInfo> =
+                found.into_iter().map(|(p, d, _)| (p, d)).collect();
             let versions = shared.versions.lock().unwrap().clone();
             let stale = std::mem::take(&mut *shared.stale.lock().unwrap());
             // Unplugged, its thread ended (e.g. the mapping failed to load),
@@ -471,6 +582,56 @@ fn watch_devices(
                 let Some(path) = path else {
                     continue;
                 };
+                if let Some(info) = hid_found.get(&port) {
+                    // Not again and again: once it failed, only after it's
+                    // plugged in again, or on Refresh.
+                    if shared.problems.lock().unwrap().contains_key(&port) {
+                        continue;
+                    }
+                    let opened = hid_api
+                        .as_ref()
+                        .map(|h| h.open(info))
+                        .unwrap_or_else(|| Err("USB HID is unavailable".into()));
+                    let device = match opened {
+                        Ok(d) => d,
+                        Err(e) => {
+                            let problem = hid_open_problem(&e);
+                            eprintln!("{port}: cannot open the HID device: {e}");
+                            shared
+                                .problems
+                                .lock()
+                                .unwrap()
+                                .insert(port.clone(), problem);
+                            continue;
+                        }
+                    };
+                    let d_stop = Arc::new(AtomicBool::new(false));
+                    let thread = {
+                        let (registry, path, port, d_stop, connected) = (
+                            registry.clone(),
+                            path.clone(),
+                            port.clone(),
+                            d_stop.clone(),
+                            connected.clone(),
+                        );
+                        std::thread::Builder::new()
+                            .name(format!("hid {port}"))
+                            .spawn(move || {
+                                run_hid(&port, &path, device, registry, &d_stop, &connected)
+                            })
+                            .expect("spawn controller thread")
+                    };
+                    devices.insert(
+                        port,
+                        Device {
+                            stop: d_stop,
+                            thread,
+                            mapping: path,
+                            own: None,
+                        },
+                    );
+                    continue;
+                }
                 let own = own_for(&path, &versions);
                 let d_stop = Arc::new(AtomicBool::new(false));
                 let stand_in = stand_ins.iter().find(|s| s.name == port).map(|s| {
@@ -689,6 +850,92 @@ fn run_controller(
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
+        }
+        controller.poll(Instant::now());
+        flush(&mut controller);
+    }
+    controller.shutdown();
+    controller.poll(Instant::now());
+    flush(&mut controller);
+    connected.lock().unwrap().retain(|c| c.port != port);
+}
+
+/// What to tell the DJ when an HID device won't open.
+fn hid_open_problem(error: &str) -> String {
+    if cfg!(target_os = "linux") {
+        "Linux didn't let openDJ open it. Add the udev rule from the controllers guide, \
+         then plug it in again."
+            .into()
+    } else if cfg!(windows) {
+        format!("Windows didn't let openDJ open it ({error}). Is another DJ app using it?")
+    } else {
+        format!("The system didn't let openDJ open it ({error}). Quit Traktor and try again.")
+    }
+}
+
+/// Runs an HID mapping until `stop` is set or the device goes away.
+fn run_hid(
+    port: &str,
+    mapping_path: &Path,
+    device: hid::Device,
+    registry: Arc<ControlRegistry>,
+    stop: &AtomicBool,
+    connected: &Mutex<Vec<ConnectedController>>,
+) {
+    use hid::Io;
+    let mapping = match Mapping::load(mapping_path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("{port}: cannot read {}: {e}", mapping_path.display());
+            return;
+        }
+    };
+    let mapping_name = mapping.name.clone();
+    let device = std::rc::Rc::new(device);
+    let mut controller = match Controller::new_hid(port, mapping, registry, device.clone()) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{port}: mapping {mapping_name} failed to load: {e}");
+            return;
+        }
+    };
+    eprintln!("{port}: using HID mapping {mapping_name}");
+    connected.lock().unwrap().push(ConnectedController {
+        port: port.to_string(),
+        mapping: mapping_name,
+        file: mapping_path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    });
+    let flush = |c: &mut Controller| {
+        for report in c.take_reports() {
+            if let Err(e) = device.write(&report) {
+                eprintln!("{port}: HID write failed: {e}");
+                c.report_failed(report[0]);
+            }
+        }
+    };
+    flush(&mut controller);
+    let mut buf = [0u8; hid::BUFFER];
+    'run: while !stop.load(Ordering::Relaxed) {
+        let now = Instant::now();
+        let deadline = controller
+            .next_deadline()
+            .map_or(now + POLL, |d| d.min(now + POLL));
+        let mut wait = deadline.saturating_duration_since(now).as_millis() as i32;
+        // Everything waiting, then on to timers and lights.
+        loop {
+            match device.read(&mut buf, wait) {
+                Ok(0) => break,
+                Ok(n) => controller.receive_report(&buf[..n]),
+                Err(e) => {
+                    // Unplugged: the next scan notices it's gone.
+                    eprintln!("{port}: HID read failed: {e}");
+                    break 'run;
+                }
+            }
+            wait = 0;
         }
         controller.poll(Instant::now());
         flush(&mut controller);
