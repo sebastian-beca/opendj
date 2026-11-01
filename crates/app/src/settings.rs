@@ -760,7 +760,16 @@ pub fn set_filter_tolerance(i: usize) {
 /// The track list's columns, in order, as (column id, width); empty for
 /// the default set.
 pub fn columns() -> Vec<(i32, f32)> {
-    load()["columns"]
+    columns_at("columns")
+}
+
+/// The columns a history session shows, as [`columns`].
+pub fn history_columns() -> Vec<(i32, f32)> {
+    columns_at("history_columns")
+}
+
+fn columns_at(key: &str) -> Vec<(i32, f32)> {
+    load()[key]
         .as_array()
         .map(|a| {
             a.iter()
@@ -776,11 +785,19 @@ pub fn columns() -> Vec<(i32, f32)> {
 }
 
 pub fn set_columns(columns: &[(i32, f32)]) {
+    set_columns_at("columns", columns);
+}
+
+pub fn set_history_columns(columns: &[(i32, f32)]) {
+    set_columns_at("history_columns", columns);
+}
+
+fn set_columns_at(key: &str, columns: &[(i32, f32)]) {
     let list: Vec<Value> = columns
         .iter()
         .map(|(id, width)| json!({ "id": id, "width": width }))
         .collect();
-    save(|v| v["columns"] = json!(list));
+    save(|v| v[key] = json!(list));
 }
 
 fn shortcut_list(v: &Value) -> Vec<(String, String)> {

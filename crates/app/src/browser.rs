@@ -37,6 +37,7 @@ mod filters;
 mod health;
 mod info;
 mod sets;
+mod spotify_export;
 mod staging;
 mod streamed;
 mod usb;
@@ -496,6 +497,13 @@ pub struct Browser {
     health_view: bool,
     /// The node selected on the other tab, to go back to.
     other_tab_node: usize,
+    /// The list or history session the sort was last set up for: each
+    /// opens in its own order (a session as played), and the collection's
+    /// sort (kept here) comes back after.
+    sorted_list: Option<i64>,
+    view_sort: (i32, bool),
+    /// What exporting a list to Spotify did last, for that list.
+    export_status: Option<(i64, String)>,
     /// This run's history session, made when the first track is played.
     session: Option<i64>,
     /// Lists tracks can be added to, as offered in the track menu.
@@ -691,6 +699,8 @@ struct RowData<'a> {
     local: Option<usize>,
     /// A Spotify track: where it is in its playlist.
     stream: Option<usize>,
+    /// Where it is in the list shown, and when it was played.
+    list: columns::InList,
 }
 
 /// Mixxx's library controls, which controller mappings use to browse and load.
@@ -1066,6 +1076,9 @@ impl Browser {
             history_tab: false,
             health_view: false,
             other_tab_node: 0,
+            sorted_list: None,
+            view_sort: (1, true),
+            export_status: None,
             session: None,
             menu_lists: Vec::new(),
             crates: HashMap::new(),
@@ -1585,6 +1598,7 @@ impl Browser {
         Self::install_albums(&edit, &with);
         Self::install_album_covers(&app.global::<crate::AlbumsUi>(), &with);
         Self::install_usb_export(app, &edit, &with);
+        Self::install_spotify_export(&edit, &with);
     }
 
     /// Saves a search as a smart list at the top level (under "Smart
@@ -2068,7 +2082,7 @@ impl Browser {
                     ..Default::default()
                 };
                 TrackRow {
-                    cells: columns::row_cells(&ids, &row, None, None),
+                    cells: columns::row_cells(&ids, &row, None, None, Default::default()),
                     ..row
                 }
             })
@@ -2610,6 +2624,15 @@ impl Browser {
                         }
                     }
                     Event::Found(found) => self.found_placed(i, found),
+                    Event::Exported {
+                        list,
+                        url,
+                        added,
+                        missing,
+                    } => self.exported(list, &url, added, &missing),
+                    Event::ExportFailed { list, error } => {
+                        self.export_status(list, format!("Couldn't export to Spotify: {error}"))
+                    }
                     Event::Disconnected => {
                         st.state = StreamState::default();
                         crate::stream_cache::remove(st.id);
@@ -3932,37 +3955,72 @@ impl Browser {
                 rating: t.rating,
                 local: Some(id),
                 stream: None,
+                list: Default::default(),
             }
         };
         // An imported list with streamed tracks standing in it: those the
         // collection has now show as its tracks.
         if let Some(placed) = &self.placed.entries {
             let found = self.placed_matches();
+            let lists = &self.placed.lists;
             return placed
                 .iter()
-                .map(|p| match *p {
-                    streamed::Placed::Track(i) => local(i),
-                    streamed::Placed::Streamed(n) => match found[n] {
-                        Some(id) => RowData {
-                            stream: Some(n),
-                            ..local(id)
-                        },
-                        None => {
-                            let t = &self.placed.tracks[n].1;
-                            RowData {
-                                title: &t.title,
-                                artist: t.artist(),
-                                album: &t.album,
-                                genre: "",
-                                bpm: 0.0,
-                                key: "",
-                                duration: t.duration,
-                                rating: 0,
-                                local: None,
+                .zip(lists)
+                .map(|(p, &list)| RowData {
+                    list,
+                    ..match *p {
+                        streamed::Placed::Track(i) => local(i),
+                        streamed::Placed::Streamed(n) => match found[n] {
+                            Some(id) => RowData {
                                 stream: Some(n),
+                                ..local(id)
+                            },
+                            None => {
+                                let t = &self.placed.tracks[n].1;
+                                RowData {
+                                    title: &t.title,
+                                    artist: t.artist(),
+                                    album: &t.album,
+                                    genre: "",
+                                    bpm: 0.0,
+                                    key: "",
+                                    duration: t.duration,
+                                    rating: 0,
+                                    local: None,
+                                    stream: Some(n),
+                                    list: Default::default(),
+                                }
                             }
-                        }
-                    },
+                        },
+                    }
+                })
+                .collect();
+        }
+        // One of the DJ's lists or a history session: each track with its
+        // place, and in a session when it was played.
+        if let (Some(Contents::Playlist(id)), Some(db)) = (
+            self.nodes.get(self.current_node).map(|n| &n.contents),
+            &self.db,
+        ) {
+            let history = self.nodes[self.current_node].history;
+            let tracks = db.playlist_tracks(*id).unwrap_or_default();
+            let times = if history {
+                db.playlist_times(*id).unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            return tracks
+                .into_iter()
+                .enumerate()
+                .filter_map(|(n, t)| {
+                    let i = *self.index_of.get(&t)?;
+                    Some(RowData {
+                        list: columns::InList {
+                            order: n + 1,
+                            played_at: times.get(n).copied().flatten(),
+                        },
+                        ..local(i)
+                    })
                 })
                 .collect();
         }
@@ -4002,6 +4060,7 @@ impl Browser {
                         rating: 0,
                         local: None,
                         stream: Some(n),
+                        list: Default::default(),
                     },
                 }
             })
@@ -4334,6 +4393,7 @@ impl Browser {
             return;
         }
         self.load_placed();
+        self.follow_list_sort();
         // Collection tracks are searched with the full syntax, filters
         // included; Spotify tracks the collection doesn't have, by their
         // names, and only while nothing is filtered.
@@ -4376,6 +4436,8 @@ impl Browser {
                     columns::KEY_ID => a.key.cmp(b.key),
                     columns::LENGTH => a.duration.total_cmp(&b.duration),
                     columns::RATING_ID => a.rating.cmp(&b.rating),
+                    columns::ORDER => a.list.order.cmp(&b.list.order),
+                    columns::PLAYED_AT => a.list.played_at.cmp(&b.list.played_at),
                     // What only the collection knows: Spotify tracks it
                     // doesn't have go last.
                     columns::CRATES => {
@@ -4461,6 +4523,7 @@ impl Browser {
                         &row,
                         r.local.map(|id| &*library[id]),
                         crates.map(Vec::as_slice),
+                        r.list,
                     ),
                     ..row
                 }
@@ -4472,6 +4535,9 @@ impl Browser {
         {
             let have = data.iter().filter(|r| r.local.is_some()).count();
             summary = format!("{summary} · {have} in your collection");
+        }
+        if let Some(note) = self.export_note() {
+            summary = format!("{summary} · {note}");
         }
         if self.tree == FILES && self.files.reading && !data.is_empty() {
             summary = format!(
@@ -4506,6 +4572,36 @@ impl Browser {
             }
         }
         self.refresh_album_ui();
+    }
+
+    /// Sets the sort and columns up for the node shown: one of the DJ's
+    /// lists or a history session opens in its own order, and a session
+    /// shows its own columns (the play order and times first).
+    fn follow_list_sort(&mut self) {
+        let node = self.nodes.get(self.current_node);
+        let list = node
+            .and_then(|n| match n.contents {
+                Contents::Playlist(id) => Some(id),
+                _ => None,
+            })
+            .filter(|_| self.tree == COLLECTION);
+        let history = list.is_some() && node.is_some_and(|n| n.history);
+        if self.columns.show_history(history) {
+            self.refresh_column_ui();
+        }
+        if self.tree != COLLECTION || list == self.sorted_list {
+            return;
+        }
+        match (self.sorted_list, list) {
+            (None, Some(_)) => {
+                self.view_sort = (self.sort_column, self.ascending);
+                (self.sort_column, self.ascending) = (columns::ORDER, true);
+            }
+            (Some(_), Some(_)) => (self.sort_column, self.ascending) = (columns::ORDER, true),
+            (Some(_), None) => (self.sort_column, self.ascending) = self.view_sort,
+            (None, None) => {}
+        }
+        self.sorted_list = list;
     }
 
     /// Lists the rows again, re-sorted, with the selected track still

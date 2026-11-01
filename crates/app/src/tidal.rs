@@ -125,6 +125,11 @@ impl Worker {
                         self.emit(Event::SignInFailed(format!("Couldn't refresh: {e}")));
                     }
                 }
+                // Only Spotify makes playlists.
+                Request::Export { list, .. } => self.emit(Event::ExportFailed {
+                    list,
+                    error: "Only Spotify can be exported to.".into(),
+                }),
                 Request::Disconnect => {
                     if let Some(s) = self.session.take() {
                         Saved {

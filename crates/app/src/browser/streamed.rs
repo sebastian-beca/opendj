@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use opendj_engine::import::StreamedTrack;
 use opendj_library::ListEntry;
 
+use super::columns::InList;
 use super::{Browser, Contents, Manual};
 use crate::spotify::{Request, StreamTrack};
 
@@ -25,6 +26,9 @@ pub(super) enum Placed {
 pub(super) struct Placeholders {
     /// The list shown, when streamed tracks stand in it.
     pub entries: Option<Vec<Placed>>,
+    /// Where each entry is in the list, and when it was played in a
+    /// history session.
+    pub lists: Vec<InList>,
     /// Those tracks, with their service ("tidal").
     pub tracks: Vec<(String, StreamTrack)>,
     /// Matches the DJ set by hand, by service and then by
@@ -54,6 +58,7 @@ impl Browser {
     /// Reads the shown list again when streamed tracks stand in it.
     pub(super) fn load_placed(&mut self) {
         self.placed.entries = None;
+        self.placed.lists.clear();
         self.placed.tracks.clear();
         let Some(&Contents::Playlist(id)) = self.nodes.get(self.current_node).map(|n| &n.contents)
         else {
@@ -66,12 +71,23 @@ impl Browser {
         if !entries.iter().any(|e| matches!(e, ListEntry::Streamed(_))) {
             return;
         }
+        let history = self.nodes[self.current_node].history;
+        let times = if history {
+            db.playlist_times(id).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         let mut placed = Vec::with_capacity(entries.len());
-        for e in entries {
+        for (n, e) in entries.into_iter().enumerate() {
+            let list = InList {
+                order: n + 1,
+                played_at: times.get(n).copied().flatten(),
+            };
             match e {
                 ListEntry::Track(t) => {
                     if let Some(&i) = self.index_of.get(&t) {
                         placed.push(Placed::Track(i));
+                        self.placed.lists.push(list);
                     }
                 }
                 ListEntry::Streamed(s) => {
@@ -80,6 +96,7 @@ impl Browser {
                         self.placed.manual.insert(s.service.clone(), manual);
                     }
                     placed.push(Placed::Streamed(self.placed.tracks.len()));
+                    self.placed.lists.push(list);
                     self.placed
                         .tracks
                         .push((s.service.clone(), stream_track(&s)));
