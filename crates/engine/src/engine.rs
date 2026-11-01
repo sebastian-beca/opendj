@@ -18,7 +18,7 @@ use crate::controls::{
 };
 use crate::dsp::{Isolator, Limiter, Sculpt};
 use crate::effects::{input_target, ColorFx, EffectRack, BLOCK, COLOR_FX, MAIN, TARGETS};
-use crate::inputs::{Ducker, Input, InputFeed, AUXILIARY, MICROPHONE, NUM_INPUTS};
+use crate::inputs::{Ducker, Input, InputFeed, AUXILIARY, INSTRUMENT, MICROPHONE, NUM_INPUTS};
 use crate::key::{self, Key};
 use crate::keyshift::{transpose_factor, KeyShifter};
 use crate::link::{phase_error, Link, Moment};
@@ -1934,6 +1934,11 @@ impl Engine {
         self.fx.take_plugin_link()
     }
 
+    /// Where notes for the Instrument input come in; there is one, taken once.
+    pub fn take_note_input(&mut self) -> Option<crate::effects::NoteInput> {
+        self.fx.take_note_input()
+    }
+
     pub fn visual_positions(&self) -> Arc<VisualPositions> {
         self.visual.clone()
     }
@@ -2415,19 +2420,25 @@ impl Engine {
             // The auxiliary input joins the music; the microphone is added
             // after the main mix's effects, which leave the voice alone, and
             // the music ducks under it.
-            let aux = &self.inputs[AUXILIARY];
-            let a = aux.buf[f];
-            let ga = lerp(aux.level_ramp);
             let mic = &self.inputs[MICROPHONE];
             let m = mic.buf[f];
             let gm = lerp(mic.level_ramp);
             let ducked = self.ducker.next(duck, mic.live && gm > 0.0, m);
-            for c in 0..2 {
-                main[c] = (main[c] + a[c] * ga) * ducked;
+            // The auxiliary input and the instrument play with the music.
+            for input in [AUXILIARY, INSTRUMENT] {
+                let inp = &self.inputs[input];
+                let a = inp.buf[f];
+                let ga = lerp(inp.level_ramp);
+                for c in 0..2 {
+                    main[c] += a[c] * ga;
+                }
+                if inp.pfl {
+                    cue[0] += a[0];
+                    cue[1] += a[1];
+                }
             }
-            if aux.pfl {
-                cue[0] += a[0];
-                cue[1] += a[1];
+            for v in &mut main {
+                *v *= ducked;
             }
             main_buf[f] = main;
             cue_buf[f] = cue;

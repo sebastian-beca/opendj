@@ -1,7 +1,9 @@
 //! The microphone and auxiliary inputs, Mixxx's `[Microphone]` and
-//! `[Auxiliary1]`. Each takes audio from an input device (see
-//! [`crate::output`]) through its gain, a 3-band EQ and the effect units
-//! routed to it, then its fader.
+//! `[Auxiliary1]`, and the instrument, `[Instrument1]`. The first two take
+//! audio from an input device (see [`crate::output`]), the instrument from an
+//! instrument plugin playing the notes it is sent (see
+//! [`crate::plugins`]). Each goes through its gain, a 3-band EQ and the
+//! effect units routed to it, then its fader.
 //!
 //! The microphone is heard while `talkover` is on. It joins the main mix
 //! after the main mix's effects, so they don't touch the voice, and can duck
@@ -23,13 +25,15 @@ use crate::controls::alias;
 use crate::dsp::Isolator;
 use crate::effects::EffectRack;
 
-pub const NUM_INPUTS: usize = 2;
+pub const NUM_INPUTS: usize = 3;
 pub const MICROPHONE: usize = 0;
 pub const AUXILIARY: usize = 1;
+/// The instrument plugin, joining the music as the auxiliary input does.
+pub const INSTRUMENT: usize = 2;
 
 /// The input's control group.
-pub fn input_group(input: usize) -> &'static str {
-    ["[Microphone]", "[Auxiliary1]"][input]
+pub const fn input_group(input: usize) -> &'static str {
+    ["[Microphone]", "[Auxiliary1]", "[Instrument1]"][input]
 }
 
 /// The input's EQ, named as the decks' are.
@@ -103,6 +107,18 @@ impl InputControls {
             alias(reg, g, "master", g, "main_mix");
             on
         };
+        if input == INSTRUMENT {
+            // Which instrument plays: 1 + its place in the plugin host's
+            // instrument list, 0 for none.
+            reg.create(
+                g,
+                "instrument",
+                0.0,
+                0.0,
+                crate::effects::MAX_PLUGINS as f64,
+                Behavior::Linear,
+            );
+        }
         let configured = reg.indicator(g, "input_configured", 1.0);
         alias(reg, g, "enabled", g, "input_configured");
         Self {
@@ -133,6 +149,7 @@ impl InputControls {
 /// One input channel.
 pub(crate) struct Input {
     c: InputControls,
+    index: usize,
     feed: Option<InputFeed>,
     /// Waiting for the queue to fill before playing from it.
     filling: bool,
@@ -157,6 +174,7 @@ impl Input {
     pub(crate) fn new(reg: &ControlRegistry, input: usize, sample_rate: f64) -> Self {
         Self {
             c: InputControls::create(reg, input),
+            index: input,
             feed: None,
             filling: true,
             eq: Isolator::new(sample_rate),
@@ -188,17 +206,24 @@ impl Input {
             self.buf.resize(frames, [0.0; 2]);
         }
         let buf = &mut self.buf[..frames];
-        let got = match &mut self.feed {
-            Some(feed) => pull(feed, &mut self.filling, buf),
-            None => 0,
+        let source = if self.index == INSTRUMENT {
+            let playing = fx.play_instrument(buf, target);
+            self.c.configured.set_bool(fx.has_instrument());
+            playing
+        } else {
+            let got = match &mut self.feed {
+                Some(feed) => pull(feed, &mut self.filling, buf),
+                None => 0,
+            };
+            buf[got..].fill([0.0; 2]);
+            self.feed.is_some()
         };
-        buf[got..].fill([0.0; 2]);
 
-        let on = self.c.on.get_bool() && !self.c.mute.get_bool() && self.feed.is_some();
+        let on = self.c.on.get_bool() && !self.c.mute.get_bool() && source;
         let level = if on { self.c.volume.get() as f32 } else { 0.0 };
         self.level_ramp = (self.level, level);
         self.level = level;
-        self.live = self.c.on.get_bool() && self.feed.is_some();
+        self.live = self.c.on.get_bool() && source;
         self.pfl = self.c.pfl.get_bool();
         let pre = (self.pregain, self.c.pregain.get() as f32);
         self.pregain = pre.1;
