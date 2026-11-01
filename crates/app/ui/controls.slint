@@ -376,7 +376,7 @@ export component ControlFader inherits Rectangle {
     // be moved.
     in property <bool> disabled: false;
     // Held by something else (Automix and the crossfader): it still moves,
-    // outlined in Automix green with a lock on the handle, but can't be
+    // outlined in Automix green (the green glow says who holds it), but can't be
     // dragged or scrolled.
     in property <bool> locked: false;
     // A right-click, at that point along the fader.
@@ -455,19 +455,10 @@ export component ControlFader inherits Rectangle {
         border-color: locked ? Theme.automix : touch.pressed ? root.tint : #2a2a2d;
         drop-shadow-blur: 4px;
         drop-shadow-color: #000000a0;
-        if !locked: Rectangle {
+        Rectangle {
             width: vertical ? parent.width - 8px : 1px;
             height: vertical ? 1px : parent.height - 8px;
             background: #2a2a2d;
-        }
-        // A padlock in place of the grip line.
-        if locked: Path {
-            width: 10px;
-            height: 10px;
-            viewbox-width: 10;
-            viewbox-height: 10;
-            fill: #1d1d20;
-            commands: "M 1.5 4.5 L 8.5 4.5 L 8.5 10 L 1.5 10 Z M 3 4.5 L 3 3 A 2 2 0 0 1 7 3 L 7 4.5 L 6 4.5 L 6 3 A 1 1 0 0 0 4 3 L 4 4.5 Z";
         }
     }
     touch := TouchArea {
@@ -522,8 +513,8 @@ export component ControlFader inherits Rectangle {
 // (`[Mixer],crossfader_enabled`, also in Settings > Mixer): while it is off
 // every deck plays as if set to thru, and the fader sits greyed out in the
 // centre. While Automix is on it drives the crossfader and holds it locked
-// (switched off or not): it slides with each mix, with a lock on the
-// handle, and the mouse and controllers can't move it until Automix stops.
+// (switched off or not): it slides with each mix, glowing Automix green,
+// and the mouse and controllers can't move it until Automix stops.
 export component Crossfader inherits Rectangle {
     // Names it for the guided tour (see TourMark).
     in property <string> tour-id;

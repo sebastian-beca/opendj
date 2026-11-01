@@ -72,6 +72,10 @@ export struct DeckInfo {
     can-prepare-hq: bool,
     // 0..1 through the track
     progress: float,
+    // The stretch of the track Automix's next (or current) mix covers, from
+    // 0 to 1 through the track; equal (both 0) when there is none.
+    automix-from: float,
+    automix-to: float,
     effects: [string],
 }
 
@@ -692,6 +696,17 @@ export component Header inherits Rectangle {
                 // layer, which would freeze the GPU-updated image.
                 clip: true;
                 Image { width: parent.width; height: parent.height; source: overview; image-fit: fill; }
+                // Automix's mix, shaded green: on the playing deck from where
+                // the mix starts to the end, on the waiting deck from its cue
+                // to where the mix is over.
+                if info.automix-to > info.automix-from: Rectangle {
+                    x: info.automix-from * parent.width;
+                    width: (info.automix-to - info.automix-from) * parent.width;
+                    height: parent.height;
+                    background: Theme.automix.with-alpha(0.18);
+                    Rectangle { x: 0; width: 1px; background: Theme.automix.with-alpha(0.8); }
+                    Rectangle { x: parent.width - 1px; width: 1px; background: Theme.automix.with-alpha(0.8); }
+                }
                 // The waveform, a dot at every minute and the phrase bar
                 // are all drawn into the image, stacked so none overlap.
                 ota := TouchArea {

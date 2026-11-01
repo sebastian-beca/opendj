@@ -778,8 +778,12 @@ pub struct AutomixHost<'a> {
 }
 
 impl crate::automix::Host for AutomixHost<'_> {
-    fn take_next(&mut self) -> Option<Arc<Track>> {
-        self.browser.take_automix_next()
+    fn track_at(&self, index: usize) -> Option<Arc<Track>> {
+        self.browser.automix_at(index)
+    }
+
+    fn remove(&mut self, id: usize) {
+        self.browser.remove_from_automix(id);
     }
 
     fn queued(&self) -> usize {
@@ -2714,15 +2718,21 @@ impl Browser {
         self.refresh_side();
     }
 
-    /// Takes the first track off the Automix list, as Mixxx's Auto DJ does
-    /// when it loads one.
-    pub fn take_automix_next(&mut self) -> Option<Arc<Track>> {
-        if self.side[0].is_empty() {
-            return None;
+    /// The track at `index` on the Automix list.
+    pub fn automix_at(&self, index: usize) -> Option<Arc<Track>> {
+        let i = *self.side[0].get(index)?;
+        self.library.get(i).cloned()
+    }
+
+    /// Takes a track off the Automix list once Automix has played it.
+    pub fn remove_from_automix(&mut self, id: usize) {
+        let Some(&index) = self.index_of.get(&id) else {
+            return;
+        };
+        if let Some(i) = self.side[0].iter().position(|&t| t == index) {
+            self.side[0].remove(i);
+            self.refresh_side();
         }
-        let id = self.side[0].remove(0);
-        self.refresh_side();
-        self.library.get(id).cloned()
     }
 
     pub fn automix_len(&self) -> usize {
