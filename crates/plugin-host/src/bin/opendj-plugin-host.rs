@@ -1,11 +1,13 @@
 //! The helper process. Two modes:
 //!
-//! - `opendj-plugin-host --shm <path> (--test <id> | --clap <file> --id <id>)`
+//! - `opendj-plugin-host --shm <path> (--test <id> | --clap <file> --id <id> |
+//!   --vst3 <bundle> --id <cid>)`
 //!   maps the block openDJ shares, loads one effect, describes it on stdout
 //!   (`name`, `latency`, `param` lines, then `ready`) and runs a block each
 //!   time openDJ writes a byte to stdin. It exits when stdin closes, so a
 //!   helper never outlives openDJ.
-//! - `opendj-plugin-host --scan <file>` lists the plugins in a CLAP file
+//! - `opendj-plugin-host --scan <file>` lists the plugins in a CLAP file or
+//!   VST3 bundle
 //!   (`plugin` lines, then `done`) and exits.
 //!
 //! The plugin's main-thread half stays on this process's main thread; the
@@ -25,6 +27,7 @@ fn main() {
     let mut shm_path = None;
     let mut test = None;
     let mut clap = None;
+    let mut vst3 = None;
     let mut id = None;
     let mut scan = None;
     let mut args = std::env::args_os().skip(1);
@@ -33,6 +36,7 @@ fn main() {
             Some("--shm") => shm_path = args.next().map(PathBuf::from),
             Some("--test") => test = args.next().and_then(|s| s.into_string().ok()),
             Some("--clap") => clap = args.next().map(PathBuf::from),
+            Some("--vst3") => vst3 = args.next().map(PathBuf::from),
             Some("--id") => id = args.next().and_then(|s| s.into_string().ok()),
             Some("--scan") => scan = args.next().map(PathBuf::from),
             _ => fail(&format!("unknown argument {a:?}")),
@@ -41,10 +45,13 @@ fn main() {
     if let Some(file) = scan {
         return run_scan(&file);
     }
-    let plugin = match (test, clap, id) {
-        (Some(t), None, _) => Plugin::Test(t),
-        (None, Some(file), Some(id)) => Plugin::Clap { file, id },
-        _ => fail("usage: opendj-plugin-host --shm <path> (--test <id> | --clap <file> --id <id>)"),
+    let plugin = match (test, clap, vst3, id) {
+        (Some(t), None, None, _) => Plugin::Test(t),
+        (None, Some(file), None, Some(id)) => Plugin::Clap { file, id },
+        (None, None, Some(file), Some(id)) => Plugin::Vst3 { file, id },
+        _ => fail(
+            "usage: opendj-plugin-host --shm <path> (--test <id> | --clap <file> --id <id> | --vst3 <bundle> --id <cid>)",
+        ),
     };
     let Some(shm_path) = shm_path else {
         fail("--shm <path> is needed");
@@ -144,7 +151,12 @@ fn run_audio(shm: &Shm, mut fx: Box<dyn Effect>) {
 }
 
 fn run_scan(file: &std::path::Path) {
-    match opendj_plugin_host::clap::scan(file) {
+    let found = if opendj_plugin_host::client::is_vst3(file) {
+        opendj_plugin_host::vst3::scan(file)
+    } else {
+        opendj_plugin_host::clap::scan(file)
+    };
+    match found {
         Ok(found) => {
             for d in found {
                 say(&format!(

@@ -89,6 +89,12 @@ fn plugin_args(plugin: &Plugin) -> Vec<std::ffi::OsString> {
             "--id".into(),
             id.into(),
         ],
+        Plugin::Vst3 { file, id } => vec![
+            "--vst3".into(),
+            file.clone().into_os_string(),
+            "--id".into(),
+            id.into(),
+        ],
     }
 }
 
@@ -114,6 +120,12 @@ fn read_info(info: &mut Info, line: &str) {
     }
 }
 
+/// Whether `file` is a VST3 plugin (by its `.vst3` name).
+pub fn is_vst3(file: &Path) -> bool {
+    file.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("vst3"))
+}
+
 /// Why a file could not be scanned.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ScanError {
@@ -135,10 +147,16 @@ impl std::fmt::Display for ScanError {
     }
 }
 
-/// Lists the plugins in one CLAP file, in a throwaway helper that is killed
-/// after `timeout`. Loading a plugin runs its code, so this never happens
-/// inside openDJ.
+/// Lists the plugins in one CLAP file or VST3 bundle. A VST3 bundle's
+/// `moduleinfo.json` is read directly when it has one; otherwise the file is
+/// loaded in a throwaway helper that is killed after `timeout`. Loading a
+/// plugin runs its code, so this never happens inside openDJ.
 pub fn scan(helper: &Path, file: &Path, timeout: Duration) -> Result<Vec<Descriptor>, ScanError> {
+    if is_vst3(file) {
+        if let Some(found) = crate::vst3::scan_moduleinfo(file) {
+            return Ok(found);
+        }
+    }
     let mut child = Command::new(helper)
         .arg("--scan")
         .arg(file)

@@ -18,8 +18,9 @@
 
 ## 3. VST3
 
-- [ ] 3.1 Host VST3 effects with the `vst3` crate (coupler-rs) behind a safe layer: processor/controller, parameters, state
-- [ ] 3.2 Scanning via `moduleinfo.json` when present; editors
+- [x] 3.1 Host VST3 effects with the `vst3` crate (coupler-rs): component, processor, separate controller (connection, component state), parameters, process context
+- [x] 3.2a Scanning via `moduleinfo.json` when present, else in a throwaway helper
+- [ ] 3.2 VST3 editors (with 2.6)
 
 ## 4. AU (macOS)
 

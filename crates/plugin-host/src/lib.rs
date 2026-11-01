@@ -17,6 +17,7 @@ pub mod client;
 pub mod effects;
 pub mod policy;
 pub mod shm;
+pub mod vst3;
 
 pub use self::clap::Descriptor;
 pub use client::{scan, spawn, Connection, Helper, Options, Outcome, ScanError, Status, Transport};
