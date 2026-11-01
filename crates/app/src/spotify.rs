@@ -1,4 +1,6 @@
-//! Spotify browsing: sign in, then list the playlists and liked songs.
+//! Spotify browsing: sign in, then list the playlists and liked songs. A
+//! list or history session can be sent back as a new playlist of the DJ's
+//! (see [`Request::Export`]); nothing is ever played from Spotify.
 //!
 //! Spotify's Web API gives track details but no audio, and its terms forbid
 //! mixing Spotify audio, so a Spotify track plays only when the collection
@@ -27,7 +29,8 @@ use sha2::{Digest, Sha256};
 
 pub(crate) const PORT: u16 = 8898;
 pub const REDIRECT_URI: &str = "http://127.0.0.1:8898/callback";
-const SCOPES: &str = "playlist-read-private playlist-read-collaborative user-library-read";
+const SCOPES: &str =
+    "playlist-read-private playlist-read-collaborative user-library-read playlist-modify-private";
 const API: &str = "https://api.spotify.com/v1";
 const ACCOUNTS: &str = "https://accounts.spotify.com";
 /// How long to wait for the user to finish signing in in the browser.
@@ -105,7 +108,39 @@ pub enum Request {
     /// Fetch the list of playlists again; answered with
     /// [`Event::Connected`], or [`Event::SignInFailed`].
     Playlists,
+    /// Make a private playlist called `name` with these tracks in this
+    /// order; answered with [`Event::Exported`] or [`Event::ExportFailed`].
+    /// `list` is the openDJ list it comes from.
+    Export {
+        list: i64,
+        name: String,
+        description: String,
+        tracks: Vec<Wanted>,
+    },
     Disconnect,
+}
+
+/// A track to put in a playlist made on Spotify: Spotify's id when it is
+/// known, else what to search for it by.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Wanted {
+    pub id: String,
+    pub isrc: String,
+    pub artist: String,
+    pub title: String,
+    /// Seconds; 0 when not known.
+    pub duration: f64,
+}
+
+impl Wanted {
+    /// "Artist – Title", to tell the DJ which tracks Spotify doesn't have.
+    pub fn name(&self) -> String {
+        if self.artist.is_empty() {
+            self.title.clone()
+        } else {
+            format!("{} – {}", self.artist, self.title)
+        }
+    }
 }
 
 pub enum Event {
@@ -129,6 +164,18 @@ pub enum Event {
     },
     /// Tracks asked for with [`Request::Lookup`] (those the service has).
     Found(Vec<StreamTrack>),
+    /// The playlist asked for with [`Request::Export`] is made: its page,
+    /// how many tracks went in, and those Spotify didn't have.
+    Exported {
+        list: i64,
+        url: String,
+        added: usize,
+        missing: Vec<String>,
+    },
+    ExportFailed {
+        list: i64,
+        error: String,
+    },
     Disconnected,
 }
 
@@ -292,6 +339,23 @@ impl Worker {
                     Ok(tracks) => self.emit(Event::Found(tracks)),
                     Err(e) => eprintln!("Spotify: can't look tracks up: {e}"),
                 },
+                Request::Export {
+                    list,
+                    name,
+                    description,
+                    tracks,
+                } => match self.export(&name, &description, &tracks) {
+                    Ok((url, added, missing)) => self.emit(Event::Exported {
+                        list,
+                        url,
+                        added,
+                        missing,
+                    }),
+                    Err(e) => self.emit(Event::ExportFailed {
+                        list,
+                        error: export_error(&e),
+                    }),
+                },
                 Request::Playlists => {
                     let result = match self.session {
                         Some(_) => self.connected(),
@@ -360,6 +424,98 @@ impl Worker {
             }
         }
         Ok(out)
+    }
+
+    /// Makes a private playlist with `tracks` in their order. Tracks
+    /// without Spotify's id are looked up by ISRC, then by artist and title.
+    fn export(
+        &mut self,
+        name: &str,
+        description: &str,
+        tracks: &[Wanted],
+    ) -> Result<(String, usize, Vec<String>), String> {
+        let mut uris = Vec::new();
+        let mut missing = Vec::new();
+        for t in tracks {
+            match self.find(t)? {
+                Some(id) => uris.push(format!("spotify:track:{id}")),
+                None => missing.push(t.name()),
+            }
+        }
+        if uris.is_empty() {
+            return Err("Spotify has none of these tracks.".into());
+        }
+        let body = json!({ "name": name, "description": description, "public": false });
+        // Newer API versions make it for the signed-in user at /me.
+        let made = match self.send(&format!("{API}/me/playlists"), &body) {
+            Ok(p) => p,
+            Err(e) if e.contains(" 403") => return Err(e),
+            Err(_) => {
+                let me = self.get(&format!("{API}/me"))?;
+                let user = me["id"].as_str().ok_or("Spotify didn't say who you are")?;
+                self.send(&format!("{API}/users/{}/playlists", encode(user)), &body)?
+            }
+        };
+        let id = made["id"]
+            .as_str()
+            .ok_or("Spotify made no playlist")?
+            .to_string();
+        let url = made["external_urls"]["spotify"]
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("https://open.spotify.com/playlist/{id}"));
+        // Added at the end, 100 at a time, so the order stays.
+        for batch in uris.chunks(100) {
+            let body = json!({ "uris": batch });
+            if self
+                .send(&format!("{API}/playlists/{id}/items"), &body)
+                .is_err()
+            {
+                self.send(&format!("{API}/playlists/{id}/tracks"), &body)?;
+            }
+        }
+        Ok((url, uris.len(), missing))
+    }
+
+    /// Spotify's id for a track: the one given, the same ISRC, else the
+    /// best match by artist and title (see [`best_match`]).
+    fn find(&mut self, t: &Wanted) -> Result<Option<String>, String> {
+        if !t.id.is_empty() {
+            return Ok(Some(t.id.clone()));
+        }
+        let isrc = normalize_isrc(&t.isrc);
+        if !isrc.is_empty() {
+            if let Some(found) = self.search(&format!("isrc:{isrc}"))?.into_iter().next() {
+                return Ok(Some(found.id));
+            }
+        }
+        if t.title.is_empty() {
+            return Ok(None);
+        }
+        let artist = main_artist(&t.artist);
+        let title = bare_title(&t.title);
+        let queries = [
+            format!("track:{title} artist:{artist}"),
+            format!("{artist} {}", t.title),
+        ];
+        for q in queries {
+            let found = self.search(q.trim())?;
+            if let Some(id) = best_match(t, &found) {
+                return Ok(Some(id));
+            }
+        }
+        Ok(None)
+    }
+
+    fn search(&mut self, q: &str) -> Result<Vec<StreamTrack>, String> {
+        let page = self.get(&format!("{API}/search?type=track&limit=10&q={}", encode(q)))?;
+        Ok(page["tracks"]["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|t| parse_item(&json!({ "track": t })))
+            .filter(|t| !t.id.is_empty())
+            .collect())
     }
 
     fn login(&mut self, client_id: &str) -> Result<Session, String> {
@@ -454,6 +610,15 @@ impl Worker {
 
     /// A GET against the Web API, renewing the token and waiting out rate limits.
     fn get(&mut self, url: &str) -> Result<Value, String> {
+        self.call(url, None)
+    }
+
+    /// A POST of `body` as JSON, as [`Worker::get`].
+    fn send(&mut self, url: &str, body: &Value) -> Result<Value, String> {
+        self.call(url, Some(body))
+    }
+
+    fn call(&mut self, url: &str, body: Option<&Value>) -> Result<Value, String> {
         let mut renewed = false;
         for _ in 0..5 {
             let s = self.session.as_ref().ok_or("Not signed in to Spotify")?;
@@ -462,12 +627,16 @@ impl Worker {
                 renewed = true;
                 continue;
             }
-            let mut response = self
-                .agent
-                .get(url)
-                .header("Authorization", &format!("Bearer {}", s.access_token))
-                .call()
-                .map_err(|e| e.to_string())?;
+            let auth = format!("Bearer {}", s.access_token);
+            let mut response = match body {
+                None => self.agent.get(url).header("Authorization", &auth).call(),
+                Some(b) => self
+                    .agent
+                    .post(url)
+                    .header("Authorization", &auth)
+                    .send_json(b),
+            }
+            .map_err(|e| e.to_string())?;
             let status = response.status().as_u16();
             let retry_after = response
                 .headers()
@@ -481,7 +650,7 @@ impl Worker {
                 .and_then(|b| serde_json::from_str(&b).ok())
                 .unwrap_or(Value::Null);
             match status {
-                200 => return Ok(body),
+                200..=299 => return Ok(body),
                 401 if !renewed => {
                     self.renew()?;
                     renewed = true;
@@ -506,6 +675,86 @@ impl Worker {
         }
         Ok(items)
     }
+}
+
+/// What to tell the DJ when making a playlist failed. A sign-in from
+/// before openDJ could make playlists isn't allowed to.
+fn export_error(e: &str) -> String {
+    if e.contains(" 403") {
+        "Spotify didn't let openDJ make a playlist. Sign out of Spotify in openDJ and sign in again to allow it, then export again.".into()
+    } else {
+        e.to_string()
+    }
+}
+
+/// The first of a track's artists, for searching: "A & B feat. C" gives "A".
+fn main_artist(artist: &str) -> &str {
+    let lower = artist.to_lowercase();
+    let cut = [
+        ",", " & ", " feat", " ft.", " x ", " vs", " with ", ";", "/",
+    ]
+    .iter()
+    .filter_map(|sep| lower.find(sep))
+    .min()
+    .unwrap_or(artist.len());
+    artist.get(..cut).unwrap_or(artist).trim()
+}
+
+/// A title without what's in brackets: "Song (Extended Mix)" gives "Song".
+fn bare_title(title: &str) -> String {
+    let mut out = String::new();
+    let mut depth = 0;
+    for c in title.chars() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = (depth - 1).max(0),
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    let out = out.trim();
+    // "Song - Extended Mix", as Spotify writes mixes.
+    out.split(" - ").next().unwrap_or(out).trim().to_string()
+}
+
+/// Which of Spotify's search results is the track: the same title (mix
+/// included) by the same artist, the one nearest its length; else the same
+/// title without its mix, when the length is near too.
+fn best_match(t: &Wanted, found: &[StreamTrack]) -> Option<String> {
+    let title = normalize(&t.title);
+    let artist = normalize(&t.artist);
+    let gap = |c: &StreamTrack| {
+        if t.duration > 0.0 && c.duration > 0.0 {
+            (t.duration - c.duration).abs()
+        } else {
+            0.0
+        }
+    };
+    let nearest = |pick: Vec<&StreamTrack>| {
+        pick.into_iter()
+            .min_by(|a, b| gap(a).total_cmp(&gap(b)))
+            .map(|c| c.id.clone())
+    };
+    let same = found
+        .iter()
+        .filter(|c| matches(c, &title, &artist))
+        .collect::<Vec<_>>();
+    if !same.is_empty() {
+        return nearest(same);
+    }
+    let bare = normalize(&bare_title(&t.title));
+    let close = found
+        .iter()
+        .filter(|c| {
+            normalize(&bare_title(&c.title)) == bare
+                && !bare.is_empty()
+                && c.artists
+                    .iter()
+                    .any(|a| !normalize(a).is_empty() && artist.contains(&normalize(a)))
+                && gap(c) <= 8.0
+        })
+        .collect::<Vec<_>>();
+    nearest(close)
 }
 
 fn error_message(status: u16, body: &Value) -> String {
@@ -826,7 +1075,7 @@ mod tests {
         assert!(url.starts_with("https://accounts.spotify.com/authorize?client_id=abc&"));
         assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A8898%2Fcallback"));
         assert!(url.contains(
-            "scope=playlist-read-private%20playlist-read-collaborative%20user-library-read"
+            "scope=playlist-read-private%20playlist-read-collaborative%20user-library-read%20playlist-modify-private"
         ));
         assert!(url.contains("code_challenge=xyz&") && url.ends_with("state=s1"));
     }
@@ -906,5 +1155,51 @@ mod tests {
             ..t
         };
         assert_eq!(own.match_key(), "local:faithless|insomnia");
+    }
+
+    fn found(id: &str, title: &str, artist: &str, duration: f64) -> StreamTrack {
+        StreamTrack {
+            id: id.into(),
+            page: String::new(),
+            isrc: String::new(),
+            title: title.into(),
+            artists: vec![artist.into()],
+            album: String::new(),
+            duration,
+        }
+    }
+
+    #[test]
+    fn picks_the_track_to_export() {
+        assert_eq!(main_artist("Bicep & Clara La San feat. X"), "Bicep");
+        assert_eq!(main_artist("Faithless"), "Faithless");
+        assert_eq!(bare_title("Glue (Extended Mix)"), "Glue");
+        assert_eq!(bare_title("Glue - Extended Mix"), "Glue");
+        let want = Wanted {
+            artist: "Bicep".into(),
+            title: "Glue (Extended Mix)".into(),
+            duration: 400.0,
+            ..Default::default()
+        };
+        let results = [
+            found("radio", "Glue", "Bicep", 269.0),
+            found("ext", "Glue - Extended Mix", "Bicep", 401.0),
+            found("cover", "Glue - Extended Mix", "Someone Else", 400.0),
+        ];
+        // The same mix by the same artist.
+        assert_eq!(best_match(&want, &results).as_deref(), Some("ext"));
+        // Without it, the same title at the same length only.
+        assert_eq!(best_match(&want, &results[..1]), None);
+        let near = [found("near", "Glue", "Bicep", 395.0)];
+        assert_eq!(best_match(&want, &near).as_deref(), Some("near"));
+        assert_eq!(best_match(&want, &results[2..]), None);
+    }
+
+    #[test]
+    fn asks_to_sign_in_again_for_playlists() {
+        assert!(
+            export_error("Spotify said 403: Insufficient client scope").contains("sign in again")
+        );
+        assert_eq!(export_error("timeout"), "timeout");
     }
 }

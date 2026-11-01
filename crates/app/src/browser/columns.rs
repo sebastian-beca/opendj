@@ -55,6 +55,11 @@ pub const WAVE: i32 = 19;
 pub const LOCATION: i32 = 20;
 /// The crates the track is in (see [`opendj_library::sets`]).
 pub const CRATES: i32 = 21;
+/// Where the track is in the list shown: for a history session, the order
+/// it was played in.
+pub const ORDER: i32 = 22;
+/// When a history session's track was played.
+pub const PLAYED_AT: i32 = 23;
 /// Tag field `i` (from 0) is column `TAGS + i`.
 pub const TAGS: i32 = 100;
 
@@ -106,6 +111,8 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
         d(COMMENT, "Comment", 160.0, false, DIM),
         d(LOCATION, "Location", 200.0, false, DIM),
         d(CRATES, "Crates", 160.0, false, TAG_WORDS),
+        d(ORDER, "#", 34.0, true, DIM),
+        d(PLAYED_AT, "Played At", 70.0, false, DIM),
     ]);
     out
 }
@@ -113,6 +120,12 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
 /// The columns shown when the DJ hasn't chosen: the list as it always was.
 pub const DEFAULT: [i32; 8] = [
     RATING_ID, TITLE_ID, ARTIST, LENGTH, BPM, KEY_ID, WAVE, GENRE,
+];
+
+/// The columns a history session shows until the DJ changes them: the
+/// order and time each track was played first.
+pub const HISTORY_DEFAULT: [i32; 8] = [
+    ORDER, PLAYED_AT, TITLE_ID, ARTIST, LENGTH, BPM, KEY_ID, GENRE,
 ];
 
 /// Narrowest a column can be dragged.
@@ -128,17 +141,22 @@ impl Layout {
     /// The saved layout, or the default; unknown columns are dropped and
     /// the title is always there.
     pub fn new(saved: Vec<(i32, f32)>, defs: &[Def]) -> Self {
+        Self::new_or(saved, defs, &DEFAULT)
+    }
+
+    /// The saved layout, or `default`.
+    pub fn new_or(saved: Vec<(i32, f32)>, defs: &[Def], default: &[i32]) -> Self {
         let mut l = Layout { shown: saved };
         if l.shown.is_empty() {
-            l = Self::default_for(defs);
+            l = Self::with(defs, default);
         }
         l.fit(defs);
         l
     }
 
-    pub fn default_for(defs: &[Def]) -> Self {
+    fn with(defs: &[Def], ids: &[i32]) -> Self {
         Layout {
-            shown: DEFAULT
+            shown: ids
                 .iter()
                 .filter_map(|id| defs.iter().find(|d| d.id == *id))
                 .map(|d| (d.id, d.width))
@@ -281,12 +299,14 @@ pub fn prep_dots(t: &Track) -> String {
 /// A row's cells for the columns `ids`: what the row already holds for
 /// the list's own columns, the rest from its track (none for a store
 /// result or a Spotify track the collection doesn't have) and the crates
-/// it is in. The title and rating are drawn from the row itself.
+/// it is in, and where it is in the list shown (see [`InList`]). The title
+/// and rating are drawn from the row itself.
 pub fn row_cells(
     ids: &[i32],
     row: &TrackRow,
     track: Option<&Track>,
     crates: Option<&[String]>,
+    list: InList,
 ) -> ModelRc<SharedString> {
     let cells: Vec<SharedString> = ids
         .iter()
@@ -299,10 +319,30 @@ pub fn row_cells(
             KEY_ID => row.key.clone(),
             TITLE_ID | RATING_ID => SharedString::new(),
             CRATES => crates.map(|c| c.join("  ")).unwrap_or_default().into(),
+            ORDER if list.order > 0 => list.order.to_string().into(),
+            ORDER => SharedString::new(),
+            PLAYED_AT => list.played_at.map(time_of_day).unwrap_or_default().into(),
             id => track.map(|t| cell(id, t, true).into()).unwrap_or_default(),
         })
         .collect();
     ModelRc::new(VecModel::from(cells))
+}
+
+/// Where a row is in the list shown: its place (from 1; 0 outside a list)
+/// and, in a history session, when it was played (Unix seconds).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct InList {
+    pub order: usize,
+    pub played_at: Option<i64>,
+}
+
+/// A play's time as the DJ's clock showed it, e.g. "23:41".
+pub fn time_of_day(at: i64) -> String {
+    use chrono::TimeZone;
+    match chrono::Local.timestamp_opt(at, 0).single() {
+        Some(d) if at > 0 => d.format("%H:%M").to_string(),
+        _ => String::new(),
+    }
 }
 
 /// Orders two tracks by a column the row data doesn't hold; numbers and
@@ -364,14 +404,55 @@ fn natural(s: &str) -> (u64, String) {
 /// The list's columns in the browser.
 pub(super) struct ColumnState {
     pub defs: Vec<Def>,
+    /// The columns shown now: a history session's while one is shown.
     pub layout: Layout,
+    /// The other layout: the lists' while a history session is shown, and
+    /// the other way round.
+    other: Layout,
+    history: bool,
 }
 
 impl ColumnState {
     pub fn new(names: &FieldNames) -> Self {
         let defs = all(names);
         let layout = Layout::new(settings::columns(), &defs);
-        ColumnState { defs, layout }
+        let other = Layout::new_or(settings::history_columns(), &defs, &HISTORY_DEFAULT);
+        ColumnState {
+            defs,
+            layout,
+            other,
+            history: false,
+        }
+    }
+
+    /// Shows a history session's columns (`on`) or the lists' again.
+    /// Returns whether that changed anything.
+    pub fn show_history(&mut self, on: bool) -> bool {
+        if on == self.history {
+            return false;
+        }
+        self.history = on;
+        std::mem::swap(&mut self.layout, &mut self.other);
+        true
+    }
+
+    /// The layout shown back to what it starts as.
+    pub fn reset(&mut self) {
+        let ids: &[i32] = if self.history {
+            &HISTORY_DEFAULT
+        } else {
+            &DEFAULT
+        };
+        self.layout = Layout::with(&self.defs, ids);
+    }
+
+    /// Keeps the layout shown in settings.
+    pub fn save(&self) {
+        if self.history {
+            settings::set_history_columns(&self.layout.shown);
+        } else {
+            settings::set_columns(&self.layout.shown);
+        }
     }
 
     fn def(&self, id: i32) -> Option<&Def> {
@@ -444,7 +525,7 @@ impl Browser {
         let w = with.clone();
         ui.on_reset(move || {
             w(&|b| {
-                b.columns.layout = Layout::default_for(&b.columns.defs);
+                b.columns.reset();
                 b.columns_changed();
             })
         });
@@ -472,7 +553,7 @@ impl Browser {
             })
         });
         let w = with.clone();
-        ui.on_resized(move || w(&|b| settings::set_columns(&b.columns.layout.shown)));
+        ui.on_resized(move || w(&|b| b.columns.save()));
         let w = with.clone();
         ui.on_drag(move |i, x, _header| {
             w(&|b| {
@@ -505,7 +586,7 @@ impl Browser {
 
     /// The columns shown changed: keep them and list again.
     fn columns_changed(&mut self) {
-        settings::set_columns(&self.columns.layout.shown);
+        self.columns.save();
         self.refresh_column_ui();
         self.refresh_rows();
     }
@@ -515,6 +596,7 @@ impl Browser {
         let c = &mut self.columns;
         c.defs = all(names);
         c.layout.fit(&c.defs);
+        c.other.fit(&c.defs);
         self.refresh_column_ui();
     }
 

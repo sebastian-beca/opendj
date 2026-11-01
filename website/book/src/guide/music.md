@@ -330,6 +330,25 @@ A track can be in as many crates as you like, and the **Crates** column
 `crate:yoga` for tracks in a crate with "yoga" in its name, `crate:=yoga`
 for that crate only, and `crate:""` for tracks in no crate yet.
 
+### History
+
+Every track that plays on a deck for 30 seconds goes into that night's
+history session, named after when it started (such as "Sat 31 Oct 2026,
+22:15"), in the History tab beside the tree. A session opens in the order
+you played it: the **#** column is the play order and **Played At** the time
+each track was played. Click any heading to sort by it, and **#** to go back
+to the order played. History sessions have their own columns, so changing
+them doesn't change your other lists. Playlists and crates open in their own
+order too, and the collection keeps its sort.
+
+Right-click a session, playlist or crate and pick **Export to Spotify
+Playlist** to make a private Spotify playlist of it in that order. openDJ
+finds each track on Spotify by its ISRC, then by artist, title and length;
+the list's header says how many went in and names those Spotify doesn't
+have, and the new playlist opens in your browser. If you signed in to
+Spotify before this was added, sign out and in again so openDJ may make
+playlists.
+
 ## Collection Health
 
 [Collection Health](collection-health.md), the heart under Collection in the
