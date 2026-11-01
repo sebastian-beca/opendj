@@ -22,11 +22,13 @@ use memmap2::MmapMut;
 /// "openDJ P" in ASCII, so a helper can tell it was handed the right file.
 pub const MAGIC: u64 = 0x6f70_656e_444a_2050;
 /// Bumped whenever the layout below changes.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 /// Two channels: decks and the main mix are stereo.
 pub const CHANNELS: usize = 2;
 /// Parameters a slot can set without a round trip.
 pub const MAX_PARAMS: usize = 32;
+/// MIDI events one block can carry (notes for an instrument).
+pub const MAX_EVENTS: usize = 128;
 
 /// Shared state, at the start of the mapping.
 #[repr(C)]
@@ -50,6 +52,61 @@ pub struct Header {
     pub process_ns: AtomicU64,
     /// Parameter values, as `f32` bits.
     pub params: [AtomicU32; MAX_PARAMS],
+    /// MIDI events for this block: `events_len` of `events`, each the frame
+    /// it falls on in the high 32 bits and the three MIDI bytes below.
+    pub events_len: AtomicU32,
+    pub events: [AtomicU64; MAX_EVENTS],
+}
+
+/// One MIDI message at a frame of the block (a note for an instrument).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Midi {
+    pub frame: u32,
+    pub data: [u8; 3],
+}
+
+impl Midi {
+    pub fn note_on(frame: u32, channel: u8, key: u8, velocity: u8) -> Self {
+        Self {
+            frame,
+            data: [0x90 | (channel & 15), key & 127, velocity & 127],
+        }
+    }
+
+    pub fn note_off(frame: u32, channel: u8, key: u8) -> Self {
+        Self {
+            frame,
+            data: [0x80 | (channel & 15), key & 127, 0],
+        }
+    }
+
+    /// The note it starts, as (channel, key, velocity 0..1); a note-on
+    /// with velocity 0 is a note-off, as in MIDI.
+    pub fn as_note_on(&self) -> Option<(u8, u8, f32)> {
+        (self.data[0] & 0xf0 == 0x90 && self.data[2] > 0)
+            .then(|| (self.data[0] & 15, self.data[1], self.data[2] as f32 / 127.0))
+    }
+
+    /// The note it ends, as (channel, key).
+    pub fn as_note_off(&self) -> Option<(u8, u8)> {
+        let kind = self.data[0] & 0xf0;
+        (kind == 0x80 || (kind == 0x90 && self.data[2] == 0))
+            .then(|| (self.data[0] & 15, self.data[1]))
+    }
+
+    pub fn pack(&self) -> u64 {
+        ((self.frame as u64) << 32)
+            | ((self.data[0] as u64) << 16)
+            | ((self.data[1] as u64) << 8)
+            | self.data[2] as u64
+    }
+
+    pub fn unpack(v: u64) -> Self {
+        Self {
+            frame: (v >> 32) as u32,
+            data: [(v >> 16) as u8, (v >> 8) as u8, v as u8],
+        }
+    }
 }
 
 /// One shared mapping, from either side.

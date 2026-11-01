@@ -3,7 +3,7 @@
 //! on purpose, so the isolation can be tested without third-party plugins.
 
 use crate::client::Transport;
-use crate::shm::CHANNELS;
+use crate::shm::{Midi, CHANNELS};
 
 /// One loaded effect, inside the helper, on its audio thread.
 pub trait Effect: Send {
@@ -13,6 +13,7 @@ pub trait Effect: Send {
         output: [&mut [f32]; CHANNELS],
         params: &[f32],
         transport: &Transport,
+        events: &[Midi],
     );
 }
 
@@ -70,7 +71,13 @@ pub enum Plugin {
 }
 
 /// Ids of the test effects.
-pub const TEST_EFFECTS: [&str; 4] = ["test-gain", "test-crash", "test-hang", "test-slow"];
+pub const TEST_EFFECTS: [&str; 5] = [
+    "test-gain",
+    "test-crash",
+    "test-hang",
+    "test-slow",
+    "test-synth",
+];
 
 /// Loads `plugin`, or says why not.
 pub fn load(plugin: &Plugin, sample_rate: u32, max_frames: usize) -> Result<Loaded, String> {
@@ -102,6 +109,7 @@ pub fn load(plugin: &Plugin, sample_rate: u32, max_frames: usize) -> Result<Load
             )),
             "test-hang" => Ok(test(Box::new(Hang), id, "Hang", 1.0, 0.0)),
             "test-slow" => Ok(test(Box::new(Slow), id, "Milliseconds", 100.0, 0.0)),
+            "test-synth" => Ok(test(Box::<Synth>::default(), id, "Volume", 1.0, 1.0)),
             _ => Err(format!("unknown effect {id:?}")),
         },
         #[cfg(feature = "formats")]
@@ -130,6 +138,7 @@ impl Effect for Gain {
         output: [&mut [f32]; CHANNELS],
         params: &[f32],
         _: &Transport,
+        _: &[Midi],
     ) {
         let g = params[0];
         for (i, o) in input.iter().zip(output) {
@@ -153,12 +162,13 @@ impl Effect for Crash {
         output: [&mut [f32]; CHANNELS],
         params: &[f32],
         t: &Transport,
+        _: &[Midi],
     ) {
         if params[0] > 0.0 && self.blocks as f32 >= params[0] {
             std::process::abort();
         }
         self.blocks += 1;
-        Gain.process(input, output, &[1.0], t);
+        Gain.process(input, output, &[1.0], t, &[]);
     }
 }
 
@@ -172,13 +182,14 @@ impl Effect for Hang {
         output: [&mut [f32]; CHANNELS],
         params: &[f32],
         t: &Transport,
+        _: &[Midi],
     ) {
         if params[0] > 0.5 {
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
-        Gain.process(input, output, &[1.0], t);
+        Gain.process(input, output, &[1.0], t, &[]);
     }
 }
 
@@ -192,10 +203,47 @@ impl Effect for Slow {
         output: [&mut [f32]; CHANNELS],
         params: &[f32],
         t: &Transport,
+        _: &[Midi],
     ) {
         if params[0] > 0.0 {
             std::thread::sleep(std::time::Duration::from_secs_f32(params[0] / 1000.0));
         }
-        Gain.process(input, output, &[1.0], t);
+        Gain.process(input, output, &[1.0], t, &[]);
+    }
+}
+
+/// An instrument for tests: from a note-on it plays a steady level of
+/// `key / 127 * volume` on both channels, from the note's frame, until its
+/// note-off. It ignores its input.
+#[derive(Default)]
+struct Synth {
+    key: Option<u8>,
+}
+
+impl Effect for Synth {
+    fn process(
+        &mut self,
+        _: [&[f32]; CHANNELS],
+        output: [&mut [f32]; CHANNELS],
+        params: &[f32],
+        _: &Transport,
+        events: &[Midi],
+    ) {
+        let [l, r] = output;
+        let mut next = events.iter().peekable();
+        for f in 0..l.len() {
+            while let Some(e) = next.next_if(|e| e.frame as usize <= f) {
+                if let Some((_, key, _)) = e.as_note_on() {
+                    self.key = Some(key);
+                } else if let Some((_, key)) = e.as_note_off() {
+                    if self.key == Some(key) {
+                        self.key = None;
+                    }
+                }
+            }
+            let v = self.key.map_or(0.0, |k| k as f32 / 127.0 * params[0]);
+            l[f] = v;
+            r[f] = v;
+        }
     }
 }

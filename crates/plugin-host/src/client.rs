@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use crate::descriptor::Descriptor;
 use crate::effects::{Info, Param, Plugin};
-use crate::shm::{self, Shm, CHANNELS, MAX_PARAMS};
+use crate::shm::{self, Midi, Shm, CHANNELS, MAX_EVENTS, MAX_PARAMS};
 
 /// How long a new helper has to say it is ready.
 pub const READY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -348,8 +348,22 @@ impl Connection {
     pub fn process(
         &mut self,
         input: [&[f32]; CHANNELS],
+        output: [&mut [f32]; CHANNELS],
+        transport: Transport,
+        deadline: Duration,
+    ) -> Outcome {
+        self.process_events(input, output, transport, &[], deadline)
+    }
+
+    /// [`Connection::process`] with MIDI events for the block (notes for an
+    /// instrument), in frame order. Up to [`MAX_EVENTS`] go through; a block
+    /// that doesn't reach the plugin drops its events.
+    pub fn process_events(
+        &mut self,
+        input: [&[f32]; CHANNELS],
         mut output: [&mut [f32]; CHANNELS],
         transport: Transport,
+        events: &[Midi],
         deadline: Duration,
     ) -> Outcome {
         let frames = input[0].len();
@@ -383,6 +397,11 @@ impl Connection {
         shm::store_f64(&h.bpm, transport.bpm);
         shm::store_f64(&h.beat, transport.beat);
         h.playing.store(transport.playing as u32, Ordering::Relaxed);
+        let n = events.len().min(MAX_EVENTS);
+        for (slot, e) in h.events.iter().zip(&events[..n]) {
+            slot.store(e.pack(), Ordering::Relaxed);
+        }
+        h.events_len.store(n as u32, Ordering::Relaxed);
         self.seq += 1;
         h.seq_in.store(self.seq, Ordering::Release);
         // One byte per block, and only while the helper is idle, so the pipe
