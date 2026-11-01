@@ -12,7 +12,7 @@ import { Preferences, PreferencesOverlay, PrefItem, ImportWizard } from "prefere
 import { UsbExport, UsbExportDialog } from "usb_export.slint";
 import { Tour, TourSetup, TourSetupDialog, TourTip, TourOffer } from "tour.slint";
 import { MapMode } from "mapmark.slint";
-import { ControllerEditor, ControllerEditorOverlay, EditorRow, EditorPart, EditorPanel, EditorOption } from "controller_editor.slint";
+import { ControllerEditor, ControllerEditorOverlay, EditorRow, EditorPart, EditorPanel, EditorOption, EditorSetting } from "controller_editor.slint";
 
 export { SourceUi, SourceTab, SearchItem, FoundRow, QueueLine } from "sources.slint";
 export { TrackInfo, InfoField, CoverChoice } from "info.slint";
@@ -22,7 +22,7 @@ export { ColumnUi, ListColumn }
 export { Tour, TourSetup }
 export { MapMode }
 export { MixerMode, InputSettings, InputRow }
-export { Theme, Controls, DeckActions, PhraseView, PhraseTip, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, StreamMatch, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, UsbExport }
+export { Theme, Controls, DeckActions, PhraseView, PhraseTip, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, StreamMatch, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, EditorSetting, UsbExport }
 
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
 // the track under the pointer, like a hand on a record, and drag left or
@@ -189,6 +189,25 @@ component MicButton inherits Rectangle {
     }
 }
 
+// The MIDI Association's MIDI wordmark, drawn from blocks (a Path this
+// small loses the gaps between its letters). Its height sets its size.
+component MidiLogo inherits Rectangle {
+    in property <color> ink;
+    // One unit of the 1424 × 532 drawing.
+    property <length> u: self.height / 532;
+    width: 1424 * u;
+    Rectangle { x: 0 * u; y: 0 * u; width: 529 * u; height: 134 * u; background: root.ink; border-top-right-radius: 62 * u; }
+    Rectangle { x: 0 * u; y: 134 * u; width: 130 * u; height: 398 * u; background: root.ink; }
+    Rectangle { x: 205 * u; y: 134 * u; width: 118 * u; height: 398 * u; background: root.ink; }
+    Rectangle { x: 398 * u; y: 60 * u; width: 131 * u; height: 472 * u; background: root.ink; }
+    Rectangle { x: 592 * u; y: 0 * u; width: 130 * u; height: 532 * u; background: root.ink; }
+    Rectangle { x: 784 * u; y: 0 * u; width: 448 * u; height: 121 * u; background: root.ink; border-top-right-radius: 62 * u; }
+    Rectangle { x: 1102 * u; y: 60 * u; width: 130 * u; height: 412 * u; background: root.ink; }
+    Rectangle { x: 784 * u; y: 402 * u; width: 448 * u; height: 130 * u; background: root.ink; border-bottom-right-radius: 62 * u; }
+    Rectangle { x: 784 * u; y: 194 * u; width: 132 * u; height: 338 * u; background: root.ink; }
+    Rectangle { x: 1292 * u; y: 0 * u; width: 132 * u; height: 532 * u; background: root.ink; }
+}
+
 // MIDI: Map mode on or off (see mapmark.slint), lit lilac while on.
 component MidiButton inherits Rectangle {
     property <bool> on: MapMode.active;
@@ -202,20 +221,13 @@ component MidiButton inherits Rectangle {
     HorizontalLayout {
         padding-left: 12px;
         padding-right: 12px;
-        spacing: 7px;
-        // A MIDI socket: a circle with five pins.
-        Path {
-            width: 14px;
-            height: 14px;
+        // The MIDI Association's wordmark, as tall as the capitals of the
+        // other buttons' names (MIC, REC).
+        MidiLogo {
+            height: 10.5px;
             y: (parent.height - self.height) / 2;
-            viewbox-width: 14;
-            viewbox-height: 14;
-            stroke: on ? Theme.lilac : Theme.text-dim;
-            stroke-width: 1.4px;
-            fill: transparent;
-            commands: "M 1 7 A 6 6 0 1 0 13 7 A 6 6 0 1 0 1 7 M 3.6 7.4 L 3.7 7.4 M 10.3 7.4 L 10.4 7.4 M 4.6 4.6 L 4.7 4.6 M 9.3 4.6 L 9.4 4.6 M 7 3.6 L 7.1 3.6";
+            ink: on ? Theme.lilac : Theme.text-dim;
         }
-        Text { text: "MIDI"; color: on ? Theme.lilac : Theme.text-dim; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
     }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -250,8 +262,9 @@ component MapBarButton inherits Rectangle {
 }
 
 // Map mode's bar under the top bar: what to do next, what the last control
-// learned, and Undo, Keep both and Done. Quick map walks through the usual
-// controls here too, with Skip.
+// learned, and Undo, Keep both and Done. The mapping wizard asks which
+// controller and how many decks here, then walks through the usual
+// controls, with Skip.
 component MapBar inherits Rectangle {
     height: 40px;
     width: bl.preferred-width;
@@ -265,19 +278,23 @@ component MapBar inherits Rectangle {
         padding-left: 16px;
         padding-right: 8px;
         spacing: 12px;
-        Text { text: MapMode.walking || MapMode.asking-decks ? "QUICK MAP" : "MIDI MAP"; color: Theme.lilac; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; vertical-alignment: center; }
+        Text { text: MapMode.walking || MapMode.asking-decks || MapMode.asking-device ? "MAPPING WIZARD" : "MIDI MAP"; color: Theme.lilac; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; vertical-alignment: center; }
         if MapMode.walking: Text { text: MapMode.step; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
         // While walking, what to do now; otherwise what was learned last.
         Text { text: MapMode.last != "" && !MapMode.walking ? MapMode.last : MapMode.status; color: Theme.text; font-size: 12px; vertical-alignment: center; }
         if MapMode.walking && MapMode.last != "": Text { text: MapMode.last; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
         if MapMode.replaced != "" && !MapMode.walking: Text { text: "(was " + MapMode.replaced + ")"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
         if MapMode.replaced != "" && !MapMode.walking: MapBarButton { text: "Keep both"; clicked => { MapMode.keep-both(); } }
+        if MapMode.asking-device: HorizontalLayout {
+            spacing: 6px;
+            for d[i] in MapMode.devices: MapBarButton { text: d; primary: true; clicked => { MapMode.choose-device(i); } }
+        }
         if MapMode.asking-decks: MapBarButton { text: "2 decks"; primary: true; clicked => { MapMode.choose-decks(2); } }
         if MapMode.asking-decks: MapBarButton { text: "4 decks"; primary: true; clicked => { MapMode.choose-decks(4); } }
         if MapMode.walking: MapBarButton { text: "Skip"; clicked => { MapMode.skip(); } }
         if MapMode.can-undo: MapBarButton { text: "Undo"; clicked => { MapMode.undo(); } }
-        if !MapMode.walking && !MapMode.asking-decks: MapBarButton { text: "Quick map"; clicked => { MapMode.quick-map(""); } }
-        MapBarButton { text: "Done"; primary: !MapMode.asking-decks; clicked => { MapMode.done(); } }
+        if !MapMode.walking && !MapMode.asking-decks && !MapMode.asking-device: MapBarButton { text: "Mapping wizard"; clicked => { MapMode.quick-map(""); } }
+        MapBarButton { text: "Done"; primary: !MapMode.asking-decks && !MapMode.asking-device; clicked => { MapMode.done(); } }
     }
 }
 

@@ -633,6 +633,7 @@ export component CueHeadphones inherits Rectangle {
         clicked => { Controls.set-value(index, lit ? 0 : 1); }
     }
     TourMark { id: root.tour-id; }
+    MapMark { key: root.group + ",pfl"; }
 }
 
 export component VuMeter inherits Rectangle {

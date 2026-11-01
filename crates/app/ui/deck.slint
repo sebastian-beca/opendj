@@ -1335,6 +1335,9 @@ component HotcueCell inherits Rectangle {
 // The pad tabs: four at a time, tabs 1-4 or 5-8 (see `first`), each
 // showing one panel. Right-click a tab to put a different panel in it.
 component PadTabs inherits Rectangle {
+    // The deck, 1 to 4, for Map mode: a controller's pad mode button opens
+    // a tab by its place (`pad_tab`).
+    in property <int> deck-number;
     in property <[string]> names;
     in property <[int]> slots;
     in-out property <int> selected;
@@ -1374,6 +1377,8 @@ component PadTabs inherits Rectangle {
                     }
                 }
             }
+            // Over the tab's own TouchArea, so Map mode takes the click.
+            MapMark { key: "script:deck " + root.deck-number + " set 'pad_tab' " + i; }
         }
     }
     menu := PopupWindow {
@@ -1597,7 +1602,7 @@ export component Pads inherits HorizontalLayout {
         horizontal-stretch: 1;
         // The tabs sit right on the grid.
         spacing: 0px;
-        PadTabs { names: ["HOT CUES", "PAD FX 1", "BEAT JUMP", "SAMPLER", "STEMS", "BEAT LOOP", "PAD FX 2", "KEYBOARD", "KEY SHIFT", "LOOP ROLL"]; slots: slots; selected <=> tab; pick(t, p) => { Controls.set-value(slot-index[t], p); } first: tab >= 4 ? 4 : 0; }
+        PadTabs { deck-number: deck + 1; names: ["HOT CUES", "PAD FX 1", "BEAT JUMP", "SAMPLER", "STEMS", "BEAT LOOP", "PAD FX 2", "KEYBOARD", "KEY SHIFT", "LOOP ROLL"]; slots: slots; selected <=> tab; pick(t, p) => { Controls.set-value(slot-index[t], p); } first: tab >= 4 ? 4 : 0; }
         if page == 3: SamplerPanel { bank: sampler-page; vertical-stretch: 1; }
         // The black background shows through the 1px gaps as the grid lines.
         if page != 3: Rectangle {

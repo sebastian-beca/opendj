@@ -3,7 +3,7 @@
 // are listed down the left with icons, as in Mixxx; the search
 // box above them finds an option on any page. Changes apply and are saved at
 // once: there is no OK or Apply.
-import { Theme } from "theme.slint";
+import { Theme, CloseIcon } from "theme.slint";
 import { ControlKnob } from "controls.slint";
 import { MenuField, OutputsTable, InputsTable } from "mixer.slint";
 
@@ -20,7 +20,9 @@ export struct PrefItem {
     // and id + "#remove", 11 a keyboard shortcut: its key in `title` (none
     // for the row that adds one), its openDJscript line in `value`, the
     // verbs to pick from in `choices`, the button's label in `action`; `on`
-    // shows `detail` as a mistake, 12 a tick box, 13 the inputs table.
+    // shows `detail` as a mistake, 12 a tick box, 13 the inputs table, 14
+    // a + adding a row (pressing id), 15 a row picking a controller to
+    // add: a menu of `choices` and ×, pressing id + "#remove".
     kind: int,
     title: string,
     detail: string,
@@ -70,6 +72,14 @@ export global Preferences {
         open = true;
         changed();
     }
+}
+
+// × taking a row away, as on the outputs table in Audio.
+component RemoveCross inherits Rectangle {
+    callback clicked();
+    width: 20px;
+    CloseIcon { size: 9px; color: xta.has-hover ? Theme.text : Theme.text-dim; }
+    xta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
 // Setting up an import from another DJ app, in a dialog over Settings. Its
@@ -467,13 +477,14 @@ export component PrefRow inherits Rectangle {
                 }
                 VerticalLayout {
                     alignment: center;
-                    // Edit, or Quick map for a controller with no mapping.
+                    // Edit, or Map it (the mapping wizard) for a controller
+                    // with no mapping.
                     Button {
-                        text: item.action == "Quick map" ? "Quick map" : "Edit";
-                        min-width: 64px;
+                        text: item.action == "Map it" ? "Map it" : "Edit";
+                        width: 80px;
                         opacity: item.action != "" ? 1 : 0.4;
                         clicked => {
-                            if item.action == "Quick map" {
+                            if item.action == "Map it" {
                                 Preferences.pressed(item.id + "#quick");
                             } else if item.action != "" {
                                 Preferences.pressed(item.id + "#edit");
@@ -481,9 +492,36 @@ export component PrefRow inherits Rectangle {
                         }
                     }
                 }
+                RemoveCross { clicked => { Preferences.pressed(item.id + "#remove"); } }
+            }
+            if item.kind == 15: HorizontalLayout {
+                spacing: 8px;
                 VerticalLayout {
                     alignment: center;
-                    Button { text: "Remove"; min-width: 64px; clicked => { Preferences.pressed(item.id + "#remove"); } }
+                    MenuField {
+                        width: 260px;
+                        text: item.choices[item.chosen];
+                        choices: item.choices;
+                        chosen: item.chosen;
+                        menu-width: 300px;
+                        picked(i) => { Preferences.picked(item.id, i); }
+                    }
+                }
+                // Lines up with Edit on the rows above.
+                Rectangle { width: 80px; }
+                RemoveCross { clicked => { Preferences.pressed(item.id + "#remove"); } }
+            }
+            if item.kind == 14: VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 26px;
+                    height: 22px;
+                    border-radius: Theme.radius;
+                    background: pta.has-hover ? #2a2a2e : Theme.control;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    Text { text: "+"; color: Theme.text; font-size: 15px; }
+                    pta := TouchArea { mouse-cursor: pointer; clicked => { Preferences.pressed(item.id); } }
                 }
             }
             if item.kind == 9: VerticalLayout {

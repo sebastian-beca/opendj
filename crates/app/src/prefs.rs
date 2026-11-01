@@ -10,7 +10,9 @@ use std::sync::Arc;
 
 use crate::list_picker::{Picker, Ticked};
 use opendj_control::ControlRegistry;
-use opendj_controllers::{device_key, own, pickup, support, Controllers, MappingChoice, Port};
+use opendj_controllers::{
+    device_key, is_system_port, own, support, Controllers, MappingChoice, Port,
+};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
     analysis, beatthis, cache, channel_names, deck_group, input_devices, key, InputRole,
@@ -69,6 +71,10 @@ const SHORTCUT: i32 = 11;
 const TICK: i32 = 12;
 /// The inputs table (see [`Prefs::inputs_item`]).
 const INPUTS_TABLE: i32 = 13;
+/// A + on its own, adding a row (a controller).
+const ADD_ROW: i32 = 14;
+/// A row to pick a controller plugged in from, with × to drop it.
+const NEW_CONTROLLER: i32 = 15;
 
 /// Tempo fader ranges, as fractions of normal speed.
 const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
@@ -392,6 +398,8 @@ pub struct Prefs {
     ports: Vec<Port>,
     /// The devices under Add a controller, in its menu's order.
     hidden_ports: Vec<String>,
+    /// Settings › Controllers has a row to pick a controller from (+).
+    adding_controller: bool,
     /// Plugins with a page of their own, after the built-in pages.
     plugins: Vec<Box<dyn Plugin>>,
     /// Tells the rest of the app a plugin's settings changed, by its id.
@@ -459,6 +467,7 @@ impl Prefs {
             cache_note: String::new(),
             ports: Vec::new(),
             hidden_ports: Vec::new(),
+            adding_controller: false,
             plugins,
             plugin_changed,
             audio_changed,
@@ -1439,21 +1448,18 @@ impl Prefs {
                         None => format!("Running {m}"),
                     },
                     (None, MappingChoice::Off, _) => "Not used".to_string(),
-                    (None, _, None) => {
-                        "No mapping matches this device: pick one, or make one with Quick map."
-                            .to_string()
-                    }
+                    (None, _, None) => "No mapping found: pick one, or press Map it.".to_string(),
                     (None, _, Some(_)) => "Starting, or its mapping failed to load".to_string(),
                 };
                 // Edit opens the Controller Editor on the mapping it uses.
                 let editable = edit_file(c, port).is_some() && choice != MappingChoice::Off;
-                // Without one, Quick map makes one.
+                // Without one, the mapping wizard makes one.
                 let action = match (editable, &port.mapping_file) {
                     (true, _) => "Edit",
-                    (false, None) => "Quick map",
+                    (false, None) => "Map it",
                     _ => "",
                 };
-                let mut rows = vec![PrefItem {
+                let rows = vec![PrefItem {
                     choices: strings(&choices),
                     chosen: chosen as i32,
                     action: action.into(),
@@ -1464,52 +1470,6 @@ impl Prefs {
                         &detail,
                     )
                 }];
-                // Knobs and faders moved on screen wait for the hardware
-                // to reach them (Pick-up), or catch up with it (Scale).
-                if choice != MappingChoice::Off {
-                    rows.push(PrefItem {
-                        choices: strings(&["Pick-up", "Scale"]),
-                        chosen: pickup::scale(&device_key(&port.name)) as i32,
-                        ..item(
-                            &format!("controller_takeover:{}", port.name),
-                            MENU,
-                            "Knobs and faders",
-                            "After one moves on screen, Pick-up waits until the hardware reaches \
-                             it; Scale takes over at once and closes the gap as you move.",
-                        )
-                    });
-                }
-                // A mapping of the DJ's own with two-deck and four-deck
-                // layouts (VirtualDJ's K2): which one, and the deck order.
-                if let Some(own) = own_in_use(c, port).filter(|o| o.mapping.decks.is_some()) {
-                    let four = own.mapping.decks == Some(4);
-                    rows.push(PrefItem {
-                        choices: strings(&["2 decks", "4 decks"]),
-                        chosen: four as i32,
-                        ..item(
-                            &format!("controller_decks:{}", port.name),
-                            MENU,
-                            "Use with",
-                            "The mapping has a layout for two decks and one for four.",
-                        )
-                    });
-                    if four {
-                        let order = own.mapping.deck_order.unwrap_or([1, 2, 3, 4]);
-                        rows.push(PrefItem {
-                            choices: strings(&DECK_ORDERS.map(|(name, _)| name)),
-                            chosen: DECK_ORDERS
-                                .iter()
-                                .position(|(_, o)| *o == order)
-                                .unwrap_or(0) as i32,
-                            ..item(
-                                &format!("controller_deck_order:{}", port.name),
-                                MENU,
-                                "Deck order",
-                                "Which deck each column is, from left to right.",
-                            )
-                        });
-                    }
-                }
                 rows
             })
             .collect();
@@ -1522,40 +1482,30 @@ impl Prefs {
                  second or so.",
             ));
         }
-        self.hidden_ports = hidden.iter().map(|p| p.name.clone()).collect();
-        if !self.hidden_ports.is_empty() {
-            let names: Vec<&str> = self
-                .hidden_ports
-                .iter()
-                .map(|p| short_port_name(p))
-                .collect();
+        // The rest plugged in, the computer's own ports (macOS's Network
+        // Session) last: + adds a row to pick one from.
+        let mut hidden: Vec<String> = hidden.iter().map(|p| p.name.clone()).collect();
+        hidden.sort_by_key(|p| is_system_port(p));
+        self.hidden_ports = hidden;
+        if self.adding_controller {
+            let mut names = vec!["Choose a controller…".to_string()];
+            names.extend(
+                self.hidden_ports
+                    .iter()
+                    .map(|p| short_port_name(p).to_string()),
+            );
+            let detail = if self.hidden_ports.is_empty() {
+                "No other MIDI devices are plugged in."
+            } else {
+                "The MIDI devices plugged in that aren't listed yet."
+            };
             items.push(PrefItem {
                 choices: strings(&names),
-                value: "Choose…".into(),
-                ..item(
-                    "controller_add",
-                    MENU,
-                    "Add a controller",
-                    "Other MIDI devices plugged in, such as one without a mapping yet.",
-                )
+                chosen: 0,
+                ..item("controller_add", NEW_CONTROLLER, "", detail)
             });
         }
-        items.push(PrefItem {
-            action: "Refresh".into(),
-            ..item(
-                "controllers_refresh",
-                BUTTON,
-                "Find controllers",
-                "Looks for controllers again and reconnects them, for one that is plugged in \
-                 but not showing or not answering.",
-            )
-        });
-        items.push(item(
-            "",
-            NOTE,
-            "",
-            "Controllers run Mixxx's own mappings. Automatic picks the one named after the device.",
-        ));
+        items.push(item("controller_new", ADD_ROW, "", ""));
         items
     }
 
@@ -2197,40 +2147,16 @@ impl Prefs {
             return;
         }
         if id == "controller_add" {
-            if let (Some(c), Some(port)) = (&self.controllers, self.hidden_ports.get(index)) {
+            // 0 is "Choose a controller…".
+            let Some(i) = index.checked_sub(1) else {
+                return;
+            };
+            self.adding_controller = false;
+            if let (Some(c), Some(port)) = (&self.controllers, self.hidden_ports.get(i)) {
                 settings::set_controller_shown(&device_key(port), true);
                 if c.choice(port) == MappingChoice::Off {
                     c.set_choice(port, MappingChoice::Auto);
                     settings::set_controller_mappings(&c.choices());
-                }
-            }
-            self.refresh();
-            return;
-        }
-        if let Some(port) = id.strip_prefix("controller_takeover:") {
-            let key = device_key(port);
-            pickup::set_scale(&key, index == 1);
-            settings::set_controller_scaled(&key, index == 1);
-            self.refresh();
-            return;
-        }
-        let decks = id.strip_prefix("controller_decks:");
-        let order = id.strip_prefix("controller_deck_order:");
-        if let Some(port_name) = decks.or(order) {
-            let port = self.ports.iter().find(|p| p.name == port_name).cloned();
-            if let (Some(c), Some(port), Some(dir)) =
-                (&self.controllers, port, settings::own_mappings_dir())
-            {
-                if let Some(mut own) = own_in_use(c, &port) {
-                    if decks.is_some() {
-                        own.mapping.decks = Some(if index == 1 { 4 } else { 2 });
-                        own.mapping.deck_order.get_or_insert([3, 1, 2, 4]);
-                    } else if let Some((_, o)) = DECK_ORDERS.get(index) {
-                        own.mapping.deck_order = Some(*o);
-                    }
-                    if own::save(&dir, &own).is_ok() {
-                        c.reload(&edit_file(c, &port).unwrap_or_default());
-                    }
                 }
             }
             self.refresh();
@@ -2716,11 +2642,15 @@ impl Prefs {
             return;
         }
         match id {
-            "controllers_refresh" => {
+            // + under the controllers: a row to pick one, after looking
+            // for them again.
+            "controller_new" => {
                 if let Some(c) = &self.controllers {
                     c.refresh();
                 }
+                self.adding_controller = true;
             }
+            "controller_add#remove" => self.adding_controller = false,
             "stage_inbox_add" => choose(
                 id,
                 "Choose a folder to watch for new music",
@@ -2835,11 +2765,6 @@ fn set_field_names(names: query::FieldNames) {
     query::set_field_names(settings::field_names());
 }
 
-/// The mapping file a controller's Edit opens: the one it uses, or, for a
-/// stand-in device, the one named as running.
-/// The four-deck orders a controller can follow, left to right.
-const DECK_ORDERS: [(&str, [u8; 4]); 2] = [("3 1 2 4", [3, 1, 2, 4]), ("1 2 3 4", [1, 2, 3, 4])];
-
 /// The DJ's own mappings that stand alone, made with Quick map.
 fn quick_maps() -> Vec<own::OwnMapping> {
     settings::own_mappings_dir()
@@ -2850,17 +2775,8 @@ fn quick_maps() -> Vec<own::OwnMapping> {
         .collect()
 }
 
-/// The DJ's own mapping `port` runs, if it runs one.
-fn own_in_use(c: &Controllers, port: &Port) -> Option<own::OwnMapping> {
-    let base = edit_file(c, port)?;
-    if opendj_controllers::is_own_file(&base) {
-        let id = base.trim_end_matches(".json");
-        return own::OwnMapping::read(&own::path(&settings::own_mappings_dir()?, id));
-    }
-    let id = settings::controller_version(&base)?;
-    own::OwnMapping::read(&own::path(&settings::own_mappings_dir()?, &id))
-}
-
+/// The mapping file a controller's Edit opens: the one it uses, or, for a
+/// stand-in device, the one named as running.
 fn edit_file(c: &Controllers, port: &Port) -> Option<String> {
     port.mapping_file.clone().or_else(|| {
         let running = port.running.as_ref()?;
