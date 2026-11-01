@@ -400,6 +400,11 @@ impl AudioEngine {
                 }
             };
             let decks: Vec<_> = loaded.read().unwrap().iter().flatten().cloned().collect();
+            // Room for these: the stems used longest ago go, never ones
+            // loaded on a deck.
+            let mut keep = loaded_paths(&decks);
+            keep.push(file.clone());
+            separation::trim_cache(&keep);
             for t in decks {
                 let here = matches!(&t.source, Source::File(p) if *p == file);
                 if let (true, Some(audio)) = (here, &t.audio) {
@@ -420,4 +425,15 @@ impl AudioEngine {
     pub fn route_status(&self) -> Vec<String> {
         self.output.borrow().route_status.clone()
     }
+}
+
+/// The files of `tracks`.
+fn loaded_paths(tracks: &[Arc<Track>]) -> Vec<std::path::PathBuf> {
+    tracks
+        .iter()
+        .filter_map(|t| match &t.source {
+            Source::File(p) => Some(p.clone()),
+            _ => None,
+        })
+        .collect()
 }

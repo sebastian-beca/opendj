@@ -236,6 +236,9 @@ struct Deck {
     declick: Option<Declick>,
     /// Stem gains reached at the end of the last buffer.
     stem_gains: [f32; MAX_STEMS],
+    /// How far the crossfade from the stems made on load to high-quality
+    /// ones has got (0 to 1), at the end of the last buffer.
+    stem_upgrade: f32,
     /// The stems reported in `stem_count` and the stem colours (by address).
     stems_shown: usize,
 }
@@ -865,27 +868,45 @@ impl Frames for Audio {
 /// time-stretcher (which reads ahead of the play position).
 pub(crate) struct StemMix<'a> {
     stems: &'a Stems,
+    /// The high-quality stems taking over from `stems`, once complete, and
+    /// how far the crossfade to them has got at the start and end of the
+    /// span (see [`Stems::mix_blend`]).
+    up: Option<&'a Stems>,
+    up_from: f32,
+    up_to: f32,
     /// The track itself, which separated stems play under (see [`Stems::mix`]).
     audio: &'a Audio,
     from: [f32; MAX_STEMS],
     to: [f32; MAX_STEMS],
+    /// Separated stems all at full gain play the track itself, so no stem
+    /// frames are read at all.
+    unity: bool,
     span: f64,
     start: std::cell::Cell<f64>,
 }
 
 impl<'a> StemMix<'a> {
-    fn new(
+    /// The mix with the crossfade to the high-quality stems going from
+    /// `up.0` to `up.1` over the span.
+    fn blending(
         stems: &'a Stems,
         audio: &'a Audio,
         from: [f32; MAX_STEMS],
         to: [f32; MAX_STEMS],
+        up: (f32, f32),
         span: f64,
     ) -> Self {
+        let upgrade = stems.ready_upgrade();
+        let separated = stems.is_separated() && upgrade.is_none_or(Stems::is_separated);
         Self {
             stems,
+            up: upgrade,
+            up_from: up.0,
+            up_to: up.1,
             audio,
             from,
             to,
+            unity: separated && from.iter().chain(&to).all(|&g| g == 1.0),
             span: span.max(1.0),
             start: std::cell::Cell::new(0.0),
         }
@@ -895,9 +916,14 @@ impl<'a> StemMix<'a> {
 impl Frames for StemMix<'_> {
     #[inline]
     fn frame(&self, i: usize) -> [f32; 2] {
+        if self.unity {
+            return self.audio.frame(i);
+        }
         let t = ((i as f64 - self.start.get()).abs() / self.span).min(1.0) as f32;
         let gains = std::array::from_fn(|k| self.from[k] + (self.to[k] - self.from[k]) * t);
-        self.stems.mix(i, &gains, || self.audio.frame(i))
+        let w = self.up_from + (self.up_to - self.up_from) * t;
+        self.stems
+            .mix_blend(self.up, w, i, &gains, || self.audio.frame(i))
     }
 
     fn begin(&self, start: f64) {
@@ -908,6 +934,10 @@ impl Frames for StemMix<'_> {
 /// How long a jump in the play position fades over: long enough to hide the
 /// step in the waveform, short enough not to be heard as a fade.
 pub(crate) const DECLICK_SECONDS: f64 = 0.006;
+
+/// How long the stems made on load crossfade into high-quality ones once
+/// those are ready, so a muted stem doesn't click at the switch.
+pub(crate) const STEM_UPGRADE_SECONDS: f64 = 0.02;
 
 /// A short crossfade over a jump in a deck's play position (a beatjump,
 /// hotcue, seek, or a loop wrapping), as DJ software does to keep jumps from
@@ -1233,6 +1263,7 @@ impl Engine {
             expected_pos: None,
             declick: None,
             stem_gains: [1.0; MAX_STEMS],
+            stem_upgrade: 0.0,
             stems_shown: 0,
         });
         let fx = EffectRack::new(registry, sample_rate);
@@ -1926,6 +1957,8 @@ impl Engine {
             /// Stem gains at the start and end of the buffer, when the deck
             /// plays stems.
             stems: Option<([f32; MAX_STEMS], [f32; MAX_STEMS])>,
+            /// The crossfade to high-quality stems at the start and end.
+            stem_upgrade: (f32, f32),
         }
         let plans: [Plan; NUM_DECKS] = std::array::from_fn(|i| {
             let d = &mut self.decks[i];
@@ -1999,7 +2032,24 @@ impl Engine {
                     c.color.set(info.map_or(-1.0, |i| i.color as f64));
                 }
                 d.stem_gains = [1.0; MAX_STEMS];
+                // Stems that are already high quality when they turn up
+                // start there.
+                d.stem_upgrade = if stems.and_then(Stems::ready_upgrade).is_some() {
+                    1.0
+                } else {
+                    0.0
+                };
             }
+            let upgrade = match stems.and_then(Stems::ready_upgrade) {
+                Some(_) => (
+                    d.stem_upgrade,
+                    (d.stem_upgrade
+                        + frames as f32 / (STEM_UPGRADE_SECONDS * self.sample_rate) as f32)
+                        .min(1.0),
+                ),
+                None => (0.0, 0.0),
+            };
+            d.stem_upgrade = upgrade.1;
             let stem_gains = stems.map(|_| {
                 let to = std::array::from_fn(|k| {
                     let c = &d.c.stems[k];
@@ -2023,7 +2073,7 @@ impl Engine {
                     match (stems, stem_gains) {
                         (Some(s), Some((from, to))) => {
                             let span = speed * ratio * frames as f64;
-                            let mix = StemMix::new(s, audio, from, to, span);
+                            let mix = StemMix::blending(s, audio, from, to, upgrade, span);
                             d.shifter.render(
                                 &mix,
                                 d.pos,
@@ -2062,6 +2112,7 @@ impl Engine {
             }
             Plan {
                 stems: stem_gains,
+                stem_upgrade: upgrade,
                 shifted: shifting && d.audio.is_some(),
                 scrub: d.c.scrub_enable.get_bool(),
                 moving: d.audio.is_some() && (from != 0.0 || target != 0.0),
@@ -2124,7 +2175,12 @@ impl Engine {
                     let source = |pos: f64| match (p.stems, audio.stems()) {
                         (Some((from, to)), Some(stems)) => {
                             let gains = std::array::from_fn(|k| from[k] + (to[k] - from[k]) * r);
-                            read(&StemMix::new(stems, audio, gains, gains, 1.0), pos)
+                            let (u0, u1) = p.stem_upgrade;
+                            let w = u0 + (u1 - u0) * r;
+                            read(
+                                &StemMix::blending(stems, audio, gains, gains, (w, w), 1.0),
+                                pos,
+                            )
                         }
                         _ => read(&**audio, pos),
                     };
@@ -2638,6 +2694,66 @@ mod tests {
         // Not separated yet: the original plays.
         let ratio = rms(second) / rms(full_second);
         assert!((ratio - 1.0).abs() < 0.02, "the original: {ratio}");
+    }
+
+    #[test]
+    fn high_quality_stems_take_over_without_a_click() {
+        // The stems made on load hold the whole tone in stem 1; the better
+        // ones hold none of it. With stem 1 muted, the deck goes from
+        // silence to the tone when they take over: it must fade, not jump.
+        let mut t = (*short_track(120.0, 4.0)).clone();
+        let n = (SR * 4.0) as usize;
+        let tone = |i: usize| (std::f64::consts::TAU * 220.0 * i as f64 / SR).sin() as f32 * 0.3;
+        let audio = Audio::from_frames(SR as u32, (0..n).map(|i| [tone(i); 2]).collect());
+        let info = crate::stems::default_info();
+        let layer = |stem: bool, quality| {
+            let s = Arc::new(crate::stems::Stems::separated(
+                info.clone(),
+                SR as u32,
+                n,
+                quality,
+            ));
+            for (k, start) in (0..n).step_by(crate::stems::CHUNK).enumerate() {
+                let frames = (start..(start + crate::stems::CHUNK).min(n))
+                    .map(|i| {
+                        let mut f = [[0i16; 2]; MAX_STEMS];
+                        if stem {
+                            f[0] = [crate::stems::to_i16(tone(i)); 2];
+                        }
+                        f
+                    })
+                    .collect();
+                s.fill(k, frames);
+            }
+            s.finish();
+            s
+        };
+        let fast = layer(true, crate::stems::Quality::Fast);
+        assert!(audio.set_stems(fast.clone()));
+        t.audio = Some(Arc::new(audio));
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, Arc::new(t));
+        run(&mut engine, 0.01);
+        reg.get("[Channel1_Stem1]", "mute").unwrap().set_bool(true);
+        run(&mut engine, 0.01);
+        reg.get("[Channel1]", "play").unwrap().set_bool(true);
+        let before = record(&mut engine, 0.3);
+        let quiet = before[before.len() / 2..]
+            .iter()
+            .fold(0f32, |m, v| m.max(v.abs()));
+        assert!(quiet < 1e-3, "the muted stem is the whole tone: {quiet}");
+        assert!(fast.set_upgrade(layer(false, crate::stems::Quality::High)));
+        let after = record(&mut engine, 0.3);
+        let loud = after[after.len() / 2..]
+            .iter()
+            .fold(0f32, |m, v| m.max(v.abs()));
+        assert!(loud > 0.2, "the better stems play the tone: {loud}");
+        // Left channel, sample to sample: no step bigger than the tone's own.
+        let left: Vec<f32> = before.iter().chain(&after).step_by(2).copied().collect();
+        let step = left
+            .windows(2)
+            .fold(0f32, |m, w| m.max((w[1] - w[0]).abs()));
+        assert!(step < 0.02, "a click at the switch: {step}");
     }
 
     #[test]
