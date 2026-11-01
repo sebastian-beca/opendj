@@ -358,7 +358,7 @@ pub fn compare(id: i32, a: &Track, b: &Track) -> Ordering {
         PREP => prep_count(a).cmp(&prep_count(b)),
         // Analysed tracks, which have a waveform, first.
         WAVE => analysed(b).cmp(&analysed(a)),
-        KEY_ID => key_order(&a.key).cmp(&key_order(&b.key)),
+        KEY_ID => key_order(&a.key, true).cmp(&key_order(&b.key, true)),
         _ => {
             let (s, t) = (cell(id, a, true), cell(id, b, true));
             match (s.is_empty(), t.is_empty()) {
@@ -382,16 +382,22 @@ fn prep_count(t: &Track) -> usize {
         .count()
 }
 
-/// Keys in Camelot order (1A, 1B, 2A …), unknown keys last.
-fn key_order(key: &str) -> (u32, bool) {
+/// Keys in the order the notation shown counts them, unknown keys last: by
+/// number on a wheel (Camelot 1A, 1B, 2A …; Open Key 1m, 1d, 2m …), and up
+/// the scale from C for notes (C, Cm, C#, C#m …). Tags are read whatever
+/// notation they are in, so "Am", "8A" and "1m" sort together.
+pub fn key_order(key: &str, camelot: bool) -> (u8, bool) {
     match Key::parse(key) {
-        Some(k) => {
-            let c = k.camelot();
-            (
-                c.trim_end_matches(['A', 'B']).parse().unwrap_or(99),
-                c.ends_with('B'),
-            )
+        Some(k) if camelot => {
+            let w = k.wheel();
+            let n = w
+                .trim_end_matches(char::is_alphabetic)
+                .parse()
+                .unwrap_or(99);
+            // A and m (minor) before B and d.
+            (n, !k.minor)
         }
+        Some(k) => (k.tonic, k.minor),
         None => (99, false),
     }
 }
@@ -693,5 +699,23 @@ mod tests {
         assert_eq!(compare(PLAYED, &b, &a), Ordering::Less);
         b.info.grouping.clear();
         assert_eq!(compare(GROUPING, &a, &b), Ordering::Less, "empty last");
+    }
+
+    #[test]
+    fn sorts_keys_by_number_or_scale() {
+        let sorted = |camelot| {
+            let mut keys = vec!["10A", "Am", "2B", "1m", "C#", "Odd", "Bbm", "1A", "C"];
+            keys.sort_by_key(|k| key_order(k, camelot));
+            keys
+        };
+        // Am, 8A and Open Key's 1m are the same key.
+        assert_eq!(
+            sorted(true),
+            ["1A", "2B", "Bbm", "C#", "Am", "1m", "C", "10A", "Odd"]
+        );
+        assert_eq!(
+            sorted(false),
+            ["C", "C#", "2B", "1A", "Am", "1m", "Bbm", "10A", "Odd"]
+        );
     }
 }

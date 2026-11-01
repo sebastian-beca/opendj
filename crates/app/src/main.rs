@@ -39,6 +39,7 @@ mod analysis_queue;
 mod apple_music;
 mod art;
 mod automix;
+mod automix_order;
 mod browser;
 mod controller_editor;
 mod cover_scan;
@@ -568,6 +569,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app.on_automix_set_length(move |i| a.borrow_mut().set_length(i.max(0) as usize));
         let a = automix.clone();
         app.on_automix_set_style(move |i| a.borrow_mut().set_style(i.max(0) as usize));
+        let a = automix.clone();
+        let b = browser.clone();
+        let weak = app.as_weak();
+        app.on_automix_order(move |i| {
+            let Some(&order) = automix_order::ORDERS.get(i.max(0) as usize) else {
+                return;
+            };
+            let (Ok(mut b), Some(app)) = (b.try_borrow_mut(), weak.upgrade()) else {
+                return;
+            };
+            let top: Vec<usize> = (0..3)
+                .filter_map(|i| b.automix_at(i))
+                .map(|t| t.id)
+                .collect();
+            let fixed = a.borrow().fixed(&top);
+            let note = b.order_automix(order, fixed);
+            app.set_automix_order_note(note.into());
+        });
+        let b = browser.clone();
+        app.on_automix_order_undo(move || {
+            if let Ok(mut b) = b.try_borrow_mut() {
+                b.undo_automix_order();
+            }
+        });
     }
 
     // Keyboard shortcuts, each an openDJscript line.
@@ -974,7 +999,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     automix.borrow_mut().play_album();
                 }
                 automix.borrow_mut().tick(&mut host, &tracks, dt.min(0.1));
-                automix.borrow().show(&app, b.automix_len(), &tracks);
+                automix.borrow().show(&app, &tracks);
+                let automix_spans = automix.borrow().spans(&tracks);
                 drop(b);
                 // Row by row and only when it differs: a whole new model
                 // would make everything on the decks lay out and draw again.
@@ -984,6 +1010,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(image) = covers.borrow_mut()[d].get(track) {
                         info.cover = image;
                         info.has_cover = true;
+                    }
+                    // Automix's next mix, shaded on the overview. Rounded so
+                    // small tempo changes don't lay the deck out again.
+                    if let Some((from, to)) = automix_spans[d] {
+                        let round = |f: f64| ((f * 2000.0).round() / 2000.0) as f32;
+                        info.automix_from = round(from);
+                        info.automix_to = round(to);
                     }
                     if !deck_rows
                         .row_data(d)
@@ -1502,11 +1535,7 @@ impl Decks {
                 let key = base.transpose(shift);
                 KeyItem {
                     shift,
-                    text: format!(
-                        "{shift:+}  {}",
-                        if camelot { key.camelot() } else { key.name() }
-                    )
-                    .into(),
+                    text: format!("{shift:+}  {}", key.label(camelot)).into(),
                     compatible: other.is_some_and(|o| key.compatible(o)),
                     current: shift == current,
                 }
@@ -1618,8 +1647,7 @@ impl Decks {
             // The key being played, with any shift; a tag that isn't a key
             // is shown as it is.
             key: match Key::from_mixxx_number(h.key.get()) {
-                Some(k) if camelot => k.camelot(),
-                Some(k) => k.name(),
+                Some(k) => k.label(camelot),
                 None => t.key.clone(),
             }
             .into(),
@@ -1640,6 +1668,9 @@ impl Decks {
                 None => size,
             }),
             progress: (pos / t.duration) as f32,
+            // Filled in by the caller, from Automix.
+            automix_from: 0.0,
+            automix_to: 0.0,
             effects,
         }
     }

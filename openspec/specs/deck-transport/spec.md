@@ -58,7 +58,7 @@ PLAY SHALL toggle playback. CUE SHALL follow the "CUE button" setting: "Hold to 
 - **THEN** the deck stops and returns to the cue point
 
 ### Requirement: Paused indicators blink
-The PLAY and CUE indicators SHALL blink in step on a paused deck with a track loaded, on screen and on controller LEDs.
+The PLAY and CUE indicators SHALL blink in step on a paused deck with a track loaded, on screen and on controller LEDs. On screen only the deck-colour outline blinks (the same outline PLAY shows while playing); the button background stays plain.
 
 #### Scenario: Blink while paused
 - **WHEN** a track is loaded and paused

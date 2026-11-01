@@ -21,15 +21,19 @@ use opendj_controllers::format::OpenDjMapping;
 use opendj_controllers::layout::Layout;
 use opendj_controllers::own::{self, OwnMapping};
 use opendj_controllers::probe::{message_key, MessageKey};
-use opendj_controllers::support;
 use opendj_controllers::view::{self, LightRow, MappingView, Row};
 use opendj_controllers::{is_own_file, Controllers, MappingChoice};
+use opendj_controllers::{pickup, support};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use crate::{
     settings, short_port_name, AppWindow, ControllerEditor, EditorOption, EditorPanel, EditorPart,
-    EditorRow,
+    EditorRow, EditorSetting,
 };
+
+/// The deck orders a four-deck mapping can have, left to right.
+pub const DECK_ORDERS: [(&str, [u8; 4]); 2] =
+    [("3 1 2 4", [3, 1, 2, 4]), ("1 2 3 4", [1, 2, 3, 4])];
 
 /// How long a part stays lit after its control is pressed.
 const FLASH: Duration = Duration::from_millis(350);
@@ -240,6 +244,8 @@ impl Editor {
         g.on_set_nothing(move || e.borrow_mut().change(|b| b.control = None));
         let e = editor.clone();
         g.on_reset_row(move || e.borrow_mut().apply(edit::reset));
+        let e = editor.clone();
+        g.on_set_playing(move |id, i| e.borrow_mut().set_playing(&id, i.max(0) as usize));
         g.set_whens(labels(edit::WHENS.iter().map(|w| edit::when_label(*w))));
         g.set_button_modes(labels(Buttons::ALL.iter().map(|b| b.label())));
         g.set_encoder_modes(labels(Encoder::ALL.iter().map(|e| e.label())));
@@ -881,6 +887,7 @@ impl Editor {
                     }
                     Err(e) => g.set_status(format!("Can't read this mapping: {e}").into()),
                 }
+                self.playing();
                 self.fill();
                 self.picture();
                 if again.is_some() {
@@ -1409,6 +1416,103 @@ impl Editor {
             return;
         };
         f(&mut mine.mapping, &row);
+        if let Err(e) = own::save(&dir, &mine) {
+            g.set_status(format!("Couldn't save the mapping: {e}").into());
+            return;
+        }
+        self.versions(&base);
+        if let Some(c) = &self.controllers {
+            c.reload(&base);
+        }
+        self.read(true);
+    }
+
+    /// The Options tab's first rows: two decks or four and the deck order,
+    /// for a mapping with a layout for each, and how knobs and faders take
+    /// over on the controllers running it.
+    fn playing(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        let strings = |list: &[&str]| -> ModelRc<SharedString> {
+            ModelRc::new(VecModel::from(
+                list.iter()
+                    .map(|s| SharedString::from(*s))
+                    .collect::<Vec<_>>(),
+            ))
+        };
+        let mut rows = Vec::new();
+        if let Some(own) = self.current_own().filter(|o| o.mapping.decks.is_some()) {
+            let four = own.mapping.decks == Some(4);
+            rows.push(EditorSetting {
+                id: "decks".into(),
+                label: "Used with".into(),
+                detail: "This mapping has a layout for two decks and one for four.".into(),
+                choices: strings(&["2 decks", "4 decks"]),
+                chosen: four as i32,
+            });
+            if four {
+                let order = own.mapping.deck_order.unwrap_or([1, 2, 3, 4]);
+                rows.push(EditorSetting {
+                    id: "deck_order".into(),
+                    label: "Deck order".into(),
+                    detail: "Which deck each column of the controller is, from left to right."
+                        .into(),
+                    choices: strings(&DECK_ORDERS.map(|(name, _)| name)),
+                    chosen: DECK_ORDERS
+                        .iter()
+                        .position(|(_, o)| *o == order)
+                        .unwrap_or(0) as i32,
+                });
+            }
+        }
+        if let Some(port) = self.live_ports().first() {
+            rows.push(EditorSetting {
+                id: "takeover".into(),
+                label: "Knobs and faders".into(),
+                detail: "After one moves on screen, Pick-up waits until the hardware reaches \
+                         it; Scale takes over at once and closes the gap as you move."
+                    .into(),
+                choices: strings(&["Pick-up", "Scale"]),
+                chosen: pickup::scale(&opendj_controllers::device_key(port)) as i32,
+            });
+        }
+        g.set_playing(ModelRc::new(VecModel::from(rows)));
+    }
+
+    fn set_playing(&mut self, id: &str, index: usize) {
+        let (Some(app), Some(base), Some(dir)) = (
+            self.app.upgrade(),
+            self.base(),
+            settings::own_mappings_dir(),
+        ) else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        if id == "takeover" {
+            for port in self.live_ports() {
+                let key = opendj_controllers::device_key(&port);
+                pickup::set_scale(&key, index == 1);
+                settings::set_controller_scaled(&key, index == 1);
+            }
+            self.playing();
+            return;
+        }
+        let Some(mut mine) = self.current_own().cloned() else {
+            return;
+        };
+        match id {
+            "decks" => {
+                mine.mapping.decks = Some(if index == 1 { 4 } else { 2 });
+                mine.mapping.deck_order.get_or_insert([3, 1, 2, 4]);
+            }
+            "deck_order" => match DECK_ORDERS.get(index) {
+                Some((_, o)) => mine.mapping.deck_order = Some(*o),
+                None => return,
+            },
+            _ => return,
+        }
         if let Err(e) = own::save(&dir, &mine) {
             g.set_status(format!("Couldn't save the mapping: {e}").into());
             return;

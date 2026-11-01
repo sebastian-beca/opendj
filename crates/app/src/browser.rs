@@ -428,6 +428,8 @@ pub struct Browser {
     /// deck" picks among these.
     decks_shown: usize,
     side: [Vec<usize>; 2],
+    /// The Automix list before the last Order pick, for Undo.
+    automix_before_order: Option<Vec<usize>>,
     shown_side_tab: usize,
     /// The Linked tab: the track selected in the list (an index into
     /// `library`) and what it shows, tracks linked to it and then those
@@ -463,6 +465,8 @@ pub struct Browser {
     parked: HashMap<i32, Parked>,
     /// Keys in Camelot notation rather than notes.
     camelot: bool,
+    /// The key notation the rows were written with, to redo them on a change.
+    notation: opendj_engine::key::Notation,
     /// Album art thumbnails for the list.
     art: Art,
     /// Mini waveforms for the list's Waveform column.
@@ -779,8 +783,12 @@ pub struct AutomixHost<'a> {
 }
 
 impl crate::automix::Host for AutomixHost<'_> {
-    fn take_next(&mut self) -> Option<Arc<Track>> {
-        self.browser.take_automix_next()
+    fn track_at(&self, index: usize) -> Option<Arc<Track>> {
+        self.browser.automix_at(index)
+    }
+
+    fn remove(&mut self, id: usize) {
+        self.browser.remove_from_automix(id);
     }
 
     fn queued(&self) -> usize {
@@ -995,6 +1003,7 @@ impl Browser {
             loaded: [None; NUM_DECKS],
             decks_shown: 2,
             side: [Vec::new(), Vec::new()],
+            automix_before_order: None,
             shown_side_tab: 0,
             linked_to: None,
             linked: Vec::new(),
@@ -1050,6 +1059,7 @@ impl Browser {
             tree: COLLECTION,
             parked: HashMap::new(),
             camelot: crate::settings::camelot_keys(),
+            notation: opendj_engine::key::notation(),
             art: Art::start(),
             waves: Waves::start(),
             wave_rows: Vec::new(),
@@ -2441,8 +2451,10 @@ impl Browser {
     /// Follows the key notation picked by clicking a deck's key, and keeps it
     /// for next time. Called every frame.
     pub fn set_camelot(&mut self, camelot: bool) {
-        if camelot != self.camelot {
+        let notation = opendj_engine::key::notation();
+        if camelot != self.camelot || notation != self.notation {
             self.camelot = camelot;
+            self.notation = notation;
             crate::settings::set_camelot_keys(camelot);
             self.refresh_rows();
             self.refresh_side();
@@ -2716,15 +2728,68 @@ impl Browser {
         self.refresh_side();
     }
 
-    /// Takes the first track off the Automix list, as Mixxx's Auto DJ does
-    /// when it loads one.
-    pub fn take_automix_next(&mut self) -> Option<Arc<Track>> {
-        if self.side[0].is_empty() {
-            return None;
+    /// The track at `index` on the Automix list.
+    pub fn automix_at(&self, index: usize) -> Option<Arc<Track>> {
+        let i = *self.side[0].get(index)?;
+        self.library.get(i).cloned()
+    }
+
+    /// Takes a track off the Automix list once Automix has played it.
+    pub fn remove_from_automix(&mut self, id: usize) {
+        let Some(&index) = self.index_of.get(&id) else {
+            return;
+        };
+        if let Some(i) = self.side[0].iter().position(|&t| t == index) {
+            self.side[0].remove(i);
+            self.refresh_side();
         }
-        let id = self.side[0].remove(0);
+    }
+
+    /// Puts the Automix list in `order`, leaving the first `fixed` tracks
+    /// where they are. Returns the note the panel shows, with Undo.
+    pub fn order_automix(&mut self, order: crate::automix_order::Order, fixed: usize) -> String {
+        use crate::automix_order::{self as o, Item};
+        let list = &self.side[0];
+        let items: Vec<Item> = list
+            .iter()
+            .map(|&i| {
+                let t = &self.library[i];
+                Item {
+                    bpm: t.bpm,
+                    key: Key::parse(&t.key),
+                }
+            })
+            .collect();
+        let mut seed = [0u8; 8];
+        let _ = getrandom::fill(&mut seed);
+        let mut state = u64::from_le_bytes(seed) | 1;
+        let mut random = move || {
+            // xorshift64*
+            state ^= state >> 12;
+            state ^= state << 25;
+            state ^= state >> 27;
+            state.wrapping_mul(0x2545_f491_4f6c_dd1d) >> 11
+        };
+        let picked = o::order(&items, fixed, order, self.key_rules.0, &mut random);
+        let ordered: Vec<usize> = picked.iter().map(|&i| list[i]).collect();
+        self.automix_before_order = Some(std::mem::replace(&mut self.side[0], ordered));
         self.refresh_side();
-        self.library.get(id).cloned()
+        format!("Put in order: {}", order.name())
+    }
+
+    /// Puts the Automix list back as it was before the last Order pick, if
+    /// it still holds the same tracks.
+    pub fn undo_automix_order(&mut self) {
+        let Some(before) = self.automix_before_order.take() else {
+            return;
+        };
+        let (mut a, mut b) = (before.clone(), self.side[0].clone());
+        a.sort_unstable();
+        b.sort_unstable();
+        if a == b {
+            self.side[0] = before;
+            self.refresh_side();
+        }
     }
 
     pub fn automix_len(&self) -> usize {
@@ -4437,7 +4502,8 @@ impl Browser {
                     columns::ALBUM => a.album.cmp(b.album),
                     columns::GENRE => a.genre.cmp(b.genre),
                     columns::BPM => a.bpm.total_cmp(&b.bpm),
-                    columns::KEY_ID => a.key.cmp(b.key),
+                    columns::KEY_ID => columns::key_order(a.key, self.camelot)
+                        .cmp(&columns::key_order(b.key, self.camelot)),
                     columns::LENGTH => a.duration.total_cmp(&b.duration),
                     columns::RATING_ID => a.rating.cmp(&b.rating),
                     columns::ORDER => a.list.order.cmp(&b.list.order),
@@ -4649,11 +4715,35 @@ impl Browser {
             return;
         }
         let ids = &self.side[tab];
+        let mixing = self.key_rules.0;
         let rows: Vec<SideRow> = ids
             .iter()
-            .map(|&id| {
+            .enumerate()
+            .map(|(n, &id)| {
                 let t = &self.library[id];
                 let cover = self.art.get(t);
+                // How the track before mixes into this one (Automix only).
+                let (fit, jump) = match (tab, n.checked_sub(1).map(|p| &self.library[ids[p]])) {
+                    (0, Some(prev)) => {
+                        use crate::automix_order::{self as o, Fit, Item};
+                        let item = |t: &Track| Item {
+                            bpm: t.bpm,
+                            key: Key::parse(&t.key),
+                        };
+                        let fit = match o::fit(&item(prev), &item(t), mixing) {
+                            Fit::Unknown => 0,
+                            Fit::Mixes => 1,
+                            Fit::Near => 2,
+                            Fit::Clash => 3,
+                        };
+                        let jump = o::bpm_jump(prev.bpm, t.bpm)
+                            .filter(|j| j.abs() >= 6.0)
+                            .map(|j| format!("{j:+.0}%"))
+                            .unwrap_or_default();
+                        (fit, jump.into())
+                    }
+                    _ => (0, SharedString::new()),
+                };
                 SideRow {
                     heading: SharedString::new(),
                     title: t.title.clone().into(),
@@ -4669,6 +4759,8 @@ impl Browser {
                     length: short_time(t.duration),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
+                    fit,
+                    jump,
                 }
             })
             .collect();
@@ -4751,6 +4843,7 @@ impl Browser {
                     length: short_time(t.duration),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
+                    ..Default::default()
                 });
             }
         }

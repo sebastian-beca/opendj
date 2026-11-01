@@ -21,13 +21,22 @@ use crate::AppWindow;
 
 /// What Automix needs from the rest of the app: the Automix list and a way
 /// to put tracks on decks.
+///
+/// Automix leaves a track on the list while it waits on a deck, so moving
+/// tracks around or adding one at the top swaps what is waiting. The track
+/// only comes off the list once it has played for [`PLAYED_AFTER`].
 pub trait Host {
-    /// Takes the first track off the Automix list.
-    fn take_next(&mut self) -> Option<Arc<Track>>;
-    /// Tracks left on the Automix list.
+    /// The track at `index` on the Automix list.
+    fn track_at(&self, index: usize) -> Option<Arc<Track>>;
+    /// Tracks on the Automix list.
     fn queued(&self) -> usize;
+    /// Takes the track off the Automix list: it has been played (or skipped).
+    fn remove(&mut self, id: usize);
     fn load(&mut self, deck: usize, track: Arc<Track>);
 }
+
+/// How long a track plays before it comes off the Automix list.
+pub const PLAYED_AFTER: f64 = 5.0;
 
 /// Mix lengths offered, in the order the panel shows them.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -141,6 +150,14 @@ impl Press {
     }
 }
 
+/// A track Automix started, still on the list until it has played a while.
+struct Played {
+    id: usize,
+    deck: usize,
+    /// Seconds it has played so far.
+    seconds: f64,
+}
+
 /// The next track, put on the silent deck and cued to where its sound starts.
 #[derive(Clone, Copy)]
 struct Next {
@@ -160,6 +177,8 @@ struct Mix {
     /// EQ low and filter of both decks before the mix, put back after it.
     saved_low: [f64; NUM_DECKS],
     saved_filter: [f64; NUM_DECKS],
+    /// Where the incoming track was when the mix started, in its seconds.
+    to_start: f64,
     /// Whether the incoming deck still needs starting (a takeover mixes
     /// into a deck that is already playing).
     start_incoming: bool,
@@ -208,6 +227,10 @@ pub struct AutoMix {
     frame: f64,
     /// A note for the panel when Automix stops by itself or can't start.
     note: String,
+    /// The track Automix last started, until it comes off the list.
+    played: Option<Played>,
+    /// Tracks on the list still to come, for the panel.
+    left: usize,
 }
 
 /// Automix mixes between decks 1 and 2, whatever the layout.
@@ -276,6 +299,8 @@ impl AutoMix {
             album: false,
             frame: 1.0 / 60.0,
             note: String::new(),
+            played: None,
+            left: 0,
         }
     }
 
@@ -338,11 +363,83 @@ impl AutoMix {
             _ => self.step(host, tracks),
         }
         self.slide(dt);
+        self.count_played(host, tracks, dt);
+        self.left = host.queued() - usize::from(self.played_at_top(host));
         // Nobody else moves the crossfader while Automix is on.
         self.crossfader.lock(!matches!(self.phase, Phase::Off));
         // Presses while nothing could use them don't wait for later.
         self.fade_now.pressed();
         self.skip_next.pressed();
+    }
+
+    /// Counts how long the track Automix last started has played, and takes
+    /// it off the list once that is long enough. Carries on after Automix
+    /// is switched off, so a track it started doesn't play twice.
+    fn count_played(
+        &mut self,
+        host: &mut dyn Host,
+        tracks: &[Option<Arc<Track>>; NUM_DECKS],
+        dt: f64,
+    ) {
+        let Some(p) = &mut self.played else {
+            return;
+        };
+        if tracks[p.deck].as_ref().map(|t| t.id) != Some(p.id) {
+            // Something else was loaded over it: it stays on the list.
+            self.played = None;
+            return;
+        }
+        if self.decks[p.deck].play.get_bool() {
+            p.seconds += dt.max(0.0);
+        }
+        if p.seconds >= PLAYED_AFTER {
+            host.remove(p.id);
+            self.played = None;
+        }
+    }
+
+    /// Whether the top of the list is the track playing until it comes off.
+    fn played_at_top(&self, host: &dyn Host) -> bool {
+        self.played
+            .as_ref()
+            .is_some_and(|p| host.track_at(0).is_some_and(|t| t.id == p.id))
+    }
+
+    /// The track to play next: the top of the list, past the one playing.
+    fn upcoming(&self, host: &dyn Host) -> Option<Arc<Track>> {
+        host.track_at(usize::from(self.played_at_top(host)))
+    }
+
+    /// How many tracks at the top of the Automix list must stay there when
+    /// it is put in order: the first, and also the one playing until it
+    /// comes off and the one waiting on a deck.
+    /// `top` holds the ids of the first few tracks on the list.
+    pub fn fixed(&self, top: &[usize]) -> usize {
+        let mut held: Vec<usize> = self.played.iter().map(|p| p.id).collect();
+        if let Phase::Playing { next: Some(n), .. } | Phase::Opening { next: Some(n), .. } =
+            &self.phase
+        {
+            held.push(n.id);
+        }
+        let leading = top
+            .iter()
+            .take(held.len())
+            .take_while(|id| held.contains(id))
+            .count();
+        leading.max(1)
+    }
+
+    /// `deck` has started the track that waited on it. One started before
+    /// it has played its part by now: it comes off the list at once.
+    fn started(&mut self, host: &mut dyn Host, deck: usize, id: usize) {
+        if let Some(p) = self.played.take() {
+            host.remove(p.id);
+        }
+        self.played = Some(Played {
+            id,
+            deck,
+            seconds: 0.0,
+        });
     }
 
     /// Switches Automix off. A mix in progress stays where it is, with the
@@ -366,7 +463,7 @@ impl AutoMix {
             .filter(|&d| self.decks[d].play.get_bool() && tracks[d].is_some())
             .collect();
         if playing.is_empty() {
-            if host.queued() == 0 {
+            if self.upcoming(host).is_none() {
                 self.stop("Add tracks to the Automix list first.");
                 return;
             }
@@ -402,6 +499,7 @@ impl AutoMix {
                 style: Style::Smooth,
                 start: pos,
                 end: pos + len,
+                to_start: self.position(live, tracks),
                 xfade_from: x,
                 saved_low: self.decks.each_ref().map(|d| d.eq_low.get()),
                 saved_filter: self.decks.each_ref().map(|d| d.filter.get()),
@@ -453,13 +551,14 @@ impl AutoMix {
                 let next = self.prepare(deck, next, host, tracks);
                 match next {
                     None => self.stop("Add tracks to the Automix list first."),
-                    Some(Next { cued: true, .. }) => {
+                    Some(Next { id, cued: true }) => {
                         self.glide_to(self.side(deck));
                         let d = &self.decks[deck];
                         if d.volume.get() < 0.05 {
                             d.volume.set(1.0);
                         }
                         d.play.set_bool(true);
+                        self.started(host, deck, id);
                         self.phase = Phase::Playing {
                             live: deck,
                             next: None,
@@ -499,15 +598,19 @@ impl AutoMix {
     ) {
         let other = 1 - live;
         let mut next = next;
-        if self.skip_next.pressed() && host.queued() > 0 {
-            next = None;
+        if self.skip_next.pressed() {
+            if let Some(n) = next {
+                // Skipped: off the list, and the one after it goes on.
+                host.remove(n.id);
+                next = None;
+            }
         }
         // A gapless track plays to its very last frame.
         let ended = self.remaining(live, tracks) < if self.gapless() { 1e-3 } else { 0.3 };
         if ended || !self.decks[live].play.get_bool() {
             if !ended {
                 self.stop("Stopped: the deck was paused.");
-            } else if next.is_some() || host.queued() > 0 {
+            } else if next.is_some() || self.upcoming(host).is_some() {
                 // The track ran out before the next one was ready: start that
                 // one as soon as it is.
                 self.decks[live].play.set_bool(false);
@@ -541,14 +644,7 @@ impl AutoMix {
         } else {
             0.0
         };
-        let mut start = (end - len - lead).max(0.0);
-        if let (Length::Bars(_), Some(t)) = (self.mix_length(), tracks[live].as_deref()) {
-            if t.bpm > 0.0 {
-                // Start on a bar of the outgoing track.
-                let bar = 4.0 * t.beat_length();
-                start = (t.first_beat + ((start - t.first_beat) / bar).floor() * bar).max(0.0);
-            }
-        }
+        let start = self.planned_start(live, end - len - lead, tracks);
         let now = self.fade_now.pressed();
         if !n.cued || !(now || pos >= start) {
             self.phase = Phase::Playing { live, next };
@@ -586,6 +682,7 @@ impl AutoMix {
             style,
             start,
             end,
+            to_start: self.position(other, tracks),
             xfade_from: x,
             saved_low: self.decks.each_ref().map(|d| d.eq_low.get()),
             saved_filter: self.decks.each_ref().map(|d| d.filter.get()),
@@ -594,11 +691,81 @@ impl AutoMix {
             progress: 0.0,
         };
         self.apply(&mut m, tracks);
+        self.started(host, other, n.id);
         self.phase = Phase::Mixing(m);
     }
 
-    /// Makes sure the next track from the list is on `deck`, cued to where
-    /// its sound starts. None when the list is empty.
+    /// Where a mix due to start at `start` on `live`'s track starts: on a
+    /// bar of the outgoing track for mixes measured in bars.
+    fn planned_start(
+        &self,
+        live: usize,
+        start: f64,
+        tracks: &[Option<Arc<Track>>; NUM_DECKS],
+    ) -> f64 {
+        let start = start.max(0.0);
+        match (self.mix_length(), tracks[live].as_deref()) {
+            (Length::Bars(_), Some(t)) if t.bpm > 0.0 => {
+                let bar = 4.0 * t.beat_length();
+                (t.first_beat + ((start - t.first_beat) / bar).floor() * bar).max(0.0)
+            }
+            _ => start,
+        }
+    }
+
+    /// The part of each deck's track the next (or current) mix covers, as
+    /// fractions of the track from 0 to 1: on the playing deck from where
+    /// the mix starts to where its sound ends, on the waiting deck from its
+    /// cue to where the mix will be over. None for decks out of the mix,
+    /// and while Automix is off or plays gaplessly.
+    pub fn spans(
+        &self,
+        tracks: &[Option<Arc<Track>>; NUM_DECKS],
+    ) -> [Option<(f64, f64)>; NUM_DECKS] {
+        let mut spans = [None; NUM_DECKS];
+        if self.gapless() {
+            return spans;
+        }
+        // (outgoing, its span, incoming, where it starts)
+        let (from, start, end, to, to_start) = match &self.phase {
+            Phase::Playing {
+                live,
+                next: Some(Next { cued: true, .. }),
+            } => {
+                let other = 1 - live;
+                let Some(t) = tracks[*live].as_deref() else {
+                    return spans;
+                };
+                let end = self.end_of(t);
+                let start = self.planned_start(*live, end - self.length_on(*live, tracks), tracks);
+                let start = start.max(self.position(*live, tracks).min(end));
+                let end = if STYLES[self.style] == Style::Cut {
+                    (start + t.beat_length()).min(end)
+                } else {
+                    end
+                };
+                (*live, start, end, other, self.position(other, tracks))
+            }
+            Phase::Mixing(m) => (m.from, m.start, m.end, m.to, m.to_start),
+            _ => return spans,
+        };
+        let fraction = |deck: usize, a: f64, b: f64| {
+            let t = tracks[deck].as_deref().filter(|t| t.duration > 0.0)?;
+            let a = (a / t.duration).clamp(0.0, 1.0);
+            let b = (b / t.duration).clamp(0.0, 1.0);
+            (b > a).then_some((a, b))
+        };
+        spans[from] = fraction(from, start, end);
+        // The same stretch of time on the incoming track, at its own speed.
+        let seconds = (end - start) / self.decks[from].speed().max(0.1);
+        let to_len = seconds * self.decks[to].speed().max(0.1);
+        spans[to] = fraction(to, to_start, to_start + to_len);
+        spans
+    }
+
+    /// Makes sure the track at the top of the list is on `deck`, cued to
+    /// where its sound starts: a track already waiting there is swapped
+    /// for another that has moved to the top. None when the list is empty.
     fn prepare(
         &mut self,
         deck: usize,
@@ -606,10 +773,11 @@ impl AutoMix {
         host: &mut dyn Host,
         tracks: &[Option<Arc<Track>>; NUM_DECKS],
     ) -> Option<Next> {
+        let top = self.upcoming(host)?;
         let mut next = match next {
-            Some(n) => n,
-            None => {
-                let t = host.take_next()?;
+            Some(n) if n.id == top.id => n,
+            _ => {
+                let t = top;
                 host.load(deck, t.clone());
                 Next {
                     id: t.id,
@@ -740,7 +908,8 @@ impl AutoMix {
     }
 
     /// Shows Automix's state on the panel.
-    pub fn show(&self, app: &AppWindow, queued: usize, tracks: &[Option<Arc<Track>>; NUM_DECKS]) {
+    pub fn show(&self, app: &AppWindow, tracks: &[Option<Arc<Track>>; NUM_DECKS]) {
+        let queued = self.left;
         let title = |d: usize| {
             tracks[d]
                 .as_deref()
@@ -804,8 +973,13 @@ mod tests {
     }
 
     impl Host for TestHost {
-        fn take_next(&mut self) -> Option<Arc<Track>> {
-            (!self.queue.is_empty()).then(|| self.queue.remove(0))
+        fn track_at(&self, index: usize) -> Option<Arc<Track>> {
+            self.queue.get(index).cloned()
+        }
+        fn remove(&mut self, id: usize) {
+            if let Some(i) = self.queue.iter().position(|t| t.id == id) {
+                self.queue.remove(i);
+            }
         }
         fn queued(&self) -> usize {
             self.queue.len()
@@ -948,10 +1122,13 @@ mod tests {
         assert_eq!(r.loaded_id(0), Some(1000));
         assert_eq!(r.loaded_id(1), Some(1001), "next track waits on deck B");
         assert!(!r.deck(1, "play").get_bool());
-        assert_eq!(r.host.queued(), 1);
+        assert_eq!(r.host.queued(), 3, "both stay on the list for now");
+        r.run(4.0);
+        assert_eq!(r.host.queued(), 2, "the first came off once it had played");
+        assert_eq!(r.host.queue[0].id, 1001, "the waiting one stays on");
 
         // A 12 s mix ends where deck A's sound ends, so it is under way by 14 s.
-        r.run(12.0);
+        r.run(8.0);
         assert!(r.deck(1, "play").get_bool(), "deck B has come in");
         let x = r.xfade();
         assert!(x > -0.9 && x < 0.9, "crossfader mid-way: {x}");
@@ -963,13 +1140,79 @@ mod tests {
             "deck A stopped after the mix"
         );
         assert_eq!(r.loaded_id(0), Some(1002), "third track on deck A");
-        assert_eq!(r.host.queued(), 0);
+        assert_eq!(r.host.queued(), 1, "only the waiting one is left");
         assert!(r.ctl("[AutoDJ]", "enabled").get_bool());
 
         // The last track mixes in, plays out, and Automix stops.
         r.run(50.0);
         assert!(!r.ctl("[AutoDJ]", "enabled").get_bool());
         assert_eq!(r.automix.note, "The Automix list has finished.");
+    }
+
+    #[test]
+    fn a_new_track_at_the_top_swaps_the_waiting_one() {
+        let mut r = Rig::new(vec![track(0, 40.0), track(1, 40.0), track(2, 40.0)]);
+        r.ctl("[AutoDJ]", "enabled").set(1.0);
+        r.run(7.0);
+        assert_eq!(r.loaded_id(1), Some(1001));
+        assert_eq!(r.host.queued(), 2);
+
+        // Move the last track to the top: it goes on deck B instead.
+        let t = r.host.queue.remove(1);
+        r.host.queue.insert(0, t);
+        r.run(1.0);
+        assert_eq!(r.loaded_id(1), Some(1002), "swapped for the new top");
+        assert!(!r.deck(1, "play").get_bool());
+        assert_eq!(r.host.queued(), 2, "nothing came off the list");
+
+        // Add one at the top: that swaps in too.
+        r.host.queue.insert(0, track(3, 40.0));
+        r.run(1.0);
+        assert_eq!(r.loaded_id(1), Some(1003));
+
+        // Skip takes it off the list and puts the next one on.
+        r.automix.skip();
+        r.run(1.0);
+        assert_eq!(r.loaded_id(1), Some(1002));
+        assert_eq!(r.host.queued(), 2);
+    }
+
+    #[test]
+    fn the_track_mixed_in_stays_listed_for_a_few_seconds() {
+        let mut r = Rig::new(vec![track(0, 40.0), track(1, 40.0), track(2, 40.0)]);
+        r.ctl("[AutoDJ]", "enabled").set(1.0);
+        r.run(7.0);
+        r.automix.mix_now();
+        r.run(2.0);
+        assert!(r.deck(1, "play").get_bool());
+        assert_eq!(r.host.queue[0].id, 1001, "still listed while it starts");
+        let spans = r.automix.spans(&r.host.tracks.clone());
+        assert!(
+            spans[0].is_some() && spans[1].is_some(),
+            "both decks shaded"
+        );
+        r.run(4.0);
+        assert_eq!(r.host.queue[0].id, 1002, "off the list once it has played");
+    }
+
+    #[test]
+    fn spans_show_where_the_next_mix_falls() {
+        let mut r = Rig::new(vec![track(0, 40.0), track(1, 40.0)]);
+        let tracks = |r: &Rig| r.host.tracks.clone();
+        assert_eq!(r.automix.spans(&tracks(&r)), [None; NUM_DECKS], "off: none");
+        r.ctl("[AutoDJ]", "enabled").set(1.0);
+        r.run(2.0);
+        let spans = r.automix.spans(&tracks(&r));
+        let (a0, a1) = spans[0].expect("playing deck shaded");
+        assert!(a1 > 0.9 && a1 <= 1.0, "to the end: {a1}");
+        assert!(
+            ((a1 - a0) * 40.0 - 12.0).abs() < 0.1,
+            "12 s long: {a0}..{a1}"
+        );
+        let (b0, b1) = spans[1].expect("waiting deck shaded");
+        assert!(((b1 - b0) * 40.0 - 12.0).abs() < 0.1, "12 s from its cue");
+        assert!(b0 < 0.1, "from its cue near the start: {b0}");
+        assert!(spans[2..].iter().all(Option::is_none));
     }
 
     #[test]

@@ -72,6 +72,10 @@ export struct DeckInfo {
     can-prepare-hq: bool,
     // 0..1 through the track
     progress: float,
+    // The stretch of the track Automix's next (or current) mix covers, from
+    // 0 to 1 through the track; equal (both 0) when there is none.
+    automix-from: float,
+    automix-to: float,
     effects: [string],
 }
 
@@ -692,6 +696,17 @@ export component Header inherits Rectangle {
                 // layer, which would freeze the GPU-updated image.
                 clip: true;
                 Image { width: parent.width; height: parent.height; source: overview; image-fit: fill; }
+                // Automix's mix, shaded green: on the playing deck from where
+                // the mix starts to the end, on the waiting deck from its cue
+                // to where the mix is over.
+                if info.automix-to > info.automix-from: Rectangle {
+                    x: info.automix-from * parent.width;
+                    width: (info.automix-to - info.automix-from) * parent.width;
+                    height: parent.height;
+                    background: Theme.automix.with-alpha(0.18);
+                    Rectangle { x: 0; width: 1px; background: Theme.automix.with-alpha(0.8); }
+                    Rectangle { x: parent.width - 1px; width: 1px; background: Theme.automix.with-alpha(0.8); }
+                }
                 // The waveform, a dot at every minute and the phrase bar
                 // are all drawn into the image, stacked so none overlap.
                 ota := TouchArea {
@@ -1335,6 +1350,9 @@ component HotcueCell inherits Rectangle {
 // The pad tabs: four at a time, tabs 1-4 or 5-8 (see `first`), each
 // showing one panel. Right-click a tab to put a different panel in it.
 component PadTabs inherits Rectangle {
+    // The deck, 1 to 4, for Map mode: a controller's pad mode button opens
+    // a tab by its place (`pad_tab`).
+    in property <int> deck-number;
     in property <[string]> names;
     in property <[int]> slots;
     in-out property <int> selected;
@@ -1374,6 +1392,8 @@ component PadTabs inherits Rectangle {
                     }
                 }
             }
+            // Over the tab's own TouchArea, so Map mode takes the click.
+            MapMark { key: "script:deck " + root.deck-number + " set 'pad_tab' " + i; }
         }
     }
     menu := PopupWindow {
@@ -1597,7 +1617,7 @@ export component Pads inherits HorizontalLayout {
         horizontal-stretch: 1;
         // The tabs sit right on the grid.
         spacing: 0px;
-        PadTabs { names: ["HOT CUES", "PAD FX 1", "BEAT JUMP", "SAMPLER", "STEMS", "BEAT LOOP", "PAD FX 2", "KEYBOARD", "KEY SHIFT", "LOOP ROLL"]; slots: slots; selected <=> tab; pick(t, p) => { Controls.set-value(slot-index[t], p); } first: tab >= 4 ? 4 : 0; }
+        PadTabs { deck-number: deck + 1; names: ["HOT CUES", "PAD FX 1", "BEAT JUMP", "SAMPLER", "STEMS", "BEAT LOOP", "PAD FX 2", "KEYBOARD", "KEY SHIFT", "LOOP ROLL"]; slots: slots; selected <=> tab; pick(t, p) => { Controls.set-value(slot-index[t], p); } first: tab >= 4 ? 4 : 0; }
         if page == 3: SamplerPanel { bank: sampler-page; vertical-stretch: 1; }
         // The black background shows through the 1px gaps as the grid lines.
         if page != 3: Rectangle {
@@ -1855,8 +1875,8 @@ component Pitch inherits VerticalLayout {
 }
 
 // Play and pause in one button showing ▶: outlined and drawn in the deck
-// colour while playing, and its background blinks while a track waits,
-// like a CDJ's.
+// colour while playing, and that same outline blinks while a track waits,
+// as in djay Pro. The background stays plain, like every other button.
 export component PlayButton inherits Rectangle {
     // Names it for the guided tour (see TourMark).
     in property <string> tour-id;
@@ -1864,14 +1884,14 @@ export component PlayButton inherits Rectangle {
     in property <color> tint;
     property <int> index: Controls.resolve(group, "play");
     property <bool> playing: Controls.value(index, Controls.tick) > 0;
-    property <bool> loaded: Controls.value(Controls.resolve(group, "track_loaded"), Controls.tick) > 0;
-    // Only with a track to play. A plain on and off, as on a CDJ: fading
-    // each blink would keep the window redrawing most of the time.
-    property <bool> blink: loaded && Controls.blink;
+    // A plain on and off, as on a CDJ: fading each blink would keep the
+    // window redrawing most of the time.
+    property <bool> blink: Controls.paused-blink(group, Controls.blink, Controls.tick);
     border-radius: Theme.radius;
-    border-width: playing ? 2px : 1px;
-    border-color: playing ? tint : Theme.border;
-    background: touch.pressed ? Theme.control-pressed : !playing && blink ? tint.with-alpha(0.28) : Theme.control;
+    property <bool> outlined: playing || blink;
+    border-width: outlined ? 2px : 1px;
+    border-color: outlined ? tint : Theme.border;
+    background: touch.pressed ? Theme.control-pressed : Theme.control;
     Path {
         width: 16px;
         height: 18px;
@@ -1896,7 +1916,7 @@ component Transport inherits HorizontalLayout {
     spacing: 6px;
     height: 32px;
     PlayButton { group: group; tint: tint; width: 63px; tour-id: group + ",play"; }
-    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; font-size: 13px; width: 63px; tour-id: group + ",cue_default"; }
+    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; outline: Controls.paused-blink(group, Controls.blink, Controls.tick); font-size: 13px; width: 63px; tour-id: group + ",cue_default"; }
 }
 
 // A thin line between sections of a deck.

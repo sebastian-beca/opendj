@@ -27,3 +27,14 @@ For a connected MIDI controller with no mapping, openDJ SHALL offer Quick map: i
 #### Scenario: New controller
 - **WHEN** an unmapped controller is plugged in and the DJ runs Quick map, moving a control for each step
 - **THEN** a mapping named after the controller is in use, and every step not skipped works
+
+#### Scenario: Which controller
+- **WHEN** the DJ starts the Mapping wizard from the Map mode bar with more than one MIDI device plugged in
+- **THEN** it asks which controller, with a button for each and a press on one picking it, and never offers the computer's own ports such as macOS's Network Session
+
+### Requirement: Map mode reaches effects, pad modes and headphone cue
+Map mode SHALL let the DJ map the FX bar's ON, D/W, second-control slider and effect stepping, each deck's pad mode tabs, and the headphone cue buttons.
+
+#### Scenario: Pad mode tab
+- **WHEN** the DJ clicks deck 1's BEAT JUMP tab in Map mode and presses a controller button
+- **THEN** that button opens deck 1's third pad tab from then on

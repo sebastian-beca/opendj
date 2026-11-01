@@ -76,7 +76,13 @@ pub fn hear(msgs: &[Vec<u8>]) -> Option<Heard> {
     Some(Heard { midi, options })
 }
 
-/// Binds what was heard to `control` (`[Channel1],play`) in the own mapping,
+/// What a control on screen that has no control of its own (a pad mode
+/// tab) does instead, as `script:` and an openDJscript line:
+/// `script:deck 1 set 'pad_tab' 2`.
+pub const SCRIPT: &str = "script:";
+
+/// Binds what was heard to `control` (`[Channel1],play`, or
+/// [`SCRIPT`] and a line) in the own mapping,
 /// pressing on no layer. What that message did there before goes, unless
 /// `keep`, when it carries on doing it too. Returns what it did before, in
 /// words ("Cue · Deck 1").
@@ -127,12 +133,21 @@ pub fn learn(
         own.rows.extend(OpenDjMapping::from_mixxx(&only).rows);
     }
     let option_names: Vec<&str> = heard.options.iter().map(String::as_str).collect();
-    let mut row = Row::bind(heard.midi, control, &option_names);
+    let mut row = match control.strip_prefix(SCRIPT) {
+        Some(line) => Row::script(heard.midi, line),
+        None => Row::bind(heard.midi, control, &option_names),
+    };
     row.name = name.to_string();
     own.rows.push(row);
     let mut said: Vec<String> = Vec::new();
     for i in before {
-        if format!("{},{}", i.group, i.key) == control {
+        if format!("{},{}", i.group, i.key) == control
+            || i.action
+                .as_deref()
+                .map(|a| format!("{SCRIPT}{a}"))
+                .as_deref()
+                == Some(control)
+        {
             continue;
         }
         let what = if i.action.is_some() || i.options.has(Options::SCRIPT) {
@@ -153,14 +168,18 @@ pub fn learn(
 }
 
 /// The controls `mapping` binds a message to directly (`[Channel1],play`),
-/// for marking the ones already mapped.
+/// and its openDJscript lines (`script:deck 1 set 'pad_tab' 2`), for
+/// marking the ones already mapped.
 pub fn bound_controls(mapping: &Mapping) -> HashSet<String> {
     mapping
         .inputs
         .values()
         .flatten()
-        .filter(|i| i.action.is_none() && !i.options.has(Options::SCRIPT))
-        .map(|i| format!("{},{}", i.group, i.key))
+        .filter(|i| !i.options.has(Options::SCRIPT))
+        .map(|i| match &i.action {
+            Some(line) => format!("{SCRIPT}{line}"),
+            None => format!("{},{}", i.group, i.key),
+        })
         .collect()
 }
 
@@ -233,5 +252,23 @@ mod tests {
         let built = both.build(Some(&base), &dir);
         let inputs = &built.inputs[&(0x90, 0x0B)];
         assert_eq!(inputs.len(), base.inputs[&(0x90, 0x0B)].len() + 1);
+    }
+
+    #[test]
+    fn learns_a_pad_mode_tab_as_a_script_row() {
+        let tab = Heard {
+            midi: Midi::new(0x90, 0x1B),
+            options: Vec::new(),
+        };
+        let mut own = OpenDjMapping::new("Mine");
+        let key = "script:deck 1 set 'pad_tab' 2";
+        learn(&mut own, None, &tab, key, "BEAT JUMP", false);
+        assert_eq!(own.rows.len(), 1);
+        assert!(matches!(
+            &own.rows[0].action,
+            crate::format::Action::Script(l) if l == "deck 1 set 'pad_tab' 2"
+        ));
+        let built = own.build(None, Path::new(""));
+        assert!(bound_controls(&built).contains(key));
     }
 }
