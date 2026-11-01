@@ -46,7 +46,7 @@ Swept delay reads move from linear to 4-point cubic (Catmull-Rom) interpolation,
 
 ### Locked to the beat
 
-`Ctx` gains the target's beat position. LFOs and gates (Flanger, Phaser, Gate) take their phase from the deck's position in the beat grid, so a gate opens on the beat and two decks' flangers sweep together, and Roll starts its slice on the nearest beat division. The main mix follows the master deck. Tap tempo and units with their own `bpm` keep a free-running phase.
+`Ctx` gains the target's beat position at the start of the buffer (`EffectRack::set_beats`, from `Track::beat_at`). LFOs and gates (Flanger, Phaser, Gate) take their phase from the deck's position in the beat grid, so a gate opens on the beat and two decks' flangers sweep together. A phase error over 5% of a cycle (a seek, a loop, a newly started effect) snaps; smaller drift is pulled in over about 1,000 frames by nudging the per-frame step, so the sweep never jumps. Roll starts recording on the next division of the grid (its slice, or a quarter beat for longer slices), so the repeat lands on the beat. The main mix follows the deck that leads its tempo (the first playing deck). Stopped decks, the inputs, tap tempo and units with their own `bpm` keep a free-running phase.
 
 ### Block processing
 
