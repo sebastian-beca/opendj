@@ -7,6 +7,8 @@ license.workspace = true
 
 [dependencies]
 memmap2 = "0.9"
+clack-host = "0.2"
+clack-extensions = { version = "0.2", features = ["clack-host", "params", "state", "latency", "audio-ports"] }
 
 [[bin]]
 name = "opendj-plugin-host"

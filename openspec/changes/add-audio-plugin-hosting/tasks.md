@@ -8,8 +8,9 @@
 
 ## 2. CLAP
 
-- [ ] 2.1 Host CLAP effects in the helper with `clack-host`: load, process, parameters, state
-- [ ] 2.2 Scanner process, cache, Settings › Plugins (folders, Scan, failures with Retry, allow-list, favourites)
+- [x] 2.1 Host CLAP effects in the helper with `clack-host`: load, process, parameters, transport (state comes with 1.3)
+- [x] 2.2a Scanner process with a timeout (`opendj-plugin-host --scan`, `scan()`)
+- [ ] 2.2 Scan cache, Settings › Plugins (folders, Scan, failures with Retry, allow-list, favourites)
 - [ ] 2.3 FX chooser "Plugins" group, ON/D/W/slider mapping, transport for beat-synced plugins, controller mapping
 - [ ] 2.4 Block processing for plugin slots in the effects engine; per-slot load meter and CPU budget
 - [ ] 2.5 Latency compensation by reading the deck ahead
