@@ -14,8 +14,8 @@
 
 ## 3. Better sound
 
-- [ ] 3.1 Glide every continuous parameter per sample (PR 2)
-- [ ] 3.2 Cubic interpolation in echo, flanger, spiral, brake and the reverb's modulated allpasses (after Signalsmith DSP, PR 2)
+- [x] 3.1 Glide every continuous parameter per sample, crossfade phaser stage changes, cap filter sweeps at about 1/60 octave per sample (PR 2)
+- [x] 3.2 Cubic interpolation in echo, echo out, flanger, spiral and brake (after Signalsmith DSP, PR 2); the reverb tank stays linear (see design)
 - [ ] 3.3 Lock Flanger, Phaser and Gate phases and Roll starts to the deck's beat grid (PR 3)
 - [ ] 3.4 Drive with 2-4x oversampling (after Signalsmith Crunch or an Airwindows saturator)
 - [ ] 3.5 Chorus (after Signalsmith Basics)

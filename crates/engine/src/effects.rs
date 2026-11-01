@@ -986,7 +986,39 @@ impl EffectRack {
     }
 }
 
-/// Reads a delay line `delay` samples behind `write`, with linear interpolation.
+/// Per-sample glide of effect parameters towards the value read for the
+/// buffer: about 5 ms at 48 kHz, like the filters' cutoff glide.
+const GLIDE: f32 = 0.004;
+
+/// Moves `v` one sample's glide towards `target`.
+#[inline]
+fn glide(v: &mut f32, target: f32) {
+    let d = target - *v;
+    if d != 0.0 {
+        // Lands exactly, so a settled knob costs only the comparison.
+        *v = if d.abs() < 1e-6 {
+            target
+        } else {
+            *v + d * GLIDE
+        };
+    }
+}
+
+/// Four-point cubic (Catmull-Rom) interpolation between `y1` and `y2`, `t`
+/// of the way, with `y0` before and `y3` after them, after Signalsmith DSP's
+/// cubic interpolator (MIT). Halfway between samples it loses under 1 dB at
+/// 10 kHz, where linear interpolation loses 2 dB, so swept delays keep their
+/// highs.
+#[inline]
+fn cubic(y0: f32, y1: f32, y2: f32, y3: f32, t: f32) -> f32 {
+    let a = 0.5 * (y2 - y0);
+    let b = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
+    let c = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+    y1 + t * (a + t * (b + t * c))
+}
+
+/// Reads a delay line `delay` samples behind `write` (the next slot to be
+/// written), with cubic interpolation.
 #[inline]
 fn tap(buf: &[f32], write: usize, delay: f32) -> f32 {
     let len = buf.len();
@@ -995,9 +1027,14 @@ fn tap(buf: &[f32], write: usize, delay: f32) -> f32 {
         pos += len as f32;
     }
     let i = (pos as usize).min(len - 1);
-    let frac = pos - i as f32;
-    let j = if i + 1 == len { 0 } else { i + 1 };
-    buf[i] + (buf[j] - buf[i]) * frac
+    let t = pos - i as f32;
+    if i >= 1 && i + 2 < len {
+        // Away from the buffer's ends: one bounds check for all four.
+        let w = &buf[i - 1..i + 3];
+        return cubic(w[0], w[1], w[2], w[3], t);
+    }
+    let at = |k: usize| buf[(i + len + k - 1) % len];
+    cubic(at(0), at(1), at(2), at(3), t)
 }
 
 /// `2^lo .. 2^hi` beats, in whole powers of two, picked by a 0..1 parameter.
@@ -1023,11 +1060,16 @@ struct Echo {
     /// Feedback, gliding towards `feedback_target` so turning it doesn't zip.
     feedback: f32,
     feedback_target: f32,
+    /// Ping-pong and send, gliding towards their targets.
     pingpong: f32,
+    pingpong_target: f32,
     send: f32,
+    send_target: f32,
     tone: [f32; 2],
     /// One-pole coefficient darkening each repeat (about 6 kHz).
     tone_coef: f32,
+    /// Reset since the last `prepare`: the glides start at their targets.
+    fresh: bool,
 }
 
 impl Echo {
@@ -1040,9 +1082,12 @@ impl Echo {
             feedback: 0.0,
             feedback_target: 0.0,
             pingpong: 0.0,
+            pingpong_target: 0.0,
             send: 0.0,
+            send_target: 0.0,
             tone: [0.0; 2],
             tone_coef: 1.0 - (-TAU * 6_000.0 / sample_rate).exp(),
+            fresh: true,
         }
     }
 
@@ -1051,7 +1096,17 @@ impl Echo {
         self.write = 0;
         self.delay = -1.0;
         self.tone = [0.0; 2];
-        self.feedback = self.feedback_target;
+        self.fresh = true;
+    }
+
+    /// Starts the glides at their targets, the first time after a reset.
+    fn settle(&mut self) {
+        if self.fresh {
+            self.fresh = false;
+            self.feedback = self.feedback_target;
+            self.pingpong = self.pingpong_target;
+            self.send = self.send_target;
+        }
     }
 
     /// Sets the delay to `beats` at the current tempo, within the buffer.
@@ -1067,8 +1122,9 @@ impl Echo {
         // Time: 1/16 to 4 beats (as long as the buffer allows at slow tempos).
         self.set_time(beats(p[0], -4, 2), ctx);
         self.feedback_target = p[1] * 0.9;
-        self.pingpong = p[2];
-        self.send = p[3];
+        self.pingpong_target = p[2];
+        self.send_target = p[3];
+        self.settle();
     }
 
     #[inline]
@@ -1076,6 +1132,8 @@ impl Echo {
         let (l, r) = mem[..2 * self.len].split_at_mut(self.len);
         self.delay += (self.target - self.delay) * 0.0005;
         self.feedback += (self.feedback_target - self.feedback) * 0.002;
+        glide(&mut self.pingpong, self.pingpong_target);
+        glide(&mut self.send, self.send_target);
         let e = [
             tap(l, self.write, self.delay),
             tap(r, self.write, self.delay),
@@ -1117,7 +1175,10 @@ impl Line {
         mem[self.at + i]
     }
 
-    /// Like [`Line::read`], between samples.
+    /// Like [`Line::read`], between samples, with linear interpolation.
+    /// The reverb's tank only swings a few samples for a slow chorus, where
+    /// cubic interpolation costs a third more CPU for no audible change (the
+    /// slight softening of the highs is far below the tank's own damping).
     #[inline]
     fn read_frac(&self, mem: &[f32], delay: f32) -> f32 {
         let d = delay.clamp(1.0, (self.len - 1) as f32);
@@ -1169,13 +1230,25 @@ struct Reverb {
     damped: [f32; 2],
     decay: f32,
     send: f32,
+    /// Decay, bandwidth, damping and send as last set, which the values
+    /// above glide towards per sample.
+    targets: [f32; 4],
+    fresh: bool,
     /// The tank's output from the other half, fed round the figure eight.
     cross: [f32; 2],
+    /// [`OUTPUT_TAPS`] at this sample rate.
+    taps: [[usize; 7]; 2],
 }
 
 /// Dattorro's delay lengths, at 29 761 Hz.
 const DIFFUSER_TUNING: [usize; 4] = [142, 107, 379, 277];
 const TANK_TUNING: [[usize; 4]; 2] = [[672, 4453, 1800, 3720], [908, 4217, 2656, 3163]];
+/// Where the left and right outputs tap the tank, at 29 761 Hz (Dattorro's
+/// table 2), in the order `process` sums them.
+const OUTPUT_TAPS: [[usize; 7]; 2] = [
+    [266, 2974, 1913, 1996, 1990, 187, 1066],
+    [353, 3627, 1228, 2673, 2111, 335, 121],
+];
 /// The modulated allpasses swing this many samples (at 29 761 Hz) each way.
 const TANK_EXCURSION: f32 = 16.0;
 
@@ -1216,7 +1289,10 @@ impl Reverb {
             damped: [0.0; 2],
             decay: 0.5,
             send: 0.0,
+            targets: [0.5, 0.9995, 0.0005, 0.0],
+            fresh: true,
             cross: [0.0; 2],
+            taps: OUTPUT_TAPS.map(|side| side.map(|n| ((n as f32 * scale) as usize).max(1))),
         }
     }
 
@@ -1225,18 +1301,25 @@ impl Reverb {
         self.input = 0.0;
         self.damped = [0.0; 2];
         self.cross = [0.0; 2];
+        self.fresh = true;
     }
 
     fn prepare(&mut self, p: &[f32; MAX_PARAMETERS]) {
         // Decay: a short room to a long hall.
-        self.decay = 0.2 + 0.77 * p[0];
-        self.bandwidth = 0.1 + 0.8995 * p[1];
-        self.damping = 0.8 * p[2];
-        self.send = p[3];
+        self.targets = [0.2 + 0.77 * p[0], 0.1 + 0.8995 * p[1], 0.8 * p[2], p[3]];
+        if self.fresh {
+            self.fresh = false;
+            [self.decay, self.bandwidth, self.damping, self.send] = self.targets;
+        }
     }
 
     #[inline]
     fn process(&mut self, mem: &mut [f32], x: [f32; 2]) -> [f32; 2] {
+        let [decay, bandwidth, damping, send] = self.targets;
+        glide(&mut self.decay, decay);
+        glide(&mut self.bandwidth, bandwidth);
+        glide(&mut self.damping, damping);
+        glide(&mut self.send, send);
         self.input += ((x[0] + x[1]) * 0.5 - self.input) * self.bandwidth;
         let mut v = self.input;
         for (d, g) in self.diffusers.iter_mut().zip([0.75, 0.75, 0.625, 0.625]) {
@@ -1267,18 +1350,19 @@ impl Reverb {
             d2.write(mem, b);
             self.cross[half] = d2.read(mem, d2.len);
         }
-        let s = self.scale;
-        let at = |l: &Line, n: usize| l.read(mem, ((n as f32 * s) as usize).max(1));
+        let t = &self.taps;
         let [_, l2, l3, l4] = &self.tank[0];
         let [_, r2, r3, r4] = &self.tank[1];
-        out[0] = at(r2, 266) + at(r2, 2974) - at(r3, 1913) + at(r4, 1996)
-            - at(l2, 1990)
-            - at(l3, 187)
-            - at(l4, 1066);
-        out[1] = at(l2, 353) + at(l2, 3627) - at(l3, 1228) + at(l4, 2673)
-            - at(r2, 2111)
-            - at(r3, 335)
-            - at(r4, 121);
+        out[0] = r2.read(mem, t[0][0]) + r2.read(mem, t[0][1]) - r3.read(mem, t[0][2])
+            + r4.read(mem, t[0][3])
+            - l2.read(mem, t[0][4])
+            - l3.read(mem, t[0][5])
+            - l4.read(mem, t[0][6]);
+        out[1] = l2.read(mem, t[1][0]) + l2.read(mem, t[1][1]) - l3.read(mem, t[1][2])
+            + l4.read(mem, t[1][3])
+            - r2.read(mem, t[1][4])
+            - r3.read(mem, t[1][5])
+            - r4.read(mem, t[1][6]);
         [
             x[0] + out[0] * 0.6 * self.send,
             x[1] + out[1] * 0.6 * self.send,
@@ -1335,10 +1419,13 @@ struct Flanger {
     write: usize,
     phase: f32,
     step: f32,
-    /// Centre delay in samples.
+    /// Centre delay in samples, depth and feedback, gliding towards
+    /// `targets` (in that order).
     centre: f32,
     depth: f32,
     feedback: f32,
+    targets: [f32; 3],
+    fresh: bool,
 }
 
 impl Flanger {
@@ -1351,6 +1438,8 @@ impl Flanger {
             centre: 1.0,
             depth: 0.0,
             feedback: 0.0,
+            targets: [1.0, 0.0, 0.0],
+            fresh: true,
         }
     }
 
@@ -1358,15 +1447,18 @@ impl Flanger {
         mem[..2 * self.len].fill(0.0);
         self.write = 0;
         self.phase = 0.0;
+        self.fresh = true;
     }
 
     fn prepare(&mut self, p: &[f32; MAX_PARAMETERS], ctx: Ctx) {
         // Speed: one sweep every 32 beats down to every half beat, in time
         // with the track. Manual: 0.5..8 ms centre delay.
         self.step = 1.0 / (beats(1.0 - p[0], -1, 5) * ctx.beat_seconds * ctx.sample_rate);
-        self.depth = p[1];
-        self.centre = (0.0005 + 0.0075 * p[2]) * ctx.sample_rate;
-        self.feedback = 0.9 * p[3];
+        self.targets = [(0.0005 + 0.0075 * p[2]) * ctx.sample_rate, p[1], 0.9 * p[3]];
+        if self.fresh {
+            self.fresh = false;
+            [self.centre, self.depth, self.feedback] = self.targets;
+        }
     }
 
     #[inline]
@@ -1375,6 +1467,10 @@ impl Flanger {
         if self.phase >= 1.0 {
             self.phase -= 1.0;
         }
+        let [centre, depth, feedback] = self.targets;
+        glide(&mut self.centre, centre);
+        glide(&mut self.depth, depth);
+        glide(&mut self.feedback, feedback);
         let lfo = (self.phase * TAU).sin_cos();
         let (l, r) = mem[..2 * self.len].split_at_mut(self.len);
         let mut y = [0.0; 2];
@@ -1432,15 +1528,25 @@ impl Bitcrusher {
 const PHASER_MAX_STAGES: usize = 12;
 /// Frames between updates of the phaser's sweep.
 const PHASER_UPDATE: u32 = 16;
+/// Per-sample step of the crossfade when the phaser's stage count changes:
+/// about 10 ms at 48 kHz.
+const PHASER_STAGE_FADE: f32 = 1.0 / 480.0;
 
 /// A chain of swept first-order allpasses mixed with the input.
 #[derive(Default)]
 struct Phaser {
     phase: f32,
     step: f32,
+    /// The stage count in use, and the one it is crossfading from (the
+    /// chain is serial, so both outputs come from one pass).
     stages: usize,
+    old_stages: usize,
+    /// How far the crossfade from `old_stages` has got, 0..1.
+    fade: f32,
+    /// Depth and feedback, gliding towards `targets`.
     depth: f32,
     feedback: f32,
+    targets: [f32; 2],
     sample_rate: f32,
     coef: [f32; 2],
     state: [[f32; PHASER_MAX_STAGES]; 2],
@@ -1453,15 +1559,23 @@ impl Phaser {
         // Speed: one sweep every 32 beats down to every half beat, in time
         // with the track. Stages: 2..12.
         self.step = 1.0 / (beats(1.0 - p[0], -1, 5) * ctx.beat_seconds * ctx.sample_rate);
-        self.depth = p[1];
-        self.feedback = 0.9 * p[2];
+        self.targets = [p[1], 0.9 * p[2]];
         let stages = 2 + 2 * (p[3] * 5.0).round() as usize;
-        // Added stages start silent rather than with stale state, so they
-        // don't click in.
-        for state in &mut self.state {
-            for z in state.iter_mut().take(stages).skip(self.stages) {
-                *z = 0.0;
+        if self.stages == 0 {
+            // Fresh: no glides or crossfade.
+            [self.depth, self.feedback] = self.targets;
+            self.old_stages = stages;
+            self.fade = 1.0;
+        } else if stages != self.stages {
+            // Added stages start silent rather than with stale state.
+            let busy = self.stages.max(self.old_stages);
+            for state in &mut self.state {
+                for z in state.iter_mut().take(stages).skip(busy) {
+                    *z = 0.0;
+                }
             }
+            self.old_stages = self.stages;
+            self.fade = 0.0;
         }
         self.stages = stages;
         self.sample_rate = ctx.sample_rate;
@@ -1484,15 +1598,36 @@ impl Phaser {
             }
         }
         self.countdown -= 1;
+        glide(&mut self.depth, self.targets[0]);
+        glide(&mut self.feedback, self.targets[1]);
+        let fading = self.fade < 1.0;
+        let n = if fading {
+            self.fade = (self.fade + PHASER_STAGE_FADE).min(1.0);
+            self.stages.max(self.old_stages)
+        } else {
+            self.stages
+        };
         let mut y = [0.0; 2];
         for c in 0..2 {
             let a = self.coef[c];
             let mut v = x[c] + self.last[c] * self.feedback;
-            for z in &mut self.state[c][..self.stages] {
+            let (mut new, mut old) = (v, v);
+            for (k, z) in self.state[c][..n].iter_mut().enumerate() {
                 let out = a * v + *z;
                 *z = v - a * out;
                 v = out;
+                if k + 1 == self.stages {
+                    new = v;
+                }
+                if k + 1 == self.old_stages {
+                    old = v;
+                }
             }
+            let v = if fading {
+                old + (new - old) * self.fade
+            } else {
+                new
+            };
             self.last[c] = v;
             y[c] = x[c] * (1.0 - 0.5 * self.depth) + v * 0.5 * self.depth;
         }
@@ -1637,7 +1772,9 @@ impl EchoOut {
         // Time: 1/4 to 1 beat. Length: the original fades out over 1/2 to 4 beats.
         self.echo.set_time(beats(p[0], -2, 0), ctx);
         self.echo.feedback_target = 0.5 + 0.45 * p[1];
-        self.echo.pingpong = 0.3;
+        self.echo.pingpong_target = 0.3;
+        self.echo.send_target = 1.0 - (self.t / self.capture).min(1.0);
+        self.echo.settle();
         self.capture = beats(p[2], -1, 2) * ctx.beat_seconds * ctx.sample_rate;
     }
 
@@ -1645,7 +1782,9 @@ impl EchoOut {
     fn process(&mut self, mem: &mut [f32], x: [f32; 2]) -> [f32; 2] {
         let left = 1.0 - (self.t / self.capture).min(1.0);
         self.t += 1.0;
+        // The fade is smooth already: no glide on top.
         self.echo.send = left;
+        self.echo.send_target = left;
         let y = self.echo.process(mem, x);
         // The echo's output carries the dry signal: take away what has faded.
         [y[0] - x[0] * (1.0 - left), y[1] - x[1] * (1.0 - left)]
@@ -1789,8 +1928,9 @@ impl Spiral {
         self.echo.set_time(beats(p[0], -2, 0), ctx);
         self.base = self.echo.target;
         self.echo.feedback_target = 0.4 + 0.5 * p[1];
-        self.echo.pingpong = 0.5;
-        self.echo.send = p[2];
+        self.echo.pingpong_target = 0.5;
+        self.echo.send_target = p[2];
+        self.echo.settle();
         self.halving = 4.0 * ctx.beat_seconds * ctx.sample_rate;
     }
 
