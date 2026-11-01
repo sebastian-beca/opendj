@@ -1,11 +1,18 @@
 //! Looking up a track's tags online: its audio fingerprint (Chromaprint,
 //! as AcoustID uses) finds the recording on MusicBrainz when the DJ gave
-//! an AcoustID key; otherwise MusicBrainz is searched by artist and title.
-//! Discogs adds the label, year and style when the DJ gave a Discogs
-//! token. Nothing is saved here: what is found goes to the clean-up's
-//! review table.
+//! an AcoustID key; otherwise, or when the sound isn't known, MusicBrainz
+//! is searched by artist and title: as tagged first, then without the
+//! "(Original Mix)", "[Label]" and "feat." parts that DJ files carry and
+//! MusicBrainz doesn't. Genres come from MusicBrainz (the recording's, or
+//! failing that its artist's) unless Discogs, with the DJ's token, gives a
+//! style. Discogs also adds the label and year. Requests are paced as each
+//! service asks, and a busy service is asked once more before the track
+//! counts as unreachable. Nothing is saved here: what is found goes to the
+//! clean-up's review table.
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use opendj_engine::decode::Decoder;
@@ -13,10 +20,17 @@ use opendj_plugins::encode;
 use rusty_chromaprint::{Configuration, Fingerprinter};
 use serde_json::Value;
 
-use crate::coverart::{get_json, lucene};
+use crate::coverart::{lucene, try_json, Failed};
 
 /// Seconds of audio fingerprinted, as `fpcalc` does.
 const FINGERPRINT_SECONDS: usize = 120;
+
+/// A search result at least this sure ends the search: the looser
+/// searches after it are only for tracks the exact one missed.
+const GOOD_ENOUGH: f32 = 0.9;
+
+/// Search results less sure than this aren't a match at all.
+const AT_LEAST: f32 = 0.5;
 
 /// What to look up a track by.
 #[derive(Clone, Debug, Default)]
@@ -24,6 +38,8 @@ pub struct Query {
     pub path: Option<PathBuf>,
     pub artist: String,
     pub title: String,
+    /// The artist and title came from the file's name, not its tags.
+    pub by_file_name: bool,
     /// Seconds.
     pub duration: f64,
     pub acoustid_key: String,
@@ -39,34 +55,128 @@ pub struct Found {
     pub year: String,
     pub label: String,
     pub genre: String,
+    /// The genre is the artist's, not this recording's: a guess.
+    pub genre_guessed: bool,
     /// From 0 to 1.
     pub score: f32,
     /// Where the match came from: "AcoustID" or "MusicBrainz".
     pub source: &'static str,
+    /// MusicBrainz ids of the recording and its first artist.
+    pub recording_id: String,
+    pub artist_id: String,
 }
 
-/// Looks a track up; `None` when nothing matched.
-pub fn look_up(q: &Query) -> Option<Found> {
-    let mut found = by_fingerprint(q).or_else(|| by_name(q))?;
+/// Why nothing came back for a track.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Miss {
+    /// Asked, and nothing matched.
+    NotFound,
+    /// MusicBrainz or AcoustID couldn't be reached, or stayed busy.
+    Unreachable,
+}
+
+/// Looks a track up.
+pub fn look_up(q: &Query) -> Result<Found, Miss> {
+    let mut unreachable = false;
+    let by_sound = match by_fingerprint(q) {
+        Ok(f) => Some(f),
+        Err(Miss::Unreachable) => {
+            unreachable = true;
+            None
+        }
+        Err(Miss::NotFound) => None,
+    };
+    let mut found = match by_sound {
+        Some(f) => f,
+        None => match by_name(q) {
+            Ok(f) => f,
+            Err(Miss::NotFound) if unreachable => return Err(Miss::Unreachable),
+            Err(e) => return Err(e),
+        },
+    };
     if !q.discogs_token.trim().is_empty() {
         if let Some(d) = discogs(q, &found) {
             if found.year.is_empty() {
                 found.year = d.year;
             }
             found.label = d.label;
-            found.genre = d.genre;
+            if !d.genre.is_empty() {
+                found.genre = d.genre;
+                found.genre_guessed = false;
+            }
         }
     }
-    Some(found)
+    if found.genre.is_empty() && !found.artist_id.is_empty() {
+        let url = format!(
+            "https://musicbrainz.org/ws/2/artist/{}?inc=genres&fmt=json",
+            found.artist_id
+        );
+        if let Ok(v) = MUSICBRAINZ.get(&url, None) {
+            found.genre = top_genre(&v);
+            found.genre_guessed = !found.genre.is_empty();
+        }
+    }
+    Ok(found)
+}
+
+/// Keeps requests to one service apart, and asks a busy one again once.
+struct Paced {
+    last: Mutex<Option<Instant>>,
+    gap: Duration,
+}
+
+/// MusicBrainz asks apps for one request a second.
+static MUSICBRAINZ: Paced = Paced::new(1100);
+/// AcoustID allows three a second.
+static ACOUSTID: Paced = Paced::new(340);
+/// Discogs allows 60 a minute with a token.
+static DISCOGS: Paced = Paced::new(1000);
+
+impl Paced {
+    const fn new(ms: u64) -> Self {
+        Paced {
+            last: Mutex::new(None),
+            gap: Duration::from_millis(ms),
+        }
+    }
+
+    fn wait(&self) {
+        let mut last = self.last.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(t) = *last {
+            let since = t.elapsed();
+            if since < self.gap {
+                std::thread::sleep(self.gap - since);
+            }
+        }
+        *last = Some(Instant::now());
+    }
+
+    fn get(&self, url: &str, auth: Option<&str>) -> Result<Value, Miss> {
+        for attempt in 0..2 {
+            if attempt > 0 {
+                // A busy service (MusicBrainz answers 503) gets a breather.
+                std::thread::sleep(Duration::from_secs(3));
+            }
+            self.wait();
+            match try_json(url, auth) {
+                Ok(v) => return Ok(v),
+                Err(Failed::NotThere) => return Err(Miss::NotFound),
+                Err(Failed::Unreachable) => {}
+            }
+        }
+        Err(Miss::Unreachable)
+    }
 }
 
 /// The recording AcoustID knows by the track's fingerprint, with its
-/// releases from MusicBrainz.
-fn by_fingerprint(q: &Query) -> Option<Found> {
+/// releases and genres from MusicBrainz.
+fn by_fingerprint(q: &Query) -> Result<Found, Miss> {
     if q.acoustid_key.trim().is_empty() {
-        return None;
+        return Err(Miss::NotFound);
     }
-    let (fingerprint, seconds) = fingerprint(q.path.as_ref()?)?;
+    let Some((fingerprint, seconds)) = q.path.as_ref().and_then(|p| fingerprint(p)) else {
+        return Err(Miss::NotFound);
+    };
     let duration = if q.duration > 0.0 {
         q.duration
     } else {
@@ -78,34 +188,183 @@ fn by_fingerprint(q: &Query) -> Option<Found> {
         duration.round() as u64,
         fingerprint
     );
-    let (id, score) = acoustid_best(&get_json(&url, None)?)?;
-    let v = get_json(
+    let (id, score) = acoustid_best(&ACOUSTID.get(&url, None)?).ok_or(Miss::NotFound)?;
+    let mut found = recording_by_id(&id)?;
+    found.score = score;
+    found.source = "AcoustID";
+    Ok(found)
+}
+
+/// A MusicBrainz recording with its artist, releases and genres.
+fn recording_by_id(id: &str) -> Result<Found, Miss> {
+    let v = MUSICBRAINZ.get(
         &format!(
-            "https://musicbrainz.org/ws/2/recording/{id}?inc=artist-credits+releases&fmt=json"
+            "https://musicbrainz.org/ws/2/recording/{id}?inc=artist-credits+releases+genres&fmt=json"
         ),
         None,
     )?;
-    let mut found = recording(&v)?;
-    found.score = score;
-    found.source = "AcoustID";
-    Some(found)
+    recording(&v).ok_or(Miss::NotFound)
 }
 
-/// The recording MusicBrainz finds by artist and title.
-fn by_name(q: &Query) -> Option<Found> {
-    if q.artist.trim().is_empty() || q.title.trim().is_empty() {
-        return None;
+/// The recording MusicBrainz finds by artist and title: as they are, then
+/// without the parts MusicBrainz doesn't have, then by their words in any
+/// order. The surest of these wins.
+fn by_name(q: &Query) -> Result<Found, Miss> {
+    let (artist, title) = (q.artist.trim(), q.title.trim());
+    if artist.is_empty() || title.is_empty() {
+        return Err(Miss::NotFound);
     }
-    let query = format!(
-        "recording:\"{}\" AND artist:\"{}\"",
-        lucene(q.title.trim()),
-        lucene(q.artist.trim())
-    );
-    let url = format!(
-        "https://musicbrainz.org/ws/2/recording?fmt=json&limit=5&query={}",
-        encode(&query)
-    );
-    musicbrainz_best(&get_json(&url, None)?, q.duration)
+    let (bare_artist, bare_title) = (search_artist(artist), search_title(title));
+    let phrase =
+        |t: &str, a: &str| format!("recording:\"{}\" AND artist:\"{}\"", lucene(t), lucene(a));
+    let mut queries = vec![phrase(title, artist)];
+    if (bare_title.as_str(), bare_artist.as_str()) != (title, artist) && !bare_title.is_empty() {
+        queries.push(phrase(&bare_title, &bare_artist));
+    }
+    if !bare_title.is_empty() && !bare_artist.is_empty() {
+        queries.push(format!(
+            "recording:({}) AND artist:({})",
+            words(&bare_title),
+            words(&bare_artist)
+        ));
+    }
+    let mut best: Option<Found> = None;
+    let mut reached = false;
+    for query in queries {
+        let url = format!(
+            "https://musicbrainz.org/ws/2/recording?fmt=json&limit=5&query={}",
+            encode(&query)
+        );
+        let Ok(v) = MUSICBRAINZ.get(&url, None) else {
+            continue;
+        };
+        reached = true;
+        if let Some(mut f) = musicbrainz_best(&v, q.duration) {
+            // A loose search can rank a different song first: a match
+            // whose name isn't the one asked for is a lot less sure.
+            if !agrees(&f, &bare_title, &bare_artist) {
+                f.score *= 0.6;
+            }
+            if best.as_ref().is_none_or(|b| f.score > b.score) {
+                best = Some(f);
+            }
+        }
+        if best.as_ref().is_some_and(|b| b.score >= GOOD_ENOUGH) {
+            break;
+        }
+    }
+    let Some(mut found) = best.filter(|f| f.score >= AT_LEAST) else {
+        return Err(if reached {
+            Miss::NotFound
+        } else {
+            Miss::Unreachable
+        });
+    };
+    // Search results carry no genres: the recording itself does.
+    if !found.recording_id.is_empty() {
+        if let Ok(full) = recording_by_id(&found.recording_id) {
+            found.genre = full.genre;
+        }
+    }
+    if q.by_file_name {
+        found.source = "MusicBrainz, by file name";
+    }
+    Ok(found)
+}
+
+/// A title as MusicBrainz is likely to have it: without parts in
+/// brackets ("(Original Mix)", "[Label]"), a guest ("feat. X") or
+/// underscores.
+pub fn search_title(title: &str) -> String {
+    let mut out = String::new();
+    let mut depth = 0usize;
+    for c in title.replace('_', " ").chars() {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    let out = cut_guest(&out);
+    out.trim()
+        .trim_end_matches(['-', '–', ' '])
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// An artist without a guest ("A feat. B" is A) or underscores.
+pub fn search_artist(artist: &str) -> String {
+    let a = artist.replace('_', " ");
+    cut_guest(&a)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Text up to a " feat.", " ft." or " featuring".
+fn cut_guest(s: &str) -> String {
+    let lower = s.to_lowercase();
+    let cut = [" feat. ", " feat ", " ft. ", " ft ", " featuring "]
+        .iter()
+        .filter_map(|w| lower.find(w))
+        .min()
+        .unwrap_or(s.len());
+    // The lower-case text has the same byte positions for these words.
+    s.get(..cut).unwrap_or(s).to_string()
+}
+
+/// Whether a match's title and artist are the ones searched for, ignoring
+/// case, punctuation and bracketed parts; one may hold the other ("Bonobo"
+/// in "Bonobo & X").
+fn agrees(f: &Found, title: &str, artist: &str) -> bool {
+    let key = |s: &str| -> String {
+        s.chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let alike =
+        |a: String, b: String| !a.is_empty() && !b.is_empty() && (a.contains(&b) || b.contains(&a));
+    alike(key(&search_title(&f.title)), key(title)) && alike(key(&f.artist), key(artist))
+}
+
+/// Words for a Lucene query, each escaped, in any order.
+fn words(s: &str) -> String {
+    s.split_whitespace()
+        .map(lucene)
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The genre most voted for in a MusicBrainz answer, in title case.
+fn top_genre(v: &Value) -> String {
+    let Some(best) = v["genres"]
+        .as_array()
+        .and_then(|g| g.iter().max_by_key(|g| g["count"].as_i64().unwrap_or(0)))
+        .and_then(|g| g["name"].as_str())
+    else {
+        return String::new();
+    };
+    best.split(' ')
+        .map(|w| {
+            if ["uk", "us", "edm", "idm", "ebm", "r&b", "dnb", "lo-fi"].contains(&w) {
+                return w.to_uppercase().replace("LO-FI", "Lo-Fi");
+            }
+            w.split('-')
+                .map(|p| {
+                    let mut c = p.chars();
+                    c.next()
+                        .map(|f| f.to_uppercase().chain(c).collect::<String>())
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>()
+                .join("-")
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The track's Chromaprint fingerprint, compressed and encoded as
@@ -174,9 +433,17 @@ fn recording(r: &Value) -> Option<Found> {
         .and_then(|rel| rel["title"].as_str())
         .unwrap_or("")
         .to_string();
-    let year = first
-        .and_then(|rel| rel["date"].as_str())
+    // The recording's first release, when MusicBrainz gives it, beats
+    // the album's date: a reissue's album is often the only one listed.
+    let year = r["first-release-date"]
+        .as_str()
+        .filter(|d| d.len() >= 4)
+        .or_else(|| first.and_then(|rel| rel["date"].as_str()))
         .and_then(|d| d.get(..4))
+        .unwrap_or("")
+        .to_string();
+    let artist_id = r["artist-credit"][0]["artist"]["id"]
+        .as_str()
         .unwrap_or("")
         .to_string();
     Some(Found {
@@ -184,7 +451,10 @@ fn recording(r: &Value) -> Option<Found> {
         title,
         album,
         year,
+        genre: top_genre(r),
         source: "MusicBrainz",
+        recording_id: r["id"].as_str().unwrap_or("").to_string(),
+        artist_id,
         ..Default::default()
     })
 }
@@ -229,7 +499,7 @@ fn discogs(q: &Query, found: &Found) -> Option<Found> {
         url += &format!("&track={}", encode(&found.title));
     }
     let auth = format!("Discogs token={}", q.discogs_token.trim());
-    discogs_first(&get_json(&url, Some(&auth))?)
+    discogs_first(&DISCOGS.get(&url, Some(&auth)).ok()?)
 }
 
 fn discogs_first(v: &Value) -> Option<Found> {
@@ -338,5 +608,51 @@ mod tests {
         assert!(fp.len() > 20, "{fp}");
         assert!((seconds - 10.0).abs() < 0.1);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn searches_without_what_musicbrainz_lacks() {
+        assert_eq!(search_title("Kerala (Original Mix) [Ninja Tune]"), "Kerala");
+        assert_eq!(search_title("Clouds feat. Someone (Extended)"), "Clouds");
+        assert_eq!(search_title("Night_Drive - "), "Night Drive");
+        assert_eq!(search_title("(Intro)"), "");
+        assert_eq!(search_artist("Bonobo ft. Szjerdene"), "Bonobo");
+        assert_eq!(search_artist("Simon & Garfunkel"), "Simon & Garfunkel");
+        assert_eq!(words("a+b c"), "a\\+b c");
+    }
+
+    #[test]
+    fn reads_genres_ids_and_first_release() {
+        let r = json!({
+            "id": "rec",
+            "title": "Kerala",
+            "first-release-date": "2016-11-01",
+            "artist-credit": [{"name": "Bonobo", "artist": {"id": "art"}}],
+            "releases": [{"title": "Migration", "date": "2017-01-13", "status": "Official"}],
+            "genres": [{"name": "downtempo", "count": 3}, {"name": "uk garage", "count": 5}]
+        });
+        let f = recording(&r).unwrap();
+        assert_eq!(f.year, "2016");
+        assert_eq!(f.genre, "UK Garage");
+        assert_eq!(
+            (f.recording_id.as_str(), f.artist_id.as_str()),
+            ("rec", "art")
+        );
+        assert_eq!(
+            top_genre(&json!({"genres": [{"name": "deep house", "count": 1}]})),
+            "Deep House"
+        );
+        assert_eq!(top_genre(&json!({})), "");
+    }
+
+    #[test]
+    fn a_match_agrees_by_name_not_by_case() {
+        let f = Found {
+            title: "Kerala".into(),
+            artist: "Bonobo & X".into(),
+            ..Default::default()
+        };
+        assert!(agrees(&f, "kerala", "Bonobo"));
+        assert!(!agrees(&f, "Cirrus", "Bonobo"));
     }
 }

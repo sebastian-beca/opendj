@@ -210,11 +210,29 @@ fn agent() -> ureq::Agent {
 }
 
 pub(crate) fn get_json(url: &str, auth: Option<&str>) -> Option<Value> {
+    try_json(url, auth).ok()
+}
+
+/// Why a request for JSON gave nothing back.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Failed {
+    /// The service answered that there is no such thing.
+    NotThere,
+    /// No answer, a busy service, or one that couldn't be read.
+    Unreachable,
+}
+
+/// Like [`get_json`], telling apart "not there" from "couldn't ask".
+pub(crate) fn try_json(url: &str, auth: Option<&str>) -> Result<Value, Failed> {
     let mut req = agent().get(url).header("Accept", "application/json");
     if let Some(a) = auth {
         req = req.header("Authorization", a);
     }
-    req.call().ok()?.body_mut().read_json().ok()
+    match req.call() {
+        Ok(mut r) => r.body_mut().read_json().map_err(|_| Failed::Unreachable),
+        Err(ureq::Error::StatusCode(404)) => Err(Failed::NotThere),
+        Err(_) => Err(Failed::Unreachable),
+    }
 }
 
 fn download(url: &str, w: &Wanted) -> Option<Vec<u8>> {
