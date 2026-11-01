@@ -152,6 +152,9 @@ pub(crate) struct DeckControls {
     /// beatloop_N_enabled lights, by loop size in beats.
     pub(crate) beatloop_lights: Vec<(f64, ControlHandle)>,
     pub(crate) pushes: Vec<Push>,
+    /// `[Instrument1],keyboard_pads`: the KEYBOARD pads play the instrument
+    /// rather than the deck.
+    pub(crate) instrument_pads: ControlHandle,
     pub(crate) eq: [ControlHandle; 3],
     pub(crate) eq_kill: [ControlHandle; 3],
     pub(crate) filter: ControlHandle,
@@ -380,6 +383,7 @@ impl DeckControls {
                 })
                 .collect(),
             pushes: deck_pushes(reg, g),
+            instrument_pads: reg.toggle("[Instrument1]", "keyboard_pads"),
             eq: [1, 2, 3].map(|n| {
                 reg.create(
                     &eqg,

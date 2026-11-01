@@ -895,6 +895,26 @@ mod tests {
         assert!((rig.instrument_buffer() - 1.0).abs() < 1e-3, "held");
         assert!(rig.notes.send([0x80, 127, 0]));
         assert!(rig.instrument_buffer().abs() < 1e-3);
+        // The pads play from middle C; a pad let go after the octave moved
+        // still stops its note.
+        let pad = rig.reg.get(group, "pad_1").unwrap();
+        pad.set(1.0);
+        assert!((rig.instrument_buffer() - 60.0 / 127.0).abs() < 1e-3);
+        rig.reg.get(group, "octave").unwrap().set(1.0);
+        pad.set(0.0);
+        assert!(rig.instrument_buffer().abs() < 1e-3);
+        rig.reg.get(group, "pad_2").unwrap().set(1.0);
+        assert!((rig.instrument_buffer() - 74.0 / 127.0).abs() < 1e-3);
+        rig.reg.get(group, "pad_2").unwrap().set(0.0);
+        assert!(rig.instrument_buffer().abs() < 1e-3);
+        // With keyboard_pads on, a deck's KEYBOARD pads play it too.
+        rig.reg.get(group, "octave").unwrap().set(0.0);
+        rig.reg.get(group, "keyboard_pads").unwrap().set(1.0);
+        let deck_pad = rig.reg.get("[Channel1]", "keyboard_3_activate").unwrap();
+        deck_pad.set(1.0);
+        assert!((rig.instrument_buffer() - 64.0 / 127.0).abs() < 1e-3);
+        deck_pad.set(0.0);
+        assert!(rig.instrument_buffer().abs() < 1e-3);
         // Taken off the input, it is silent and no longer ready.
         rig.reg.get(group, "instrument").unwrap().set(0.0);
         while configured.get_bool() {

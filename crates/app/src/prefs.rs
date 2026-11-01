@@ -50,7 +50,7 @@ const COMING_IMPORTS: [(&str, &str); 2] = [
 ];
 const ANALYSIS: i32 = 3;
 /// Settings › Mixer's tabs.
-const MIXER_TABS: [&str; 2] = ["Mixer", "FX plugins"];
+const MIXER_TABS: [&str; 2] = ["Mixer", "Plugins"];
 const DECKS: i32 = 4;
 const MIXER: i32 = 5;
 const KEYBOARD: i32 = 6;
@@ -1195,7 +1195,7 @@ impl Prefs {
     }
 
     /// The rate the engine runs at now.
-    /// Settings › Mixer: the mixer itself, and FX plugins. `tab` None is
+    /// Settings › Mixer: the mixer itself, and plugins. `tab` None is
     /// both, for a search.
     fn mixer_page(&mut self, tab: Option<usize>) -> Vec<PrefItem> {
         let mut items = Vec::new();
@@ -1273,7 +1273,7 @@ impl Prefs {
             ]
     }
 
-    /// Settings › Mixer › FX plugins: where plugins are looked for, Scan,
+    /// Settings › Mixer › Plugins: where plugins are looked for, Scan,
     /// the effects found with a tick for the FX lists, and files that
     /// couldn't be read with Retry.
     fn audio_plugin_items(&self) -> Vec<PrefItem> {
@@ -1282,15 +1282,15 @@ impl Prefs {
             return vec![item(
                 "",
                 NOTE,
-                "FX plugins",
-                "This copy of openDJ came without its plugin helper (opendj-plugin-host), so CLAP, VST3 and Audio Unit effects can't run.",
+                "Plugins",
+                "This copy of openDJ came without its plugin helper (opendj-plugin-host), so CLAP, VST3 and Audio Unit plugins can't run.",
             )];
         }
         let mut items = vec![item(
             "",
             NOTE,
-            "FX plugins",
-            "CLAP and VST3 effects, and Audio Units on a Mac, in any effect slot: decks, Beat FX, Mic and Aux. Each runs in its own helper process, so a plugin that crashes or stalls is switched off and the music keeps playing.",
+            "Plugins",
+            "CLAP and VST3 plugins, and Audio Units on a Mac. Effects go in any effect slot: decks, Beat FX, Mic and Aux. Instruments play through the Instrument input in the MIC panel. Each runs in its own helper process, so a plugin that crashes or stalls is switched off and the music keeps playing.",
         )];
         let folders = p.folders();
         for (i, dir) in folders.iter().enumerate() {
@@ -1319,12 +1319,17 @@ impl Prefs {
             )
         });
         let effects = p.effects();
+        let instruments = p.instruments();
         let note = if !p.note.is_empty() {
             p.note.clone()
-        } else if effects.is_empty() {
+        } else if effects.is_empty() && instruments.is_empty() {
             "Nothing is looked at until you press Scan.".to_string()
         } else {
-            format!("{} effects known from the last scan.", effects.len())
+            format!(
+                "{} effects and {} instruments known from the last scan.",
+                effects.len(),
+                instruments.len()
+            )
         };
         items.push(PrefItem {
             action: if p.scanning() {
@@ -1339,10 +1344,16 @@ impl Prefs {
             },
             ..item("audio_plugins_scan", BUTTON, "Scan for plugins", &note)
         });
-        if !effects.is_empty() {
-            items.push(item("", HEADING, "EFFECTS IN THE FX LISTS", ""));
-            let shown = p.shown();
-            for e in &effects {
+        let shown = p.shown();
+        for (heading, list) in [
+            ("EFFECTS IN THE FX LISTS", &effects),
+            ("INSTRUMENTS FOR THE INSTRUMENT INPUT", &instruments),
+        ] {
+            if list.is_empty() {
+                continue;
+            }
+            items.push(item("", HEADING, heading, ""));
+            for e in list {
                 items.push(PrefItem {
                     on: shown.contains(&e.key),
                     ..item(

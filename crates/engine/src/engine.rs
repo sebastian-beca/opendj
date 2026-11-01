@@ -716,6 +716,8 @@ impl Deck {
                     self.c.pitch.set(if n.abs() >= 1.0 { p.round() } else { p });
                 }
                 Action::KeyReset => self.c.pitch.set(0.0),
+                // The instrument's pads read these themselves.
+                Action::Keyboard(_) if self.c.instrument_pads.get_bool() => {}
                 Action::Keyboard(semitones) => {
                     self.c.pitch.set(semitones);
                     let set = |h: usize| self.c.hotcues[h].enabled.get_bool();
@@ -4406,6 +4408,12 @@ mod tests {
         press("keyboard_1_activate", &mut engine);
         assert_eq!(ctl("pitch_adjust").get(), 0.0);
         assert!((seconds() - 5.0).abs() < 0.05, "{}", seconds());
+        // While they play the instrument, the deck leaves them alone.
+        reg.get("[Instrument1]", "keyboard_pads")
+            .unwrap()
+            .set_bool(true);
+        press("keyboard_2_activate", &mut engine);
+        assert_eq!(ctl("pitch_adjust").get(), 0.0);
     }
 
     #[test]

@@ -1122,6 +1122,14 @@ impl EffectRack {
         self.note_input.take()
     }
 
+    /// Queues a note for the instrument from the audio thread itself (the
+    /// Instrument input's pads).
+    pub(crate) fn queue_note(&mut self, data: [u8; 3]) {
+        if self.notes_waiting.len() < self.notes_waiting.capacity() {
+            self.notes_waiting.push(Midi { frame: 0, data });
+        }
+    }
+
     pub(crate) fn has_instrument(&self) -> bool {
         self.instrument.is_some()
     }
