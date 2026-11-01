@@ -108,7 +108,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo build --release -p opendj
+      - run: cargo build --release -p opendj -p opendj-plugin-host
       - run: scripts/bundle-macos.sh target/release/opendj 0.1.0
       - uses: actions/upload-artifact@v7
         with:
@@ -126,7 +126,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo build --release -p opendj
+      - run: cargo build --release -p opendj -p opendj-plugin-host
       - run: scripts/bundle-windows.ps1 target/release/opendj.exe 0.0.0-dev
         shell: pwsh
       - uses: actions/upload-artifact@v7

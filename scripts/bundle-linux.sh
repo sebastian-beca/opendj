@@ -15,6 +15,14 @@ mkdir -p "$appdir/usr/bin" "$appdir/usr/share/opendj" \
   "$appdir/usr/share/applications" "$appdir/usr/share/icons/hicolor/256x256/apps"
 cp "$binary" "$appdir/usr/bin/opendj"
 strip "$appdir/usr/bin/opendj"
+# The helper that runs audio plugins, built next to the app's binary.
+helper="$(dirname "$binary")/opendj-plugin-host"
+if [ -f "$helper" ]; then
+  cp "$helper" "$appdir/usr/bin/opendj-plugin-host"
+  strip "$appdir/usr/bin/opendj-plugin-host"
+else
+  echo "warning: no $helper, so this build can't run audio plugins" >&2
+fi
 cp -R res/controllers "$appdir/usr/share/opendj/controllers"
 # The guided tour's demo tracks, once they are in the repository.
 if [ -d res/demo ]; then cp -R res/demo "$appdir/usr/share/opendj/demo"; fi

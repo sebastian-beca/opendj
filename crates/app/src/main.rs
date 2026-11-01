@@ -20,9 +20,9 @@ use opendj_engine::scan::scan;
 use opendj_engine::stems;
 use opendj_engine::synth::SAMPLE_LIBRARY_SIZE;
 use opendj_engine::{
-    deck_group, default_output_device, effect_group, effect_name, output_devices, sample_library,
-    AudioEngine, AudioSetup, Role, Route, Source, Track, VisualPositions, Waveform,
-    AVAILABLE_EFFECTS, COLOR_FX, EFFECTS_PER_UNIT, NUM_DECKS,
+    deck_group, default_output_device, effect_group, output_devices, sample_library, AudioEngine,
+    AudioSetup, Role, Route, Source, Track, VisualPositions, Waveform, AVAILABLE_EFFECTS, COLOR_FX,
+    EFFECTS_PER_UNIT, NUM_DECKS,
 };
 use opendj_library::Library;
 use opendj_plugins::source::{QueryKind, SourceQuery};
@@ -38,6 +38,7 @@ slint::include_modules!();
 mod analysis_queue;
 mod apple_music;
 mod art;
+mod audio_plugins;
 mod automix;
 mod automix_order;
 mod beat_counter;
@@ -491,6 +492,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )));
     app.global::<EffectList>()
         .set_mic_unit(opendj_engine::MIC_FX_UNIT as i32);
+    // Plugins the DJ ticked join the FX lists after the built-in effects.
+    let audio_plugins = Rc::new(RefCell::new(audio_plugins::AudioPlugins::new(
+        &app,
+        engine.clone(),
+    )));
     {
         let engine = engine.clone();
         app.global::<DeckActions>()
@@ -690,6 +696,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Box::new(move || engine.input_status())
             },
         },
+        audio_plugins.clone(),
     );
 
     let tour = tour::Tour::install(
@@ -1570,7 +1577,7 @@ impl Decks {
             &h.effect_names,
             h.effects
                 .iter()
-                .map(|c| SharedString::from(effect_name(c.get())))
+                .map(|c| SharedString::from(audio_plugins::effect_name(c.get())))
                 .collect(),
         );
         let range = format!("±{:.0}%", h.rate_range.get() * 100.0).into();
