@@ -1,0 +1,13 @@
+[package]
+name = "opendj-plugin-host"
+description = "Runs audio plugins in a helper process, so a plugin that crashes, hangs or runs slow can't stop the decks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+memmap2 = "0.9"
+
+[[bin]]
+name = "opendj-plugin-host"
+path = "src/bin/opendj-plugin-host.rs"
