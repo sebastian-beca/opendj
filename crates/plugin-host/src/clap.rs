@@ -19,26 +19,9 @@ use clack_host::prelude::*;
 use clack_host::utils::{BeatTime, SecondsTime};
 
 use crate::client::Transport;
+use crate::descriptor::Descriptor;
 use crate::effects::{Effect, Info, Loaded, MainThread, Param};
 use crate::shm::{CHANNELS, MAX_PARAMS};
-
-/// What a `.clap` file contains, from [`scan`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Descriptor {
-    pub id: String,
-    pub name: String,
-    pub vendor: String,
-    pub version: String,
-    pub features: Vec<String>,
-}
-
-impl Descriptor {
-    /// Effects are what openDJ can use; instruments and note effects aren't.
-    pub fn is_audio_effect(&self) -> bool {
-        self.features.iter().any(|f| f == "audio-effect")
-            && !self.features.iter().any(|f| f == "instrument")
-    }
-}
 
 fn text(s: Option<&CStr>) -> String {
     s.map(|s| s.to_string_lossy().into_owned())

@@ -8,12 +8,12 @@
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::clap::Descriptor;
+use crate::descriptor::Descriptor;
 use crate::effects::{Info, Param, Plugin};
 use crate::shm::{self, Shm, CHANNELS, MAX_PARAMS};
 
@@ -68,10 +68,19 @@ pub struct Connection {
     pending: bool,
     gone: bool,
     missed_in_row: u32,
+    health: Arc<Health>,
+}
+
+/// What the audio thread last saw, for the control thread to act on.
+#[derive(Default)]
+struct Health {
+    missed_in_row: AtomicU32,
+    gone: AtomicBool,
 }
 
 /// The control thread's half.
 pub struct Helper {
+    health: Arc<Health>,
     child: Child,
     shm_path: PathBuf,
     messages: Receiver<String>,
@@ -154,7 +163,7 @@ impl std::fmt::Display for ScanError {
 /// plugin runs its code, so this never happens inside openDJ.
 pub fn scan(helper: &Path, file: &Path, timeout: Duration) -> Result<Vec<Descriptor>, ScanError> {
     if is_vst3(file) {
-        if let Some(found) = crate::vst3::scan_moduleinfo(file) {
+        if let Some(found) = crate::descriptor::scan_moduleinfo(file) {
             return Ok(found);
         }
     }
@@ -282,6 +291,7 @@ pub fn spawn(opts: &Options) -> io::Result<(Connection, Helper)> {
             }
         })?;
     let mut helper = Helper {
+        health: Arc::default(),
         child,
         shm_path: path,
         messages,
@@ -321,6 +331,7 @@ pub fn spawn(opts: &Options) -> io::Result<(Connection, Helper)> {
         pending: false,
         gone: false,
         missed_in_row: 0,
+        health: helper.health.clone(),
     };
     Ok((conn, helper))
 }
@@ -360,7 +371,7 @@ impl Connection {
                 // The late block finished; its output is stale, drop it.
                 self.pending = false;
             } else {
-                self.missed_in_row += 1;
+                self.missed(1);
                 copy_dry(input, &mut output);
                 return Outcome::Busy;
             }
@@ -378,6 +389,7 @@ impl Connection {
         // never fills and this write never blocks.
         if self.wake.write_all(&[1]).is_err() {
             self.gone = true;
+            self.health.gone.store(true, Ordering::Relaxed);
             copy_dry(input, &mut output);
             return Outcome::Gone;
         }
@@ -388,7 +400,10 @@ impl Connection {
                 for (ch, data) in output.iter_mut().enumerate() {
                     self.shm.read(true, ch, data);
                 }
-                self.missed_in_row = 0;
+                if self.missed_in_row != 0 {
+                    self.missed_in_row = 0;
+                    self.health.missed_in_row.store(0, Ordering::Relaxed);
+                }
                 return Outcome::Wet;
             }
             spins += 1;
@@ -398,9 +413,16 @@ impl Connection {
             std::hint::spin_loop();
         }
         self.pending = true;
-        self.missed_in_row += 1;
+        self.missed(1);
         copy_dry(input, &mut output);
         Outcome::Late
+    }
+
+    fn missed(&mut self, n: u32) {
+        self.missed_in_row += n;
+        self.health
+            .missed_in_row
+            .store(self.missed_in_row, Ordering::Relaxed);
     }
 
     /// Sets parameter `index` (0..32); the helper sees it on its next block.
@@ -453,6 +475,16 @@ impl Helper {
     pub fn kill(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+
+    /// [`Connection::missed_in_row`], as the audio thread last left it.
+    pub fn missed_in_row(&self) -> u32 {
+        self.health.missed_in_row.load(Ordering::Relaxed)
+    }
+
+    /// Whether the audio thread found the helper gone (its pipe closed).
+    pub fn is_gone(&self) -> bool {
+        self.health.gone.load(Ordering::Relaxed)
     }
 
     /// How much of the last block's time the plugin used (1.0 = all of it).

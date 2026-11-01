@@ -329,6 +329,23 @@ impl Deck {
             .map_or(0.0, |t| t.bpm_at(self.seconds()) * self.speed())
     }
 
+    /// Tempo, beat and play state, for plugins on this deck.
+    fn transport(&self) -> opendj_plugin_host::Transport {
+        let playing = self.c.play.get_bool();
+        match self.track.as_ref() {
+            Some(t) if t.bpm > 0.0 => opendj_plugin_host::Transport {
+                bpm: self.effective_bpm(),
+                beat: (self.seconds() - t.first_beat) / t.beat_length(),
+                playing,
+            },
+            _ => opendj_plugin_host::Transport {
+                bpm: 120.0,
+                beat: 0.0,
+                playing,
+            },
+        }
+    }
+
     /// Current beat length in seconds, for tempo-synced effects.
     fn beat_seconds(&self) -> f64 {
         match self.track.as_ref() {
@@ -1911,6 +1928,12 @@ impl Engine {
     }
 
     /// Where each deck is, for smooth drawing; updated every buffer.
+    /// The plugin host's link to the effect slots, for
+    /// [`crate::plugins::PluginHost::start`]; there is one, taken once.
+    pub fn take_plugin_link(&mut self) -> Option<crate::effects::PluginLink> {
+        self.fx.take_plugin_link()
+    }
+
     pub fn visual_positions(&self) -> Arc<VisualPositions> {
         self.visual.clone()
     }
@@ -1986,6 +2009,14 @@ impl Engine {
                 grid(&self.decks[main_deck])
             } else {
                 None
+            }
+        }));
+        let main_transport = self.decks[main_deck].transport();
+        self.fx.set_transport(std::array::from_fn(|t| {
+            if t >= MAIN {
+                main_transport
+            } else {
+                self.decks[t].transport()
             }
         }));
         self.fx.prepare(

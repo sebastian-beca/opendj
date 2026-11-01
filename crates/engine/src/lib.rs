@@ -31,6 +31,7 @@ pub mod loudness;
 mod output;
 pub mod paths;
 pub mod phrases;
+pub mod plugins;
 pub mod preview;
 pub mod process;
 pub mod recorder;
@@ -58,8 +59,8 @@ pub use controls::{
     NUM_EFFECT_UNITS, NUM_HOTCUES,
 };
 pub use effects::{
-    color_fx_name, effect_name, parameter_names, AVAILABLE_EFFECTS, COLOR_FX, DEFAULT_EFFECTS,
-    MAX_BUTTON_PARAMETERS, MAX_PARAMETERS,
+    color_fx_name, effect_name, parameter_names, plugin_index, PluginLink, AVAILABLE_EFFECTS,
+    COLOR_FX, DEFAULT_EFFECTS, MAX_BUTTON_PARAMETERS, MAX_PARAMETERS, MAX_PLUGINS, PLUGIN_BASE,
 };
 pub use output::{
     channel_names, default_output_device, input_devices, output_devices, AudioSetup, InputRole,

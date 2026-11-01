@@ -15,6 +15,7 @@
 use std::f32::consts::{PI, TAU};
 
 use opendj_control::{Behavior, ControlHandle, ControlRegistry};
+use opendj_plugin_host::{Connection, Transport};
 
 use crate::controls::{
     deck_group, effect_group, effect_unit_group, Edge, BEAT_FX_UNIT, EFFECTS_PER_UNIT, MIC_FX_UNIT,
@@ -71,6 +72,19 @@ const TAP_GAP: f64 = 2.0;
 /// Tap intervals averaged into the tapped tempo.
 const TAPS: usize = 4;
 
+/// `loaded_effect` values from here on are plugins: `PLUGIN_BASE + i` is
+/// plugin `i` of the list the app hands the plugin host (see
+/// [`crate::plugins::PluginHost::set_plugins`]).
+pub const PLUGIN_BASE: usize = KINDS.len() + 1;
+/// The most plugins a slot can choose from.
+pub const MAX_PLUGINS: usize = 1024;
+
+/// The plugin a `loaded_effect` value refers to, as an index into the list.
+pub fn plugin_index(loaded_effect: f64) -> Option<usize> {
+    let v = loaded_effect.round();
+    (v >= PLUGIN_BASE as f64).then(|| v as usize - PLUGIN_BASE)
+}
+
 /// The name of the effect a `loaded_effect` value refers to: 1 is the first of
 /// [`AVAILABLE_EFFECTS`], 0 means the slot is empty ("").
 pub fn effect_name(loaded_effect: f64) -> &'static str {
@@ -97,6 +111,37 @@ pub(crate) const fn input_target(input: usize) -> usize {
 /// made for these pairs, which keeps the rack's memory down.
 fn routable(unit: usize, target: usize) -> bool {
     (unit == MIC_FX_UNIT) == (target > MAIN)
+}
+
+/// A unit's control that routes it to `target`, as in Mixxx.
+pub(crate) fn route_name(target: usize) -> String {
+    let group = if target == MAIN {
+        "[Master]".to_string()
+    } else if target > MAIN {
+        input_group(target - MAIN - 1).to_string()
+    } else {
+        deck_group(target)
+    };
+    format!("group_{group}_enable")
+}
+
+/// Each (unit, slot, target)'s instance number, if the unit can be routed
+/// there. The plugin host uses the same numbers.
+pub(crate) type Indices = [[[Option<u16>; TARGETS]; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS];
+
+pub(crate) fn instance_indices() -> (Indices, usize) {
+    let mut n = 0;
+    let index = std::array::from_fn(|u| {
+        std::array::from_fn(|_| {
+            std::array::from_fn(|t| {
+                routable(u, t).then(|| {
+                    n += 1;
+                    n as u16 - 1
+                })
+            })
+        })
+    });
+    (index, n)
 }
 
 /// Longest echo, in seconds; it sizes the pool's long buffers.
@@ -417,6 +462,10 @@ struct SlotControls {
     edges: [Edge; 3],
     /// The effect the parameters are set up for.
     kind: Option<Kind>,
+    /// Or the plugin, by its place in the plugin list.
+    plugin: Option<u16>,
+    /// `[Master],num_plugins`: how many plugins the selector steps through.
+    num_plugins: ControlHandle,
     meta_seen: f64,
 }
 
@@ -424,7 +473,7 @@ impl SlotControls {
     fn create(reg: &ControlRegistry, unit: usize, slot: usize) -> Self {
         let g = effect_group(unit, slot);
         let g = g.as_str();
-        let n = KINDS.len() as f64;
+        let n = (KINDS.len() + MAX_PLUGINS) as f64;
         for k in 1..=MAX_BUTTON_PARAMETERS {
             reg.toggle(g, &format!("button_parameter{k}"));
         }
@@ -473,6 +522,8 @@ impl SlotControls {
             clear: reg.push(g, "clear"),
             edges: [Edge::default(); 3],
             kind: None,
+            plugin: None,
+            num_plugins: reg.indicator("[Master]", "num_plugins", MAX_PLUGINS as f64),
             meta_seen: f64::NAN,
         };
         s.update();
@@ -497,8 +548,10 @@ impl SlotControls {
             self.loaded_effect.set(0.0);
         }
         if step != 0 {
-            // Cycles through the effects; an empty slot steps to either end.
-            let n = KINDS.len() as i32;
+            // Cycles through the effects, then the plugins; an empty slot
+            // steps to either end.
+            let plugins = (self.num_plugins.get().round() as usize).min(MAX_PLUGINS);
+            let n = (KINDS.len() + plugins) as i32;
             let cur = self.loaded_effect.get().round() as i32;
             let next = if cur == 0 {
                 if step > 0 {
@@ -513,24 +566,41 @@ impl SlotControls {
         }
 
         let kind = Kind::from_loaded(self.loaded_effect.get());
-        if kind != self.kind {
+        let plugin = plugin_index(self.loaded_effect.get()).map(|p| p as u16);
+        if plugin != self.plugin {
+            // The plugin host sets the knobs to the plugin's own values
+            // once it has loaded it; until then they sit in the middle.
+            self.plugin = plugin;
+            if plugin.is_some() {
+                for p in &self.params {
+                    p.set(0.5);
+                }
+                self.loaded.set_bool(true);
+                self.num_parameters.set(0.0);
+                self.beats.set(0.0);
+                self.beats_seen = 0.0;
+            }
+        }
+        if kind != self.kind || (kind.is_none() && plugin.is_none() && self.loaded.get_bool()) {
             self.kind = kind;
             // A newly loaded effect starts from its defaults, then follows meta.
             let defaults = kind.map_or(&[][..], |k| MANIFESTS[k as usize].defaults);
             for (k, p) in self.params.iter().enumerate() {
                 p.set(defaults.get(k).copied().unwrap_or(0.5));
             }
-            self.loaded.set_bool(kind.is_some());
-            self.num_parameters.set(defaults.len() as f64);
+            self.loaded.set_bool(kind.is_some() || plugin.is_some());
+            if plugin.is_none() {
+                self.num_parameters.set(defaults.len() as f64);
+                // The beat switch starts at 1/4 beat, or the nearest length
+                // the effect allows.
+                self.beats.set(if kind.and_then(time_parameter).is_some() {
+                    DEFAULT_BEATS
+                } else {
+                    0.0
+                });
+                self.beats_seen = f64::NAN;
+            }
             self.meta_seen = f64::NAN;
-            // The beat switch starts at 1/4 beat, or the nearest length the
-            // effect allows.
-            self.beats.set(if kind.and_then(time_parameter).is_some() {
-                DEFAULT_BEATS
-            } else {
-                0.0
-            });
-            self.beats_seen = f64::NAN;
         }
         let meta = self.meta.get();
         if meta != self.meta_seen {
@@ -612,17 +682,17 @@ impl UnitControls {
         reg.toggle(g, "group_[Headphone]_enable");
         let routes = std::array::from_fn(|t| {
             if t == MAIN {
-                reg.toggle(g, "group_[Master]_enable")
+                reg.toggle(g, &route_name(t))
             } else if t > MAIN {
                 let input = t - MAIN - 1;
-                let r = reg.toggle(g, &format!("group_{}_enable", input_group(input)));
+                let r = reg.toggle(g, &route_name(t));
                 // The microphone's unit starts on the microphone.
                 if unit == MIC_FX_UNIT && input == MICROPHONE {
                     r.set_bool(true);
                 }
                 r
             } else {
-                let r = reg.toggle(g, &format!("group_{}_enable", deck_group(t)));
+                let r = reg.toggle(g, &route_name(t));
                 // Each deck's unit starts on its deck, as the decks show; the
                 // Beat FX on decks 1 and 2. Pad FX units are routed when
                 // their pads are held.
@@ -722,6 +792,9 @@ fn lock_to_beat(
 /// One effect instance: every effect type's state, of which one is in use.
 struct Instance {
     kind: Option<Kind>,
+    /// A plugin instead, by its place in the plugin list; it plays through
+    /// whichever helper the plugin host attached (see [`Attached`]).
+    plugin: Option<u16>,
     /// Output level reached at the end of the last buffer, and this buffer's goal.
     gain: f32,
     target: f32,
@@ -758,6 +831,7 @@ impl Instance {
         let echo_len = echo.len;
         Self {
             kind: None,
+            plugin: None,
             gain: 0.0,
             target: 0.0,
             release: 0.0,
@@ -910,6 +984,39 @@ pub(crate) struct EffectRack {
     /// released tails, [`BLOCK`] frames each, made up front.
     wet: Vec<[f32; 2]>,
     tails: Vec<[f32; 2]>,
+    /// Plugin helpers, by instance, as the plugin host attached them.
+    attached: Vec<Option<Box<Attached>>>,
+    /// Each target's tempo and position, for plugins.
+    transport: [Transport; TARGETS],
+    /// Planar scratch for plugins: left and right in, left and right out.
+    planar: [Vec<f32>; 4],
+    from_host: rtrb::Consumer<PluginMsg>,
+    to_host: rtrb::Producer<Box<Attached>>,
+    link: Option<PluginLink>,
+}
+
+/// A plugin helper attached to one instance.
+pub(crate) struct Attached {
+    pub(crate) conn: Connection,
+    /// The plugin it runs, by its place in the plugin list.
+    pub(crate) plugin: u16,
+    /// The plugin's range for each knob the slot shows.
+    pub(crate) ranges: Vec<(f32, f32)>,
+    /// The knob values last sent.
+    pub(crate) sent: [f32; MAX_PARAMETERS],
+}
+
+/// From the plugin host to the audio thread.
+pub(crate) enum PluginMsg {
+    Attach(u16, Box<Attached>),
+    Detach(u16),
+}
+
+/// The plugin host's half of the rack's queues: it attaches helpers and
+/// gets the detached ones back, to drop them off the audio thread.
+pub struct PluginLink {
+    pub(crate) to_engine: rtrb::Producer<PluginMsg>,
+    pub(crate) from_engine: rtrb::Consumer<Box<Attached>>,
 }
 
 /// The longest block [`EffectRack::process_block`] takes; the engine works
@@ -924,17 +1031,9 @@ impl EffectRack {
     /// A rack whose pool holds `long` and `short` buffers.
     fn with_pool(reg: &ControlRegistry, sample_rate: f64, long: usize, short: usize) -> Self {
         let sample_rate = sample_rate as f32;
-        let mut n = 0;
-        let index = std::array::from_fn(|u| {
-            std::array::from_fn(|_| {
-                std::array::from_fn(|t| {
-                    routable(u, t).then(|| {
-                        n += 1;
-                        n as u16 - 1
-                    })
-                })
-            })
-        });
+        let (index, n) = instance_indices();
+        let (to_engine, from_host) = rtrb::RingBuffer::new(2 * n);
+        let (to_host, from_engine) = rtrb::RingBuffer::new(2 * n);
         let units: [UnitControls; NUM_EFFECT_UNITS] =
             std::array::from_fn(|u| UnitControls::create(reg, u));
         reg.indicator("[Master]", "num_effectsavailable", KINDS.len() as f64)
@@ -956,6 +1055,15 @@ impl EffectRack {
             beats: [None; TARGETS],
             wet: vec![[0.0; 2]; BLOCK],
             tails: vec![[0.0; 2]; BLOCK],
+            attached: (0..n).map(|_| None).collect(),
+            transport: [Transport::default(); TARGETS],
+            planar: std::array::from_fn(|_| vec![0.0; BLOCK]),
+            from_host,
+            to_host,
+            link: Some(PluginLink {
+                to_engine,
+                from_engine,
+            }),
         }
     }
 
@@ -980,6 +1088,36 @@ impl EffectRack {
         (pooled + lent) * std::mem::size_of::<f32>()
     }
 
+    /// The plugin host's half of the queues, once.
+    pub(crate) fn take_plugin_link(&mut self) -> Option<PluginLink> {
+        self.link.take()
+    }
+
+    /// Each target's tempo, beat and play state, for the plugins this buffer.
+    pub(crate) fn set_transport(&mut self, transport: [Transport; TARGETS]) {
+        self.transport = transport;
+    }
+
+    /// Takes the plugin host's attach and detach requests. A detached
+    /// helper goes back to the host, which drops it off the audio thread.
+    fn take_plugin_messages(&mut self) {
+        while let Ok(msg) = self.from_host.pop() {
+            let (i, new) = match msg {
+                PluginMsg::Attach(i, a) => (i, Some(a)),
+                PluginMsg::Detach(i) => (i, None),
+            };
+            let Some(slot) = self.attached.get_mut(i as usize) else {
+                continue;
+            };
+            if let Some(old) = std::mem::replace(slot, new) {
+                // The queue holds one per instance and more; if it is ever
+                // full the drop here only closes a pipe.
+                let _ = self.to_host.push(old);
+            }
+        }
+    }
+
+    #[cfg(test)]
     fn instance(&mut self, unit: usize, slot: usize, target: usize) -> Option<&mut Instance> {
         let i = self.index[unit][slot][target]?;
         Some(&mut self.instances[i as usize])
@@ -989,6 +1127,7 @@ impl EffectRack {
     /// beat length, for tempo-synced effects; `now` is the engine clock in
     /// seconds, for tap tempo.
     pub(crate) fn prepare(&mut self, beat_seconds: [f64; TARGETS], now: f64) {
+        self.take_plugin_messages();
         for u in 0..NUM_EFFECT_UNITS {
             let unit = &mut self.units[u];
             unit.update_tempo(now);
@@ -1011,6 +1150,7 @@ impl EffectRack {
             for s in 0..EFFECTS_PER_UNIT {
                 let slot = &mut self.slots[u][s];
                 let kind = slot.update();
+                let plugin = slot.plugin;
                 let releasing = release && slot.enabled.get_bool();
                 if releasing {
                     slot.enabled.set_bool(false);
@@ -1022,17 +1162,21 @@ impl EffectRack {
                         continue;
                     };
                     let inst = &mut self.instances[i as usize];
-                    if releasing && inst.gain > 0.0 {
+                    // A plugin's tail isn't ours to play: it just fades out.
+                    if releasing && inst.gain > 0.0 && inst.plugin.is_none() {
                         // The tail takes over from the effect at once.
                         inst.release = RELEASE_BEATS * (beat_seconds[t] as f32) * self.sample_rate;
                         inst.release_len = inst.release;
                         inst.gain = 0.0;
                     }
                     // Switch effects only once the old one has faded out.
-                    if inst.kind != kind && inst.gain == 0.0 && inst.release == 0.0 {
+                    let same = inst.kind == kind && inst.plugin == plugin;
+                    if !same && inst.gain == 0.0 && inst.release == 0.0 {
                         inst.kind = kind;
+                        inst.plugin = plugin;
                     }
-                    let mut on = enabled && routed && inst.kind == kind && kind.is_some();
+                    let same = inst.kind == kind && inst.plugin == plugin;
+                    let mut on = enabled && routed && same && (kind.is_some() || plugin.is_some());
                     if inst.gain == 0.0 && on {
                         // Starting afresh: borrow delay memory if the effect
                         // needs it. With the pool empty it stays off, and
@@ -1060,13 +1204,16 @@ impl EffectRack {
                     if inst.active() {
                         // While the old effect fades out it keeps its settings;
                         // the parameters already belong to the new one.
-                        if inst.kind == kind {
+                        if same {
                             let ctx = Ctx {
                                 sample_rate: self.sample_rate,
                                 beat_seconds: beat_seconds[t] as f32,
                                 beat: if bpm > 0.0 { None } else { self.beats[t] },
                             };
                             inst.prepare(&params, ctx);
+                            if let Some(a) = self.attached[i as usize].as_deref_mut() {
+                                a.send_params(&params);
+                            }
                         }
                         self.active[u][t] = true;
                     }
@@ -1112,10 +1259,45 @@ impl EffectRack {
             wet[..frames].copy_from_slice(buf);
             tails[..frames].fill([0.0; 2]);
             for s in 0..EFFECTS_PER_UNIT {
-                let Some(inst) = self.instance(u, s, target) else {
+                let Some(i) = self.index[u][s][target] else {
                     continue;
                 };
+                let inst = &mut self.instances[i as usize];
                 if !inst.active() {
+                    continue;
+                }
+                if let Some(plugin) = inst.plugin {
+                    // Through the helper, or dry while it isn't attached,
+                    // is late or is gone.
+                    let Some(a) = self.attached[i as usize].as_deref_mut() else {
+                        continue;
+                    };
+                    if a.plugin != plugin {
+                        continue;
+                    }
+                    let [in_l, in_r, out_l, out_r] = &mut self.planar;
+                    for (f, w) in wet[..frames].iter().enumerate() {
+                        in_l[f] = w[0];
+                        in_r[f] = w[1];
+                    }
+                    // Half the block's time: the rest is for everything else.
+                    let deadline =
+                        std::time::Duration::from_secs_f32(0.5 * frames as f32 / self.sample_rate);
+                    let out = a.conn.process(
+                        [&in_l[..frames], &in_r[..frames]],
+                        [&mut out_l[..frames], &mut out_r[..frames]],
+                        self.transport[target],
+                        deadline,
+                    );
+                    if !out.is_wet() {
+                        continue;
+                    }
+                    let (g0, g1) = (inst.gain, inst.target);
+                    for (f, w) in wet[..frames].iter_mut().enumerate() {
+                        let g = g0 + (g1 - g0) * ramp(f);
+                        w[0] += (out_l[f] - w[0]) * g;
+                        w[1] += (out_r[f] - w[1]) * g;
+                    }
                     continue;
                 }
                 if inst.release > 0.0 {
@@ -1228,6 +1410,18 @@ fn cubic(y0: f32, y1: f32, y2: f32, y3: f32, t: f32) -> f32 {
     let b = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
     let c = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
     y1 + t * (a + t * (b + t * c))
+}
+
+impl Attached {
+    /// Sends the knobs that moved, scaled to the plugin's own ranges.
+    fn send_params(&mut self, params: &[f32; MAX_PARAMETERS]) {
+        for (k, &(lo, hi)) in self.ranges.iter().enumerate().take(MAX_PARAMETERS) {
+            if params[k] != self.sent[k] {
+                self.sent[k] = params[k];
+                self.conn.set_param(k, lo + params[k] * (hi - lo));
+            }
+        }
+    }
 }
 
 /// Reads a delay line `delay` samples behind `write` (the next slot to be

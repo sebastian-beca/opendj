@@ -16,8 +16,8 @@ use std::ffi::{c_char, c_void};
 use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::clap::Descriptor;
 use crate::client::Transport;
+use crate::descriptor::Descriptor;
 use crate::effects::{Effect, Info, Loaded, MainThread, Param};
 use crate::shm::{CHANNELS, MAX_PARAMS};
 
