@@ -17,13 +17,14 @@ openDJ's effects should be high quality and cheap enough to run on four decks at
 - Rack memory sized per effect, so only the long delays get 2 s buffers.
 - Block processing: each active effect runs over a chunk of frames in a form the compiler can vectorise, with parameters still smoothed per sample.
 - Cubic or Lagrange interpolation in the modulated delays (echo, flanger, spiral).
-- New effects, ported by hand from MIT code with attribution:
+- Real-time safety checked by a test, per-sample smoothing of every parameter, and gates, LFOs and rolls locked to the beat grid.
+- New effects, written after MIT-licensed designs with attribution:
   - Drive (oversampled)
   - Chorus
   - Ladder filter
   - Hall reverb
-  - Slip Roll, Rev Roll and Helix
-  - filtered echoes
+  - Rev Roll (Helix later)
+  - Filter Echo
 - No new DSP dependency. Signalsmith Stretch stays for key lock.
 
 ## Capabilities
