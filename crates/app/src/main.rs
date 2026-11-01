@@ -1411,6 +1411,8 @@ struct DeckHandles {
     loop_start: ControlHandle,
     loop_end: ControlHandle,
     loop_in_pending: ControlHandle,
+    /// The silent playhead while slipping, in seconds (-1 for none).
+    slip_position: ControlHandle,
     beatloop_size: ControlHandle,
     keylock: ControlHandle,
     /// Key shift in semitones, the key being played and the file's key.
@@ -1458,6 +1460,7 @@ impl Decks {
                 loop_start: c("loop_start_position"),
                 loop_end: c("loop_end_position"),
                 loop_in_pending: c("loop_in_pending"),
+                slip_position: c("slip_position"),
                 beatloop_size: c("beatloop_size"),
                 keylock: c("keylock"),
                 pitch: c("pitch"),
@@ -1671,6 +1674,7 @@ impl Decks {
                 let (enabled, position) = &h.hotcues[i];
                 enabled.get_bool().then(|| position.get())
             }),
+            slip: Some(h.slip_position.get()).filter(|&s| s >= 0.0),
             gain: 1.0,
             phrases,
         }
@@ -1798,6 +1802,8 @@ impl Gpu {
             let (position, speed) = visual.position(d, now);
             let play_seconds = self.clocks[d].next(position, speed, now);
             self.moving |= track.is_some() && speed != 0.0;
+            // A slip's silent playhead runs on even while the deck is paused.
+            self.moving |= track.is_some() && decks.0[d].slip_position.get() >= 0.0;
             let phrases = match track {
                 Some(t) if show_phrases => self.phrases(d, t),
                 _ => Vec::new(),

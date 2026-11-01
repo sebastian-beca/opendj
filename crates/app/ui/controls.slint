@@ -263,6 +263,12 @@ export component ControlButton inherits Rectangle {
     // Pressed instead while Shift is held, as a momentary push (Shift+SYNC
     // syncs once).
     in property <string> shift-key;
+    // A tip shown after hovering a moment, as on key lock; none when the
+    // title is empty.
+    in property <string> tip-title;
+    in property <string> tip-body;
+    in property <bool> tip-right-aligned: false;
+    property <bool> tip-mine;
     // A right-click, for a button with a menu (SYNC's quantize).
     callback right-clicked();
     property <int> shift-index: shift-key == "" ? -1 : Controls.resolve(group, shift-key);
@@ -354,6 +360,25 @@ export component ControlButton inherits Rectangle {
             } else if e.kind == PointerEventKind.down {
                 Controls.toggle(index);
             }
+        }
+        changed has-hover => {
+            if !self.has-hover && tip-mine {
+                tip-mine = false;
+                HoverTip.shown = false;
+            }
+        }
+    }
+    Timer {
+        interval: 600ms;
+        running: tip-title != "" && touch.has-hover && !tip-mine;
+        triggered => {
+            tip-mine = true;
+            HoverTip.title = tip-title;
+            HoverTip.body = tip-body;
+            HoverTip.right-aligned = tip-right-aligned;
+            HoverTip.x = root.absolute-position.x + (tip-right-aligned ? root.width : 0px);
+            HoverTip.y = root.absolute-position.y + root.height + 6px;
+            HoverTip.shown = true;
         }
     }
     TourMark { id: root.tour-id; }

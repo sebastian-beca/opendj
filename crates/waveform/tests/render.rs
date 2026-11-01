@@ -104,6 +104,7 @@ fn renders_scrolling_and_overview() {
                 loop_range: Some((28.0, 32.0)),
                 loop_marking: None,
                 hotcues: [Some(5.0), None, None, None, None, None, None, Some(60.0)],
+                slip: None,
                 gain: 1.0,
                 phrases: vec![
                     (0.0, PhraseKind::Intro),
@@ -155,6 +156,7 @@ fn long_tracks_fall_back_to_a_coarser_level() {
         loop_range: None,
         loop_marking: None,
         hotcues: [None; 8],
+        slip: None,
         gain: 1.0,
         phrases: Vec::new(),
     };
@@ -202,6 +204,7 @@ fn draws_beat_grid() {
         loop_range: None,
         loop_marking: None,
         hotcues: [None; 8],
+        slip: None,
         gain: 1.0,
         phrases: Vec::new(),
     };
@@ -256,6 +259,7 @@ fn draws_bar_numbers() {
         loop_range: None,
         loop_marking: None,
         hotcues: [None; 8],
+        slip: None,
         gain: 1.0,
         phrases: Vec::new(),
     };
@@ -315,6 +319,7 @@ fn draws_phrase_bars() {
         loop_range: None,
         loop_marking: None,
         hotcues: [None; 8],
+        slip: None,
         gain: 1.0,
         phrases: vec![(0.0, PhraseKind::Intro), (50.0, PhraseKind::Drop)],
     };

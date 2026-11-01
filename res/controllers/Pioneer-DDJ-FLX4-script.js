@@ -172,7 +172,11 @@ PioneerDDJFLX4.sendKeepAlive = function() {
 };
 
 // Jog wheel constants
-PioneerDDJFLX4.vinylMode = true;
+// openDJ: whether touching the top scratches follows each deck's VINYL
+// switch ([ChannelN] vinyl_mode, on by default) instead of this constant.
+PioneerDDJFLX4.vinylMode = function(deckNum) {
+    return engine.getValue("[Channel" + deckNum + "]", "vinyl_mode") > 0;
+};
 PioneerDDJFLX4.alpha = 1.0/8;
 PioneerDDJFLX4.beta = PioneerDDJFLX4.alpha/32;
 
@@ -645,7 +649,7 @@ PioneerDDJFLX4.jogTouch = function(channel, _control, value) {
         return;
     }
 
-    if (value !== 0 && this.vinylMode) {
+    if (value !== 0 && PioneerDDJFLX4.vinylMode(deckNum)) {
         engine.scratchEnable(deckNum, 720, 33+1/3, this.alpha, this.beta);
     } else {
         engine.scratchDisable(deckNum);

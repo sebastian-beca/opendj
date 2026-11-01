@@ -189,7 +189,13 @@ pub(crate) struct DeckControls {
     pub(crate) rate_temp: [ControlHandle; 4],
     pub(crate) reverse: ControlHandle,
     pub(crate) reverseroll: ControlHandle,
+    /// Slip mode: while on, a scratch, loop, held hot cue, reverse or pause
+    /// keeps a silent playhead running, and the track carries on from it
+    /// when the trick ends.
     pub(crate) slip_enabled: ControlHandle,
+    /// Where the silent playhead is while slipping, in seconds; -1 when not
+    /// slipping (openDJ's own, for the ghost playhead on the waveforms).
+    pub(crate) slip_position: ControlHandle,
     pub(crate) mute: ControlHandle,
     pub(crate) play_indicator: ControlHandle,
     pub(crate) cue_indicator: ControlHandle,
@@ -240,6 +246,10 @@ impl DeckControls {
         // loop, 6 pad FX 2, 7 keyboard, 8 key shift, 9 loop roll); the skin
         // shows it and sets this back to -1.
         reg.create(g, "pad_panel", -1.0, -1.0, 16.0, Behavior::Free);
+        // Touching the jog's top scratches (on, as on vinyl) or only bends
+        // like the rim (off, CDJ mode). Only controller mappings read it;
+        // on by default (openDJ's own, as VirtualDJ's vinyl_mode).
+        reg.create(g, "vinyl_mode", 1.0, 0.0, 1.0, Behavior::Toggle);
         // Asks the skin to open pad tab 0-7 by its place (a controller's pad
         // mode buttons: 0-3 plain, 4-7 with Shift), whatever panel it shows;
         // the skin sets this back to -1.
@@ -420,6 +430,14 @@ impl DeckControls {
             reverse: reg.toggle(g, "reverse"),
             reverseroll: reg.push(g, "reverseroll"),
             slip_enabled: reg.toggle(g, "slip_enabled"),
+            slip_position: reg.create(
+                g,
+                "slip_position",
+                -1.0,
+                -1.0,
+                f64::MAX,
+                Behavior::Indicator,
+            ),
             mute: reg.toggle(g, "mute"),
             play_indicator: reg.indicator(g, "play_indicator", 1.0),
             cue_indicator: reg.indicator(g, "cue_indicator", 1.0),
