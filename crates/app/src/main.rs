@@ -974,7 +974,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     automix.borrow_mut().play_album();
                 }
                 automix.borrow_mut().tick(&mut host, &tracks, dt.min(0.1));
-                automix.borrow().show(&app, b.automix_len(), &tracks);
+                automix.borrow().show(&app, &tracks);
+                let automix_spans = automix.borrow().spans(&tracks);
                 drop(b);
                 // Row by row and only when it differs: a whole new model
                 // would make everything on the decks lay out and draw again.
@@ -984,6 +985,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(image) = covers.borrow_mut()[d].get(track) {
                         info.cover = image;
                         info.has_cover = true;
+                    }
+                    // Automix's next mix, shaded on the overview. Rounded so
+                    // small tempo changes don't lay the deck out again.
+                    if let Some((from, to)) = automix_spans[d] {
+                        let round = |f: f64| ((f * 2000.0).round() / 2000.0) as f32;
+                        info.automix_from = round(from);
+                        info.automix_to = round(to);
                     }
                     if !deck_rows
                         .row_data(d)
@@ -1634,6 +1642,9 @@ impl Decks {
                 None => size,
             }),
             progress: (pos / t.duration) as f32,
+            // Filled in by the caller, from Automix.
+            automix_from: 0.0,
+            automix_to: 0.0,
             effects,
         }
     }
