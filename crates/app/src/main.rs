@@ -1496,11 +1496,7 @@ impl Decks {
                 let key = base.transpose(shift);
                 KeyItem {
                     shift,
-                    text: format!(
-                        "{shift:+}  {}",
-                        if camelot { key.camelot() } else { key.name() }
-                    )
-                    .into(),
+                    text: format!("{shift:+}  {}", key.label(camelot)).into(),
                     compatible: other.is_some_and(|o| key.compatible(o)),
                     current: shift == current,
                 }
@@ -1612,8 +1608,7 @@ impl Decks {
             // The key being played, with any shift; a tag that isn't a key
             // is shown as it is.
             key: match Key::from_mixxx_number(h.key.get()) {
-                Some(k) if camelot => k.camelot(),
-                Some(k) => k.name(),
+                Some(k) => k.label(camelot),
                 None => t.key.clone(),
             }
             .into(),

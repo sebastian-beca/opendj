@@ -462,6 +462,8 @@ pub struct Browser {
     parked: HashMap<i32, Parked>,
     /// Keys in Camelot notation rather than notes.
     camelot: bool,
+    /// The key notation the rows were written with, to redo them on a change.
+    notation: opendj_engine::key::Notation,
     /// Album art thumbnails for the list.
     art: Art,
     /// Mini waveforms for the list's Waveform column.
@@ -1049,6 +1051,7 @@ impl Browser {
             tree: COLLECTION,
             parked: HashMap::new(),
             camelot: crate::settings::camelot_keys(),
+            notation: opendj_engine::key::notation(),
             art: Art::start(),
             waves: Waves::start(),
             wave_rows: Vec::new(),
@@ -2439,8 +2442,10 @@ impl Browser {
     /// Follows the key notation picked by clicking a deck's key, and keeps it
     /// for next time. Called every frame.
     pub fn set_camelot(&mut self, camelot: bool) {
-        if camelot != self.camelot {
+        let notation = opendj_engine::key::notation();
+        if camelot != self.camelot || notation != self.notation {
             self.camelot = camelot;
+            self.notation = notation;
             crate::settings::set_camelot_keys(camelot);
             self.refresh_rows();
             self.refresh_side();
@@ -4433,7 +4438,8 @@ impl Browser {
                     columns::ALBUM => a.album.cmp(b.album),
                     columns::GENRE => a.genre.cmp(b.genre),
                     columns::BPM => a.bpm.total_cmp(&b.bpm),
-                    columns::KEY_ID => a.key.cmp(b.key),
+                    columns::KEY_ID => columns::key_order(a.key, self.camelot)
+                        .cmp(&columns::key_order(b.key, self.camelot)),
                     columns::LENGTH => a.duration.total_cmp(&b.duration),
                     columns::RATING_ID => a.rating.cmp(&b.rating),
                     columns::ORDER => a.list.order.cmp(&b.list.order),
