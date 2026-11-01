@@ -35,11 +35,19 @@ A synced deck SHALL stay on its leader's beat, catching up drift by bending spee
 - **THEN** it stays that far ahead of the beat afterwards
 
 ### Requirement: Quantize
-With quantize on (Settings › Decks, on by default, `quantize`), loops SHALL snap to the beat, and play, CUE, hot cues and beat jumps on a deck SHALL land in step with the other playing deck, at most half a beat from where they were aimed. A synced deck SHALL always land in phase.
+With quantize on (Settings › Decks, on by default, `quantize`), loops SHALL snap to the beat, and CUE, hot cues, beat jumps and clicks on the overview on a deck SHALL land in step with the other playing deck, at most half a quantize step from where they were aimed. A synced deck SHALL always land in phase. PLAY on a paused deck SHALL start where it was paused; only a synced deck is lined up as it starts, and then by at most half a beat, whatever the quantize size.
 
 #### Scenario: Hot cue lands in phase
 - **WHEN** quantize is on and a hot cue is pressed on a deck while another plays
 - **THEN** the deck lands on the same part of the beat as the playing deck
+
+#### Scenario: Play starts where paused
+- **WHEN** quantize is on, one deck plays, and PLAY is pressed on the other, paused off the beat
+- **THEN** the other deck starts from where it was paused, without a jump
+
+#### Scenario: Synced deck starts in phase
+- **WHEN** a synced deck with quantize set to a bar is started while its leader plays
+- **THEN** it moves at most half a beat, onto its leader's beat
 
 ### Requirement: Sync on controllers
 `sync_enabled` SHALL toggle sync from controllers and the deck's SYNC button alike.
