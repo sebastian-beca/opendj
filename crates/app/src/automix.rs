@@ -410,6 +410,25 @@ impl AutoMix {
         host.track_at(usize::from(self.played_at_top(host)))
     }
 
+    /// How many tracks at the top of the Automix list must stay there when
+    /// it is put in order: the first, and also the one playing until it
+    /// comes off and the one waiting on a deck.
+    /// `top` holds the ids of the first few tracks on the list.
+    pub fn fixed(&self, top: &[usize]) -> usize {
+        let mut held: Vec<usize> = self.played.iter().map(|p| p.id).collect();
+        if let Phase::Playing { next: Some(n), .. } | Phase::Opening { next: Some(n), .. } =
+            &self.phase
+        {
+            held.push(n.id);
+        }
+        let leading = top
+            .iter()
+            .take(held.len())
+            .take_while(|id| held.contains(id))
+            .count();
+        leading.max(1)
+    }
+
     /// `deck` has started the track that waited on it. One started before
     /// it has played its part by now: it comes off the list at once.
     fn started(&mut self, host: &mut dyn Host, deck: usize, id: usize) {
