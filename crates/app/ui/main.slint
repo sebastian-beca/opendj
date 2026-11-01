@@ -7,7 +7,7 @@ import { MasterPanel, MicPanel } from "toppanels.slint";
 import { PlayerDeck, PlayerMixer } from "player.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { FxBar } from "fxbar.slint";
-import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, StreamMatch, FilesUi, AlbumsUi, AlbumTile, ColumnUi, ListColumn, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow } from "library.slint";
+import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, StoreUi, StreamMatch, FilesUi, AlbumsUi, AlbumTile, ColumnUi, ListColumn, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow } from "library.slint";
 import { Preferences, PreferencesOverlay, PrefItem, ImportWizard } from "preferences.slint";
 import { UsbExport, UsbExportDialog } from "usb_export.slint";
 import { Tour, TourSetup, TourSetupDialog, TourTip, TourOffer } from "tour.slint";
@@ -22,7 +22,7 @@ export { ColumnUi, ListColumn }
 export { Tour, TourSetup }
 export { MapMode }
 export { MixerMode, InputSettings, InputRow }
-export { Theme, Controls, DeckActions, PhraseView, PhraseTip, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, StreamMatch, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, UsbExport }
+export { Theme, Controls, DeckActions, PhraseView, PhraseTip, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, StoreUi, StreamMatch, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, UsbExport }
 
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
 // the track under the pointer, like a hand on a record, and drag left or
@@ -708,7 +708,10 @@ export component AppWindow inherits Window {
     init => {
         Palette.color-scheme = ColorScheme.dark;
         keys.focus();
+        LibraryEdit.window-height = root.height;
     }
+    // For the track menu, which moves up to fit in the window.
+    changed height => { LibraryEdit.window-height = root.height; }
 
     // Back to the shortcuts when settings close, so ⌘, opens them again.
     property <bool> settings-open: Preferences.open;
@@ -773,6 +776,12 @@ export component AppWindow inherits Window {
             }
             if MapMode.active && (e.text == "z" || e.text == "Z") && e.modifiers.control {
                 MapMode.undo();
+                return accept;
+            }
+            // ⌘Z (Ctrl+Z on Linux and Windows) takes back the last stage
+            // change or merge of copies; text fields take it first.
+            if (e.text == "z" || e.text == "Z") && e.modifiers.control && !e.modifiers.alt && !e.modifiers.shift && !Preferences.open && LibraryEdit.undo-text != "" {
+                LibraryEdit.undo-stage();
                 return accept;
             }
             if e.text == Key.Escape && UsbExport.open && !UsbExport.running {

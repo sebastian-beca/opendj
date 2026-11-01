@@ -35,7 +35,7 @@ layout. **SHIFT** + a stem's pad plays that stem alone.
 
 Spleeter is quick but lets a little of each stem bleed into the others. For a
 cleaner split, right-click a track in the browser, or a stems pad, and choose
-**Prepare High Quality Stems**. openDJ separates it with HTDemucs in the
+**Prepare HQ Stems**. openDJ separates it with HTDemucs in the
 background (on the graphics card; the first time it downloads the 84 MB model),
 one track at a time. When it's done the deck switches to the new stems, and the
 track loads with them from then on.

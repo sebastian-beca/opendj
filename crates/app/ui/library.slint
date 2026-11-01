@@ -159,10 +159,43 @@ export global TrackDrag {
     callback drop-files(deck: int);
 }
 
+// One of the DJ's lists in the track menu's side panel.
+export struct MenuListRow {
+    // Its place in the app's list of lists, passed back when picked.
+    index: int,
+    name: string,
+    // The folders it is in; empty at the top.
+    folder: string,
+    is-crate: bool,
+}
+
 // Editing the library: lists and folders, and ratings.
 export global LibraryEdit {
-    // Names of the lists a track can be added to, for the track menu.
-    in property <[string]> lists;
+    // The DJ has lists a track can be added to.
+    in property <bool> has-lists;
+    // The lists the track menu's side panel shows: found by `find-lists`
+    // (most recently added to first) or `lists-with` (the lists a track is in).
+    in property <[MenuListRow]> list-picks;
+    callback find-lists(text: string);
+    callback lists-with(row: int);
+    // Shows the menu's list `list` (a `MenuListRow.index`) in the tree.
+    callback show-list(list: int);
+    // Makes a crate named `name` (or "New crate", named in the tree) with
+    // the rows `first` to `last` in it.
+    callback new-list-with(first: int, last: int, name: string);
+    // The collection narrowed to the row's artist (or album) with the filter bar.
+    callback go-to(row: int, album: bool);
+    // The row's main artist and its album, for the menu's "Go to" lines.
+    pure callback go-to-text(row: int) -> [string];
+    callback load-on-deck(row: int, deck: int);
+    // Opens the side panel's Info tab on the row's track.
+    callback show-info(row: int);
+    // How many decks are shown, for "Load on Deck".
+    in property <int> decks: 2;
+    // The window's height, so the track menu can fit in it.
+    in-out property <length> window-height;
+    // The sidebar shows the history; set when the app goes back to the library.
+    in-out property <bool> history-tab;
     // The selected node is one of the DJ's lists, so a track can be taken out.
     in property <bool> in-list;
     // Makes a crate (0), a folder (1) or a playlist (2) and returns its row
@@ -439,15 +472,94 @@ export global StoreUi {
     callback download-tracks(first: int, last: int);
 }
 
-// A line of a popup menu.
+// A line drawing for the track menu, 16 px, by name.
+component MenuIcon inherits Path {
+    in property <string> icon;
+    in property <color> color: Theme.text;
+    width: 16px;
+    height: 16px;
+    viewbox-width: 16;
+    viewbox-height: 16;
+    stroke: color;
+    stroke-width: 1.4px;
+    fill: transparent;
+    commands: icon == "plus" ? "M 8 3 L 8 13 M 3 8 L 13 8"
+        : icon == "automix" ? "M 2 4 L 11 4 M 2 8 L 8 8 M 2 12 L 8 12 M 10.5 7.5 L 14.5 10.5 L 10.5 13.5 Z"
+        : icon == "minus" ? "M 8 2 A 6 6 0 1 1 7.99 2 Z M 5 8 L 11 8"
+        : icon == "artist" ? "M 8 2.5 A 2.8 2.8 0 1 1 7.99 2.5 Z M 2.5 14.5 Q 8 6.5 13.5 14.5"
+        : icon == "album" ? "M 8 2 A 6 6 0 1 1 7.99 2 Z M 8 6.5 A 1.5 1.5 0 1 1 7.99 6.5 Z"
+        : icon == "list" ? "M 2 4 L 14 4 M 2 8 L 14 8 M 2 12 L 9 12"
+        : icon == "crate" ? "M 2 5 L 14 5 L 14 14 L 2 14 Z M 2 9.5 L 14 9.5 M 6 5 L 6 3 L 10 3 L 10 5"
+        : icon == "info" ? "M 8 2 A 6 6 0 1 1 7.99 2 Z M 8 7 L 8 11.5 M 8 4.5 L 8 5.2"
+        : icon == "deck" ? "M 8 2 A 6 6 0 1 1 7.99 2 Z M 8 7 A 1 1 0 1 1 7.99 7 Z M 8 8 L 11.5 4.5"
+        : icon == "back" ? "M 13 8 L 3.5 8 M 7.5 4 L 3.5 8 L 7.5 12"
+        : icon == "forward" ? "M 3 8 L 12.5 8 M 8.5 4 L 12.5 8 L 8.5 12"
+        : icon == "hide" ? "M 1.5 8 Q 8 1.5 14.5 8 Q 8 14.5 1.5 8 Z M 8 6.2 A 1.8 1.8 0 1 1 7.99 6.2 Z M 3 13.5 L 13 2.5"
+        : icon == "analyze" ? "M 2 7 L 2 9 M 5 4 L 5 12 M 8 6 L 8 10 M 11 2.5 L 11 13.5 M 14 6.5 L 14 9.5"
+        : icon == "stems" ? "M 8 2 L 14 5 L 8 8 L 2 5 Z M 2 8 L 8 11 L 14 8 M 2 11 L 8 14 L 14 11"
+        : icon == "folder" ? "M 2 4 L 6 4 L 7.5 5.5 L 14 5.5 L 14 13 L 2 13 Z"
+        : icon == "quarantine" ? "M 8 1.8 L 14 4 L 14 8 Q 14 12.5 8 14.5 Q 2 12.5 2 8 L 2 4 Z M 6 6 L 10 10 M 10 6 L 6 10"
+        : icon == "download" ? "M 8 2 L 8 10.5 M 4.5 7 L 8 10.5 L 11.5 7 M 3 14 L 13 14"
+        : icon == "store" ? "M 3 5.5 L 13 5.5 L 12 14 L 4 14 Z M 6 5.5 Q 6 2 8 2 Q 10 2 10 5.5"
+        : icon == "search" ? "M 7 2.5 A 4.5 4.5 0 1 1 6.99 2.5 Z M 10.3 10.3 L 14 14"
+        : icon == "play" ? "M 4.5 3 L 12.5 8 L 4.5 13 Z"
+        : icon == "fix" ? "M 3 8.5 L 6.5 12 L 13 4.5"
+        : icon == "link" ? "M 7 9 L 9 7 M 5.5 7.5 L 3.8 9.2 A 2.2 2.2 0 0 0 6.8 12.2 L 8.5 10.5 M 10.5 8.5 L 12.2 6.8 A 2.2 2.2 0 0 0 9.2 3.8 L 7.5 5.5"
+        : icon == "chevron" ? "M 6 4 L 10 8 L 6 12"
+        : "";
+}
+
+// A line of a popup menu, with an icon (or the room for one) when `icon`
+// is set, a dim `hint` on the right, and a › when it opens a side panel.
 component MenuLine inherits Rectangle {
     in property <string> text;
     in property <color> text-color: Theme.text;
+    in property <string> icon;
+    in property <string> hint;
+    in property <bool> submenu;
+    // Its side panel is open.
+    in property <bool> open;
     callback clicked();
+    // The pointer came onto the line.
+    callback entered();
+    property <bool> hover: ta.has-hover;
+    changed hover => {
+        if hover {
+            entered();
+        }
+    }
     height: 26px;
     border-radius: 4px;
-    background: ta.has-hover ? #3a3a3d : transparent;
-    Text { x: 10px; width: parent.width - 16px; text: root.text; color: root.text-color; font-size: 13px; vertical-alignment: center; overflow: elide; }
+    background: ta.has-hover || open ? #3a3a3d : transparent;
+    property <length> text-x: icon != "" ? 34px : 10px;
+    if icon != "": MenuIcon {
+        x: 10px;
+        icon: root.icon;
+        color: root.text-color == Theme.text ? #d0d0d4 : root.text-color;
+    }
+    Text {
+        x: text-x;
+        width: parent.width - text-x - (submenu ? 26px : 10px) - (hint != "" ? hint-text.width + 8px : 0px);
+        text: root.text;
+        color: root.text-color;
+        font-size: 13px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    hint-text := Text {
+        x: parent.width - self.width - (submenu ? 26px : 10px);
+        width: min(self.preferred-width, parent.width * 0.42);
+        text: root.hint;
+        color: Theme.text-dim;
+        font-size: 12px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    if submenu: MenuIcon {
+        x: parent.width - 22px;
+        icon: "chevron";
+        color: Theme.text-dim;
+    }
     ta := TouchArea { clicked => { root.clicked(); } }
 }
 
@@ -465,34 +577,93 @@ component MenuSeparator inherits Rectangle {
     Rectangle { height: 1px; background: Theme.border; }
 }
 
-// The track menu's lines for moving tracks between the stages, for a
-// track at `stage` (as `LibraryEdit.stage-of` numbers them).
+// One stage on the track menu's stage strip: lilac where the track is.
+component StageStep inherits Rectangle {
+    in property <string> text;
+    in property <bool> here;
+    callback clicked();
+    height: 22px;
+    width: label.preferred-width + 14px;
+    border-radius: 11px;
+    background: here ? Theme.accent : ta.has-hover ? #3a3a3d : transparent;
+    border-width: here ? 0px : 1px;
+    border-color: Theme.border;
+    label := Text {
+        text: root.text;
+        color: here ? Theme.on-selection : Theme.text-dim;
+        font-size: 11px;
+        font-weight: here ? 600 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        enabled: !here;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The track menu's stage section, for a track at `stage` (as
+// `LibraryEdit.stage-of` numbers them): Inbox → In Prep → Play Ready with
+// the track's stage lit (a click on another moves it there), then a step
+// back and a step forward, with arrows saying which way.
 component StageLines inherits VerticalLayout {
     in property <int> stage;
     callback picked(stage: int, crate: int);
+    callback entered();
     spacing: 2px;
     MenuSeparator {}
-    if stage != 2: MenuLine {
-        text: stage == 3 ? "Back to In Prep" : "Send to In Prep";
+    HorizontalLayout {
+        height: 28px;
+        padding-left: 10px;
+        padding-right: 8px;
+        spacing: 3px;
+        alignment: start;
+        StageStep { y: 3px; text: "Inbox"; here: stage == 1; clicked => { picked(1, -1); } }
+        MenuIcon { y: 9px; width: 10px; height: 10px; icon: "chevron"; color: Theme.text-dim; }
+        StageStep { y: 3px; text: "In Prep"; here: stage == 2; clicked => { picked(2, -1); } }
+        MenuIcon { y: 9px; width: 10px; height: 10px; icon: "chevron"; color: Theme.text-dim; }
+        StageStep { y: 3px; text: "Play Ready"; here: stage == 3; clicked => { picked(3, -1); } }
+    }
+    // Back a step.
+    if stage == 2 || stage == 4: MenuLine {
+        icon: "back";
+        text: "Back to Inbox";
+        entered => { root.entered(); }
+        clicked => { picked(1, -1); }
+    }
+    if stage == 3: MenuLine {
+        icon: "back";
+        text: "Back to In Prep";
+        entered => { root.entered(); }
+        clicked => { picked(2, -1); }
+    }
+    // Forward a step.
+    if stage != 2 && stage != 3: MenuLine {
+        icon: "forward";
+        text: "Send to In Prep";
+        entered => { root.entered(); }
         clicked => { picked(2, -1); }
     }
     if stage != 2 && stage != 3: VerticalLayout {
         spacing: 2px;
         for c[i] in LibraryEdit.triage-crates: MenuLine {
+            icon: "forward";
             text: "Send to In Prep › " + c;
+            entered => { root.entered(); }
             clicked => { picked(2, i); }
         }
     }
     if stage == 2: MenuLine {
+        icon: "forward";
         text: "Send to Play Ready";
+        entered => { root.entered(); }
         clicked => { picked(3, -1); }
     }
-    if stage == 2: MenuLine {
-        text: "Back to Inbox";
-        clicked => { picked(1, -1); }
-    }
+    // Passed over: out of the Inbox for good, the file left where it is.
     if stage == 1: MenuLine {
-        text: "Not interested";
+        icon: "hide";
+        text: "Hide from Inbox";
+        entered => { root.entered(); }
         clicked => { picked(4, -1); }
     }
 }
@@ -567,6 +738,108 @@ component MatchMenu inherits PopupWindow {
     }
 }
 
+// The track menu's side panel: the lists to add the tracks to (found by
+// typing, most recently added to first, with a new crate at the top), or
+// the lists the track is in.
+component ListPanel inherits Rectangle {
+    // 1 = add to a list, 2 = the lists the track is in.
+    in property <int> mode;
+    in property <int> track-row;
+    in property <int> track-last;
+    in-out property <string> find;
+    callback done();
+    // Typing finds a list straight away, as in Spotify.
+    init => {
+        if mode == 1 {
+            find-edit.focus();
+        }
+    }
+    MenuBackground {}
+    VerticalLayout {
+        padding: 6px;
+        spacing: 2px;
+        Rectangle {
+            height: mode == 1 ? 32px : 0px;
+            visible: mode == 1;
+            border-radius: 4px;
+            background: #2c2c30;
+            MenuIcon { x: 9px; icon: "search"; color: Theme.text-dim; }
+            find-edit := TextInput {
+                x: 32px;
+                width: parent.width - 40px;
+                height: parent.height;
+                text <=> root.find;
+                color: Theme.text;
+                font-size: 13px;
+                vertical-alignment: center;
+                single-line: true;
+                edited => { LibraryEdit.find-lists(self.text); }
+                accepted => {
+                    if LibraryEdit.list-picks.length > 0 {
+                        LibraryEdit.add-to-list(track-row, track-last, LibraryEdit.list-picks[0].index);
+                        root.done();
+                    }
+                }
+            }
+            if root.find == "": Text {
+                x: 32px;
+                text: "Find a list";
+                color: Theme.text-dim;
+                font-size: 13px;
+                vertical-alignment: center;
+            }
+        }
+        if mode == 1: MenuLine {
+            icon: "plus";
+            text: root.find.is-empty ? "New crate" : "New crate “" + root.find + "”";
+            clicked => {
+                LibraryEdit.new-list-with(track-row, track-last, root.find);
+                root.done();
+            }
+        }
+        if mode == 1: MenuSeparator {}
+        if mode == 2: Text {
+            x: 10px;
+            height: 22px;
+            text: "In your lists";
+            color: Theme.text-dim;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+        if LibraryEdit.list-picks.length == 0: Text {
+            x: 10px;
+            height: 26px;
+            text: mode == 2 ? "Not in any of your lists." : root.find != "" ? "No list matches." : "No lists yet.";
+            color: Theme.text-dim;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+        if LibraryEdit.list-picks.length > 0: ScrollView {
+            height: min(LibraryEdit.list-picks.length * 28px, 10 * 28px);
+            VerticalLayout {
+                spacing: 2px;
+                for l in LibraryEdit.list-picks: MenuLine {
+                    icon: l.is-crate ? "crate" : "list";
+                    text: l.name;
+                    hint: l.folder;
+                    clicked => {
+                        if mode == 1 {
+                            LibraryEdit.add-to-list(track-row, track-last, l.index);
+                        } else {
+                            LibraryEdit.show-list(l.index);
+                        }
+                        root.done();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Right-click menu on a track, in sections by how often they're wanted:
+// the rating; playing and lists; going to the artist, album, lists and
+// info; the stages; analysis; then the file. Adding to a list opens a
+// panel at the side, as Spotify does.
 component TrackMenu inherits PopupWindow {
     callback change-match();
     in property <int> track-row;
@@ -575,166 +848,316 @@ component TrackMenu inherits PopupWindow {
     in property <int> rating;
     // The row is a streaming service's track, matched to the collection.
     in property <bool> streamed;
-    width: 230px;
+    // The side panel opens on the left, as the menu is near the right edge.
+    in property <bool> panel-left;
+    // The side panel shown: 0 none, 1 add to a list, 2 the lists it's in.
+    property <int> panel;
+    property <string> find;
+    property <bool> one: track-last <= track-row;
+    property <[string]> go-text: LibraryEdit.go-to-text(track-row);
+    property <length> menu-width: 250px;
+    property <length> panel-width: 280px;
+    function open-panel(p: int) {
+        if panel != p {
+            panel = p;
+            if p == 1 {
+                find = "";
+                LibraryEdit.find-lists("");
+            } else {
+                LibraryEdit.lists-with(track-row);
+            }
+        }
+    }
+    function pick() {
+        root.close();
+    }
+    // Where it was opened, from the top of the popup, which covers the
+    // window's height so the menu can move up to fit under the pointer.
+    in property <length> anchor-y;
+    property <length> menu-y: max(4px, min(anchor-y, root.height - col.preferred-height - 4px));
+    width: menu-width + 6px + panel-width;
     close-policy: close-on-click-outside;
-    MenuBackground {}
-    VerticalLayout {
-        padding: 6px;
-        spacing: 2px;
-        HorizontalLayout {
-            height: 28px;
-            padding-left: 10px;
+    // The room for the side panel, when it's shut, closes the menu as
+    // outside it would.
+    TouchArea { clicked => { root.close(); } }
+    if panel == 1: ListPanel {
+        x: panel-left ? 0px : menu-width + 6px;
+        y: max(4px, min(menu-y, root.height - self.preferred-height - 4px));
+        width: panel-width;
+        height: self.preferred-height;
+        mode: 1;
+        track-row: track-row;
+        track-last: track-last;
+        find <=> root.find;
+        done => { root.close(); }
+    }
+    if panel == 2: ListPanel {
+        x: panel-left ? 0px : menu-width + 6px;
+        y: max(4px, min(menu-y, root.height - self.preferred-height - 4px));
+        width: panel-width;
+        height: self.preferred-height;
+        mode: 2;
+        track-row: track-row;
+        track-last: track-last;
+        done => { root.close(); }
+    }
+    Rectangle {
+        x: panel-left ? panel-width + 6px : 0px;
+        y: menu-y;
+        width: menu-width;
+        height: col.preferred-height;
+        MenuBackground {}
+        col := VerticalLayout {
+            padding: 6px;
             spacing: 2px;
-            Text { text: "Rating"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 60px; }
-            for n in [1, 2, 3, 4, 5]: Rectangle {
-                width: 22px;
-                Text { text: n <= rating ? "★" : "☆"; color: #ffd60a; font-size: 16px; }
-                TouchArea {
-                    clicked => {
-                        LibraryEdit.set-rating(track-row, n == rating ? 0 : n);
-                        root.close();
+            HorizontalLayout {
+                height: 28px;
+                padding-left: 10px;
+                spacing: 2px;
+                Text { text: "Rating"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 60px; }
+                for n in [1, 2, 3, 4, 5]: Rectangle {
+                    width: 22px;
+                    Text { text: n <= rating ? "★" : "☆"; color: #ffd60a; font-size: 16px; }
+                    TouchArea {
+                        clicked => {
+                            LibraryEdit.set-rating(track-row, n == rating ? 0 : n);
+                            root.close();
+                        }
                     }
                 }
             }
-        }
-        MenuSeparator {}
-        MenuLine {
-            text: track-last > track-row ? "Analyze " + (track-last - track-row + 1) + " Tracks" : "Analyze Track";
-            clicked => {
-                LibraryEdit.analyze(track-row, track-last);
-                root.close();
-            }
-        }
-        MenuLine {
-            text: "Prepare High Quality Stems";
-            clicked => {
-                LibraryEdit.prepare-hq-stems(track-row, track-last);
-                root.close();
-            }
-        }
-        if streamed && track-last == track-row: MenuLine {
-            text: "Change Match…";
-            clicked => {
-                root.close();
-                root.change-match();
-            }
-        }
-        if StoreUi.source == 2 && StoreUi.downloads-to != "": MenuLine {
-            text: track-last > track-row ? "Download " + (track-last - track-row + 1) + " Tracks" : "Download Track";
-            clicked => {
-                StoreUi.download-tracks(track-row, track-last);
-                root.close();
-            }
-        }
-        if StoreUi.stores: MenuLine {
-            text: "Find in stores";
-            clicked => {
-                StoreUi.find(track-row);
-                root.close();
-            }
-        }
-        if StoreUi.source == 9: MenuLine {
-            text: "Play Album";
-            clicked => {
-                LibraryEdit.play-album(track-row, false);
-                root.close();
-            }
-        }
-        if StoreUi.source == 9: MenuLine {
-            text: "Add Album to Automix";
-            clicked => {
-                LibraryEdit.play-album(track-row, true);
-                root.close();
-            }
-        }
-        MenuLine {
-            text: "Add to Automix";
-            clicked => {
-                LibraryEdit.add-to-automix(track-row, track-last);
-                root.close();
-            }
-        }
-        if LibraryEdit.stages: StageLines {
-            stage: LibraryEdit.stage-of(track-row);
-            picked(stage, crate) => {
-                LibraryEdit.set-stage(track-row, track-last, stage, crate);
-                root.close();
-            }
-        }
-        if LibraryEdit.undo-text != "": MenuLine {
-            text: LibraryEdit.undo-text;
-            clicked => {
-                LibraryEdit.undo-stage();
-                root.close();
-            }
-        }
-        if HealthUi.check >= 0 && HealthUi.check < HealthUi.cards.length: VerticalLayout {
-            spacing: 2px;
             MenuSeparator {}
-            for j in HealthUi.cards[HealthUi.check].menu-fixes: MenuLine {
-                text: HealthUi.cards[HealthUi.check].fixes[j];
+            // Playing it, and the lists.
+            if one: HorizontalLayout {
+                height: 26px;
+                padding-left: 10px;
+                spacing: 6px;
+                MenuIcon { y: 5px; icon: "deck"; color: #d0d0d4; }
+                Text { text: "Load on Deck"; color: Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+                for d[i] in LibraryEdit.decks >= 4 ? [1, 2, 3, 4] : [1, 2]: Rectangle {
+                    y: 2px;
+                    width: 26px;
+                    height: 22px;
+                    border-radius: 4px;
+                    border-width: 1px;
+                    border-color: Theme.deck-color(i);
+                    background: dta.has-hover ? Theme.deck-color(i).with-alpha(0.35) : transparent;
+                    Text { text: d; color: Theme.text; font-size: 12px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                    dta := TouchArea {
+                        clicked => {
+                            LibraryEdit.load-on-deck(track-row, i);
+                            root.close();
+                        }
+                    }
+                }
+                Rectangle { width: 2px; }
+            }
+            MenuLine {
+                icon: "automix";
+                text: "Add to Automix";
+                entered => { panel = 0; }
                 clicked => {
-                    HealthUi.fix(j, track-row, track-last);
+                    LibraryEdit.add-to-automix(track-row, track-last);
                     root.close();
                 }
             }
-            if HealthUi.copies && track-last <= track-row: MenuLine {
-                text: "Keep this copy";
+            if LibraryEdit.has-lists: MenuLine {
+                icon: "plus";
+                text: "Add to playlist";
+                submenu: true;
+                open: panel == 1;
+                entered => { open-panel(1); }
+                clicked => { open-panel(1); }
+            }
+            if !LibraryEdit.has-lists && StoreUi.source == 0: MenuLine {
+                icon: "plus";
+                text: "Add to new crate";
+                entered => { panel = 0; }
                 clicked => {
-                    HealthUi.keep-this(track-row);
+                    LibraryEdit.new-list-with(track-row, track-last, "");
+                    root.close();
+                }
+            }
+            if LibraryEdit.in-list: MenuLine {
+                icon: "minus";
+                text: "Remove from this list";
+                entered => { panel = 0; }
+                clicked => {
+                    LibraryEdit.remove-from-list(track-row);
+                    root.close();
+                }
+            }
+            if StoreUi.source == 1 && !FilesUi.in-collection(track-row): MenuLine {
+                icon: "plus";
+                text: "Add to Collection";
+                entered => { panel = 0; }
+                clicked => {
+                    FilesUi.add-track(track-row);
+                    root.close();
+                }
+            }
+            if StoreUi.source == 9: MenuLine {
+                icon: "play";
+                text: "Play Album";
+                entered => { panel = 0; }
+                clicked => {
+                    LibraryEdit.play-album(track-row, false);
+                    root.close();
+                }
+            }
+            if StoreUi.source == 9: MenuLine {
+                icon: "automix";
+                text: "Add Album to Automix";
+                entered => { panel = 0; }
+                clicked => {
+                    LibraryEdit.play-album(track-row, true);
+                    root.close();
+                }
+            }
+            MenuSeparator {}
+            // Going to what's around it.
+            if one && go-text[0] != "": MenuLine {
+                icon: "artist";
+                text: "Go to Artist";
+                hint: go-text[0];
+                entered => { panel = 0; }
+                clicked => {
+                    LibraryEdit.go-to(track-row, false);
+                    root.close();
+                }
+            }
+            if one && go-text[1] != "": MenuLine {
+                icon: "album";
+                text: "Go to Album";
+                hint: go-text[1];
+                entered => { panel = 0; }
+                clicked => {
+                    LibraryEdit.go-to(track-row, true);
+                    root.close();
+                }
+            }
+            if one && LibraryEdit.has-lists: MenuLine {
+                icon: "list";
+                text: "Show in playlist";
+                submenu: true;
+                open: panel == 2;
+                entered => { open-panel(2); }
+                clicked => { open-panel(2); }
+            }
+            if one: MenuLine {
+                icon: "info";
+                text: "Show Info";
+                entered => { panel = 0; }
+                clicked => {
+                    LibraryEdit.show-info(track-row);
+                    root.close();
+                }
+            }
+            if LibraryEdit.stages: StageLines {
+                stage: LibraryEdit.stage-of(track-row);
+                entered => { panel = 0; }
+                picked(stage, crate) => {
+                    LibraryEdit.set-stage(track-row, track-last, stage, crate);
+                    root.close();
+                }
+            }
+            MenuSeparator {}
+            // Analysis, and the stores.
+            MenuLine {
+                icon: "analyze";
+                text: track-last > track-row ? "Analyze " + (track-last - track-row + 1) + " Tracks" : "Analyze Track";
+                entered => { panel = 0; }
+                clicked => {
+                    LibraryEdit.analyze(track-row, track-last);
                     root.close();
                 }
             }
             MenuLine {
-                text: "Ignore for " + HealthUi.cards[HealthUi.check].title;
+                icon: "stems";
+                text: "Prepare HQ Stems";
+                entered => { panel = 0; }
                 clicked => {
-                    HealthUi.ignore(track-row, track-last);
+                    LibraryEdit.prepare-hq-stems(track-row, track-last);
                     root.close();
                 }
             }
-        }
-        if StoreUi.source == 0 && HealthUi.can-quarantine: MenuLine {
-            text: track-last > track-row ? "Move " + (track-last - track-row + 1) + " Tracks to Quarantine" : "Move to Quarantine";
-            clicked => {
-                HealthUi.quarantine(track-row, track-last);
-                root.close();
+            if streamed && one: MenuLine {
+                icon: "link";
+                text: "Change Match…";
+                entered => { panel = 0; }
+                clicked => {
+                    root.close();
+                    root.change-match();
+                }
             }
-        }
-        if StoreUi.source == 1 && !FilesUi.in-collection(track-row): MenuLine {
-            text: "Add to Collection";
-            clicked => {
-                FilesUi.add-track(track-row);
-                root.close();
+            if StoreUi.source == 2 && StoreUi.downloads-to != "": MenuLine {
+                icon: "download";
+                text: track-last > track-row ? "Download " + (track-last - track-row + 1) + " Tracks" : "Download Track";
+                entered => { panel = 0; }
+                clicked => {
+                    StoreUi.download-tracks(track-row, track-last);
+                    root.close();
+                }
             }
-        }
-        if FilesUi.has-file(track-row): MenuLine {
-            text: "Show in " + FilesUi.file-manager;
-            clicked => {
-                FilesUi.reveal-track(track-row);
-                root.close();
+            if StoreUi.stores: MenuLine {
+                icon: "store";
+                text: "Find in stores";
+                entered => { panel = 0; }
+                clicked => {
+                    StoreUi.find(track-row);
+                    root.close();
+                }
             }
-        }
-        MenuSeparator {}
-        if LibraryEdit.lists.length > 0: Text { x: 10px; height: 20px; text: "Add to list"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
-        if LibraryEdit.lists.length == 0: Text { x: 10px; height: 24px; text: "Make a crate with + to add tracks to it."; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
-        ScrollView {
-            height: min(LibraryEdit.lists.length * 26px, 260px);
-            VerticalLayout {
-                for name[i] in LibraryEdit.lists: MenuLine {
-                    text: name;
+            if HealthUi.check >= 0 && HealthUi.check < HealthUi.cards.length: VerticalLayout {
+                spacing: 2px;
+                MenuSeparator {}
+                for j in HealthUi.cards[HealthUi.check].menu-fixes: MenuLine {
+                    icon: "fix";
+                    text: HealthUi.cards[HealthUi.check].fixes[j];
+                    entered => { panel = 0; }
                     clicked => {
-                        LibraryEdit.add-to-list(track-row, track-last, i);
+                        HealthUi.fix(j, track-row, track-last);
+                        root.close();
+                    }
+                }
+                if HealthUi.copies && one: MenuLine {
+                    icon: "fix";
+                    text: "Keep this copy";
+                    entered => { panel = 0; }
+                    clicked => {
+                        HealthUi.keep-this(track-row);
+                        root.close();
+                    }
+                }
+                MenuLine {
+                    icon: "hide";
+                    text: "Ignore for " + HealthUi.cards[HealthUi.check].title;
+                    entered => { panel = 0; }
+                    clicked => {
+                        HealthUi.ignore(track-row, track-last);
                         root.close();
                     }
                 }
             }
-        }
-        if LibraryEdit.in-list: MenuSeparator {}
-        if LibraryEdit.in-list: MenuLine {
-            text: "Remove from this list";
-            clicked => {
-                LibraryEdit.remove-from-list(track-row);
-                root.close();
+            // The file.
+            if FilesUi.has-file(track-row) || (StoreUi.source == 0 && HealthUi.can-quarantine): MenuSeparator {}
+            if FilesUi.has-file(track-row): MenuLine {
+                icon: "folder";
+                text: "Show in " + FilesUi.file-manager;
+                entered => { panel = 0; }
+                clicked => {
+                    FilesUi.reveal-track(track-row);
+                    root.close();
+                }
+            }
+            if StoreUi.source == 0 && HealthUi.can-quarantine: MenuLine {
+                icon: "quarantine";
+                text: track-last > track-row ? "Move " + (track-last - track-row + 1) + " Tracks to Quarantine" : "Move to Quarantine";
+                entered => { panel = 0; }
+                clicked => {
+                    HealthUi.quarantine(track-row, track-last);
+                    root.close();
+                }
             }
         }
     }
@@ -1569,6 +1992,7 @@ component FolderTree inherits Rectangle {
                     clicked => {
                         if tab != i {
                             tab = i;
+                            LibraryEdit.history-tab = i == 1;
                             LibraryEdit.show-history(i == 1);
                         }
                     }
@@ -2407,9 +2831,14 @@ component TrackList inherits Rectangle {
     property <int> menu-rating;
     property <length> menu-x;
     property <length> menu-y;
+    // Near the right edge, the menu's side panel opens on its left.
+    property <bool> menu-flip: menu-x + 540px > root.width;
     track-menu := TrackMenu {
-        x: min(menu-x, root.width - 240px);
-        y: min(menu-y, root.height - 200px);
+        x: menu-flip ? max(0px, min(menu-x, root.width - 252px) - 286px) : menu-x;
+        y: -root.absolute-position.y;
+        height: LibraryEdit.window-height;
+        anchor-y: menu-y + root.absolute-position.y;
+        panel-left: menu-flip;
         track-row: menu-row;
         track-last: menu-last;
         rating: menu-rating;
@@ -3414,6 +3843,10 @@ export component Browser inherits HorizontalLayout {
     callback automix-set-style(index: int);
     property <int> source <=> StoreUi.source;
     property <int> library-tab;
+    // The app went back from the history to the library (the track menu's
+    // "Go to" lines).
+    property <bool> history-tab: LibraryEdit.history-tab;
+    changed history-tab => { library-tab = history-tab ? 1 : 0; }
     property <[string]> source-names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud"];
     // Which sources the rail shows, by index; picked under its "...".
     in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true, true, true, true];
@@ -3430,6 +3863,7 @@ export component Browser inherits HorizontalLayout {
         picked(s) => { select-source(s); }
         health-picked => {
             library-tab = 0;
+            LibraryEdit.history-tab = false;
             HealthUi.show(true);
         }
         shown-changed(s, on) => {

@@ -68,7 +68,7 @@ impl Stage {
             Stage::Inbox => "Inbox",
             Stage::Triage => "In Prep",
             Stage::Collection => "Play Ready",
-            Stage::Dismissed => "Not interested",
+            Stage::Dismissed => "Hidden from Inbox",
         }
     }
 }

@@ -40,6 +40,7 @@ mod sets;
 mod spotify_export;
 mod staging;
 mod streamed;
+mod track_menu;
 mod usb;
 
 pub use filters::DEFAULT_PINNED;
@@ -507,7 +508,7 @@ pub struct Browser {
     /// This run's history session, made when the first track is played.
     session: Option<i64>,
     /// Lists tracks can be added to, as offered in the track menu.
-    menu_lists: Vec<i64>,
+    menu_lists: Vec<track_menu::MenuList>,
     /// The crates each track is in, by track id.
     crates: HashMap<usize, Vec<String>>,
     /// Empty crates and entries for removed tracks.
@@ -1568,7 +1569,7 @@ impl Browser {
         let w = with.clone();
         edit.on_add_to_list(move |first, last, list| {
             w(&|b| {
-                if let Some(&id) = b.menu_lists.get(list as usize) {
+                if let Some(id) = b.menu_lists.get(list as usize).map(|l| l.id) {
                     b.add_rows_to_playlist(first.max(0) as usize, last.max(0) as usize, id);
                 }
             })
@@ -1592,6 +1593,7 @@ impl Browser {
         let w = with.clone();
         edit.on_set_rule(move |i, text| w(&|b| b.set_rule(i as usize, &text)));
         Self::install_staging(&edit, &with);
+        Self::install_track_menu(&edit, &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
         Self::install_cleanup(&app.global::<crate::CleanupUi>(), &with);
         Self::install_analysis(&edit, &with);
@@ -3516,6 +3518,10 @@ impl Browser {
 
     pub fn set_decks_shown(&mut self, decks: usize) {
         self.decks_shown = decks.clamp(2, NUM_DECKS);
+        if let Some(app) = self.app.upgrade() {
+            app.global::<LibraryEdit>()
+                .set_decks(self.decks_shown as i32);
+        }
     }
 
     /// Called every frame with what is on the decks; refreshes the A/B markers
@@ -3704,9 +3710,8 @@ impl Browser {
                 }
             })
             .collect();
-        // The track menu offers the DJ's lists, named with their folders.
+        // The track menu offers the DJ's lists, with the folders they're in.
         let mut lists = Vec::new();
-        let mut names = Vec::new();
         let mut path: Vec<&str> = Vec::new();
         for n in self
             .nodes
@@ -3715,14 +3720,13 @@ impl Browser {
         {
             path.truncate(n.depth as usize);
             if n.kind == KIND_LIST || n.kind == KIND_CRATE {
-                // Named by their folders, without the Playlists heading.
-                let mut name = path[path.len().min(1)..].join(" › ");
-                if !name.is_empty() {
-                    name.push_str(" › ");
-                }
-                name.push_str(&n.name);
-                names.push(SharedString::from(name));
-                lists.push(n.playlist.unwrap());
+                // Without the Playlists heading.
+                lists.push(track_menu::MenuList {
+                    id: n.playlist.unwrap(),
+                    name: n.name.clone(),
+                    folder: path[path.len().min(1)..].join(" › "),
+                    is_crate: n.kind == KIND_CRATE,
+                });
             }
             path.push(&n.name);
         }
@@ -3733,7 +3737,7 @@ impl Browser {
             .is_some_and(|n| (n.kind == KIND_LIST || n.kind == KIND_CRATE) && n.playlist.is_some());
         if let Some(app) = self.app.upgrade() {
             let edit = app.global::<LibraryEdit>();
-            edit.set_lists(ModelRc::new(VecModel::from(names)));
+            edit.set_has_lists(!self.menu_lists.is_empty());
             edit.set_in_list(in_list);
             edit.set_can_save_search(self.saved() && self.tree == COLLECTION && !self.history_tab);
             let rule = match self.nodes.get(self.current_node).map(|n| &n.contents) {

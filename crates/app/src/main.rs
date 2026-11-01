@@ -1035,6 +1035,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return;
                 }
                 let weak = weak.clone();
+                let undo_weak = weak.clone();
                 added.set(mac_menu::add_settings_item(move || {
                     if let Some(app) = weak.upgrade() {
                         let prefs = app.global::<Preferences>();
@@ -1043,6 +1044,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 }));
+                mac_menu::on_undo(move || {
+                    if let Some(app) = undo_weak.upgrade() {
+                        app.global::<LibraryEdit>().invoke_undo_stage();
+                    }
+                });
             },
         );
         timer
