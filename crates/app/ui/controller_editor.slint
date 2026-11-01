@@ -82,6 +82,17 @@ export struct EditorOption {
     kind: string,
 }
 
+// How the controller plays with this mapping, at the top of the Options
+// tab: two decks or four and the deck order (a mapping with a layout for
+// each), and how knobs and faders take over (the controllers running it).
+export struct EditorSetting {
+    id: string,
+    label: string,
+    detail: string,
+    choices: [string],
+    chosen: int,
+}
+
 export global ControllerEditor {
     in-out property <bool> open;
     // The controllers to choose from (by their Mixxx mapping), the ones
@@ -115,6 +126,7 @@ export global ControllerEditor {
     in property <[EditorRow]> rows;
     in property <[EditorRow]> lights;
     in property <[EditorOption]> options;
+    in property <[EditorSetting]> playing;
     // "212 functions on 76 controls".
     in property <string> summary;
     in property <bool> has-picture;
@@ -182,6 +194,7 @@ export global ControllerEditor {
     callback set-invert(on: bool);
     callback set-nothing();
     callback reset-row();
+    callback set-playing(id: string, index: int);
 }
 
 // What kind of control a row is: a button or pad (MIDI notes) as a dot in a
@@ -984,7 +997,33 @@ export component ControllerEditorOverlay inherits Rectangle {
                         opts := VerticalLayout {
                             width: parent.width - 12px;
                             spacing: 1px;
-                            if ControllerEditor.options.length == 0: Text {
+                            for o[i] in ControllerEditor.playing: Rectangle {
+                                background: mod(i, 2) == 1 ? Theme.row-alt : Theme.row;
+                                HorizontalLayout {
+                                    padding: 10px;
+                                    padding-left: 12px;
+                                    spacing: 12px;
+                                    VerticalLayout {
+                                        horizontal-stretch: 1;
+                                        spacing: 3px;
+                                        Text { text: o.label; color: Theme.text; font-size: 13px; font-weight: 500; wrap: word-wrap; }
+                                        if o.detail != "": Text { text: o.detail; color: Theme.text-dim; font-size: 11px; wrap: word-wrap; }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        MenuField {
+                                            width: 150px;
+                                            text: o.choices[o.chosen];
+                                            choices: o.choices;
+                                            chosen: o.chosen;
+                                            menu-width: 170px;
+                                            picked(c) => { ControllerEditor.set-playing(o.id, c); }
+                                        }
+                                    }
+                                }
+                            }
+                            if ControllerEditor.playing.length > 0 && ControllerEditor.options.length > 0: Rectangle { height: 12px; }
+                            if ControllerEditor.options.length == 0 && ControllerEditor.playing.length == 0: Text {
                                 text: "This mapping has no settings of its own.";
                                 color: Theme.text-dim;
                                 font-size: 13px;

@@ -37,6 +37,20 @@ pub use manager::{
 };
 pub use mapping::Mapping;
 
+/// Whether `port` is a MIDI port the computer makes rather than a
+/// controller: macOS's Network Session and IAC Driver, Windows' GS
+/// Wavetable synth, Linux's Midi Through. They're never mapped on their
+/// own, and the mapping wizard doesn't offer them.
+pub fn is_system_port(port: &str) -> bool {
+    const SYSTEM: [&str; 4] = [
+        "Network Session",
+        "IAC Driver",
+        "Midi Through",
+        "Microsoft GS Wavetable",
+    ];
+    SYSTEM.iter().any(|s| port.contains(s))
+}
+
 /// Where Mixxx's mappings are: `OPENDJ_CONTROLLERS` if set, otherwise next
 /// to the executable (`../Resources/controllers` in a macOS bundle,
 /// `controllers/` beside it, or `../share/opendj/controllers` in a Linux
@@ -57,4 +71,18 @@ pub fn default_mappings_dir() -> Option<PathBuf> {
     }
     candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../res/controllers"));
     candidates.into_iter().find(valid)
+}
+
+#[cfg(test)]
+mod system_port_tests {
+    use super::is_system_port;
+
+    #[test]
+    fn tells_system_ports_from_controllers() {
+        assert!(is_system_port("Network Session 1"));
+        assert!(is_system_port("IAC Driver Bus 1"));
+        assert!(is_system_port("Midi Through:Midi Through Port-0 14:0"));
+        assert!(!is_system_port("DDJ-FLX4:DDJ-FLX4 MIDI 1 20:0"));
+        assert!(!is_system_port("XONE:K2"));
+    }
 }
