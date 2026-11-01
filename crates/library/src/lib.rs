@@ -1280,6 +1280,21 @@ impl Library {
         rows.collect()
     }
 
+    /// When each entry of a list was played (a history session) or added
+    /// to it, in list order with its streamed tracks, as
+    /// [`Library::playlist_entries`] lists them: Unix seconds, or None when
+    /// not known.
+    pub fn playlist_times(&self, id: i64) -> Result<Vec<Option<i64>>, Error> {
+        let mut q = self.db.prepare(
+            "SELECT position, played_at FROM playlist_tracks WHERE playlist_id = ?1
+             UNION ALL
+             SELECT position, played_at FROM list_streams WHERE playlist_id = ?1
+             ORDER BY 1",
+        )?;
+        let times = q.query_map([id], |r| r.get(1))?.collect();
+        times
+    }
+
     /// Whether any list has streamed tracks standing in it.
     pub fn has_streamed_entries(&self) -> Result<bool, Error> {
         self.db
@@ -3256,6 +3271,11 @@ mod tests {
         assert!(tree.iter().any(|p| p.id == session));
         assert!(!tree.iter().any(|p| p.id == empty));
         assert_eq!(lib.playlist_tracks(session).unwrap(), [ids[1], ids[1]]);
+        // Each play keeps when it was, in the order played.
+        let times = lib.playlist_times(session).unwrap();
+        assert_eq!(times.len(), 2);
+        assert!(times.iter().all(|t| t.is_some_and(|t| t > 0)));
+        assert!(times[0] <= times[1]);
         let b = lib
             .tracks(|_| true)
             .unwrap()

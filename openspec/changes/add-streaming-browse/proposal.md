@@ -16,6 +16,7 @@ Most DJs keep their playlists in a streaming service. Even without playing strea
 - **Mixcloud**: the DJ's shows, favourites and Listen Later. Works today with a free API app; the API gives no audio streams at all (checked 2026-10-29).
 - **YouTube Music**: playlists where the API allows; Beatport's streaming playlists if partner access comes through.
 - In every streaming list, tracks the collection already holds are marked and load the local file; the rest show greyed out and can't be loaded. Copy a streaming playlist into an openDJ list (only the matched tracks, the rest kept as wanted).
+- **Export to Spotify** (Seba, 2026-11-01): send one of the DJ's lists, crates or a history session to Spotify as a new private playlist, in the list's order (a session as played). Tracks are found by Spotify id, then ISRC, then artist, title and length; those Spotify doesn't have are named. Writing playlists needs the `playlist-modify-private` scope, so a sign-in from before asks to sign in again. Nothing is played from Spotify.
 - API access, per service (SoundCloud and Mixcloud first, since they need no approval): Spotify extended quota (until then the DJ supplies a client ID, as today), TIDAL developer app, Apple MusicKit key, SoundCloud app (Artist Pro), Mixcloud app, YouTube API app, Beatport partner request. Each source stays "Coming soon" until its access is in place.
 
 ## Capabilities

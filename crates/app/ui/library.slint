@@ -189,6 +189,9 @@ export global LibraryEdit {
     callback analyze-all(row: int);
     // Opens Export to USB for the tree's row `row` (a list or folder).
     callback export-usb(row: int);
+    // Sends the tree's row `row` (a list or history session) to Spotify as
+    // a new playlist, in its order.
+    callback export-spotify(row: int);
     // Prepares high-quality stems for the rows `first` to `last`, one
     // track after another in the background.
     callback prepare-hq-stems(first: int, last: int);
@@ -1411,6 +1414,14 @@ component FolderTree inherits Rectangle {
                     folder-menu.close();
                 }
             }
+            // One of the DJ's lists, a crate or a history session.
+            if source == 0 && StoreUi.streaming && (menu-kind == 2 || menu-kind == 5 || menu-kind == 17): MenuLine {
+                text: "Export to Spotify Playlist";
+                clicked => {
+                    LibraryEdit.export-spotify(menu-index);
+                    folder-menu.close();
+                }
+            }
             if menu-editable && menu-kind == 1: MenuLine {
                 text: "New Playlist";
                 clicked => {
@@ -1610,7 +1621,7 @@ component FolderTree inherits Rectangle {
                         clicked => { select(i); }
                         double-clicked => { toggle(i); }
                         pointer-event(e) => {
-                            if (f.editable || f.analysable || source == 1 || source == 2) && tab == 0 && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                            if (((f.editable || f.analysable || source == 1 || source == 2) && tab == 0) || (tab == 1 && f.kind == 5)) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                                 menu-index = i;
                                 menu-name = f.name;
                                 menu-kind = f.kind;

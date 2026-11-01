@@ -12,6 +12,7 @@
 - [ ] 2.4 YouTube Music and Beatport where access allows
 - [ ] 2.5 Collection matching (ISRC, then artist, title and duration); greyed unmatched tracks; Copy to openDJ list; screenshot
 - [x] 2.6 Update the matching user guide page in website/book/src/guide
+- [x] 2.7 Export a list or history session to a Spotify playlist, in order
 
 ## Workflow follow-up
 
