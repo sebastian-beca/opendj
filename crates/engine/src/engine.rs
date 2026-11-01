@@ -1130,6 +1130,16 @@ const SYNC_MAX_BEND: f64 = 0.03;
 
 /// Half, the same or double the leader's tempo, whichever is closest to
 /// `own`, as other DJ software does: 153 BPM syncs to 160 against 80.
+/// How a deck got where it is this buffer, for [`Engine::land_in_phase`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Move {
+    None,
+    /// Started from where it was paused.
+    Start,
+    /// Jumped: a hot cue, CUE, beat jump or a click on the overview.
+    Jump,
+}
+
 fn sync_ratio(leader: f64, own: f64) -> f64 {
     [1.0, 2.0, 0.5]
         .into_iter()
@@ -1698,17 +1708,26 @@ impl Engine {
     }
 
     /// With quantize on, or on a synced deck, a deck that jumps (hot cue,
-    /// CUE, beat jump, a click on the overview) or starts while the other
-    /// deck plays lands on the same part of the beat, at most half a beat
-    /// from where it was going, as in Mixxx.
-    fn land_in_phase(&mut self, moved: [bool; NUM_DECKS]) {
+    /// CUE, beat jump, a click on the overview) while the other deck plays
+    /// lands on the same part of the beat, at most half a step from where
+    /// it was going, as in Mixxx.
+    ///
+    /// PLAY on a paused deck starts where it was paused. Only a synced deck
+    /// is lined up as it starts, and then just within the beat (half a beat
+    /// at most), never by the quantize size: a start that moved by up to
+    /// half a bar sounded like a jump.
+    fn land_in_phase(&mut self, moved: [Move; NUM_DECKS]) {
         for (i, moved) in moved.into_iter().enumerate() {
             let Some(other) = self.sync_target(i) else {
                 continue;
             };
             let (d, l) = (&self.decks[i], &self.decks[other]);
-            let wanted = d.c.quantize.get_bool() || d.following;
-            if !moved || !wanted || !d.c.play.get_bool() || !l.c.play.get_bool() || d.nudging() {
+            let wanted = match moved {
+                Move::None => false,
+                Move::Start => d.following,
+                Move::Jump => d.c.quantize.get_bool() || d.following,
+            };
+            if !wanted || !d.c.play.get_bool() || !l.c.play.get_bool() || d.nudging() {
                 continue;
             }
             let (Some(mine), Some(theirs)) = (&d.track, &l.track) else {
@@ -1725,7 +1744,9 @@ impl Engine {
             // Quantize lines the jump up within its step (a bar at 4 beats,
             // a sixteenth at 1/16); a synced deck keeps at least the beat,
             // which its phase lock holds.
-            let step = if d.following {
+            let step = if moved == Move::Start {
+                1.0
+            } else if d.following {
                 d.quantize_beats().max(1.0)
             } else {
                 d.quantize_beats()
@@ -1799,12 +1820,18 @@ impl Engine {
         self.eject();
         let link = self.link.begin(frames, self.sample_rate);
         self.sync(link);
-        let mut moved = [false; NUM_DECKS];
+        let mut moved = [Move::None; NUM_DECKS];
         for (deck, d) in self.decks.iter_mut().enumerate() {
             let before = d.pos;
             d.reset_rate(dt);
             d.handle_controls();
-            moved[deck] = d.pos != before || (!d.was_playing && d.c.play.get_bool());
+            moved[deck] = if d.pos != before {
+                Move::Jump
+            } else if !d.was_playing && d.c.play.get_bool() {
+                Move::Start
+            } else {
+                Move::None
+            };
             if let (Some((edit, seconds)), Some(track)) = (d.grid_edit.take(), &d.track) {
                 let _ = self.returned.push(Returned::GridEdit {
                     deck,
@@ -3089,24 +3116,71 @@ mod tests {
     }
 
     #[test]
-    fn quantize_starts_an_unsynced_deck_in_phase() {
+    fn play_starts_an_unsynced_deck_where_it_was_paused() {
         let (reg, mut engine, mut input) = setup();
         load(&mut input, 0, short_track(124.0, 30.0));
         load(&mut input, 1, short_track(124.0, 30.0));
         run(&mut engine, 0.02);
-        reg.get("[Channel1]", "play").unwrap().set_bool(true);
+        let c = |d: &str, k: &str| reg.get(d, k).unwrap();
+        c("[Channel1]", "play").set_bool(true);
         run(&mut engine, 1.13);
-        reg.get("[Channel2]", "play").unwrap().set_bool(true);
-        run(&mut engine, 0.05);
-        assert!(phase_gap(&engine) < 0.01, "{}", phase_gap(&engine));
+        // Paused off the beat, with quantize on (as by default) at any size.
+        for size in [1.0, 4.0] {
+            c("[Channel2]", "quantize_beats").set(size);
+            c("[Channel2]", "playposition").set(0.4);
+            run(&mut engine, 0.02);
+            let paused = engine.decks[1].seconds();
+            c("[Channel2]", "play").set_bool(true);
+            run(&mut engine, 0.01);
+            let moved = engine.decks[1].seconds() - paused;
+            // Only as far as it played in that buffer.
+            assert!((0.0..0.03).contains(&moved), "size {size}: moved {moved}");
+            c("[Channel2]", "play").set_bool(false);
+            run(&mut engine, 0.02);
+        }
+    }
 
-        // With quantize off, it starts where it is.
-        reg.get("[Channel2]", "play").unwrap().set_bool(false);
-        reg.get("[Channel2]", "quantize").unwrap().set_bool(false);
-        run(&mut engine, 0.37);
+    #[test]
+    fn a_freshly_loaded_deck_starts_at_the_start() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(124.0, 30.0));
+        run(&mut engine, 0.02);
+        reg.get("[Channel1]", "play").unwrap().set_bool(true);
+        run(&mut engine, 2.37);
+        load(&mut input, 1, short_track(124.0, 30.0));
+        run(&mut engine, 0.02);
+        let parked = engine.decks[1].seconds();
+        reg.get("[Channel2]", "quantize_beats").unwrap().set(4.0);
         reg.get("[Channel2]", "play").unwrap().set_bool(true);
-        run(&mut engine, 0.05);
-        assert!(phase_gap(&engine) > 0.1, "{}", phase_gap(&engine));
+        run(&mut engine, 0.01);
+        let moved = engine.decks[1].seconds() - parked;
+        assert!((0.0..0.03).contains(&moved), "moved {moved}");
+    }
+
+    #[test]
+    fn a_synced_deck_starts_in_phase_within_the_beat() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(124.0, 30.0));
+        load(&mut input, 1, short_track(124.0, 30.0));
+        run(&mut engine, 0.02);
+        let c = |d: &str, k: &str| reg.get(d, k).unwrap();
+        c("[Channel1]", "play").set_bool(true);
+        c("[Channel2]", "sync_enabled").set_bool(true);
+        // A bar, which used to move a start by up to two beats.
+        c("[Channel2]", "quantize_beats").set(4.0);
+        run(&mut engine, 2.6);
+        let track = engine.decks[1].track.clone().unwrap();
+        // Two and a third beats off the other deck within the bar.
+        let theirs = track.beat_at(engine.decks[0].seconds() + 0.05);
+        let paused = track.seconds_at(theirs + 2.3 + 8.0);
+        c("[Channel2]", "playposition").set(paused / track.duration);
+        run(&mut engine, 0.02);
+        let paused = engine.decks[1].seconds();
+        c("[Channel2]", "play").set_bool(true);
+        run(&mut engine, 0.01);
+        assert!(phase_gap(&engine) < 0.01, "{}", phase_gap(&engine));
+        let beats = (track.beat_at(engine.decks[1].seconds()) - track.beat_at(paused)).abs();
+        assert!(beats <= 0.55, "moved {beats} beats");
     }
 
     /// How far apart the two decks are within `step` beats, 0 when lined up.
@@ -3119,33 +3193,26 @@ mod tests {
     }
 
     #[test]
-    fn quantize_size_sets_how_a_start_lines_up() {
+    fn quantize_size_sets_how_a_jump_lines_up() {
         let (reg, mut engine, mut input) = setup();
         load(&mut input, 0, short_track(124.0, 30.0));
         load(&mut input, 1, short_track(124.0, 30.0));
         run(&mut engine, 0.02);
         let c = |d: &str, k: &str| reg.get(d, k).unwrap();
         c("[Channel1]", "play").set_bool(true);
-        // A bar: deck 2 starts on the same beat of the bar as deck 1.
+        c("[Channel2]", "play").set_bool(true);
+        // A bar: a click on the overview lands on the same beat of the bar.
         c("[Channel2]", "quantize_beats").set(4.0);
         run(&mut engine, 2.6);
-        c("[Channel2]", "play").set_bool(true);
-        run(&mut engine, 0.05);
+        c("[Channel2]", "playposition").set(0.37);
+        run(&mut engine, 0.02);
         assert!(step_gap(&engine, 4.0) < 0.01, "{}", step_gap(&engine, 4.0));
 
         // Half a beat: in step on the half beat, not on the beat.
-        c("[Channel2]", "play").set_bool(false);
         c("[Channel2]", "quantize_beats").set(0.5);
         c("[Channel2]", "playposition").set(0.3);
         run(&mut engine, 0.02);
-        let before = step_gap(&engine, 0.5);
-        c("[Channel2]", "play").set_bool(true);
-        run(&mut engine, 0.05);
-        assert!(
-            step_gap(&engine, 0.5) < 0.01,
-            "{before} -> {}",
-            step_gap(&engine, 0.5)
-        );
+        assert!(step_gap(&engine, 0.5) < 0.01, "{}", step_gap(&engine, 0.5));
     }
 
     #[test]
