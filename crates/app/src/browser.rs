@@ -427,6 +427,8 @@ pub struct Browser {
     /// deck" picks among these.
     decks_shown: usize,
     side: [Vec<usize>; 2],
+    /// The Automix list before the last Order pick, for Undo.
+    automix_before_order: Option<Vec<usize>>,
     shown_side_tab: usize,
     /// The Linked tab: the track selected in the list (an index into
     /// `library`) and what it shows, tracks linked to it and then those
@@ -1000,6 +1002,7 @@ impl Browser {
             loaded: [None; NUM_DECKS],
             decks_shown: 2,
             side: [Vec::new(), Vec::new()],
+            automix_before_order: None,
             shown_side_tab: 0,
             linked_to: None,
             linked: Vec::new(),
@@ -2736,6 +2739,53 @@ impl Browser {
         };
         if let Some(i) = self.side[0].iter().position(|&t| t == index) {
             self.side[0].remove(i);
+            self.refresh_side();
+        }
+    }
+
+    /// Puts the Automix list in `order`, leaving the first `fixed` tracks
+    /// where they are. Returns the note the panel shows, with Undo.
+    pub fn order_automix(&mut self, order: crate::automix_order::Order, fixed: usize) -> String {
+        use crate::automix_order::{self as o, Item};
+        let list = &self.side[0];
+        let items: Vec<Item> = list
+            .iter()
+            .map(|&i| {
+                let t = &self.library[i];
+                Item {
+                    bpm: t.bpm,
+                    key: Key::parse(&t.key),
+                }
+            })
+            .collect();
+        let mut seed = [0u8; 8];
+        let _ = getrandom::fill(&mut seed);
+        let mut state = u64::from_le_bytes(seed) | 1;
+        let mut random = move || {
+            // xorshift64*
+            state ^= state >> 12;
+            state ^= state << 25;
+            state ^= state >> 27;
+            state.wrapping_mul(0x2545_f491_4f6c_dd1d) >> 11
+        };
+        let picked = o::order(&items, fixed, order, self.key_rules.0, &mut random);
+        let ordered: Vec<usize> = picked.iter().map(|&i| list[i]).collect();
+        self.automix_before_order = Some(std::mem::replace(&mut self.side[0], ordered));
+        self.refresh_side();
+        format!("Put in order: {}", order.name())
+    }
+
+    /// Puts the Automix list back as it was before the last Order pick, if
+    /// it still holds the same tracks.
+    pub fn undo_automix_order(&mut self) {
+        let Some(before) = self.automix_before_order.take() else {
+            return;
+        };
+        let (mut a, mut b) = (before.clone(), self.side[0].clone());
+        a.sort_unstable();
+        b.sort_unstable();
+        if a == b {
+            self.side[0] = before;
             self.refresh_side();
         }
     }
@@ -4661,11 +4711,35 @@ impl Browser {
             return;
         }
         let ids = &self.side[tab];
+        let mixing = self.key_rules.0;
         let rows: Vec<SideRow> = ids
             .iter()
-            .map(|&id| {
+            .enumerate()
+            .map(|(n, &id)| {
                 let t = &self.library[id];
                 let cover = self.art.get(t);
+                // How the track before mixes into this one (Automix only).
+                let (fit, jump) = match (tab, n.checked_sub(1).map(|p| &self.library[ids[p]])) {
+                    (0, Some(prev)) => {
+                        use crate::automix_order::{self as o, Fit, Item};
+                        let item = |t: &Track| Item {
+                            bpm: t.bpm,
+                            key: Key::parse(&t.key),
+                        };
+                        let fit = match o::fit(&item(prev), &item(t), mixing) {
+                            Fit::Unknown => 0,
+                            Fit::Mixes => 1,
+                            Fit::Near => 2,
+                            Fit::Clash => 3,
+                        };
+                        let jump = o::bpm_jump(prev.bpm, t.bpm)
+                            .filter(|j| j.abs() >= 6.0)
+                            .map(|j| format!("{j:+.0}%"))
+                            .unwrap_or_default();
+                        (fit, jump.into())
+                    }
+                    _ => (0, SharedString::new()),
+                };
                 SideRow {
                     heading: SharedString::new(),
                     title: t.title.clone().into(),
@@ -4681,6 +4755,8 @@ impl Browser {
                     length: short_time(t.duration),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
+                    fit,
+                    jump,
                 }
             })
             .collect();
@@ -4763,6 +4839,7 @@ impl Browser {
                     length: short_time(t.duration),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
+                    ..Default::default()
                 });
             }
         }
