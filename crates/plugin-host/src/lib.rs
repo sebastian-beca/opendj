@@ -1,0 +1,21 @@
+//! Audio plugins run outside openDJ, in `opendj-plugin-host` helper
+//! processes, so a plugin that crashes, hangs or runs slow costs one effect
+//! slot, never the decks.
+//!
+//! - [`shm`]: the block of memory openDJ and a helper share.
+//! - [`client`]: openDJ's side. [`spawn`] starts a helper; the audio thread
+//!   hands it blocks with [`Connection::process`], which plays the block dry
+//!   whenever the helper misses its deadline or is gone.
+//! - [`policy`]: restart once, then disable; hangs count as crashes; a
+//!   plugin that stays over its CPU budget is switched off.
+//! - [`effects`]: what a helper can run. For now only test effects (gain,
+//!   crash, hang, slow) that prove the isolation; CLAP, VST3 and AU plugins
+//!   follow, as planned in the `add-audio-plugin-hosting` change.
+
+pub mod client;
+pub mod effects;
+pub mod policy;
+pub mod shm;
+
+pub use client::{spawn, Connection, Helper, Options, Outcome, Status, Transport};
+pub use policy::{Action, Limits, Policy};

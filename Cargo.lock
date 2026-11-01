@@ -6322,6 +6322,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "opendj-plugin-host"
+version = "0.4.6"
+dependencies = [
+ "memmap2",
+]
+
+[[package]]
 name = "opendj-plugins"
 version = "0.4.6"
 dependencies = [
