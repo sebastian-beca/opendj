@@ -14,7 +14,7 @@ range) and right-click.
 | Outside folders | Files outside your music folders and stage folders, such as ones that came in with a VirtualDJ import | Move to In Prep, Remove from collection |
 | Duplicates | The same track more than once: same artist, title and remix | Fix all easy, Keep this copy, Link as versions (see [Duplicates](#duplicates)) |
 | Not analyzed | No tempo or key | Analyze, in the background |
-| Missing or poor metadata | No artist, title, album, year or genre, or one that says nothing, like "Unknown Artist", "Untitled" or "Track 01" | Fill from file name (`Artist - Title.mp3`), written to the file too; Look up online (see [Online lookup](#online-lookup)) |
+| Missing or poor metadata | No artist, title, album, year or genre, or one that says nothing, like "Unknown Artist", "Untitled" or "Track 01" | Look up online (see [Online lookup](#online-lookup)); Fill from file name… (`Artist - Title.mp3`, shown in the review table before anything is written). The page says what the flagged tracks lack, such as "80 no genre, 12 no artist or title" |
 | Low bitrate | Compressed files under 192 kb/s, which can sound dull on a big system | None yet: replace them with a better copy |
 | Junk in names | Track numbers, web sites, "(Official Video)", underscores, or a remix or guest in the title | Clean up… (see [Clean-up](#clean-up)), Look up online |
 | No cover | No picture in the file's tags or its folder | Find covers online, or one by one from the track's info panel |
@@ -79,23 +79,48 @@ filled in), and **Merge**. Undo takes a merge back too.
 
 ## Online lookup
 
-**Look up online** on Missing or poor metadata or Junk in names (or a right-click on
-some of their tracks) looks each track up on MusicBrainz, one a second in
-the background, and opens the same review table as Clean-up with what it
-found: artist, title, album, year, and with a Discogs token also the label
-and style (as the genre). Next to each track is where the match came from
-and how sure it is.
+**Look up online** on Missing or poor metadata or Junk in names works on
+every track listed (or a right-click on some of them). It looks each track
+up on MusicBrainz in the background, paced as MusicBrainz asks, and opens
+the same review table as Clean-up with what it found: artist, title, album,
+year (of the recording's first release) and genre, and with a Discogs token
+also the label and style (as the genre). Next to each track is where the
+match came from and how sure it is.
 
-Only changes that fill an empty field from a match at least 80% sure are
-ticked. A change to something the track already has is shown unticked, so
-nothing you named yourself is overwritten unless you tick it. Fields you
-typed in the track's info panel are never proposed. **Apply** writes the
-ticked changes to your collection and the files, and Undo takes them back.
+To match more of a DJ collection, openDJ searches for the title as tagged
+first, then without bracketed parts and guests ("Kerala (Original Mix)
+[Ninja Tune]" by "Bonobo feat. X" is also searched as "Kerala" by
+"Bonobo"), then by the words in any order. "Unknown Artist", "Track 01" and
+the like count as empty: they aren't searched by, and a file called
+`Artist - Title.mp3` stands in for them. When the match gives no name, or
+nothing is found, the file name's artist and title are offered as
+"File name".
+
+Only changes that fill an empty field (or one that says nothing) from a
+match at least 80% sure are ticked, and file-name suggestions for an empty
+artist or title. A genre that is the artist's rather than the track's is
+shown unticked. A change to something the track already has is shown
+unticked, so nothing you named yourself is overwritten unless you tick it.
+Fields you typed in the track's info panel are never proposed. **Apply**
+writes the ticked changes to your collection and the files, and Undo takes
+them back.
+
+When it's done, the status line says how many were found (and how many by
+their sound), how many aren't on MusicBrainz (often DJ edits, promos and
+bootlegs), how many couldn't be looked up because there was no connection
+or MusicBrainz was busy (try those again later), and how many are in iCloud
+only, so they were looked up by name and not by their sound.
 
 With an **AcoustID key** (free on acoustid.org; paste it in Settings ›
 Collection under Online lookup) openDJ recognises tracks by their sound, so
 files called `track01.mp3` are found too. Without one, tracks are looked up
-by artist and title, and those with neither are skipped.
+by artist and title (from the tags or the file name), and those with
+neither are skipped.
+
+**Fill from file name…** opens the review table with the artist and title
+each file's name gives, for those that have none. Check them before
+**Apply**: a file called `Title - Artist.mp3` gives them the wrong way
+round.
 
 ## Duplicates
 

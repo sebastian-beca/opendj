@@ -245,7 +245,7 @@ pub fn looks_like_not_music(t: &Track) -> bool {
 
 /// Whether a tag is empty or says nothing: "Unknown Artist", "Untitled",
 /// "Track 01", "-".
-fn says_nothing(tag: &str) -> bool {
+pub fn says_nothing(tag: &str) -> bool {
     let t = tag
         .trim()
         .trim_matches(['<', '>', '[', ']', '(', ')'])

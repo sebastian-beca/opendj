@@ -9,15 +9,15 @@ use std::sync::Arc;
 
 use opendj_engine::{tags, Track};
 use opendj_library::cleanup::{self, Change, Field, Logged};
-use opendj_library::health::Check;
+use opendj_library::health::{self, says_nothing, Check};
 use opendj_library::query::Indexed;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::health::tracks;
 use super::info::{tag_fields, writable};
-use super::{is_browsed, Browser, Undo};
+use super::{file_path, is_browsed, Browser, Undo};
 use crate::coverart::{self, Wanted};
-use crate::lookup::{self, Found, Query};
+use crate::lookup::{self, Found, Miss, Query};
 use crate::{cover_scan, settings, CleanupRow, CleanupUi, GenreRow};
 
 /// A change waiting in the review table, for a track (an index into
@@ -34,16 +34,101 @@ struct Pending {
 /// A look-up at least this sure ticks its changes to empty fields.
 const SURE: f32 = 0.8;
 
-/// Seconds between tracks looked up, as MusicBrainz asks of apps.
-const LOOKUP_SPACING: f32 = 1.1;
-
-/// Tracks being looked up online, one at a time.
+/// Tracks being looked up online, one at a time (the look-up paces its
+/// requests as each service asks).
 struct LookupBatch {
     /// Track ids and what was found for each, as they come back.
-    done: Receiver<(usize, Option<Found>)>,
+    done: Receiver<(usize, Result<Found, Miss>)>,
     total: usize,
     found: Vec<(usize, Found)>,
     back: usize,
+    /// Tracks nothing matched, and those whose service couldn't be reached.
+    not_found: usize,
+    unreachable: usize,
+    /// Of `total`, how many were found by the sound and by name.
+    by_sound: usize,
+    /// Files in iCloud only: looked up by name, not fingerprinted.
+    offloaded: usize,
+    /// Artist and title from each track's file name, by track id, for
+    /// those whose tags lack them.
+    names: HashMap<usize, (String, String)>,
+}
+
+/// What the review table is of, which also names its undo line.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum Review {
+    #[default]
+    CleanUp,
+    LookUp,
+    FileNames,
+    AlbumTags,
+}
+
+impl Review {
+    fn heading(self) -> &'static str {
+        match self {
+            Review::CleanUp => "Clean up",
+            Review::LookUp => "Look-up results for",
+            Review::FileNames => "From file names for",
+            Review::AlbumTags => "Album tags for",
+        }
+    }
+
+    /// For "Undo …".
+    fn what(self) -> &'static str {
+        match self {
+            Review::CleanUp => "clean-up",
+            Review::LookUp => "look-up",
+            Review::FileNames => "file names",
+            Review::AlbumTags => "album tags",
+        }
+    }
+}
+
+/// Whether a field counts as empty: nothing in it, or nothing worth
+/// keeping ("Unknown Artist", "Track 01").
+fn blank(value: &str) -> bool {
+    value.trim().is_empty() || says_nothing(value)
+}
+
+/// The artist and title in `t`'s file name ("Artist - Title.mp3") for
+/// whichever of the two its tags lack. A file without tags is listed by
+/// its name, as its title: that title counts as lacking too.
+fn name_from_file(t: &Track) -> Option<(String, String)> {
+    let path = file_path(t)?;
+    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned());
+    let named = Some(t.title.trim()) == stem.as_deref().map(str::trim);
+    if !(blank(&t.artist) || blank(&t.title) || named) {
+        return None;
+    }
+    health::from_file_name(path)
+}
+
+/// The changes a file name proposes: an artist or title only where the
+/// tags have none (or one that says nothing), ticked, since that is
+/// what the file name says and Apply is the DJ's call.
+fn name_proposals(t: &Track, artist: &str, title: &str) -> Vec<Change> {
+    let stem = file_path(t)
+        .and_then(|p| p.file_stem())
+        .map(|s| s.to_string_lossy().trim().to_string());
+    let named = stem.as_deref() == Some(t.title.trim());
+    let mut out = Vec::new();
+    if blank(&t.artist) {
+        out.push(Change {
+            field: Field::Artist,
+            old: t.artist.clone(),
+            new: artist.to_string(),
+        });
+    }
+    if blank(&t.title) || named {
+        out.push(Change {
+            field: Field::Title,
+            old: t.title.clone(),
+            new: title.to_string(),
+        });
+    }
+    out.retain(|c| c.old.trim() != c.new.trim());
+    out
 }
 
 /// Covers being looked for online, one track at a time.
@@ -63,8 +148,8 @@ pub(super) struct CleanupState {
     genres: Vec<(String, usize, bool)>,
     covers: Option<CoverBatch>,
     lookups: Option<LookupBatch>,
-    /// What the review table is of: "Clean up" or "Look-up results for".
-    heading: &'static str,
+    /// What the review table is of.
+    kind: Review,
 }
 
 /// A genre as compared for "spelled like another": letters and digits
@@ -89,7 +174,9 @@ fn proposals(t: &Track, f: &Found, hand: &HashSet<(usize, Field)>) -> Vec<(Chang
         if old.to_lowercase() == new.trim().to_lowercase() {
             return None;
         }
-        let on = old.is_empty() && f.score >= SURE;
+        // A guessed genre (the artist's) is shown, never ticked.
+        let guess = field == Field::Genre && f.genre_guessed;
+        let on = blank(&old) && f.score >= SURE && !guess;
         Some((
             Change {
                 field,
@@ -180,7 +267,7 @@ impl Browser {
                     })
             })
             .collect();
-        self.cleanup.heading = "Clean up";
+        self.cleanup.kind = Review::CleanUp;
         self.refresh_cleanup_ui();
         if self.cleanup.review.is_empty() {
             "Nothing to clean up with the rules turned on in Settings › Collection.".into()
@@ -209,7 +296,7 @@ impl Browser {
                 })
             })
             .collect();
-        self.cleanup.heading = "Album tags for";
+        self.cleanup.kind = Review::AlbumTags;
         self.refresh_cleanup_ui();
         if self.cleanup.review.is_empty() {
             "Every album already shares one album tag.".into()
@@ -244,7 +331,7 @@ impl Browser {
             .collect();
         let n: HashSet<usize> = review.iter().map(|p| p.index).collect();
         ui.set_open(!review.is_empty());
-        ui.set_heading(format!("{} {}", self.cleanup.heading, tracks(n.len())).into());
+        ui.set_heading(format!("{} {}", self.cleanup.kind.heading(), tracks(n.len())).into());
         ui.set_rows(ModelRc::new(VecModel::from(rows)));
         ui.set_picked(review.iter().filter(|p| p.on).count() as i32);
         let all = self.genre_counts();
@@ -279,11 +366,7 @@ impl Browser {
             .filter(|p| p.on)
             .map(|p| (p.index, p.change.field, p.change.new))
             .collect();
-        let what = if self.cleanup.heading == "Clean up" {
-            "clean-up"
-        } else {
-            "look-up"
-        };
+        let what = self.cleanup.kind.what();
         self.health_status = self.make_changes(changes, what);
         self.refresh_cleanup_ui();
         self.refresh_tree();
@@ -549,37 +632,67 @@ impl Browser {
             return "Still looking up the last batch.".into();
         }
         let (key, token) = (settings::acoustid_key(), settings::discogs_token());
-        let jobs: Vec<(usize, Query)> = indices
-            .iter()
-            .map(|&i| &self.library[i])
-            .filter(|t| !is_browsed(t))
-            .map(|t| {
-                // Only a file that's here is fingerprinted; one in iCloud
-                // would be downloaded for it.
-                let path = writable(t)
-                    .filter(|p| !cover_scan::offloaded(p))
-                    .map(|p| p.to_path_buf());
-                (
-                    t.id,
-                    Query {
-                        path,
-                        artist: t.artist.clone(),
-                        title: t.title.clone(),
-                        duration: t.duration,
-                        acoustid_key: key.clone(),
-                        discogs_token: token.clone(),
-                    },
-                )
-            })
-            .filter(|(_, q)| {
-                (q.path.is_some() && !key.is_empty())
-                    || !(q.artist.trim().is_empty() || q.title.trim().is_empty())
-            })
-            .collect();
+        let mut names = HashMap::new();
+        let mut offloaded = 0;
+        let mut jobs: Vec<(usize, Query)> = Vec::new();
+        for &i in indices {
+            let t = &self.library[i];
+            if is_browsed(t) {
+                continue;
+            }
+            // Only a file that's here is fingerprinted; one in iCloud
+            // would be downloaded for it.
+            let here = writable(t).map(|p| p.to_path_buf());
+            let path = here.clone().filter(|p| !cover_scan::offloaded(p));
+            let in_icloud = here.is_some() && path.is_none();
+            // "Unknown Artist" is no name to search by; the file's name
+            // may have a better one.
+            let mut q = Query {
+                path,
+                artist: if blank(&t.artist) {
+                    String::new()
+                } else {
+                    t.artist.clone()
+                },
+                title: if blank(&t.title) {
+                    String::new()
+                } else {
+                    t.title.clone()
+                },
+                duration: t.duration,
+                acoustid_key: key.clone(),
+                discogs_token: token.clone(),
+                ..Default::default()
+            };
+            if let Some((artist, title)) = name_from_file(t) {
+                if q.artist.is_empty() {
+                    q.artist = artist.clone();
+                    q.by_file_name = true;
+                }
+                let stem = here
+                    .as_deref()
+                    .and_then(|p| p.file_stem())
+                    .map(|s| s.to_string_lossy().trim().to_string());
+                if q.title.is_empty() || stem.as_deref() == Some(q.title.trim()) {
+                    q.title = title.clone();
+                    q.by_file_name = true;
+                }
+                names.insert(t.id, (artist, title));
+            }
+            let by_sound = q.path.is_some() && !key.is_empty();
+            let by_name = !(q.artist.trim().is_empty() || q.title.trim().is_empty());
+            if !(by_sound || by_name) {
+                continue;
+            }
+            if in_icloud && !key.is_empty() {
+                offloaded += 1;
+            }
+            jobs.push((t.id, q));
+        }
         if jobs.is_empty() {
             return if key.is_empty() {
-                "These tracks have no artist and title to look up by. An AcoustID key in Settings › \
-                 Library lets openDJ recognise them by their sound."
+                "These tracks have no artist and title to look up by, in their tags or file names. \
+                 An AcoustID key in Settings › Collection lets openDJ recognise them by their sound."
                     .into()
             } else {
                 "None of these files is on this computer, and they have no artist and title to look up by."
@@ -591,10 +704,7 @@ impl Browser {
         std::thread::Builder::new()
             .name("lookup-batch".into())
             .spawn(move || {
-                for (n, (id, q)) in jobs.into_iter().enumerate() {
-                    if n > 0 {
-                        std::thread::sleep(std::time::Duration::from_secs_f32(LOOKUP_SPACING));
-                    }
+                for (id, q) in jobs {
                     if tx.send((id, lookup::look_up(&q))).is_err() {
                         break;
                     }
@@ -606,8 +716,44 @@ impl Browser {
             total,
             found: Vec::new(),
             back: 0,
+            not_found: 0,
+            unreachable: 0,
+            by_sound: 0,
+            offloaded,
+            names,
         });
         format!("Looking up {} online…", tracks(total))
+    }
+
+    /// Opens the review table with the artist and title each of these
+    /// tracks' file names give, where their tags have none. Nothing is
+    /// written until Apply.
+    pub(super) fn review_file_names(&mut self, indices: &[usize]) -> String {
+        self.cleanup.review = indices
+            .iter()
+            .filter(|&&i| !is_browsed(&self.library[i]))
+            .flat_map(|&i| {
+                let t = &self.library[i];
+                let changes = name_from_file(t)
+                    .map(|(a, b)| name_proposals(t, &a, &b))
+                    .unwrap_or_default();
+                changes.into_iter().map(move |change| Pending {
+                    index: i,
+                    change,
+                    on: true,
+                    note: "File name".into(),
+                })
+            })
+            .collect();
+        self.cleanup.kind = Review::FileNames;
+        self.refresh_cleanup_ui();
+        if self.cleanup.review.is_empty() {
+            "None of these has an \"Artist - Title\" file name for an artist or title it lacks."
+                .into()
+        } else {
+            "Check the names before Apply: a file called \"Title - Artist\" gives them the wrong way round."
+                .into()
+        }
     }
 
     /// Takes in what the look-up found since last time, and opens the
@@ -620,8 +766,15 @@ impl Browser {
         for (id, found) in batch.done.try_iter() {
             news = true;
             batch.back += 1;
-            if let Some(f) = found {
-                batch.found.push((id, f));
+            match found {
+                Ok(f) => {
+                    if f.source == "AcoustID" {
+                        batch.by_sound += 1;
+                    }
+                    batch.found.push((id, f));
+                }
+                Err(Miss::NotFound) => batch.not_found += 1,
+                Err(Miss::Unreachable) => batch.unreachable += 1,
             }
         }
         if !news {
@@ -643,39 +796,60 @@ impl Browser {
             .and_then(|db| db.hand_edited().ok())
             .unwrap_or_default();
         let mut review = Vec::new();
+        let found_ids: HashSet<usize> = batch.found.iter().map(|(id, _)| *id).collect();
         for (id, f) in &batch.found {
             let Some(&i) = self.index_of.get(id) else {
                 continue;
             };
+            let t = &self.library[i];
+            let proposed = proposals(t, f, &hand);
+            let has = |field: Field| proposed.iter().any(|(c, _)| c.field == field);
+            // What the file name says, for a name the match didn't give.
+            let from_name: Vec<Change> = batch
+                .names
+                .get(id)
+                .map(|(a, b)| name_proposals(t, a, b))
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|c| !has(c.field) && !hand.contains(&(*id, c.field)))
+                .collect();
+            review.extend(proposed.into_iter().map(|(change, on)| Pending {
+                index: i,
+                change,
+                on,
+                note: format!("{} {:.0}%", f.source, f.score * 100.0),
+            }));
+            review.extend(from_name.into_iter().map(|change| Pending {
+                index: i,
+                change,
+                on: true,
+                note: "File name".into(),
+            }));
+        }
+        // Not found online: the file name is still worth offering.
+        for (id, (a, b)) in &batch.names {
+            if found_ids.contains(id) {
+                continue;
+            }
+            let Some(&i) = self.index_of.get(id) else {
+                continue;
+            };
+            let t = &self.library[i];
             review.extend(
-                proposals(&self.library[i], f, &hand)
+                name_proposals(t, a, b)
                     .into_iter()
-                    .map(|(change, on)| Pending {
+                    .filter(|c| !hand.contains(&(*id, c.field)))
+                    .map(|change| Pending {
                         index: i,
                         change,
-                        on,
-                        note: format!("{} {:.0}%", f.source, f.score * 100.0),
+                        on: true,
+                        note: "File name, not found online".into(),
                     }),
             );
         }
-        let found = batch.found.len();
-        self.health_status = if found == 0 {
-            format!(
-                "Nothing found online for {}. Without an AcoustID key (Settings › Collection) \
-                 tracks are looked up by artist and title only.",
-                tracks(total)
-            )
-        } else if review.is_empty() {
-            format!("Found {found} of {}; nothing new for them.", tracks(total))
-        } else {
-            format!(
-                "Found {found} of {}. Ticked changes only fill empty fields from sure matches; \
-                 tick others by hand.",
-                tracks(total)
-            )
-        };
+        self.health_status = lookup_summary(&batch, review.is_empty());
         self.cleanup.review = review;
-        self.cleanup.heading = "Look-up results for";
+        self.cleanup.kind = Review::LookUp;
         self.refresh_cleanup_ui();
         self.refresh_health_ui();
     }
@@ -728,6 +902,48 @@ impl Browser {
     }
 }
 
+/// What a finished look-up says: how many were found and how, and why
+/// the rest weren't.
+fn lookup_summary(batch: &LookupBatch, nothing_new: bool) -> String {
+    let (found, total) = (batch.found.len(), batch.total);
+    let mut s = if found == 0 {
+        format!("Nothing found online for {}.", tracks(total))
+    } else {
+        let mut s = format!("Found {found} of {}", tracks(total));
+        if batch.by_sound > 0 {
+            s += &format!(" ({} by their sound)", batch.by_sound);
+        }
+        s + "."
+    };
+    if batch.not_found > 0 {
+        s += &format!(
+            " {} aren't on MusicBrainz: often DJ edits, promos and bootlegs.",
+            batch.not_found
+        );
+    }
+    if batch.unreachable > 0 {
+        s += &format!(
+            " {} couldn't be looked up (no connection, or MusicBrainz busy): try them again later.",
+            batch.unreachable
+        );
+    }
+    if batch.offloaded > 0 {
+        s += &format!(
+            " {} are in iCloud only, so they were looked up by name, not by their sound.",
+            batch.offloaded
+        );
+    }
+    if settings::acoustid_key().is_empty() && found < total {
+        s += " An AcoustID key (Settings › Collection) recognises tracks by their sound.";
+    }
+    if nothing_new && found > 0 {
+        s += " Nothing new for them.";
+    } else if !nothing_new {
+        s += " Ticked changes only fill empty fields from sure matches; tick others by hand.";
+    }
+    s
+}
+
 /// "1 genre" or "3 genres".
 fn genre_word(n: usize) -> String {
     format!("{n} genre{}", if n == 1 { "" } else { "s" })
@@ -773,6 +989,7 @@ mod tests {
             genre: "Downtempo".into(),
             score: 0.93,
             source: "AcoustID",
+            ..Default::default()
         };
         let hand = HashSet::from([(7, Field::Label)]);
         let got: Vec<(Field, bool)> = proposals(&t, &f, &hand)
@@ -793,5 +1010,64 @@ mod tests {
         assert!(proposals(&t, &unsure, &HashSet::new())
             .iter()
             .all(|(_, on)| !on));
+    }
+
+    fn file_track(path: &str, artist: &str, title: &str) -> Track {
+        Track {
+            id: 3,
+            artist: artist.into(),
+            title: title.into(),
+            album: String::new(),
+            genre: String::new(),
+            rating: 0,
+            bpm: 0.0,
+            key: String::new(),
+            duration: 300.0,
+            first_beat: 0.0,
+            source: opendj_engine::Source::File(path.into()),
+            waveform: Default::default(),
+            audio: None,
+            cover: None,
+            grid: Default::default(),
+            info: Default::default(),
+        }
+    }
+
+    #[test]
+    fn file_names_fill_only_what_says_nothing() {
+        let t = file_track("/m/02 - Bonobo - Kerala.mp3", "Unknown Artist", "Kerala");
+        let (a, b) = name_from_file(&t).unwrap();
+        let got: Vec<(Field, String)> = name_proposals(&t, &a, &b)
+            .into_iter()
+            .map(|c| (c.field, c.new))
+            .collect();
+        assert_eq!(got, [(Field::Artist, "Bonobo".to_string())]);
+        // Untagged: listed by its file name, as its title.
+        let t = file_track("/m/Bonobo - Kerala.mp3", "", "Bonobo - Kerala");
+        let (a, b) = name_from_file(&t).unwrap();
+        let got: Vec<Field> = name_proposals(&t, &a, &b).iter().map(|c| c.field).collect();
+        assert_eq!(got, [Field::Artist, Field::Title]);
+        // Good tags: the file name has nothing to add.
+        let t = file_track("/m/Bonobo - Kerala.mp3", "Bonobo", "Kerala");
+        assert!(name_from_file(&t).is_none());
+    }
+
+    #[test]
+    fn placeholders_count_as_empty_and_guessed_genres_stay_unticked() {
+        let t = file_track("/m/x.mp3", "Unknown Artist", "Kerala");
+        let f = Found {
+            artist: "Bonobo".into(),
+            title: "Kerala".into(),
+            genre: "Downtempo".into(),
+            genre_guessed: true,
+            score: 0.95,
+            source: "MusicBrainz",
+            ..Default::default()
+        };
+        let got: Vec<(Field, bool)> = proposals(&t, &f, &HashSet::new())
+            .into_iter()
+            .map(|(c, on)| (c.field, on))
+            .collect();
+        assert_eq!(got, [(Field::Artist, true), (Field::Genre, false)]);
     }
 }
