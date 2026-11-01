@@ -17,7 +17,7 @@ use crate::controls::{
     SCULPT_DEFAULTS,
 };
 use crate::dsp::{Isolator, Limiter, Sculpt};
-use crate::effects::{input_target, ColorFx, EffectRack, COLOR_FX, MAIN, TARGETS};
+use crate::effects::{input_target, ColorFx, EffectRack, BLOCK, COLOR_FX, MAIN, TARGETS};
 use crate::inputs::{Ducker, Input, InputFeed, AUXILIARY, MICROPHONE, NUM_INPUTS};
 use crate::key::{self, Key};
 use crate::keyshift::{transpose_factor, KeyShifter};
@@ -1181,6 +1181,13 @@ pub struct Engine {
     decks: [Deck; NUM_DECKS],
     master: MasterControls,
     fx: EffectRack,
+    /// Per-buffer scratch for the mix's stages, [`BLOCK`] frames each, made
+    /// up front: each deck's audio and metronome click, the main mix and the
+    /// headphone cue before the main mix's effects.
+    deck_buf: Vec<Vec<[f32; 2]>>,
+    click_buf: Vec<Vec<f32>>,
+    main_buf: Vec<[f32; 2]>,
+    cue_buf: Vec<[f32; 2]>,
     samplers: Samplers,
     commands: rtrb::Consumer<Command>,
     returned: rtrb::Producer<Returned>,
@@ -1360,6 +1367,10 @@ impl Engine {
                 decks,
                 master,
                 fx,
+                deck_buf: vec![vec![[0.0; 2]; BLOCK]; NUM_DECKS],
+                click_buf: vec![vec![0.0; BLOCK]; NUM_DECKS],
+                main_buf: vec![[0.0; 2]; BLOCK],
+                cue_buf: vec![[0.0; 2]; BLOCK],
                 samplers,
                 commands,
                 returned,
@@ -1912,6 +1923,13 @@ impl Engine {
         if frames == 0 {
             return;
         }
+        if frames > BLOCK {
+            // Longer buffers than the mix's blocks are rare: play them in parts.
+            for part in out.chunks_mut(BLOCK * channels) {
+                self.process(part, channels);
+            }
+            return;
+        }
         crate::dsp::flush_denormals();
         let dt = frames as f64 / self.sample_rate;
         // Positions published below are where the decks are at the end of
@@ -2246,11 +2264,17 @@ impl Engine {
         let mut master_clip = [false; 2];
         let mut ended = [false; NUM_DECKS];
         let out_rate = self.sample_rate;
+        // The mix runs in stages over the whole buffer, so effects can work
+        // a block at a time (plugin slots need that): each deck's audio up
+        // to its effects, then the effects, then the mix up to the main
+        // mix's effects, then those, then the rest.
+        let mut deck_buf = std::mem::take(&mut self.deck_buf);
+        let mut click_buf = std::mem::take(&mut self.click_buf);
+        let mut main_buf = std::mem::take(&mut self.main_buf);
+        let mut cue_buf = std::mem::take(&mut self.cue_buf);
         for f in 0..frames {
             let r = (f + 1) as f32 / frames as f32;
             let lerp = |(a, b): (f32, f32)| a + (b - a) * r;
-            let mut main = [0.0f32; 2];
-            let mut cue = [0.0f32; 2];
             for (i, d) in self.decks.iter_mut().enumerate() {
                 let p = &plans[i];
                 let mut s = [0.0f32; 2];
@@ -2319,11 +2343,26 @@ impl Engine {
                     s[c] += (filtered[c] - s[c]) * q;
                 }
                 s = d.sculpt.process(s);
-                s = self.fx.process(i, s, r);
+                deck_buf[i][f] = s;
+                click_buf[i][f] = 0.0;
                 if let Some(sr) = p.metronome {
                     let c = metronome(d, sr, p.moving, out_rate);
-                    s = [s[0] + c, s[1] + c];
+                    click_buf[i][f] = c;
                 }
+            }
+        }
+        for (i, buf) in deck_buf.iter_mut().enumerate() {
+            self.fx.process_block(i, &mut buf[..frames]);
+        }
+        for f in 0..frames {
+            let r = (f + 1) as f32 / frames as f32;
+            let lerp = |(a, b): (f32, f32)| a + (b - a) * r;
+            let mut main = [0.0f32; 2];
+            let mut cue = [0.0f32; 2];
+            for i in 0..NUM_DECKS {
+                let p = &plans[i];
+                let c = click_buf[i][f];
+                let s = [deck_buf[i][f][0] + c, deck_buf[i][f][1] + c];
                 for c in 0..2 {
                     deck_peak[i][c] = deck_peak[i][c].max(s[c].abs());
                 }
@@ -2359,7 +2398,18 @@ impl Engine {
                 cue[0] += a[0];
                 cue[1] += a[1];
             }
-            main = self.fx.process(MAIN, main, r);
+            main_buf[f] = main;
+            cue_buf[f] = cue;
+        }
+        self.fx.process_block(MAIN, &mut main_buf[..frames]);
+        for f in 0..frames {
+            let r = (f + 1) as f32 / frames as f32;
+            let lerp = |(a, b): (f32, f32)| a + (b - a) * r;
+            let mut main = main_buf[f];
+            let mut cue = cue_buf[f];
+            let mic = &self.inputs[MICROPHONE];
+            let m = mic.buf[f];
+            let gm = lerp(mic.level_ramp);
             for c in 0..2 {
                 main[c] += m[c] * gm;
             }
@@ -2419,6 +2469,10 @@ impl Engine {
                 *v = 0.0;
             }
         }
+        self.deck_buf = deck_buf;
+        self.click_buf = click_buf;
+        self.main_buf = main_buf;
+        self.cue_buf = cue_buf;
         self.fx.finish();
 
         // Remember where the ramps ended, and publish positions and meters.

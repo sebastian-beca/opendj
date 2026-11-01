@@ -906,7 +906,15 @@ pub(crate) struct EffectRack {
     /// Each target's beat-grid position at the start of this buffer (see
     /// [`EffectRack::set_beats`]).
     beats: [Option<f64>; TARGETS],
+    /// Scratch for [`EffectRack::process_block`]: a unit's wet signal and
+    /// released tails, [`BLOCK`] frames each, made up front.
+    wet: Vec<[f32; 2]>,
+    tails: Vec<[f32; 2]>,
 }
+
+/// The longest block [`EffectRack::process_block`] takes; the engine works
+/// in blocks no longer than this.
+pub(crate) const BLOCK: usize = 4096;
 
 impl EffectRack {
     pub(crate) fn new(reg: &ControlRegistry, sample_rate: f64) -> Self {
@@ -946,6 +954,8 @@ impl EffectRack {
             index,
             active: [[false; TARGETS]; NUM_EFFECT_UNITS],
             beats: [None; TARGETS],
+            wet: vec![[0.0; 2]; BLOCK],
+            tails: vec![[0.0; 2]; BLOCK],
         }
     }
 
@@ -1083,9 +1093,66 @@ impl EffectRack {
         }
     }
 
+    /// Runs a block of `target` through the units routed to it, in place:
+    /// unit by unit and slot by slot, a whole block at a time, which is
+    /// where plugin slots can join in. Each instance sees the same samples in
+    /// the same order as frame by frame, so the result is the same. Frame `f`
+    /// of the block is `(f + 1) / frames` of the way through the buffer, for
+    /// ramps.
+    pub(crate) fn process_block(&mut self, target: usize, buf: &mut [[f32; 2]]) {
+        let frames = buf.len();
+        assert!(frames <= BLOCK, "blocks are at most BLOCK frames");
+        let ramp = |f: usize| (f + 1) as f32 / frames as f32;
+        let mut wet = std::mem::take(&mut self.wet);
+        let mut tails = std::mem::take(&mut self.tails);
+        for u in 0..NUM_EFFECT_UNITS {
+            if !self.active[u][target] {
+                continue;
+            }
+            wet[..frames].copy_from_slice(buf);
+            tails[..frames].fill([0.0; 2]);
+            for s in 0..EFFECTS_PER_UNIT {
+                let Some(inst) = self.instance(u, s, target) else {
+                    continue;
+                };
+                if !inst.active() {
+                    continue;
+                }
+                if inst.release > 0.0 {
+                    for t in &mut tails[..frames] {
+                        let y = inst.tail();
+                        t[0] += y[0];
+                        t[1] += y[1];
+                    }
+                    continue;
+                }
+                let (g0, g1) = (inst.gain, inst.target);
+                for (f, w) in wet[..frames].iter_mut().enumerate() {
+                    let g = g0 + (g1 - g0) * ramp(f);
+                    let y = inst.process(*w);
+                    for c in 0..2 {
+                        w[c] += (y[c] - w[c]) * g;
+                    }
+                }
+            }
+            // Dry/wet. Every effect's output already carries the dry signal
+            // where it musically belongs (an echo plays over the original), so
+            // Mixxx's Dry+Wet mode would sound the same and is not separate.
+            let (a, b) = self.mix[u];
+            for (f, x) in buf.iter_mut().enumerate() {
+                let m = a + (b - a) * ramp(f);
+                for c in 0..2 {
+                    x[c] += (wet[f][c] - x[c]) * m + tails[f][c] * m;
+                }
+            }
+        }
+        self.wet = wet;
+        self.tails = tails;
+    }
+
     /// Runs one frame of `target` through the units routed to it. `r` is how
     /// far through the buffer this frame is (0..1], for ramps.
-    #[inline]
+    #[cfg(test)]
     pub(crate) fn process(&mut self, target: usize, mut x: [f32; 2], r: f32) -> [f32; 2] {
         for u in 0..NUM_EFFECT_UNITS {
             if !self.active[u][target] {
@@ -2500,6 +2567,59 @@ mod tests {
             end = buffer(&mut rack, 0.0, 6.0 + i as f64 * 0.01);
         }
         assert!(rms(&end) < 1e-6, "the tail ends: {}", rms(&end));
+    }
+
+    #[test]
+    fn a_block_at_a_time_sounds_the_same_as_frame_by_frame() {
+        // Two identical racks: one run frame by frame, one a block at a time.
+        let setup = || {
+            let reg = ControlRegistry::new();
+            let rack = EffectRack::new(&reg, SR as f64);
+            for u in [1, 5] {
+                let unit = format!("[EffectRack1_EffectUnit{u}]");
+                reg.get(&unit, "group_[Channel1]_enable").unwrap().set(1.0);
+                reg.get(&unit, "enabled").unwrap().set(1.0);
+                reg.get(&unit, "mix").unwrap().set(0.7);
+                for s in 1..=3 {
+                    let slot = format!("[EffectRack1_EffectUnit{u}_Effect{s}]");
+                    reg.get(&slot, "enabled").unwrap().set(1.0);
+                }
+            }
+            (reg, rack)
+        };
+        let (reg_a, mut a) = setup();
+        let (reg_b, mut b) = setup();
+        let beats = [0.5; TARGETS];
+        for n in 0..60 {
+            // Something changes now and then: the mix, and a release.
+            for reg in [&reg_a, &reg_b] {
+                let unit = |k: &str| reg.get("[EffectRack1_EffectUnit1]", k).unwrap();
+                unit("mix").set(0.3 + 0.01 * n as f64);
+                reg.get("[EffectRack1_EffectUnit5]", "release")
+                    .unwrap()
+                    .set(if n == 40 { 1.0 } else { 0.0 });
+            }
+            let now = n as f64 * 0.01;
+            a.prepare(beats, now);
+            b.prepare(beats, now);
+            let frames = 256 + n % 7;
+            let input: Vec<[f32; 2]> = (0..frames)
+                .map(|i| {
+                    let v = tone(n * 300 + i);
+                    [v, -0.5 * v]
+                })
+                .collect();
+            let frame_by_frame: Vec<[f32; 2]> = input
+                .iter()
+                .enumerate()
+                .map(|(f, &x)| a.process(0, x, (f + 1) as f32 / frames as f32))
+                .collect();
+            let mut block = input.clone();
+            b.process_block(0, &mut block);
+            assert_eq!(frame_by_frame, block, "buffer {n}");
+            a.finish();
+            b.finish();
+        }
     }
 
     #[test]
