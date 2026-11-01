@@ -207,8 +207,7 @@ impl Filters {
                 (low, high) => format!("{low} – {high}"),
             },
             Kind::Key if self.key_follow => match deck.and_then(|(_, k)| k) {
-                Some(k) if camelot => format!("Match {}", k.camelot()),
-                Some(k) => format!("Match {}", k.name()),
+                Some(k) => format!("Match {}", k.label(camelot)),
                 None => "Match".into(),
             },
             _ => {
@@ -641,7 +640,7 @@ impl Browser {
                 }
                 (Some(Kind::Key), Some((_, Some(k)))) => format!(
                     "Playing in {}: keys that mix with it.",
-                    if self.camelot { k.camelot() } else { k.name() }
+                    k.label(self.camelot)
                 ),
                 _ => "The playing track has no tempo or key yet.".to_string(),
             }
@@ -718,7 +717,7 @@ pub fn choices<'a>(
             let mut list: Vec<Choice> = keys
                 .into_iter()
                 .map(|k| {
-                    let label = if camelot { k.camelot() } else { k.name() };
+                    let label = k.label(camelot);
                     choice(label, format!("key:{}", k.camelot()))
                 })
                 .collect();

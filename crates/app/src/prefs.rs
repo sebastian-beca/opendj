@@ -175,6 +175,7 @@ pub fn apply_saved(registry: &ControlRegistry) {
     key::set_detector(key_detector());
     beatthis::set_enabled(settings::flag("neural_beats", true));
     key::set_mixing(key_mixing());
+    key::set_notation(settings::key_notation());
     set("[Controls]", "key_match_on_load", key_match_range() as f64);
     for (id, _, _) in AUTO_RESETS {
         set("[Controls]", id, f(settings::flag(id, true)));
@@ -944,13 +945,25 @@ impl Prefs {
                         )
                     },
                     PrefItem {
-                        choices: strings(&["Camelot · 8A", "Musical · Am"]),
-                        chosen: if camelot { 0 } else { 1 },
+                        choices: strings(&[
+                            "Camelot · 8A",
+                            "Open Key · 1m",
+                            "Sharps · A#m",
+                            "Flats · Bbm",
+                        ]),
+                        chosen: match (camelot, key::notation()) {
+                            (true, key::Notation::OpenKey) => 1,
+                            (true, _) => 0,
+                            (false, key::Notation::Flats) => 3,
+                            (false, _) => 2,
+                        },
                         ..item(
                             "key_notation",
-                            SEGMENTED,
+                            MENU,
                             "Key notation",
-                            "How keys are written on the decks and in the track list.",
+                            "How keys are written on the decks and in the track list. \
+                             Clicking a deck's key switches between the wheel and notes. \
+                             Keys in your files' tags stay as they are.",
                         )
                     },
                 ]
@@ -2292,8 +2305,11 @@ impl Prefs {
                 self.set("[Controls]", "key_match_on_load", index.min(2) as f64);
             }
             "key_notation" => {
+                let n = key::Notation::from_id(index as u8);
+                settings::set_key_notation(n);
+                key::set_notation(n);
                 if let Some(app) = self.app.upgrade() {
-                    app.global::<KeyNotation>().set_camelot(index == 0);
+                    app.global::<KeyNotation>().set_camelot(n.wheel());
                 }
             }
             "cue_mode" => {
