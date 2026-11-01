@@ -1,17 +1,46 @@
 ## ADDED Requirements
 
 ### Requirement: FX performance budget
-The effect rack SHALL NOT allocate on the audio thread. It SHALL process active effects in blocks, and it SHALL reserve delay memory only for effects that need it. A benchmark SHALL report each effect's CPU cost per frame.
+The effect rack SHALL NOT allocate, lock or wait on the audio thread. It SHALL hold delay memory only for effects that are sounding, lent from a pool allocated at start-up, and SHALL process active effects in blocks where the benchmark shows a gain. A benchmark SHALL report each effect's CPU cost per frame, a busy four-deck rack's cost, and the rack's memory.
 
 #### Scenario: Four decks with effects
 - **WHEN** all four decks each run three effects at 48 kHz
 - **THEN** the benchmark reports the rack's cost per frame, and no allocation happens on the audio thread
 
+#### Scenario: Memory
+- **WHEN** openDJ starts at 48 kHz
+- **THEN** the rack holds under 40 MB of delay memory, instead of one two-second buffer per instance
+
+#### Scenario: Pool empty
+- **WHEN** an effect turns on while no delay buffer is free
+- **THEN** it stays silent without glitching, and starts once a buffer comes back
+
+### Requirement: Clean effects
+Every effect SHALL give silence for silence (except Noise), stay finite and bounded at every parameter setting, and let feedback tails decay to true silence.
+
+#### Scenario: Extreme settings
+- **WHEN** an effect with every parameter at its minimum or maximum gets full-scale noise
+- **THEN** its output stays finite and below +18 dBFS
+
+### Requirement: Smooth parameters
+Every continuous effect parameter SHALL glide per sample, so turning any knob, even by big MIDI steps, never clicks or zips.
+
+#### Scenario: Reverb decay jump
+- **WHEN** a sounding reverb's decay jumps from minimum to maximum
+- **THEN** the output has no step larger than the music's own
+
+### Requirement: Beat-locked timing
+Gate, Flanger and Phaser SHALL take their phase from the routed deck's beat grid, and Roll SHALL start its slice on the beat division, unless the unit runs on a tapped tempo.
+
+#### Scenario: Gate on the beat
+- **WHEN** a quarter-beat Gate turns on part-way through a beat
+- **THEN** it opens on the next quarter-beat of the deck's grid
+
 ### Requirement: Clean modulated delays
 Echo, Flanger and Spiral SHALL read their delay lines with cubic or better interpolation, so sweeps keep their high frequencies and don't zipper.
 
-#### Scenario: Flanger sweep
-- **WHEN** a flanger sweeps a 10 kHz tone
+#### Scenario: Swept delay read
+- **WHEN** a delay line holding a 10 kHz tone is read at a sweeping fractional delay
 - **THEN** the tone's level stays within 1 dB across the sweep
 
 ### Requirement: More effects

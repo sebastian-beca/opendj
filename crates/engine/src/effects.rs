@@ -4,10 +4,13 @@
 //!
 //! Each (unit, slot, target) has its own effect instance so a unit can process
 //! both decks and the main mix at once. All memory is allocated here, up
-//! front: an instance owns one buffer big enough for the hungriest effect
-//! (Echo's delay line) and whichever effect is loaded uses it, so switching
-//! effects on the audio thread never allocates. A slot fades out before it
-//! switches, and fades in and out when it is turned on or off.
+//! front, and nothing is allocated on the audio thread. Delay memory sits in
+//! a [`Pool`] of buffers in two sizes (two seconds of stereo for the echoes,
+//! rolls and brakes, and enough for the reverb and flanger), lent to an
+//! instance when it starts sounding and taken back once it has gone quiet,
+//! so the rack holds a few buffers instead of one big one per instance. A
+//! slot fades out before it switches, and fades in and out when it is turned
+//! on or off.
 
 use std::f32::consts::{PI, TAU};
 
@@ -90,9 +93,96 @@ fn routable(unit: usize, target: usize) -> bool {
     (unit == MIC_FX_UNIT) == (target > MAIN)
 }
 
-/// Longest echo, in seconds; it sizes every instance's buffer.
+/// Longest echo, in seconds; it sizes the pool's long buffers.
 const ECHO_MAX_SECONDS: f32 = 2.0;
 const FLANGER_MAX_SECONDS: f32 = 0.02;
+
+/// Buffers in the rack's pool, of each size. More effects than this sounding
+/// at once (each on each of its targets) is far beyond any real set: four
+/// decks with three echoes each, plus the Beat FX on two decks and pad FX,
+/// is about 20. An effect that finds the pool empty stays off.
+const LONG_BUFFERS: usize = 32;
+const SHORT_BUFFERS: usize = 32;
+
+/// The delay memory an effect needs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Memory {
+    None,
+    /// The reverb's tank or the flanger's delay: [`short_size`].
+    Short,
+    /// Two seconds of stereo: [`long_size`].
+    Long,
+}
+
+/// Floats in a long buffer: Echo's stereo delay line, which Roll, Brake,
+/// Echo Out and Spiral use too.
+fn long_size(sample_rate: f32) -> usize {
+    2 * Echo::new(sample_rate).len
+}
+
+/// Floats in a short buffer: the reverb's tank, or the flanger's lines.
+fn short_size(sample_rate: f32) -> usize {
+    Reverb::new(sample_rate)
+        .size
+        .max(2 * Flanger::new(sample_rate).len)
+}
+
+/// Delay buffers waiting to be lent to an instance. Both stacks are created
+/// with room for every buffer, so giving one back never allocates.
+struct Pool {
+    long: Vec<Box<[f32]>>,
+    short: Vec<Box<[f32]>>,
+    long_size: usize,
+    short_size: usize,
+}
+
+impl Pool {
+    fn new(sample_rate: f32, long: usize, short: usize) -> Self {
+        let long_size = long_size(sample_rate);
+        let short_size = short_size(sample_rate);
+        let make = |n: usize, size: usize| {
+            let mut v = Vec::with_capacity(long + short);
+            v.extend((0..n).map(|_| vec![0.0f32; size].into_boxed_slice()));
+            v
+        };
+        Self {
+            long: make(long, long_size),
+            short: make(short, short_size),
+            long_size,
+            short_size,
+        }
+    }
+
+    /// A buffer at least as big as `need`: a short one if there is one left,
+    /// otherwise a long one.
+    fn take(&mut self, need: Memory) -> Option<Box<[f32]>> {
+        match need {
+            Memory::None => None,
+            Memory::Short => self.short.pop().or_else(|| self.long.pop()),
+            Memory::Long => self.long.pop(),
+        }
+    }
+
+    fn give(&mut self, buf: Box<[f32]>) {
+        if buf.is_empty() {
+            return;
+        }
+        if buf.len() >= self.long_size {
+            self.long.push(buf);
+        } else {
+            self.short.push(buf);
+        }
+    }
+
+    /// Whether `buf` is big enough for an effect needing `need`.
+    fn fits(&self, buf: &[f32], need: Memory) -> bool {
+        match need {
+            Memory::None => true,
+            Memory::Short => buf.len() >= self.short_size,
+            Memory::Long => buf.len() >= self.long_size,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
@@ -129,6 +219,17 @@ impl Kind {
     fn from_loaded(v: f64) -> Option<Kind> {
         let i = v.round();
         (i >= 1.0 && i <= KINDS.len() as f64).then(|| KINDS[i as usize - 1])
+    }
+
+    /// The delay memory the effect needs from the pool.
+    fn memory(self) -> Memory {
+        match self {
+            Kind::Echo | Kind::Roll | Kind::EchoOut | Kind::Brake | Kind::Spiral => Memory::Long,
+            Kind::Reverb | Kind::Flanger => Memory::Short,
+            Kind::Filter | Kind::Bitcrusher | Kind::Phaser | Kind::Gate | Kind::Noise => {
+                Memory::None
+            }
+        }
     }
 }
 
@@ -525,6 +626,8 @@ struct Instance {
     /// Samples left of a released tail (see `release`), and its full length.
     release: f32,
     release_len: f32,
+    /// Delay memory lent by the rack's [`Pool`] while the instance sounds
+    /// (empty when it needs none or is quiet).
     mem: Box<[f32]>,
     echo: Echo,
     reverb: Reverb,
@@ -541,23 +644,22 @@ struct Instance {
 }
 
 impl Instance {
+    /// An instance without delay memory: the rack lends it some from its
+    /// [`Pool`] when it starts sounding.
     fn new(sample_rate: f32) -> Self {
         let echo = Echo::new(sample_rate);
         let echo_len = echo.len;
-        let reverb = Reverb::new(sample_rate);
-        let flanger = Flanger::new(sample_rate);
-        let size = (2 * echo.len).max(reverb.size).max(2 * flanger.len);
         Self {
             kind: None,
             gain: 0.0,
             target: 0.0,
             release: 0.0,
             release_len: 0.0,
-            mem: vec![0.0; size].into_boxed_slice(),
+            mem: Box::default(),
             echo,
-            reverb,
+            reverb: Reverb::new(sample_rate),
             filter: Filter::new(sample_rate),
-            flanger,
+            flanger: Flanger::new(sample_rate),
             crusher: Bitcrusher::default(),
             phaser: Phaser::default(),
             gate: Gate::default(),
@@ -567,6 +669,15 @@ impl Instance {
             noise: Noise::default(),
             spiral: Spiral::new(sample_rate),
         }
+    }
+
+    /// An instance with its own buffer, big enough for any effect, for a
+    /// deck's Color FX (which is always ready) and tests.
+    fn with_memory(sample_rate: f32) -> Self {
+        let mut inst = Self::new(sample_rate);
+        inst.mem =
+            vec![0.0; long_size(sample_rate).max(short_size(sample_rate))].into_boxed_slice();
+        inst
     }
 
     fn active(&self) -> bool {
@@ -650,6 +761,8 @@ pub(crate) struct EffectRack {
     slots: [[SlotControls; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS],
     /// Indexed by [`EffectRack::index`].
     instances: Vec<Instance>,
+    /// Delay memory, lent to the instances that are sounding.
+    pool: Pool,
     /// Each (unit, slot, target)'s instance, if the unit can be routed there.
     index: [[[Option<u16>; TARGETS]; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS],
     /// Unit mix at the start and end of this buffer.
@@ -660,6 +773,11 @@ pub(crate) struct EffectRack {
 
 impl EffectRack {
     pub(crate) fn new(reg: &ControlRegistry, sample_rate: f64) -> Self {
+        Self::with_pool(reg, sample_rate, LONG_BUFFERS, SHORT_BUFFERS)
+    }
+
+    /// A rack whose pool holds `long` and `short` buffers.
+    fn with_pool(reg: &ControlRegistry, sample_rate: f64, long: usize, short: usize) -> Self {
         let sample_rate = sample_rate as f32;
         let mut n = 0;
         let index = std::array::from_fn(|u| {
@@ -687,9 +805,24 @@ impl EffectRack {
                 std::array::from_fn(|s| SlotControls::create(reg, u, s))
             }),
             instances: (0..n).map(|_| Instance::new(sample_rate)).collect(),
+            pool: Pool::new(sample_rate, long, short),
             index,
             active: [[false; TARGETS]; NUM_EFFECT_UNITS],
         }
+    }
+
+    /// Bytes of delay memory the rack holds, lent out or not.
+    #[cfg(test)]
+    fn memory_bytes(&self) -> usize {
+        let pooled: usize = self
+            .pool
+            .long
+            .iter()
+            .chain(&self.pool.short)
+            .map(|b| b.len())
+            .sum();
+        let lent: usize = self.instances.iter().map(|i| i.mem.len()).sum();
+        (pooled + lent) * std::mem::size_of::<f32>()
     }
 
     fn instance(&mut self, unit: usize, slot: usize, target: usize) -> Option<&mut Instance> {
@@ -744,11 +877,30 @@ impl EffectRack {
                     if inst.kind != kind && inst.gain == 0.0 && inst.release == 0.0 {
                         inst.kind = kind;
                     }
-                    let on = enabled && routed && inst.kind == kind && kind.is_some();
-                    inst.target = if on { 1.0 } else { 0.0 };
+                    let mut on = enabled && routed && inst.kind == kind && kind.is_some();
                     if inst.gain == 0.0 && on {
-                        inst.release = 0.0;
-                        inst.reset();
+                        // Starting afresh: borrow delay memory if the effect
+                        // needs it. With the pool empty it stays off, and
+                        // tries again next buffer.
+                        let need = kind.map_or(Memory::None, Kind::memory);
+                        if !self.pool.fits(&inst.mem, need) {
+                            let old = std::mem::take(&mut inst.mem);
+                            self.pool.give(old);
+                            match self.pool.take(need) {
+                                Some(buf) => inst.mem = buf,
+                                None => on = false,
+                            }
+                        }
+                        if on {
+                            inst.release = 0.0;
+                            inst.reset();
+                        }
+                    }
+                    inst.target = if on { 1.0 } else { 0.0 };
+                    if !inst.active() && !inst.mem.is_empty() {
+                        // Quiet: the memory goes back for another effect.
+                        let old = std::mem::take(&mut inst.mem);
+                        self.pool.give(old);
                     }
                     if inst.active() {
                         // While the old effect fades out it keeps its settings;
@@ -1694,7 +1846,7 @@ impl ColorFx {
         let mut fx = Self {
             preset: 1,
             sweep: crate::dsp::SweepFilter::new(sample_rate),
-            inst: Instance::new(sample_rate as f32),
+            inst: Instance::with_memory(sample_rate as f32),
             amount: 0.0,
             wet: 0.0,
             tail: 0.0,
@@ -1795,6 +1947,9 @@ fn beats_parameter(wanted: f32, lo: i32, hi: i32) -> f32 {
 }
 
 #[cfg(test)]
+mod bench;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1806,7 +1961,7 @@ mod tests {
 
     /// An instance of `kind` with its default parameters, fed `input` frames.
     fn run(kind: Kind, input: impl Fn(usize) -> f32, frames: usize) -> Vec<f32> {
-        let mut inst = Instance::new(SR);
+        let mut inst = Instance::with_memory(SR);
         inst.kind = Some(kind);
         inst.reset();
         let defaults = MANIFESTS[kind as usize].defaults;
