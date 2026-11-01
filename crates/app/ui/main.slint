@@ -702,6 +702,9 @@ export component AppWindow inherits Window {
     callback automix-toggle();
     callback automix-mix-now();
     callback automix-skip();
+    callback automix-order(int);
+    callback automix-order-undo();
+    in-out property <string> automix-order-note;
     callback automix-set-length(index: int);
     callback automix-set-style(index: int);
 
@@ -977,6 +980,9 @@ export component AppWindow inherits Window {
                 automix-toggle => { automix-toggle(); }
                 automix-mix-now => { automix-mix-now(); }
                 automix-skip => { automix-skip(); }
+                automix-order(i) => { automix-order(i); }
+                automix-order-undo => { automix-order-undo(); }
+                automix-order-note <=> automix-order-note;
                 automix-set-length(i) => { automix-set-length(i); }
                 automix-set-style(i) => { automix-set-style(i); }
                 side-visible: side-panel-visible;

@@ -39,6 +39,7 @@ mod analysis_queue;
 mod apple_music;
 mod art;
 mod automix;
+mod automix_order;
 mod browser;
 mod controller_editor;
 mod cover_scan;
@@ -568,6 +569,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app.on_automix_set_length(move |i| a.borrow_mut().set_length(i.max(0) as usize));
         let a = automix.clone();
         app.on_automix_set_style(move |i| a.borrow_mut().set_style(i.max(0) as usize));
+        let a = automix.clone();
+        let b = browser.clone();
+        let weak = app.as_weak();
+        app.on_automix_order(move |i| {
+            let Some(&order) = automix_order::ORDERS.get(i.max(0) as usize) else {
+                return;
+            };
+            let (Ok(mut b), Some(app)) = (b.try_borrow_mut(), weak.upgrade()) else {
+                return;
+            };
+            let top: Vec<usize> = (0..3)
+                .filter_map(|i| b.automix_at(i))
+                .map(|t| t.id)
+                .collect();
+            let fixed = a.borrow().fixed(&top);
+            let note = b.order_automix(order, fixed);
+            app.set_automix_order_note(note.into());
+        });
+        let b = browser.clone();
+        app.on_automix_order_undo(move || {
+            if let Ok(mut b) = b.try_borrow_mut() {
+                b.undo_automix_order();
+            }
+        });
     }
 
     // Keyboard shortcuts, each an openDJscript line.
