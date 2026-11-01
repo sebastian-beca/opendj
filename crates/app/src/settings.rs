@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use opendj_controllers::MappingChoice;
-use opendj_engine::key::Key;
+use opendj_engine::key::{Key, Notation};
 use opendj_engine::scan::default_music_dir;
 use opendj_engine::{AudioSetup, InputRole, InputRoute, RecordFormat, RecordSettings, Role, Route};
 use opendj_library::query::FieldNames;
@@ -44,6 +44,17 @@ pub fn camelot_keys() -> bool {
 
 pub fn set_camelot_keys(on: bool) {
     save(|v| v["camelot_keys"] = json!(on));
+}
+
+/// Which wheel and which note spelling keys are written with: Camelot,
+/// Open Key, sharps (the default for notes) or flats.
+pub fn key_notation() -> Notation {
+    let default = if camelot_keys() { 0 } else { 2 };
+    Notation::from_id(load()["key_notation"].as_u64().unwrap_or(default) as u8)
+}
+
+pub fn set_key_notation(n: Notation) {
+    save(|v| v["key_notation"] = json!(n.id()));
 }
 
 /// The Automix mix length and style picked last time, as indices into
@@ -968,8 +979,7 @@ fn save(change: impl FnOnce(&mut Value)) {
 /// (an odd tag) are shown as they are.
 pub fn show_key(key: &str, camelot: bool) -> String {
     match Key::parse(key) {
-        Some(k) if camelot => k.camelot(),
-        Some(k) => k.name(),
+        Some(k) => k.label(camelot),
         None => key.to_string(),
     }
 }

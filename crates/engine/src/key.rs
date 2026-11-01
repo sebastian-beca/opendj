@@ -54,18 +54,47 @@ impl Key {
         format!("{number}{}", if self.minor { 'A' } else { 'B' })
     }
 
-    /// The key as notes: "C", "F#", "Am", "Ebm".
+    /// The key as notes, spelt with sharps ("C#", "A#m") unless the settings
+    /// pick flats ("Db", "Bbm"); see [`set_notation`].
     pub fn name(self) -> String {
-        const NAMES: [&str; 12] = [
-            "C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B",
+        self.spelt(notation() == Notation::Flats)
+    }
+
+    /// The key as notes, with sharps or flats for the black keys.
+    pub fn spelt(self, flats: bool) -> String {
+        const SHARPS: [&str; 12] = [
+            "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
         ];
-        const MINOR: [&str; 12] = [
-            "C", "C#", "D", "Eb", "E", "F", "F#", "G", "G#", "A", "Bb", "B",
+        const FLATS: [&str; 12] = [
+            "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B",
         ];
-        if self.minor {
-            format!("{}m", MINOR[self.tonic as usize])
+        let note = if flats { FLATS } else { SHARPS }[self.tonic as usize];
+        format!("{note}{}", if self.minor { "m" } else { "" })
+    }
+
+    /// The key in Open Key notation (Traktor's): "1d" is C major, "1m" A
+    /// minor.
+    pub fn open_key(self) -> String {
+        let n = (self.camelot_number() + 4) % 12 + 1;
+        format!("{n}{}", if self.minor { 'm' } else { 'd' })
+    }
+
+    /// The key on the wheel the settings pick: Camelot, or Open Key.
+    pub fn wheel(self) -> String {
+        if notation() == Notation::OpenKey {
+            self.open_key()
         } else {
-            NAMES[self.tonic as usize].to_string()
+            self.camelot()
+        }
+    }
+
+    /// The key as shown: on the wheel ([`Key::wheel`]) or as notes
+    /// ([`Key::name`]).
+    pub fn label(self, wheel: bool) -> String {
+        if wheel {
+            self.wheel()
+        } else {
+            self.name()
         }
     }
 
@@ -281,6 +310,52 @@ pub fn mixing() -> Mixing {
 
 pub fn set_mixing(m: Mixing) {
     MIXING.store(m.id(), Ordering::Relaxed);
+}
+
+/// How keys are written, as picked in the settings. Clicking a deck's key
+/// flips between a wheel and notes: Open Key flips to sharps, flats to
+/// Camelot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Notation {
+    #[default]
+    Camelot,
+    OpenKey,
+    Sharps,
+    Flats,
+}
+
+impl Notation {
+    pub const ALL: [Notation; 4] = [
+        Notation::Camelot,
+        Notation::OpenKey,
+        Notation::Sharps,
+        Notation::Flats,
+    ];
+
+    pub fn id(self) -> u8 {
+        self as u8
+    }
+
+    pub fn from_id(id: u8) -> Notation {
+        Notation::ALL.get(id as usize).copied().unwrap_or_default()
+    }
+
+    /// Whether it writes keys on a wheel (Camelot, Open Key) or as notes.
+    pub fn wheel(self) -> bool {
+        matches!(self, Notation::Camelot | Notation::OpenKey)
+    }
+}
+
+static NOTATION: AtomicU8 = AtomicU8::new(0);
+
+/// The notation [`Key::wheel`] and [`Key::name`] follow, unless changed with
+/// [`set_notation`].
+pub fn notation() -> Notation {
+    Notation::from_id(NOTATION.load(Ordering::Relaxed))
+}
+
+pub fn set_notation(n: Notation) {
+    NOTATION.store(n.id(), Ordering::Relaxed);
 }
 
 static DETECTOR: AtomicU8 = AtomicU8::new(0);
@@ -509,15 +584,25 @@ mod tests {
         assert_eq!(p("2d"), k("G", "9B"));
         assert_eq!(p("F#m"), k("F#m", "11A"));
         assert_eq!(p("Gbm"), k("F#m", "11A"));
-        assert_eq!(p("Eb minor"), k("Ebm", "2A"));
-        assert_eq!(p("B♭"), k("Bb", "6B"));
+        assert_eq!(p("Eb minor"), k("D#m", "2A"));
+        assert_eq!(p("B♭"), k("A#", "6B"));
+        assert_eq!(p("Db"), k("C#", "3B"));
         assert_eq!(p("c maj"), k("C", "8B"));
         assert_eq!(p("Cb"), k("B", "1B"));
         for i in 0..24 {
             let key = Key::from_index(i).unwrap();
             assert_eq!(Key::parse(&key.camelot()), Some(key));
             assert_eq!(Key::parse(&key.name()), Some(key));
+            assert_eq!(Key::parse(&key.spelt(true)), Some(key));
+            assert_eq!(Key::parse(&key.open_key()), Some(key));
+            assert!(!key.name().contains('b'));
         }
+        let k = |s: &str| Key::parse(s).unwrap();
+        assert_eq!(k("Bbm").spelt(true), "Bbm");
+        assert_eq!(k("C#").spelt(true), "Db");
+        assert_eq!(k("C").open_key(), "1d");
+        assert_eq!(k("Am").open_key(), "1m");
+        assert_eq!(k("F#m").open_key(), "4m");
         assert_eq!(Key::parse(""), None);
         assert_eq!(Key::parse("13A"), None);
         assert_eq!(Key::parse("H"), None);
