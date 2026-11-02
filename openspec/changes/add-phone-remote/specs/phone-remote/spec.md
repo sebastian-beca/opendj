@@ -30,7 +30,7 @@ The remote SHALL refuse requests whose `Host` is not an address or `.local` name
 - **THEN** the connection is refused
 
 ### Requirement: Automix on the phone
-A paired phone SHALL open on a now-playing screen: a large cover of the track you hear, its title, artist, deck, tempo and key, a progress bar with the next mix shaded, Automix's status line, and the next track with the time left to its mix. Its controls SHALL be Order, play/pause, Mix now and Mix settings (length, style and Skip the next track). A master volume slider SHALL sit under the controls, styled apart from the progress bar (labelled, lilac, in its own box). Pause SHALL pause the decks Automix is playing and switch Automix off; Play SHALL resume them and switch Automix back on (or start Automix when nothing was paused). The phone SHALL NOT switch between decks: it shows one track, the one you hear.
+A paired phone SHALL open on a now-playing screen: a large cover of the track you hear, its title, artist, deck, tempo and key, a progress bar with the next mix shaded, Automix's status line, and the next track with the time left to its mix. Its controls SHALL be, left to right, Order, Mix settings (length, style and Skip the next track), play/pause in the centre, Mix now and the sleep timer. A master volume slider SHALL sit under the controls, styled apart from the progress bar (labelled, lilac, in its own box). Pause SHALL pause the decks Automix is playing and switch Automix off; Play SHALL resume them and switch Automix back on (or start Automix when nothing was paused). The phone SHALL NOT switch between decks: it shows one track, the one you hear.
 
 #### Scenario: Pause from the phone
 - **WHEN** the DJ taps pause while Automix plays deck 2
@@ -69,7 +69,7 @@ A paired phone SHALL set the master level (`[Master],gain`) and, when a booth ou
 - **THEN** the master level slides to silence over eight seconds, and Bring the sound back restores it
 
 ### Requirement: Search and add from the phone
-A paired phone SHALL search the collection with the same search syntax as the browser (for example `bpm:120-124` or `crate:Warm-up`), show up to 100 results sorted by title with how many were found, and add a result to the end of the Automix list or to play next (right below the tracks Automix holds). Tracks already on the list SHALL be marked. The search SHALL open full screen from the queue and close with Done, which also clears it.
+A paired phone SHALL search the collection with the same search syntax as the browser (for example `bpm:120-124` or `crate:Warm-up`), show results sorted by title with how many were found, 100 at a time with more fetched as the DJ scrolls (an empty search lists the whole collection), and add a result to the end of the Automix list or to play next (right below the tracks Automix holds). Tracks already on the list SHALL be marked. The search SHALL open full screen from the queue and close with Done, which also clears it.
 
 #### Scenario: Add a request
 - **WHEN** the DJ searches "innerbloom" on the phone and taps Next on the result
