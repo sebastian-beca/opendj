@@ -1,9 +1,14 @@
 #!/bin/sh
 # Builds dist/openDJ.app around a compiled binary and zips it as
-# dist/opendj-macos.zip. Usage: scripts/bundle-macos.sh BINARY VERSION
+# dist/opendj-macos.zip. Usage: scripts/bundle-macos.sh BINARY [VERSION [BUILD]]
+# VERSION is what About openDJ and Finder show; it defaults to the version in
+# Cargo.toml, the one the app itself reports, so the two always agree. BUILD
+# goes in brackets after it in About (e.g. "test build abc1234"); it defaults
+# to VERSION.
 set -eu
 binary=$1
-version=$2
+version=${2:-$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)}
+build=${3:-$version}
 
 app=dist/openDJ.app/Contents
 rm -rf dist/openDJ.app
@@ -40,7 +45,7 @@ cat > "$app/Info.plist" <<PLIST
   <key>CFBundleIconFile</key><string>openDJ</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$version</string>
-  <key>CFBundleVersion</key><string>$version</string>
+  <key>CFBundleVersion</key><string>$build</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSMicrophoneUsageDescription</key><string>openDJ plays your microphone and other inputs through the mixer.</string>

@@ -28,11 +28,16 @@ jobs:
       - uses: actions/checkout@v7
       - id: v
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)" >> "$GITHUB_OUTPUT"
+          cargo=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          # The app reports the Cargo.toml version (Settings, bug reports,
+          # update checks) and the downloads are named after the tag, so a
+          # tag that doesn't match would ship an app that disagrees with
+          # itself and keeps offering its own release as an update.
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "${GITHUB_REF_NAME#v}" != "$cargo" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match version $cargo in Cargo.toml. Merge the prepare PR that bumps it, then tag again."
+            exit 1
           fi
+          echo "version=$cargo" >> "$GITHUB_OUTPUT"
 
   macos:
     # One app for both Apple Silicon and Intel Macs.

@@ -109,7 +109,9 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo build --release -p opendj -p opendj-plugin-host
-      - run: scripts/bundle-macos.sh target/release/opendj 0.1.0
+      # The version in Cargo.toml (what the app reports in Settings), with
+      # the commit as the build, so About openDJ says which build this is.
+      - run: scripts/bundle-macos.sh target/release/opendj "" "test build $(git rev-parse --short HEAD)"
       - uses: actions/upload-artifact@v7
         with:
           name: opendj-macos
@@ -127,7 +129,11 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo build --release -p opendj -p opendj-plugin-host
-      - run: scripts/bundle-windows.ps1 target/release/opendj.exe 0.0.0-dev
+      # The version in Cargo.toml, as the app reports it, so the setup and
+      # Apps & features name the same version.
+      - run: |
+          $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          scripts/bundle-windows.ps1 target/release/opendj.exe $v
         shell: pwsh
       - uses: actions/upload-artifact@v7
         with:
