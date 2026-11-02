@@ -39,6 +39,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-streaming-browse](changes/add-streaming-browse/proposal.md) (Spotify, TIDAL, Apple Music, SoundCloud, Mixcloud and other streaming playlists, browse only; Seba 2026-10-29, issue #139)
 - [add-settings-layers](changes/add-settings-layers/proposal.md) (settings in three layers: good defaults, task-grouped choices, a searchable Advanced list with Show modified; from a review of VirtualDJ's Options & Tweaks; Seba 2026-10-31)
 - [improve-metadata-lookup](changes/improve-metadata-lookup/proposal.md) (batch metadata fixes that match more tracks, file names as reviewed suggestions; Seba 2026-11-01)
+- [add-groove-box](changes/add-groove-box/proposal.md) (a step-sequencer Groove Box that takes the place of a deck, beginner first, synthesised classic drum machine kits; replaces add-pattern-sequencer, moved from v1.x by Seba 2026-11-02)
 
 ## v0.6 · Buy it from the artist
 
@@ -68,7 +69,6 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-karaoke](changes/add-karaoke/proposal.md)
 - [add-library-cloud-sync](changes/add-library-cloud-sync/proposal.md)
 - [add-live-broadcast](changes/add-live-broadcast/proposal.md)
-- [add-pattern-sequencer](changes/add-pattern-sequencer/proposal.md)
 - [add-phrase-aware-automix](changes/add-phrase-aware-automix/proposal.md)
 - [add-synced-lyrics](changes/add-synced-lyrics/proposal.md)
 - [add-track-suggestions](changes/add-track-suggestions/proposal.md)

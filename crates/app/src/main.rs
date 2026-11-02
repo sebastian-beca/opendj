@@ -40,6 +40,7 @@ mod apple_music;
 mod art;
 mod automix;
 mod automix_order;
+mod beat_counter;
 mod browser;
 mod controller_editor;
 mod cover_scan;
@@ -428,6 +429,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The FX bar, likewise.
     app.set_fx_bar_visible(settings::flag("fx_bar_visible", true));
     app.on_fx_bar_visible_changed(|on| settings::set("fx_bar_visible", serde_json::json!(on)));
+    // The beat counter in the deck headers: off, beats, or beats and
+    // phrases, picked in Settings › Decks.
+    {
+        let counter = app.global::<BeatCounter>();
+        counter.set_mode(beat_counter_mode());
+        counter.set_decks(ModelRc::new(VecModel::from(vec![
+            BeatCount::default();
+            NUM_DECKS
+        ])));
+    }
     // Phrase bars on the deck overviews, shown or hidden from an
     // overview's right-click menu.
     let phrase_view = app.global::<PhraseView>();
@@ -1827,6 +1838,7 @@ impl Gpu {
                 Some(t) if show_phrases => self.phrases(d, t),
                 _ => Vec::new(),
             };
+            self.beat_count(app, d, track, play_seconds, speed != 0.0, &phrases);
             let frame = track.map(|t| decks.frame(d, t, play_seconds, phrases));
             // The jog marker turns with the same smoothed clock as the
             // waveform, set here as each frame is drawn rather than on the UI
@@ -1875,6 +1887,56 @@ impl Gpu {
 }
 
 impl Gpu {
+    /// Updates deck `d`'s beat counter from the same smoothed position the
+    /// waveforms are drawn at, so its squares change on the beat.
+    fn beat_count(
+        &mut self,
+        app: &AppWindow,
+        d: usize,
+        track: Option<&Arc<Track>>,
+        seconds: f64,
+        playing: bool,
+        drawn: &Phrases,
+    ) {
+        let global = app.global::<BeatCounter>();
+        let mode = global.get_mode();
+        let count = match track {
+            Some(t) if mode != beat_counter::MODE_OFF => {
+                // The overview's phrases, found even while it hides them.
+                let phrases = if mode != beat_counter::MODE_PHRASES {
+                    Vec::new()
+                } else if drawn.is_empty() {
+                    self.phrases(d, t)
+                } else {
+                    drawn.clone()
+                };
+                beat_counter::count(t, seconds, &phrases)
+            }
+            _ => None,
+        };
+        let shown = match count {
+            None => BeatCount::default(),
+            Some(c) => BeatCount {
+                shown: true,
+                playing,
+                beat: c.beat as i32,
+                bar: c.bar_in_group as i32,
+                last_bar: c.bars_left == 1,
+                label: c.label().into(),
+                countdown: c.countdown().into(),
+                next_color: c
+                    .next
+                    .map_or(slint::Color::from_rgb_u8(0x9e, 0x9e, 0xa3), |k| {
+                        slint::Color::from_argb_encoded(0xff00_0000 | beat_counter::kind_color(k))
+                    }),
+            },
+        };
+        let model = global.get_decks();
+        if model.row_data(d).as_ref() != Some(&shown) {
+            model.set_row_data(d, shown);
+        }
+    }
+
     /// Deck `d`'s phrases for the waveforms, found once per track: the
     /// library's until its waveform is ready, then found from the waveform
     /// and the grid as they are now.
@@ -1950,20 +2012,11 @@ fn grid_source(from: &str) -> String {
     }
 }
 
-/// The beat number of the track's first bar: the first bar line at or
-/// after its start, on the grid the waveform draws (bar lines every fourth
-/// beat from beat 0).
-fn first_bar_beat(t: &Track) -> f64 {
-    let at_start = if t.grid.is_empty() {
-        if t.bpm <= 0.0 {
-            return 0.0;
-        }
-        -t.first_beat * t.bpm / 60.0
-    } else {
-        t.grid.beat_at(0.0)
-    };
-    // A hair of tolerance so a bar right at the start is bar 1.
-    (at_start / 4.0 - 1e-6).ceil() * 4.0
+use beat_counter::first_bar_beat;
+
+/// What the deck headers' beat counter shows, as Settings › Decks keeps it.
+pub fn beat_counter_mode() -> i32 {
+    settings::number("beat_counter", beat_counter::MODE_PHRASES as f64).clamp(0.0, 2.0) as i32
 }
 
 /// A loop length in beats, as the loop box shows it: 4, 2.5 or 1/8.
