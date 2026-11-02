@@ -8,7 +8,8 @@ openDJ has four kinds of effects:
 - **Pad FX**: played from the pads while you hold them.
 
 All of them follow the tempo of the track, so echoes and gates stay on the
-beat.
+beat. Gates, flangers, phasers, the chorus and rolls also lock to the track's
+beat grid: a gate opens on the beat, and a roll starts on it.
 
 ## The FX bar
 
@@ -25,7 +26,7 @@ Each effect has:
 - **Its length in beats**, with ◀ and ▶ to halve and double it. Effects
   that have no length show a slider instead, for their main setting:
   reverb's decay, the filter's resonance, the bitcrusher's bit depth, the
-  noise's sweep.
+  noise's sweep, the drive's tone, the ladder's resonance, the hall's decay.
 - **D/W**, how much of the effect you hear over the dry track.
 
 A deck's effects start as **Reverb**, **Echo** and **Gate**. They play one
@@ -50,6 +51,12 @@ that deck.
 | Brake | Slows the track to a stop, like a turntable |
 | Noise | A white noise sweep, for build-ups |
 | Spiral | An echo that rises in pitch |
+| Drive | Warm overdrive, from a little grit to full crunch |
+| Chorus | Thickens the sound with slowly drifting copies, wide in stereo |
+| Ladder | A resonant analogue-style low-pass that closes as you turn it up |
+| Hall | A big, smooth concert hall, with pre-delay |
+| Rev Roll | Repeats a short slice backwards |
+| Filter Echo | An echo whose repeats get thinner (or darker) |
 
 Switching an effect off fades it out quickly. On a DDJ-FLX4,
 **SHIFT** + **BEAT FX ON/OFF** releases the Beat FX instead: it stops

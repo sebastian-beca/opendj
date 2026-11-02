@@ -54,7 +54,16 @@ Once the above lands, the rack processes each active instance over a block of fr
 
 ### New effects
 
-Ported by hand from MIT code, each file header naming its source and `NOTICE` listing it: Drive (2× to 4× oversampled saturation, after Signalsmith Basics' Crunch or an Airwindows saturator), Chorus (Signalsmith Basics), a Moog-style ladder filter (Huovilainen's model, as in Mixxx, GPL-2.0-or-later), a hall reverb next to the plate (Signalsmith Basics Reverb or Airwindows Galactic), Slip Roll, Rev Roll, Helix and filtered echoes (ideas from bosai-dsp's list). New effects join the end of `AVAILABLE_EFFECTS`, so saved `loaded_effect` values and mappings keep their meaning.
+Written for openDJ after published, MIT-licensed designs, each file header naming its source and `NOTICE` listing them (no code copied), in `crates/engine/src/effects/extra.rs`:
+
+- **Drive:** a smooth x/sqrt(1+x²) saturator with a little bias for even harmonics, 4x oversampled through two Kaiser half-band stages and with first-order antiderivative anti-aliasing, then a DC blocker, a tone low-pass and level matching. Drive tops out at 24 dB: beyond that a sine becomes a square whose top harmonics alias whatever is done, and the test (5 kHz at full drive, audible aliasing 60 dB down) fails.
+- **Chorus:** three voices swung around 14 ms, a third of a cycle apart, spread in stereo, sweep in beats and locked to the grid.
+- **Ladder:** a zero-delay-feedback 4-pole Moog-style low-pass with a saturating input and resonance short of self-oscillation; its cutoff sweep is capped at about 1/120 octave per sample so the resonance can't ring like a click.
+- **Hall:** an eight-line feedback delay network mixed by a Hadamard matrix, with four input diffusers, two modulated lines, damping, pre-delay up to 120 ms and decay from 1 to 12 s; level matched to the plate. It fits in a long pool buffer.
+- **Rev Roll:** Roll played backwards. (Our Roll already slips: the deck plays on underneath, so there is no separate Slip Roll. Helix is left for later.)
+- **Filter Echo:** Echo with a low-pass or high-pass inside its feedback loop, as Pioneer's LPF/HPF Echo; the meta knob opens the send and sweeps the high-pass up together.
+
+New effects join the end of `AVAILABLE_EFFECTS`, so saved `loaded_effect` values and mappings keep their meaning. The pad FX pages are full (eight pads each) and stay as they are.
 
 ## Risks
 

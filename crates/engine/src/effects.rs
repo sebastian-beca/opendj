@@ -24,7 +24,7 @@ use crate::dsp::Svf;
 use crate::inputs::{input_group, MICROPHONE, NUM_INPUTS};
 
 /// Mixxx's built-in effects that this engine implements, in `loaded_effect` order.
-pub const AVAILABLE_EFFECTS: [&str; 12] = [
+pub const AVAILABLE_EFFECTS: [&str; 18] = [
     "Echo",
     "Reverb",
     "Filter",
@@ -37,6 +37,12 @@ pub const AVAILABLE_EFFECTS: [&str; 12] = [
     "Brake",
     "Noise",
     "Spiral",
+    "Drive",
+    "Chorus",
+    "Ladder",
+    "Hall",
+    "Rev Roll",
+    "Filter Echo",
 ];
 
 /// Parameter knobs (`parameterK`) and buttons (`button_parameterK`) per slot.
@@ -125,6 +131,7 @@ fn short_size(sample_rate: f32) -> usize {
     Reverb::new(sample_rate)
         .size
         .max(2 * Flanger::new(sample_rate).len)
+        .max(extra::Chorus::size(sample_rate))
 }
 
 /// Delay buffers waiting to be lent to an instance. Both stacks are created
@@ -198,9 +205,15 @@ enum Kind {
     Brake,
     Noise,
     Spiral,
+    Drive,
+    Chorus,
+    Ladder,
+    Hall,
+    RevRoll,
+    FilterEcho,
 }
 
-const KINDS: [Kind; 12] = [
+const KINDS: [Kind; 18] = [
     Kind::Echo,
     Kind::Reverb,
     Kind::Filter,
@@ -213,6 +226,12 @@ const KINDS: [Kind; 12] = [
     Kind::Brake,
     Kind::Noise,
     Kind::Spiral,
+    Kind::Drive,
+    Kind::Chorus,
+    Kind::Ladder,
+    Kind::Hall,
+    Kind::RevRoll,
+    Kind::FilterEcho,
 ];
 
 impl Kind {
@@ -224,11 +243,22 @@ impl Kind {
     /// The delay memory the effect needs from the pool.
     fn memory(self) -> Memory {
         match self {
-            Kind::Echo | Kind::Roll | Kind::EchoOut | Kind::Brake | Kind::Spiral => Memory::Long,
-            Kind::Reverb | Kind::Flanger => Memory::Short,
-            Kind::Filter | Kind::Bitcrusher | Kind::Phaser | Kind::Gate | Kind::Noise => {
-                Memory::None
-            }
+            Kind::Echo
+            | Kind::Roll
+            | Kind::EchoOut
+            | Kind::Brake
+            | Kind::Spiral
+            | Kind::Hall
+            | Kind::RevRoll
+            | Kind::FilterEcho => Memory::Long,
+            Kind::Reverb | Kind::Flanger | Kind::Chorus => Memory::Short,
+            Kind::Filter
+            | Kind::Bitcrusher
+            | Kind::Phaser
+            | Kind::Gate
+            | Kind::Noise
+            | Kind::Drive
+            | Kind::Ladder => Memory::None,
         }
     }
 }
@@ -239,7 +269,7 @@ struct Manifest {
     defaults: &'static [f64],
 }
 
-const MANIFESTS: [Manifest; 12] = [
+const MANIFESTS: [Manifest; 18] = [
     Manifest {
         names: &["Time", "Feedback", "Ping Pong", "Send"],
         defaults: &[0.5, 0.5, 0.0, 1.0],
@@ -288,6 +318,30 @@ const MANIFESTS: [Manifest; 12] = [
         names: &["Time", "Feedback", "Send"],
         defaults: &[0.67, 0.6, 1.0],
     },
+    Manifest {
+        names: &["Drive", "Tone"],
+        defaults: &[0.5, 0.7],
+    },
+    Manifest {
+        names: &["Time", "Depth", "Spread"],
+        defaults: &[0.5, 0.5, 0.7],
+    },
+    Manifest {
+        names: &["Cutoff", "Resonance", "Drive"],
+        defaults: &[1.0, 0.5, 0.3],
+    },
+    Manifest {
+        names: &["Decay", "Pre-delay", "Damping", "Send"],
+        defaults: &[0.5, 0.3, 0.4, 1.0],
+    },
+    Manifest {
+        names: &["Rate"],
+        defaults: &[0.25],
+    },
+    Manifest {
+        names: &["Time", "Feedback", "Filter", "Send"],
+        defaults: &[0.5, 0.6, 0.75, 1.0],
+    },
 ];
 
 /// The beat switch's range: 1/16 to 4 beats, as powers of two.
@@ -301,13 +355,20 @@ const DEFAULT_BEATS: f64 = 0.25;
 /// how its `process` reads it with [`beats`].
 fn time_parameter(kind: Kind) -> Option<(usize, i32, i32, bool)> {
     match kind {
-        Kind::Echo => Some((0, -4, 2, false)),
+        Kind::Echo | Kind::FilterEcho => Some((0, -4, 2, false)),
         Kind::Flanger | Kind::Phaser => Some((0, -1, 5, true)),
         Kind::Gate => Some((0, -4, 0, false)),
-        Kind::Roll => Some((0, -4, 0, true)),
+        Kind::Roll | Kind::RevRoll => Some((0, -4, 0, true)),
         Kind::EchoOut | Kind::Spiral => Some((0, -2, 0, false)),
         Kind::Brake => Some((0, 0, 3, false)),
-        Kind::Reverb | Kind::Filter | Kind::Bitcrusher | Kind::Noise => None,
+        Kind::Chorus => Some((0, 0, 2, false)),
+        Kind::Reverb
+        | Kind::Filter
+        | Kind::Bitcrusher
+        | Kind::Noise
+        | Kind::Drive
+        | Kind::Ladder
+        | Kind::Hall => None,
     }
 }
 
@@ -316,7 +377,7 @@ fn time_parameter(kind: Kind) -> Option<(usize, i32, i32, bool)> {
 /// at 0 and turning up sweeps its high-pass.
 fn link(kind: Kind, meta: f64) -> [Option<f64>; MAX_PARAMETERS] {
     match kind {
-        Kind::Echo | Kind::Reverb => [None, None, None, Some(meta)],
+        Kind::Echo | Kind::Reverb | Kind::Hall => [None, None, None, Some(meta)],
         Kind::Filter => [Some(1.0), None, Some(meta), None],
         Kind::Flanger | Kind::Phaser | Kind::Gate => [None, Some(meta), None, None],
         // Bitcrusher and Noise leave their second control to the FX bar's
@@ -324,10 +385,17 @@ fn link(kind: Kind, meta: f64) -> [Option<f64>; MAX_PARAMETERS] {
         Kind::Bitcrusher => [None, Some(1.0 - 0.95 * meta), None, None],
         // Turning up rolls shorter slices; brakes and echo-outs get longer.
         // Their length is the slot's beat switch.
-        Kind::Roll | Kind::Brake => [None; MAX_PARAMETERS],
+        Kind::Roll | Kind::RevRoll | Kind::Brake => [None; MAX_PARAMETERS],
         Kind::EchoOut => [None, Some(meta), None, None],
         Kind::Noise => [Some(meta), None, None, None],
         Kind::Spiral => [None, None, Some(meta), None],
+        // Drive leaves its tone to the FX bar's slider.
+        Kind::Drive => [Some(meta), None, None, None],
+        Kind::Chorus => [None, Some(meta), None, None],
+        // Turning up closes the ladder, from fully open.
+        Kind::Ladder => [Some(1.0 - 0.85 * meta), None, None, None],
+        // Opens the send and sweeps the high-pass in the repeats up.
+        Kind::FilterEcho => [None, None, Some(0.5 + 0.5 * meta), Some(meta)],
     }
 }
 
@@ -675,6 +743,11 @@ struct Instance {
     brake: Brake,
     noise: Noise,
     spiral: Spiral,
+    drive: extra::Drive,
+    chorus: extra::Chorus,
+    ladder: extra::Ladder,
+    hall: extra::Hall,
+    filter_echo: extra::FilterEcho,
 }
 
 impl Instance {
@@ -702,6 +775,11 @@ impl Instance {
             brake: Brake::new(echo_len),
             noise: Noise::default(),
             spiral: Spiral::new(sample_rate),
+            drive: extra::Drive::new(sample_rate),
+            chorus: extra::Chorus::new(sample_rate),
+            ladder: extra::Ladder::new(sample_rate),
+            hall: extra::Hall::new(sample_rate),
+            filter_echo: extra::FilterEcho::new(sample_rate),
         }
     }
 
@@ -741,11 +819,16 @@ impl Instance {
             Some(Kind::Bitcrusher) => self.crusher = Bitcrusher::default(),
             Some(Kind::Phaser) => self.phaser = Phaser::default(),
             Some(Kind::Gate) => self.gate = Gate::default(),
-            Some(Kind::Roll) => self.roll.reset(),
+            Some(Kind::Roll | Kind::RevRoll) => self.roll.reset(),
             Some(Kind::EchoOut) => self.echo_out.reset(&mut self.mem),
             Some(Kind::Brake) => self.brake.reset(&mut self.mem),
             Some(Kind::Noise) => self.noise.reset(),
             Some(Kind::Spiral) => self.spiral.reset(&mut self.mem),
+            Some(Kind::Drive) => self.drive.reset(),
+            Some(Kind::Chorus) => self.chorus.reset(&mut self.mem),
+            Some(Kind::Ladder) => self.ladder.reset(),
+            Some(Kind::Hall) => self.hall.reset(&mut self.mem),
+            Some(Kind::FilterEcho) => self.filter_echo.reset(&mut self.mem),
             None => {}
         }
     }
@@ -759,11 +842,23 @@ impl Instance {
             Some(Kind::Bitcrusher) => self.crusher.prepare(p),
             Some(Kind::Phaser) => self.phaser.prepare(p, ctx),
             Some(Kind::Gate) => self.gate.prepare(p, ctx),
-            Some(Kind::Roll) => self.roll.prepare(p, ctx),
+            Some(Kind::Roll) => {
+                self.roll.reverse = false;
+                self.roll.prepare(p, ctx)
+            }
+            Some(Kind::RevRoll) => {
+                self.roll.reverse = true;
+                self.roll.prepare(p, ctx)
+            }
             Some(Kind::EchoOut) => self.echo_out.prepare(p, ctx),
             Some(Kind::Brake) => self.brake.prepare(p, ctx),
             Some(Kind::Noise) => self.noise.prepare(p, ctx),
             Some(Kind::Spiral) => self.spiral.prepare(p, ctx),
+            Some(Kind::Drive) => self.drive.prepare(p, ctx),
+            Some(Kind::Chorus) => self.chorus.prepare(p, ctx),
+            Some(Kind::Ladder) => self.ladder.prepare(p),
+            Some(Kind::Hall) => self.hall.prepare(p),
+            Some(Kind::FilterEcho) => self.filter_echo.prepare(p, ctx),
             None => {}
         }
     }
@@ -778,11 +873,16 @@ impl Instance {
             Some(Kind::Bitcrusher) => self.crusher.process(x),
             Some(Kind::Phaser) => self.phaser.process(x),
             Some(Kind::Gate) => self.gate.process(x),
-            Some(Kind::Roll) => self.roll.process(&mut self.mem, x),
+            Some(Kind::Roll | Kind::RevRoll) => self.roll.process(&mut self.mem, x),
             Some(Kind::EchoOut) => self.echo_out.process(&mut self.mem, x),
             Some(Kind::Brake) => self.brake.process(&mut self.mem, x),
             Some(Kind::Noise) => self.noise.process(x),
             Some(Kind::Spiral) => self.spiral.process(&mut self.mem, x),
+            Some(Kind::Drive) => self.drive.process(x),
+            Some(Kind::Chorus) => self.chorus.process(&mut self.mem, x),
+            Some(Kind::Ladder) => self.ladder.process(x),
+            Some(Kind::Hall) => self.hall.process(&mut self.mem, x),
+            Some(Kind::FilterEcho) => self.filter_echo.process(&mut self.mem, x),
             None => x,
         }
     }
@@ -1175,6 +1275,18 @@ impl Echo {
 
     #[inline]
     fn process(&mut self, mem: &mut [f32], x: [f32; 2]) -> [f32; 2] {
+        self.process_with(mem, x, |v| v)
+    }
+
+    /// Like `process`, with `filter` applied to the repeats on their way
+    /// back into the delay (after the tape-like darkening).
+    #[inline]
+    fn process_with(
+        &mut self,
+        mem: &mut [f32],
+        x: [f32; 2],
+        mut filter: impl FnMut([f32; 2]) -> [f32; 2],
+    ) -> [f32; 2] {
         let (l, r) = mem[..2 * self.len].split_at_mut(self.len);
         self.delay += (self.target - self.delay) * 0.0005;
         self.feedback += (self.feedback_target - self.feedback) * 0.002;
@@ -1190,8 +1302,9 @@ impl Echo {
         for (t, f) in self.tone.iter_mut().zip(fed) {
             *t += (f - *t) * self.tone_coef;
         }
-        l[self.write] = x[0] * self.send + soft(self.tone[0] * self.feedback);
-        r[self.write] = x[1] * self.send + soft(self.tone[1] * self.feedback);
+        let back = filter(self.tone);
+        l[self.write] = x[0] * self.send + soft(back[0] * self.feedback);
+        r[self.write] = x[1] * self.send + soft(back[1] * self.feedback);
         self.write += 1;
         if self.write == self.len {
             self.write = 0;
@@ -1786,6 +1899,8 @@ struct Roll {
     /// has been worked out since the reset.
     wait: usize,
     waiting_set: bool,
+    /// Rev Roll: plays the slice backwards.
+    reverse: bool,
 }
 
 impl Roll {
@@ -1798,6 +1913,7 @@ impl Roll {
             fade: 1.0,
             wait: 0,
             waiting_set: false,
+            reverse: false,
         }
     }
 
@@ -1848,7 +1964,8 @@ impl Roll {
         let env = (p as f32 / self.fade)
             .min((slice - p) as f32 / self.fade)
             .min(1.0);
-        [l[p] * env, r[p] * env]
+        let i = if self.reverse { slice - 1 - p } else { p };
+        [l[i] * env, r[i] * env]
     }
 }
 
@@ -2193,6 +2310,8 @@ impl ColorFx {
 fn beats_parameter(wanted: f32, lo: i32, hi: i32) -> f32 {
     (wanted.log2() - lo as f32) / (hi - lo) as f32
 }
+
+mod extra;
 
 #[cfg(test)]
 mod bench;
