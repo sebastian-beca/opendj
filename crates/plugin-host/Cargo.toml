@@ -9,6 +9,10 @@ license.workspace = true
 memmap2 = "0.9"
 clack-host = "0.2"
 clack-extensions = { version = "0.2", features = ["clack-host", "params", "state", "latency", "audio-ports"] }
+# VST3: Steinberg's interfaces as Rust bindings (the SDK is MIT since 3.8).
+vst3 = "0.3"
+libloading = "0.8"
+serde_json = "1"
 
 [[bin]]
 name = "opendj-plugin-host"

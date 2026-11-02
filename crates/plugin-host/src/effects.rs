@@ -60,6 +60,11 @@ pub enum Plugin {
         file: std::path::PathBuf,
         id: String,
     },
+    /// Class `id` (32 hex digits) in the `.vst3` bundle `file`.
+    Vst3 {
+        file: std::path::PathBuf,
+        id: String,
+    },
 }
 
 /// Ids of the test effects.
@@ -84,6 +89,7 @@ pub fn load(plugin: &Plugin, sample_rate: u32, max_frames: usize) -> Result<Load
             _ => Err(format!("unknown effect {id:?}")),
         },
         Plugin::Clap { file, id } => crate::clap::load(file, id, sample_rate, max_frames),
+        Plugin::Vst3 { file, id } => crate::vst3::load(file, id, sample_rate, max_frames),
     }
 }
 
