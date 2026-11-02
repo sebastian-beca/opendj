@@ -113,6 +113,10 @@ fn ddj_sb3_shift_layers() {
 fn looked_after_mappings_read_cleanly() {
     for c in opendj_controllers::support::all() {
         let Some(file) = c.file else { continue };
+        // HID mappings are all script: the editor doesn't show them.
+        if file.ends_with(".hid.xml") {
+            continue;
+        }
         let v = view(&file);
         assert!(!v.rows.is_empty(), "{file}");
         let failed: Vec<&String> = v.notes.iter().filter(|n| n.contains("failed")).collect();

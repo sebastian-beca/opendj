@@ -173,7 +173,8 @@ impl Mapper {
             .map(|c| {
                 c.ports()
                     .into_iter()
-                    .filter(|p| p.running.is_some())
+                    // HID controllers can't be mapped by hand.
+                    .filter(|p| p.running.is_some() && !p.hid)
                     .filter_map(|p| Some((p.name, p.mapping_file?)))
                     .collect()
             })
@@ -189,6 +190,7 @@ impl Mapper {
             .into_iter()
             .filter(|p| {
                 p.mapping_file.is_none()
+                    && !p.hid
                     && !is_system_port(&p.name)
                     && c.choice(&p.name) != MappingChoice::Off
             })
@@ -490,7 +492,9 @@ impl Mapper {
         let mut ports: Vec<_> = c
             .ports()
             .into_iter()
-            .filter(|p| !is_system_port(&p.name) && c.choice(&p.name) != MappingChoice::Off)
+            .filter(|p| {
+                !p.hid && !is_system_port(&p.name) && c.choice(&p.name) != MappingChoice::Off
+            })
             .collect();
         ports.sort_by_key(|p| (p.mapping_file.is_some(), p.running.is_none()));
         ports.into_iter().map(|p| p.name).collect()

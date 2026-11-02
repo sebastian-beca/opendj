@@ -1,0 +1,8 @@
+# Lets the person at the computer open USB HID DJ controllers without root,
+# so openDJ can run their mappings. Copy to /etc/udev/rules.d/, then run
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# and plug the controller in again.
+
+# Native Instruments (Traktor Kontrol S2, S3, S4, F1, Z1, MX2)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="17cc", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="17cc", TAG+="uaccess"

@@ -287,6 +287,8 @@ impl Editor {
             .map(|c| {
                 c.ports()
                     .into_iter()
+                    // HID mappings are all script: nothing to show or edit.
+                    .filter(|p| !p.hid)
                     .filter_map(|p| Some((p.name, p.mapping_file, p.running?)))
                     .collect()
             })

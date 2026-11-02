@@ -1,5 +1,5 @@
 {
- "about": "The controllers openDJ looks after itself, beyond running Mixxx's mappings. beta: works on paper, waiting for someone to try it on the hardware. supported: tried on the hardware and its mapping settled. planned: no mapping yet. Read by src/support.rs and website/tools/controllers.py.",
+ "about": "The controllers openDJ looks after itself, beyond running Mixxx's mappings. beta: works on paper, waiting for someone to try it on the hardware. supported: tried on the hardware and its mapping settled. planned: no mapping yet. HID mappings (.hid.xml) have no picture or rows in the Controller Editor. Read by src/support.rs and website/tools/controllers.py.",
  "controllers": [
   {"name": "Pioneer DDJ-FLX4", "file": "Pioneer-DDJ-FLX4.midi.xml", "status": "beta", "note": "Tried on the hardware; the mapping is still settling."},
   {"name": "Pioneer DDJ-400", "file": "Pioneer-DDJ-400.midi.xml", "status": "beta", "note": ""},
@@ -14,6 +14,8 @@
   {"name": "Pioneer DDJ-REV1", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list."},
   {"name": "Pioneer DDJ-1000", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list. The jog screens stay dark: they need Pioneer's own protocol."},
   {"name": "Pioneer DDJ-FLX10", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list."},
-  {"name": "Native Instruments Traktor Kontrol S2 MK3", "file": null, "status": "planned", "note": "A USB HID controller: needs HID support first."}
+  {"name": "Native Instruments Traktor Kontrol S2 MK3", "file": "Traktor Kontrol S2 MK3.hid.xml", "status": "beta", "note": "A USB HID controller, running Mixxx's HID mapping. No picture in the Controller Editor, and it can't be remapped there."},
+  {"name": "Native Instruments Traktor Kontrol S3", "file": "Traktor Kontrol S3.hid.xml", "status": "beta", "note": "A USB HID controller, running Mixxx's HID mapping. No picture in the Controller Editor, and it can't be remapped there."},
+  {"name": "Native Instruments Traktor Kontrol S4 MK3", "file": "Traktor Kontrol S4 MK3.hid.xml", "status": "beta", "note": "A USB HID controller, running Mixxx's HID mapping. Its two screens stay dark. No picture in the Controller Editor."}
  ]
 }

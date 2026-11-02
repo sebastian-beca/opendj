@@ -91,12 +91,13 @@ mod tests {
         assert_eq!(status("Akai MPD24.midi.xml"), None);
     }
 
-    /// Every controller with a mapping has a picture in the editor.
+    /// Every controller with a MIDI mapping has a picture in the editor.
     #[test]
     fn listed_mappings_have_pictures() {
         let pictured = crate::layout::Layout::files();
         for c in all() {
-            if let Some(f) = c.file {
+            // HID mappings are all script: no rows to place on a picture.
+            if let Some(f) = c.file.filter(|f| !f.ends_with(".hid.xml")) {
                 assert!(pictured.contains(&f), "{f} has no layout");
             }
         }
