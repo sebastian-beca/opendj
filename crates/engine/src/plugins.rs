@@ -19,8 +19,8 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use opendj_control::{ControlHandle, ControlRegistry};
+pub use opendj_plugin_host::{scan, scan_audio_units, Descriptor, Limits, Plugin, ScanError};
 use opendj_plugin_host::{spawn, Action, Helper, Options, Policy, Status};
-pub use opendj_plugin_host::{Limits, Plugin};
 
 use crate::controls::{effect_group, effect_unit_group, EFFECTS_PER_UNIT, NUM_EFFECT_UNITS};
 use crate::effects::{
@@ -31,6 +31,9 @@ use crate::effects::{
 /// One plugin the slots can load, from the app's scan.
 #[derive(Clone, Debug)]
 pub struct PluginEntry {
+    /// Stays the same between lists and sessions (format, file and id), so
+    /// a slot keeps its plugin when the list changes around it.
+    pub key: String,
     pub name: String,
     pub plugin: Plugin,
 }
@@ -44,6 +47,24 @@ pub enum PluginEvent {
     Restarted { name: String },
     /// It crashed again, or ran too slow: off for the rest of the session.
     Disabled { name: String, reason: String },
+}
+
+impl std::fmt::Display for PluginEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PluginEvent::Failed { name, error } => {
+                write!(f, "{name} didn't start ({error}), so its slot is empty.")
+            }
+            PluginEvent::Restarted { name } => write!(
+                f,
+                "{name} stopped working and was restarted. The music kept playing; switch the effect on again when you want it."
+            ),
+            PluginEvent::Disabled { name, reason } => write!(
+                f,
+                "{name} is off until you restart openDJ: {reason}. The music kept playing."
+            ),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -111,8 +132,9 @@ impl PluginHost {
     }
 
     /// The plugins the slots can load: `loaded_effect` [`PLUGIN_BASE`] + i
-    /// is `entries[i]`. A new list empties slots that point past its end,
-    /// and gives every plugin a fresh start.
+    /// is `entries[i]`. With a new list, slots keep their plugin (by key)
+    /// at its new place, slots whose plugin left are emptied, and every
+    /// plugin gets a fresh start.
     pub fn set_plugins(&self, mut entries: Vec<PluginEntry>) {
         entries.truncate(MAX_PLUGINS);
         let n = entries.len();
@@ -238,7 +260,7 @@ impl Supervisor {
             return;
         }
         self.version = list.version;
-        self.entries = list.entries.clone();
+        let old = std::mem::replace(&mut self.entries, list.entries.clone());
         drop(list);
         self.policies.clear();
         self.disabled.clear();
@@ -249,9 +271,19 @@ impl Supervisor {
         }
         for unit in &self.slots {
             for slot in unit {
-                if plugin_index(slot.loaded_effect.get()).is_some_and(|p| p >= self.entries.len()) {
-                    slot.loaded_effect.set(0.0);
-                }
+                let Some(p) = plugin_index(slot.loaded_effect.get()) else {
+                    continue;
+                };
+                // The first time, slots restored from the last session already
+                // point into this list.
+                let moved = if self.version == 1 && old.is_empty() {
+                    (p < self.entries.len()).then_some(p)
+                } else {
+                    old.get(p)
+                        .and_then(|e| self.entries.iter().position(|n| n.key == e.key))
+                };
+                slot.loaded_effect
+                    .set(moved.map_or(0.0, |n| (PLUGIN_BASE + n) as f64));
             }
         }
     }
@@ -288,7 +320,9 @@ impl Supervisor {
                     let _ = self.events.send(PluginEvent::Restarted { name });
                 }
                 Action::Disable => {
-                    let reason = if crashed || missed > 0 {
+                    let reason = if crashed {
+                        "it crashed again"
+                    } else if missed > 0 {
                         "it stopped responding again"
                     } else {
                         "it used too much of the audio time"
@@ -493,6 +527,7 @@ mod tests {
             opts.poll = Duration::from_millis(2);
             let host = PluginHost::start(&reg, link, opts);
             host.set_plugins(vec![PluginEntry {
+                key: effect.into(),
                 name: format!("Test {effect}"),
                 plugin: Plugin::Test(effect.into()),
             }]);
@@ -633,7 +668,22 @@ mod tests {
     }
 
     #[test]
-    fn a_new_plugin_list_empties_slots_past_its_end() {
+    fn a_slot_keeps_its_plugin_when_the_list_changes() {
+        let mut rig = Rig::new("test-gain");
+        rig.until(|r, _| r.slot("num_parameters").get() == 1.0);
+        let entry = |key: &str| PluginEntry {
+            key: key.into(),
+            name: key.into(),
+            plugin: Plugin::Test(key.into()),
+        };
+        rig.host
+            .set_plugins(vec![entry("test-slow"), entry("test-gain")]);
+        let second = (PLUGIN_BASE + 1) as f64;
+        rig.until(|r, _| r.slot("loaded_effect").get() == second);
+    }
+
+    #[test]
+    fn a_new_plugin_list_empties_slots_whose_plugin_left() {
         let mut rig = Rig::new("test-gain");
         rig.until(|r, _| r.slot("num_parameters").get() == 1.0);
         rig.host.set_plugins(Vec::new());

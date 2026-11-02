@@ -248,6 +248,7 @@ component EffectPicker inherits Rectangle {
         x: centred ? (root.width - 190px) / 2 : 0px;
         y: root.height + 2px;
         width: 190px;
+        height: list.height;
         close-policy: close-on-click-outside;
         Rectangle {
             background: Theme.panel-raised;
@@ -257,28 +258,40 @@ component EffectPicker inherits Rectangle {
             drop-shadow-blur: 12px;
             drop-shadow-color: #000000a0;
         }
-        VerticalLayout {
-            padding: 6px;
-            spacing: 0px;
-            for e[i] in EffectList.names: Rectangle {
-                property <bool> current: loaded == i + 1;
-                height: 26px;
-                border-radius: 4px;
-                background: current ? tint.with-alpha(0.35) : eta.has-hover ? #3a3a3d : transparent;
-                HorizontalLayout {
-                    padding-left: 8px;
-                    padding-right: 8px;
-                    Text { text: e; color: Theme.text; font-size: 12px; font-weight: current ? 700 : 400; vertical-alignment: center; horizontal-stretch: 1; }
-                }
-                eta := TouchArea {
-                    clicked => {
-                        if current {
-                            Controls.toggle(enabled-index);
-                        } else {
-                            Controls.set-value(loaded-index, i + 1);
-                            Controls.set-value(enabled-index, 1);
+        // Plugins come after the built-in effects, under a line; a long
+        // list scrolls.
+        list := Flickable {
+            height: min(EffectList.names.length * 26px + 12px + (EffectList.names.length > EffectList.builtin-count ? 9px : 0px), 440px);
+            viewport-height: fx-rows.preferred-height;
+            fx-rows := VerticalLayout {
+                padding: 6px;
+                spacing: 0px;
+                for e[i] in EffectList.names: VerticalLayout {
+                    if i == EffectList.builtin-count: Rectangle {
+                        height: 9px;
+                        Rectangle { y: 4px; height: 1px; background: Theme.border; }
+                    }
+                    Rectangle {
+                        property <bool> current: loaded == i + 1;
+                        height: 26px;
+                        border-radius: 4px;
+                        background: current ? tint.with-alpha(0.35) : eta.has-hover ? #3a3a3d : transparent;
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            Text { text: e; color: Theme.text; font-size: 12px; font-weight: current ? 700 : 400; vertical-alignment: center; horizontal-stretch: 1; }
                         }
-                        menu.close();
+                        eta := TouchArea {
+                            clicked => {
+                                if current {
+                                    Controls.toggle(enabled-index);
+                                } else {
+                                    Controls.set-value(loaded-index, i + 1);
+                                    Controls.set-value(enabled-index, 1);
+                                }
+                                menu.close();
+                            }
+                        }
                     }
                 }
             }
@@ -298,7 +311,7 @@ component FxControls inherits HorizontalLayout {
     property <int> loaded: Controls.value(loaded-index, Controls.tick);
     property <float> beats: Controls.value(beats-index, Controls.tick);
     property <bool> has-effect: loaded > 0 && loaded <= EffectList.names.length;
-    property <int> param: has-effect && loaded <= EffectList.slider-params.length ? EffectList.slider-params[loaded - 1] : -1;
+    property <int> param: !has-effect ? -1 : loaded > EffectList.builtin-count ? 0 : loaded <= EffectList.slider-params.length ? EffectList.slider-params[loaded - 1] : -1;
     padding-left: 6px;
     padding-right: 6px;
     spacing: 4px;
