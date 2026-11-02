@@ -4,7 +4,8 @@
 
 - [x] 1.1 `crates/plugin-host`: shared-memory block exchange, `opendj-plugin-host` helper, deadline with dry fallback, crash/hang detection, restart and disable policy, test effects (gain, crash, hang, slow)
 - [ ] 1.2 Real-time priority for the helper's audio thread; join openDJ's audio workgroup on macOS
-- [ ] 1.3 Supervisor thread in the app: restart after a crash with saved state, kill hung helpers, crash counter kept between sessions
+- [x] 1.3a Plugin host thread in the engine (`opendj_engine::plugins`): a helper per slot and routed target, restart once with the slot off, then disable and empty the slot; hangs and long CPU overruns count; failed starts empty the slot
+- [ ] 1.3 Restart with saved state; crash counter kept between sessions
 
 ## 2. CLAP
 
@@ -12,7 +13,8 @@
 - [x] 2.2a Scanner process with a timeout (`opendj-plugin-host --scan`, `scan()`)
 - [ ] 2.2 Scan cache, Settings › Plugins (folders, Scan, failures with Retry, allow-list, favourites)
 - [ ] 2.3 FX chooser "Plugins" group, ON/D/W/slider mapping, transport for beat-synced plugins, controller mapping
-- [ ] 2.4 Block processing for plugin slots in the effects engine; per-slot load meter and CPU budget
+- [x] 2.4a Block processing for plugin slots in the effects engine: `loaded_effect` 13 and up are plugins, the first four parameters on the slot knobs, tempo and beat from the routed deck
+- [ ] 2.4 Per-slot load meter
 - [ ] 2.5 Latency compensation by reading the deck ahead
 - [ ] 2.6 Editor windows from the helper (macOS, Windows, Linux X11)
 

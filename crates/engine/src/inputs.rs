@@ -212,13 +212,15 @@ impl Input {
         });
         self.eq_gains = eq_to;
 
-        let mut peak = [0.0f32; 2];
         for (f, s) in buf.iter_mut().enumerate() {
             let r = (f + 1) as f32 / frames as f32;
             let g = pre.0 + (pre.1 - pre.0) * r;
             let gains = std::array::from_fn(|k| eq_from[k] + (eq_to[k] - eq_from[k]) * r);
-            let x = self.eq.process([s[0] * g, s[1] * g], gains);
-            *s = fx.process(target, x, r);
+            *s = self.eq.process([s[0] * g, s[1] * g], gains);
+        }
+        fx.process_block(target, buf);
+        let mut peak = [0.0f32; 2];
+        for s in buf.iter() {
             for c in 0..2 {
                 peak[c] = peak[c].max(s[c].abs());
             }
