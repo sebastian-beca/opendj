@@ -25,6 +25,7 @@
 [Auxiliary1],vu_meter
 [Auxiliary1],vu_meter_left
 [Auxiliary1],vu_meter_right
+[Broadcast],on_air_seconds
 [Channel1],LoadSelectedTrack
 [Channel1],LoadSelectedTrackAndPlay
 [Channel1],PeakIndicator
@@ -2344,3 +2345,5 @@
 [Sculpt_[Channel4]],gain
 [Sculpt_[Channel4]],hpf
 [Sculpt_[Channel4]],lpf
+[Shoutcast],enabled
+[Shoutcast],status

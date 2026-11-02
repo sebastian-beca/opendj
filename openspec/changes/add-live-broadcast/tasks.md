@@ -12,20 +12,20 @@
 
 ## 2. Icecast radio (v0.5, size M)
 
-- [ ] 2.1 `crates/broadcast`: per-output thread and bounded queue from the master tap; resampling to 48 kHz
-- [ ] 2.2 Encoders: Opus in Ogg, MP3 (LAME), AAC through AudioToolbox and Media Foundation
-- [ ] 2.3 Icecast 2 and Shoutcast 1 source client with TLS; Test button; reconnect rules and error messages
-- [ ] 2.4 Now-playing from the audible track, template and fixed text; Opus metadata decision (design open question 1) tested with the main players
-- [ ] 2.5 Settings › Broadcast stations, keychain storage for passwords
-- [ ] 2.6 ON AIR pill and panel: time, lights, listener counts; `[Shoutcast],enabled` and `status`; regenerate supported-controls.txt
-- [ ] 2.7 Test against a local Icecast 2.5 server in CI
-- [ ] 2.8 User guide: Broadcasting page (stations, going on air)
+- [x] 2.1 `crates/broadcast`: per-output thread and bounded queue from the master tap; resampling to 48 kHz
+- [x] 2.2 Encoders: Opus in Ogg, MP3 (LAME); AAC through AudioToolbox and Media Foundation moved to step 3
+- [x] 2.3 Icecast 2 and Shoutcast 1 source client with TLS; Test button; reconnect rules and error messages
+- [x] 2.4 Now-playing from the audible track, template and fixed text; Opus metadata decision (design open question 1) tested with Icecast 2.4 and FFmpeg
+- [x] 2.5 Settings › Broadcast stations, keychain storage for passwords
+- [x] 2.6 ON AIR pill and panel: time, lights, listener counts; `[Shoutcast],enabled` and `status`; regenerate supported-controls.txt
+- [ ] 2.7 Test against a local Icecast 2.5 server in CI (tested by hand against Icecast 2.4.4; CI uses a fake server in the crate's tests)
+- [x] 2.8 User guide: Broadcasting page (stations, going on air)
 
 ## 3. Go live to platforms (v0.6, size L)
 
 - [ ] 3.1 Test what Twitch, YouTube, Mixcloud Live and Kick accept (audio-only, Enhanced RTMP with Opus) and fix the presets
 - [ ] 3.2 FLV muxer and RTMP client
-- [ ] 3.3 H.264 encoding: VideoToolbox, Media Foundation, OpenH264 on Linux
+- [ ] 3.3 H.264 encoding: VideoToolbox, Media Foundation, OpenH264 on Linux; AAC through AudioToolbox and Media Foundation (moved from 2.2), also offered for Icecast stations
 - [ ] 3.4 Now-playing picture drawn with Slint's software renderer
 - [ ] 3.5 Platform presets with stream key only; several destinations at once
 - [ ] 3.6 User guide: going live on Twitch, YouTube and Mixcloud

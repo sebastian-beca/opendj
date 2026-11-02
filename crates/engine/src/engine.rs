@@ -1241,6 +1241,9 @@ pub struct Engine {
     /// Copies the master out for the loudness meter, all the time.
     meter: RecordTap,
     meter_feed: Option<Feed>,
+    /// Copies the master out for broadcasting, while on air.
+    broadcast: RecordTap,
+    broadcast_feed: Option<Feed>,
     /// Plays a track into the headphones for the info panel.
     preview: Preview,
     preview_input: Option<PreviewInput>,
@@ -1379,6 +1382,7 @@ impl Engine {
         let (record, record_feed) = recorder::tap(sample_rate);
         let (meter, meter_feed) = recorder::tap(sample_rate);
         meter_feed.set_active(true);
+        let (broadcast, broadcast_feed) = recorder::tap(sample_rate);
         let inputs = std::array::from_fn(|i| Input::new(registry, i, sample_rate));
         let ducker = Ducker::new(registry, sample_rate);
         (
@@ -1394,6 +1398,8 @@ impl Engine {
                 record_feed: Some(record_feed),
                 meter,
                 meter_feed: Some(meter_feed),
+                broadcast,
+                broadcast_feed: Some(broadcast_feed),
                 preview,
                 preview_input: Some(preview_input),
                 sampler_input: Some(sampler_input),
@@ -1436,6 +1442,11 @@ impl Engine {
     /// The other end of the loudness meter's tap; there is only one.
     pub(crate) fn take_meter_feed(&mut self) -> Option<Feed> {
         self.meter_feed.take()
+    }
+
+    /// The other end of the broadcast's tap; there is only one.
+    pub(crate) fn take_broadcast_feed(&mut self) -> Option<Feed> {
+        self.broadcast_feed.take()
     }
 
     /// Plays input `input` (see [`crate::inputs`]) from `feed`, or from
@@ -2093,10 +2104,10 @@ impl Engine {
                 _ => 1.0,
             });
         let master_target = self.master.gain.get() as f32;
-        // Recording or on air, the limiter keeps true peaks under the air
-        // ceiling (-1 dBTP), where lossy encoders don't clip; otherwise
-        // under -0.5 dB.
-        let ceiling = if self.record.is_active() {
+        // Recording or on air (either tap copying), the limiter keeps true
+        // peaks under the air ceiling (-1 dBTP), where lossy encoders don't
+        // clip; otherwise under -0.5 dB.
+        let ceiling = if self.record.is_active() || self.broadcast.is_active() {
             10f32
                 .powf(self.master.air_ceiling.get() as f32 / 20.0)
                 .min(LIMIT_CEILING)
@@ -2651,6 +2662,7 @@ impl Engine {
             .set(self.master_vu[0].max(self.master_vu[1]) as f64);
         self.record.push(out, channels);
         self.meter.push(out, channels);
+        self.broadcast.push(out, channels);
     }
 }
 
@@ -3203,7 +3215,7 @@ mod tests {
     }
 
     #[test]
-    fn recording_limits_true_peaks_to_the_air_ceiling() {
+    fn recording_or_on_air_limits_true_peaks_to_the_air_ceiling() {
         let (reg, mut engine, mut input) = setup();
         load(&mut input, 0, short_track(120.0, 4.0));
         run(&mut engine, 0.02);
@@ -3230,6 +3242,17 @@ mod tests {
         assert!((engine.limiter.ceiling() - 10f32.powf(-2.0 / 20.0)).abs() < 1e-6);
         // Not recording: back to -0.5 dB.
         engine.record_feed.as_ref().unwrap().set_active(false);
+        run(&mut engine, 0.05);
+        assert_eq!(engine.limiter.ceiling(), LIMIT_CEILING);
+        // On air counts the same as recording.
+        let mut feed = engine.take_broadcast_feed().unwrap();
+        feed.set_active(true);
+        run(&mut engine, 0.05);
+        assert!((engine.limiter.ceiling() - 10f32.powf(-2.0 / 20.0)).abs() < 1e-6);
+        let mut got = Vec::new();
+        feed.drain_into(&mut got);
+        assert!(got.len() >= (0.04 * SR) as usize * 2, "{}", got.len());
+        feed.set_active(false);
         run(&mut engine, 0.05);
         assert_eq!(engine.limiter.ceiling(), LIMIT_CEILING);
     }

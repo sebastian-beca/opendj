@@ -42,6 +42,7 @@ mod audio_plugins;
 mod automix;
 mod automix_order;
 mod beat_counter;
+mod broadcast;
 mod browser;
 mod controller_editor;
 mod cover_scan;
@@ -344,6 +345,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     engine.recorder().configure(settings::recording());
     let recorder = engine.recorder().clone();
+    let broadcast = broadcast::Broadcast::start(&registry, &engine);
     // The saved library, with the tracks it had last time; the built-in
     // samples until there is anything in it.
     let library_path = settings::config_dir().map(|d| opendj_library::default_path(&d));
@@ -709,7 +711,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         },
         audio_plugins.clone(),
+        broadcast.clone(),
     );
+    // The ON AIR panel and saving typed passwords, a few times a second.
+    let _broadcast_timer = broadcast.clone().map(|b| {
+        let app = app.as_weak();
+        let timer = slint::Timer::default();
+        timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(250),
+            move || {
+                if let Some(app) = app.upgrade() {
+                    b.poll(&app);
+                }
+            },
+        );
+        timer
+    });
 
     let tour = tour::Tour::install(
         &app,
@@ -1133,6 +1151,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.run()?;
     // Finishes the files, with the cue sheet, if the DJ quits mid-recording.
     recorder.stop();
+    if let Some(b) = &broadcast {
+        b.shut_down();
+    }
     Ok(())
 }
 
@@ -1326,6 +1347,7 @@ fn short_port_name(port: &str) -> &str {
 fn list_controls() {
     let registry = ControlRegistry::new();
     opendj_engine::create_controls(&registry);
+    broadcast::create_controls(&registry);
     browser::LibraryControls::create(&registry);
     automix::AutoMix::new(&registry);
     let mut keys = registry.keys();

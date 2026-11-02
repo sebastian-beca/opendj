@@ -3,7 +3,7 @@ import { Theme, KeyNotation, CloseIcon } from "theme.slint";
 import { Controls, VuMeter, ControlKnob, HoverTipView, HoverTip } from "controls.slint";
 import { Deck, DeckInfo, KeyItem, EffectList, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount } from "deck.slint";
 import { Mixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } from "mixer.slint";
-import { MasterPanel, MicPanel, Loudness } from "toppanels.slint";
+import { MasterPanel, MicPanel, Loudness, OnAirPanel, BroadcastState, BroadcastStation, AirTime } from "toppanels.slint";
 import { PlayerDeck, PlayerMixer } from "player.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { FxBar } from "fxbar.slint";
@@ -24,6 +24,7 @@ export { Tour, TourSetup }
 export { MapMode }
 export { RemoteUi, RemoteDevice }
 export { MixerMode, InputSettings, InputRow }
+export { BroadcastState, BroadcastStation }
 export { Theme, Controls, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, StoreUi, StreamMatch, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, EditorSetting, UsbExport }
 
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
@@ -354,6 +355,65 @@ component RecordButton inherits Rectangle {
     ta := TouchArea {
         mouse-cursor: pointer;
         clicked => { Controls.set-value(toggle-index, 1); }
+    }
+}
+
+// ON AIR: opens the broadcast panel. While on air it turns red with the
+// time, a light for how the stations are doing and the listeners.
+component OnAirButton inherits Rectangle {
+    property <bool> on: Controls.value(Controls.resolve("[Shoutcast]", "enabled"), Controls.tick) > 0;
+    // 0 off, 1 connecting, 2 every station on air, 3 failed, 4 some.
+    property <int> status: Controls.value(Controls.resolve("[Shoutcast]", "status"), Controls.tick);
+    property <float> seconds: Controls.value(Controls.resolve("[Broadcast]", "on_air_seconds"), Controls.tick);
+    property <color> light: status == 2 ? #e5484d : status == 3 ? #7a7a80 : #f5a524;
+    background: ta.pressed ? Theme.control-pressed : on ? #e5484d.with-alpha(0.16) : ta.has-hover ? #2e2e32 : Theme.panel-raised;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: on ? light : transparent;
+    height: 36px;
+    y: 8px;
+    horizontal-stretch: 0;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 7px;
+        // A mast sending out waves.
+        Path {
+            width: 16px;
+            height: 16px;
+            y: (parent.height - self.height) / 2;
+            viewbox-width: 24;
+            viewbox-height: 24;
+            fill: transparent;
+            stroke: on ? light : Theme.text-dim;
+            stroke-width: 2px;
+            commands: "M 10.5 9 A 1.5 1.5 0 1 0 13.5 9 A 1.5 1.5 0 1 0 10.5 9 M 12 10.5 L 12 21 M 8.5 5.5 A 5 5 0 0 0 8.5 12.5 M 15.5 5.5 A 5 5 0 0 1 15.5 12.5 M 5.5 3 A 8.5 8.5 0 0 0 5.5 15 M 18.5 3 A 8.5 8.5 0 0 1 18.5 15";
+            // Pulses while connecting.
+            opacity: on && status != 2 && mod(animation-tick() / 1ms, 1000) > 600 ? 0.4 : 1.0;
+        }
+        Text {
+            text: on ? AirTime.text(seconds) : "ON AIR";
+            color: on ? Theme.text : Theme.text-dim;
+            font-size: on ? 13px : 11px;
+            font-weight: on ? 500 : 700;
+            letter-spacing: on ? 0px : 0.5px;
+            vertical-alignment: center;
+        }
+        if on && BroadcastState.listeners >= 0: Text {
+            text: BroadcastState.listeners + (BroadcastState.listeners == 1 ? " listener" : " listeners");
+            color: Theme.text-dim;
+            font-size: 11px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { panel.show(); }
+    }
+    panel := OnAirPanel {
+        x: root.width - self.width;
+        y: root.height + 6px;
     }
 }
 
@@ -912,6 +972,7 @@ export component AppWindow inherits Window {
                     RemoteButton { }
                     MidiButton { }
                     MicButton { }
+                    OnAirButton { }
                     RecordButton { }
                     MasterPill { clock: clock; }
                     SettingsButton { }

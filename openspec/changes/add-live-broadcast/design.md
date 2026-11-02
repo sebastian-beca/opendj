@@ -56,12 +56,12 @@ openDJ builds are GPL-3.0, so every encoder must be GPL-compatible:
 
 | Format | Source | Platforms |
 |---|---|---|
-| Opus (in Ogg for Icecast) | libopus, BSD | All. Needs 48 kHz: resampled with `rubato` when the engine runs at 44.1 kHz |
+| Opus (in Ogg for Icecast) | libopus, BSD | All. Needs 48 kHz: resampled by openDJ's own polyphase resampler when the engine runs at 44.1 kHz |
 | MP3 | LAME, LGPL | All |
 | AAC (LC and HE-AAC) | The operating system: AudioToolbox on macOS, Media Foundation on Windows | macOS, Windows. Not Linux: libfdk-aac can't ship in a GPL app; FFmpeg's encoder may be used when the system has FFmpeg (later) |
 | H.264 (step 3) | VideoToolbox (macOS), Media Foundation (Windows), OpenH264 (Linux, Cisco's binary fetched on first use as Firefox does, which covers the patent licence) | All |
 
-Default for Icecast: Opus 96 kb/s (best quality per bit), with MP3 128 kb/s offered for old players. Default for RTMP: AAC 160 kb/s (what every platform accepts). On Linux RTMP sends Opus through Enhanced RTMP where the platform accepts it; see Open questions.
+Default for Icecast: MP3 128 kb/s, because it plays everywhere and Icecast shows its titles; Opus is offered for the best quality per bit (96 kb/s). (Step 2 changed this from Opus: Icecast 2.4 doesn't show titles for Ogg mounts, and players built on FFmpeg 6 stop at chained Ogg streams.) Default for RTMP: AAC 160 kb/s (what every platform accepts). On Linux RTMP sends Opus through Enhanced RTMP where the platform accepts it; see Open questions.
 
 ### Now-playing metadata
 
@@ -88,7 +88,9 @@ Mixxx's names where they exist, so mappings with a broadcast button work:
 ## Open questions
 
 1. **Opus metadata on Icecast.** Updating the title inside an Ogg stream starts a new chained stream, which makes some players drop or glitch (Mixxx turns it off by default for this reason). Options: chain anyway (works in browsers, VLC and most apps), or send MP3 alongside for directory listings. Proposed: chain, with a setting to turn it off, and test with the main players before step 2 merges.
+   **Decided in step 2:** tested against Icecast 2.4.4 and FFmpeg 6.1. Icecast 2.4 refuses title updates for Ogg mounts ("Mountpoint will not accept URL updates") and doesn't read titles inside Opus streams for its status page; FFmpeg 6.1 fails at the first chained stream. So the first title always goes into the Opus stream's headers, later titles only with "Send each new title in the stream" (off by default), and new stations default to MP3, whose titles every player shows.
 2. **Which platforms accept what in step 3.** Mixcloud Live may accept audio-only streams; Enhanced RTMP with Opus may or may not be accepted by Twitch and YouTube. To be tested with real accounts before step 3; the presets follow the results.
 3. **Linux AAC.** Use the system's FFmpeg when present, or Opus-only on Linux? Proposed: Opus and MP3 only on Linux for step 2, and decide at step 3.
+   **Step 2:** Opus and MP3 on every system; AAC (AudioToolbox, Media Foundation) moves to step 3, where RTMP needs it anyway.
 4. **Link the broadcast target to auto gain?** A "match auto gain to the stream target" switch would set auto gain 1 to 2 LU under the target (transitions and the mic add loudness). Proposed: not in step 1; see how DJs use the meter first.
 5. **Where step 5's now-playing feed lives.** In the phone remote's server (same port, its own read-only path) or its own server. Proposed: the remote's server, read-only, no pairing needed, off unless switched on.

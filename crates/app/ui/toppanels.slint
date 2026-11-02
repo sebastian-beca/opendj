@@ -581,3 +581,137 @@ export component MicPanel inherits PopupWindow {
         }
     }
 }
+
+// A station in the ON AIR panel. `state` is 0 off, 1 connecting, 2 on air,
+// 3 failed; `listeners` -1 when the server doesn't say.
+export struct BroadcastStation {
+    name: string,
+    state: int,
+    message: string,
+    listeners: int,
+}
+
+// Broadcasting, as the app shows it; filled in from broadcast.rs.
+export global BroadcastState {
+    // The stations streamed to, while on air.
+    in property <[BroadcastStation]> stations;
+    // Everyone listening, or -1 when no server says.
+    in property <int> listeners: -1;
+    // Why the last ON AIR didn't go on air.
+    in property <string> error;
+    // At least one station is switched on.
+    in property <bool> ready;
+
+    // On air: red. Connecting or some stations down: amber.
+    public pure function light(state: int) -> color {
+        return state == 2 ? #e5484d : state == 1 ? #f5a524 : state == 3 ? #7a7a80 : Theme.text-dim;
+    }
+}
+
+// The time on air as h:mm:ss or m:ss.
+export global AirTime {
+    public pure function text(seconds: float) -> string {
+        if seconds < 0 { return "0:00"; }
+        return (seconds >= 3600 ? floor(seconds / 3600) + ":" : "")
+            + (mod(floor(seconds / 60), 60) < 10 && seconds >= 3600 ? "0" : "")
+            + mod(floor(seconds / 60), 60) + ":"
+            + (mod(floor(seconds), 60) < 10 ? "0" : "") + mod(floor(seconds), 60);
+    }
+}
+
+component StationRow inherits HorizontalLayout {
+    in property <BroadcastStation> station;
+    spacing: 8px;
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: BroadcastState.light(station.state);
+        }
+    }
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 1px;
+        Text { text: station.name; color: Theme.text; font-size: 12px; font-weight: 600; overflow: elide; }
+        Text {
+            text: station.message != "" ? station.message
+                : station.state == 2 ? "On air" : station.state == 1 ? "Connecting…" : station.state == 3 ? "Failed" : "Off";
+            color: station.state == 3 ? #ff6b6b : Theme.text-dim;
+            font-size: 11px;
+            wrap: word-wrap;
+        }
+    }
+    if station.listeners >= 0: VerticalLayout {
+        alignment: center;
+        Text {
+            text: station.listeners + (station.listeners == 1 ? " listener" : " listeners");
+            color: Theme.text-dim;
+            font-size: 11px;
+        }
+    }
+}
+
+// ON AIR: goes on and off air to the stations switched on in Settings ›
+// Broadcast, and shows each one's state, the listeners and the loudness.
+export component OnAirPanel inherits PopupWindow {
+    property <int> enabled-index: Controls.resolve("[Shoutcast]", "enabled");
+    property <bool> on: Controls.value(enabled-index, Controls.tick) > 0;
+    property <float> seconds: Controls.value(Controls.resolve("[Broadcast]", "on_air_seconds"), Controls.tick);
+    width: 320px;
+    close-policy: close-on-click-outside;
+    PanelBackground { }
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+        HorizontalLayout {
+            Text { text: "Broadcast"; color: Theme.text; font-size: 17px; font-weight: 700; horizontal-stretch: 1; }
+            if on: Text { text: AirTime.text(seconds); color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; }
+        }
+        // The big switch.
+        Rectangle {
+            height: 40px;
+            border-radius: 10px;
+            background: go.pressed ? Theme.control-pressed : on ? #e5484d.with-alpha(go.has-hover ? 0.3 : 0.2) : !BroadcastState.ready ? Theme.well : go.has-hover ? #e5484d : #d13c41;
+            border-width: 1px;
+            border-color: on ? #e5484d : transparent;
+            Text {
+                text: on ? "Go off air" : "Go on air";
+                color: !on && !BroadcastState.ready ? Theme.text-dim : Theme.text;
+                font-size: 14px;
+                font-weight: 700;
+            }
+            go := TouchArea {
+                mouse-cursor: pointer;
+                enabled: on || BroadcastState.ready;
+                clicked => { Controls.set-value(enabled-index, on ? 0 : 1); }
+            }
+        }
+        if !on && !BroadcastState.ready: Text {
+            text: "Add a station in Settings › Broadcast and switch it on to go on air.";
+            color: Theme.text-dim;
+            font-size: 11px;
+            wrap: word-wrap;
+        }
+        if !on && BroadcastState.error != "" && BroadcastState.ready: Text {
+            text: BroadcastState.error;
+            color: #ff6b6b;
+            font-size: 11px;
+            wrap: word-wrap;
+        }
+        if on: VerticalLayout {
+            spacing: 8px;
+            for s in BroadcastState.stations: StationRow { station: s; }
+        }
+        EdgeLine { line-color: Theme.border; }
+        LoudnessSection { }
+        PanelLink {
+            text: "Broadcast Settings…";
+            clicked => {
+                root.close();
+                Preferences.show(6);
+            }
+        }
+    }
+}
