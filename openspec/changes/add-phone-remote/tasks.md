@@ -15,6 +15,15 @@
 - [ ] 2.3 Browse crates, playlists and Play Ready from the phone
 - [ ] 2.4 Advertise the remote over Bonjour (mDNS)
 
+## 3. Automix manager
+
+- [x] 3.1 Now-playing screen: large cover, one track (the one you hear), Order, play/pause, Mix now, Mix settings, next track with time to its mix
+- [x] 3.2 Queue: covers on every track, Now playing and Next up, Mix/Order/Levels/Timer bar; the waiting track stays movable until 15 s before its mix
+- [x] 3.3 Edit: pick several tracks for Play next, Move to the end, Remove
+- [x] 3.4 Search full screen with Done; covers served to paired phones only
+- [x] 3.5 Sleep timer; lilac theme
+- [x] 3.6 Update the user guide page
+
 ## Workflow follow-up
 
 - Archive the change once its PRs are merged, so the main specs take its requirements.
