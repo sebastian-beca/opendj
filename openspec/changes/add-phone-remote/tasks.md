@@ -10,8 +10,10 @@
 
 ## 2. Search and add
 
-- [ ] 2.1 Search the collection and browse crates, playlists and Play Ready from the phone; add to Automix at the end or next
-- [ ] 2.2 Advertise the remote over Bonjour (mDNS)
+- [x] 2.1 Search the collection from the phone with the browser's search syntax; add to Automix at the end or next
+- [x] 2.2 Update the user guide page
+- [ ] 2.3 Browse crates, playlists and Play Ready from the phone
+- [ ] 2.4 Advertise the remote over Bonjour (mDNS)
 
 ## Workflow follow-up
 
