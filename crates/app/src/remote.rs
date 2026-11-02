@@ -481,7 +481,8 @@ impl Remote {
                 }
             }
             "library.search" => {
-                return Ok(self.search(browser, params["text"].as_str().unwrap_or("")))
+                let offset = params["offset"].as_u64().unwrap_or(0) as usize;
+                return Ok(self.search(browser, params["text"].as_str().unwrap_or(""), offset));
             }
             "transport.pause" => {
                 // Automix stops when its deck pauses; Play picks both up again.
@@ -616,19 +617,16 @@ impl Remote {
         })
     }
 
-    /// Collection tracks that `text` finds, for the phone's search: at most
-    /// [`SEARCH_LIMIT`], with whether each is on the Automix list already.
-    fn search(&self, browser: &Browser, text: &str) -> Value {
-        let text = text.trim();
-        if text.is_empty() {
-            return json!({"tracks": [], "total": 0});
-        }
+    /// Collection tracks that `text` finds (all of them for no text), for
+    /// the phone's search: a page of [`SEARCH_LIMIT`] from `offset`, with
+    /// whether each is on the Automix list already.
+    fn search(&self, browser: &Browser, text: &str, offset: usize) -> Value {
         let camelot = browser.camelot();
         let queued: HashSet<usize> = (0..browser.automix_len())
             .filter_map(|i| browser.automix_at(i))
             .map(|t| t.id)
             .collect();
-        let (found, total) = browser.find_tracks(text, SEARCH_LIMIT);
+        let (found, total) = browser.find_tracks(text, offset, SEARCH_LIMIT);
         let tracks: Vec<Value> = found
             .iter()
             .map(|t| {
@@ -637,7 +635,7 @@ impl Remote {
                 v
             })
             .collect();
-        json!({"tracks": tracks, "total": total})
+        json!({"tracks": tracks, "total": total, "offset": offset})
     }
 
     fn automix_state(
@@ -795,7 +793,7 @@ fn find_art(map: &ArtMap, id: &str, size: u32) -> Option<Vec<u8>> {
     Some(jpeg)
 }
 
-/// Most search results sent to a phone at once.
+/// Search results sent to a phone at once; scrolling down fetches more.
 const SEARCH_LIMIT: usize = 100;
 
 /// Whether `id` is a track at the top of the list that stays put: playing,
