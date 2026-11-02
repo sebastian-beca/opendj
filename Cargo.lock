@@ -6369,7 +6369,7 @@ dependencies = [
 
 [[package]]
 name = "opendj"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -6408,11 +6408,11 @@ dependencies = [
 
 [[package]]
 name = "opendj-control"
-version = "0.4.6"
+version = "0.4.7"
 
 [[package]]
 name = "opendj-controllers"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "base64 0.22.1",
  "hidapi",
@@ -6427,7 +6427,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-engine"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "beat-this",
  "chrono",
@@ -6450,7 +6450,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-export"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "chrono",
  "diesel",
@@ -6467,7 +6467,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-library"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "opendj-engine",
  "rusqlite",
@@ -6475,7 +6475,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-plugin-host"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "clack-extensions",
  "clack-host",
@@ -6487,7 +6487,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-plugins"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "opendj-engine",
  "rbox-anlz",
@@ -6502,7 +6502,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-remote"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "getrandom 0.4.3",
  "if-addrs",
@@ -6514,14 +6514,14 @@ dependencies = [
 
 [[package]]
 name = "opendj-script"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "opendj-control",
 ]
 
 [[package]]
 name = "opendj-separation"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "burn",
  "burn-ndarray",
@@ -6535,7 +6535,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-test-clap"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "clack-extensions",
  "clack-plugin",
@@ -6543,14 +6543,14 @@ dependencies = [
 
 [[package]]
 name = "opendj-test-vst3"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "vst3",
 ]
 
 [[package]]
 name = "opendj-waveform"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "ab_glyph",
  "bytemuck",
@@ -8615,7 +8615,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stem-bench"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "hound",
  "opendj-engine",

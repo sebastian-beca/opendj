@@ -758,3 +758,94 @@ fn ddj_flx6_four_decks_and_mixer() {
     );
     assert_eq!(c.errors(), Vec::<String>::new());
 }
+
+#[test]
+fn xdj_rx3_decks_mixer_and_pads() {
+    let (reg, mut c) = load("Pioneer-XDJ-RX3.midi.xml");
+    settle(&mut c, 50);
+    let out = c.take_output();
+    assert!(
+        out.iter().any(|m| m[..] == [0xB4, 0x65, 0x00]),
+        "mixer switched to MIDI control: {out:x?}"
+    );
+
+    // Each deck has its own channel: PLAY on channel 4 plays deck 4.
+    c.receive(&[0x93, 0x00, 0x7F]);
+    c.receive(&[0x93, 0x00, 0x00]);
+    assert_eq!(get(&reg, "[Channel4]", "play"), 1.0);
+    assert_eq!(get(&reg, "[Channel2]", "play"), 0.0);
+
+    // The mixer on channel 5: deck 3's fader, deck 2's EQ.
+    c.receive(&[0xB4, 0x13, 0x7F]);
+    assert_eq!(get(&reg, "[Channel3]", "volume"), 1.0);
+    c.receive(&[0xB4, 0x0B, 0x00]);
+    assert_eq!(get(&reg, "[Master]", "crossfader"), -1.0);
+
+    // Hot cue pads on deck 1's pad channel.
+    c.receive(&[0x95, 0x00, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "hotcue_1_activate"), 1.0);
+    c.receive(&[0x95, 0x00, 0x00]);
+    // BEAT JUMP opens its tab, and its page's pads jump.
+    c.receive(&[0x91, 0x25, 0x7F]);
+    assert_eq!(get(&reg, "[Channel2]", "pad_tab"), 2.0);
+    assert_ne!(get(&reg, "[Channel1]", "pad_tab"), 2.0);
+
+    // MASTER pins the sync leader.
+    c.receive(&[0x90, 0x1E, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "sync_leader"), 2.0);
+
+    // BEAT FX: ON/OFF, CH SELECT on MASTER sends it to all four decks.
+    let unit = "[EffectRack1_EffectUnit5]";
+    let fx = "[EffectRack1_EffectUnit5_Effect1]";
+    c.receive(&[0xB4, 0x72, 0x7F]);
+    assert_eq!(get(&reg, fx, "enabled"), 1.0);
+    c.receive(&[0xB4, 0x29, 0x7F]);
+    for deck in 1..=4 {
+        assert_eq!(
+            get(&reg, unit, &format!("group_[Channel{deck}]_enable")),
+            1.0
+        );
+    }
+    c.receive(&[0xB4, 0x22, 0x7F]);
+    assert_eq!(get(&reg, unit, "group_[Channel3]_enable"), 1.0);
+    assert_eq!(get(&reg, unit, "group_[Channel2]_enable"), 0.0);
+    // EFFECT SELECT REVERB.
+    c.receive(&[0xB4, 0x36, 0x7F]);
+    assert_eq!(get(&reg, fx, "loaded_effect"), 2.0);
+
+    // COLOR FX: NOISE on every deck's COLOR knob.
+    c.receive(&[0xB4, 0x55, 0x7F]);
+    for deck in 1..=4 {
+        assert_eq!(
+            get(
+                &reg,
+                &format!("[QuickEffectRack1_[Channel{deck}]]"),
+                "loaded_chain_preset"
+            ),
+            4.0
+        );
+    }
+
+    // The jog display shows the playhead.
+    reg.get("[Channel1]", "track_loaded").unwrap().set(1.0);
+    reg.get("[Channel1]", "duration").unwrap().set(180.0);
+    reg.get("[Channel1]", "playposition")
+        .unwrap()
+        .set(0.5 / 180.0);
+    settle(&mut c, 100);
+    let out = c.take_output();
+    assert!(
+        out.iter()
+            .any(|m| m[0] == 0xBB && (m[1] == 0x00 || m[1] == 0x20) && m[2] > 0),
+        "jog display moved: {out:x?}"
+    );
+    assert_eq!(c.errors(), Vec::<String>::new());
+
+    // Quitting hands the mixer back to the XDJ-RX3.
+    c.shutdown();
+    let out = c.take_output();
+    assert!(
+        out.iter().any(|m| m[..] == [0xB4, 0x65, 0x7F]),
+        "mixer handed back: {out:x?}"
+    );
+}

@@ -59,8 +59,9 @@ pub use controls::{
     NUM_EFFECT_UNITS, NUM_HOTCUES,
 };
 pub use effects::{
-    color_fx_name, effect_name, parameter_names, plugin_index, PluginLink, AVAILABLE_EFFECTS,
-    COLOR_FX, DEFAULT_EFFECTS, MAX_BUTTON_PARAMETERS, MAX_PARAMETERS, MAX_PLUGINS, PLUGIN_BASE,
+    color_fx_name, effect_name, parameter_names, plugin_index, NoteInput, PluginLink,
+    AVAILABLE_EFFECTS, COLOR_FX, DEFAULT_EFFECTS, MAX_BUTTON_PARAMETERS, MAX_PARAMETERS,
+    MAX_PLUGINS, PLUGIN_BASE,
 };
 pub use output::{
     channel_names, default_output_device, input_devices, output_devices, AudioSetup, InputRole,
@@ -118,6 +119,8 @@ pub struct AudioEngine {
     rate: f64,
     /// Runs audio plugins in the effect slots, when the helper is installed.
     plugins: Option<plugins::PluginHost>,
+    /// Notes for the Instrument input.
+    notes: Arc<Mutex<NoteInput>>,
 }
 
 /// The plugin helper, `opendj-plugin-host`, installed beside the app.
@@ -149,6 +152,7 @@ impl AudioEngine {
         let samplers = engine.take_sampler_input().expect("sampler input");
         let visual = engine.visual_positions();
         let plugin_link = engine.take_plugin_link().expect("plugin link");
+        let notes = Arc::new(Mutex::new(engine.take_note_input().expect("note input")));
         let plugins = plugin_helper().map(|helper| {
             plugins::PluginHost::start(
                 &registry,
@@ -184,7 +188,21 @@ impl AudioEngine {
             sample_generation: Arc::default(),
             rate,
             plugins,
+            notes,
         }
+    }
+
+    /// The instruments the Instrument input can load
+    /// (`[Instrument1],instrument` 1 is the first).
+    pub fn set_instruments(&self, entries: Vec<plugins::PluginEntry>) {
+        if let Some(p) = &self.plugins {
+            p.set_instruments(entries);
+        }
+    }
+
+    /// Where notes for the Instrument input go in, from any thread.
+    pub fn note_input(&self) -> Arc<Mutex<NoteInput>> {
+        self.notes.clone()
     }
 
     /// Whether audio plugins can run: the helper is installed.

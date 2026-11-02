@@ -1,7 +1,8 @@
 //! A tiny CLAP effect for the plugin-host tests: a stereo gain with one
 //! parameter ("Gain", 0 to 2, default 1) and a reported latency of 64 frames,
 //! plus a second parameter ("Tempo out") that copies the host's tempo into the
-//! left channel's first sample, so tests can check the transport arrives.
+//! left channel's first sample, and the key of the block's first note-on
+//! into its second, so tests can check the transport and notes arrive.
 //!
 //! It is a real `.clap` binary, loaded through the same path as third-party
 //! plugins.
@@ -17,7 +18,8 @@ use clack_extensions::params::{
     ParamDisplayWriter, ParamInfo, ParamInfoFlags, ParamInfoWriter, PluginAudioProcessorParams,
     PluginMainThreadParams, PluginParams,
 };
-use clack_plugin::events::event_types::{ParamValueEvent, TransportEvent};
+use clack_plugin::events::event_types::{NoteOnEvent, ParamValueEvent, TransportEvent};
+use clack_plugin::events::Match;
 use clack_plugin::prelude::*;
 use clack_plugin::utils::Cookie;
 
@@ -121,6 +123,10 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
         let gain = self.shared.get(GAIN).unwrap_or(1.0) as f32;
         let tempo = process.transport.map(|t: &TransportEvent| t.tempo);
         let tempo_out = self.shared.get(TEMPO_OUT).unwrap_or(0.0) > 0.5;
+        let note = events
+            .input
+            .iter()
+            .find_map(|e| e.as_event::<NoteOnEvent>().map(|n| n.key()));
         for mut port in &mut audio {
             let Some(pairs) = port.channels()?.into_f32() else {
                 continue;
@@ -145,8 +151,12 @@ impl<'a> PluginAudioProcessor<'a, Shared, MainThread<'a>> for Processor<'a> {
                         buf
                     }
                 };
-                if tempo_out && ch == 0 && !out.is_empty() {
+                if tempo_out && ch == 0 && out.len() > 1 {
                     out[0] = tempo.unwrap_or(-1.0) as f32;
+                    out[1] = match note {
+                        Some(Match::Specific(k)) => k as f32,
+                        _ => -1.0,
+                    };
                 }
             }
         }

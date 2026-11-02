@@ -23,23 +23,59 @@ connections. Click **Allow**.
 
 ## What the phone can do
 
-- **Decks 1 and 2**: title, artist, tempo, key and time left. The deck you
-  hear is outlined in green, and the next mix is shaded on the progress bar.
-- **AUTOMIX** on and off, with the same status line as the Automix panel.
-- **Mix now** and **Skip next**.
-- **Length**, **Style** and **Order**, as in the Automix panel (see
-  [Automix](automix.md)), with **Undo** after an Order pick.
-- **Add tracks**: search your collection, with the same search as the
-  browser (try `bpm:120-124`, `key:8A` or `crate:Warm-up`). Tap **+** to
-  add a track to the end of the Automix list, or **Next** to play it next.
-  Tracks already on the list show **✓ Added**.
-- **Up next**: the Automix list. Drag a track by its handle to move it, or
-  tap it for **Play next**, **Move up**, **Move down**, **Move to the end**
-  and **Remove from Automix**. The track playing and the one waiting on a
-  deck stay at the top.
+The remote is built around Automix: it shows what's playing and lets you
+manage what comes next.
+
+### Now playing
+
+The phone opens on the track you hear, with its cover, title, artist,
+tempo and key. The progress bar shades where the next mix happens, and the
+card under the controls shows the next track and how long until it mixes
+in. Tap the card to open the queue.
+
+- **Play / pause**: pause stops the music and Automix; play picks up where
+  it left off. When Automix is off, play starts it.
+- **Mix now** (⏭) starts the next mix straight away.
+- **Order** puts the queue in order (Shuffle, BPM low to high, Harmonic
+  path and so on), as in the Automix panel (see [Automix](automix.md)),
+  with **Undo** afterwards.
+- **Mix settings** sets the mix **Length** and **Style**, and has **Skip
+  the next track**.
+- **Volume**, under the controls, sets the master level with one drag.
+- The speaker button at the top opens **Levels** (booth level and Fade out); **⋯** has the queue,
+  Add tracks, the sleep timer and Stop Automix.
+
+### Queue
+
+Tap the queue button at the bottom right. The track playing is at the top,
+then everything up next, each with its cover.
+
+- Drag a track by its handle to move it, or tap it for **Play next**,
+  **Move to the end** and **Remove from the queue**.
+- You can swap the track waiting on a deck for another until 15 seconds
+  before its mix. After that, and during the mix, it shows a lock and
+  stays put.
+- **Edit** lets you pick several tracks at once, then **Play next**, **To
+  end** or **Remove** them all.
+- **+** opens search (see below).
+- The bar at the bottom has **Mix**, **Order**, **Levels** and **Timer**.
+
+### Add tracks
+
+Tap **+** in the queue and search your collection, with the same search as
+the browser (try `bpm:120-124`, `key:8A` or `crate:Warm-up`). Tap **+** on
+a result to add it to the end of the queue, or **Next** to play it next.
+Tracks already queued show **Added**. Tap **Done** to go back to the queue;
+the search clears itself for next time.
+
+### Levels and the sleep timer
+
 - **Levels**: the master level, and the booth level when a booth output is
   set up. **Fade out** turns the master level down to silence over eight
   seconds; **Bring the sound back** puts it back.
+- **Timer**: pick 15, 30, 45, 60 or 90 minutes. When time is up the music
+  fades out over 20 seconds and Automix stops. The Timer button shows the
+  time left.
 
 Everything the phone does shows in openDJ straight away, and the other way
 round.

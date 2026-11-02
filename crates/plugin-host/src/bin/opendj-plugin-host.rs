@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use opendj_plugin_host::effects::{self, Effect, Plugin};
-use opendj_plugin_host::shm::{self, Shm, CHANNELS, MAX_PARAMS};
+use opendj_plugin_host::shm::{self, Midi, Shm, CHANNELS, MAX_EVENTS, MAX_PARAMS};
 use opendj_plugin_host::Transport;
 
 fn main() {
@@ -114,6 +114,7 @@ fn run_audio(shm: &Shm, mut fx: Box<dyn Effect>) {
     let mut input = vec![vec![0.0f32; max]; CHANNELS];
     let mut output = vec![vec![0.0f32; max]; CHANNELS];
     let mut params = [0.0f32; MAX_PARAMS];
+    let mut events = Vec::with_capacity(MAX_EVENTS);
     let mut stdin = std::io::stdin().lock();
     let mut wake = [0u8; 64];
     loop {
@@ -133,6 +134,14 @@ fn run_audio(shm: &Shm, mut fx: Box<dyn Effect>) {
         for (p, a) in params.iter_mut().zip(&h.params) {
             *p = shm::load_f32(a);
         }
+        events.clear();
+        let n = (h.events_len.load(Ordering::Relaxed) as usize).min(MAX_EVENTS);
+        events.extend(
+            h.events[..n]
+                .iter()
+                .map(|e| Midi::unpack(e.load(Ordering::Relaxed)))
+                .filter(|e| (e.frame as usize) < frames.max(1)),
+        );
         let transport = Transport {
             bpm: shm::load_f64(&h.bpm),
             beat: shm::load_f64(&h.beat),
@@ -147,6 +156,7 @@ fn run_audio(shm: &Shm, mut fx: Box<dyn Effect>) {
                 [&mut l[..frames], &mut r[..frames]],
                 &params,
                 &transport,
+                &events,
             );
         }
         for (ch, buf) in output.iter().enumerate() {

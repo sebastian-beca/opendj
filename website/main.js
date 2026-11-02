@@ -21,6 +21,8 @@
     macos: /macos.*\.zip$/i,
     appimage: /\.AppImage$/,
     tarball: /linux.*\.tar\.gz$/i,
+    deb: /\.deb$/i,
+    rpm: /\.rpm$/i,
     winsetup: /windows.*setup\.exe$/i,
     winzip: /windows.*\.zip$/i
   };

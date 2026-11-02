@@ -103,7 +103,7 @@ pub fn hash(token: &str) -> String {
 }
 
 /// Compares without stopping at the first difference.
-fn same(a: &str, b: &str) -> bool {
+pub fn same(a: &str, b: &str) -> bool {
     a.len() == b.len()
         && a.bytes()
             .zip(b.bytes())

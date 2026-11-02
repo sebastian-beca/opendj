@@ -36,7 +36,7 @@ pub use controller::Controller;
 pub use host::{LAYER_GROUP, LAYER_KEYS};
 pub use manager::{
     device_key, is_own_file, list_mappings, match_mapping, ConnectedController, Controllers,
-    MappingChoice, Port,
+    MappingChoice, NoteSink, Port,
 };
 pub use mapping::Mapping;
 
