@@ -44,8 +44,17 @@ Echo, Flanger and Spiral SHALL read their delay lines with cubic or better inter
 - **THEN** the tone's level stays within 1 dB across the sweep
 
 ### Requirement: More effects
-openDJ SHALL add Drive (oversampled so it doesn't alias), Chorus, a Ladder filter, a Hall reverb, and the Slip Roll, Rev Roll and Helix roll variants. Each SHALL be beat-synced where it has a time setting, and each SHALL have click-free parameters.
+openDJ SHALL add Drive (oversampled so it doesn't alias), Chorus, a Ladder filter, a Hall reverb, Rev Roll and Filter Echo, after the twelve existing effects so saved choices keep their meaning. Each SHALL be beat-synced where it has a time setting, and each SHALL have click-free parameters.
 
 #### Scenario: Drive without aliasing
 - **WHEN** Drive distorts a 5 kHz sine at full drive
-- **THEN** aliased components stay at least 60 dB below the fundamental
+- **THEN** audible aliased components (below 20 kHz) stay at least 60 dB below the fundamental
+
+## MODIFIED Requirements
+
+### Requirement: Effect list
+openDJ SHALL offer these effects: Echo, Reverb, Filter, Flanger, Bitcrusher, Phaser, Gate, Roll, Echo Out, Brake, Noise, Spiral, Drive, Chorus, Ladder, Hall, Rev Roll and Filter Echo, each with up to four parameters.
+
+#### Scenario: Effects listed
+- **WHEN** an effect slot's menu is opened
+- **THEN** it lists the eighteen effects by name

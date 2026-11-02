@@ -72,6 +72,10 @@ pub enum Style {
 
 pub const STYLES: [Style; 4] = [Style::Smooth, Style::BassSwap, Style::Filter, Style::Cut];
 
+/// The lengths' and styles' names, as the panel shows them.
+pub const LENGTH_NAMES: [&str; 6] = ["0 s", "12 s", "15 s", "30 s", "16 bars", "32 bars"];
+pub const STYLE_NAMES: [&str; 4] = ["Smooth", "Bass swap", "Filter", "Cut"];
+
 /// Waveform level under which a slice counts as silence: about -60 dB
 /// relative to the track's peak (slices hold the square root of the level).
 /// Higher than that cuts off quiet fade-outs, so a 15 s mix would start
@@ -306,6 +310,11 @@ impl AutoMix {
 
     pub fn toggle(&mut self) {
         self.enabled.toggle();
+    }
+
+    /// Switches Automix on or off, as AUTOMIX does.
+    pub fn set_enabled(&mut self, on: bool) {
+        self.enabled.set_bool(on);
     }
 
     /// Plays the Automix list as an album: gaplessly, whatever mix length
@@ -907,8 +916,8 @@ impl AutoMix {
         }
     }
 
-    /// Shows Automix's state on the panel.
-    pub fn show(&self, app: &AppWindow, tracks: &[Option<Arc<Track>>; NUM_DECKS]) {
+    /// What Automix is doing, in a line for the panel and the phone remote.
+    pub fn status(&self, tracks: &[Option<Arc<Track>>; NUM_DECKS]) -> String {
         let queued = self.left;
         let title = |d: usize| {
             tracks[d]
@@ -938,15 +947,51 @@ impl AutoMix {
             }
             Phase::Mixing(m) => format!("Mixing into {}", title(m.to)),
         };
-        let on = !matches!(self.phase, Phase::Off);
+        status
+    }
+
+    /// Whether Automix is running.
+    pub fn is_on(&self) -> bool {
+        !matches!(self.phase, Phase::Off)
+    }
+
+    /// The mix length shown, as an index into [`LENGTHS`]: an album shows
+    /// as the 0 s length it plays with.
+    pub fn shown_length(&self) -> usize {
+        if self.album {
+            0
+        } else {
+            self.length
+        }
+    }
+
+    pub fn style(&self) -> usize {
+        self.style
+    }
+
+    /// The track Automix started that is still on the list (playing), and
+    /// the one waiting on the other deck, by id.
+    pub fn held(&self) -> (Option<usize>, Option<usize>) {
+        let waiting = match &self.phase {
+            Phase::Playing { next: Some(n), .. } | Phase::Opening { next: Some(n), .. } => {
+                Some(n.id)
+            }
+            _ => None,
+        };
+        (self.played.as_ref().map(|p| p.id), waiting)
+    }
+
+    /// Shows Automix's state on the panel.
+    pub fn show(&self, app: &AppWindow, tracks: &[Option<Arc<Track>>; NUM_DECKS]) {
+        let status = self.status(tracks);
+        let on = self.is_on();
         if app.get_automix_on() != on {
             app.set_automix_on(on);
         }
         if app.get_automix_status() != status.as_str() {
             app.set_automix_status(status.into());
         }
-        // An album shows as the 0 s length it plays with.
-        let length = if self.album { 0 } else { self.length as i32 };
+        let length = self.shown_length() as i32;
         if app.get_automix_length() != length {
             app.set_automix_length(length);
         }

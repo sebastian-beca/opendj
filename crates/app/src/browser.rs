@@ -2796,6 +2796,82 @@ impl Browser {
         self.side[0].len()
     }
 
+    /// Moves the track with id `id` to place `to` on the Automix list.
+    /// Returns whether it was on the list.
+    pub fn move_in_automix(&mut self, id: usize, to: usize) -> bool {
+        let Some(&index) = self.index_of.get(&id) else {
+            return false;
+        };
+        let list = &mut self.side[0];
+        let Some(from) = list.iter().position(|&t| t == index) else {
+            return false;
+        };
+        let t = list.remove(from);
+        list.insert(to.min(list.len()), t);
+        self.refresh_side();
+        true
+    }
+
+    /// Puts the Automix list in `order`, leaving the tracks Automix holds
+    /// (playing and waiting) at the top. Returns the note with Undo.
+    pub fn order_automix_for(
+        &mut self,
+        automix: &crate::automix::AutoMix,
+        order: crate::automix_order::Order,
+    ) -> String {
+        let top: Vec<usize> = (0..3)
+            .filter_map(|i| self.automix_at(i))
+            .map(|t| t.id)
+            .collect();
+        let fixed = automix.fixed(&top);
+        self.order_automix(order, fixed)
+    }
+
+    /// Collection tracks that `text` finds, with the browser's search
+    /// syntax (`bpm:120-124`, `key:8A`, `crate:Warm-up`, ...), sorted by
+    /// title, at most `limit`, with how many there were in all.
+    pub fn find_tracks(&self, text: &str, limit: usize) -> (Vec<Arc<Track>>, usize) {
+        let q = Query::parse(text.trim());
+        let mut found = self.search(&q, None);
+        let all = found.len();
+        found.sort_by_cached_key(|&i| {
+            let t = &self.library[i];
+            (t.title.to_lowercase(), t.artist.to_lowercase())
+        });
+        let tracks = found
+            .into_iter()
+            .take(limit)
+            .map(|i| self.library[i].clone())
+            .collect();
+        (tracks, all)
+    }
+
+    /// Puts the track with id `id` on the Automix list at place `at`, or at
+    /// the end. Returns whether there is such a track.
+    pub fn add_to_automix_at(&mut self, id: usize, at: Option<usize>) -> bool {
+        let Some(&index) = self.index_of.get(&id) else {
+            return false;
+        };
+        self.adopt(&[index]);
+        let list = &mut self.side[0];
+        match at {
+            Some(at) => list.insert(at.min(list.len()), index),
+            None => list.push(index),
+        }
+        self.refresh_side();
+        true
+    }
+
+    /// Whether Undo can put back the Automix list's last Order pick.
+    pub fn can_undo_automix_order(&self) -> bool {
+        self.automix_before_order.is_some()
+    }
+
+    /// Whether keys are shown in Camelot notation.
+    pub fn camelot(&self) -> bool {
+        self.camelot
+    }
+
     /// Whether the collection is the saved library rather than the samples.
     fn saved(&self) -> bool {
         self.db.is_some()

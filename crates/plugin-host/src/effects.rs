@@ -65,6 +65,8 @@ pub enum Plugin {
         file: std::path::PathBuf,
         id: String,
     },
+    /// The Audio Unit `type:subtype:manufacturer` (macOS only).
+    Au { id: String },
 }
 
 /// Ids of the test effects.
@@ -90,6 +92,10 @@ pub fn load(plugin: &Plugin, sample_rate: u32, max_frames: usize) -> Result<Load
         },
         Plugin::Clap { file, id } => crate::clap::load(file, id, sample_rate, max_frames),
         Plugin::Vst3 { file, id } => crate::vst3::load(file, id, sample_rate, max_frames),
+        #[cfg(target_os = "macos")]
+        Plugin::Au { id } => crate::au::load(id, sample_rate, max_frames),
+        #[cfg(not(target_os = "macos"))]
+        Plugin::Au { .. } => Err("Audio Units only run on macOS".into()),
     }
 }
 

@@ -56,3 +56,13 @@ caller (waveform encodings, cue colours, the analysis folder hash, MP3
 frame counting, artwork thumbnails) follow Bake'n Deck
 (https://github.com/M-Igashi/baken), Copyright (c) 2025 Masanari Higashi,
 under the MIT licence; the files that use them say so.
+
+The effects in crates/engine/src/effects.rs and effects/extra.rs are
+openDJ's own code. Some follow published designs: Jon Dattorro's plate
+reverb ("Effect Design, Part 1", JAES 1997), Andrew Simper's and Vadim
+Zavalishin's zero-delay-feedback filters ("The Art of VA Filter Design"),
+antiderivative anti-aliasing (Parker, Zavalishin and Le Bivic, DAFx 2016),
+and the cubic interpolation, oversampling, chorus, crunch and
+feedback-delay-network reverb designs of Signalsmith Audio's DSP and Basics
+libraries and "Let's write a reverb" (Geraint Luff, MIT licence). No code
+was copied from those libraries.

@@ -58,6 +58,7 @@ mod mac_titlebar;
 mod map_mode;
 mod mixcloud;
 mod prefs;
+mod remote;
 mod sampler;
 mod settings;
 mod shortcuts;
@@ -590,12 +591,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (Ok(mut b), Some(app)) = (b.try_borrow_mut(), weak.upgrade()) else {
                 return;
             };
-            let top: Vec<usize> = (0..3)
-                .filter_map(|i| b.automix_at(i))
-                .map(|t| t.id)
-                .collect();
-            let fixed = a.borrow().fixed(&top);
-            let note = b.order_automix(order, fixed);
+            let note = b.order_automix_for(&a.borrow(), order);
             app.set_automix_order_note(note.into());
         });
         let b = browser.clone();
@@ -605,6 +601,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+
+    // The phone remote: REMOTE in the top bar.
+    let remote = Rc::new(RefCell::new(remote::Remote::new(&registry)));
+    remote::Remote::install(&remote, &app);
 
     // Keyboard shortcuts, each an openDJscript line.
     {
@@ -1010,6 +1010,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     automix.borrow_mut().play_album();
                 }
                 automix.borrow_mut().tick(&mut host, &tracks, dt.min(0.1));
+                remote.borrow_mut().tick(
+                    &app,
+                    &mut automix.borrow_mut(),
+                    &mut b,
+                    &tracks,
+                    dt.min(0.1),
+                );
                 automix.borrow().show(&app, &tracks);
                 let automix_spans = automix.borrow().spans(&tracks);
                 drop(b);

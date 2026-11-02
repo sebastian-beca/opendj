@@ -17,6 +17,7 @@
 - [Stems](guide/stems.md)
 - [Layouts](guide/layouts.md)
 - [Automix](guide/automix.md)
+- [Phone remote](guide/remote.md)
 - [Controllers](guide/controllers.md)
   - [Pioneer DDJ-FLX4](guide/controllers/ddj-flx4.md)
 <!-- controllers -->

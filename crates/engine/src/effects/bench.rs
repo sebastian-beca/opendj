@@ -397,6 +397,11 @@ fn turning_any_knob_all_the_way_does_not_click() {
         Kind::Phaser,
         Kind::Noise,
         Kind::Spiral,
+        Kind::Drive,
+        Kind::Chorus,
+        Kind::Ladder,
+        Kind::Hall,
+        Kind::FilterEcho,
     ] {
         for k in 0..MAX_PARAMETERS {
             // Leave the beat lengths alone: those are switches, and their
@@ -405,6 +410,11 @@ fn turning_any_knob_all_the_way_does_not_click() {
                 continue;
             }
             let mut p = defaults(kind);
+            if kind == Kind::Ladder && k == 0 {
+                // A resonant sweep peaks as it passes the tone, on purpose;
+                // without resonance it must sweep cleanly.
+                p[1] = 0.0;
+            }
             p[k] = 0.0;
             let mut inst = instance(kind, p);
             let settle = 2 * SR as usize;
@@ -550,4 +560,24 @@ fn rolls_start_on_the_grid() {
     assert!(out[3_800] > 0.7, "plays live until the grid");
     assert!(out[3_800 + beat] > 0.7, "repeats a beat later");
     assert!(out[3_800 + 2 * beat] > 0.7, "and again");
+}
+
+#[test]
+fn no_effect_allocates_when_reset_or_run() {
+    let mut inst = Instance::with_memory(SR);
+    let ctx = Ctx {
+        sample_rate: SR,
+        beat_seconds: 0.5,
+        beat: Some(3.3),
+    };
+    let before = allocations();
+    for kind in KINDS {
+        inst.kind = Some(kind);
+        inst.reset();
+        inst.prepare(&defaults(kind), ctx);
+        for i in 0..1_000 {
+            inst.process([tone(i); 2]);
+        }
+    }
+    assert_eq!(allocations() - before, 0, "an effect allocated");
 }

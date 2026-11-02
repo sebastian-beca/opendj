@@ -95,6 +95,7 @@ fn plugin_args(plugin: &Plugin) -> Vec<std::ffi::OsString> {
             "--id".into(),
             id.into(),
         ],
+        Plugin::Au { id } => vec!["--au".into(), id.into()],
     }
 }
 
@@ -157,9 +158,26 @@ pub fn scan(helper: &Path, file: &Path, timeout: Duration) -> Result<Vec<Descrip
             return Ok(found);
         }
     }
+    scan_with(
+        helper,
+        &["--scan".into(), file.as_os_str().to_owned()],
+        timeout,
+    )
+}
+
+/// Lists the installed Audio Units (macOS), from the system registry, in a
+/// throwaway helper like [`scan`].
+pub fn scan_audio_units(helper: &Path, timeout: Duration) -> Result<Vec<Descriptor>, ScanError> {
+    scan_with(helper, &["--scan-au".into()], timeout)
+}
+
+fn scan_with(
+    helper: &Path,
+    args: &[std::ffi::OsString],
+    timeout: Duration,
+) -> Result<Vec<Descriptor>, ScanError> {
     let mut child = Command::new(helper)
-        .arg("--scan")
-        .arg(file)
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
