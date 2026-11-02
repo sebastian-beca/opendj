@@ -18,6 +18,7 @@
 - [Layouts](guide/layouts.md)
 - [Automix](guide/automix.md)
 - [Phone remote](guide/remote.md)
+- [Loudness and broadcasting](guide/broadcasting.md)
 - [Controllers](guide/controllers.md)
   - [Pioneer DDJ-FLX4](guide/controllers/ddj-flx4.md)
 <!-- controllers -->

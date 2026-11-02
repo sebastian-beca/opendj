@@ -673,6 +673,9 @@ pub(crate) struct MasterControls {
     /// `[Master] test_tone`: beeps for checking the outputs, 1 in the
     /// master mix, 2 in the headphones, 0 off. The guided tour plays it.
     pub(crate) test_tone: ControlHandle,
+    /// `[Master] air_ceiling`: the limiter's ceiling in dBTP while recording
+    /// or on air (-1 or -2).
+    pub(crate) air_ceiling: ControlHandle,
 }
 
 pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
@@ -733,6 +736,14 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
         ),
         autodj_enabled: reg.toggle("[AutoDJ]", "enabled"),
         test_tone: reg.create("[Master]", "test_tone", 0.0, 0.0, 2.0, Behavior::Free),
+        air_ceiling: reg.create(
+            "[Master]",
+            "air_ceiling",
+            crate::engine::DEFAULT_AIR_CEILING_DB,
+            -6.0,
+            0.0,
+            Behavior::Free,
+        ),
         vu_l: reg.indicator("[Master]", "VuMeterL", 1.0),
         vu_r: reg.indicator("[Master]", "VuMeterR", 1.0),
         // Mixxx keeps its ReplayGain switch in the [ReplayGain] group too.
