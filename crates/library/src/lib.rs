@@ -1153,6 +1153,36 @@ impl Library {
         Ok(())
     }
 
+    /// When each list was last touched: the latest time a track was added
+    /// to it, or when it was made if nothing was. For the track menu's
+    /// "Add to playlist", most recent first.
+    pub fn playlists_touched(&self) -> Result<HashMap<i64, i64>, Error> {
+        let mut q = self.db.prepare(
+            "SELECT p.id, MAX(COALESCE(p.created, 0),
+                              COALESCE((SELECT MAX(played_at) FROM playlist_tracks WHERE playlist_id = p.id), 0))
+               FROM playlists p",
+        )?;
+        let out = q
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        Ok(out)
+    }
+
+    /// The lists a track is in (not history sessions' own: those are
+    /// lists too, so the caller leaves out what it doesn't show).
+    pub fn playlists_with(&self, track: usize) -> Result<Vec<i64>, Error> {
+        let Some(row) = row_id(track) else {
+            return Ok(Vec::new());
+        };
+        let mut q = self
+            .db
+            .prepare("SELECT DISTINCT playlist_id FROM playlist_tracks WHERE track_id = ?1")?;
+        let out = q
+            .query_map([row], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        Ok(out)
+    }
+
     /// The tree of lists, folders and history sessions, parents before
     /// children, siblings in order.
     pub fn playlists(&self) -> Result<Vec<Playlist>, Error> {

@@ -1,19 +1,23 @@
-//! Settings… (⌘,) in the macOS app menu. Slint builds the app
-//! menu itself (About, Services, Hide, Quit) with no way to add to it, so
-//! the item is added to the native menu once it exists.
+//! Settings… (⌘,) in the macOS app menu, and an Edit menu with Undo (⌘Z).
+//! Slint builds the app menu itself (About, Services, Hide, Quit) with no
+//! way to add to it, so the items are added to the native menu once it
+//! exists.
 
 use std::cell::RefCell;
 
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{define_class, msg_send, sel, MainThreadMarker, MainThreadOnly};
-use objc2_app_kit::{NSApplication, NSMenuItem};
+use objc2_app_kit::{NSApplication, NSEventType, NSMenu, NSMenuItem};
 use objc2_foundation::{NSObject, NSString};
 
 thread_local! {
     /// What Settings… does, and the object the menu item calls.
     static OPEN: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
     static TARGET: RefCell<Option<Retained<SettingsTarget>>> = const { RefCell::new(None) };
+    /// What Undo does, and its menu item, renamed for what it takes back.
+    static UNDO: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
+    static UNDO_ITEM: RefCell<Option<Retained<NSMenuItem>>> = const { RefCell::new(None) };
 }
 
 define_class!(
@@ -30,6 +34,25 @@ define_class!(
             OPEN.with(|o| {
                 if let Some(open) = o.borrow().as_ref() {
                     open();
+                }
+            });
+        }
+
+        #[unsafe(method(undoLastChange:))]
+        fn undo_last_change(&self, _sender: Option<&AnyObject>) {
+            // ⌘Z also reaches the window, which undoes there (or lets a text
+            // field undo its typing), so only a click on the item counts.
+            if let Some(mtm) = MainThreadMarker::new() {
+                let key = NSApplication::sharedApplication(mtm)
+                    .currentEvent()
+                    .is_some_and(|e| e.r#type() == NSEventType::KeyDown);
+                if key {
+                    return;
+                }
+            }
+            UNDO.with(|u| {
+                if let Some(undo) = u.borrow().as_ref() {
+                    undo();
                 }
             });
         }
@@ -71,6 +94,44 @@ pub fn add_settings_item(open: impl Fn() + 'static) -> bool {
     let at = 2.min(app_menu.numberOfItems());
     app_menu.insertItem_atIndex(&item, at);
     app_menu.insertItem_atIndex(&NSMenuItem::separatorItem(mtm), at + 1);
+    // An Edit menu after the app menu, with Undo.
+    let edit = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("Edit"));
+    edit.setAutoenablesItems(false);
+    // SAFETY: as for Settings… above.
+    let undo = unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(
+            NSMenuItem::alloc(mtm),
+            &NSString::from_str("Undo"),
+            Some(sel!(undoLastChange:)),
+            &NSString::from_str("z"),
+        )
+    };
+    unsafe { undo.setTarget(Some(&target)) };
+    undo.setEnabled(false);
+    edit.addItem(&undo);
+    let holder = NSMenuItem::new(mtm);
+    holder.setSubmenu(Some(&edit));
+    if let Some(main) = app.mainMenu() {
+        main.insertItem_atIndex(&holder, 1.min(main.numberOfItems()));
+    }
+    UNDO_ITEM.with(|u| *u.borrow_mut() = Some(undo));
     TARGET.with(|t| *t.borrow_mut() = Some(target));
     true
+}
+
+/// What Edit › Undo does when picked.
+pub fn on_undo(undo: impl Fn() + 'static) {
+    UNDO.with(|u| *u.borrow_mut() = Some(Box::new(undo)));
+}
+
+/// Names Edit › Undo for what it would take back ("Undo Send to In Prep
+/// (3 tracks)"), or greys it out when `text` is empty.
+pub fn set_undo_text(text: &str) {
+    UNDO_ITEM.with(|u| {
+        if let Some(item) = u.borrow().as_ref() {
+            let title = if text.is_empty() { "Undo" } else { text };
+            item.setTitle(&NSString::from_str(title));
+            item.setEnabled(!text.is_empty());
+        }
+    });
 }

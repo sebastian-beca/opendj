@@ -94,7 +94,7 @@ fn change_label(stage: Stage, crate_name: Option<&str>) -> String {
         (Stage::Triage, None) => "Send to In Prep".into(),
         (Stage::Collection, _) => "Send to Play Ready".into(),
         (Stage::Inbox, _) => "Back to Inbox".into(),
-        (Stage::Dismissed, _) => "Not interested".into(),
+        (Stage::Dismissed, _) => "Hide from Inbox".into(),
     }
 }
 
@@ -405,11 +405,10 @@ impl Browser {
             Vec::new()
         };
         edit.set_triage_crates(ModelRc::new(VecModel::from(crates)));
-        edit.set_undo_text(
-            self.undo
-                .as_ref()
-                .map_or_else(SharedString::default, |u| u.text.as_str().into()),
-        );
+        let undo = self.undo.as_ref().map_or("", |u| u.text.as_str());
+        edit.set_undo_text(undo.into());
+        #[cfg(target_os = "macos")]
+        crate::mac_menu::set_undo_text(undo);
     }
 
     /// Queues the tracks in triage that still need their tempo or key.

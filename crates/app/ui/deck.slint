@@ -1177,8 +1177,8 @@ component StemPad inherits Rectangle {
             padding: 4px;
             PanelMenuItem {
                 text: info.stem-hq ? "High Quality Stems ✓"
-                    : info.stem-preparing ? "Preparing High Quality Stems…"
-                    : "Prepare High Quality Stems";
+                    : info.stem-preparing ? "Preparing HQ Stems…"
+                    : "Prepare HQ Stems";
                 current: info.stem-hq;
                 picked => {
                     if info.can-prepare-hq {
