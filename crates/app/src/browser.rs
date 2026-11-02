@@ -2886,8 +2886,9 @@ impl Browser {
 
     /// Collection tracks that `text` finds, with the browser's search
     /// syntax (`bpm:120-124`, `key:8A`, `crate:Warm-up`, ...), sorted by
-    /// title, at most `limit`, with how many there were in all.
-    pub fn find_tracks(&self, text: &str, limit: usize) -> (Vec<Arc<Track>>, usize) {
+    /// title, at most `limit` from place `offset`, with how many there were
+    /// in all. Empty text finds the whole collection.
+    pub fn find_tracks(&self, text: &str, offset: usize, limit: usize) -> (Vec<Arc<Track>>, usize) {
         let q = Query::parse(text.trim());
         let mut found = self.search(&q, None);
         let all = found.len();
@@ -2897,6 +2898,7 @@ impl Browser {
         });
         let tracks = found
             .into_iter()
+            .skip(offset)
             .take(limit)
             .map(|i| self.library[i].clone())
             .collect();
