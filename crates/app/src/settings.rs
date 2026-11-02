@@ -983,3 +983,30 @@ pub fn show_key(key: &str, camelot: bool) -> String {
         None => key.to_string(),
     }
 }
+
+/// Whether the phone remote was on when openDJ last quit; off at first.
+pub fn remote_on() -> bool {
+    load()["remote_on"].as_bool().unwrap_or(false)
+}
+
+pub fn set_remote_on(on: bool) {
+    save(|v| v["remote_on"] = json!(on));
+}
+
+/// The phones paired with the remote. Each keeps only a hash of the token
+/// its phone logs in with.
+pub fn remote_devices() -> Vec<opendj_remote::Device> {
+    load()["remote_devices"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(opendj_remote::Device::from_json)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn set_remote_devices(devices: &[opendj_remote::Device]) {
+    let list: Vec<Value> = devices.iter().map(|d| d.to_json()).collect();
+    save(|v| v["remote_devices"] = Value::Array(list));
+}
