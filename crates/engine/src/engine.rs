@@ -1947,12 +1947,29 @@ impl Engine {
         self.samplers.update();
         self.preview.update();
         // Tempo-synced effects on the main mix follow the first playing deck.
-        let main_beat = self
+        let main_deck = self
             .decks
             .iter()
-            .find(|d| d.c.play.get_bool() && d.track.as_ref().is_some_and(|t| t.bpm > 0.0))
-            .unwrap_or(&self.decks[0])
-            .beat_seconds();
+            .position(|d| d.c.play.get_bool() && d.track.as_ref().is_some_and(|t| t.bpm > 0.0))
+            .unwrap_or(0);
+        let main_beat = self.decks[main_deck].beat_seconds();
+        // Gates, LFOs and rolls lock to each playing deck's beat grid; on a
+        // stopped deck they run free rather than freeze.
+        let grid = |d: &Deck| {
+            d.track
+                .as_ref()
+                .filter(|t| t.bpm > 0.0 && d.c.play.get_bool())
+                .map(|t| t.beat_at(d.seconds()))
+        };
+        self.fx.set_beats(std::array::from_fn(|t| {
+            if t < MAIN {
+                grid(&self.decks[t])
+            } else if t == MAIN {
+                grid(&self.decks[main_deck])
+            } else {
+                None
+            }
+        }));
         self.fx.prepare(
             std::array::from_fn(|t| {
                 if t >= MAIN {

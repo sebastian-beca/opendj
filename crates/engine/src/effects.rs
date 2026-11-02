@@ -615,6 +615,40 @@ struct Ctx {
     sample_rate: f32,
     /// Length of a beat at the target's current tempo.
     beat_seconds: f32,
+    /// Where the target is in its beat grid at the start of the buffer, in
+    /// beats, if it has one and the unit follows it (not a tapped tempo).
+    /// Gates, LFOs and rolls lock to it.
+    beat: Option<f64>,
+}
+
+/// Phase errors (in cycles) bigger than this are a jump (a seek, a loop, a
+/// newly started effect) and snap; smaller ones are drift and are pulled in
+/// over about [`LOCK_FRAMES`] frames so the sweep never jumps.
+const LOCK_SNAP: f32 = 0.05;
+const LOCK_FRAMES: f32 = 1024.0;
+
+/// Locks a cycle of `cycle_beats` beats to the beat grid: `phase` (0..1) is
+/// where the effect's cycle is at the start of the buffer and `step` its
+/// per-frame advance, which this nudges so the cycle lands on the grid.
+/// `fresh` snaps the first time. Without a grid it leaves both alone.
+fn lock_to_beat(
+    phase: &mut f32,
+    step: &mut f32,
+    fresh: &mut bool,
+    beat: Option<f64>,
+    cycle_beats: f32,
+) {
+    let Some(beat) = beat else {
+        return;
+    };
+    let want = (beat / cycle_beats as f64).rem_euclid(1.0) as f32;
+    let err = (want - *phase + 0.5).rem_euclid(1.0) - 0.5;
+    if *fresh || err.abs() > LOCK_SNAP {
+        *fresh = false;
+        *phase = want;
+    } else {
+        *step += err / LOCK_FRAMES;
+    }
 }
 
 /// One effect instance: every effect type's state, of which one is in use.
@@ -769,6 +803,9 @@ pub(crate) struct EffectRack {
     mix: [(f32, f32); NUM_EFFECT_UNITS],
     /// Whether a unit has any slot sounding on a target this buffer.
     active: [[bool; TARGETS]; NUM_EFFECT_UNITS],
+    /// Each target's beat-grid position at the start of this buffer (see
+    /// [`EffectRack::set_beats`]).
+    beats: [Option<f64>; TARGETS],
 }
 
 impl EffectRack {
@@ -808,7 +845,15 @@ impl EffectRack {
             pool: Pool::new(sample_rate, long, short),
             index,
             active: [[false; TARGETS]; NUM_EFFECT_UNITS],
+            beats: [None; TARGETS],
         }
+    }
+
+    /// Each target's position in its beat grid, in beats, for this buffer:
+    /// set before [`EffectRack::prepare`]. `None` where there is no grid
+    /// (no track, no tempo, the inputs); those targets' effects run free.
+    pub(crate) fn set_beats(&mut self, beats: [Option<f64>; TARGETS]) {
+        self.beats = beats;
     }
 
     /// Bytes of delay memory the rack holds, lent out or not.
@@ -909,6 +954,7 @@ impl EffectRack {
                             let ctx = Ctx {
                                 sample_rate: self.sample_rate,
                                 beat_seconds: beat_seconds[t] as f32,
+                                beat: if bpm > 0.0 { None } else { self.beats[t] },
                             };
                             inst.prepare(&params, ctx);
                         }
@@ -1426,6 +1472,8 @@ struct Flanger {
     feedback: f32,
     targets: [f32; 3],
     fresh: bool,
+    /// The LFO hasn't locked to the beat since the reset.
+    unlocked: bool,
 }
 
 impl Flanger {
@@ -1440,6 +1488,7 @@ impl Flanger {
             feedback: 0.0,
             targets: [1.0, 0.0, 0.0],
             fresh: true,
+            unlocked: true,
         }
     }
 
@@ -1448,12 +1497,22 @@ impl Flanger {
         self.write = 0;
         self.phase = 0.0;
         self.fresh = true;
+        self.unlocked = true;
     }
 
     fn prepare(&mut self, p: &[f32; MAX_PARAMETERS], ctx: Ctx) {
         // Speed: one sweep every 32 beats down to every half beat, in time
-        // with the track. Manual: 0.5..8 ms centre delay.
-        self.step = 1.0 / (beats(1.0 - p[0], -1, 5) * ctx.beat_seconds * ctx.sample_rate);
+        // with the track and starting on a beat of it. Manual: 0.5..8 ms
+        // centre delay.
+        let cycle = beats(1.0 - p[0], -1, 5);
+        self.step = 1.0 / (cycle * ctx.beat_seconds * ctx.sample_rate);
+        lock_to_beat(
+            &mut self.phase,
+            &mut self.step,
+            &mut self.unlocked,
+            ctx.beat,
+            cycle,
+        );
         self.targets = [(0.0005 + 0.0075 * p[2]) * ctx.sample_rate, p[1], 0.9 * p[3]];
         if self.fresh {
             self.fresh = false;
@@ -1547,6 +1606,8 @@ struct Phaser {
     depth: f32,
     feedback: f32,
     targets: [f32; 2],
+    /// The sweep has locked to the beat since the reset.
+    locked: bool,
     sample_rate: f32,
     coef: [f32; 2],
     state: [[f32; PHASER_MAX_STAGES]; 2],
@@ -1557,8 +1618,22 @@ struct Phaser {
 impl Phaser {
     fn prepare(&mut self, p: &[f32; MAX_PARAMETERS], ctx: Ctx) {
         // Speed: one sweep every 32 beats down to every half beat, in time
-        // with the track. Stages: 2..12.
-        self.step = 1.0 / (beats(1.0 - p[0], -1, 5) * ctx.beat_seconds * ctx.sample_rate);
+        // with the track and starting on a beat of it. Stages: 2..12.
+        let cycle = beats(1.0 - p[0], -1, 5);
+        self.step = 1.0 / (cycle * ctx.beat_seconds * ctx.sample_rate);
+        let mut unlocked = !self.locked;
+        lock_to_beat(
+            &mut self.phase,
+            &mut self.step,
+            &mut unlocked,
+            ctx.beat,
+            cycle,
+        );
+        self.locked = !unlocked;
+        if ctx.beat.is_some() {
+            // A new phase takes effect at once, not at the next update.
+            self.countdown = 0;
+        }
         self.targets = [p[1], 0.9 * p[2]];
         let stages = 2 + 2 * (p[3] * 5.0).round() as usize;
         if self.stages == 0 {
@@ -1636,8 +1711,8 @@ impl Phaser {
 }
 
 /// Trans / gate: chops the sound in time with the beat, with a short slew
-/// on each edge so it doesn't click. Its phase starts on the beat it is
-/// turned on.
+/// on each edge so it doesn't click. It opens on the beat grid's divisions
+/// (or, without a grid, from the moment it is turned on).
 struct Gate {
     phase: f32,
     step: f32,
@@ -1645,6 +1720,7 @@ struct Gate {
     width: f32,
     gain: f32,
     slew: f32,
+    unlocked: bool,
 }
 
 impl Default for Gate {
@@ -1656,6 +1732,7 @@ impl Default for Gate {
             width: 0.5,
             gain: 1.0,
             slew: 1.0,
+            unlocked: true,
         }
     }
 }
@@ -1663,7 +1740,15 @@ impl Default for Gate {
 impl Gate {
     fn prepare(&mut self, p: &[f32; MAX_PARAMETERS], ctx: Ctx) {
         // Length: 1/16 to 1 beat per open-and-close.
-        self.step = 1.0 / (beats(p[0], -4, 0) * ctx.beat_seconds * ctx.sample_rate);
+        let cycle = beats(p[0], -4, 0);
+        self.step = 1.0 / (cycle * ctx.beat_seconds * ctx.sample_rate);
+        lock_to_beat(
+            &mut self.phase,
+            &mut self.step,
+            &mut self.unlocked,
+            ctx.beat,
+            cycle,
+        );
         self.depth = p[1];
         self.width = 0.1 + 0.8 * p[2];
         // Each edge takes about 2 ms.
@@ -1686,15 +1771,21 @@ impl Gate {
     }
 }
 
-/// Beat roll: records from the moment it is turned on and repeats the first
-/// slice of 1/16 to 1 beat, each repeat faded in and out over 3 ms so the
-/// seams don't click (Mixxx's Glitch repeats raw audio buffers instead).
+/// Beat roll: repeats a slice of 1/16 to 1 beat, each repeat faded in and
+/// out over 3 ms so the seams don't click (Mixxx's Glitch repeats raw audio
+/// buffers instead). With a beat grid it starts recording on the next
+/// division of the grid (the slice, or a quarter beat for longer slices),
+/// so the roll lands on the music's beat; without one, at once.
 struct Roll {
     len: usize,
     recorded: usize,
     slice: usize,
     pos: usize,
     fade: f32,
+    /// Frames to play live before recording starts, and whether that wait
+    /// has been worked out since the reset.
+    wait: usize,
+    waiting_set: bool,
 }
 
 impl Roll {
@@ -1705,12 +1796,16 @@ impl Roll {
             slice: 1,
             pos: 0,
             fade: 1.0,
+            wait: 0,
+            waiting_set: false,
         }
     }
 
     fn reset(&mut self) {
         self.recorded = 0;
         self.pos = 0;
+        self.wait = 0;
+        self.waiting_set = false;
     }
 
     fn prepare(&mut self, p: &[f32; MAX_PARAMETERS], ctx: Ctx) {
@@ -1718,10 +1813,22 @@ impl Roll {
         let b = beats(1.0 - p[0], -4, 0);
         self.slice = ((b * ctx.beat_seconds * ctx.sample_rate) as usize).clamp(64, self.len - 1);
         self.fade = 0.003 * ctx.sample_rate;
+        if !self.waiting_set {
+            self.waiting_set = true;
+            if let Some(beat) = ctx.beat {
+                let grid = b.min(0.25) as f64;
+                let to_next = (grid - beat.rem_euclid(grid)) % grid;
+                self.wait = (to_next as f32 * ctx.beat_seconds * ctx.sample_rate) as usize;
+            }
+        }
     }
 
     #[inline]
     fn process(&mut self, mem: &mut [f32], x: [f32; 2]) -> [f32; 2] {
+        if self.wait > 0 {
+            self.wait -= 1;
+            return x;
+        }
         let (l, r) = mem[..2 * self.len].split_at_mut(self.len);
         if self.recorded < self.len {
             l[self.recorded] = x[0];
@@ -2035,6 +2142,7 @@ impl ColorFx {
         let ctx = Ctx {
             sample_rate: self.sample_rate,
             beat_seconds: beat_seconds as f32,
+            beat: None,
         };
         let p = match preset {
             // Decay, bandwidth, damping, send.
@@ -2097,6 +2205,7 @@ mod tests {
     const CTX: Ctx = Ctx {
         sample_rate: SR,
         beat_seconds: 0.5,
+        beat: None,
     };
 
     /// An instance of `kind` with its default parameters, fed `input` frames.
