@@ -80,6 +80,7 @@ fn instance(kind: Kind, p: [f32; MAX_PARAMETERS]) -> Instance {
         Ctx {
             sample_rate: SR,
             beat_seconds: 0.5,
+            beat: None,
         },
     );
     inst
@@ -383,6 +384,7 @@ fn turning_any_knob_all_the_way_does_not_click() {
     let ctx = Ctx {
         sample_rate: SR,
         beat_seconds: 0.5,
+        beat: None,
     };
     let mut clicks = Vec::new();
     // Effects whose knobs are continuous. Gate, Roll, Brake and Bitcrusher
@@ -455,4 +457,97 @@ fn swept_delay_reads_keep_the_highs() {
     let db = |v: f32| 20.0 * v.log10();
     assert!(db(lo) > -1.0, "dips to {:.2} dB", db(lo));
     assert!(db(hi) < 0.5, "peaks at {:.2} dB", db(hi));
+}
+
+/// Runs `kind` with parameters `p` over `frames` frames of `input`, in
+/// 256-frame buffers, with the deck's beat grid starting at beat `start`
+/// (two beats a second).
+fn run_on_grid(
+    kind: Kind,
+    p: [f32; MAX_PARAMETERS],
+    start: f64,
+    frames: usize,
+    input: impl Fn(usize) -> f32,
+) -> Vec<f32> {
+    let mut inst = Instance::with_memory(SR);
+    inst.kind = Some(kind);
+    inst.reset();
+    let mut out = Vec::with_capacity(frames);
+    for b in 0..frames.div_ceil(BUFFER) {
+        let first = b * BUFFER;
+        inst.prepare(
+            &p,
+            Ctx {
+                sample_rate: SR,
+                beat_seconds: 0.5,
+                beat: Some(start + first as f64 / (0.5 * SR as f64)),
+            },
+        );
+        for i in first..(first + BUFFER).min(frames) {
+            let x = input(i);
+            out.push(inst.process([x, x])[0]);
+        }
+    }
+    out
+}
+
+#[test]
+fn gates_open_on_the_beat_grid() {
+    // A quarter-beat gate (6 000 frames at 120 BPM) turned on a fifth of
+    // the way into a quarter beat: it reopens on the grid's quarter beats,
+    // and still does ten seconds later.
+    let p = defaults(Kind::Gate);
+    let out = run_on_grid(Kind::Gate, p, 10.3, 10 * SR as usize, |_| 0.5);
+    let quarter = 6_000;
+    // Frame 0 is beat 10.3: the next quarter beat (10.5) is 4 800 frames in.
+    let opens: Vec<usize> = (1..out.len())
+        .filter(|&i| out[i - 1] < 0.3 && out[i] >= 0.3)
+        .collect();
+    assert!(opens.len() > 70, "{} openings", opens.len());
+    for &i in &opens {
+        let off = (i + quarter - 4_800) % quarter;
+        let off = off.min(quarter - off);
+        // The edge's 2 ms slew crosses half way about 50 frames in.
+        assert!(off < 80, "opened {off} frames off the grid at frame {i}");
+    }
+}
+
+#[test]
+fn flanger_and_phaser_sweeps_follow_the_grid() {
+    // Started at different points, two flangers on the same grid sweep
+    // together once locked.
+    for kind in [Kind::Flanger, Kind::Phaser] {
+        let p = defaults(kind);
+        let input = |i: usize| ((i * 7919) % 1000) as f32 / 1000.0 - 0.5;
+        let a = run_on_grid(kind, p, 4.0, SR as usize, input);
+        // The same music, but the effect turned on half a second later.
+        let half = SR as usize / 2;
+        let b = run_on_grid(kind, p, 5.0, half, |i| input(i + half));
+        let diff: f32 = a[half + 4_800..]
+            .iter()
+            .zip(&b[4_800..])
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0, f32::max);
+        assert!(diff < 0.05, "{kind:?} sweeps differ by {diff}");
+    }
+}
+
+#[test]
+fn rolls_start_on_the_grid() {
+    // A one-beat roll turned on at beat 10.1 waits for 10.25 (3 600 frames)
+    // and repeats from there: a click starting at that frame comes back a
+    // beat later (past the 3 ms fade at each seam).
+    let mut p = defaults(Kind::Roll);
+    p[0] = 0.0;
+    let out = run_on_grid(Kind::Roll, p, 10.1, 3 * SR as usize, |i| {
+        if (3_600..3_900).contains(&i) {
+            0.8
+        } else {
+            0.0
+        }
+    });
+    let beat = SR as usize / 2;
+    assert!(out[3_800] > 0.7, "plays live until the grid");
+    assert!(out[3_800 + beat] > 0.7, "repeats a beat later");
+    assert!(out[3_800 + 2 * beat] > 0.7, "and again");
 }
