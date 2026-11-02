@@ -34,6 +34,9 @@ use crate::{settings, short_port_name, AppWindow, ControllerEditor, MapMode};
 /// doesn't send enough to tell sooner.
 const LISTEN: Duration = Duration::from_millis(350);
 
+/// How long the walk waits after a press on a deck's PLAY step, in case a
+/// deck button came first and PLAY is still to come.
+const LAST_PRESS: Duration = Duration::from_millis(1200);
 /// How long the control learned last has to be still before it can start
 /// another.
 const SETTLE: Duration = Duration::from_millis(600);
@@ -289,7 +292,19 @@ impl Mapper {
                     }
                 }
             }
+            let takes_last = self.takes_last();
             match &mut self.heard {
+                // On a deck's PLAY step, a deck button pressed first
+                // gives way to the PLAY pressed after it.
+                Some((p, at, msgs))
+                    if *p == port
+                        && takes_last
+                        && learn::starts(&msg)
+                        && msgs.first().is_some_and(|m| m[..2] != msg[..2]) =>
+                {
+                    *msgs = vec![msg];
+                    *at = Instant::now();
+                }
                 Some((p, _, msgs)) if *p == port => msgs.push(msg),
                 Some(_) => {}
                 None if learn::starts(&msg) => {
@@ -298,10 +313,14 @@ impl Mapper {
                 None => {}
             }
         }
-        let ready = self
-            .heard
-            .as_ref()
-            .is_some_and(|(_, at, msgs)| learn::enough(msgs) || at.elapsed() >= LISTEN);
+        let takes_last = self.takes_last();
+        let ready = self.heard.as_ref().is_some_and(|(_, at, msgs)| {
+            if takes_last {
+                at.elapsed() >= LAST_PRESS
+            } else {
+                learn::enough(msgs) || at.elapsed() >= LISTEN
+            }
+        });
         if ready {
             let (port, _, msgs) = self.heard.take().unwrap();
             self.learn(&port, &msgs);
@@ -314,7 +333,7 @@ impl Mapper {
             return;
         };
         let g = app.global::<MapMode>();
-        let Some(heard) = learn::hear(msgs) else {
+        let Some(heard) = learn::hear_for(msgs, &control) else {
             return;
         };
         self.last_heard = Some((port.to_string(), heard.midi, Instant::now()));
@@ -354,6 +373,30 @@ impl Mapper {
             g.set_status("Couldn't make a mapping of your own.".into());
             return;
         };
+        if let Some(deck) = self.copies_deck() {
+            // The controller sends the same PLAY on this deck as on deck 1:
+            // it doesn't tell its decks apart, so there's nothing to copy,
+            // and learning it would take PLAY away from deck 1.
+            let play_one = mine.mapping.rows.iter().find_map(|r| match &r.action {
+                Action::Bind { control: c, .. } if c == "[Channel1],play" && r.layer.is_empty() => {
+                    Some(r.midi)
+                }
+                _ => None,
+            });
+            if play_one.is_some_and(|m| (m.status, m.number) == (status, number)) {
+                g.set_last(
+                    format!(
+                        "Deck {deck}'s PLAY sends the same as deck 1's, so the controller doesn't \
+                         tell them apart. Use openDJ's deck {deck} switch instead."
+                    )
+                    .into(),
+                );
+                self.armed = None;
+                g.set_armed("".into());
+                self.next_step();
+                return;
+            }
+        }
         let step = Step {
             file,
             id: mine.id.clone(),
@@ -643,6 +686,18 @@ impl Mapper {
         if let Some(c) = &self.controllers {
             c.take_monitored();
         }
+    }
+
+    /// The deck whose PLAY the walk is asking for, to copy deck 1's rows to.
+    fn copies_deck(&self) -> Option<u8> {
+        let w = self.walk.as_ref()?;
+        w.steps.get(w.at).filter(|s| s.copies).map(|s| s.deck)
+    }
+
+    /// Whether the last control pressed counts, not the first: on a deck's
+    /// PLAY step, where a deck button may come first.
+    fn takes_last(&self) -> bool {
+        self.copies_deck().is_some()
     }
 
     /// On to the walk's next control (Skip, or after one was learned).

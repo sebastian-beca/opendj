@@ -76,6 +76,29 @@ pub fn hear(msgs: &[Vec<u8>]) -> Option<Heard> {
     Some(Heard { midi, options })
 }
 
+/// Like [`hear`], for binding to `control` (`[Channel1],jog`). A control
+/// that takes steps rather than positions (a jog wheel, the browse knob)
+/// always gets an endless encoder's reading, so it turns both ways: `hear`
+/// alone takes a wheel turned one way quickly, whose values keep changing,
+/// for a knob, and the binding then only ever moves forward.
+pub fn hear_for(msgs: &[Vec<u8>], control: &str) -> Option<Heard> {
+    let mut heard = hear(msgs)?;
+    let key = control.split_once(',').map_or(control, |(_, k)| k);
+    if crate::host::is_relative(key) && heard.midi.status & 0xF0 == 0xB0 && heard.midi.lsb.is_none()
+    {
+        let (status, number) = (heard.midi.status, heard.midi.number);
+        let values: Vec<u8> = msgs
+            .iter()
+            .filter(|m| m.len() >= 3 && m[0] == status && m[1] == number)
+            .map(|m| m[2])
+            .collect();
+        // Steps around 64 (63 back, 65 on), or around 0 (127 back, 1 on).
+        let centred = !values.is_empty() && values.iter().all(|v| (33..=95).contains(v));
+        heard.options = vec![if centred { "spread64" } else { "selectknob" }.into()];
+    }
+    Some(heard)
+}
+
 /// What a control on screen that has no control of its own (a pad mode
 /// tab) does instead, as `script:` and an openDJscript line:
 /// `script:deck 1 set 'pad_tab' 2`.
@@ -187,6 +210,31 @@ pub fn bound_controls(mapping: &Mapping) -> HashSet<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_jog_wheel_turns_both_ways() {
+        // Turned one way quickly: the steps grow, so `hear` takes it for a knob.
+        let fast: Vec<Vec<u8>> = (1..=7).map(|v| vec![0xB0, 0x22, v]).collect();
+        assert!(hear(&fast).unwrap().options.is_empty());
+        assert_eq!(
+            hear_for(&fast, "[Channel1],jog").unwrap().options,
+            ["selectknob"]
+        );
+        let centred: Vec<Vec<u8>> = (65..=70).map(|v| vec![0xB0, 0x22, v]).collect();
+        assert_eq!(
+            hear_for(&centred, "[Channel1],jog").unwrap().options,
+            ["spread64"]
+        );
+        assert_eq!(
+            hear_for(&fast, "[Library],MoveVertical").unwrap().options,
+            ["selectknob"]
+        );
+        // A knob for a position keeps what `hear` made of it.
+        assert!(hear_for(&fast, "[Channel1],rate")
+            .unwrap()
+            .options
+            .is_empty());
+    }
 
     #[test]
     fn hears_buttons_knobs_and_encoders() {

@@ -25,8 +25,11 @@ more experienced DJs alike.
 ## Controllers
 
 openDJ uses [Mixxx](https://mixxx.org)'s controller mappings, so most MIDI
-controllers that Mixxx supports work as soon as they're plugged in. HID
-controllers aren't supported yet.
+controllers that Mixxx supports work as soon as they're plugged in. Since
+0.4.7 that includes USB HID controllers with a Mixxx HID mapping: Native
+Instruments' Traktor Kontrol S2 (MK1 to MK3), S3, S4 (MK2, MK3), F1, Z1 and
+MX2. Quit Traktor first; on Linux, add the udev rule that comes with the
+download.
 
 ## Streaming services and stores
 
