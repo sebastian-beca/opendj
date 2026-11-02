@@ -351,7 +351,7 @@ playlists.
 
 ## Collection Health
 
-[Collection Health](collection-health.md), the heart under Collection in the
+[Collection Health](collection-health.md), the cross under Collection in the
 rail, finds what needs fixing in your collection: duplicates, junk in names,
 missing or poor tags, covers, low bitrates, files that went missing, and
 more.

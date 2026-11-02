@@ -304,8 +304,6 @@ export struct HealthCard {
 export global HealthUi {
     // The tree shows Collection Health's checks, picked in the rail.
     in property <bool> view;
-    // Checks that find something, for the rail's badge.
-    in property <int> issues;
     // Collection Health has a button in the rail; it can be hidden under
     // the rail's "..." like the sources.
     in-out property <bool> rail-shown: true;
@@ -1062,15 +1060,6 @@ component SourceRail inherits Rectangle {
                         tip: "Collection Health";
                         tip-body: "Checks your collection for duplicates, missing files and poor tags.";
                         HealthIcon {}
-                        if HealthUi.issues > 0: Rectangle {
-                            x: parent.width - self.width - 3px;
-                            y: 3px;
-                            width: max(16px, badge.preferred-width + 8px);
-                            height: 16px;
-                            border-radius: 8px;
-                            background: Theme.accent;
-                            badge := Text { text: HealthUi.issues; color: #000000; font-size: 10px; font-weight: 700; }
-                        }
                         clicked => { source = 0; health-picked(); }
                     }
                 }

@@ -791,10 +791,6 @@ impl Browser {
                 }
             })
             .collect();
-        // The rail's badge: the checks that find something to fix.
-        if self.saved() {
-            ui.set_issues(cards.iter().filter(|c| c.count > 0).count() as i32);
-        }
         ui.set_view(self.health_view && self.tree == super::COLLECTION);
         ui.set_cards(ModelRc::new(VecModel::from(cards)));
         ui.set_status(self.health_status.clone().into());
