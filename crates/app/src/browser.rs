@@ -36,6 +36,7 @@ mod columns;
 mod filters;
 mod health;
 mod info;
+mod picks;
 mod sets;
 mod spotify_export;
 mod staging;
@@ -476,6 +477,8 @@ pub struct Browser {
     shown_rows: (i32, i32),
     /// The list as shown, kept so arriving art can fill in single rows.
     list: Rc<VecModel<TrackRow>>,
+    /// The rows picked in the list.
+    picks: picks::Picks,
     /// The saved library, when it could be opened.
     db: Option<Library>,
     /// Where each track id is in `library`.
@@ -1065,6 +1068,7 @@ impl Browser {
             wave_rows: Vec::new(),
             shown_rows: (0, 0),
             list: Rc::new(VecModel::default()),
+            picks: Default::default(),
             db,
             index_of: HashMap::new(),
             path_index: HashMap::new(),
@@ -1443,6 +1447,7 @@ impl Browser {
         Self::install_editing(app, &b);
         Self::install_files(app, &b);
         Self::install_info(app, &b);
+        Self::install_picks(app, &b);
         Self::install_filters(app, &b);
         Self::install_columns(app, &b);
         b
@@ -1601,7 +1606,12 @@ impl Browser {
             })
         });
         let w = with.clone();
-        edit.on_set_rating(move |row, n| w(&|b| b.set_rating(row as usize, n.clamp(0, 5) as u8)));
+        edit.on_set_rating(move |row, n| {
+            w(&|b| {
+                let row = row.max(0) as usize;
+                b.rate_rows(row, row, n.clamp(0, 5) as u8);
+            })
+        });
         let w = with.clone();
         edit.on_add_to_list(move |first, last, list| {
             w(&|b| {
@@ -1611,7 +1621,15 @@ impl Browser {
             })
         });
         let w = with.clone();
-        edit.on_remove_from_list(move |row| w(&|b| b.remove_row_from_list(row as usize)));
+        edit.on_remove_from_list(move |row| {
+            w(&|b| {
+                let row = row.max(0) as usize;
+                // From the bottom up, so the rows above stay where they are.
+                for r in b.chosen_rows(row, row).into_iter().rev() {
+                    b.remove_row_from_list(r);
+                }
+            })
+        });
         let w = with.clone();
         edit.on_show_history(move |on| w(&|b| b.show_history(on)));
         let w = with.clone();
@@ -2158,6 +2176,7 @@ impl Browser {
             .collect();
         self.store.rows = rows;
         self.rows = vec![None; self.store.rows.len()];
+        self.clear_picks();
         if let Some(app) = self.app.upgrade() {
             let current = app.get_current_track();
             app.set_folder_duration(summary.into());
@@ -3208,9 +3227,7 @@ impl Browser {
 
     /// Adds the tracks of rows `first..=last`, in order, to a playlist.
     fn add_rows_to_playlist(&mut self, first: usize, last: usize, playlist: i64) {
-        let indices: Vec<usize> = (first..=last.min(self.rows.len().saturating_sub(1)))
-            .filter_map(|row| self.rows.get(row).copied().flatten())
-            .collect();
+        let indices = self.chosen_tracks(first, last);
         self.add_to_playlist(&indices, playlist);
     }
 
@@ -3269,32 +3286,34 @@ impl Browser {
         self.refresh_rows();
     }
 
-    /// Changes the library's copy of the track at `row`, and saves it.
-    fn change_track(&mut self, row: usize, change: impl FnOnce(&mut Track, Option<&Library>)) {
-        let Some(&Some(index)) = self.rows.get(row) else {
+    /// Changes the library tracks `indices`, then lists the rows once.
+    fn change_tracks(
+        &mut self,
+        indices: &[usize],
+        mut change: impl FnMut(&mut Track, Option<&Library>),
+    ) {
+        if indices.is_empty() {
             return;
-        };
-        self.adopt(&[index]);
-        let mut t = (*self.library[index]).clone();
-        change(&mut t, self.db.as_ref());
-        self.library[index] = Arc::new(t);
+        }
+        self.adopt(indices);
+        for &index in indices {
+            let mut t = (*self.library[index]).clone();
+            change(&mut t, self.db.as_ref());
+            self.library[index] = Arc::new(t);
+        }
         self.refresh_rows();
     }
 
-    fn set_rating(&mut self, row: usize, rating: u8) {
-        self.change_track(row, |t, db| {
+    /// Rates the rows picked in the track list (all of them when `first`
+    /// is one of several picked).
+    pub fn rate_rows(&mut self, first: usize, last: usize, rating: u8) {
+        let tracks = self.chosen_tracks(first, last);
+        self.change_tracks(&tracks, |t, db| {
             t.rating = rating;
             if let Some(Err(e)) = db.map(|db| db.set_rating(t.id, rating)) {
                 eprintln!("can't save the rating: {e}");
             }
         });
-    }
-
-    /// Rates the rows picked in the track list, for a keyboard shortcut.
-    pub fn rate_rows(&mut self, first: usize, last: usize, rating: u8) {
-        for row in first..=last.min(self.rows.len().saturating_sub(1)) {
-            self.set_rating(row, rating);
-        }
     }
 
     /// Rates the track loaded on `deck`; false when there's none.
@@ -3479,8 +3498,9 @@ impl Browser {
     /// The playable tracks of list rows `first..=last`, in order, taken into
     /// the library.
     fn playable_rows(&mut self, first: usize, last: usize) -> Vec<usize> {
-        let ids: Vec<usize> = (first..=last.min(self.rows.len().saturating_sub(1)))
-            .filter_map(|row| self.rows.get(row).copied().flatten())
+        let ids: Vec<usize> = self
+            .chosen_tracks(first, last)
+            .into_iter()
             .filter(|&id| self.playable(id))
             .collect();
         self.adopt(&ids);
@@ -3590,6 +3610,8 @@ impl Browser {
         }
         let steps = steps.round() as i64;
         if steps != 0 && !self.rows.is_empty() {
+            // Moving the selection picks one track again.
+            self.clear_picks();
             let current = app.get_current_track() as i64;
             let to = if current < 0 {
                 if steps > 0 {
@@ -4354,7 +4376,8 @@ impl Browser {
         if self.tree != SPOTIFY {
             return Vec::new();
         }
-        (first.min(last)..=first.max(last))
+        self.chosen_rows(first.min(last), first.max(last))
+            .into_iter()
             .filter_map(|row| self.stream_track(row))
             .map(|t| match t.artists.first() {
                 Some(a) => format!("{a} - {}", t.title),
@@ -4755,8 +4778,11 @@ impl Browser {
         }
         let notice = self.list_notice();
         let streams: Vec<Option<usize>> = data.iter().map(|r| r.stream).collect();
+        let picked = self.picked_tracks();
         self.rows = data.iter().map(|r| r.local).collect();
         self.stream_rows = streams;
+        // The same tracks stay picked, where the list still shows them.
+        self.repick(&picked);
         if let Some(app) = self.app.upgrade() {
             let current = app.get_current_track();
             app.set_folder_duration(summary.into());

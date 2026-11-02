@@ -177,7 +177,7 @@ grid while it plays: **Bar 1 here** on a downbeat puts bar 1 there,
 speeds up or slows down.
 
 To analyse tracks yourself, right-click them and choose **Analyze Track**
-(or **Analyze 12 Tracks** for a shift-click selection), or right-click a
+(or **Analyze 12 Tracks** when you picked several), or right-click a
 list, folder or stage and choose **Analyze All**. They are analysed again
 from scratch in the background, one at a time: tempo, beat grid, key,
 loudness, mini waveform and phrases. A grid you edited and a key you typed
@@ -374,6 +374,14 @@ more.
 
 Search, the filter bar and smart lists have a page of their own:
 [Filtering tracks](filtering.md).
+
+## Picking several tracks
+
+Click a track to pick it, **shift-click** another to pick every track in
+between, and **⌘-click** (Ctrl-click on Windows and Linux) to add or drop
+one track at a time; ⌘A picks the whole list. Right-click, drag, rate or
+add to a playlist and it applies to every picked track. Sorting or a
+refreshed list keeps the same tracks picked.
 
 ## Columns
 
