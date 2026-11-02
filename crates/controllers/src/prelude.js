@@ -1,7 +1,8 @@
-// The `engine`, `midi`, `console` and `ColorMapper` objects Mixxx gives
-// controller scripts, built on a few native functions (`native`). Follows
-// Mixxx's ControllerScriptInterfaceLegacy.
-(function(native, settings) {
+// The `engine`, `midi`, `controller`, `console` and `ColorMapper` objects
+// Mixxx gives controller scripts, built on a few native functions
+// (`native`). Follows Mixxx's ControllerScriptInterfaceLegacy. `hid` is set
+// for HID mappings, whose `controller` sends HID reports.
+(function(native, settings, hid) {
     "use strict";
 
     const connections = new Map();
@@ -158,6 +159,35 @@
         },
     };
     globalThis.midi.send = globalThis.midi.sendSysexMsg;
+    // Mixxx names the controller's script object both `midi` and `controller`.
+    globalThis.controller = globalThis.midi;
+    if (hid) {
+        // Bytes from an array, ArrayBuffer or typed array, as Mixxx takes them.
+        const bytesOf = data => {
+            if (data instanceof ArrayBuffer) {
+                return Array.from(new Uint8Array(data));
+            }
+            if (ArrayBuffer.isView(data)) {
+                return Array.from(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+            }
+            return Array.from(data || [], b => Number(b) & 0xFF);
+        };
+        const sendOutputReport = (reportID, data, useNonSkippingFIFO) =>
+            native.hidOutput(Number(reportID) & 0xFF, bytesOf(data), !!useNonSkippingFIFO);
+        // Mixxx's HidControllerJSProxy.
+        globalThis.controller = globalThis.midi = {
+            send(dataList, length, reportID, useNonSkippingFIFO) {
+                sendOutputReport(reportID || 0, dataList, useNonSkippingFIFO);
+            },
+            sendOutputReport,
+            getInputReport: reportID =>
+                new Uint8Array(native.hidGetInput(Number(reportID) & 0xFF)).buffer,
+            sendFeatureReport: (reportID, data) =>
+                native.hidSendFeature(Number(reportID) & 0xFF, bytesOf(data)),
+            getFeatureReport: reportID =>
+                new Uint8Array(native.hidGetFeature(Number(reportID) & 0xFF)).buffer,
+        };
+    }
     // openDJ: makes note `from` on MIDI channel `channel` (0-15) act as note
     // `to`, in both directions: pressing it runs `to`'s bindings, and lights
     // sent to `to` show on it. `to === from` undoes it.

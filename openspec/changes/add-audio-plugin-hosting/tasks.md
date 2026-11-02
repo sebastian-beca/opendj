@@ -8,8 +8,9 @@
 
 ## 2. CLAP
 
-- [ ] 2.1 Host CLAP effects in the helper with `clack-host`: load, process, parameters, state
-- [ ] 2.2 Scanner process, cache, Settings › Plugins (folders, Scan, failures with Retry, allow-list, favourites)
+- [x] 2.1 Host CLAP effects in the helper with `clack-host`: load, process, parameters, transport (state comes with 1.3)
+- [x] 2.2a Scanner process with a timeout (`opendj-plugin-host --scan`, `scan()`)
+- [ ] 2.2 Scan cache, Settings › Plugins (folders, Scan, failures with Retry, allow-list, favourites)
 - [ ] 2.3 FX chooser "Plugins" group, ON/D/W/slider mapping, transport for beat-synced plugins, controller mapping
 - [ ] 2.4 Block processing for plugin slots in the effects engine; per-slot load meter and CPU budget
 - [ ] 2.5 Latency compensation by reading the deck ahead
@@ -17,8 +18,9 @@
 
 ## 3. VST3
 
-- [ ] 3.1 Host VST3 effects with the `vst3` crate (coupler-rs) behind a safe layer: processor/controller, parameters, state
-- [ ] 3.2 Scanning via `moduleinfo.json` when present; editors
+- [x] 3.1 Host VST3 effects with the `vst3` crate (coupler-rs): component, processor, separate controller (connection, component state), parameters, process context
+- [x] 3.2a Scanning via `moduleinfo.json` when present, else in a throwaway helper
+- [ ] 3.2 VST3 editors (with 2.6)
 
 ## 4. AU (macOS)
 

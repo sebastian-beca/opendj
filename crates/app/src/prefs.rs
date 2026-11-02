@@ -15,9 +15,9 @@ use opendj_controllers::{
 };
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
-    analysis, beatthis, cache, channel_names, deck_group, input_devices, key, InputRole,
-    InputRoute, RecordFormat, Recorder, BUFFER_SIZES, DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS,
-    SAMPLE_RATES,
+    analysis, beatthis, cache, channel_names, deck_group, input_devices, key, separation,
+    InputRole, InputRoute, RecordFormat, Recorder, BUFFER_SIZES, DEFAULT_AUTO_GAIN_TARGET,
+    NUM_DECKS, SAMPLE_RATES,
 };
 use opendj_library::query;
 use opendj_plugins::{LibraryImport, Plugin, SettingKind};
@@ -181,6 +181,8 @@ pub fn apply_saved(registry: &ControlRegistry) {
     analysis::set_bpm_range(lo, hi);
     key::set_detector(key_detector());
     beatthis::set_enabled(settings::flag("neural_beats", true));
+    separation::set_on_load(settings::flag("stems_on_load", true));
+    apply_stems_cache_limit();
     key::set_mixing(key_mixing());
     key::set_notation(settings::key_notation());
     set("[Controls]", "key_match_on_load", key_match_range() as f64);
@@ -396,6 +398,8 @@ pub struct Prefs {
     /// What the last import change set going, shown on the Import tab.
     import_note: String,
     cache_note: String,
+    /// What Clear stems did, shown under it.
+    stems_note: String,
     /// The devices shown on the controllers page.
     ports: Vec<Port>,
     /// The devices under Add a controller, in its menu's order.
@@ -467,6 +471,7 @@ impl Prefs {
             library_note: String::new(),
             import_note: String::new(),
             cache_note: String::new(),
+            stems_note: String::new(),
             ports: Vec::new(),
             hidden_ports: Vec::new(),
             adding_controller: false,
@@ -644,6 +649,7 @@ impl Prefs {
             app.global::<AudioSettings>().invoke_refresh();
         }
         self.cache_note.clear();
+        self.stems_note.clear();
         self.shortcut_note.clear();
         self.refresh();
     }
@@ -977,6 +983,9 @@ impl Prefs {
                         )
                     },
                 ]
+                .into_iter()
+                .chain(self.stems_items())
+                .collect()
             }
             DECKS => {
                 let range = settings::number("rate_range", DEFAULT_RATE_RANGE);
@@ -1399,9 +1408,30 @@ impl Prefs {
                 "buffer_frames",
                 MENU,
                 "Buffer size",
-                "Smaller reacts faster to the controls; larger is safer from dropouts on a busy computer.",
+                &format!(
+                    "Smaller reacts faster to the controls; larger is safer from dropouts \
+                     on a busy computer. {}",
+                    self.audio_health()
+                ),
             )
         }
+    }
+
+    /// How the audio keeps up, from the engine's `[App],audio_latency_*`
+    /// controls: the share of each buffer it takes and the dropouts so far.
+    fn audio_health(&self) -> String {
+        let get = |k: &str| self.registry.get("[App]", k).map_or(0.0, |c| c.get());
+        let dropouts = get("audio_latency_overload_count") as u64;
+        format!(
+            "Audio load {:.0}% now, {:.0}% at most; {}.",
+            get("audio_latency_usage"),
+            get("audio_latency_peak"),
+            match dropouts {
+                0 => "no dropouts".to_string(),
+                1 => "1 dropout".to_string(),
+                n => format!("{n} dropouts"),
+            }
+        )
     }
 
     /// Settings › Controllers: the controllers openDJ has a mapping for,
@@ -1444,9 +1474,13 @@ impl Prefs {
                     },
                     "Off".to_string(),
                 ];
-                choices.extend(mappings.iter().map(|(n, _)| n.clone()));
-                // Then the ones made with Quick map.
-                choices.extend(quick.iter().map(|m| m.name.clone()));
+                // An HID controller runs its HID mapping or nothing: MIDI
+                // mappings and Quick map don't apply to it.
+                if !port.hid {
+                    choices.extend(mappings.iter().map(|(n, _)| n.clone()));
+                    // Then the ones made with Quick map.
+                    choices.extend(quick.iter().map(|m| m.name.clone()));
+                }
                 let chosen = match &choice {
                     MappingChoice::Auto => 0,
                     MappingChoice::Off => 1,
@@ -1475,6 +1509,9 @@ impl Prefs {
                         None => format!("Running {m}"),
                     },
                     (None, MappingChoice::Off, _) => "Not used".to_string(),
+                    (None, _, _) if port.problem.is_some() => {
+                        port.problem.clone().unwrap_or_default()
+                    }
                     (None, _, None) => "No mapping found: pick one, or press Map it.".to_string(),
                     (None, _, Some(_)) => "Starting, or its mapping failed to load".to_string(),
                 };
@@ -1726,6 +1763,80 @@ impl Prefs {
             });
         }
         items
+    }
+
+    /// Settings › Analysis › Stems: stems on load, the high-quality stems
+    /// kept and the models.
+    fn stems_items(&self) -> Vec<PrefItem> {
+        let (count, bytes) = cache::stems_usage();
+        let limit = settings::number("stems_cache_gb", DEFAULT_STEMS_CACHE_GB);
+        let limits: Vec<String> = STEMS_CACHE_GB
+            .iter()
+            .map(|&gb| match gb {
+                0.0 => "No limit".to_string(),
+                gb if gb == DEFAULT_STEMS_CACHE_GB => format!("{gb} GB (default)"),
+                gb => format!("{gb} GB"),
+            })
+            .collect();
+        let have = |name: &str| separation::model(name).is_some();
+        let state = |name: &str| {
+            if have(name) {
+                "downloaded"
+            } else {
+                "downloads when first needed"
+            }
+        };
+        vec![
+            item("stems", HEADING, "STEMS", ""),
+            switch(
+                "stems_on_load",
+                "Stems on load",
+                "Each track gets quick stems a second or two after it loads, from the cue point, \
+                 so the stem pads and knobs work at once. Off saves CPU on older computers; \
+                 Prepare High Quality Stems still works.",
+                settings::flag("stems_on_load", true),
+            ),
+            PrefItem {
+                choices: strings(&limits),
+                chosen: STEMS_CACHE_GB
+                    .iter()
+                    .position(|&gb| gb == limit)
+                    .unwrap_or(2) as i32,
+                ..item(
+                    "stems_cache_gb",
+                    MENU,
+                    "High quality stems kept",
+                    &format!(
+                        "{count} {} · {}. The stems played longest ago make room for new ones.",
+                        if count == 1 { "track" } else { "tracks" },
+                        size(bytes),
+                    ),
+                )
+            },
+            PrefItem {
+                action: "Clear".into(),
+                ..item(
+                    "clear_stems",
+                    BUTTON,
+                    "Clear high quality stems",
+                    if self.stems_note.is_empty() {
+                        "Deletes the stems kept for every track. Tracks still get quick stems on load."
+                    } else {
+                        &self.stems_note
+                    },
+                )
+            },
+            item(
+                "stem_models",
+                NOTE,
+                "",
+                &format!(
+                    "Quick stems model: {}. High quality model: {}.",
+                    state(separation::SPLEETER),
+                    state(separation::HTDEMUCS),
+                ),
+            ),
+        ]
     }
 
     /// Settings › Collection › General: the music folders, the cache and
@@ -2106,6 +2217,7 @@ impl Prefs {
             "head_split" => self.set("[Master]", "headSplit", f(on)),
             "pfl_on_load" => self.set("[Controls]", "pfl_on_load", f(on)),
             "auto_gain" => self.set("[ReplayGain]", "ReplayGainEnabled", f(on)),
+            "stems_on_load" => separation::set_on_load(on),
             "auto_reset_fx" | "auto_reset_eq" | "auto_reset_gain" => {
                 self.set("[Controls]", id, f(on))
             }
@@ -2222,6 +2334,13 @@ impl Prefs {
                 settings::set("bpm_min", json!(lo));
                 settings::set("bpm_max", json!(hi));
                 analysis::set_bpm_range(lo, hi);
+            }
+            "stems_cache_gb" => {
+                let Some(&gb) = STEMS_CACHE_GB.get(index) else {
+                    return;
+                };
+                settings::set("stems_cache_gb", json!(gb));
+                apply_stems_cache_limit();
             }
             "beat_detector" => {
                 let on = index == 1;
@@ -2760,6 +2879,13 @@ impl Prefs {
                 }
                 set_field_names(names);
             }
+            "clear_stems" => {
+                let n = cache::clear_stems();
+                self.stems_note = format!(
+                    "Cleared the stems of {n} {}.",
+                    if n == 1 { "track" } else { "tracks" }
+                );
+            }
             "clear_cache" => {
                 let n = cache::clear_analysis();
                 self.cache_note = format!(
@@ -2814,6 +2940,10 @@ fn quick_maps() -> Vec<own::OwnMapping> {
 /// The mapping file a controller's Edit opens: the one it uses, or, for a
 /// stand-in device, the one named as running.
 fn edit_file(c: &Controllers, port: &Port) -> Option<String> {
+    // HID mappings are all script: the editor has nothing to show.
+    if port.hid {
+        return None;
+    }
     port.mapping_file.clone().or_else(|| {
         let running = port.running.as_ref()?;
         c.mappings()
@@ -2869,6 +2999,20 @@ fn strings<S: AsRef<str>>(v: &[S]) -> ModelRc<SharedString> {
             .map(|s| s.as_ref().into())
             .collect::<Vec<SharedString>>(),
     ))
+}
+
+/// How many GB of high-quality stems may be kept; 0 is no limit.
+const STEMS_CACHE_GB: [f64; 6] = [2.0, 5.0, 10.0, 20.0, 50.0, 0.0];
+const DEFAULT_STEMS_CACHE_GB: f64 = 10.0;
+
+/// Gives the engine the stems cache limit and trims the cache to it in
+/// the background.
+fn apply_stems_cache_limit() {
+    let gb = settings::number("stems_cache_gb", DEFAULT_STEMS_CACHE_GB);
+    separation::set_cache_limit((gb * (1u64 << 30) as f64) as u64);
+    let _ = std::thread::Builder::new()
+        .name("stems-cache".into())
+        .spawn(|| separation::trim_cache(&[]));
 }
 
 fn size(bytes: u64) -> String {

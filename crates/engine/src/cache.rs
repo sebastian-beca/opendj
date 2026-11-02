@@ -179,6 +179,95 @@ pub(crate) fn stems_dir(path: &Path) -> Option<PathBuf> {
     Some(analysis.parent()?.parent()?.join("stems").join(name))
 }
 
+/// The folder of high-quality stems, a folder per track.
+pub fn stems_root() -> Option<PathBuf> {
+    cache_dir().map(|d| d.join("stems"))
+}
+
+/// The file whose time says when a track's stems were last used.
+const LAST_USED: &str = "last-used";
+
+/// Marks the stems in `dir` as just used, so the cache limit keeps them
+/// over ones not loaded for longer.
+pub(crate) fn touch_stems(dir: &Path) {
+    let _ = fs::write(dir.join(LAST_USED), b"");
+}
+
+/// A track's stems folder in `root`: its size and when it was last used.
+struct StemsEntry {
+    path: PathBuf,
+    bytes: u64,
+    used: std::time::SystemTime,
+}
+
+/// The finished stems folders in `root` (not ones still being written).
+fn stems_entries(root: &Path) -> Vec<StemsEntry> {
+    let Ok(dirs) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    dirs.flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .filter(|e| !e.file_name().to_string_lossy().contains(".work"))
+        .map(|e| {
+            let path = e.path();
+            let (mut bytes, mut used) = (0, std::time::SystemTime::UNIX_EPOCH);
+            for f in fs::read_dir(&path).into_iter().flatten().flatten() {
+                if let Ok(m) = f.metadata() {
+                    bytes += m.len();
+                    if let Ok(t) = m.modified() {
+                        used = used.max(t);
+                    }
+                }
+            }
+            StemsEntry { path, bytes, used }
+        })
+        .collect()
+}
+
+/// How many tracks have high-quality stems kept and the bytes they take.
+pub fn stems_usage() -> (usize, u64) {
+    let entries = stems_root().map(|r| stems_entries(&r)).unwrap_or_default();
+    (entries.len(), entries.iter().map(|e| e.bytes).sum())
+}
+
+/// Deletes every kept stem folder; returns how many.
+pub fn clear_stems() -> usize {
+    let entries = stems_root().map(|r| stems_entries(&r)).unwrap_or_default();
+    entries
+        .iter()
+        .filter(|e| fs::remove_dir_all(&e.path).is_ok())
+        .count()
+}
+
+/// Deletes the stems used longest ago until the rest take at most
+/// `limit` bytes, never the ones of `keep` (the track just separated or
+/// playing). Returns how many were deleted.
+pub fn trim_stems(limit: u64, keep: &[PathBuf]) -> usize {
+    let Some(root) = stems_root() else { return 0 };
+    let keep: Vec<PathBuf> = keep.iter().filter_map(|p| stems_dir(p)).collect();
+    trim_stems_in(&root, limit, &keep)
+}
+
+fn trim_stems_in(root: &Path, limit: u64, keep: &[PathBuf]) -> usize {
+    let mut entries = stems_entries(root);
+    let mut total: u64 = entries.iter().map(|e| e.bytes).sum();
+    entries.sort_by_key(|e| e.used);
+    let mut deleted = 0;
+    for e in entries {
+        if total <= limit {
+            break;
+        }
+        if keep.contains(&e.path) {
+            continue;
+        }
+        if fs::remove_dir_all(&e.path).is_ok() {
+            total = total.saturating_sub(e.bytes);
+            deleted += 1;
+        }
+    }
+    deleted
+}
+
 /// Where the overview of the analysis kept at `entry` is kept: a small
 /// file beside the analyses, so the library can draw a whole list of
 /// mini waveforms without reading every track's full waveform.
@@ -344,6 +433,37 @@ fn decode(data: &[u8]) -> Option<Analysis> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_stems_used_longest_ago_go_first() {
+        let root = std::env::temp_dir().join(format!("opendj-stems-trim-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        for (i, name) in ["a", "b", "c", "d.work1"].iter().enumerate() {
+            let dir = root.join(name);
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("drums.flac"), vec![0u8; 1000]).unwrap();
+            let f = fs::File::options()
+                .write(true)
+                .open(dir.join("drums.flac"))
+                .unwrap();
+            // a is the oldest, c the newest.
+            f.set_modified(old + std::time::Duration::from_secs(60 * i as u64))
+                .unwrap();
+        }
+        // "a" is kept (playing), so "b" goes, then "c" isn't needed.
+        let deleted = trim_stems_in(&root, 2000, &[root.join("a")]);
+        assert_eq!(deleted, 1);
+        assert!(root.join("a").exists() && root.join("c").exists());
+        assert!(!root.join("b").exists());
+        // Folders still being written are never counted or deleted.
+        assert!(root.join("d.work1").exists());
+        // Touching "a" makes it the newest: now "c" goes first.
+        touch_stems(&root.join("a"));
+        assert_eq!(trim_stems_in(&root, 1500, &[]), 1);
+        assert!(root.join("a").exists() && !root.join("c").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
     use super::*;
     use crate::analysis::analyse;
     use crate::synth;

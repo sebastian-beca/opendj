@@ -1,9 +1,8 @@
 # Collection Health
 
-**Collection Health**, the heart under Collection in the rail, checks the whole
-collection for what needs fixing. Its badge counts the checks that found
-something. Its page has one line per check, with how
-many tracks it finds; **Review** lists them, and the bar above the list
+**Collection Health**, the cross under Collection in the rail, checks the
+whole collection for what needs fixing. Its page has one line per check,
+with how many tracks it finds; **Review** lists them, and the bar above the list
 fixes them all at once. To fix only some, pick them (shift-click for a
 range) and right-click.
 

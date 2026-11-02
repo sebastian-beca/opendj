@@ -48,6 +48,7 @@ impl Script {
     pub(crate) fn new(
         host: Rc<RefCell<Host>>,
         settings: &[(String, SettingValue)],
+        hid: bool,
     ) -> Result<Self, String> {
         let runtime = Runtime::new().map_err(|e| e.to_string())?;
         runtime.set_max_stack_size(4 * 1024 * 1024);
@@ -67,7 +68,7 @@ impl Script {
                 .eval_with_options(PRELUDE, options("prelude.js"))
                 .map_err(|e| error_text(&ctx, e))?;
             let hooks: Object = install
-                .call((native, settings_obj))
+                .call((native, settings_obj, hid))
                 .map_err(|e| error_text(&ctx, e))?;
             let fire: Function = hooks.get("fire").map_err(|e| e.to_string())?;
             let timer: Function = hooks.get("timer").map_err(|e| e.to_string())?;
@@ -95,10 +96,59 @@ impl Script {
 
     /// Evaluates a script file in the global scope, as Mixxx does.
     pub(crate) fn eval_file(&self, name: &str, source: &str) -> Result<(), String> {
+        let source = self.allow_shadowing(source);
         self.context.with(|ctx| {
-            ctx.eval_with_options::<(), _>(source, options(name))
+            ctx.eval_with_options::<(), _>(source.as_ref(), options(name))
                 .map_err(|e| format!("{name}: {}", error_text(&ctx, e)))
         })
+    }
+
+    /// Qt's engine lets a script declare a `class`, `const` or `let` with
+    /// the name of a global an earlier file made with `var`: the Traktor
+    /// Kontrol S4 MK3's `class Deck` and `common-controller-scripts.js`'s
+    /// `var Deck`. QuickJS, following the standard, refuses. Such a
+    /// declaration at the top of a file becomes a `var`, which replaces the
+    /// earlier global as Qt's shadowing does for the file's own code.
+    fn allow_shadowing<'a>(&self, source: &'a str) -> std::borrow::Cow<'a, str> {
+        let clash = |line: &str| -> Option<(usize, String)> {
+            let (keyword, rest) = ["class ", "const ", "let "]
+                .iter()
+                .find_map(|k| line.strip_prefix(k).map(|r| (*k, r)))?;
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+                .collect();
+            let is_var_global = !name.is_empty()
+                && self.context.with(|ctx| {
+                    ctx.eval_with_options::<bool, _>(
+                        format!(
+                            "Object.prototype.hasOwnProperty.call(globalThis, {name:?}) && \
+                             !Object.getOwnPropertyDescriptor(globalThis, {name:?}).configurable"
+                        ),
+                        options("<eval>"),
+                    )
+                    .unwrap_or(false)
+                });
+            is_var_global.then_some((keyword.len(), name))
+        };
+        if !source.lines().any(|l| clash(l).is_some()) {
+            return std::borrow::Cow::Borrowed(source);
+        }
+        let mut out = String::with_capacity(source.len() + 64);
+        for line in source.split_inclusive('\n') {
+            match clash(line) {
+                Some((len, name)) if line.starts_with("class ") => {
+                    out.push_str(&format!("var {name} = class "));
+                    out.push_str(&line[len..]);
+                }
+                Some((len, _)) => {
+                    out.push_str("var ");
+                    out.push_str(&line[len..]);
+                }
+                None => out.push_str(line),
+            }
+        }
+        std::borrow::Cow::Owned(out)
     }
 
     /// Evaluates an expression, logging errors. Used for `X.init`.
@@ -160,6 +210,26 @@ impl Script {
                     options("<incomingData>"),
                 )?;
                 f.call::<_, ()>((data.to_vec(), data.len()))
+            })()
+            .catch(&ctx);
+            if let Err(e) = result {
+                self.log(&format!("{prefix}.incomingData: {e}"));
+            }
+        });
+    }
+
+    /// Calls `prefix.incomingData(data, length)` with an HID input report,
+    /// as a `Uint8Array` (its first byte is the report ID, for devices that
+    /// number their reports), the way Mixxx hands reports to HID scripts.
+    pub(crate) fn call_incoming_report(&self, prefix: &str, data: &[u8]) {
+        self.context.with(|ctx| {
+            let result = (|| {
+                let f: Function = ctx.eval_with_options(
+                    format!("{prefix}.incomingData.bind({prefix})"),
+                    options("<incomingData>"),
+                )?;
+                let bytes = rquickjs::TypedArray::<u8>::new_copy(ctx.clone(), data)?;
+                f.call::<_, ()>((bytes, data.len()))
             })()
             .catch(&ctx);
             if let Err(e) = result {
@@ -259,6 +329,44 @@ fn natives<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<Host>>) -> rquickjs::Result<Ob
         if !msg.is_empty() {
             h.sent.push(msg);
         }
+    });
+    // HID: `controller.sendOutputReport` and friends (see `hid`).
+    let bytes =
+        |data: &[f64]| -> Vec<u8> { data.iter().map(|b| (*b as i64 & 0xFF) as u8).collect() };
+    native!("hidOutput", |h, id: u8, data: Vec<f64>, fifo: bool| {
+        match &mut h.hid {
+            Some(hid) => hid.out.push(id, &bytes(&data), fifo),
+            None => h.error("controller.sendOutputReport: not an HID controller"),
+        }
+    });
+    native!("hidSendFeature", |h, id: u8, data: Vec<f64>| {
+        let mut report = vec![id];
+        report.extend(bytes(&data));
+        let result = match &h.hid {
+            Some(hid) => hid.io.send_feature(&report),
+            None => Err("not an HID controller".into()),
+        };
+        if let Err(e) = result {
+            h.error(&format!("controller.sendFeatureReport({id}): {e}"));
+        }
+    });
+    native!("hidGetInput", |h, id: u8| {
+        let got = h.hid.as_ref().and_then(|hid| hid.io.get_input(id));
+        if got.is_none() {
+            h.log(&format!(
+                "controller.getInputReport({id}): the device didn't answer"
+            ));
+        }
+        got.unwrap_or_default()
+    });
+    native!("hidGetFeature", |h, id: u8| {
+        let got = h.hid.as_ref().and_then(|hid| hid.io.get_feature(id));
+        if got.is_none() {
+            h.log(&format!(
+                "controller.getFeatureReport({id}): the device didn't answer"
+            ));
+        }
+        got.unwrap_or_default()
     });
     native!("routeNote", |h, channel: u8, from: u8, to: u8| h
         .route_note(channel, from, to));

@@ -12,10 +12,14 @@
 //!   crash, hang, slow) that prove the isolation; CLAP, VST3 and AU plugins
 //!   follow, as planned in the `add-audio-plugin-hosting` change.
 
+pub mod clap;
 pub mod client;
 pub mod effects;
 pub mod policy;
 pub mod shm;
+pub mod vst3;
 
-pub use client::{spawn, Connection, Helper, Options, Outcome, Status, Transport};
+pub use self::clap::Descriptor;
+pub use client::{scan, spawn, Connection, Helper, Options, Outcome, ScanError, Status, Transport};
+pub use effects::{Info, Param, Plugin};
 pub use policy::{Action, Limits, Policy};

@@ -102,10 +102,15 @@ and **Play Ready** show under **Collection** at the top of the tree, after
 **Wanted**, each with its track count and subfolders. Every track gets the
 stage of the folder it is in.
 
-Right-click tracks to move them along, or drag them onto a stage:
+Right-click tracks to move them along, or drag them onto a stage. The
+track menu shows **Inbox › In Prep › Play Ready** with the track's stage
+lit; click another stage to move it there, or use the lines below it, whose
+arrows say whether a track goes back or forward:
 
 1. **Send to In Prep** (or **Send to In Prep › a crate**) for inbox
-   tracks worth keeping. **Not interested** hides the rest.
+   tracks worth keeping. **Hide from Inbox** takes the rest out of the
+   Inbox for good, without touching the file (search `stage:dismissed` to
+   see them again).
 2. In In Prep, prepare each track: tags, cover, rating, tempo and key. Show
    the **Prep** column (right-click a column heading) for a dot each for
    tags, rating, and tempo and key; tracks in In Prep are analysed in the
@@ -114,7 +119,8 @@ Right-click tracks to move them along, or drag them onto a stage:
    joins the list named after the crate (`Yoga STG` goes to **Yoga**).
 
 **Back to In Prep** and **Back to Inbox** move a track back a stage, and
-the track menu's **Undo** line takes back the last change.
+**⌘Z** (Ctrl+Z on Windows and Linux), or **Edit › Undo** on a Mac, takes
+back the last change.
 
 Files only move between the folders when **Move files** is on. Leave it
 off while another app, such as VirtualDJ, still uses them: tracks change
@@ -323,7 +329,15 @@ The collection's tree has three parts:
 
 Everything starts closed, and the tree remembers which folders you left
 open. Drag tracks onto a crate or playlist to add them, or onto a stage to
-move them there.
+move them there. Or right-click tracks and point at **Add to playlist**: a
+panel opens beside the menu with the lists you added to most recently at
+the top. Type to find one, or pick **New crate** to make one with the
+tracks in it. **Show in playlist** lists the crates and playlists a track
+is in and opens the one you pick.
+
+**Go to Artist** and **Go to Album** on the track menu show the whole
+collection narrowed to that artist (any track they're on) or album, with
+a chip on the filter bar; clear the chip to see everything again.
 
 A track can be in as many crates as you like, and the **Crates** column
 (right-click a heading) shows which ones it is in. Search with
@@ -351,7 +365,7 @@ playlists.
 
 ## Collection Health
 
-[Collection Health](collection-health.md), the heart under Collection in the
+[Collection Health](collection-health.md), the cross under Collection in the
 rail, finds what needs fixing in your collection: duplicates, junk in names,
 missing or poor tags, covers, low bitrates, files that went missing, and
 more.

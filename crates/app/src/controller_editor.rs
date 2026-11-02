@@ -16,7 +16,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use opendj_control::ControlRegistry;
-use opendj_controllers::edit::{self, Binding, Buttons, Choice, Encoder};
+use opendj_controllers::edit::{self, Binding, Buttons, Choice, Does, Encoder};
 use opendj_controllers::format::OpenDjMapping;
 use opendj_controllers::layout::Layout;
 use opendj_controllers::own::{self, OwnMapping};
@@ -30,6 +30,14 @@ use crate::{
     settings, short_port_name, AppWindow, ControllerEditor, EditorOption, EditorPanel, EditorPart,
     EditorRow, EditorSetting,
 };
+
+/// What a row can do, in the row editor's Does menu (see [`Does`]).
+const DOES_MODES: [&str; 4] = [
+    "A function",
+    "An openDJscript line",
+    "Shift: on while held",
+    "Mode: on/off each press",
+];
 
 /// The deck orders a four-deck mapping can have, left to right.
 pub const DECK_ORDERS: [(&str, [u8; 4]); 2] =
@@ -226,8 +234,26 @@ impl Editor {
         let e = editor.clone();
         g.on_set_when(move |i| {
             let when = edit::WHENS[(i.max(0) as usize).min(edit::WHENS.len() - 1)];
-            e.borrow_mut().change(|b| b.when = when);
+            let mut e = e.borrow_mut();
+            match e.does() {
+                Some(Does::Script(line)) => {
+                    e.apply(move |own, row| edit::set_does_at(own, row, &Does::Script(line), when))
+                }
+                _ => e.change(|b| b.when = when),
+            }
         });
+        let e = editor.clone();
+        g.on_set_does(move |i| e.borrow_mut().set_does(i));
+        let e = editor.clone();
+        g.on_script_edited(move || e.borrow().check_script());
+        let e = editor.clone();
+        g.on_script_done(move || e.borrow_mut().script_done());
+        let e = editor.clone();
+        g.on_var_done(move || e.borrow_mut().var_done());
+        let e = editor.clone();
+        g.on_layer_edited(move || e.borrow().check_layer());
+        let e = editor.clone();
+        g.on_layer_done(move |moving| e.borrow_mut().layer_done(moving));
         let e = editor.clone();
         g.on_set_buttons(move |i| {
             let m = Buttons::ALL[(i.max(0) as usize).min(Buttons::ALL.len() - 1)];
@@ -249,6 +275,7 @@ impl Editor {
         g.set_whens(labels(edit::WHENS.iter().map(|w| edit::when_label(*w))));
         g.set_button_modes(labels(Buttons::ALL.iter().map(|b| b.label())));
         g.set_encoder_modes(labels(Encoder::ALL.iter().map(|e| e.label())));
+        g.set_does_modes(labels(DOES_MODES.iter().copied()));
         editor
     }
 
@@ -260,6 +287,8 @@ impl Editor {
             .map(|c| {
                 c.ports()
                     .into_iter()
+                    // HID mappings are all script: nothing to show or edit.
+                    .filter(|p| !p.hid)
                     .filter_map(|p| Some((p.name, p.mapping_file, p.running?)))
                     .collect()
             })
@@ -1200,7 +1229,11 @@ impl Editor {
             .into(),
         );
         g.set_edit_midi(row.midi.clone().into());
-        let script = row.sources.first().is_some_and(|s| !s.is_control());
+        // Run by the mapping's JavaScript (not an openDJscript line).
+        let script = row
+            .sources
+            .first()
+            .is_some_and(|s| !s.is_control() && s.action.is_none());
         g.set_edit_function(
             match (&b.control, script) {
                 _ if row.off => row.function.name.clone(),
@@ -1236,6 +1269,43 @@ impl Editor {
                 .unwrap_or(0) as i32,
         );
         g.set_edit_invert(b.invert);
+        let does = Does::of(self.current_own().map(|o| &o.mapping), row);
+        g.set_edit_does(match &does {
+            Does::Function => 0,
+            Does::Script(_) => 1,
+            Does::Hold(_) => 2,
+            Does::Toggle(_) => 3,
+        });
+        g.set_edit_script(match &does {
+            Does::Script(l) => l.as_str().into(),
+            _ => "".into(),
+        });
+        g.set_edit_script_error("".into());
+        g.set_edit_var(match &does {
+            Does::Hold(v) | Does::Toggle(v) => v.as_str().into(),
+            _ => "".into(),
+        });
+        let layer = row
+            .sources
+            .first()
+            .map(|s| edit::layer_text(&s.layer))
+            .unwrap_or_default();
+        g.set_edit_layer(layer.as_str().into());
+        g.set_edit_layer_now(layer.into());
+        g.set_edit_layer_error("".into());
+        g.set_variables(
+            self.current_own()
+                .map(|o| {
+                    o.mapping
+                        .variables
+                        .iter()
+                        .map(|v| v.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default()
+                .into(),
+        );
         let first = row.sources.first();
         g.set_edit_is_button(first.is_none_or(|s| matches!(s.status & 0xF0, 0x80 | 0x90)));
         g.set_edit_edited(row.edited);
@@ -1425,6 +1495,151 @@ impl Editor {
             c.reload(&base);
         }
         self.read(true);
+    }
+
+    /// What the selected row does now.
+    fn does(&self) -> Option<Does> {
+        let row = self.selected_row()?;
+        Some(Does::of(self.current_own().map(|o| &o.mapping), row))
+    }
+
+    /// The Does menu: a function opens the picker; a line waits for one to
+    /// be typed; a shift or mode button is made at once, named "shift" or
+    /// "mode" until another name is typed.
+    fn set_does(&mut self, index: i32) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        g.set_edit_does(index);
+        match index {
+            0 => {
+                if !matches!(self.does(), Some(Does::Function)) {
+                    self.open_picker();
+                }
+            }
+            1 => {
+                if g.get_edit_script().is_empty() {
+                    g.set_edit_script(self.line_for_function().into());
+                }
+                self.check_script();
+            }
+            2 | 3 => {
+                let name = match g.get_edit_var().to_string() {
+                    n if !n.is_empty() => n,
+                    _ if index == 2 => "shift".to_string(),
+                    _ => "mode".to_string(),
+                };
+                g.set_edit_var(name.as_str().into());
+                let does = if index == 2 {
+                    Does::Hold(name)
+                } else {
+                    Does::Toggle(name)
+                };
+                self.apply(move |own, row| edit::set_does(own, row, &does));
+            }
+            _ => {}
+        }
+    }
+
+    /// A line doing what the row's function does, to start from: `toggle
+    /// 'play'` on deck 1 is `deck 1 toggle 'play'`.
+    fn line_for_function(&self) -> String {
+        let Some(control) = self.selected_row().and_then(|r| Binding::of(r).control) else {
+            return String::new();
+        };
+        let (group, key) = control.split_once(',').unwrap_or(("", ""));
+        let deck = group
+            .strip_prefix("[Channel")
+            .and_then(|d| d.strip_suffix(']'))
+            .filter(|d| d.len() == 1);
+        match deck {
+            Some(d) if key == "play" => format!("deck {d} play_pause"),
+            Some(d) => format!("deck {d} press '{key}'"),
+            None => format!("press '{control}'"),
+        }
+    }
+
+    fn check_script(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        let line = g.get_edit_script().to_string();
+        let error = match opendj_script::parse(line.trim()) {
+            _ if line.trim().is_empty() => "Type a line, such as deck 1 play_pause.".to_string(),
+            Ok(_) => String::new(),
+            Err(e) => e.message,
+        };
+        g.set_edit_script_error(error.into());
+    }
+
+    fn script_done(&mut self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        self.check_script();
+        if !g.get_edit_script_error().is_empty() {
+            return;
+        }
+        let line = g.get_edit_script().trim().to_string();
+        if self.does() == Some(Does::Script(line.clone())) {
+            return;
+        }
+        let when = edit::WHENS[(g.get_edit_when().max(0) as usize).min(edit::WHENS.len() - 1)];
+        self.apply(move |own, row| edit::set_does_at(own, row, &Does::Script(line), when));
+    }
+
+    fn var_done(&mut self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        let name = g.get_edit_var().trim().to_string();
+        match edit::check_layer(&name) {
+            Ok(n) if !n.is_empty() && !n.contains(['=', '&']) => {}
+            _ => {
+                g.set_edit_script_error(
+                    "A variable is one word: letters, digits and _, such as shift.".into(),
+                );
+                return;
+            }
+        }
+        let does = if g.get_edit_does() == 2 {
+            Does::Hold(name)
+        } else {
+            Does::Toggle(name)
+        };
+        if self.does() != Some(does.clone()) {
+            self.apply(move |own, row| edit::set_does(own, row, &does));
+        }
+    }
+
+    fn check_layer(&self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        let error = edit::check_layer(&g.get_edit_layer())
+            .err()
+            .unwrap_or_default();
+        g.set_edit_layer_error(error.into());
+    }
+
+    fn layer_done(&mut self, moving: bool) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let g = app.global::<ControllerEditor>();
+        let Ok(layer) = edit::check_layer(&g.get_edit_layer()) else {
+            self.check_layer();
+            return;
+        };
+        if layer == g.get_edit_layer_now().as_str() {
+            return;
+        }
+        self.apply(move |own, row| edit::set_layer(own, row, &layer, moving));
     }
 
     /// The Options tab's first rows: two decks or four and the deck order,

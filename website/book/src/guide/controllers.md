@@ -11,7 +11,14 @@ it in the new row; the computer's own ports (macOS's Network Session and IAC
 Driver) come last. **×** takes a controller off the list and stops using it
 until you add it again.
 
-HID controllers aren't supported yet.
+USB HID controllers work too: Native Instruments' Traktor Kontrol S2 (MK1,
+MK2 and MK3), S3, S4 (MK2 and MK3), F1, Z1 and MX2 run Mixxx's HID mappings,
+picked by the device itself rather than its name. They're listed with the
+MIDI controllers, can be turned off there, and have no picture or list in the
+Controller Editor: an HID mapping is all script. The S4 MK3's screens stay
+dark. On Linux they need openDJ's udev rule first; see the
+[Traktor Kontrol S2 MK3](../controllers/traktor-kontrol-s2-mk3.md) page. The
+Traktor Kontrol X1 (first model) is a MIDI controller and has a MIDI mapping.
 
 The **Pioneer DDJ-FLX4** has a page of its own: [Pioneer DDJ-FLX4](controllers/ddj-flx4.md).
 
@@ -53,6 +60,17 @@ the list by any of those words.
   kinds), pick-up for knobs and faders, and invert. Each has a short hint.
   A row run by the mapping's script can be given a plain function too; the
   script keeps running the other controls.
+- **Scripts, shift and modes.** **Does**, at the top of the panel, picks
+  what the control does: *A function*, *An openDJscript line* (the same
+  one-line actions as [keyboard shortcuts](shortcuts.md), checked as you type
+  and used when you press Enter, such as `var 'shift' ? sync : play_pause`),
+  *Shift: on while held* or *Mode: on/off each press*. A shift or mode button
+  sets a variable, `shift` or `mode` unless you name it otherwise. **Only
+  when** makes any row work only while variables are on: `shift`, or
+  `mode=2 & shift`. Type it and press **Move** to put the row there, or
+  **Copy** to keep it where it was too. So to make SHIFT + CUE sync: make a
+  button *Shift: on while held*, select CUE, type `shift` in Only when,
+  **Copy**, and change the copy's function to Sync.
 - **Import…** in the same menu brings a mapping across from another DJ app:
   VirtualDJ (`.xml` from `Documents/VirtualDJ/Mappers`), Traktor (`.tsi`),
   rekordbox (`.midi.csv`), djay Pro (`.djayMidiMapping`) or an openDJ

@@ -561,7 +561,8 @@ fn ddj_flx4_pads_follow_the_tabs() {
 #[test]
 fn looked_after_mappings_start_cleanly() {
     for c in opendj_controllers::support::all() {
-        if let Some(file) = c.file {
+        // HID mappings need a device to answer them: see tests/hid.rs.
+        if let Some(file) = c.file.filter(|f| !f.ends_with(".hid.xml")) {
             let (_reg, mut c) = load(&file);
             settle(&mut c, 50);
             assert_eq!(c.errors(), Vec::<String>::new(), "{file}");

@@ -53,6 +53,9 @@ pub struct Frame {
     /// out); drawn up to the play position.
     pub loop_marking: Option<f64>,
     pub hotcues: [Option<f64>; 8],
+    /// Where the silent playhead is while slip mode holds the track
+    /// elsewhere; drawn as a ghost play line.
+    pub slip: Option<f64>,
     pub gain: f32,
     /// Where each phrase starts and its kind, earliest first; empty to
     /// draw none. Drawn on the overview only, at most [`MAX_PHRASES`].
@@ -142,7 +145,9 @@ struct Params {
     phrase_count: u32,
     /// Slices per minute, for the overview's minute dots; 0 for none.
     minute_bins: f32,
-    _pad: [u32; 2],
+    /// The silent playhead while slipping, in slices; < 0 for none.
+    slip_bin: f32,
+    _pad: u32,
 }
 
 /// Levels the shader can address; the coarsest is 2^15 slices per texel pair,
@@ -479,7 +484,8 @@ impl WaveformView {
             phrase_kind: [[0; 4]; MAX_PHRASES / 4],
             phrase_count: 0,
             minute_bins: 0.0,
-            _pad: [0; 2],
+            slip_bin: -1.0,
+            _pad: 0,
         };
         if let (Some(f), true) = (frame, num_bins > 0) {
             let bins_per_pixel = match self.mode {
@@ -511,6 +517,7 @@ impl WaveformView {
                 params.loop_end_bin = play_bin as f32;
                 params.loop_marking = 1;
             }
+            params.slip_bin = f.slip.map(to_bin).unwrap_or(-1.0);
             params.gain = f.gain;
             for (i, hc) in f.hotcues.iter().enumerate() {
                 params.hotcues[i / 4][i % 4] = hc.map(to_bin).unwrap_or(-1.0);

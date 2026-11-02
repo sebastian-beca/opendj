@@ -5,8 +5,8 @@
 use crate::client::Transport;
 use crate::shm::CHANNELS;
 
-/// One loaded effect, inside the helper.
-pub trait Effect {
+/// One loaded effect, inside the helper, on its audio thread.
+pub trait Effect: Send {
     fn process(
         &mut self,
         input: [&[f32]; CHANNELS],
@@ -16,17 +16,80 @@ pub trait Effect {
     );
 }
 
-/// Ids [`load`] knows.
+/// The part of a plugin that must stay on the helper's main thread
+/// (CLAP's instance, later editors). The helper calls `idle` regularly.
+pub trait MainThread {
+    fn idle(&mut self);
+}
+
+/// One parameter, in the plugin's own (plain) units.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Param {
+    pub name: String,
+    pub min: f64,
+    pub max: f64,
+    pub default: f64,
+    /// Its value when the plugin loaded.
+    pub value: f64,
+}
+
+/// What openDJ learns about a loaded effect.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Info {
+    pub name: String,
+    /// Up to [`crate::shm::MAX_PARAMS`]; index `i` is shared parameter `i`.
+    pub params: Vec<Param>,
+    /// Frames the plugin delays its output by.
+    pub latency: u32,
+}
+
+/// A loaded effect: the audio half, the main-thread half, and its info.
+pub struct Loaded {
+    pub effect: Box<dyn Effect>,
+    pub main: Option<Box<dyn MainThread>>,
+    pub info: Info,
+}
+
+/// Which effect a helper runs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Plugin {
+    /// One of [`TEST_EFFECTS`].
+    Test(String),
+    /// Plugin `id` in the `.clap` file `file`.
+    Clap {
+        file: std::path::PathBuf,
+        id: String,
+    },
+    /// Class `id` (32 hex digits) in the `.vst3` bundle `file`.
+    Vst3 {
+        file: std::path::PathBuf,
+        id: String,
+    },
+}
+
+/// Ids of the test effects.
 pub const TEST_EFFECTS: [&str; 4] = ["test-gain", "test-crash", "test-hang", "test-slow"];
 
-/// Loads effect `id`, or says why not.
-pub fn load(id: &str, _sample_rate: u32) -> Result<Box<dyn Effect>, String> {
-    match id {
-        "test-gain" => Ok(Box::new(Gain)),
-        "test-crash" => Ok(Box::new(Crash { blocks: 0 })),
-        "test-hang" => Ok(Box::new(Hang)),
-        "test-slow" => Ok(Box::new(Slow)),
-        _ => Err(format!("unknown effect {id:?}")),
+/// Loads `plugin`, or says why not.
+pub fn load(plugin: &Plugin, sample_rate: u32, max_frames: usize) -> Result<Loaded, String> {
+    let test = |effect: Box<dyn Effect>, name: &str| Loaded {
+        effect,
+        main: None,
+        info: Info {
+            name: name.into(),
+            ..Info::default()
+        },
+    };
+    match plugin {
+        Plugin::Test(id) => match id.as_str() {
+            "test-gain" => Ok(test(Box::new(Gain), id)),
+            "test-crash" => Ok(test(Box::new(Crash { blocks: 0 }), id)),
+            "test-hang" => Ok(test(Box::new(Hang), id)),
+            "test-slow" => Ok(test(Box::new(Slow), id)),
+            _ => Err(format!("unknown effect {id:?}")),
+        },
+        Plugin::Clap { file, id } => crate::clap::load(file, id, sample_rate, max_frames),
+        Plugin::Vst3 { file, id } => crate::vst3::load(file, id, sample_rate, max_frames),
     }
 }
 

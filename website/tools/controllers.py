@@ -279,7 +279,13 @@ class Mapping:
             out += [line, ""]
             if self.missing and self.documented:
                 out += ["Lines marked *Not in openDJ yet* don't do anything yet.", ""]
-        if not self.documented:
+        if not self.documented and self.hid:
+            out += ["This is a USB HID mapping: it runs as a script, with no list of controls "
+                    "to show here."]
+            if self.manual:
+                out[-1] += " The Mixxx manual page above shows what each control does."
+            out += [""]
+        elif not self.documented:
             out += ["This mapping doesn't describe its controls one by one, so there's no "
                     "list here yet."]
             if self.manual:
@@ -324,7 +330,8 @@ def main():
             old.unlink()
 
     mappings = []
-    for path in sorted(controllers.glob("*.midi.xml")):
+    paths = list(controllers.glob("*.midi.xml")) + list(controllers.glob("*.hid.xml"))
+    for path in sorted(paths):
         try:
             mappings.append(Mapping(path, supported))
         except ET.ParseError as e:
@@ -338,8 +345,8 @@ def main():
     guides = book / "controller-guides"
 
     index = ["# Supported controllers", "",
-             "openDJ uses Mixxx's controller mappings, so these MIDI controllers load their "
-             "mapping as soon as they're plugged in. HID controllers aren't supported yet.", "",
+             "openDJ uses Mixxx's controller mappings, so these MIDI and USB HID controllers "
+             "load their mapping as soon as they're plugged in.", "",
              "## Popular controllers", "",
              "openDJ looks after these itself: each has a picture in the Controller Editor and "
              "a guide. **Beta** means nobody has tried it in openDJ on the real controller yet; "

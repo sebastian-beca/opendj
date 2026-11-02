@@ -7,7 +7,7 @@ import { MasterPanel, MicPanel } from "toppanels.slint";
 import { PlayerDeck, PlayerMixer } from "player.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { FxBar } from "fxbar.slint";
-import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, StreamMatch, FilesUi, AlbumsUi, AlbumTile, ColumnUi, ListColumn, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow } from "library.slint";
+import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, StoreUi, StreamMatch, FilesUi, AlbumsUi, AlbumTile, ColumnUi, ListColumn, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow } from "library.slint";
 import { Preferences, PreferencesOverlay, PrefItem, ImportWizard } from "preferences.slint";
 import { UsbExport, UsbExportDialog } from "usb_export.slint";
 import { Tour, TourSetup, TourSetupDialog, TourTip, TourOffer } from "tour.slint";
@@ -22,7 +22,7 @@ export { ColumnUi, ListColumn }
 export { Tour, TourSetup }
 export { MapMode }
 export { MixerMode, InputSettings, InputRow }
-export { Theme, Controls, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, StoreUi, StreamMatch, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, EditorSetting, UsbExport }
+export { Theme, Controls, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, StoreUi, StreamMatch, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, EditorSetting, UsbExport }
 
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
 // the track under the pointer, like a hand on a record, and drag left or
@@ -728,7 +728,10 @@ export component AppWindow inherits Window {
     init => {
         Palette.color-scheme = ColorScheme.dark;
         keys.focus();
+        LibraryEdit.window-height = root.height;
     }
+    // For the track menu, which moves up to fit in the window.
+    changed height => { LibraryEdit.window-height = root.height; }
 
     // Back to the shortcuts when settings close, so ⌘, opens them again.
     property <bool> settings-open: Preferences.open;
@@ -754,8 +757,13 @@ export component AppWindow inherits Window {
     property <bool> playing-4: Controls.value(play-index[3], Controls.tick) > 0;
     property <[bool]> playing: [playing-1, playing-2, playing-3, playing-4];
     property <int> master-deck: 0;
+    // The deck started last, the one being mixed in: ← and → bend it.
+    property <int> last-started: 0;
+    // The bend control an arrow key holds down, -1 for none.
+    property <int> bend-held: -1;
     function playing-changed(deck: int) {
         if playing[deck] {
+            last-started = deck;
             if !playing[master-deck] {
                 master-deck = deck;
             }
@@ -774,6 +782,16 @@ export component AppWindow inherits Window {
     // the keyboard shortcuts, which run openDJscript (⌘1 to ⌘5 rate the
     // picked tracks).
     keys := FocusScope {
+        // ← and → bend the deck started last while held, by 2% (4% with
+        // Shift), to nudge its beat into line (see key-pressed).
+        key-released(e) => {
+            if (e.text == Key.LeftArrow || e.text == Key.RightArrow) && bend-held >= 0 {
+                Controls.set-value(bend-held, 0);
+                bend-held = -1;
+                return accept;
+            }
+            reject
+        }
         key-pressed(e) => {
             if e.text == " " && !Preferences.open && !e.modifiers.control && !e.modifiers.meta && !e.modifiers.alt {
                 Controls.set-value(play-index[master-deck], playing[master-deck] ? 0 : 1);
@@ -793,6 +811,12 @@ export component AppWindow inherits Window {
             }
             if MapMode.active && (e.text == "z" || e.text == "Z") && e.modifiers.control {
                 MapMode.undo();
+                return accept;
+            }
+            // ⌘Z (Ctrl+Z on Linux and Windows) takes back the last stage
+            // change or merge of copies; text fields take it first.
+            if (e.text == "z" || e.text == "Z") && e.modifiers.control && !e.modifiers.alt && !e.modifiers.shift && !Preferences.open && LibraryEdit.undo-text != "" {
+                LibraryEdit.undo-stage();
                 return accept;
             }
             if e.text == Key.Escape && UsbExport.open && !UsbExport.running {
@@ -822,6 +846,15 @@ export component AppWindow inherits Window {
                 return accept;
             }
             if !Preferences.open && shortcut(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift, master-deck, browser.first-picked, browser.last-picked) {
+                return accept;
+            }
+            // Unless the DJ gave the arrows shortcuts of their own.
+            if (e.text == Key.LeftArrow || e.text == Key.RightArrow) && !Preferences.open && !e.modifiers.control && !e.modifiers.meta && !e.modifiers.alt {
+                if bend-held < 0 {
+                    let group = "[Channel" + (last-started + 1) + "]";
+                    bend-held = Controls.resolve(group, (e.text == Key.RightArrow ? "rate_temp_up" : "rate_temp_down") + (e.modifiers.shift ? "" : "_small"));
+                    Controls.set-value(bend-held, 1);
+                }
                 return accept;
             }
             reject
