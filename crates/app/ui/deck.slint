@@ -907,7 +907,8 @@ export global EffectList {
     // Mixer › FX plugins (`loaded_effect` 13 and up).
     in property <[string]> names;
     // How many of `names` are built in (the engine's AVAILABLE_EFFECTS).
-    in property <int> builtin-count: 12;
+    // Set from the engine's list at start-up.
+    in property <int> builtin-count: 18;
     // The Color FX the filter knobs can play, `loaded_chain_preset` 1 and up.
     in property <[string]> color-fx: ["Filter", "Space", "Dub Echo", "Noise", "Crush"];
     // The microphone's effect unit, from 0 (MIC_FX_UNIT).

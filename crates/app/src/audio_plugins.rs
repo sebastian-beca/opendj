@@ -301,6 +301,8 @@ impl AudioPlugins {
                 .collect();
             app.global::<EffectList>()
                 .set_names(ModelRc::new(VecModel::from(names)));
+            app.global::<EffectList>()
+                .set_builtin_count(AVAILABLE_EFFECTS.len() as i32);
         }
     }
 }
