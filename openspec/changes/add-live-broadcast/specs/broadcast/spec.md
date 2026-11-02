@@ -5,7 +5,7 @@ Streaming the master mix live to internet radio servers and livestream platforms
 ## ADDED Requirements
 
 ### Requirement: Stations
-Settings › Broadcast SHALL hold a list of stations. An Icecast or Shoutcast station SHALL have a name, server type (Icecast 2, Shoutcast 1), host, port, mount point (Icecast), user, password, TLS on or off, format (Opus, MP3, or AAC where the system has an encoder) and bitrate. Each station SHALL have its own on/off switch and a Test button. Settings › Broadcast SHALL say that a public station needs music licences.
+Settings › Broadcast SHALL hold a list of stations. An Icecast or Shoutcast station SHALL have a name, server type (Icecast 2, Shoutcast 1), host, port, mount point (Icecast), user, password, TLS on or off, format (MP3 by default, or Opus) and bitrate. Each station SHALL have its own on/off switch and a Test button. Settings › Broadcast SHALL say that a public station needs music licences.
 
 #### Scenario: Add an Icecast station
 - **WHEN** the DJ adds an Icecast 2 station with host `radio.example.org`, port 8000, mount `/live`, user `source` and a password, and clicks Test
@@ -30,7 +30,7 @@ ON AIR in the top bar (`[Shoutcast],enabled`) SHALL stream the master output, mi
 
 #### Scenario: Two stations
 - **WHEN** an Opus and an MP3 station are switched on and ON AIR is pressed
-- **THEN** both servers receive the mix, and the pill shows two green lights and the time on air
+- **THEN** both servers receive the mix, and the panel shows two red (on air) lights and the pill the time on air
 
 ### Requirement: No dropouts from the network
 Streaming SHALL never cause an audio dropout, whatever the network does: encoding and sending happen away from the audio thread, and a station that falls behind is dropped and reconnected instead of holding anything up.
@@ -51,7 +51,7 @@ When a station's connection drops or falls more than about 10 seconds behind, op
 - **THEN** the station is marked failed with "The server turned down the password", without retrying
 
 ### Requirement: Now playing
-While on air, each station SHALL receive the audible track's artist and title as now-playing, changing when the incoming track becomes the louder one in a blend. Settings › Broadcast SHALL offer the text as a template (`{artist} – {title}`, `{dj}`) or a fixed text. The same now-playing SHALL go into the recording's cue sheet when recording at the same time.
+While on air, each station SHALL receive the audible track's artist and title as now-playing, changing when the incoming track becomes the louder one in a blend. Settings › Broadcast SHALL offer the text as a template (`{artist} - {title}`, `{dj}`) or a fixed text. MP3 stations SHALL send titles through the server's metadata update; Opus stations SHALL carry the first title in the stream's headers, and later titles only when the DJ chooses (a chained Ogg stream, which some players don't follow). The same now-playing SHALL go into the recording's cue sheet when recording at the same time.
 
 #### Scenario: Blend
 - **WHEN** the DJ blends from track A into track B over 32 bars
