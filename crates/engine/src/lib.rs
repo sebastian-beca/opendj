@@ -122,6 +122,26 @@ pub struct AudioEngine {
     plugins: Option<plugins::PluginHost>,
     /// Notes for the Instrument input.
     notes: Arc<Mutex<NoteInput>>,
+    /// The master for broadcasting, until the broadcaster takes it.
+    broadcast_feed: Mutex<Option<recorder::Feed>>,
+}
+
+/// The master output, for broadcasting: a copy of what the speakers get,
+/// after the limiter. The audio thread only copies while it is active.
+pub struct MasterFeed(recorder::Feed);
+
+impl MasterFeed {
+    /// Moves every sample waiting (interleaved stereo, at the engine's
+    /// rate) onto the end of `out`.
+    pub fn drain_into(&mut self, out: &mut Vec<f32>) {
+        self.0.drain_into(out);
+    }
+
+    /// Starts or stops the copying. While it is on, the limiter keeps true
+    /// peaks under the air ceiling.
+    pub fn set_active(&self, on: bool) {
+        self.0.set_active(on);
+    }
 }
 
 /// The plugin helper, `opendj-plugin-host`, installed beside the app.
@@ -159,6 +179,7 @@ impl AudioEngine {
             rate,
             engine.take_meter_feed().expect("meter feed"),
         );
+        let broadcast_feed = engine.take_broadcast_feed();
         let preview = engine.take_preview_input().expect("preview input");
         let samplers = engine.take_sampler_input().expect("sampler input");
         let visual = engine.visual_positions();
@@ -200,7 +221,19 @@ impl AudioEngine {
             rate,
             plugins,
             notes,
+            broadcast_feed: Mutex::new(broadcast_feed),
         }
+    }
+
+    /// The master output for broadcasting; there is only one, so later
+    /// calls get `None`.
+    pub fn take_master_feed(&self) -> Option<MasterFeed> {
+        self.broadcast_feed.lock().ok()?.take().map(MasterFeed)
+    }
+
+    /// The rate the engine runs at, in Hz.
+    pub fn sample_rate(&self) -> f64 {
+        self.rate
     }
 
     /// The instruments the Instrument input can load

@@ -31,6 +31,8 @@ allow = [
     "GPL-3.0-only",
     "ISC",
     "LGPL-2.1-or-later",
+    # LAME, the MP3 encoder for broadcasting.
+    "LGPL-3.0",
     "MIT",
     "MPL-2.0",
     "Unicode-3.0",

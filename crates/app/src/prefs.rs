@@ -9,6 +9,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
 use crate::audio_plugins::AudioPlugins;
+use crate::broadcast::{self, Broadcast};
 use crate::list_picker::{Picker, Ticked};
 use opendj_control::ControlRegistry;
 use opendj_controllers::{
@@ -53,8 +54,12 @@ const ANALYSIS: i32 = 3;
 const MIXER_TABS: [&str; 2] = ["Mixer", "Plugins"];
 const DECKS: i32 = 4;
 const MIXER: i32 = 5;
-const KEYBOARD: i32 = 6;
-const FEEDBACK: i32 = 7;
+const BROADCAST: i32 = 6;
+const KEYBOARD: i32 = 7;
+const FEEDBACK: i32 = 8;
+
+/// Bitrates offered for a broadcast, in kb/s.
+const BITRATES: [u32; 7] = [64, 96, 128, 160, 192, 256, 320];
 
 const SWITCH: i32 = 0;
 const MENU: i32 = 1;
@@ -453,6 +458,14 @@ pub struct Prefs {
     /// Counts fills of the rows, so the tour's setup dialog, which shows
     /// some of the same rows, knows to fill its own again.
     pub generation: u64,
+    /// Broadcasting, when the engine could give it the master.
+    broadcast: Option<Rc<Broadcast>>,
+    /// The station open for changes on Settings › Broadcast.
+    editing_station: Option<usize>,
+    /// What each station's Test found, by its id.
+    station_notes: std::collections::HashMap<String, String>,
+    tested_tx: Sender<(String, String)>,
+    tested_rx: Receiver<(String, String)>,
 }
 
 /// What the settings window needs from the engine for its inputs.
@@ -473,8 +486,10 @@ impl Prefs {
         audio_changed: Box<dyn Fn()>,
         inputs: InputHooks,
         audio_plugins: Rc<RefCell<AudioPlugins>>,
+        broadcast: Option<Rc<Broadcast>>,
     ) -> Rc<RefCell<Prefs>> {
         let (chosen_tx, chosen_rx) = mpsc::channel();
+        let (tested_tx, tested_rx) = mpsc::channel();
         let plugins: Vec<Box<dyn Plugin>> = crate::stores::configured()
             .into_iter()
             .filter(|p| !p.settings().is_empty())
@@ -512,6 +527,11 @@ impl Prefs {
             shortcut_note: String::new(),
             audio_plugins,
             generation: 0,
+            broadcast,
+            editing_station: None,
+            station_notes: Default::default(),
+            tested_tx,
+            tested_rx,
         }));
         let p = prefs.clone();
         g.on_changed(move || p.borrow_mut().shown());
@@ -543,6 +563,14 @@ impl Prefs {
 
     /// Called every frame: picks up chosen paths and plugged-in devices.
     pub fn poll(&mut self) {
+        let mut tested = false;
+        while let Ok((id, note)) = self.tested_rx.try_recv() {
+            self.station_notes.insert(id, note);
+            tested = true;
+        }
+        if tested {
+            self.refresh();
+        }
         while let Ok((id, path)) = self.chosen_rx.try_recv() {
             if id == "keyboard_set_import" {
                 let file = path
@@ -982,7 +1010,7 @@ impl Prefs {
                         ..item(
                             "air_ceiling",
                             MENU,
-                            "Limiter while recording",
+                            "Limiter while recording or on air",
                             "Keeps peaks, also those between samples, under this level so MP3, AAC and Opus files and streams don't clip.",
                         )
                     }
@@ -1176,6 +1204,7 @@ impl Prefs {
                 .collect()
             }
             MIXER => self.mixer_page(tab),
+            BROADCAST => self.broadcast_page(),
             p if p > FEEDBACK => self.plugin_page((p - FEEDBACK - 1) as usize),
             KEYBOARD => self.keyboard_page(),
             FEEDBACK => vec![
@@ -2403,6 +2432,17 @@ impl Prefs {
             self.refresh();
             return;
         }
+        if let Some((i, field)) = station_field(id) {
+            self.edit_station(i, |s| match field {
+                "enabled" => s.enabled = on,
+                "tls" => s.tls = on,
+                "public" => s.public = on,
+                "opus_titles" => s.opus_titles = on,
+                _ => {}
+            });
+            self.refresh();
+            return;
+        }
         settings::set(id, json!(on));
         if id == settings::MOVE_FILES && on {
             // The library update makes the moves that were waiting.
@@ -2434,6 +2474,28 @@ impl Prefs {
     }
 
     fn picked(&mut self, id: &str, index: usize) {
+        if let Some((i, field)) = station_field(id) {
+            self.edit_station(i, |s| match field {
+                "server" => {
+                    s.server = if index == 1 {
+                        opendj_broadcast::ServerKind::Shoutcast
+                    } else {
+                        opendj_broadcast::ServerKind::Icecast
+                    }
+                }
+                "format" => {
+                    s.format = if index == 1 {
+                        opendj_broadcast::Format::Opus
+                    } else {
+                        opendj_broadcast::Format::Mp3
+                    }
+                }
+                "bitrate" => s.bitrate = BITRATES.get(index).copied().unwrap_or(s.bitrate),
+                _ => {}
+            });
+            self.refresh();
+            return;
+        }
         if id == "tour_part" {
             self.pressed(&format!("tour_start:{index}"));
             return;
@@ -2887,6 +2949,36 @@ impl Prefs {
     /// The DJ typed in a plugin's text field. The page isn't filled again,
     /// so the field keeps its place while typing.
     fn typed(&mut self, id: &str, text: &str) {
+        if let Some((i, field)) = station_field(id) {
+            if field == "password" {
+                let station = broadcast::stations().into_iter().nth(i);
+                if let (Some(b), Some(s)) = (&self.broadcast, station) {
+                    b.set_password(&s.id, text);
+                }
+                return;
+            }
+            let text = text.to_string();
+            self.edit_station(i, |s| match field {
+                "name" => s.name = text,
+                "host" => s.host = text.trim().to_string(),
+                "port" => s.port = text.trim().parse().unwrap_or(s.port),
+                "mount" => s.mount = text.trim().to_string(),
+                "user" => s.user = text.trim().to_string(),
+                "stream_name" => s.stream_name = text,
+                "genre" => s.genre = text,
+                "website" => s.website = text.trim().to_string(),
+                "description" => s.description = text,
+                _ => {}
+            });
+            return;
+        }
+        if id == broadcast::TITLE_TEMPLATE || id == broadcast::DJ_NAME {
+            settings::set(id, json!(text));
+            if let Some(b) = &self.broadcast {
+                b.configure();
+            }
+            return;
+        }
         if id == "keyboard_set_name" {
             settings::rename_keyboard_set(text);
             return;
@@ -2944,6 +3036,9 @@ impl Prefs {
     }
 
     fn pressed(&mut self, id: &str) {
+        if self.broadcast_pressed(id) {
+            return;
+        }
         if id.starts_with("tour_") {
             if let Some(app) = self.app.upgrade() {
                 if let Some(part) = id.strip_prefix("tour_start:") {
@@ -3205,6 +3300,307 @@ fn edit_file(c: &Controllers, port: &Port) -> Option<String> {
             .find(|(name, _)| name == running)
             .map(|(_, file)| file)
     })
+}
+
+/// A station's row on Settings › Broadcast: `bc:<index>:<field>`.
+fn station_field(id: &str) -> Option<(usize, &str)> {
+    let rest = id.strip_prefix("bc:")?;
+    let (i, field) = rest.split_once(':')?;
+    Some((i.parse().ok()?, field))
+}
+
+impl Prefs {
+    /// Settings › Broadcast: the stations to stream to, the now-playing
+    /// text, and what a public station needs.
+    fn broadcast_page(&mut self) -> Vec<PrefItem> {
+        use opendj_broadcast::{Format, ServerKind};
+        let Some(b) = self.broadcast.clone() else {
+            return vec![item(
+                "",
+                NOTE,
+                "",
+                "Broadcasting isn't available: the audio engine didn't start.",
+            )];
+        };
+        let stations = broadcast::stations();
+        let mut items = vec![item("broadcast", HEADING, "STATIONS", "")];
+        if stations.is_empty() {
+            items.push(item(
+                "",
+                NOTE,
+                "",
+                "Stream your mix to an internet radio: add the Icecast or Shoutcast server your \
+                 station or host gave you, then press ON AIR in the top bar.",
+            ));
+        }
+        for (i, s) in stations.iter().enumerate() {
+            let id = |field: &str| format!("bc:{i}:{field}");
+            let set_up = !s.host.trim().is_empty();
+            items.push(switch(
+                &id("enabled"),
+                &s.name,
+                &if set_up {
+                    format!("{}. Streams when you go on air.", s.summary())
+                } else {
+                    "Not set up yet: fill in its server.".to_string()
+                },
+                s.enabled,
+            ));
+            if self.editing_station != Some(i) {
+                items.push(PrefItem {
+                    action: "Edit".into(),
+                    ..item(
+                        &id("edit"),
+                        BUTTON,
+                        "Server and stream",
+                        self.station_notes.get(&s.id).map_or("", |n| n.as_str()),
+                    )
+                });
+                continue;
+            }
+            let text = |field: &str, title: &str, detail: &str, value: &str| PrefItem {
+                value: value.into(),
+                ..item(&id(field), TEXT, title, detail)
+            };
+            let icecast = s.server == ServerKind::Icecast;
+            items.push(text("name", "Name", "What openDJ calls it.", &s.name));
+            items.push(PrefItem {
+                choices: strings(&["Icecast 2", "Shoutcast 1"]),
+                chosen: if icecast { 0 } else { 1 },
+                ..item(
+                    &id("server"),
+                    SEGMENTED,
+                    "Server",
+                    "Most hosts run Icecast. Shoutcast 2 servers take Shoutcast 1 streams.",
+                )
+            });
+            items.push(text(
+                "host",
+                "Address",
+                "The server's host name or IP address, such as radio.example.org.",
+                &s.host,
+            ));
+            items.push(text("port", "Port", "", &s.port.to_string()));
+            if icecast {
+                items.push(text(
+                    "mount",
+                    "Mount point",
+                    "Where listeners find the stream, such as /live.",
+                    &s.mount,
+                ));
+                items.push(text("user", "User", "Usually source.", &s.user));
+            }
+            items.push(PrefItem {
+                value: b.password(&s.id).into(),
+                on: true,
+                ..item(
+                    &id("password"),
+                    TEXT,
+                    "Password",
+                    "The source password. Kept in your system's keychain, not in openDJ's \
+                     settings.",
+                )
+            });
+            items.push(switch(
+                &id("tls"),
+                "Secure connection (TLS)",
+                "Only if the server takes source connections over https.",
+                s.tls,
+            ));
+            if icecast {
+                items.push(PrefItem {
+                    choices: strings(&["MP3", "Opus"]),
+                    chosen: if s.format == Format::Opus { 1 } else { 0 },
+                    ..item(
+                        &id("format"),
+                        SEGMENTED,
+                        "Format",
+                        "MP3 plays everywhere and shows each track's title. Opus sounds \
+                         better at low bitrates.",
+                    )
+                });
+            }
+            let rates: Vec<String> = BITRATES.iter().map(|r| format!("{r} kb/s")).collect();
+            items.push(PrefItem {
+                choices: strings(&rates),
+                chosen: BITRATES.iter().position(|&r| r == s.bitrate).unwrap_or(2) as i32,
+                ..item(
+                    &id("bitrate"),
+                    MENU,
+                    "Bitrate",
+                    "Higher sounds better and needs a faster upload. 128 kb/s MP3 or 96 kb/s \
+                     Opus suit most radios.",
+                )
+            });
+            if s.effective_format() == Format::Opus {
+                items.push(switch(
+                    &id("opus_titles"),
+                    "Send each new title in the stream",
+                    "Opus carries titles in the stream itself, by starting it again at each \
+                     track. Browsers and VLC follow; some players stop. Off, listeners see the \
+                     first title only.",
+                    s.opus_titles,
+                ));
+            }
+            items.push(text(
+                "stream_name",
+                "Stream name",
+                "Shown to listeners; the station's name when empty.",
+                &s.stream_name,
+            ));
+            items.push(text("genre", "Genre", "", &s.genre));
+            items.push(text("website", "Website", "", &s.website));
+            items.push(text("description", "Description", "", &s.description));
+            items.push(switch(
+                &id("public"),
+                "List in the directory",
+                "Asks the server to list the stream in its public directory.",
+                s.public,
+            ));
+            items.push(PrefItem {
+                action: "Test".into(),
+                ..item(
+                    &id("test"),
+                    BUTTON,
+                    "Test the connection",
+                    self.station_notes.get(&s.id).map_or(
+                        "Connects with these settings and hangs up, without going on air.",
+                        |n| n.as_str(),
+                    ),
+                )
+            });
+            let confirm = self.removing.as_deref() == Some(id("remove").as_str());
+            items.push(PrefItem {
+                action: if confirm { "Remove" } else { "Remove…" }.into(),
+                ..item(
+                    &id("remove"),
+                    BUTTON,
+                    "Remove this station",
+                    if confirm {
+                        "Press Remove again to remove it and its password."
+                    } else {
+                        ""
+                    },
+                )
+            });
+            items.push(PrefItem {
+                action: "Done".into(),
+                ..item(&id("edit"), BUTTON, "", "")
+            });
+        }
+        items.push(PrefItem {
+            action: "Add".into(),
+            ..item("bc_add", BUTTON, "Add a station", "")
+        });
+        items.push(item("", HEADING, "NOW PLAYING", ""));
+        items.push(PrefItem {
+            value: settings::string(broadcast::TITLE_TEMPLATE).into(),
+            ..item(
+                broadcast::TITLE_TEMPLATE,
+                TEXT,
+                "Title sent to listeners",
+                "The track heard most, a couple of seconds after it takes over. {artist}, \
+                 {title} and {dj} are filled in; plain text is sent as it is. Empty is \
+                 {artist} - {title}.",
+            )
+        });
+        items.push(PrefItem {
+            value: settings::string(broadcast::DJ_NAME).into(),
+            ..item(
+                broadcast::DJ_NAME,
+                TEXT,
+                "DJ name",
+                "For {dj} in the title.",
+            )
+        });
+        items.push(item("", HEADING, "BEFORE YOU GO ON AIR", ""));
+        items.push(item(
+            "",
+            NOTE,
+            "",
+            "While on air, the limiter keeps peaks under the ceiling set in Settings › Audio › \
+             Loudness, and the MASTER panel's loudness meter shows how loud the stream is \
+             against your target.",
+        ));
+        items.push(item(
+            "",
+            NOTE,
+            "",
+            "Playing music to the public needs licences in most countries, from bodies such as \
+             PRS, GEMA, SACEM, ASCAP, BMI and SoundExchange. Many hosts include them; check \
+             yours before you stream other people's music.",
+        ));
+        if let Some(trouble) = b.keychain_trouble() {
+            items.push(item(
+                "",
+                NOTE,
+                "",
+                &format!(
+                    "Passwords can't be kept in your system's keychain ({trouble}), so openDJ \
+                     remembers them until it quits."
+                ),
+            ));
+        }
+        items
+    }
+
+    /// Changes station `i` and tells the broadcaster.
+    fn edit_station(&mut self, i: usize, f: impl FnOnce(&mut opendj_broadcast::Station)) {
+        if let Some(b) = &self.broadcast {
+            b.edit(i, f);
+        }
+    }
+
+    /// Settings › Broadcast's buttons; false if `id` isn't one of them.
+    fn broadcast_pressed(&mut self, id: &str) -> bool {
+        let Some(b) = self.broadcast.clone() else {
+            return false;
+        };
+        if id == "bc_add" {
+            self.editing_station = Some(b.add());
+            self.refresh();
+            return true;
+        }
+        let Some((i, field)) = station_field(id) else {
+            return false;
+        };
+        match field {
+            "edit" => {
+                self.editing_station = (self.editing_station != Some(i)).then_some(i);
+                self.removing = None;
+            }
+            "remove" => {
+                if self.removing.as_deref() == Some(id) {
+                    b.remove(i);
+                    self.removing = None;
+                    self.editing_station = None;
+                } else {
+                    self.removing = Some(id.to_string());
+                }
+            }
+            "test" => {
+                let Some(station) = broadcast::stations().into_iter().nth(i) else {
+                    return true;
+                };
+                self.station_notes
+                    .insert(station.id.clone(), "Connecting…".into());
+                let tx = self.tested_tx.clone();
+                let sid = station.id.clone();
+                b.test(i, move |result| {
+                    let note = match result {
+                        Ok(()) => {
+                            "Connected: the server took the stream. Ready to go on air.".to_string()
+                        }
+                        Err(e) => e,
+                    };
+                    let _ = tx.send((sid, note));
+                });
+            }
+            _ => return false,
+        }
+        self.refresh();
+        true
+    }
 }
 
 fn item(id: &str, kind: i32, title: &str, detail: &str) -> PrefItem {
