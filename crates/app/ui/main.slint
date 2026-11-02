@@ -12,6 +12,7 @@ import { Preferences, PreferencesOverlay, PrefItem, ImportWizard } from "prefere
 import { UsbExport, UsbExportDialog } from "usb_export.slint";
 import { Tour, TourSetup, TourSetupDialog, TourTip, TourOffer } from "tour.slint";
 import { MapMode } from "mapmark.slint";
+import { RemoteButton, RemoteUi, RemoteDevice } from "remote.slint";
 import { ControllerEditor, ControllerEditorOverlay, EditorRow, EditorPart, EditorPanel, EditorOption, EditorSetting } from "controller_editor.slint";
 
 export { SourceUi, SourceTab, SearchItem, FoundRow, QueueLine } from "sources.slint";
@@ -21,6 +22,7 @@ export { SamplerUi, SamplerPad, SamplePack, SampleChoice } from "sampler.slint";
 export { ColumnUi, ListColumn }
 export { Tour, TourSetup }
 export { MapMode }
+export { RemoteUi, RemoteDevice }
 export { MixerMode, InputSettings, InputRow }
 export { Theme, Controls, DeckActions, PhraseView, PhraseTip, AudioSettings, OutputRow, EffectList, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, StoreUi, StreamMatch, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, CleanupUi, CleanupRow, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, EditorSetting, UsbExport }
 
@@ -897,6 +899,7 @@ export component AppWindow inherits Window {
                     WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
                     FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
                     Rectangle { horizontal-stretch: 1; }
+                    RemoteButton { }
                     MidiButton { }
                     MicButton { }
                     RecordButton { }

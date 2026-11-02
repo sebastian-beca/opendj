@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101112">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>openDJ Remote</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23101112'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23B69CFF' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%23B69CFF'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #101112; --panel: #161819; --raised: #1f2123; --row: #161819; --row-alt: #101112;
+  --border: #2a2c2f; --text: #f2f2f3; --dim: #8e8f94; --lilac: #b69cff; --lilac-dark: #8c72d9;
+  --green: #30c158; --red: #e5484d; --amber: #f5a524;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body {
+  font: 15px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  padding: env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 24px);
+  -webkit-user-select: none; user-select: none; overscroll-behavior-y: contain;
+}
+button, select, input { font: inherit; color: inherit; }
+button { border: 0; background: var(--raised); border-radius: 12px; padding: 12px 14px; font-weight: 600; cursor: pointer; }
+button:active { filter: brightness(1.3); }
+button:disabled { opacity: .4; }
+.hidden { display: none !important; }
+.wrap { max-width: 560px; margin: 0 auto; padding: 0 16px; }
+
+header { display: flex; align-items: center; gap: 10px; padding: 14px 0 10px; }
+.brand { display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 700; letter-spacing: -.2px; flex: 1; }
+.brand small { color: var(--dim); font-weight: 500; font-size: 14px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+.dot.on { background: var(--green); }
+.automix { background: var(--raised); border: 1.5px solid transparent; color: var(--dim); letter-spacing: .6px; font-size: 13px; padding: 10px 16px; }
+.automix.on { color: var(--green); border-color: var(--green); background: rgba(48,193,88,.14); }
+
+.banner { background: #2a2236; border: 1px solid var(--lilac); border-radius: 12px; padding: 10px 12px; margin: 4px 0 10px; font-size: 14px; }
+.status { color: var(--green); font-weight: 600; min-height: 20px; margin: 2px 0 10px; }
+.status.idle { color: var(--dim); font-weight: 500; }
+
+.decks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.deck { background: var(--panel); border: 1.5px solid var(--border); border-radius: 14px; padding: 10px 12px 12px; min-width: 0; }
+.deck.live { border-color: var(--green); }
+.deck .top { display: flex; justify-content: space-between; color: var(--dim); font-size: 12px; font-weight: 700; letter-spacing: .5px; }
+.deck .top .live-tag { color: var(--green); }
+.deck .title { font-weight: 650; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.deck .artist { color: var(--dim); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.deck .meta { display: flex; justify-content: space-between; color: var(--dim); font-size: 12px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.deck .meta b { color: var(--text); font-weight: 600; }
+.bar { height: 4px; border-radius: 2px; background: #2e3033; margin-top: 6px; overflow: hidden; position: relative; }
+.bar i { position: absolute; inset: 0 auto 0 0; background: var(--lilac); border-radius: 2px; }
+.bar s { position: absolute; top: 0; bottom: 0; background: rgba(48,193,88,.55); }
+.deck.empty .title { color: var(--dim); font-weight: 500; }
+
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+.actions button { padding: 15px; font-size: 16px; }
+.primary { background: var(--lilac); color: #1a1426; }
+
+.pickers { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 6px; }
+.pick { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pick span { color: var(--dim); font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
+select { width: 100%; background: var(--raised); border: 0; border-radius: 10px; padding: 10px; appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238e8f94' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; padding-right: 26px; }
+.note { color: var(--dim); font-size: 13px; min-height: 18px; display: flex; gap: 10px; align-items: center; }
+.note button { padding: 4px 10px; font-size: 13px; border-radius: 8px; }
+
+h2 { font-size: 13px; color: var(--dim); font-weight: 700; letter-spacing: .5px; text-transform: uppercase; margin: 18px 0 8px; display: flex; justify-content: space-between; }
+h2 small { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.queue { border-radius: 14px; overflow: hidden; border: 1px solid var(--border); }
+.queue:empty::after { content: "The Automix list is empty. Add tracks in openDJ."; display: block; padding: 18px; color: var(--dim); text-align: center; background: var(--row); }
+.row { display: flex; align-items: center; gap: 10px; padding: 10px 6px 10px 12px; background: var(--row); position: relative; touch-action: pan-y; }
+.row:nth-child(even) { background: var(--row-alt); }
+.row.dragging { background: #2a2236 !important; box-shadow: 0 6px 20px rgba(0,0,0,.6); z-index: 2; }
+.row .n { color: var(--dim); font-size: 12px; width: 18px; text-align: right; font-variant-numeric: tabular-nums; }
+.row .txt { flex: 1; min-width: 0; }
+.row .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 550; }
+.row .a { color: var(--dim); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .m { color: var(--dim); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.row .m b { color: var(--text); font-weight: 600; }
+.row .tag { color: var(--green); font-size: 11px; font-weight: 700; letter-spacing: .4px; }
+.row .grip { padding: 8px 10px; color: var(--dim); touch-action: none; cursor: grab; font-size: 18px; line-height: 1; }
+.row.fixed .grip { visibility: hidden; }
+
+.levels { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 6px 14px 14px; }
+.level { display: grid; grid-template-columns: 64px 1fr 40px; gap: 10px; align-items: center; padding: 8px 0; }
+.level label { font-weight: 600; font-size: 14px; }
+.level output { color: var(--dim); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+input[type=range] { width: 100%; height: 32px; background: transparent; -webkit-appearance: none; appearance: none; }
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: #3a3a3e; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%; background: #fff; margin-top: -11px; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: #3a3a3e; }
+input[type=range]::-moz-range-thumb { width: 26px; height: 26px; border-radius: 50%; background: #fff; border: 0; }
+.fade { width: 100%; margin-top: 6px; background: rgba(229,72,77,.14); color: var(--red); border: 1px solid rgba(229,72,77,.5); }
+.fade.back { background: rgba(48,193,88,.14); color: var(--green); border-color: rgba(48,193,88,.5); }
+
+.sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 10; display: flex; align-items: flex-end; }
+.sheet { width: 100%; max-width: 560px; margin: 0 auto; background: var(--raised); border-radius: 16px 16px 0 0; padding: 14px 16px calc(env(safe-area-inset-bottom) + 16px); display: grid; gap: 8px; }
+.sheet .what { color: var(--dim); font-size: 13px; padding: 2px 4px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sheet button { background: #2a2c30; text-align: left; }
+.sheet .danger { color: var(--red); }
+
+.pair { text-align: center; padding-top: 12vh; }
+.pair .logo { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+.pair p { color: var(--dim); margin: 6px auto 22px; max-width: 320px; }
+.pin { width: 220px; text-align: center; font-size: 30px; letter-spacing: 8px; background: var(--raised); border: 1.5px solid var(--border); border-radius: 12px; padding: 12px; font-variant-numeric: tabular-nums; }
+.pin:focus { outline: none; border-color: var(--lilac); }
+.pair button { display: block; margin: 14px auto 0; width: 220px; }
+.err { color: var(--red); min-height: 20px; margin-top: 12px; font-size: 14px; }
+.tip { color: var(--dim); font-size: 13px; margin-top: 30px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<section id="pairView" class="pair hidden">
+  <div class="logo">openDJ <span style="color:var(--lilac)">Remote</span></div>
+  <p>Scan the QR code under REMOTE in openDJ, or type the PIN shown there.</p>
+  <input id="pin" class="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000000" aria-label="PIN">
+  <button id="pairBtn" class="primary">Pair</button>
+  <div id="pairErr" class="err"></div>
+  <div class="tip">Your phone and the computer need to be on the same Wi-Fi.</div>
+</section>
+
+<section id="mainView" class="hidden">
+  <header>
+    <div class="brand">openDJ <small>Remote</small></div>
+    <span id="dot" class="dot" title="Connection"></span>
+    <button id="automix" class="automix">AUTOMIX</button>
+  </header>
+  <div id="banner" class="banner hidden"></div>
+  <div id="status" class="status idle"></div>
+
+  <div class="decks" id="decks"></div>
+
+  <div class="actions">
+    <button id="mixNow" class="primary">Mix now</button>
+    <button id="skip">Skip next</button>
+  </div>
+
+  <div class="pickers">
+    <label class="pick"><span>Length</span><select id="length"></select></label>
+    <label class="pick"><span>Style</span><select id="style"></select></label>
+    <label class="pick"><span>Order</span><select id="order"></select></label>
+  </div>
+  <div class="note"><span id="note"></span><button id="undo" class="hidden">Undo</button></div>
+
+  <h2>Up next <small id="total"></small></h2>
+  <div id="queue" class="queue"></div>
+
+  <h2>Levels</h2>
+  <div class="levels">
+    <div class="level"><label for="master">Master</label><input id="master" type="range" min="0" max="1000" value="500"><output id="masterOut"></output></div>
+    <div class="level hidden" id="boothRow"><label for="booth">Booth</label><input id="booth" type="range" min="0" max="1000" value="1000"><output id="boothOut"></output></div>
+    <button id="fade" class="fade">Fade out</button>
+  </div>
+</section>
+
+</div>
+<div id="sheet" class="sheet-bg hidden"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const STORE = "opendj-remote";
+let memory = null; // when the browser won't keep anything
+function loadCreds() { try { return JSON.parse(localStorage.getItem(STORE)) || memory; } catch (e) { return memory; } }
+function saveCreds(c) { memory = c; try { c ? localStorage.setItem(STORE, JSON.stringify(c)) : localStorage.removeItem(STORE); } catch (e) {} }
+
+function deviceName() {
+  const ua = navigator.userAgent;
+  if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return "iPad";
+  if (/iPhone/.test(ua)) return "iPhone";
+  const m = ua.match(/Android[^;]*;\s*([^;)]+?)(?:\s+Build|\))/);
+  if (m && m[1] && !/^(K|wv)$/.test(m[1])) return m[1].trim();
+  if (/Android/.test(ua)) return "Android phone";
+  return "Browser";
+}
+
+// The QR code's one-time code arrives after #; take it out of the address
+// so a reload or a bookmark doesn't try it again.
+let pairCode = null;
+{
+  const m = location.hash.match(/pair=([0-9a-f]+)/i);
+  if (m) { pairCode = m[1]; history.replaceState(null, "", location.pathname); }
+}
+
+let ws = null, nextId = 1, pending = new Map(), retry = 0, authed = false, retryTimer = 0;
+const state = { automix: null, decks: null, mixer: null };
+
+function call(method, params = {}) {
+  return new Promise((resolve, reject) => {
+    if (!ws || ws.readyState !== 1) { reject(new Error("Not connected")); return; }
+    const id = nextId++;
+    pending.set(id, { resolve, reject });
+    ws.send(JSON.stringify({ id, method, params }));
+  });
+}
+function act(method, params) { call(method, params).catch(e => flash(e.message)); }
+
+function connect() {
+  ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  ws.onopen = () => { retry = 0; $("dot").classList.add("on"); login(); };
+  ws.onmessage = e => {
+    let m; try { m = JSON.parse(e.data); } catch (_) { return; }
+    if (m.event) { onEvent(m.event, m.data); return; }
+    const p = pending.get(m.id); if (!p) return; pending.delete(m.id);
+    m.error ? p.reject(Object.assign(new Error(m.error.message), m.error)) : p.resolve(m.result);
+  };
+  ws.onclose = () => {
+    $("dot").classList.remove("on"); authed = false;
+    pending.forEach(p => p.reject(new Error("Disconnected"))); pending.clear();
+    if (!$("mainView").classList.contains("hidden")) banner("Reconnecting to openDJ…");
+    const wait = Math.min(8000, 500 * 2 ** retry++);
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(connect, wait);
+  };
+}
+
+async function login() {
+  try {
+    if (pairCode) {
+      const code = pairCode; pairCode = null;
+      const r = await call("pair", { code, name: deviceName() });
+      saveCreds({ device: r.device, token: r.token });
+      return loggedIn();
+    }
+    const c = loadCreds();
+    if (c) { await call("hello", c); return loggedIn(); }
+    showPair("");
+  } catch (e) {
+    if (e.unpaired) saveCreds(null);
+    showPair(e.message);
+  }
+}
+
+function loggedIn() {
+  authed = true;
+  $("pairView").classList.add("hidden");
+  $("mainView").classList.remove("hidden");
+  banner("");
+  keepAwake();
+}
+
+function showPair(msg) {
+  $("mainView").classList.add("hidden");
+  $("pairView").classList.remove("hidden");
+  $("pairErr").textContent = msg || "";
+}
+
+$("pairBtn").onclick = async () => {
+  const pin = $("pin").value.replace(/\D/g, "");
+  if (pin.length !== 6) { $("pairErr").textContent = "The PIN has 6 digits."; return; }
+  try {
+    const r = await call("pair", { pin, name: deviceName() });
+    saveCreds({ device: r.device, token: r.token });
+    $("pin").value = "";
+    loggedIn();
+  } catch (e) { $("pairErr").textContent = e.message; }
+};
+$("pin").addEventListener("keydown", e => { if (e.key === "Enter") $("pairBtn").click(); });
+
+function onEvent(name, data) {
+  if (name === "revoked") { saveCreds(null); showPair("This phone was removed in openDJ. Pair it again to carry on."); return; }
+  state[name] = data;
+  if (name === "automix") drawAutomix();
+  if (name === "decks") drawDecks();
+  if (name === "mixer") drawMixer();
+}
+
+function banner(text) { const b = $("banner"); b.textContent = text; b.classList.toggle("hidden", !text); }
+let flashTimer = 0;
+function flash(text) { banner(text); clearTimeout(flashTimer); flashTimer = setTimeout(() => banner(""), 3000); }
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function time(s) {
+  if (!(s >= 0)) return "";
+  s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = s % 60;
+  return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(sec).padStart(2, "0");
+}
+function fillSelect(sel, names, current) {
+  if (sel.dataset.names !== names.join("|")) {
+    sel.innerHTML = names.map((n, i) => `<option value="${i}">${esc(n)}</option>`).join("");
+    sel.dataset.names = names.join("|");
+  }
+  if (document.activeElement !== sel) sel.value = String(current);
+}
+
+function drawAutomix() {
+  const a = state.automix; if (!a) return;
+  const btn = $("automix"); btn.classList.toggle("on", a.on);
+  const st = $("status"); st.textContent = a.status || (a.on ? "Automix is on" : "Automix is off");
+  st.classList.toggle("idle", !a.on);
+  fillSelect($("length"), a.lengths, a.length);
+  fillSelect($("style"), a.styles, a.style);
+  const order = $("order");
+  if (order.dataset.names !== a.orders.join("|")) {
+    order.innerHTML = `<option value="" disabled selected>Order…</option>` + a.orders.map((n, i) => `<option value="${i}">${esc(n)}</option>`).join("");
+    order.dataset.names = a.orders.join("|");
+  }
+  $("note").textContent = a.note || "";
+  $("undo").classList.toggle("hidden", !a.can_undo);
+  $("total").textContent = a.queue.length ? `${time(a.total)} · ${a.queue.length} song${a.queue.length === 1 ? "" : "s"}` : "";
+  $("mixNow").disabled = !a.on; $("skip").disabled = !a.queue.length;
+  if (!drag) drawQueue();
+}
+
+function drawQueue() {
+  const a = state.automix, q = $("queue");
+  q.innerHTML = a.queue.map((t, i) => {
+    const fixed = i < a.fixed;
+    const tag = fixed ? (t.state === "playing" ? "PLAYING" : t.state === "waiting" ? "ON DECK" : "") : "";
+    return `<div class="row${fixed ? " fixed" : ""}" data-i="${i}" data-id="${t.id}">
+      <span class="n">${i + 1}</span>
+      <div class="txt"><div class="t">${esc(t.title)}</div><div class="a">${tag ? `<span class="tag">${tag}</span> · ` : ""}${esc(t.artist)}</div></div>
+      <div class="m"><b>${t.bpm ? Math.round(t.bpm) : ""}</b> ${esc(t.key)}<br>${time(t.time)}</div>
+      <span class="grip" aria-label="Drag to move">≡</span>
+    </div>`;
+  }).join("");
+}
+
+function drawDecks() {
+  const d = state.decks; if (!d) return;
+  $("decks").innerHTML = d.decks.map((k, i) => {
+    const empty = !k.title;
+    const mix = k.mix_from != null ? `<s style="left:${k.mix_from * 100}%;width:${Math.max(0.5, (k.mix_to - k.mix_from) * 100)}%"></s>` : "";
+    return `<div class="deck${k.live ? " live" : ""}${empty ? " empty" : ""}">
+      <div class="top"><span>DECK ${i + 1}${k.playing ? " ▶" : ""}</span>${k.live ? '<span class="live-tag">LIVE</span>' : ""}</div>
+      <div class="title">${empty ? "Empty" : esc(k.title)}</div>
+      <div class="artist">${esc(k.artist) || "&nbsp;"}</div>
+      <div class="meta"><span><b>${k.bpm ? k.bpm.toFixed(1) : ""}</b> ${esc(k.key)}</span><span>${empty ? "" : "-" + time(k.left)}</span></div>
+      <div class="bar">${mix}<i style="width:${(k.position || 0) * 100}%"></i></div>
+    </div>`;
+  }).join("");
+}
+
+let levelDrag = { master: false, booth: false };
+function drawMixer() {
+  const m = state.mixer; if (!m) return;
+  for (const k of ["master", "booth"]) {
+    if (!levelDrag[k]) $(k).value = Math.round(m[k] * 1000);
+    $(k + "Out").textContent = Math.round(m[k] * 100) + "%";
+  }
+  $("boothRow").classList.toggle("hidden", !m.booth_on);
+  const f = $("fade");
+  f.textContent = m.fading ? "Fading out… tap to stop" : m.faded ? "Bring the sound back" : "Fade out";
+  f.classList.toggle("back", !!(m.fading || m.faded));
+}
+
+$("automix").onclick = () => act("automix.set", { on: !(state.automix && state.automix.on) });
+$("mixNow").onclick = () => act("automix.mix_now");
+$("skip").onclick = () => act("automix.skip");
+$("length").onchange = e => act("automix.length", { index: +e.target.value });
+$("style").onchange = e => act("automix.style", { index: +e.target.value });
+$("order").onchange = e => { act("automix.order", { index: +e.target.value }); e.target.value = ""; };
+$("undo").onclick = () => act("automix.undo");
+$("fade").onclick = () => {
+  const m = state.mixer || {};
+  act(m.fading || m.faded ? "mixer.fade_in" : "mixer.fade_out", { seconds: 8 });
+};
+
+// Level sliders: at most about 15 changes a second.
+for (const k of ["master", "booth"]) {
+  const el = $(k); let last = 0, timer = 0;
+  const send = () => { last = Date.now(); act("mixer.set", { level: k, value: el.value / 1000 }); };
+  el.addEventListener("pointerdown", () => levelDrag[k] = true);
+  el.addEventListener("pointerup", () => setTimeout(() => levelDrag[k] = false, 400));
+  el.addEventListener("input", () => {
+    $(k + "Out").textContent = Math.round(el.value / 10) + "%";
+    clearTimeout(timer);
+    const wait = 66 - (Date.now() - last);
+    wait <= 0 ? send() : (timer = setTimeout(send, wait));
+  });
+}
+
+// A tap on a row opens its actions; the grip drags it to a new place.
+$("queue").addEventListener("click", e => {
+  if (e.target.closest(".grip") || dragMoved) return;
+  const row = e.target.closest(".row"); if (!row) return;
+  openSheet(+row.dataset.i);
+});
+
+function openSheet(i) {
+  const a = state.automix, t = a.queue[i]; if (!t) return;
+  const fixed = i < a.fixed, first = a.fixed;
+  const s = $("sheet");
+  s.innerHTML = `<div class="sheet">
+    <div class="what">${esc(t.title)} · ${esc(t.artist)}</div>
+    ${!fixed && i > first ? '<button data-a="next">Play next</button>' : ""}
+    ${!fixed && i > first ? '<button data-a="up">Move up</button>' : ""}
+    ${!fixed && i < a.queue.length - 1 ? '<button data-a="down">Move down</button>' : ""}
+    ${!fixed && i < a.queue.length - 1 ? '<button data-a="last">Move to the end</button>' : ""}
+    ${t.state !== "playing" ? '<button data-a="remove" class="danger">Remove from Automix</button>' : ""}
+    <button data-a="">Cancel</button></div>`;
+  s.classList.remove("hidden");
+  s.onclick = e => {
+    const b = e.target.closest("button");
+    if (!b && e.target !== s) return;
+    s.classList.add("hidden");
+    const what = b ? b.dataset.a : "";
+    if (what === "next") act("automix.play_next", { id: t.id });
+    if (what === "up") act("automix.move", { id: t.id, to: i - 1 });
+    if (what === "down") act("automix.move", { id: t.id, to: i + 1 });
+    if (what === "last") act("automix.move", { id: t.id, to: a.queue.length - 1 });
+    if (what === "remove") act("automix.remove", { id: t.id });
+  };
+}
+
+let drag = null, dragMoved = false;
+$("queue").addEventListener("pointerdown", e => {
+  const grip = e.target.closest(".grip"); if (!grip) return;
+  const row = grip.closest(".row"); if (row.classList.contains("fixed")) return;
+  e.preventDefault();
+  const rows = [...$("queue").children];
+  drag = { row, from: +row.dataset.i, to: +row.dataset.i, y: e.clientY, h: row.offsetHeight, rows, id: +row.dataset.id };
+  dragMoved = false;
+  row.classList.add("dragging");
+  grip.setPointerCapture(e.pointerId);
+});
+$("queue").addEventListener("pointermove", e => {
+  if (!drag) return;
+  const dy = e.clientY - drag.y;
+  if (Math.abs(dy) > 4) dragMoved = true;
+  drag.row.style.transform = `translateY(${dy}px)`;
+  const min = state.automix.fixed;
+  drag.to = Math.max(min, Math.min(drag.rows.length - 1, drag.from + Math.round(dy / drag.h)));
+  drag.rows.forEach((r, i) => {
+    if (r === drag.row) return;
+    let shift = 0;
+    if (drag.to > drag.from && i > drag.from && i <= drag.to) shift = -drag.h;
+    if (drag.to < drag.from && i < drag.from && i >= drag.to) shift = drag.h;
+    r.style.transform = shift ? `translateY(${shift}px)` : "";
+  });
+});
+function endDrag() {
+  if (!drag) return;
+  const d = drag; drag = null;
+  if (d.to !== d.from) {
+    const q = state.automix.queue; q.splice(d.to, 0, q.splice(d.from, 1)[0]);
+    act("automix.move", { id: d.id, to: d.to });
+  }
+  drawQueue();
+  setTimeout(() => dragMoved = false, 50);
+}
+$("queue").addEventListener("pointerup", endDrag);
+$("queue").addEventListener("pointercancel", endDrag);
+
+// Keeps the screen on where the browser allows it (it needs HTTPS on most).
+let wakeLock = null;
+async function keepAwake() {
+  try { if (navigator.wakeLock && !wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.onrelease = () => wakeLock = null; } } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  keepAwake();
+  // Phones drop the connection while the screen is off: come straight back.
+  if (!ws || ws.readyState > 1) { clearTimeout(retryTimer); retry = 0; connect(); }
+});
+setInterval(() => { if (authed) call("ping").catch(() => {}); }, 20000);
+
+connect();
+</script>
+</body>
+</html>
