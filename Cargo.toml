@@ -60,3 +60,6 @@ opt-level = 2
 # third_party/femtovg/OPENDJ.md.
 [patch.crates-io]
 femtovg = { path = "third_party/femtovg" }
+# Key lock's time-stretcher with split computation; see
+# third_party/signalsmith-stretch/OPENDJ.md.
+signalsmith-stretch = { path = "third_party/signalsmith-stretch" }
