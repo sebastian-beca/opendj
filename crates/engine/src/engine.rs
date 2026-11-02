@@ -1485,10 +1485,24 @@ impl Engine {
                             c.set(v);
                         }
                     }
+                    // The stems pads belong to the track they were pressed
+                    // on: a muted stem (Acapella, Instrumental or a stem's
+                    // own pad) left over from the last track would silence
+                    // whatever part of the new one it holds, with nothing
+                    // lit to say why until its stems are ready. So every
+                    // stem plays again; their levels, on the EQ knobs in
+                    // stems mode, reset with the EQ.
+                    for s in &d.c.stems {
+                        s.mute.set_bool(false);
+                        if reset_eq {
+                            s.volume.set(1.0);
+                        }
+                    }
                     if reset_fx {
                         let playing = std::array::from_fn(|k| self.decks[k].c.play.get_bool());
                         self.fx.reset_deck(deck, playing);
                     }
+                    self.fx.release_pad_fx(deck);
                     let d = &mut self.decks[deck];
                     // Hot cues and saved loops from the library.
                     for cue in &track.info.hotcues {
@@ -3052,6 +3066,46 @@ mod tests {
         assert_eq!(deck1("pregain").get(), 2.0);
         assert_eq!(eq("parameter1").get(), 0.2);
         assert!(slot(1, "enabled").get_bool());
+    }
+
+    #[test]
+    fn loading_a_track_brings_back_its_stems_and_lets_go_of_pad_fx() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 4.0));
+        run(&mut engine, 0.02);
+        let c = |g: &str, k: &str| reg.get(g, k).unwrap();
+        let stem = |s: usize, k: &str| c(&format!("[Channel1_Stem{s}]"), k);
+        let pad_slot = || c("[EffectRack1_EffectUnit6_Effect1]", "enabled");
+        // Acapella (only the vocals, stem 4), a level turned down and a
+        // Pad FX left on.
+        for s in [1, 2, 3, 5] {
+            stem(s, "mute").set_bool(true);
+        }
+        stem(4, "volume").set(0.3);
+        pad_slot().set_bool(true);
+        run(&mut engine, 0.02);
+
+        load(&mut input, 0, short_track(124.0, 4.0));
+        run(&mut engine, 0.02);
+        for s in 1..=5 {
+            assert!(!stem(s, "mute").get_bool(), "stem {s} plays");
+        }
+        assert_eq!(stem(4, "volume").get(), 1.0);
+        assert!(!pad_slot().get_bool());
+
+        // With auto reset off, the stems still play again and the Pad FX
+        // still let go; only the levels stay.
+        for k in ["fx", "eq", "gain"] {
+            c("[Controls]", &format!("auto_reset_{k}")).set_bool(false);
+        }
+        stem(4, "mute").set_bool(true);
+        stem(4, "volume").set(0.3);
+        pad_slot().set_bool(true);
+        load(&mut input, 0, short_track(126.0, 4.0));
+        run(&mut engine, 0.02);
+        assert!(!stem(4, "mute").get_bool());
+        assert_eq!(stem(4, "volume").get(), 0.3);
+        assert!(!pad_slot().get_bool());
     }
 
     #[test]

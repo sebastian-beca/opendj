@@ -1240,6 +1240,15 @@ impl EffectRack {
         }
     }
 
+    /// Lets go of a deck's Pad FX: they play only while a pad is held, so a
+    /// newly loaded track starts without them whatever auto reset says (a
+    /// pad still on after a missed release would otherwise carry over).
+    pub(crate) fn release_pad_fx(&mut self, deck: usize) {
+        for slot in &self.slots[crate::controls::pad_fx_unit(deck)] {
+            slot.enabled.set_bool(false);
+        }
+    }
+
     /// Runs a block of `target` through the units routed to it, in place:
     /// unit by unit and slot by slot, a whole block at a time, which is
     /// where plugin slots can join in. Each instance sees the same samples in
