@@ -2,13 +2,13 @@
 
 ## 1. Broadcast meter (v0.5, size S–M)
 
-- [ ] 1.1 Running loudness meter off the audio thread, fed from the master tap: momentary, short-term, integrated, loudness range, true peak (4× oversampled)
-- [ ] 1.2 Tests against the EBU Tech 3341 and 3342 test signals
-- [ ] 1.3 True-peak detector in the master limiter; -1 dBTP ceiling while recording or on air, -2 dBTP option
-- [ ] 1.4 Loudness meter in the MASTER panel with targets and colours; short-term reading in the top bar while recording
-- [ ] 1.5 Master meter scale marks and 20 dB/s fall
-- [ ] 1.6 `[Master],loudness_*` and `true_peak` controls; regenerate website/book/supported-controls.txt
-- [ ] 1.7 User guide: new Broadcasting page (meter and targets)
+- [x] 1.1 Running loudness meter off the audio thread, fed from the master tap: momentary, short-term, integrated, loudness range, true peak (4× oversampled)
+- [x] 1.2 Tests against the EBU Tech 3341 and 3342 test signals
+- [x] 1.3 True-peak detector in the master limiter; -1 dBTP ceiling while recording or on air, -2 dBTP option
+- [x] 1.4 Loudness meter in the MASTER panel with targets and colours; short-term reading in the top bar while recording (targets in Settings › Audio › Loudness until Settings › Broadcast exists)
+- [x] 1.5 Master meter scale marks and 20 dB/s fall
+- [x] 1.6 `[Master],loudness_*` and `true_peak` controls; regenerate website/book/supported-controls.txt
+- [x] 1.7 User guide: new Broadcasting page (meter and targets)
 
 ## 2. Icecast radio (v0.5, size M)
 
