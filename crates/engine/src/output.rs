@@ -79,7 +79,7 @@ pub enum InputRole {
 }
 
 impl InputRole {
-    pub const ALL: [InputRole; NUM_INPUTS] = [InputRole::Microphone, InputRole::Auxiliary];
+    pub const ALL: [InputRole; 2] = [InputRole::Microphone, InputRole::Auxiliary];
 
     pub fn name(self) -> &'static str {
         match self {

@@ -2,7 +2,7 @@
 //! finding them, remembering what was found, and which ones the DJ wants
 //! in the FX lists.
 //!
-//! Nothing is scanned at start-up. Scan, in Settings › Mixer › FX plugins,
+//! Nothing is scanned at start-up. Scan, in Settings › Mixer › Plugins,
 //! looks through the plugin folders and checks each new or changed file in
 //! a throwaway helper process, so a plugin that crashes or hangs while it is
 //! looked at only fails its own row. What was found is kept in
@@ -128,10 +128,19 @@ impl AudioPlugins {
 
     /// Every effect found, by name.
     pub fn effects(&self) -> Vec<Found> {
+        self.found(Descriptor::is_audio_effect)
+    }
+
+    /// Every instrument found, by name: for the Instrument input.
+    pub fn instruments(&self) -> Vec<Found> {
+        self.found(Descriptor::is_instrument)
+    }
+
+    fn found(&self, keep: fn(&Descriptor) -> bool) -> Vec<Found> {
         let mut out = Vec::new();
         for f in &self.catalog.files {
             let format = if is_vst3(&f.path) { "VST3" } else { "CLAP" };
-            for d in f.found.iter().filter(|d| d.is_audio_effect()) {
+            for d in f.found.iter().filter(|d| keep(d)) {
                 let file = f.path.clone();
                 let id = d.id.clone();
                 out.push(Found {
@@ -147,12 +156,7 @@ impl AudioPlugins {
                 });
             }
         }
-        for d in self
-            .catalog
-            .audio_units
-            .iter()
-            .filter(|d| d.is_audio_effect())
-        {
+        for d in self.catalog.audio_units.iter().filter(|d| keep(d)) {
             out.push(Found {
                 key: format!("au:{}", d.id),
                 name: d.name.clone(),
@@ -251,16 +255,9 @@ impl AudioPlugins {
                     save_catalog(&self.catalog);
                     self.scan = None;
                     let effects = self.effects().len();
+                    let instruments = self.instruments().len();
                     let failed = self.failures().len();
-                    self.note = match (effects, failed) {
-                        (0, 0) => "No effect plugins found in these folders.".into(),
-                        (n, 0) => format!("Found {n} effect{}.", plural(n)),
-                        (n, f) => format!(
-                            "Found {n} effect{}; {f} file{} couldn't be read.",
-                            plural(n),
-                            plural(f)
-                        ),
-                    };
+                    self.note = found_note(effects, instruments, failed);
                     self.publish();
                     break;
                 }
@@ -278,21 +275,24 @@ impl AudioPlugins {
             .collect()
     }
 
+    /// The ticked instruments, in the instrument picker's order.
+    pub fn chosen_instruments(&self) -> Vec<Found> {
+        let shown = self.shown();
+        self.instruments()
+            .into_iter()
+            .filter(|f| shown.contains(&f.key))
+            .collect()
+    }
+
     /// Hands the ticked effects to the engine and the FX lists, after the
     /// built-in effects.
     fn publish(&mut self) {
         let chosen = self.chosen();
-        self.engine.set_plugins(
-            chosen
-                .iter()
-                .map(|f| PluginEntry {
-                    key: f.key.clone(),
-                    name: f.name.clone(),
-                    plugin: f.plugin.clone(),
-                })
-                .collect(),
-        );
+        self.engine.set_plugins(chosen.iter().map(entry).collect());
         NAMES.with(|n| *n.borrow_mut() = chosen.iter().map(|f| f.name.clone()).collect());
+        let instruments = self.chosen_instruments();
+        self.engine
+            .set_instruments(instruments.iter().map(entry).collect());
         if let Some(app) = self.app.upgrade() {
             let names: Vec<SharedString> = AVAILABLE_EFFECTS
                 .iter()
@@ -303,7 +303,42 @@ impl AudioPlugins {
                 .set_names(ModelRc::new(VecModel::from(names)));
             app.global::<EffectList>()
                 .set_builtin_count(AVAILABLE_EFFECTS.len() as i32);
+            let names: Vec<SharedString> = instruments
+                .iter()
+                .map(|f| SharedString::from(f.name.as_str()))
+                .collect();
+            app.global::<EffectList>()
+                .set_instruments(ModelRc::new(VecModel::from(names)));
         }
+    }
+}
+
+fn entry(f: &Found) -> PluginEntry {
+    PluginEntry {
+        key: f.key.clone(),
+        name: f.name.clone(),
+        plugin: f.plugin.clone(),
+    }
+}
+
+/// What a scan found, in a sentence.
+fn found_note(effects: usize, instruments: usize, failed: usize) -> String {
+    let mut parts = Vec::new();
+    if effects > 0 {
+        parts.push(format!("{effects} effect{}", plural(effects)));
+    }
+    if instruments > 0 {
+        parts.push(format!("{instruments} instrument{}", plural(instruments)));
+    }
+    let found = if parts.is_empty() {
+        "No plugins found in these folders".to_string()
+    } else {
+        format!("Found {}", parts.join(" and "))
+    };
+    if failed > 0 {
+        format!("{found}; {failed} file{} couldn't be read.", plural(failed))
+    } else {
+        format!("{found}.")
     }
 }
 
@@ -550,6 +585,17 @@ fn save_catalog(c: &Catalog) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_scan_note_names_effects_and_instruments() {
+        assert_eq!(found_note(0, 0, 0), "No plugins found in these folders.");
+        assert_eq!(found_note(1, 0, 0), "Found 1 effect.");
+        assert_eq!(found_note(3, 2, 0), "Found 3 effects and 2 instruments.");
+        assert_eq!(
+            found_note(0, 1, 2),
+            "Found 1 instrument; 2 files couldn't be read."
+        );
+    }
 
     #[test]
     fn the_catalog_round_trips_through_json() {

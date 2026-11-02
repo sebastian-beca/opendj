@@ -147,3 +147,32 @@ fn a_missing_plugin_id_fails_to_start() {
     .expect("refused");
     assert!(err.to_string().contains("has no plugin"), "{err}");
 }
+
+#[test]
+fn notes_reach_the_plugin() {
+    use opendj_plugin_host::Midi;
+    let (mut conn, _helper) = start();
+    conn.set_param(1, 1.0); // the test plugin writes the first note's key into sample 1
+    let silent = vec![0.0f32; FRAMES];
+    let mut ol = vec![0.0; FRAMES];
+    let mut or = vec![0.0; FRAMES];
+    let out = conn.process_events(
+        [&silent, &silent],
+        [&mut ol, &mut or],
+        Transport::default(),
+        &[Midi::note_on(10, 0, 60, 100), Midi::note_off(20, 0, 60)],
+        DEADLINE,
+    );
+    assert_eq!(out, Outcome::Wet);
+    assert_eq!(ol[1], 60.0);
+    // No notes, no key.
+    let out = conn.process_events(
+        [&silent, &silent],
+        [&mut ol, &mut or],
+        Transport::default(),
+        &[],
+        DEADLINE,
+    );
+    assert_eq!(out, Outcome::Wet);
+    assert_eq!(ol[1], -1.0);
+}
