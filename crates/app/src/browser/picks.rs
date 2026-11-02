@@ -129,6 +129,18 @@ impl Browser {
             .collect()
     }
 
+    /// The library tracks picked, in list order, when there are several.
+    pub(super) fn picked_many(&self) -> Vec<usize> {
+        if self.picks.rows.len() < 2 {
+            return Vec::new();
+        }
+        self.picks
+            .rows
+            .iter()
+            .filter_map(|&r| self.rows.get(r).copied().flatten())
+            .collect()
+    }
+
     /// The tracks picked now, to find again once the list is rebuilt.
     pub(super) fn picked_tracks(&self) -> HashSet<usize> {
         self.picks

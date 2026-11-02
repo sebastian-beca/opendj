@@ -393,6 +393,16 @@ gain) and **File & stats** (format, size, file, folder, plays) stay folded,
 with a one-line summary; click a heading to open it, and openDJ remembers.
 Tags go into the file as well as your collection.
 
+Pick several tracks and **Info** edits them together. A field they share
+shows its value; one that differs says how many values it has. Type a value
+to give it to them all, or click **▾** to pick one of the values they have
+(with how many tracks have it), keep each track's own, or clear it in all.
+Changed fields are marked in lilac and wait for **Apply** (or **Discard**).
+Apply writes them to your collection and the files' tags in one go, and
+⌘Z takes the whole change back. Fields you typed this way are left alone by
+Clean up and Look up online. The stars set the rating of every picked track
+at once.
+
 ## Columns
 
 Right-click any column heading to choose which columns the list shows, your
