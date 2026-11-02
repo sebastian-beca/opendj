@@ -23,6 +23,10 @@ impl ListHealth {
     }
 }
 
+/// The source of a playlist made at the top of Playlists rather than in a
+/// folder, so it isn't taken for a crate.
+pub const TOP_PLAYLIST: &str = "opendj";
+
 /// Whether a list is a crate: one of the DJ's own lists at the top of the
 /// tree, not in a folder.
 pub fn is_crate(p: &crate::Playlist) -> bool {
@@ -30,6 +34,16 @@ pub fn is_crate(p: &crate::Playlist) -> bool {
 }
 
 impl Library {
+    /// Makes an empty playlist at the top of Playlists, out of any folder.
+    pub fn create_top_playlist(&self, name: &str) -> Result<i64, Error> {
+        let id = self.create_playlist(name, None, PlaylistKind::List)?;
+        self.db.execute(
+            "UPDATE playlists SET source = ?2 WHERE id = ?1",
+            rusqlite::params![id, TOP_PLAYLIST],
+        )?;
+        Ok(id)
+    }
+
     /// The crates: the DJ's own lists at the top of the tree, all but the
     /// Inbox list downloads are noted in.
     fn crate_ids(&self) -> Result<HashMap<i64, String>, Error> {
@@ -122,6 +136,20 @@ mod tests {
         .unwrap();
         let ids = lib.tracks(|_| true).unwrap().iter().map(|t| t.id).collect();
         (lib, ids)
+    }
+
+    #[test]
+    fn a_playlist_at_the_top_is_not_a_crate() {
+        let (lib, _) = library();
+        let list = lib.create_top_playlist("Gig").unwrap();
+        let krate = lib
+            .create_playlist("Yoga", None, PlaylistKind::List)
+            .unwrap();
+        let lists = lib.playlists().unwrap();
+        let get = |id| lists.iter().find(|p| p.id == id).unwrap();
+        assert!(!is_crate(get(list)));
+        assert!(is_crate(get(krate)));
+        assert!(!lib.crate_ids().unwrap().contains_key(&list));
     }
 
     #[test]

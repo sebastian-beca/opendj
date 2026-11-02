@@ -1163,6 +1163,9 @@ impl Browser {
             w(Box::new(move |b| {
                 if let Some(&n) = b.visible_nodes.get(i as usize) {
                     b.current_node = n;
+                    if let Some(app) = b.app.upgrade() {
+                        app.global::<LibraryEdit>().set_making_smart(false);
+                    }
                     b.health_status.clear();
                     b.close_cleanup();
                     if let Some(app) = b.app.upgrade() {
@@ -1560,6 +1563,29 @@ impl Browser {
         edit.on_rename(move |i, name| w(&|b| b.rename_node(i as usize, &name)));
         let w = with.clone();
         edit.on_delete(move |i| w(&|b| b.delete_node(i as usize)));
+        // The open list's own rows are already in it, so only the side
+        // panel's rows and the decks' tracks go in by dropping on it.
+        edit.on_accepts_list_drop(|data| {
+            matches!(dragged(&data), Some(Dragged::Side(..) | Dragged::Deck(_)))
+        });
+        let w = with.clone();
+        edit.on_drop_on_list(move |data| {
+            w(&|b| {
+                if !matches!(dragged(&data), Some(Dragged::Side(..) | Dragged::Deck(_))) {
+                    return;
+                }
+                let Some(n) = b.nodes.get(b.current_node) else {
+                    return;
+                };
+                if !(n.kind == KIND_LIST || n.kind == KIND_CRATE) {
+                    return;
+                }
+                if let Some(list) = n.playlist {
+                    let ids = b.dropped_tracks(&data);
+                    b.add_to_playlist(&ids, list);
+                }
+            })
+        });
         edit.on_accepts_drop(|_, data| dragged(&data).is_some());
         let w = with.clone();
         edit.on_drop(move |i, data| {
@@ -1594,6 +1620,8 @@ impl Browser {
             w(&|b| row.set(b.save_search(&text)));
             row.get()
         });
+        let w = with.clone();
+        edit.on_start_smart_list(move || w(&|b| b.start_smart_list()));
         let w = with.clone();
         edit.on_rule_at(move |i| {
             let rule = RefCell::new(String::new());
@@ -1638,6 +1666,35 @@ impl Browser {
                 -1
             }
         }
+    }
+
+    /// Starts a smart playlist from the + on Playlists: shows the whole
+    /// collection with the search and filters cleared and the filter bar
+    /// on, so the DJ picks filters and saves them as the smart list.
+    fn start_smart_list(&mut self) {
+        if !self.saved() || self.tree != COLLECTION || self.history_tab {
+            return;
+        }
+        if let Some(n) = self
+            .nodes
+            .iter()
+            .position(|n| matches!(n.contents, Contents::All))
+        {
+            self.current_node = n;
+        }
+        self.health_status.clear();
+        self.close_cleanup();
+        self.search.clear();
+        self.filter.clear_all();
+        if let Some(app) = self.app.upgrade() {
+            app.set_current_track(-1);
+            app.global::<crate::StoreUi>()
+                .set_search_text(SharedString::new());
+            app.global::<crate::FilterUi>().set_shown(true);
+        }
+        self.refresh_tree();
+        self.refresh_filter_ui();
+        self.refresh_rows();
     }
 
     /// The search of the smart list at `row` of the tree.
@@ -3093,14 +3150,16 @@ impl Browser {
             .map(|&n| &self.nodes[n])
             .filter(|n| n.kind == KIND_FOLDER)
             .and_then(|n| n.playlist);
-        let (name, kind, parent) = match (what, parent) {
-            (0, _) => ("New crate", PlaylistKind::List, None),
-            (1, parent) => ("New folder", PlaylistKind::Folder, parent),
-            (_, Some(parent)) => ("New playlist", PlaylistKind::List, Some(parent)),
-            // A list at the top would be a crate.
-            (_, None) => return -1,
+        let made = match (what, parent) {
+            (0, _) => db.create_playlist("New crate", None, PlaylistKind::List),
+            (1, parent) => db.create_playlist("New folder", parent, PlaylistKind::Folder),
+            (_, Some(parent)) => {
+                db.create_playlist("New playlist", Some(parent), PlaylistKind::List)
+            }
+            // At the top of Playlists, marked so it isn't taken for a crate.
+            (_, None) => db.create_top_playlist("New playlist"),
         };
-        match db.create_playlist(name, parent, kind) {
+        match made {
             Ok(id) => {
                 self.reload_tree(Some(id));
                 self.visible_nodes

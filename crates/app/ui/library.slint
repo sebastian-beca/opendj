@@ -212,6 +212,10 @@ export global LibraryEdit {
     callback delete(index: int);
     pure callback accepts-drop(index: int, data: data-transfer) -> bool;
     callback drop(index: int, data: data-transfer);
+    // Tracks from the side panel or a deck dropped on the open list (empty
+    // or not) in the track list join it.
+    pure callback accepts-list-drop(data: data-transfer) -> bool;
+    callback drop-on-list(data: data-transfer);
     callback set-rating(row: int, rating: int);
     // The rows `first` to `last`, the tracks picked with shift-click.
     callback add-to-list(first: int, last: int, list: int);
@@ -248,6 +252,10 @@ export global LibraryEdit {
     // Set to a row of the tree to have the tree ask for that list's name.
     in-out property <int> name-row: -1;
     // The search of the smart list at a row of the tree, and changing it.
+    // The + on Playlists asked for a smart playlist: the whole collection
+    // shows with the filter bar, and Save turns the filters into the list.
+    callback start-smart-list();
+    in-out property <bool> making-smart;
     pure callback rule-at(index: int) -> string;
     callback set-rule(index: int, text: string);
     // The stage folders are set up, so tracks can move between stages.
@@ -1788,6 +1796,47 @@ component FolderTree inherits Rectangle {
     property <bool> menu-editable;
     property <bool> menu-analysable;
     property <length> menu-y;
+    // The + on Playlists: a playlist, a smart playlist or a folder.
+    property <length> add-y;
+    add-menu := PopupWindow {
+        x: 130px;
+        y: add-y;
+        width: 180px;
+        close-policy: close-on-click-outside;
+        MenuBackground {}
+        VerticalLayout {
+            padding: 6px;
+            MenuLine {
+                text: "Playlist";
+                clicked => {
+                    rename-index = LibraryEdit.create(2, -1);
+                    rename-text = "";
+                    editing-rule = false;
+                    add-menu.close();
+                    if rename-index >= 0 { rename-popup.show(); }
+                }
+            }
+            MenuLine {
+                text: "Smart Playlist";
+                clicked => {
+                    add-menu.close();
+                    LibraryEdit.start-smart-list();
+                    LibraryEdit.making-smart = true;
+                    FilterUi.open-add = true;
+                }
+            }
+            MenuLine {
+                text: "Playlist Folder";
+                clicked => {
+                    rename-index = LibraryEdit.create(1, -1);
+                    rename-text = "";
+                    editing-rule = false;
+                    add-menu.close();
+                    if rename-index >= 0 { rename-popup.show(); }
+                }
+            }
+        }
+    }
     folder-menu := PopupWindow {
         x: 40px;
         y: menu-y;
@@ -2106,10 +2155,16 @@ component FolderTree inherits Rectangle {
                             pta := TouchArea {
                                 mouse-cursor: pointer;
                                 clicked => {
-                                    rename-index = LibraryEdit.create(f.name == "Crates" ? 0 : 1, -1);
-                                    rename-text = "";
-                                    editing-rule = false;
-                                    if rename-index >= 0 { rename-popup.show(); }
+                                    // Playlists asks what to make.
+                                    if f.name != "Crates" {
+                                        add-y = self.absolute-position.y - root.absolute-position.y + self.height;
+                                        add-menu.show();
+                                    } else {
+                                        rename-index = LibraryEdit.create(0, -1);
+                                        rename-text = "";
+                                        editing-rule = false;
+                                        if rename-index >= 0 { rename-popup.show(); }
+                                    }
                                 }
                             }
                         }
@@ -2991,10 +3046,16 @@ component TrackList inherits Rectangle {
                 edited(t) => { search(t); }
             }
             // Save the search as a smart list.
+            if LibraryEdit.making-smart && search-text == "" && !FilterUi.any-active: Text {
+                text: "Add filters for the smart playlist, then Save";
+                color: Theme.accent;
+                font-size: 13px;
+                vertical-alignment: center;
+            }
             if (search-text != "" || FilterUi.any-active) && LibraryEdit.can-save-search: Rectangle {
-                width: 44px;
+                width: LibraryEdit.making-smart ? 136px : 44px;
                 Text {
-                    text: "Save";
+                    text: LibraryEdit.making-smart ? "Save Smart Playlist" : "Save";
                     color: sta.has-hover ? Theme.text : Theme.accent;
                     font-size: 13px;
                     font-weight: 600;
@@ -3003,6 +3064,7 @@ component TrackList inherits Rectangle {
                 sta := TouchArea {
                     mouse-cursor: pointer;
                     clicked => {
+                        LibraryEdit.making-smart = false;
                         LibraryEdit.name-row = LibraryEdit.save-search(search-text);
                         search-text = "";
                         search("");
@@ -3305,6 +3367,21 @@ component TrackList inherits Rectangle {
                     Rectangle { horizontal-stretch: 1; }
                 }
             }
+        }
+    }
+    // The open list takes tracks dragged onto it from the side panel or a
+    // deck, even while it's empty and shows its placeholder.
+    if LibraryEdit.in-list: list-drop := DropArea {
+        can-drop(e) => { LibraryEdit.accepts-list-drop(e.data) ? DragAction.copy : DragAction.none }
+        dropped(e) => {
+            LibraryEdit.drop-on-list(e.data);
+            TrackDrag.active = false;
+            DragAction.copy
+        }
+        Rectangle {
+            border-radius: 4px;
+            border-width: list-drop.has-drag ? 2px : 0px;
+            border-color: Theme.accent;
         }
     }
 

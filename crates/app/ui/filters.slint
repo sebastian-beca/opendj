@@ -46,6 +46,9 @@ export global FilterUi {
     in-out property <string> bpm-high;
     in property <int> tolerance;
     in property <[string]> tolerances: ["±2%", "±4%", "±6%", "±8%", "±10%"];
+    // Set to open the "Add Filter" menu, as for a new smart playlist, once
+    // the bar is showing.
+    in-out property <bool> open-add;
     callback set-shown(on: bool);
     // Puts a field on the bar; returns its chip.
     callback add(field: string) -> int;
@@ -188,6 +191,15 @@ export component FilterBar inherits Rectangle {
     // Where the open popup hangs from.
     property <length> popup-x;
     property <FilterChip> chip: FilterUi.editing >= 0 && FilterUi.editing < FilterUi.chips.length ? FilterUi.chips[FilterUi.editing] : { kind: -1 };
+
+    Timer {
+        interval: 100ms;
+        running: FilterUi.open-add;
+        triggered => {
+            FilterUi.open-add = false;
+            add-menu.show();
+        }
+    }
 
     function open(i: int, x: length) {
         FilterUi.edit(i);
