@@ -16,9 +16,9 @@ use opendj_controllers::{
 };
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
-    analysis, beatthis, cache, channel_names, deck_group, input_devices, key, separation,
-    InputRole, InputRoute, RecordFormat, Recorder, BUFFER_SIZES, DEFAULT_AUTO_GAIN_TARGET,
-    NUM_DECKS, SAMPLE_RATES,
+    analysis, beatthis, cache, channel_names, deck_group, engine, input_devices, key, meter,
+    separation, InputRole, InputRoute, RecordFormat, Recorder, BUFFER_SIZES,
+    DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES,
 };
 use opendj_library::query;
 use opendj_plugins::{LibraryImport, Plugin, SettingKind};
@@ -106,6 +106,17 @@ const RECORD_FORMATS: [(RecordFormat, u16, &str); 4] = [
 
 const AUTO_GAIN_TARGETS: [f64; 7] = [-8.0, -10.0, -12.0, -14.0, -16.0, -18.0, -23.0];
 
+/// Loudness meter targets offered, in LUFS, with what each is for.
+const LOUDNESS_TARGETS: [(f64, &str); 4] = [
+    (-16.0, "Internet radio · −16 LUFS"),
+    (-18.0, "Podcast or talk · −18 LUFS"),
+    (-14.0, "Livestream · −14 LUFS"),
+    (-23.0, "Broadcast, EBU R128 · −23 LUFS"),
+];
+
+/// The master limiter's ceilings offered while recording or on air, in dBTP.
+const AIR_CEILINGS: [(f64, &str); 2] = [(-1.0, "−1 dBTP"), (-2.0, "−2 dBTP · for low bitrates")];
+
 /// How far ducking turns the music down, in dB, as offered.
 const DUCK_DB: [f64; 4] = [6.0, 12.0, 18.0, 24.0];
 
@@ -179,6 +190,16 @@ pub fn apply_saved(registry: &ControlRegistry) {
         "[ReplayGain]",
         "target_lufs",
         settings::number("auto_gain_target", DEFAULT_AUTO_GAIN_TARGET),
+    );
+    set(
+        "[Master]",
+        "loudness_target",
+        settings::number("loudness_target", meter::DEFAULT_LOUDNESS_TARGET),
+    );
+    set(
+        "[Master]",
+        "air_ceiling",
+        settings::number("air_ceiling", engine::DEFAULT_AIR_CEILING_DB),
     );
     let (lo, hi) = bpm_range();
     analysis::set_bpm_range(lo, hi);
@@ -932,6 +953,39 @@ impl Prefs {
                         "Show recordings",
                         "Opens the folder, with the last recording selected.",
                     )
+                },
+                item("loudness", HEADING, "LOUDNESS", ""),
+                {
+                    let target = settings::number("loudness_target", meter::DEFAULT_LOUDNESS_TARGET);
+                    PrefItem {
+                        choices: strings(&LOUDNESS_TARGETS.map(|t| t.1)),
+                        chosen: LOUDNESS_TARGETS
+                            .iter()
+                            .position(|t| (t.0 - target).abs() < 1e-6)
+                            .unwrap_or(0) as i32,
+                        ..item(
+                            "loudness_target",
+                            MENU,
+                            "Loudness target",
+                            "Where the loudness meter in the MASTER panel shows green. It doesn't change any level.",
+                        )
+                    }
+                },
+                {
+                    let ceiling = settings::number("air_ceiling", engine::DEFAULT_AIR_CEILING_DB);
+                    PrefItem {
+                        choices: strings(&AIR_CEILINGS.map(|t| t.1)),
+                        chosen: AIR_CEILINGS
+                            .iter()
+                            .position(|t| (t.0 - ceiling).abs() < 1e-6)
+                            .unwrap_or(0) as i32,
+                        ..item(
+                            "air_ceiling",
+                            MENU,
+                            "Limiter while recording",
+                            "Keeps peaks, also those between samples, under this level so MP3, AAC and Opus files and streams don't clip.",
+                        )
+                    }
                 },
             ],
             CONTROLLERS => self.controllers_page(),
@@ -2553,6 +2607,20 @@ impl Prefs {
                 };
                 settings::set("auto_gain_target", json!(target));
                 self.set("[ReplayGain]", "target_lufs", target);
+            }
+            "loudness_target" => {
+                let Some(&(target, _)) = LOUDNESS_TARGETS.get(index) else {
+                    return;
+                };
+                settings::set("loudness_target", json!(target));
+                self.set("[Master]", "loudness_target", target);
+            }
+            "air_ceiling" => {
+                let Some(&(ceiling, _)) = AIR_CEILINGS.get(index) else {
+                    return;
+                };
+                settings::set("air_ceiling", json!(ceiling));
+                self.set("[Master]", "air_ceiling", ceiling);
             }
             "recording_format" => {
                 let Some(&(format, bits, _)) = RECORD_FORMATS.get(index) else {

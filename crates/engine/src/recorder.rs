@@ -121,6 +121,11 @@ pub(crate) struct RecordTap {
 }
 
 impl RecordTap {
+    /// Whether the tap is copying: while recording, for the recorder's tap.
+    pub(crate) fn is_active(&self) -> bool {
+        self.shared.active.load(Ordering::Acquire)
+    }
+
     /// Copies the first pair of `out` (the master) if recording.
     /// Wait-free; drops the buffer if the writer has fallen behind.
     pub(crate) fn push(&mut self, out: &[f32], channels: usize) {
@@ -166,6 +171,30 @@ pub(crate) fn tap(sample_rate: f64) -> (RecordTap, Feed) {
 pub(crate) struct Feed {
     rx: rtrb::Consumer<f32>,
     shared: Arc<Shared>,
+}
+
+impl Feed {
+    /// Starts or stops the audio thread copying into the buffer. The
+    /// recorder does this itself; other readers (the loudness meter, the
+    /// broadcast) switch their own tap on.
+    pub(crate) fn set_active(&self, on: bool) {
+        self.shared.active.store(on, Ordering::Release);
+    }
+
+    /// Moves every sample waiting in the buffer (interleaved stereo) onto
+    /// the end of `out`.
+    pub(crate) fn drain_into(&mut self, out: &mut Vec<f32>) {
+        let n = self.rx.slots();
+        if n == 0 {
+            return;
+        }
+        if let Ok(chunk) = self.rx.read_chunk(n) {
+            let (a, b) = chunk.as_slices();
+            out.extend_from_slice(a);
+            out.extend_from_slice(b);
+            chunk.commit_all();
+        }
+    }
 }
 
 /// A track put on a deck, as the log and the cue sheet record it.

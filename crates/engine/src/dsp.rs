@@ -436,14 +436,19 @@ impl Sculpt {
     }
 }
 
-/// A look-ahead peak limiter for the master mix, with both channels linked.
+/// A look-ahead true-peak limiter for the master mix, with both channels
+/// linked.
 ///
 /// The audio is delayed by the look-ahead, so the gain can come down before
-/// a peak arrives: every sample leaves at or below the ceiling, with no
+/// a peak arrives: every sample, and the wave between samples as a DAC or
+/// an MP3 encoder rebuilds it, leaves at or below the ceiling, with no
 /// clipping and no waveshaping distortion. The gain dips smoothly over the
 /// look-ahead and recovers over [`Limiter::RELEASE`].
 pub struct Limiter {
     ceiling: f32,
+    /// Finds the peaks between samples, a few frames late; the audio is
+    /// delayed by as much more.
+    true_peak: crate::loudness::TruePeak,
     /// The gain each of the last `look` samples needs, for the minimum.
     needed: Vec<f32>,
     /// The released gain of the last `look` samples, averaged for the output.
@@ -462,20 +467,37 @@ impl Limiter {
     pub const LOOK_AHEAD: f64 = 0.0015;
     /// Time constant for the gain to recover after a peak, in seconds.
     pub const RELEASE: f64 = 0.08;
+    /// Headroom kept under the ceiling for true peaks: about 0.1 dB.
+    const MARGIN: f32 = 0.988;
 
     pub fn new(sample_rate: f64, ceiling: f32) -> Self {
         let look = ((Self::LOOK_AHEAD * sample_rate).round() as usize).max(2);
         Self {
             ceiling,
+            true_peak: crate::loudness::TruePeak::new(),
             needed: vec![1.0; look],
             released: vec![1.0; look],
             sum: look as f64,
-            delay: vec![[0.0; 2]; look - 1],
+            delay: vec![[0.0; 2]; look - 1 + crate::loudness::TruePeak::LATENCY],
             at: 0,
             delay_at: 0,
             gain: 1.0,
             release: (1.0 - (-1.0 / (Self::RELEASE * sample_rate)).exp()) as f32,
         }
+    }
+
+    /// Frames between a sample going in and coming out.
+    pub fn latency(&self) -> usize {
+        self.delay.len()
+    }
+
+    /// Changes the ceiling (a linear level); takes effect as peaks arrive.
+    pub fn set_ceiling(&mut self, ceiling: f32) {
+        self.ceiling = ceiling;
+    }
+
+    pub fn ceiling(&self) -> f32 {
+        self.ceiling
     }
 
     /// The gain applied to the sample leaving now, 1 when nothing is limited.
@@ -484,7 +506,9 @@ impl Limiter {
     }
 
     pub fn process(&mut self, x: [f32; 2]) -> [f32; 2] {
-        let peak = x[0].abs().max(x[1].abs());
+        // A little under the ceiling: the gain moving over a peak can lift
+        // the wave between samples by a hair.
+        let peak = self.true_peak.push(x) / Self::MARGIN;
         self.needed[self.at] = if peak > self.ceiling {
             self.ceiling / peak
         } else {
@@ -521,7 +545,7 @@ mod tests {
         const SR: f64 = 48_000.0;
         let ceiling = 0.944;
         let mut lim = Limiter::new(SR, ceiling);
-        let look = (Limiter::LOOK_AHEAD * SR).round() as usize;
+        let look = lim.latency() + 1;
         let tone = |i: usize, amp: f32| {
             let v = amp * (2.0 * PI * 220.0 * i as f64 / SR).sin() as f32;
             [v, -v]
@@ -544,6 +568,26 @@ mod tests {
             lim.process(tone(i, 0.5));
         }
         assert!(lim.gain() > 0.99, "{}", lim.gain());
+    }
+
+    #[test]
+    fn limiter_holds_true_peaks_under_the_ceiling() {
+        // A loud tone at a quarter of the sample rate, 45 degrees off its
+        // crests: its samples sit 3 dB under its true peak.
+        const SR: f64 = 48_000.0;
+        let ceiling = 10f32.powf(-1.0 / 20.0);
+        let mut lim = Limiter::new(SR, ceiling);
+        let mut meter = crate::loudness::TruePeak::new();
+        let mut max = 0.0f32;
+        for i in 0..48_000 {
+            let v = 1.2 * (2.0 * PI * 12_000.0 * i as f64 / SR + PI / 4.0).sin() as f32;
+            let y = lim.process([v, v]);
+            if i > 4800 {
+                max = max.max(meter.push(y));
+            }
+        }
+        assert!(max <= ceiling * 1.002, "true peak {max} over {ceiling}");
+        assert!(max > ceiling * 0.9, "{max}");
     }
 
     /// RMS of a sine at `freq` after the sculpt, skipping the first 0.1 s.

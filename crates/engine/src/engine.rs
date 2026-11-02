@@ -1190,6 +1190,14 @@ pub(crate) fn meter(peak: f32) -> f32 {
 /// How fast meters fall, in meter units per second.
 const VU_FALL: f32 = 1.5;
 
+/// How fast the master meter falls: 0.5 units, 20 dB, a second, close to a
+/// DIN peak programme meter, so its readings can be read.
+const MASTER_VU_FALL: f32 = 0.5;
+
+/// The master limiter's ceiling while recording or on air, by default:
+/// -1 dBTP, as streaming services and EBU R128 ask.
+pub const DEFAULT_AIR_CEILING_DB: f64 = -1.0;
+
 /// Left and right gains for `[Master],balance` (-1 = left only, 1 = right only).
 fn balance_gains(b: f32) -> [f32; 2] {
     [(1.0 - b).min(1.0), (1.0 + b).min(1.0)]
@@ -1230,6 +1238,9 @@ pub struct Engine {
     /// Copies the master out while recording.
     record: RecordTap,
     record_feed: Option<Feed>,
+    /// Copies the master out for the loudness meter, all the time.
+    meter: RecordTap,
+    meter_feed: Option<Feed>,
     /// Plays a track into the headphones for the info panel.
     preview: Preview,
     preview_input: Option<PreviewInput>,
@@ -1366,6 +1377,8 @@ impl Engine {
         let (commands_tx, commands) = rtrb::RingBuffer::new(QUEUE);
         let (returned, returned_rx) = rtrb::RingBuffer::new(QUEUE * 2);
         let (record, record_feed) = recorder::tap(sample_rate);
+        let (meter, meter_feed) = recorder::tap(sample_rate);
+        meter_feed.set_active(true);
         let inputs = std::array::from_fn(|i| Input::new(registry, i, sample_rate));
         let ducker = Ducker::new(registry, sample_rate);
         (
@@ -1379,6 +1392,8 @@ impl Engine {
                 sync_pinned: None,
                 record,
                 record_feed: Some(record_feed),
+                meter,
+                meter_feed: Some(meter_feed),
                 preview,
                 preview_input: Some(preview_input),
                 sampler_input: Some(sampler_input),
@@ -1416,6 +1431,11 @@ impl Engine {
     /// The other end of the recording tap; there is only one.
     pub(crate) fn take_record_feed(&mut self) -> Option<Feed> {
         self.record_feed.take()
+    }
+
+    /// The other end of the loudness meter's tap; there is only one.
+    pub(crate) fn take_meter_feed(&mut self) -> Option<Feed> {
+        self.meter_feed.take()
     }
 
     /// Plays input `input` (see [`crate::inputs`]) from `feed`, or from
@@ -2073,6 +2093,19 @@ impl Engine {
                 _ => 1.0,
             });
         let master_target = self.master.gain.get() as f32;
+        // Recording or on air, the limiter keeps true peaks under the air
+        // ceiling (-1 dBTP), where lossy encoders don't clip; otherwise
+        // under -0.5 dB.
+        let ceiling = if self.record.is_active() {
+            10f32
+                .powf(self.master.air_ceiling.get() as f32 / 20.0)
+                .min(LIMIT_CEILING)
+        } else {
+            LIMIT_CEILING
+        };
+        if ceiling != self.limiter.ceiling() {
+            self.limiter.set_ceiling(ceiling);
+        }
         let auto_gain_on = self.master.auto_gain.get_bool();
         let auto_gain_target = self.master.auto_gain_target.get() as f32;
         let balance_target = self.master.balance.get() as f32;
@@ -2599,7 +2632,8 @@ impl Engine {
         self.master_gain = master_target;
         self.balance = balance_target;
         for c in 0..2 {
-            self.master_vu[c] = meter(master_peak[c]).max(self.master_vu[c] - VU_FALL * dt as f32);
+            self.master_vu[c] =
+                meter(master_peak[c]).max(self.master_vu[c] - MASTER_VU_FALL * dt as f32);
             self.master_peak_hold[c] = if master_clip[c] {
                 PEAK_HOLD
             } else {
@@ -2616,6 +2650,7 @@ impl Engine {
             .vu
             .set(self.master_vu[0].max(self.master_vu[1]) as f64);
         self.record.push(out, channels);
+        self.meter.push(out, channels);
     }
 }
 
@@ -3165,6 +3200,36 @@ mod tests {
             peak <= LIMIT_CEILING && peak > LIMIT_CEILING * 0.9,
             "{peak}"
         );
+    }
+
+    #[test]
+    fn recording_limits_true_peaks_to_the_air_ceiling() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 4.0));
+        run(&mut engine, 0.02);
+        let c = |k: &str| reg.get("[Channel1]", k).unwrap();
+        c("pregain").set(4.0);
+        c("play").set_bool(true);
+        // Recording: -1 dBTP, measured between the samples too.
+        engine.record_feed.as_ref().unwrap().set_active(true);
+        let out = record(&mut engine, 1.0);
+        let air = 10f32.powf(-1.0 / 20.0);
+        assert!((engine.limiter.ceiling() - air).abs() < 1e-6);
+        let mut tp = crate::loudness::TruePeak::new();
+        let peak = out
+            .chunks_exact(2)
+            .skip(4800)
+            .map(|f| tp.push([f[0], f[1]]))
+            .fold(0.0f32, f32::max);
+        assert!(peak <= air * 1.002 && peak > air * 0.9, "{peak}");
+        // -2 dBTP when chosen.
+        reg.get("[Master]", "air_ceiling").unwrap().set(-2.0);
+        run(&mut engine, 0.05);
+        assert!((engine.limiter.ceiling() - 10f32.powf(-2.0 / 20.0)).abs() < 1e-6);
+        // Not recording: back to -0.5 dB.
+        engine.record_feed.as_ref().unwrap().set_active(false);
+        run(&mut engine, 0.05);
+        assert_eq!(engine.limiter.ceiling(), LIMIT_CEILING);
     }
 
     /// The strongest frequency between 300 and 700 Hz in the left channel.
