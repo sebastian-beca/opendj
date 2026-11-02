@@ -34,13 +34,10 @@ use vst3::Steinberg::{
 };
 use vst3::{Class, ComPtr, ComWrapper, Interface};
 
-use crate::clap::Descriptor;
 use crate::client::Transport;
+use crate::descriptor::{features, Descriptor, AUDIO_MODULE};
 use crate::effects::{Effect, Info, Loaded, MainThread, Param};
 use crate::shm::{CHANNELS, MAX_PARAMS};
-
-/// VST3's category for audio processors.
-const AUDIO_MODULE: &str = "Audio Module Class";
 
 fn cstr(buf: &[c_char]) -> String {
     let bytes: Vec<u8> = buf
@@ -83,22 +80,6 @@ fn hex_to_cid(hex: &str) -> Option<TUID> {
     Some(cid)
 }
 
-/// VST3 sub-categories ("Fx|Delay", "Instrument|Synth") as feature words,
-/// with CLAP's names for the two that matter, so one test works for both.
-fn features(sub: &str) -> Vec<String> {
-    let mut out: Vec<String> = sub
-        .split('|')
-        .filter(|s| !s.is_empty())
-        .map(String::from)
-        .collect();
-    if out.iter().any(|s| s == "Instrument") {
-        out.push("instrument".into());
-    } else if out.iter().any(|s| s == "Fx") {
-        out.push("audio-effect".into());
-    }
-    out
-}
-
 /// The library inside a `.vst3` bundle, for this machine. A plain file is
 /// taken as the library itself.
 pub fn library_path(bundle: &Path) -> PathBuf {
@@ -124,41 +105,6 @@ pub fn library_path(bundle: &Path) -> PathBuf {
         name.push(".so");
         contents.join(arch).join(name)
     }
-}
-
-/// Reads `Contents/Resources/moduleinfo.json` (VST 3.7.5+), which lists a
-/// bundle's classes without running any of its code. `None` when there is
-/// no such file or it can't be read, so the caller loads the module instead.
-pub fn scan_moduleinfo(bundle: &Path) -> Option<Vec<Descriptor>> {
-    let text = std::fs::read_to_string(bundle.join("Contents/Resources/moduleinfo.json")).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let classes = json.get("Classes")?.as_array()?;
-    let field = |c: &serde_json::Value, k: &str| {
-        c.get(k)
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string()
-    };
-    Some(
-        classes
-            .iter()
-            .filter(|c| field(c, "Category") == AUDIO_MODULE)
-            .map(|c| {
-                let sub: Vec<&str> = c
-                    .get("Sub Categories")
-                    .and_then(|v| v.as_array())
-                    .map(|a| a.iter().filter_map(|s| s.as_str()).collect())
-                    .unwrap_or_default();
-                Descriptor {
-                    id: field(c, "CID").to_uppercase(),
-                    name: field(c, "Name"),
-                    vendor: field(c, "Vendor"),
-                    version: field(c, "Version"),
-                    features: features(&sub.join("|")),
-                }
-            })
-            .collect(),
-    )
 }
 
 /// A loaded module: the library and its factory. The library must outlive
@@ -838,34 +784,5 @@ mod tests {
         let hex = "6E33225254224A00AA69301AF318797D";
         assert_eq!(cid_to_hex(&hex_to_cid(hex).unwrap()), hex);
         assert!(hex_to_cid("nope").is_none());
-    }
-
-    #[test]
-    fn sub_categories_become_features() {
-        assert!(features("Fx|Delay").contains(&"audio-effect".to_string()));
-        assert!(features("Instrument|Synth").contains(&"instrument".to_string()));
-    }
-
-    #[test]
-    fn moduleinfo_lists_audio_modules_only() {
-        let dir = std::env::temp_dir().join(format!("opendj-moduleinfo-{}", std::process::id()));
-        let res = dir.join("Test.vst3/Contents/Resources");
-        std::fs::create_dir_all(&res).unwrap();
-        std::fs::write(
-            res.join("moduleinfo.json"),
-            r#"{"Name": "Test", "Classes": [
-                {"CID": "6e33225254224a00aa69301af318797d", "Category": "Audio Module Class",
-                 "Name": "Test Delay", "Vendor": "Someone", "Version": "1.0.0",
-                 "Sub Categories": ["Fx", "Delay"]},
-                {"CID": "1BA8A477EE0A4A2D80F50D1413D2EAA0", "Category": "Component Controller Class",
-                 "Name": "Test Delay"}]}"#,
-        )
-        .unwrap();
-        let found = scan_moduleinfo(&dir.join("Test.vst3")).unwrap();
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].id, "6E33225254224A00AA69301AF318797D");
-        assert_eq!(found[0].name, "Test Delay");
-        assert!(found[0].is_audio_effect());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }
