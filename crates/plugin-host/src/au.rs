@@ -1,0 +1,710 @@
+//! Audio Unit effects (macOS only) inside the helper, through AudioToolbox.
+//!
+//! Effects are found in the system's component registry, which lists them
+//! without loading their code. An instance is made on the helper's main
+//! thread (AUv3 extensions then run in their own process, as macOS does for
+//! them); blocks are rendered on the helper's audio thread, with the input
+//! supplied through a render callback and the deck's tempo through the host
+//! callbacks. Parameters are in the unit's own range.
+//!
+//! An id is `type:subtype:manufacturer` as four-character codes, as `auval`
+//! prints them (e.g. `aufx:dely:appl` for Apple's AUDelay).
+
+#![allow(non_upper_case_globals, non_snake_case)]
+
+use std::ffi::{c_char, c_void};
+use std::ptr;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use crate::clap::Descriptor;
+use crate::client::Transport;
+use crate::effects::{Effect, Info, Loaded, MainThread, Param};
+use crate::shm::{CHANNELS, MAX_PARAMS};
+
+type OSStatus = i32;
+type AudioComponent = *mut c_void;
+type AudioUnit = *mut c_void;
+type CFStringRef = *const c_void;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct AudioComponentDescription {
+    componentType: u32,
+    componentSubType: u32,
+    componentManufacturer: u32,
+    componentFlags: u32,
+    componentFlagsMask: u32,
+}
+
+#[repr(C)]
+struct AudioStreamBasicDescription {
+    mSampleRate: f64,
+    mFormatID: u32,
+    mFormatFlags: u32,
+    mBytesPerPacket: u32,
+    mFramesPerPacket: u32,
+    mBytesPerFrame: u32,
+    mChannelsPerFrame: u32,
+    mBitsPerChannel: u32,
+    mReserved: u32,
+}
+
+#[repr(C)]
+struct SMPTETime {
+    mSubframes: i16,
+    mSubframeDivisor: i16,
+    mCounter: u32,
+    mType: u32,
+    mFlags: u32,
+    mHours: i16,
+    mMinutes: i16,
+    mSeconds: i16,
+    mFrames: i16,
+}
+
+#[repr(C)]
+struct AudioTimeStamp {
+    mSampleTime: f64,
+    mHostTime: u64,
+    mRateScalar: f64,
+    mWordClockTime: u64,
+    mSMPTETime: SMPTETime,
+    mFlags: u32,
+    mReserved: u32,
+}
+
+#[repr(C)]
+struct AudioBuffer {
+    mNumberChannels: u32,
+    mDataByteSize: u32,
+    mData: *mut c_void,
+}
+
+/// An AudioBufferList with room for two (non-interleaved) channels.
+#[repr(C)]
+struct AudioBufferList2 {
+    mNumberBuffers: u32,
+    mBuffers: [AudioBuffer; 2],
+}
+
+type RenderCallback = unsafe extern "C" fn(
+    *mut c_void,
+    *mut u32,
+    *const AudioTimeStamp,
+    u32,
+    u32,
+    *mut AudioBufferList2,
+) -> OSStatus;
+
+#[repr(C)]
+struct AURenderCallbackStruct {
+    inputProc: RenderCallback,
+    inputProcRefCon: *mut c_void,
+}
+
+type BeatAndTempoProc = unsafe extern "C" fn(*mut c_void, *mut f64, *mut f64) -> OSStatus;
+
+#[repr(C)]
+struct HostCallbackInfo {
+    hostUserData: *mut c_void,
+    beatAndTempoProc: Option<BeatAndTempoProc>,
+    musicalTimeLocationProc: *const c_void,
+    transportStateProc: *const c_void,
+    transportStateProc2: *const c_void,
+}
+
+#[repr(C)]
+struct AudioUnitParameterInfo {
+    name: [c_char; 52],
+    unitName: CFStringRef,
+    clumpID: u32,
+    cfNameString: CFStringRef,
+    unit: u32,
+    minValue: f32,
+    maxValue: f32,
+    defaultValue: f32,
+    flags: u32,
+}
+
+#[link(name = "AudioToolbox", kind = "framework")]
+extern "C" {
+    fn AudioComponentFindNext(
+        inComponent: AudioComponent,
+        inDesc: *const AudioComponentDescription,
+    ) -> AudioComponent;
+    fn AudioComponentGetDescription(
+        inComponent: AudioComponent,
+        outDesc: *mut AudioComponentDescription,
+    ) -> OSStatus;
+    fn AudioComponentCopyName(inComponent: AudioComponent, outName: *mut CFStringRef) -> OSStatus;
+    fn AudioComponentGetVersion(inComponent: AudioComponent, outVersion: *mut u32) -> OSStatus;
+    fn AudioComponentInstanceNew(
+        inComponent: AudioComponent,
+        outInstance: *mut AudioUnit,
+    ) -> OSStatus;
+    fn AudioUnitSetProperty(
+        inUnit: AudioUnit,
+        inID: u32,
+        inScope: u32,
+        inElement: u32,
+        inData: *const c_void,
+        inDataSize: u32,
+    ) -> OSStatus;
+    fn AudioUnitGetProperty(
+        inUnit: AudioUnit,
+        inID: u32,
+        inScope: u32,
+        inElement: u32,
+        outData: *mut c_void,
+        ioDataSize: *mut u32,
+    ) -> OSStatus;
+    fn AudioUnitGetPropertyInfo(
+        inUnit: AudioUnit,
+        inID: u32,
+        inScope: u32,
+        inElement: u32,
+        outDataSize: *mut u32,
+        outWritable: *mut u8,
+    ) -> OSStatus;
+    fn AudioUnitInitialize(inUnit: AudioUnit) -> OSStatus;
+    fn AudioUnitSetParameter(
+        inUnit: AudioUnit,
+        inID: u32,
+        inScope: u32,
+        inElement: u32,
+        inValue: f32,
+        inBufferOffsetInFrames: u32,
+    ) -> OSStatus;
+    fn AudioUnitGetParameter(
+        inUnit: AudioUnit,
+        inID: u32,
+        inScope: u32,
+        inElement: u32,
+        outValue: *mut f32,
+    ) -> OSStatus;
+    fn AudioUnitRender(
+        inUnit: AudioUnit,
+        ioActionFlags: *mut u32,
+        inTimeStamp: *const AudioTimeStamp,
+        inOutputBusNumber: u32,
+        inNumberFrames: u32,
+        ioData: *mut AudioBufferList2,
+    ) -> OSStatus;
+}
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFStringGetCString(s: CFStringRef, buf: *mut c_char, size: isize, enc: u32) -> u8;
+    fn CFRelease(cf: *const c_void);
+    fn CFRunLoopRunInMode(mode: CFStringRef, seconds: f64, return_after: u8) -> i32;
+    static kCFRunLoopDefaultMode: CFStringRef;
+}
+
+const kCFStringEncodingUTF8: u32 = 0x0800_0100;
+
+const fn fourcc(s: &[u8; 4]) -> u32 {
+    u32::from_be_bytes(*s)
+}
+
+const kAudioUnitType_Effect: u32 = fourcc(b"aufx");
+const kAudioUnitType_MusicEffect: u32 = fourcc(b"aumf");
+const kAudioUnitType_MusicDevice: u32 = fourcc(b"aumu");
+const kAudioFormatLinearPCM: u32 = fourcc(b"lpcm");
+const kAudioFormatFlagIsFloat: u32 = 1;
+const kAudioFormatFlagIsPacked: u32 = 1 << 3;
+const kAudioFormatFlagIsNonInterleaved: u32 = 1 << 5;
+
+const kAudioUnitScope_Global: u32 = 0;
+const kAudioUnitScope_Input: u32 = 1;
+const kAudioUnitScope_Output: u32 = 2;
+
+const kAudioUnitProperty_ParameterList: u32 = 3;
+const kAudioUnitProperty_ParameterInfo: u32 = 4;
+const kAudioUnitProperty_StreamFormat: u32 = 8;
+const kAudioUnitProperty_Latency: u32 = 12;
+const kAudioUnitProperty_MaximumFramesPerSlice: u32 = 14;
+const kAudioUnitProperty_SetRenderCallback: u32 = 23;
+const kAudioUnitProperty_HostCallbacks: u32 = 27;
+
+const kAudioUnitParameterFlag_HasCFNameString: u32 = 1 << 27;
+const kAudioUnitParameterFlag_IsReadable: u32 = 1 << 30;
+const kAudioUnitParameterFlag_IsWritable: u32 = 1 << 31;
+const kAudioTimeStampSampleTimeValid: u32 = 1;
+
+fn code(c: u32) -> String {
+    c.to_be_bytes().iter().map(|&b| b as char).collect()
+}
+
+fn parse_code(s: &str) -> Option<u32> {
+    let b = s.as_bytes();
+    (b.len() == 4).then(|| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+}
+
+/// `type:subtype:manufacturer`.
+fn desc_id(d: &AudioComponentDescription) -> String {
+    format!(
+        "{}:{}:{}",
+        code(d.componentType),
+        code(d.componentSubType),
+        code(d.componentManufacturer)
+    )
+}
+
+fn parse_id(id: &str) -> Option<AudioComponentDescription> {
+    let mut p = id.splitn(3, ':');
+    Some(AudioComponentDescription {
+        componentType: parse_code(p.next()?)?,
+        componentSubType: parse_code(p.next()?)?,
+        componentManufacturer: parse_code(p.next()?)?,
+        ..Default::default()
+    })
+}
+
+unsafe fn cf_string(s: CFStringRef) -> String {
+    if s.is_null() {
+        return String::new();
+    }
+    let mut buf = [0 as c_char; 256];
+    if CFStringGetCString(
+        s,
+        buf.as_mut_ptr(),
+        buf.len() as isize,
+        kCFStringEncodingUTF8,
+    ) == 0
+    {
+        return String::new();
+    }
+    let bytes: Vec<u8> = buf
+        .iter()
+        .take_while(|&&c| c != 0)
+        .map(|&c| c as u8)
+        .collect();
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// Lists every installed effect and instrument, from the registry. No
+/// plugin code runs; it still happens in the helper, like every scan.
+pub fn scan() -> Vec<Descriptor> {
+    let mut found = Vec::new();
+    // SAFETY: plain registry queries with valid out-pointers.
+    unsafe {
+        for (ty, feature) in [
+            (kAudioUnitType_Effect, "audio-effect"),
+            (kAudioUnitType_MusicEffect, "audio-effect"),
+            (kAudioUnitType_MusicDevice, "instrument"),
+        ] {
+            let want = AudioComponentDescription {
+                componentType: ty,
+                ..Default::default()
+            };
+            let mut c = AudioComponentFindNext(ptr::null_mut(), &want);
+            while !c.is_null() {
+                let mut d = AudioComponentDescription::default();
+                AudioComponentGetDescription(c, &mut d);
+                let mut name: CFStringRef = ptr::null();
+                AudioComponentCopyName(c, &mut name);
+                // "Manufacturer: Name", as the registry gives it.
+                let full = cf_string(name);
+                if !name.is_null() {
+                    CFRelease(name);
+                }
+                let (vendor, name) = match full.split_once(": ") {
+                    Some((v, n)) => (v.to_string(), n.to_string()),
+                    None => (String::new(), full),
+                };
+                let mut v = 0u32;
+                AudioComponentGetVersion(c, &mut v);
+                found.push(Descriptor {
+                    id: desc_id(&d),
+                    name,
+                    vendor,
+                    version: format!("{}.{}.{}", v >> 16, (v >> 8) & 0xff, v & 0xff),
+                    features: vec![feature.into()],
+                });
+                c = AudioComponentFindNext(c, &want);
+            }
+        }
+    }
+    found
+}
+
+/// Keeps AUv3 extensions' messages flowing on the helper's main thread.
+struct AuMain;
+
+impl MainThread for AuMain {
+    fn idle(&mut self) {
+        // SAFETY: runs the main thread's run loop briefly; called on it.
+        unsafe {
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0, 1);
+        }
+    }
+}
+
+/// What the render callback reads; boxed so its address stays put.
+struct Feed {
+    input: [Vec<f32>; CHANNELS],
+    frames: usize,
+    bpm: AtomicU64,
+    beat: AtomicU64,
+}
+
+unsafe extern "C" fn render_input(
+    ref_con: *mut c_void,
+    _flags: *mut u32,
+    _ts: *const AudioTimeStamp,
+    _bus: u32,
+    frames: u32,
+    data: *mut AudioBufferList2,
+) -> OSStatus {
+    let feed = &*(ref_con as *const Feed);
+    let list = &mut *data;
+    let n = (frames as usize).min(feed.frames);
+    for ch in 0..(list.mNumberBuffers as usize).min(CHANNELS) {
+        let b = &mut list.mBuffers[ch];
+        if b.mData.is_null() {
+            // The unit asks for our buffer rather than giving one.
+            b.mData = feed.input[ch].as_ptr() as *mut c_void;
+        } else {
+            let dst = std::slice::from_raw_parts_mut(b.mData as *mut f32, n);
+            dst.copy_from_slice(&feed.input[ch][..n]);
+        }
+        b.mDataByteSize = (n * 4) as u32;
+    }
+    0
+}
+
+unsafe extern "C" fn beat_and_tempo(
+    user: *mut c_void,
+    beat: *mut f64,
+    tempo: *mut f64,
+) -> OSStatus {
+    let feed = &*(user as *const Feed);
+    if !beat.is_null() {
+        *beat = f64::from_bits(feed.beat.load(Ordering::Relaxed));
+    }
+    if !tempo.is_null() {
+        *tempo = f64::from_bits(feed.bpm.load(Ordering::Relaxed));
+    }
+    0
+}
+
+fn check(r: OSStatus, what: &str) -> Result<(), String> {
+    if r == 0 {
+        Ok(())
+    } else {
+        Err(format!("{what} failed ({r})"))
+    }
+}
+
+/// Loads the effect `id` (`type:subtype:manufacturer`).
+pub fn load(id: &str, sample_rate: u32, max_frames: usize) -> Result<Loaded, String> {
+    let want = parse_id(id).ok_or_else(|| format!("bad Audio Unit id {id:?}"))?;
+    let name = scan()
+        .into_iter()
+        .find(|d| d.id == id)
+        .map(|d| d.name)
+        .ok_or_else(|| format!("no Audio Unit {id:?} is installed"))?;
+    // SAFETY: AudioToolbox calls with valid pointers, in the documented
+    // order (format, max frames, callbacks, initialize).
+    unsafe {
+        let comp = AudioComponentFindNext(ptr::null_mut(), &want);
+        if comp.is_null() {
+            return Err(format!("no Audio Unit {id:?} is installed"));
+        }
+        let mut unit: AudioUnit = ptr::null_mut();
+        check(
+            AudioComponentInstanceNew(comp, &mut unit),
+            &format!("starting {name}"),
+        )?;
+        let format = AudioStreamBasicDescription {
+            mSampleRate: sample_rate as f64,
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat
+                | kAudioFormatFlagIsPacked
+                | kAudioFormatFlagIsNonInterleaved,
+            mBytesPerPacket: 4,
+            mFramesPerPacket: 1,
+            mBytesPerFrame: 4,
+            mChannelsPerFrame: 2,
+            mBitsPerChannel: 32,
+            mReserved: 0,
+        };
+        let size = std::mem::size_of::<AudioStreamBasicDescription>() as u32;
+        for scope in [kAudioUnitScope_Input, kAudioUnitScope_Output] {
+            let r = AudioUnitSetProperty(
+                unit,
+                kAudioUnitProperty_StreamFormat,
+                scope,
+                0,
+                &format as *const _ as *const c_void,
+                size,
+            );
+            if r != 0 {
+                return Err(format!("{name} is not a stereo effect"));
+            }
+        }
+        let max = max_frames as u32;
+        AudioUnitSetProperty(
+            unit,
+            kAudioUnitProperty_MaximumFramesPerSlice,
+            kAudioUnitScope_Global,
+            0,
+            &max as *const u32 as *const c_void,
+            4,
+        );
+        let feed = Box::new(Feed {
+            input: [vec![0.0; max_frames], vec![0.0; max_frames]],
+            frames: 0,
+            bpm: AtomicU64::new(0),
+            beat: AtomicU64::new(0),
+        });
+        let feed_ptr = &*feed as *const Feed as *mut c_void;
+        let cb = AURenderCallbackStruct {
+            inputProc: render_input,
+            inputProcRefCon: feed_ptr,
+        };
+        check(
+            AudioUnitSetProperty(
+                unit,
+                kAudioUnitProperty_SetRenderCallback,
+                kAudioUnitScope_Input,
+                0,
+                &cb as *const _ as *const c_void,
+                std::mem::size_of::<AURenderCallbackStruct>() as u32,
+            ),
+            &format!("connecting {name}"),
+        )?;
+        let host = HostCallbackInfo {
+            hostUserData: feed_ptr,
+            beatAndTempoProc: Some(beat_and_tempo),
+            musicalTimeLocationProc: ptr::null(),
+            transportStateProc: ptr::null(),
+            transportStateProc2: ptr::null(),
+        };
+        // Not every unit takes host callbacks; that's fine.
+        AudioUnitSetProperty(
+            unit,
+            kAudioUnitProperty_HostCallbacks,
+            kAudioUnitScope_Global,
+            0,
+            &host as *const _ as *const c_void,
+            std::mem::size_of::<HostCallbackInfo>() as u32,
+        );
+        check(AudioUnitInitialize(unit), &format!("initializing {name}"))?;
+
+        let mut latency = 0.0f64;
+        let mut lsize = 8u32;
+        AudioUnitGetProperty(
+            unit,
+            kAudioUnitProperty_Latency,
+            kAudioUnitScope_Global,
+            0,
+            &mut latency as *mut f64 as *mut c_void,
+            &mut lsize,
+        );
+
+        // Parameters, in the unit's own range.
+        let mut params = Vec::new();
+        let mut psize = 0u32;
+        if AudioUnitGetPropertyInfo(
+            unit,
+            kAudioUnitProperty_ParameterList,
+            kAudioUnitScope_Global,
+            0,
+            &mut psize,
+            ptr::null_mut(),
+        ) == 0
+            && psize > 0
+        {
+            let mut ids = vec![0u32; psize as usize / 4];
+            AudioUnitGetProperty(
+                unit,
+                kAudioUnitProperty_ParameterList,
+                kAudioUnitScope_Global,
+                0,
+                ids.as_mut_ptr() as *mut c_void,
+                &mut psize,
+            );
+            for pid in ids {
+                if params.len() == MAX_PARAMS {
+                    break;
+                }
+                let mut info: AudioUnitParameterInfo = std::mem::zeroed();
+                let mut isize_ = std::mem::size_of::<AudioUnitParameterInfo>() as u32;
+                if AudioUnitGetProperty(
+                    unit,
+                    kAudioUnitProperty_ParameterInfo,
+                    kAudioUnitScope_Global,
+                    pid,
+                    &mut info as *mut _ as *mut c_void,
+                    &mut isize_,
+                ) != 0
+                {
+                    continue;
+                }
+                let rw = kAudioUnitParameterFlag_IsReadable | kAudioUnitParameterFlag_IsWritable;
+                if info.flags & rw != rw {
+                    continue;
+                }
+                let pname = if info.flags & kAudioUnitParameterFlag_HasCFNameString != 0 {
+                    let n = cf_string(info.cfNameString);
+                    CFRelease(info.cfNameString);
+                    n
+                } else {
+                    let b: Vec<u8> = info
+                        .name
+                        .iter()
+                        .take_while(|&&c| c != 0)
+                        .map(|&c| c as u8)
+                        .collect();
+                    String::from_utf8_lossy(&b).into_owned()
+                };
+                let mut value = info.defaultValue;
+                AudioUnitGetParameter(unit, pid, kAudioUnitScope_Global, 0, &mut value);
+                params.push((
+                    pid,
+                    Param {
+                        name: pname,
+                        min: info.minValue as f64,
+                        max: info.maxValue as f64,
+                        default: info.defaultValue as f64,
+                        value: value as f64,
+                    },
+                ));
+            }
+        }
+
+        let effect = AuEffect {
+            unit: Unit(unit),
+            feed,
+            output: [vec![0.0; max_frames], vec![0.0; max_frames]],
+            ids: params.iter().map(|(id, _)| *id).collect(),
+            sent: params.iter().map(|(_, p)| p.value as f32).collect(),
+            sample_time: 0.0,
+        };
+        Ok(Loaded {
+            effect: Box::new(effect),
+            main: Some(Box::new(AuMain)),
+            info: Info {
+                name,
+                params: params.into_iter().map(|(_, p)| p).collect(),
+                latency: (latency * sample_rate as f64).round() as u32,
+            },
+        })
+    }
+}
+
+struct Unit(AudioUnit);
+// The unit is rendered only from the helper's audio thread.
+unsafe impl Send for Unit {}
+
+struct AuEffect {
+    unit: Unit,
+    feed: Box<Feed>,
+    output: [Vec<f32>; CHANNELS],
+    ids: Vec<u32>,
+    sent: Vec<f32>,
+    sample_time: f64,
+}
+
+impl Effect for AuEffect {
+    fn process(
+        &mut self,
+        input: [&[f32]; CHANNELS],
+        output: [&mut [f32]; CHANNELS],
+        params: &[f32],
+        transport: &Transport,
+    ) {
+        let frames = input[0].len();
+        let unit = self.unit.0;
+        for (i, id) in self.ids.iter().enumerate() {
+            if params[i] != self.sent[i] {
+                self.sent[i] = params[i];
+                // SAFETY: a live unit and one of its own parameter ids.
+                unsafe {
+                    AudioUnitSetParameter(unit, *id, kAudioUnitScope_Global, 0, params[i], 0);
+                }
+            }
+        }
+        for (ch, data) in input.iter().enumerate() {
+            self.feed.input[ch][..frames].copy_from_slice(data);
+        }
+        self.feed.frames = frames;
+        self.feed
+            .bpm
+            .store(transport.bpm.to_bits(), Ordering::Relaxed);
+        self.feed
+            .beat
+            .store(transport.beat.to_bits(), Ordering::Relaxed);
+        let mut list = AudioBufferList2 {
+            mNumberBuffers: 2,
+            mBuffers: [
+                AudioBuffer {
+                    mNumberChannels: 1,
+                    mDataByteSize: (frames * 4) as u32,
+                    mData: self.output[0].as_mut_ptr() as *mut c_void,
+                },
+                AudioBuffer {
+                    mNumberChannels: 1,
+                    mDataByteSize: (frames * 4) as u32,
+                    mData: self.output[1].as_mut_ptr() as *mut c_void,
+                },
+            ],
+        };
+        // SAFETY: zeroed is a valid AudioTimeStamp; only the sample time is set.
+        let mut ts: AudioTimeStamp = unsafe { std::mem::zeroed() };
+        ts.mSampleTime = self.sample_time;
+        ts.mFlags = kAudioTimeStampSampleTimeValid;
+        let mut flags = 0u32;
+        // SAFETY: the buffers hold `frames` floats each and outlive the call.
+        let ok =
+            unsafe { AudioUnitRender(unit, &mut flags, &ts, 0, frames as u32, &mut list) } == 0;
+        self.sample_time += frames as f64;
+        for (ch, o) in output.into_iter().enumerate() {
+            // A unit may answer with its own buffers instead of ours.
+            let src = list.mBuffers[ch].mData as *const f32;
+            if ok && !src.is_null() {
+                // SAFETY: the unit filled `frames` floats there.
+                unsafe { o.copy_from_slice(std::slice::from_raw_parts(src, frames)) };
+            } else {
+                o.copy_from_slice(input[ch]);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ids_round_trip() {
+        let d = parse_id("aufx:dely:appl").unwrap();
+        assert_eq!(desc_id(&d), "aufx:dely:appl");
+        assert!(parse_id("aufx:dely").is_none());
+    }
+
+    #[test]
+    fn apples_delay_is_listed() {
+        // Every Mac has Apple's own effects.
+        let found = scan();
+        assert!(found.iter().any(|d| d.id == "aufx:dely:appl"), "{found:?}");
+    }
+
+    #[test]
+    fn apples_delay_loads_and_processes() {
+        let mut loaded = load("aufx:dely:appl", 48_000, 512).expect("AUDelay loads");
+        assert!(!loaded.info.params.is_empty());
+        let l = vec![0.25f32; 256];
+        let r = vec![-0.25f32; 256];
+        let mut ol = vec![0.0; 256];
+        let mut or = vec![0.0; 256];
+        let params: Vec<f32> = loaded.info.params.iter().map(|p| p.value as f32).collect();
+        let mut all = [0.0f32; MAX_PARAMS];
+        all[..params.len()].copy_from_slice(&params);
+        loaded
+            .effect
+            .process([&l, &r], [&mut ol, &mut or], &all, &Transport::default());
+        assert!(ol.iter().all(|x| x.is_finite()));
+    }
+}

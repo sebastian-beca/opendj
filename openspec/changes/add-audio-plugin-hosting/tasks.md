@@ -24,7 +24,8 @@
 
 ## 4. AU (macOS)
 
-- [ ] 4.1 Host AUv2 in the helper and AUv3 out of process; list from the component registry; editors
+- [x] 4.1a Host Audio Unit effects in the helper through AudioToolbox (AUv3 extensions run in their own process, as macOS does); list from the component registry (`--scan-au`)
+- [ ] 4.1 Run the AU tests on a Mac (they use Apple's AUDelay); AU editors (with 2.6)
 
 ## 5. Ship
 
