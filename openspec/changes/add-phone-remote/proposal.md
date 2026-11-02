@@ -11,6 +11,7 @@ DJs running Automix at a party, a wedding or a bar want to walk away from the la
 - REMOTE in the top bar switches a phone remote on and off (off at first) and shows a QR code to pair a phone, a PIN for typing instead, and the paired phones with Remove.
 - openDJ serves a web page on the local network. A paired phone sees both decks (title, tempo, key, time left, the next mix shaded), Automix on/off and its status, Mix now and Skip, mix length, style and Order (with Undo), and the Automix list, which it can reorder and remove from.
 - Master and booth levels, and Fade out / Bring the sound back.
+- Search the collection from the phone (the browser's search syntax) and add tracks to Automix, at the end or next.
 - A WebSocket API with the add-on message shape, for later steps and other tools.
 
 ## Capabilities
@@ -25,7 +26,7 @@ None.
 
 ## Out of Scope
 
-- Searching the collection from the phone and adding to Automix (step 2).
+- Browsing crates and playlists from the phone, and a Bonjour advert (rest of step 2).
 - Guest song requests (step 3), a now-playing page and public API docs (step 4), add-on panels (step 5).
 - HTTPS, deck controls such as jog, pads or EQ, and audio to the phone.
 - Access from outside the local network.
