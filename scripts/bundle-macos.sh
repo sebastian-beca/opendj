@@ -9,6 +9,13 @@ app=dist/openDJ.app/Contents
 rm -rf dist/openDJ.app
 mkdir -p "$app/MacOS" "$app/Resources"
 cp "$binary" "$app/MacOS/opendj"
+# The helper that runs audio plugins, built next to the app's binary.
+helper="$(dirname "$binary")/opendj-plugin-host"
+if [ -f "$helper" ]; then
+  cp "$helper" "$app/MacOS/opendj-plugin-host"
+else
+  echo "warning: no $helper, so this build can't run audio plugins" >&2
+fi
 cp -R res/controllers "$app/Resources/controllers"
 # The guided tour's demo tracks, once they are in the repository.
 if [ -d res/demo ]; then cp -R res/demo "$app/Resources/demo"; fi
@@ -45,12 +52,23 @@ PLIST
 # With MACOS_SIGN_IDENTITY set (e.g. "Developer ID Application"), signs for
 # notarization: hardened runtime, secure timestamp and the entitlements.
 # Without it, an ad-hoc signature, and macOS asks before the first launch.
+# The plugin helper is signed first, on its own: it alone may load plugins
+# signed by other developers (disable-library-validation); the app keeps
+# the full hardened runtime.
 if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
+  if [ -f "$app/MacOS/opendj-plugin-host" ]; then
+    codesign --force --options runtime --timestamp \
+      --entitlements res/macos/plugin-host.entitlements \
+      --sign "$MACOS_SIGN_IDENTITY" "$app/MacOS/opendj-plugin-host"
+  fi
   codesign --force --options runtime --timestamp \
     --entitlements res/macos/opendj.entitlements \
     --sign "$MACOS_SIGN_IDENTITY" dist/openDJ.app
   codesign --verify --strict --verbose=2 dist/openDJ.app
 else
+  if [ -f "$app/MacOS/opendj-plugin-host" ]; then
+    codesign --force --sign - "$app/MacOS/opendj-plugin-host"
+  fi
   codesign --force --sign - dist/openDJ.app
 fi
 (cd dist && ditto -c -k --keepParent openDJ.app opendj-macos.zip)

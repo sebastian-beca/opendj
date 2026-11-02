@@ -11,8 +11,10 @@
 
 - [x] 2.1 Host CLAP effects in the helper with `clack-host`: load, process, parameters, transport (state comes with 1.3)
 - [x] 2.2a Scanner process with a timeout (`opendj-plugin-host --scan`, `scan()`)
-- [ ] 2.2 Scan cache, Settings › Plugins (folders, Scan, failures with Retry, allow-list, favourites)
-- [ ] 2.3 FX chooser "Plugins" group, ON/D/W/slider mapping, transport for beat-synced plugins, controller mapping
+- [x] 2.2a Settings › Mixer › FX plugins: folders (system defaults), Scan in throwaway helpers, cache by file size and date (`audio-plugins.json`), failures with Retry, a tick per effect for the FX lists (allow-list)
+- [ ] 2.2 Favourites
+- [x] 2.3a Ticked plugins in every FX chooser under a line after the built-in effects (the list scrolls); ON, D/W and the slider (first parameter) work as for built-in effects; tempo and beat from the routed deck; crash and failure messages as alerts
+- [ ] 2.3 Controller mapping of plugin parameters beyond the first four
 - [x] 2.4a Block processing for plugin slots in the effects engine: `loaded_effect` 13 and up are plugins, the first four parameters on the slot knobs, tempo and beat from the routed deck
 - [ ] 2.4 Per-slot load meter
 - [ ] 2.5 Latency compensation by reading the deck ahead
@@ -31,7 +33,8 @@
 
 ## 5. Ship
 
-- [ ] 5.1 Package the helper with the app on all platforms; on macOS sign it with `disable-library-validation` (the app itself stays hardened)
+- [x] 5.1a The bundle scripts and workflows build and ship `opendj-plugin-host` beside the app; on macOS it is signed first with `res/macos/plugin-host.entitlements` (`disable-library-validation`, JIT), the app keeps its own entitlements
+- [ ] 5.1 Check a notarized build on a Mac with third-party plugins
 - [ ] 5.2 Update the effects user guide page in website/book/src/guide
 
 ## Workflow follow-up
