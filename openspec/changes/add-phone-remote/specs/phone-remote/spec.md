@@ -42,3 +42,10 @@ A paired phone SHALL set the master level (`[Master],gain`) and, when a booth ou
 #### Scenario: Fade out
 - **WHEN** the DJ taps Fade out
 - **THEN** the master level slides to silence over eight seconds, and Bring the sound back restores it
+
+### Requirement: Search and add from the phone
+A paired phone SHALL search the collection with the same search syntax as the browser (for example `bpm:120-124` or `crate:Warm-up`), show up to 100 results sorted by title with how many were found, and add a result to the end of the Automix list or to play next (right below the tracks Automix holds). Tracks already on the list SHALL be marked.
+
+#### Scenario: Add a request
+- **WHEN** the DJ searches "innerbloom" on the phone and taps Next on the result
+- **THEN** the track goes on the Automix list right after the waiting track, in the app too

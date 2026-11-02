@@ -409,6 +409,17 @@ impl Remote {
                 }
                 browser.remove_from_automix(id);
             }
+            "automix.add" => {
+                let id = track()?;
+                let at = params["next"]
+                    .as_bool()
+                    .unwrap_or(false)
+                    .then(|| held_count(automix, browser));
+                if !browser.add_to_automix_at(id, at) {
+                    return Err("That track isn't in the collection any more.".into());
+                }
+            }
+            "library.search" => return Ok(search(browser, params["text"].as_str().unwrap_or(""))),
             "mixer.set" => {
                 let value = params["value"]
                     .as_f64()
@@ -585,6 +596,39 @@ impl Remote {
             "faded": self.fade.is_none() && self.faded_from.is_some(),
         })
     }
+}
+
+/// Most search results sent to a phone at once.
+const SEARCH_LIMIT: usize = 100;
+
+/// Collection tracks that `text` finds, for the phone's search: at most
+/// [`SEARCH_LIMIT`], with whether each is on the Automix list already.
+fn search(browser: &Browser, text: &str) -> Value {
+    let text = text.trim();
+    if text.is_empty() {
+        return json!({"tracks": [], "total": 0});
+    }
+    let camelot = browser.camelot();
+    let queued: std::collections::HashSet<usize> = (0..browser.automix_len())
+        .filter_map(|i| browser.automix_at(i))
+        .map(|t| t.id)
+        .collect();
+    let (tracks, total) = browser.find_tracks(text, SEARCH_LIMIT);
+    let tracks: Vec<Value> = tracks
+        .iter()
+        .map(|t| {
+            json!({
+                "id": t.id,
+                "title": t.title,
+                "artist": t.artist,
+                "bpm": t.bpm,
+                "key": crate::settings::show_key(&t.key, camelot),
+                "time": t.duration.round(),
+                "queued": queued.contains(&t.id),
+            })
+        })
+        .collect();
+    json!({"tracks": tracks, "total": total})
 }
 
 /// How many tracks at the top of the Automix list Automix holds (playing,

@@ -71,7 +71,7 @@ select { width: 100%; background: var(--raised); border: 0; border-radius: 10px;
 h2 { font-size: 13px; color: var(--dim); font-weight: 700; letter-spacing: .5px; text-transform: uppercase; margin: 18px 0 8px; display: flex; justify-content: space-between; }
 h2 small { text-transform: none; letter-spacing: 0; font-weight: 500; }
 .queue { border-radius: 14px; overflow: hidden; border: 1px solid var(--border); }
-.queue:empty::after { content: "The Automix list is empty. Add tracks in openDJ."; display: block; padding: 18px; color: var(--dim); text-align: center; background: var(--row); }
+.queue:empty::after { content: "The Automix list is empty. Search above to add tracks."; display: block; padding: 18px; color: var(--dim); text-align: center; background: var(--row); }
 .row { display: flex; align-items: center; gap: 10px; padding: 10px 6px 10px 12px; background: var(--row); position: relative; touch-action: pan-y; }
 .row:nth-child(even) { background: var(--row-alt); }
 .row.dragging { background: #2a2236 !important; box-shadow: 0 6px 20px rgba(0,0,0,.6); z-index: 2; }
@@ -85,6 +85,15 @@ h2 small { text-transform: none; letter-spacing: 0; font-weight: 500; }
 .row .grip { padding: 8px 10px; color: var(--dim); touch-action: none; cursor: grab; font-size: 18px; line-height: 1; }
 .row.fixed .grip { visibility: hidden; }
 
+.search { width: 100%; background: var(--raised); border: 1.5px solid var(--border); border-radius: 12px; padding: 11px 14px; font-size: 16px; -webkit-appearance: none; appearance: none; }
+.search:focus { outline: none; border-color: var(--lilac); }
+.results { border-radius: 14px; overflow: hidden; margin-top: 8px; }
+.results:not(:empty) { border: 1px solid var(--border); }
+.results .row { padding-right: 8px; }
+.add { padding: 8px 12px; font-size: 13px; border-radius: 9px; background: #2a2c30; white-space: nowrap; }
+.add.plus { background: var(--lilac); color: #1a1426; font-size: 16px; padding: 6px 12px; }
+.add.done { background: transparent; color: var(--green); }
+.found { color: var(--dim); font-size: 13px; margin-top: 6px; min-height: 18px; }
 .levels { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 6px 14px 14px; }
 .level { display: grid; grid-template-columns: 64px 1fr 40px; gap: 10px; align-items: center; padding: 8px 0; }
 .level label { font-weight: 600; font-size: 14px; }
@@ -147,6 +156,11 @@ input[type=range]::-moz-range-thumb { width: 26px; height: 26px; border-radius: 
     <label class="pick"><span>Order</span><select id="order"></select></label>
   </div>
   <div class="note"><span id="note"></span><button id="undo" class="hidden">Undo</button></div>
+
+  <h2>Add tracks</h2>
+  <input id="search" class="search" type="search" placeholder="Search your collection" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" aria-label="Search your collection">
+  <div id="results" class="results"></div>
+  <div id="found" class="found"></div>
 
   <h2>Up next <small id="total"></small></h2>
   <div id="queue" class="queue"></div>
@@ -447,6 +461,43 @@ function endDrag() {
 }
 $("queue").addEventListener("pointerup", endDrag);
 $("queue").addEventListener("pointercancel", endDrag);
+
+// Search: asks openDJ a moment after typing stops; only the latest answer
+// is shown.
+let searchTimer = 0, searchSeq = 0, results = [], lastTotal = 0;
+$("search").addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 250);
+});
+$("search").addEventListener("keydown", e => { if (e.key === "Enter") { clearTimeout(searchTimer); runSearch(); e.target.blur(); } });
+async function runSearch() {
+  const text = $("search").value.trim(), seq = ++searchSeq;
+  if (!text) { results = []; drawResults(0); return; }
+  try {
+    const r = await call("library.search", { text });
+    if (seq !== searchSeq) return;
+    results = r.tracks; lastTotal = r.total; drawResults(r.total);
+  } catch (e) { if (seq === searchSeq) $("found").textContent = e.message; }
+}
+function drawResults(total) {
+  $("results").innerHTML = results.map((t, i) => `<div class="row" data-i="${i}">
+      <div class="txt"><div class="t">${esc(t.title)}</div><div class="a">${esc(t.artist)}</div></div>
+      <div class="m"><b>${t.bpm ? Math.round(t.bpm) : ""}</b> ${esc(t.key)}<br>${time(t.time)}</div>
+      ${t.queued ? '<button class="add done" disabled>✓ Added</button>' : '<button class="add" data-next="1">Next</button><button class="add plus" aria-label="Add to the end">+</button>'}
+    </div>`).join("");
+  const q = $("search").value.trim();
+  $("found").textContent = !q ? "" : total === 0 ? "Nothing found." : total > results.length ? `Showing ${results.length} of ${total}. Type more to narrow it down.` : `${total} track${total === 1 ? "" : "s"}`;
+}
+$("results").addEventListener("click", async e => {
+  const b = e.target.closest("button.add"); if (!b || b.disabled) return;
+  const t = results[+b.closest(".row").dataset.i]; if (!t) return;
+  const next = !!b.dataset.next;
+  try {
+    await call("automix.add", { id: t.id, next });
+    t.queued = true; drawResults(lastTotal);
+    flash(next ? `${t.title} plays next.` : `${t.title} added to Automix.`);
+  } catch (err) { flash(err.message); }
+});
 
 // Keeps the screen on where the browser allows it (it needs HTTPS on most).
 let wakeLock = null;

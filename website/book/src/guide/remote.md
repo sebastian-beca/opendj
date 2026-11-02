@@ -29,6 +29,10 @@ connections. Click **Allow**.
 - **Mix now** and **Skip next**.
 - **Length**, **Style** and **Order**, as in the Automix panel (see
   [Automix](automix.md)), with **Undo** after an Order pick.
+- **Add tracks**: search your collection, with the same search as the
+  browser (try `bpm:120-124`, `key:8A` or `crate:Warm-up`). Tap **+** to
+  add a track to the end of the Automix list, or **Next** to play it next.
+  Tracks already on the list show **✓ Added**.
 - **Up next**: the Automix list. Drag a track by its handle to move it, or
   tap it for **Play next**, **Move up**, **Move down**, **Move to the end**
   and **Remove from Automix**. The track playing and the one waiting on a
