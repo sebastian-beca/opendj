@@ -148,11 +148,23 @@ pub fn respond(
     content_type: &str,
     body: &[u8],
 ) -> io::Result<()> {
+    respond_cached(stream, status, content_type, body, "no-store")
+}
+
+/// [`respond`] with its own `Cache-Control`, e.g. for album art the phone
+/// may keep.
+pub fn respond_cached(
+    stream: &mut TcpStream,
+    status: &str,
+    content_type: &str,
+    body: &[u8],
+    cache: &str,
+) -> io::Result<()> {
     let head = format!(
         "HTTP/1.1 {status}\r\n\
          Content-Type: {content_type}\r\n\
          Content-Length: {}\r\n\
-         Cache-Control: no-store\r\n\
+         Cache-Control: {cache}\r\n\
          X-Content-Type-Options: nosniff\r\n\
          Referrer-Policy: no-referrer\r\n\
          X-Frame-Options: DENY\r\n\
@@ -163,6 +175,15 @@ pub fn respond(
     stream.write_all(head.as_bytes())?;
     stream.write_all(body)?;
     stream.flush()
+}
+
+/// The value of `name` in a path's query string (`/art/x?k=1&s=96`).
+pub fn query<'a>(path: &'a str, name: &str) -> Option<&'a str> {
+    let (_, q) = path.split_once('?')?;
+    q.split('&')
+        .filter_map(|kv| kv.split_once('='))
+        .find(|(k, _)| *k == name)
+        .map(|(_, v)| v)
 }
 
 /// Takes a head already looked at with [`peek_head`] off the socket.

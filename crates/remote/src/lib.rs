@@ -96,8 +96,22 @@ enum Outgoing {
     Revoked,
 }
 
+/// Finds a track's album art: given the art id the app published with the
+/// track and the longest side wanted in pixels, the image as JPEG.
+pub type ArtSource = Arc<dyn Fn(&str, u32) -> Option<Vec<u8>> + Send + Sync>;
+
+/// Art sizes the page asks for: list thumbnails and the big cover.
+pub const ART_SIZES: [u32; 2] = [96, 640];
+/// Covers kept ready to send; the cache starts over beyond this.
+const ART_CACHE: usize = 600;
+
 struct Shared {
     pairing: pairing::Pairing,
+    art: Option<ArtSource>,
+    /// Paired phones put this in art addresses, so nobody else can fetch
+    /// covers; new each time the remote starts.
+    art_key: String,
+    art_cache: HashMap<String, Arc<Vec<u8>>>,
     clients: HashMap<u64, Client>,
     /// The latest message for each topic, as sent.
     topics: BTreeMap<String, String>,
@@ -125,6 +139,9 @@ impl Server {
         listener.set_nonblocking(true)?;
         let shared = Arc::new(Mutex::new(Shared {
             pairing: pairing::Pairing::new(devices),
+            art: None,
+            art_key: pairing::random_hex(16),
+            art_cache: HashMap::new(),
             clients: HashMap::new(),
             topics: BTreeMap::new(),
             events: Vec::new(),
@@ -148,6 +165,11 @@ impl Server {
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// Where album art comes from.
+    pub fn set_art_source(&self, source: ArtSource) {
+        lock(&self.shared).art = Some(source);
     }
 
     /// What phones asked for since the last call.
@@ -360,6 +382,28 @@ fn serve(mut stream: TcpStream, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool
                 websocket(ws, &shared, &stop);
             }
         }
+        ("GET", p) if p.starts_with("/art/") => {
+            let _ = http::consume(&mut stream, head.len);
+            let id = &p["/art/".len()..];
+            let size = http::query(&head.path, "s")
+                .and_then(|s| s.parse::<u32>().ok())
+                .filter(|s| ART_SIZES.contains(s));
+            let key = http::query(&head.path, "k").unwrap_or("");
+            let image = match size {
+                Some(size) if is_art_id(id) => art(&shared, id, size, key),
+                _ => None,
+            };
+            let _ = match image {
+                Some(jpeg) => http::respond_cached(
+                    &mut stream,
+                    "200 OK",
+                    "image/jpeg",
+                    &jpeg,
+                    "private, max-age=86400",
+                ),
+                None => http::respond(&mut stream, "404 Not Found", "text/plain", b"No art"),
+            };
+        }
         ("GET", "/" | "/index.html") => {
             let _ = http::consume(&mut stream, head.len);
             let _ = http::respond(
@@ -374,6 +418,35 @@ fn serve(mut stream: TcpStream, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool
             let _ = http::respond(&mut stream, "404 Not Found", "text/plain", b"Not found");
         }
     }
+}
+
+/// Art ids are short hex strings the app makes up.
+fn is_art_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// A cover, from the cache or the app's art source, for a request that
+/// carries the art key.
+fn art(shared: &Mutex<Shared>, id: &str, size: u32, key: &str) -> Option<Arc<Vec<u8>>> {
+    let cache_key = format!("{id}:{size}");
+    let source = {
+        let s = lock(shared);
+        if !pairing::same(key, &s.art_key) {
+            return None;
+        }
+        if let Some(hit) = s.art_cache.get(&cache_key) {
+            return Some(hit.clone());
+        }
+        s.art.clone()?
+    };
+    // Found outside the lock: reading tags and scaling takes a moment.
+    let jpeg = Arc::new(source(id, size)?);
+    let mut s = lock(shared);
+    if s.art_cache.len() >= ART_CACHE {
+        s.art_cache.clear();
+    }
+    s.art_cache.insert(cache_key, jpeg.clone());
+    Some(jpeg)
 }
 
 /// One phone's connection, until it closes or the server stops.
@@ -547,7 +620,11 @@ impl Connection<'_> {
             };
         };
         self.let_in(&mut s, &d, false);
-        Handled::Reply(json!({"id": id, "result": {"device": d.id, "name": d.name}}).to_string())
+        let art_key = s.art_key.clone();
+        Handled::Reply(
+            json!({"id": id, "result": {"device": d.id, "name": d.name, "art_key": art_key}})
+                .to_string(),
+        )
     }
 
     fn pair(&mut self, id: Value, params: &Value) -> Handled {
@@ -565,7 +642,7 @@ impl Connection<'_> {
             Ok((d, token)) => {
                 self.let_in(&mut s, &d, true);
                 Handled::Reply(
-                    json!({"id": id, "result": {"device": d.id, "name": d.name, "token": token}})
+                    json!({"id": id, "result": {"device": d.id, "name": d.name, "token": token, "art_key": s.art_key}})
                         .to_string(),
                 )
             }
