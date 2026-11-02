@@ -8,7 +8,7 @@ Mixxx only hosts LV2 on Linux. Hosting VST3, CLAP and AU effects opens openDJ to
 
 ## What Changes
 
-- Load CLAP, then VST3, then (macOS) AU effects into effect slots.
+- Load CLAP, then VST3, then (macOS) AU effects into any effect slot: deck FX, Beat FX, pad FX and the microphone's unit (Mic and Aux).
 - Every plugin runs in an `opendj-plugin-host` helper process. A block the helper can't deliver in time plays dry.
 - Plugins are scanned only when the DJ asks, each in a throwaway process with a timeout, and cached.
 - Only plugins the DJ switches on appear in the FX chooser, and each loads only when first used.
@@ -30,7 +30,7 @@ None.
 
 ## Out of Scope
 
-- Instrument plugins.
+- Instrument plugins: a follow-up change, `add-instrument-plugins`.
 - Sandboxing plugins' file access (process isolation stops crashes, not hostile code).
 
 ## Impact

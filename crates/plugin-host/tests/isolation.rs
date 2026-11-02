@@ -12,7 +12,7 @@ const DEADLINE: Duration = Duration::from_millis(500);
 fn start(effect: &str) -> (Connection, Helper) {
     spawn(&Options {
         helper: env!("CARGO_BIN_EXE_opendj-plugin-host").into(),
-        effect: effect.into(),
+        plugin: opendj_plugin_host::Plugin::Test(effect.into()),
         sample_rate: 48_000,
         max_frames: 1024,
     })
@@ -124,7 +124,7 @@ fn the_helper_quits_when_opendj_lets_go() {
 fn an_unknown_effect_fails_to_start() {
     let err = spawn(&Options {
         helper: env!("CARGO_BIN_EXE_opendj-plugin-host").into(),
-        effect: "no-such-plugin".into(),
+        plugin: opendj_plugin_host::Plugin::Test("no-such-plugin".into()),
         sample_rate: 48_000,
         max_frames: 1024,
     })

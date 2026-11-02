@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Plugin effects
-An effect slot SHALL load an installed CLAP, VST3 or (macOS) AU effect. Instrument plugins SHALL be listed as not supported.
+Any effect slot (deck FX, Beat FX, pad FX and the microphone's unit, so on decks, the main mix, Mic and Aux) SHALL load an installed CLAP, VST3 or (macOS) AU effect. Instrument plugins SHALL be listed as not supported.
 
 #### Scenario: Plugin in a deck FX slot
 - **WHEN** the DJ picks an enabled plugin in a deck FX slot and turns it on
 - **THEN** the deck is heard through the plugin, with ON, D/W and the slot's slider working as for built-in effects
+
+#### Scenario: Plugin on the mic
+- **WHEN** the DJ picks an enabled plugin in a slot of the microphone's effect unit
+- **THEN** the microphone and aux inputs are heard through it, and the decks are not
 
 ### Requirement: Out-of-process plugins
 Every plugin SHALL run in an `opendj-plugin-host` helper process, never in openDJ's own process. The audio thread SHALL hand each block to the helper and wait no longer than a deadline; a block that is late, or whose helper is gone, SHALL be played dry.
