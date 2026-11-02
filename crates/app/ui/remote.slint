@@ -1,0 +1,200 @@
+// REMOTE in the top bar: the phone remote. The button lights while the
+// remote is on (green once a phone is connected); its panel switches it on
+// and off and shows the QR code a phone scans to pair, the PIN for typing
+// instead, and the paired phones with Remove.
+import { Theme, EdgeLine } from "theme.slint";
+import { Switch } from "preferences.slint";
+
+export struct RemoteDevice {
+    id: string,
+    name: string,
+    connected: bool,
+    // "Connected", or when it was last seen.
+    seen: string,
+}
+
+export global RemoteUi {
+    in property <bool> on;
+    // A phone is connected now.
+    in property <bool> connected;
+    // The pairing QR code, the address it holds (without the code), and
+    // the other addresses this computer has.
+    in property <image> qr;
+    in property <string> url;
+    in property <string> other-urls;
+    in property <string> pin;
+    // Seconds before the QR code's one-time code is renewed.
+    in property <int> code-left;
+    // Why the remote couldn't start, if it couldn't.
+    in property <string> error;
+    in property <[RemoteDevice]> devices;
+    callback set-on(bool);
+    callback revoke(string);
+    // The panel was opened: draw a fresh QR code.
+    callback opened();
+}
+
+// A phone, drawn small.
+component PhoneIcon inherits Path {
+    in property <color> ink;
+    width: 10px;
+    height: 16px;
+    viewbox-width: 10;
+    viewbox-height: 16;
+    stroke: ink;
+    stroke-width: 1.4px;
+    fill: transparent;
+    commands: "M 2 0.7 L 8 0.7 A 1.3 1.3 0 0 1 9.3 2 L 9.3 14 A 1.3 1.3 0 0 1 8 15.3 L 2 15.3 A 1.3 1.3 0 0 1 0.7 14 L 0.7 2 A 1.3 1.3 0 0 1 2 0.7 Z M 4 12.8 L 6 12.8";
+}
+
+component SmallLink inherits Text {
+    callback clicked();
+    color: ta.has-hover ? Theme.text : Theme.text-dim;
+    font-size: 11px;
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+component DeviceRow inherits HorizontalLayout {
+    in property <RemoteDevice> device;
+    spacing: 8px;
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: device.connected ? Theme.automix : #48484c;
+        }
+    }
+    VerticalLayout {
+        horizontal-stretch: 1;
+        alignment: center;
+        Text { text: device.name; color: Theme.text; font-size: 12px; font-weight: 600; overflow: elide; }
+        Text { text: device.seen; color: device.connected ? Theme.automix : Theme.text-dim; font-size: 11px; overflow: elide; }
+    }
+    SmallLink {
+        text: "Remove";
+        vertical-alignment: center;
+        clicked => { RemoteUi.revoke(device.id); }
+    }
+}
+
+export component RemotePanel inherits PopupWindow {
+    width: 300px;
+    close-policy: close-on-click-outside;
+    Rectangle {
+        background: Theme.panel-raised;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #000000b0;
+    }
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+        HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 2px;
+                Text { text: "Phone remote"; color: Theme.text; font-size: 17px; font-weight: 700; }
+                Text {
+                    text: RemoteUi.on ? "Control Automix from your phone" : "Off";
+                    color: Theme.text-dim;
+                    font-size: 11px;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                Switch { on: RemoteUi.on; toggled(on) => { RemoteUi.set-on(on); } }
+            }
+        }
+        if RemoteUi.error != "": Text {
+            text: RemoteUi.error;
+            color: #e5484d;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+        if RemoteUi.on: VerticalLayout {
+            spacing: 10px;
+            Text {
+                text: "Scan with your phone's camera. Your phone needs to be on the same Wi-Fi.";
+                color: Theme.text;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 196px;
+                    height: 196px;
+                    border-radius: 10px;
+                    background: #ffffff;
+                    clip: true;
+                    Image { source: RemoteUi.qr; width: 196px; height: 196px; image-rendering: pixelated; }
+                }
+            }
+            Text {
+                text: RemoteUi.code-left > 0 ? "This code works once, for the next " + (RemoteUi.code-left >= 60 ? floor(RemoteUi.code-left / 60) + " min " : "") + mod(RemoteUi.code-left, 60) + " s." : "";
+                color: Theme.text-dim;
+                font-size: 11px;
+                horizontal-alignment: center;
+            }
+            VerticalLayout {
+                spacing: 2px;
+                Text { text: "Or open " + RemoteUi.url + " and type the PIN"; color: Theme.text-dim; font-size: 11px; wrap: word-wrap; }
+                Text { text: RemoteUi.pin; color: Theme.text; font-size: 22px; font-weight: 700; letter-spacing: 4px; }
+                if RemoteUi.other-urls != "": Text { text: "Other networks: " + RemoteUi.other-urls; color: Theme.text-dim; font-size: 11px; wrap: word-wrap; }
+            }
+        }
+        if RemoteUi.devices.length > 0: VerticalLayout {
+            spacing: 8px;
+            EdgeLine { line-color: Theme.border; }
+            Text { text: "PAIRED PHONES"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; }
+            for d in RemoteUi.devices: DeviceRow { device: d; }
+        }
+        if RemoteUi.on: VerticalLayout {
+            spacing: 4px;
+            EdgeLine { line-color: Theme.border; }
+            Text {
+                text: "Phone can't connect? Hotel and venue Wi-Fi often keeps devices apart. Share this computer's connection, or join it to your phone's hotspot. The first time, allow incoming connections if the computer asks.";
+                color: Theme.text-dim;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
+
+// The top bar button: a phone and REMOTE. Lilac while on, Automix green
+// once a phone is connected.
+export component RemoteButton inherits Rectangle {
+    property <bool> on: RemoteUi.on;
+    property <color> tint: RemoteUi.connected ? Theme.automix : Theme.lilac;
+    background: ta.pressed ? Theme.control-pressed : on ? tint.with-alpha(0.16) : ta.has-hover ? #2e2e32 : Theme.panel-raised;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: on ? tint : transparent;
+    height: 36px;
+    y: 8px;
+    horizontal-stretch: 0;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 7px;
+        PhoneIcon { ink: on ? tint : Theme.text-dim; y: (parent.height - self.height) / 2; }
+        Text { text: "REMOTE"; color: on ? tint : Theme.text-dim; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            RemoteUi.opened();
+            panel.show();
+        }
+    }
+    panel := RemotePanel {
+        x: root.width - self.width;
+        y: root.height + 6px;
+    }
+}
