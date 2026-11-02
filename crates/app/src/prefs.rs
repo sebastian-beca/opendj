@@ -1339,7 +1339,8 @@ impl Prefs {
                 "Scan".into()
             },
             value: if p.scanning() {
-                note.clone().into()
+                // Just the count: the file's name is in the line below.
+                note.split(':').next().unwrap_or_default().into()
             } else {
                 "".into()
             },
