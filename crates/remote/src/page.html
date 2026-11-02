@@ -62,7 +62,7 @@ svg { display: block; }
 .bar i::after { content: ""; position: absolute; right: -6px; top: -4px; width: 12px; height: 12px; border-radius: 6px; background: #fff; }
 .bar s { position: absolute; top: 0; bottom: 0; background: var(--lilac); opacity: .8; border-radius: 2px; }
 .times { display: flex; justify-content: space-between; color: var(--dim); font-size: 13px; margin-top: 9px; font-variant-numeric: tabular-nums; }
-.controls { display: flex; align-items: center; justify-content: space-between; margin: 14px 4px 0; }
+.controls { display: grid; grid-template-columns: 1fr 1fr auto 1fr 1fr; justify-items: center; align-items: center; margin: 14px 0 0; }
 .controls .side { width: 52px; height: 52px; display: grid; place-items: center; color: var(--text); border-radius: 26px; }
 .controls .side:active { background: #ffffff14; }
 .controls .side:disabled { opacity: .35; }
@@ -247,9 +247,10 @@ input[type=range]::-moz-range-thumb { width: 26px; height: 26px; border-radius: 
   <div class="times"><span id="elapsed">0:00</span><span id="left">-0:00</span></div>
   <div class="controls">
     <button class="side" id="orderBtn" aria-label="Order"><svg class="ico"><use href="#i-shuffle"/></svg></button>
+    <button class="side" id="mixBtn" aria-label="Mix length and style"><svg class="ico"><use href="#i-mix"/></svg></button>
     <button class="big" id="playBtn" aria-label="Play"><svg><use id="playIcon" href="#i-play"/></svg></button>
     <button class="side" id="mixNowBtn" aria-label="Mix now"><svg class="ico"><use href="#i-next"/></svg></button>
-    <button class="side" id="mixBtn" aria-label="Mix length and style"><svg class="ico"><use href="#i-mix"/></svg></button>
+    <button class="side" id="timerBtn" aria-label="Sleep timer"><svg class="ico"><use href="#i-timer"/></svg></button>
   </div>
   <div class="volume">
     <label for="nowVolume"><svg class="ico"><use href="#i-level"/></svg>Volume</label>
@@ -484,6 +485,7 @@ $("playBtn").onclick = () => {
 $("mixNowBtn").onclick = () => act("automix.mix_now").then(() => toast("Mixing now"));
 $("orderBtn").onclick = () => openSheet("order");
 $("mixBtn").onclick = () => openSheet("mix");
+$("timerBtn").onclick = () => openSheet("timer");
 $("levelsTop").onclick = () => openSheet("levels");
 $("moreTop").onclick = () => openSheet("more");
 $("queueBtn").onclick = () => openPanel("queueView");
@@ -495,10 +497,11 @@ function closePanel(id) { $(id).classList.remove("open"); }
 $("queueClose").onclick = () => closePanel("queueView");
 $("editBtn").onclick = () => { selected.clear(); drawEdit(); openPanel("editView"); };
 $("editClose").onclick = () => { selected.clear(); closePanel("editView"); };
-$("addBtn").onclick = () => { openPanel("searchView"); setTimeout(() => $("search").focus(), 300); };
+$("addBtn").onclick = () => { openPanel("searchView"); runSearch(); setTimeout(() => $("search").focus(), 300); };
 $("searchDone").onclick = () => {
   $("search").blur(); closePanel("searchView");
-  setTimeout(() => { $("search").value = ""; results = []; drawResults(); }, 300);
+  searchSeq++;
+  setTimeout(() => { $("search").value = ""; results = []; lastTotal = 0; drawResults(); }, 300);
 };
 // Swiping a panel's header down closes it.
 for (const id of ["queueView", "searchView"]) {
@@ -651,26 +654,51 @@ $("eRemove").onclick = () => editAction("automix.remove", n => n === 1 ? "Remove
 let searchTimer = 0, searchSeq = 0, results = [], lastTotal = 0;
 $("search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 250); });
 $("search").addEventListener("keydown", e => { if (e.key === "Enter") { clearTimeout(searchTimer); runSearch(); e.target.blur(); } });
+// Empty text lists the whole collection; scrolling near the end of the
+// results fetches the next page.
+let loadingMore = false;
 async function runSearch() {
   const text = $("search").value.trim(), seq = ++searchSeq;
-  if (!text) { results = []; drawResults(); return; }
   try {
-    const r = await call("library.search", { text });
+    const r = await call("library.search", { text, offset: 0 });
     if (seq !== searchSeq) return;
     results = r.tracks; lastTotal = r.total; drawResults();
+    $("results").scrollTop = 0;
   } catch (e) { if (seq === searchSeq) $("found").textContent = e.message; }
 }
-function drawResults() {
-  $("results").innerHTML = results.map((t, i) => `<div class="row" data-i="${i}">
+async function moreResults() {
+  if (loadingMore || results.length >= lastTotal) return;
+  loadingMore = true;
+  const seq = searchSeq;
+  try {
+    const r = await call("library.search", { text: $("search").value.trim(), offset: results.length });
+    if (seq !== searchSeq || r.offset !== results.length) return;
+    const from = results.length;
+    results = results.concat(r.tracks);
+    $("results").insertAdjacentHTML("beforeend", r.tracks.map((t, i) => resultRow(t, from + i)).join(""));
+    drawFound();
+  } catch (e) {} finally { loadingMore = false; }
+}
+$("results").addEventListener("scroll", e => {
+  const l = e.target;
+  if (l.scrollTop + l.clientHeight > l.scrollHeight - 800) moreResults();
+}, { passive: true });
+function resultRow(t, i) {
+  return `<div class="row" data-i="${i}">
       ${art(t.art)}
       <div class="txt"><div class="t">${esc(t.title)}</div><div class="a">${esc(t.artist)}</div></div>
       ${t.queued ? '<button class="add done" disabled>Added</button>' : '<button class="add" data-next="1">Next</button><button class="add plus" aria-label="Add to the end"><svg class="ico"><use href="#i-plus"/></svg></button>'}
-    </div>`).join("");
+    </div>`;
+}
+function drawResults() {
+  $("results").innerHTML = results.map(resultRow).join("");
+  drawFound();
+}
+function drawFound() {
   const q = $("search").value.trim();
-  $("found").textContent = !q ? "Try a title, an artist, bpm:120-124, key:8A or crate:Warm-up."
-    : lastTotal === 0 ? "Nothing found."
-    : lastTotal > results.length ? `Showing ${results.length} of ${lastTotal}. Type more to narrow it down.`
-    : `${lastTotal} track${lastTotal === 1 ? "" : "s"}`;
+  const n = `${lastTotal} track${lastTotal === 1 ? "" : "s"}`;
+  $("found").textContent = lastTotal === 0 ? (q ? "Nothing found." : "")
+    : q ? n : `Your whole collection, ${n}. Try a title, an artist, bpm:120-124 or key:8A.`;
 }
 $("results").addEventListener("click", async e => {
   const b = e.target.closest("button.add"); if (!b || b.disabled) return;
@@ -678,7 +706,8 @@ $("results").addEventListener("click", async e => {
   const next = !!b.dataset.next;
   try {
     await act("automix.add", { id: t.id, next });
-    t.queued = true; drawResults();
+    t.queued = true;
+    const row = b.closest(".row"); row.outerHTML = resultRow(t, +row.dataset.i);
     toast(next ? `${t.title} plays next` : `${t.title} added`);
   } catch (err) {}
 });
@@ -800,6 +829,7 @@ function drawTimer() {
   const m = state.mixer || {};
   const on = m.timer_left != null || m.sleeping;
   $("dTimer").classList.toggle("lit", !!on);
+  $("timerBtn").classList.toggle("lit", !!on);
   $("timerLabel").textContent = m.sleeping ? "Fading" : m.timer_left != null ? time(m.timer_left) : "Timer";
 }
 

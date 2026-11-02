@@ -39,8 +39,9 @@ in. Tap the card to open the queue.
 - **Order** puts the queue in order (Shuffle, BPM low to high, Harmonic
   path and so on), as in the Automix panel (see [Automix](automix.md)),
   with **Undo** afterwards.
-- **Mix settings** sets the mix **Length** and **Style**, and has **Skip
-  the next track**.
+- **Mix settings** (left of play) sets the mix **Length** and **Style**,
+  and has **Skip the next track**.
+- **Timer** (far right) sets the sleep timer.
 - **Volume**, under the controls, sets the master level with one drag.
 - The speaker button at the top opens **Levels** (booth level and Fade out); **⋯** has the queue,
   Add tracks, the sleep timer and Stop Automix.
@@ -62,7 +63,8 @@ then everything up next, each with its cover.
 
 ### Add tracks
 
-Tap **+** in the queue and search your collection, with the same search as
+Tap **+** in the queue to see your whole collection, sorted by title; keep
+scrolling and more tracks load. Type to search it, with the same search as
 the browser (try `bpm:120-124`, `key:8A` or `crate:Warm-up`). Tap **+** on
 a result to add it to the end of the queue, or **Next** to play it next.
 Tracks already queued show **Added**. Tap **Done** to go back to the queue;
