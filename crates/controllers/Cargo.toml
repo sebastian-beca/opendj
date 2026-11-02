@@ -1,6 +1,6 @@
 [package]
 name = "opendj-controllers"
-description = "MIDI controller support driven by Mixxx's own controller mappings"
+description = "MIDI and HID controller support driven by Mixxx's own controller mappings"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,10 @@ license.workspace = true
 opendj-control = { path = "../control" }
 opendj-script = { path = "../script" }
 base64 = "0.22"
+# USB HID controllers (Native Instruments Traktor Kontrol and others). On
+# Linux it uses hidraw through libudev; on macOS devices are opened shared,
+# as Mixxx does, so another app can keep using them.
+hidapi = { version = "2.6", default-features = false, features = ["linux-static-hidraw", "macos-shared-device"] }
 midir = "0.11"
 roxmltree = "0.21"
 rquickjs = { version = "0.14", features = ["classes", "properties"] }

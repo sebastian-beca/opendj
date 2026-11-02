@@ -1451,9 +1451,13 @@ impl Prefs {
                     },
                     "Off".to_string(),
                 ];
-                choices.extend(mappings.iter().map(|(n, _)| n.clone()));
-                // Then the ones made with Quick map.
-                choices.extend(quick.iter().map(|m| m.name.clone()));
+                // An HID controller runs its HID mapping or nothing: MIDI
+                // mappings and Quick map don't apply to it.
+                if !port.hid {
+                    choices.extend(mappings.iter().map(|(n, _)| n.clone()));
+                    // Then the ones made with Quick map.
+                    choices.extend(quick.iter().map(|m| m.name.clone()));
+                }
                 let chosen = match &choice {
                     MappingChoice::Auto => 0,
                     MappingChoice::Off => 1,
@@ -1482,6 +1486,9 @@ impl Prefs {
                         None => format!("Running {m}"),
                     },
                     (None, MappingChoice::Off, _) => "Not used".to_string(),
+                    (None, _, _) if port.problem.is_some() => {
+                        port.problem.clone().unwrap_or_default()
+                    }
                     (None, _, None) => "No mapping found: pick one, or press Map it.".to_string(),
                     (None, _, Some(_)) => "Starting, or its mapping failed to load".to_string(),
                 };
@@ -2815,6 +2822,10 @@ fn quick_maps() -> Vec<own::OwnMapping> {
 /// The mapping file a controller's Edit opens: the one it uses, or, for a
 /// stand-in device, the one named as running.
 fn edit_file(c: &Controllers, port: &Port) -> Option<String> {
+    // HID mappings are all script: the editor has nothing to show.
+    if port.hid {
+        return None;
+    }
     port.mapping_file.clone().or_else(|| {
         let running = port.running.as_ref()?;
         c.mappings()

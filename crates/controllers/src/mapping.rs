@@ -228,6 +228,9 @@ pub struct Mapping {
     /// openDJ mappings only: variables for openDJscript rows and lights,
     /// with their starting values.
     pub variables: Vec<(String, f64)>,
+    /// The USB HID devices an HID mapping (`.hid.xml`) is for, from
+    /// `<info><devices>`. Empty for MIDI mappings.
+    pub products: Vec<crate::hid::Product>,
 }
 
 /// Parses `0x7F`, `127` or `0177` the way Qt's `toInt(&ok, 0)` does.
@@ -267,6 +270,12 @@ fn text<'a>(node: roxmltree::Node<'a, 'a>, name: &str) -> Option<&'a str> {
 }
 
 impl Mapping {
+    /// Whether this is an HID mapping: it names USB HID devices, and its
+    /// scripts read and write HID reports rather than MIDI messages.
+    pub fn is_hid(&self) -> bool {
+        !self.products.is_empty()
+    }
+
     pub fn load(path: &Path) -> Result<Self, String> {
         let xml = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         let mut m = Self::parse(&xml, path.parent().unwrap_or(Path::new(".")))?;
@@ -293,6 +302,15 @@ impl Mapping {
             .and_then(|i| text(i, "author"))
             .unwrap_or("")
             .to_string();
+        let products = info
+            .and_then(|i| child(i, "devices"))
+            .map(|d| {
+                d.children()
+                    .filter(|n| n.has_tag_name("product"))
+                    .filter_map(|p| crate::hid::Product::from_attributes(|name| p.attribute(name)))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let controller = child(root, "controller").ok_or("no <controller> element")?;
         let mut scripts = vec![ScriptFile {
@@ -378,6 +396,7 @@ impl Mapping {
             inputs,
             outputs,
             variables: Vec::new(),
+            products,
         })
     }
 }
