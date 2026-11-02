@@ -201,32 +201,94 @@ impl Stems {
         gains: &[f32; MAX_STEMS],
         original: impl FnOnce() -> [f32; 2],
     ) -> [f32; 2] {
-        let stems = self.current();
-        let f = stems
-            .chunks
+        match self.ready_upgrade() {
+            Some(up) => up.mix_blend(None, 0.0, i, gains, original),
+            None => self.mix_blend(None, 0.0, i, gains, original),
+        }
+    }
+
+    /// The better stems that take over from these, once they are complete.
+    #[inline]
+    pub(crate) fn ready_upgrade(&self) -> Option<&Stems> {
+        self.upgrade.get().filter(|u| u.is_complete()).map(|u| &**u)
+    }
+
+    #[inline]
+    fn frame_at(&self, i: usize) -> Option<&StemFrame> {
+        self.chunks
             .get(i / CHUNK)
             .and_then(OnceLock::get)
-            .and_then(|c| c.get(i % CHUNK));
-        if stems.separated {
+            .and_then(|c| c.get(i % CHUNK))
+    }
+
+    /// Whether these play as the original less what is turned down.
+    pub(crate) fn is_separated(&self) -> bool {
+        self.separated
+    }
+
+    /// Frame `i` of these stems blended into `up`'s by `w` (0 these, 1
+    /// `up`), so the switch to high-quality stems is a short crossfade
+    /// rather than a click where a stem is muted. Both separated (as they
+    /// always are when one upgrades the other), the blend is of the stems
+    /// themselves, under one read of the original.
+    #[inline]
+    pub(crate) fn mix_blend(
+        &self,
+        up: Option<&Stems>,
+        w: f32,
+        i: usize,
+        gains: &[f32; MAX_STEMS],
+        original: impl FnOnce() -> [f32; 2],
+    ) -> [f32; 2] {
+        let (up, w) = match up {
+            Some(u) if w >= 1.0 => return u.mix_blend(None, 0.0, i, gains, original),
+            Some(u) if w > 0.0 => (Some(u), w),
+            _ => (None, 0.0),
+        };
+        if self.separated {
             let mut out = original();
-            if let Some(f) = f {
-                for (s, g) in f.iter().zip(gains) {
-                    let cut = (1.0 - g) / 32_768.0;
-                    out[0] -= s[0] as f32 * cut;
-                    out[1] -= s[1] as f32 * cut;
+            let a = self.frame_at(i);
+            let b = up.filter(|u| u.separated).and_then(|u| u.frame_at(i));
+            let (wa, wb) = ((1.0 - w) / 32_768.0, w / 32_768.0);
+            for k in 0..MAX_STEMS {
+                let cut = 1.0 - gains[k];
+                if cut == 0.0 {
+                    continue;
                 }
+                let mut s = [0.0f32; 2];
+                if let Some(a) = a {
+                    s[0] += a[k][0] as f32 * if b.is_some() { wa } else { 1.0 / 32_768.0 };
+                    s[1] += a[k][1] as f32 * if b.is_some() { wa } else { 1.0 / 32_768.0 };
+                }
+                if let Some(b) = b {
+                    let wb = if a.is_some() { wb } else { w / 32_768.0 };
+                    s[0] += b[k][0] as f32 * wb;
+                    s[1] += b[k][1] as f32 * wb;
+                }
+                out[0] -= s[0] * cut;
+                out[1] -= s[1] * cut;
             }
             return out;
         }
-        let Some(f) = f else {
-            return [0.0; 2];
+        let sum = |f: Option<&StemFrame>| {
+            let mut out = [0.0; 2];
+            if let Some(f) = f {
+                for (s, g) in f.iter().zip(gains) {
+                    out[0] += s[0] as f32 * g;
+                    out[1] += s[1] as f32 * g;
+                }
+            }
+            [out[0] / 32_768.0, out[1] / 32_768.0]
         };
-        let mut out = [0.0; 2];
-        for (s, g) in f.iter().zip(gains) {
-            out[0] += s[0] as f32 * g;
-            out[1] += s[1] as f32 * g;
+        let a = sum(self.frame_at(i));
+        match up {
+            Some(u) => {
+                // Not expected (an NI file isn't upgraded), but kept smooth.
+                let b = u.mix_blend(None, 0.0, i, gains, original);
+                [a[0] + (b[0] - a[0]) * w, a[1] + (b[1] - a[1]) * w]
+            }
+            None => a,
         }
-        [out[0] / 32_768.0, out[1] / 32_768.0]
     }
 
     /// How the stems that play now were made.

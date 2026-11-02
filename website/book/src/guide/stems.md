@@ -37,7 +37,26 @@ Spleeter is quick but lets a little of each stem bleed into the others. For a
 cleaner split, right-click a track in the browser, or a stems pad, and choose
 **Prepare HQ Stems**. openDJ separates it with HTDemucs in the
 background (on the graphics card; the first time it downloads the 84 MB model),
-one track at a time. When it's done the deck switches to the new stems, and the
-track loads with them from then on.
+one track at a time. When it's done the deck crossfades to the new stems in a
+fiftieth of a second, so nothing clicks even with a stem muted, and the track
+loads with them from then on.
+
+The top-right stems pad shows which stems are playing: **INSTANT** for the
+quick ones made on load, **HQ…** while high quality ones are being prepared
+and **HQ** once they play.
+
+## Settings
+
+**Settings › Analysis › Stems** has:
+
+- **Stems on load**: turn it off to save CPU on an older computer. Tracks then
+  only get stems you prepare with Prepare High Quality Stems (or from an NI
+  stem file).
+- **High quality stems kept**: high quality stems take about 4 times the
+  space of the track. Once they pass this size (10 GB at first), the stems
+  played longest ago are deleted to make room. Shows how many tracks have
+  them and how much space they take.
+- **Clear high quality stems** deletes them all.
+- Whether each stems model is downloaded yet.
 
 NI stem files (`.stem.mp4`) play their own stems.

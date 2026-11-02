@@ -1098,6 +1098,9 @@ component StemPad inherits Rectangle {
     in property <int> stem;
     in property <string> text;
     in property <color> tint;
+    // Shows how the stems were made in the pad's corner: INSTANT (made on
+    // load), HQ… while high-quality ones are prepared, then HQ.
+    in property <bool> show-quality;
     property <string> base: "[Channel" + (deck + 1) + "_Stem";
     property <int> count: Controls.value(Controls.resolve("[Channel" + (deck + 1) + "]", "stem_count"), Controls.tick);
     property <int> m1: Controls.resolve(base + "1]", "mute");
@@ -1134,6 +1137,15 @@ component StemPad inherits Rectangle {
         color: !available ? Theme.text-dim.with-alpha(0.5) : lit ? Theme.text : Theme.text-dim;
         horizontal-alignment: center;
         overflow: elide;
+    }
+    if show-quality && count > 0: Text {
+        x: parent.width - self.width - 4px;
+        y: 2px;
+        text: info.stem-hq ? "HQ" : info.stem-preparing ? "HQ…" : "INSTANT";
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        color: info.stem-hq ? Theme.accent : Theme.text-dim.with-alpha(0.7);
     }
     // The stem's colour, under its name.
     Rectangle {
@@ -1697,6 +1709,7 @@ export component Pads inherits HorizontalLayout {
                             info: info;
                             stem: stem-pads[row * 4 + i].stem;
                             text: stem-pads[row * 4 + i].text;
+                            show-quality: row == 0 && i == 3;
                             // The track's own colour for a stem, else VirtualDJ's.
                             tint: stem-pads[row * 4 + i].stem > 0 && stem-pads[row * 4 + i].stem <= info.stem-colors.length
                                 ? info.stem-colors[stem-pads[row * 4 + i].stem - 1] : stem-pads[row * 4 + i].tint;

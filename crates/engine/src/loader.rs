@@ -562,6 +562,12 @@ fn load(shared: &Arc<Shared>, deck: usize, generation: u64, base: &Track) -> Res
     };
     let analysis = std::thread::scope(|scope| -> Result<Analysis, String> {
         if let Some(source) = path.and_then(stems::find) {
+            if let StemSource::Files(files) = &source {
+                // Used now, so the cache limit keeps them longest.
+                if let Some(dir) = files.first().and_then(|f| f.parent()) {
+                    cache::touch_stems(dir);
+                }
+            }
             let audio = audio.clone();
             scope.spawn(move || {
                 if let Err(e) = load_stems(&audio, &source, latest) {
@@ -604,7 +610,7 @@ fn load(shared: &Arc<Shared>, deck: usize, generation: u64, base: &Track) -> Res
             })?;
         }
         // A file without stems is separated now, from the cue point.
-        if path.is_some_and(|p| stems::find(p).is_none()) {
+        if separation::on_load() && path.is_some_and(|p| stems::find(p).is_none()) {
             let from = (first.first_beat.max(0.0) * audio.sample_rate as f64) as usize;
             separate_on_load(shared, deck, generation, audio.clone(), from);
         }
