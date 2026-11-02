@@ -42,7 +42,7 @@ Every continuous parameter glides per sample towards the value read once per buf
 
 ### Better interpolation
 
-Swept delay reads move from linear to 4-point cubic (Catmull-Rom/Hermite) interpolation, after Signalsmith DSP's interpolators: Echo while its time glides, Flanger, Spiral, Brake and the reverb's modulated allpasses. Linear interpolation halfway between samples loses about 2 dB at 10 kHz; cubic keeps it within a fraction of a dB, for about four multiply-adds more per read.
+Swept delay reads move from linear to 4-point cubic (Catmull-Rom) interpolation, after Signalsmith DSP's interpolators: Echo while its time glides, Flanger, Spiral, Echo Out and Brake. Linear interpolation halfway between samples loses about 2 dB at 10 kHz; cubic keeps it within about half a dB, for a few multiply-adds more per read. The reverb's modulated allpasses stay linear: they swing only a few samples for a slow chorus inside a damped tank, where cubic measured a third more CPU for no audible change. Precomputing the reverb's output tap positions (they were rescaled every sample) more than pays for the smoothing added in the same PR.
 
 ### Locked to the beat
 

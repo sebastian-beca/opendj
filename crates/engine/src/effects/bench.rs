@@ -361,3 +361,98 @@ fn fx_bench() {
     }
     println!("rack memory: {:.1} MB", idle.memory_bytes() as f64 / 1e6);
 }
+
+/// The largest step between neighbouring output samples over `frames`.
+fn largest_step(inst: &mut Instance, from: usize, frames: usize) -> f32 {
+    let mut last = inst.process([tone(from); 2])[0];
+    let mut step = 0.0f32;
+    for i in from + 1..from + frames {
+        let y = inst.process([tone(i); 2])[0];
+        step = step.max((y - last).abs());
+        last = y;
+    }
+    step
+}
+
+fn tone(i: usize) -> f32 {
+    (std::f32::consts::TAU * 220.0 * i as f32 / SR).sin() * 0.5
+}
+
+#[test]
+fn turning_any_knob_all_the_way_does_not_click() {
+    let ctx = Ctx {
+        sample_rate: SR,
+        beat_seconds: 0.5,
+    };
+    let mut clicks = Vec::new();
+    // Effects whose knobs are continuous. Gate, Roll, Brake and Bitcrusher
+    // make edges or steps on purpose.
+    for kind in [
+        Kind::Echo,
+        Kind::Reverb,
+        Kind::Filter,
+        Kind::Flanger,
+        Kind::Phaser,
+        Kind::Noise,
+        Kind::Spiral,
+    ] {
+        for k in 0..MAX_PARAMETERS {
+            // Leave the beat lengths alone: those are switches, and their
+            // effects glide (echo time) or change at the next cycle.
+            if time_parameter(kind).is_some_and(|(i, ..)| i == k) {
+                continue;
+            }
+            let mut p = defaults(kind);
+            p[k] = 0.0;
+            let mut inst = instance(kind, p);
+            let settle = 2 * SR as usize;
+            let before = largest_step(&mut inst, 0, settle);
+            p[k] = 1.0;
+            inst.prepare(&p, ctx);
+            let during = largest_step(&mut inst, settle, 2_400);
+            let after = largest_step(&mut inst, settle + 2_400, settle);
+            let bound = 1.5 * before.max(after) + 1e-3;
+            if during > bound {
+                clicks.push(format!(
+                    "{kind:?} parameter {k} jumped by {during} (steady {before} / {after})"
+                ));
+            }
+        }
+    }
+    assert!(clicks.is_empty(), "{clicks:#?}");
+}
+
+#[test]
+fn swept_delay_reads_keep_the_highs() {
+    // A 10 kHz tone through a delay line read at a sweeping delay: its level
+    // stays within 1 dB wherever the read falls between samples.
+    let len = 4_096;
+    let mut buf = vec![0.0f32; len];
+    let mut write = 0;
+    let hz = 10_000.0;
+    let (mut lo, mut hi) = (f32::INFINITY, 0.0f32);
+    let window = 480;
+    let mut acc = 0.0f32;
+    let mut count = 0;
+    for i in 0..48_000 {
+        buf[write] = (std::f32::consts::TAU * hz * i as f32 / SR).sin();
+        write = (write + 1) % len;
+        // The fractional part sweeps slowly, as a flanger's does.
+        let delay = 200.0 + 0.5 + 0.5 * (i as f32 / 4_000.0).sin();
+        let y = tap(&buf, write, delay);
+        if i >= 1_000 {
+            acc += y * y;
+            count += 1;
+            if count == window {
+                let level = (acc / window as f32 * 2.0).sqrt();
+                lo = lo.min(level);
+                hi = hi.max(level);
+                acc = 0.0;
+                count = 0;
+            }
+        }
+    }
+    let db = |v: f32| 20.0 * v.log10();
+    assert!(db(lo) > -1.0, "dips to {:.2} dB", db(lo));
+    assert!(db(hi) < 0.5, "peaks at {:.2} dB", db(hi));
+}
