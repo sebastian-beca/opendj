@@ -173,6 +173,10 @@ export global LibraryEdit {
     callback delete(index: int);
     pure callback accepts-drop(index: int, data: data-transfer) -> bool;
     callback drop(index: int, data: data-transfer);
+    // Tracks from the side panel or a deck dropped on the open list (empty
+    // or not) in the track list join it.
+    pure callback accepts-list-drop(data: data-transfer) -> bool;
+    callback drop-on-list(data: data-transfer);
     callback set-rating(row: int, rating: int);
     // The rows `first` to `last`, the tracks picked with shift-click.
     callback add-to-list(first: int, last: int, list: int);
@@ -2881,6 +2885,21 @@ component TrackList inherits Rectangle {
                     Rectangle { horizontal-stretch: 1; }
                 }
             }
+        }
+    }
+    // The open list takes tracks dragged onto it from the side panel or a
+    // deck, even while it's empty and shows its placeholder.
+    if LibraryEdit.in-list: list-drop := DropArea {
+        can-drop(e) => { LibraryEdit.accepts-list-drop(e.data) ? DragAction.copy : DragAction.none }
+        dropped(e) => {
+            LibraryEdit.drop-on-list(e.data);
+            TrackDrag.active = false;
+            DragAction.copy
+        }
+        Rectangle {
+            border-radius: 4px;
+            border-width: list-drop.has-drag ? 2px : 0px;
+            border-color: Theme.accent;
         }
     }
 

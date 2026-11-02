@@ -1549,6 +1549,29 @@ impl Browser {
         edit.on_rename(move |i, name| w(&|b| b.rename_node(i as usize, &name)));
         let w = with.clone();
         edit.on_delete(move |i| w(&|b| b.delete_node(i as usize)));
+        // The open list's own rows are already in it, so only the side
+        // panel's rows and the decks' tracks go in by dropping on it.
+        edit.on_accepts_list_drop(|data| {
+            matches!(dragged(&data), Some(Dragged::Side(..) | Dragged::Deck(_)))
+        });
+        let w = with.clone();
+        edit.on_drop_on_list(move |data| {
+            w(&|b| {
+                if !matches!(dragged(&data), Some(Dragged::Side(..) | Dragged::Deck(_))) {
+                    return;
+                }
+                let Some(n) = b.nodes.get(b.current_node) else {
+                    return;
+                };
+                if !(n.kind == KIND_LIST || n.kind == KIND_CRATE) {
+                    return;
+                }
+                if let Some(list) = n.playlist {
+                    let ids = b.dropped_tracks(&data);
+                    b.add_to_playlist(&ids, list);
+                }
+            })
+        });
         edit.on_accepts_drop(|_, data| dragged(&data).is_some());
         let w = with.clone();
         edit.on_drop(move |i, data| {
