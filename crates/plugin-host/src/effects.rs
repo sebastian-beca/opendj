@@ -74,28 +74,49 @@ pub const TEST_EFFECTS: [&str; 4] = ["test-gain", "test-crash", "test-hang", "te
 
 /// Loads `plugin`, or says why not.
 pub fn load(plugin: &Plugin, sample_rate: u32, max_frames: usize) -> Result<Loaded, String> {
-    let test = |effect: Box<dyn Effect>, name: &str| Loaded {
+    // Each test effect has one parameter, the one it acts on.
+    let test = |effect: Box<dyn Effect>, name: &str, param: &str, max: f64, value: f64| Loaded {
         effect,
         main: None,
         info: Info {
             name: name.into(),
+            params: vec![Param {
+                name: param.into(),
+                min: 0.0,
+                max,
+                default: value,
+                value,
+            }],
             ..Info::default()
         },
     };
     match plugin {
         Plugin::Test(id) => match id.as_str() {
-            "test-gain" => Ok(test(Box::new(Gain), id)),
-            "test-crash" => Ok(test(Box::new(Crash { blocks: 0 }), id)),
-            "test-hang" => Ok(test(Box::new(Hang), id)),
-            "test-slow" => Ok(test(Box::new(Slow), id)),
+            "test-gain" => Ok(test(Box::new(Gain), id, "Gain", 2.0, 1.0)),
+            "test-crash" => Ok(test(
+                Box::new(Crash { blocks: 0 }),
+                id,
+                "Crash after",
+                1000.0,
+                0.0,
+            )),
+            "test-hang" => Ok(test(Box::new(Hang), id, "Hang", 1.0, 0.0)),
+            "test-slow" => Ok(test(Box::new(Slow), id, "Milliseconds", 100.0, 0.0)),
             _ => Err(format!("unknown effect {id:?}")),
         },
+        #[cfg(feature = "formats")]
         Plugin::Clap { file, id } => crate::clap::load(file, id, sample_rate, max_frames),
+        #[cfg(feature = "formats")]
         Plugin::Vst3 { file, id } => crate::vst3::load(file, id, sample_rate, max_frames),
-        #[cfg(target_os = "macos")]
+        #[cfg(all(feature = "formats", target_os = "macos"))]
         Plugin::Au { id } => crate::au::load(id, sample_rate, max_frames),
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(all(feature = "formats", not(target_os = "macos")))]
         Plugin::Au { .. } => Err("Audio Units only run on macOS".into()),
+        #[cfg(not(feature = "formats"))]
+        _ => {
+            let _ = (sample_rate, max_frames);
+            Err("this build hosts no plugin formats".into())
+        }
     }
 }
 
