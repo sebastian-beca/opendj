@@ -34,6 +34,7 @@ svg { display: block; }
   background: linear-gradient(180deg, #3b2d66 0%, #241c3d 45%, var(--bg) 100%);
   transition: background 0.6s;
 }
+#nowView > * { flex-shrink: 0; }
 .top { display: flex; align-items: center; justify-content: space-between; height: 44px; }
 .top .mid { text-align: center; line-height: 1.2; min-width: 0; }
 .top .mid b { font-size: 13px; letter-spacing: 1.2px; }
@@ -43,7 +44,7 @@ svg { display: block; }
 .iconbtn { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 22px; }
 .iconbtn:active { background: #ffffff14; }
 .cover {
-  margin: 14px auto 0; width: 100%; max-width: min(420px, 46vh); aspect-ratio: 1; border-radius: 10px; overflow: hidden;
+  margin: 14px auto 0; width: auto; height: clamp(120px, calc(100dvh - 510px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), min(420px, 100vw - 48px)); aspect-ratio: 1; border-radius: 10px; overflow: hidden;
   background: linear-gradient(135deg, var(--lilac-deep), #4b3a87); box-shadow: 0 16px 40px rgba(0,0,0,.45); position: relative; flex-shrink: 0;
 }
 .cover img { width: 100%; height: 100%; object-fit: cover; display: block; position: relative; z-index: 1; }
@@ -70,6 +71,14 @@ svg { display: block; }
 .big { width: 76px; height: 76px; border-radius: 38px; background: #fff; color: #111; display: grid; place-items: center; }
 .big:active { transform: scale(.96); }
 .big svg { width: 30px; height: 30px; fill: currentColor; }
+.volume { display: grid; grid-template-columns: auto 1fr 40px; gap: 10px; align-items: center; margin-top: 14px; padding: 4px 12px; border-radius: 12px; background: #ffffff10; color: var(--text); }
+.volume label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 650; }
+.volume input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; }
+.volume input[type=range]::-webkit-slider-thumb { margin-top: -10px; }
+.volume .ico { width: 20px; height: 20px; }
+.volume output { color: var(--dim); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+.volume input[type=range]::-webkit-slider-runnable-track { background: linear-gradient(to right, var(--lilac) var(--fill, 0%), #ffffff33 var(--fill, 0%)); }
+.volume input[type=range]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--lilac); }
 .next {
   display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 10px; border-radius: 12px; background: #ffffff10; text-align: left; width: 100%;
 }
@@ -242,6 +251,11 @@ input[type=range]::-moz-range-thumb { width: 26px; height: 26px; border-radius: 
     <button class="side" id="mixNowBtn" aria-label="Mix now"><svg class="ico"><use href="#i-next"/></svg></button>
     <button class="side" id="mixBtn" aria-label="Mix length and style"><svg class="ico"><use href="#i-mix"/></svg></button>
   </div>
+  <div class="volume">
+    <label for="nowVolume"><svg class="ico"><use href="#i-level"/></svg>Volume</label>
+    <input type="range" min="0" max="1000" value="0" data-level="master" id="nowVolume" aria-label="Master volume">
+    <output id="nowVolumeOut">0%</output>
+  </div>
   <button class="next" id="nextCard"></button>
   <div class="bottom">
     <div class="where"><svg class="ico"><use href="#i-laptop"/></svg><span id="where">openDJ</span></div>
@@ -397,9 +411,9 @@ function onEvent(name, data) {
   state[name] = data;
   if (name === "automix") { drawNow(); drawQueue(); drawEdit(); refreshSheet(); }
   if (name === "now") { drawNow(); drawQueue(); }
-  if (name === "mixer") { drawTimer(); refreshSheet(); }
+  if (name === "mixer") { drawTimer(); drawVolume(); refreshSheet(); }
 }
-function drawAll() { drawNow(); drawQueue(); drawEdit(); drawTimer(); }
+function drawAll() { drawNow(); drawQueue(); drawEdit(); drawTimer(); drawVolume(); }
 
 let toastTimer = 0;
 function toast(text) { const t = $("toast"); t.textContent = text; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200); }
@@ -759,16 +773,24 @@ $("sheet").addEventListener("click", async e => {
 });
 // Level sliders send at most about 15 changes a second.
 let levelLast = 0, levelTimer = 0;
-$("sheet").addEventListener("input", e => {
-  const r = e.target; if (!r.dataset.level) return;
+document.addEventListener("input", e => {
+  const r = e.target; if (!r.dataset || !r.dataset.level) return;
   levelDrag = true;
   r.nextElementSibling.textContent = Math.round(r.value / 10) + "%";
+  if (r.id === "nowVolume") r.style.setProperty("--fill", r.value / 10 + "%");
   const send = () => { levelLast = Date.now(); act("mixer.set", { level: r.dataset.level, value: r.value / 1000 }).catch(() => {}); };
   clearTimeout(levelTimer);
   const wait = 66 - (Date.now() - levelLast);
   wait <= 0 ? send() : (levelTimer = setTimeout(send, wait));
 });
-$("sheet").addEventListener("change", () => setTimeout(() => levelDrag = false, 300));
+document.addEventListener("change", e => { if (e.target.dataset && e.target.dataset.level) setTimeout(() => { levelDrag = false; drawVolume(); }, 300); });
+// The master volume on the now-playing screen, one drag away.
+function drawVolume() {
+  if (levelDrag) return;
+  const m = state.mixer || {}, r = $("nowVolume"), v = Math.round((m.master || 0) * 1000);
+  r.value = v; r.style.setProperty("--fill", v / 10 + "%");
+  $("nowVolumeOut").textContent = Math.round(v / 10) + "%";
+}
 
 $("dMix").onclick = () => openSheet("mix");
 $("dOrder").onclick = () => openSheet("order");

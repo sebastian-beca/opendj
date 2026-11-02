@@ -30,7 +30,7 @@ The remote SHALL refuse requests whose `Host` is not an address or `.local` name
 - **THEN** the connection is refused
 
 ### Requirement: Automix on the phone
-A paired phone SHALL open on a now-playing screen: a large cover of the track you hear, its title, artist, deck, tempo and key, a progress bar with the next mix shaded, Automix's status line, and the next track with the time left to its mix. Its controls SHALL be Order, play/pause, Mix now and Mix settings (length, style and Skip the next track). Pause SHALL pause the decks Automix is playing and switch Automix off; Play SHALL resume them and switch Automix back on (or start Automix when nothing was paused). The phone SHALL NOT switch between decks: it shows one track, the one you hear.
+A paired phone SHALL open on a now-playing screen: a large cover of the track you hear, its title, artist, deck, tempo and key, a progress bar with the next mix shaded, Automix's status line, and the next track with the time left to its mix. Its controls SHALL be Order, play/pause, Mix now and Mix settings (length, style and Skip the next track). A master volume slider SHALL sit under the controls, styled apart from the progress bar (labelled, lilac, in its own box). Pause SHALL pause the decks Automix is playing and switch Automix off; Play SHALL resume them and switch Automix back on (or start Automix when nothing was paused). The phone SHALL NOT switch between decks: it shows one track, the one you hear.
 
 #### Scenario: Pause from the phone
 - **WHEN** the DJ taps pause while Automix plays deck 2

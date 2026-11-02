@@ -41,7 +41,8 @@ in. Tap the card to open the queue.
   with **Undo** afterwards.
 - **Mix settings** sets the mix **Length** and **Style**, and has **Skip
   the next track**.
-- The speaker button at the top opens **Levels**; **⋯** has the queue,
+- **Volume**, under the controls, sets the master level with one drag.
+- The speaker button at the top opens **Levels** (booth level and Fade out); **⋯** has the queue,
   Add tracks, the sleep timer and Stop Automix.
 
 ### Queue
