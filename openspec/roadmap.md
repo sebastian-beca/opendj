@@ -43,6 +43,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-slip-vinyl-and-bend](changes/add-slip-vinyl-and-bend/proposal.md) (slip returns after each trick with a ghost playhead, SLIP and VINYL buttons, on-screen bend and censor; from the deck performance review, Seba 2026-11-01)
 - [add-phone-remote](changes/add-phone-remote/proposal.md) (control Automix and the main levels from a phone, by QR code; step 1 of 5; Seba 2026-11-01)
 - [add-groove-box](changes/add-groove-box/proposal.md) (a step-sequencer Groove Box that takes the place of a deck, beginner first, synthesised classic drum machine kits; replaces add-pattern-sequencer, moved from v1.x by Seba 2026-11-02)
+- [add-live-broadcast](changes/add-live-broadcast/proposal.md) (steps 1-2: a loudness meter with stream targets and a true-peak limiter, then Icecast/Shoutcast radio with now-playing; moved from v1.x by Seba 2026-11-02 after the radio and livestream research)
 
 ## v0.6 · Buy it from the artist
 
@@ -51,6 +52,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-bandcamp-collection-sync](changes/add-bandcamp-collection-sync/proposal.md)
 - [add-find-and-buy](changes/add-find-and-buy/proposal.md)
 - [add-artist-direct-stores](changes/add-artist-direct-stores/proposal.md)
+- [add-live-broadcast](changes/add-live-broadcast/proposal.md) (steps 3-5: Go live to Twitch, YouTube and Mixcloud Live over RTMP with a now-playing picture, WebRTC (WHIP), radio show tools)
 
 ## v0.7 · Your library, everywhere
 
@@ -71,7 +73,6 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-dvs](changes/add-dvs/proposal.md)
 - [add-karaoke](changes/add-karaoke/proposal.md)
 - [add-library-cloud-sync](changes/add-library-cloud-sync/proposal.md)
-- [add-live-broadcast](changes/add-live-broadcast/proposal.md)
 - [add-phrase-aware-automix](changes/add-phrase-aware-automix/proposal.md)
 - [add-synced-lyrics](changes/add-synced-lyrics/proposal.md)
 - [add-track-suggestions](changes/add-track-suggestions/proposal.md)
