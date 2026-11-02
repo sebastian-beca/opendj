@@ -109,6 +109,7 @@
 [Channel1],beats_undo_adjustment
 [Channel1],beatsync
 [Channel1],bpm
+[Channel1],bpm_tap
 [Channel1],bpmlock
 [Channel1],cue_default
 [Channel1],cue_gotoandplay
@@ -121,6 +122,7 @@
 [Channel1],eject
 [Channel1],end
 [Channel1],file_key
+[Channel1],flanger
 [Channel1],hotcue_1_activate
 [Channel1],hotcue_1_clear
 [Channel1],hotcue_1_enabled
@@ -260,6 +262,7 @@
 [Channel1],rate_temp_up
 [Channel1],rate_temp_up_small
 [Channel1],reloop_andstop
+[Channel1],reloop_exit
 [Channel1],reloop_toggle
 [Channel1],replaygain
 [Channel1],reset_key
@@ -385,6 +388,7 @@
 [Channel2],beats_undo_adjustment
 [Channel2],beatsync
 [Channel2],bpm
+[Channel2],bpm_tap
 [Channel2],bpmlock
 [Channel2],cue_default
 [Channel2],cue_gotoandplay
@@ -397,6 +401,7 @@
 [Channel2],eject
 [Channel2],end
 [Channel2],file_key
+[Channel2],flanger
 [Channel2],hotcue_1_activate
 [Channel2],hotcue_1_clear
 [Channel2],hotcue_1_enabled
@@ -536,6 +541,7 @@
 [Channel2],rate_temp_up
 [Channel2],rate_temp_up_small
 [Channel2],reloop_andstop
+[Channel2],reloop_exit
 [Channel2],reloop_toggle
 [Channel2],replaygain
 [Channel2],reset_key
@@ -661,6 +667,7 @@
 [Channel3],beats_undo_adjustment
 [Channel3],beatsync
 [Channel3],bpm
+[Channel3],bpm_tap
 [Channel3],bpmlock
 [Channel3],cue_default
 [Channel3],cue_gotoandplay
@@ -673,6 +680,7 @@
 [Channel3],eject
 [Channel3],end
 [Channel3],file_key
+[Channel3],flanger
 [Channel3],hotcue_1_activate
 [Channel3],hotcue_1_clear
 [Channel3],hotcue_1_enabled
@@ -812,6 +820,7 @@
 [Channel3],rate_temp_up
 [Channel3],rate_temp_up_small
 [Channel3],reloop_andstop
+[Channel3],reloop_exit
 [Channel3],reloop_toggle
 [Channel3],replaygain
 [Channel3],reset_key
@@ -937,6 +946,7 @@
 [Channel4],beats_undo_adjustment
 [Channel4],beatsync
 [Channel4],bpm
+[Channel4],bpm_tap
 [Channel4],bpmlock
 [Channel4],cue_default
 [Channel4],cue_gotoandplay
@@ -949,6 +959,7 @@
 [Channel4],eject
 [Channel4],end
 [Channel4],file_key
+[Channel4],flanger
 [Channel4],hotcue_1_activate
 [Channel4],hotcue_1_clear
 [Channel4],hotcue_1_enabled
@@ -1088,6 +1099,7 @@
 [Channel4],rate_temp_up
 [Channel4],rate_temp_up_small
 [Channel4],reloop_andstop
+[Channel4],reloop_exit
 [Channel4],reloop_toggle
 [Channel4],replaygain
 [Channel4],reset_key
@@ -1963,6 +1975,9 @@
 [EqualizerRack1_[Microphone]_Effect1],parameter1
 [EqualizerRack1_[Microphone]_Effect1],parameter2
 [EqualizerRack1_[Microphone]_Effect1],parameter3
+[Flanger],lfoDelay
+[Flanger],lfoDepth
+[Flanger],lfoPeriod
 [Library],AutoDjAddBottom
 [Library],AutoDjAddTop
 [Library],GoToItem

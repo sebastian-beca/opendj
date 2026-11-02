@@ -20,6 +20,8 @@ pub enum GridEdit {
     Shift(f64),
     /// Changes the tempo here by this many BPM (`beats_adjust_faster`/`_slower`).
     Tempo(f64),
+    /// Sets the tempo here to this many BPM (a deck's tapped `bpm_tap`).
+    SetTempo(f64),
     /// Starts a new tempo section on the beat here (`beats_section_add`).
     AddSection,
     /// Removes the tempo change that starts the section here (`beats_section_remove`).
@@ -45,6 +47,7 @@ impl BeatGrid {
             GridEdit::BarHere => self.with_beat_at(seconds).with_bar_at(seconds),
             GridEdit::Shift(by) => self.shifted(by),
             GridEdit::Tempo(by) => self.with_bpm_at(seconds, self.bpm_at(seconds) + by),
+            GridEdit::SetTempo(bpm) => self.with_bpm_at(seconds, bpm),
             GridEdit::AddSection => self.with_marker(seconds, self.bpm_at(seconds)),
             GridEdit::RemoveSection => self.without_marker_at(seconds),
             GridEdit::Scale(f) => Self::new(

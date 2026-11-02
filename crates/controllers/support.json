@@ -7,6 +7,7 @@
   {"name": "Pioneer DDJ-SB3", "file": "Pioneer-DDJ-SB3.midi.xml", "status": "beta", "note": ""},
   {"name": "Numark Mixtrack Platinum FX", "file": "Numark Mixtrack Platinum FX.midi.xml", "status": "beta", "note": ""},
   {"name": "Numark Mixtrack Pro FX", "file": "Numark Mixtrack Pro FX.midi.xml", "status": "beta", "note": ""},
+  {"name": "Numark V7", "file": "Numark V7.midi.xml", "status": "beta", "note": "Mixxx's mapping from 2012. The V7 runs its own platter motor; the picture is a sketch, not measured."},
   {"name": "Hercules DJControl Inpulse 500", "file": "Hercules_DJControl_Inpulse_500.midi.xml", "status": "beta", "note": ""},
   {"name": "Allen & Heath Xone:K2", "file": "Allen and Heath Xone K2.midi.xml", "status": "beta", "note": "Tried on the hardware; the mapping is still settling."},
   {"name": "DJ TechTools Midi Fighter Twister", "file": "DJ TechTools MIDI Fighter Twister.midi.xml", "status": "beta", "note": "Tried on the hardware; the mapping is still settling."},
