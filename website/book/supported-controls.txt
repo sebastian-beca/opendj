@@ -2002,6 +2002,7 @@
 [Master],headSplit
 [Master],num_decks
 [Master],num_effectsavailable
+[Master],num_plugins
 [Master],num_samplers
 [Master],peak_indicator
 [Master],peak_indicator_left
