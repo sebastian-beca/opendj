@@ -8,6 +8,8 @@
 
 ## 2. Info tab edits many
 
+- [x] 2.0 Info tab layout: rating at the top, prep fields first, Details and File & stats folded with summaries
+
 - [ ] 2.1 Summary header (count, covers, BPM range, keys, time, writable files)
 - [ ] 2.2 Shared values shown, differing ones as "N values" with the values menu
 - [ ] 2.3 Apply / Discard; one logged batch that Cmd-Z undoes; typed fields marked hand-edited

@@ -383,6 +383,16 @@ one track at a time; ⌘A picks the whole list. Right-click, drag, rate or
 add to a playlist and it applies to every picked track. Sorting or a
 refreshed list keeps the same tracks picked.
 
+## Track info
+
+The **Info** tab on the right of the browser shows the picked track (or
+the track on a deck) and lets you edit it in place. The rating is under the
+title. The fields you change most while preparing tracks come first: genre,
+your own tag fields and the comment, then the names. **Details** (tempo, key,
+gain) and **File & stats** (format, size, file, folder, plays) stay folded,
+with a one-line summary; click a heading to open it, and openDJ remembers.
+Tags go into the file as well as your collection.
+
 ## Columns
 
 Right-click any column heading to choose which columns the list shows, your

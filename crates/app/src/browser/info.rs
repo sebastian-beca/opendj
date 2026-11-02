@@ -24,9 +24,14 @@ const COVER_SIZE: u32 = 160;
 
 const TEXT: i32 = 0;
 const READ: i32 = 1;
-const RATING: i32 = 2;
 const HEADING: i32 = 3;
 const READ_WITH_BUTTON: i32 = 4;
+
+/// Where a line of the list goes: always shown, or in a section that
+/// opens from its heading.
+const SHOWN: i32 = 0;
+const DETAILS: i32 = 1;
+const FILE: i32 = 2;
 
 pub(super) struct InfoState {
     /// 0 the selected track, 1 deck A, 2 deck B.
@@ -50,6 +55,9 @@ pub(super) struct InfoState {
     shown_position: (bool, i64),
     /// Each deck's gain knob, set when the gain of its track is edited.
     pregain: Vec<ControlHandle>,
+    /// The Details and File & stats sections are open.
+    details_open: bool,
+    file_open: bool,
 }
 
 impl InfoState {
@@ -71,6 +79,8 @@ impl InfoState {
             pregain: (0..NUM_DECKS)
                 .map(|d| registry.get(&deck_group(d), "pregain").expect("pregain"))
                 .collect(),
+            details_open: crate::settings::flag("info_details_open", false),
+            file_open: crate::settings::flag("info_file_open", false),
         }
     }
 }
@@ -131,56 +141,30 @@ fn field(id: &str, label: &str, value: impl Into<SharedString>, kind: i32) -> In
         kind,
         hint: SharedString::new(),
         action: SharedString::new(),
+        section: SHOWN,
+        open: false,
     }
 }
 
-fn heading(label: &str) -> InfoField {
-    field("", label, "", HEADING)
+/// The heading of a section that opens and closes, with a summary of what
+/// is in it for while it's closed.
+fn heading(id: &str, label: &str, summary: String) -> InfoField {
+    field(id, label, summary, HEADING)
 }
 
-/// The info list for `t`, in the order the DJ reads it.
+/// `f` in section `section`.
+fn within(section: i32, f: InfoField) -> InfoField {
+    InfoField { section, ..f }
+}
+
+/// The info list for `t`: what a DJ edits while preparing tracks first
+/// (genre, their own tag fields, the comment), then the names; then the
+/// Details (tempo, key, gain) and File & stats sections, which open from
+/// their headings. The rating is in the panel's header.
 fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
     let names = query::field_names();
     let text = |id: &str, label: &str, value: &str| field(id, label, value, TEXT);
-    let mut out = vec![
-        text("title", "TRACK", &t.title),
-        text("artist", "ARTIST", &t.artist),
-        text("remix", "REMIX", &t.info.remix),
-        text("album", "ALBUM", &t.album),
-        text("year", "YEAR", &t.info.year),
-        text("genre", "GENRE", &t.genre),
-        text(
-            "track_number",
-            "TRACK #",
-            &if t.info.track_number > 0 {
-                t.info.track_number.to_string()
-            } else {
-                String::new()
-            },
-        ),
-        text("grouping", &names.grouping.to_uppercase(), &t.info.grouping),
-        text(
-            "bpm",
-            "BPM",
-            &if t.bpm > 0.0 {
-                format!("{:.2}", t.bpm)
-                    .trim_end_matches('0')
-                    .trim_end_matches('.')
-                    .to_string()
-            } else {
-                String::new()
-            },
-        ),
-        InfoField {
-            hint: "e.g. 8A or Am".into(),
-            ..text("key", "KEY", &show_key(&t.key, camelot))
-        },
-        InfoField {
-            hint: "0.0 dB".into(),
-            ..text("gain", "GAIN", &gain_text(t.info.gain_db))
-        },
-        field("rating", "RATING", t.rating.to_string(), RATING),
-    ];
+    let mut out = vec![text("genre", "GENRE", &t.genre)];
     // The DJ's tag fields, by the names they gave them.
     for (i, name) in names.tags.iter().enumerate() {
         out.push(InfoField {
@@ -194,7 +178,61 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
     }
     out.extend([
         text("comment", "COMMENT", &t.info.comment),
-        heading("STATS"),
+        text("title", "TRACK", &t.title),
+        text("artist", "ARTIST", &t.artist),
+        text("remix", "REMIX", &t.info.remix),
+        text("album", "ALBUM", &t.album),
+        text("year", "YEAR", &t.info.year),
+        text(
+            "track_number",
+            "TRACK #",
+            &if t.info.track_number > 0 {
+                t.info.track_number.to_string()
+            } else {
+                String::new()
+            },
+        ),
+        text("grouping", &names.grouping.to_uppercase(), &t.info.grouping),
+    ]);
+    let bpm = if t.bpm > 0.0 {
+        format!("{:.2}", t.bpm)
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
+    } else {
+        String::new()
+    };
+    let key = show_key(&t.key, camelot);
+    let gain = gain_text(t.info.gain_db);
+    let summary = [
+        (!bpm.is_empty()).then(|| format!("{bpm} BPM")),
+        (!key.is_empty()).then(|| key.clone()),
+        (!gain.is_empty()).then(|| gain.clone()),
+    ];
+    out.push(heading(
+        "details",
+        "DETAILS",
+        summary
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · "),
+    ));
+    out.extend(
+        [
+            text("bpm", "BPM", &bpm),
+            InfoField {
+                hint: "e.g. 8A or Am".into(),
+                ..text("key", "KEY", &key)
+            },
+            InfoField {
+                hint: "0.0 dB".into(),
+                ..text("gain", "GAIN", &gain)
+            },
+        ]
+        .map(|f| within(DETAILS, f)),
+    );
+    let mut file = vec![
         field("", "DURATION", short_time(t.duration), READ),
         field("", "PLAY COUNT", t.info.play_count.to_string(), READ),
         field("", "FIRST SEEN", date_text(t.info.added), READ),
@@ -204,9 +242,9 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
             t.info.last_played.map(date_text).unwrap_or_default(),
             READ,
         ),
-    ]);
+    ];
+    let mut summary = Vec::new();
     if let Source::File(path) = &t.source {
-        out.push(heading("FILE"));
         let f = if t.info.missing || is_cloud_only(path) {
             tags::FileInfo::default()
         } else {
@@ -216,7 +254,10 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
             Some(b) if !f.format.is_empty() => format!("{} · {b} kbps", f.format),
             _ => f.format.clone(),
         };
-        out.push(field("", "FORMAT", format, READ));
+        if !format.is_empty() {
+            summary.push(format.clone());
+        }
+        file.push(field("", "FORMAT", format, READ));
         let mut audio = Vec::new();
         if let Some(r) = f.sample_rate {
             audio.push(format!("{:.1} kHz", r as f64 / 1000.0).replace(".0 ", " "));
@@ -230,15 +271,19 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
             Some(n) => audio.push(format!("{n} channels")),
             None => {}
         }
-        out.push(field("", "AUDIO", audio.join(" · "), READ));
+        file.push(field("", "AUDIO", audio.join(" · "), READ));
         if f.size > 0 {
-            out.push(field("", "SIZE", size_text(f.size), READ));
+            summary.push(size_text(f.size));
+            file.push(field("", "SIZE", size_text(f.size), READ));
         }
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        out.push(InfoField {
+        if t.info.missing {
+            summary.push("missing".into());
+        }
+        file.push(InfoField {
             action: format!("Show in {file_manager}").into(),
             ..field(
                 "",
@@ -255,9 +300,34 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
             .parent()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
-        out.push(field("", "FOLDER", folder, READ));
+        file.push(field("", "FOLDER", folder, READ));
     }
+    match t.info.play_count {
+        0 => summary.push("not played".into()),
+        1 => summary.push("played once".into()),
+        n => summary.push(format!("played {n}×")),
+    }
+    out.push(heading("file", "FILE & STATS", summary.join(" · ")));
+    out.extend(file.into_iter().map(|f| within(FILE, f)));
     out
+}
+
+/// `fields` without the lines of closed sections, each heading marked
+/// open or not.
+fn shown_fields(fields: Vec<InfoField>, details: bool, file: bool) -> Vec<InfoField> {
+    fields
+        .into_iter()
+        .filter(|f| match f.section {
+            DETAILS => details,
+            FILE => file,
+            _ => true,
+        })
+        .map(|f| match f.id.as_str() {
+            "details" if f.kind == HEADING => InfoField { open: details, ..f },
+            "file" if f.kind == HEADING => InfoField { open: file, ..f },
+            _ => f,
+        })
+        .collect()
 }
 
 /// The tags of `t` as they go in its file.
@@ -368,6 +438,25 @@ impl Browser {
         });
         let w = with.clone();
         ui.on_edit(move |id, value| w(&|b| b.info_edit(&id, &value)));
+        let w = with.clone();
+        ui.on_toggle_section(move |id| {
+            w(&|b| {
+                match id.as_str() {
+                    "details" => {
+                        b.info.details_open = !b.info.details_open;
+                        crate::settings::set("info_details_open", b.info.details_open.into());
+                    }
+                    "file" => {
+                        b.info.file_open = !b.info.file_open;
+                        crate::settings::set("info_file_open", b.info.file_open.into());
+                    }
+                    _ => return,
+                }
+                if let Some(app) = b.app.upgrade() {
+                    b.refresh_info(&app);
+                }
+            })
+        });
         let w = with.clone();
         ui.on_reveal(move || {
             w(&|b| {
@@ -516,7 +605,12 @@ impl Browser {
         });
         ui.set_key(show_key(&t.key, self.camelot).into());
         ui.set_length(short_time(t.duration));
-        let fields = fields_of(t, self.camelot, files::file_manager());
+        ui.set_rating(t.rating as i32);
+        let fields = shown_fields(
+            fields_of(t, self.camelot, files::file_manager()),
+            self.info.details_open,
+            self.info.file_open,
+        );
         // Rows change in place, so a field being typed in keeps its focus.
         let model = &self.info.fields;
         if model.row_count() == fields.len() {
@@ -828,18 +922,38 @@ mod tests {
     fn lists_the_fields_in_order() {
         let mut t = track();
         t.info.gain_db = Some(-1.5);
+        t.info.play_count = 3;
         let f = fields_of(&t, true, "Finder");
         let labels: Vec<&str> = f.iter().map(|f| f.label.as_str()).collect();
         assert_eq!(
             &labels[..15],
             [
-                "TRACK", "ARTIST", "REMIX", "ALBUM", "YEAR", "GENRE", "TRACK #", "GROUPING", "BPM",
-                "KEY", "GAIN", "RATING", "TAG 1", "TAG 2", "COMMENT"
+                "GENRE", "TAG 1", "TAG 2", "COMMENT", "TRACK", "ARTIST", "REMIX", "ALBUM", "YEAR",
+                "TRACK #", "GROUPING", "DETAILS", "BPM", "KEY", "GAIN"
             ]
         );
-        assert_eq!(f[8].value, "100");
-        assert_eq!(f[10].value, "-1.5 dB");
+        assert_eq!(
+            f[11].value, "100 BPM · 10B · -1.5 dB",
+            "the closed Details say what's in them"
+        );
+        assert_eq!(f[12].value, "100");
+        assert_eq!(f[14].value, "-1.5 dB");
         assert!(labels.contains(&"PLAY COUNT"));
+        let stats = f.iter().find(|f| f.id == "file").unwrap();
+        assert_eq!(stats.value, "played 3×");
+    }
+
+    #[test]
+    fn closed_sections_keep_only_their_headings() {
+        let t = track();
+        let shown = shown_fields(fields_of(&t, true, "Finder"), false, false);
+        let labels: Vec<&str> = shown.iter().map(|f| f.label.as_str()).collect();
+        assert!(labels.contains(&"DETAILS") && labels.contains(&"FILE & STATS"));
+        assert!(!labels.contains(&"BPM") && !labels.contains(&"PLAY COUNT"));
+        let shown = shown_fields(fields_of(&t, true, "Finder"), true, false);
+        assert!(shown.iter().any(|f| f.label == "BPM"));
+        assert!(shown.iter().any(|f| f.id == "details" && f.open));
+        assert!(!shown.iter().any(|f| f.label == "PLAY COUNT"));
     }
 
     #[test]

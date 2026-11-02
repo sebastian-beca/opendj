@@ -15,6 +15,10 @@ export struct InfoField {
     // Shown greyed in an empty field.
     hint: string,
     action: string,
+    // 0 always shown, 1 in Details, 2 in File & stats.
+    section: int,
+    // A section heading whose section is open.
+    open: bool,
 }
 
 // A cover the search found.
@@ -37,6 +41,9 @@ export global TrackInfo {
     in property <image> cover;
     in property <bool> has-cover;
     in property <[InfoField]> fields;
+    in property <int> rating;
+    // Opens or closes the section under the heading `id` ("details", "file").
+    callback toggle-section(id: string);
     // What the panel shows: 0 the track selected in the list, 1 deck A, 2 deck B.
     in-out property <int> subject;
     callback set-subject(subject: int);
@@ -192,14 +199,47 @@ component InfoRow inherits Rectangle {
     in property <InfoField> field;
     in property <bool> editable;
     min-height: field.kind == 3 ? 34px : 30px;
-    if field.kind == 3: Text {
-        x: 4px;
-        y: parent.height - self.height - 4px;
-        text: field.label;
-        color: Theme.text-dim;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.6px;
+    // A section heading: click to open or close it; closed, it says
+    // what's in it.
+    if field.kind == 3: Rectangle {
+        y: 4px;
+        height: parent.height - 4px;
+        border-radius: 4px;
+        background: head.has-hover && field.id != "" ? #ffffff0a : transparent;
+        HorizontalLayout {
+            padding-left: 4px;
+            padding-right: 6px;
+            spacing: 6px;
+            if field.id != "": Text {
+                width: 10px;
+                text: field.open ? "▾" : "▸";
+                color: Theme.text-dim;
+                font-size: 11px;
+                vertical-alignment: center;
+            }
+            Text {
+                text: field.label;
+                color: Theme.text-dim;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.6px;
+                vertical-alignment: center;
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: field.open ? "" : field.value;
+                color: Theme.text-dim;
+                font-size: 12px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        head := TouchArea {
+            enabled: field.id != "";
+            mouse-cursor: pointer;
+            clicked => { TrackInfo.toggle-section(field.id); }
+        }
     }
     if field.kind != 3: HorizontalLayout {
         spacing: 6px;
@@ -541,6 +581,16 @@ export component InfoPanel inherits Rectangle {
                     Text { text: TrackInfo.key; color: Theme.key; font-size: 13px; font-weight: 600; }
                     Text { text: TrackInfo.length; color: Theme.text-dim; font-size: 13px; horizontal-stretch: 1; }
                 }
+            }
+        }
+        // The rating, first thing to set while preparing a track.
+        if TrackInfo.has-track: HorizontalLayout {
+            height: 26px;
+            padding-left: 84px;
+            Stars {
+                rating: TrackInfo.rating;
+                enabled: TrackInfo.editable;
+                rate(n) => { TrackInfo.edit("rating", n); }
             }
         }
         if TrackInfo.has-track: PreviewBar { }
