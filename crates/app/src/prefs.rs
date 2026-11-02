@@ -938,13 +938,14 @@ impl Prefs {
                         )
                     },
                     PrefItem {
-                        choices: strings(&["Standard", "Neural"]),
+                        choices: strings(&["Standard", "Beat This!"]),
                         chosen: i32::from(settings::flag("neural_beats", true)),
                         ..item(
                             "beat_detector",
                             SEGMENTED,
                             "Beat detection",
-                            "Neural (Beat This!) finds downbeats, so bar 1 starts on one. \
+                            "Beat This! (an open-source neural network) finds downbeats, \
+                             so bar 1 starts on one. \
                              It takes a few seconds more per track, after the waveform. \
                              Edited and imported grids stay.",
                         )

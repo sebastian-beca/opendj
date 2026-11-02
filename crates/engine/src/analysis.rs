@@ -2,9 +2,12 @@
 //! (see [`crate::key`] and [`crate::keynet`]).
 //!
 //! The tempo detector works on an onset envelope (rises in bass energy and
-//! overall level, 200 per second). It picks the strongest autocorrelation lag
-//! in the tempo range (60 to 180 BPM unless set otherwise), then refines it to 0.01 BPM by folding the envelope
-//! at each candidate period and keeping the one whose beats line up best.
+//! overall level, 200 per second). It picks the strongest autocorrelation
+//! lag in the tempo range (60 to 180 BPM unless set otherwise), then refines
+//! it to 0.01 BPM by folding the envelope at each candidate period and
+//! keeping the one whose beats line up best. When the beats then fit no
+//! steady grid, the spectral flux (rises across the whole spectrum) gets a
+//! second say in the tempo.
 //!
 //! Live and older recordings drift, so a steady grid misses their beats. A
 //! dynamic-programming beat tracker (Ellis, "Beat Tracking by Dynamic
@@ -13,6 +16,10 @@
 //! for a while, then in tempo sections (see [`crate::gridfit`]).
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
+use rustfft::num_complex::Complex32;
+use rustfft::{Fft, FftPlanner};
 
 use crate::beats::BeatGrid;
 use crate::dsp::Isolator;
@@ -136,6 +143,7 @@ pub struct Analyser {
     /// The neural detector's input, when it is the one chosen.
     neural: Option<Spectrogram>,
     loudness: LoudnessMeter,
+    flux: SpectralFlux,
     slices: Vec<Slice>,
     energy: Vec<[f32; 2]>,
     /// Frames fed so far.
@@ -158,6 +166,7 @@ impl Analyser {
             key: KeyDetector::new(sr),
             neural: (key::detector() == Detector::Neural).then(|| Spectrogram::new(sr)),
             loudness: LoudnessMeter::new(sr),
+            flux: SpectralFlux::new(sr, bin_len, bins),
             slices: vec![Slice::default(); slices],
             energy: vec![[0.0; 2]; bins],
             frames: 0,
@@ -186,8 +195,10 @@ impl Analyser {
             self.loudness.push(*f);
             let [lo, mid, hi] = self.eq.split(*f);
             self.key.push((lo[0] + lo[1] + mid[0] + mid[1]) * 0.5);
+            let mono = (f[0] + f[1]) * 0.5;
+            self.flux.push(mono);
             if let Some(n) = self.neural.as_mut() {
-                n.push((f[0] + f[1]) * 0.5);
+                n.push(mono);
             }
             let bands = [lo, mid, hi, *f];
             let slice = &mut self.slices[s];
@@ -197,9 +208,8 @@ impl Analyser {
             }
             slice.frames += 1;
             let lo_mono = (lo[0] + lo[1]) * 0.5;
-            let all_mono = (f[0] + f[1]) * 0.5;
             self.energy[b][0] += lo_mono * lo_mono;
-            self.energy[b][1] += all_mono * all_mono;
+            self.energy[b][1] += mono * mono;
         }
     }
 
@@ -226,23 +236,44 @@ impl Analyser {
             let d_all = level(energy[i][1]) - level(energy[i - 1][1]);
             onset[i] = d_lo.max(0.0) + 0.5 * d_all.max(0.0);
         }
-
         let waveform = summarise(&self.slices);
-        let tagged = tag_tempo(bpm_hint).is_some();
-        let bpm = tag_tempo(bpm_hint).unwrap_or_else(|| detect_bpm(&onset));
-        let first_beat = if bpm > 0.0 {
-            let period = ONSET_RATE * 60.0 / bpm;
-            let (phase, _) = fold(&onset, period);
-            phase * period / ONSET_RATE
-        } else {
-            0.0
+        let seconds = self.frames as f64 / bin_len / ONSET_RATE;
+        let mut pick = match tag_tempo(bpm_hint) {
+            // A tempo from tags is taken as steady.
+            Some(bpm) => Pick::steady(&onset, bpm),
+            None => Pick::at(&onset, detect_bpm(&onset)),
         };
-        // A tempo from tags is taken as steady. Otherwise the tracked beats
-        // say whether the tempo really moves; if it doesn't, the folded
-        // tempo and phase are the more precise.
-        let fitted = (bpm > 0.0 && !tagged)
-            .then(|| fit_beats(&onset, bpm, first_beat))
-            .flatten();
+        // The bass and level can keep a rhythm that isn't the beat: a bass
+        // line playing every beat and a half reads as two thirds of the
+        // tempo, and its beats then drift off any grid. Then the spectral
+        // flux, which also hears the soft attacks of pads, plucks and
+        // vocals, gets a say in the tempo; its tempo is taken when its beats
+        // sit on one grid better. (On its own the flux follows hi-hats too
+        // readily, so it isn't the first opinion.)
+        if tag_tempo(bpm_hint).is_none() && pick.bpm > 0.0 && pick.share < STEADY_SHARE {
+            let flux = std::mem::take(&mut self.flux).finish(onset.len());
+            let (sd_level, sd_flux) = (std_dev(&onset), std_dev(&flux));
+            let both: Vec<f32> = onset
+                .iter()
+                .zip(&flux)
+                .map(|(o, f)| o / sd_level + f / sd_flux)
+                .collect();
+            let bpm = detect_bpm(&both);
+            if bpm > 0.0 && (bpm / pick.bpm - 1.0).abs() > 0.01 {
+                let other = Pick::at(&onset, bpm);
+                if other.share > pick.share + SHARE_MARGIN {
+                    pick = other;
+                }
+            }
+        }
+        let Pick {
+            bpm,
+            first_beat,
+            fitted,
+            ..
+        } = pick;
+        // The tracked beats say whether the tempo really moves; if it
+        // doesn't, the folded tempo and phase are the more precise.
         let grid_unsure = fitted.as_ref().is_some_and(|f| f.unsure);
         let grid = match fitted {
             _ if bpm <= 0.0 => BeatGrid::default(),
@@ -250,10 +281,7 @@ impl Analyser {
             _ => BeatGrid::constant(bpm, first_beat),
         };
         let (bpm, first_beat) = if grid.is_dynamic() {
-            (
-                grid.main_bpm(self.frames as f64 / bin_len / ONSET_RATE),
-                grid.first_beat(),
-            )
+            (grid.main_bpm(seconds), grid.first_beat())
         } else {
             (bpm, first_beat)
         };
@@ -304,15 +332,141 @@ fn summarise(slices: &[Slice]) -> Waveform {
     Waveform::from_finest(WAVEFORM_RATE, finest)
 }
 
+/// Standard deviation of `v`; never zero, so it can divide.
+fn std_dev(v: &[f32]) -> f32 {
+    let n = v.len().max(1) as f32;
+    let mean = v.iter().sum::<f32>() / n;
+    (v.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / n)
+        .sqrt()
+        .max(1e-9)
+}
+
+/// Samples in each spectrum of the spectral flux (about 43 ms at 48 kHz).
+const FLUX_FFT: usize = 2048;
+/// The highest frequency the flux listens to; above it is mostly hiss and
+/// cymbal wash.
+const FLUX_TOP_HZ: f64 = 11_000.0;
+/// Half the window (in seconds) of the running mean taken off the flux, so
+/// a busy stretch doesn't outvote the beats in a quiet one.
+const FLUX_MEAN_SECS: f64 = 0.5;
+
+/// Spectral flux, one value per onset bin: how much the log-magnitude
+/// spectrum rises from one bin to the next, summed over frequency (as
+/// Mixxx's Queen Mary and librosa's onset detectors do). Fed the mono
+/// signal a sample at a time; each spectrum is centred on its bin.
+#[derive(Default)]
+struct SpectralFlux {
+    fft: Option<Arc<dyn Fft<f32>>>,
+    window: Vec<f32>,
+    /// The last [`FLUX_FFT`] samples.
+    ring: Vec<f32>,
+    /// Samples pushed so far.
+    pos: usize,
+    bin_len: f64,
+    /// The log magnitudes of the last spectrum, up to [`FLUX_TOP_HZ`].
+    last: Vec<f32>,
+    buf: Vec<Complex32>,
+    values: Vec<f32>,
+}
+
+impl SpectralFlux {
+    fn new(sample_rate: f64, bin_len: f64, bins: usize) -> Self {
+        let top = ((FLUX_FFT as f64 * FLUX_TOP_HZ / sample_rate) as usize).clamp(2, FLUX_FFT / 2);
+        SpectralFlux {
+            fft: Some(FftPlanner::new().plan_fft_forward(FLUX_FFT)),
+            window: (0..FLUX_FFT)
+                .map(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / FLUX_FFT as f32).cos())
+                .collect(),
+            ring: vec![0.0; FLUX_FFT],
+            pos: 0,
+            bin_len,
+            last: vec![0.0; top],
+            buf: vec![Complex32::default(); FLUX_FFT],
+            values: Vec::with_capacity(bins),
+        }
+    }
+
+    /// Where the spectrum of the next bin starts, in samples (negative for
+    /// the first few, which start before the track).
+    fn next_start(&self) -> isize {
+        (self.values.len() as f64 * self.bin_len) as isize - (FLUX_FFT / 2) as isize
+    }
+
+    fn push(&mut self, x: f32) {
+        self.ring[self.pos % FLUX_FFT] = x;
+        self.pos += 1;
+        while self.next_start() + FLUX_FFT as isize <= self.pos as isize {
+            self.spectrum();
+        }
+    }
+
+    /// The next bin's flux, from the samples pushed so far (silence before
+    /// the track and after the last sample).
+    fn spectrum(&mut self) {
+        let Some(fft) = self.fft.clone() else {
+            return;
+        };
+        let start = self.next_start();
+        for (k, c) in self.buf.iter_mut().enumerate() {
+            let j = start + k as isize;
+            let x = if j >= 0 && (j as usize) < self.pos {
+                self.ring[j as usize % FLUX_FFT]
+            } else {
+                0.0
+            };
+            *c = Complex32::new(x * self.window[k], 0.0);
+        }
+        fft.process(&mut self.buf);
+        let mut rise = 0.0;
+        for (last, c) in self.last.iter_mut().zip(&self.buf[1..]) {
+            let l = (1.0 + 100.0 * c.norm()).ln();
+            rise += (l - *last).max(0.0);
+            *last = l;
+        }
+        self.values.push(rise);
+    }
+
+    /// The flux for `bins` onset bins, less its running mean.
+    fn finish(mut self, bins: usize) -> Vec<f32> {
+        if self.fft.is_none() {
+            return vec![0.0; bins];
+        }
+        while self.values.len() < bins {
+            self.spectrum();
+        }
+        self.values.truncate(bins);
+        let half = (FLUX_MEAN_SECS * ONSET_RATE) as usize;
+        let mut sums = Vec::with_capacity(bins + 1);
+        sums.push(0.0f64);
+        for &v in &self.values {
+            sums.push(sums.last().unwrap() + v as f64);
+        }
+        (0..bins)
+            .map(|i| {
+                let (lo, hi) = (i.saturating_sub(half), (i + half + 1).min(bins));
+                let mean = (sums[hi] - sums[lo]) / (hi - lo) as f64;
+                (self.values[i] - mean as f32).max(0.0)
+            })
+            .collect()
+    }
+}
+
 /// Folds the envelope at `period` (in bins) and returns the best beat phase
 /// (0..1) and how strongly the beats line up there.
 fn fold(onset: &[f32], period: f64) -> (f64, f32) {
+    // Each phase bin holds the mean onset of the bins that fold into it: a
+    // period near a whole number of bins folds more of them into some phase
+    // bins than others, and plain sums would make those tempos look strong.
     let mut hist = [0.0f32; PHASE_BINS];
+    let mut count = [0u32; PHASE_BINS];
     for (i, &o) in onset.iter().enumerate() {
-        if o > 0.0 {
-            let ph = (i as f64 / period).fract();
-            hist[(ph * PHASE_BINS as f64) as usize % PHASE_BINS] += o;
-        }
+        let ph = (i as f64 / period).fract();
+        let k = (ph * PHASE_BINS as f64) as usize % PHASE_BINS;
+        hist[k] += o.max(0.0);
+        count[k] += 1;
+    }
+    for (h, &c) in hist.iter_mut().zip(&count) {
+        *h /= c.max(1) as f32;
     }
     let total: f32 = hist.iter().sum::<f32>().max(1e-9);
     let mut best = (0, 0.0f32);
@@ -469,21 +623,57 @@ fn track_beats(onset: &[f32], period: f64) -> Vec<(usize, bool)> {
 /// Share of the clearly marked beats that must fall on the steady grid for
 /// the track to keep it.
 const STEADY_SHARE: f64 = 0.75;
+/// How much more of its beats a second opinion on the tempo must hold on
+/// its steady grid to be taken.
+const SHARE_MARGIN: f64 = 0.15;
 
-/// A grid fitted to the clearly marked beats [`track_beats`] finds at `bpm`
-/// (see [`gridfit`]); None when the steady grid at `bpm` from `first_beat`
-/// holds most of them.
-fn fit_beats(onset: &[f32], bpm: f64, first_beat: f64) -> Option<Fitted> {
-    let beats: Vec<f64> = track_beats(onset, ONSET_RATE * 60.0 / bpm)
-        .into_iter()
-        .filter(|&(_, clear)| clear)
-        .map(|(b, _)| b as f64 / ONSET_RATE)
-        .collect();
-    let steady = BeatGrid::constant(bpm, first_beat);
-    if gridfit::share_on(&beats, &steady) >= STEADY_SHARE {
-        return None;
+/// A tempo and the grid its tracked beats fit.
+struct Pick {
+    bpm: f64,
+    first_beat: f64,
+    /// The share of the clearly marked beats on the steady grid.
+    share: f64,
+    /// The grid fitted to the beats, when the steady grid doesn't hold
+    /// them.
+    fitted: Option<Fitted>,
+}
+
+impl Pick {
+    /// Steady at `bpm`, from the best phase.
+    fn steady(onset: &[f32], bpm: f64) -> Pick {
+        let first_beat = if bpm > 0.0 {
+            let period = ONSET_RATE * 60.0 / bpm;
+            let (phase, _) = fold(onset, period);
+            phase * period / ONSET_RATE
+        } else {
+            0.0
+        };
+        Pick {
+            bpm,
+            first_beat,
+            share: 1.0,
+            fitted: None,
+        }
     }
-    gridfit::fit(&beats, None, bpm)
+
+    /// At `bpm`, steady unless the beats [`track_beats`] finds keep off the
+    /// steady grid; then fitted to them (see [`gridfit`]).
+    fn at(onset: &[f32], bpm: f64) -> Pick {
+        let mut pick = Pick::steady(onset, bpm);
+        if bpm <= 0.0 {
+            return pick;
+        }
+        let beats: Vec<f64> = track_beats(onset, ONSET_RATE * 60.0 / bpm)
+            .into_iter()
+            .filter(|&(_, clear)| clear)
+            .map(|(b, _)| b as f64 / ONSET_RATE)
+            .collect();
+        pick.share = gridfit::share_on(&beats, &BeatGrid::constant(bpm, pick.first_beat));
+        if pick.share < STEADY_SHARE {
+            pick.fitted = gridfit::fit(&beats, None, bpm);
+        }
+        pick
+    }
 }
 
 #[cfg(test)]
@@ -583,6 +773,62 @@ mod tests {
                 a.grid
             );
         }
+    }
+
+    /// A 90 BPM track whose bass plays across the beat (a beat and a half
+    /// apart, then one) under a shaker on each beat, much as Peace Sine's
+    /// "Ancient Sands" does: the bass and level alone hear 120 BPM.
+    #[test]
+    fn hears_the_beat_over_a_bass_across_it() {
+        let sr = 44_100u32;
+        let secs = 60.0;
+        let beat = 60.0 / 90.0;
+        let mut frames = vec![[0.0f32; 2]; (secs * sr as f64) as usize];
+        let tone = |frames: &mut [[f32; 2]], at: f64, hz: f64, amp: f64, decay: f64, len: f64| {
+            let start = (at * sr as f64) as usize;
+            for i in 0..(len * sr as f64) as usize {
+                let Some(f) = frames.get_mut(start + i) else {
+                    break;
+                };
+                let t = i as f64 / sr as f64;
+                let x = (amp * (-t / decay).exp() * (std::f64::consts::TAU * hz * t).sin()) as f32;
+                f[0] += x;
+                f[1] += x;
+            }
+        };
+        // The bass on beats 1, 2½ and 4 of each bar: a beat and a half
+        // apart, then one.
+        let mut bar = 0.0;
+        while bar < secs {
+            for at in [0.0, 1.5, 3.0] {
+                tone(&mut frames, bar + at * beat, 50.0, 0.3, 0.25, 0.9);
+            }
+            bar += 4.0 * beat;
+        }
+        let mut k = 0.0;
+        while k * beat < secs {
+            // A soft shaker: a short burst of noise.
+            let amp = 0.1;
+            let start = ((k * beat) * sr as f64) as usize;
+            let mut seed = 0x2545_f491_u32.wrapping_add(k as u32);
+            for i in 0..(0.08 * sr as f64) as usize {
+                let Some(f) = frames.get_mut(start + i) else {
+                    break;
+                };
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                let noise = seed as f64 / u32::MAX as f64 * 2.0 - 1.0;
+                let x = (amp * (-(i as f64) / (0.02 * sr as f64)).exp() * noise) as f32;
+                f[0] += x;
+                f[1] += x;
+            }
+            k += 1.0;
+        }
+        let audio = Audio::from_frames(sr, frames);
+        let a = analyse(&audio, None);
+        assert!((a.bpm - 90.0).abs() < 0.05, "{}", a.bpm);
+        assert!(!a.grid.is_dynamic(), "{:?}", a.grid);
     }
 
     #[test]
