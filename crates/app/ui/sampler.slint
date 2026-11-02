@@ -38,6 +38,14 @@ export global SamplerUi {
     in property <[SampleChoice]> choices;
     callback pick-pack(index: int);
     callback new-pack(name: string);
+    // The chosen pack (never the Default one, index 0, for these three).
+    callback rename-pack(name: string);
+    callback delete-pack();
+    callback show-pack();
+    // Writes the pads as they are to an .opendjpack in Downloads.
+    callback export-pack();
+    // Picks an .opendjpack to add (dropping one on a pad does it too).
+    callback import-pack();
     // Lists pack `index` in Choose Sample.
     callback browse(index: int);
     // Puts row `row` of the listed pack on slot `slot`.
@@ -103,11 +111,34 @@ component PackCover inherits Rectangle {
     if !pack.has-cover: Text { text: pack.name == "" ? "" : "♪"; color: Theme.text; font-size: 14px; }
 }
 
-// The pack menu: every pack with its cover, + for a new one, and Get more
-// Packs at the bottom.
+// A small action under the pack list.
+component PackAction inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> danger;
+    callback clicked();
+    height: 24px;
+    border-radius: 5px;
+    background: ta.has-hover && enabled ? #3a3a3d : transparent;
+    Text {
+        x: 8px;
+        text: root.text;
+        color: !enabled ? Theme.text-dim.with-alpha(0.5) : danger ? #ff6b6b : Theme.text;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+    ta := TouchArea { clicked => { if enabled { root.clicked(); } } }
+}
+
+// The pack menu: every pack with its cover, + for a new one, what can be
+// done with the chosen pack, and Get more Packs at the bottom.
 component PackMenu inherits Rectangle {
     callback picked();
     callback add();
+    callback rename();
+    // Delete asks for a second click.
+    property <bool> confirm-delete;
+    property <bool> own: SamplerUi.pack > 0;
     width: 250px;
     VerticalLayout {
         padding: 10px;
@@ -142,6 +173,29 @@ component PackMenu inherits Rectangle {
                             SamplerUi.pick-pack(i);
                             root.picked();
                         }
+                    }
+                }
+            }
+        }
+        Rectangle { height: 4px; Rectangle { y: 2px; height: 1px; background: Theme.separator; } }
+        HorizontalLayout {
+            PackAction { text: "Import…"; clicked => { SamplerUi.import-pack(); root.picked(); } }
+            PackAction { text: "Export"; clicked => { SamplerUi.export-pack(); root.picked(); } }
+            PackAction { text: "Rename…"; enabled: own; clicked => { root.rename(); } }
+        }
+        HorizontalLayout {
+            PackAction { text: "Show Folder"; clicked => { SamplerUi.show-pack(); root.picked(); } }
+            PackAction {
+                text: confirm-delete ? "Click to delete" : "Delete Pack";
+                enabled: own;
+                danger: confirm-delete;
+                clicked => {
+                    if confirm-delete {
+                        confirm-delete = false;
+                        SamplerUi.delete-pack();
+                        root.picked();
+                    } else {
+                        confirm-delete = true;
                     }
                 }
             }
@@ -321,6 +375,35 @@ component SamplerPadCell inherits Rectangle {
             add => {
                 packs.close();
                 new-pack.show();
+            }
+            rename => {
+                packs.close();
+                rename-pack.show();
+            }
+        }
+    }
+    rename-pack := PopupWindow {
+        x: 0px;
+        y: root.height + 2px;
+        width: 250px;
+        close-policy: close-on-click-outside;
+        PopupBackground {}
+        VerticalLayout {
+            padding: 10px;
+            spacing: 6px;
+            Text { text: "Rename sample pack"; color: Theme.text; font-size: 13px; font-weight: 600; }
+            LineEdit {
+                text: SamplerUi.pack >= 0 && SamplerUi.pack < SamplerUi.packs.length ? SamplerUi.packs[SamplerUi.pack].name : "";
+                accepted(t) => {
+                    if t != "" {
+                        SamplerUi.rename-pack(t);
+                    }
+                    rename-pack.close();
+                }
+                init => {
+                    self.focus();
+                    self.select-all();
+                }
             }
         }
     }

@@ -127,6 +127,7 @@ pub fn learn(
             setting_defs: Vec::new(),
             inputs: HashMap::new(),
             outputs: Vec::new(),
+            products: Vec::new(),
             variables: Vec::new(),
         };
         only.inputs.insert(key, before.clone());

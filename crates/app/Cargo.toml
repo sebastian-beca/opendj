@@ -31,6 +31,8 @@ write-fonts = "0.50"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+# Sample packs travel as .opendjpack zips.
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 # Where the pointer is when files are dropped from a file manager (X11).

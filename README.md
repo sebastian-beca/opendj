@@ -68,7 +68,7 @@ Thank you to everyone who has helped test openDJ:
 Needs a recent stable Rust, CMake and a C++ compiler. On Linux you also need:
 
 ```sh
-sudo apt install cmake libfontconfig-dev libxkbcommon-dev libasound2-dev libclang-dev
+sudo apt install cmake libfontconfig-dev libxkbcommon-dev libasound2-dev libudev-dev libclang-dev
 ```
 
 Then:

@@ -20,7 +20,7 @@ Subfolders of the In Prep folder SHALL be prep crates. Adding a track from a cra
 - **THEN** it joins the Yoga list
 
 ### Requirement: Moving between stages
-The track menu and dropping on a stage SHALL move tracks: Send to In Prep (or a crate), Not interested (hides from Inbox), Send to Play Ready, Back to In Prep, Back to Inbox. Undo SHALL take back the last batch.
+The track menu and dropping on a stage SHALL move tracks: Send to In Prep (or a crate), Hide from Inbox, Send to Play Ready, Back to In Prep, Back to Inbox; the menu SHALL show the stages in order with the track's own lit, and mark moves back and forward with arrows. Undo (⌘Z / Ctrl+Z, Edit › Undo on macOS) SHALL take back the last batch.
 
 #### Scenario: Undo
 - **WHEN** five tracks are sent to Play Ready and Undo is chosen

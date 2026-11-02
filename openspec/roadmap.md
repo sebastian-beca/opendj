@@ -31,6 +31,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [improve-fx-engine](changes/improve-fx-engine/proposal.md) (faster rack, cleaner delays and new effects; from the FX library review, Seba 2026-10-27)
 - [add-more-library-imports](changes/add-more-library-imports/proposal.md) (rekordbox and Mixxx imports, VirtualDJ import updated; moved from v0.7 by Seba 2026-10-29, issue #131, #75)
 - [add-more-controllers](changes/add-more-controllers/proposal.md) (popular controllers supported and drawn; Seba 2026-10-29, issue #132)
+- [add-hid-controllers](changes/add-hid-controllers/proposal.md) (Traktor Kontrol S2/S3/S4, F1, Z1 and MX2 over USB HID with Mixxx's HID mappings; Seba 2026-11-01)
 - [add-controller-mapper](changes/add-controller-mapper/proposal.md) (own mappings, editing, Map mode and Quick map; moved from v1.0 by Seba 2026-10-29, issue #133)
 - [add-controller-mapping-import-export](changes/add-controller-mapping-import-export/proposal.md) (VirtualDJ, Traktor, rekordbox and djay Pro mappings in; openDJ and Mixxx out; keyboard sets; Seba 2026-10-29, issue #133, PR #140)
 - [improve-beatgrids](changes/improve-beatgrids/proposal.md) (research first, djay Pro as the bar; saved grids and editing; moved from v1.0 by Seba 2026-10-29, issue #134)
@@ -39,6 +40,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-streaming-browse](changes/add-streaming-browse/proposal.md) (Spotify, TIDAL, Apple Music, SoundCloud, Mixcloud and other streaming playlists, browse only; Seba 2026-10-29, issue #139)
 - [add-settings-layers](changes/add-settings-layers/proposal.md) (settings in three layers: good defaults, task-grouped choices, a searchable Advanced list with Show modified; from a review of VirtualDJ's Options & Tweaks; Seba 2026-10-31)
 - [improve-metadata-lookup](changes/improve-metadata-lookup/proposal.md) (batch metadata fixes that match more tracks, file names as reviewed suggestions; Seba 2026-11-01)
+- [add-slip-vinyl-and-bend](changes/add-slip-vinyl-and-bend/proposal.md) (slip returns after each trick with a ghost playhead, SLIP and VINYL buttons, on-screen bend and censor; from the deck performance review, Seba 2026-11-01)
 - [add-phone-remote](changes/add-phone-remote/proposal.md) (control Automix and the main levels from a phone, by QR code; step 1 of 5; Seba 2026-11-01)
 
 ## v0.6 · Buy it from the artist
@@ -59,7 +61,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-ableton-set-export](changes/add-ableton-set-export/proposal.md)
 - [add-layout-customization](changes/add-layout-customization/proposal.md)
 - [add-mcp-server](changes/add-mcp-server/proposal.md)
-- [add-slip-everywhere](changes/add-slip-everywhere/proposal.md)
+- [add-slip-everywhere](changes/add-slip-everywhere/proposal.md) (slip for scratch, loops, hot cues, reverse and pause and the ghost playhead came early in add-slip-vinyl-and-bend; beat jumps, pad FX and slicer remain)
 - [add-super-library](changes/add-super-library/proposal.md)
 - [add-user-manual](changes/add-user-manual/proposal.md)
 
@@ -77,11 +79,11 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 ## v2.0
 
 - [add-audio-plugin-hosting](changes/add-audio-plugin-hosting/proposal.md)
+- [add-instrument-plugins](changes/add-instrument-plugins/proposal.md)
 - [add-windows-support](changes/add-windows-support/proposal.md) (a Windows preview shipped in v0.4.0; code signing waits: SignPath Foundation turned the application down, 2026-10-29, see docs/windows.md)
 
 ## Much later (no change yet)
 
-- HID controllers (Traktor S-series, some Pioneer and Numark units).
 - DMX lighting from phrases and cues.
 - Pro DJ Link to CDJs and mixers.
 

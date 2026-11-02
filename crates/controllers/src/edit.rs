@@ -276,6 +276,234 @@ pub fn set(own: &mut OpenDjMapping, row: &view::Row, b: &Binding) {
     own.rows.push(new);
 }
 
+/// What a control can do besides a function: an openDJscript line, or be a
+/// modifier other rows look at through their `layer` ("Only when").
+#[derive(Clone, Debug, PartialEq)]
+pub enum Does {
+    /// A function from the picker (see [`Binding`]).
+    Function,
+    /// An openDJscript line: `deck 1 play ? pause : play`.
+    Script(String),
+    /// Sets the variable to 1 while held and 0 when let go: a SHIFT.
+    Hold(String),
+    /// Flips the variable between 1 and 0 on each press: a mode button.
+    Toggle(String),
+}
+
+impl Does {
+    /// What the row shown does, read from its own mapping rows.
+    pub fn of(own: Option<&OpenDjMapping>, row: &view::Row) -> Self {
+        let Some(line) = row.sources.first().and_then(|s| s.action.clone()) else {
+            return Does::Function;
+        };
+        let words: Vec<&str> = line.split_whitespace().collect();
+        match words.as_slice() {
+            ["toggle_var", name] => Does::Toggle(unquote(name)),
+            ["set_var", name, "1"] => {
+                // A hold has its let-go row too.
+                let name = unquote(name);
+                let release = format!("set_var '{name}' 0");
+                let has_release = own.is_some_and(|o| {
+                    own_rows_all_whens(o, row).any(|r| {
+                        r.when == When::Release
+                            && matches!(&r.action, Action::Script(l) if *l == release)
+                    })
+                });
+                if has_release {
+                    Does::Hold(name)
+                } else {
+                    Does::Script(line)
+                }
+            }
+            _ => Does::Script(line),
+        }
+    }
+}
+
+fn unquote(s: &str) -> String {
+    s.trim_matches('\'').to_string()
+}
+
+/// The own mapping's rows on the message and layer of `row`, at any time.
+fn own_rows_all_whens<'a>(
+    own: &'a OpenDjMapping,
+    row: &'a view::Row,
+) -> impl Iterator<Item = &'a Row> + 'a {
+    let layer = row
+        .sources
+        .first()
+        .map(|s| s.layer.clone())
+        .unwrap_or_default();
+    let keys: Vec<(u8, u8)> = row.sources.iter().map(|s| (s.status, s.number)).collect();
+    own.rows.iter().filter(move |r| {
+        !r.off && keys.contains(&(r.midi.status, r.midi.number)) && r.layer_conditions() == layer
+    })
+}
+
+/// Checks an "Only when" text: variable names, each alone (above 0) or
+/// with `=` and a number, joined with `&`: `shift`, `mode=2 & shift`.
+/// Returns it written the usual way, or what's wrong.
+pub fn check_layer(text: &str) -> Result<String, String> {
+    let mut parts = Vec::new();
+    for p in text.split('&').map(str::trim).filter(|p| !p.is_empty()) {
+        let (name, value) = match p.split_once('=') {
+            Some((n, v)) => (n.trim(), Some(v.trim())),
+            None => (p, None),
+        };
+        let ok_name = !name.is_empty()
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && !name.starts_with(|c: char| c.is_ascii_digit());
+        if !ok_name {
+            return Err(format!(
+                "“{name}” isn't a variable name: letters, digits and _."
+            ));
+        }
+        match value {
+            Some(v) => match v.parse::<f64>() {
+                Ok(_) => parts.push(format!("{name}={v}")),
+                Err(_) => return Err(format!("“{v}” isn't a number.")),
+            },
+            None => parts.push(name.to_string()),
+        }
+    }
+    Ok(parts.join(" & "))
+}
+
+/// Makes `row` an openDJscript line or a modifier ([`Does`]); for
+/// [`Does::Function`] it does nothing (use [`set`]). The message's other
+/// rows on this layer go, so a modifier does only that. A modifier's
+/// variable is added to the mapping's variables if it's new.
+pub fn set_does(own: &mut OpenDjMapping, row: &view::Row, does: &Does) {
+    let when = row.sources.first().map_or(When::Press, |s| s.when);
+    set_does_at(own, row, does, when);
+}
+
+/// As [`set_does`], with a script line acting at `when` (Acts on).
+pub fn set_does_at(own: &mut OpenDjMapping, row: &view::Row, does: &Does, when: When) {
+    let (Some(midi), Some(first)) = (midi_of(row), row.sources.first()) else {
+        return;
+    };
+    let layer = layer_text(&first.layer);
+    let lines: Vec<(When, String)> = match does {
+        Does::Function => return,
+        Does::Script(line) => vec![(when, line.clone())],
+        Does::Hold(v) => vec![
+            (When::Press, format!("set_var '{v}' 1")),
+            (When::Release, format!("set_var '{v}' 0")),
+        ],
+        Does::Toggle(v) => vec![(When::Press, format!("toggle_var '{v}'"))],
+    };
+    let on_layer = |r: &Row| {
+        (r.midi.status, r.midi.number) == (midi.status, midi.number) && r.layer == layer && !r.off
+    };
+    let modifier = matches!(does, Does::Hold(_) | Does::Toggle(_));
+    if modifier {
+        // Everything this button did on this layer goes, the base's too.
+        own.rows.retain(|r| !on_layer(r));
+        for when in crate::edit::WHENS {
+            own.rows.push(Row {
+                layer: layer.clone(),
+                when,
+                remove: true,
+                ..Row::new(midi, Action::Nothing)
+            });
+        }
+        // The modifier's own rows replace the stand-ins at their times.
+        own.rows
+            .retain(|r| !(on_layer(r) && r.remove && lines.iter().any(|(w, _)| *w == r.when)));
+    } else {
+        own.rows.retain(|r| {
+            !(on_layer(r) && r.when == first.when && !r.remove)
+                && !(on_layer(r) && r.when == when && r.remove)
+        });
+        if when != first.when && !own.rows.iter().any(|r| on_layer(r) && r.when == first.when) {
+            // The base's binding at the old time goes, as in `set`.
+            own.rows.push(Row {
+                layer: layer.clone(),
+                when: first.when,
+                remove: true,
+                ..Row::new(midi, Action::Nothing)
+            });
+        }
+    }
+    for (when, line) in lines {
+        let mut new = Row::script(midi, &line);
+        new.layer = layer.clone();
+        new.when = when;
+        new.name = row.control.clone();
+        own.rows.push(new);
+    }
+    if let Does::Hold(v) | Does::Toggle(v) = does {
+        if !own.variables.iter().any(|x| &x.name == v) {
+            own.variables.push(crate::format::Variable {
+                name: v.clone(),
+                default: 0.0,
+                saved: false,
+            });
+        }
+    }
+}
+
+/// Puts what `row` does on the layer `layer` ("Only when", already
+/// checked with [`check_layer`]) too, or instead when `moving`: there the
+/// message stops doing it on its own layer.
+pub fn set_layer(own: &mut OpenDjMapping, row: &view::Row, layer: &str, moving: bool) {
+    let (Some(midi), Some(first)) = (midi_of(row), row.sources.first()) else {
+        return;
+    };
+    let old = layer_text(&first.layer);
+    if old == layer {
+        return;
+    }
+    let copies: Vec<Row> = row
+        .sources
+        .iter()
+        .filter(|s| (s.status, s.number) == (midi.status, midi.number))
+        .map(|s| {
+            let action = match &s.action {
+                Some(line) => Action::Script(line.clone()),
+                None if s.options.has(Options::SCRIPT) => Action::Js {
+                    function: s.key.clone(),
+                    group: s.group.clone(),
+                },
+                None => Action::Bind {
+                    control: format!("{},{}", s.group, s.key),
+                    options: s.options.names().into_iter().map(String::from).collect(),
+                },
+            };
+            let mut r = Row::new(midi, action);
+            r.layer = layer.to_string();
+            r.when = s.when;
+            r.name = row.control.clone();
+            r
+        })
+        .collect();
+    if moving {
+        let whens: Vec<When> = row.sources.iter().map(|s| s.when).collect();
+        own.rows.retain(|r| {
+            !((r.midi.status, r.midi.number) == (midi.status, midi.number)
+                && r.layer == old
+                && whens.contains(&r.when)
+                && !r.off)
+        });
+        for when in whens {
+            if !own
+                .rows
+                .iter()
+                .any(|r| r.remove && r.midi == midi && r.layer == old && r.when == when)
+            {
+                own.rows.push(Row {
+                    layer: old.clone(),
+                    when,
+                    remove: true,
+                    ..Row::new(midi, Action::Nothing)
+                });
+            }
+        }
+    }
+    own.rows.extend(copies);
+}
+
 /// Puts `row` back as the base mapping has it.
 pub fn reset(own: &mut OpenDjMapping, row: &view::Row) {
     let gone: Vec<usize> = own_rows(own, row).map(|(i, _)| i).collect();
@@ -486,6 +714,71 @@ mod tests {
         assert_eq!(
             layer_text(&[("shift".into(), None), ("m1".into(), Some(2.0))]),
             "shift & m1=2"
+        );
+    }
+
+    #[test]
+    fn only_when_is_checked() {
+        assert_eq!(check_layer(" shift ").unwrap(), "shift");
+        assert_eq!(check_layer("mode = 2 & shift").unwrap(), "mode=2 & shift");
+        assert_eq!(check_layer("").unwrap(), "");
+        assert!(check_layer("2fast").is_err());
+        assert!(check_layer("mode=two").is_err());
+    }
+
+    #[test]
+    fn a_button_becomes_a_shift_and_another_row_uses_it() {
+        let (base, dir) = flx4();
+        let key = (0x90, 0x0B);
+        let row = view_row(&base, key);
+        let mut own = OpenDjMapping::new("Mine");
+        set_does(&mut own, &row, &Does::Hold("shift".into()));
+        assert_eq!(own.variables.len(), 1);
+        let built = own.build(Some(&base), &dir);
+        let inputs = &built.inputs[&key];
+        let lines: Vec<_> = inputs.iter().filter_map(|i| i.action.clone()).collect();
+        assert_eq!(lines, ["set_var 'shift' 1", "set_var 'shift' 0"]);
+        assert!(inputs.iter().all(|i| i.action.is_some()));
+        let mut held = row.clone();
+        held.sources[0].action = Some("set_var 'shift' 1".into());
+        assert_eq!(Does::of(Some(&own), &held), Does::Hold("shift".into()));
+
+        // CUE on deck 1 does sync while shift is held, and still cues.
+        let cue = view_row(&base, (0x90, 0x0C));
+        let mut copy = OpenDjMapping::new("Mine");
+        set_layer(&mut copy, &cue, "shift", false);
+        let built = copy.build(Some(&base), &dir);
+        let inputs = &built.inputs[&(0x90, 0x0C)];
+        assert!(inputs
+            .iter()
+            .any(|i| i.layer == [("shift".to_string(), None)]));
+        assert!(inputs.iter().any(|i| i.layer.is_empty()));
+        // Moved, it only works with shift.
+        let mut moved = OpenDjMapping::new("Mine");
+        set_layer(&mut moved, &cue, "shift", true);
+        let built = moved.build(Some(&base), &dir);
+        assert!(built.inputs[&(0x90, 0x0C)]
+            .iter()
+            .all(|i| !i.layer.is_empty()));
+    }
+
+    #[test]
+    fn a_script_line_replaces_the_function() {
+        let (base, dir) = flx4();
+        let key = (0x90, 0x0B);
+        let row = view_row(&base, key);
+        let mut own = OpenDjMapping::new("Mine");
+        set_does(
+            &mut own,
+            &row,
+            &Does::Script("var 'shift' ? sync : play_pause".into()),
+        );
+        let built = own.build(Some(&base), &dir);
+        let inputs = &built.inputs[&key];
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(
+            inputs[0].action.as_deref(),
+            Some("var 'shift' ? sync : play_pause")
         );
     }
 }

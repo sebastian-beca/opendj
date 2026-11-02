@@ -30,7 +30,7 @@ const READ_WITH_BUTTON: i32 = 4;
 
 pub(super) struct InfoState {
     /// 0 the selected track, 1 deck A, 2 deck B.
-    subject: i32,
+    pub(super) subject: i32,
     /// The library's copy of the track shown, and where it is in `library`.
     shown: Option<(usize, Arc<Track>)>,
     fields: Rc<VecModel<InfoField>>,

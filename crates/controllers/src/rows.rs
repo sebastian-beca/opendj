@@ -390,6 +390,7 @@ mod tests {
             setting_defs: Vec::new(),
             inputs: Default::default(),
             outputs: Vec::new(),
+            products: Vec::new(),
             variables: vec![("shift".into(), 0.0)],
         }
     }

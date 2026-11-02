@@ -180,6 +180,11 @@ struct Player {
     duration: ControlHandle,
     volume: ControlHandle,
     pregain: ControlHandle,
+    /// The level being played (volume × pregain), gliding to `target`, so
+    /// turning a pad's level while it plays doesn't zip.
+    gain: f32,
+    /// The level the controls ask for, read once per buffer.
+    target: f32,
 }
 
 impl Player {
@@ -206,6 +211,11 @@ impl Player {
 
 pub(crate) struct Samplers {
     players: Vec<Player>,
+    /// How far a level glides towards its target each frame.
+    glide: f32,
+    /// Whether any player is sounding (playing or fading), so a buffer
+    /// with none skips them all.
+    active: bool,
     incoming: rtrb::Consumer<(usize, Option<Arc<Sample>>)>,
     done: rtrb::Producer<Arc<Sample>>,
 }
@@ -248,6 +258,8 @@ impl Samplers {
                     duration,
                     volume: reg.create(g, "volume", 1.0, 0.0, 1.0, Behavior::Linear),
                     pregain: reg.create(g, "pregain", 1.0, 0.0, 2.0, Behavior::CenteredOnDefault),
+                    gain: 1.0,
+                    target: 1.0,
                 }
             })
             .collect();
@@ -256,6 +268,9 @@ impl Samplers {
         (
             Self {
                 players,
+                // About 5 ms to settle.
+                glide: (1.0 / (0.005 * sample_rate)).min(1.0) as f32,
+                active: false,
                 incoming,
                 done,
             },
@@ -282,6 +297,7 @@ impl Samplers {
             }
         }
         for p in &mut self.players {
+            let was_playing = p.playing;
             let down = p.go.get_bool();
             let pressed = p.go_edge.pressed(&p.go);
             let released = p.down && !down;
@@ -313,14 +329,28 @@ impl Samplers {
                 }
             }
             p.play.set_bool(p.playing);
+            p.target = (p.volume.get() * p.pregain.get()) as f32;
+            if !(was_playing && p.playing) {
+                // A sound starting starts at the level set; only a level
+                // turned while one plays glides.
+                p.gain = p.target;
+            }
         }
+        self.active = self.players.iter().any(|p| p.playing || p.tail.is_some());
     }
 
     /// The samplers' next frame, mixed.
     pub(crate) fn next(&mut self) -> [f32; 2] {
         let mut sum = [0.0f32; 2];
+        if !self.active {
+            return sum;
+        }
         for p in &mut self.players {
-            let gain = (p.volume.get() * p.pregain.get()) as f32;
+            if !p.playing && p.tail.is_none() {
+                continue;
+            }
+            p.gain += (p.target - p.gain) * self.glide;
+            let gain = p.gain;
             if let Some((s, pos, left)) = &mut p.tail {
                 let g = gain * *left as f32 / FADE_FRAMES as f32;
                 let v = s.frame(*pos);
@@ -595,6 +625,33 @@ mod tests {
         press(&reg, &mut s, 4, true);
         let half = run(&mut s, 4_800);
         assert!((half / full - 0.5).abs() < 0.05, "{half} vs {full}");
+    }
+
+    #[test]
+    fn turning_the_level_while_playing_glides() {
+        let (reg, mut s, mut input) = samplers();
+        let tone = Audio::from_frames(48_000, vec![[0.5, 0.5]; 48_000]);
+        assert!(input.send(0, Some(Arc::new(Sample::from_audio(&tone, RATE)))));
+        s.update();
+        press(&reg, &mut s, 0, true);
+        assert!((s.next()[0] - 0.5).abs() < 0.01, "starts at its level");
+        run(&mut s, 100);
+        reg.get("[Sampler1]", "pregain").unwrap().set(0.0);
+        s.update();
+        let frames: Vec<f32> = (0..2_000).map(|_| s.next()[0]).collect();
+        let step = frames
+            .windows(2)
+            .fold(0f32, |m, w| m.max((w[1] - w[0]).abs()));
+        assert!(step < 0.01, "no jump: {step}");
+        assert!(frames[1_999].abs() < 1e-3, "down to silence");
+    }
+
+    #[test]
+    fn idle_pads_cost_nothing() {
+        let (_, mut s, _) = samplers();
+        s.update();
+        assert!(!s.active);
+        assert_eq!(s.next(), [0.0; 2]);
     }
 
     #[test]

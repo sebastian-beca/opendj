@@ -384,6 +384,14 @@ pub(crate) struct Host {
     /// pad newly routed to it.
     note_values: HashMap<(u8, u8), u8>,
     routes_changed: bool,
+    /// An HID controller's device and the output reports for it.
+    pub(crate) hid: Option<HidLink>,
+}
+
+/// What an HID mapping's `controller` object talks to.
+pub(crate) struct HidLink {
+    pub(crate) io: std::rc::Rc<dyn crate::hid::Io>,
+    pub(crate) out: crate::hid::Outputs,
 }
 
 pub(crate) fn deck_group(deck: usize) -> String {
@@ -400,6 +408,7 @@ impl Host {
             note_routes: HashMap::new(),
             note_values: HashMap::new(),
             routes_changed: false,
+            hid: None,
             watches: Vec::new(),
             triggered: Vec::new(),
             script_bound: HashSet::new(),

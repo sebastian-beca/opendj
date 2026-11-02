@@ -21,8 +21,12 @@
 ## 3. Share packs
 
 - [x] 3.1 New pack (built with phase 2)
-- [ ] 3.1b Rename, delete and show a pack in Finder
-- [ ] 3.2 `.opendjpack` export and import (menu and drop)
+- [x] 3.1b Rename, delete (to `.deleted`, two clicks) and show a pack in the file manager
+- [x] 3.2 `.opendjpack` export (the pads as they are, to Downloads; built-in sounds stay built in) and import (menu and drop on a pad; only files pack.json names, by plain name, 1 GB cap)
+
+## 3b. Audio thread (v0.5)
+
+- [x] 3b.1 Levels read once per buffer and glide (about 5 ms) while a pad plays; a buffer with no pad sounding skips the sixteen players
 
 ## 4. Record and sync
 

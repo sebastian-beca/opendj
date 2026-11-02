@@ -13,6 +13,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::clap::Descriptor;
+use crate::effects::{Info, Param, Plugin};
 use crate::shm::{self, Shm, CHANNELS, MAX_PARAMS};
 
 /// How long a new helper has to say it is ready.
@@ -23,8 +25,8 @@ pub const READY_TIMEOUT: Duration = Duration::from_secs(10);
 pub struct Options {
     /// The `opendj-plugin-host` binary.
     pub helper: PathBuf,
-    /// Which effect the helper loads (for now one of its test effects).
-    pub effect: String,
+    /// Which effect the helper loads.
+    pub plugin: Plugin,
     pub sample_rate: u32,
     /// The longest block `process` will be given.
     pub max_frames: usize,
@@ -74,6 +76,144 @@ pub struct Helper {
     shm_path: PathBuf,
     messages: Receiver<String>,
     shm: Arc<Shm>,
+    info: Info,
+}
+
+/// The helper's arguments that pick the plugin.
+fn plugin_args(plugin: &Plugin) -> Vec<std::ffi::OsString> {
+    match plugin {
+        Plugin::Test(id) => vec!["--test".into(), id.into()],
+        Plugin::Clap { file, id } => vec![
+            "--clap".into(),
+            file.clone().into_os_string(),
+            "--id".into(),
+            id.into(),
+        ],
+        Plugin::Vst3 { file, id } => vec![
+            "--vst3".into(),
+            file.clone().into_os_string(),
+            "--id".into(),
+            id.into(),
+        ],
+    }
+}
+
+/// One line of the helper's description (see the helper's `describe`).
+fn read_info(info: &mut Info, line: &str) {
+    let mut f = line.split('\t');
+    match f.next() {
+        Some("name") => info.name = f.next().unwrap_or_default().to_string(),
+        Some("latency") => info.latency = f.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+        Some("param") => {
+            let mut num = || f.next().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+            let (min, max, default, value) = (num(), num(), num(), num());
+            let name = f.next().unwrap_or_default().to_string();
+            info.params.push(Param {
+                name,
+                min,
+                max,
+                default,
+                value,
+            });
+        }
+        _ => {}
+    }
+}
+
+/// Whether `file` is a VST3 plugin (by its `.vst3` name).
+pub fn is_vst3(file: &Path) -> bool {
+    file.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("vst3"))
+}
+
+/// Why a file could not be scanned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScanError {
+    /// It took longer than the timeout (a licence dialog, a hang).
+    TimedOut,
+    /// The scanner died; the text says how.
+    Crashed(String),
+    /// The file loaded but isn't usable; the text says why.
+    Failed(String),
+}
+
+impl std::fmt::Display for ScanError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScanError::TimedOut => write!(f, "took too long to scan"),
+            ScanError::Crashed(how) => write!(f, "crashed while scanning ({how})"),
+            ScanError::Failed(why) => write!(f, "{why}"),
+        }
+    }
+}
+
+/// Lists the plugins in one CLAP file or VST3 bundle. A VST3 bundle's
+/// `moduleinfo.json` is read directly when it has one; otherwise the file is
+/// loaded in a throwaway helper that is killed after `timeout`. Loading a
+/// plugin runs its code, so this never happens inside openDJ.
+pub fn scan(helper: &Path, file: &Path, timeout: Duration) -> Result<Vec<Descriptor>, ScanError> {
+    if is_vst3(file) {
+        if let Some(found) = crate::vst3::scan_moduleinfo(file) {
+            return Ok(found);
+        }
+    }
+    let mut child = Command::new(helper)
+        .arg("--scan")
+        .arg(file)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| ScanError::Failed(e.to_string()))?;
+    let stdout = child.stdout.take().expect("piped stdout");
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let end = Instant::now() + timeout;
+    let mut found = Vec::new();
+    loop {
+        let left = end.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(left) {
+            Ok(line) if line == "done" => break,
+            Ok(line) => {
+                if let Some(msg) = line.strip_prefix("error ") {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(ScanError::Failed(msg.to_string()));
+                }
+                let f: Vec<&str> = line.split('\t').collect();
+                if let ["plugin", id, name, vendor, version, features] = f[..] {
+                    found.push(Descriptor {
+                        id: id.into(),
+                        name: name.into(),
+                        vendor: vendor.into(),
+                        version: version.into(),
+                        features: features
+                            .split(',')
+                            .filter(|s| !s.is_empty())
+                            .map(String::from)
+                            .collect(),
+                    });
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(ScanError::TimedOut);
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                let status = child.wait().map(|s| s.to_string()).unwrap_or_default();
+                return Err(ScanError::Crashed(status));
+            }
+        }
+    }
+    let _ = child.wait();
+    Ok(found)
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
@@ -90,7 +230,7 @@ fn shm_path() -> PathBuf {
     dir.join(format!("opendj-plugin-{}-{id}", std::process::id()))
 }
 
-/// Starts a helper for `opts.effect` and waits (up to [`READY_TIMEOUT`]) for
+/// Starts a helper for `opts.plugin` and waits (up to [`READY_TIMEOUT`]) for
 /// it to load. Call this off the audio thread.
 pub fn spawn(opts: &Options) -> io::Result<(Connection, Helper)> {
     let path = shm_path();
@@ -98,8 +238,7 @@ pub fn spawn(opts: &Options) -> io::Result<(Connection, Helper)> {
     let child = Command::new(&opts.helper)
         .arg("--shm")
         .arg(&path)
-        .arg("--effect")
-        .arg(&opts.effect)
+        .args(plugin_args(&opts.plugin))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -129,19 +268,28 @@ pub fn spawn(opts: &Options) -> io::Result<(Connection, Helper)> {
         shm_path: path,
         messages,
         shm: shm.clone(),
+        info: Info::default(),
     };
-    match helper.messages.recv_timeout(READY_TIMEOUT) {
-        Ok(line) if line == "ready" => {}
-        Ok(line) => {
-            helper.kill();
-            return Err(io::Error::other(format!("plugin helper: {line}")));
-        }
-        Err(_) => {
-            helper.kill();
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "plugin helper did not start",
-            ));
+    // It describes the plugin, line by line, then says "ready".
+    let end = Instant::now() + READY_TIMEOUT;
+    loop {
+        let left = end.saturating_duration_since(Instant::now());
+        match helper.messages.recv_timeout(left) {
+            Ok(line) if line == "ready" => break,
+            Ok(line) => {
+                if let Some(msg) = line.strip_prefix("error ") {
+                    helper.kill();
+                    return Err(io::Error::other(msg.to_string()));
+                }
+                read_info(&mut helper.info, &line);
+            }
+            Err(_) => {
+                helper.kill();
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "the plugin did not start in time",
+                ));
+            }
         }
     }
     // Both sides have it mapped: on Unix the name can go now, so nothing is
@@ -304,6 +452,11 @@ impl Helper {
     /// Lines the helper printed after it started (errors, notes).
     pub fn messages(&self) -> impl Iterator<Item = String> + '_ {
         self.messages.try_iter()
+    }
+
+    /// The plugin's name, parameters and latency, as it reported them.
+    pub fn info(&self) -> &Info {
+        &self.info
     }
 
     pub fn id(&self) -> u32 {
