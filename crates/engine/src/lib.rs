@@ -124,6 +124,7 @@ pub fn create_controls(registry: &Arc<ControlRegistry>) {
     let (mut engine, _input) = engine::Engine::new(registry, rate);
     let feed = engine.take_record_feed().expect("record feed");
     Recorder::new(registry, rate, feed, LoadedTracks::default());
+    output::Health::new(registry);
 }
 
 impl AudioEngine {
@@ -137,7 +138,7 @@ impl AudioEngine {
         let samplers = engine.take_sampler_input().expect("sampler input");
         let visual = engine.visual_positions();
         link::watch(engine.link_handle(), Arc::downgrade(&registry));
-        let output = output::Outputs::new(engine, setup);
+        let output = output::Outputs::new(engine, setup, output::Health::new(&registry));
 
         let loaded: LoadedTracks = Arc::new(RwLock::new(Default::default()));
         let recorder = Recorder::new(&registry, rate, feed, loaded.clone());
@@ -327,12 +328,24 @@ impl AudioEngine {
         alert(&self.alerts, message);
     }
 
-    /// Alerts since the last call, oldest first.
+    /// Alerts since the last call, oldest first. Also reopens an audio
+    /// output that went away once it is back, so call it every so often.
     pub fn take_alerts(&self) -> Vec<String> {
-        self.alerts
+        let mut alerts = self
+            .alerts
             .lock()
             .map(|mut a| std::mem::take(&mut *a))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        if let Ok(mut output) = self.output.try_borrow_mut() {
+            alerts.extend(output.recover());
+        }
+        alerts
+    }
+
+    /// Whether the system refused the audio thread real-time priority, so
+    /// a busy computer is more likely to make it drop out.
+    pub fn realtime_denied(&self) -> bool {
+        self.output.borrow().realtime_denied()
     }
 
     /// Shows `cover` as the album art of every deck with the file at

@@ -11,6 +11,10 @@
 //! The microphone and auxiliary inputs come in the same way, from input
 //! devices: each callback queues its frames for the engine (see
 //! [`crate::inputs`]).
+//!
+//! [`Health`] keeps watch: how much of each buffer the engine takes, the
+//! dropouts the device reports or that show as late callbacks, and a device
+//! that goes away, which is reopened once it is back.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -18,7 +22,8 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{BufferSize, FromSample, SampleFormat, SizedSample, SupportedBufferSize};
+use cpal::{BufferSize, ErrorKind, FromSample, SampleFormat, SizedSample, SupportedBufferSize};
+use opendj_control::{ControlHandle, ControlRegistry};
 
 use crate::engine::Engine;
 use crate::inputs::{InputFeed, AUXILIARY, MICROPHONE, NUM_INPUTS};
@@ -148,6 +153,130 @@ impl Default for AudioSetup {
 pub const SAMPLE_RATES: [u32; 4] = [44_100, 48_000, 88_200, 96_000];
 /// Buffer sizes offered in the settings, in frames.
 pub const BUFFER_SIZES: [u32; 6] = [64, 128, 256, 512, 1024, 2048];
+
+/// How the audio keeps up, as Mixxx's `[App],audio_latency_*` controls (for
+/// the settings and controller mappings), and whether an output device went
+/// away.
+pub(crate) struct Health {
+    /// Percent of the buffer's time the slowest callback of the last half
+    /// second took to render. Over 100 the device runs dry.
+    usage: ControlHandle,
+    /// The highest `usage` since the outputs opened.
+    peak: ControlHandle,
+    /// On for half a second after a dropout.
+    overload: ControlHandle,
+    /// Dropouts since the start: callbacks that took longer than their
+    /// buffer, came late, or that the device reported (xruns).
+    overloads: ControlHandle,
+    /// An output stream reported its device gone or its stream invalid.
+    lost: AtomicBool,
+    /// The system refused the audio thread real-time priority.
+    realtime_denied: AtomicBool,
+}
+
+/// Seconds `usage` takes the worst of, and that `overload` stays on.
+const HEALTH_WINDOW: f64 = 0.5;
+/// Seconds after the outputs open before callbacks count: devices start
+/// unevenly.
+const HEALTH_WARMUP: f64 = 1.0;
+/// A callback this many buffers after the one before means audio was missed.
+const LATE_CALLBACK: f64 = 3.0;
+/// How often a lost device is looked for.
+const RETRY: Duration = Duration::from_secs(2);
+
+impl Health {
+    pub(crate) fn new(reg: &ControlRegistry) -> Arc<Self> {
+        Arc::new(Self {
+            usage: reg.indicator("[App]", "audio_latency_usage", 1000.0),
+            peak: reg.indicator("[App]", "audio_latency_peak", 1000.0),
+            overload: reg.indicator("[App]", "audio_latency_overload", 1.0),
+            overloads: reg.indicator("[App]", "audio_latency_overload_count", f64::MAX),
+            lost: AtomicBool::new(false),
+            realtime_denied: AtomicBool::new(false),
+        })
+    }
+
+    fn count_overload(&self) {
+        self.overloads.set(self.overloads.get() + 1.0);
+        self.overload.set_bool(true);
+    }
+
+    /// An output stream's error callback.
+    fn stream_error(&self, err: &cpal::Error) {
+        match err.kind() {
+            // Counted, not logged: this can come from the audio thread.
+            ErrorKind::Xrun => self.count_overload(),
+            ErrorKind::DeviceNotAvailable | ErrorKind::StreamInvalidated => {
+                self.lost.store(true, Ordering::Release);
+                eprintln!("audio output lost: {err}");
+            }
+            ErrorKind::RealtimeDenied => {
+                self.realtime_denied.store(true, Ordering::Relaxed);
+                eprintln!("audio output: {err}");
+            }
+            _ => eprintln!("audio output error: {err}"),
+        }
+    }
+}
+
+/// Times the clock device's callbacks for [`Health`]. Lives in the callback.
+struct Meter {
+    health: Arc<Health>,
+    /// Seconds of audio rendered since the outputs opened.
+    elapsed: f64,
+    last: Option<(Instant, f64)>,
+    worst: f64,
+    window: f64,
+    overload_left: f64,
+}
+
+impl Meter {
+    fn new(health: Arc<Health>) -> Self {
+        Self {
+            health,
+            elapsed: 0.0,
+            last: None,
+            worst: 0.0,
+            window: HEALTH_WINDOW,
+            overload_left: 0.0,
+        }
+    }
+
+    /// After a callback that started at `start` and rendered `period`
+    /// seconds of audio.
+    fn measure(&mut self, start: Instant, period: f64) {
+        let now = Instant::now();
+        let used = now.duration_since(start).as_secs_f64() / period;
+        let late = self.last.is_some_and(|(at, before)| {
+            start.duration_since(at).as_secs_f64() > LATE_CALLBACK * before.max(period)
+        });
+        self.last = Some((start, period));
+        self.elapsed += period;
+        if self.elapsed < HEALTH_WARMUP {
+            return;
+        }
+        if used > 1.0 || late {
+            self.health.count_overload();
+            self.overload_left = HEALTH_WINDOW;
+        } else if self.overload_left > 0.0 {
+            self.overload_left -= period;
+            if self.overload_left <= 0.0 {
+                self.health.overload.set_bool(false);
+            }
+        }
+        self.worst = self.worst.max(used);
+        self.window -= period;
+        if self.window <= 0.0 {
+            let percent = (self.worst * 100.0).round();
+            self.health.usage.set(percent);
+            if percent > self.health.peak.get() {
+                self.health.peak.set(percent);
+            }
+            self.worst = 0.0;
+            self.window = HEALTH_WINDOW;
+        }
+    }
+}
 
 /// An output device and how many channels it can play.
 #[derive(Clone, Debug, PartialEq)]
@@ -361,10 +490,17 @@ pub(crate) struct Outputs {
     /// Whether each open input has sent anything but silence yet. macOS
     /// sends silence to an app not allowed to use the microphone.
     heard: [Option<Arc<AtomicBool>>; NUM_INPUTS],
+    health: Arc<Health>,
+    /// The setup the outputs were last opened with, to reopen a lost device.
+    setup: AudioSetup,
+    /// When to look for a lost device next.
+    retry_at: Option<Instant>,
+    /// The person was told the device went away.
+    lost_reported: bool,
 }
 
 impl Outputs {
-    pub(crate) fn new(engine: Engine, setup: &AudioSetup) -> Self {
+    pub(crate) fn new(engine: Engine, setup: &AudioSetup, health: Arc<Health>) -> Self {
         let rate = engine.sample_rate();
         let mut o = Self {
             // The callbacks only ever try-lock, so they never wait.
@@ -377,6 +513,10 @@ impl Outputs {
             inputs: Vec::new(),
             input_status: Default::default(),
             heard: Default::default(),
+            health,
+            setup: setup.clone(),
+            retry_at: None,
+            lost_reported: false,
         };
         o.configure(setup);
         o
@@ -501,9 +641,55 @@ impl Outputs {
         Ok((stream, InputFeed { rx, period }, status, heard))
     }
 
+    /// Reopens the outputs after a device went away or its stream stopped,
+    /// once the clock device is there again. Call it every so often; it says
+    /// what happened, for the person at the decks.
+    pub(crate) fn recover(&mut self) -> Option<String> {
+        if !self.health.lost.load(Ordering::Acquire) {
+            return None;
+        }
+        let now = Instant::now();
+        if self.retry_at.is_some_and(|t| now < t) {
+            return None;
+        }
+        self.retry_at = Some(now + RETRY);
+        let name = clock_device(&self.setup).to_string();
+        let label = if name.is_empty() {
+            "The system's audio output".to_string()
+        } else {
+            name.clone()
+        };
+        if find(&name).is_none() {
+            // Decks stop where they are, as the callback no longer runs.
+            return (!std::mem::replace(&mut self.lost_reported, true)).then(|| {
+                format!(
+                    "{label} went away. openDJ plays on there once it is back, \
+                     or pick another in Settings › Audio."
+                )
+            });
+        }
+        self.health.lost.store(false, Ordering::Release);
+        let setup = self.setup.clone();
+        self.configure_outputs(&setup);
+        Some(if std::mem::take(&mut self.lost_reported) {
+            format!("{label} is back.")
+        } else {
+            format!("{label} stopped; openDJ reopened it.")
+        })
+    }
+
+    /// Whether the system refused the audio thread real-time priority.
+    pub(crate) fn realtime_denied(&self) -> bool {
+        self.health.realtime_denied.load(Ordering::Relaxed)
+    }
+
     fn configure_outputs(&mut self, setup: &AudioSetup) {
         self.streams.clear();
         self.timer = None;
+        self.setup = setup.clone();
+        self.health.lost.store(false, Ordering::Release);
+        self.lost_reported = false;
+        self.retry_at = None;
         self.route_status = vec![String::new(); setup.routes.len()];
         if let Err(e) = self.open(setup) {
             eprintln!("audio output unavailable ({e}); running without sound");
@@ -602,24 +788,30 @@ impl Outputs {
             let pairs: Vec<(usize, usize)> =
                 d.routes.iter().enumerate().map(|(k, r)| (k, r.1)).collect();
             let mut frame = [0.0f32; MIX_CHANNELS];
-            match stream(&d.device, &config, buffer, move |data: &mut [f32]| {
-                let frames = data.len() / channels;
-                // Keep at most two buffers queued: drop the oldest beyond that.
-                let excess = rx.slots().saturating_sub(frames * width * 2) / width * width;
-                for _ in 0..excess {
-                    let _ = rx.pop();
-                }
-                for out in data.chunks_exact_mut(channels) {
-                    if rx.slots() >= width {
-                        for v in &mut frame[..width] {
-                            *v = rx.pop().unwrap_or(0.0);
-                        }
-                        write_pairs(out, &frame, &pairs);
-                    } else {
-                        out.fill(0.0);
+            match stream(
+                &d.device,
+                &config,
+                buffer,
+                &self.health,
+                move |data: &mut [f32]| {
+                    let frames = data.len() / channels;
+                    // Keep at most two buffers queued: drop the oldest beyond that.
+                    let excess = rx.slots().saturating_sub(frames * width * 2) / width * width;
+                    for _ in 0..excess {
+                        let _ = rx.pop();
                     }
-                }
-            }) {
+                    for out in data.chunks_exact_mut(channels) {
+                        if rx.slots() >= width {
+                            for v in &mut frame[..width] {
+                                *v = rx.pop().unwrap_or(0.0);
+                            }
+                            write_pairs(out, &frame, &pairs);
+                        } else {
+                            out.fill(0.0);
+                        }
+                    }
+                },
+            ) {
                 Ok(s) => {
                     self.streams.push(s);
                     for &(_, _, i) in &d.routes {
@@ -659,11 +851,15 @@ impl Outputs {
         let engine = self.engine.clone();
         let mut mix = vec![0.0f32; 16_384 * MIX_CHANNELS];
         let mut feeds = feeds;
+        let mut meter = Meter::new(self.health.clone());
+        let rate = self.rate;
         self.streams.push(stream(
             &d.device,
             &config,
             buffer,
+            &self.health,
             move |data: &mut [f32]| {
+                let start = Instant::now();
                 let frames = data.len() / channels;
                 if mix.len() < frames * MIX_CHANNELS {
                     mix.resize(frames * MIX_CHANNELS, 0.0);
@@ -686,6 +882,9 @@ impl Outputs {
                             }
                         }
                     }
+                }
+                if frames > 0 {
+                    meter.measure(start, frames as f64 / rate);
                 }
             },
         )?);
@@ -824,6 +1023,7 @@ fn stream(
     device: &cpal::Device,
     config: &cpal::SupportedStreamConfig,
     frames: Option<u32>,
+    health: &Arc<Health>,
     fill: impl FnMut(&mut [f32]) + Send + 'static,
 ) -> Result<cpal::Stream, String> {
     let fill = Arc::new(Mutex::new(fill));
@@ -835,11 +1035,13 @@ fn stream(
                 f(data)
             }
         };
+        let health = health.clone();
+        let error = move |err: cpal::Error| health.stream_error(&err);
         match config.sample_format() {
-            SampleFormat::F32 => build::<f32>(device, config, size, fill),
-            SampleFormat::I16 => build::<i16>(device, config, size, fill),
-            SampleFormat::I32 => build::<i32>(device, config, size, fill),
-            SampleFormat::U16 => build::<u16>(device, config, size, fill),
+            SampleFormat::F32 => build::<f32>(device, config, size, fill, error),
+            SampleFormat::I16 => build::<i16>(device, config, size, fill, error),
+            SampleFormat::I32 => build::<i32>(device, config, size, fill, error),
+            SampleFormat::U16 => build::<u16>(device, config, size, fill, error),
             other => Err(format!("unsupported sample format {other:?}")),
         }
     };
@@ -860,6 +1062,7 @@ fn build<T>(
     config: &cpal::SupportedStreamConfig,
     buffer_size: BufferSize,
     mut fill: impl FnMut(&mut [f32]) + Send + 'static,
+    error: impl FnMut(cpal::Error) + Send + 'static,
 ) -> Result<cpal::Stream, String>
 where
     T: SizedSample + FromSample<f32>,
@@ -883,8 +1086,79 @@ where
                     *d = T::from_sample(*s);
                 }
             },
-            |err| eprintln!("audio output error: {err}"),
+            error,
             None,
         )
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A meter with `seconds` of callbacks behind it, each `period` long
+    /// and taking `share` of it.
+    fn metered(seconds: f64, period: f64, share: f64) -> (Arc<ControlRegistry>, Meter) {
+        let reg = ControlRegistry::new();
+        let mut meter = Meter::new(Health::new(&reg));
+        for _ in 0..(seconds / period) as usize {
+            meter.measure(
+                Instant::now() - Duration::from_secs_f64(period * share),
+                period,
+            );
+        }
+        (reg, meter)
+    }
+
+    fn app(reg: &ControlRegistry, item: &str) -> f64 {
+        reg.get("[App]", item).unwrap().get()
+    }
+
+    #[test]
+    fn measures_the_share_of_each_buffer_used() {
+        let (reg, _) = metered(2.0, 0.01, 0.2);
+        let usage = app(&reg, "audio_latency_usage");
+        assert!((19.0..30.0).contains(&usage), "{usage}");
+        assert!(app(&reg, "audio_latency_peak") >= usage);
+        assert_eq!(app(&reg, "audio_latency_overload_count"), 0.0);
+    }
+
+    #[test]
+    fn counts_slow_and_late_callbacks_as_dropouts() {
+        let (reg, mut meter) = metered(2.0, 0.01, 0.2);
+        // Took longer than its buffer.
+        meter.measure(Instant::now() - Duration::from_millis(15), 0.01);
+        assert_eq!(app(&reg, "audio_latency_overload_count"), 1.0);
+        assert_eq!(app(&reg, "audio_latency_overload"), 1.0);
+        // Came four buffers after the one before.
+        meter.measure(Instant::now() + Duration::from_millis(40), 0.01);
+        assert_eq!(app(&reg, "audio_latency_overload_count"), 2.0);
+        // The light goes out half a second later.
+        for _ in 0..60 {
+            meter.measure(Instant::now(), 0.01);
+        }
+        assert_eq!(app(&reg, "audio_latency_overload"), 0.0);
+        assert_eq!(app(&reg, "audio_latency_overload_count"), 2.0);
+    }
+
+    #[test]
+    fn ignores_the_first_second() {
+        let (reg, mut meter) = metered(0.5, 0.01, 0.2);
+        meter.measure(Instant::now() - Duration::from_millis(15), 0.01);
+        assert_eq!(app(&reg, "audio_latency_overload_count"), 0.0);
+        assert_eq!(app(&reg, "audio_latency_usage"), 0.0);
+    }
+
+    #[test]
+    fn device_errors_count_dropouts_and_losses() {
+        let reg = ControlRegistry::new();
+        let health = Health::new(&reg);
+        health.stream_error(&ErrorKind::Xrun.into());
+        assert_eq!(app(&reg, "audio_latency_overload_count"), 1.0);
+        assert!(!health.lost.load(Ordering::Acquire));
+        health.stream_error(&ErrorKind::DeviceNotAvailable.into());
+        assert!(health.lost.load(Ordering::Acquire));
+        health.stream_error(&ErrorKind::RealtimeDenied.into());
+        assert!(health.realtime_denied.load(Ordering::Relaxed));
+    }
 }
