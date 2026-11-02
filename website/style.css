@@ -103,7 +103,7 @@ figcaption { color: var(--text-3); font-size: 14px; margin-top: 12px; font-style
 .split { padding: 112px 0; border-bottom: 1px solid var(--line); }
 .split-inner { display: grid; grid-template-columns: 1fr 1.1fr; gap: 64px; align-items: center; }
 .split-rev .split-text { order: 2; }
-.split-text p { color: var(--text-2); }
+.split-text p:not(.eyebrow):not(.note) { color: var(--text-2); }
 .split-media { margin: 0; }
 .numbered { list-style: none; padding: 0; margin: 28px 0 0; counter-reset: n; }
 .numbered li { counter-increment: n; position: relative; padding-left: 52px; margin-bottom: 22px; color: var(--text-2); }
@@ -263,3 +263,28 @@ td { color: var(--text-2); }
 .ctl-shot { margin: 48px 0 0; }
 @media (max-width: 900px) { .ctl-intro { grid-template-columns: 1fr; gap: 28px; } }
 @media (max-width: 600px) { .controllers { padding: 72px 0; } }
+
+/* New in 0.4.7, phone remote, plugins */
+.new { padding: 112px 0; border-bottom: 1px solid var(--line); }
+.new-cards { grid-template-columns: repeat(4, 1fr); }
+.new-cards .card { padding: 0; }
+.new-cards .card a { display: block; height: 100%; padding: 26px; color: inherit; }
+.new-cards .card a:hover { text-decoration: none; }
+.new-cards .card:hover { border-color: var(--lilac); }
+.phones { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 520px; justify-self: center; }
+.phones img { border-radius: 28px; border: 1px solid var(--line); box-shadow: 0 30px 90px -30px rgba(182, 156, 255, 0.35), 0 16px 40px rgba(0, 0, 0, 0.5); }
+.phones img:last-of-type { margin-top: 48px; }
+.phones figcaption { grid-column: 1 / -1; }
+.plugin-viz { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; }
+.plugin-viz text { fill: var(--text-2); font: 600 13px "Inter Tabular", sans-serif; letter-spacing: 0.1em; }
+.plugin-viz text.small { fill: var(--text-3); font-size: 11px; letter-spacing: 0.14em; }
+.plugin-viz text.ink { fill: var(--ink); }
+.plugin-viz .box { fill: var(--surface); stroke: var(--line); stroke-width: 2; }
+.plugin-viz .helper { fill: none; stroke: var(--lilac); stroke-width: 1.5; stroke-dasharray: 5 6; }
+.plugin-viz .slot { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+.plugin-viz .slot.on { fill: var(--lilac); stroke: var(--lilac); }
+.plugin-viz .wire { fill: none; stroke: var(--lilac); stroke-width: 3; }
+.plugin-viz .dry { fill: none; stroke: var(--text-3); stroke-width: 1.5; stroke-dasharray: 3 6; }
+.dl-alt { margin: 10px 0 0; color: var(--text-3); }
+@media (max-width: 900px) { .new-cards { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) { .new { padding: 72px 0; } .new-cards { grid-template-columns: 1fr; } .phones { gap: 12px; } .phones img { border-radius: 20px; } }
