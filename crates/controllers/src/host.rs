@@ -55,6 +55,12 @@ const RELATIVE: [&str; 11] = [
     "SelectPlaylist",
 ];
 
+/// Whether writes to the control named `key` are steps rather than
+/// positions (a jog wheel, the browse knob): see [`RELATIVE`].
+pub(crate) fn is_relative(key: &str) -> bool {
+    RELATIVE.contains(&key)
+}
+
 /// One-shot library actions. Each press is counted, so presses arriving
 /// faster than the UI polls are not lost; the UI performs them and subtracts
 /// what it handled. Only applies to the free controls the UI creates.
