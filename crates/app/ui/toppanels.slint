@@ -194,6 +194,119 @@ component LinkRow inherits HorizontalLayout {
     }
 }
 
+// Loudness readings: text and colours for the [Master],loudness_* controls,
+// which read -100 while there is nothing to measure.
+export global Loudness {
+    // "−15.8", or "—" with no reading.
+    public pure function text(v: float) -> string {
+        if (v <= -99) {
+            return "—";
+        }
+        let tenths = round(abs(v) * 10);
+        return (v <= -0.05 ? "−" : v >= 0.05 ? "+" : "") + floor(tenths / 10) + "." + mod(tenths, 10);
+    }
+    // Green within 1 LU of the target, amber within 3, red further off.
+    public pure function tint(v: float, target: float) -> color {
+        if (v <= -99) {
+            return Theme.text-dim;
+        }
+        return abs(v - target) <= 1 ? #30d158 : abs(v - target) <= 3 ? #ffd60a : #ff453a;
+    }
+    // What the target is for, as chosen in Settings › Audio.
+    public pure function target-name(target: float) -> string {
+        return target == -16 ? "Internet radio" : target == -18 ? "Podcast or talk"
+            : target == -14 ? "Livestream" : target == -23 ? "Broadcast (EBU R128)" : "Target";
+    }
+}
+
+// dB marks under the master meter: where -40, -20, -10, -6, -3 and 0 dBFS
+// sit on its scale (-40 dB at the left, 0 dB at the right).
+component MeterScale inherits Rectangle {
+    height: 12px;
+    for mark in [
+        { db: -40, label: "-40" }, { db: -20, label: "-20" }, { db: -10, label: "-10" },
+        { db: -6, label: "-6" }, { db: -3, label: "-3" }, { db: 0, label: "0" },
+    ]: Text {
+        property <float> at: (mark.db + 40) / 40;
+        x: clamp(root.width * at - self.width / 2, 0px, root.width - self.width);
+        text: mark.label;
+        color: Theme.text-dim;
+        font-size: 9px;
+    }
+}
+
+// One small reading in the loudness section: a name over a value.
+component LoudnessReading inherits VerticalLayout {
+    in property <string> name;
+    in property <string> value;
+    in property <color> tint: Theme.text;
+    horizontal-stretch: 1;
+    spacing: 1px;
+    Caption { text: name; }
+    Text { text: value; color: tint; font-size: 13px; font-weight: 600; }
+}
+
+// The master's loudness, as broadcasters measure it (EBU R128): short-term
+// (3 s) large and coloured against the target, with momentary (400 ms),
+// integrated since the reset, the loudness range and the highest true peak.
+component LoudnessSection inherits VerticalLayout {
+    property <float> momentary: Controls.value(Controls.resolve("[Master]", "loudness_momentary"), Controls.tick);
+    property <float> short-term: Controls.value(Controls.resolve("[Master]", "loudness_short_term"), Controls.tick);
+    property <float> integrated: Controls.value(Controls.resolve("[Master]", "loudness_integrated"), Controls.tick);
+    property <float> range: Controls.value(Controls.resolve("[Master]", "loudness_range"), Controls.tick);
+    property <float> true-peak: Controls.value(Controls.resolve("[Master]", "true_peak"), Controls.tick);
+    property <float> target: Controls.value(Controls.resolve("[Master]", "loudness_target"), Controls.tick);
+    property <int> reset-index: Controls.resolve("[Master]", "loudness_reset");
+    spacing: 8px;
+    HorizontalLayout {
+        Text { text: "Loudness"; color: Theme.text; font-size: 12px; font-weight: 600; horizontal-stretch: 1; }
+        PanelLink {
+            text: "Reset";
+            clicked => {
+                Controls.set-value(reset-index, 1);
+                Controls.set-value(reset-index, 0);
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: start;
+        Text {
+            text: Loudness.text(short-term);
+            color: Loudness.tint(short-term, target);
+            font-size: 26px;
+            font-weight: 600;
+        }
+        VerticalLayout {
+            alignment: end;
+            padding-bottom: 4px;
+            Text { text: "LUFS"; color: Theme.text-dim; font-size: 11px; font-weight: 600; }
+        }
+        VerticalLayout {
+            alignment: end;
+            padding-bottom: 4px;
+            Text { text: "short-term"; color: Theme.text-dim; font-size: 11px; }
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        LoudnessReading { name: "MOMENTARY"; value: Loudness.text(momentary); tint: Loudness.tint(momentary, target); }
+        LoudnessReading { name: "INTEGRATED"; value: Loudness.text(integrated); tint: Loudness.tint(integrated, target); }
+        LoudnessReading { name: "RANGE"; value: range <= -99 ? "—" : (round(range * 10) / 10) + " LU"; }
+        LoudnessReading {
+            name: "TRUE PEAK";
+            value: true-peak <= -99 ? "—" : Loudness.text(true-peak) + " dB";
+            tint: true-peak > -1 ? #ff453a : Theme.text;
+        }
+    }
+    Text {
+        text: "Target: " + Loudness.target-name(target) + ", " + Loudness.text(target) + " LUFS";
+        color: Theme.text-dim;
+        font-size: 11px;
+        overflow: elide;
+    }
+}
+
 // MASTER: the main, headphone and booth (when a booth output is set up)
 // levels, the headphones' cue/mix balance, and Ableton Link. Audio
 // routing is in the settings.
@@ -209,6 +322,7 @@ export component MasterPanel inherits PopupWindow {
             spacing: 3px;
             VuMeter { group: "[Master]"; key: "VuMeterL"; height: 6px; vertical: false; segments: 32; }
             VuMeter { group: "[Master]"; key: "VuMeterR"; height: 6px; vertical: false; segments: 32; }
+            MeterScale { }
         }
         HorizontalLayout {
             spacing: 8px;
@@ -216,6 +330,8 @@ export component MasterPanel inherits PopupWindow {
             LevelSlider { group: "[Master]"; key: "gain"; }
             VerticalLayout { alignment: center; SpeakerIcon { loud: true; } }
         }
+        EdgeLine { line-color: Theme.border; }
+        LoudnessSection { }
         EdgeLine { line-color: Theme.border; }
         LevelRow { name: "Phones"; key: "headGain"; }
         if AudioSettings.booth: LevelRow { name: "Booth"; key: "booth_gain"; }

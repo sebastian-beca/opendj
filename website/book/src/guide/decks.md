@@ -158,8 +158,9 @@ right-click it, or use **Settings › Mixer**.
 The **MASTER** button in the top bar opens the output levels: **Master**,
 **Phones**, **Booth**, and **Cue / Mix**, which blends cue and main in the
 headphones. Its **Ableton Link** switch is described in
-[Ableton Link](link.md). **Audio Settings…** opens the outputs in Settings.
-Levels are kept between runs.
+[Ableton Link](link.md), and its **Loudness** readings in
+[Loudness and broadcasting](broadcasting.md). **Audio Settings…** opens the
+outputs in Settings. Levels are kept between runs.
 
 The **MIC** button opens the microphone and the auxiliary input, each with
 **ON** and a level. The microphone has effects of its own under **MIC FX**,

@@ -28,6 +28,7 @@ mod keyshift;
 pub mod link;
 pub mod loader;
 pub mod loudness;
+pub mod meter;
 mod output;
 pub mod paths;
 pub mod phrases;
@@ -138,6 +139,11 @@ pub fn create_controls(registry: &Arc<ControlRegistry>) {
     let (mut engine, _input) = engine::Engine::new(registry, rate);
     let feed = engine.take_record_feed().expect("record feed");
     Recorder::new(registry, rate, feed, LoadedTracks::default());
+    meter::start(
+        registry,
+        rate,
+        engine.take_meter_feed().expect("meter feed"),
+    );
     output::Health::new(registry);
 }
 
@@ -148,6 +154,11 @@ impl AudioEngine {
         let rate = output::sample_rate(setup);
         let (mut engine, input) = engine::Engine::new(&registry, rate);
         let feed = engine.take_record_feed().expect("record feed");
+        meter::start(
+            &registry,
+            rate,
+            engine.take_meter_feed().expect("meter feed"),
+        );
         let preview = engine.take_preview_input().expect("preview input");
         let samplers = engine.take_sampler_input().expect("sampler input");
         let visual = engine.visual_positions();

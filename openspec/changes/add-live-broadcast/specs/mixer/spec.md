@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Master limiter
-The master SHALL pass through a look-ahead, stereo-linked limiter that catches true peaks (between samples, measured 4× oversampled) and leaves quieter audio untouched. Its ceiling SHALL be -1 dBTP while recording or on air (-2 dBTP when chosen in Settings › Broadcast) and -0.5 dBFS otherwise.
+The master SHALL pass through a look-ahead, stereo-linked limiter that catches true peaks (between samples, measured 4× oversampled) and leaves quieter audio untouched. Its ceiling SHALL be -1 dBTP while recording or on air (-2 dBTP when chosen in Settings › Audio › Loudness) and -0.5 dBFS otherwise.
 
 #### Scenario: No clipping
 - **WHEN** two loud decks play with every fader up
@@ -35,7 +35,7 @@ Controllers and scripts SHALL read the meter from `[Master],loudness_momentary`,
 - **THEN** integrated loudness and the highest true peak start again
 
 ### Requirement: Loudness target
-Settings › Broadcast SHALL offer a loudness target: Internet radio (-16 LUFS, the default), Podcast / talk (-18), Livestream (-14) or Broadcast EBU R128 (-23). The loudness meter SHALL be green within 1 LU of the target, amber 1 to 3 LU away and red further away. The target SHALL not change any track or deck level.
+Settings › Audio › Loudness SHALL offer a loudness target: Internet radio (-16 LUFS, the default), Podcast / talk (-18), Livestream (-14) or Broadcast EBU R128 (-23). The loudness meter SHALL be green within 1 LU of the target, amber 1 to 3 LU away and red further away. The target SHALL not change any track or deck level.
 
 #### Scenario: Too loud for radio
 - **WHEN** the target is Internet radio and the short-term loudness is -12 LUFS

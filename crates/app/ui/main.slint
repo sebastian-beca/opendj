@@ -3,7 +3,7 @@ import { Theme, KeyNotation, CloseIcon } from "theme.slint";
 import { Controls, VuMeter, ControlKnob, HoverTipView, HoverTip } from "controls.slint";
 import { Deck, DeckInfo, KeyItem, EffectList, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount } from "deck.slint";
 import { Mixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } from "mixer.slint";
-import { MasterPanel, MicPanel } from "toppanels.slint";
+import { MasterPanel, MicPanel, Loudness } from "toppanels.slint";
 import { PlayerDeck, PlayerMixer } from "player.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { FxBar } from "fxbar.slint";
@@ -310,6 +310,8 @@ component RecordButton inherits Rectangle {
     property <int> hours: floor(seconds / 3600);
     property <int> minutes: mod(floor(seconds / 60), 60);
     property <int> secs: mod(floor(seconds), 60);
+    property <float> short-term: Controls.value(Controls.resolve("[Master]", "loudness_short_term"), Controls.tick);
+    property <float> target: Controls.value(Controls.resolve("[Master]", "loudness_target"), Controls.tick);
     background: ta.pressed ? Theme.control-pressed : on ? #e5484d.with-alpha(0.16) : ta.has-hover ? #2e2e32 : Theme.panel-raised;
     border-radius: 10px;
     border-width: 1px;
@@ -338,6 +340,14 @@ component RecordButton inherits Rectangle {
             font-size: on ? 13px : 11px;
             font-weight: on ? 500 : 700;
             letter-spacing: on ? 0px : 0.5px;
+            vertical-alignment: center;
+        }
+        // The mix's short-term loudness, coloured against the target.
+        if on: Text {
+            text: Loudness.text(short-term) + " LUFS";
+            color: Loudness.tint(short-term, target);
+            font-size: 11px;
+            font-weight: 600;
             vertical-alignment: center;
         }
     }

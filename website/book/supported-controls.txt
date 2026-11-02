@@ -2046,6 +2046,7 @@
 [Master],VuMeter
 [Master],VuMeterL
 [Master],VuMeterR
+[Master],air_ceiling
 [Master],balance
 [Master],booth_gain
 [Master],crossfader
@@ -2054,6 +2055,12 @@
 [Master],headGain
 [Master],headMix
 [Master],headSplit
+[Master],loudness_integrated
+[Master],loudness_momentary
+[Master],loudness_range
+[Master],loudness_reset
+[Master],loudness_short_term
+[Master],loudness_target
 [Master],num_decks
 [Master],num_effectsavailable
 [Master],num_plugins
@@ -2063,6 +2070,7 @@
 [Master],peak_indicator_right
 [Master],talkover_ducking
 [Master],test_tone
+[Master],true_peak
 [Master],vu_meter
 [Master],vu_meter_left
 [Master],vu_meter_right
