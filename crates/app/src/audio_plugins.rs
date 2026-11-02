@@ -63,7 +63,8 @@ struct Catalog {
 }
 
 enum Progress {
-    Checking(usize, usize),
+    /// Index, total, and the file's name.
+    Checking(usize, usize, String),
     Done(Catalog),
 }
 
@@ -221,8 +222,12 @@ impl AudioPlugins {
         let spawned = std::thread::Builder::new()
             .name("plugin scan".into())
             .spawn(move || {
-                let catalog = run_scan(&helper, &folders, &known, |done, total| {
-                    let _ = tx.send(Progress::Checking(done, total));
+                let catalog = run_scan(&helper, &folders, &known, |done, total, path| {
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    let _ = tx.send(Progress::Checking(done, total, name));
                 });
                 let _ = tx.send(Progress::Done(catalog));
             });
@@ -247,8 +252,8 @@ impl AudioPlugins {
         while let Ok(p) = rx.try_recv() {
             changed = true;
             match p {
-                Progress::Checking(done, total) => {
-                    self.note = format!("Checking {} of {total}…", (done + 1).min(total));
+                Progress::Checking(done, total, name) => {
+                    self.note = format!("Checking {} of {total}: {name}", (done + 1).min(total));
                 }
                 Progress::Done(catalog) => {
                     self.catalog = catalog;
@@ -450,13 +455,13 @@ fn run_scan(
     helper: &Path,
     folders: &[PathBuf],
     known: &Catalog,
-    progress: impl Fn(usize, usize),
+    progress: impl Fn(usize, usize, &Path),
 ) -> Catalog {
     let files = find_plugins(folders);
     let total = files.len();
     let mut out = Catalog::default();
     for (i, path) in files.into_iter().enumerate() {
-        progress(i, total);
+        progress(i, total, &path);
         let (size, modified) = stamp(&path);
         if let Some(k) = known
             .files

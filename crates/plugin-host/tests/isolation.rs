@@ -184,3 +184,31 @@ fn an_instrument_plays_the_notes_it_is_sent() {
     run(&mut conn, &[], &mut l, &mut r);
     assert!(l.iter().all(|&v| v == 1.0));
 }
+
+/// A plugin that hangs while the helper exits, after it has answered, must
+/// not stall the scan: the answer is kept and the helper is stopped.
+#[cfg(unix)]
+#[test]
+fn a_helper_that_never_exits_after_answering_does_not_stall_a_scan() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("opendj-scan-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let helper = dir.join("helper.sh");
+    std::fs::write(
+        &helper,
+        "#!/bin/sh\nprintf 'plugin\\tid\\tName\\tVendor\\t1.0\\taudio-effect\\ndone\\n'\nexec sleep 60\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let start = Instant::now();
+    let found = opendj_plugin_host::client::scan(
+        &helper,
+        std::path::Path::new("x.clap"),
+        Duration::from_secs(5),
+    )
+    .unwrap();
+    assert!(start.elapsed() < Duration::from_secs(3));
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].name, "Name");
+    let _ = std::fs::remove_dir_all(&dir);
+}
