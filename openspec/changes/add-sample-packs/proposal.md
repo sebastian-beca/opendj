@@ -35,7 +35,7 @@ None.
 - Video samples (VirtualDJ) and stem-swap banks.
 - The Get more Packs dialog and where its packs come from: designed later (see design.md for the options found so far).
 - Importing VirtualDJ `.vdjsample` banks: the format isn't documented; looked at later with the VirtualDJ import add-on.
-- A pattern sequencer (separate change, `add-pattern-sequencer`).
+- A pattern sequencer (separate change, `add-groove-box`).
 
 ## Impact
 

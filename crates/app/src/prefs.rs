@@ -26,8 +26,9 @@ use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use crate::tour::Part;
 use crate::{
-    settings, short_port_name, shortcuts, AppWindow, AudioSettings, ControllerEditor, ImportWizard,
-    InputRow, InputSettings, KeyNotation, PrefItem, Preferences, Tour,
+    beat_counter_mode, settings, short_port_name, shortcuts, AppWindow, AudioSettings, BeatCounter,
+    ControllerEditor, ImportWizard, InputRow, InputSettings, KeyNotation, PrefItem, Preferences,
+    Tour,
 };
 
 const AUDIO: i32 = 0;
@@ -1057,6 +1058,19 @@ impl Prefs {
                             "A track loaded while another deck plays is shifted up or down to \
                              mix with it, with key lock on. The track list marks those tracks with \
                              the shift they'd get.",
+                        )
+                    },
+                    PrefItem {
+                        choices: strings(&["Off", "Beats", "Beats and phrases"]),
+                        chosen: beat_counter_mode(),
+                        ..item(
+                            "beat_counter",
+                            SEGMENTED,
+                            "Beat counter",
+                            "Squares in each deck header light up beat by beat, the first of \
+                             the bar brighter, with the bars of the phrase under them. With \
+                             phrases, the header also counts down the bars to the next phrase \
+                             and names it.",
                         )
                     },
                     switch(
@@ -2344,6 +2358,12 @@ impl Prefs {
                 let m = key::Mixing::from_id(index as u8);
                 settings::set("key_mixing", json!(m.id()));
                 key::set_mixing(m);
+            }
+            "beat_counter" => {
+                settings::set("beat_counter", json!(index.min(2)));
+                if let Some(app) = self.app.upgrade() {
+                    app.global::<BeatCounter>().set_mode(beat_counter_mode());
+                }
             }
             "key_match_on_load" => {
                 settings::set("key_match_on_load", json!(index.min(2)));

@@ -26,6 +26,26 @@ left and the track's tempo and key, with the overview waveform of the whole
 track. Click the overview to jump; dragging it moves without playing what it
 passes.
 
+### Beat counter
+
+Beside the title, four squares light up one beat at a time, so you can see
+where the bar is: the first beat of each bar lights white, the others in the
+deck's colour. The thin bars under them fill up through each group of four
+bars, and all four turn lilac in the last bar before a new phrase starts,
+so you know the change is one bar away.
+
+Next to the squares, the count reads **phrase.bar.beat** (for example
+**3.2.1**: phrase 3, bar 2, beat 1), and under it **↓ 6 › DROP** says the
+next phrase, a drop, starts in 6 bars. The phrases come from the track's
+[phrase analysis](music.md#phrases); a track without phrases is counted in phrases of
+eight bars from its first bar. If beat 1 doesn't land on the downbeat, the
+beat grid is off: click the tempo on the jog and choose **Bar 1 here** on a
+downbeat (see [Beat grids](music.md)).
+
+Choose **Off**, **Beats** (squares only) or **Beats and phrases** under
+**Settings › Decks › Beat counter**. The 4-Deck strips show the squares
+only.
+
 **PLAY**, **CUE** and **SYNC** show an outline in the deck's colour while
 they're on. **Shift-click** and hold PLAY while the deck plays for
 [censor](#slip-bend-and-censor).
