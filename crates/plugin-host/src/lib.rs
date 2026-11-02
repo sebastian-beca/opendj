@@ -31,3 +31,4 @@ pub use client::{
 pub use descriptor::Descriptor;
 pub use effects::{Info, Param, Plugin};
 pub use policy::{Action, Limits, Policy};
+pub use shm::Midi;

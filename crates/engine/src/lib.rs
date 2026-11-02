@@ -59,8 +59,9 @@ pub use controls::{
     NUM_EFFECT_UNITS, NUM_HOTCUES,
 };
 pub use effects::{
-    color_fx_name, effect_name, parameter_names, plugin_index, PluginLink, AVAILABLE_EFFECTS,
-    COLOR_FX, DEFAULT_EFFECTS, MAX_BUTTON_PARAMETERS, MAX_PARAMETERS, MAX_PLUGINS, PLUGIN_BASE,
+    color_fx_name, effect_name, parameter_names, plugin_index, NoteInput, PluginLink,
+    AVAILABLE_EFFECTS, COLOR_FX, DEFAULT_EFFECTS, MAX_BUTTON_PARAMETERS, MAX_PARAMETERS,
+    MAX_PLUGINS, PLUGIN_BASE,
 };
 pub use output::{
     channel_names, default_output_device, input_devices, output_devices, AudioSetup, InputRole,
@@ -116,6 +117,18 @@ pub struct AudioEngine {
     /// earlier one is dropped.
     sample_generation: Arc<[AtomicU64; sampler::NUM_SAMPLERS]>,
     rate: f64,
+    /// Runs audio plugins in the effect slots, when the helper is installed.
+    plugins: Option<plugins::PluginHost>,
+    /// Notes for the Instrument input.
+    notes: Arc<Mutex<NoteInput>>,
+}
+
+/// The plugin helper, `opendj-plugin-host`, installed beside the app.
+pub fn plugin_helper() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let name = format!("opendj-plugin-host{}", std::env::consts::EXE_SUFFIX);
+    let path = exe.parent()?.join(name);
+    path.is_file().then_some(path)
 }
 
 /// Creates every engine control in `registry` without starting audio, for
@@ -138,6 +151,15 @@ impl AudioEngine {
         let preview = engine.take_preview_input().expect("preview input");
         let samplers = engine.take_sampler_input().expect("sampler input");
         let visual = engine.visual_positions();
+        let plugin_link = engine.take_plugin_link().expect("plugin link");
+        let notes = Arc::new(Mutex::new(engine.take_note_input().expect("note input")));
+        let plugins = plugin_helper().map(|helper| {
+            plugins::PluginHost::start(
+                &registry,
+                plugin_link,
+                plugins::HostOptions::new(helper, rate as u32),
+            )
+        });
         link::watch(engine.link_handle(), Arc::downgrade(&registry));
         let output = output::Outputs::new(engine, setup, output::Health::new(&registry));
 
@@ -165,7 +187,42 @@ impl AudioEngine {
             samplers: Arc::new(Mutex::new(samplers)),
             sample_generation: Arc::default(),
             rate,
+            plugins,
+            notes,
         }
+    }
+
+    /// The instruments the Instrument input can load
+    /// (`[Instrument1],instrument` 1 is the first).
+    pub fn set_instruments(&self, entries: Vec<plugins::PluginEntry>) {
+        if let Some(p) = &self.plugins {
+            p.set_instruments(entries);
+        }
+    }
+
+    /// Where notes for the Instrument input go in, from any thread.
+    pub fn note_input(&self) -> Arc<Mutex<NoteInput>> {
+        self.notes.clone()
+    }
+
+    /// Whether audio plugins can run: the helper is installed.
+    pub fn plugins_available(&self) -> bool {
+        self.plugins.is_some()
+    }
+
+    /// The plugins the effect slots can load, after the built-in effects.
+    pub fn set_plugins(&self, entries: Vec<plugins::PluginEntry>) {
+        if let Some(p) = &self.plugins {
+            p.set_plugins(entries);
+        }
+    }
+
+    /// What happened to plugins since the last call (crashes, failures).
+    fn plugin_events(&self) -> Vec<plugins::PluginEvent> {
+        self.plugins
+            .as_ref()
+            .map(|p| p.events())
+            .unwrap_or_default()
     }
 
     /// Puts `track` in the preview player (`[PreviewDeck1]`, heard in the
@@ -332,7 +389,7 @@ impl AudioEngine {
     /// Alerts since the last call, oldest first. Also reopens an audio
     /// output that went away once it is back, so call it every so often.
     pub fn take_alerts(&self) -> Vec<String> {
-        let mut alerts = self
+        let mut alerts: Vec<String> = self
             .alerts
             .lock()
             .map(|mut a| std::mem::take(&mut *a))
@@ -340,6 +397,7 @@ impl AudioEngine {
         if let Ok(mut output) = self.output.try_borrow_mut() {
             alerts.extend(output.recover());
         }
+        alerts.extend(self.plugin_events().into_iter().map(|e| e.to_string()));
         alerts
     }
 

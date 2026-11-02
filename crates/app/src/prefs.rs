@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
+use crate::audio_plugins::AudioPlugins;
 use crate::list_picker::{Picker, Ticked};
 use opendj_control::ControlRegistry;
 use opendj_controllers::{
@@ -48,6 +49,8 @@ const COMING_IMPORTS: [(&str, &str); 2] = [
     ),
 ];
 const ANALYSIS: i32 = 3;
+/// Settings › Mixer's tabs.
+const MIXER_TABS: [&str; 2] = ["Mixer", "Plugins"];
 const DECKS: i32 = 4;
 const MIXER: i32 = 5;
 const KEYBOARD: i32 = 6;
@@ -424,6 +427,8 @@ pub struct Prefs {
     removing: Option<String>,
     /// What the last change of a shortcut's key did, shown on the page.
     shortcut_note: String,
+    /// CLAP, VST3 and AU effects: folders, scan and the FX lists.
+    audio_plugins: Rc<RefCell<AudioPlugins>>,
     /// Counts fills of the rows, so the tour's setup dialog, which shows
     /// some of the same rows, knows to fill its own again.
     pub generation: u64,
@@ -446,6 +451,7 @@ impl Prefs {
         plugin_changed: Box<dyn Fn(&str)>,
         audio_changed: Box<dyn Fn()>,
         inputs: InputHooks,
+        audio_plugins: Rc<RefCell<AudioPlugins>>,
     ) -> Rc<RefCell<Prefs>> {
         let (chosen_tx, chosen_rx) = mpsc::channel();
         let plugins: Vec<Box<dyn Plugin>> = crate::stores::configured()
@@ -483,6 +489,7 @@ impl Prefs {
             wizard: None,
             removing: None,
             shortcut_note: String::new(),
+            audio_plugins,
             generation: 0,
         }));
         let p = prefs.clone();
@@ -563,6 +570,17 @@ impl Prefs {
                 self.refresh();
                 continue;
             }
+            if id == "audio_plugin_folder_add" {
+                let p = self.audio_plugins.borrow();
+                let mut folders = p.folders();
+                if !folders.contains(&path) {
+                    folders.push(path);
+                }
+                p.set_folders(&folders);
+                drop(p);
+                self.refresh();
+                continue;
+            }
             if id == "music_folder_add" {
                 let mut folders = settings::music_folders();
                 if !folders.contains(&path) {
@@ -608,6 +626,9 @@ impl Prefs {
             return;
         };
         let g = app.global::<Preferences>();
+        if self.audio_plugins.borrow_mut().poll() && g.get_open() && g.get_page() == MIXER {
+            self.refresh();
+        }
         if g.get_open() && g.get_page() == CONTROLLERS && g.get_query().is_empty() {
             let ports = self
                 .controllers
@@ -938,13 +959,14 @@ impl Prefs {
                         )
                     },
                     PrefItem {
-                        choices: strings(&["Standard", "Neural"]),
+                        choices: strings(&["Standard", "Beat This!"]),
                         chosen: i32::from(settings::flag("neural_beats", true)),
                         ..item(
                             "beat_detector",
                             SEGMENTED,
                             "Beat detection",
-                            "Neural (Beat This!) finds downbeats, so bar 1 starts on one. \
+                            "Beat This! (an open-source neural network) finds downbeats, \
+                             so bar 1 starts on one. \
                              It takes a few seconds more per track, after the waveform. \
                              Edited and imported grids stay.",
                         )
@@ -1099,70 +1121,7 @@ impl Prefs {
                 }))
                 .collect()
             }
-            MIXER => {
-                let target = settings::number("auto_gain_target", DEFAULT_AUTO_GAIN_TARGET);
-                let targets: Vec<String> = AUTO_GAIN_TARGETS
-                    .iter()
-                    .map(|&t| {
-                        let note = match t {
-                            t if t == DEFAULT_AUTO_GAIN_TARGET => " (default)",
-                            -8.0 => " · club master",
-                            -23.0 => " · broadcast",
-                            _ => "",
-                        };
-                        format!("{t} LUFS{note}")
-                    })
-                    .collect();
-                vec![
-                switch(
-                    "auto_gain",
-                    "Auto gain",
-                    "Levels every track to the same loudness, measured when it is analysed. The gain knob still trims on top.",
-                    settings::flag("auto_gain", true),
-                ),
-                PrefItem {
-                    choices: strings(&targets),
-                    chosen: AUTO_GAIN_TARGETS
-                        .iter()
-                        .position(|&t| (t - target).abs() < 1e-6)
-                        .unwrap_or(3) as i32,
-                    ..item(
-                        "auto_gain_target",
-                        MENU,
-                        "Auto gain level",
-                        "Louder levels leave less headroom before the master limiter.",
-                    )
-                },
-                PrefItem {
-                    choices: strings(&["Smooth", "Linear", "Scratch"]),
-                    chosen: settings::number("xfader_shape", 0.0) as i32,
-                    ..item(
-                        "xfader_shape",
-                        SEGMENTED,
-                        "Crossfader curve",
-                        "Smooth for blends; Scratch cuts in sharply at the ends.",
-                    )
-                },
-                switch(
-                    "xfader_enabled",
-                    "Crossfader",
-                    "Off: the crossfader does nothing and every deck plays through. Right-click the crossfader to switch it too.",
-                    settings::flag("xfader_enabled", true),
-                ),
-                switch(
-                    "xfader_reverse",
-                    "Reverse crossfader",
-                    "Hamster style: the left side plays the right deck.",
-                    settings::flag("xfader_reverse", false),
-                ),
-                switch(
-                    "head_split",
-                    "Split cue",
-                    "Cue in the left ear and master in the right, both in mono.",
-                    settings::flag("head_split", false),
-                ),
-                ]
-            }
+            MIXER => self.mixer_page(tab),
             p if p > FEEDBACK => self.plugin_page((p - FEEDBACK - 1) as usize),
             KEYBOARD => self.keyboard_page(),
             FEEDBACK => vec![
@@ -1237,6 +1196,193 @@ impl Prefs {
     }
 
     /// The rate the engine runs at now.
+    /// Settings › Mixer: the mixer itself, and plugins. `tab` None is
+    /// both, for a search.
+    fn mixer_page(&mut self, tab: Option<usize>) -> Vec<PrefItem> {
+        let mut items = Vec::new();
+        if tab.is_none_or(|t| t == 0) {
+            items.extend(self.mixer_general());
+        }
+        if tab.is_none_or(|t| t == 1) {
+            items.extend(self.audio_plugin_items());
+        }
+        items
+    }
+
+    fn mixer_general(&self) -> Vec<PrefItem> {
+        let target = settings::number("auto_gain_target", DEFAULT_AUTO_GAIN_TARGET);
+        let targets: Vec<String> = AUTO_GAIN_TARGETS
+            .iter()
+            .map(|&t| {
+                let note = match t {
+                    t if t == DEFAULT_AUTO_GAIN_TARGET => " (default)",
+                    -8.0 => " · club master",
+                    -23.0 => " · broadcast",
+                    _ => "",
+                };
+                format!("{t} LUFS{note}")
+            })
+            .collect();
+        vec![
+            switch(
+                "auto_gain",
+                "Auto gain",
+                "Levels every track to the same loudness, measured when it is analysed. The gain knob still trims on top.",
+                settings::flag("auto_gain", true),
+            ),
+            PrefItem {
+                choices: strings(&targets),
+                chosen: AUTO_GAIN_TARGETS
+                    .iter()
+                    .position(|&t| (t - target).abs() < 1e-6)
+                    .unwrap_or(3) as i32,
+                ..item(
+                    "auto_gain_target",
+                    MENU,
+                    "Auto gain level",
+                    "Louder levels leave less headroom before the master limiter.",
+                )
+            },
+            PrefItem {
+                choices: strings(&["Smooth", "Linear", "Scratch"]),
+                chosen: settings::number("xfader_shape", 0.0) as i32,
+                ..item(
+                    "xfader_shape",
+                    SEGMENTED,
+                    "Crossfader curve",
+                    "Smooth for blends; Scratch cuts in sharply at the ends.",
+                )
+            },
+            switch(
+                "xfader_enabled",
+                "Crossfader",
+                "Off: the crossfader does nothing and every deck plays through. Right-click the crossfader to switch it too.",
+                settings::flag("xfader_enabled", true),
+            ),
+            switch(
+                "xfader_reverse",
+                "Reverse crossfader",
+                "Hamster style: the left side plays the right deck.",
+                settings::flag("xfader_reverse", false),
+            ),
+            switch(
+                "head_split",
+                "Split cue",
+                "Cue in the left ear and master in the right, both in mono.",
+                settings::flag("head_split", false),
+            ),
+            ]
+    }
+
+    /// Settings › Mixer › Plugins: where plugins are looked for, Scan,
+    /// the effects found with a tick for the FX lists, and files that
+    /// couldn't be read with Retry.
+    fn audio_plugin_items(&self) -> Vec<PrefItem> {
+        let p = self.audio_plugins.borrow();
+        if !p.available() {
+            return vec![item(
+                "",
+                NOTE,
+                "Plugins",
+                "This copy of openDJ came without its plugin helper (opendj-plugin-host), so CLAP, VST3 and Audio Unit plugins can't run.",
+            )];
+        }
+        let mut items = vec![item(
+            "",
+            NOTE,
+            "Plugins",
+            "CLAP and VST3 plugins, and Audio Units on a Mac. Effects go in any effect slot: decks, Beat FX, Mic and Aux. Instruments play through the Instrument input in the MIC panel. Each runs in its own helper process, so a plugin that crashes or stalls is switched off and the music keeps playing.",
+        )];
+        let folders = p.folders();
+        for (i, dir) in folders.iter().enumerate() {
+            items.push(PrefItem {
+                value: dir.to_string_lossy().into_owned().into(),
+                action: "Remove".into(),
+                ..item(
+                    &format!("audio_plugin_folder_remove:{i}"),
+                    PATH,
+                    if i == 0 { "Plugin folders" } else { "" },
+                    "",
+                )
+            });
+        }
+        items.push(PrefItem {
+            action: "Add…".into(),
+            ..item(
+                "audio_plugin_folder_add",
+                BUTTON,
+                if folders.is_empty() {
+                    "Plugin folders"
+                } else {
+                    "Add a plugin folder"
+                },
+                "Where openDJ looks for .clap and .vst3 plugins.",
+            )
+        });
+        let effects = p.effects();
+        let instruments = p.instruments();
+        let note = if !p.note.is_empty() {
+            p.note.clone()
+        } else if effects.is_empty() && instruments.is_empty() {
+            "Nothing is looked at until you press Scan.".to_string()
+        } else {
+            format!(
+                "{} effects and {} instruments known from the last scan.",
+                effects.len(),
+                instruments.len()
+            )
+        };
+        items.push(PrefItem {
+            action: if p.scanning() {
+                "".into()
+            } else {
+                "Scan".into()
+            },
+            value: if p.scanning() {
+                note.clone().into()
+            } else {
+                "".into()
+            },
+            ..item("audio_plugins_scan", BUTTON, "Scan for plugins", &note)
+        });
+        let shown = p.shown();
+        for (heading, list) in [
+            ("EFFECTS IN THE FX LISTS", &effects),
+            ("INSTRUMENTS FOR THE INSTRUMENT INPUT", &instruments),
+        ] {
+            if list.is_empty() {
+                continue;
+            }
+            items.push(item("", HEADING, heading, ""));
+            for e in list {
+                items.push(PrefItem {
+                    on: shown.contains(&e.key),
+                    ..item(
+                        &format!("audio_plugin_show:{}", e.key),
+                        TICK,
+                        &format!("{} · {} · {}", e.name, e.vendor, e.format),
+                        "",
+                    )
+                });
+            }
+        }
+        let failures = p.failures();
+        if !failures.is_empty() {
+            items.push(item("", HEADING, "COULDN'T BE READ", ""));
+            for (i, (path, why)) in failures.iter().enumerate() {
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                items.push(PrefItem {
+                    action: "Retry".into(),
+                    ..item(&format!("audio_plugin_retry:{i}"), BUTTON, &name, why)
+                });
+            }
+        }
+        items
+    }
+
     fn running_rate(&self) -> f64 {
         self.registry
             .get("[App]", "samplerate")
@@ -1695,10 +1841,11 @@ impl Prefs {
 
     /// The tabs a page has; most have none.
     fn tabs(&self, page: i32) -> Vec<String> {
-        if page != LIBRARY {
-            return Vec::new();
+        match page {
+            LIBRARY => LIBRARY_TABS.iter().map(|t| t.to_string()).collect(),
+            MIXER => MIXER_TABS.iter().map(|t| t.to_string()).collect(),
+            _ => Vec::new(),
         }
-        LIBRARY_TABS.iter().map(|t| t.to_string()).collect()
     }
 
     /// Settings › Collection: General, Stages, Fields and Import. `tab` None
@@ -2170,6 +2317,11 @@ impl Prefs {
     }
 
     fn toggled(&mut self, id: &str, on: bool) {
+        if let Some(key) = id.strip_prefix("audio_plugin_show:") {
+            self.audio_plugins.borrow_mut().set_shown(key, on);
+            self.refresh();
+            return;
+        }
         if let Some(node) = id.strip_prefix("import_pick:").and_then(|n| n.parse().ok()) {
             if let Some(p) = self.wizard.as_mut().and_then(|w| w.picker.as_mut()) {
                 p.set(node, on);
@@ -2445,6 +2597,36 @@ impl Prefs {
     }
 
     /// Keyboard shortcuts, each an openDJscript line (see shortcuts.rs).
+    fn audio_plugin_pressed(&mut self, id: &str) -> bool {
+        let mut p = self.audio_plugins.borrow_mut();
+        if id == "audio_plugins_scan" {
+            p.start_scan();
+        } else if id == "audio_plugin_folder_add" {
+            choose(id, "Choose a plugin folder", true, self.chosen_tx.clone());
+        } else if let Some(i) = id
+            .strip_prefix("audio_plugin_folder_remove:")
+            .and_then(|i| i.parse::<usize>().ok())
+        {
+            let mut folders = p.folders();
+            if i < folders.len() {
+                folders.remove(i);
+            }
+            p.set_folders(&folders);
+        } else if let Some(i) = id
+            .strip_prefix("audio_plugin_retry:")
+            .and_then(|i| i.parse::<usize>().ok())
+        {
+            if let Some((path, _)) = p.failures().get(i).cloned() {
+                p.retry(&path);
+            }
+        } else {
+            return false;
+        }
+        drop(p);
+        self.refresh();
+        true
+    }
+
     fn keyboard_page(&self) -> Vec<PrefItem> {
         let fixed = if cfg!(target_os = "macos") {
             "Space plays or pauses the master deck, ⌘, opens Settings and Esc closes them; those stay as they are."
@@ -2723,6 +2905,9 @@ impl Prefs {
             return;
         }
         if self.import_pressed(id) {
+            return;
+        }
+        if self.audio_plugin_pressed(id) {
             return;
         }
         if id.starts_with("plugin:") {

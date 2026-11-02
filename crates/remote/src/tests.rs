@@ -216,3 +216,35 @@ fn urls() {
         "http://192.168.1.20:7477/#pair=abc"
     );
 }
+
+#[test]
+fn serves_art_to_paired_phones_only() {
+    let server = start();
+    server.set_art_source(Arc::new(|id: &str, size: u32| {
+        (id == "abc123").then(|| format!("jpeg {size}").into_bytes())
+    }));
+    let mut ws = connect(server.port(), None).unwrap();
+    let (code, _) = server.pair_code();
+    send(
+        &mut ws,
+        json!({"id": 1, "method": "pair", "params": {"code": code, "name": "P"}}),
+    );
+    let key = recv(&mut ws)["result"]["art_key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let port = server.port();
+    let ask = |path: &str| {
+        get(
+            port,
+            &format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"),
+        )
+    };
+    let ok = ask(&format!("/art/abc123?s=96&k={key}"));
+    assert!(ok.starts_with("HTTP/1.1 200"), "{ok}");
+    assert!(ok.contains("image/jpeg") && ok.ends_with("jpeg 96"));
+    // Wrong key, unknown cover, odd size.
+    assert!(ask("/art/abc123?s=96&k=nope").starts_with("HTTP/1.1 404"));
+    assert!(ask(&format!("/art/fff?s=96&k={key}")).starts_with("HTTP/1.1 404"));
+    assert!(ask(&format!("/art/abc123?s=5000&k={key}")).starts_with("HTTP/1.1 404"));
+}

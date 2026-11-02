@@ -75,9 +75,18 @@ pub struct Controllers {
     thread: Option<JoinHandle<()>>,
 }
 
+/// Where notes from MIDI keyboards go: the instrument plugin. Called on the
+/// device's MIDI thread with each channel message (status, two data bytes).
+pub type NoteSink = Arc<dyn Fn([u8; 3]) + Send + Sync>;
+
 /// What the device thread and the app share besides `connected`.
 #[derive(Default)]
 struct Shared {
+    /// Where devices with no mapping send their notes: MIDI keyboards play
+    /// the instrument.
+    notes: Mutex<Option<NoteSink>>,
+    /// The devices playing the instrument now.
+    keyboards: Mutex<Vec<String>>,
     /// Every MIDI input seen at the last scan, with the mapping file picked.
     ports: Mutex<Vec<(String, Option<PathBuf>)>>,
     /// Choices by [`device_key`]; devices not listed are Auto.
@@ -171,6 +180,17 @@ impl Controllers {
             })
             .collect();
         ports
+    }
+
+    /// Sends the notes of MIDI devices that have no mapping (keyboards) to
+    /// `sink`, or nowhere.
+    pub fn set_note_sink(&self, sink: Option<NoteSink>) {
+        *self.shared.notes.lock().unwrap() = sink;
+    }
+
+    /// The MIDI devices with no mapping, whose notes play the instrument.
+    pub fn keyboards(&self) -> Vec<String> {
+        self.shared.keyboards.lock().unwrap().clone()
     }
 
     /// Every mapping there is: its name and file name.
@@ -488,6 +508,7 @@ fn watch_devices(
     }
 
     let mut devices: HashMap<String, Device> = HashMap::new();
+    let mut keyboards: HashMap<String, Keyboard> = HashMap::new();
     let mut last_scan: Option<Instant> = None;
     while !stop.load(Ordering::Relaxed) {
         let mut rescan = shared.rescan.swap(false, Ordering::Relaxed);
@@ -497,6 +518,10 @@ fn watch_devices(
                 d.stop.store(true, Ordering::Relaxed);
                 let _ = d.thread.join();
                 connected.lock().unwrap().retain(|c| c.port != port);
+            }
+            for (_, k) in keyboards.drain() {
+                k.stop.store(true, Ordering::Relaxed);
+                let _ = k.thread.join();
             }
             if let Ok(fresh) = MidiInput::new(CLIENT) {
                 input = Some(fresh);
@@ -573,6 +598,7 @@ fn watch_devices(
                 connected.lock().unwrap().retain(|c| c.port != port);
             }
             *shared.ports.lock().unwrap() = picked.clone();
+            follow_keyboards(&mut keyboards, &picked, &stand_ins, &shared);
             for (port, path) in picked {
                 if devices.contains_key(&port)
                     || connected.lock().unwrap().iter().any(|c| c.port == port)
@@ -692,6 +718,116 @@ fn watch_devices(
         d.stop.store(true, Ordering::Relaxed);
         let _ = d.thread.join();
     }
+    for (_, k) in keyboards.drain() {
+        k.stop.store(true, Ordering::Relaxed);
+        let _ = k.thread.join();
+    }
+}
+
+/// A device with no mapping, open to play the instrument.
+struct Keyboard {
+    stop: Arc<AtomicBool>,
+    thread: JoinHandle<()>,
+}
+
+/// Opens the devices that have no mapping (and aren't the computer's own
+/// ports or turned off) as keyboards, and closes those that went away or
+/// got a mapping.
+fn follow_keyboards(
+    keyboards: &mut HashMap<String, Keyboard>,
+    picked: &[(String, Option<PathBuf>)],
+    stand_ins: &[StandIn],
+    shared: &Arc<Shared>,
+) {
+    let choices = shared.choices.lock().unwrap().clone();
+    let wanted: Vec<&String> = picked
+        .iter()
+        .filter(|(port, path)| {
+            path.is_none()
+                && !crate::is_system_port(port)
+                && !stand_ins.iter().any(|s| &s.name == port)
+                && choices.get(&device_key(port)) != Some(&MappingChoice::Off)
+        })
+        .map(|(port, _)| port)
+        .collect();
+    keyboards.retain(|port, k| {
+        let keep = wanted.contains(&port) && !k.thread.is_finished();
+        if !keep {
+            k.stop.store(true, Ordering::Relaxed);
+        }
+        keep
+    });
+    for port in wanted {
+        if keyboards.contains_key(port) {
+            continue;
+        }
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread = {
+            let (port, stop, shared) = (port.clone(), stop.clone(), shared.clone());
+            std::thread::Builder::new()
+                .name(format!("midi keys {port}"))
+                .spawn(move || run_keyboard(&port, &stop, &shared))
+                .expect("spawn MIDI keyboard thread")
+        };
+        keyboards.insert(port.clone(), Keyboard { stop, thread });
+    }
+    let mut names: Vec<String> = keyboards.keys().cloned().collect();
+    names.sort();
+    *shared.keyboards.lock().unwrap() = names;
+}
+
+/// Channel messages (notes, controllers, pitch bend) from `port` go to the
+/// note sink until `stop`.
+fn run_keyboard(port: &str, stop: &AtomicBool, shared: &Arc<Shared>) {
+    let Ok(mut input) = MidiInput::new(CLIENT) else {
+        return;
+    };
+    input.ignore(Ignore::All);
+    let Some(in_port) = input
+        .ports()
+        .into_iter()
+        .find(|p| input.port_name(p).as_deref() == Ok(port))
+    else {
+        return;
+    };
+    let (name, shared_in) = (port.to_string(), shared.clone());
+    let conn = input.connect(
+        &in_port,
+        "openDJ keys",
+        move |_, msg, _| {
+            monitor(&name, msg);
+            if LEARNING.load(Ordering::Relaxed) {
+                return;
+            }
+            if let Some(data) = channel_message(msg) {
+                if let Some(sink) = shared_in.notes.lock().unwrap().as_ref() {
+                    sink(data);
+                }
+            }
+        },
+        (),
+    );
+    let Ok(_conn) = conn else {
+        return;
+    };
+    while !stop.load(Ordering::Relaxed) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// A channel voice message as three bytes, the unused one 0; anything else
+/// (system messages, running status cut short) is none.
+fn channel_message(msg: &[u8]) -> Option<[u8; 3]> {
+    let status = *msg.first()?;
+    let len = match status & 0xF0 {
+        0x80 | 0x90 | 0xA0 | 0xB0 | 0xE0 => 3,
+        0xC0 | 0xD0 => 2,
+        _ => return None,
+    };
+    if msg.len() < len {
+        return None;
+    }
+    Some([status, msg[1], if len == 3 { msg[2] } else { 0 }])
 }
 
 /// Waits `time` on the device thread. On macOS the thread's run loop runs
@@ -994,6 +1130,16 @@ fn stand_in_devices() -> Vec<StandIn> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keyboards_send_channel_messages_only() {
+        assert_eq!(channel_message(&[0x90, 60, 100]), Some([0x90, 60, 100]));
+        assert_eq!(channel_message(&[0xE1, 0, 64]), Some([0xE1, 0, 64]));
+        assert_eq!(channel_message(&[0xC0, 5]), Some([0xC0, 5, 0]));
+        assert_eq!(channel_message(&[0x90, 60]), None, "cut short");
+        assert_eq!(channel_message(&[0xF8]), None, "clock");
+        assert_eq!(channel_message(&[]), None);
+    }
 
     #[test]
     fn matches_ports_to_mappings() {

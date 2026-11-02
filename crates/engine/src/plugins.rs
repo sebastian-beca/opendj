@@ -19,18 +19,24 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use opendj_control::{ControlHandle, ControlRegistry};
+pub use opendj_plugin_host::{scan, scan_audio_units, Descriptor, Limits, Plugin, ScanError};
 use opendj_plugin_host::{spawn, Action, Helper, Options, Policy, Status};
-pub use opendj_plugin_host::{Limits, Plugin};
 
 use crate::controls::{effect_group, effect_unit_group, EFFECTS_PER_UNIT, NUM_EFFECT_UNITS};
 use crate::effects::{
     instance_indices, plugin_index, route_name, Attached, PluginLink, PluginMsg, BLOCK,
     MAX_PARAMETERS, MAX_PLUGINS, PLUGIN_BASE, TARGETS,
 };
+use crate::inputs::{input_group, INSTRUMENT};
+
+const INSTRUMENT_GROUP: &str = input_group(INSTRUMENT);
 
 /// One plugin the slots can load, from the app's scan.
 #[derive(Clone, Debug)]
 pub struct PluginEntry {
+    /// Stays the same between lists and sessions (format, file and id), so
+    /// a slot keeps its plugin when the list changes around it.
+    pub key: String,
     pub name: String,
     pub plugin: Plugin,
 }
@@ -44,6 +50,24 @@ pub enum PluginEvent {
     Restarted { name: String },
     /// It crashed again, or ran too slow: off for the rest of the session.
     Disabled { name: String, reason: String },
+}
+
+impl std::fmt::Display for PluginEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PluginEvent::Failed { name, error } => {
+                write!(f, "{name} didn't start ({error}), so its slot is empty.")
+            }
+            PluginEvent::Restarted { name } => write!(
+                f,
+                "{name} stopped working and was restarted. The music kept playing; switch the effect on again when you want it."
+            ),
+            PluginEvent::Disabled { name, reason } => write!(
+                f,
+                "{name} is off until you restart openDJ: {reason}. The music kept playing."
+            ),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -70,6 +94,9 @@ impl HostOptions {
 #[derive(Default)]
 struct List {
     entries: Vec<PluginEntry>,
+    /// The instruments the Instrument input can load (see
+    /// [`PluginHost::set_instruments`]).
+    instruments: Vec<PluginEntry>,
     version: u64,
 }
 
@@ -111,8 +138,9 @@ impl PluginHost {
     }
 
     /// The plugins the slots can load: `loaded_effect` [`PLUGIN_BASE`] + i
-    /// is `entries[i]`. A new list empties slots that point past its end,
-    /// and gives every plugin a fresh start.
+    /// is `entries[i]`. With a new list, slots keep their plugin (by key)
+    /// at its new place, slots whose plugin left are emptied, and every
+    /// plugin gets a fresh start.
     pub fn set_plugins(&self, mut entries: Vec<PluginEntry>) {
         entries.truncate(MAX_PLUGINS);
         let n = entries.len();
@@ -120,6 +148,16 @@ impl PluginHost {
         list.entries = entries;
         list.version += 1;
         self.num_plugins.set(n as f64);
+    }
+
+    /// The instruments the Instrument input can load:
+    /// `[Instrument1],instrument` i + 1 is `entries[i]`, 0 none. With a new
+    /// list the input keeps its instrument (by key) if it is still there.
+    pub fn set_instruments(&self, mut entries: Vec<PluginEntry>) {
+        entries.truncate(MAX_PLUGINS);
+        let mut list = self.list.lock().unwrap();
+        list.instruments = entries;
+        list.version += 1;
     }
 
     /// What happened since the last call.
@@ -168,6 +206,19 @@ struct Supervisor {
     /// on another target, keeps them as the DJ left them.
     knobs: Vec<[Option<u16>; EFFECTS_PER_UNIT]>,
     /// Per plugin, this session.
+    policies: HashMap<u16, Policy>,
+    disabled: HashSet<u16>,
+    instrument: InstrumentState,
+}
+
+/// The Instrument input's plugin.
+struct InstrumentState {
+    entries: Vec<PluginEntry>,
+    /// `[Instrument1],instrument`: 1 + its place in `entries`, 0 for none.
+    choice: ControlHandle,
+    /// `[Instrument1],main_mix`, switched off after a crash.
+    on: ControlHandle,
+    running: Option<(u16, Helper)>,
     policies: HashMap<u16, Policy>,
     disabled: HashSet<u16>,
 }
@@ -221,6 +272,14 @@ impl Supervisor {
             knobs: vec![[None; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS],
             policies: HashMap::new(),
             disabled: HashSet::new(),
+            instrument: InstrumentState {
+                entries: Vec::new(),
+                choice: get(reg, INSTRUMENT_GROUP, "instrument"),
+                on: get(reg, INSTRUMENT_GROUP, "main_mix"),
+                running: None,
+                policies: HashMap::new(),
+                disabled: HashSet::new(),
+            },
         }
     }
 
@@ -230,6 +289,7 @@ impl Supervisor {
         self.take_list();
         self.watch();
         self.follow_slots();
+        self.follow_instrument();
     }
 
     fn take_list(&mut self) {
@@ -238,8 +298,27 @@ impl Supervisor {
             return;
         }
         self.version = list.version;
-        self.entries = list.entries.clone();
+        let old = std::mem::replace(&mut self.entries, list.entries.clone());
+        let old_instruments =
+            std::mem::replace(&mut self.instrument.entries, list.instruments.clone());
         drop(list);
+        let ins = &mut self.instrument;
+        ins.policies.clear();
+        ins.disabled.clear();
+        if ins.running.take().is_some() {
+            let _ = self.link.to_engine.push(PluginMsg::Instrument(None));
+        }
+        let chosen = ins.choice.get().round() as usize;
+        if chosen > 0 {
+            let moved = if old_instruments.is_empty() {
+                (chosen <= ins.entries.len()).then_some(chosen - 1)
+            } else {
+                old_instruments
+                    .get(chosen - 1)
+                    .and_then(|e| ins.entries.iter().position(|n| n.key == e.key))
+            };
+            ins.choice.set(moved.map_or(0.0, |n| (n + 1) as f64));
+        }
         self.policies.clear();
         self.disabled.clear();
         self.knobs = vec![[None; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS];
@@ -249,9 +328,19 @@ impl Supervisor {
         }
         for unit in &self.slots {
             for slot in unit {
-                if plugin_index(slot.loaded_effect.get()).is_some_and(|p| p >= self.entries.len()) {
-                    slot.loaded_effect.set(0.0);
-                }
+                let Some(p) = plugin_index(slot.loaded_effect.get()) else {
+                    continue;
+                };
+                // The first time, slots restored from the last session already
+                // point into this list.
+                let moved = if self.version == 1 && old.is_empty() {
+                    (p < self.entries.len()).then_some(p)
+                } else {
+                    old.get(p)
+                        .and_then(|e| self.entries.iter().position(|n| n.key == e.key))
+                };
+                slot.loaded_effect
+                    .set(moved.map_or(0.0, |n| (PLUGIN_BASE + n) as f64));
             }
         }
     }
@@ -288,7 +377,9 @@ impl Supervisor {
                     let _ = self.events.send(PluginEvent::Restarted { name });
                 }
                 Action::Disable => {
-                    let reason = if crashed || missed > 0 {
+                    let reason = if crashed {
+                        "it crashed again"
+                    } else if missed > 0 {
                         "it stopped responding again"
                     } else {
                         "it used too much of the audio time"
@@ -432,9 +523,111 @@ impl Supervisor {
             .map_or_else(String::new, |e| e.name.clone())
     }
 
+    /// Starts, stops and watches the Instrument input's helper.
+    fn follow_instrument(&mut self) {
+        let ins = &mut self.instrument;
+        if let Some((plugin, helper)) = ins.running.as_mut() {
+            let plugin = *plugin;
+            let policy = ins
+                .policies
+                .entry(plugin)
+                .or_insert_with(|| Policy::new(self.opts.limits));
+            let crashed = helper.status() != Status::Running || helper.is_gone();
+            let missed = helper.missed_in_row();
+            let action = if crashed {
+                policy.on_crash()
+            } else {
+                match policy.on_missed(missed) {
+                    Action::Keep => policy.on_load(helper.load()),
+                    a => a,
+                }
+            };
+            let name = ins.entries[plugin as usize].name.clone();
+            match action {
+                Action::Keep => {}
+                Action::Restart => {
+                    ins.on.set_bool(false);
+                    ins.running = None;
+                    let _ = self.link.to_engine.push(PluginMsg::Instrument(None));
+                    let _ = self.events.send(PluginEvent::Restarted { name });
+                }
+                Action::Disable => {
+                    ins.disabled.insert(plugin);
+                    ins.on.set_bool(false);
+                    ins.choice.set(0.0);
+                    ins.running = None;
+                    let _ = self.link.to_engine.push(PluginMsg::Instrument(None));
+                    let reason = if crashed {
+                        "it crashed again"
+                    } else if missed > 0 {
+                        "it stopped responding again"
+                    } else {
+                        "it used too much of the audio time"
+                    };
+                    let _ = self.events.send(PluginEvent::Disabled {
+                        name,
+                        reason: reason.into(),
+                    });
+                }
+            }
+        }
+        let chosen = ins.choice.get().round() as usize;
+        let want = (chosen > 0 && chosen <= ins.entries.len())
+            .then(|| (chosen - 1) as u16)
+            .filter(|p| !ins.disabled.contains(p));
+        let have = ins.running.as_ref().map(|(p, _)| *p);
+        if want == have {
+            return;
+        }
+        if have.is_some() {
+            ins.running = None;
+            let _ = self.link.to_engine.push(PluginMsg::Instrument(None));
+        }
+        let Some(plugin) = want else {
+            return;
+        };
+        let entry = &ins.entries[plugin as usize];
+        let opts = Options {
+            helper: self.opts.helper.clone(),
+            plugin: entry.plugin.clone(),
+            sample_rate: self.opts.sample_rate,
+            max_frames: BLOCK,
+        };
+        match spawn(&opts) {
+            Ok((conn, helper)) => {
+                let attached = Box::new(Attached {
+                    conn,
+                    plugin,
+                    ranges: Vec::new(),
+                    sent: [0.0; MAX_PARAMETERS],
+                });
+                if self
+                    .link
+                    .to_engine
+                    .push(PluginMsg::Instrument(Some(attached)))
+                    .is_ok()
+                {
+                    ins.running = Some((plugin, helper));
+                }
+            }
+            Err(e) => {
+                let name = entry.name.clone();
+                ins.disabled.insert(plugin);
+                ins.choice.set(0.0);
+                let _ = self.events.send(PluginEvent::Failed {
+                    name,
+                    error: e.to_string(),
+                });
+            }
+        }
+    }
+
     fn shut_down(&mut self) {
         for i in 0..self.running.len() {
             self.stop(i);
+        }
+        if self.instrument.running.take().is_some() {
+            let _ = self.link.to_engine.push(PluginMsg::Instrument(None));
         }
         while self.link.from_engine.pop().is_ok() {}
     }
@@ -447,7 +640,8 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
-    use crate::effects::EffectRack;
+    use crate::effects::{input_target, EffectRack};
+    use crate::inputs::Input;
 
     const SR: u32 = 48_000;
     const FRAMES: usize = 480;
@@ -480,6 +674,8 @@ mod tests {
         reg: Arc<ControlRegistry>,
         rack: EffectRack,
         host: PluginHost,
+        instrument: Input,
+        notes: crate::effects::NoteInput,
         now: f64,
     }
 
@@ -488,11 +684,14 @@ mod tests {
         fn new(effect: &str) -> Self {
             let reg = ControlRegistry::new();
             let mut rack = EffectRack::new(&reg, SR as f64);
+            let instrument = Input::new(&reg, INSTRUMENT, SR as f64);
+            let notes = rack.take_note_input().unwrap();
             let link = rack.take_plugin_link().unwrap();
             let mut opts = HostOptions::new(helper(), SR);
             opts.poll = Duration::from_millis(2);
             let host = PluginHost::start(&reg, link, opts);
             host.set_plugins(vec![PluginEntry {
+                key: effect.into(),
                 name: format!("Test {effect}"),
                 plugin: Plugin::Test(effect.into()),
             }]);
@@ -500,6 +699,8 @@ mod tests {
                 reg,
                 rack,
                 host,
+                instrument,
+                notes,
                 now: 0.0,
             };
             rig.unit("mix").set(1.0);
@@ -633,12 +834,95 @@ mod tests {
     }
 
     #[test]
-    fn a_new_plugin_list_empties_slots_past_its_end() {
+    fn a_slot_keeps_its_plugin_when_the_list_changes() {
+        let mut rig = Rig::new("test-gain");
+        rig.until(|r, _| r.slot("num_parameters").get() == 1.0);
+        let entry = |key: &str| PluginEntry {
+            key: key.into(),
+            name: key.into(),
+            plugin: Plugin::Test(key.into()),
+        };
+        rig.host
+            .set_plugins(vec![entry("test-slow"), entry("test-gain")]);
+        let second = (PLUGIN_BASE + 1) as f64;
+        rig.until(|r, _| r.slot("loaded_effect").get() == second);
+    }
+
+    #[test]
+    fn a_new_plugin_list_empties_slots_whose_plugin_left() {
         let mut rig = Rig::new("test-gain");
         rig.until(|r, _| r.slot("num_parameters").get() == 1.0);
         rig.host.set_plugins(Vec::new());
         assert_eq!(rig.reg.get("[Master]", "num_plugins").unwrap().get(), 0.0);
         rig.until(|r, _| r.slot("loaded_effect").get() == 0.0);
         rig.until(|_, out| (out - 0.5).abs() < 1e-6);
+    }
+
+    impl Rig {
+        /// One buffer of the Instrument input, before its fader: its last
+        /// frame's level.
+        fn instrument_buffer(&mut self) -> f32 {
+            self.rack.prepare([0.5; TARGETS], self.now);
+            self.instrument
+                .render(FRAMES, &mut self.rack, input_target(INSTRUMENT), 0.01);
+            self.rack.finish();
+            self.now += FRAMES as f64 / SR as f64;
+            self.instrument.buf[FRAMES - 1][0]
+        }
+    }
+
+    #[test]
+    fn the_instrument_input_plays_the_notes_it_is_sent() {
+        let mut rig = Rig::new("test-gain");
+        rig.host.set_instruments(vec![PluginEntry {
+            key: "test-synth".into(),
+            name: "Test Synth".into(),
+            plugin: Plugin::Test("test-synth".into()),
+        }]);
+        let group = input_group(INSTRUMENT);
+        let configured = rig.reg.get(group, "input_configured").unwrap();
+        rig.reg.get(group, "instrument").unwrap().set(1.0);
+        // Ready once the helper is up.
+        let end = Instant::now() + Duration::from_secs(10);
+        while !configured.get_bool() {
+            rig.instrument_buffer();
+            assert!(Instant::now() < end, "the instrument starts");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(rig.instrument_buffer().abs() < 1e-3, "silent until a note");
+        assert!(rig.notes.send([0x90, 127, 100]));
+        assert!((rig.instrument_buffer() - 1.0).abs() < 1e-3);
+        assert!((rig.instrument_buffer() - 1.0).abs() < 1e-3, "held");
+        assert!(rig.notes.send([0x80, 127, 0]));
+        assert!(rig.instrument_buffer().abs() < 1e-3);
+        // The pads play from middle C; a pad let go after the octave moved
+        // still stops its note.
+        let pad = rig.reg.get(group, "pad_1").unwrap();
+        pad.set(1.0);
+        assert!((rig.instrument_buffer() - 60.0 / 127.0).abs() < 1e-3);
+        rig.reg.get(group, "octave").unwrap().set(1.0);
+        pad.set(0.0);
+        assert!(rig.instrument_buffer().abs() < 1e-3);
+        rig.reg.get(group, "pad_2").unwrap().set(1.0);
+        assert!((rig.instrument_buffer() - 74.0 / 127.0).abs() < 1e-3);
+        rig.reg.get(group, "pad_2").unwrap().set(0.0);
+        assert!(rig.instrument_buffer().abs() < 1e-3);
+        // With keyboard_pads on, a deck's KEYBOARD pads play it too.
+        rig.reg.get(group, "octave").unwrap().set(0.0);
+        rig.reg.get(group, "keyboard_pads").unwrap().set(1.0);
+        let deck_pad = rig.reg.get("[Channel1]", "keyboard_3_activate").unwrap();
+        deck_pad.set(1.0);
+        assert!((rig.instrument_buffer() - 64.0 / 127.0).abs() < 1e-3);
+        deck_pad.set(0.0);
+        assert!(rig.instrument_buffer().abs() < 1e-3);
+        // Taken off the input, it is silent and no longer ready.
+        rig.reg.get(group, "instrument").unwrap().set(0.0);
+        while configured.get_bool() {
+            rig.instrument_buffer();
+            assert!(Instant::now() < end + Duration::from_secs(10));
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(rig.notes.send([0x90, 127, 100]));
+        assert!(rig.instrument_buffer().abs() < 1e-3);
     }
 }

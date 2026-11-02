@@ -15,7 +15,7 @@
 use std::f32::consts::{PI, TAU};
 
 use opendj_control::{Behavior, ControlHandle, ControlRegistry};
-use opendj_plugin_host::{Connection, Transport};
+use opendj_plugin_host::{Connection, Midi, Transport};
 
 use crate::controls::{
     deck_group, effect_group, effect_unit_group, Edge, BEAT_FX_UNIT, EFFECTS_PER_UNIT, MIC_FX_UNIT,
@@ -993,6 +993,28 @@ pub(crate) struct EffectRack {
     from_host: rtrb::Consumer<PluginMsg>,
     to_host: rtrb::Producer<Box<Attached>>,
     link: Option<PluginLink>,
+    /// The Instrument input's plugin, as the plugin host attached it.
+    instrument: Option<Box<Attached>>,
+    /// Notes for the instrument, from [`NoteInput`], and those waiting to
+    /// reach it (kept while it is late, so no note-off is lost).
+    notes: rtrb::Consumer<Midi>,
+    notes_waiting: Vec<Midi>,
+    note_input: Option<NoteInput>,
+}
+
+/// Where notes for the Instrument input come in: a MIDI keyboard, the
+/// Keyboard pads or a controller. Each goes to the instrument at the start
+/// of the next buffer.
+pub struct NoteInput {
+    tx: rtrb::Producer<Midi>,
+}
+
+impl NoteInput {
+    /// Queues a MIDI message (three bytes: status, key, velocity); false
+    /// when the queue is full.
+    pub fn send(&mut self, data: [u8; 3]) -> bool {
+        self.tx.push(Midi { frame: 0, data }).is_ok()
+    }
 }
 
 /// A plugin helper attached to one instance.
@@ -1010,6 +1032,8 @@ pub(crate) struct Attached {
 pub(crate) enum PluginMsg {
     Attach(u16, Box<Attached>),
     Detach(u16),
+    /// The Instrument input's plugin, or none.
+    Instrument(Option<Box<Attached>>),
 }
 
 /// The plugin host's half of the rack's queues: it attaches helpers and
@@ -1034,6 +1058,7 @@ impl EffectRack {
         let (index, n) = instance_indices();
         let (to_engine, from_host) = rtrb::RingBuffer::new(2 * n);
         let (to_host, from_engine) = rtrb::RingBuffer::new(2 * n);
+        let (notes_tx, notes) = rtrb::RingBuffer::new(opendj_plugin_host::shm::MAX_EVENTS);
         let units: [UnitControls; NUM_EFFECT_UNITS] =
             std::array::from_fn(|u| UnitControls::create(reg, u));
         reg.indicator("[Master]", "num_effectsavailable", KINDS.len() as f64)
@@ -1064,6 +1089,10 @@ impl EffectRack {
                 to_engine,
                 from_engine,
             }),
+            instrument: None,
+            notes,
+            notes_waiting: Vec::with_capacity(opendj_plugin_host::shm::MAX_EVENTS),
+            note_input: Some(NoteInput { tx: notes_tx }),
         }
     }
 
@@ -1088,6 +1117,59 @@ impl EffectRack {
         (pooled + lent) * std::mem::size_of::<f32>()
     }
 
+    /// Where notes for the instrument come in, once.
+    pub(crate) fn take_note_input(&mut self) -> Option<NoteInput> {
+        self.note_input.take()
+    }
+
+    /// Queues a note for the instrument from the audio thread itself (the
+    /// Instrument input's pads).
+    pub(crate) fn queue_note(&mut self, data: [u8; 3]) {
+        if self.notes_waiting.len() < self.notes_waiting.capacity() {
+            self.notes_waiting.push(Midi { frame: 0, data });
+        }
+    }
+
+    pub(crate) fn has_instrument(&self) -> bool {
+        self.instrument.is_some()
+    }
+
+    /// Plays the instrument into `buf` with the notes that came in, at the
+    /// tempo of `target`; silence without one. True when it is attached.
+    pub(crate) fn play_instrument(&mut self, buf: &mut [[f32; 2]], target: usize) -> bool {
+        let frames = buf.len();
+        let cap = self.notes_waiting.capacity();
+        while let Ok(n) = self.notes.pop() {
+            if self.notes_waiting.len() < cap {
+                self.notes_waiting.push(n);
+            }
+        }
+        let Some(a) = self.instrument.as_deref_mut() else {
+            self.notes_waiting.clear();
+            buf.fill([0.0; 2]);
+            return false;
+        };
+        let [silent, _, out_l, out_r] = &mut self.planar;
+        silent[..frames].fill(0.0);
+        let deadline = std::time::Duration::from_secs_f32(0.5 * frames as f32 / self.sample_rate);
+        let out = a.conn.process_events(
+            [&silent[..frames], &silent[..frames]],
+            [&mut out_l[..frames], &mut out_r[..frames]],
+            self.transport[target],
+            &self.notes_waiting,
+            deadline,
+        );
+        if out.is_wet() {
+            self.notes_waiting.clear();
+            for (f, s) in buf.iter_mut().enumerate() {
+                *s = [out_l[f], out_r[f]];
+            }
+        } else {
+            buf.fill([0.0; 2]);
+        }
+        true
+    }
+
     /// The plugin host's half of the queues, once.
     pub(crate) fn take_plugin_link(&mut self) -> Option<PluginLink> {
         self.link.take()
@@ -1105,6 +1187,12 @@ impl EffectRack {
             let (i, new) = match msg {
                 PluginMsg::Attach(i, a) => (i, Some(a)),
                 PluginMsg::Detach(i) => (i, None),
+                PluginMsg::Instrument(a) => {
+                    if let Some(old) = std::mem::replace(&mut self.instrument, a) {
+                        let _ = self.to_host.push(old);
+                    }
+                    continue;
+                }
             };
             let Some(slot) = self.attached.get_mut(i as usize) else {
                 continue;
@@ -1237,6 +1325,15 @@ impl EffectRack {
             for slot in &self.slots[u] {
                 slot.enabled.set_bool(false);
             }
+        }
+    }
+
+    /// Lets go of a deck's Pad FX: they play only while a pad is held, so a
+    /// newly loaded track starts without them whatever auto reset says (a
+    /// pad still on after a missed release would otherwise carry over).
+    pub(crate) fn release_pad_fx(&mut self, deck: usize) {
+        for slot in &self.slots[crate::controls::pad_fx_unit(deck)] {
+            slot.enabled.set_bool(false);
         }
     }
 

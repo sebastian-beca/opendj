@@ -36,13 +36,19 @@ pub fn prepare(track: &Track) -> Result<Track, String> {
         Source::Synth { seed } => synth::render(track, *seed),
         Source::File(path) => decode(path)?,
     };
-    let hint = (track.bpm > 0.0).then_some(track.bpm);
-    let analysis = analyse(&audio, hint);
+    let analysis = analyse(&audio, tempo_hint(track));
     if let Some(l) = analysis.loudness {
         audio.set_loudness(l);
     }
     let detected = key_is_detected(track);
     Ok(analysed(track, Arc::new(audio), analysis, detected))
+}
+
+/// The tempo analysis keeps for `track` (see [`crate::analysis::tag_tempo`]):
+/// the library's, unless an earlier analysis found it. A tempo the analysis
+/// got wrong would otherwise hold every later one to it, Beat This!'s too.
+fn tempo_hint(track: &Track) -> Option<f64> {
+    (track.bpm > 0.0 && !track.info.grid_analysed).then_some(track.bpm)
 }
 
 /// Whether `track`'s key is for analysis to find: it has none, or an
@@ -117,7 +123,7 @@ pub fn analyse_file(track: &Track, fresh: bool) -> Result<Track, String> {
         base.grid = BeatGrid::default();
     }
     // Afresh, the tempo is found without the library's as a hint.
-    let hint = (!fresh && track.bpm > 0.0).then_some(track.bpm);
+    let hint = tempo_hint(track).filter(|_| !fresh);
     let cached = if fresh { None } else { cache::load(path) };
     let mut audio = None;
     let mut analysis = match cached {
@@ -631,8 +637,7 @@ fn load(shared: &Arc<Shared>, deck: usize, generation: u64, base: &Track) -> Res
             }
             (Some(c), _) => c,
             (None, Some(a)) => {
-                let hint = (base.bpm > 0.0).then_some(base.bpm);
-                let analysis = a.finish(hint);
+                let analysis = a.finish(tempo_hint(base));
                 if let Some(path) = path {
                     cache::store(path, &analysis);
                 }
@@ -664,8 +669,7 @@ fn load(shared: &Arc<Shared>, deck: usize, generation: u64, base: &Track) -> Res
         });
     }
     if let (Some(analysis), Some(path)) = (later.as_mut(), path) {
-        let hint = (base.bpm > 0.0).then_some(base.bpm);
-        if let Err(e) = beatthis::refine(analysis, &audio, hint) {
+        if let Err(e) = beatthis::refine(analysis, &audio, tempo_hint(base)) {
             eprintln!("no beats from Beat This!: {e}");
             return Ok(());
         }
@@ -868,6 +872,11 @@ mod tests {
         assert!(fresh.waveform.is_empty() && fresh.audio.is_none());
         stale.info.grid_analysed = false;
         assert_eq!(analyse_file(&stale, true).unwrap().bpm, 100.0);
+        // The library's tempo holds analysis to it only when it didn't come
+        // from an earlier analysis, which may have got it wrong.
+        assert_eq!(tempo_hint(&stale), Some(100.0));
+        stale.info.grid_analysed = true;
+        assert_eq!(tempo_hint(&stale), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

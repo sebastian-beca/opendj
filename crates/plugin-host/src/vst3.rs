@@ -19,13 +19,15 @@ use std::path::{Path, PathBuf};
 use std::ptr;
 
 use vst3::Steinberg::Vst::{
-    AudioBusBuffers, AudioBusBuffers__type0, BusDirections_, IAudioProcessor, IAudioProcessorTrait,
-    IComponent, IComponentHandler, IComponentHandlerTrait, IComponentTrait, IConnectionPoint,
-    IConnectionPointTrait, IEditController, IEditControllerTrait, IHostApplication,
+    AudioBusBuffers, AudioBusBuffers__type0, BusDirections_, Event, Event_::EventTypes_,
+    Event__type0, IAudioProcessor, IAudioProcessorTrait, IComponent, IComponentHandler,
+    IComponentHandlerTrait, IComponentTrait, IConnectionPoint, IConnectionPointTrait,
+    IEditController, IEditControllerTrait, IEventList, IEventListTrait, IHostApplication,
     IHostApplicationTrait, IParamValueQueue, IParamValueQueueTrait, IParameterChanges,
-    IParameterChangesTrait, MediaTypes_, ParamID, ParamValue, ParameterInfo,
-    ParameterInfo_::ParameterFlags_, ProcessContext, ProcessContext_::StatesAndFlags_, ProcessData,
-    ProcessModes_, ProcessSetup, SpeakerArr, SpeakerArrangement, String128, SymbolicSampleSizes_,
+    IParameterChangesTrait, MediaTypes_, NoteOffEvent, NoteOnEvent, ParamID, ParamValue,
+    ParameterInfo, ParameterInfo_::ParameterFlags_, ProcessContext,
+    ProcessContext_::StatesAndFlags_, ProcessData, ProcessModes_, ProcessSetup, SpeakerArr,
+    SpeakerArrangement, String128, SymbolicSampleSizes_,
 };
 use vst3::Steinberg::{
     kInvalidArgument, kResultFalse, kResultOk, kResultTrue, tresult, FUnknown, IBStream,
@@ -37,7 +39,7 @@ use vst3::{Class, ComPtr, ComWrapper, Interface};
 use crate::client::Transport;
 use crate::descriptor::{features, Descriptor, AUDIO_MODULE};
 use crate::effects::{Effect, Info, Loaded, MainThread, Param};
-use crate::shm::{CHANNELS, MAX_PARAMS};
+use crate::shm::{Midi, CHANNELS, MAX_EVENTS, MAX_PARAMS};
 
 fn cstr(buf: &[c_char]) -> String {
     let bytes: Vec<u8> = buf
@@ -454,6 +456,85 @@ impl IParameterChangesTrait for Changes {
     }
 }
 
+/// A block's notes, from a list made up front so the audio thread never
+/// allocates.
+struct Events {
+    list: RefCell<Vec<Event>>,
+}
+
+unsafe impl Send for Events {}
+unsafe impl Sync for Events {}
+
+impl Class for Events {
+    type Interfaces = (IEventList,);
+}
+
+impl Events {
+    fn new() -> Self {
+        Self {
+            list: RefCell::new(Vec::with_capacity(MAX_EVENTS)),
+        }
+    }
+
+    /// Notes become VST3 note events; other MIDI isn't sent (VST3 takes
+    /// controllers as parameters).
+    fn set(&self, notes: &[Midi]) {
+        let mut list = self.list.borrow_mut();
+        list.clear();
+        for n in notes.iter().take(MAX_EVENTS) {
+            // SAFETY: an all-zero Event is a valid (empty) event.
+            let mut e: Event = unsafe { std::mem::zeroed() };
+            e.sampleOffset = n.frame as i32;
+            if let Some((ch, key, vel)) = n.as_note_on() {
+                e.r#type = EventTypes_::kNoteOnEvent as u16;
+                e.__field0 = Event__type0 {
+                    noteOn: NoteOnEvent {
+                        channel: ch as i16,
+                        pitch: key as i16,
+                        tuning: 0.0,
+                        velocity: vel,
+                        length: 0,
+                        noteId: -1,
+                    },
+                };
+            } else if let Some((ch, key)) = n.as_note_off() {
+                e.r#type = EventTypes_::kNoteOffEvent as u16;
+                e.__field0 = Event__type0 {
+                    noteOff: NoteOffEvent {
+                        channel: ch as i16,
+                        pitch: key as i16,
+                        velocity: 0.0,
+                        noteId: -1,
+                        tuning: 0.0,
+                    },
+                };
+            } else {
+                continue;
+            }
+            list.push(e);
+        }
+    }
+}
+
+impl IEventListTrait for Events {
+    unsafe fn getEventCount(&self) -> i32 {
+        self.list.borrow().len() as i32
+    }
+    unsafe fn getEvent(&self, index: i32, e: *mut Event) -> tresult {
+        match self.list.borrow().get(index as usize) {
+            Some(ev) if !e.is_null() => {
+                *e = *ev;
+                kResultOk
+            }
+            _ => kInvalidArgument,
+        }
+    }
+    unsafe fn addEvent(&self, _e: *mut Event) -> tresult {
+        // Output events from the plugin: openDJ doesn't take them.
+        kResultFalse
+    }
+}
+
 // ---- Loading and processing ----------------------------------------------
 
 /// Keeps the module, component and controller alive on the main thread.
@@ -561,24 +642,33 @@ pub fn load(
             BusDirections_::kInput as i32,
             BusDirections_::kOutput as i32,
         );
-        if component.getBusCount(audio, inp) < 1 || component.getBusCount(audio, out) < 1 {
-            return Err(format!("{name} is not an effect (no audio input)"));
+        // An instrument has no audio input; it takes notes on an event bus.
+        let has_input = component.getBusCount(audio, inp) >= 1;
+        if component.getBusCount(audio, out) < 1 {
+            return Err(format!("{name} has no audio output"));
         }
         let mut ins: [SpeakerArrangement; 1] = [SpeakerArr::kStereo];
         let mut outs: [SpeakerArrangement; 1] = [SpeakerArr::kStereo];
-        if !ok(processor.setBusArrangements(ins.as_mut_ptr(), 1, outs.as_mut_ptr(), 1)) {
-            let mut a: SpeakerArrangement = 0;
+        let n_in = i32::from(has_input);
+        if !ok(processor.setBusArrangements(ins.as_mut_ptr(), n_in, outs.as_mut_ptr(), 1)) {
+            let mut a: SpeakerArrangement = SpeakerArr::kStereo;
             let mut b: SpeakerArrangement = 0;
-            let stereo = ok(processor.getBusArrangement(inp, 0, &mut a))
+            let stereo = (!has_input || ok(processor.getBusArrangement(inp, 0, &mut a)))
                 && ok(processor.getBusArrangement(out, 0, &mut b))
                 && a == SpeakerArr::kStereo
                 && b == SpeakerArr::kStereo;
             if !stereo {
-                return Err(format!("{name} is not a stereo effect"));
+                return Err(format!("{name} is not a stereo effect or instrument"));
             }
         }
-        component.activateBus(audio, inp, 0, 1);
+        if has_input {
+            component.activateBus(audio, inp, 0, 1);
+        }
         component.activateBus(audio, out, 0, 1);
+        let event = MediaTypes_::kEvent as i32;
+        if component.getBusCount(event, inp) >= 1 {
+            component.activateBus(event, inp, 0, 1);
+        }
         if processor.canProcessSampleSize(SymbolicSampleSizes_::kSample32 as i32) != kResultTrue {
             return Err(format!("{name} can't process 32-bit audio"));
         }
@@ -634,6 +724,8 @@ pub fn load(
             output: [vec![0.0; max_frames], vec![0.0; max_frames]],
             changes: ComWrapper::new(Changes::new(MAX_PARAMS)),
             out_changes: ComWrapper::new(Changes::new(64)),
+            events: ComWrapper::new(Events::new()),
+            has_input,
             ids: params.iter().map(|(id, _)| *id).collect(),
             sent: params.iter().map(|(_, p)| p.value as f32).collect(),
             steady: 0,
@@ -668,6 +760,9 @@ struct Vst3Effect {
     output: [Vec<f32>; CHANNELS],
     changes: ComWrapper<Changes>,
     out_changes: ComWrapper<Changes>,
+    events: ComWrapper<Events>,
+    /// False for an instrument.
+    has_input: bool,
     ids: Vec<ParamID>,
     sent: Vec<f32>,
     steady: i64,
@@ -684,6 +779,7 @@ impl Effect for Vst3Effect {
         output: [&mut [f32]; CHANNELS],
         params: &[f32],
         transport: &Transport,
+        notes: &[Midi],
     ) {
         let frames = input[0].len();
         let p = &self.processor.0;
@@ -702,6 +798,7 @@ impl Effect for Vst3Effect {
                 }
             }
             self.out_changes.clear();
+            self.events.set(notes);
             for (ch, data) in input.iter().enumerate() {
                 self.input[ch][..frames].copy_from_slice(data);
             }
@@ -744,9 +841,13 @@ impl Effect for Vst3Effect {
                 processMode: ProcessModes_::kRealtime as i32,
                 symbolicSampleSize: SymbolicSampleSizes_::kSample32 as i32,
                 numSamples: frames as i32,
-                numInputs: 1,
+                numInputs: i32::from(self.has_input),
                 numOutputs: 1,
-                inputs: &mut ins,
+                inputs: if self.has_input {
+                    &mut ins
+                } else {
+                    ptr::null_mut()
+                },
                 outputs: &mut outs,
                 inputParameterChanges: self
                     .changes
@@ -758,7 +859,7 @@ impl Effect for Vst3Effect {
                     .as_com_ref::<IParameterChanges>()
                     .unwrap()
                     .as_ptr(),
-                inputEvents: ptr::null_mut(),
+                inputEvents: self.events.as_com_ref::<IEventList>().unwrap().as_ptr(),
                 outputEvents: ptr::null_mut(),
                 processContext: &mut ctx,
             };

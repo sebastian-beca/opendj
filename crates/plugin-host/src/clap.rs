@@ -13,7 +13,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use clack_extensions::audio_ports::{AudioPortInfoBuffer, PluginAudioPorts};
 use clack_extensions::latency::PluginLatency;
 use clack_extensions::params::{ParamInfoBuffer, ParamInfoFlags, PluginParams};
-use clack_host::events::event_types::{ParamValueEvent, TransportEvent, TransportFlags};
+use clack_host::events::event_types::{
+    MidiEvent, NoteOffEvent, NoteOnEvent, ParamValueEvent, TransportEvent, TransportFlags,
+};
+use clack_host::events::Match;
 use clack_host::events::{EventFlags, EventHeader};
 use clack_host::prelude::*;
 use clack_host::utils::{BeatTime, SecondsTime};
@@ -21,7 +24,7 @@ use clack_host::utils::{BeatTime, SecondsTime};
 use crate::client::Transport;
 use crate::descriptor::Descriptor;
 use crate::effects::{Effect, Info, Loaded, MainThread, Param};
-use crate::shm::{CHANNELS, MAX_PARAMS};
+use crate::shm::{Midi, CHANNELS, MAX_EVENTS, MAX_PARAMS};
 
 fn text(s: Option<&CStr>) -> String {
     s.map(|s| s.to_string_lossy().into_owned())
@@ -124,19 +127,24 @@ pub fn load(file: &Path, id: &str, sample_rate: u32, max_frames: usize) -> Resul
     )
     .map_err(|e| format!("{name} failed to start: {e}"))?;
 
-    // A stereo effect: a main input and output with two channels each.
+    // A stereo output, and a stereo input unless it is an instrument,
+    // which has none.
     let handle = instance.plugin_handle();
     let ports = handle
         .get_extension::<PluginAudioPorts>()
         .ok_or_else(|| format!("{name} has no audio ports"))?;
     let mut buf = AudioPortInfoBuffer::new();
+    let has_input = ports.count(&handle, true) >= 1;
     for is_input in [true, false] {
+        if is_input && !has_input {
+            continue;
+        }
         let ok = ports.count(&handle, is_input) >= 1
             && ports
                 .get(&handle, 0, is_input, &mut buf)
                 .is_some_and(|p| p.channel_count == 2);
         if !ok {
-            return Err(format!("{name} is not a stereo effect"));
+            return Err(format!("{name} is not a stereo effect or instrument"));
         }
     }
 
@@ -191,8 +199,9 @@ pub fn load(file: &Path, id: &str, sample_rate: u32, max_frames: usize) -> Resul
         input: [vec![0.0; max_frames], vec![0.0; max_frames]],
         output: [vec![0.0; max_frames], vec![0.0; max_frames]],
         in_ports: AudioPorts::with_capacity(CHANNELS, 1),
+        has_input,
         out_ports: AudioPorts::with_capacity(CHANNELS, 1),
-        events: EventBuffer::with_capacity(MAX_PARAMS + 4),
+        events: EventBuffer::with_capacity(MAX_PARAMS + MAX_EVENTS + 4),
         out_events: EventBuffer::with_capacity(64),
         ids: params.iter().map(|(id, _)| *id).collect(),
         sent: params.iter().map(|(_, p)| p.value as f32).collect(),
@@ -217,6 +226,8 @@ struct ClapEffect {
     input: [Vec<f32>; CHANNELS],
     output: [Vec<f32>; CHANNELS],
     in_ports: AudioPorts,
+    /// False for an instrument, which takes notes instead of audio.
+    has_input: bool,
     out_ports: AudioPorts,
     events: EventBuffer,
     out_events: EventBuffer,
@@ -259,6 +270,7 @@ impl Effect for ClapEffect {
         output: [&mut [f32]; CHANNELS],
         params: &[f32],
         transport: &Transport,
+        notes: &[Midi],
     ) {
         let frames = input[0].len();
         // A plugin that can't start or fails a block plays dry, as a late
@@ -278,19 +290,38 @@ impl Effect for ClapEffect {
                     .push(&ParamValueEvent::new(0, *id, Pckn::match_all(), v as f64));
             }
         }
+        // Notes in CLAP's own events, which every instrument takes; other
+        // MIDI (controllers, pitch bend) as it is.
+        for n in notes {
+            let pckn = |ch: u8, key: u8| Pckn::new(0u16, ch as u16, key as u16, Match::All);
+            if let Some((ch, key, vel)) = n.as_note_on() {
+                self.events
+                    .push(&NoteOnEvent::new(n.frame, pckn(ch, key), vel as f64));
+            } else if let Some((ch, key)) = n.as_note_off() {
+                self.events
+                    .push(&NoteOffEvent::new(n.frame, pckn(ch, key), 0.0));
+            } else {
+                self.events.push(&MidiEvent::new(n.frame, 0, n.data));
+            }
+        }
         for (ch, data) in input.iter().enumerate() {
             self.input[ch][..frames].copy_from_slice(data);
         }
         let transport = (transport.bpm > 0.0).then(|| transport_event(transport));
         let [in_l, in_r] = &mut self.input;
-        let inputs = self.in_ports.with_input_buffers([AudioPortBuffer {
-            latency: 0,
-            channels: AudioPortBufferType::f32_input_only(
-                [&mut in_l[..frames], &mut in_r[..frames]]
-                    .into_iter()
-                    .map(InputChannel::variable),
-            ),
-        }]);
+        let ports = usize::from(self.has_input);
+        let inputs = self.in_ports.with_input_buffers(
+            [AudioPortBuffer {
+                latency: 0,
+                channels: AudioPortBufferType::f32_input_only(
+                    [&mut in_l[..frames], &mut in_r[..frames]]
+                        .into_iter()
+                        .map(InputChannel::variable),
+                ),
+            }]
+            .into_iter()
+            .take(ports),
+        );
         let [out_l, out_r] = &mut self.output;
         let mut outputs = self.out_ports.with_output_buffers([AudioPortBuffer {
             latency: 0,

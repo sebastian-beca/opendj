@@ -22,6 +22,11 @@ impl Descriptor {
         self.features.iter().any(|f| f == "audio-effect")
             && !self.features.iter().any(|f| f == "instrument")
     }
+
+    /// Instruments play notes; openDJ plays one as an input of its own.
+    pub fn is_instrument(&self) -> bool {
+        self.features.iter().any(|f| f == "instrument")
+    }
 }
 
 /// VST3 sub-categories ("Fx|Delay", "Instrument|Synth") as feature words,

@@ -23,6 +23,13 @@ $stage = "dist/openDJ"
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory $stage | Out-Null
 Copy-Item $Binary "$stage/openDJ.exe"
+# The helper that runs audio plugins, built next to the app's binary.
+$helper = Join-Path (Split-Path $Binary) "opendj-plugin-host.exe"
+if (Test-Path $helper) {
+  Copy-Item $helper "$stage/opendj-plugin-host.exe"
+} else {
+  Write-Warning "no $helper, so this build can't run audio plugins"
+}
 Copy-Item -Recurse res/controllers "$stage/controllers"
 # The guided tour's demo tracks, once they are in the repository.
 if (Test-Path res/demo) { Copy-Item -Recurse res/demo "$stage/demo" }
@@ -31,6 +38,7 @@ Copy-Item LICENSE "$stage/LICENSE-GPL2.txt"
 # The ASIO SDK built in is GPLv3, so the Windows build as a whole is too.
 Copy-Item res/windows/LICENSE-GPL3.txt "$stage/"
 Sign "$stage/openDJ.exe"
+if (Test-Path "$stage/opendj-plugin-host.exe") { Sign "$stage/opendj-plugin-host.exe" }
 
 $zip = "dist/opendj-$Version-windows-x64.zip"
 if (Test-Path $zip) { Remove-Item $zip }

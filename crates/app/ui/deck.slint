@@ -903,7 +903,15 @@ export global DeckActions {
 }
 
 export global EffectList {
+    // The built-in effects, then the FX plugins the DJ ticked in Settings ›
+    // Mixer › Plugins (after the built-in effects).
     in property <[string]> names;
+    // How many of `names` are built in (the engine's AVAILABLE_EFFECTS).
+    // Set from the engine's list at start-up.
+    in property <int> builtin-count: 18;
+    // The instrument plugins ticked in Settings › Mixer › Plugins, for the
+    // Instrument input (`[Instrument1],instrument` 1 and up).
+    in property <[string]> instruments;
     // The Color FX the filter knobs can play, `loaded_chain_preset` 1 and up.
     in property <[string]> color-fx: ["Filter", "Space", "Dub Echo", "Noise", "Crush"];
     // The microphone's effect unit, from 0 (MIC_FX_UNIT).
@@ -1041,6 +1049,7 @@ export component FxSlot inherits HorizontalLayout {
         x: arrow.x + arrow.width + 4px;
         y: 0px;
         width: 190px;
+        height: list.height;
         close-policy: close-on-click-outside;
         Rectangle {
             background: Theme.panel-raised;
@@ -1050,28 +1059,40 @@ export component FxSlot inherits HorizontalLayout {
             drop-shadow-blur: 12px;
             drop-shadow-color: #000000a0;
         }
-        VerticalLayout {
-            padding: 6px;
-            spacing: 0px;
-            for e[i] in EffectList.names: Rectangle {
-                property <bool> current: loaded == i + 1;
-                height: 26px;
-                border-radius: 4px;
-                background: current ? tint.with-alpha(0.35) : eta.has-hover ? #3a3a3d : transparent;
-                HorizontalLayout {
-                    padding-left: 8px;
-                    padding-right: 8px;
-                    Text { text: e; color: Theme.text; font-size: 12px; font-weight: current ? 700 : 400; vertical-alignment: center; horizontal-stretch: 1; }
-                }
-                eta := TouchArea {
-                    clicked => {
-                        if current {
-                            Controls.toggle(enabled-index);
-                        } else {
-                            Controls.set-value(loaded-index, i + 1);
-                            Controls.set-value(enabled-index, 1);
+        // Plugins come after the built-in effects, under a line; a long
+        // list scrolls.
+        list := Flickable {
+            height: min(EffectList.names.length * 26px + 12px + (EffectList.names.length > EffectList.builtin-count ? 9px : 0px), 440px);
+            viewport-height: fx-rows.preferred-height;
+            fx-rows := VerticalLayout {
+                padding: 6px;
+                spacing: 0px;
+                for e[i] in EffectList.names: VerticalLayout {
+                    if i == EffectList.builtin-count: Rectangle {
+                        height: 9px;
+                        Rectangle { y: 4px; height: 1px; background: Theme.border; }
+                    }
+                    Rectangle {
+                        property <bool> current: loaded == i + 1;
+                        height: 26px;
+                        border-radius: 4px;
+                        background: current ? tint.with-alpha(0.35) : eta.has-hover ? #3a3a3d : transparent;
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            Text { text: e; color: Theme.text; font-size: 12px; font-weight: current ? 700 : 400; vertical-alignment: center; horizontal-stretch: 1; }
                         }
-                        menu.close();
+                        eta := TouchArea {
+                            clicked => {
+                                if current {
+                                    Controls.toggle(enabled-index);
+                                } else {
+                                    Controls.set-value(loaded-index, i + 1);
+                                    Controls.set-value(enabled-index, 1);
+                                }
+                                menu.close();
+                            }
+                        }
                     }
                 }
             }
@@ -1323,10 +1344,14 @@ component KeyPad inherits Rectangle {
     in property <color> tint;
     property <int> pitch-index: Controls.resolve(group, "pitch_adjust");
     property <int> press-index: Controls.resolve(group, "keyboard_" + number + "_activate");
-    property <bool> lit: abs(Controls.value(pitch-index, Controls.tick) - semitones) < 0.01;
+    // KEYBOARD pads play the Instrument input instead while it asks for them.
+    property <bool> instrument: keyboard && Controls.value(Controls.resolve("[Instrument1]", "keyboard_pads"), Controls.tick) > 0;
+    property <int> octave: Controls.value(Controls.resolve("[Instrument1]", "octave"), Controls.tick);
+    property <bool> lit: !instrument && abs(Controls.value(pitch-index, Controls.tick) - semitones) < 0.01;
     background: touch.pressed ? Theme.control-pressed : lit ? tint.with-alpha(0.18) : touch.has-hover ? #1d1d20 : Theme.control;
     Text {
-        text: semitones == 0 ? "±0" : semitones > 0 ? "+" + semitones : "−" + abs(semitones);
+        text: instrument ? ["C", "D", "E", "F", "G", "A", "B", "C"][number - 1] + (4 + octave + (number == 8 ? 1 : 0))
+            : semitones == 0 ? "±0" : semitones > 0 ? "+" + semitones : "−" + abs(semitones);
         color: lit ? tint : Theme.text;
         font-size: 12px;
         font-weight: 700;

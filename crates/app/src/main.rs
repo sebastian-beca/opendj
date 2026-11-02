@@ -20,9 +20,9 @@ use opendj_engine::scan::scan;
 use opendj_engine::stems;
 use opendj_engine::synth::SAMPLE_LIBRARY_SIZE;
 use opendj_engine::{
-    deck_group, default_output_device, effect_group, effect_name, output_devices, sample_library,
-    AudioEngine, AudioSetup, Role, Route, Source, Track, VisualPositions, Waveform,
-    AVAILABLE_EFFECTS, COLOR_FX, EFFECTS_PER_UNIT, NUM_DECKS,
+    deck_group, default_output_device, effect_group, output_devices, sample_library, AudioEngine,
+    AudioSetup, Role, Route, Source, Track, VisualPositions, Waveform, AVAILABLE_EFFECTS, COLOR_FX,
+    EFFECTS_PER_UNIT, NUM_DECKS,
 };
 use opendj_library::Library;
 use opendj_plugins::source::{QueryKind, SourceQuery};
@@ -38,6 +38,7 @@ slint::include_modules!();
 mod analysis_queue;
 mod apple_music;
 mod art;
+mod audio_plugins;
 mod automix;
 mod automix_order;
 mod beat_counter;
@@ -330,6 +331,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_fullsize_content_view(true)
     });
     backend.select()?;
+    // Wayland and X11 match the window to app.opendj.openDJ.desktop by
+    // this, for the dock icon and name.
+    let _ = slint::set_xdg_app_id("app.opendj.openDJ");
     // San Francisco on macOS; registered before any window.
     let ui_family = ui_font::install();
 
@@ -491,6 +495,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )));
     app.global::<EffectList>()
         .set_mic_unit(opendj_engine::MIC_FX_UNIT as i32);
+    // Plugins the DJ ticked join the FX lists after the built-in effects.
+    let audio_plugins = Rc::new(RefCell::new(audio_plugins::AudioPlugins::new(
+        &app,
+        engine.clone(),
+    )));
     {
         let engine = engine.clone();
         app.global::<DeckActions>()
@@ -648,6 +657,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             None
         }
     };
+    // MIDI keyboards (devices with no mapping) play the Instrument input.
+    if let Some(c) = &controllers {
+        let notes = engine.note_input();
+        c.set_note_sink(Some(std::sync::Arc::new(move |data| {
+            if let Ok(mut n) = notes.lock() {
+                n.send(data);
+            }
+        })));
+    }
 
     // Start with two sample tracks loaded so the screen is not empty.
     if samples {
@@ -690,6 +708,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Box::new(move || engine.input_status())
             },
         },
+        audio_plugins.clone(),
     );
 
     let tour = tour::Tour::install(
@@ -797,7 +816,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(release) = update.borrow().clone() else {
                 return;
             };
-            if release.asset.is_none() {
+            if let Some(package) = &release.package {
+                spotify::open_in_browser(&package.url);
+            } else if release.asset.is_none() {
                 spotify::open_in_browser(&release.url);
             } else if installing.borrow().is_none() {
                 if let Some(app) = weak.upgrade() {
@@ -901,9 +922,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Ok(release) = update_check.try_recv() {
                     app.set_update_action(
                         if release.asset.is_some() {
-                            "Install & restart"
+                            "Install & restart".to_string()
+                        } else if let Some(package) = &release.package {
+                            format!("Download {}", package.kind)
                         } else {
-                            "Download"
+                            "Download".to_string()
                         }
                         .into(),
                     );
@@ -1570,7 +1593,7 @@ impl Decks {
             &h.effect_names,
             h.effects
                 .iter()
-                .map(|c| SharedString::from(effect_name(c.get())))
+                .map(|c| SharedString::from(audio_plugins::effect_name(c.get())))
                 .collect(),
         );
         let range = format!("±{:.0}%", h.rate_range.get() * 100.0).into();

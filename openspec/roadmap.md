@@ -49,6 +49,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-now-playing-feed](changes/add-now-playing-feed/proposal.md) (now-playing text/JSON files and an OBS overlay page; Seba 2026-11-02)
 - [add-playlist-files](changes/add-playlist-files/proposal.md) (export any list as M3U8; import M3U, PLS and XSPF; Seba 2026-11-02)
 - [add-rekordbox-xml-export](changes/add-rekordbox-xml-export/proposal.md) (collection and lists out as rekordbox XML for rekordbox and library tools; Seba 2026-11-02)
+- [add-live-broadcast](changes/add-live-broadcast/proposal.md) (steps 1-2: a loudness meter with stream targets and a true-peak limiter, then Icecast/Shoutcast radio with now-playing; moved from v1.x by Seba 2026-11-02 after the radio and livestream research)
 
 ## v0.6 · Buy it from the artist
 
@@ -57,6 +58,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-bandcamp-collection-sync](changes/add-bandcamp-collection-sync/proposal.md)
 - [add-find-and-buy](changes/add-find-and-buy/proposal.md)
 - [add-artist-direct-stores](changes/add-artist-direct-stores/proposal.md)
+- [add-live-broadcast](changes/add-live-broadcast/proposal.md) (steps 3-5: Go live to Twitch, YouTube and Mixcloud Live over RTMP with a now-playing picture, WebRTC (WHIP), radio show tools)
 
 ## v0.7 · Your library, everywhere
 
@@ -77,7 +79,6 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-dvs](changes/add-dvs/proposal.md)
 - [add-karaoke](changes/add-karaoke/proposal.md)
 - [add-library-cloud-sync](changes/add-library-cloud-sync/proposal.md)
-- [add-live-broadcast](changes/add-live-broadcast/proposal.md)
 - [add-phrase-aware-automix](changes/add-phrase-aware-automix/proposal.md)
 - [add-synced-lyrics](changes/add-synced-lyrics/proposal.md)
 - [add-track-suggestions](changes/add-track-suggestions/proposal.md)

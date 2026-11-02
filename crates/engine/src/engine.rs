@@ -18,7 +18,7 @@ use crate::controls::{
 };
 use crate::dsp::{Isolator, Limiter, Sculpt};
 use crate::effects::{input_target, ColorFx, EffectRack, BLOCK, COLOR_FX, MAIN, TARGETS};
-use crate::inputs::{Ducker, Input, InputFeed, AUXILIARY, MICROPHONE, NUM_INPUTS};
+use crate::inputs::{Ducker, Input, InputFeed, AUXILIARY, INSTRUMENT, MICROPHONE, NUM_INPUTS};
 use crate::key::{self, Key};
 use crate::keyshift::{transpose_factor, KeyShifter};
 use crate::link::{phase_error, Link, Moment};
@@ -716,6 +716,8 @@ impl Deck {
                     self.c.pitch.set(if n.abs() >= 1.0 { p.round() } else { p });
                 }
                 Action::KeyReset => self.c.pitch.set(0.0),
+                // The instrument's pads read these themselves.
+                Action::Keyboard(_) if self.c.instrument_pads.get_bool() => {}
                 Action::Keyboard(semitones) => {
                     self.c.pitch.set(semitones);
                     let set = |h: usize| self.c.hotcues[h].enabled.get_bool();
@@ -1485,10 +1487,24 @@ impl Engine {
                             c.set(v);
                         }
                     }
+                    // The stems pads belong to the track they were pressed
+                    // on: a muted stem (Acapella, Instrumental or a stem's
+                    // own pad) left over from the last track would silence
+                    // whatever part of the new one it holds, with nothing
+                    // lit to say why until its stems are ready. So every
+                    // stem plays again; their levels, on the EQ knobs in
+                    // stems mode, reset with the EQ.
+                    for s in &d.c.stems {
+                        s.mute.set_bool(false);
+                        if reset_eq {
+                            s.volume.set(1.0);
+                        }
+                    }
                     if reset_fx {
                         let playing = std::array::from_fn(|k| self.decks[k].c.play.get_bool());
                         self.fx.reset_deck(deck, playing);
                     }
+                    self.fx.release_pad_fx(deck);
                     let d = &mut self.decks[deck];
                     // Hot cues and saved loops from the library.
                     for cue in &track.info.hotcues {
@@ -1932,6 +1948,11 @@ impl Engine {
     /// [`crate::plugins::PluginHost::start`]; there is one, taken once.
     pub fn take_plugin_link(&mut self) -> Option<crate::effects::PluginLink> {
         self.fx.take_plugin_link()
+    }
+
+    /// Where notes for the Instrument input come in; there is one, taken once.
+    pub fn take_note_input(&mut self) -> Option<crate::effects::NoteInput> {
+        self.fx.take_note_input()
     }
 
     pub fn visual_positions(&self) -> Arc<VisualPositions> {
@@ -2415,19 +2436,25 @@ impl Engine {
             // The auxiliary input joins the music; the microphone is added
             // after the main mix's effects, which leave the voice alone, and
             // the music ducks under it.
-            let aux = &self.inputs[AUXILIARY];
-            let a = aux.buf[f];
-            let ga = lerp(aux.level_ramp);
             let mic = &self.inputs[MICROPHONE];
             let m = mic.buf[f];
             let gm = lerp(mic.level_ramp);
             let ducked = self.ducker.next(duck, mic.live && gm > 0.0, m);
-            for c in 0..2 {
-                main[c] = (main[c] + a[c] * ga) * ducked;
+            // The auxiliary input and the instrument play with the music.
+            for input in [AUXILIARY, INSTRUMENT] {
+                let inp = &self.inputs[input];
+                let a = inp.buf[f];
+                let ga = lerp(inp.level_ramp);
+                for c in 0..2 {
+                    main[c] += a[c] * ga;
+                }
+                if inp.pfl {
+                    cue[0] += a[0];
+                    cue[1] += a[1];
+                }
             }
-            if aux.pfl {
-                cue[0] += a[0];
-                cue[1] += a[1];
+            for v in &mut main {
+                *v *= ducked;
             }
             main_buf[f] = main;
             cue_buf[f] = cue;
@@ -3052,6 +3079,46 @@ mod tests {
         assert_eq!(deck1("pregain").get(), 2.0);
         assert_eq!(eq("parameter1").get(), 0.2);
         assert!(slot(1, "enabled").get_bool());
+    }
+
+    #[test]
+    fn loading_a_track_brings_back_its_stems_and_lets_go_of_pad_fx() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 4.0));
+        run(&mut engine, 0.02);
+        let c = |g: &str, k: &str| reg.get(g, k).unwrap();
+        let stem = |s: usize, k: &str| c(&format!("[Channel1_Stem{s}]"), k);
+        let pad_slot = || c("[EffectRack1_EffectUnit6_Effect1]", "enabled");
+        // Acapella (only the vocals, stem 4), a level turned down and a
+        // Pad FX left on.
+        for s in [1, 2, 3, 5] {
+            stem(s, "mute").set_bool(true);
+        }
+        stem(4, "volume").set(0.3);
+        pad_slot().set_bool(true);
+        run(&mut engine, 0.02);
+
+        load(&mut input, 0, short_track(124.0, 4.0));
+        run(&mut engine, 0.02);
+        for s in 1..=5 {
+            assert!(!stem(s, "mute").get_bool(), "stem {s} plays");
+        }
+        assert_eq!(stem(4, "volume").get(), 1.0);
+        assert!(!pad_slot().get_bool());
+
+        // With auto reset off, the stems still play again and the Pad FX
+        // still let go; only the levels stay.
+        for k in ["fx", "eq", "gain"] {
+            c("[Controls]", &format!("auto_reset_{k}")).set_bool(false);
+        }
+        stem(4, "mute").set_bool(true);
+        stem(4, "volume").set(0.3);
+        pad_slot().set_bool(true);
+        load(&mut input, 0, short_track(126.0, 4.0));
+        run(&mut engine, 0.02);
+        assert!(!stem(4, "mute").get_bool());
+        assert_eq!(stem(4, "volume").get(), 0.3);
+        assert!(!pad_slot().get_bool());
     }
 
     #[test]
@@ -4395,6 +4462,12 @@ mod tests {
         press("keyboard_1_activate", &mut engine);
         assert_eq!(ctl("pitch_adjust").get(), 0.0);
         assert!((seconds() - 5.0).abs() < 0.05, "{}", seconds());
+        // While they play the instrument, the deck leaves them alone.
+        reg.get("[Instrument1]", "keyboard_pads")
+            .unwrap()
+            .set_bool(true);
+        press("keyboard_2_activate", &mut engine);
+        assert_eq!(ctl("pitch_adjust").get(), 0.0);
     }
 
     #[test]

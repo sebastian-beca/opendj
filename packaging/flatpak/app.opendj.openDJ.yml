@@ -1,0 +1,65 @@
+# Flatpak manifest for Flathub. Draft: see packaging/flatpak/README.md for
+# how to test it and submit it. Builds openDJ from the release tag, offline,
+# with the crates listed in cargo-sources.json.
+id: app.opendj.openDJ
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  # libclang for bindgen (SQLCipher, ALSA bindings).
+  - org.freedesktop.Sdk.Extension.llvm18
+command: opendj
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Audio through PipeWire/PulseAudio. --device=all below also lets ALSA
+  # open sound cards directly for low latency, as the Mixxx Flatpak does.
+  - --socket=pulseaudio
+  # USB DJ controllers: MIDI (ALSA sequencer, /dev/snd) and HID
+  # (/dev/hidraw*), and audio interfaces.
+  - --device=all
+  # Online tag lookups, covers, stem models, streaming browse, Ableton Link,
+  # the phone remote and add-on downloads.
+  - --share=network
+  # Music folders can be anywhere in home, and the VirtualDJ, rekordbox and
+  # Mixxx imports read those apps' folders. Write access is for tags, covers
+  # and moving files during collection clean-up.
+  - --filesystem=home
+  # USB sticks for Pioneer export and external music drives.
+  - --filesystem=/media
+  - --filesystem=/run/media
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm18/bin
+  prepend-ld-library-path: /usr/lib/sdk/llvm18/lib
+  env:
+    CARGO_HOME: /run/build/opendj/cargo
+    LIBCLANG_PATH: /usr/lib/sdk/llvm18/lib
+modules:
+  - name: opendj
+    buildsystem: simple
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml --verbose
+      - cargo --offline build --release -p opendj
+      - install -Dm755 target/release/opendj /app/bin/opendj
+      - mkdir -p /app/share/opendj && cp -R res/controllers /app/share/opendj/
+      - if [ -d res/demo ]; then cp -R res/demo /app/share/opendj/; fi
+      - install -Dm644 res/linux/app.opendj.openDJ.desktop -t /app/share/applications
+      - sed -e "s/@VERSION@/$(git describe --tags --abbrev=0 | sed s/^v//)/g" -e "s/@DATE@/$(date -u +%Y-%m-%d)/"
+        res/linux/app.opendj.openDJ.metainfo.xml > app.opendj.openDJ.metainfo.xml
+      - install -Dm644 app.opendj.openDJ.metainfo.xml -t /app/share/metainfo
+      # Flathub makes the smaller sizes from this one.
+      - install -Dm644 res/linux/app.opendj.openDJ.png /app/share/icons/hicolor/512x512/apps/app.opendj.openDJ.png
+    sources:
+      - type: git
+        url: https://github.com/sebastian-beca/opendj.git
+        tag: v0.5.0
+        # Filled in on submission; Flathub's bot updates tag and commit for
+        # each new GitHub release.
+        commit: 0000000000000000000000000000000000000000
+        x-checker-data:
+          type: git
+          tag-pattern: ^v([\d.]+)$
+      - cargo-sources.json

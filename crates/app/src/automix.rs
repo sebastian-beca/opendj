@@ -950,6 +950,49 @@ impl AutoMix {
         status
     }
 
+    /// Seconds before the next mix starts, while a track waits cued on the
+    /// other deck; `None` otherwise.
+    pub fn seconds_to_mix(&self, tracks: &[Option<Arc<Track>>; NUM_DECKS]) -> Option<f64> {
+        match &self.phase {
+            Phase::Playing {
+                live,
+                next: Some(Next { cued: true, .. }),
+            } => {
+                let left = self.remaining(*live, tracks) - self.length_on(*live, tracks);
+                Some((left / self.decks[*live].speed().max(0.1)).max(0.0))
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether the track waiting on a deck can no longer be swapped for
+    /// another: its mix is under `margin` seconds away or under way.
+    pub fn next_locked(&self, tracks: &[Option<Arc<Track>>; NUM_DECKS], margin: f64) -> bool {
+        match &self.phase {
+            Phase::Mixing(_) | Phase::Opening { .. } => true,
+            Phase::Playing { .. } => self.seconds_to_mix(tracks).is_some_and(|s| s < margin),
+            Phase::Off => false,
+        }
+    }
+
+    /// The deck Automix is playing from: the one mixed out of during a mix.
+    pub fn live_deck(&self) -> Option<usize> {
+        match &self.phase {
+            Phase::Playing { live, .. } => Some(*live),
+            Phase::Mixing(m) => Some(m.from),
+            Phase::Opening { deck, .. } => Some(*deck),
+            Phase::Off => None,
+        }
+    }
+
+    /// The deck being mixed into, during a mix.
+    pub fn mixing_into(&self) -> Option<usize> {
+        match &self.phase {
+            Phase::Mixing(m) => Some(m.to),
+            _ => None,
+        }
+    }
+
     /// Whether Automix is running.
     pub fn is_on(&self) -> bool {
         !matches!(self.phase, Phase::Off)

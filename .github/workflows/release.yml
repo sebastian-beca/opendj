@@ -57,12 +57,15 @@ jobs:
           # doesn't compile everything again.
           cache-on-failure: true
       - run: |
-          cargo build --release -p opendj --target aarch64-apple-darwin
-          cargo build --release -p opendj --target x86_64-apple-darwin
+          cargo build --release -p opendj -p opendj-plugin-host --target aarch64-apple-darwin
+          cargo build --release -p opendj -p opendj-plugin-host --target x86_64-apple-darwin
           mkdir -p dist
           lipo -create -output dist/opendj \
             target/aarch64-apple-darwin/release/opendj \
             target/x86_64-apple-darwin/release/opendj
+          lipo -create -output dist/opendj-plugin-host \
+            target/aarch64-apple-darwin/release/opendj-plugin-host \
+            target/x86_64-apple-darwin/release/opendj-plugin-host
         env:
           MACOSX_DEPLOYMENT_TARGET: "11.0"
       - name: Import signing certificate
@@ -111,10 +114,10 @@ jobs:
       - uses: actions/checkout@v7
       - run: |
           sudo apt-get update
-          sudo apt-get install -y libfontconfig-dev libxkbcommon-dev libasound2-dev libudev-dev cmake libclang-dev imagemagick
+          sudo apt-get install -y libfontconfig-dev libxkbcommon-dev libasound2-dev libudev-dev cmake libclang-dev imagemagick rpm
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p opendj
+      - run: cargo build --release -p opendj -p opendj-plugin-host
       - run: scripts/bundle-linux.sh target/release/opendj "${{ needs.version.outputs.version }}"
       - uses: actions/upload-artifact@v7
         with:
@@ -122,6 +125,8 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.AppImage
+            dist/*.deb
+            dist/*.rpm
 
   windows:
     # A setup .exe (per-user, no admin) and a portable zip, for x64 PCs.
@@ -134,7 +139,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      - run: cargo build --release -p opendj
+      - run: cargo build --release -p opendj -p opendj-plugin-host
       - run: scripts/bundle-windows.ps1 target/release/opendj.exe "${{ needs.version.outputs.version }}"
         shell: pwsh
       - uses: actions/upload-artifact@v7

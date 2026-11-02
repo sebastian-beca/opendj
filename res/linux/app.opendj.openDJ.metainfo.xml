@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Describes openDJ to GNOME Software, KDE Discover and Flathub.
+     scripts/bundle-linux.sh fills in the release line at build time. -->
+<component type="desktop-application">
+  <id>app.opendj.openDJ</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-2.0-or-later</project_license>
+  <name>openDJ</name>
+  <summary>Mix music with decks, stems, effects and DJ controllers</summary>
+  <developer id="app.opendj">
+    <name>openDJ</name>
+  </developer>
+  <description>
+    <p>
+      openDJ is free, open-source DJ software built to be fast and easy to use.
+      It plays your music folders and works with the DJ controllers Mixxx supports.
+    </p>
+    <ul>
+      <li>Two or four decks with hot cues, loops, beat jumps, sync, key lock and key shift</li>
+      <li>Mixer with gain, 3-band EQ, filter, faders, crossfader and headphone cue</li>
+      <li>Beat-synced effects, a sampler and Automix</li>
+      <li>Stems: split any track into vocals, drums, bass and melody while you play</li>
+      <li>A collection with crates, playlists, play history, duplicate and tag clean-up</li>
+      <li>Imports from VirtualDJ, rekordbox and Mixxx</li>
+      <li>Accurate beat grids, key detection and harmonic mixing</li>
+      <li>Ableton Link and fast GPU waveforms</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">app.opendj.openDJ.desktop</launchable>
+  <icon type="stock">app.opendj.openDJ</icon>
+  <url type="homepage">https://opendj.app</url>
+  <url type="bugtracker">https://github.com/sebastian-beca/opendj/issues</url>
+  <url type="vcs-browser">https://github.com/sebastian-beca/opendj</url>
+  <url type="donation">https://buymeacoffee.com/opendj</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Two decks, the mixer and the collection</caption>
+      <image>https://raw.githubusercontent.com/sebastian-beca/opendj/main/docs/screenshot.jpg</image>
+    </screenshot>
+  </screenshots>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+  </categories>
+  <keywords>
+    <keyword>DJ</keyword>
+    <keyword>mix</keyword>
+    <keyword>decks</keyword>
+    <keyword>stems</keyword>
+  </keywords>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">1024</display_length>
+  </requires>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@">
+      <url type="details">https://github.com/sebastian-beca/opendj/releases/tag/v@VERSION@</url>
+    </release>
+  </releases>
+</component>

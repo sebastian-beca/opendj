@@ -6,13 +6,16 @@
 //! the Automix panel and the MASTER panel, so the app and the phone always
 //! show the same thing.
 
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use opendj_control::{ControlHandle, ControlRegistry};
 use opendj_engine::{deck_group, Track, NUM_DECKS};
 use opendj_remote::{Event, Server};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use slint::{ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel};
 
 use crate::automix::{AutoMix, LENGTHS, LENGTH_NAMES, STYLES, STYLE_NAMES};
@@ -27,6 +30,14 @@ const DECKS_EVERY: Duration = Duration::from_millis(250);
 const PANEL_EVERY: Duration = Duration::from_millis(500);
 /// Automix plays on decks 1 and 2.
 const DECKS: usize = 2;
+/// The track waiting on a deck can be moved or swapped until its mix is
+/// this many seconds away.
+const LOCK_BEFORE_MIX: f64 = 15.0;
+/// How long the sleep timer's fade out takes.
+const SLEEP_FADE: f64 = 20.0;
+
+/// Art ids the phone was given, and the file and album each stands for.
+type ArtMap = Arc<Mutex<HashMap<String, (PathBuf, String)>>>;
 
 struct DeckHandles {
     play: ControlHandle,
@@ -55,6 +66,13 @@ pub struct Remote {
     fade: Option<Fade>,
     /// The main level before Fade out, for Bring back.
     faded_from: Option<f64>,
+    /// Decks Pause stopped, for Play to start again.
+    paused: Vec<usize>,
+    /// When the sleep timer runs out.
+    timer: Option<Instant>,
+    /// The sleep timer's fade is running: the level to put back after.
+    sleeping: Option<f64>,
+    art: ArtMap,
     last_automix: Instant,
     last_decks: Instant,
     last_panel: Instant,
@@ -115,6 +133,10 @@ impl Remote {
             booth: get("[Master]", "booth_gain"),
             fade: None,
             faded_from: None,
+            paused: Vec::new(),
+            timer: None,
+            sleeping: None,
+            art: ArtMap::default(),
             last_automix: Instant::now(),
             last_decks: Instant::now(),
             last_panel: Instant::now(),
@@ -184,12 +206,19 @@ impl Remote {
                 opendj_remote::DEFAULT_PORT,
                 crate::settings::remote_devices(),
             ) {
-                Ok(s) => self.server = Some(s),
+                Ok(s) => {
+                    let map = self.art.clone();
+                    s.set_art_source(Arc::new(move |id: &str, size: u32| {
+                        find_art(&map, id, size)
+                    }));
+                    self.server = Some(s);
+                }
                 Err(e) => ui.set_error(format!("The remote couldn't start: {e}").into()),
             }
         } else if !on {
             self.server = None;
             self.fade = None;
+            self.timer = None;
         }
         crate::settings::set_remote_on(self.server.is_some());
         self.drawn = (0, String::new());
@@ -290,6 +319,7 @@ impl Remote {
         dt: f64,
     ) {
         self.step_fade(dt);
+        self.step_timer(automix);
         let Some(server) = &self.server else {
             return;
         };
@@ -302,7 +332,7 @@ impl Remote {
                     method,
                     params,
                 } => {
-                    let result = self.handle(&method, &params, app, automix, browser);
+                    let result = self.handle(&method, &params, app, automix, browser, tracks);
                     if let Some(s) = &self.server {
                         s.reply(client, id, result);
                     }
@@ -326,7 +356,7 @@ impl Remote {
         }
         if now.duration_since(self.last_decks) >= DECKS_EVERY {
             self.last_decks = now;
-            server.publish("decks", self.decks_state(automix, browser, tracks));
+            server.publish("now", self.now_state(automix, browser, tracks));
         }
         if devices_changed || now.duration_since(self.last_panel) >= PANEL_EVERY {
             self.last_panel = now;
@@ -343,6 +373,7 @@ impl Remote {
         app: &AppWindow,
         automix: &mut AutoMix,
         browser: &mut Browser,
+        tracks: &[Option<Arc<Track>>; NUM_DECKS],
     ) -> Result<Value, String> {
         let index = || {
             params["index"]
@@ -356,6 +387,17 @@ impl Remote {
                 .map(|i| i as usize)
                 .ok_or_else(|| "Missing track".to_string())
         };
+        // One track (`id`) or several (`ids`), in the order given.
+        let tracks_of = || -> Result<Vec<usize>, String> {
+            match params["ids"].as_array() {
+                Some(ids) => Ok(ids
+                    .iter()
+                    .filter_map(|v| v.as_u64().map(|i| i as usize))
+                    .collect()),
+                None => track().map(|t| vec![t]),
+            }
+        };
+        let gone = || "That track isn't on the Automix list any more.".to_string();
         match method {
             "automix.set" => {
                 let on = params["on"].as_bool().ok_or("Missing on")?;
@@ -390,36 +432,82 @@ impl Remote {
             "automix.move" => {
                 let id = track()?;
                 let to = params["to"].as_u64().ok_or("Missing place")? as usize;
-                let to = to.max(held_count(automix, browser));
+                let to = to.max(held_count(automix, browser, tracks));
                 if !browser.move_in_automix(id, to) {
-                    return Err("That track isn't on the Automix list any more.".into());
+                    return Err(gone());
                 }
             }
             "automix.play_next" => {
-                let id = track()?;
-                let to = held_count(automix, browser);
-                if !browser.move_in_automix(id, to) {
-                    return Err("That track isn't on the Automix list any more.".into());
+                // Several keep their order, one after another.
+                let at = held_count(automix, browser, tracks);
+                for (n, id) in tracks_of()?.into_iter().enumerate() {
+                    if is_held(automix, browser, tracks, id) {
+                        continue;
+                    }
+                    if !browser.move_in_automix(id, at + n) {
+                        return Err(gone());
+                    }
+                }
+            }
+            "automix.to_end" => {
+                for id in tracks_of()? {
+                    if is_held(automix, browser, tracks, id) {
+                        continue;
+                    }
+                    if !browser.move_in_automix(id, usize::MAX) {
+                        return Err(gone());
+                    }
                 }
             }
             "automix.remove" => {
-                let id = track()?;
-                if automix.held().0 == Some(id) {
-                    return Err("That track is playing.".into());
+                for id in tracks_of()? {
+                    if automix.held().0 == Some(id) {
+                        return Err("That track is playing.".into());
+                    }
+                    if is_held(automix, browser, tracks, id) {
+                        return Err("That track is about to mix in.".into());
+                    }
+                    browser.remove_from_automix(id);
                 }
-                browser.remove_from_automix(id);
             }
             "automix.add" => {
                 let id = track()?;
                 let at = params["next"]
                     .as_bool()
                     .unwrap_or(false)
-                    .then(|| held_count(automix, browser));
+                    .then(|| held_count(automix, browser, tracks));
                 if !browser.add_to_automix_at(id, at) {
                     return Err("That track isn't in the collection any more.".into());
                 }
             }
-            "library.search" => return Ok(search(browser, params["text"].as_str().unwrap_or(""))),
+            "library.search" => {
+                return Ok(self.search(browser, params["text"].as_str().unwrap_or("")))
+            }
+            "transport.pause" => {
+                // Automix stops when its deck pauses; Play picks both up again.
+                self.paused = (0..DECKS)
+                    .filter(|&d| self.decks[d].play.get_bool())
+                    .collect();
+                automix.set_enabled(false);
+                for &d in &self.paused {
+                    self.decks[d].play.set_bool(false);
+                }
+            }
+            "transport.play" => {
+                for d in std::mem::take(&mut self.paused) {
+                    if tracks[d].is_some() {
+                        self.decks[d].play.set_bool(true);
+                    }
+                }
+                automix.set_enabled(true);
+            }
+            "timer.set" => {
+                self.timer = params["minutes"]
+                    .as_f64()
+                    .filter(|m| *m > 0.0)
+                    .map(|m| Instant::now() + Duration::from_secs_f64(m.min(600.0) * 60.0));
+                self.sleeping = None;
+            }
             "mixer.set" => {
                 let value = params["value"]
                     .as_f64()
@@ -437,16 +525,7 @@ impl Remote {
             }
             "mixer.fade_out" => {
                 let seconds = params["seconds"].as_f64().unwrap_or(8.0).clamp(1.0, 60.0);
-                let from = self.master.get();
-                if self.faded_from.is_none() {
-                    self.faded_from = Some(from);
-                }
-                self.fade = Some(Fade {
-                    from,
-                    to: 0.0,
-                    seconds,
-                    done: 0.0,
-                });
+                self.fade_out(seconds);
             }
             "mixer.fade_in" => {
                 let to = self.faded_from.take().unwrap_or(0.5);
@@ -462,6 +541,19 @@ impl Remote {
         Ok(Value::Bool(true))
     }
 
+    fn fade_out(&mut self, seconds: f64) {
+        let from = self.master.get();
+        if self.faded_from.is_none() {
+            self.faded_from = Some(from);
+        }
+        self.fade = Some(Fade {
+            from,
+            to: 0.0,
+            seconds,
+            done: 0.0,
+        });
+    }
+
     fn step_fade(&mut self, dt: f64) {
         let Some(f) = &mut self.fade else {
             return;
@@ -473,6 +565,81 @@ impl Remote {
         }
     }
 
+    /// The sleep timer: when it runs out, the music fades out over
+    /// [`SLEEP_FADE`], then Automix stops, the decks pause and the main
+    /// level goes back to where it was, ready for next time.
+    fn step_timer(&mut self, automix: &mut AutoMix) {
+        if let Some(at) = self.timer {
+            if Instant::now() >= at {
+                self.timer = None;
+                self.sleeping = Some(self.master.get());
+                self.fade_out(SLEEP_FADE);
+            }
+        }
+        if let Some(level) = self.sleeping {
+            if self.fade.is_none() {
+                self.sleeping = None;
+                automix.set_enabled(false);
+                for d in &self.decks {
+                    d.play.set_bool(false);
+                }
+                self.faded_from = None;
+                self.master.set(level);
+            }
+        }
+    }
+
+    /// An id for the track's album art that the phone puts in the art
+    /// address; the app remembers which file it stands for.
+    fn art_id(&self, t: &Track) -> Option<String> {
+        let key = crate::art::Art::key(t)?;
+        let opendj_engine::Source::File(path) = &t.source else {
+            return None;
+        };
+        let digest = Sha256::digest(key.as_bytes());
+        let id: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+        let mut map = self.art.lock().unwrap_or_else(|e| e.into_inner());
+        map.entry(id.clone())
+            .or_insert_with(|| (path.clone(), t.album.clone()));
+        Some(id)
+    }
+
+    fn track_json(&self, t: &Track, camelot: bool) -> Value {
+        json!({
+            "id": t.id,
+            "title": t.title,
+            "artist": t.artist,
+            "bpm": t.bpm,
+            "key": crate::settings::show_key(&t.key, camelot),
+            "time": t.duration.round(),
+            "art": self.art_id(t),
+        })
+    }
+
+    /// Collection tracks that `text` finds, for the phone's search: at most
+    /// [`SEARCH_LIMIT`], with whether each is on the Automix list already.
+    fn search(&self, browser: &Browser, text: &str) -> Value {
+        let text = text.trim();
+        if text.is_empty() {
+            return json!({"tracks": [], "total": 0});
+        }
+        let camelot = browser.camelot();
+        let queued: HashSet<usize> = (0..browser.automix_len())
+            .filter_map(|i| browser.automix_at(i))
+            .map(|t| t.id)
+            .collect();
+        let (found, total) = browser.find_tracks(text, SEARCH_LIMIT);
+        let tracks: Vec<Value> = found
+            .iter()
+            .map(|t| {
+                let mut v = self.track_json(t, camelot);
+                v["queued"] = json!(queued.contains(&t.id));
+                v
+            })
+            .collect();
+        json!({"tracks": tracks, "total": total})
+    }
+
     fn automix_state(
         &self,
         app: &AppWindow,
@@ -482,34 +649,35 @@ impl Remote {
     ) -> Value {
         let camelot = browser.camelot();
         let (playing, waiting) = automix.held();
-        let queue: Vec<Value> = (0..browser.automix_len())
+        let locked = automix.next_locked(tracks, LOCK_BEFORE_MIX);
+        let list: Vec<Arc<Track>> = (0..browser.automix_len())
             .filter_map(|i| browser.automix_at(i))
+            .collect();
+        let queue: Vec<Value> = list
+            .iter()
             .map(|t| {
                 let state = if Some(t.id) == playing {
                     "playing"
                 } else if Some(t.id) == waiting {
-                    "waiting"
+                    if locked {
+                        "locked"
+                    } else {
+                        "waiting"
+                    }
                 } else {
                     ""
                 };
-                json!({
-                    "id": t.id,
-                    "title": t.title,
-                    "artist": t.artist,
-                    "bpm": t.bpm,
-                    "key": crate::settings::show_key(&t.key, camelot),
-                    "time": t.duration.round(),
-                    "state": state,
-                })
+                let mut v = self.track_json(t, camelot);
+                v["state"] = json!(state);
+                v
             })
             .collect();
-        let total: f64 = (0..browser.automix_len())
-            .filter_map(|i| browser.automix_at(i))
-            .map(|t| t.duration)
-            .sum();
+        let total: f64 = list.iter().map(|t| t.duration).sum();
         json!({
             "on": automix.is_on(),
+            "paused": !self.paused.is_empty() && !automix.is_on(),
             "status": automix.status(tracks),
+            "mix_in": automix.seconds_to_mix(tracks).map(f64::round),
             "length": automix.shown_length(),
             "style": automix.style(),
             "lengths": LENGTH_NAMES,
@@ -517,22 +685,21 @@ impl Remote {
             "orders": ORDERS.iter().map(|o| o.name()).collect::<Vec<_>>(),
             "note": app.get_automix_order_note().to_string(),
             "can_undo": browser.can_undo_automix_order() && !app.get_automix_order_note().is_empty(),
-            "fixed": held_count(automix, browser),
+            "fixed": held_count(automix, browser, tracks),
             "queue": queue,
             "total": total.round(),
         })
     }
 
-    fn decks_state(
+    /// What's playing: Automix's deck, or else the loudest playing deck,
+    /// and during a mix the track coming in.
+    fn now_state(
         &self,
         automix: &AutoMix,
         browser: &Browser,
         tracks: &[Option<Arc<Track>>; NUM_DECKS],
     ) -> Value {
         let camelot = browser.camelot();
-        let spans = automix.spans(tracks);
-        // How loud each deck is in the mix: its volume and play, through
-        // the crossfader.
         let xf = self.crossfader.get();
         let weight = |d: usize| {
             let h = &self.decks[d];
@@ -547,94 +714,114 @@ impl Remote {
                 0.0
             }
         };
-        let w = [weight(0), weight(1)];
-        let live = if w[0] <= 0.0 && w[1] <= 0.0 {
-            None
-        } else if w[0] >= w[1] {
-            Some(0)
-        } else {
-            Some(1)
-        };
-        let decks: Vec<Value> = (0..DECKS)
-            .map(|d| {
-                let h = &self.decks[d];
-                let Some(t) = tracks[d].as_deref() else {
-                    return json!({"title": ""});
-                };
-                let pos = h.playposition.get().clamp(0.0, 1.0);
-                let speed = crate::speed(&h.rate, &h.rate_range, &h.rate_dir).max(0.1);
-                let left = t.duration * (1.0 - pos) / speed;
-                let bpm = h.bpm.get();
-                let mut v = json!({
-                    "title": t.title,
-                    "artist": t.artist,
-                    "bpm": if bpm > 0.0 { (bpm * 10.0).round() / 10.0 } else { t.bpm },
-                    "key": crate::settings::show_key(&t.key, camelot),
-                    "duration": t.duration.round(),
-                    "position": (pos * 1000.0).round() / 1000.0,
-                    "left": left.round(),
-                    "playing": h.play.get_bool(),
-                    "live": live == Some(d),
-                });
-                if let Some((from, to)) = spans[d] {
-                    v["mix_from"] = json!((from * 1000.0).round() / 1000.0);
-                    v["mix_to"] = json!((to * 1000.0).round() / 1000.0);
+        let deck = automix
+            .live_deck()
+            .filter(|&d| tracks[d].is_some())
+            .or_else(|| {
+                let w = [weight(0), weight(1)];
+                if w[0] <= 0.0 && w[1] <= 0.0 {
+                    // Nothing playing: the paused deck, else whatever is loaded.
+                    self.paused
+                        .first()
+                        .copied()
+                        .or_else(|| (0..DECKS).find(|&d| tracks[d].is_some()))
+                } else if w[0] >= w[1] {
+                    Some(0)
+                } else {
+                    Some(1)
                 }
-                v
-            })
-            .collect();
-        json!({ "decks": decks })
+            });
+        let Some(d) = deck else {
+            return json!({"title": ""});
+        };
+        let h = &self.decks[d];
+        let Some(t) = tracks[d].as_deref() else {
+            return json!({"title": ""});
+        };
+        let pos = h.playposition.get().clamp(0.0, 1.0);
+        let speed = crate::speed(&h.rate, &h.rate_range, &h.rate_dir).max(0.1);
+        let bpm = h.bpm.get();
+        let mut v = self.track_json(t, camelot);
+        v["deck"] = json!(d + 1);
+        v["bpm"] = json!(if bpm > 0.0 {
+            (bpm * 10.0).round() / 10.0
+        } else {
+            t.bpm
+        });
+        v["position"] = json!((pos * 1000.0).round() / 1000.0);
+        v["elapsed"] = json!((t.duration * pos / speed).round());
+        v["left"] = json!((t.duration * (1.0 - pos) / speed).round());
+        v["playing"] = json!(h.play.get_bool());
+        if let Some((from, to)) = automix.spans(tracks)[d] {
+            v["mix_from"] = json!((from * 1000.0).round() / 1000.0);
+            v["mix_to"] = json!((to * 1000.0).round() / 1000.0);
+        }
+        if let Some(t) = automix.mixing_into().and_then(|d| tracks[d].as_deref()) {
+            v["into"] = self.track_json(t, camelot);
+        }
+        v
     }
 
     fn mixer_state(&self, app: &AppWindow) -> Value {
         let round = |v: f64| (v * 100.0).round() / 100.0;
+        // The level to show: the one to come back to while a fade runs.
+        let master = self
+            .sleeping
+            .or(self.faded_from.filter(|_| self.fade.is_some()))
+            .unwrap_or_else(|| self.master.get());
         json!({
-            "master": round(self.master.get()),
+            "master": round(if self.fade.is_some() { master } else { self.master.get() }),
             "booth": round(self.booth.get()),
             "booth_on": app.global::<AudioSettings>().get_booth(),
             "fading": self.fade.as_ref().is_some_and(|f| f.to < f.from),
             "faded": self.fade.is_none() && self.faded_from.is_some(),
+            "timer_left": self.timer.map(|t| t.saturating_duration_since(Instant::now()).as_secs()),
+            "sleeping": self.sleeping.is_some(),
         })
     }
+}
+
+/// Finds album art for the phone: the file and album an art id stands for,
+/// scaled to `size` and sent as JPEG.
+fn find_art(map: &ArtMap, id: &str, size: u32) -> Option<Vec<u8>> {
+    let (path, album) = map.lock().ok()?.get(id).cloned()?;
+    let cover = opendj_engine::cover::find_sized(&path, &album, size)?;
+    let rgba = image::RgbaImage::from_raw(cover.width, cover.height, cover.rgba)?;
+    let rgb = image::DynamicImage::ImageRgba8(rgba).to_rgb8();
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 85)
+        .encode_image(&rgb)
+        .ok()?;
+    Some(jpeg)
 }
 
 /// Most search results sent to a phone at once.
 const SEARCH_LIMIT: usize = 100;
 
-/// Collection tracks that `text` finds, for the phone's search: at most
-/// [`SEARCH_LIMIT`], with whether each is on the Automix list already.
-fn search(browser: &Browser, text: &str) -> Value {
-    let text = text.trim();
-    if text.is_empty() {
-        return json!({"tracks": [], "total": 0});
-    }
-    let camelot = browser.camelot();
-    let queued: std::collections::HashSet<usize> = (0..browser.automix_len())
+/// Whether `id` is a track at the top of the list that stays put: playing,
+/// or waiting with its mix too close to change.
+fn is_held(
+    automix: &AutoMix,
+    browser: &Browser,
+    tracks: &[Option<Arc<Track>>; NUM_DECKS],
+    id: usize,
+) -> bool {
+    (0..held_count(automix, browser, tracks))
         .filter_map(|i| browser.automix_at(i))
-        .map(|t| t.id)
-        .collect();
-    let (tracks, total) = browser.find_tracks(text, SEARCH_LIMIT);
-    let tracks: Vec<Value> = tracks
-        .iter()
-        .map(|t| {
-            json!({
-                "id": t.id,
-                "title": t.title,
-                "artist": t.artist,
-                "bpm": t.bpm,
-                "key": crate::settings::show_key(&t.key, camelot),
-                "time": t.duration.round(),
-                "queued": queued.contains(&t.id),
-            })
-        })
-        .collect();
-    json!({"tracks": tracks, "total": total})
+        .any(|t| t.id == id)
 }
 
-/// How many tracks at the top of the Automix list Automix holds (playing,
-/// or waiting on a deck); the phone can't move these or put others above.
-fn held_count(automix: &AutoMix, browser: &Browser) -> usize {
+/// How many tracks at the top of the Automix list stay put: the one
+/// playing, and the one waiting on a deck once its mix is under
+/// [`LOCK_BEFORE_MIX`] away or under way. Until then the waiting track can
+/// be moved or swapped, and Automix loads whatever is next instead.
+fn held_count(
+    automix: &AutoMix,
+    browser: &Browser,
+    tracks: &[Option<Arc<Track>>; NUM_DECKS],
+) -> usize {
     let (playing, waiting) = automix.held();
+    let waiting = waiting.filter(|_| automix.next_locked(tracks, LOCK_BEFORE_MIX));
     (0..browser.automix_len())
         .map_while(|i| browser.automix_at(i))
         .take_while(|t| Some(t.id) == playing || Some(t.id) == waiting)
