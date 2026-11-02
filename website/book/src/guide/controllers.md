@@ -53,6 +53,17 @@ the list by any of those words.
   kinds), pick-up for knobs and faders, and invert. Each has a short hint.
   A row run by the mapping's script can be given a plain function too; the
   script keeps running the other controls.
+- **Scripts, shift and modes.** **Does**, at the top of the panel, picks
+  what the control does: *A function*, *An openDJscript line* (the same
+  one-line actions as [keyboard shortcuts](shortcuts.md), checked as you type
+  and used when you press Enter, such as `var 'shift' ? sync : play_pause`),
+  *Shift: on while held* or *Mode: on/off each press*. A shift or mode button
+  sets a variable, `shift` or `mode` unless you name it otherwise. **Only
+  when** makes any row work only while variables are on: `shift`, or
+  `mode=2 & shift`. Type it and press **Move** to put the row there, or
+  **Copy** to keep it where it was too. So to make SHIFT + CUE sync: make a
+  button *Shift: on while held*, select CUE, type `shift` in Only when,
+  **Copy**, and change the copy's function to Sync.
 - **Import…** in the same menu brings a mapping across from another DJ app:
   VirtualDJ (`.xml` from `Documents/VirtualDJ/Mappers`), Traktor (`.tsi`),
   rekordbox (`.midi.csv`), djay Pro (`.djayMidiMapping`) or an openDJ
