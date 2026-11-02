@@ -43,6 +43,12 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-slip-vinyl-and-bend](changes/add-slip-vinyl-and-bend/proposal.md) (slip returns after each trick with a ghost playhead, SLIP and VINYL buttons, on-screen bend and censor; from the deck performance review, Seba 2026-11-01)
 - [add-phone-remote](changes/add-phone-remote/proposal.md) (control Automix and the main levels from a phone, by QR code; step 1 of 5; Seba 2026-11-01)
 - [add-groove-box](changes/add-groove-box/proposal.md) (a step-sequencer Groove Box that takes the place of a deck, beginner first, synthesised classic drum machine kits; replaces add-pattern-sequencer, moved from v1.x by Seba 2026-11-02)
+- [add-deck-outputs](changes/add-deck-outputs/proposal.md) (each deck on its own outputs for a DAW such as Ableton, and an external mixer mode; no cost when unused; Seba 2026-11-02)
+- [add-midi-clock](changes/add-midi-clock/proposal.md) (MIDI clock out to drum machines and other gear, clock in, decks can follow Link; Seba 2026-11-02)
+- [add-osc-control](changes/add-osc-control/proposal.md) (every control over Open Sound Control, plus beat, phrase and track events for visuals and lights; Seba 2026-11-02)
+- [add-now-playing-feed](changes/add-now-playing-feed/proposal.md) (now-playing text/JSON files and an OBS overlay page; Seba 2026-11-02)
+- [add-playlist-files](changes/add-playlist-files/proposal.md) (export any list as M3U8; import M3U, PLS and XSPF; Seba 2026-11-02)
+- [add-rekordbox-xml-export](changes/add-rekordbox-xml-export/proposal.md) (collection and lists out as rekordbox XML for rekordbox and library tools; Seba 2026-11-02)
 
 ## v0.6 · Buy it from the artist
 
