@@ -277,6 +277,8 @@ impl DeckControls {
         // 1 slots 9-16.
         reg.create(g, "sampler_page", 0.0, 0.0, 1.0, Behavior::Free);
         alias(reg, g, "pitch_adjust", g, "pitch");
+        // Mixxx's old name for reloop_toggle, which many mappings still use.
+        alias(reg, g, "reloop_exit", g, "reloop_toggle");
         // The chain presets are the Color FX (see `crate::effects::COLOR_FX`):
         // 0 none, 1 Filter, then the others. One is chosen for all decks.
         let n_cfx = crate::effects::COLOR_FX.len() as f64;
@@ -497,6 +499,8 @@ pub(crate) enum Action {
     LoopIn,
     LoopOut,
     Reloop,
+    /// A tap of the deck's tempo: taps in time set the track's BPM.
+    BpmTap,
     BeatJump(f64),
     /// Jumps beatjump_size beats in the given direction (+1 or -1).
     BeatJumpSized(f64),
@@ -532,6 +536,7 @@ pub(crate) fn deck_pushes(reg: &ControlRegistry, g: &str) -> Vec<Push> {
         ("loop_in".into(), Action::LoopIn),
         ("loop_out".into(), Action::LoopOut),
         ("reloop_toggle".into(), Action::Reloop),
+        ("bpm_tap".into(), Action::BpmTap),
         ("rate_perm_up_small".into(), Action::RateStep(0.001)),
         ("rate_perm_down_small".into(), Action::RateStep(-0.001)),
         // Mixxx's default coarse permanent rate step is 0.5%.

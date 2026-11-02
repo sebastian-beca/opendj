@@ -592,6 +592,37 @@ fn mixtrack_platinum_fx_screens() {
     assert!(screen(0x04), "time");
 }
 
+/// The V7's mapping is from Mixxx 1.11: its FX, Reloop/Exit and Tap use
+/// controls Mixxx later dropped, which openDJ keeps for it.
+#[test]
+fn numark_v7_reaches_its_old_controls() {
+    let (reg, mut c) = load("Numark V7.midi.xml");
+    settle(&mut c, 4000);
+    let press = |c: &mut Controller, note: u8| {
+        c.receive(&[0x90, note, 0x7F]);
+        c.receive(&[0x90, note, 0x00]);
+    };
+    // FX ON for deck A.
+    press(&mut c, 0x52);
+    assert_eq!(get(&reg, "[Channel1]", "flanger"), 1.0);
+    // FX AMOUNT for deck A: coarse then fine.
+    c.receive(&[0xB0, 0x57, 0x40]);
+    c.receive(&[0xB0, 0x77, 0x00]);
+    let depth = get(&reg, "[Flanger]", "lfoDepth");
+    assert!((depth - 0.5).abs() < 0.02, "{depth}");
+    // RELOOP/EXIT on deck B reaches reloop_toggle.
+    let reloop = reg.get("[Channel2]", "reloop_toggle").unwrap();
+    let before = reloop.version();
+    press(&mut c, 0x45);
+    assert_ne!(reloop.version(), before);
+    // TAP for deck A.
+    let tap = reg.get("[Channel1]", "bpm_tap").unwrap();
+    let before = tap.version();
+    press(&mut c, 0x1E);
+    assert_ne!(tap.version(), before);
+    assert_eq!(c.errors(), Vec::<String>::new());
+}
+
 #[test]
 fn pickup_shows_where_the_hardware_is() {
     use opendj_control::ConfigKey;

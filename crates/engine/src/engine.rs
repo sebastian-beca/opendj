@@ -17,7 +17,9 @@ use crate::controls::{
     SCULPT_DEFAULTS,
 };
 use crate::dsp::{Isolator, Limiter, Sculpt};
-use crate::effects::{input_target, ColorFx, EffectRack, BLOCK, COLOR_FX, MAIN, TARGETS};
+use crate::effects::{
+    input_target, ColorFx, EffectRack, BLOCK, COLOR_FX, MAIN, TAPS, TAP_GAP, TARGETS,
+};
 use crate::inputs::{Ducker, Input, InputFeed, AUXILIARY, INSTRUMENT, MICROPHONE, NUM_INPUTS};
 use crate::key::{self, Key};
 use crate::keyshift::{transpose_factor, KeyShifter};
@@ -139,6 +141,31 @@ pub(crate) fn xfader_gains(x: f32, shape: u8) -> [f32; 2] {
     }
 }
 
+/// Tap tempo: taps in time give a tempo, averaged over the last few.
+#[derive(Default)]
+struct TapTempo {
+    last: Option<f64>,
+    intervals: [f64; TAPS],
+    taps: usize,
+}
+
+impl TapTempo {
+    /// A tap at `now` seconds; the tapped BPM once there are two in time.
+    fn tap(&mut self, now: f64) -> Option<f64> {
+        let gap = self.last.map_or(f64::INFINITY, |last| now - last);
+        self.last = Some(now);
+        if gap > TAP_GAP || gap <= 0.0 {
+            self.taps = 0;
+            return None;
+        }
+        self.intervals.rotate_right(1);
+        self.intervals[0] = gap;
+        self.taps = (self.taps + 1).min(TAPS);
+        let mean = self.intervals[..self.taps].iter().sum::<f64>() / self.taps as f64;
+        Some(60.0 / mean)
+    }
+}
+
 struct Deck {
     c: DeckControls,
     track: Option<Arc<Track>>,
@@ -152,6 +179,10 @@ struct Deck {
     loop_in_pending: bool,
     /// A beat grid edit pressed this buffer, to hand to the loader.
     grid_edit: Option<(GridEdit, f64)>,
+    /// The engine clock this buffer, in seconds, and the deck's `bpm_tap`
+    /// taps against it.
+    clock: f64,
+    taps: TapTempo,
     /// The `bpmlock` version last seen, so the DJ turning it is told apart
     /// from the engine showing a loaded track's lock.
     bpmlock_seen: u32,
@@ -710,6 +741,16 @@ impl Deck {
                     self.c.play.set_bool(play);
                 }
                 Action::Grid(edit) => self.grid_edit = Some((edit, now)),
+                // Taps come at the playing speed; the grid is at the track's.
+                Action::BpmTap => {
+                    if let Some(bpm) = self.taps.tap(self.clock) {
+                        let speed = self.speed().abs();
+                        if speed > 0.0 {
+                            let bpm = (bpm / speed).clamp(40.0, 300.0);
+                            self.grid_edit = Some((GridEdit::SetTempo(bpm), now));
+                        }
+                    }
+                }
                 Action::KeyStep(n) => {
                     let p = (self.c.pitch.get() + n).clamp(-6.0, 6.0);
                     // Whole steps land on whole semitones.
@@ -1323,6 +1364,8 @@ impl Engine {
             loop_end: 0.0,
             loop_in_pending: false,
             grid_edit: None,
+            clock: 0.0,
+            taps: TapTempo::default(),
             bpmlock_seen: 0,
             metronome_beat: f64::NAN,
             click: None,
@@ -2004,8 +2047,10 @@ impl Engine {
         let link = self.link.begin(frames, self.sample_rate);
         self.sync(link);
         let mut moved = [Move::None; NUM_DECKS];
+        let clock = self.clock;
         for (deck, d) in self.decks.iter_mut().enumerate() {
             let before = d.pos;
+            d.clock = clock;
             d.reset_rate(dt);
             d.handle_controls();
             moved[deck] = if d.pos != before {
@@ -3982,6 +4027,49 @@ mod tests {
         assert_eq!(edits.len(), 1);
         assert_eq!((edits[0].0, edits[0].1), (0, GridEdit::AddSection));
         assert!((edits[0].2 - 1.0).abs() < 0.05);
+    }
+
+    #[test]
+    fn deck_bpm_tap_sets_the_tracks_tempo_and_reloop_exit_reloops() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 20.0));
+        run(&mut engine, 0.02);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        // Playing 25% fast: taps half a second apart are 120 BPM as heard,
+        // 96 in the track.
+        ctl("rateRange").set(0.5);
+        ctl("rate").set(0.5);
+        for _ in 0..4 {
+            ctl("bpm_tap").set_bool(true);
+            run(&mut engine, 0.02);
+            ctl("bpm_tap").set_bool(false);
+            run(&mut engine, 0.48);
+        }
+        let taps: Vec<_> = input
+            .collect_garbage()
+            .into_iter()
+            .filter_map(|r| match r {
+                Returned::GridEdit {
+                    edit: GridEdit::SetTempo(bpm),
+                    ..
+                } => Some(bpm),
+                _ => None,
+            })
+            .collect();
+        // The first tap only starts the count.
+        assert_eq!(taps.len(), 3, "{taps:?}");
+        for bpm in taps {
+            assert!((bpm - 96.0).abs() < 1.0, "{bpm}");
+        }
+
+        // reloop_exit is Mixxx's old name for reloop_toggle.
+        ctl("beatloop_2_activate").set_bool(true);
+        run(&mut engine, 0.02);
+        ctl("beatloop_2_activate").set_bool(false);
+        assert!(ctl("loop_enabled").get_bool());
+        reg.get("[Channel1]", "reloop_exit").unwrap().set_bool(true);
+        run(&mut engine, 0.02);
+        assert!(!ctl("loop_enabled").get_bool());
     }
 
     #[test]

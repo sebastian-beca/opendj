@@ -68,9 +68,9 @@ pub const DEFAULT_EFFECTS: [[usize; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS] = [
 /// How long a released effect's tail rings on, in beats (see `release`).
 const RELEASE_BEATS: f32 = 8.0;
 /// Taps further apart than this, in seconds, start a new tap tempo.
-const TAP_GAP: f64 = 2.0;
+pub(crate) const TAP_GAP: f64 = 2.0;
 /// Tap intervals averaged into the tapped tempo.
-const TAPS: usize = 4;
+pub(crate) const TAPS: usize = 4;
 
 /// `loaded_effect` values from here on are plugins: `PLUGIN_BASE + i` is
 /// plugin `i` of the list the app hands the plugin host (see
@@ -993,6 +993,7 @@ pub(crate) struct EffectRack {
     from_host: rtrb::Consumer<PluginMsg>,
     to_host: rtrb::Producer<Box<Attached>>,
     link: Option<PluginLink>,
+    legacy: LegacyFlanger,
     /// The Instrument input's plugin, as the plugin host attached it.
     instrument: Option<Box<Attached>>,
     /// Notes for the instrument, from [`NoteInput`], and those waiting to
@@ -1000,6 +1001,99 @@ pub(crate) struct EffectRack {
     notes: rtrb::Consumer<Midi>,
     notes_waiting: Vec<Midi>,
     note_input: Option<NoteInput>,
+}
+
+/// `loaded_effect` for the Flanger.
+const FLANGER: f64 = 4.0;
+
+/// Mixxx 1.x's flanger, which mappings written before Mixxx 2.0 still drive
+/// (the Numark V7's FX section, among others) though Mixxx itself dropped
+/// it: `[ChannelN],flanger` turns it on for a deck, and `[Flanger]`'s
+/// `lfoDepth`, `lfoDelay` (microseconds) and `lfoPeriod` (microseconds) set
+/// it for all of them. It plays through the deck's Pad FX unit, which is
+/// free while no pad is held.
+struct LegacyFlanger {
+    decks: [ControlHandle; NUM_DECKS],
+    on: [bool; NUM_DECKS],
+    /// Turned on last buffer: the knobs still to apply.
+    pending: [bool; NUM_DECKS],
+    /// lfoDepth, lfoDelay, lfoPeriod, and the versions last applied.
+    knobs: [ControlHandle; 3],
+    seen: [u32; 3],
+}
+
+impl LegacyFlanger {
+    fn create(reg: &ControlRegistry) -> Self {
+        let g = "[Flanger]";
+        let knobs = [
+            reg.create(g, "lfoDepth", 1.0, 0.0, 1.0, Behavior::Linear),
+            reg.create(g, "lfoDelay", 3333.0, 50.0, 10_000.0, Behavior::Linear),
+            reg.create(
+                g,
+                "lfoPeriod",
+                1_000_000.0,
+                50_000.0,
+                2_000_000.0,
+                Behavior::Linear,
+            ),
+        ];
+        Self {
+            decks: std::array::from_fn(|d| reg.toggle(&deck_group(d), "flanger")),
+            on: [false; NUM_DECKS],
+            pending: [false; NUM_DECKS],
+            seen: knobs.each_ref().map(|k| k.version()),
+            knobs,
+        }
+    }
+
+    /// The Flanger's Speed, Depth (through meta) and Manual for the knobs.
+    fn parameters(&self) -> [f64; 3] {
+        let [depth, delay, period] = self.knobs.each_ref().map(|k| k.get());
+        [
+            // A longer period is a slower sweep.
+            1.0 - ((period - 50_000.0) / 1_950_000.0).clamp(0.0, 1.0),
+            depth.clamp(0.0, 1.0),
+            ((delay - 50.0) / 9_950.0).clamp(0.0, 1.0),
+        ]
+    }
+
+    fn update(
+        &mut self,
+        units: &[UnitControls; NUM_EFFECT_UNITS],
+        slots: &[[SlotControls; EFFECTS_PER_UNIT]; NUM_EFFECT_UNITS],
+    ) {
+        let versions = self.knobs.each_ref().map(|k| k.version());
+        let turned = versions != self.seen;
+        self.seen = versions;
+        let [speed, depth, manual] = self.parameters();
+        for d in 0..NUM_DECKS {
+            let u = crate::controls::pad_fx_unit(d);
+            let slot = &slots[u][0];
+            let on = self.decks[d].get_bool();
+            if on != self.on[d] {
+                self.on[d] = on;
+                if on {
+                    slot.loaded_effect.set(FLANGER);
+                    units[u].routes[d].set_bool(true);
+                    units[u].enabled.set_bool(true);
+                    slot.enabled.set_bool(true);
+                    // A newly loaded effect takes its defaults this buffer;
+                    // the knobs go on next.
+                    self.pending[d] = true;
+                } else {
+                    slot.enabled.set_bool(false);
+                }
+                continue;
+            }
+            if on && (turned || self.pending[d]) {
+                self.pending[d] = false;
+                // Meta drives the Flanger's depth.
+                slot.meta.set(depth);
+                slot.params[0].set(speed);
+                slot.params[2].set(manual);
+            }
+        }
+    }
 }
 
 /// Where notes for the Instrument input come in: a MIDI keyboard, the
@@ -1089,6 +1183,7 @@ impl EffectRack {
                 to_engine,
                 from_engine,
             }),
+            legacy: LegacyFlanger::create(reg),
             instrument: None,
             notes,
             notes_waiting: Vec::with_capacity(opendj_plugin_host::shm::MAX_EVENTS),
@@ -1216,6 +1311,7 @@ impl EffectRack {
     /// seconds, for tap tempo.
     pub(crate) fn prepare(&mut self, beat_seconds: [f64; TARGETS], now: f64) {
         self.take_plugin_messages();
+        self.legacy.update(&self.units, &self.slots);
         for u in 0..NUM_EFFECT_UNITS {
             let unit = &mut self.units[u];
             unit.update_tempo(now);
@@ -2798,6 +2894,40 @@ mod tests {
         set("loaded_effect", 2.0);
         slot.update();
         assert_eq!(get("beats"), 0.0);
+    }
+
+    #[test]
+    fn mixxx_1_flanger_plays_through_the_decks_pad_fx_unit() {
+        let reg = ControlRegistry::new();
+        let mut rack = EffectRack::new(&reg, SR as f64);
+        let beats = [0.5; TARGETS];
+        let unit = |k: &str| reg.get("[EffectRack1_EffectUnit7]", k).unwrap();
+        let slot = |k: &str| reg.get("[EffectRack1_EffectUnit7_Effect1]", k).unwrap();
+        let flanger = |k: &str| reg.get("[Flanger]", k).unwrap();
+        assert!(!unit("group_[Channel2]_enable").get_bool());
+
+        // Deck 2's flanger loads the Flanger into its Pad FX unit, on deck 2.
+        reg.get("[Channel2]", "flanger").unwrap().set_bool(true);
+        rack.prepare(beats, 0.0);
+        rack.prepare(beats, 0.01);
+        assert_eq!(slot("loaded_effect").get(), FLANGER);
+        assert!(slot("enabled").get_bool());
+        assert!(unit("group_[Channel2]_enable").get_bool());
+        assert_eq!(slot("meta").get(), 1.0, "lfoDepth starts full");
+
+        // The old knobs follow: depth through meta, delay to Manual, a
+        // shorter period to a faster Speed.
+        flanger("lfoDepth").set(0.25);
+        flanger("lfoDelay").set(50.0);
+        flanger("lfoPeriod").set(50_000.0);
+        rack.prepare(beats, 0.02);
+        assert_eq!(slot("meta").get(), 0.25);
+        assert_eq!(slot("parameter3").get(), 0.0);
+        assert_eq!(slot("parameter1").get(), 1.0);
+
+        reg.get("[Channel2]", "flanger").unwrap().set_bool(false);
+        rack.prepare(beats, 0.03);
+        assert!(!slot("enabled").get_bool());
     }
 
     #[test]
