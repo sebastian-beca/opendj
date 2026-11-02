@@ -7,7 +7,7 @@
 //!   time openDJ writes a byte to stdin. It exits when stdin closes, so a
 //!   helper never outlives openDJ.
 //! - `opendj-plugin-host --scan <file>` lists the plugins in a CLAP file or
-//!   VST3 bundle
+//!   VST3 bundle, and `--scan-au` lists the installed Audio Units (macOS)
 //!   (`plugin` lines, then `done`) and exits.
 //!
 //! The plugin's main-thread half stays on this process's main thread; the
@@ -28,6 +28,8 @@ fn main() {
     let mut test = None;
     let mut clap = None;
     let mut vst3 = None;
+    let mut au = None;
+    let mut scan_au = false;
     let mut id = None;
     let mut scan = None;
     let mut args = std::env::args_os().skip(1);
@@ -37,6 +39,8 @@ fn main() {
             Some("--test") => test = args.next().and_then(|s| s.into_string().ok()),
             Some("--clap") => clap = args.next().map(PathBuf::from),
             Some("--vst3") => vst3 = args.next().map(PathBuf::from),
+            Some("--au") => au = args.next().and_then(|s| s.into_string().ok()),
+            Some("--scan-au") => scan_au = true,
             Some("--id") => id = args.next().and_then(|s| s.into_string().ok()),
             Some("--scan") => scan = args.next().map(PathBuf::from),
             _ => fail(&format!("unknown argument {a:?}")),
@@ -45,12 +49,16 @@ fn main() {
     if let Some(file) = scan {
         return run_scan(&file);
     }
-    let plugin = match (test, clap, vst3, id) {
-        (Some(t), None, None, _) => Plugin::Test(t),
-        (None, Some(file), None, Some(id)) => Plugin::Clap { file, id },
-        (None, None, Some(file), Some(id)) => Plugin::Vst3 { file, id },
+    if scan_au {
+        return run_scan_au();
+    }
+    let plugin = match (test, clap, vst3, au, id) {
+        (Some(t), None, None, None, _) => Plugin::Test(t),
+        (None, Some(file), None, None, Some(id)) => Plugin::Clap { file, id },
+        (None, None, Some(file), None, Some(id)) => Plugin::Vst3 { file, id },
+        (None, None, None, Some(id), _) => Plugin::Au { id },
         _ => fail(
-            "usage: opendj-plugin-host --shm <path> (--test <id> | --clap <file> --id <id> | --vst3 <bundle> --id <cid>)",
+            "usage: opendj-plugin-host --shm <path> (--test <id> | --clap <file> --id <id> | --vst3 <bundle> --id <cid> | --au <type:subtype:maker>)",
         ),
     };
     let Some(shm_path) = shm_path else {
@@ -150,6 +158,29 @@ fn run_audio(shm: &Shm, mut fx: Box<dyn Effect>) {
     }
 }
 
+fn run_scan_au() {
+    #[cfg(target_os = "macos")]
+    {
+        print_found(&opendj_plugin_host::au::scan());
+        say("done");
+    }
+    #[cfg(not(target_os = "macos"))]
+    fail("Audio Units only run on macOS");
+}
+
+fn print_found(found: &[opendj_plugin_host::Descriptor]) {
+    for d in found {
+        say(&format!(
+            "plugin\t{}\t{}\t{}\t{}\t{}",
+            clean(&d.id),
+            clean(&d.name),
+            clean(&d.vendor),
+            clean(&d.version),
+            clean(&d.features.join(","))
+        ));
+    }
+}
+
 fn run_scan(file: &std::path::Path) {
     let found = if opendj_plugin_host::client::is_vst3(file) {
         opendj_plugin_host::vst3::scan(file)
@@ -158,16 +189,7 @@ fn run_scan(file: &std::path::Path) {
     };
     match found {
         Ok(found) => {
-            for d in found {
-                say(&format!(
-                    "plugin\t{}\t{}\t{}\t{}\t{}",
-                    clean(&d.id),
-                    clean(&d.name),
-                    clean(&d.vendor),
-                    clean(&d.version),
-                    clean(&d.features.join(","))
-                ));
-            }
+            print_found(&found);
             say("done");
         }
         Err(e) => fail(&e),
