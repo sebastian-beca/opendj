@@ -72,7 +72,11 @@ PioneerDDJFLX6.padModeLights = {
 PioneerDDJFLX6.timers = {};
 
 // Jog wheel constants
-PioneerDDJFLX6.vinylMode = true;
+// openDJ: whether touching the top scratches follows each deck's VINYL
+// switch ([ChannelN] vinyl_mode, on by default) instead of this constant.
+PioneerDDJFLX6.vinylMode = function(deckNum) {
+    return engine.getValue("[Channel" + deckNum + "]", "vinyl_mode") > 0;
+};
 PioneerDDJFLX6.alpha = 1.0/8;
 PioneerDDJFLX6.beta = PioneerDDJFLX6.alpha/32;
 
@@ -605,7 +609,7 @@ PioneerDDJFLX6.jogTouch = function(channel, _control, value) {
         return;
     }
 
-    if (value !== 0 && this.vinylMode) {
+    if (value !== 0 && PioneerDDJFLX6.vinylMode(deckNum)) {
         engine.scratchEnable(deckNum, 720, 33+1/3, this.alpha, this.beta);
     } else {
         engine.scratchDisable(deckNum);

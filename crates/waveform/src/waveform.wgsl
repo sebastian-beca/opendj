@@ -38,8 +38,8 @@ struct Params {
     phrase_kind: array<vec4<u32>, 8>,  // its kind: intro, build, drop, breakdown, outro, chorus
     phrase_count: u32,
     minute_bins: f32,                  // slices per minute, for the overview's minute dots (0 = none)
+    slip_bin: f32,                     // the silent playhead while slipping, in slices (< 0 = none)
     pad0: u32,
-    pad1: u32,
 };
 
 @group(0) @binding(0) var<uniform> p: Params;
@@ -448,6 +448,13 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
             let a = max(line(x, hx, 0.5 * k), select(0.0, 1.0, in_flag));
             color = over(color, HOTCUE_COLORS[h], a * 0.95);
         }
+    }
+
+    // Slip: the silent playhead, a dashed lilac line where the track will
+    // carry on from when the trick ends.
+    if (p.slip_bin >= 0.0) {
+        let dash = select(0.0, 1.0, fract(y / (6.0 * k)) < 0.6);
+        color = over(color, vec3<f32>(0.71, 0.61, 1.0), line(x, bin_x(p.slip_bin), 1.0 * k) * dash);
     }
 
     // Play position.
