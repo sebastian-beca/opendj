@@ -200,7 +200,9 @@ pub(crate) struct Svf {
     /// tan(pi * cutoff / rate), gliding towards `target`.
     g: f32,
     target: f32,
+    /// 1/Q, gliding towards `k_target`.
     pub(crate) k: f32,
+    k_target: f32,
     ic1: [f32; 2],
     ic2: [f32; 2],
 }
@@ -209,17 +211,31 @@ impl Svf {
     pub(crate) fn set(&mut self, sample_rate: f32, freq: f32, q: f32) {
         let f = freq.clamp(10.0, 0.45 * sample_rate);
         self.target = (std::f32::consts::PI * f / sample_rate).tan();
+        self.k_target = 1.0 / q;
         if self.g == 0.0 {
             self.g = self.target;
+            self.k = self.k_target;
         }
-        self.k = 1.0 / q;
     }
 
     /// Low-pass, band-pass and high-pass outputs for one frame.
     #[inline]
     pub(crate) fn process(&mut self, x: [f32; 2]) -> [[f32; 2]; 3] {
-        // About 5 ms to glide to a new cutoff.
-        self.g += (self.target - self.g) * 0.004;
+        // About 5 ms to glide to a new cutoff, but never more than about a
+        // sixtieth of an octave per sample: a jump across the whole range
+        // (a MIDI knob slammed from end to end) then sweeps over about
+        // 12 ms instead of leaping several octaves in the first samples.
+        let step = (self.target - self.g) * 0.004;
+        let most = self.g * 0.012;
+        self.g += step.clamp(-most, most);
+        if self.k != self.k_target {
+            let d = self.k_target - self.k;
+            self.k = if d.abs() < 1e-6 {
+                self.k_target
+            } else {
+                self.k + d * 0.004
+            };
+        }
         let (g, k) = (self.g, self.k);
         let a1 = 1.0 / (1.0 + g * (g + k));
         let a2 = g * a1;
