@@ -128,7 +128,7 @@ pub fn steps(decks: u8) -> Vec<Step> {
             &format!("[Channel{deck}],play"),
             "PLAY",
             &format!(
-                "Press PLAY on deck {deck} (switch the controller to it first if it has deck buttons)"),
+                "Press PLAY on deck {deck}. If a button switches the controller to it (C or D, say), press that first: the last button pressed counts"),
             deck,
         ));
         s.last_mut().unwrap().copies = true;
