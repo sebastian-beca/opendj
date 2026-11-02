@@ -15,9 +15,11 @@ In 2-Deck each deck runs, from the outer edge in:
   back to the track's own, and the padlock above it is
   [key lock](#keys).
 - **The pads**, with their tabs on top (see [Pads](pads.md)).
-- **The LOOP column** (see [Looping](looping.md)).
+- **The LOOP column** (see [Looping](looping.md)), with **SLIP** and
+  **VINYL** at the bottom (see [Slip, bend and censor](#slip-bend-and-censor)).
 - **The jog wheel**, with **CUE** and **PLAY** under it, next to the mixer.
-  Drag the jog to scratch or nudge.
+  Drag round its black rim to bend the tempo, scroll over it to nudge, and
+  hold **«** or **»** in its lower corners to bend slower or faster.
 
 Above them, the deck's header shows the cover, title and artist, the time
 left and the track's tempo and key, with the overview waveform of the whole
@@ -25,9 +27,38 @@ track. Click the overview to jump; dragging it moves without playing what it
 passes.
 
 **PLAY**, **CUE** and **SYNC** show an outline in the deck's colour while
-they're on. **Shift-click** PLAY to go back to the start of the track.
+they're on. **Shift-click** and hold PLAY while the deck plays for
+[censor](#slip-bend-and-censor).
 
 The decks' effects are in the [FX bar](fx.md#the-fx-bar) under them.
+
+## Slip, bend and censor
+
+**SLIP** keeps the track in time while you play with it. While it's lit,
+scratching, a loop, a hot cue held down, reverse or a pause takes the sound
+away, but a silent playhead carries on, drawn as a dashed lilac line on the
+waveforms. When the trick ends (you let go of the jog or the pad, end the
+loop, turn reverse off or press PLAY) the track carries on from that line,
+on the beat and the phrase, as if it had played on. In slip mode a hot cue
+plays only while you hold it. SLIP blinks while the track is held elsewhere;
+switching it off then also brings the track back. Slip only works on a deck
+that's playing: on a paused deck, scratching and hot cues find a spot as
+usual.
+
+**VINYL** decides what touching the top of a controller's jog does. Lit (the
+default), it grabs the record so you can scratch. Off, the top bends the
+tempo like the rim does, so brushing the jog doesn't stop the track, as CDJ
+mode does on a Pioneer player. The DDJ-FLX4 and DDJ-FLX6 follow it.
+
+**Pitch bend** nudges a deck's beat into line by ear: it plays a little
+faster or slower while you bend and springs back when you stop. Turn a
+controller's jog rim, drag round the on-screen jog's rim, or hold **«** or
+**»** beside the jog (2%, or 4% with Shift). <kbd>←</kbd> and <kbd>→</kbd>
+bend the deck you started last, the one you're mixing in.
+
+**Censor** plays the deck backwards while you hold it, then carries on as if
+it had played forwards, to bleep a word. Shift-click and hold PLAY while the
+deck plays, or hold SHIFT and PLAY on the DDJ-FLX4.
 
 ## Sync and quantize
 

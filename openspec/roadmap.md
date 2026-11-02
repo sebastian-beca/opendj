@@ -39,6 +39,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-streaming-browse](changes/add-streaming-browse/proposal.md) (Spotify, TIDAL, Apple Music, SoundCloud, Mixcloud and other streaming playlists, browse only; Seba 2026-10-29, issue #139)
 - [add-settings-layers](changes/add-settings-layers/proposal.md) (settings in three layers: good defaults, task-grouped choices, a searchable Advanced list with Show modified; from a review of VirtualDJ's Options & Tweaks; Seba 2026-10-31)
 - [improve-metadata-lookup](changes/improve-metadata-lookup/proposal.md) (batch metadata fixes that match more tracks, file names as reviewed suggestions; Seba 2026-11-01)
+- [add-slip-vinyl-and-bend](changes/add-slip-vinyl-and-bend/proposal.md) (slip returns after each trick with a ghost playhead, SLIP and VINYL buttons, on-screen bend and censor; from the deck performance review, Seba 2026-11-01)
 
 ## v0.6 · Buy it from the artist
 
@@ -58,7 +59,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-ableton-set-export](changes/add-ableton-set-export/proposal.md)
 - [add-layout-customization](changes/add-layout-customization/proposal.md)
 - [add-mcp-server](changes/add-mcp-server/proposal.md)
-- [add-slip-everywhere](changes/add-slip-everywhere/proposal.md)
+- [add-slip-everywhere](changes/add-slip-everywhere/proposal.md) (slip for scratch, loops, hot cues, reverse and pause and the ghost playhead came early in add-slip-vinyl-and-bend; beat jumps, pad FX and slicer remain)
 - [add-super-library](changes/add-super-library/proposal.md)
 - [add-user-manual](changes/add-user-manual/proposal.md)
 

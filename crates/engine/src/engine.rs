@@ -168,9 +168,15 @@ struct Deck {
     search_quiet: f64,
     /// How fast the jog's rim is turning, smoothed, in ticks per second.
     bend_rate: f64,
-    /// While slipping (slip mode, reverseroll, a loop roll): where playback
-    /// would have been without it, in source frames.
+    /// While slipping (a trick in slip mode, reverseroll, a loop roll):
+    /// where playback would have been without it, in source frames.
     slip: Option<f64>,
+    /// The silent playhead runs on: the deck was playing when the slip
+    /// began (or has played since), so it moves on even while paused.
+    slip_moving: bool,
+    /// The hot cue held in slip mode: it plays from its point while held and
+    /// the track carries on from the silent playhead when it is let go.
+    slip_cue: Option<usize>,
     rolling: bool,
     /// Whether play was on last buffer: starting and stopping are instant,
     /// other speed changes ramp.
@@ -347,6 +353,9 @@ impl Deck {
         self.jog_pending = 0.0;
         self.bend_rate = 0.0;
         self.slip = None;
+        self.slip_moving = false;
+        self.slip_cue = None;
+        self.c.slip_position.set(-1.0);
         self.rolling = false;
         self.c.track_loaded.set_bool(false);
         self.c.duration.set(0.0);
@@ -407,7 +416,14 @@ impl Deck {
         let p = self.c.playposition.get();
         if (p - self.last_written_position).abs() > 1e-9 {
             self.set_seconds(p * track.duration);
+            // A seek while slipping takes the silent playhead along.
+            if self.slip.is_some() {
+                self.slip = Some(self.pos);
+            }
         }
+        // Where the track is before this buffer's jumps: a slip that starts
+        // now runs on from here.
+        let unslipped = self.pos;
 
         if self.c.bpmlock.version() != self.bpmlock_seen {
             self.bpmlock_seen = self.c.bpmlock.version();
@@ -487,7 +503,14 @@ impl Deck {
                         self.c.loop_enabled.set_bool(true);
                         self.set_seconds(position);
                     }
-                    None if set => self.set_seconds(position),
+                    None if set => {
+                        // In slip mode a playing deck plays the cue while
+                        // it is held, then carries on as if it hadn't.
+                        if playing && self.c.slip_enabled.get_bool() {
+                            self.slip_cue = Some(h);
+                        }
+                        self.set_seconds(position)
+                    }
                     None => {
                         let hc = &self.c.hotcues[h];
                         // An empty pad pressed while a loop plays saves the loop.
@@ -519,6 +542,9 @@ impl Deck {
                 hc.enabled.set_bool(false);
                 hc.kind.set(0.0);
                 hc.end_position.set(-1.0);
+            }
+            if self.slip_cue == Some(h) && !hc.activate.get_bool() {
+                self.slip_cue = None;
             }
             hc.status
                 .set(match (hc.enabled.get_bool(), hc.activate.get_bool()) {
@@ -715,15 +741,25 @@ impl Deck {
             self.rolling = false;
             self.c.loop_enabled.set_bool(false);
         }
-        let slipping =
-            self.c.slip_enabled.get_bool() || self.c.reverseroll.get_bool() || self.rolling;
+        let slipping = self.c.reverseroll.get_bool() || self.rolling || self.slip_trick(unslipped);
         match (self.slip, slipping) {
-            (None, true) => self.slip = Some(self.pos),
+            (None, true) => {
+                self.slip = Some(unslipped);
+                self.slip_moving = self.was_playing || self.c.play.get_bool();
+            }
             (Some(at), false) => {
                 self.slip = None;
+                self.slip_moving = false;
+                self.slip_cue = None;
                 let s = at / self.source_rate();
+                // Back outside a loop that is still on (slip switched off
+                // mid-loop): the loop ends rather than pulling it back.
+                if self.c.loop_enabled.get_bool() && (s < self.loop_start || s >= self.loop_end) {
+                    self.c.loop_enabled.set_bool(false);
+                }
                 self.set_seconds(s);
             }
+            (Some(_), true) => self.slip_moving |= self.c.play.get_bool(),
             _ => {}
         }
 
@@ -752,6 +788,36 @@ impl Deck {
             .file_key
             .set(self.file_key.map_or(0.0, Key::mixxx_number));
         self.c.key.set(key.map_or(0.0, Key::mixxx_number));
+    }
+
+    /// In slip mode, whether a trick is taking the track away from where it
+    /// would be: scratching, reverse, a loop, a hot cue held, or a pause.
+    /// Only a deck that is (or was just) playing slips: a paused deck's
+    /// scratching and cue finding stay where they are. `unslipped` is the
+    /// position before this buffer's jumps, which tells a pause from a
+    /// stop at the cue point.
+    fn slip_trick(&self, unslipped: f64) -> bool {
+        if !self.c.slip_enabled.get_bool() {
+            return false;
+        }
+        let playing = self.c.play.get_bool();
+        let running = self.slip.is_some() && self.slip_moving;
+        if !playing && !running && !self.was_playing {
+            return false;
+        }
+        // Not the stop at the end of the track.
+        let in_track = self
+            .audio
+            .as_ref()
+            .is_some_and(|a| self.pos < a.len() as f64 - 1.0);
+        let paused = !playing
+            && (running || (self.was_playing && in_track && (self.pos - unslipped).abs() < 1.0));
+        self.c.scratch2_enable.get_bool()
+            || self.c.scrub_enable.get_bool()
+            || self.c.reverse.get_bool()
+            || self.c.loop_enabled.get_bool()
+            || self.slip_cue.is_some()
+            || paused
     }
 
     /// The speed that closes most of the gap to the waveform drag's position
@@ -1198,6 +1264,8 @@ impl Engine {
             search_quiet: 0.0,
             bend_rate: 0.0,
             slip: None,
+            slip_moving: false,
+            slip_cue: None,
             rolling: false,
             was_playing: false,
             cue_edge: Edge::default(),
@@ -1383,6 +1451,8 @@ impl Engine {
                     d.velocity = 0.0;
                     d.jog_pending = 0.0;
                     d.slip = None;
+                    d.slip_moving = false;
+                    d.slip_cue = None;
                     if let Some(old) = d.track.replace(track.clone()) {
                         // If the queue is full the old track is freed here; rare and harmless.
                         let _ = self.returned.push(Returned::Done(old));
@@ -2067,7 +2137,7 @@ impl Engine {
                 moving: d.audio.is_some() && (from != 0.0 || target != 0.0),
                 velocity: (from, target),
                 ratio,
-                slip_step: if playing {
+                slip_step: if playing || d.slip_moving {
                     d.forward_speed() * ratio * frames as f64
                 } else {
                     0.0
@@ -2316,6 +2386,10 @@ impl Engine {
             };
             if let Some(slip) = d.slip.as_mut() {
                 *slip = (*slip + p.slip_step).min(d.audio.as_ref().map_or(0.0, |a| a.len() as f64));
+            }
+            let ghost = d.slip.map_or(-1.0, |at| at / d.source_rate());
+            if d.c.slip_position.get() != ghost {
+                d.c.slip_position.set(ghost);
             }
             if p.moving {
                 let s = d.seconds();
@@ -3930,6 +4004,143 @@ mod tests {
         run(&mut engine, 0.01);
         assert!(!ctl("loop_enabled").get_bool());
         assert!((seconds() - (start + 1.01)).abs() < 0.03, "{}", seconds());
+    }
+
+    #[test]
+    fn slip_mode_returns_when_each_trick_ends() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 30.0));
+        run(&mut engine, 0.01);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let seconds = || ctl("playposition").get() * 30.0;
+        // Within a buffer or two of where the track would have been.
+        let near = |want: f64| {
+            let got = seconds();
+            assert!((got - want).abs() < 0.03, "{got} vs {want}");
+        };
+        ctl("slip_enabled").set_bool(true);
+        ctl("play").set_bool(true);
+        run(&mut engine, 1.0);
+        assert_eq!(ctl("slip_position").get(), -1.0, "no ghost without a trick");
+
+        // Scratching: held still for half a second, then let go.
+        let start = seconds();
+        ctl("scratch2_enable").set_bool(true);
+        ctl("scratch2").set(0.0);
+        run(&mut engine, 0.5);
+        assert!((seconds() - start).abs() < 0.03, "held: {}", seconds());
+        let ghost = ctl("slip_position").get();
+        assert!((ghost - (start + 0.5)).abs() < 0.03, "ghost {ghost}");
+        ctl("scratch2_enable").set_bool(false);
+        run(&mut engine, 0.01);
+        near(start + 0.51);
+        assert!(ctl("slip_enabled").get_bool(), "slip stays on");
+        assert_eq!(ctl("slip_position").get(), -1.0);
+
+        // A loop: exiting it carries on from the silent playhead.
+        let start = seconds();
+        ctl("beatloop_1_toggle").set_bool(true);
+        run(&mut engine, 0.01);
+        ctl("beatloop_1_toggle").set_bool(false);
+        run(&mut engine, 2.0);
+        assert!(seconds() < start + 0.6, "looping: {}", seconds());
+        ctl("reloop_toggle").set_bool(true);
+        run(&mut engine, 0.01);
+        ctl("reloop_toggle").set_bool(false);
+        assert!(!ctl("loop_enabled").get_bool());
+        near(start + 2.01);
+
+        // A hot cue held: it plays from its point, then back on time.
+        ctl("hotcue_1_position").set(2.0);
+        ctl("hotcue_1_enabled").set_bool(true);
+        ctl("hotcue_1_type").set(1.0);
+        let start = seconds();
+        ctl("hotcue_1_activate").set_bool(true);
+        run(&mut engine, 0.5);
+        assert!(
+            (seconds() - 2.5).abs() < 0.03,
+            "plays the cue: {}",
+            seconds()
+        );
+        ctl("hotcue_1_activate").set_bool(false);
+        run(&mut engine, 0.01);
+        near(start + 0.51);
+
+        // Reverse: back to where it would have been when it's turned off.
+        let start = seconds();
+        ctl("reverse").set_bool(true);
+        run(&mut engine, 0.5);
+        assert!(seconds() < start - 0.4, "backwards: {}", seconds());
+        ctl("reverse").set_bool(false);
+        run(&mut engine, 0.01);
+        near(start + 0.51);
+
+        // A pause: the silent playhead runs on, play picks up from it.
+        let start = seconds();
+        ctl("play").set_bool(false);
+        run(&mut engine, 1.0);
+        assert!((seconds() - start).abs() < 0.03, "paused: {}", seconds());
+        ctl("play").set_bool(true);
+        run(&mut engine, 0.01);
+        near(start + 1.01);
+    }
+
+    #[test]
+    fn slip_mode_leaves_a_paused_deck_and_plain_jumps_alone() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 30.0));
+        run(&mut engine, 0.01);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let seconds = || ctl("playposition").get() * 30.0;
+        ctl("slip_enabled").set_bool(true);
+        ctl("playposition").set(0.1);
+        run(&mut engine, 0.01);
+        // Paused: scratching to find a spot stays there.
+        ctl("scratch2_enable").set_bool(true);
+        ctl("scratch2").set(1.0);
+        run(&mut engine, 0.5);
+        ctl("scratch2_enable").set_bool(false);
+        run(&mut engine, 0.1);
+        assert!((seconds() - 3.5).abs() < 0.03, "{}", seconds());
+
+        // Playing: a beat jump is no trick, and CUE stops at the cue point.
+        ctl("play").set_bool(true);
+        run(&mut engine, 0.5);
+        let start = seconds();
+        ctl("beatjump_4_forward").set_bool(true);
+        run(&mut engine, 0.01);
+        ctl("beatjump_4_forward").set_bool(false);
+        run(&mut engine, 0.5);
+        assert!((seconds() - (start + 2.51)).abs() < 0.03, "{}", seconds());
+        assert_eq!(ctl("slip_position").get(), -1.0);
+        ctl("cue_point").set(1.0);
+        ctl("cue_default").set_bool(true);
+        run(&mut engine, 0.01);
+        ctl("cue_default").set_bool(false);
+        run(&mut engine, 0.5);
+        assert!((seconds() - 1.0).abs() < 1e-6, "{}", seconds());
+        assert_eq!(ctl("slip_position").get(), -1.0);
+    }
+
+    #[test]
+    fn slip_switched_off_mid_loop_returns_and_ends_the_loop() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 30.0));
+        run(&mut engine, 0.01);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let seconds = || ctl("playposition").get() * 30.0;
+        ctl("slip_enabled").set_bool(true);
+        ctl("play").set_bool(true);
+        run(&mut engine, 1.0);
+        let start = seconds();
+        ctl("beatloop_1_toggle").set_bool(true);
+        run(&mut engine, 0.01);
+        ctl("beatloop_1_toggle").set_bool(false);
+        run(&mut engine, 2.0);
+        ctl("slip_enabled").set_bool(false);
+        run(&mut engine, 0.5);
+        assert!(!ctl("loop_enabled").get_bool());
+        assert!((seconds() - (start + 2.51)).abs() < 0.03, "{}", seconds());
     }
 
     #[test]
