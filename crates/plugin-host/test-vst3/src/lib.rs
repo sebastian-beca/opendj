@@ -109,7 +109,11 @@ impl IComponentTrait for GainProcessor {
                 BusDirections_::kOutput => 1,
                 _ => 0,
             },
-            MediaTypes_::kEvent => 0,
+            // One note input, so the host's notes can be checked.
+            MediaTypes_::kEvent => match dir as BusDirections {
+                BusDirections_::kInput => 1,
+                _ => 0,
+            },
             _ => 0,
         }
     }
@@ -155,7 +159,16 @@ impl IComponentTrait for GainProcessor {
                 },
                 _ => kInvalidArgument,
             },
-            MediaTypes_::kEvent => kInvalidArgument,
+            MediaTypes_::kEvent if dir as BusDirections == BusDirections_::kInput && index == 0 => {
+                let bus = &mut *bus;
+                bus.mediaType = MediaTypes_::kEvent as MediaType;
+                bus.direction = BusDirections_::kInput as BusDirection;
+                bus.channelCount = 16;
+                copy_wstring("Notes", &mut bus.name);
+                bus.busType = BusTypes_::kMain as BusType;
+                bus.flags = 0;
+                kResultOk
+            }
             _ => kInvalidArgument,
         }
     }
@@ -329,6 +342,21 @@ impl IAudioProcessorTrait for GainProcessor {
             } else {
                 -1.0
             };
+            // The key of the block's first note-on, in the second sample.
+            if num_samples > 1 {
+                output_l[1] = -1.0;
+                if let Some(events) = ComRef::from_raw(process_data.inputEvents) {
+                    for i in 0..events.getEventCount() {
+                        let mut e: Event = std::mem::zeroed();
+                        if events.getEvent(i, &mut e) == kResultOk
+                            && e.r#type == Event_::EventTypes_::kNoteOnEvent as u16
+                        {
+                            output_l[1] = e.__field0.noteOn.pitch as f32;
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         kResultOk

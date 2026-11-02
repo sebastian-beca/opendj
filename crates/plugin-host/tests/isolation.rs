@@ -150,3 +150,37 @@ fn a_round_trip_is_short() {
     // It has to fit well inside the block: 256 frames at 48 kHz last 5.3 ms.
     assert!(median < Duration::from_millis(3), "median {median:?}");
 }
+
+#[test]
+fn an_instrument_plays_the_notes_it_is_sent() {
+    use opendj_plugin_host::Midi;
+    let (mut conn, _helper) = start("test-synth");
+    let silent = vec![0.0f32; FRAMES];
+    let mut l = vec![9.0; FRAMES];
+    let mut r = vec![9.0; FRAMES];
+    let run = |conn: &mut Connection, events: &[Midi], l: &mut [f32], r: &mut [f32]| {
+        let out = conn.process_events(
+            [&silent, &silent],
+            [l, r],
+            Default::default(),
+            events,
+            DEADLINE,
+        );
+        assert_eq!(out, Outcome::Wet);
+    };
+    // Key 127 from frame 100 to frame 200: full level there, silence around.
+    run(
+        &mut conn,
+        &[Midi::note_on(100, 0, 127, 100), Midi::note_off(200, 0, 127)],
+        &mut l,
+        &mut r,
+    );
+    assert!(l[..100].iter().all(|&v| v == 0.0));
+    assert!(l[100..200].iter().all(|&v| v == 1.0));
+    assert!(l[200..].iter().all(|&v| v == 0.0));
+    assert_eq!(l, r);
+    // A note held over the next block keeps sounding without new events.
+    run(&mut conn, &[Midi::note_on(0, 0, 127, 100)], &mut l, &mut r);
+    run(&mut conn, &[], &mut l, &mut r);
+    assert!(l.iter().all(|&v| v == 1.0));
+}

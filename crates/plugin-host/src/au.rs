@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::client::Transport;
 use crate::descriptor::Descriptor;
 use crate::effects::{Effect, Info, Loaded, MainThread, Param};
-use crate::shm::{CHANNELS, MAX_PARAMS};
+use crate::shm::{Midi, CHANNELS, MAX_PARAMS};
 
 type OSStatus = i32;
 type AudioComponent = *mut c_void;
@@ -189,6 +189,13 @@ extern "C" {
         inOutputBusNumber: u32,
         inNumberFrames: u32,
         ioData: *mut AudioBufferList2,
+    ) -> OSStatus;
+    fn MusicDeviceMIDIEvent(
+        inUnit: AudioUnit,
+        inStatus: u32,
+        inData1: u32,
+        inData2: u32,
+        inOffsetSampleFrame: u32,
     ) -> OSStatus;
 }
 
@@ -430,7 +437,12 @@ pub fn load(id: &str, sample_rate: u32, max_frames: usize) -> Result<Loaded, Str
             mReserved: 0,
         };
         let size = std::mem::size_of::<AudioStreamBasicDescription>() as u32;
+        // An instrument has no input: it plays the notes it is sent.
+        let instrument = want.componentType == kAudioUnitType_MusicDevice;
         for scope in [kAudioUnitScope_Input, kAudioUnitScope_Output] {
+            if instrument && scope == kAudioUnitScope_Input {
+                continue;
+            }
             let r = AudioUnitSetProperty(
                 unit,
                 kAudioUnitProperty_StreamFormat,
@@ -463,17 +475,19 @@ pub fn load(id: &str, sample_rate: u32, max_frames: usize) -> Result<Loaded, Str
             inputProc: render_input,
             inputProcRefCon: feed_ptr,
         };
-        check(
-            AudioUnitSetProperty(
-                unit,
-                kAudioUnitProperty_SetRenderCallback,
-                kAudioUnitScope_Input,
-                0,
-                &cb as *const _ as *const c_void,
-                std::mem::size_of::<AURenderCallbackStruct>() as u32,
-            ),
-            &format!("connecting {name}"),
-        )?;
+        if !instrument {
+            check(
+                AudioUnitSetProperty(
+                    unit,
+                    kAudioUnitProperty_SetRenderCallback,
+                    kAudioUnitScope_Input,
+                    0,
+                    &cb as *const _ as *const c_void,
+                    std::mem::size_of::<AURenderCallbackStruct>() as u32,
+                ),
+                &format!("connecting {name}"),
+            )?;
+        }
         let host = HostCallbackInfo {
             hostUserData: feed_ptr,
             beatAndTempoProc: Some(beat_and_tempo),
@@ -614,9 +628,22 @@ impl Effect for AuEffect {
         output: [&mut [f32]; CHANNELS],
         params: &[f32],
         transport: &Transport,
+        notes: &[Midi],
     ) {
         let frames = input[0].len();
         let unit = self.unit.0;
+        for n in notes {
+            // SAFETY: a live unit; effects ignore MIDI they don't take.
+            unsafe {
+                MusicDeviceMIDIEvent(
+                    unit,
+                    n.data[0] as u32,
+                    n.data[1] as u32,
+                    n.data[2] as u32,
+                    n.frame,
+                );
+            }
+        }
         for (i, id) in self.ids.iter().enumerate() {
             if params[i] != self.sent[i] {
                 self.sent[i] = params[i];
@@ -702,9 +729,40 @@ mod tests {
         let params: Vec<f32> = loaded.info.params.iter().map(|p| p.value as f32).collect();
         let mut all = [0.0f32; MAX_PARAMS];
         all[..params.len()].copy_from_slice(&params);
-        loaded
-            .effect
-            .process([&l, &r], [&mut ol, &mut or], &all, &Transport::default());
+        loaded.effect.process(
+            [&l, &r],
+            [&mut ol, &mut or],
+            &all,
+            &Transport::default(),
+            &[],
+        );
         assert!(ol.iter().all(|x| x.is_finite()));
+    }
+
+    #[test]
+    fn apples_synth_plays_a_note() {
+        // Apple's DLS synth comes with every Mac.
+        let mut loaded = load("aumu:dls :appl", 48_000, 512).expect("DLSMusicDevice loads");
+        let silent = vec![0.0f32; 512];
+        let mut ol = vec![0.0; 512];
+        let mut or = vec![0.0; 512];
+        let all = [0.0f32; MAX_PARAMS];
+        let mut heard = 0.0f32;
+        for block in 0..40 {
+            let notes = if block == 0 {
+                vec![Midi::note_on(0, 0, 60, 120)]
+            } else {
+                Vec::new()
+            };
+            loaded.effect.process(
+                [&silent, &silent],
+                [&mut ol, &mut or],
+                &all,
+                &Transport::default(),
+                &notes,
+            );
+            heard = heard.max(ol.iter().fold(0.0f32, |m, x| m.max(x.abs())));
+        }
+        assert!(heard > 0.001, "the note is heard: {heard}");
     }
 }

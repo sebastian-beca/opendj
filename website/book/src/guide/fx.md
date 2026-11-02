@@ -107,3 +107,37 @@ Loading a track switches its deck's effects off, so the last track's echo
 doesn't carry over. Their beats and dry/wet stay as you set them. Turn this
 off in **Settings › Decks** under **Auto reset on load** (see
 [Decks and mixer](decks.md#auto-reset-on-load)).
+
+## Plugins
+
+openDJ runs CLAP and VST3 plugins, and Audio Units on a Mac. Nothing is
+loaded until you ask:
+
+1. Open **Settings › Mixer › Plugins**, check the plugin folders and press
+   **Scan**. Each file is opened once in a separate helper, so a broken
+   plugin only fails its own row.
+2. Tick the effects you want. Only ticked ones show in the effect lists,
+   under a line after the built-in effects, in every slot: decks, Beat FX,
+   Mic and Aux. A plugin's first four settings follow the slot's
+   parameter knobs.
+
+Each plugin runs in its own helper process. If it crashes, openDJ restarts
+it once with the slot switched off; if it crashes again, or keeps the
+audio waiting, it is switched off and a message says so. The music keeps
+playing either way.
+
+### Instruments
+
+Tick an instrument under **Instruments for the Instrument input** in the
+same tab, then open the **MIC** panel. Under **Mic** and **Aux** is the
+**Instrument** input:
+
+- Pick the instrument from the list, and turn it **ON** to hear it in the
+  main mix. The headphone button cues it, and **INST** next to **AUX**
+  sends it through the Mic FX.
+- Play it with the eight pads under the list, a white-key octave from C,
+  moved up or down with **OCTAVE**.
+- Any MIDI keyboard plugged in that isn't a controller with a mapping plays
+  it too.
+- **KEYBOARD PADS** makes the decks' **KEYBOARD** pads, on screen and on
+  your controller, play the instrument instead of the deck's hot cue.

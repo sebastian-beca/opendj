@@ -1,7 +1,9 @@
 //! The microphone and auxiliary inputs, Mixxx's `[Microphone]` and
-//! `[Auxiliary1]`. Each takes audio from an input device (see
-//! [`crate::output`]) through its gain, a 3-band EQ and the effect units
-//! routed to it, then its fader.
+//! `[Auxiliary1]`, and the instrument, `[Instrument1]`. The first two take
+//! audio from an input device (see [`crate::output`]), the instrument from an
+//! instrument plugin playing the notes it is sent (see
+//! [`crate::plugins`]). Each goes through its gain, a 3-band EQ and the
+//! effect units routed to it, then its fader.
 //!
 //! The microphone is heard while `talkover` is on. It joins the main mix
 //! after the main mix's effects, so they don't touch the voice, and can duck
@@ -23,13 +25,15 @@ use crate::controls::alias;
 use crate::dsp::Isolator;
 use crate::effects::EffectRack;
 
-pub const NUM_INPUTS: usize = 2;
+pub const NUM_INPUTS: usize = 3;
 pub const MICROPHONE: usize = 0;
 pub const AUXILIARY: usize = 1;
+/// The instrument plugin, joining the music as the auxiliary input does.
+pub const INSTRUMENT: usize = 2;
 
 /// The input's control group.
-pub fn input_group(input: usize) -> &'static str {
-    ["[Microphone]", "[Auxiliary1]"][input]
+pub const fn input_group(input: usize) -> &'static str {
+    ["[Microphone]", "[Auxiliary1]", "[Instrument1]"][input]
 }
 
 /// The input's EQ, named as the decks' are.
@@ -60,6 +64,70 @@ const DUCK_HOLD: f32 = 0.5;
 /// Time constants of the music going down and coming back up, in seconds.
 const DUCK_ATTACK: f32 = 0.03;
 const DUCK_RELEASE: f32 = 0.6;
+
+/// The Instrument input's pads, `pad_1` to `pad_16`: the white keys from
+/// middle C up, moved by `octave`, for the Keyboard pad page and
+/// controllers.
+pub const INSTRUMENT_PADS: usize = 16;
+/// The notes of the pads in the octave from C: a major scale.
+const SCALE: [u8; 7] = [0, 2, 4, 5, 7, 9, 11];
+/// Middle C.
+const MIDDLE_C: i32 = 60;
+
+/// The MIDI note pad `n` (from 0) plays, `octave` octaves up or down.
+pub fn pad_note(n: usize, octave: i32) -> u8 {
+    let note = MIDDLE_C + 12 * (octave + (n / SCALE.len()) as i32) + SCALE[n % SCALE.len()] as i32;
+    note.clamp(0, 127) as u8
+}
+
+/// The instrument's pads and the notes they hold.
+struct Pads {
+    pads: [ControlHandle; INSTRUMENT_PADS],
+    octave: ControlHandle,
+    /// `keyboard_pads`: the decks' KEYBOARD pads play the first eight.
+    keyboard_pads: ControlHandle,
+    /// Each deck's `keyboard_N_activate`.
+    decks: [[ControlHandle; 8]; crate::NUM_DECKS],
+    /// The note each held pad started, so it stops that note even when the
+    /// octave moved meanwhile.
+    held: [Option<u8>; INSTRUMENT_PADS],
+}
+
+impl Pads {
+    fn create(reg: &ControlRegistry, g: &str) -> Self {
+        Self {
+            pads: std::array::from_fn(|n| reg.push(g, &format!("pad_{}", n + 1))),
+            octave: reg.create(g, "octave", 0.0, -3.0, 3.0, Behavior::Free),
+            keyboard_pads: reg.toggle(g, "keyboard_pads"),
+            decks: std::array::from_fn(|d| {
+                let dg = crate::controls::deck_group(d);
+                std::array::from_fn(|n| reg.push(&dg, &format!("keyboard_{}_activate", n + 1)))
+            }),
+            held: [None; INSTRUMENT_PADS],
+        }
+    }
+
+    /// Sends a note on for each pad pressed and a note off for each let go.
+    fn play(&mut self, fx: &mut EffectRack) {
+        let octave = self.octave.get().round() as i32;
+        let keyboard = self.keyboard_pads.get_bool();
+        for (n, (pad, held)) in self.pads.iter().zip(&mut self.held).enumerate() {
+            let deck_pad = keyboard && n < 8 && self.decks.iter().any(|d| d[n].get_bool());
+            match (pad.get_bool() || deck_pad, *held) {
+                (true, None) => {
+                    let note = pad_note(n, octave);
+                    fx.queue_note([0x90, note, 100]);
+                    *held = Some(note);
+                }
+                (false, Some(note)) => {
+                    fx.queue_note([0x80, note, 0]);
+                    *held = None;
+                }
+                _ => {}
+            }
+        }
+    }
+}
 
 /// How fast meters fall, in meter units per second, as the decks' do.
 const VU_FALL: f32 = 1.5;
@@ -103,6 +171,18 @@ impl InputControls {
             alias(reg, g, "master", g, "main_mix");
             on
         };
+        if input == INSTRUMENT {
+            // Which instrument plays: 1 + its place in the plugin host's
+            // instrument list, 0 for none.
+            reg.create(
+                g,
+                "instrument",
+                0.0,
+                0.0,
+                crate::effects::MAX_PLUGINS as f64,
+                Behavior::Linear,
+            );
+        }
         let configured = reg.indicator(g, "input_configured", 1.0);
         alias(reg, g, "enabled", g, "input_configured");
         Self {
@@ -133,6 +213,9 @@ impl InputControls {
 /// One input channel.
 pub(crate) struct Input {
     c: InputControls,
+    index: usize,
+    /// The instrument's pads; none for the device inputs.
+    pads: Option<Pads>,
     feed: Option<InputFeed>,
     /// Waiting for the queue to fill before playing from it.
     filling: bool,
@@ -157,6 +240,8 @@ impl Input {
     pub(crate) fn new(reg: &ControlRegistry, input: usize, sample_rate: f64) -> Self {
         Self {
             c: InputControls::create(reg, input),
+            index: input,
+            pads: (input == INSTRUMENT).then(|| Pads::create(reg, input_group(input))),
             feed: None,
             filling: true,
             eq: Isolator::new(sample_rate),
@@ -188,17 +273,27 @@ impl Input {
             self.buf.resize(frames, [0.0; 2]);
         }
         let buf = &mut self.buf[..frames];
-        let got = match &mut self.feed {
-            Some(feed) => pull(feed, &mut self.filling, buf),
-            None => 0,
+        let source = if self.index == INSTRUMENT {
+            if let Some(pads) = &mut self.pads {
+                pads.play(fx);
+            }
+            let playing = fx.play_instrument(buf, target);
+            self.c.configured.set_bool(fx.has_instrument());
+            playing
+        } else {
+            let got = match &mut self.feed {
+                Some(feed) => pull(feed, &mut self.filling, buf),
+                None => 0,
+            };
+            buf[got..].fill([0.0; 2]);
+            self.feed.is_some()
         };
-        buf[got..].fill([0.0; 2]);
 
-        let on = self.c.on.get_bool() && !self.c.mute.get_bool() && self.feed.is_some();
+        let on = self.c.on.get_bool() && !self.c.mute.get_bool() && source;
         let level = if on { self.c.volume.get() as f32 } else { 0.0 };
         self.level_ramp = (self.level, level);
         self.level = level;
-        self.live = self.c.on.get_bool() && self.feed.is_some();
+        self.live = self.c.on.get_bool() && source;
         self.pfl = self.c.pfl.get_bool();
         let pre = (self.pregain, self.c.pregain.get() as f32);
         self.pregain = pre.1;

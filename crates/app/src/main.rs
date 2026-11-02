@@ -657,6 +657,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             None
         }
     };
+    // MIDI keyboards (devices with no mapping) play the Instrument input.
+    if let Some(c) = &controllers {
+        let notes = engine.note_input();
+        c.set_note_sink(Some(std::sync::Arc::new(move |data| {
+            if let Ok(mut n) = notes.lock() {
+                n.send(data);
+            }
+        })));
+    }
 
     // Start with two sample tracks loaded so the screen is not empty.
     if samples {

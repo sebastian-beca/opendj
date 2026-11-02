@@ -52,6 +52,8 @@ and colours, and are written to the stick in a
 **KEYBOARD** plays from the deck's hot cue at another key, like a sampler
 keyboard: the pads go 0, +1, +2, +3 semitones on the top row and −4, −3,
 −2, −1 on the bottom. They take the colour of the hot cue they play.
+With **KEYBOARD PADS** on in the MIC panel they play the instrument
+plugin instead, from C up (see [Instruments](fx.md#instruments)).
 
 **KEY SHIFT** sets the track's key shift: 0, +1, +2, +3 on top and −3, −2,
 −1, 0 below. Shift-click a pad to move the key up or down by its step

@@ -904,11 +904,14 @@ export global DeckActions {
 
 export global EffectList {
     // The built-in effects, then the FX plugins the DJ ticked in Settings ›
-    // Mixer › FX plugins (`loaded_effect` 13 and up).
+    // Mixer › Plugins (after the built-in effects).
     in property <[string]> names;
     // How many of `names` are built in (the engine's AVAILABLE_EFFECTS).
     // Set from the engine's list at start-up.
     in property <int> builtin-count: 18;
+    // The instrument plugins ticked in Settings › Mixer › Plugins, for the
+    // Instrument input (`[Instrument1],instrument` 1 and up).
+    in property <[string]> instruments;
     // The Color FX the filter knobs can play, `loaded_chain_preset` 1 and up.
     in property <[string]> color-fx: ["Filter", "Space", "Dub Echo", "Noise", "Crush"];
     // The microphone's effect unit, from 0 (MIC_FX_UNIT).
@@ -1341,10 +1344,14 @@ component KeyPad inherits Rectangle {
     in property <color> tint;
     property <int> pitch-index: Controls.resolve(group, "pitch_adjust");
     property <int> press-index: Controls.resolve(group, "keyboard_" + number + "_activate");
-    property <bool> lit: abs(Controls.value(pitch-index, Controls.tick) - semitones) < 0.01;
+    // KEYBOARD pads play the Instrument input instead while it asks for them.
+    property <bool> instrument: keyboard && Controls.value(Controls.resolve("[Instrument1]", "keyboard_pads"), Controls.tick) > 0;
+    property <int> octave: Controls.value(Controls.resolve("[Instrument1]", "octave"), Controls.tick);
+    property <bool> lit: !instrument && abs(Controls.value(pitch-index, Controls.tick) - semitones) < 0.01;
     background: touch.pressed ? Theme.control-pressed : lit ? tint.with-alpha(0.18) : touch.has-hover ? #1d1d20 : Theme.control;
     Text {
-        text: semitones == 0 ? "±0" : semitones > 0 ? "+" + semitones : "−" + abs(semitones);
+        text: instrument ? ["C", "D", "E", "F", "G", "A", "B", "C"][number - 1] + (4 + octave + (number == 8 ? 1 : 0))
+            : semitones == 0 ? "±0" : semitones > 0 ? "+" + semitones : "−" + abs(semitones);
         color: lit ? tint : Theme.text;
         font-size: 12px;
         font-weight: 700;
