@@ -3217,9 +3217,11 @@ mod tests {
         assert!((engine.limiter.ceiling() - air).abs() < 1e-6);
         let mut tp = crate::loudness::TruePeak::new();
         let peak = out
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .skip(4800)
-            .map(|f| tp.push([f[0], f[1]]))
+            .map(|f| tp.push(*f))
             .fold(0.0f32, f32::max);
         assert!(peak <= air * 1.002 && peak > air * 0.9, "{peak}");
         // -2 dBTP when chosen.

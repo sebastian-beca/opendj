@@ -98,8 +98,8 @@ fn run(registry: Weak<ControlRegistry>, rate: f64, mut feed: Feed, r: Readings) 
     while let Some(reg) = registry.upgrade() {
         samples.clear();
         feed.drain_into(&mut samples);
-        for f in samples.chunks_exact(2) {
-            meter.push([f[0], f[1]]);
+        for f in samples.as_chunks::<2>().0 {
+            meter.push(*f);
         }
         // A press of Reset, or the start of a recording or broadcast.
         let v = r.reset.version();
