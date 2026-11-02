@@ -329,6 +329,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_fullsize_content_view(true)
     });
     backend.select()?;
+    // Wayland and X11 match the window to app.opendj.openDJ.desktop by
+    // this, for the dock icon and name.
+    let _ = slint::set_xdg_app_id("app.opendj.openDJ");
     // San Francisco on macOS; registered before any window.
     let ui_family = ui_font::install();
 
@@ -786,7 +789,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(release) = update.borrow().clone() else {
                 return;
             };
-            if release.asset.is_none() {
+            if let Some(package) = &release.package {
+                spotify::open_in_browser(&package.url);
+            } else if release.asset.is_none() {
                 spotify::open_in_browser(&release.url);
             } else if installing.borrow().is_none() {
                 if let Some(app) = weak.upgrade() {
@@ -890,9 +895,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Ok(release) = update_check.try_recv() {
                     app.set_update_action(
                         if release.asset.is_some() {
-                            "Install & restart"
+                            "Install & restart".to_string()
+                        } else if let Some(package) = &release.package {
+                            format!("Download {}", package.kind)
                         } else {
-                            "Download"
+                            "Download".to_string()
                         }
                         .into(),
                     );
