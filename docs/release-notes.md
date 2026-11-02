@@ -1,10 +1,10 @@
-openDJ 0.4.7 is a big one. You can now play your own plugin effects and instruments (CLAP, VST3 and Audio Units) inside openDJ, run Automix from your phone, and use six new effects on a smoother, beat-locked FX engine. Traktor Kontrol controllers work, decks show a beat and phrase counter, slip mode returns after every trick, and Linux gets .deb and .rpm packages.
+openDJ 0.4.7 is a big one. You can now play your own plugin effects and instruments (CLAP, VST3 and Audio Units) inside openDJ, run Automix from your phone, stream your mix to internet radio with a broadcast loudness meter, and use six new effects on a smoother, beat-locked FX engine. Traktor Kontrol controllers work, decks show a beat and phrase counter, slip mode returns after every trick, and Linux gets .deb and .rpm packages.
 
 ## What's new
 
 **Plugins**
 
-- **Plugin effects.** Settings → Mixer → Plugins scans your plugin folders for CLAP and VST3 effects (and Audio Units on macOS). Tick the ones you want and they appear after the built-in effects in every FX chooser, on the decks, the master, Mic and Aux. The FX bar's slider controls a plugin's first setting.
+- **Plugin effects.** Settings → Mixer → Plugins scans your plugin folders for CLAP and VST3 effects (and Audio Units on macOS). The scan names the file it's checking and skips one that hangs. Tick the ones you want and they appear after the built-in effects in every FX chooser, on the decks, the master, Mic and Aux. The FX bar's slider controls a plugin's first setting.
 - Each plugin runs in its own helper process. If it crashes or stalls, the sound carries on dry, openDJ tells you, restarts it once and switches it off if it crashes again. A plugin that keeps using too much CPU is switched off too.
 - **Instrument input.** Synth plugins play through a new **Instrument** section in the MIC panel, next to Mic and Aux: pick an instrument, play it from eight on-screen pads or any MIDI keyboard, set its level, gain and EQ, and send it through the Mic FX. **KEYBOARD PADS** lets the decks' KEYBOARD pads, on screen and on controllers, play the instrument.
 
@@ -13,7 +13,15 @@ openDJ 0.4.7 is a big one. You can now play your own plugin effects and instrume
 - A **REMOTE** button in the top bar serves a page on your local network. Scan the QR code with your phone's camera (or type the PIN) and the phone becomes an Automix manager, with no app to install.
 - It opens on what's playing: a big cover, BPM and key, a progress bar with the mix shaded, Mix now, Order and play/pause. The queue works like Spotify's: drag to reorder, Play next, Move to the end, Remove, or tick several tracks at once. The track waiting on a deck can be changed until 15 s before its mix.
 - Search your collection from the phone (`bpm:120-124`, `key:8A`, `crate:Warm-up` all work) and add tracks to the end of Automix or next. Set the master and booth levels, fade out, or set a sleep timer that fades the music and stops Automix.
+- Search starts with your whole collection and loads more as you scroll. Play/pause sits in the middle of the controls, next to a Timer button for the sleep timer.
 - The remote is off until you switch it on, and pairing codes are one-time.
+
+**Broadcasting**
+
+- **Go on air** with the new **ON AIR** pill in the top bar: stream the master mix to Icecast 2 or Shoutcast 1 stations in MP3 or Opus. Settings → Broadcast holds your stations, with a **Test** button that checks the address and password. The pill shows the time on air and the listener count, and openDJ reconnects by itself if the connection drops.
+- Listeners see the track you're playing, picked from the deck that's loudest in the mix, with a title template such as `{artist} - {title}`. Passwords are kept in the system keychain.
+- **Loudness meter** in the MASTER panel: short-term, momentary and integrated loudness, loudness range and true peak, coloured against a target (Internet radio −16 LUFS by default; Podcast, Livestream and EBU R128 in Settings → Audio → Loudness). REC shows the loudness while recording, and the master meter now has a dB scale.
+- While recording or on air, the master limiter holds true peaks under −1 dBTP (or −2 for low bitrates).
 
 **Effects**
 
@@ -26,6 +34,7 @@ openDJ 0.4.7 is a big one. You can now play your own plugin effects and instrume
 - **Beat counter** in each deck header: four beat squares, a four-bar strip that turns lilac in the last bar before a new phrase, and how many bars to the next phrase (`↓ 6 › DROP`). Settings → Decks → Beat counter switches it off or to beats only.
 - **Slip mode** now returns after each trick (letting go of the jog, ending a loop, letting go of a hot cue, reverse off) and stays on. A dashed lilac line shows where the track will carry on. **SLIP** and **VINYL** buttons sit at the bottom of each deck's loop column, and « » in the jog's corners bend the pitch.
 - **PLAY starts where you paused**, even with quantize on. Before, a deck could jump up to two beats to line up with the other deck.
+- **Key lock** uses the CPU more evenly, so several key-locked decks no longer cause spikes, and nudging, scratching or reversing a key-locked deck no longer clicks.
 - A paused deck blinks only the outline of PLAY and CUE, together.
 - Loading a track always unmutes its stems and lets go of its Pad FX. Before, a deck that had Acapella on could play the next track as vocals only and seem to go silent.
 - Beat grids: tracks whose bass plays across the beat (such as Peace Sine's "Ancient Sands") get the right tempo instead of a slow grid in sections. A tempo found by an earlier analysis no longer holds later analyses to it, and tracks analysed before this version are analysed again the next time they're loaded.
@@ -54,7 +63,7 @@ openDJ 0.4.7 is a big one. You can now play your own plugin effects and instrume
 - **Traktor Kontrol S2, S3, S4, F1, Z1 and MX2** work, using Mixxx's HID mappings. On Linux the .deb and .rpm set up the USB permissions for you.
 - New **Pioneer XDJ-RX3** mapping (Beta), written from Pioneer's MIDI list: four decks, the mixer, Color FX and Beat FX.
 - The **Numark V7** mapping gets its FX, Reloop/Exit and Tap back (Beta). Reloop/Exit and tap tempo also start working in the many older Mixxx mappings that use them.
-- **Map mode** reaches the FX bar, the pad mode tabs and the headphone cue buttons. Quick map becomes the **Mapping wizard**, which asks which controller and how many decks first. Settings → Controllers works like Audio: a row per controller with its mapping, Edit and ×.
+- **Map mode** reaches the FX bar, the pad mode tabs and the headphone cue buttons. Quick map becomes the **Mapping wizard**, which asks which controller and how many decks first. It now learns jog wheels as turning both ways, and on deck 3 and 4 steps it takes the last press, so a deck button pressed before PLAY isn't learned instead. Settings → Controllers works like Audio: a row per controller with its mapping, Edit and ×.
 - The **Controller Editor** can run an openDJscript line instead of a function, make a button a Shift or a Mode button, and limit a row to **Only when** shift or a mode is on, so SHIFT + CUE can do something else.
 
 **Audio**
@@ -100,4 +109,5 @@ Add your music folders in Settings → Collection, or let the guided tour do it 
 - Controllers marked Beta, including the new XDJ-RX3 and Numark V7 mappings and the Traktor Kontrol controllers, haven't all been tried on the hardware yet.
 - Plugins are new: their own editor windows don't open yet (openDJ shows up to 32 of their settings), their latency isn't compensated, and their settings aren't saved between runs. Audio Units haven't been tried on a signed release yet.
 - The phone remote works on your local network only.
+- Broadcasting: Icecast and Shoutcast only for now. Use MP3 if listeners should see track titles, since Icecast doesn't pass titles on for Opus streams. AAC, Twitch/YouTube streaming and WebRTC come later.
 - USB export for Pioneer players is experimental.
