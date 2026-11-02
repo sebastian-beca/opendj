@@ -20,7 +20,7 @@ use crate::dsp::{Isolator, Limiter, Sculpt};
 use crate::effects::{input_target, ColorFx, EffectRack, BLOCK, COLOR_FX, MAIN, TARGETS};
 use crate::inputs::{Ducker, Input, InputFeed, AUXILIARY, INSTRUMENT, MICROPHONE, NUM_INPUTS};
 use crate::key::{self, Key};
-use crate::keyshift::{transpose_factor, KeyShifter};
+use crate::keyshift::{transpose_factor, KeyShifter, MAX_RATE};
 use crate::link::{phase_error, Link, Moment};
 use crate::preview::{Preview, PreviewInput};
 use crate::recorder::{self, Feed, RecordTap};
@@ -1023,6 +1023,15 @@ pub(crate) const DECLICK_SECONDS: f64 = 0.006;
 /// How long the stems made on load crossfade into high-quality ones once
 /// those are ready, so a muted stem doesn't click at the switch.
 pub(crate) const STEM_UPGRADE_SECONDS: f64 = 0.02;
+
+/// A short crossfade as a deck goes into the time-stretcher (from playing
+/// as a record) or out of it, over this many output frames. The two differ
+/// in pitch and phase once the speed isn't 1, so a hard switch clicks.
+#[derive(Clone, Copy)]
+enum ShiftFade {
+    In(usize),
+    Out(usize),
+}
 
 /// A short crossfade over a jump in a deck's play position (a beatjump,
 /// hotcue, seek, or a loop wrapping), as DJ software does to keep jumps from
@@ -2109,6 +2118,8 @@ impl Engine {
             metronome: Option<f64>,
             /// This buffer's audio is in the deck's `shifted` buffer.
             shifted: bool,
+            /// The deck goes into or out of the time-stretcher this buffer.
+            shift_fade: Option<ShiftFade>,
             /// Dragging a scrolling waveform: fast passes are softened.
             scrub: bool,
             /// Stem gains at the start and end of the buffer, when the deck
@@ -2169,16 +2180,21 @@ impl Engine {
             };
             d.was_playing = playing;
             // Key lock and key shifts go through the time-stretcher while
-            // playing forwards; scratching, searching and reverse play as
-            // a record does.
+            // playing forwards, nudges and pitch bends included; scratching,
+            // searching and reverse play as a record does.
             let keylock = d.c.keylock.get_bool();
             let semitones = d.c.pitch.get();
             let shifting = from > 0.0
                 && target > 0.0
-                && (target - from).abs() < 0.05
+                && from.max(target) <= MAX_RATE
                 && !held
                 && d.c.rate_search.get() == 0.0
                 && (keylock || semitones.abs() > 1e-3);
+            // The deck was heard moving last buffer (not starting from a stop).
+            let was_moving = d.velocity != 0.0 && from != 0.0;
+            let was_shifting = d.shifter.is_active();
+            let shift_fade_frames = (DECLICK_SECONDS * self.sample_rate).round().max(1.0) as usize;
+            let mut shift_fade = None;
             let stems = d.audio.as_ref().and_then(|a| a.stems()).map(|s| &**s);
             let shown = stems.map_or(0, |s| s as *const Stems as usize);
             if shown != d.stems_shown {
@@ -2251,6 +2267,30 @@ impl Engine {
                             out,
                         ),
                     }
+                    // Coming into the stretcher from playing as a record
+                    // (after a scratch, say): fade over from the record.
+                    if !was_shifting && was_moving {
+                        shift_fade = Some(ShiftFade::In(shift_fade_frames.min(frames)));
+                    }
+                }
+                Some(audio) if was_shifting && (from != 0.0 || target != 0.0) => {
+                    // Leaving the stretcher while still moving: fade from
+                    // what it would have played on.
+                    let n = shift_fade_frames.min(frames);
+                    if d.shifted.len() < n {
+                        d.shifted.resize(n, [0.0; 2]);
+                    }
+                    let out = &mut d.shifted[..n];
+                    match (stems, stem_gains) {
+                        (Some(s), Some((from, to))) => {
+                            let span = d.shifter.last_step() * n as f64;
+                            let mix = StemMix::blending(s, audio, from, to, upgrade, span);
+                            d.shifter.render_on(&mix, d.pos, loop_frames, out);
+                        }
+                        _ => d.shifter.render_on(&**audio, d.pos, loop_frames, out),
+                    }
+                    d.shifter.stop();
+                    shift_fade = Some(ShiftFade::Out(n));
                 }
                 _ => d.shifter.stop(),
             }
@@ -2271,6 +2311,7 @@ impl Engine {
                 stems: stem_gains,
                 stem_upgrade: upgrade,
                 shifted: shifting && d.audio.is_some(),
+                shift_fade,
                 scrub: d.c.scrub_enable.get_bool(),
                 moving: d.audio.is_some() && (from != 0.0 || target != 0.0),
                 velocity: (from, target),
@@ -2352,6 +2393,16 @@ impl Engine {
                     } else {
                         source(d.pos)
                     };
+                    match p.shift_fade {
+                        Some(ShiftFade::In(n)) if f < n => {
+                            s = crossfade(source(d.pos), s, (f + 1) as f32 / n as f32);
+                        }
+                        // `shifted` holds what the stretcher would have played on.
+                        Some(ShiftFade::Out(n)) if f < n => {
+                            s = crossfade(d.shifted[f], s, (f + 1) as f32 / n as f32);
+                        }
+                        _ => {}
+                    }
                     let step = v * p.ratio;
                     if let Some(dc) = &mut d.declick {
                         s = dc.mix(s, source(dc.pos));
@@ -4808,12 +4859,16 @@ mod tests {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(6.0);
+        // `OPENDJ_STRESS_NO_FX` and `OPENDJ_STRESS_NO_JUMPS` leave out the
+        // effects or the beatjumps, to time key lock on its own.
+        let fx = std::env::var_os("OPENDJ_STRESS_NO_FX").is_none();
+        let jumps = std::env::var_os("OPENDJ_STRESS_NO_JUMPS").is_none();
         let track = short_track(124.0, 30.0);
         for deck in 0..NUM_DECKS {
             load(&mut input, deck, track.clone());
         }
         run(&mut engine, 0.01);
-        for u in 1..=4 {
+        for u in (1..=4).filter(|_| fx) {
             let unit = format!("[EffectRack1_EffectUnit{u}]");
             for target in [
                 "[Channel1]",
@@ -4846,7 +4901,7 @@ mod tests {
         for b in 0..buffers {
             // Each deck jumps on its own beat of a 32-buffer cycle, and every
             // so often all four jump in the same buffer.
-            for d in 0..NUM_DECKS {
+            for d in (0..NUM_DECKS).filter(|_| jumps) {
                 if b % 32 == d * 8 || b % 512 == 100 {
                     let jump = reg.get(&format!("[Channel{}]", d + 1), "beatjump");
                     jump.unwrap().set(if b % 64 < 32 { -4.0 } else { 4.0 });
@@ -5189,6 +5244,40 @@ mod tests {
             }));
             assert!(looped < 4.0 * steady, "key lock {keylock}: {looped}");
         }
+    }
+
+    #[test]
+    fn key_lock_holds_through_nudges_without_clicks() {
+        // Deck 1 plays 4% fast with key lock, so the stretcher and playing
+        // as a record differ in pitch: switching between them hard clicks.
+        let ctl = |reg: &ControlRegistry, k: &str| reg.get("[Channel1]", k).unwrap();
+        let tone = |each: &dyn Fn(&ControlRegistry, usize)| {
+            roughness(&play_tone(true, 60, |reg, n| {
+                if n == 0 {
+                    ctl(reg, "rate").set(0.5);
+                }
+                each(reg, n);
+            }))
+        };
+        let steady = tone(&|_, _| {});
+        assert!(steady < 0.0005, "{steady}");
+        // Jog nudges of a playing deck, as many Mixxx mappings send them.
+        let nudges = tone(&|reg, n| match n {
+            20 | 35 => ctl(reg, "jog").set(1.0),
+            45 => ctl(reg, "jog").set(-3.0),
+            _ => {}
+        });
+        assert!(nudges < 4.0 * steady, "nudges: {nudges}");
+        // Touching the platter to scratch, then letting go.
+        let scratch = tone(&|reg, n| match n {
+            20 => {
+                ctl(reg, "scratch2").set(0.3);
+                ctl(reg, "scratch2_enable").set_bool(true);
+            }
+            40 => ctl(reg, "scratch2_enable").set_bool(false),
+            _ => {}
+        });
+        assert!(scratch < 4.0 * steady, "scratch: {scratch}");
     }
 
     #[test]

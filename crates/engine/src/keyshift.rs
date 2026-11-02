@@ -6,13 +6,22 @@
 //! needs input ahead of that (its latency), so its read position runs ahead
 //! by a fixed amount and is re-seeded whenever the deck jumps, with a short
 //! crossfade from the audio that would have played on.
+//!
+//! The stretcher splits each block's FFT work evenly over the 30 ms until
+//! the next one, so key-locked decks cost about the same in every audio
+//! buffer instead of spiking in the buffer where a block starts.
 
 use signalsmith_stretch::Stretch;
 
 use crate::engine::{crossfade, read, Declick, Frames, DECLICK_SECONDS};
 
 /// Most source frames fed per output frame (fast forward while stretching).
-const MAX_RATE: f64 = 4.0;
+pub(crate) const MAX_RATE: f64 = 4.0;
+/// How much faster or slower than the deck's speed the stretcher may be fed
+/// to catch up with the play position, as a share of the speed.
+const MAX_STEER: f64 = 0.5;
+/// The stretcher's block interval in seconds (`presetDefault`'s).
+const INTERVAL_SECONDS: f64 = 0.03;
 
 pub(crate) struct KeyShifter {
     stretch: Stretch,
@@ -33,11 +42,17 @@ pub(crate) struct KeyShifter {
     declick: usize,
     /// The loop the input in flight was read through.
     looping: Option<(f64, f64)>,
+    /// Output frames per block. With split computation the first block
+    /// after a seek has nothing to play yet, so a seek primes one ahead.
+    interval: usize,
+    /// The last buffer's speed, ratio and transpose, to carry on with in
+    /// [`Self::render_on`].
+    last: (f64, f64, f64),
 }
 
 impl KeyShifter {
     pub(crate) fn new(sample_rate: f64) -> Self {
-        let stretch = Stretch::preset_default(2, sample_rate as u32);
+        let stretch = Stretch::preset_default_split(2, sample_rate as u32);
         Self {
             // Room for a jump's seed (see `render`) or a buffer at top speed.
             input: vec![0.0; 2 * (3 * stretch.input_latency()).max(MAX_RATE as usize * 4096)],
@@ -48,6 +63,8 @@ impl KeyShifter {
             tail: vec![0.0; 2 * 4096],
             declick: (DECLICK_SECONDS * sample_rate).round().max(1.0) as usize,
             looping: None,
+            interval: (sample_rate * INTERVAL_SECONDS) as usize,
+            last: (1.0, 1.0, 1.0),
             stretch,
         }
     }
@@ -55,6 +72,30 @@ impl KeyShifter {
     /// Forgets the audio in flight; the next render starts afresh.
     pub(crate) fn stop(&mut self) {
         self.active = false;
+    }
+
+    /// Whether the stretcher holds audio continuing from the last buffer.
+    pub(crate) fn is_active(&self) -> bool {
+        self.active
+    }
+
+    /// Source frames per output frame in the last buffer.
+    pub(crate) fn last_step(&self) -> f64 {
+        self.last.0 * self.last.1
+    }
+
+    /// Renders what the stretcher would play next from `pos`, carrying on
+    /// at the last buffer's speed and key, so a deck leaving the stretcher
+    /// (a fast nudge, a scratch, reverse) can fade out of it.
+    pub(crate) fn render_on<F: Frames + ?Sized>(
+        &mut self,
+        audio: &F,
+        pos: f64,
+        looping: Option<(f64, f64)>,
+        out: &mut [[f32; 2]],
+    ) {
+        let (speed, ratio, transpose) = self.last;
+        self.render(audio, pos, speed, ratio, transpose, looping, out);
     }
 
     /// Renders `out.len()` frames of a deck playing forwards from source
@@ -122,15 +163,37 @@ impl KeyShifter {
             // audio cuts in a few tens of milliseconds late.
             let seed = 3 * in_latency as usize;
             let end = pos + out_latency * step + in_latency * ratio;
-            let start = end - seed as f64 * ratio;
+            // Split computation plays each block from the one before, so
+            // the first block after a seek would be silent: seek one block
+            // earlier and run that block now, throwing its output away.
+            let prime = self.interval;
+            let prime_in = ((prime as f64 * speed).round() as usize).min(MAX_RATE as usize * prime);
+            let seek_end = end - prime_in as f64 * ratio;
+            let start = seek_end - seed as f64 * ratio;
             self.fill_input(audio, start, ratio, seed, &wrap);
             self.stretch.seek(&self.input[..seed * 2], speed);
+            self.fill_input(audio, seek_end, ratio, prime_in, &wrap);
+            if self.output.len() < prime * 2 {
+                self.output.resize(prime * 2, 0.0);
+            }
+            self.stretch
+                .process(&self.input[..prime_in * 2], &mut self.output[..prime * 2]);
             self.read_pos = end;
             self.active = true;
         }
         let end = pos + step * frames as f64;
-        let wanted = ((end + lead - self.read_pos) / ratio).round();
-        let n_in = wanted.clamp(0.0, MAX_RATE * frames as f64) as usize;
+        // Feed the input at the deck's speed, steering towards the read
+        // position that keeps the output on the play position. The lead
+        // grows and shrinks with the speed, so a sudden nudge would
+        // otherwise feed nothing for a few buffers (the stretcher freezes
+        // and glitches) or a burst; steering spreads that over a few tenths
+        // of a second.
+        let natural = speed * frames as f64;
+        let wanted = (end + lead - self.read_pos) / ratio;
+        let steer = MAX_STEER * natural;
+        let n_in = (natural + (wanted - natural).clamp(-steer, steer))
+            .round()
+            .clamp(0.0, MAX_RATE * frames as f64) as usize;
         let start = self.read_pos;
         self.fill_input(audio, start, ratio, n_in, &wrap);
         self.read_pos += n_in as f64 * ratio;
@@ -148,6 +211,7 @@ impl KeyShifter {
         }
         self.expected_pos = end;
         self.looping = looping;
+        self.last = (speed, ratio, transpose);
     }
 
     fn fill_input<F: Frames + ?Sized>(
@@ -276,6 +340,36 @@ mod tests {
             assert!(
                 (at - 48_100.0).abs() < 0.01 * sr,
                 "speed {speed}: click heard at {at}"
+            );
+        }
+    }
+
+    #[test]
+    fn output_catches_up_with_the_play_position_after_a_nudge() {
+        // The speed jumps (a jog nudge) shortly before a click: the click
+        // must still be heard where the deck says it is.
+        let sr = 48_000.0;
+        let mut frames = vec![[0.0f32; 2]; sr as usize * 3];
+        for f in &mut frames[48_000..48_200] {
+            *f = [0.8, 0.8];
+        }
+        let audio = Audio::from_frames(sr as u32, frames);
+        for (before, after) in [(1.0, 1.3), (1.04, 0.5)] {
+            let mut k = KeyShifter::new(sr);
+            let (mut pos, mut heard) = (0.0, Vec::new());
+            let mut out = vec![[0.0f32; 2]; 256];
+            while pos < 1.5 * sr {
+                let speed = if pos < 0.5 * sr { before } else { after };
+                k.render(&audio, pos, speed, 1.0, 1.0, None, &mut out);
+                for s in &out {
+                    heard.push((pos, s[0].abs()));
+                    pos += speed;
+                }
+            }
+            let at = heard.iter().max_by(|a, b| a.1.total_cmp(&b.1)).unwrap().0;
+            assert!(
+                (at - 48_100.0).abs() < 0.01 * sr,
+                "{before} to {after}: click heard at {at}"
             );
         }
     }
