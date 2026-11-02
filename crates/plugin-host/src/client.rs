@@ -209,8 +209,7 @@ fn scan_with(
             Ok(line) if line == "done" => break,
             Ok(line) => {
                 if let Some(msg) = line.strip_prefix("error ") {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    stop(&mut child);
                     return Err(ScanError::Failed(msg.to_string()));
                 }
                 let f: Vec<&str> = line.split('\t').collect();
@@ -229,18 +228,40 @@ fn scan_with(
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                stop(&mut child);
                 return Err(ScanError::TimedOut);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                let status = child.wait().map(|s| s.to_string()).unwrap_or_default();
+                // The helper closed its output without "done". Give it the
+                // rest of the time to exit, so its status says what happened,
+                // but never wait on it for longer.
+                let status = loop {
+                    match child.try_wait() {
+                        Ok(Some(status)) => break status.to_string(),
+                        Ok(None) if Instant::now() < end => {
+                            std::thread::sleep(Duration::from_millis(20))
+                        }
+                        _ => {
+                            stop(&mut child);
+                            return Err(ScanError::TimedOut);
+                        }
+                    }
+                };
                 return Err(ScanError::Crashed(status));
             }
         }
     }
-    let _ = child.wait();
+    // Everything needed has been read. Some plugins hang while the helper
+    // exits (their unload or exit handlers wait on something that never
+    // comes), so the helper is stopped rather than waited for.
+    stop(&mut child);
     Ok(found)
+}
+
+/// Ends a scan helper and reaps it. `kill` makes `wait` return at once.
+fn stop(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
