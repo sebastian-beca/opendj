@@ -13,6 +13,19 @@ pads in SAMPLER mode play the same eight the screen shows.
 What you change on a pad is kept for that pack, and the pack's own files are
 left alone.
 
+Under the list of packs:
+
+- **Export** saves the pads as they are now, with their names, levels and
+  play modes, as a `.opendjpack` file in your Downloads folder, and shows it.
+  Send it to another DJ, or keep it as a backup.
+- **Import…** adds a `.opendjpack` as a new pack and plays it. Dropping one
+  on a pad does the same.
+- **Rename…** and **Delete Pack** work on the pack you play (not the
+  Default one). Delete asks for a second click, and moves the pack to a
+  `.deleted` folder beside the others rather than erasing it.
+- **Show Folder** opens the pack's folder (for the Default pack, the folder
+  all packs live in).
+
 ## Your own sounds
 
 - **Drop an audio file** (WAV, AIFF, FLAC, MP3, M4A or OGG, up to a minute)
@@ -29,3 +42,4 @@ The **pencil** shows a level knob and a **•••** menu on each pad. The menu
 clears it.
 
 Drag a pad onto another to swap them. Shift-click a pad to stop it.
+Turning a pad's level while it plays glides, so it doesn't crackle.

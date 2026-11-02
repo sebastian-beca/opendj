@@ -91,6 +91,46 @@ pub fn model(name: &str) -> Option<PathBuf> {
     p.is_file().then_some(p)
 }
 
+/// Whether loaded tracks are separated with Spleeter (Settings › Analysis ›
+/// Stems on load); on unless the app turns it off.
+static ON_LOAD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// The most bytes of high-quality stems kept in the cache; 0 keeps all.
+static CACHE_LIMIT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(DEFAULT_CACHE_LIMIT);
+
+/// 10 GB: about 150 tracks of five minutes.
+pub const DEFAULT_CACHE_LIMIT: u64 = 10 << 30;
+
+/// Sets whether tracks loaded from now on get stems at once.
+pub fn set_on_load(on: bool) {
+    ON_LOAD.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether tracks get stems when they load.
+pub fn on_load() -> bool {
+    ON_LOAD.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Sets the most bytes of high-quality stems kept (0 for no limit); the
+/// cache is trimmed to it after each separation.
+pub fn set_cache_limit(bytes: u64) {
+    CACHE_LIMIT.store(bytes, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The most bytes of high-quality stems kept; 0 for no limit.
+pub fn cache_limit() -> u64 {
+    CACHE_LIMIT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Trims the kept stems to [`cache_limit`], keeping those of `keep`.
+pub fn trim_cache(keep: &[PathBuf]) -> usize {
+    match cache_limit() {
+        0 => 0,
+        limit => crate::cache::trim_stems(limit, keep),
+    }
+}
+
 /// Samples of the drums before a chunk that the kick/hi-hat split runs
 /// over first, so its filters have settled where the chunk starts.
 const SPLIT_LEAD: usize = 8192;
