@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=openDJ
+GenericName=DJ Software
+Comment=Mix music with decks, stems, effects and DJ controllers
+Exec=opendj
+Icon=app.opendj.openDJ
+Terminal=false
+Categories=AudioVideo;Audio;Player;Mixer;
+Keywords=DJ;mix;mixer;decks;turntable;Mixxx;VirtualDJ;rekordbox;
+StartupWMClass=app.opendj.openDJ

@@ -111,7 +111,7 @@ jobs:
       - uses: actions/checkout@v7
       - run: |
           sudo apt-get update
-          sudo apt-get install -y libfontconfig-dev libxkbcommon-dev libasound2-dev libudev-dev cmake libclang-dev imagemagick
+          sudo apt-get install -y libfontconfig-dev libxkbcommon-dev libasound2-dev libudev-dev cmake libclang-dev imagemagick rpm
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release -p opendj
@@ -122,6 +122,8 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.AppImage
+            dist/*.deb
+            dist/*.rpm
 
   windows:
     # A setup .exe (per-user, no admin) and a portable zip, for x64 PCs.

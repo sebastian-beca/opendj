@@ -8,8 +8,10 @@
 //! signed by the same developer as the running app (on Windows, once
 //! openDJ is signed, by the same publisher). The old app is swapped out,
 //! or on Windows the new setup runs silently, and openDJ starts again.
-//! Other installs (the Linux tarball, the Windows zip, a build from
-//! source) get the release page.
+//! A .deb or .rpm install gets a link to the new package, which the
+//! system's software installer opens; a Flatpak doesn't check at all, as
+//! Flathub updates it. Other installs (the Linux tarball, the Windows zip,
+//! a build from source) get the release page.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -34,6 +36,76 @@ pub struct Release {
     pub url: String,
     /// The download this install can update itself from.
     pub asset: Option<Asset>,
+    /// For a .deb or .rpm install: the new package to download and open.
+    pub package: Option<Package>,
+}
+
+/// A Linux package in a release.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Package {
+    /// ".deb" or ".rpm", for the banner's button.
+    pub kind: &'static str,
+    pub url: String,
+}
+
+/// How openDJ was installed on Linux, when a package manager did it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SystemPackage {
+    Deb,
+    Rpm,
+}
+
+impl SystemPackage {
+    fn kind(self) -> &'static str {
+        match self {
+            SystemPackage::Deb => ".deb",
+            SystemPackage::Rpm => ".rpm",
+        }
+    }
+
+    /// Whether `name` is this kind of package for this computer, as
+    /// scripts/bundle-linux.sh names them: opendj_0.5.0_amd64.deb and
+    /// opendj-0.5.0-1.x86_64.rpm.
+    fn wants(self, name: &str) -> bool {
+        let arch = std::env::consts::ARCH;
+        match self {
+            SystemPackage::Deb => {
+                let deb_arch = match arch {
+                    "x86_64" => "amd64",
+                    "aarch64" => "arm64",
+                    other => other,
+                };
+                name.starts_with("opendj_") && name.ends_with(&format!("_{deb_arch}.deb"))
+            }
+            SystemPackage::Rpm => {
+                name.starts_with("opendj-") && name.ends_with(&format!(".{arch}.rpm"))
+            }
+        }
+    }
+}
+
+/// The package manager that put this openDJ in /usr/bin, if any.
+fn system_package() -> Option<SystemPackage> {
+    if !cfg!(target_os = "linux") || std::env::var_os("APPIMAGE").is_some() {
+        return None;
+    }
+    let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
+    if exe != Path::new("/usr/bin/opendj") {
+        return None;
+    }
+    if Path::new("/var/lib/dpkg/info/opendj.list").is_file() {
+        return Some(SystemPackage::Deb);
+    }
+    let out = Command::new("rpm")
+        .args(["-qf", "--queryformat", "%{NAME}", "/usr/bin/opendj"])
+        .output()
+        .ok()?;
+    (out.status.success() && out.stdout == b"opendj").then_some(SystemPackage::Rpm)
+}
+
+/// Inside a Flatpak, where Flathub brings the updates.
+fn in_flatpak() -> bool {
+    cfg!(target_os = "linux") && Path::new("/.flatpak-info").exists()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -84,7 +156,7 @@ fn wants(install: &Install, name: &str) -> bool {
 /// Settings. The answer comes once, or never if there's nothing new.
 pub fn check() -> Receiver<Release> {
     let (tx, rx) = channel();
-    if settings::flag("update_check", true) {
+    if settings::flag("update_check", true) && !in_flatpak() {
         std::thread::spawn(move || {
             if let Some(r) = latest().filter(|r| !dismissed(&r.version)) {
                 let _ = tx.send(r);
@@ -118,11 +190,16 @@ fn latest() -> Option<Release> {
         .body_mut()
         .read_json()
         .ok()?;
-    newer(&body, VERSION, this_install().as_ref())
+    newer(&body, VERSION, this_install().as_ref(), system_package())
 }
 
 /// The release in GitHub's answer, if it is newer than `current`.
-fn newer(release: &Value, current: &str, install: Option<&Install>) -> Option<Release> {
+fn newer(
+    release: &Value,
+    current: &str,
+    install: Option<&Install>,
+    system: Option<SystemPackage>,
+) -> Option<Release> {
     let tag = release["tag_name"].as_str()?;
     let version = tag.trim_start_matches('v');
     if release["draft"].as_bool() == Some(true)
@@ -142,10 +219,22 @@ fn newer(release: &Value, current: &str, install: Option<&Install>) -> Option<Re
             })
         })
     });
+    let package = system.and_then(|system| {
+        release["assets"].as_array()?.iter().find_map(|a| {
+            if !system.wants(a["name"].as_str()?) {
+                return None;
+            }
+            Some(Package {
+                kind: system.kind(),
+                url: a["browser_download_url"].as_str()?.to_string(),
+            })
+        })
+    });
     Some(Release {
         version: version.to_string(),
         url: release["html_url"].as_str()?.to_string(),
         asset,
+        package,
     })
 }
 
@@ -477,17 +566,18 @@ mod tests {
             "prerelease": false,
         });
         assert_eq!(
-            newer(&release, "0.2.0", None),
+            newer(&release, "0.2.0", None, None),
             Some(Release {
                 version: "0.3.0".into(),
                 url: "https://github.com/sebastian-beca/opendj/releases/tag/v0.3.0".into(),
                 asset: None,
+                package: None,
             })
         );
-        assert_eq!(newer(&release, "0.3.0", None), None);
+        assert_eq!(newer(&release, "0.3.0", None, None), None);
         let mut pre = release.clone();
         pre["prerelease"] = json!(true);
-        assert_eq!(newer(&pre, "0.2.0", None), None);
+        assert_eq!(newer(&pre, "0.2.0", None, None), None);
     }
 
     #[test]
@@ -507,6 +597,7 @@ mod tests {
             &release,
             "0.2.0",
             Some(&Install::MacApp("/A/openDJ.app".into())),
+            None,
         );
         assert_eq!(
             mac.unwrap().asset,
@@ -519,6 +610,7 @@ mod tests {
             &release,
             "0.2.0",
             Some(&Install::AppImage("/x.AppImage".into())),
+            None,
         );
         let expect_appimage = std::env::consts::ARCH == "x86_64";
         assert_eq!(appimage.unwrap().asset.is_some(), expect_appimage);
@@ -526,11 +618,47 @@ mod tests {
             &release,
             "0.2.0",
             Some(&Install::WindowsSetup("C:/openDJ/openDJ.exe".into())),
+            None,
         );
         assert_eq!(
             windows.unwrap().asset.map(|a| a.url).as_deref(),
             Some("https://example.com/setup")
         );
+    }
+
+    #[test]
+    fn links_the_package_for_a_deb_or_rpm_install() {
+        let release = json!({
+            "tag_name": "v0.5.0",
+            "html_url": "https://example.com/r",
+            "assets": [
+                {"name": "opendj_0.5.0_amd64.deb", "browser_download_url": "https://example.com/deb"},
+                {"name": "opendj_0.5.0_arm64.deb", "browser_download_url": "https://example.com/deb-arm"},
+                {"name": "opendj-0.5.0-1.x86_64.rpm", "browser_download_url": "https://example.com/rpm"},
+                {"name": "opendj-0.5.0-1.aarch64.rpm", "browser_download_url": "https://example.com/rpm-arm"},
+                {"name": "opendj-0.5.0-linux-x86_64.tar.gz", "browser_download_url": "https://example.com/tar"},
+            ],
+        });
+        let deb = newer(&release, "0.4.6", None, Some(SystemPackage::Deb)).unwrap();
+        let rpm = newer(&release, "0.4.6", None, Some(SystemPackage::Rpm)).unwrap();
+        assert_eq!(deb.asset, None);
+        let (deb_url, rpm_url) = match std::env::consts::ARCH {
+            "x86_64" => (
+                Some("https://example.com/deb"),
+                Some("https://example.com/rpm"),
+            ),
+            "aarch64" => (
+                Some("https://example.com/deb-arm"),
+                Some("https://example.com/rpm-arm"),
+            ),
+            _ => (None, None),
+        };
+        assert_eq!(deb.package.as_ref().map(|p| p.url.as_str()), deb_url);
+        assert_eq!(rpm.package.as_ref().map(|p| p.url.as_str()), rpm_url);
+        if let Some(p) = &rpm.package {
+            assert_eq!(p.kind, ".rpm");
+        }
+        assert_eq!(newer(&release, "0.4.6", None, None).unwrap().package, None);
     }
 
     #[test]

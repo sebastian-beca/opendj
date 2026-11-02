@@ -28,11 +28,11 @@ skrifa = "0.44"
 slint = { version = "~1.18", features = ["unstable-wgpu-30", "unstable-fontique-011", "unstable-winit-030", "renderer-femtovg-wgpu"] }
 ureq = { version = "3", features = ["json"] }
 write-fonts = "0.50"
+# Sample packs travel as .opendjpack zips.
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-# Sample packs travel as .opendjpack zips.
-zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 # Where the pointer is when files are dropped from a file manager (X11).
