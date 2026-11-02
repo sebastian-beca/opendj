@@ -167,6 +167,22 @@ export global ControllerEditor {
     in property <string> edit-hint;
     // The row can be changed (a greyed row can't yet).
     in property <bool> edit-enabled: true;
+    // What the row does: 0 a function, 1 an openDJscript line, 2 a shift
+    // (a variable on while held), 3 a mode button (a variable flipped on
+    // each press). See `does-modes`.
+    in property <[string]> does-modes;
+    in property <int> edit-does;
+    // The line, or the modifier's variable, as typed; checked as it's typed.
+    in-out property <string> edit-script;
+    in property <string> edit-script-error;
+    in-out property <string> edit-var;
+    // "Only when": the variables the row needs (its layer), as typed, and
+    // as it is now.
+    in-out property <string> edit-layer;
+    in property <string> edit-layer-now;
+    in property <string> edit-layer-error;
+    // The mapping's variables, to show under Only when.
+    in property <string> variables;
     in-out property <bool> advanced;
     // Choosing a function: the list, narrowed by the search.
     in-out property <bool> picker-open;
@@ -195,6 +211,43 @@ export global ControllerEditor {
     callback set-nothing();
     callback reset-row();
     callback set-playing(id: string, index: int);
+    callback set-does(index: int);
+    callback script-edited();
+    callback script-done();
+    callback var-done();
+    callback layer-edited();
+    // Puts the row on the layer typed: instead (move) or as well.
+    callback layer-done(moving: bool);
+}
+
+// A one-line text box in the row editor; Enter (or leaving it) is done.
+component EditBox inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    in property <bool> mono;
+    in property <bool> wrong;
+    callback edited();
+    callback done();
+    horizontal-stretch: 1;
+    height: 26px;
+    background: Theme.well;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: wrong ? #ff9f0a : ti.has-focus ? Theme.lilac : Theme.border;
+    if root.text == "": Text { x: 8px; text: root.placeholder; color: #5f5f65; font-size: 12px; vertical-alignment: center; height: parent.height; }
+    ti := TextInput {
+        x: 8px;
+        width: parent.width - 16px;
+        height: parent.height;
+        text <=> root.text;
+        color: Theme.text;
+        font-size: 12px;
+        font-family: root.mono ? "Menlo" : "";
+        vertical-alignment: center;
+        single-line: true;
+        edited => { root.edited(); }
+        accepted => { root.done(); }
+    }
 }
 
 // What kind of control a row is: a button or pad (MIDI notes) as a dot in a
@@ -527,6 +580,8 @@ component DialogButton inherits Rectangle {
 component EditField inherits VerticalLayout {
     in property <string> label;
     in property <string> hint;
+    // The hint is a mistake.
+    in property <bool> wrong;
     spacing: 3px;
     HorizontalLayout {
         spacing: 10px;
@@ -535,7 +590,7 @@ component EditField inherits VerticalLayout {
     }
     if root.hint != "": HorizontalLayout {
         padding-left: 102px;
-        Text { text: root.hint; color: #77777d; font-size: 10px; wrap: word-wrap; }
+        Text { text: root.hint; color: root.wrong ? #ff9f0a : #77777d; font-size: 10px; wrap: word-wrap; }
     }
 }
 
@@ -578,6 +633,56 @@ component RowEditor inherits Rectangle {
         }
         if ControllerEditor.edit-hint != "": Text { text: ControllerEditor.edit-hint; color: Theme.text-dim; font-size: 11px; wrap: word-wrap; }
         if ControllerEditor.edit-enabled: EditField {
+            label: "Does";
+            MenuField {
+                width: 200px;
+                menu-width: 240px;
+                text: ControllerEditor.does-modes[ControllerEditor.edit-does];
+                choices: ControllerEditor.does-modes;
+                chosen: ControllerEditor.edit-does;
+                picked(i) => { ControllerEditor.set-does(i); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if ControllerEditor.edit-enabled && ControllerEditor.edit-does == 1: EditField {
+            label: "openDJscript";
+            wrong: ControllerEditor.edit-script-error != "";
+            hint: ControllerEditor.edit-script-error != "" ? ControllerEditor.edit-script-error
+                : "Press Enter to use it. For example: var 'shift' ? sync : play_pause, or deck 1 loop 4 & deck 2 loop 4.";
+            EditBox {
+                text <=> ControllerEditor.edit-script;
+                placeholder: "deck 1 play_pause";
+                mono: true;
+                wrong: ControllerEditor.edit-script-error != "";
+                edited => { ControllerEditor.script-edited(); }
+                done => { ControllerEditor.script-done(); }
+            }
+        }
+        if ControllerEditor.edit-enabled && ControllerEditor.edit-does == 1: EditField {
+            label: "Acts on";
+            MenuField {
+                width: 200px;
+                text: ControllerEditor.whens[ControllerEditor.edit-when];
+                choices: ControllerEditor.whens;
+                chosen: ControllerEditor.edit-when;
+                picked(i) => { ControllerEditor.set-when(i); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if ControllerEditor.edit-enabled && ControllerEditor.edit-does >= 2: EditField {
+            label: "Variable";
+            wrong: ControllerEditor.edit-script-error != "";
+            hint: ControllerEditor.edit-script-error != "" ? ControllerEditor.edit-script-error : ControllerEditor.edit-does == 2
+                ? "On while this button is held. Give other rows Only when " + (ControllerEditor.edit-var == "" ? "shift" : ControllerEditor.edit-var) + " to make them work with it."
+                : "Each press turns it on or off. Give other rows Only when " + (ControllerEditor.edit-var == "" ? "mode" : ControllerEditor.edit-var) + " to make them work in that mode.";
+            EditBox {
+                text <=> ControllerEditor.edit-var;
+                placeholder: ControllerEditor.edit-does == 2 ? "shift" : "mode";
+                mono: true;
+                done => { ControllerEditor.var-done(); }
+            }
+        }
+        if ControllerEditor.edit-enabled && ControllerEditor.edit-does == 0: EditField {
             label: "Function";
             Rectangle {
                 horizontal-stretch: 1;
@@ -607,7 +712,29 @@ component RowEditor inherits Rectangle {
                 picked(i) => { ControllerEditor.set-target(i); }
             }
         }
-        if ControllerEditor.edit-enabled: HorizontalLayout {
+        if ControllerEditor.edit-enabled: EditField {
+            label: "Only when";
+            wrong: ControllerEditor.edit-layer-error != "";
+            hint: ControllerEditor.edit-layer-error != "" ? ControllerEditor.edit-layer-error
+                : "Variables that must be on, such as shift or mode=2 & shift; empty for always." + (ControllerEditor.variables != "" ? " This mapping has: " + ControllerEditor.variables + "." : "");
+            EditBox {
+                text <=> ControllerEditor.edit-layer;
+                placeholder: "always";
+                mono: true;
+                wrong: ControllerEditor.edit-layer-error != "";
+                edited => { ControllerEditor.layer-edited(); }
+                done => { ControllerEditor.layer-done(true); }
+            }
+            if ControllerEditor.edit-layer != ControllerEditor.edit-layer-now && ControllerEditor.edit-layer-error == "": SmallButton {
+                text: "Move";
+                clicked => { ControllerEditor.layer-done(true); }
+            }
+            if ControllerEditor.edit-layer != ControllerEditor.edit-layer-now && ControllerEditor.edit-layer-error == "": SmallButton {
+                text: "Copy";
+                clicked => { ControllerEditor.layer-done(false); }
+            }
+        }
+        if ControllerEditor.edit-enabled && ControllerEditor.edit-does == 0: HorizontalLayout {
             Rectangle {
                 width: al.preferred-width;
                 height: 20px;
@@ -625,7 +752,7 @@ component RowEditor inherits Rectangle {
                 }
             }
         }
-        if ControllerEditor.edit-enabled && ControllerEditor.advanced: VerticalLayout {
+        if ControllerEditor.edit-enabled && ControllerEditor.edit-does == 0 && ControllerEditor.advanced: VerticalLayout {
             spacing: 8px;
             EditField {
                 label: "Acts on";
