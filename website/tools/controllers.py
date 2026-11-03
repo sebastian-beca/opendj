@@ -130,7 +130,8 @@ def md(text):
 
 
 def slug(path):
-    name = path.name.replace(".midi.xml", "").replace(".hid.xml", "").replace(".xml", "")
+    name = (path.name.replace(".midi.xml", "").replace(".hid.xml", "")
+            .replace(".opendj-mapping", "").replace(".xml", ""))
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
@@ -319,6 +320,31 @@ class Mapping:
         return "\n".join(out)
 
 
+class OwnMapping:
+    """One of openDJ's own mappings (`.opendj-mapping`): its guide lists the
+    controls, so the page is the guide."""
+
+    hid = False
+    documented = True
+
+    def __init__(self, path):
+        self.path = path
+        data = json.loads(path.read_text())
+        self.name = data.get("name") or path.stem
+        self.author = data.get("author", "")
+
+    def page(self, status=None, guide=None):
+        out = [f"# {md(self.name)}", ""]
+        if status:
+            out += [STATUS[status].format(ISSUE_URL), ""]
+        if guide:
+            out += [guide.strip(), ""]
+        out += ["---", "",
+                f"openDJ's own mapping, `res/controllers/{self.path.name}`. If something here "
+                f"is wrong on your controller, [tell us]({ISSUE_URL}).", ""]
+        return "\n".join(out)
+
+
 def main():
     controllers, book = Path(sys.argv[1]), Path(sys.argv[2])
     listing = book / "supported-controls.txt"
@@ -336,6 +362,8 @@ def main():
             mappings.append(Mapping(path, supported))
         except ET.ParseError as e:
             print(f"skipping {path.name}: {e}", file=sys.stderr)
+    for path in sorted(controllers.glob("*.opendj-mapping")):
+        mappings.append(OwnMapping(path))
     mappings.sort(key=lambda m: m.name.lower())
 
     # The controllers openDJ looks after itself, and their hand-written guides.

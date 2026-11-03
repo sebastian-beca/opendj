@@ -71,8 +71,14 @@ A row says what one MIDI message does, on one layer.
 | `original` | optional | The action as the other app wrote it (`"touchwheel 'search'"`). |
 | `note`, `description` | optional | Why it's off; what the author wrote about it. |
 | `remove` | optional | `true`: take the `based_on` mapping's bindings for this message away. |
-| `steps` | optional | For a `script` row on a relative encoder (1 a click right, 127 a click left): the line gets the clicks, `1`, `-1` or more, so `deck 1 jump 1` jumps a beat a click and `deck 1 jump 4` four. |
+| `steps` | optional | For a `script` row on a relative encoder (1 a click right, 127 a click left): the line gets the clicks, `1`, `-1` or more, so `deck 1 jump 1` jumps a beat a click and `deck 1 jump 4` four, `deck 1 jog` turns the deck as a jog wheel, and a level verb with no level written (`deck 1 filter`, `adjust '[Master],headGain'`) moves 2.5% a click from where it is (`song_pos` 0.5%). `value > 0` asks which way it turned. |
 | `by_position` | optional | The row's deck is where its control sits (a column of the K2), so `deck_order` picks it. |
+
+**Layers.** When several rows of one message hold, the one on the
+most conditions wins: with SHIFT held a row on `shift` acts and the row on
+no layer doesn't, and `shift & m1=2` wins over `shift`. Rows on a Note On
+(`"9E 0F"`) also hear the controller's Note Off for it (`8E 0F`) as the
+release, unless the file has rows of its own for the Note Off.
 
 **Merging with `based_on`.** Rows are matched to the base mapping by `midi`,
 `layer` and `when`. A row replaces every base binding of that message on that
@@ -95,7 +101,7 @@ encoder (`options: ["rot64"]` or `["diff"]`), as steps.
 | `midi` | required | The message sent: `"90 0B"`. |
 | `bind` + `min`, `max`, `on_value`, `off_value` | one of | Mixxx's `<output>`: send `on_value` (127 unless given) while the control is between `min` and `max`, else `off_value` (0). |
 | `js` | one of | Lights driven by the scripts (nothing to do here; listed so the editor can show them). |
-| `script` | one of | An openDJscript line asked several times a second; it ends in `on`, `off`, `blink` (with a time: `blink 500ms`), `color 'red'` or a number 0 to 127. A condition picks between them: `get_vu_meter > 75% ? off : color 'orange'`. A line that is only a level (`vu_meter`, `adjust 'rate'`, `value`) sends that level, 0 to 127, for LED rings and meters. | |
+| `script` | one of | An openDJscript line asked several times a second; it ends in `on`, `off`, `blink` (with a time and a colour: `blink 500 'green'`), `color 'red'` or a number 0 to 127. A condition picks between them: `get_vu_meter > 75% ? off : color 'orange'`. A line that is only a level (`vu_meter`, `adjust 'rate'`, `value`) sends that level, 0 to 127, for LED rings and meters. | |
 | `colors` | optional | What `color` sends on this controller: `{ "red": 15, "orange": 51, "green": 60 }`. |
 | `color_notes` | optional | `true` when the controller picks a colour by note, not velocity (the Xone K2: red is the button's note, amber 36 above it, green 72 above). `color` then sends the note plus the colour's number at full velocity. |
 | `layer`, `by_position` | optional | As for rows; a `script` light on a layer is off while the layer doesn't hold. |
@@ -139,6 +145,11 @@ plain binding; the rest are left out and listed in the export report. A
 copied next to it.
 
 ## Files and sharing
+
+- openDJ's own mappings ship in this format next to Mixxx's, in
+  `res/controllers/*.opendj-mapping` (the Xone K2's two-deck mapping is the
+  first). They are listed and matched to devices like Mixxx's, and a DJ's
+  copy can be `based_on` one of them.
 
 - The DJ's mappings live in `<config>/controller-mappings/<id>.json`, in this
   format. Files from openDJ 0.4 (`name`, `based_on` and `changes`, no

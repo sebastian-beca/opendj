@@ -1204,7 +1204,17 @@ impl OpenDjMapping {
                                 },
                             );
                         }
-                        None => push(&mut m, row.midi.key(), input),
+                        None => {
+                            // A controller that lets go with a Note Off
+                            // (the Xone K2) sends it on its own status: the
+                            // row sees it as the release, for SHIFT and for
+                            // long and tap presses.
+                            let off = (0x80 | (row.midi.status & 0x0F), row.midi.number);
+                            if row.midi.status & 0xF0 == 0x90 && !own_messages.contains(&off) {
+                                push(&mut m, off, input.clone());
+                            }
+                            push(&mut m, row.midi.key(), input)
+                        }
                     }
                 }
                 Action::Nothing => {}
@@ -1283,6 +1293,19 @@ mod tests {
         assert!(Midi::parse("90").is_none());
         assert!(Midi::parse("12 34").is_none());
         assert!(Midi::parse("90 80").is_none());
+    }
+
+    /// A K2 lets go of a button with a Note Off: a row on the Note On hears
+    /// it as the release.
+    #[test]
+    fn note_rows_hear_their_note_off() {
+        let mut m = OpenDjMapping::new("K2");
+        let mut up = Row::script(Midi::new(0x9E, 0x0F), "set_var 'shift' 0");
+        up.when = When::Release;
+        m.rows = vec![Row::script(Midi::new(0x9E, 0x0F), "set_var 'shift' 1"), up];
+        let built = m.build(None, Path::new("."));
+        assert_eq!(built.inputs[&(0x9E, 0x0F)].len(), 2);
+        assert_eq!(built.inputs[&(0x8E, 0x0F)].len(), 2);
     }
 
     #[test]

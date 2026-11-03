@@ -67,6 +67,9 @@ pub struct Part {
 pub struct Layout {
     /// The mapping file this draws.
     pub file: String,
+    /// Other mapping files for the same controller: openDJ's own mappings
+    /// of it (`.opendj-mapping`).
+    pub also: Vec<String>,
     pub width: f32,
     pub height: f32,
     /// The MIDI channel (1-16) to list for messages that leave it open.
@@ -138,6 +141,14 @@ fn parse(json: &str) -> Option<Layout> {
         .unwrap_or_default();
     Some(Layout {
         file: v["file"].as_str()?.into(),
+        also: v["also"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|f| f.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
         width: f(&v, "width"),
         height: f(&v, "height"),
         channel: v["channel"].as_u64().map(|c| c as u8),
@@ -152,7 +163,7 @@ impl Layout {
         LAYOUTS
             .iter()
             .filter_map(|j| parse(j))
-            .find(|l| l.file == file_name)
+            .find(|l| l.file == file_name || l.also.iter().any(|f| f == file_name))
     }
 
     /// The mapping files there are pictures for.
@@ -160,7 +171,7 @@ impl Layout {
         LAYOUTS
             .iter()
             .filter_map(|j| parse(j))
-            .map(|l| l.file)
+            .flat_map(|l| std::iter::once(l.file).chain(l.also))
             .collect()
     }
 

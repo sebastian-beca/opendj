@@ -269,6 +269,13 @@ fn text<'a>(node: roxmltree::Node<'a, 'a>, name: &str) -> Option<&'a str> {
     child(node, name).map(|n| n.text().unwrap_or("").trim())
 }
 
+/// Whether `path` is a mapping in openDJ's own format that ships with
+/// openDJ, rather than a Mixxx `.midi.xml`.
+pub fn is_opendj_file(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e == crate::format::EXTENSION)
+}
+
 impl Mapping {
     /// Whether this is an HID mapping: it names USB HID devices, and its
     /// scripts read and write HID reports rather than MIDI messages.
@@ -277,8 +284,26 @@ impl Mapping {
     }
 
     pub fn load(path: &Path) -> Result<Self, String> {
+        if is_opendj_file(path) {
+            return Self::load_opendj(path);
+        }
         let xml = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         let mut m = Self::parse(&xml, path.parent().unwrap_or(Path::new(".")))?;
+        m.path = path.to_path_buf();
+        Ok(m)
+    }
+
+    /// One of openDJ's own mappings that ships with it, in openDJ's format
+    /// (`.opendj-mapping`): put over the Mixxx mapping it names, if any,
+    /// with its scripts beside it.
+    fn load_opendj(path: &Path) -> Result<Self, String> {
+        let mine = crate::format::OpenDjMapping::read(path)?;
+        let dir = path.parent().unwrap_or(Path::new("."));
+        let base = match &mine.based_on {
+            Some(b) if dir.join(b) != path => Some(Self::load(&dir.join(b))?),
+            _ => None,
+        };
+        let mut m = mine.build(base.as_ref(), dir);
         m.path = path.to_path_buf();
         Ok(m)
     }
@@ -286,6 +311,10 @@ impl Mapping {
     /// Reads just the `<info><name>` of a mapping, for matching devices
     /// without parsing every file in full.
     pub fn read_name(path: &Path) -> Option<String> {
+        if is_opendj_file(path) {
+            let v: serde_json::Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+            return v["name"].as_str().map(str::to_string);
+        }
         let xml = std::fs::read_to_string(path).ok()?;
         let doc = parse_xml(&xml).ok()?;
         let info = child(doc.root_element(), "info")?;
