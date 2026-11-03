@@ -529,6 +529,7 @@ impl Deck {
             let activate = edges[0].pressed(&hc.activate);
             let goto_play = edges[1].pressed(&hc.goto_play);
             let goto_stop = edges[2].pressed(&hc.goto_stop);
+            let clear = edges[3].pressed(&hc.clear);
             let (set, position) = (hc.enabled.get_bool(), hc.position.get());
             let saved_loop = (set && hc.kind.get() == HOTCUE_LOOP)
                 .then(|| hc.end_position.get())
@@ -589,7 +590,7 @@ impl Deck {
                 self.c.play.set_bool(goto_play);
             }
             let hc = &self.c.hotcues[h];
-            if hc.clear.get_bool() {
+            if clear {
                 hc.enabled.set_bool(false);
                 hc.kind.set(0.0);
                 hc.end_position.set(-1.0);
@@ -3780,6 +3781,22 @@ mod tests {
         press(&reg, "[Channel1]", "hotcue_2_activate");
         run(&mut engine, 0.02);
         assert!((beat_at("hotcue_2_position") - 2.27).abs() < 0.02);
+    }
+
+    /// A controller's delete is pressed and let go between two blocks; it
+    /// still deletes.
+    #[test]
+    fn a_quick_hot_cue_delete_counts() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 30.0));
+        run(&mut engine, 0.02);
+        let c = |k: &str| reg.get("[Channel1]", k).unwrap();
+        press(&reg, "[Channel1]", "hotcue_1_activate");
+        run(&mut engine, 0.02);
+        assert!(c("hotcue_1_enabled").get_bool());
+        press(&reg, "[Channel1]", "hotcue_1_clear");
+        run(&mut engine, 0.02);
+        assert!(!c("hotcue_1_enabled").get_bool());
     }
 
     #[test]
