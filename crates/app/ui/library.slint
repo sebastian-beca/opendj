@@ -348,6 +348,16 @@ export global FilesUi {
     pure callback in-collection(row: int) -> bool;
     // The track at a row of the list is a file on disk.
     pure callback has-file(row: int) -> bool;
+    // Makes the mixed set at a row of the list into an MP3 for Mixcloud,
+    // its tracklist as chapters.
+    callback export-mixcloud(row: int);
+    // Signs in to Mixcloud if need be and uploads the mixed set at a row,
+    // with its tracklist, as a private show.
+    callback upload-mixcloud(row: int);
+    in property <bool> mixcloud-signed-in;
+    callback mixcloud-sign-out();
+    // What making it is doing, under the Mixed Sets folders.
+    in property <string> mix-status;
 }
 
 // The stores source: switching to it from elsewhere, its search box, and
@@ -1172,6 +1182,33 @@ component TrackMenu inherits PopupWindow {
                 entered => { panel = 0; }
                 clicked => {
                     FilesUi.add-track(track-row);
+                    root.close();
+                }
+            }
+            if StoreUi.source == 10 && one: MenuLine {
+                icon: "download";
+                text: "Export for Mixcloud";
+                entered => { panel = 0; }
+                clicked => {
+                    FilesUi.export-mixcloud(track-row);
+                    root.close();
+                }
+            }
+            if StoreUi.source == 10 && one: MenuLine {
+                icon: "link";
+                text: "Upload to Mixcloud";
+                entered => { panel = 0; }
+                clicked => {
+                    FilesUi.upload-mixcloud(track-row);
+                    root.close();
+                }
+            }
+            if StoreUi.source == 10 && FilesUi.mixcloud-signed-in: MenuLine {
+                icon: "minus";
+                text: "Sign Out of Mixcloud";
+                entered => { panel = 0; }
+                clicked => {
+                    FilesUi.mixcloud-sign-out();
                     root.close();
                 }
             }
@@ -2341,6 +2378,12 @@ component FolderTree inherits Rectangle {
             }
             if StoreUi.stores && source == 5: InboxPanel {}
             if source == 1 && tab == 0: FilesOptions {}
+            if source == 10 && tab == 0 && FilesUi.mix-status != "": Text {
+                text: FilesUi.mix-status; color: Theme.text-dim; font-size: 12px;
+                wrap: word-wrap;
+                x: 8px;
+                width: parent.width - 16px;
+            }
             // What copying a playlist did.
             if StoreUi.streaming && StoreUi.stream(source) && spotify-status != "": Text {
                 text: spotify-status; color: Theme.text-dim; font-size: 12px;

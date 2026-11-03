@@ -60,6 +60,7 @@ mod mac_menu;
 mod mac_titlebar;
 mod map_mode;
 mod mixcloud;
+mod mixcloud_upload;
 mod prefs;
 mod remote;
 mod sampler;
@@ -902,6 +903,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let deck_rows = Rc::new(VecModel::from(vec![DeckInfo::default(); NUM_DECKS]));
     app.set_decks(ModelRc::from(deck_rows.clone()));
     let positions = engine.visual_positions();
+    // Recordings finished so far, to add the next one's files to Mixed Sets.
+    let recordings_seen = Cell::new(recorder.finished().0);
+    let finished_recorder = recorder.clone();
     {
         let app_weak = app.as_weak();
         timer.start(
@@ -1005,6 +1009,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     browser.borrow_mut().set_library(scanned);
                 }
                 browser.borrow_mut().poll_controllers(&app);
+                // A recording that just stopped shows in Mixed Sets.
+                let (finished, files) = finished_recorder.finished();
+                if finished != recordings_seen.get() {
+                    recordings_seen.set(finished);
+                    browser.borrow_mut().add_recordings(&files);
+                }
+                browser.borrow_mut().poll_mix_export(&app);
                 browser.borrow_mut().poll_streams();
                 browser.borrow_mut().poll_stores(&app);
                 for track in sources.borrow_mut().poll() {
