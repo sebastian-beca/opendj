@@ -51,7 +51,8 @@ export struct TrackRow {
     // Album art thumbnail, once found.
     cover: image,
     has-cover: bool,
-    // The colour the DJ gave the track, shown as a strip at the row's edge.
+    // The colour the DJ gave the track: a dot in the Colour column, a strip
+    // at the row's edge or a tint, as `ColumnUi.color-mode` says.
     color: color,
     has-color: bool,
     // A store result rather than a track: what activating it does, shown
@@ -111,6 +112,12 @@ export global ColumnUi {
     // The rows in view, so Rust gives just those their mini waveforms.
     in-out property <int> first-shown;
     in-out property <int> shown-count;
+    // How track colours show (Settings › Library › Track Colour): 0 a dot
+    // in the Colour column, 1 a strip at the row's left edge, 2 the row
+    // tinted, 3 not at all.
+    in property <int> color-mode;
+    // Settings picked a way to show them.
+    callback set-color-mode(mode: int);
 }
 
 export struct SideRow {
@@ -1107,7 +1114,7 @@ component TrackMenu inherits PopupWindow {
                     Rectangle {
                         width: sw.has-hover ? 16px : 14px;
                         height: self.width;
-                        border-radius: 4px;
+                        border-radius: self.width / 2;
                         background: c;
                     }
                     sw := TouchArea {
@@ -1122,7 +1129,7 @@ component TrackMenu inherits PopupWindow {
                     Rectangle {
                         width: 14px;
                         height: 14px;
-                        border-radius: 4px;
+                        border-radius: 7px;
                         border-width: 1px;
                         border-color: none-ta.has-hover ? Theme.text : Theme.text-dim;
                     }
@@ -3450,7 +3457,8 @@ component TrackList inherits Rectangle {
                 horizontal-stretch: 0;
                 min-width: col.width;
                 max-width: col.width;
-                text: col.label;
+                // The Colour column is narrow: a dot heads it.
+                text: col.kind == 7 ? "●" : col.label;
                 column: col.id;
                 index: c;
                 align: col.right ? right : left;
@@ -3493,7 +3501,7 @@ component TrackList inherits Rectangle {
                 property <bool> selected: LibraryEdit.picks[i];
                 border-radius: 4px;
                 // Rows alternate darker and lighter.
-                background: selected ? (focused ? Theme.selection : Theme.selection-idle) : rta.has-hover ? #2a2a2e : mod(i, 2) == 1 ? Theme.row-alt : Theme.row;
+                background: selected ? (focused ? Theme.selection : Theme.selection-idle) : rta.has-hover ? #2a2a2e : r.has-color && ColumnUi.color-mode == 2 ? (mod(i, 2) == 1 ? Theme.row-alt : Theme.row).mix(r.color, 0.86) : mod(i, 2) == 1 ? Theme.row-alt : Theme.row;
                 DragArea {
                     // Picked rows go together (the browser knows which); any
                     // other row goes alone.
@@ -3542,7 +3550,7 @@ component TrackList inherits Rectangle {
                         }
                     }
                 }
-                if r.has-color: Rectangle {
+                if r.has-color && ColumnUi.color-mode == 1: Rectangle {
                     x: 0px;
                     width: 3px;
                     height: parent.height - 8px;
@@ -3667,6 +3675,16 @@ component TrackList inherits Rectangle {
                             }
                         }
                         // The mini waveform, in lilac (white on the highlight).
+                        // The track's colour as a dot.
+                        if col.kind == 7 && r.has-color: Rectangle {
+                            x: (parent.width - self.width) / 2;
+                            width: 10px;
+                            height: 10px;
+                            border-radius: 5px;
+                            background: r.color;
+                            border-width: selected ? 1.5px : 0px;
+                            border-color: Theme.on-row-selection;
+                        }
                         if col.kind == 6 && r.has-wave: Image {
                             y: 4px;
                             width: 100%;
