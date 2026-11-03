@@ -71,7 +71,15 @@ pub struct Call<'a> {
     /// The controller's fader or knob, 0 to 1, when a controller runs the
     /// line: what a level verb with no level takes.
     pub input: Option<f64>,
+    /// `input` is an encoder's clicks (1 a click right, -1 left) rather
+    /// than where a fader or knob is: a level verb with no level written
+    /// moves by [`STEP`] a click instead of jumping to the value.
+    pub steps: bool,
 }
+
+/// How far a click of an encoder moves a level verb: 40 clicks from one
+/// end to the other.
+pub const STEP: f64 = 0.025;
 
 /// What runs the verbs: the app, or a test.
 pub trait Host {
@@ -86,6 +94,10 @@ pub trait Host {
     /// The controller's value for the line now running, 0 to 1.
     fn input(&self) -> Option<f64> {
         None
+    }
+    /// Whether [`Host::input`] is an encoder's clicks (see [`Call::steps`]).
+    fn steps(&self) -> bool {
+        false
     }
 }
 

@@ -98,6 +98,7 @@ impl Script {
             deck: resolve(verb, deck, host),
             args,
             input: host.input(),
+            steps: host.steps(),
         };
         host.level(&call)
     }
@@ -474,6 +475,7 @@ fn run(e: &Expr, deck: Option<Deck>, host: &mut dyn Host) -> Result<(), Error> {
                 deck: resolve(verb, deck, host),
                 args,
                 input: host.input(),
+                steps: host.steps(),
             };
             host.run(&call)
         }
@@ -513,6 +515,7 @@ fn query(e: &Expr, deck: Option<Deck>, host: &mut dyn Host) -> Result<bool, Erro
                 deck: resolve(verb, deck, host),
                 args,
                 input: host.input(),
+                steps: host.steps(),
             };
             host.query(&call)
         }
@@ -545,6 +548,7 @@ fn query(e: &Expr, deck: Option<Deck>, host: &mut dyn Host) -> Result<bool, Erro
                 deck: resolve(verb, deck, host),
                 args,
                 input: host.input(),
+                steps: host.steps(),
             };
             let now = host.level(&call)?;
             Ok(if *above { now > *level } else { now < *level })

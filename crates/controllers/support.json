@@ -9,7 +9,7 @@
   {"name": "Numark Mixtrack Pro FX", "file": "Numark Mixtrack Pro FX.midi.xml", "status": "beta", "note": ""},
   {"name": "Numark V7", "file": "Numark V7.midi.xml", "status": "beta", "note": "Mixxx's mapping from 2012. The V7 runs its own platter motor; the picture is a sketch, not measured."},
   {"name": "Hercules DJControl Inpulse 500", "file": "Hercules_DJControl_Inpulse_500.midi.xml", "status": "beta", "note": ""},
-  {"name": "Allen & Heath Xone:K2", "file": "Allen and Heath Xone K2.midi.xml", "status": "beta", "note": "Tried on the hardware; the mapping is still settling."},
+  {"name": "Allen & Heath Xone:K2", "file": "Allen and Heath Xone K2 - 2 Decks.opendj-mapping", "status": "beta", "note": "openDJ's own two-deck mapping. Set the K2 to its factory settings: Latching Layers off, MIDI channel 15. Mixxx's mapping (Allen&Heath Xone K1/K2/K3) is still there to pick."},
   {"name": "DJ TechTools Midi Fighter Twister", "file": "DJ TechTools MIDI Fighter Twister.midi.xml", "status": "beta", "note": "Tried on the hardware; the mapping is still settling."},
   {"name": "Pioneer DDJ-FLX6", "file": "Pioneer-DDJ-FLX6.midi.xml", "status": "beta", "note": "openDJ's own mapping, written from Pioneer's MIDI message list."},
   {"name": "Pioneer XDJ-RX3", "file": "Pioneer-XDJ-RX3.midi.xml", "status": "beta", "note": "openDJ's own mapping for the all-in-one in PC control mode, written from AlphaTheta's MIDI message list."},

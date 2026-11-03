@@ -274,6 +274,13 @@ pub static VERBS: &[Verb] = &[
     ),
     def("pitch", Value("rate"), Yes, &[LEVEL], "The tempo fader"),
     def(
+        "song_pos",
+        Value("playposition"),
+        Yes,
+        &[LEVEL],
+        "Where the deck plays in the track; on an encoder each click moves it 0.5%",
+    ),
+    def(
         "value",
         Input,
         TakesDeck::No,
@@ -381,6 +388,17 @@ pub static VERBS: &[Verb] = &[
         "Jump that many beats; on an encoder, each click (back when turned left)",
     ),
     def(
+        "jog",
+        Step("jog"),
+        Yes,
+        &[ArgSpec {
+            name: "amount",
+            kind: ANY_NUMBER,
+            default: Some(25.0),
+        }],
+        "Turn the deck as its jog wheel does: bends it while it plays, moves through the track while paused; on an encoder, each click",
+    ),
+    def(
         "loop_move",
         Step("loop_move_loops"),
         Yes,
@@ -477,15 +495,22 @@ pub static VERBS: &[Verb] = &[
         "blink",
         Light,
         TakesDeck::No,
-        &[ArgSpec {
-            name: "milliseconds",
-            kind: ArgKind::Number {
-                min: 50.0,
-                max: 10000.0,
+        &[
+            ArgSpec {
+                name: "milliseconds",
+                kind: ArgKind::Number {
+                    min: 50.0,
+                    max: 10000.0,
+                },
+                default: Some(500.0),
             },
-            default: Some(500.0),
-        }],
-        "In a light: blink, 500 ms on and off unless given",
+            ArgSpec {
+                name: "colour",
+                kind: ArgKind::Text,
+                default: Some(f64::NAN),
+            },
+        ],
+        "In a light: blink, 500 ms on and off unless given, in a colour if named: blink 500 'green'",
     ),
     def(
         "color",

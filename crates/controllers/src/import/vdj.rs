@@ -594,7 +594,7 @@ fn action(name: &str, args: &[Arg], ctx: Ctx) -> R {
         },
         "loop_move" => format!("loop_move {}", trim(num(args, 0).unwrap_or(1.0))),
         "song_pos" => match level(args) {
-            Some(l) => return Ok(format!("adjust '{}' {l}", ch(d, "playposition"))),
+            Some(l) => format!("song_pos {l}"),
             None => return no("song_pos without a position, on a button"),
         },
         "pad" | "padshift" => {
@@ -732,7 +732,7 @@ fn fader(name: &str, args: &[Arg], d: u8, encoder: bool) -> Option<Out> {
         // Each click: the loop moves by its length, the track by a beat
         // (the DJ can change the size in the line).
         "loop_move" if encoder => Some(Out::Script(format!("deck {d} loop_move 1"))),
-        "song_pos" if encoder => Some(Out::Script(format!("deck {d} jump 1"))),
+        "song_pos" if encoder => Some(Out::Script(format!("deck {d} song_pos"))),
         "browser_folder" if encoder => b("[Playlist],SelectPlaylist".into()),
         "browser_window" if encoder => b("[Library],MoveFocus".into()),
         "browser_scroll" => Some(Out::Bind(
@@ -1153,6 +1153,16 @@ fn flx4_places(dev: &Device, name: &str) -> Vec<Place> {
     }
 }
 
+/// Controls an encoder's clicks drive as they are, by Mixxx's selectknob:
+/// the library's moves, and other controls that take steps.
+fn is_relative_control(control: &str) -> bool {
+    control.starts_with("[Library]")
+        || control.starts_with("[Playlist]")
+        || control.ends_with(",chain_selector")
+        || control.ends_with(",effect_selector")
+        || control.ends_with(",jog")
+}
+
 /// Xone K2: VirtualDJ names its columns per side. With two decks
 /// (`K22D_`) a side has an outer and an inner column; with four (`K2_`)
 /// each column is a deck: 3, 1, 2, 4 from the left.
@@ -1554,11 +1564,20 @@ pub(super) fn import(text: &str, file: &str) -> Result<Import, String> {
                     when
                 };
                 let mut row = match out {
+                    // An encoder turning a knob control (a filter, a gain)
+                    // moves it a step a click; Mixxx's selectknob would set
+                    // the control to the click count itself.
+                    Ok(Out::Bind(c, _)) if p.encoder && !is_relative_control(&c) => {
+                        let mut r = Row::script(msg, &format!("adjust '{c}'"));
+                        r.steps = true;
+                        r
+                    }
                     Ok(Out::Bind(c, o)) => Row::bind(msg, &c, &o),
                     Ok(Out::Script(s)) => {
                         let mut r = Row::script(msg, &s);
-                        // jump and loop_move count an encoder's clicks.
-                        r.steps = p.encoder && (s.contains(" jump ") || s.contains(" loop_move "));
+                        // On an encoder the line gets the clicks: jumps and
+                        // loop moves count them, levels move a step a click.
+                        r.steps = p.encoder;
                         r
                     }
                     Err(why) => {

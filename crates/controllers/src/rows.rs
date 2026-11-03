@@ -20,6 +20,8 @@ enum Shown {
     On,
     Off,
     Blink(u32),
+    /// Blinks in a colour: the byte `color` would send.
+    BlinkByte(u32, u8),
     Byte(u8),
 }
 
@@ -51,8 +53,21 @@ struct RowHost<'a> {
     registry: &'a ControlRegistry,
     vars: &'a mut HashMap<String, f64>,
     input: Option<f64>,
+    /// `input` is an encoder's clicks.
+    steps: bool,
     shown: Option<Shown>,
     colors: &'a [(String, u8)],
+}
+
+impl RowHost<'_> {
+    /// The byte `color 'name'` sends on this light, if it knows the colour.
+    fn color(&self, name: &str) -> Option<u8> {
+        let want = name.to_ascii_lowercase();
+        self.colors
+            .iter()
+            .find(|(c, _)| c.to_ascii_lowercase() == want)
+            .map(|(_, b)| *b)
+    }
 }
 
 impl Host for RowHost<'_> {
@@ -87,19 +102,19 @@ impl Host for RowHost<'_> {
                 self.shown = Some(match call.verb.name {
                     "on" => Shown::On,
                     "off" => Shown::Off,
-                    "blink" => Shown::Blink(arg.max(50.0) as u32),
-                    "led" => Shown::Byte(arg.clamp(0.0, 127.0) as u8),
-                    _ => {
-                        let want = name().to_ascii_lowercase();
-                        match self
-                            .colors
-                            .iter()
-                            .find(|(c, _)| c.to_ascii_lowercase() == want)
-                        {
-                            Some((_, b)) => Shown::Byte(*b),
-                            None => Shown::On,
+                    "blink" => {
+                        let ms = arg.max(50.0) as u32;
+                        let colour = call.args.get(1).map(|a| a.text()).unwrap_or("");
+                        match self.color(colour) {
+                            Some(b) => Shown::BlinkByte(ms, b),
+                            None => Shown::Blink(ms),
                         }
                     }
+                    "led" => Shown::Byte(arg.clamp(0.0, 127.0) as u8),
+                    _ => match self.color(&name()) {
+                        Some(b) => Shown::Byte(b),
+                        None => Shown::On,
+                    },
                 });
             }
             _ => run_control(self.registry, call)?,
@@ -129,6 +144,10 @@ impl Host for RowHost<'_> {
 
     fn input(&self) -> Option<f64> {
         self.input
+    }
+
+    fn steps(&self) -> bool {
+        self.steps
     }
 }
 
@@ -175,7 +194,29 @@ impl ScriptRows {
         })
     }
 
-    fn run(&mut self, registry: &ControlRegistry, line: &str, input: Option<f64>) {
+    /// The bindings of one message that act now. A binding on a layer that
+    /// holds wins over the same message's bindings on fewer of its
+    /// conditions, as a shifted button does only its shifted action:
+    /// `shift` over no layer, `shift & m1=2` over `shift`.
+    pub(crate) fn shown_through<'i>(&self, inputs: &'i [Input]) -> Vec<&'i Input> {
+        let holding: Vec<&Input> = inputs
+            .iter()
+            .filter(|i| self.layer_holds(&i.layer))
+            .collect();
+        holding
+            .iter()
+            .filter(|i| {
+                !holding.iter().any(|o| {
+                    o.when == i.when
+                        && o.layer.len() > i.layer.len()
+                        && i.layer.iter().all(|c| o.layer.contains(c))
+                })
+            })
+            .copied()
+            .collect()
+    }
+
+    fn run(&mut self, registry: &ControlRegistry, line: &str, input: Option<f64>, steps: bool) {
         let script = self
             .parsed
             .entry(line.to_string())
@@ -189,6 +230,7 @@ impl ScriptRows {
             registry,
             vars: &mut self.vars,
             input,
+            steps,
             shown: None,
             colors: &[],
         };
@@ -222,7 +264,8 @@ impl ScriptRows {
         let note = opcode == 0x80 || opcode == 0x90;
         let continuous = !note && !input.options.has(Options::BUTTON) && input.when == When::Press;
         if continuous {
-            self.run(registry, &line, Some(value));
+            let steps = input.options.has(Options::SELECT_KNOB);
+            self.run(registry, &line, Some(value), steps);
             return;
         }
         let pressed = opcode != 0x80 && value > 0.0;
@@ -232,14 +275,14 @@ impl ScriptRows {
                 self.held.insert(key, now);
             }
             match input.when {
-                When::Press => self.run(registry, &line, Some(value)),
+                When::Press => self.run(registry, &line, Some(value), false),
                 When::Double => {
                     if self
                         .last_press
                         .get(&key)
                         .is_some_and(|t| now.duration_since(*t) <= DOUBLE_PRESS)
                     {
-                        self.run(registry, &line, Some(value));
+                        self.run(registry, &line, Some(value), false);
                     }
                 }
                 When::Long => self.pending.push((now + LONG_PRESS, key, input.clone())),
@@ -248,9 +291,9 @@ impl ScriptRows {
         } else {
             let since = self.held.get(&key).map(|t| now.duration_since(*t));
             match input.when {
-                When::Release => self.run(registry, &line, Some(0.0)),
+                When::Release => self.run(registry, &line, Some(0.0), false),
                 When::Tap if since.is_some_and(|d| d < LONG_PRESS) => {
-                    self.run(registry, &line, Some(0.0))
+                    self.run(registry, &line, Some(0.0), false)
                 }
                 When::Long => self
                     .pending
@@ -286,7 +329,7 @@ impl ScriptRows {
         for (_, key, input) in due {
             if self.held.contains_key(&key) {
                 if let Some(line) = &input.action {
-                    self.run(registry, line, Some(1.0));
+                    self.run(registry, line, Some(1.0), false);
                 }
             }
         }
@@ -303,6 +346,7 @@ impl ScriptRows {
                 registry,
                 vars: &mut self.vars,
                 input: None,
+                steps: false,
                 shown: None,
                 colors: &light.output.colors,
             };
@@ -326,6 +370,14 @@ impl ScriptRows {
                             (o.control, o.on)
                         } else {
                             (o.control, o.off)
+                        }
+                    }
+                    Shown::BlinkByte(ms, b) => {
+                        let lit = (millis / ms as u64).is_multiple_of(2);
+                        match (lit, o.color_notes) {
+                            (true, true) => (o.control.saturating_add(b).min(127), 0x7F),
+                            (true, false) => (o.control, b),
+                            (false, _) => (o.control, o.off),
                         }
                     }
                 }
@@ -461,6 +513,38 @@ mod tests {
         rows.finish(0x90, 0x58, 127, t2);
         rows.poll(&reg, t2 + Duration::from_millis(600), &mut Vec::new());
         assert_eq!(reg.get("[Channel1]", "sync_enabled").unwrap().get(), 1.0);
+    }
+
+    #[test]
+    fn a_held_layer_wins_over_no_layer() {
+        let mut rows = ScriptRows::new(&empty(), &mut Vec::new());
+        let plain = row("deck 1 play_pause", When::Press, &[]);
+        let shifted = row("deck 1 goto_start", When::Press, &[("shift", None)]);
+        let long = row("deck 1 sync", When::Long, &[]);
+        let both = [plain.clone(), shifted.clone(), long.clone()];
+        let lines = |rows: &ScriptRows| -> Vec<String> {
+            rows.shown_through(&both)
+                .iter()
+                .filter_map(|i| i.action.clone())
+                .collect()
+        };
+        assert_eq!(lines(&rows), ["deck 1 play_pause", "deck 1 sync"]);
+        rows.vars.insert("shift".into(), 1.0);
+        assert_eq!(lines(&rows), ["deck 1 goto_start", "deck 1 sync"]);
+    }
+
+    #[test]
+    fn encoder_clicks_move_a_level_a_step() {
+        let reg = registry();
+        let mut rows = ScriptRows::new(&empty(), &mut Vec::new());
+        let t = Instant::now();
+        let mut enc = row("deck 1 level", When::Press, &[]);
+        enc.options = Options::new(Options::SELECT_KNOB);
+        reg.get("[Channel1]", "volume").unwrap().set(0.5);
+        rows.handle(&reg, &enc, 0xB0, 0x00, 2.0, t);
+        rows.handle(&reg, &enc, 0xB0, 0x00, -1.0, t);
+        let v = reg.get("[Channel1]", "volume").unwrap().get();
+        assert!((v - 0.5 - opendj_script::STEP).abs() < 1e-9, "{v}");
     }
 
     #[test]
