@@ -14,7 +14,7 @@ The master SHALL pass through a look-ahead, stereo-linked limiter that catches t
 ## ADDED Requirements
 
 ### Requirement: Loudness meter
-The MASTER panel SHALL show the loudness of the master output as it plays: momentary (400 ms) and short-term (3 s) loudness, integrated loudness since the last reset and the loudness range in LUFS and LU, and the highest true peak in dBTP, all measured as ITU-R BS.1770 and EBU Tech 3341/3342 define them. While recording or on air, the top bar SHALL show the short-term loudness next to REC or ON AIR.
+The ON AIR panel SHALL show the loudness of the master output as it plays: momentary (400 ms) and short-term (3 s) loudness, integrated loudness since the last reset and the loudness range in LUFS and LU, and the highest true peak in dBTP, all measured as ITU-R BS.1770 and EBU Tech 3341/3342 define them. While recording or on air, the top bar SHALL show the short-term loudness next to REC or ON AIR.
 
 #### Scenario: Reference tone
 - **WHEN** a 1 kHz sine at -23 dBFS plays on both channels through the master at unity

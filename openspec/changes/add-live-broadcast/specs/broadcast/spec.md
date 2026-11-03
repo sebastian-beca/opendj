@@ -26,7 +26,11 @@ Server passwords and stream keys SHALL be kept in the system keychain, shown mas
 - **THEN** the password is not in openDJ's settings file
 
 ### Requirement: On air
-ON AIR in the top bar (`[Shoutcast],enabled`) SHALL stream the master output, mic and aux included, exactly as it is recorded, to every station that is switched on, at the same time. While on air the pill SHALL show the time on air and a light per station (connecting, connected, failed), and its panel the listener count for Icecast stations that report one. `[Shoutcast],status` SHALL be 0 off, 1 connecting, 2 connected to all, 3 failed, 4 connected to some.
+ON AIR in the top bar (`[Shoutcast],enabled`) SHALL stream the master output, mic and aux included, exactly as it is recorded, to every station that is switched on, at the same time. While on air the pill SHALL show the time on air and a light per station (connecting, connected, failed), and its panel the listener count for Icecast stations that report one. `[Shoutcast],status` SHALL be 0 off, 1 connecting, 2 connected to all, 3 failed, 4 connected to some. The ON AIR pill SHALL only show while "Broadcasting" is on in Settings › Broadcast (off by default) and at least one station is set up and switched on, or while on air from a controller.
+
+#### Scenario: A DJ who doesn't broadcast
+- **WHEN** Broadcasting is off in Settings › Broadcast
+- **THEN** the top bar shows no ON AIR pill
 
 #### Scenario: Two stations
 - **WHEN** an Opus and an MP3 station are switched on and ON AIR is pressed

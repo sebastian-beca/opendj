@@ -330,9 +330,6 @@ export component MasterPanel inherits PopupWindow {
             LevelSlider { group: "[Master]"; key: "gain"; }
             VerticalLayout { alignment: center; SpeakerIcon { loud: true; } }
         }
-        EdgeLine { line-color: Theme.border; }
-        LoudnessSection { }
-        EdgeLine { line-color: Theme.border; }
         LevelRow { name: "Phones"; key: "headGain"; }
         if AudioSettings.booth: LevelRow { name: "Booth"; key: "booth_gain"; }
         VerticalLayout {
@@ -612,6 +609,9 @@ export global BroadcastState {
     in property <string> error;
     // At least one station is switched on.
     in property <bool> ready;
+    // Broadcasting is switched on in Settings › Broadcast and a station is
+    // set up: the top bar shows ON AIR.
+    in property <bool> shown;
 
     // On air: red. Connecting or some stations down: amber.
     public pure function light(state: int) -> color {

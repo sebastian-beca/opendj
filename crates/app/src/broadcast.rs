@@ -22,6 +22,9 @@ use crate::{settings, AppWindow, BroadcastState, BroadcastStation};
 const STATIONS: &str = "broadcast_stations";
 pub const TITLE_TEMPLATE: &str = "broadcast_title_template";
 pub const DJ_NAME: &str = "broadcast_dj_name";
+/// Broadcasting switched on in Settings › Broadcast: ON AIR shows in the
+/// top bar. Off by default, for DJs who never broadcast.
+pub const ENABLED: &str = "broadcast_enabled";
 
 /// The keychain's name for openDJ's broadcast passwords; each station's
 /// entry is under its id.
@@ -187,7 +190,7 @@ pub struct Broadcast {
     broadcaster: Broadcaster,
     secrets: RefCell<Secrets>,
     /// What the panel shows, so the model is only replaced on a change.
-    shown: RefCell<(Vec<StationStatus>, String, bool)>,
+    shown: RefCell<(Vec<StationStatus>, String, bool, bool)>,
 }
 
 impl Broadcast {
@@ -309,8 +312,12 @@ impl Broadcast {
             Vec::new()
         };
         let error = self.broadcaster.last_error();
-        let any = stations().iter().any(|s| s.enabled);
-        let now = (statuses, error, any);
+        let all = stations();
+        let any = all.iter().any(|s| s.enabled);
+        // ON AIR shows once broadcasting is on and a station is set up.
+        let shown = settings::flag(ENABLED, false)
+            && all.iter().any(|s| s.enabled && !s.host.trim().is_empty());
+        let now = (statuses, error, any, shown);
         if *self.shown.borrow() == now {
             return;
         }
@@ -345,6 +352,7 @@ impl Broadcast {
         g.set_stations(ModelRc::new(VecModel::from(rows)));
         g.set_error(now.1.clone().into());
         g.set_ready(now.2);
+        g.set_shown(now.3);
         *self.shown.borrow_mut() = now;
     }
 
