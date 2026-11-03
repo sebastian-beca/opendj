@@ -3,7 +3,7 @@
  "version": 1,
  "name": "Allen & Heath Xone:K2 - 2 Decks",
  "author": "openDJ",
- "description": "openDJ's own mapping for one Xone:K2 with two decks. Set the K2 to its factory settings: Latching Layers off and MIDI channel 15. Bottom right is SHIFT.\n\nLeft half is deck 1, right half deck 2, mirrored. Top encoders: filter (outer; Shift: headphones on the left, master on the right; press resets) and gain (inner; turns the loop size while a loop is on; press: 4-beat loop; Shift: move the loop). Outer knobs: the deck's three FX, with ON under each (Shift: next effect). Inner knobs: treble, mid, bass, with kills under them. Faders: pitch (outer), volume (inner). Bottom buttons: hot cues 1-4 (Shift deletes), beat jump back and forward 32 beats (Shift: 16), SYNC (outer; Shift: tempo reset) and PLAY (inner; Shift: back to start). Bottom encoders: browse, press to load the side's deck, hold to open a folder; Shift turns are the deck's jog wheel.",
+ "description": "openDJ's own mapping for one Xone:K2 with two decks. Set the K2 to its factory settings: Latching Layers off and MIDI channel 15. Bottom right is SHIFT.\n\nLeft half is deck 1, right half deck 2, mirrored. Top encoders: filter (outer; Shift: headphones on the left, master on the right; press resets) and gain (inner; turns the loop size while a loop is on; press: 4-beat loop; Shift: move the loop). Outer knobs: the deck's three FX, with ON under each (Shift: next effect). Inner knobs: treble, mid, bass, with kills under them (red); those buttons and the gain encoder's light are the deck's level meter. Faders: pitch (outer), volume (inner). Bottom buttons: hot cues 1-4 (Shift deletes), beat jump back and forward 32 beats (Shift: 16), SYNC (outer; Shift: tempo reset) and PLAY (inner; Shift: back to start). Bottom encoders: browse, press to load the side's deck, hold to open a folder; Shift turns are the deck's jog wheel.",
  "controller": {
   "name": "Allen & Heath Xone:K2",
   "ports": [
@@ -563,8 +563,8 @@
   },
   {
    "midi": "9E 35",
-   "name": "LOOP 1",
-   "script": "(deck 1 loop ? color 'green' : off)",
+   "name": "LOOP 1 / METER",
+   "script": "(deck 1 vu_meter > 95% ? color 'red' : (deck 1 loop ? color 'green' : off))",
    "color_notes": true,
    "colors": {
     "red": 0,
@@ -587,8 +587,8 @@
   },
   {
    "midi": "9E 31",
-   "name": "TREBLE 1 KILL",
-   "script": "(get '[EqualizerRack1_[Channel1]_Effect1],button_parameter3' ? color 'red' : off)",
+   "name": "TREBLE 1 KILL / METER",
+   "script": "(get '[EqualizerRack1_[Channel1]_Effect1],button_parameter3' ? color 'red' : (deck 1 vu_meter > 75% ? color 'amber' : off))",
    "color_notes": true,
    "colors": {
     "red": 0,
@@ -611,8 +611,8 @@
   },
   {
    "midi": "9E 2D",
-   "name": "MID 1 KILL",
-   "script": "(get '[EqualizerRack1_[Channel1]_Effect1],button_parameter2' ? color 'red' : off)",
+   "name": "MID 1 KILL / METER",
+   "script": "(get '[EqualizerRack1_[Channel1]_Effect1],button_parameter2' ? color 'red' : (deck 1 vu_meter > 50% ? color 'green' : off))",
    "color_notes": true,
    "colors": {
     "red": 0,
@@ -635,8 +635,8 @@
   },
   {
    "midi": "9E 29",
-   "name": "BASS 1 KILL",
-   "script": "(get '[EqualizerRack1_[Channel1]_Effect1],button_parameter1' ? color 'red' : off)",
+   "name": "BASS 1 KILL / METER",
+   "script": "(get '[EqualizerRack1_[Channel1]_Effect1],button_parameter1' ? color 'red' : (deck 1 vu_meter > 35% ? color 'green' : off))",
    "color_notes": true,
    "colors": {
     "red": 0,
@@ -755,8 +755,8 @@
   },
   {
    "midi": "9E 36",
-   "name": "LOOP 2",
-   "script": "(deck 2 loop ? color 'green' : off)",
+   "name": "LOOP 2 / METER",
+   "script": "(deck 2 vu_meter > 95% ? color 'red' : (deck 2 loop ? color 'green' : off))",
    "color_notes": true,
    "colors": {
     "red": 0,
@@ -779,8 +779,8 @@
   },
   {
    "midi": "9E 32",
-   "name": "TREBLE 2 KILL",
-   "script": "(get '[EqualizerRack1_[Channel2]_Effect1],button_parameter3' ? color 'red' : off)",
+   "name": "TREBLE 2 KILL / METER",
+   "script": "(get '[EqualizerRack1_[Channel2]_Effect1],button_parameter3' ? color 'red' : (deck 2 vu_meter > 75% ? color 'amber' : off))",
    "color_notes": true,
    "colors": {
     "red": 0,
@@ -803,8 +803,8 @@
   },
   {
    "midi": "9E 2E",
-   "name": "MID 2 KILL",
-   "script": "(get '[EqualizerRack1_[Channel2]_Effect1],button_parameter2' ? color 'red' : off)",
+   "name": "MID 2 KILL / METER",
+   "script": "(get '[EqualizerRack1_[Channel2]_Effect1],button_parameter2' ? color 'red' : (deck 2 vu_meter > 50% ? color 'green' : off))",
    "color_notes": true,
    "colors": {
     "red": 0,
@@ -827,8 +827,8 @@
   },
   {
    "midi": "9E 2A",
-   "name": "BASS 2 KILL",
-   "script": "(get '[EqualizerRack1_[Channel2]_Effect1],button_parameter1' ? color 'red' : off)",
+   "name": "BASS 2 KILL / METER",
+   "script": "(get '[EqualizerRack1_[Channel2]_Effect1],button_parameter1' ? color 'red' : (deck 2 vu_meter > 35% ? color 'green' : off))",
    "color_notes": true,
    "colors": {
     "red": 0,

@@ -28,7 +28,9 @@ half deck 2, mirrored:
 | Bottom encoders | Browse; press to load the side's deck, hold to open a folder | Turn: the deck's jog wheel (bends while playing, moves through the track while paused); press: next pane (left), expand the browser (right) |
 
 PLAY is green while the deck plays and blinks green while a track is loaded
-and paused.
+and paused. The kill buttons and the light under the gain encoder are the
+deck's level meter, bottom up: green above 35% and 50%, amber above 75%, red
+above 95%. A kill that's on stays red.
 
 Every button, encoder and light is an openDJscript line, so any of them can
 be changed in the Controller Editor: **Mapping › Duplicate** makes your own
