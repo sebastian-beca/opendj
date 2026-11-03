@@ -873,7 +873,7 @@ pub(crate) fn encode(s: &str) -> String {
         .collect()
 }
 
-fn decode(s: &str) -> String {
+pub(crate) fn decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
@@ -1019,7 +1019,7 @@ pub(crate) fn wait_for_code_after(
     Err(format!("{service} sign-in timed out."))
 }
 
-fn read_request_line(stream: &mut TcpStream) -> Option<String> {
+pub(crate) fn read_request_line(stream: &mut TcpStream) -> Option<String> {
     stream.set_nonblocking(false).ok()?;
     stream.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
     let mut buf = Vec::new();
@@ -1035,7 +1035,7 @@ fn read_request_line(stream: &mut TcpStream) -> Option<String> {
     text.lines().next().map(str::to_string)
 }
 
-fn respond(stream: &mut TcpStream, status: &str, message: &str) {
+pub(crate) fn respond(stream: &mut TcpStream, status: &str, message: &str) {
     let body = format!(
         "<!doctype html><meta charset=utf-8><title>openDJ</title>\
          <body style=\"font:16px -apple-system,sans-serif;background:#1c1c1e;color:#eee;\

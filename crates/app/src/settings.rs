@@ -321,6 +321,18 @@ pub fn import_theirs_win(importer: &str) -> bool {
     flag(&import_theirs_key(importer), true)
 }
 
+/// Whether streamed tracks (TIDAL, Spotify…) in `importer`'s playlists
+/// that the collection hasn't got go on the Wanted list; off unless the DJ
+/// turns it on. History never does.
+pub fn import_wants_streamed(importer: &str) -> bool {
+    flag(&import_wants_streamed_key(importer), false)
+}
+
+/// Under `import:`, so changing it brings the import in again.
+pub fn import_wants_streamed_key(importer: &str) -> String {
+    format!("import:{importer}:streamed_to_wanted")
+}
+
 pub fn import_theirs_key(importer: &str) -> String {
     format!("import_theirs:{importer}")
 }
@@ -405,6 +417,34 @@ pub fn paths(key: &str) -> Vec<PathBuf> {
 
 pub fn set(key: &str, value: Value) {
     save(|v| v[key] = value);
+}
+
+fn wanted_sync_key(service: &str) -> String {
+    format!("wanted_sync:{service}")
+}
+
+/// The streaming playlists (by key) of `service` ("spotify", "tidal")
+/// kept in sync with the Wanted list: tracks added to them that the
+/// collection hasn't got go on it.
+pub fn wanted_sync(service: &str) -> Vec<String> {
+    load()[wanted_sync_key(service).as_str()]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Keeps playlist `key` of `service` in sync with the Wanted list, or stops.
+pub fn set_wanted_sync(service: &str, key: &str, on: bool) {
+    let mut keys = wanted_sync(service);
+    keys.retain(|k| k != key);
+    if on {
+        keys.push(key.to_string());
+    }
+    set(&wanted_sync_key(service), json!(keys));
 }
 
 /// Controllers shown in Settings › Controllers, or taken off it, by their
@@ -766,6 +806,17 @@ pub fn filter_tolerance() -> usize {
 
 pub fn set_filter_tolerance(i: usize) {
     save(|v| v["filter_tolerance"] = json!(i));
+}
+
+/// How track colours show in the track list: 0 a dot in the Colour
+/// column (the default), 1 a strip at the row's edge, 2 the row tinted,
+/// 3 not at all. `None` before it was ever set.
+pub fn track_color() -> Option<u8> {
+    load()["track_color"].as_u64().map(|m| m.min(3) as u8)
+}
+
+pub fn set_track_color(mode: u8) {
+    save(|v| v["track_color"] = json!(mode.min(3)));
 }
 
 /// The track list's columns, in order, as (column id, width); empty for

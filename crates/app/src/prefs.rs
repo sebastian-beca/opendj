@@ -2243,6 +2243,18 @@ impl Prefs {
                 action: "Clear".into(),
                 ..item("clear_cache", BUTTON, "Analysis cache", &cache_detail)
             },
+            PrefItem {
+                choices: strings(&["Dot", "Strip", "Tint", "Off"]),
+                chosen: settings::track_color().unwrap_or(0) as i32,
+                ..item(
+                    "track_color",
+                    SEGMENTED,
+                    "Track colour",
+                    "How the colours you give tracks show in the list: a dot in the Colour \
+                     column, a strip at the row's edge, or the whole row tinted. Off hides \
+                     them; color:red searches still find them.",
+                )
+            },
             item("cover_art", HEADING, "ONLINE LOOKUP", ""),
             PrefItem {
                 value: settings::discogs_token().into(),
@@ -2350,6 +2362,17 @@ impl Prefs {
             title,
             settings::import_theirs_win(id),
         ));
+        // Mixxx has no streamed tracks.
+        if id != "mixxx" {
+            rows.push(switch(
+                &settings::import_wants_streamed_key(id),
+                "Add streamed tracks to Wanted",
+                &format!(
+                    "TIDAL and Spotify tracks in {title}'s playlists that your collection hasn't got go on the Wanted list. History never does."
+                ),
+                settings::import_wants_streamed(id),
+            ));
+        }
         rows.push(PrefItem {
             action: "Stop".into(),
             ..item(
@@ -2775,6 +2798,12 @@ impl Prefs {
             "key_match_on_load" => {
                 settings::set("key_match_on_load", json!(index.min(2)));
                 self.set("[Controls]", "key_match_on_load", index.min(2) as f64);
+            }
+            "track_color" => {
+                if let Some(app) = self.app.upgrade() {
+                    app.global::<crate::ColumnUi>()
+                        .invoke_set_color_mode(index.min(3) as i32);
+                }
             }
             "key_notation" => {
                 let n = key::Notation::from_id(index as u8);
@@ -4148,6 +4177,7 @@ mod tests {
             vendor: vendor.into(),
             format,
             plugin: Plugin::Au { id: name.into() },
+            features: Vec::new(),
         }
     }
 

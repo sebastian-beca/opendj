@@ -12,7 +12,8 @@
 //! recording, plus a line for each track loaded on a deck. That is enough to
 //! rebuild the set later, e.g. as an Ableton Live set. When the recording
 //! stops it also writes `<name>.cue`, listing each track from the moment it
-//! became audible.
+//! became audible, and `<name>.tracklist.txt`, the same as `0:00 Artist -
+//! Title` lines.
 //!
 //! The controls are Mixxx's: `[Recording],toggle_recording` starts and stops,
 //! `[Recording],status` is 0 (off) or 2 (recording). `[Recording],duration`
@@ -237,6 +238,7 @@ struct Session {
     logger: JoinHandle<()>,
     loads: Sender<Loaded>,
     first_file: PathBuf,
+    parts: Arc<Mutex<Vec<Part>>>,
 }
 
 struct State {
@@ -245,6 +247,11 @@ struct State {
     session: Option<Session>,
     last_error: Option<String>,
     last_file: Option<PathBuf>,
+    /// Every file of the last recording, once it has stopped.
+    last_parts: Vec<PathBuf>,
+    /// Bumped each time a recording stops, so the browser can pick up the
+    /// new files.
+    finished: u64,
 }
 
 struct Inner {
@@ -284,6 +291,8 @@ impl Recorder {
                 session: None,
                 last_error: None,
                 last_file: None,
+                last_parts: Vec::new(),
+                finished: 0,
             }),
         });
         let weak = Arc::downgrade(&inner);
@@ -368,7 +377,7 @@ impl Recorder {
         self.0.shared.dropped.store(0, Ordering::Relaxed);
 
         let stop = Arc::new(AtomicBool::new(false));
-        let parts = Arc::new(Mutex::new(vec![Part {
+        let parts: Arc<Mutex<Vec<Part>>> = Arc::new(Mutex::new(vec![Part {
             path: first_file.clone(),
             start: 0,
         }]));
@@ -391,6 +400,7 @@ impl Recorder {
         let logger = {
             let inner = self.0.clone();
             let stop = stop.clone();
+            let parts = parts.clone();
             std::thread::Builder::new()
                 .name("record-log".into())
                 .spawn(move || log_controls(inner, log, loads_rx, base, parts, stop))
@@ -405,6 +415,7 @@ impl Recorder {
             logger,
             loads,
             first_file: first_file.clone(),
+            parts,
         });
         Ok(first_file)
     }
@@ -418,7 +429,25 @@ impl Recorder {
         let _ = session.writer.join();
         let _ = session.logger.join();
         self.0.status.set(0.0);
-        self.0.state.lock().unwrap().last_file = Some(session.first_file);
+        let parts = session
+            .parts
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|p| p.path.clone())
+            .collect();
+        let mut state = self.0.state.lock().unwrap();
+        state.last_file = Some(session.first_file);
+        state.last_parts = parts;
+        state.finished += 1;
+    }
+
+    /// How many recordings have finished since the app started, and the
+    /// files of the last one (its parts, in order; the `.cue` and
+    /// `.tracklist.txt` sit beside the first).
+    pub fn finished(&self) -> (u64, Vec<PathBuf>) {
+        let s = self.0.state.lock().unwrap();
+        (s.finished, s.last_parts.clone())
     }
 
     /// Notes a track going onto a deck, for the log and the cue sheet.
@@ -1020,7 +1049,29 @@ fn write_cue(
             cue_text(&audio_name(&parts[0].path))
         ));
     }
-    std::fs::write(sibling(base, ".cue"), s)
+    std::fs::write(sibling(base, ".cue"), s)?;
+    std::fs::write(sibling(base, ".tracklist.txt"), tracklist_text(cues, rate))
+}
+
+/// `0:00 Artist - Title` per track, timed from the start of the recording,
+/// ready to paste into a show's description.
+fn tracklist_text(cues: &[CueEntry], rate: f64) -> String {
+    let mut out = String::new();
+    for c in cues {
+        let s = (c.frame as f64 / rate) as u64;
+        let at = if s >= 3600 {
+            format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+        } else {
+            format!("{}:{:02}", s / 60, s % 60)
+        };
+        let name = match (c.track.artist.trim(), c.track.title.trim()) {
+            ("", t) => t.to_string(),
+            (a, "") => a.to_string(),
+            (a, t) => format!("{a} - {t}"),
+        };
+        out.push_str(&format!("{at} {name}\n"));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -1041,9 +1092,14 @@ mod tests {
         use crate::loader::prepare;
 
         const SR: f64 = 48_000.0;
-        for (format, bits) in [(RecordFormat::Wav, 24), (RecordFormat::Flac, 16)] {
+        for (format, bits) in [
+            (RecordFormat::Wav, 24),
+            (RecordFormat::Wav, 16),
+            (RecordFormat::Flac, 24),
+            (RecordFormat::Flac, 16),
+        ] {
             let dir = std::env::temp_dir().join(format!(
-                "opendj-rec-test-{}-{}",
+                "opendj-rec-test-{}-{}-{bits}",
                 std::process::id(),
                 format.name()
             ));
@@ -1125,6 +1181,11 @@ mod tests {
             let cue = std::fs::read_to_string(sibling(&base, ".cue")).unwrap();
             assert!(cue.contains("TITLE \"Test 'Tone'\""), "{cue}");
             assert!(cue.contains("INDEX 01 00:00:"), "{cue}");
+            let list = std::fs::read_to_string(sibling(&base, ".tracklist.txt")).unwrap();
+            assert!(list.starts_with("0:00 Someone - Test \"Tone\"\n"), "{list}");
+            let (n, files) = rec.finished();
+            assert_eq!(n, 1);
+            assert_eq!(files, vec![file.clone()]);
             let _ = std::fs::remove_dir_all(&dir);
         }
     }

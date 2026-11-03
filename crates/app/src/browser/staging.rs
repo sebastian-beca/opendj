@@ -14,7 +14,8 @@ use opendj_library::{Change, PlaylistKind};
 use slint::{ModelRc, SharedString, VecModel};
 
 use super::{
-    file_path, is_browsed, Browser, Contents, Node, Undo, KIND_FOLDER, KIND_INBOX, KIND_TRIAGE,
+    file_path, is_browsed, Browser, Contents, Node, Undo, KIND_FOLDER, KIND_INBOX, KIND_READY,
+    KIND_TRIAGE,
 };
 use crate::analysis_queue::AnalysisQueue;
 use crate::{settings, LibraryEdit};
@@ -26,7 +27,7 @@ pub(super) fn stage_nodes(folders: &Folders) -> Vec<Node> {
     for (stage, kind) in [
         (Stage::Inbox, KIND_INBOX),
         (Stage::Triage, KIND_TRIAGE),
-        (Stage::Collection, 0),
+        (Stage::Collection, KIND_READY),
     ] {
         nodes.push(Node::new(
             stage.title(),

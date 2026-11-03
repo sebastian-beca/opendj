@@ -111,7 +111,16 @@ impl Browser {
         self.picks.show(len);
         if let Some(app) = self.app.upgrade() {
             let n = self.picks.rows.iter().filter(|&&r| r < len).count();
-            app.global::<LibraryEdit>().set_picked_count(n as i32);
+            let edit = app.global::<LibraryEdit>();
+            edit.set_picked_count(n as i32);
+            if n > 1 {
+                let seconds: f64 = self
+                    .picked_tracks()
+                    .into_iter()
+                    .map(|i| self.library[i].duration)
+                    .sum();
+                edit.set_picked_time(super::total_time(seconds).into());
+            }
         }
     }
 

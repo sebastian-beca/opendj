@@ -36,6 +36,7 @@ mod columns;
 mod filters;
 mod health;
 mod info;
+mod mix_export;
 mod picks;
 mod sets;
 mod spotify_export;
@@ -44,6 +45,7 @@ mod streamed;
 mod tag_chips;
 mod track_menu;
 mod usb;
+mod wanted;
 
 pub use filters::DEFAULT_PINNED;
 
@@ -58,7 +60,7 @@ use crate::stores::{self, Stores};
 use crate::waves::Waves;
 use crate::{
     fmt_time, AppWindow, ColumnUi, FilesUi, Folder, HealthUi, KeyNotation, LibraryEdit, SideRow,
-    StoreUi, StreamMatch, TrackDrag, TrackInfo, TrackRow,
+    StoreUi, StreamMatch, TrackDrag, TrackInfo, TrackRow, WantedUi,
 };
 
 /// Sources in the rail that have a tree of their own.
@@ -76,6 +78,8 @@ const STORES: i32 = 5;
 /// in the rail after Files.
 const ALBUMS: i32 = 9;
 const MIXED_SETS: i32 = 10;
+/// The Groove Box, instrument plugins and inputs (see [`crate::instruments`]).
+const INSTRUMENTS: i32 = 12;
 
 /// Whether `source` shows store results.
 fn is_stores(source: i32) -> bool {
@@ -114,6 +118,9 @@ enum Contents {
     /// The collection's tracks in a folder and below it, in the Albums
     /// and Mixed Sets sources.
     Under(PathBuf),
+    /// An artist's albums in the Albums source: the tracks right in each
+    /// of these album folders, album after album.
+    Albums(Vec<PathBuf>),
     /// The tracks at a stage (see [`opendj_library::stages`]), or only those
     /// in one subfolder of its folder (a triage crate).
     Stage(Stage, Option<PathBuf>),
@@ -139,7 +146,7 @@ const MATCH_CANDIDATES: usize = 8;
 
 /// The sources in the rail, in order, as saved when hidden. The rail's
 /// `names` and `source-names` in `library.slint` must list the same.
-pub const SOURCE_NAMES: [&str; 12] = [
+pub const SOURCE_NAMES: [&str; 13] = [
     "Collection",
     "Files",
     "Spotify",
@@ -152,6 +159,7 @@ pub const SOURCE_NAMES: [&str; 12] = [
     "Albums",
     "Mixed Sets",
     "Mixcloud",
+    "Instruments",
 ];
 
 /// Every source in the rail: the built-in ones, then add-ons' own (see
@@ -385,9 +393,13 @@ const KIND_CHECK: i32 = 13;
 /// One of the DJ's crates, and the Crates and Playlists headings.
 const KIND_CRATE: i32 = 17;
 const KIND_SECTION: i32 = 18;
+/// The Play Ready stage, green in the sidebar.
+const KIND_READY: i32 = 19;
 /// An album's folder, and a folder of mixed sets.
 const KIND_ALBUM: i32 = 15;
 const KIND_MIX: i32 = 16;
+/// An artist in the Albums source, with their albums under them.
+const KIND_ARTIST: i32 = 20;
 
 /// Seconds a track must play on a deck to count as played, for the history.
 const PLAYED_AFTER: f64 = 30.0;
@@ -535,6 +547,8 @@ pub struct Browser {
     folders: Folders,
     /// The mixed sets folder: its tracks are kept out of the collection.
     mixed_sets: Option<PathBuf>,
+    /// A mixed set being made into a Mixcloud MP3.
+    mix_export: Option<std::sync::mpsc::Receiver<mix_export::Progress>>,
     /// Play Album was picked, for Automix to play the list gaplessly.
     album_request: bool,
     /// The Albums source's covers, bigger than the list's thumbnails.
@@ -608,6 +622,9 @@ struct Stream {
     /// Progress or an error to show while signing in, or what copying a
     /// playlist did.
     status: String,
+    /// Playlists whose tracks go on the Wanted list once they come (Add to
+    /// Wanted before they were fetched).
+    wanted_later: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -1042,6 +1059,7 @@ impl Browser {
                     state: StreamState::default(),
                     user: String::new(),
                     status: String::new(),
+                    wanted_later: HashSet::new(),
                 })
                 .collect(),
             store: StoreState {
@@ -1117,6 +1135,7 @@ impl Browser {
             columns: columns::ColumnState::new(&crate::settings::field_names()),
             folders: crate::settings::stage_folders(),
             mixed_sets: crate::settings::mixed_sets_folder(),
+            mix_export: None,
             album_request: false,
             album_art: Art::sized(albums::COVER_SIZE),
             album_tiles: Vec::new(),
@@ -1168,6 +1187,10 @@ impl Browser {
             w(Box::new(move |b| {
                 if let Some(&n) = b.visible_nodes.get(i as usize) {
                     b.current_node = n;
+                    // An artist opens to show their albums too.
+                    if b.nodes[n].kind == KIND_ARTIST {
+                        b.nodes[n].expanded = true;
+                    }
                     if let Some(app) = b.app.upgrade() {
                         app.global::<LibraryEdit>().set_making_smart(false);
                     }
@@ -1449,6 +1472,7 @@ impl Browser {
         Self::install_files(app, &b);
         Self::install_info(app, &b);
         Self::install_picks(app, &b);
+        Self::install_wanted(app, &b);
         Self::install_filters(app, &b);
         Self::install_columns(app, &b);
         b
@@ -1607,6 +1631,17 @@ impl Browser {
             })
         });
         let w = with.clone();
+        edit.on_set_color(move |row, n| {
+            w(&|b| {
+                let row = row.max(0) as usize;
+                let color = usize::try_from(n)
+                    .ok()
+                    .and_then(|i| opendj_library::query::COLOR_NAMES.get(i))
+                    .map(|&(_, rgb)| rgb);
+                b.color_rows(row, row, color);
+            })
+        });
+        let w = with.clone();
         edit.on_set_rating(move |row, n| {
             w(&|b| {
                 let row = row.max(0) as usize;
@@ -1651,6 +1686,7 @@ impl Browser {
         edit.on_set_rule(move |i, text| w(&|b| b.set_rule(i as usize, &text)));
         Self::install_staging(&edit, &with);
         Self::install_track_menu(&edit, &with);
+        Self::install_mix_export(&app.global::<FilesUi>(), &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
         Self::install_cleanup(&app.global::<crate::CleanupUi>(), &with);
         Self::install_fix_names(app, &with);
@@ -1742,7 +1778,7 @@ impl Browser {
     /// tree of their own keep the current one underneath their placeholder.
     fn select_source(&mut self, source: i32) {
         let usable = match source {
-            COLLECTION | FILES | ALBUMS | MIXED_SETS => true,
+            COLLECTION | FILES | ALBUMS | MIXED_SETS | INSTRUMENTS => true,
             SPOTIFY | TIDAL | APPLE_MUSIC | SOUNDCLOUD | MIXCLOUD => STREAMING_ENABLED,
             STORES => STORES_ENABLED,
             _ => false,
@@ -1897,11 +1933,7 @@ impl Browser {
     /// Whether the list shows store rows: the stores' results, or the
     /// wanted list wherever it is.
     fn shows_store_rows(&self) -> bool {
-        is_stores(self.tree)
-            || self
-                .nodes
-                .get(self.current_node)
-                .is_some_and(|n| matches!(n.contents, Contents::Wanted))
+        is_stores(self.tree) || self.shows_wanted()
     }
 
     /// A store row's button: open its page (and remember the track as
@@ -2025,6 +2057,12 @@ impl Browser {
                 }
                 // A streamed track whose file has since come into the
                 // collection some other way isn't wanted any more.
+                // Under Collection, the search box narrows the list.
+                let needle = if self.tree == COLLECTION {
+                    query::fold(&self.search)
+                } else {
+                    String::new()
+                };
                 let have: HashSet<(String, String)> = self
                     .library
                     .iter()
@@ -2042,12 +2080,19 @@ impl Browser {
                             !have.contains(&(artist.clone(), title.clone()))
                                 && !have.contains(&(String::new(), artist + &title))
                         })
+                        .filter(|w| {
+                            needle.is_empty()
+                                || [&w.artist, &w.title, &w.store]
+                                    .iter()
+                                    .any(|t| query::fold(t).contains(&needle))
+                        })
                         .cloned()
                         .map(StoreRow::Wanted),
                 );
-                if rows.is_empty() {
-                    notice =
-                        "Tracks you click Buy on wait here until they arrive in the inbox.".into();
+                if rows.is_empty() && !needle.is_empty() {
+                    notice = "Nothing on the Wanted list matches.".into();
+                } else if rows.is_empty() {
+                    notice = "Tracks you click Buy on, or Add to Wanted on a streaming service, wait here until your collection has them.".into();
                 }
             }
             Some(which @ (Contents::Store(_) | Contents::OtherStores)) => {
@@ -2339,6 +2384,19 @@ impl Browser {
         }
         if changed && self.tree == FILES {
             self.refresh_rows();
+        }
+    }
+
+    /// Loads a file from a music server's cache onto a deck that isn't
+    /// playing (deck A first), without it joining the collection: it stays
+    /// a file shown, as in Files, until the DJ adds it.
+    pub fn load_cached(&mut self, path: &Path) {
+        let index = match self.path_index.get(path) {
+            Some(&i) => Some(i),
+            None => self.add_browsed(read_track(0, path)),
+        };
+        if let Some(i) = index {
+            self.load_to_free_deck(i);
         }
     }
 
@@ -2670,6 +2728,7 @@ impl Browser {
                         st.status.clear();
                         st.keep();
                         self.look_up_placed(i);
+                        self.fetch_synced(i);
                         self.rebuild_stream_tree(source);
                         if shown {
                             self.refresh_tree();
@@ -2699,9 +2758,14 @@ impl Browser {
                         st.state.fresh.insert(key.clone());
                         st.state.tracks.insert(key.clone(), tracks);
                         st.keep();
+                        let want = st.wanted_later.remove(&key);
                         if shown && self.current_playlist() == Some(key.as_str()) {
                             self.refresh_rows();
                         }
+                        if want {
+                            self.want_arrived(i, &key);
+                        }
+                        self.synced_arrived(i, &key);
                     }
                     Event::TracksFailed { key, error } => {
                         st.state.loading.remove(&key);
@@ -3314,6 +3378,18 @@ impl Browser {
             t.rating = rating;
             if let Some(Err(e)) = db.map(|db| db.set_rating(t.id, rating)) {
                 eprintln!("can't save the rating: {e}");
+            }
+        });
+    }
+
+    /// Gives the rows picked in the track list (all of them when `first`
+    /// is one of several picked) a colour, or none.
+    pub fn color_rows(&mut self, first: usize, last: usize, color: Option<u32>) {
+        let tracks = self.chosen_tracks(first, last);
+        self.change_tracks(&tracks, |t, db| {
+            t.info.color = color;
+            if let Some(Err(e)) = db.map(|db| db.set_color(t.id, color)) {
+                eprintln!("can't save the colour: {e}");
             }
         });
     }
@@ -4133,6 +4209,7 @@ impl Browser {
                 .collect(),
             Contents::Dir(_) => Vec::new(),
             Contents::Under(dir) => self.tracks_under(dir),
+            Contents::Albums(dirs) => dirs.iter().flat_map(|d| self.album_tracks(d)).collect(),
             Contents::List(ids) => ids.clone(),
             Contents::Stage(stage, dir) => all()
                 .into_iter()
@@ -4371,21 +4448,6 @@ impl Browser {
             Contents::Stream(k) => Some(format!("https://open.spotify.com/playlist/{k}")),
             _ => None,
         }
-    }
-
-    /// The Spotify tracks in rows `first` to `last`, as "Artist - Title".
-    pub fn spotify_tracks(&self, first: usize, last: usize) -> Vec<String> {
-        if self.tree != SPOTIFY {
-            return Vec::new();
-        }
-        self.chosen_rows(first.min(last), first.max(last))
-            .into_iter()
-            .filter_map(|row| self.stream_track(row))
-            .map(|t| match t.artists.first() {
-                Some(a) => format!("{a} - {}", t.title),
-                None => t.title.clone(),
-            })
-            .collect()
     }
 
     /// A line under the shown service's playlists, e.g. where downloads went.
@@ -4627,6 +4689,9 @@ impl Browser {
     }
 
     fn refresh_rows(&mut self) {
+        if let Some(app) = self.app.upgrade() {
+            app.global::<WantedUi>().set_shown(self.shows_wanted());
+        }
         if self.shows_store_rows() {
             self.set_close_matches(false);
             self.refresh_store_rows();

@@ -563,7 +563,7 @@ impl Browser {
         }
         self.refresh_dupes();
         format!(
-            "Linked {} as versions. Each shows the others on its Linked tab.",
+            "Linked {} as versions. Each shows the others on its Related tab.",
             tracks(n)
         )
     }
