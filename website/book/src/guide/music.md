@@ -391,7 +391,9 @@ title. Below, three tabs keep everything in view without scrolling:
 
 - **Track**: track, artist, remix, album and genre, then year and track
   number, BPM and key, gain and time, two to a line.
-- **Tags**: your own tag fields, grouping and the comment.
+- **Tags**: your own tag fields, grouping and the comment. Each tag is a
+  chip: **×** takes it off, and the **+ tag** box adds one (or several,
+  with spaces between), suggesting tags you already use.
 - **File**: format, audio, size, the file (with Show in Finder), its folder,
   plays, when it was added and last played.
 
@@ -408,6 +410,13 @@ Apply writes them to your collection and the files' tags in one go, and
 ⌘Z takes the whole change back. Fields you typed this way are left alone by
 Clean up and Look up online. The stars set the rating of every picked track
 at once.
+
+Tags work on all the picked tracks at once, with no Apply. A tag on only
+some of them shows how many have it ("#dreamy 5/12"): click it to put it on
+all. **×** takes a tag off all of them, and **+ tag** adds one to all.
+⌘Z takes a tag change back. You can also right-click tracks and choose
+**Add Tag**: it lists the tags you added lately, then the ones you use most,
+and you can type to find one or make a new one.
 
 ## Columns
 

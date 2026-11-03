@@ -32,6 +32,12 @@ With several tracks selected, the Info tab SHALL edit them together. It SHALL sh
 ### Requirement: Tags on several tracks
 Each tag field SHALL show its tags as chips: a tag on every selected track plainly, a tag on some with how many, which a click puts on all. A tag SHALL be removable from all and addable to all, with suggestions from tags already in the library.
 
+Adding or removing a tag SHALL apply at once to every track shown, as one logged change that Undo takes back. The track menu SHALL offer Add Tag with tags added lately first, then the collection's most used, a box to find one, and a new tag typed there.
+
 #### Scenario: Add a mood
 - **WHEN** "#sunset" is added in the Mood field with thirty tracks selected
 - **THEN** the thirty tracks carry "#sunset" and their other tags are unchanged
+
+#### Scenario: A tag on some
+- **WHEN** "#synth" is on two of three selected tracks
+- **THEN** its chip reads "#synth 2/3", and clicking it puts it on the third
