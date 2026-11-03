@@ -394,7 +394,8 @@ mod editor {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    const kAudioUnitProperty_CocoaUI: u32 = 4013;
+    // AudioUnitProperties.h
+    const kAudioUnitProperty_CocoaUI: u32 = 31;
     const kAudioUnitProperty_RequestViewController: u32 = 56;
 
     #[repr(C)]
