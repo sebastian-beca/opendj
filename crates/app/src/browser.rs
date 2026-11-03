@@ -2360,6 +2360,19 @@ impl Browser {
         }
     }
 
+    /// Loads a file from a music server's cache onto a deck that isn't
+    /// playing (deck A first), without it joining the collection: it stays
+    /// a file shown, as in Files, until the DJ adds it.
+    pub fn load_cached(&mut self, path: &Path) {
+        let index = match self.path_index.get(path) {
+            Some(&i) => Some(i),
+            None => self.add_browsed(read_track(0, path)),
+        };
+        if let Some(i) = index {
+            self.load_to_free_deck(i);
+        }
+    }
+
     /// Keeps a file read for Files that the collection doesn't have, with
     /// an id of its own. Returns where it is in `library`.
     fn add_browsed(&mut self, mut t: Track) -> Option<usize> {
