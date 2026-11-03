@@ -26,6 +26,8 @@ pub const DIM: i32 = 4;
 pub const TAG_WORDS: i32 = 5;
 /// The track's mini waveform.
 pub const WAVEFORM: i32 = 6;
+/// The track's colour, as a dot.
+pub const COLOR_DOT: i32 = 7;
 
 /// Column ids. The first eight are the list's original sort columns, so
 /// sort orders saved before stay as they were.
@@ -60,6 +62,8 @@ pub const CRATES: i32 = 21;
 pub const ORDER: i32 = 22;
 /// When a history session's track was played.
 pub const PLAYED_AT: i32 = 23;
+/// The colour the DJ gave the track.
+pub const COLOR: i32 = 24;
 /// Tag field `i` (from 0) is column `TAGS + i`.
 pub const TAGS: i32 = 100;
 
@@ -84,6 +88,7 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
         kind,
     };
     let mut out = vec![
+        d(COLOR, "Colour", 30.0, false, COLOR_DOT),
         d(RATING_ID, "Rating", 64.0, false, RATING),
         d(TITLE_ID, "Title", 0.0, false, TITLE),
         d(ARTIST, "Artist", 170.0, false, TEXT),
@@ -118,8 +123,8 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
 }
 
 /// The columns shown when the DJ hasn't chosen: the list as it always was.
-pub const DEFAULT: [i32; 8] = [
-    RATING_ID, TITLE_ID, ARTIST, LENGTH, BPM, KEY_ID, WAVE, GENRE,
+pub const DEFAULT: [i32; 9] = [
+    COLOR, RATING_ID, TITLE_ID, ARTIST, LENGTH, BPM, KEY_ID, WAVE, GENRE,
 ];
 
 /// The columns a history session shows until the DJ changes them: the
@@ -177,6 +182,24 @@ impl Layout {
         if !self.shown.iter().any(|(id, _)| *id == TITLE_ID) {
             self.shown.insert(0, (TITLE_ID, 0.0));
         }
+    }
+
+    /// Shows the Colour column first (`on`) or hides it. Returns whether
+    /// that changed anything.
+    pub fn show_color(&mut self, on: bool, defs: &[Def]) -> bool {
+        if self.has(COLOR) == on {
+            return false;
+        }
+        if on {
+            let width = defs
+                .iter()
+                .find(|d| d.id == COLOR)
+                .map_or(30.0, |d| d.width);
+            self.shown.insert(0, (COLOR, width));
+        } else {
+            self.shown.retain(|(id, _)| *id != COLOR);
+        }
+        true
     }
 
     pub fn has(&self, id: i32) -> bool {
@@ -317,7 +340,7 @@ pub fn row_cells(
             LENGTH => row.length.clone(),
             BPM => row.bpm.clone(),
             KEY_ID => row.key.clone(),
-            TITLE_ID | RATING_ID => SharedString::new(),
+            TITLE_ID | RATING_ID | COLOR => SharedString::new(),
             CRATES => crates.map(|c| c.join("  ")).unwrap_or_default().into(),
             ORDER if list.order > 0 => list.order.to_string().into(),
             ORDER => SharedString::new(),
@@ -359,6 +382,7 @@ pub fn compare(id: i32, a: &Track, b: &Track) -> Ordering {
         // Analysed tracks, which have a waveform, first.
         WAVE => analysed(b).cmp(&analysed(a)),
         KEY_ID => key_order(&a.key, true).cmp(&key_order(&b.key, true)),
+        COLOR => color_order(x.color).cmp(&color_order(y.color)),
         _ => {
             let (s, t) = (cell(id, a, true), cell(id, b, true));
             match (s.is_empty(), t.is_empty()) {
@@ -367,6 +391,22 @@ pub fn compare(id: i32, a: &Track, b: &Track) -> Ordering {
                 _ => natural(&s).cmp(&natural(&t)),
             }
         }
+    }
+}
+
+/// Colours in the order the menu lists them (red, orange, yellow, green,
+/// cyan, blue, purple, pink), others after them, none last.
+pub fn color_order(color: Option<u32>) -> (usize, u32) {
+    use opendj_library::query::COLOR_NAMES;
+    match color {
+        Some(c) => (
+            COLOR_NAMES
+                .iter()
+                .position(|&(_, n)| n == c)
+                .unwrap_or(COLOR_NAMES.len()),
+            c,
+        ),
+        None => (usize::MAX, 0),
     }
 }
 
@@ -421,7 +461,15 @@ pub(super) struct ColumnState {
 impl ColumnState {
     pub fn new(names: &FieldNames) -> Self {
         let defs = all(names);
-        let layout = Layout::new(settings::columns(), &defs);
+        let mut layout = Layout::new(settings::columns(), &defs);
+        // Colours show as dots unless the DJ picked otherwise: a layout
+        // saved before the Colour column existed gets it once.
+        if settings::track_color().is_none() {
+            if layout.show_color(true, &defs) {
+                settings::set_columns(&layout.shown);
+            }
+            settings::set_track_color(0);
+        }
         let other = Layout::new_or(settings::history_columns(), &defs, &HISTORY_DEFAULT);
         ColumnState {
             defs,
@@ -529,6 +577,31 @@ impl Browser {
             })
         });
         let w = with.clone();
+        ui.on_set_color_mode(move |mode| {
+            w(&|b| {
+                let mode = mode.clamp(0, 3);
+                settings::set_track_color(mode as u8);
+                // The dots come with the Colour column, and go with it.
+                let c = &mut b.columns;
+                let lists = if c.history {
+                    &mut c.other
+                } else {
+                    &mut c.layout
+                };
+                if lists.show_color(mode == 0, &c.defs) {
+                    if c.history {
+                        settings::set_columns(&c.other.shown);
+                    } else {
+                        c.save();
+                    }
+                }
+                if let Some(app) = b.app.upgrade() {
+                    app.global::<ColumnUi>().set_color_mode(mode);
+                }
+                b.columns_changed();
+            })
+        });
+        let w = with.clone();
         ui.on_reset(move || {
             w(&|b| {
                 b.columns.reset();
@@ -587,6 +660,7 @@ impl Browser {
                 b.columns_changed();
             })
         });
+        ui.set_color_mode(settings::track_color().unwrap_or(0) as i32);
         b.borrow().refresh_column_ui();
     }
 
@@ -649,6 +723,7 @@ mod tests {
         let defs = all(&FieldNames::default());
         let mut l = Layout::new(Vec::new(), &defs);
         assert_eq!(ids(&l), DEFAULT);
+        l.toggle(COLOR, &defs);
         l.toggle(GROUPING, &defs);
         l.toggle(GENRE, &defs);
         l.toggle(WAVE, &defs);
@@ -699,6 +774,25 @@ mod tests {
         assert_eq!(compare(PLAYED, &b, &a), Ordering::Less);
         b.info.grouping.clear();
         assert_eq!(compare(GROUPING, &a, &b), Ordering::Less, "empty last");
+    }
+
+    #[test]
+    fn shows_and_sorts_colours() {
+        let defs = all(&FieldNames::default());
+        let mut l = Layout::new(vec![(TITLE_ID, 0.0)], &defs);
+        assert!(l.show_color(true, &defs));
+        assert!(!l.show_color(true, &defs));
+        assert_eq!(ids(&l), [COLOR, TITLE_ID]);
+        assert!(l.show_color(false, &defs));
+        assert_eq!(ids(&l), [TITLE_ID]);
+
+        let mut a = std::sync::Arc::unwrap_or_clone(opendj_engine::sample_library().remove(0));
+        let mut b = a.clone();
+        a.info.color = Some(0x007aff);
+        b.info.color = Some(0xff3b30);
+        assert_eq!(compare(COLOR, &b, &a), Ordering::Less, "red before blue");
+        b.info.color = None;
+        assert_eq!(compare(COLOR, &a, &b), Ordering::Less, "none last");
     }
 
     #[test]

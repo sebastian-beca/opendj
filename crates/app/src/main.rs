@@ -52,6 +52,7 @@ mod file_drop;
 mod files;
 mod groove_box;
 mod inbox;
+mod instruments;
 mod list_picker;
 mod lookup;
 #[cfg(target_os = "macos")]
@@ -441,6 +442,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The Groove Boxes: their kits' names, and what they held last time,
     // saved again as it changes.
     groove_box::install(&app);
+    instruments::install(&app);
     let groove_keeper = RefCell::new(groove_box::Keeper::new(&registry));
     let groove_timer = slint::Timer::default();
     groove_timer.start(
@@ -1034,6 +1036,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 browser.borrow_mut().poll_stores(&app);
                 for track in sources.borrow_mut().poll() {
                     browser.borrow_mut().add_imported(track);
+                }
+                for path in sources.borrow_mut().take_loads() {
+                    browser.borrow_mut().load_cached(&path);
                 }
                 browser.borrow_mut().poll_art();
                 browser.borrow_mut().poll_waves();

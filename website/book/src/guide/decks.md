@@ -52,8 +52,28 @@ they're on. **Shift-click** and hold PLAY while the deck plays for
 
 The decks' effects are in the [FX bar](fx.md#the-fx-bar) under them.
 
-A stopped or empty deck can be a drum machine instead of a track: click
-**Groove Box** in its header (see [Groove Box](groove-box.md)).
+### Instruments on a deck
+
+A deck can play something live instead of a track. Click **Instruments** in
+the rail at the far left (the keyboard icon) and drag one onto a deck:
+
+- A **Groove Box** kit: a drum machine in time with the mix (see
+  [Groove Box](groove-box.md)).
+- An **instrument plugin** you ticked in **Settings › Plugins**, played with
+  a MIDI keyboard or the **KEYBOARD** pads. **EDIT** on the deck opens its
+  own window for its sounds and presets (see
+  [Instruments](fx.md#instruments)).
+- The **Microphone** or the **Aux input**, from the inputs picked in
+  **Settings › Audio**: turntables, a drum machine or a singer.
+
+It plays through that deck's channel, so the EQ, filter, effects, fader and
+crossfader all work on it. A track on the deck is stopped and ejected
+first. An input plays on one deck at a time: dropping it on another deck
+moves it there, and while a deck has it, its own channel in the MIC panel
+stays quiet. The Instruments page shows which deck each one is on.
+
+To go back to a track deck, load a track onto it, or press EJECT while it is
+stopped. openDJ remembers what each deck plays for next time.
 
 ## Slip, bend and censor
 

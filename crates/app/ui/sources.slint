@@ -48,6 +48,13 @@ export struct FoundRow {
     // A folder's cover, once fetched.
     cover: image,
     has-cover: bool,
+    // From a source that plays (a music server): the file is in the cache,
+    // or on its way there and how far.
+    cached: bool,
+    caching: bool,
+    cache-progress: float,
+    // On the Downloads list: a download into the cache.
+    to-cache: bool,
 }
 
 export struct QueueLine {
@@ -86,6 +93,9 @@ export global SourceUi {
     in property <[string]> preview;
     // Opens the search box.
     in-out property <bool> dialog-open;
+    // The source shown is the DJ's own music server: files play from a
+    // cache, and Download keeps them there; Add to Collection keeps them.
+    in property <bool> plays;
     callback describe(text: string, kind: int, prefer: int);
     // auto: download each playlist entry's best copy right away.
     callback search(text: string, kind: int, prefer: int, auto: bool);
@@ -98,6 +108,11 @@ export global SourceUi {
     // A row's button: download it, or try a failed one again.
     callback download(row: int);
     callback download-selected();
+    // A source that plays: load a file onto a free deck (through the
+    // cache), keep a row in the cache, or the ticked rows.
+    callback play(row: int);
+    callback cache(row: int);
+    callback cache-selected();
     // The Downloads list: take a row off (stopping it), try the failed
     // again, clear what's finished, stop everything going.
     callback remove-download(row: int);
@@ -453,7 +468,8 @@ component RowButton inherits Rectangle {
                 border-color: r.state == 3 ? #2d6a43 : r.state == 4 ? #6a2d2d : #48484c;
                 background: r.state == 0 ? (ta.has-hover ? Theme.accent.brighter(0.15) : Theme.accent) : transparent;
                 label := Text {
-                    text: r.state == 0 ? (r.kind == 1 ? "↓ Album" : "↓") : r.state == 1 ? "Queued" : r.state == 3 ? "✓ Added" : "Retry";
+                    text: r.state == 0 ? (SourceUi.plays ? (r.kind == 1 ? "+ Album" : "+ Collection") : r.kind == 1 ? "↓ Album" : "↓")
+                        : r.state == 1 ? "Queued" : r.state == 3 ? (r.to-cache ? "✓ Cached" : "✓ Added") : "Retry";
                     color: r.state == 0 ? Theme.on-selection : r.state == 3 ? #30d158 : r.state == 4 ? #ff6b5e : Theme.text-dim;
                     font-size: 11px;
                     font-weight: 700;
@@ -462,6 +478,61 @@ component RowButton inherits Rectangle {
                     mouse-cursor: r.state == 0 || r.state == 4 ? pointer : default;
                     clicked => { clicked(); }
                 }
+            }
+        }
+    }
+}
+
+// A cloud: filled when the file is in the cache.
+component Cloud inherits Path {
+    in property <bool> filled;
+    width: 16px;
+    height: 12px;
+    viewbox-width: 16;
+    viewbox-height: 12;
+    stroke-width: 1.3px;
+    stroke: filled ? Theme.accent : Theme.text-dim;
+    fill: filled ? Theme.accent : transparent;
+    commands: "M 4.5 11 L 12 11 A 3 3 0 0 0 12.3 5 A 4.2 4.2 0 0 0 4.3 4.6 A 3.2 3.2 0 0 0 4.5 11 Z";
+}
+
+// On a music server's results: play a file, and keep it in the cache
+// (the cloud), with how far that's got.
+component CacheButtons inherits HorizontalLayout {
+    in property <FoundRow> r;
+    callback play();
+    callback cache();
+    width: 58px;
+    spacing: 2px;
+    alignment: end;
+    if r.kind == 2: Rectangle {
+        width: 26px;
+        height: 22px;
+        y: (parent.height - self.height) / 2;
+        border-radius: 11px;
+        background: pta.has-hover ? #3a3a3d : transparent;
+        Path {
+            width: 9px;
+            height: 10px;
+            viewbox-width: 9;
+            viewbox-height: 10;
+            fill: pta.has-hover ? Theme.text : Theme.text-dim;
+            commands: "M 0 0 L 9 5 L 0 10 Z";
+        }
+        pta := TouchArea { mouse-cursor: pointer; clicked => { play(); } }
+    }
+    Rectangle {
+        width: 28px;
+        height: 22px;
+        y: (parent.height - self.height) / 2;
+        border-radius: 11px;
+        background: cta.has-hover && !r.cached && !r.caching ? #3a3a3d : transparent;
+        if r.caching: Text { text: round(r.cache-progress * 100) + "%"; color: Theme.text-dim; font-size: 10px; }
+        if !r.caching: Cloud { filled: r.cached; }
+        cta := TouchArea {
+            mouse-cursor: r.cached || r.caching ? default : pointer;
+            clicked => {
+                if !r.cached && !r.caching { cache(); }
             }
         }
     }
@@ -578,7 +649,7 @@ export component SourceResults inherits Rectangle {
             Text { width: w-quality; text: "Quality"; color: Theme.text; font-size: 13px; font-weight: 500; }
             Text { width: w-size; text: "Size"; color: Theme.text; font-size: 13px; font-weight: 500; horizontal-alignment: right; }
             Text { width: w-from; text: "From"; color: Theme.text; font-size: 13px; font-weight: 500; }
-            Rectangle { width: SourceUi.current-search == -1 ? 126px : 96px; }
+            Rectangle { width: SourceUi.current-search == -1 ? 126px : SourceUi.plays ? 162px : 96px; }
         }
         EdgeLine { left: 6px; right: 6px; }
         if SourceUi.notice != "": Rectangle {
@@ -600,7 +671,11 @@ export component SourceResults inherits Rectangle {
                         if r.kind == 1 || (r.kind == 0 && r.note != "") { SourceUi.toggle-open(i); }
                     }
                     double-clicked => {
-                        if r.kind == 2 && r.state == 0 { SourceUi.download(i); }
+                        if r.kind == 2 && SourceUi.plays && SourceUi.current-search >= 0 {
+                            SourceUi.play(i);
+                        } else if r.kind == 2 && r.state == 0 {
+                            SourceUi.download(i);
+                        }
                     }
                 }
                 // A playlist entry with other copies: an arrow and how many.
@@ -697,6 +772,11 @@ export component SourceResults inherits Rectangle {
                     Text { width: w-size; text: r.size; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; horizontal-alignment: right; }
                     // Who shares it, or why its download failed.
                     Text { width: w-from; text: r.state == 4 && r.note != "" ? r.note : r.from; color: r.state == 4 ? #ff6b5e : Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
+                    if SourceUi.plays && SourceUi.current-search >= 0: CacheButtons {
+                        r: r;
+                        play => { SourceUi.play(i); }
+                        cache => { SourceUi.cache(i); }
+                    }
                     RowButton { r: r; clicked => { SourceUi.download(i); } }
                     // On the Downloads list: take it off, stopping it if it's going.
                     if SourceUi.current-search == -1: Rectangle {
@@ -724,6 +804,10 @@ export component SourceResults inherits Rectangle {
                 spacing: 12px;
                 Text { text: SourceUi.selected-count + " selected"; color: Theme.text; font-size: 14px; font-weight: 600; vertical-alignment: center; }
                 Text { text: SourceUi.selected-summary; color: Theme.text-dim; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+                if SourceUi.plays: VerticalLayout {
+                    alignment: center;
+                    Pill { text: "Download"; clicked => { SourceUi.cache-selected(); } }
+                }
                 VerticalLayout {
                     alignment: center;
                     Rectangle {
@@ -731,7 +815,7 @@ export component SourceResults inherits Rectangle {
                         width: dl.preferred-width + 28px;
                         border-radius: 14px;
                         background: dta.has-hover ? Theme.accent.brighter(0.15) : Theme.accent;
-                        dl := Text { text: "↓ Download selected"; color: Theme.on-selection; font-size: 13px; font-weight: 700; }
+                        dl := Text { text: SourceUi.plays ? "+ Add to Collection" : "↓ Download selected"; color: Theme.on-selection; font-size: 13px; font-weight: 700; }
                         dta := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.download-selected(); } }
                     }
                 }

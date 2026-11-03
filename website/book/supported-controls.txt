@@ -209,6 +209,7 @@
 [Channel1],keyboard_7_activate
 [Channel1],keyboard_8_activate
 [Channel1],keylock
+[Channel1],live_input
 [Channel1],loop_double
 [Channel1],loop_enabled
 [Channel1],loop_end_position
@@ -488,6 +489,7 @@
 [Channel2],keyboard_7_activate
 [Channel2],keyboard_8_activate
 [Channel2],keylock
+[Channel2],live_input
 [Channel2],loop_double
 [Channel2],loop_enabled
 [Channel2],loop_end_position
@@ -767,6 +769,7 @@
 [Channel3],keyboard_7_activate
 [Channel3],keyboard_8_activate
 [Channel3],keylock
+[Channel3],live_input
 [Channel3],loop_double
 [Channel3],loop_enabled
 [Channel3],loop_end_position
@@ -1046,6 +1049,7 @@
 [Channel4],keyboard_7_activate
 [Channel4],keyboard_8_activate
 [Channel4],keylock
+[Channel4],live_input
 [Channel4],loop_double
 [Channel4],loop_enabled
 [Channel4],loop_end_position
