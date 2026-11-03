@@ -965,6 +965,31 @@ impl AutoMix {
         }
     }
 
+    /// The title of the track Automix plays next (cued, or being mixed in)
+    /// and the time left before its mix starts ("" while mixing, or when
+    /// nothing waits).
+    pub fn next_up(&self, tracks: &[Option<Arc<Track>>; NUM_DECKS]) -> (String, String) {
+        let title = |d: usize| {
+            tracks[d]
+                .as_deref()
+                .map(|t| t.title.clone())
+                .unwrap_or_default()
+        };
+        match &self.phase {
+            Phase::Playing {
+                live,
+                next: Some(Next { cued: true, .. }),
+            } => (
+                title(1 - live),
+                self.seconds_to_mix(tracks)
+                    .map(fmt_countdown)
+                    .unwrap_or_default(),
+            ),
+            Phase::Mixing(m) => (title(m.to), String::new()),
+            _ => (String::new(), String::new()),
+        }
+    }
+
     /// Whether the track waiting on a deck can no longer be swapped for
     /// another: its mix is under `margin` seconds away or under way.
     pub fn next_locked(&self, tracks: &[Option<Arc<Track>>; NUM_DECKS], margin: f64) -> bool {
@@ -1040,6 +1065,26 @@ impl AutoMix {
         }
         if app.get_automix_style() != self.style as i32 {
             app.set_automix_style(self.style as i32);
+        }
+        // For the Player layout's bar.
+        let queued = self.left as i32;
+        if app.get_automix_queued() != queued {
+            app.set_automix_queued(queued);
+        }
+        let live = self.live_deck().map_or(-1, |d| d as i32);
+        if app.get_automix_live() != live {
+            app.set_automix_live(live);
+        }
+        let into = self.mixing_into().map_or(-1, |d| d as i32);
+        if app.get_automix_into() != into {
+            app.set_automix_into(into);
+        }
+        let (next, next_in) = self.next_up(tracks);
+        if app.get_automix_next() != next.as_str() {
+            app.set_automix_next(next.into());
+        }
+        if app.get_automix_next_in() != next_in.as_str() {
+            app.set_automix_next_in(next_in.into());
         }
     }
 }
