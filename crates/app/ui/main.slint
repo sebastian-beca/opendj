@@ -540,11 +540,10 @@ component LayoutPill inherits Rectangle {
     horizontal-stretch: 0;
     HorizontalLayout {
         padding-left: 12px;
-        padding-right: 10px;
+        padding-right: 14px;
         spacing: 8px;
         VerticalLayout { alignment: center; LayoutIcon { kind: layout; } }
         Text { text: layout == 1 ? "Simple" : layout == 2 ? "4-Deck" : "2-Deck"; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
-        Text { text: "⌄"; color: Theme.text-dim; font-size: 13px; vertical-alignment: center; }
     }
     ta := TouchArea {
         mouse-cursor: pointer;
