@@ -381,7 +381,12 @@ Click a track to pick it, **shift-click** another to pick every track in
 between, and **⌘-click** (Ctrl-click on Windows and Linux) to add or drop
 one track at a time; ⌘A picks the whole list. Right-click, drag, rate or
 add to a playlist and it applies to every picked track. Sorting or a
-refreshed list keeps the same tracks picked.
+refreshed list keeps the same tracks picked. With several picked, the list's
+heading says how many and their total time ("12 selected · 1h 14m") in
+place of the whole list's time.
+
+The track menu's **Rating** and **Colour** rows set every picked track at
+once; the colours are the ones `color:red`, `color:blue` and so on search for.
 
 ## Track info
 

@@ -1607,6 +1607,17 @@ impl Browser {
             })
         });
         let w = with.clone();
+        edit.on_set_color(move |row, n| {
+            w(&|b| {
+                let row = row.max(0) as usize;
+                let color = usize::try_from(n)
+                    .ok()
+                    .and_then(|i| opendj_library::query::COLOR_NAMES.get(i))
+                    .map(|&(_, rgb)| rgb);
+                b.color_rows(row, row, color);
+            })
+        });
+        let w = with.clone();
         edit.on_set_rating(move |row, n| {
             w(&|b| {
                 let row = row.max(0) as usize;
@@ -3314,6 +3325,18 @@ impl Browser {
             t.rating = rating;
             if let Some(Err(e)) = db.map(|db| db.set_rating(t.id, rating)) {
                 eprintln!("can't save the rating: {e}");
+            }
+        });
+    }
+
+    /// Gives the rows picked in the track list (all of them when `first`
+    /// is one of several picked) a colour, or none.
+    pub fn color_rows(&mut self, first: usize, last: usize, color: Option<u32>) {
+        let tracks = self.chosen_tracks(first, last);
+        self.change_tracks(&tracks, |t, db| {
+            t.info.color = color;
+            if let Some(Err(e)) = db.map(|db| db.set_color(t.id, color)) {
+                eprintln!("can't save the colour: {e}");
             }
         });
     }
