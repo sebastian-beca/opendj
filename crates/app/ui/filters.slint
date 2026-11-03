@@ -4,6 +4,7 @@
 import { LineEdit } from "std-widgets.slint";
 import { ScrollView } from "scroll.slint";
 import { Theme, CloseIcon } from "theme.slint";
+import { TourMark } from "tourmark.slint";
 
 export struct FilterChip {
     // The field: "genre", "tag1", "bpm".
@@ -211,6 +212,7 @@ component Chip inherits Rectangle {
         mouse-cursor: pointer;
         clicked => { clicked(); }
     }
+    TourMark { id: chip.kind == 2 ? "ui,chip_bpm" : chip.kind == 3 ? "ui,chip_key" : ""; }
 }
 
 export component FilterBar inherits Rectangle {
@@ -272,6 +274,7 @@ export component FilterBar inherits Rectangle {
                     mouse-cursor: pointer;
                     clicked => { add-menu.show(); }
                 }
+                TourMark { id: "ui,filter_add"; }
                 add-menu := PopupWindow {
                     x: 0px;
                     y: 32px;
@@ -315,6 +318,7 @@ export component FilterBar inherits Rectangle {
                 font-weight: 600;
             }
             clta := TouchArea { mouse-cursor: pointer; clicked => { FilterUi.clear-all(); } }
+            TourMark { id: "ui,filter_clear"; }
         }
     }
 

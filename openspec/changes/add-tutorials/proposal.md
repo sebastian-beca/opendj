@@ -8,8 +8,8 @@ openDJ's deeper features are easy to miss. After the first-run tour, DJs should 
 
 ## What Changes
 
-- Hands-on tutorials in **Help › Tutorials**, on the same tour engine as the first-run tour (`add-first-run-setup`): a highlight on the real control, a short tip, and the step moves on only once the DJ does it (on screen or on the controller). **Skip step** and **Close** are always there. Each is marked done once finished and can be run again.
-- They play the CC0 demo tracks that ship with openDJ for the first-run tour, or the DJ's own tracks if they pick **Use my tracks**.
+- Hands-on tutorials in **Settings › Help › Tutorials**, on the same tour engine as the first-run tour (`add-first-run-setup`): a highlight on the real control, a short tip, and the step moves on only once the DJ does it (on screen or on the controller). **Skip step** and **Close** are always there. Each is marked done once finished and can be run again.
+- Their first tip offers **Load demo track** (the first-run tour's demo tracks), or the DJ drags in their own.
 - Five tutorials (steps in `design.md`):
   - **Looping**: auto loops, halve/double, loop in/out, saving a loop on a hot cue pad, loop roll.
   - **Using FX**: the FX bar, deck FX, Beat FX, Color FX on the filter knob.
@@ -26,12 +26,12 @@ None.
 
 ### Modified Capabilities
 
-- `app-layout`: Help › Tutorials
+- `app-layout`: Settings › Help › Tutorials
 
 ## Out of Scope
 
 - A Clean Collection tutorial (stages, health, duplicates, clean-up, lookup, albums, mixed sets, crates and sets): skipped for now (Seba, 2026-10-29).
-- "Learn this" links on panels: Help › Tutorials only for now.
+- "Learn this" links on panels: Settings › Help only for now.
 - Tutorials for other controllers.
 - Video tutorials.
 

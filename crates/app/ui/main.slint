@@ -1,5 +1,6 @@
 import { Palette } from "std-widgets.slint";
 import { Theme, KeyNotation, CloseIcon } from "theme.slint";
+import { TourMark } from "tourmark.slint";
 import { Controls, VuMeter, ControlKnob, HoverTipView, HoverTip } from "controls.slint";
 import { Deck, DeckInfo, KeyItem, EffectList, FxRow, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit } from "deck.slint";
 import { Mixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } from "mixer.slint";
@@ -633,6 +634,7 @@ component FxButton inherits Rectangle {
             changed-to(on);
         }
     }
+    TourMark { id: "ui,fx_button"; }
 }
 
 // MASTER: the main meters and the clock. A click opens the MASTER panel

@@ -692,13 +692,18 @@ impl Prefs {
         if self.audio_plugins.borrow_mut().poll() && g.get_open() && g.get_page() == AUDIO_PLUGINS {
             self.refresh();
         }
-        if g.get_open() && g.get_page() == CONTROLLERS && g.get_query().is_empty() {
+        // Help greys a controller's tutorial until it is plugged in.
+        if g.get_open()
+            && (g.get_page() == CONTROLLERS || g.get_page() == FEEDBACK)
+            && g.get_query().is_empty()
+        {
             let ports = self
                 .controllers
                 .as_ref()
                 .map(|c| c.ports())
                 .unwrap_or_default();
             if ports != self.ports {
+                self.ports = ports;
                 self.refresh();
             }
         }
@@ -1253,6 +1258,10 @@ impl Prefs {
                         "Run one part of the tour again.",
                     )
                 },
+            ]
+            .into_iter()
+            .chain(self.tutorial_items())
+            .chain([
                 item("", HEADING, "FEEDBACK", ""),
                 item(
                     "",
@@ -1297,9 +1306,39 @@ impl Prefs {
                         "Attach these to a problem report. They stay on your computer unless you do.",
                     )
                 },
-            ],
+            ])
+            .collect(),
             _ => Vec::new(),
         }
+    }
+
+    /// Help's tutorials: Start for each, ✓ once done, and a controller
+    /// tutorial greyed until its controller is plugged in.
+    fn tutorial_items(&self) -> Vec<PrefItem> {
+        let ports: Vec<String> = self
+            .controllers
+            .as_ref()
+            .map(|c| c.ports().into_iter().map(|p| p.name).collect())
+            .unwrap_or_default();
+        std::iter::once(item("", HEADING, "TUTORIALS", ""))
+            .chain(crate::tutorials::TUTORIALS.iter().map(|t| {
+                let plugged = t
+                    .controller
+                    .is_none_or(|name| ports.iter().any(|p| p.contains(name)));
+                let done = crate::tutorials::done(t.id);
+                let title = format!("{}{}", t.name, if done { "  ✓" } else { "" });
+                let detail = format!("{} About {} minutes.", t.about, t.minutes);
+                PrefItem {
+                    action: if plugged { "Start" } else { "" }.into(),
+                    value: match t.controller {
+                        Some(name) if !plugged => format!("Plug in a {name} to start"),
+                        _ => String::new(),
+                    }
+                    .into(),
+                    ..item(&format!("tutorial_start:{}", t.id), BUTTON, &title, &detail)
+                }
+            }))
+            .collect()
     }
 
     fn mixer_general(&self) -> Vec<PrefItem> {
@@ -3215,6 +3254,13 @@ impl Prefs {
 
     fn pressed(&mut self, id: &str) {
         if self.broadcast_pressed(id) {
+            return;
+        }
+        if let Some(tutorial) = id.strip_prefix("tutorial_start:") {
+            if let Some(app) = self.app.upgrade() {
+                app.global::<Preferences>().set_open(false);
+                app.global::<Tour>().invoke_start_tutorial(tutorial.into());
+            }
             return;
         }
         if id.starts_with("tour_") {

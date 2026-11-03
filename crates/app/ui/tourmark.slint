@@ -49,6 +49,8 @@ export global Tour {
     // From Help: -1 the whole tour, else one part (Audio 0, Controller 1,
     // Library 2, Mixing 3).
     callback start(part: int);
+    // From Help › Tutorials: a tutorial by its id ("looping").
+    callback start-tutorial(id: string);
     callback dismiss-offer();
 
     public function place(x: length, y: length, w: length, h: length) {
@@ -64,6 +66,9 @@ export global Tour {
 // widget so it draws over it; it takes no clicks.
 export component TourMark inherits Rectangle {
     in property <string> id;
+    // The glow shows through a control's gaps, so a wide area such as the
+    // pads goes without it.
+    in property <bool> glow: true;
     property <bool> on: id != "" && Tour.mode == 2 && Tour.target == id;
     if on: ring := Rectangle {
         x: -4px;
@@ -75,7 +80,7 @@ export component TourMark inherits Rectangle {
         border-color: Tour.done ? #4cd07d : Theme.lilac;
         // A slow pulse, so the eye finds it.
         opacity: 0.6 + 0.4 * sin(animation-tick() / 1ms * 0.25deg);
-        drop-shadow-blur: 10px;
+        drop-shadow-blur: glow ? 10px : 0px;
         drop-shadow-color: Theme.lilac.with-alpha(0.6);
         init => { Tour.place(self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
         changed absolute-position => { Tour.place(self.absolute-position.x, self.absolute-position.y, self.width, self.height); }

@@ -385,6 +385,7 @@ export component Jog inherits Rectangle {
         }
     }
     MapMark { key: root.group + ",jog"; }
+    TourMark { id: plain ? "" : root.group + ",jog"; }
 }
 
 // Album art, large; without any, the deck colour with the
@@ -1977,6 +1978,8 @@ export component Pads inherits HorizontalLayout {
                     }
                 }
             }
+            // The tour points at the pads as a whole.
+            TourMark { id: group + ",pads"; glow: false; }
         }
     }
 }
@@ -1984,6 +1987,8 @@ export component Pads inherits HorizontalLayout {
 // One press-and-release part of a LoopStepper.
 component StepperPart inherits Rectangle {
     in property <int> index;
+    // Names it for the guided tour (see TourMark).
+    in property <string> tour-id;
     in property <string> text;
     in property <length> font-size;
     in property <color> label-color: Theme.text;
@@ -2002,6 +2007,7 @@ component StepperPart inherits Rectangle {
             }
         }
     }
+    TourMark { id: root.tour-id; }
 }
 
 // The loop control: one box with halve on the left, the loop length in
@@ -2021,11 +2027,11 @@ export component LoopStepper inherits Rectangle {
     border-color: Theme.border;
     clip: true;
     HorizontalLayout {
-        StepperPart { width: 26px; index: halve-index; text: "‹"; font-size: 18px; }
+        StepperPart { width: 26px; index: halve-index; text: "‹"; font-size: 18px; tour-id: group + ",loop_halve"; }
         Rectangle { width: 1px; background: Theme.border; }
-        StepperPart { horizontal-stretch: 1; index: activate-index; text: info.loop-size; font-size: 15px; label-color: looping ? Theme.loop : Theme.text; }
+        StepperPart { horizontal-stretch: 1; index: activate-index; tour-id: group + ",beatloop_activate"; text: info.loop-size; font-size: 15px; label-color: looping ? Theme.loop : Theme.text; }
         Rectangle { width: 1px; background: Theme.border; }
-        StepperPart { width: 26px; index: double-index; text: "›"; font-size: 18px; }
+        StepperPart { width: 26px; index: double-index; text: "›"; font-size: 18px; tour-id: group + ",loop_double"; }
     }
 }
 
@@ -2049,8 +2055,8 @@ export component LoopSection inherits VerticalLayout {
         height: 28px;
         // A loop of any length: IN on the nearest beat lights grey while the
         // waveform marks the loop out; OUT closes it, and it turns lilac.
-        ControlButton { group: group; key: "loop_in"; light-key: "loop_in_pending"; text: "IN"; momentary: true; tint: #d1d1d6; font-size: 11px; horizontal-stretch: 1; }
-        ControlButton { group: group; key: "loop_out"; light-key: "loop_enabled"; text: "OUT"; momentary: true; tint: Theme.lilac; font-size: 11px; horizontal-stretch: 1; }
+        ControlButton { group: group; key: "loop_in"; light-key: "loop_in_pending"; text: "IN"; momentary: true; tint: #d1d1d6; font-size: 11px; horizontal-stretch: 1; tour-id: group + ",loop_in"; }
+        ControlButton { group: group; key: "loop_out"; light-key: "loop_enabled"; text: "OUT"; momentary: true; tint: Theme.lilac; font-size: 11px; horizontal-stretch: 1; tour-id: group + ",loop_out"; }
     }
     HorizontalLayout {
         spacing: 6px;

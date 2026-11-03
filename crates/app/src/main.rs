@@ -75,6 +75,7 @@ mod stores;
 mod stream_cache;
 mod tidal;
 mod tour;
+mod tutorials;
 mod ui_font;
 mod update;
 mod waves;

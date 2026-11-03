@@ -8,6 +8,7 @@ import { SourceUi, SearchesPanel, SourceResults } from "sources.slint";
 import { InstrumentsPanel, LiveIcon } from "instruments.slint";
 import { InfoPanel, TrackInfo } from "info.slint";
 import { FilterBar, FilterUi } from "filters.slint";
+import { TourMark } from "tourmark.slint";
 
 export struct Folder {
     name: string,
@@ -3347,6 +3348,7 @@ component TrackList inherits Rectangle {
                     overflow: elide;
                 }
             }
+            TourMark { id: "ui,search"; x: search-x; width: search-w; height: parent.height; }
             search-edit := LineEdit {
                 x: search-x;
                 width: search-w;
@@ -3390,6 +3392,7 @@ component TrackList inherits Rectangle {
                         font-weight: 600;
                         vertical-alignment: center;
                     }
+                    TourMark { id: "ui,save_search"; }
                     sta := TouchArea {
                         mouse-cursor: pointer;
                         clicked => {
@@ -3435,6 +3438,7 @@ component TrackList inherits Rectangle {
                                 }
                             }
                         }
+                        TourMark { id: "ui,filter_button"; }
                     }
                 }
                 if AlbumsUi.offered: ViewSwitch {}
@@ -3765,11 +3769,14 @@ component AutomixButton inherits Rectangle {
         Text { text: "AUTOMIX"; color: on ? #000000 : Theme.text; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
     }
     ta := TouchArea { clicked => { root.clicked(); } }
+    TourMark { id: "ui,automix_button"; }
 }
 
 // A small flat button with a word on it.
 component SmallButton inherits Rectangle {
     in property <string> text;
+    // Names it for the guided tour (see TourMark).
+    in property <string> tour-id;
     callback clicked();
     width: label.preferred-width + 16px;
     height: 22px;
@@ -3778,6 +3785,7 @@ component SmallButton inherits Rectangle {
     background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.panel-raised;
     label := Text { text: root.text; color: Theme.text; font-size: 12px; font-weight: 500; }
     ta := TouchArea { clicked => { root.clicked(); } }
+    TourMark { id: root.tour-id; }
 }
 
 // A line of a dropdown: a choice, or a heading over the choices below it.
@@ -3789,6 +3797,8 @@ struct Choice {
 
 // A labelled field showing the current choice; clicking opens the choices.
 component Dropdown inherits Rectangle {
+    // Names it for the guided tour (see TourMark).
+    in property <string> tour-id;
     in property <string> label;
     in property <string> text;
     in property <[Choice]> choices;
@@ -3816,6 +3826,7 @@ component Dropdown inherits Rectangle {
         }
     }
     ta := TouchArea { clicked => { menu.show(); } }
+    TourMark { id: root.tour-id; }
     menu := PopupWindow {
         x: 0px;
         y: root.height + 2px;
@@ -4159,6 +4170,7 @@ component SidePanel inherits Rectangle {
                     background: on ? Theme.accent : transparent;
                 }
                 tta := TouchArea { clicked => { tab = i; } }
+                TourMark { id: i == 0 ? "ui,side_automix" : ""; }
             }
         }
         Rectangle {
@@ -4223,6 +4235,7 @@ component SidePanel inherits Rectangle {
                     Dropdown {
                         horizontal-stretch: 1;
                         label: "LENGTH";
+                        tour-id: "ui,automix_length";
                         text: ["0 s", "12 s", "15 s", "30 s", "16 bars", "32 bars"][automix-length];
                         current: automix-length;
                         choices: [
@@ -4241,6 +4254,7 @@ component SidePanel inherits Rectangle {
                     Dropdown {
                         horizontal-stretch: 1;
                         label: "STYLE";
+                        tour-id: "ui,automix_style";
                         text: ["Smooth", "Bass swap", "Filter", "Cut"][automix-style];
                         current: automix-style;
                         choices: [
@@ -4276,7 +4290,7 @@ component SidePanel inherits Rectangle {
                         text: "Order ▾";
                         clicked => { order-menu.show(); }
                     }
-                    if automix-on: SmallButton { text: "Mix now"; clicked => { automix-mix-now(); } }
+                    if automix-on: SmallButton { text: "Mix now"; tour-id: "ui,automix_mix_now"; clicked => { automix-mix-now(); } }
                     if automix-on: SmallButton { text: "Skip"; clicked => { automix-skip(); } }
                 }
             }
