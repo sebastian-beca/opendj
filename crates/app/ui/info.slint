@@ -10,11 +10,32 @@ export struct InfoField {
     label: string,
     value: string,
     // 0 text to edit, 1 text to read, 2 rating (value "0" to "5"),
-    // 3 a section heading, 4 text to read with a button (`action`).
+    // 4 text to read with a button (`action`).
     kind: int,
     // Shown greyed in an empty field.
     hint: string,
     action: string,
+    // The tab it is on: 0 Track, 1 Tags, 2 File.
+    tab: int,
+    // Short: it shares a line with the field next to it.
+    half: bool,
+    // With several tracks shown: how many values they have here (0 when
+    // they share one), and whether a change waits for Apply.
+    mixed: int,
+    edited: bool,
+}
+
+// A line of the info list: one field, or two short ones side by side.
+export struct InfoLine {
+    a: InfoField,
+    b: InfoField,
+    two: bool,
+}
+
+// A value several tracks have in a field, and how many have it.
+export struct ValueChoice {
+    value: string,
+    count: int,
 }
 
 // A cover the search found.
@@ -31,19 +52,37 @@ export global TrackInfo {
     in property <bool> editable;
     in property <string> title;
     in property <string> artist;
-    in property <string> bpm;
-    in property <string> key;
-    in property <string> length;
     in property <image> cover;
     in property <bool> has-cover;
-    in property <[InfoField]> fields;
+    // The lines of the tab shown.
+    in property <[InfoLine]> fields;
+    // The tab shown (0 Track, 1 Tags, 2 File), and the tabs with changes
+    // waiting for Apply.
+    in property <int> tab;
+    in property <[bool]> tab-edited;
+    callback set-tab(tab: int);
+    // The rating, shown under the title.
+    in property <int> rating;
+    // Several tracks shown (how many; 0 for one): fields edit them all,
+    // and `pending` changes wait for Apply or Discard.
+    in property <int> many;
+    in property <int> pending;
+    callback apply();
+    callback discard();
+    // Fills `choices` with the values the tracks have in field `id`.
+    callback values(id: string);
+    in property <[ValueChoice]> choices;
+    // Takes back what was typed in field `id`, so each track keeps its own.
+    callback keep(id: string);
     // What the panel shows: 0 the track selected in the list, 1 deck A, 2 deck B.
     in-out property <int> subject;
     callback set-subject(subject: int);
     callback edit(id: string, value: string);
     callback reveal();
-    // Something went wrong saving, shown under the list until the next edit.
+    // Something went wrong saving, shown under the list until the next edit;
+    // or, with `status-ok`, what an Apply did.
     in property <string> status;
+    in property <bool> status-ok;
 
     // The preview player, heard in the headphones.
     in property <bool> preview-playing;
@@ -118,7 +157,7 @@ component EditLine inherits Rectangle {
     in property <string> hint;
     in property <bool> enabled: true;
     callback commit(text: string);
-    height: 26px;
+    height: 22px;
     border-radius: 4px;
     background: input.has-focus ? Theme.well : hover.has-hover && enabled ? #ffffff0c : transparent;
     border-width: input.has-focus ? 1px : 0px;
@@ -171,7 +210,7 @@ component Stars inherits HorizontalLayout {
     property <int> hovered: -1;
     for i in 5: Rectangle {
         width: 20px;
-        height: 26px;
+        height: 22px;
         property <bool> lit: hovered >= 0 ? i <= hovered : i < rating;
         Text {
             text: lit ? "★" : "☆";
@@ -188,25 +227,50 @@ component Stars inherits HorizontalLayout {
     }
 }
 
-component InfoRow inherits Rectangle {
+// A line of the values menu.
+component ValueLine inherits Rectangle {
+    in property <string> text;
+    in property <int> count: -1;
+    in property <bool> dim;
+    callback clicked();
+    height: 26px;
+    border-radius: 4px;
+    background: ta.has-hover ? Theme.selection : transparent;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        Text {
+            horizontal-stretch: 1;
+            text: root.text;
+            color: ta.has-hover ? Theme.on-selection : dim ? Theme.text-dim : Theme.text;
+            font-size: 13px;
+            font-italic: dim;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if count >= 0: Text {
+            text: count;
+            color: ta.has-hover ? Theme.on-selection : Theme.text-dim;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+// One field: its label and its value.
+component InfoCell inherits Rectangle {
     in property <InfoField> field;
     in property <bool> editable;
-    min-height: field.kind == 3 ? 34px : 30px;
-    if field.kind == 3: Text {
-        x: 4px;
-        y: parent.height - self.height - 4px;
-        text: field.label;
-        color: Theme.text-dim;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.6px;
-    }
-    if field.kind != 3: HorizontalLayout {
+    in property <length> label-width: 86px;
+    min-height: 24px;
+    HorizontalLayout {
         spacing: 6px;
         Text {
-            width: 86px;
-            text: field.label;
-            color: Theme.label;
+            width: root.label-width;
+            // A change waiting for Apply is marked in lilac.
+            text: (field.edited ? "● " : "") + field.label;
+            color: field.edited ? Theme.accent : Theme.label;
             font-size: 10px;
             font-weight: 600;
             letter-spacing: 0.4px;
@@ -215,11 +279,63 @@ component InfoRow inherits Rectangle {
         }
         if field.kind == 0: EditLine {
             horizontal-stretch: 1;
-            y: 2px;
+            y: 1px;
             value: field.value;
             hint: field.hint;
             enabled: editable;
             commit(text) => { TrackInfo.edit(field.id, text); }
+        }
+        // With several tracks: the values they have, to pick one for all,
+        // keep each track's own or clear it in all.
+        if field.kind == 0 && TrackInfo.many > 0: Rectangle {
+            width: 22px;
+            border-radius: 4px;
+            background: vta.has-hover ? #ffffff14 : transparent;
+            Text {
+                text: "▾";
+                color: field.mixed > 1 || field.edited ? Theme.text : Theme.text-dim.with-alpha(0.5);
+                font-size: 11px;
+            }
+            vta := TouchArea {
+                enabled: editable;
+                clicked => {
+                    TrackInfo.values(field.id);
+                    values-menu.show();
+                }
+            }
+            values-menu := PopupWindow {
+                x: parent.width - 240px;
+                y: parent.height;
+                width: 240px;
+                Rectangle {
+                    background: Theme.panel-raised;
+                    border-radius: Theme.radius;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    drop-shadow-blur: 12px;
+                    drop-shadow-color: #000000a0;
+                }
+                VerticalLayout {
+                    padding: 6px;
+                    ValueLine {
+                        text: "Keep each track's own";
+                        dim: true;
+                        clicked => { TrackInfo.keep(field.id); }
+                    }
+                    Rectangle { height: 1px; background: Theme.border; }
+                    for c in TrackInfo.choices: ValueLine {
+                        text: c.value == "" ? "(empty)" : c.value;
+                        dim: c.value == "";
+                        count: c.count;
+                        clicked => { TrackInfo.edit(field.id, c.value); }
+                    }
+                    Rectangle { height: 1px; background: Theme.border; }
+                    ValueLine {
+                        text: "Clear in all " + TrackInfo.many;
+                        clicked => { TrackInfo.edit(field.id, ""); }
+                    }
+                }
+            }
         }
         if field.kind == 1 || field.kind == 4: Text {
             horizontal-stretch: 1;
@@ -242,6 +358,25 @@ component InfoRow inherits Rectangle {
             enabled: editable;
             rate(n) => { TrackInfo.edit(field.id, n); }
         }
+    }
+}
+
+// A line of the list: one field, or two short ones side by side, the
+// second with a label just wide enough.
+component InfoRow inherits HorizontalLayout {
+    in property <InfoLine> line;
+    in property <bool> editable;
+    spacing: 10px;
+    InfoCell {
+        width: line.two ? (root.width - root.spacing) / 2 : root.width;
+        field: line.a;
+        editable: root.editable;
+    }
+    if line.two: InfoCell {
+        width: (root.width - root.spacing) / 2;
+        field: line.b;
+        editable: root.editable;
+        label-width: 52px;
     }
 }
 
@@ -532,19 +667,47 @@ export component InfoPanel inherits Rectangle {
             }
             VerticalLayout {
                 alignment: center;
-                spacing: 6px;
+                spacing: 4px;
                 Text { text: TrackInfo.title; color: Theme.text; font-size: 16px; font-weight: 600; overflow: elide; }
                 Text { text: TrackInfo.artist; color: Theme.text-dim; font-size: 13px; overflow: elide; }
-                HorizontalLayout {
-                    spacing: 14px;
-                    Text { text: TrackInfo.bpm == "" ? "" : TrackInfo.bpm + " BPM"; color: Theme.text-dim; font-size: 13px; }
-                    Text { text: TrackInfo.key; color: Theme.key; font-size: 13px; font-weight: 600; }
-                    Text { text: TrackInfo.length; color: Theme.text-dim; font-size: 13px; horizontal-stretch: 1; }
+                // The rating, first thing to set while preparing a track.
+                Stars {
+                    rating: TrackInfo.rating;
+                    enabled: TrackInfo.editable;
+                    rate(n) => { TrackInfo.edit("rating", n); }
                 }
             }
         }
-        if TrackInfo.has-track: PreviewBar { }
-        if TrackInfo.has-track: EdgeLine { left: 0px; right: 0px; }
+        if TrackInfo.has-track && TrackInfo.many == 0: PreviewBar { }
+        // The tabs: the names, the DJ's tags, the file.
+        if TrackInfo.has-track: Rectangle {
+            height: 28px;
+            HorizontalLayout {
+                for name[i] in ["Track", "Tags", "File"]: Rectangle {
+                    horizontal-stretch: 1;
+                    property <bool> on: i == TrackInfo.tab;
+                    background: tab-ta.has-hover && !on ? #ffffff08 : transparent;
+                    Text {
+                        // A change waiting for Apply on a tab not shown.
+                        text: (TrackInfo.tab-edited[i] ? "● " : "") + name;
+                        color: on ? Theme.accent : tab-ta.has-hover || TrackInfo.tab-edited[i] ? Theme.text : Theme.text-dim;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+                    Rectangle {
+                        y: parent.height - self.height;
+                        height: 2px;
+                        background: on ? Theme.accent : transparent;
+                    }
+                    tab-ta := TouchArea { clicked => { TrackInfo.set-tab(i); } }
+                }
+            }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.separator;
+            }
+        }
         if TrackInfo.has-track: Rectangle {
             vertical-stretch: 1;
             list := Flickable {
@@ -554,11 +717,12 @@ export component InfoPanel inherits Rectangle {
                 rows := VerticalLayout {
                     width: parent.width;
                     padding-bottom: 12px;
+                    spacing: 2px;
                     alignment: start;
-                    for f in TrackInfo.fields: InfoRow { field: f; editable: TrackInfo.editable; }
+                    for l in TrackInfo.fields: InfoRow { line: l; editable: TrackInfo.editable; }
                     if TrackInfo.status != "": Text {
                         text: TrackInfo.status;
-                        color: Theme.danger;
+                        color: TrackInfo.status-ok ? Theme.text-dim : Theme.danger;
                         font-size: 12px;
                         wrap: word-wrap;
                     }
@@ -573,6 +737,37 @@ export component InfoPanel inherits Rectangle {
                 y: -list.content-y / (list.content-height - list.height) * (list.height - self.height);
                 border-radius: 2px;
                 background: #ffffff40;
+            }
+        }
+        // Several tracks: what waits, and Apply or Discard.
+        if TrackInfo.has-track && TrackInfo.many > 0: HorizontalLayout {
+            height: 30px;
+            spacing: 8px;
+            Text {
+                horizontal-stretch: 1;
+                text: TrackInfo.pending == 0 ? "Type in a field to change all " + TrackInfo.many
+                    : (TrackInfo.pending == 1 ? "1 change" : TrackInfo.pending + " changes") + " · " + TrackInfo.many + " tracks";
+                color: Theme.text-dim;
+                font-size: 12px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            VerticalLayout {
+                alignment: center;
+                TextButton {
+                    text: "Discard";
+                    enabled: TrackInfo.pending > 0;
+                    clicked => { TrackInfo.discard(); }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                TextButton {
+                    text: "Apply";
+                    primary: true;
+                    enabled: TrackInfo.pending > 0 && TrackInfo.editable;
+                    clicked => { TrackInfo.apply(); }
+                }
             }
         }
     }

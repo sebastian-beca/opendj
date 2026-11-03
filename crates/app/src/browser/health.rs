@@ -590,19 +590,14 @@ impl Browser {
                 .count()
     }
 
-    /// Library tracks (indices into `library`) on rows `first` to `last`, or
-    /// on every row when `first` is negative.
+    /// Library tracks (indices into `library`) on rows `first` to `last`
+    /// (every picked row when `first` is one of several picked), or on
+    /// every row when `first` is negative.
     pub(super) fn picked_rows(&self, first: i32, last: i32) -> Vec<usize> {
-        let rows = &self.rows;
-        let range = if first < 0 {
-            0..rows.len()
-        } else {
-            let last = (last.max(first) as usize).min(rows.len().saturating_sub(1));
-            first as usize..last + 1
-        };
-        range
-            .filter_map(|r| rows.get(r).copied().flatten())
-            .collect()
+        if first < 0 {
+            return self.rows.iter().copied().flatten().collect();
+        }
+        self.chosen_tracks(first as usize, last.max(first) as usize)
     }
 
     /// Works out the checks' facts from the library as it is now, and looks

@@ -4,7 +4,7 @@
 whole collection for what needs fixing. Its page has one line per check,
 with how many tracks it finds; **Review** lists them, and the bar above the list
 fixes them all at once. To fix only some, pick them (shift-click for a
-range) and right-click.
+range, ⌘-click or Ctrl-click for single tracks) and right-click.
 
 | Check | Finds | Fixes |
 |---|---|---|
