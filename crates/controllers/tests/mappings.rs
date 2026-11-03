@@ -207,6 +207,102 @@ fn midi_fighter_twister_drives_the_effects() {
     assert_eq!(c.errors(), Vec::<String>::new());
 }
 
+/// openDJ's own two-deck K2 mapping, with Latching Layers off on MIDI
+/// channel 15.
+#[test]
+fn xone_k2_two_decks() {
+    const K2: &str = "Allen and Heath Xone K2 - 2 Decks.opendj-mapping";
+    let (reg, mut c) = load(K2);
+    let press = |c: &mut Controller, note: u8| {
+        c.receive(&[0x9E, note, 0x7F]);
+        c.receive(&[0x8E, note, 0x7F]);
+    };
+    let set = |g: &str, k: &str, v: f64| reg.get(g, k).unwrap().set(v);
+
+    // Volume faders are the inner columns, pitch the outer ones.
+    c.receive(&[0xBE, 0x11, 0x00]);
+    c.receive(&[0xBE, 0x11, 0x7F]);
+    assert!(get(&reg, "[Channel1]", "volume") > 0.95);
+    // A fader picks up once it passes the volume (full to start).
+    c.receive(&[0xBE, 0x12, 0x7F]);
+    c.receive(&[0xBE, 0x12, 0x00]);
+    assert!(get(&reg, "[Channel2]", "volume") < 0.05);
+
+    // The filter encoder moves a step a click, both ways, never jumping.
+    let filter = |r: &ControlRegistry| {
+        r.get("[QuickEffectRack1_[Channel1]]", "super1")
+            .unwrap()
+            .get_parameter()
+    };
+    let before = filter(&reg);
+    c.receive(&[0xBE, 0x00, 0x01]);
+    c.receive(&[0xBE, 0x00, 0x01]);
+    let after = filter(&reg);
+    assert!((after - before - 0.05).abs() < 1e-6, "{before} -> {after}");
+    c.receive(&[0xBE, 0x00, 0x7F]);
+    assert!((filter(&reg) - before - 0.025).abs() < 1e-6);
+
+    // Shift + the top left encoder is the headphones, and the filter stays.
+    let head = reg.get("[Master]", "headGain").unwrap().get_parameter();
+    c.receive(&[0x9E, 0x0F, 0x7F]);
+    c.receive(&[0xBE, 0x00, 0x7F]);
+    let f = filter(&reg);
+    c.receive(&[0x8E, 0x0F, 0x7F]);
+    assert!(
+        (filter(&reg) - before - 0.025).abs() < 1e-6,
+        "filter moved with SHIFT: {f}"
+    );
+    assert!(reg.get("[Master]", "headGain").unwrap().get_parameter() < head);
+
+    // SHIFT + the bottom left encoder is deck 1's jog wheel; clicks add up
+    // until the engine takes them.
+    c.receive(&[0x9E, 0x0F, 0x7F]);
+    c.receive(&[0xBE, 0x14, 0x01]);
+    c.receive(&[0xBE, 0x14, 0x01]);
+    c.receive(&[0xBE, 0x15, 0x7F]);
+    c.receive(&[0x8E, 0x0F, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "jog"), 50.0);
+    assert_eq!(get(&reg, "[Channel2]", "jog"), -25.0);
+
+    set("[Channel1]", "track_loaded", 1.0);
+    // PLAY is inner for both decks: B for deck 1, O for deck 2. SYNC is outer.
+    press(&mut c, 0x19);
+    assert_eq!(get(&reg, "[Channel1]", "play"), 1.0, "{:?}", c.errors());
+    // SHIFT + PLAY goes back to the start and doesn't pause.
+    c.receive(&[0x9E, 0x0F, 0x7F]);
+    press(&mut c, 0x19);
+    c.receive(&[0x8E, 0x0F, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "play"), 1.0);
+    press(&mut c, 0x1B);
+    assert_eq!(get(&reg, "[Channel2]", "sync_enabled"), 1.0);
+
+    // Lights: deck 1's PLAY green while it plays (note + 72), deck 2's
+    // SYNC red, the beat jumps amber (note + 36) on a loaded deck.
+    c.take_output();
+    settle(&mut c, 100);
+    let out = c.take_output();
+    let sent = |m: [u8; 3]| out.iter().any(|o| o.as_slice() == m);
+    assert!(sent([0x9E, 0x19 + 72, 0x7F]), "PLAY green: {out:02X?}");
+    assert!(sent([0x9E, 0x1B, 0x7F]), "SYNC red");
+    assert!(
+        sent([0x9E, 0x1C + 36, 0x7F]) && sent([0x9E, 0x1D + 36, 0x7F]),
+        "jumps amber"
+    );
+    assert!(!sent([0x9E, 0x1E + 36, 0x7F]), "deck 2 has no track");
+
+    // Paused with a track, PLAY blinks green.
+    press(&mut c, 0x19);
+    let start = Instant::now();
+    let mut seen = Vec::new();
+    for ms in (0..1200).step_by(20) {
+        c.poll(start + Duration::from_millis(ms));
+        seen.extend(c.take_output());
+    }
+    assert!(seen.iter().any(|o| o.as_slice() == [0x9E, 0x19 + 72, 0x7F]));
+    assert!(seen.iter().any(|o| o.as_slice() == [0x9E, 0x19, 0x00]));
+    assert_eq!(c.errors(), Vec::<String>::new());
+}
+
 #[test]
 fn every_bundled_mapping_loads_and_takes_its_messages() {
     let dir = default_mappings_dir().unwrap();
@@ -214,7 +310,10 @@ fn every_bundled_mapping_loads_and_takes_its_messages() {
         .unwrap()
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.to_string_lossy().ends_with(".midi.xml"))
+        .filter(|p| {
+            let name = p.to_string_lossy();
+            name.ends_with(".midi.xml") || name.ends_with(".opendj-mapping")
+        })
         .collect();
     files.sort();
     assert_eq!(

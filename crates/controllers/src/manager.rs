@@ -367,7 +367,7 @@ pub fn list_mappings(dir: &Path) -> Vec<(String, PathBuf)> {
     let mut v: Vec<_> = entries
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.to_string_lossy().ends_with(".midi.xml"))
+        .filter(|p| p.to_string_lossy().ends_with(".midi.xml") || crate::mapping::is_opendj_file(p))
         .filter_map(|p| Mapping::read_name(&p).map(|n| (n, p)))
         .collect();
     v.sort();
@@ -1153,10 +1153,11 @@ mod tests {
         for (port, file) in [
             ("DDJ-FLX4", "Pioneer-DDJ-FLX4.midi.xml"),
             ("DDJ-FLX4:DDJ-FLX4 MIDI 1 24:0", "Pioneer-DDJ-FLX4.midi.xml"),
-            ("XONE:K2", "Allen and Heath Xone K2.midi.xml"),
+            // openDJ's own K2 mapping comes before Mixxx's.
+            ("XONE:K2", "Allen and Heath Xone K2 - 2 Decks.opendj-mapping"),
             (
                 "XONE:K2:XONE:K2 MIDI 1 28:0",
-                "Allen and Heath Xone K2.midi.xml",
+                "Allen and Heath Xone K2 - 2 Decks.opendj-mapping",
             ),
             (
                 "Midi Fighter Twister",

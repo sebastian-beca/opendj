@@ -10,6 +10,7 @@ struct Test {
     ratings: Vec<(Option<u8>, f64)>,
     /// What a controller fader would give.
     input: Option<f64>,
+    steps: bool,
 }
 
 impl Test {
@@ -39,6 +40,7 @@ impl Test {
             master: 1,
             ratings: Vec::new(),
             input: None,
+            steps: false,
         }
     }
 
@@ -70,6 +72,10 @@ impl Host for Test {
 
     fn input(&self) -> Option<f64> {
         self.input
+    }
+
+    fn steps(&self) -> bool {
+        self.steps
     }
 }
 
@@ -191,6 +197,41 @@ fn a_controller_fader_gives_the_level() {
         t.get("[EqualizerRack1_[Channel3]_Effect1]", "parameter3"),
         0.5
     );
+}
+
+#[test]
+fn encoder_clicks_move_a_level_from_where_it_is() {
+    let mut t = Test::new();
+    t.steps = true;
+    t.input = Some(-4.0);
+    run("deck 1 eq_high", &mut t).unwrap();
+    let eq = t.get("[EqualizerRack1_[Channel1]_Effect1]", "parameter3");
+    assert!(
+        (eq - (1.0 - 4.0 * opendj_script::STEP)).abs() < 1e-9,
+        "{eq}"
+    );
+    // Turning on past the end stays at the end; a written level still sets it.
+    t.input = Some(100.0);
+    run("deck 1 eq_high", &mut t).unwrap();
+    assert_eq!(
+        t.get("[EqualizerRack1_[Channel1]_Effect1]", "parameter3"),
+        1.0
+    );
+    run("deck 1 eq_high 50%", &mut t).unwrap();
+    assert_eq!(
+        t.get("[EqualizerRack1_[Channel1]_Effect1]", "parameter3"),
+        0.5
+    );
+    // Which way it turns can be asked.
+    t.input = Some(-1.0);
+    run("value > 0 ? deck 1 play : deck 2 play", &mut t).unwrap();
+    assert_eq!(t.get("[Channel2]", "play"), 1.0);
+}
+
+#[test]
+fn blink_takes_a_colour() {
+    assert!(opendj_script::parse("blink 500 'green'").is_ok());
+    assert!(opendj_script::parse("blink").is_ok());
 }
 
 #[test]

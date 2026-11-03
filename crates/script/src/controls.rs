@@ -38,6 +38,30 @@ fn level(call: &Call, i: usize) -> Result<f64, Error> {
     }
 }
 
+/// Sets a level verb's control: to the level written at `i`, or from the
+/// controller. An encoder's clicks move it [`crate::STEP`] a click from
+/// where it is, so turning one never makes the control jump.
+fn set_level(c: &ControlHandle, call: &Call, i: usize) -> Result<(), Error> {
+    let written = call
+        .args
+        .get(i)
+        .map(|a| a.number())
+        .is_some_and(|n| !n.is_nan());
+    if call.steps && !written {
+        let clicks = call.input.unwrap_or(0.0);
+        // Moving through a track wants finer steps than a knob.
+        let step = if call.verb.name == "song_pos" {
+            crate::STEP / 5.0
+        } else {
+            crate::STEP
+        };
+        c.set_parameter((c.get_parameter() + clicks * step).clamp(0.0, 1.0));
+    } else {
+        c.set_parameter(level(call, i)?);
+    }
+    Ok(())
+}
+
 fn press(c: &ControlHandle) {
     c.set_bool(true);
     c.set_bool(false);
@@ -76,11 +100,9 @@ pub fn run_control(reg: &ControlRegistry, call: &Call) -> Result<(), Error> {
             call,
             &format!("hotcue_{}_activate", beats(arg(0))),
         )?),
-        Kind::Level(item) | Kind::Value(item) => {
-            control(reg, call, item)?.set_parameter(level(call, 0)?)
-        }
+        Kind::Level(item) | Kind::Value(item) => set_level(&control(reg, call, item)?, call, 0)?,
         Kind::Set => control(reg, call, named())?.set(arg(1)),
-        Kind::Adjust => control(reg, call, named())?.set_parameter(level(call, 1)?),
+        Kind::Adjust => set_level(&control(reg, call, named())?, call, 1)?,
         // An encoder's clicks arrive as signed steps; a button's press as 1.
         Kind::Step(item) => {
             let size = match call.args.first().map(|a| a.number()) {
@@ -88,7 +110,14 @@ pub fn run_control(reg: &ControlRegistry, call: &Call) -> Result<(), Error> {
                 _ => 1.0,
             };
             let clicks = call.input.filter(|v| *v != 0.0).unwrap_or(1.0);
-            control(reg, call, item)?.set(size * clicks)
+            let c = control(reg, call, item)?;
+            // The engine takes the jog's turning when it next plays a
+            // block: turns that come before then add up.
+            if item == "jog" {
+                c.set(c.get() + size * clicks)
+            } else {
+                c.set(size * clicks)
+            }
         }
         Kind::ToggleNamed => control(reg, call, named())?.toggle(),
         Kind::PressNamed => press(&control(reg, call, named())?),

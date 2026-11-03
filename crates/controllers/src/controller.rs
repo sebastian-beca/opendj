@@ -310,8 +310,8 @@ impl Controller {
         let value = msg.get(2).copied().unwrap_or(0);
         self.host.borrow_mut().input = Some((status, control));
         if let Some(inputs) = self.mapping.inputs.get(&(status, control)).cloned() {
-            for input in inputs {
-                self.process(&input, status, control, value);
+            for input in self.rows.shown_through(&inputs) {
+                self.process(input, status, control, value);
             }
             self.rows.finish(status, control, value, Instant::now());
         }
