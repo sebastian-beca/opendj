@@ -7,14 +7,15 @@
 //! Play Album puts an album on the Automix list and plays it through
 //! gaplessly.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use opendj_engine::Track;
 use slint::{ComponentHandle, ModelRc, VecModel};
 
 use super::{
-    file_path, is_browsed, Browser, Contents, Node, ALBUMS, KIND_ALBUM, KIND_FOLDER, KIND_MIX,
+    file_path, is_browsed, track_menu::main_artist, Browser, Contents, Node, ALBUMS, KIND_ALBUM,
+    KIND_ARTIST, KIND_FOLDER, KIND_MIX,
 };
 use crate::{settings, AlbumTile, AlbumsUi, LibraryEdit};
 
@@ -39,17 +40,119 @@ fn most(values: &[&str]) -> Option<String> {
         .map(|(_, v)| v.to_string())
 }
 
+/// The artist and album a folder's name or place says: "Air - Moon
+/// Safari", or Moon Safari in an Air folder. The artist is `None` when
+/// neither says.
+fn folder_names(dir: &Path, root: &Path) -> (Option<String>, String) {
+    let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if let Some((artist, album)) = name.split_once(" - ") {
+        let (artist, album) = (artist.trim(), album.trim());
+        if !artist.is_empty() && !album.is_empty() {
+            return (Some(artist.into()), album.into());
+        }
+    }
+    let parent = dir
+        .parent()
+        .filter(|p| p.starts_with(root) && *p != root)
+        .and_then(Path::file_name)
+        .map(|n| n.to_string_lossy().into_owned());
+    (parent, name)
+}
+
 /// An album's name and artist, from its tracks' album and artist tags:
-/// the album most have (else the folder's name), and the artist most have
-/// (else "Various Artists").
-fn album_title(dir: &Path, albums: &[&str], artists: &[&str]) -> (String, String) {
-    let name = most(albums).unwrap_or_else(|| {
-        dir.file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default()
-    });
-    let artist = most(artists).unwrap_or_else(|| "Various Artists".into());
+/// the album most have (else the folder's name), and the main artist most
+/// have (else the folder's artist, else "Various Artists").
+fn album_title(dir: &Path, root: &Path, albums: &[&str], artists: &[&str]) -> (String, String) {
+    let (folder_artist, folder_album) = folder_names(dir, root);
+    let name = most(albums).unwrap_or(folder_album);
+    let mains: Vec<&str> = artists.iter().map(|a| main_artist(a)).collect();
+    let artist = most(&mains)
+        .or(folder_artist)
+        .unwrap_or_else(|| "Various Artists".into());
     (name, artist)
+}
+
+/// The year in a year or date tag ("2019", "2019-03-08", "03/2019").
+fn year_of(tag: &str) -> Option<u32> {
+    let digits: Vec<char> = tag.chars().collect();
+    digits.windows(4).enumerate().find_map(|(i, w)| {
+        let before = i.checked_sub(1).and_then(|b| digits.get(b));
+        let after = digits.get(i + 4);
+        let alone =
+            !before.is_some_and(char::is_ascii_digit) && !after.is_some_and(char::is_ascii_digit);
+        let year: u32 = w.iter().collect::<String>().parse().ok()?;
+        (alone && (1000..3000).contains(&year)).then_some(year)
+    })
+}
+
+/// An album's year: the one most of its tracks' tags give (the newest of
+/// those tied), or `None` when none gives one.
+fn album_year(tags: &[&str]) -> Option<u32> {
+    let mut counts: HashMap<u32, usize> = HashMap::new();
+    for y in tags.iter().filter_map(|t| year_of(t)) {
+        *counts.entry(y).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .max_by_key(|&(y, n)| (n, y))
+        .map(|(y, _)| y)
+}
+
+/// Albums newest first, those without a year last, then by name.
+fn newest_first(year: Option<u32>, name: &str) -> (std::cmp::Reverse<u32>, String) {
+    (std::cmp::Reverse(year.unwrap_or(0)), name.to_lowercase())
+}
+
+/// One album folder in the Albums source.
+struct Album {
+    dir: PathBuf,
+    name: String,
+    artist: String,
+    year: Option<u32>,
+}
+
+/// The Albums tree: All Albums, then each artist (by name, ignoring case)
+/// with their albums under them, newest first.
+fn artist_tree(root: &Path, albums: Vec<Album>) -> Vec<Node> {
+    let mut by_artist: BTreeMap<String, (String, Vec<Album>)> = BTreeMap::new();
+    for a in albums {
+        by_artist
+            .entry(a.artist.to_lowercase())
+            .or_insert_with(|| (a.artist.clone(), Vec::new()))
+            .1
+            .push(a);
+    }
+    let mut nodes = vec![Node::new(
+        "All Albums",
+        0,
+        0,
+        Contents::Under(root.to_path_buf()),
+    )];
+    for (_, (artist, mut albums)) in by_artist {
+        albums.sort_by_cached_key(|a| (newest_first(a.year, &a.name), a.dir.clone()));
+        let dirs = albums.iter().map(|a| a.dir.clone()).collect();
+        let mut n = Node::new(artist, 1, KIND_ARTIST, Contents::Albums(dirs));
+        // Artists start closed, so the list stays short.
+        n.expanded = false;
+        nodes.push(n);
+        for a in albums {
+            nodes.push(Node::new(a.name, 2, KIND_ALBUM, Contents::Under(a.dir)));
+        }
+    }
+    nodes
+}
+
+/// What finds a node again once the tree is built anew: its folder, or
+/// its artist.
+fn node_key(n: &Node) -> Option<String> {
+    match &n.contents {
+        Contents::Under(p) => Some(format!("dir:{}", p.display())),
+        Contents::Albums(_) => Some(format!("artist:{}", n.name.to_lowercase())),
+        _ => None,
+    }
 }
 
 /// The tree of `root`'s folders that hold some of `files`, under a node
@@ -163,50 +266,38 @@ impl Browser {
     }
 
     /// Builds the Albums or Mixed Sets tree again from the library,
-    /// keeping the folder selected and those opened.
+    /// keeping the node selected and those opened. Albums go under their
+    /// artist; mixed sets keep their folders.
     pub(super) fn rebuild_folder_tree(&mut self, source: i32) {
-        let selected = match self.nodes.get(self.current_node).map(|n| &n.contents) {
-            Some(Contents::Under(p)) => Some(p.clone()),
-            _ => None,
-        };
-        let open: Vec<PathBuf> = self
+        let selected = self.nodes.get(self.current_node).and_then(node_key);
+        let open: Vec<String> = self
             .nodes
             .iter()
             .filter(|n| n.expanded && n.depth > 0)
-            .filter_map(|n| match &n.contents {
-                Contents::Under(p) => Some(p.clone()),
-                _ => None,
-            })
+            .filter_map(node_key)
             .collect();
         let Some(root) = self.folder_of(source).map(Path::to_path_buf) else {
             self.nodes = Vec::new();
             self.current_node = 0;
             return;
         };
-        let (title, leaf) = if source == ALBUMS {
-            ("All Albums", KIND_ALBUM)
+        let mut nodes = if source == ALBUMS {
+            artist_tree(&root, self.albums_in(&root))
         } else {
-            ("All Mixed Sets", KIND_MIX)
+            let files = self
+                .library
+                .iter()
+                .filter(|t| !is_browsed(t) && !t.info.missing)
+                .filter_map(|t| file_path(t));
+            folder_tree("All Mixed Sets", &root, files, KIND_MIX)
         };
-        let files = self
-            .library
-            .iter()
-            .filter(|t| !is_browsed(t) && !t.info.missing)
-            .filter_map(|t| file_path(t));
-        let mut nodes = folder_tree(title, &root, files, leaf);
         for n in &mut nodes {
-            if let Contents::Under(p) = &n.contents {
-                if open.contains(p) {
-                    n.expanded = true;
-                }
+            if n.depth > 0 && node_key(n).is_some_and(|k| open.contains(&k)) {
+                n.expanded = true;
             }
         }
         let at = selected
-            .and_then(|p| {
-                nodes
-                    .iter()
-                    .position(|n| matches!(&n.contents, Contents::Under(d) if *d == p))
-            })
+            .and_then(|k| nodes.iter().position(|n| node_key(n) == Some(k.clone())))
             .unwrap_or(0);
         // The folders above the selection are opened.
         let mut depth = nodes[at].depth;
@@ -218,6 +309,65 @@ impl Browser {
         }
         self.nodes = nodes;
         self.current_node = at;
+    }
+
+    /// The album folders under `root` (each folder with tracks right in
+    /// it), named by their tracks' tags.
+    fn albums_in(&self, root: &Path) -> Vec<Album> {
+        let mut tracks: HashMap<&Path, Vec<usize>> = HashMap::new();
+        for (i, t) in self.library.iter().enumerate() {
+            if is_browsed(t) || t.info.missing {
+                continue;
+            }
+            let Some(dir) = file_path(t).and_then(Path::parent) else {
+                continue;
+            };
+            if dir.starts_with(root) && dir != root {
+                tracks.entry(dir).or_default().push(i);
+            }
+        }
+        tracks
+            .into_iter()
+            .map(|(dir, ids)| {
+                let (name, artist) = self.album_names(dir, root, &ids);
+                Album {
+                    dir: dir.to_path_buf(),
+                    name,
+                    artist,
+                    year: self.album_year(&ids),
+                }
+            })
+            .collect()
+    }
+
+    /// The name and artist of the album in `dir` holding tracks `ids`.
+    fn album_names(&self, dir: &Path, root: &Path, ids: &[usize]) -> (String, String) {
+        let albums: Vec<&str> = ids
+            .iter()
+            .map(|&i| self.library[i].album.as_str())
+            .collect();
+        let artists: Vec<&str> = ids
+            .iter()
+            .map(|&i| self.library[i].artist.as_str())
+            .collect();
+        album_title(dir, root, &albums, &artists)
+    }
+
+    /// The year of the album holding tracks `ids`.
+    fn album_year(&self, ids: &[usize]) -> Option<u32> {
+        let years: Vec<&str> = ids
+            .iter()
+            .map(|&i| self.library[i].info.year.as_str())
+            .collect();
+        album_year(&years)
+    }
+
+    /// The tracks right in album folder `dir`, as the album plays.
+    pub(super) fn album_tracks(&self, dir: &Path) -> Vec<usize> {
+        self.tracks_under(dir)
+            .into_iter()
+            .filter(|&t| file_path(&self.library[t]).and_then(Path::parent) == Some(dir))
+            .collect()
     }
 
     /// The collection's tracks in `dir` and below, as an album plays: by
@@ -248,11 +398,7 @@ impl Browser {
     /// it gaplessly.
     fn play_album(&mut self, dir: &Path, add: bool) {
         // Only the album's own tracks, not those in folders below it.
-        let album: Vec<usize> = self
-            .tracks_under(dir)
-            .into_iter()
-            .filter(|&t| file_path(&self.library[t]).and_then(Path::parent) == Some(dir))
-            .collect();
+        let album = self.album_tracks(dir);
         if album.is_empty() {
             return;
         }
@@ -332,6 +478,19 @@ impl Browser {
         ui.set_covers(covers || (self.tree != ALBUMS && settings::flag(ALBUMS_COVERS, true)));
         ui.set_grid(grid);
         ui.set_opened(covers && self.on_album());
+        // "‹ Artist" back from an album: to where it was opened from, else
+        // the artist above it.
+        let back = self.album_back.or_else(|| {
+            let depth = self.nodes.get(self.current_node)?.depth;
+            (0..self.current_node)
+                .rev()
+                .find(|&n| self.nodes[n].depth < depth)
+        });
+        let label = match back.and_then(|n| self.nodes.get(n)) {
+            Some(n) if n.depth > 0 => n.name.clone(),
+            _ => "Albums".into(),
+        };
+        ui.set_back_to(label.into());
         if !grid {
             if !self.album_tiles.is_empty() {
                 self.album_tiles.clear();
@@ -351,28 +510,37 @@ impl Browser {
             }
             list.push(i);
         }
-        let tiles: Vec<AlbumTile> = order
-            .iter()
+        let root = self.folders.albums.clone().unwrap_or_default();
+        // Under an artist the year says enough; elsewhere the artist too.
+        let on_artist = self
+            .nodes
+            .get(self.current_node)
+            .is_some_and(|n| n.kind == KIND_ARTIST);
+        let mut shown: Vec<(PathBuf, Option<u32>, AlbumTile)> = order
+            .into_iter()
             .map(|dir| {
-                let ids = &tracks[dir];
-                let albums: Vec<&str> = ids
-                    .iter()
-                    .map(|&i| self.library[i].album.as_str())
-                    .collect();
-                let artists: Vec<&str> = ids
-                    .iter()
-                    .map(|&i| self.library[i].artist.as_str())
-                    .collect();
-                let (name, artist) = album_title(dir, &albums, &artists);
+                let ids = &tracks[&dir];
+                let (name, artist) = self.album_names(&dir, &root, ids);
+                let year = self.album_year(ids);
+                let detail = match year {
+                    Some(y) if on_artist => y.to_string(),
+                    Some(y) => format!("{y} · {artist}"),
+                    None => artist.clone(),
+                };
                 let cover = self.album_art.get(&self.library[ids[0]]);
-                AlbumTile {
+                let tile = AlbumTile {
                     name: name.into(),
                     artist: artist.into(),
+                    detail: detail.into(),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
-                }
+                };
+                (dir, year, tile)
             })
             .collect();
+        shown.sort_by_cached_key(|(_, year, t)| newest_first(*year, &t.name));
+        let (order, tiles): (Vec<PathBuf>, Vec<AlbumTile>) =
+            shown.into_iter().map(|(d, _, t)| (d, t)).unzip();
         self.album_tiles = order;
         ui.set_tiles(ModelRc::new(VecModel::from(tiles)));
     }
@@ -425,24 +593,120 @@ mod tests {
 
     #[test]
     fn an_album_is_named_by_most_of_its_tags() {
+        let root = Path::new("/m/Albums");
         let dir = Path::new("/m/Albums/Air/Moon Safari");
         assert_eq!(
             album_title(
                 dir,
+                root,
                 &["Moon Safari", "moon safari", ""],
-                &["Air", "Air", "Air"]
+                &["Air", "Air feat. Beth Hirsch", "Air"]
             ),
             ("Moon Safari".into(), "Air".into())
         );
-        // No album tags: the folder's name; artists all differ: various.
+        // No album tags: the folder's name; artists all differ: the
+        // folder's artist.
         assert_eq!(
-            album_title(dir, &["", ""], &["Air", "Beck"]),
-            ("Moon Safari".into(), "Various Artists".into())
+            album_title(dir, root, &["", ""], &["Air", "Beck"]),
+            ("Moon Safari".into(), "Air".into())
+        );
+        // "Artist - Album" folders say both.
+        let dir = Path::new("/m/Albums/Jon Hopkins - RITUAL");
+        assert_eq!(
+            album_title(dir, root, &["", ""], &["Jon Hopkins & 7RAYS", "7RAYS"]),
+            ("RITUAL".into(), "Jon Hopkins".into())
+        );
+        // Nothing says who: various.
+        let dir = Path::new("/m/Albums/Cafe del Mar");
+        assert_eq!(
+            album_title(dir, root, &[""], &["A", "B"]),
+            ("Cafe del Mar".into(), "Various Artists".into())
         );
     }
 
     #[test]
-    fn albums_nest_under_their_artist() {
+    fn albums_go_under_their_artist() {
+        let album = |dir: &str, name: &str, artist: &str| Album {
+            dir: PathBuf::from(dir),
+            name: name.into(),
+            artist: artist.into(),
+            year: None,
+        };
+        let nodes = artist_tree(
+            Path::new("/m/Albums"),
+            vec![
+                album("/m/Albums/Jon Hopkins - RITUAL", "RITUAL", "Jon Hopkins"),
+                album("/m/Albums/East Forest - Spores", "Spores", "East Forest"),
+                album(
+                    "/m/Albums/jon hopkins - Music",
+                    "Music for Psychedelic Therapy",
+                    "jon hopkins",
+                ),
+                album(
+                    "/m/Albums/East Forest - Music",
+                    "Music for Mushrooms",
+                    "East Forest",
+                ),
+            ],
+        );
+        let shown: Vec<(&str, i32, i32)> = nodes
+            .iter()
+            .map(|n| (n.name.as_str(), n.depth, n.kind))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("All Albums", 0, 0),
+                ("East Forest", 1, KIND_ARTIST),
+                ("Music for Mushrooms", 2, KIND_ALBUM),
+                ("Spores", 2, KIND_ALBUM),
+                ("Jon Hopkins", 1, KIND_ARTIST),
+                ("Music for Psychedelic Therapy", 2, KIND_ALBUM),
+                ("RITUAL", 2, KIND_ALBUM),
+            ]
+        );
+        // An artist lists their albums in the tree's order.
+        let Contents::Albums(dirs) = &nodes[1].contents else {
+            panic!("an artist holds their albums");
+        };
+        assert_eq!(
+            dirs,
+            &[
+                PathBuf::from("/m/Albums/East Forest - Music"),
+                PathBuf::from("/m/Albums/East Forest - Spores"),
+            ]
+        );
+    }
+
+    #[test]
+    fn albums_go_newest_first() {
+        assert_eq!(year_of("2019-03-08"), Some(2019));
+        assert_eq!(year_of("03/2019"), Some(2019));
+        assert_eq!(year_of("12345"), None);
+        assert_eq!(year_of(""), None);
+        assert_eq!(album_year(&["2018", "2018-05-01", "2021", ""]), Some(2018));
+        assert_eq!(album_year(&["2018", "2021"]), Some(2021));
+        let album = |name: &str, year: Option<u32>| Album {
+            dir: PathBuf::from(format!("/m/Albums/{name}")),
+            name: name.into(),
+            artist: "Jon Hopkins".into(),
+            year,
+        };
+        let nodes = artist_tree(
+            Path::new("/m/Albums"),
+            vec![
+                album("Immunity", Some(2013)),
+                album("Demos", None),
+                album("RITUAL", Some(2024)),
+                album("Singularity", Some(2018)),
+            ],
+        );
+        let names: Vec<&str> = nodes.iter().skip(2).map(|n| n.name.as_str()).collect();
+        assert_eq!(names, ["RITUAL", "Singularity", "Immunity", "Demos"]);
+    }
+
+    #[test]
+    fn folders_nest_in_the_folder_tree() {
         let files = [
             "/m/Albums/Air/Moon Safari/01.flac",
             "/m/Albums/Air/Talkie Walkie/01.flac",
