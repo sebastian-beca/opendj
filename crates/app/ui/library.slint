@@ -319,8 +319,10 @@ export global AlbumsUi {
     // The covers view is shown instead of the list (an artist or All
     // Albums is selected).
     in property <bool> grid;
-    // An album opened from the covers: "‹ Albums" goes back.
+    // An album is open: "‹ Albums" (or "‹ Artist") goes back to covers.
     in property <bool> opened;
+    // Where back goes: the album's artist, or "Albums".
+    in property <string> back-to: "Albums";
     in property <[AlbumTile]> tiles;
     callback set-covers(on: bool);
     // Opens the album at `index` of `tiles`: its tracks in the list.
@@ -1370,6 +1372,17 @@ component FolderIcon inherits Rectangle {
         fill: transparent;
         commands: "M 5 14 A 3 3 0 0 1 4.6 8 A 4.5 4.5 0 0 1 13 6.8 A 3.6 3.6 0 0 1 13.6 14 Z";
     }
+    // Artist: a head and shoulders.
+    if kind == 19: Path {
+        width: 18px;
+        height: 18px;
+        viewbox-width: 18;
+        viewbox-height: 18;
+        stroke: Theme.text;
+        stroke-width: 1.5px;
+        fill: transparent;
+        commands: "M 9 2.5 A 3.2 3.2 0 1 1 8.99 2.5 Z M 2.5 16 A 6.5 5.5 0 0 1 15.5 16";
+    }
     // Album: a record.
     if kind == 15: Path {
         width: 18px;
@@ -1403,7 +1416,7 @@ component FolderIcon inherits Rectangle {
         fill: transparent;
         commands: "M 2 5 L 16 5 L 16 15 L 2 15 Z M 2 8.5 L 16 8.5 M 2 11.8 L 16 11.8";
     }
-    if kind != 1 && kind != 6 && kind != 7 && kind != 9 && kind != 14 && kind != 15 && kind != 16 && kind != 17 && kind != 18: Text {
+    if kind != 1 && kind != 6 && kind != 7 && kind != 9 && kind != 14 && kind != 15 && kind != 16 && kind != 17 && kind != 18 && kind != 19: Text {
         text: kind == 0 ? "♫" : kind == 3 ? "✦" : kind == 4 ? "♥" : kind == 5 ? "◷" : kind == 8 ? "★" : kind == 10 ? "↓" : kind == 11 ? "◐" : kind == 12 ? "✚" : kind == 13 ? "◦" : "≡";
         color: Theme.text;
         font-size: kind == 2 ? 18px : 14px;
@@ -3213,9 +3226,11 @@ component TrackList inherits Rectangle {
                 padding-left: 6px;
                 // Back from an album opened in the covers view.
                 if AlbumsUi.opened: Rectangle {
-                    width: 70px;
-                    Text {
-                        text: "‹ Albums";
+                    width: min(back-label.preferred-width, 220px);
+                    back-label := Text {
+                        width: parent.width;
+                        text: "‹ " + AlbumsUi.back-to;
+                        overflow: elide;
                         color: bta.has-hover ? Theme.text : Theme.accent;
                         font-size: 14px;
                         font-weight: 600;

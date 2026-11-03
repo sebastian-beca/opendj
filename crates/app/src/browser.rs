@@ -114,6 +114,9 @@ enum Contents {
     /// The collection's tracks in a folder and below it, in the Albums
     /// and Mixed Sets sources.
     Under(PathBuf),
+    /// An artist's albums in the Albums source: the tracks right in each
+    /// of these album folders, album after album.
+    Albums(Vec<PathBuf>),
     /// The tracks at a stage (see [`opendj_library::stages`]), or only those
     /// in one subfolder of its folder (a triage crate).
     Stage(Stage, Option<PathBuf>),
@@ -388,6 +391,8 @@ const KIND_SECTION: i32 = 18;
 /// An album's folder, and a folder of mixed sets.
 const KIND_ALBUM: i32 = 15;
 const KIND_MIX: i32 = 16;
+/// An artist in the Albums source, with their albums under them.
+const KIND_ARTIST: i32 = 19;
 
 /// Seconds a track must play on a deck to count as played, for the history.
 const PLAYED_AFTER: f64 = 30.0;
@@ -1168,6 +1173,10 @@ impl Browser {
             w(Box::new(move |b| {
                 if let Some(&n) = b.visible_nodes.get(i as usize) {
                     b.current_node = n;
+                    // An artist opens to show their albums too.
+                    if b.nodes[n].kind == KIND_ARTIST {
+                        b.nodes[n].expanded = true;
+                    }
                     if let Some(app) = b.app.upgrade() {
                         app.global::<LibraryEdit>().set_making_smart(false);
                     }
@@ -4133,6 +4142,7 @@ impl Browser {
                 .collect(),
             Contents::Dir(_) => Vec::new(),
             Contents::Under(dir) => self.tracks_under(dir),
+            Contents::Albums(dirs) => dirs.iter().flat_map(|d| self.album_tracks(d)).collect(),
             Contents::List(ids) => ids.clone(),
             Contents::Stage(stage, dir) => all()
                 .into_iter()
