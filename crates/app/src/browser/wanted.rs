@@ -79,6 +79,22 @@ impl Browser {
                 .unwrap_or(false)
         });
         let w = Rc::downgrade(b);
+        ui.on_list_synced(move |row| {
+            w.upgrade()
+                .and_then(|b| {
+                    let b = b.try_borrow().ok()?;
+                    let (stream, key) = b.stream_at(row)?;
+                    Some(b.synced(stream, &key))
+                })
+                .unwrap_or(false)
+        });
+        let w = Rc::downgrade(b);
+        ui.on_toggle_sync(move |row| {
+            if let Some(b) = w.upgrade() {
+                b.borrow_mut().toggle_sync(row);
+            }
+        });
+        let w = Rc::downgrade(b);
         ui.on_remove(move |first, last| {
             if let Some(b) = w.upgrade() {
                 b.borrow_mut()
@@ -332,6 +348,125 @@ impl Browser {
                     .is_ok_and(|e| e.iter().any(|e| matches!(e, ListEntry::Streamed(_))))
             }),
             _ => false,
+        }
+    }
+
+    /// A streaming playlist's tracks the collection hasn't got, once its
+    /// tracks have come; `stream` is the service's index.
+    fn stream_wants(&self, stream: usize, key: &str) -> Option<Vec<Want>> {
+        let st = &self.streams[stream];
+        let tracks = st.state.tracks.get(key)?;
+        let pairs: Vec<_> = tracks.iter().map(|t| (t, Some(&st.state.manual))).collect();
+        let found = self.match_streamed(&pairs, false);
+        Some(
+            tracks
+                .iter()
+                .zip(found)
+                .filter(|(_, f)| f.is_none())
+                .map(|(t, _)| Want {
+                    store: st.name.to_string(),
+                    artist: t.artist(),
+                    title: t.title.clone(),
+                    page: t.page.clone(),
+                })
+                .collect(),
+        )
+    }
+
+    /// Whether the streaming playlist `key` of service `stream` is kept in
+    /// sync with the Wanted list.
+    fn synced(&self, stream: usize, key: &str) -> bool {
+        crate::settings::wanted_sync(self.streams[stream].id)
+            .iter()
+            .any(|k| k == key)
+    }
+
+    /// Puts a synced playlist's missing tracks on the Wanted list, but not
+    /// ones the DJ took off it. Returns how many went on.
+    fn sync_stream(&mut self, stream: usize, key: &str) -> usize {
+        let Some(wants) = self.stream_wants(stream, key) else {
+            return 0;
+        };
+        let Some(db) = &self.db else { return 0 };
+        let mut added = 0;
+        for w in wants.iter().filter(|w| !w.page.is_empty()) {
+            match db.add_wanted_unless_dismissed(&w.store, &w.artist, &w.title, &w.page) {
+                Ok(true) => added += 1,
+                Ok(false) => {}
+                Err(e) => {
+                    eprintln!("can't add to the wanted list: {e}");
+                    break;
+                }
+            }
+        }
+        if added > 0 {
+            self.store.wanted = db.wanted().unwrap_or_default();
+            self.refresh_tree();
+        }
+        added
+    }
+
+    /// A playlist's tracks have come: a synced one adds what's new to the
+    /// Wanted list.
+    pub(super) fn synced_arrived(&mut self, stream: usize, key: &str) {
+        if self.synced(stream, key) {
+            self.sync_stream(stream, key);
+        }
+    }
+
+    /// Fetches the synced playlists of a service the DJ is signed in to, so
+    /// what was added to them since reaches the Wanted list.
+    pub(super) fn fetch_synced(&mut self, stream: usize) {
+        let st = &mut self.streams[stream];
+        for key in crate::settings::wanted_sync(st.id) {
+            if st.state.playlists.iter().any(|p| p.key == key)
+                && st.state.loading.insert(key.clone())
+            {
+                st.service.send(crate::spotify::Request::Tracks(key));
+            }
+        }
+    }
+
+    /// The streaming playlist at the tree's `row`: its service's index and
+    /// key.
+    fn stream_at(&self, row: i32) -> Option<(usize, String)> {
+        let Contents::Stream(key) = &self.nodes.get(self.tree_node(row)?)?.contents else {
+            return None;
+        };
+        let stream = self.streams.iter().position(|s| s.source == self.tree)?;
+        Some((stream, key.clone()))
+    }
+
+    /// "Sync to Wanted" on a streaming playlist, or stopping it.
+    fn toggle_sync(&mut self, row: i32) {
+        let Some((stream, key)) = self.stream_at(row) else {
+            return;
+        };
+        let on = !self.synced(stream, &key);
+        crate::settings::set_wanted_sync(self.streams[stream].id, &key, on);
+        if !on {
+            return self.wanted_note(
+                "This playlist isn't synced to Wanted any more. Its tracks stay on the list."
+                    .into(),
+            );
+        }
+        if self.streams[stream].state.tracks.contains_key(&key) {
+            let text = match self.sync_stream(stream, &key) {
+                0 => "Synced to Wanted. Tracks added to the playlist from now on join the list."
+                    .to_string(),
+                1 => "Synced to Wanted: added 1 track. Tracks added to the playlist later join it."
+                    .to_string(),
+                n => format!(
+                    "Synced to Wanted: added {n} tracks. Tracks added to the playlist later join them."
+                ),
+            };
+            self.wanted_note(text);
+        } else {
+            let st = &mut self.streams[stream];
+            if st.state.loading.insert(key.clone()) {
+                st.service.send(crate::spotify::Request::Tracks(key));
+            }
+            self.wanted_note("Synced to Wanted; adding its tracks once it loads…".into());
         }
     }
 

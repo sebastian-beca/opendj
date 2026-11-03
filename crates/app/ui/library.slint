@@ -515,6 +515,10 @@ export global WantedUi {
     callback add-list(index: int);
     // Whether Add to Wanted fits the tree's row.
     pure callback list-streamed(index: int) -> bool;
+    // A streaming playlist kept in sync with the Wanted list: tracks
+    // added to it later that the collection hasn't got go on it too.
+    pure callback list-synced(index: int) -> bool;
+    callback toggle-sync(index: int);
     // Rows of the Wanted list come off it.
     callback remove(first: int, last: int);
     // A row of the Wanted list: its page on the store or service.
@@ -2092,6 +2096,13 @@ component FolderTree inherits Rectangle {
                 text: "Add to Wanted";
                 clicked => {
                     WantedUi.add-list(menu-index);
+                    folder-menu.close();
+                }
+            }
+            if StoreUi.stream(StoreUi.source): MenuLine {
+                text: WantedUi.list-synced(menu-index) ? "Stop Syncing to Wanted" : "Sync to Wanted";
+                clicked => {
+                    WantedUi.toggle-sync(menu-index);
                     folder-menu.close();
                 }
             }

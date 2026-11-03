@@ -1310,22 +1310,30 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                     };
                     let groups = settings::import_groups(importer.as_ref());
                     let theirs = settings::import_theirs_win(importer.id());
+                    let want_streamed = settings::import_wants_streamed(importer.id());
                     let choices = settings::import_list_choices(importer.id());
                     let mut picked: Vec<_> = choices.iter().collect();
                     picked.sort();
                     // Changing what comes in, or whose tags win, brings it in again.
                     let stamp = format!(
-                        "{}|{}|{theirs}|{picked:?}",
+                        "{}|{}|{theirs}|{want_streamed}|{picked:?}",
                         importer.stamp(&database),
                         groups.join(",")
                     );
-                    match db.import_with(importer.id(), importer.title(), &stamp, theirs, || {
-                        let mut library = importer.read(&database, &groups)?;
-                        library
-                            .lists
-                            .retain(|l| settings::import_list_wanted(&choices, l));
-                        Ok(library)
-                    }) {
+                    match db.import_with(
+                        importer.id(),
+                        importer.title(),
+                        &stamp,
+                        theirs,
+                        want_streamed,
+                        || {
+                            let mut library = importer.read(&database, &groups)?;
+                            library
+                                .lists
+                                .retain(|l| settings::import_list_wanted(&choices, l));
+                            Ok(library)
+                        },
+                    ) {
                         Ok(Some(r)) => eprintln!(
                             "{}: {} tracks added, {} updated, {} matched to a copy already \
                              here; {} lists, folders and sessions ({} streamed tracks standing \

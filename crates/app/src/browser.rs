@@ -2692,6 +2692,7 @@ impl Browser {
                         st.status.clear();
                         st.keep();
                         self.look_up_placed(i);
+                        self.fetch_synced(i);
                         self.rebuild_stream_tree(source);
                         if shown {
                             self.refresh_tree();
@@ -2728,6 +2729,7 @@ impl Browser {
                         if want {
                             self.want_arrived(i, &key);
                         }
+                        self.synced_arrived(i, &key);
                     }
                     Event::TracksFailed { key, error } => {
                         st.state.loading.remove(&key);

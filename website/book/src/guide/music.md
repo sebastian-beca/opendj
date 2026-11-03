@@ -45,6 +45,12 @@ playlist for **Add to Wanted** on every track of it you don't have. With
 a download add-on such as the Soulseek add-on installed, **Add to
 Downloads** sits beside it and searches the add-on for each track.
 
+For a playlist you use as a shopping list, right-click it and pick **Sync to
+Wanted**: its tracks you don't have go on the Wanted list, and so does
+anything you add to it later, each time openDJ signs in or you open it.
+Tracks you take off the Wanted list stay off. **Stop Syncing to Wanted**
+leaves what's there.
+
 Each service is signed in to with your own app, so openDJ ships no keys:
 
 - **Spotify**: create an app at developer.spotify.com with the redirect URI
@@ -305,7 +311,11 @@ track and pick **Change Match…**.
 
 Placeholders aren't put on the **Wanted** list for you: right-click one
 (or several) for **Add to Wanted** or **Add to Downloads**, or right-click
-the list in the tree to add every placeholder in it.
+the list in the tree to add every placeholder in it. To have every
+streamed track in the app's playlists go on the Wanted list, turn on **Add
+streamed tracks to Wanted** under that app in Settings › Library › Import.
+New ones join at each import; tracks you take off stay off. History is
+never added: what you played isn't always what you want to keep.
 
 The Wanted list holds only what you put there: tracks you clicked Buy on,
 tracks left over from **Copy to openDJ**, and tracks you added with **Add
