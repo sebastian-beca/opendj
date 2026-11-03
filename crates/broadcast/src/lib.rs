@@ -412,6 +412,20 @@ fn start(inner: &Arc<Inner>) -> Result<(), String> {
     };
     let stop = Arc::new(AtomicBool::new(false));
     let title = Arc::new(Title::default());
+    // Set the first title before any station starts, so it leads every
+    // stream (Opus carries it only in the headers each station writes
+    // when it connects).
+    let first = (inner.now_playing)();
+    if let Some(track) = &first {
+        let text = title_text(
+            &settings.title_template,
+            &settings.dj_name,
+            &track.0,
+            &track.1,
+        );
+        *title.text.lock().unwrap() = (track.0.clone(), track.1.clone(), text);
+        title.version.fetch_add(1, Ordering::AcqRel);
+    }
     *inner.statuses.lock().unwrap() = targets
         .iter()
         .map(|t| StationStatus {
@@ -466,7 +480,7 @@ fn start(inner: &Arc<Inner>) -> Result<(), String> {
         threads.push(
             std::thread::Builder::new()
                 .name("broadcast-title".into())
-                .spawn(move || follow_title(now_playing, title, template, dj, stop))
+                .spawn(move || follow_title(now_playing, first, title, template, dj, stop))
                 .map_err(|e| e.to_string())?,
         );
     }
@@ -548,12 +562,13 @@ fn pump(
 /// Watches which track is audible and sets the title once it settles.
 fn follow_title(
     now_playing: NowPlaying,
+    first: Option<(String, String)>,
     title: Arc<Title>,
     template: String,
     dj: String,
     stop: Arc<AtomicBool>,
 ) {
-    let mut sent: Option<(String, String)> = None;
+    let mut sent = first;
     let mut candidate: Option<((String, String), Instant)> = None;
     while !stop.load(Ordering::Acquire) {
         match now_playing() {

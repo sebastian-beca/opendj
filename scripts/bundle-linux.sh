@@ -109,6 +109,11 @@ chmod 755 "$debroot/DEBIAN/postinst"
 dpkg-deb --root-owner-group --build "$debroot" "dist/opendj_${version}_$debarch.deb"
 
 rpmtop=$root/dist/rpmbuild
+# The plugin helper ships next to the app when it was built.
+helper_files=
+if [ -e "$pkgroot/bin/opendj-plugin-host" ]; then
+  helper_files=/usr/bin/opendj-plugin-host
+fi
 rm -rf "$rpmtop"
 mkdir -p "$rpmtop/SPECS"
 cat > "$rpmtop/SPECS/opendj.spec" <<SPEC
@@ -136,6 +141,7 @@ $postinst
 
 %files
 /usr/bin/opendj
+$helper_files
 /usr/share/opendj
 /usr/share/applications/$id.desktop
 /usr/share/metainfo/$id.metainfo.xml
