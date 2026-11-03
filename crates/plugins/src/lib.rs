@@ -26,9 +26,12 @@ pub mod bandcamp;
 pub mod inbox;
 pub mod links;
 pub mod mixxx;
+pub mod plex;
 pub mod rekordbox;
 pub mod remote;
+mod server;
 pub mod source;
+pub mod subsonic;
 pub mod virtualdj;
 
 /// What a plugin is and which web hosts it talks to, as Settings shows it.
@@ -303,11 +306,14 @@ pub trait LibraryImport: Send {
     fn read(&self, database: &Path, groups: &[&str]) -> Result<ImportedLibrary, String>;
 }
 
-/// The plugins that come with the app: Bandcamp, then the stores we link to.
+/// The plugins that come with the app: Bandcamp, the Internet Archive, the
+/// DJ's own music servers (Plex, Navidrome), then the stores we link to.
 pub fn builtin() -> Vec<Box<dyn Plugin>> {
     let mut out: Vec<Box<dyn Plugin>> = vec![
         Box::new(bandcamp::Bandcamp::new()),
         Box::new(archive::InternetArchive::new()),
+        Box::new(plex::Plex::new()),
+        Box::new(subsonic::Navidrome::new()),
     ];
     out.extend(
         links::STORES
