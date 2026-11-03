@@ -988,7 +988,9 @@ export component AppWindow inherits Window {
                     RemoteButton { }
                     MidiButton { }
                     MicButton { }
-                    OnAirButton { }
+                    // Only for DJs who broadcast; on air from a controller
+                    // shows it too.
+                    if BroadcastState.shown || Controls.value(Controls.resolve("[Shoutcast]", "enabled"), Controls.tick) > 0: OnAirButton { }
                     RecordButton { }
                     MasterPill { clock: clock; }
                     SettingsButton { }
