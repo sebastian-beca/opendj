@@ -473,7 +473,7 @@ impl GrooveBox {
         self.queued = (chosen != self.playing).then_some(chosen);
         self.c
             .groove_queued
-            .set(self.queued.map_or(self.playing, |q| q) as f64);
+            .set(self.queued.unwrap_or(self.playing) as f64);
         self.last_bpm = source.bpm;
         let mut n = 0;
         if self.clock.running {
