@@ -1534,8 +1534,30 @@ component FolderIcon inherits Rectangle {
         fill: transparent;
         commands: "M 2 5 L 16 5 L 16 15 L 2 15 Z M 2 8.5 L 16 8.5 M 2 11.8 L 16 11.8";
     }
-    if kind != 1 && kind != 6 && kind != 7 && kind != 9 && kind != 14 && kind != 15 && kind != 16 && kind != 17 && kind != 18 && kind != 20: Text {
-        text: kind == 0 || kind == 19 ? "♫" : kind == 3 ? "✦" : kind == 4 ? "♥" : kind == 5 ? "◷" : kind == 8 ? "★" : kind == 10 ? "↓" : kind == 11 ? "◐" : kind == 12 ? "✚" : kind == 13 ? "◦" : "≡";
+    // In Prep: a half-filled circle, drawn, as fonts' ◐ differ (macOS
+    // falls back to one that shows stacked bars).
+    if kind == 11: Rectangle {
+        Path {
+            width: 18px;
+            height: 18px;
+            viewbox-width: 18;
+            viewbox-height: 18;
+            fill: Theme.stage-prep;
+            commands: "M 9 3 A 6 6 0 0 0 9 15 Z";
+        }
+        Path {
+            width: 18px;
+            height: 18px;
+            viewbox-width: 18;
+            viewbox-height: 18;
+            stroke: Theme.stage-prep;
+            stroke-width: 1.5px;
+            fill: transparent;
+            commands: "M 9 3 A 6 6 0 1 1 8.99 3 Z";
+        }
+    }
+    if kind != 1 && kind != 6 && kind != 7 && kind != 9 && kind != 11 && kind != 14 && kind != 15 && kind != 16 && kind != 17 && kind != 18 && kind != 20: Text {
+        text: kind == 0 || kind == 19 ? "♫" : kind == 3 ? "✦" : kind == 4 ? "♥" : kind == 5 ? "◷" : kind == 8 ? "★" : kind == 10 ? "↓" : kind == 12 ? "✚" : kind == 13 ? "◦" : "≡";
         // The collection's stages in their own colours.
         color: Theme.stage-tint(kind);
         font-size: kind == 2 ? 18px : 14px;
