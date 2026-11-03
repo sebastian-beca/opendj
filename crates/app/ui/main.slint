@@ -4,11 +4,11 @@ import { Controls, VuMeter, ControlKnob, HoverTipView, HoverTip } from "controls
 import { Deck, DeckInfo, KeyItem, EffectList, FxRow, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit } from "deck.slint";
 import { Mixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } from "mixer.slint";
 import { MasterPanel, MicPanel, Loudness, OnAirPanel, BroadcastState, BroadcastStation, AirTime } from "toppanels.slint";
-import { PlayerDeck, PlayerMixer } from "player.slint";
+import { PlayerBar, PlayerDeck, PlayerMixer } from "player.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { FxBar } from "fxbar.slint";
 import { InstrumentsUi, LiveItem } from "instruments.slint";
-import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, MenuTag, StoreUi, StreamMatch, FilesUi, AlbumsUi, AlbumTile, ColumnUi, ListColumn, HealthUi, HealthCard, CleanupUi, CleanupRow, FixNamesUi, GenreRow } from "library.slint";
+import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, MenuTag, StoreUi, StreamMatch, WantedUi, FilesUi, AlbumsUi, AlbumTile, ColumnUi, ListColumn, HealthUi, HealthCard, CleanupUi, CleanupRow, FixNamesUi, GenreRow } from "library.slint";
 import { Preferences, PreferencesOverlay, PrefItem, ImportWizard } from "preferences.slint";
 import { UsbExport, UsbExportDialog } from "usb_export.slint";
 import { Tour, TourSetup, TourSetupDialog, TourTip, TourOffer } from "tour.slint";
@@ -26,7 +26,7 @@ export { MapMode }
 export { RemoteUi, RemoteDevice }
 export { MixerMode, InputSettings, InputRow }
 export { BroadcastState, BroadcastStation }
-export { InstrumentsUi, LiveItem, Theme, Controls, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit, AudioSettings, OutputRow, EffectList, FxRow, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, MenuTag, StoreUi, StreamMatch, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, CleanupUi, CleanupRow, FixNamesUi, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, EditorSetting, UsbExport }
+export { InstrumentsUi, LiveItem, Theme, Controls, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit, AudioSettings, OutputRow, EffectList, FxRow, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, MenuTag, StoreUi, StreamMatch, WantedUi, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, CleanupUi, CleanupRow, FixNamesUi, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, EditorSetting, UsbExport }
 
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
 // the track under the pointer, like a hand on a record, and drag left or
@@ -450,7 +450,7 @@ component SettingsButton inherits Rectangle {
 }
 
 // A small picture of a layout, after djay's: 0 two decks side by side,
-// 1 Simple (one wide strip), 2 four decks, 3 Automix (a play arrow
+// 1 Player (a cover beside two lines), 2 four decks, 3 Automix (a play arrow
 // between lines).
 component LayoutIcon inherits Rectangle {
     in property <int> kind;
@@ -468,11 +468,16 @@ component LayoutIcon inherits Rectangle {
         Rectangle { background: tint; border-radius: 1px; }
         Rectangle { background: tint; border-radius: 1px; }
     }
-    if kind == 1: VerticalLayout {
-        padding-left: 3.5px;
-        padding-right: 3.5px;
-        alignment: center;
-        Rectangle { height: 4px; background: tint; border-radius: 1px; }
+    if kind == 1: HorizontalLayout {
+        padding: 3.5px;
+        spacing: 2px;
+        Rectangle { width: 6px; background: tint; border-radius: 1px; }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            Rectangle { height: 1.5px; background: tint; }
+            Rectangle { height: 1.5px; width: 60%; background: tint; }
+        }
     }
     if kind == 2: HorizontalLayout {
         padding: 3.5px;
@@ -529,7 +534,7 @@ component LayoutItem inherits Rectangle {
 }
 
 // The layout button: the current layout's icon and name, opening a menu of
-// layouts. 0 is 2-Deck, 1 Simple and 2 4-Deck (the stored values); Automix
+// layouts. 0 is 2-Deck, 1 Player and 2 4-Deck (the stored values); Automix
 // is still to come.
 component LayoutPill inherits Rectangle {
     in-out property <int> layout;
@@ -544,7 +549,7 @@ component LayoutPill inherits Rectangle {
         padding-right: 14px;
         spacing: 8px;
         VerticalLayout { alignment: center; LayoutIcon { kind: layout; } }
-        Text { text: layout == 1 ? "Simple" : layout == 2 ? "4-Deck" : "2-Deck"; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+        Text { text: layout == 1 ? "Player" : layout == 2 ? "4-Deck" : "2-Deck"; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
     }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -565,7 +570,7 @@ component LayoutPill inherits Rectangle {
             padding: 6px;
             spacing: 2px;
             Text { text: "LAYOUT"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; x: 10px; height: 22px; vertical-alignment: center; }
-            LayoutItem { kind: 1; text: "Simple"; current: layout == 1; picked => { layout = 1; changed-to(1); } }
+            LayoutItem { kind: 1; text: "Player"; current: layout == 1; picked => { layout = 1; changed-to(1); } }
             LayoutItem { kind: 0; text: "2-Deck"; current: layout == 0; picked => { layout = 0; changed-to(0); } }
             LayoutItem { kind: 2; text: "4-Deck"; current: layout == 2; picked => { layout = 2; changed-to(2); } }
             LayoutItem { kind: 3; text: "Automix"; enabled: false; }
@@ -739,8 +744,16 @@ export component AppWindow inherits Window {
     in property <string> automix-status;
     in property <int> automix-length;
     in property <int> automix-style;
-    // 0 Pro (the full decks and mixer), 1 Player (a compact row of the
-    // basics), 2 four decks in strips.
+    // Tracks left on the Automix list, Automix's live deck and the deck
+    // it is mixing into (-1 for none), for the Player bar.
+    in property <int> automix-queued;
+    in property <int> automix-live: -1;
+    in property <int> automix-into: -1;
+    // The track Automix plays next and the time before its mix starts.
+    in property <string> automix-next;
+    in property <string> automix-next-in;
+    // 0 2-Deck (the full decks and mixer), 1 Player (one bar: a music
+    // player over Automix), 2 four decks in strips.
     in-out property <int> layout: 0;
     callback layout-changed(layout: int);
     // The large scrolling waveforms above the decks, from the top bar button.
@@ -760,12 +773,14 @@ export component AppWindow inherits Window {
     out property <length> waveform-height: max(1px, (waveforms.height - (wave-rows + 1) * 1px) / wave-rows);
     property <int> wave-rows: four ? 4 : 2;
     // From whichever layout's deck A is showing.
-    out property <length> overview-width: four ? strip-1.overview-width : compact ? player-a.overview-width : deck-a.overview-width;
-    out property <length> overview-height: four ? strip-1.overview-height : compact ? player-a.overview-height : deck-a.overview-height;
+    out property <length> overview-width: player ? player-bar.overview-width : four ? strip-1.overview-width : compact ? player-a.overview-width : deck-a.overview-width;
+    out property <length> overview-height: player ? player-bar.overview-height : four ? strip-1.overview-height : compact ? player-a.overview-height : deck-a.overview-height;
     property <bool> four: layout == 2 && !library-expanded;
-    // The Player row shows in the Player layout, and in either layout while
-    // the footer button has the library expanded (then with no waveforms).
-    property <bool> compact: layout == 1 || library-expanded;
+    // The Player layout: one bar, no waveforms or FX bar.
+    property <bool> player: layout == 1;
+    // The compact row shows in 2-Deck and 4-Deck while the footer button
+    // has the library expanded (then with no waveforms).
+    property <bool> compact: library-expanded && !player;
 
     callback select-source(source: int);
     // Which sources the library rail shows, by index.
@@ -986,8 +1001,8 @@ export component AppWindow inherits Window {
                     padding-right: 4px;
                     spacing: 10px;
                     LayoutPill { layout <=> root.layout; changed-to(l) => { layout-changed(l); } }
-                    WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
-                    FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
+                    if !player: WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
+                    if !player: FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
                     Rectangle { horizontal-stretch: 1; }
                     RemoteButton { }
                     MidiButton { }
@@ -1007,8 +1022,8 @@ export component AppWindow inherits Window {
                 // Not rounded or clipped: that renders into a cached layer, which
                 // would freeze the GPU-updated waveform images. Folded away while
                 // the library is expanded or the top bar button hides them.
-                height: library-expanded || !waveforms-visible ? 0px : four ? 213px : 144px;
-                visible: !library-expanded && waveforms-visible;
+                height: library-expanded || !waveforms-visible || player ? 0px : four ? 213px : 144px;
+                visible: !library-expanded && waveforms-visible && !player;
                 background: Theme.well;
                 // Thin grey lines above, between and below the waveforms.
                 if !four: VerticalLayout {
@@ -1062,7 +1077,36 @@ export component AppWindow inherits Window {
                 DeckStrip { deck: 3; info: decks[3]; overview: overview-4; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
             }
 
-            // Player: the deck headers either side of the basics, in one short row.
+            // Player: one bar, what is playing, the transport and the queue button.
+            player-bar := PlayerBar {
+                height: player ? 88px : 0px;
+                visible: player;
+                decks: decks;
+                overview-1: overview-1;
+                overview-2: overview-2;
+                live: automix-live >= 0 ? automix-live : master-deck;
+                mixing-into: automix-into;
+                automix-on: automix-on;
+                automix-status: automix-status;
+                automix-next: automix-next;
+                automix-next-in: automix-next-in;
+                queue-has-tracks: automix-queued > 0;
+                queue-shown: side-panel-visible && side-tab == 0;
+                automix-toggle => { automix-toggle(); }
+                automix-mix-now => { automix-mix-now(); }
+                automix-order(i) => { automix-order(i); }
+                toggle-queue => {
+                    if side-panel-visible && side-tab != 0 {
+                        side-tab = 0;
+                    } else {
+                        side-panel-visible = !side-panel-visible;
+                        side-tab = 0;
+                    }
+                }
+            }
+
+            // Over the expanded library: the deck headers either side of
+            // the basics, in one short row.
             HorizontalLayout {
                 spacing: 1px;
                 height: compact ? 108px : 0px;
@@ -1083,8 +1127,8 @@ export component AppWindow inherits Window {
             // bar hides it.
             FxBar {
                 four: four;
-                height: library-expanded || !fx-bar-visible ? 0px : four ? 96px : 68px;
-                visible: !library-expanded && fx-bar-visible;
+                height: library-expanded || !fx-bar-visible || player ? 0px : four ? 96px : 68px;
+                visible: !library-expanded && fx-bar-visible && !player;
             }
 
             browser := Browser {

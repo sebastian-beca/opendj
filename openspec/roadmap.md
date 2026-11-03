@@ -49,8 +49,10 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-now-playing-feed](changes/add-now-playing-feed/proposal.md) (now-playing text/JSON files and an OBS overlay page; Seba 2026-11-02)
 - [add-playlist-files](changes/add-playlist-files/proposal.md) (export any list as M3U8; import M3U, PLS and XSPF; Seba 2026-11-02)
 - [add-batch-edit](changes/add-batch-edit/proposal.md) (edit many tracks at once: pick any set, the Info tab edits them together, tag chips, Fix Names into the review table; 2026-11-02)
+- [add-prep-layout](changes/add-prep-layout/proposal.md) (a Prep layout on Deck 1 for getting In Prep tracks ready: grid tools, hot cues with suggestions from phrases, a checklist and quick review keys; issue #292, 2026-11-03)
 - [add-rekordbox-xml-export](changes/add-rekordbox-xml-export/proposal.md) (collection and lists out as rekordbox XML for rekordbox and library tools; Seba 2026-11-02)
 - [add-mixcloud-export](changes/add-mixcloud-export/proposal.md) (a recorded mix as a Mixcloud show: tracklist from the recording's cue sheet, MP3 with chapters, then sign-in and direct upload; 2026-11-03)
+- [add-player-layout](changes/add-player-layout/proposal.md) (Player replaces Simple: a music player over Automix with a queue and search; step 1 of 3; issue #297, 2026-11-03)
 - [add-live-broadcast](changes/add-live-broadcast/proposal.md) (steps 1-2: a loudness meter with stream targets and a true-peak limiter, then Icecast/Shoutcast radio with now-playing; moved from v1.x by Seba 2026-11-02 after the radio and livestream research)
 
 ## v0.6 · Buy it from the artist
