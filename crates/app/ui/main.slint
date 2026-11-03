@@ -806,9 +806,11 @@ export component AppWindow inherits Window {
         Palette.color-scheme = ColorScheme.dark;
         keys.focus();
         LibraryEdit.window-height = root.height;
+        LibraryEdit.window-width = root.width;
     }
     // For the track menu, which moves up to fit in the window.
     changed height => { LibraryEdit.window-height = root.height; }
+    changed width => { LibraryEdit.window-width = root.width; }
 
     // Back to the shortcuts when settings close, so ⌘, opens them again.
     property <bool> settings-open: Preferences.open;

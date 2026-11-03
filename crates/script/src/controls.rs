@@ -49,7 +49,8 @@ fn set_level(c: &ControlHandle, call: &Call, i: usize) -> Result<(), Error> {
         .is_some_and(|n| !n.is_nan());
     if call.steps && !written {
         let clicks = call.input.unwrap_or(0.0);
-        // Moving through a track wants finer steps than a knob.
+        // Moving through a track wants finer steps than a knob: a click
+        // is 0.5% of the track, a second or two of most songs.
         let step = if call.verb.name == "song_pos" {
             crate::STEP / 5.0
         } else {

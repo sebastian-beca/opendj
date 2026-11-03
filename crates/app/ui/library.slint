@@ -214,6 +214,8 @@ export global LibraryEdit {
     in property <int> decks: 2;
     // The window's height, so the track menu can fit in it.
     in-out property <length> window-height;
+    // The window's width, so the library search can sit in its middle.
+    in-out property <length> window-width;
     // The sidebar shows the history; set when the app goes back to the library.
     in-out property <bool> history-tab;
     // The selected node is one of the DJ's lists, so a track can be taken out.
@@ -3195,13 +3197,15 @@ component TrackList inherits Rectangle {
     VerticalLayout {
         padding: 6px;
         spacing: 4px;
-        // The list's name on the left, the search in the middle (moved
-        // left when the buttons on the right need the room), Save and
-        // Filter on the right.
+        // The list's name on the left, the search in the middle of the
+        // window, in line with the mixer and the FX bar (moved over when
+        // the panel is too narrow, or the buttons on the right need the
+        // room), Save and Filter on the right.
         Rectangle {
             height: 32px;
             property <length> search-w: clamp(self.width * 0.4, 240px, 520px);
-            property <length> search-x: max(0px, min((self.width - search-w) / 2, self.width - buttons.preferred-width - 10px - search-w));
+            property <length> centred: LibraryEdit.window-width / 2 - self.absolute-position.x - search-w / 2;
+            property <length> search-x: max(0px, min(centred, self.width - buttons.preferred-width - 10px - search-w));
             HorizontalLayout {
                 x: 0;
                 width: max(0px, search-x - 10px);

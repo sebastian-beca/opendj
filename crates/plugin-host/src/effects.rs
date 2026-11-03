@@ -38,6 +38,11 @@ pub trait MainThread {
         size
     }
 
+    /// The window now has the editor's size: a chance to lay the editor
+    /// out again inside it (some editors place themselves by the window's
+    /// size when they are attached, before the window took theirs).
+    fn editor_placed(&mut self) {}
+
     /// Whether the editor can be resized by dragging the window's edge.
     fn editor_can_resize(&self) -> bool {
         false

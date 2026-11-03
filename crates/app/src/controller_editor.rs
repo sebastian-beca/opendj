@@ -159,6 +159,9 @@ pub struct Editor {
     actions: Vec<Action>,
     picking: Option<Picking>,
     flash: Option<(String, Instant)>,
+    /// Buttons held down on the controller, so a control pressed while
+    /// SHIFT (or another layer's button) is held finds that layer's row.
+    held: HashSet<MessageKey>,
     scroll_serial: i32,
     was_open: bool,
     /// The last query and tab the list was filled for.
@@ -187,6 +190,7 @@ impl Editor {
             actions: Vec::new(),
             picking: None,
             flash: None,
+            held: HashSet::new(),
             scroll_serial: 0,
             was_open: false,
             filled_for: (String::new(), 0),
@@ -974,16 +978,32 @@ impl Editor {
             return;
         };
         let ports: HashSet<String> = self.live_ports().into_iter().collect();
-        let Some(key) = seen
+        // Letting a button go is not finding it: letting SHIFT go after
+        // SHIFT + a control would take the selection away from that control.
+        let mut found = None;
+        let held = &mut self.held;
+        for (_, m) in seen
             .iter()
-            .rev()
             .filter(|(p, m)| ports.contains(p) && m.len() >= 2 && m[0] < 0xF0)
-            .map(|(_, m)| message_key(m[0], m[1]))
-            .find(|k| v.rows.iter().any(|r| r.keys.contains(k)))
-        else {
+        {
+            let key = message_key(m[0], m[1]);
+            let note = matches!(m[0] & 0xF0, 0x80 | 0x90);
+            let release = m[0] & 0xF0 == 0x80 || (note && m.get(2) == Some(&0));
+            if release {
+                held.remove(&key);
+                continue;
+            }
+            if note {
+                held.insert(key);
+            }
+            if v.rows.iter().any(|r| r.keys.contains(&key)) {
+                found = Some(key);
+            }
+        }
+        let Some(key) = found else {
             return;
         };
-        let Some(index) = v.rows.iter().position(|r| r.keys.contains(&key)) else {
+        let Some(index) = row_for(v, key, &self.held) else {
             return;
         };
         let row = &v.rows[index];
@@ -2038,4 +2058,116 @@ fn search_text(r: &EditorRow, category: &str) -> String {
         &r.detail,
     ]
     .join(" ")
+}
+
+/// The layers a held button turns on: an openDJ mapping's `set_var '<name>'`
+/// rows, and any control called SHIFT.
+fn held_layers(v: &MappingView, held: &HashSet<MessageKey>) -> HashSet<String> {
+    let mut on = HashSet::new();
+    for r in v
+        .rows
+        .iter()
+        .filter(|r| r.keys.iter().any(|k| held.contains(k)))
+    {
+        if r.control.to_uppercase().contains("SHIFT") && r.layer.is_empty() {
+            on.insert("SHIFT".to_string());
+        }
+        for s in &r.sources {
+            if let Some(name) = s.action.as_deref().and_then(set_var_name) {
+                on.insert(name.to_uppercase());
+            }
+        }
+    }
+    on
+}
+
+/// `x` in a line `set_var 'x' 1`.
+fn set_var_name(line: &str) -> Option<&str> {
+    let rest = line.split("set_var").nth(1)?.trim_start();
+    let quote = rest.chars().next().filter(|c| *c == '\'' || *c == '"')?;
+    rest[1..].split(quote).next()
+}
+
+/// The row a control pressed finds: of the rows on its message, the one
+/// for the layers held now (SHIFT + the control finds the SHIFT row), the
+/// plain press before a long press or other way of pressing.
+fn row_for(v: &MappingView, key: MessageKey, held: &HashSet<MessageKey>) -> Option<usize> {
+    let on = held_layers(v, held);
+    let names: HashSet<String> = v
+        .rows
+        .iter()
+        .flat_map(|r| r.sources.iter().flat_map(|s| s.layer.iter()))
+        .map(|(n, _)| n.to_uppercase())
+        .chain(std::iter::once("SHIFT".to_string()))
+        .collect();
+    let score = |r: &Row| -> Option<(usize, usize)> {
+        let (mut layers, mut other) = (0, 0);
+        for part in r.layer.split(" + ").filter(|p| !p.is_empty()) {
+            let (name, value) = match part.rsplit_once(' ') {
+                Some((n, v)) if v.parse::<f64>().is_ok() => (n, Some(v)),
+                _ => (part, None),
+            };
+            if !names.contains(name) {
+                other += 1;
+                continue;
+            }
+            let wants_on = value.is_none_or(|v| v.parse::<f64>().unwrap_or(0.0) != 0.0);
+            if wants_on != on.contains(name) {
+                return None;
+            }
+            layers += usize::from(wants_on);
+        }
+        Some((layers, usize::MAX - other))
+    };
+    let mut best: Option<(usize, (usize, usize))> = None;
+    let mut first = None;
+    for (i, r) in v
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.keys.contains(&key))
+    {
+        first.get_or_insert(i);
+        if let Some(sc) = score(r) {
+            if best.is_none_or(|(_, b)| sc > b) {
+                best = Some((i, sc));
+            }
+        }
+    }
+    best.map(|(i, _)| i).or(first)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn k2() -> MappingView {
+        let reg = ControlRegistry::new();
+        let _engine = opendj_engine::engine::Engine::new(&reg, 44_100.0);
+        let dir = opendj_controllers::default_mappings_dir().unwrap();
+        view::build(
+            &dir.join("Allen and Heath Xone K2 - 2 Decks.opendj-mapping"),
+            reg,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn set_var_names_the_layer() {
+        assert_eq!(set_var_name("set_var 'shift' 1"), Some("shift"));
+        assert_eq!(set_var_name("deck 1 play"), None);
+    }
+
+    /// SHIFT + the bottom left encoder finds its SHIFT row; without SHIFT,
+    /// the plain browse row.
+    #[test]
+    fn a_held_shift_finds_the_shift_row() {
+        let v = k2();
+        let encoder = (0xBE, 0x14);
+        let plain = row_for(&v, encoder, &HashSet::new()).unwrap();
+        assert!(v.rows[plain].layer.is_empty(), "{:?}", v.rows[plain]);
+        let held = HashSet::from([(0x9E, 0x0F)]);
+        let shifted = row_for(&v, encoder, &held).unwrap();
+        assert_eq!(v.rows[shifted].layer, "SHIFT", "{:?}", v.rows[shifted]);
+    }
 }
