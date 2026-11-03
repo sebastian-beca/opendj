@@ -385,6 +385,8 @@ const KIND_CHECK: i32 = 13;
 /// One of the DJ's crates, and the Crates and Playlists headings.
 const KIND_CRATE: i32 = 17;
 const KIND_SECTION: i32 = 18;
+/// The Play Ready stage, green in the sidebar.
+const KIND_READY: i32 = 19;
 /// An album's folder, and a folder of mixed sets.
 const KIND_ALBUM: i32 = 15;
 const KIND_MIX: i32 = 16;
