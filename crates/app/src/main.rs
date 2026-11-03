@@ -552,10 +552,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 spotify::open_in_browser(&link);
             }
         });
-        let (b, s) = (browser.clone(), sources.clone());
+        // "Add to Downloads" on a list: a Spotify playlist by its link,
+        // anything else (a TIDAL playlist, an imported list's streamed
+        // tracks) track by track.
+        let queue_tracks = {
+            let (b, s) = (browser.clone(), sources.clone());
+            move |tracks: Vec<String>| {
+                let n = tracks.len();
+                for text in tracks {
+                    s.borrow_mut().add_download(
+                        SPOTIFY_SITE,
+                        SourceQuery {
+                            text,
+                            kind: QueryKind::Track,
+                            ..Default::default()
+                        },
+                    );
+                }
+                if n > 0 {
+                    let what = if n == 1 {
+                        "the track".to_string()
+                    } else {
+                        format!("{n} tracks")
+                    };
+                    b.borrow_mut()
+                        .wanted_note(format!("Downloading {what} in {to}."));
+                }
+            }
+        };
+        let queue = Rc::new(queue_tracks);
+        let (b, s, q) = (browser.clone(), sources.clone(), queue.clone());
         ui.on_download_playlist(move |i| {
-            let Some(link) = b.borrow().spotify_playlist_link(i as usize) else {
-                return;
+            let link = b.borrow().spotify_playlist_link(i as usize);
+            let Some(link) = link else {
+                let names = b.borrow_mut().list_download_names(i as usize);
+                return q(names);
             };
             s.borrow_mut().add_download(
                 SPOTIFY_SITE,
@@ -568,29 +599,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             b.borrow_mut()
                 .set_stream_status(format!("Downloading the playlist in {to}."));
         });
-        let (b, s) = (browser.clone(), sources.clone());
+        let (b, q) = (browser.clone(), queue.clone());
         ui.on_download_tracks(move |first, last| {
-            let tracks = b.borrow().spotify_tracks(first as usize, last as usize);
-            let n = tracks.len();
-            for text in tracks {
-                s.borrow_mut().add_download(
-                    SPOTIFY_SITE,
-                    SourceQuery {
-                        text,
-                        kind: QueryKind::Track,
-                        ..Default::default()
-                    },
-                );
-            }
-            if n > 0 {
-                let what = if n == 1 {
-                    "the track".to_string()
-                } else {
-                    format!("{n} tracks")
-                };
-                b.borrow_mut()
-                    .set_stream_status(format!("Downloading {what} in {to}."));
-            }
+            let names = b
+                .borrow()
+                .download_names(first.max(0) as usize, last.max(0) as usize);
+            q(names);
         });
     }
     let sampler = sampler::Sampler::install(&app, engine.clone(), browser.clone(), &registry);

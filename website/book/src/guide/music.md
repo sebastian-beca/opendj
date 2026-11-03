@@ -39,6 +39,12 @@ artist and title. If a match is wrong, right-click the track and pick
 collection, once; tracks you don't have are kept as wanted, for the
 stores to find later.
 
+To keep track of songs you mean to get, right-click a greyed-out track
+(or several picked ones) and pick **Add to Wanted**, or right-click a
+playlist for **Add to Wanted** on every track of it you don't have. With
+a download add-on such as the Soulseek add-on installed, **Add to
+Downloads** sits beside it and searches the add-on for each track.
+
 Each service is signed in to with your own app, so openDJ ships no keys:
 
 - **Spotify**: create an app at developer.spotify.com with the redirect URI
@@ -297,9 +303,16 @@ in to TIDAL or Spotify, openDJ asks the service for its tracks' ISRCs, so
 the match is sure. If a match is wrong, or one is missed, right-click the
 track and pick **Change Match…**.
 
-Placeholders with a page on their service also wait on the **Wanted** list.
-While the stores are off, the Wanted list is under Collection. A track
-leaves the list once your collection has it.
+Placeholders aren't put on the **Wanted** list for you: right-click one
+(or several) for **Add to Wanted** or **Add to Downloads**, or right-click
+the list in the tree to add every placeholder in it.
+
+The Wanted list holds only what you put there: tracks you clicked Buy on,
+tracks left over from **Copy to openDJ**, and tracks you added with **Add
+to Wanted**. While the stores are off, it's under Collection. The search
+box narrows it. A track leaves the list once your collection has it; to
+take tracks off by hand, pick them (⌘A picks all) and right-click for
+**Remove from Wanted**.
 
 ## Bringing in a rekordbox library
 
@@ -350,8 +363,8 @@ it added and leaves the track as it was.
 The collection's tree has three parts:
 
 - **Collection**, with how many tracks you have. Select it for all of
-  them; open it for **Wanted** (tracks you went to buy, or streamed tracks
-  in imported lists you don't have a file for yet) and the stages.
+  them; open it for **Wanted** (tracks you went to buy or added with **Add to
+  Wanted**) and the stages.
 - **Crates**: lists you keep, such as Yoga, Journeys, Dance or a style.
   The **+** beside the heading adds one.
 - **Playlists**: folders of lists, for gigs or anything else. The **+**

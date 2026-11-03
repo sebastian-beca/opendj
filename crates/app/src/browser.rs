@@ -45,6 +45,7 @@ mod streamed;
 mod tag_chips;
 mod track_menu;
 mod usb;
+mod wanted;
 
 pub use filters::DEFAULT_PINNED;
 
@@ -59,7 +60,7 @@ use crate::stores::{self, Stores};
 use crate::waves::Waves;
 use crate::{
     fmt_time, AppWindow, ColumnUi, FilesUi, Folder, HealthUi, KeyNotation, LibraryEdit, SideRow,
-    StoreUi, StreamMatch, TrackDrag, TrackInfo, TrackRow,
+    StoreUi, StreamMatch, TrackDrag, TrackInfo, TrackRow, WantedUi,
 };
 
 /// Sources in the rail that have a tree of their own.
@@ -613,6 +614,9 @@ struct Stream {
     /// Progress or an error to show while signing in, or what copying a
     /// playlist did.
     status: String,
+    /// Playlists whose tracks go on the Wanted list once they come (Add to
+    /// Wanted before they were fetched).
+    wanted_later: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -1047,6 +1051,7 @@ impl Browser {
                     state: StreamState::default(),
                     user: String::new(),
                     status: String::new(),
+                    wanted_later: HashSet::new(),
                 })
                 .collect(),
             store: StoreState {
@@ -1455,6 +1460,7 @@ impl Browser {
         Self::install_files(app, &b);
         Self::install_info(app, &b);
         Self::install_picks(app, &b);
+        Self::install_wanted(app, &b);
         Self::install_filters(app, &b);
         Self::install_columns(app, &b);
         b
@@ -1904,11 +1910,7 @@ impl Browser {
     /// Whether the list shows store rows: the stores' results, or the
     /// wanted list wherever it is.
     fn shows_store_rows(&self) -> bool {
-        is_stores(self.tree)
-            || self
-                .nodes
-                .get(self.current_node)
-                .is_some_and(|n| matches!(n.contents, Contents::Wanted))
+        is_stores(self.tree) || self.shows_wanted()
     }
 
     /// A store row's button: open its page (and remember the track as
@@ -2032,6 +2034,12 @@ impl Browser {
                 }
                 // A streamed track whose file has since come into the
                 // collection some other way isn't wanted any more.
+                // Under Collection, the search box narrows the list.
+                let needle = if self.tree == COLLECTION {
+                    query::fold(&self.search)
+                } else {
+                    String::new()
+                };
                 let have: HashSet<(String, String)> = self
                     .library
                     .iter()
@@ -2049,12 +2057,19 @@ impl Browser {
                             !have.contains(&(artist.clone(), title.clone()))
                                 && !have.contains(&(String::new(), artist + &title))
                         })
+                        .filter(|w| {
+                            needle.is_empty()
+                                || [&w.artist, &w.title, &w.store]
+                                    .iter()
+                                    .any(|t| query::fold(t).contains(&needle))
+                        })
                         .cloned()
                         .map(StoreRow::Wanted),
                 );
-                if rows.is_empty() {
-                    notice =
-                        "Tracks you click Buy on wait here until they arrive in the inbox.".into();
+                if rows.is_empty() && !needle.is_empty() {
+                    notice = "Nothing on the Wanted list matches.".into();
+                } else if rows.is_empty() {
+                    notice = "Tracks you click Buy on, or Add to Wanted on a streaming service, wait here until your collection has them.".into();
                 }
             }
             Some(which @ (Contents::Store(_) | Contents::OtherStores)) => {
@@ -2706,8 +2721,12 @@ impl Browser {
                         st.state.fresh.insert(key.clone());
                         st.state.tracks.insert(key.clone(), tracks);
                         st.keep();
+                        let want = st.wanted_later.remove(&key);
                         if shown && self.current_playlist() == Some(key.as_str()) {
                             self.refresh_rows();
+                        }
+                        if want {
+                            self.want_arrived(i, &key);
                         }
                     }
                     Event::TracksFailed { key, error } => {
@@ -4380,21 +4399,6 @@ impl Browser {
         }
     }
 
-    /// The Spotify tracks in rows `first` to `last`, as "Artist - Title".
-    pub fn spotify_tracks(&self, first: usize, last: usize) -> Vec<String> {
-        if self.tree != SPOTIFY {
-            return Vec::new();
-        }
-        self.chosen_rows(first.min(last), first.max(last))
-            .into_iter()
-            .filter_map(|row| self.stream_track(row))
-            .map(|t| match t.artists.first() {
-                Some(a) => format!("{a} - {}", t.title),
-                None => t.title.clone(),
-            })
-            .collect()
-    }
-
     /// A line under the shown service's playlists, e.g. where downloads went.
     pub fn set_stream_status(&mut self, text: String) {
         if let Some(st) = self.shown_stream_mut() {
@@ -4634,6 +4638,9 @@ impl Browser {
     }
 
     fn refresh_rows(&mut self) {
+        if let Some(app) = self.app.upgrade() {
+            app.global::<WantedUi>().set_shown(self.shows_wanted());
+        }
         if self.shows_store_rows() {
             self.set_close_matches(false);
             self.refresh_store_rows();

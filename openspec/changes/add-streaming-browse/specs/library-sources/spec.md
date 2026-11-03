@@ -30,6 +30,21 @@ Copy to openDJ list SHALL make an openDJ list of a streaming playlist's matched 
 - **WHEN** the DJ copies a Spotify playlist with 3 unmatched tracks
 - **THEN** a list with the matched tracks appears, and the 3 others are on the wanted list
 
+### Requirement: Add to Wanted
+The Wanted list SHALL hold only tracks the DJ put there: Buy on a store result, Copy to openDJ's unmatched tracks, and Add to Wanted. Add to Wanted SHALL be offered on the right-click menu of streaming tracks the collection hasn't got (every picked one), of streaming playlists, and of lists with streamed tracks standing in them (their placeholders); library imports SHALL NOT add tracks to it. With an add-on source that downloads installed, Add to Downloads SHALL sit beside it and search the add-on for each track. Remove from Wanted SHALL take the picked rows of the Wanted list off it.
+
+#### Scenario: Imported history stays off the Wanted list
+- **WHEN** a VirtualDJ import brings in history sessions full of TIDAL tracks without files
+- **THEN** they show as placeholders in the sessions, and the Wanted list doesn't change
+
+#### Scenario: Want a TIDAL playlist
+- **WHEN** the DJ right-clicks a TIDAL playlist of 40 tracks, 25 of them in the collection, and picks Add to Wanted
+- **THEN** the 15 others are on the Wanted list
+
+#### Scenario: Clean up the Wanted list
+- **WHEN** the DJ picks every row of the Wanted list with ⌘A and picks Remove from Wanted
+- **THEN** the Wanted list is empty
+
 ### Requirement: Export to a Spotify playlist
 Export to Spotify Playlist on one of the DJ's lists, crates or history sessions SHALL make a new private Spotify playlist with the list's tracks in the list's order (a history session in the order played), finding each by its Spotify id, then ISRC, then artist, title and length, and SHALL name the tracks Spotify doesn't have.
 
