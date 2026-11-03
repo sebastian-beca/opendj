@@ -1,15 +1,20 @@
 ## MODIFIED Requirements
 
 ### Requirement: Info tab
-The Info tab SHALL follow the selected track or a chosen deck and show its cover, title, artist, tempo, key, length and an editable rating at the top; then editable Genre, the tag fields and Comment; then Track, Artist, Remix, Album, Year, Track # and Grouping. A Details section (BPM, Key, Gain) and a File & stats section (duration, play count, first seen, last played, format, audio, size, file with Show in Finder, folder) SHALL start closed, each heading summing up what is in it, and SHALL open and close from their headings, remembered between runs.
+The Info tab SHALL follow the selected track or a chosen deck and show its cover, title, artist and an editable rating at the top, then three tabs, the one last shown remembered between runs:
+- Track: editable Track, Artist, Remix, Album and Genre, then Year with Track #, BPM with Key, and Gain with the length, two to a line.
+- Tags: the DJ's tag fields, Grouping and Comment.
+- File: format, audio, size, the file with Show in Finder, folder, play count, date added and last played.
+
+Tempo and key SHALL be shown once, on the Track tab, not repeated in the header.
 
 #### Scenario: Edit a title
 - **WHEN** the Track field is changed and confirmed
 - **THEN** the list shows the new title
 
-#### Scenario: Folded details
-- **WHEN** a 126 BPM track in 2A is shown with Details closed
-- **THEN** the Details heading reads "126 BPM · 2A" and the BPM and Key fields are not listed until it is opened
+#### Scenario: File details on their own tab
+- **WHEN** a track is shown on the Track tab
+- **THEN** its bitrate, size and folder are not listed until the File tab is chosen
 
 ## ADDED Requirements
 

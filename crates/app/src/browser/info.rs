@@ -18,7 +18,7 @@ use opendj_library::cleanup::Field;
 
 use super::*;
 use crate::coverart::{self, Event as CoverEvent, Found as FoundCover};
-use crate::{CoverChoice, InfoField, TrackInfo, ValueChoice};
+use crate::{CoverChoice, InfoField, InfoLine, TrackInfo, ValueChoice};
 
 /// The side panel's Info tab.
 pub(super) const INFO_TAB: usize = 3;
@@ -28,21 +28,20 @@ const COVER_SIZE: u32 = 160;
 
 const TEXT: i32 = 0;
 const READ: i32 = 1;
-const HEADING: i32 = 3;
 const READ_WITH_BUTTON: i32 = 4;
 
-/// Where a line of the list goes: always shown, or in a section that
-/// opens from its heading.
-const SHOWN: i32 = 0;
-const DETAILS: i32 = 1;
-const FILE: i32 = 2;
+/// The tabs of the Info tab: the names, the DJ's own tags and comment,
+/// and the file with its stats.
+const TRACK_TAB: i32 = 0;
+const TAGS_TAB: i32 = 1;
+const FILE_TAB: i32 = 2;
 
 pub(super) struct InfoState {
     /// 0 the selected track, 1 deck A, 2 deck B.
     pub(super) subject: i32,
     /// The library's copy of the track shown, and where it is in `library`.
     shown: Option<(usize, Arc<Track>)>,
-    fields: Rc<VecModel<InfoField>>,
+    fields: Rc<VecModel<InfoLine>>,
     /// The cover being read for the track shown, and the generation it is for.
     cover_job: Option<(u64, Receiver<Option<Cover>>)>,
     generation: u64,
@@ -59,9 +58,8 @@ pub(super) struct InfoState {
     shown_position: (bool, i64),
     /// Each deck's gain knob, set when the gain of its track is edited.
     pregain: Vec<ControlHandle>,
-    /// The Details and File & stats sections are open.
-    details_open: bool,
-    file_open: bool,
+    /// The tab shown: Track, Tags or File.
+    tab: i32,
     /// Several tracks picked: where they are in `library`, and the copies
     /// shown. The tab edits them together.
     many: Vec<(usize, Arc<Track>)>,
@@ -88,8 +86,7 @@ impl InfoState {
             pregain: (0..NUM_DECKS)
                 .map(|d| registry.get(&deck_group(d), "pregain").expect("pregain"))
                 .collect(),
-            details_open: crate::settings::flag("info_details_open", false),
-            file_open: crate::settings::flag("info_file_open", false),
+            tab: (crate::settings::number("info_tab", 0.0) as i32).clamp(TRACK_TAB, FILE_TAB),
             many: Vec::new(),
             pending: BTreeMap::new(),
         }
@@ -152,61 +149,30 @@ fn field(id: &str, label: &str, value: impl Into<SharedString>, kind: i32) -> In
         kind,
         hint: SharedString::new(),
         action: SharedString::new(),
-        section: SHOWN,
-        open: false,
+        tab: TRACK_TAB,
+        half: false,
         mixed: 0,
         edited: false,
     }
 }
 
-/// The heading of a section that opens and closes, with a summary of what
-/// is in it for while it's closed.
-fn heading(id: &str, label: &str, summary: String) -> InfoField {
-    field(id, label, summary, HEADING)
+/// `f` on tab `tab`.
+fn on(tab: i32, f: InfoField) -> InfoField {
+    InfoField { tab, ..f }
 }
 
-/// `f` in section `section`.
-fn within(section: i32, f: InfoField) -> InfoField {
-    InfoField { section, ..f }
+/// `f` sharing its line with the field next to it.
+fn half(f: InfoField) -> InfoField {
+    InfoField { half: true, ..f }
 }
 
-/// The info list for `t`: what a DJ edits while preparing tracks first
-/// (genre, their own tag fields, the comment), then the names; then the
-/// Details (tempo, key, gain) and File & stats sections, which open from
-/// their headings. The rating is in the panel's header.
+/// The info list for `t`, on three tabs: Track (the names, then genre,
+/// year and track number, tempo and key, gain), Tags (the DJ's tag fields,
+/// grouping and comment) and File (format, size, where it is, plays).
+/// Short fields share a line. The rating is in the panel's header.
 fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
     let names = query::field_names();
     let text = |id: &str, label: &str, value: &str| field(id, label, value, TEXT);
-    let mut out = vec![text("genre", "GENRE", &t.genre)];
-    // The DJ's tag fields, by the names they gave them.
-    for (i, name) in names.tags.iter().enumerate() {
-        out.push(InfoField {
-            hint: "words, with spaces between".into(),
-            ..text(
-                &format!("tag{}", i + 1),
-                &name.to_uppercase(),
-                t.info.user_tag(i),
-            )
-        });
-    }
-    out.extend([
-        text("comment", "COMMENT", &t.info.comment),
-        text("title", "TRACK", &t.title),
-        text("artist", "ARTIST", &t.artist),
-        text("remix", "REMIX", &t.info.remix),
-        text("album", "ALBUM", &t.album),
-        text("year", "YEAR", &t.info.year),
-        text(
-            "track_number",
-            "TRACK #",
-            &if t.info.track_number > 0 {
-                t.info.track_number.to_string()
-            } else {
-                String::new()
-            },
-        ),
-        text("grouping", &names.grouping.to_uppercase(), &t.info.grouping),
-    ]);
     let bpm = if t.bpm > 0.0 {
         format!("{:.2}", t.bpm)
             .trim_end_matches('0')
@@ -215,48 +181,55 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
     } else {
         String::new()
     };
-    let key = show_key(&t.key, camelot);
-    let gain = gain_text(t.info.gain_db);
-    let summary = [
-        (!bpm.is_empty()).then(|| format!("{bpm} BPM")),
-        (!key.is_empty()).then(|| key.clone()),
-        (!gain.is_empty()).then(|| gain.clone()),
+    let mut out = vec![
+        text("title", "TRACK", &t.title),
+        text("artist", "ARTIST", &t.artist),
+        text("remix", "REMIX", &t.info.remix),
+        text("album", "ALBUM", &t.album),
+        text("genre", "GENRE", &t.genre),
+        half(text("year", "YEAR", &t.info.year)),
+        half(text(
+            "track_number",
+            "TRACK #",
+            &if t.info.track_number > 0 {
+                t.info.track_number.to_string()
+            } else {
+                String::new()
+            },
+        )),
+        half(text("bpm", "BPM", &bpm)),
+        half(InfoField {
+            hint: "8A or Am".into(),
+            ..text("key", "KEY", &show_key(&t.key, camelot))
+        }),
+        half(InfoField {
+            hint: "0.0 dB".into(),
+            ..text("gain", "GAIN", &gain_text(t.info.gain_db))
+        }),
+        half(field("", "TIME", short_time(t.duration), READ)),
     ];
-    out.push(heading(
-        "details",
-        "DETAILS",
-        summary
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · "),
-    ));
+    // The DJ's tag fields, by the names they gave them.
+    for (i, name) in names.tags.iter().enumerate() {
+        out.push(on(
+            TAGS_TAB,
+            InfoField {
+                hint: "words, with spaces between".into(),
+                ..text(
+                    &format!("tag{}", i + 1),
+                    &name.to_uppercase(),
+                    t.info.user_tag(i),
+                )
+            },
+        ));
+    }
     out.extend(
         [
-            text("bpm", "BPM", &bpm),
-            InfoField {
-                hint: "e.g. 8A or Am".into(),
-                ..text("key", "KEY", &key)
-            },
-            InfoField {
-                hint: "0.0 dB".into(),
-                ..text("gain", "GAIN", &gain)
-            },
+            text("grouping", &names.grouping.to_uppercase(), &t.info.grouping),
+            text("comment", "COMMENT", &t.info.comment),
         ]
-        .map(|f| within(DETAILS, f)),
+        .map(|f| on(TAGS_TAB, f)),
     );
-    let mut file = vec![
-        field("", "DURATION", short_time(t.duration), READ),
-        field("", "PLAY COUNT", t.info.play_count.to_string(), READ),
-        field("", "FIRST SEEN", date_text(t.info.added), READ),
-        field(
-            "",
-            "LAST PLAYED",
-            t.info.last_played.map(date_text).unwrap_or_default(),
-            READ,
-        ),
-    ];
-    let mut summary = Vec::new();
+    let mut file = Vec::new();
     if let Source::File(path) = &t.source {
         let f = if t.info.missing || is_cloud_only(path) {
             tags::FileInfo::default()
@@ -267,9 +240,6 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
             Some(b) if !f.format.is_empty() => format!("{} · {b} kbps", f.format),
             _ => f.format.clone(),
         };
-        if !format.is_empty() {
-            summary.push(format.clone());
-        }
         file.push(field("", "FORMAT", format, READ));
         let mut audio = Vec::new();
         if let Some(r) = f.sample_rate {
@@ -286,16 +256,12 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
         }
         file.push(field("", "AUDIO", audio.join(" · "), READ));
         if f.size > 0 {
-            summary.push(size_text(f.size));
             file.push(field("", "SIZE", size_text(f.size), READ));
         }
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        if t.info.missing {
-            summary.push("missing".into());
-        }
         file.push(InfoField {
             action: format!("Show in {file_manager}").into(),
             ..field(
@@ -315,48 +281,66 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
             .unwrap_or_default();
         file.push(field("", "FOLDER", folder, READ));
     }
-    match t.info.play_count {
-        0 => summary.push("not played".into()),
-        1 => summary.push("played once".into()),
-        n => summary.push(format!("played {n}×")),
-    }
-    out.push(heading("file", "FILE & STATS", summary.join(" · ")));
-    out.extend(file.into_iter().map(|f| within(FILE, f)));
+    file.extend([
+        half(field("", "PLAYS", t.info.play_count.to_string(), READ)),
+        half(field("", "ADDED", date_text(t.info.added), READ)),
+        field(
+            "",
+            "LAST PLAYED",
+            t.info.last_played.map(date_text).unwrap_or_default(),
+            READ,
+        ),
+    ]);
+    out.extend(file.into_iter().map(|f| on(FILE_TAB, f)));
     out
 }
 
-/// `fields` without the lines of closed sections, each heading marked
-/// open or not.
-fn shown_fields(fields: Vec<InfoField>, details: bool, file: bool) -> Vec<InfoField> {
-    fields
-        .into_iter()
-        .filter(|f| match f.section {
-            DETAILS => details,
-            FILE => file,
-            _ => true,
-        })
-        .map(|f| match f.id.as_str() {
-            "details" if f.kind == HEADING => InfoField { open: details, ..f },
-            "file" if f.kind == HEADING => InfoField { open: file, ..f },
-            _ => f,
-        })
-        .collect()
+/// The fields of tab `tab`.
+fn shown_fields(fields: Vec<InfoField>, tab: i32) -> Vec<InfoField> {
+    fields.into_iter().filter(|f| f.tab == tab).collect()
+}
+
+/// The lines of the list: a short field and the one after it share a
+/// line.
+fn lines(fields: Vec<InfoField>) -> Vec<InfoLine> {
+    let mut out = Vec::new();
+    let mut fields = fields.into_iter().peekable();
+    while let Some(a) = fields.next() {
+        let b = if a.half && fields.peek().is_some_and(|b| b.half) {
+            fields.next()
+        } else {
+            None
+        };
+        out.push(InfoLine {
+            two: b.is_some(),
+            a,
+            b: b.unwrap_or_else(|| field("", "", "", READ)),
+        });
+    }
+    out
+}
+
+/// Which tab field `f` is on.
+fn tab_of(f: Field) -> i32 {
+    match f {
+        Field::Tag(_) | Field::Grouping | Field::Comment => TAGS_TAB,
+        _ => TRACK_TAB,
+    }
 }
 
 /// The fields several tracks can be given together, in the order of the
 /// list for one track.
 fn shared_fields(tags: usize) -> Vec<Field> {
-    let mut out = vec![Field::Genre];
-    out.extend((0..tags.min(u8::MAX as usize)).map(|i| Field::Tag(i as u8)));
-    out.extend([
-        Field::Comment,
+    let mut out = vec![
         Field::Title,
         Field::Artist,
         Field::Remix,
         Field::Album,
+        Field::Genre,
         Field::Year,
-        Field::Grouping,
-    ]);
+    ];
+    out.extend((0..tags.min(u8::MAX as usize)).map(|i| Field::Tag(i as u8)));
+    out.extend([Field::Grouping, Field::Comment]);
     out
 }
 
@@ -426,7 +410,7 @@ fn keys_summary(keys: &[String]) -> String {
 
 /// The info list for several tracks: each field they can be given
 /// together shows their shared value, how many values they have, or what
-/// was typed for them all; Details and File & stats sum them up.
+/// was typed for them all; tempo, key and the files are summed up.
 fn many_fields(
     tracks: &[&Track],
     pending: &BTreeMap<String, String>,
@@ -444,7 +428,7 @@ fn many_fields(
             other => other.label().to_uppercase(),
         };
         let values = values_of(tracks, f);
-        let mut line = field(&id, &label, "", TEXT);
+        let mut line = on(tab_of(f), field(&id, &label, "", TEXT));
         if let Some(v) = pending.get(&id) {
             line.value = v.into();
             line.edited = true;
@@ -459,25 +443,38 @@ fn many_fields(
         }
         out.push(line);
     }
-    let bpm = bpm_range(tracks);
-    let keys = keys_of(tracks, camelot);
-    let summary: Vec<String> = [
-        (!bpm.is_empty()).then(|| format!("{bpm} BPM")),
-        (!keys.is_empty()).then(|| keys_summary(&keys)),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    out.push(heading("details", "DETAILS", summary.join(" · ")));
-    out.push(within(DETAILS, field("", "BPM", bpm, READ)));
-    out.push(within(DETAILS, field("", "KEY", keys.join(" "), READ)));
+    // Tempo and key can't be given to several tracks: their range shows.
+    let at = out
+        .iter()
+        .position(|f| f.tab != TRACK_TAB)
+        .unwrap_or(out.len());
+    out.splice(
+        at..at,
+        [
+            half(field("", "BPM", bpm_range(tracks), READ)),
+            half(field(
+                "",
+                "KEY",
+                keys_summary(&keys_of(tracks, camelot)),
+                READ,
+            )),
+        ],
+    );
     let n = tracks.len();
-    let mut file = format!("{n} {}", if n == 1 { "file" } else { "files" });
     let only_here = n.saturating_sub(writable_files);
-    if only_here > 0 {
-        file += &format!(" · {only_here} only in your collection");
-    }
-    out.push(heading("file", "FILE & STATS", file));
+    out.extend(
+        [
+            field("", "FILES", n.to_string(), READ),
+            field("", "ONLY IN COLLECTION", only_here.to_string(), READ),
+            field(
+                "",
+                "TIME",
+                short_time(tracks.iter().map(|t| t.duration).sum()),
+                READ,
+            ),
+        ]
+        .map(|f| on(FILE_TAB, f)),
+    );
     out
 }
 
@@ -612,19 +609,10 @@ impl Browser {
         let w = with.clone();
         ui.on_apply(move || w(&|b| b.apply_many()));
         let w = with.clone();
-        ui.on_toggle_section(move |id| {
+        ui.on_set_tab(move |tab| {
             w(&|b| {
-                match id.as_str() {
-                    "details" => {
-                        b.info.details_open = !b.info.details_open;
-                        crate::settings::set("info_details_open", b.info.details_open.into());
-                    }
-                    "file" => {
-                        b.info.file_open = !b.info.file_open;
-                        crate::settings::set("info_file_open", b.info.file_open.into());
-                    }
-                    _ => return,
-                }
+                b.info.tab = tab.clamp(TRACK_TAB, FILE_TAB);
+                crate::settings::set("info_tab", b.info.tab.into());
                 if let Some(app) = b.app.upgrade() {
                     b.refresh_info(&app);
                 }
@@ -783,6 +771,16 @@ impl Browser {
     pub(super) fn refresh_info(&mut self, app: &AppWindow) {
         let ui = app.global::<TrackInfo>();
         ui.set_subject(self.info.subject);
+        ui.set_tab(self.info.tab);
+        let edited: Vec<bool> = (TRACK_TAB..=FILE_TAB)
+            .map(|tab| {
+                self.info
+                    .pending
+                    .keys()
+                    .any(|id| Field::from_name(id).is_some_and(|f| tab_of(f) == tab))
+            })
+            .collect();
+        ui.set_tab_edited(ModelRc::new(VecModel::from(edited)));
         ui.set_many(self.info.many.len() as i32);
         ui.set_pending(self.info.pending.len() as i32);
         if !self.info.many.is_empty() {
@@ -798,18 +796,10 @@ impl Browser {
         ui.set_editable(writable(t).is_some() || opendj_library::row_id(t.id).is_some());
         ui.set_title(t.title.clone().into());
         ui.set_artist(t.artist.clone().into());
-        ui.set_bpm(if t.bpm > 0.0 {
-            format!("{:.0}", t.bpm).into()
-        } else {
-            SharedString::new()
-        });
-        ui.set_key(show_key(&t.key, self.camelot).into());
-        ui.set_length(short_time(t.duration));
         ui.set_rating(t.rating as i32);
         let fields = shown_fields(
             fields_of(t, self.camelot, files::file_manager()),
-            self.info.details_open,
-            self.info.file_open,
+            self.info.tab,
         );
         self.show_info_fields(fields);
     }
@@ -817,6 +807,7 @@ impl Browser {
     /// Puts `fields` in the list, changing rows in place so a field being
     /// typed in keeps its focus.
     fn show_info_fields(&self, fields: Vec<InfoField>) {
+        let fields = lines(fields);
         let model = &self.info.fields;
         if model.row_count() == fields.len() {
             for (i, f) in fields.into_iter().enumerate() {
@@ -915,9 +906,6 @@ impl Browser {
         );
         ui.set_title(format!("{} tracks", tracks.len()).into());
         ui.set_artist(names_summary(tracks.iter().map(|t| t.artist.as_str())).into());
-        ui.set_bpm(bpm_range(&tracks).into());
-        ui.set_key(keys_summary(&keys_of(&tracks, self.camelot)).into());
-        ui.set_length(short_time(tracks.iter().map(|t| t.duration).sum()));
         let ratings: HashSet<u8> = tracks.iter().map(|t| t.rating).collect();
         ui.set_rating(if ratings.len() == 1 {
             tracks[0].rating as i32
@@ -926,8 +914,7 @@ impl Browser {
         });
         let fields = shown_fields(
             many_fields(&tracks, &self.info.pending, self.camelot, writable_files),
-            self.info.details_open,
-            false,
+            self.info.tab,
         );
         self.show_info_fields(fields);
     }
@@ -1240,41 +1227,51 @@ mod tests {
     }
 
     #[test]
-    fn lists_the_fields_in_order() {
+    fn lists_the_fields_by_tab() {
         let mut t = track();
         t.info.gain_db = Some(-1.5);
         t.info.play_count = 3;
         let f = fields_of(&t, true, "Finder");
-        let labels: Vec<&str> = f.iter().map(|f| f.label.as_str()).collect();
+        let labels = |tab: i32| -> Vec<String> {
+            shown_fields(f.clone(), tab)
+                .iter()
+                .map(|f| f.label.to_string())
+                .collect()
+        };
         assert_eq!(
-            &labels[..15],
+            labels(TRACK_TAB),
             [
-                "GENRE", "TAG 1", "TAG 2", "COMMENT", "TRACK", "ARTIST", "REMIX", "ALBUM", "YEAR",
-                "TRACK #", "GROUPING", "DETAILS", "BPM", "KEY", "GAIN"
+                "TRACK", "ARTIST", "REMIX", "ALBUM", "GENRE", "YEAR", "TRACK #", "BPM", "KEY",
+                "GAIN", "TIME"
             ]
         );
-        assert_eq!(
-            f[11].value, "100 BPM · 10B · -1.5 dB",
-            "the closed Details say what's in them"
+        assert!(
+            labels(TAGS_TAB)[0].starts_with("TAG"),
+            "the DJ's tags first"
         );
-        assert_eq!(f[12].value, "100");
-        assert_eq!(f[14].value, "-1.5 dB");
-        assert!(labels.contains(&"PLAY COUNT"));
-        let stats = f.iter().find(|f| f.id == "file").unwrap();
-        assert_eq!(stats.value, "played 3×");
+        assert!(labels(TAGS_TAB).ends_with(&["GROUPING".to_string(), "COMMENT".to_string()]));
+        assert!(labels(FILE_TAB).contains(&"PLAYS".to_string()));
+        let line = |label: &str| f.iter().find(|f| f.label == label).unwrap();
+        assert_eq!(line("BPM").value, "100");
+        assert_eq!(line("GAIN").value, "-1.5 dB");
+        assert_eq!(line("PLAYS").value, "3");
     }
 
     #[test]
-    fn closed_sections_keep_only_their_headings() {
+    fn short_fields_share_a_line() {
         let t = track();
-        let shown = shown_fields(fields_of(&t, true, "Finder"), false, false);
-        let labels: Vec<&str> = shown.iter().map(|f| f.label.as_str()).collect();
-        assert!(labels.contains(&"DETAILS") && labels.contains(&"FILE & STATS"));
-        assert!(!labels.contains(&"BPM") && !labels.contains(&"PLAY COUNT"));
-        let shown = shown_fields(fields_of(&t, true, "Finder"), true, false);
-        assert!(shown.iter().any(|f| f.label == "BPM"));
-        assert!(shown.iter().any(|f| f.id == "details" && f.open));
-        assert!(!shown.iter().any(|f| f.label == "PLAY COUNT"));
+        let l = lines(shown_fields(fields_of(&t, true, "Finder"), TRACK_TAB));
+        let pairs: Vec<(String, String)> = l
+            .iter()
+            .filter(|l| l.two)
+            .map(|l| (l.a.label.to_string(), l.b.label.to_string()))
+            .collect();
+        assert_eq!(
+            pairs,
+            [("YEAR", "TRACK #"), ("BPM", "KEY"), ("GAIN", "TIME")]
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+        );
+        assert_eq!(l.len(), 8, "five long lines and three shared");
     }
 
     #[test]
@@ -1312,8 +1309,16 @@ mod tests {
         assert_eq!(line("album").value, "Portraits", "shared by all");
         assert!(line("year").edited);
         assert_eq!(line("year").value, "2016");
-        assert_eq!(line("details").value, "100–124 BPM · 2 keys");
-        assert_eq!(line("file").value, "3 files · 2 only in your collection");
+        let label = |l: &str| f.iter().find(|f| f.label == l).unwrap();
+        assert_eq!(label("BPM").value, "100–124");
+        assert_eq!(label("KEY").value, "2 keys");
+        assert_eq!(label("ONLY IN COLLECTION").value, "2");
+        assert_eq!(line("comment").tab, TAGS_TAB);
+        assert_eq!(
+            shown_fields(f.clone(), TRACK_TAB).len(),
+            8,
+            "six names, then BPM and key"
+        );
     }
 
     #[test]

@@ -387,17 +387,23 @@ refreshed list keeps the same tracks picked.
 
 The **Info** tab on the right of the browser shows the picked track (or
 the track on a deck) and lets you edit it in place. The rating is under the
-title. The fields you change most while preparing tracks come first: genre,
-your own tag fields and the comment, then the names. **Details** (tempo, key,
-gain) and **File & stats** (format, size, file, folder, plays) stay folded,
-with a one-line summary; click a heading to open it, and openDJ remembers.
-Tags go into the file as well as your collection.
+title. Below, three tabs keep everything in view without scrolling:
+
+- **Track**: track, artist, remix, album and genre, then year and track
+  number, BPM and key, gain and time, two to a line.
+- **Tags**: your own tag fields, grouping and the comment.
+- **File**: format, audio, size, the file (with Show in Finder), its folder,
+  plays, when it was added and last played.
+
+openDJ remembers the tab you were on. Tags go into the file as well as your
+collection.
 
 Pick several tracks and **Info** edits them together. A field they share
 shows its value; one that differs says how many values it has. Type a value
 to give it to them all, or click **▾** to pick one of the values they have
 (with how many tracks have it), keep each track's own, or clear it in all.
-Changed fields are marked in lilac and wait for **Apply** (or **Discard**).
+Changed fields are marked in lilac (a tab with changes gets a dot) and wait
+for **Apply** (or **Discard**).
 Apply writes them to your collection and the files' tags in one go, and
 ⌘Z takes the whole change back. Fields you typed this way are left alone by
 Clean up and Look up online. The stars set the rating of every picked track

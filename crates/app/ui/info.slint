@@ -10,19 +10,26 @@ export struct InfoField {
     label: string,
     value: string,
     // 0 text to edit, 1 text to read, 2 rating (value "0" to "5"),
-    // 3 a section heading, 4 text to read with a button (`action`).
+    // 4 text to read with a button (`action`).
     kind: int,
     // Shown greyed in an empty field.
     hint: string,
     action: string,
-    // 0 always shown, 1 in Details, 2 in File & stats.
-    section: int,
-    // A section heading whose section is open.
-    open: bool,
+    // The tab it is on: 0 Track, 1 Tags, 2 File.
+    tab: int,
+    // Short: it shares a line with the field next to it.
+    half: bool,
     // With several tracks shown: how many values they have here (0 when
     // they share one), and whether a change waits for Apply.
     mixed: int,
     edited: bool,
+}
+
+// A line of the info list: one field, or two short ones side by side.
+export struct InfoLine {
+    a: InfoField,
+    b: InfoField,
+    two: bool,
 }
 
 // A value several tracks have in a field, and how many have it.
@@ -45,12 +52,15 @@ export global TrackInfo {
     in property <bool> editable;
     in property <string> title;
     in property <string> artist;
-    in property <string> bpm;
-    in property <string> key;
-    in property <string> length;
     in property <image> cover;
     in property <bool> has-cover;
-    in property <[InfoField]> fields;
+    // The lines of the tab shown.
+    in property <[InfoLine]> fields;
+    // The tab shown (0 Track, 1 Tags, 2 File), and the tabs with changes
+    // waiting for Apply.
+    in property <int> tab;
+    in property <[bool]> tab-edited;
+    callback set-tab(tab: int);
     // The rating, shown under the title.
     in property <int> rating;
     // Several tracks shown (how many; 0 for one): fields edit them all,
@@ -64,8 +74,6 @@ export global TrackInfo {
     in property <[ValueChoice]> choices;
     // Takes back what was typed in field `id`, so each track keeps its own.
     callback keep(id: string);
-    // Opens or closes the section under the heading `id` ("details", "file").
-    callback toggle-section(id: string);
     // What the panel shows: 0 the track selected in the list, 1 deck A, 2 deck B.
     in-out property <int> subject;
     callback set-subject(subject: int);
@@ -149,7 +157,7 @@ component EditLine inherits Rectangle {
     in property <string> hint;
     in property <bool> enabled: true;
     callback commit(text: string);
-    height: 26px;
+    height: 22px;
     border-radius: 4px;
     background: input.has-focus ? Theme.well : hover.has-hover && enabled ? #ffffff0c : transparent;
     border-width: input.has-focus ? 1px : 0px;
@@ -202,7 +210,7 @@ component Stars inherits HorizontalLayout {
     property <int> hovered: -1;
     for i in 5: Rectangle {
         width: 20px;
-        height: 26px;
+        height: 22px;
         property <bool> lit: hovered >= 0 ? i <= hovered : i < rating;
         Text {
             text: lit ? "★" : "☆";
@@ -250,56 +258,16 @@ component ValueLine inherits Rectangle {
     ta := TouchArea { clicked => { root.clicked(); } }
 }
 
-component InfoRow inherits Rectangle {
+// One field: its label and its value.
+component InfoCell inherits Rectangle {
     in property <InfoField> field;
     in property <bool> editable;
-    min-height: field.kind == 3 ? 34px : 30px;
-    // A section heading: click to open or close it; closed, it says
-    // what's in it.
-    if field.kind == 3: Rectangle {
-        y: 4px;
-        height: parent.height - 4px;
-        border-radius: 4px;
-        background: head.has-hover && field.id != "" ? #ffffff0a : transparent;
-        HorizontalLayout {
-            padding-left: 4px;
-            padding-right: 6px;
-            spacing: 6px;
-            if field.id != "": Text {
-                width: 10px;
-                text: field.open ? "▾" : "▸";
-                color: Theme.text-dim;
-                font-size: 11px;
-                vertical-alignment: center;
-            }
-            Text {
-                text: field.label;
-                color: Theme.text-dim;
-                font-size: 10px;
-                font-weight: 700;
-                letter-spacing: 0.6px;
-                vertical-alignment: center;
-            }
-            Text {
-                horizontal-stretch: 1;
-                text: field.open ? "" : field.value;
-                color: Theme.text-dim;
-                font-size: 12px;
-                horizontal-alignment: right;
-                vertical-alignment: center;
-                overflow: elide;
-            }
-        }
-        head := TouchArea {
-            enabled: field.id != "";
-            mouse-cursor: pointer;
-            clicked => { TrackInfo.toggle-section(field.id); }
-        }
-    }
-    if field.kind != 3: HorizontalLayout {
+    in property <length> label-width: 86px;
+    min-height: 24px;
+    HorizontalLayout {
         spacing: 6px;
         Text {
-            width: 86px;
+            width: root.label-width;
             // A change waiting for Apply is marked in lilac.
             text: (field.edited ? "● " : "") + field.label;
             color: field.edited ? Theme.accent : Theme.label;
@@ -311,7 +279,7 @@ component InfoRow inherits Rectangle {
         }
         if field.kind == 0: EditLine {
             horizontal-stretch: 1;
-            y: 2px;
+            y: 1px;
             value: field.value;
             hint: field.hint;
             enabled: editable;
@@ -390,6 +358,25 @@ component InfoRow inherits Rectangle {
             enabled: editable;
             rate(n) => { TrackInfo.edit(field.id, n); }
         }
+    }
+}
+
+// A line of the list: one field, or two short ones side by side, the
+// second with a label just wide enough.
+component InfoRow inherits HorizontalLayout {
+    in property <InfoLine> line;
+    in property <bool> editable;
+    spacing: 10px;
+    InfoCell {
+        width: line.two ? (root.width - root.spacing) / 2 : root.width;
+        field: line.a;
+        editable: root.editable;
+    }
+    if line.two: InfoCell {
+        width: (root.width - root.spacing) / 2;
+        field: line.b;
+        editable: root.editable;
+        label-width: 52px;
     }
 }
 
@@ -680,29 +667,47 @@ export component InfoPanel inherits Rectangle {
             }
             VerticalLayout {
                 alignment: center;
-                spacing: 6px;
+                spacing: 4px;
                 Text { text: TrackInfo.title; color: Theme.text; font-size: 16px; font-weight: 600; overflow: elide; }
                 Text { text: TrackInfo.artist; color: Theme.text-dim; font-size: 13px; overflow: elide; }
-                HorizontalLayout {
-                    spacing: 14px;
-                    Text { text: TrackInfo.bpm == "" ? "" : TrackInfo.bpm + " BPM"; color: Theme.text-dim; font-size: 13px; }
-                    Text { text: TrackInfo.key; color: Theme.key; font-size: 13px; font-weight: 600; }
-                    Text { text: TrackInfo.length; color: Theme.text-dim; font-size: 13px; horizontal-stretch: 1; }
+                // The rating, first thing to set while preparing a track.
+                Stars {
+                    rating: TrackInfo.rating;
+                    enabled: TrackInfo.editable;
+                    rate(n) => { TrackInfo.edit("rating", n); }
                 }
             }
         }
-        // The rating, first thing to set while preparing a track.
-        if TrackInfo.has-track: HorizontalLayout {
-            height: 26px;
-            padding-left: 84px;
-            Stars {
-                rating: TrackInfo.rating;
-                enabled: TrackInfo.editable;
-                rate(n) => { TrackInfo.edit("rating", n); }
+        if TrackInfo.has-track && TrackInfo.many == 0: PreviewBar { }
+        // The tabs: the names, the DJ's tags, the file.
+        if TrackInfo.has-track: Rectangle {
+            height: 28px;
+            HorizontalLayout {
+                for name[i] in ["Track", "Tags", "File"]: Rectangle {
+                    horizontal-stretch: 1;
+                    property <bool> on: i == TrackInfo.tab;
+                    background: tab-ta.has-hover && !on ? #ffffff08 : transparent;
+                    Text {
+                        // A change waiting for Apply on a tab not shown.
+                        text: (TrackInfo.tab-edited[i] ? "● " : "") + name;
+                        color: on ? Theme.accent : tab-ta.has-hover || TrackInfo.tab-edited[i] ? Theme.text : Theme.text-dim;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+                    Rectangle {
+                        y: parent.height - self.height;
+                        height: 2px;
+                        background: on ? Theme.accent : transparent;
+                    }
+                    tab-ta := TouchArea { clicked => { TrackInfo.set-tab(i); } }
+                }
+            }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.separator;
             }
         }
-        if TrackInfo.has-track && TrackInfo.many == 0: PreviewBar { }
-        if TrackInfo.has-track: EdgeLine { left: 0px; right: 0px; }
         if TrackInfo.has-track: Rectangle {
             vertical-stretch: 1;
             list := Flickable {
@@ -712,8 +717,9 @@ export component InfoPanel inherits Rectangle {
                 rows := VerticalLayout {
                     width: parent.width;
                     padding-bottom: 12px;
+                    spacing: 2px;
                     alignment: start;
-                    for f in TrackInfo.fields: InfoRow { field: f; editable: TrackInfo.editable; }
+                    for l in TrackInfo.fields: InfoRow { line: l; editable: TrackInfo.editable; }
                     if TrackInfo.status != "": Text {
                         text: TrackInfo.status;
                         color: TrackInfo.status-ok ? Theme.text-dim : Theme.danger;

@@ -8,7 +8,7 @@
 
 ## 2. Info tab edits many
 
-- [x] 2.0 Info tab layout: rating at the top, prep fields first, Details and File & stats folded with summaries
+- [x] 2.0 Info tab layout: rating under the title, Track / Tags / File tabs, short fields two to a line
 
 - [x] 2.1 Summary header (count, covers, BPM range, keys, time, writable files)
 - [x] 2.2 Shared values shown, differing ones as "N values" with the values menu
