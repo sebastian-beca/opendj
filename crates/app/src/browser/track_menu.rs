@@ -82,6 +82,12 @@ impl Browser {
         let w = with.clone();
         edit.on_find_lists(move |text| w(&|b| b.find_menu_lists(&text)));
         let w = with.clone();
+        edit.on_find_tags(move |text| w(&|b| b.find_menu_tags(&text)));
+        let w = with.clone();
+        edit.on_add_tag(move |first, last, id, tag| {
+            w(&|b| b.add_tag_to_rows(first.max(0) as usize, last.max(0) as usize, &id, &tag))
+        });
+        let w = with.clone();
         edit.on_lists_with(move |row| w(&|b| b.menu_lists_with(row as usize)));
         let w = with.clone();
         edit.on_show_list(move |list| w(&|b| b.show_menu_list(list as usize)));

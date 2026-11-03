@@ -176,6 +176,14 @@ export struct MenuListRow {
 }
 
 // Editing the library: lists and folders, and ratings.
+// A tag the track menu's Add Tag offers: the tag, the tag field it goes
+// in (its id, "tag1", and the name the DJ gave it).
+export struct MenuTag {
+    tag: string,
+    id: string,
+    field: string,
+}
+
 export global LibraryEdit {
     // The DJ has lists a track can be added to.
     in property <bool> has-lists;
@@ -183,6 +191,12 @@ export global LibraryEdit {
     // (most recently added to first) or `lists-with` (the lists a track is in).
     in property <[MenuListRow]> list-picks;
     callback find-lists(text: string);
+    // The tags Add Tag offers: added lately, then most used; those that
+    // match `find-tags`.
+    in property <[MenuTag]> tag-picks;
+    callback find-tags(text: string);
+    // Puts tag `tag` in tag field `id` of the rows `first` to `last`.
+    callback add-tag(first: int, last: int, id: string, tag: string);
     callback lists-with(row: int);
     // Shows the menu's list `list` (a `MenuListRow.index`) in the tree.
     callback show-list(list: int);
@@ -857,6 +871,86 @@ component ListPanel inherits Rectangle {
     }
 }
 
+// The track menu's Add Tag panel: tags added lately and the collection's
+// most used, a box to find one or type a new one.
+component TagPanel inherits Rectangle {
+    in property <int> track-row;
+    in property <int> track-last;
+    property <string> find;
+    callback done();
+    init => {
+        LibraryEdit.find-tags("");
+        find-edit.focus();
+    }
+    MenuBackground {}
+    VerticalLayout {
+        padding: 6px;
+        spacing: 2px;
+        Rectangle {
+            height: 32px;
+            border-radius: 4px;
+            background: #2c2c30;
+            MenuIcon { x: 9px; icon: "search"; color: Theme.text-dim; }
+            find-edit := TextInput {
+                x: 32px;
+                width: parent.width - 40px;
+                height: parent.height;
+                text <=> root.find;
+                color: Theme.text;
+                font-size: 13px;
+                vertical-alignment: center;
+                single-line: true;
+                edited => { LibraryEdit.find-tags(self.text); }
+                accepted => {
+                    if LibraryEdit.tag-picks.length > 0 {
+                        LibraryEdit.add-tag(track-row, track-last, LibraryEdit.tag-picks[0].id, LibraryEdit.tag-picks[0].tag);
+                    } else if self.text != "" {
+                        LibraryEdit.add-tag(track-row, track-last, "tag1", self.text);
+                    }
+                    root.done();
+                }
+            }
+            if root.find == "": Text {
+                x: 32px;
+                text: "Find or type a tag";
+                color: Theme.text-dim;
+                font-size: 13px;
+                vertical-alignment: center;
+            }
+        }
+        if root.find != "": MenuLine {
+            icon: "plus";
+            text: "New tag “" + root.find + "”";
+            clicked => {
+                LibraryEdit.add-tag(track-row, track-last, "tag1", root.find);
+                root.done();
+            }
+        }
+        if LibraryEdit.tag-picks.length == 0 && root.find == "": Text {
+            x: 10px;
+            height: 26px;
+            text: "No tags yet. Type one to add it.";
+            color: Theme.text-dim;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+        if LibraryEdit.tag-picks.length > 0: ScrollView {
+            height: min(LibraryEdit.tag-picks.length * 28px, 10 * 28px);
+            VerticalLayout {
+                spacing: 2px;
+                for t in LibraryEdit.tag-picks: MenuLine {
+                    text: t.tag;
+                    hint: t.field;
+                    clicked => {
+                        LibraryEdit.add-tag(track-row, track-last, t.id, t.tag);
+                        root.done();
+                    }
+                }
+            }
+        }
+    }
+}
+
 // Right-click menu on a track, in sections by how often they're wanted:
 // the rating; playing and lists; going to the artist, album, lists and
 // info; the stages; analysis; then the file. Adding to a list opens a
@@ -873,7 +967,8 @@ component TrackMenu inherits PopupWindow {
     in property <bool> streamed;
     // The side panel opens on the left, as the menu is near the right edge.
     in property <bool> panel-left;
-    // The side panel shown: 0 none, 1 add to a list, 2 the lists it's in.
+    // The side panel shown: 0 none, 1 add to a list, 2 the lists it's in,
+    // 3 add a tag.
     property <int> panel;
     property <string> find;
     property <bool> one: count <= 1;
@@ -912,6 +1007,15 @@ component TrackMenu inherits PopupWindow {
         track-row: track-row;
         track-last: track-last;
         find <=> root.find;
+        done => { root.close(); }
+    }
+    if panel == 3: TagPanel {
+        x: panel-left ? 0px : menu-width + 6px;
+        y: max(4px, min(menu-y, root.height - self.preferred-height - 4px));
+        width: panel-width;
+        height: self.preferred-height;
+        track-row: track-row;
+        track-last: track-last;
         done => { root.close(); }
     }
     if panel == 2: ListPanel {
@@ -991,6 +1095,14 @@ component TrackMenu inherits PopupWindow {
                 open: panel == 1;
                 entered => { open-panel(1); }
                 clicked => { open-panel(1); }
+            }
+            if StoreUi.source == 0: MenuLine {
+                icon: "plus";
+                text: one ? "Add Tag" : "Add Tag to " + count + " Tracks";
+                submenu: true;
+                open: panel == 3;
+                entered => { panel = 3; }
+                clicked => { panel = 3; }
             }
             if !LibraryEdit.has-lists && StoreUi.source == 0: MenuLine {
                 icon: "plus";

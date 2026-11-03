@@ -41,6 +41,7 @@ mod sets;
 mod spotify_export;
 mod staging;
 mod streamed;
+mod tag_chips;
 mod track_menu;
 mod usb;
 
