@@ -161,6 +161,23 @@ impl Filters {
         }
     }
 
+    /// A click on the BPM or Key chip itself: off when it filters,
+    /// otherwise match the playing track (tempo within the tolerance,
+    /// keys that mix). Other fields aren't changed.
+    pub fn quick(&mut self, field: &Field) {
+        if !matches!(field.kind, Kind::Bpm | Kind::Key) {
+            return;
+        }
+        if self.active(field) {
+            self.clear(field);
+            return;
+        }
+        match field.kind {
+            Kind::Bpm => self.bpm_follow = true,
+            _ => self.key_follow = true,
+        }
+    }
+
     pub fn clear_all(&mut self, fields: &[Field]) {
         for f in fields {
             self.clear(f);
@@ -357,6 +374,18 @@ impl Browser {
         });
         let w = with.clone();
         ui.on_edit(move |chip| w(&|b| b.edit_filter(chip)));
+        let w = with.clone();
+        ui.on_quick(move |chip| {
+            w(&|b| {
+                let Some(id) = b.chip_field(chip) else { return };
+                let Some(field) = b.filter.field(&id).cloned() else {
+                    return;
+                };
+                b.filter.filters.quick(&field);
+                b.update_reference();
+                b.filters_changed();
+            })
+        });
         let w = with.clone();
         ui.on_toggle(move |i| {
             w(&|b| {
@@ -954,6 +983,31 @@ mod tests {
         assert_eq!(f.summary(field(&fields, "bpm"), deck, true), "122 ±2%");
         assert_eq!(f.summary(field(&fields, "key"), deck, true), "Match 8A");
         assert_eq!(f.text(&fields, None), "", "nothing playing leaves all in");
+    }
+
+    #[test]
+    fn a_click_on_bpm_or_key_matches_the_playing_track() {
+        let lib = library();
+        let fields = fields(&FieldNames::default());
+        let (bpm, key) = (field(&fields, "bpm"), field(&fields, "key"));
+        let deck = Some((122.0, Key::parse("8A")));
+        let mut f = Filters::new(Vec::new(), 4);
+        f.quick(bpm);
+        assert!(f.bpm_follow);
+        assert_eq!(f.summary(bpm, deck, true), "122 ±10%");
+        f.quick(key);
+        assert_eq!(find(&lib, &f.text(&fields, deck)), [1]);
+        // Again: off.
+        f.quick(bpm);
+        f.quick(key);
+        assert_eq!(f.text(&fields, deck), "");
+        // A typed range or picked keys count as on: the click clears them.
+        f.bpm_low = "100".into();
+        f.quick(bpm);
+        assert!(!f.active(bpm) && !f.bpm_follow);
+        // Other fields don't take quick clicks.
+        f.quick(field(&fields, "genre"));
+        assert!(!f.any_active(&fields));
     }
 
     #[test]
