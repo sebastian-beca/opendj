@@ -6680,12 +6680,17 @@ dependencies = [
 name = "opendj-plugin-host"
 version = "0.4.7"
 dependencies = [
+ "block2 0.6.2",
  "clack-extensions",
  "clack-host",
+ "libc",
  "libloading 0.8.9",
  "memmap2",
+ "objc2 0.6.5",
+ "objc2-foundation 0.3.2",
  "serde_json",
  "vst3",
+ "winit",
 ]
 
 [[package]]

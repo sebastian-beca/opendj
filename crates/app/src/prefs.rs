@@ -8,7 +8,7 @@ use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
-use crate::audio_plugins::AudioPlugins;
+use crate::audio_plugins::{AudioPlugins, Found};
 use crate::broadcast::{self, Broadcast};
 use crate::list_picker::{Picker, Ticked};
 use opendj_control::ControlRegistry;
@@ -50,13 +50,17 @@ const COMING_IMPORTS: [(&str, &str); 2] = [
     ),
 ];
 const ANALYSIS: i32 = 3;
-/// Settings › Mixer's tabs.
-const MIXER_TABS: [&str; 2] = ["Mixer", "Plugins"];
 const DECKS: i32 = 4;
 const MIXER: i32 = 5;
-const BROADCAST: i32 = 6;
-const KEYBOARD: i32 = 7;
-const FEEDBACK: i32 = 8;
+/// CLAP, VST3 and AU plugins.
+const AUDIO_PLUGINS: i32 = 6;
+/// Settings › Plugins' tabs.
+const PLUGIN_TABS: [&str; 3] = ["Effects", "Instruments", "Folders"];
+/// The Folders tab's place in PLUGIN_TABS.
+const FOLDERS_TAB: usize = 2;
+const BROADCAST: i32 = 7;
+const KEYBOARD: i32 = 8;
+const FEEDBACK: i32 = 9;
 
 /// Bitrates offered for a broadcast, in kb/s.
 const BITRATES: [u32; 7] = [64, 96, 128, 160, 192, 256, 320];
@@ -84,6 +88,9 @@ const INPUTS_TABLE: i32 = 13;
 const ADD_ROW: i32 = 14;
 /// A row to pick a controller plugged in from, with × to drop it.
 const NEW_CONTROLLER: i32 = 15;
+/// Filter chips (`choices`, on by bit in `chosen`) and a search box
+/// (`value`, its hint in `detail`), above a long list.
+const FILTER_BAR: i32 = 16;
 
 /// Tempo fader ranges, as fractions of normal speed.
 const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
@@ -455,6 +462,11 @@ pub struct Prefs {
     shortcut_note: String,
     /// CLAP, VST3 and AU effects: folders, scan and the FX lists.
     audio_plugins: Rc<RefCell<AudioPlugins>>,
+    /// How the plugin list on Settings › Plugins is narrowed.
+    plugin_view: PluginView,
+    /// The page and tab the rows were last filled for, so a refill of the
+    /// same view changes rows in place and the search box keeps its focus.
+    filled: Option<(i32, usize)>,
     /// Counts fills of the rows, so the tour's setup dialog, which shows
     /// some of the same rows, knows to fill its own again.
     pub generation: u64,
@@ -526,6 +538,8 @@ impl Prefs {
             removing: None,
             shortcut_note: String::new(),
             audio_plugins,
+            plugin_view: PluginView::default(),
+            filled: None,
             generation: 0,
             broadcast,
             editing_station: None,
@@ -675,7 +689,7 @@ impl Prefs {
             return;
         };
         let g = app.global::<Preferences>();
-        if self.audio_plugins.borrow_mut().poll() && g.get_open() && g.get_page() == MIXER {
+        if self.audio_plugins.borrow_mut().poll() && g.get_open() && g.get_page() == AUDIO_PLUGINS {
             self.refresh();
         }
         if g.get_open() && g.get_page() == CONTROLLERS && g.get_query().is_empty() {
@@ -761,7 +775,16 @@ impl Prefs {
                 })
                 .collect()
         };
-        g.set_items(ModelRc::new(VecModel::from(items)));
+        let view = (!searching).then_some((g.get_page(), tab));
+        // On the plugin list, typing in its search box fills the rows
+        // again: change them in place so the box isn't made anew.
+        let in_place = view.is_some()
+            && view == self.filled
+            && matches!(view, Some((AUDIO_PLUGINS, t)) if t != FOLDERS_TAB);
+        if !in_place || !patch_rows(&g.get_items(), &items) {
+            g.set_items(ModelRc::new(VecModel::from(items)));
+        }
+        self.filled = view;
         show_wizard(&app, self.wizard.as_ref());
         self.generation += 1;
     }
@@ -1203,7 +1226,8 @@ impl Prefs {
                 }))
                 .collect()
             }
-            MIXER => self.mixer_page(tab),
+            MIXER => self.mixer_general(),
+            AUDIO_PLUGINS => self.audio_plugin_page(tab),
             BROADCAST => self.broadcast_page(),
             p if p > FEEDBACK => self.plugin_page((p - FEEDBACK - 1) as usize),
             KEYBOARD => self.keyboard_page(),
@@ -1278,20 +1302,6 @@ impl Prefs {
         }
     }
 
-    /// The rate the engine runs at now.
-    /// Settings › Mixer: the mixer itself, and plugins. `tab` None is
-    /// both, for a search.
-    fn mixer_page(&mut self, tab: Option<usize>) -> Vec<PrefItem> {
-        let mut items = Vec::new();
-        if tab.is_none_or(|t| t == 0) {
-            items.extend(self.mixer_general());
-        }
-        if tab.is_none_or(|t| t == 1) {
-            items.extend(self.audio_plugin_items());
-        }
-        items
-    }
-
     fn mixer_general(&self) -> Vec<PrefItem> {
         let target = settings::number("auto_gain_target", DEFAULT_AUTO_GAIN_TARGET);
         let targets: Vec<String> = AUTO_GAIN_TARGETS
@@ -1357,10 +1367,12 @@ impl Prefs {
             ]
     }
 
-    /// Settings › Mixer › Plugins: where plugins are looked for, Scan,
-    /// the effects found with a tick for the FX lists, and files that
-    /// couldn't be read with Retry.
-    fn audio_plugin_items(&self) -> Vec<PrefItem> {
+    /// Settings › Plugins. Effects and Instruments: Scan, then the plugins
+    /// by maker, narrowed by format chips and a search, each with a tick.
+    /// Folders: where plugins are looked for, Scan, and files that couldn't
+    /// be read, with Retry. `tab` None is everything, one row per plugin,
+    /// for a search of all of Settings.
+    fn audio_plugin_page(&self, tab: Option<usize>) -> Vec<PrefItem> {
         let p = self.audio_plugins.borrow();
         if !p.available() {
             return vec![item(
@@ -1370,40 +1382,10 @@ impl Prefs {
                 "This copy of openDJ came without its plugin helper (opendj-plugin-host), so CLAP, VST3 and Audio Unit plugins can't run.",
             )];
         }
-        let mut items = vec![item(
-            "",
-            NOTE,
-            "Plugins",
-            "CLAP and VST3 plugins, and Audio Units on a Mac. Effects go in any effect slot: decks, Beat FX, Mic and Aux. Instruments play through the Instrument input in the MIC panel. Each runs in its own helper process, so a plugin that crashes or stalls is switched off and the music keeps playing.",
-        )];
-        let folders = p.folders();
-        for (i, dir) in folders.iter().enumerate() {
-            items.push(PrefItem {
-                value: dir.to_string_lossy().into_owned().into(),
-                action: "Remove".into(),
-                ..item(
-                    &format!("audio_plugin_folder_remove:{i}"),
-                    PATH,
-                    if i == 0 { "Plugin folders" } else { "" },
-                    "",
-                )
-            });
-        }
-        items.push(PrefItem {
-            action: "Add…".into(),
-            ..item(
-                "audio_plugin_folder_add",
-                BUTTON,
-                if folders.is_empty() {
-                    "Plugin folders"
-                } else {
-                    "Add a plugin folder"
-                },
-                "Where openDJ looks for .clap and .vst3 plugins.",
-            )
-        });
         let effects = p.effects();
         let instruments = p.instruments();
+        let failures = p.failures();
+        let shown = p.shown();
         let note = if !p.note.is_empty() {
             p.note.clone()
         } else if effects.is_empty() && instruments.is_empty() {
@@ -1415,12 +1397,8 @@ impl Prefs {
                 instruments.len()
             )
         };
-        items.push(PrefItem {
-            action: if p.scanning() {
-                "".into()
-            } else {
-                "Scan".into()
-            },
+        let scan = PrefItem {
+            action: if p.scanning() { "" } else { "Scan" }.into(),
             value: if p.scanning() {
                 // Just the count: the file's name is in the line below.
                 note.split(':').next().unwrap_or_default().into()
@@ -1428,17 +1406,66 @@ impl Prefs {
                 "".into()
             },
             ..item("audio_plugins_scan", BUTTON, "Scan for plugins", &note)
-        });
-        let shown = p.shown();
-        for (heading, list) in [
-            ("EFFECTS IN THE FX LISTS", &effects),
-            ("INSTRUMENTS FOR THE INSTRUMENT INPUT", &instruments),
-        ] {
-            if list.is_empty() {
-                continue;
+        };
+        let mut items = Vec::new();
+        if tab.is_none_or(|t| t == FOLDERS_TAB) {
+            items.push(item(
+                "",
+                NOTE,
+                "Plugins",
+                "CLAP and VST3 plugins, and Audio Units on a Mac. Effects go in any effect slot: decks, Beat FX, Mic and Aux. Instruments play through the Instrument input in the MIC panel. Each runs in its own helper process, so a plugin that crashes or stalls is switched off and the music keeps playing.",
+            ));
+            let folders = p.folders();
+            for (i, dir) in folders.iter().enumerate() {
+                items.push(PrefItem {
+                    value: dir.to_string_lossy().into_owned().into(),
+                    action: "Remove".into(),
+                    ..item(
+                        &format!("audio_plugin_folder_remove:{i}"),
+                        PATH,
+                        if i == 0 { "Plugin folders" } else { "" },
+                        "",
+                    )
+                });
             }
-            items.push(item("", HEADING, heading, ""));
-            for e in list {
+            items.push(PrefItem {
+                action: "Add…".into(),
+                ..item(
+                    "audio_plugin_folder_add",
+                    BUTTON,
+                    if folders.is_empty() {
+                        "Plugin folders"
+                    } else {
+                        "Add a plugin folder"
+                    },
+                    "Where openDJ looks for .clap and .vst3 plugins.",
+                )
+            });
+            items.push(scan.clone());
+            if !failures.is_empty() {
+                items.push(item(
+                    "",
+                    HEADING,
+                    &format!(
+                        "COULDN'T BE READ ({}): CRASHED, STALLED OR NOT BUILT FOR THIS COMPUTER",
+                        failures.len()
+                    ),
+                    "",
+                ));
+                for (i, (path, why)) in failures.iter().enumerate() {
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    items.push(PrefItem {
+                        action: "Retry".into(),
+                        ..item(&format!("audio_plugin_retry:{i}"), BUTTON, &name, why)
+                    });
+                }
+            }
+        }
+        let Some(tab) = tab else {
+            for e in effects.iter().chain(&instruments) {
                 items.push(PrefItem {
                     on: shown.contains(&e.key),
                     ..item(
@@ -1449,22 +1476,115 @@ impl Prefs {
                     )
                 });
             }
+            return items;
+        };
+        if tab == FOLDERS_TAB {
+            return items;
         }
-        let failures = p.failures();
-        if !failures.is_empty() {
-            items.push(item("", HEADING, "COULDN'T BE READ", ""));
-            for (i, (path, why)) in failures.iter().enumerate() {
-                let name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
+        let instrument_tab = tab == 1;
+        let list = if instrument_tab {
+            &instruments
+        } else {
+            &effects
+        };
+        items.push(PrefItem {
+            detail: if p.scanning() {
+                note.clone()
+            } else if list.is_empty() {
+                format!("{note} Plugin folders are on the Folders tab.")
+            } else if instrument_tab {
+                "Ticked instruments are offered by the Instrument input in the MIC panel.".into()
+            } else {
+                "Ticked effects are offered in every FX list: decks, Beat FX, Mic and Aux.".into()
+            }
+            .into(),
+            ..scan
+        });
+        if list.is_empty() {
+            return items;
+        }
+        let v = &self.plugin_view;
+        let formats = plugin_formats(list);
+        items.push(PrefItem {
+            choices: strings(&formats),
+            chosen: formats
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| v.formats.contains(f))
+                .map(|(i, _)| 1 << i)
+                .sum(),
+            value: v.search.as_str().into(),
+            ..item(
+                "audio_plugin_filter",
+                FILTER_BAR,
+                "",
+                if instrument_tab {
+                    "Search instruments and makers"
+                } else {
+                    "Search effects and makers"
+                },
+            )
+        });
+        let groups = plugin_groups(list, &v.formats, &v.search);
+        if groups.is_empty() {
+            items.push(item("", NOTE, "", "Nothing matches."));
+        }
+        let searching = !v.search.trim().is_empty();
+        for (maker, plugins) in &groups {
+            let ticked = plugins.iter().filter(|f| shown.contains(&f.key)).count();
+            let open = searching || v.open.contains(maker);
+            items.push(PrefItem {
+                on: ticked == plugins.len(),
+                value: if ticked > 0 && ticked < plugins.len() {
+                    "some".into()
+                } else {
+                    "".into()
+                },
+                chosen: 1,
+                action: if open { "▾" } else { "▸" }.into(),
+                ..item(
+                    &format!("audio_plugin_maker:{maker}"),
+                    TICK,
+                    maker,
+                    &if ticked > 0 {
+                        format!("{ticked} of {} ticked", plugins.len())
+                    } else {
+                        plugins.len().to_string()
+                    },
+                )
+            });
+            if !open {
+                continue;
+            }
+            for f in plugins {
                 items.push(PrefItem {
-                    action: "Retry".into(),
-                    ..item(&format!("audio_plugin_retry:{i}"), BUTTON, &name, why)
+                    on: shown.contains(&f.key),
+                    chosen: 2,
+                    ..item(
+                        &format!("audio_plugin_show:{}", f.key),
+                        TICK,
+                        &f.name,
+                        f.format,
+                    )
                 });
             }
         }
         items
+    }
+
+    /// The plugin list shown: instruments on Settings › Plugins'
+    /// Instruments tab, otherwise effects.
+    fn plugin_list(&self) -> Vec<Found> {
+        let tab = self
+            .app
+            .upgrade()
+            .map_or(0, |a| a.global::<Preferences>().get_tab());
+        let p = self.audio_plugins.borrow();
+        if tab == 1 {
+            p.instruments()
+        } else {
+            p.effects()
+        }
     }
 
     fn running_rate(&self) -> f64 {
@@ -1927,7 +2047,7 @@ impl Prefs {
     fn tabs(&self, page: i32) -> Vec<String> {
         match page {
             LIBRARY => LIBRARY_TABS.iter().map(|t| t.to_string()).collect(),
-            MIXER => MIXER_TABS.iter().map(|t| t.to_string()).collect(),
+            AUDIO_PLUGINS => PLUGIN_TABS.iter().map(|t| t.to_string()).collect(),
             _ => Vec::new(),
         }
     }
@@ -2406,6 +2526,18 @@ impl Prefs {
             self.refresh();
             return;
         }
+        if let Some(maker) = id.strip_prefix("audio_plugin_maker:") {
+            let list = self.plugin_list();
+            let v = &self.plugin_view;
+            let keys: Vec<String> = plugin_groups(&list, &v.formats, &v.search)
+                .into_iter()
+                .filter(|(m, _)| m == maker)
+                .flat_map(|(_, fs)| fs.into_iter().map(|f| f.key))
+                .collect();
+            self.audio_plugins.borrow_mut().set_shown_all(&keys, on);
+            self.refresh();
+            return;
+        }
         if let Some(node) = id.strip_prefix("import_pick:").and_then(|n| n.parse().ok()) {
             if let Some(p) = self.wizard.as_mut().and_then(|w| w.picker.as_mut()) {
                 p.set(node, on);
@@ -2474,6 +2606,18 @@ impl Prefs {
     }
 
     fn picked(&mut self, id: &str, index: usize) {
+        if id == "audio_plugin_filter" {
+            if let Some(f) = plugin_formats(&self.plugin_list()).get(index) {
+                let formats = &mut self.plugin_view.formats;
+                if let Some(i) = formats.iter().position(|x| x == f) {
+                    formats.remove(i);
+                } else {
+                    formats.push(f.clone());
+                }
+            }
+            self.refresh();
+            return;
+        }
         if let Some((i, field)) = station_field(id) {
             self.edit_station(i, |s| match field {
                 "server" => {
@@ -2729,6 +2873,17 @@ impl Prefs {
 
     /// Keyboard shortcuts, each an openDJscript line (see shortcuts.rs).
     fn audio_plugin_pressed(&mut self, id: &str) -> bool {
+        if let Some(maker) = id
+            .strip_prefix("audio_plugin_maker:")
+            .and_then(|m| m.strip_suffix("#fold"))
+        {
+            let open = &mut self.plugin_view.open;
+            if !open.remove(maker) {
+                open.insert(maker.to_string());
+            }
+            self.refresh();
+            return true;
+        }
         let mut p = self.audio_plugins.borrow_mut();
         if id == "audio_plugins_scan" {
             p.start_scan();
@@ -2949,6 +3104,11 @@ impl Prefs {
     /// The DJ typed in a plugin's text field. The page isn't filled again,
     /// so the field keeps its place while typing.
     fn typed(&mut self, id: &str, text: &str) {
+        if id == "audio_plugin_filter" {
+            self.plugin_view.search = text.to_string();
+            self.refresh();
+            return;
+        }
         if let Some((i, field)) = station_field(id) {
             if field == "password" {
                 let station = broadcast::stations().into_iter().nth(i);
@@ -3603,6 +3763,82 @@ impl Prefs {
     }
 }
 
+/// How the plugin list is narrowed; kept while Settings is open.
+#[derive(Default)]
+struct PluginView {
+    /// The format chips that are on ("CLAP", "VST3", "AU"); none is all.
+    formats: Vec<String>,
+    search: String,
+    /// Makers opened in the list.
+    open: std::collections::HashSet<String>,
+}
+
+/// The formats in `list`, in the chips' order.
+fn plugin_formats(list: &[Found]) -> Vec<String> {
+    ["CLAP", "VST3", "AU"]
+        .into_iter()
+        .filter(|f| list.iter().any(|p| p.format == *f))
+        .map(String::from)
+        .collect()
+}
+
+/// `list` narrowed to `formats` (none is all) and to plugins whose name or
+/// maker has every word of `search`, by maker, makers and plugins A to Z.
+fn plugin_groups(list: &[Found], formats: &[String], search: &str) -> Vec<(String, Vec<Found>)> {
+    let words: Vec<String> = search.split_whitespace().map(str::to_lowercase).collect();
+    // By the maker's name in lower case, so "FabFilter" and "fabfilter"
+    // are one maker, shown as first spelt.
+    let mut groups: std::collections::BTreeMap<String, (String, Vec<Found>)> = Default::default();
+    for f in list {
+        if !formats.is_empty() && !formats.iter().any(|x| x == f.format) {
+            continue;
+        }
+        let maker = match f.vendor.trim() {
+            "" => "Other".to_string(),
+            v => v.to_string(),
+        };
+        let text = format!("{} {}", f.name, maker).to_lowercase();
+        if !words.iter().all(|w| text.contains(w.as_str())) {
+            continue;
+        }
+        groups
+            .entry(maker.to_lowercase())
+            .or_insert_with(|| (maker, Vec::new()))
+            .1
+            .push(f.clone());
+    }
+    groups
+        .into_values()
+        .map(|(maker, mut fs)| {
+            fs.sort_by(|a, b| {
+                (a.name.to_lowercase(), a.format).cmp(&(b.name.to_lowercase(), b.format))
+            });
+            (maker, fs)
+        })
+        .collect()
+}
+
+/// Makes the rows in `model` match `items`, changing only the rows that
+/// differ, so the rows that stay keep their state (a search box its
+/// focus). False when `model` isn't a list that can be changed in place.
+fn patch_rows(model: &ModelRc<PrefItem>, items: &[PrefItem]) -> bool {
+    use slint::Model;
+    let Some(rows) = model.as_any().downcast_ref::<VecModel<PrefItem>>() else {
+        return false;
+    };
+    for (i, it) in items.iter().enumerate() {
+        match rows.row_data(i) {
+            Some(old) if old == *it => {}
+            Some(_) => rows.set_row_data(i, it.clone()),
+            None => rows.push(it.clone()),
+        }
+    }
+    while rows.row_count() > items.len() {
+        rows.remove(rows.row_count() - 1);
+    }
+    true
+}
+
 fn item(id: &str, kind: i32, title: &str, detail: &str) -> PrefItem {
     PrefItem {
         id: id.into(),
@@ -3895,5 +4131,60 @@ fn system_dialog(prompt: &str, folder: bool) -> Option<PathBuf> {
             eprintln!("can't open a file dialog: {e}");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use opendj_engine::plugins::Plugin;
+
+    fn found(name: &str, vendor: &str, format: &'static str) -> Found {
+        Found {
+            key: format!("{format}:{name}"),
+            name: name.into(),
+            vendor: vendor.into(),
+            format,
+            plugin: Plugin::Au { id: name.into() },
+        }
+    }
+
+    #[test]
+    fn plugins_are_grouped_by_maker_and_narrowed() {
+        let list = vec![
+            found("Pro-Q 3", "FabFilter", "VST3"),
+            found("Pro-Q 3", "FabFilter", "CLAP"),
+            found("Diva", "u-he", "CLAP"),
+            found("Thing", "", "AU"),
+            found("Saturn 2", "fabfilter", "AU"),
+        ];
+        assert_eq!(plugin_formats(&list), ["CLAP", "VST3", "AU"]);
+        let all = plugin_groups(&list, &[], "");
+        let makers: Vec<&str> = all.iter().map(|(m, _)| m.as_str()).collect();
+        // A to Z whatever the case; a maker spelt two ways is one maker.
+        assert_eq!(makers, ["FabFilter", "Other", "u-he"]);
+        assert_eq!(all[0].1.len(), 3);
+        let clap = plugin_groups(&list, &["CLAP".into()], "");
+        assert_eq!(clap.iter().map(|(_, f)| f.len()).sum::<usize>(), 2);
+        let searched = plugin_groups(&list, &[], "fab pro");
+        assert_eq!(searched.len(), 1);
+        assert_eq!(searched[0].1.len(), 2);
+        assert_eq!(plugin_groups(&list, &[], "SATURN").len(), 1);
+        assert!(plugin_groups(&list, &["AU".into()], "diva").is_empty());
+    }
+
+    #[test]
+    fn rows_change_in_place() {
+        let rows = ModelRc::new(VecModel::from(vec![
+            item("a", NOTE, "A", ""),
+            item("b", NOTE, "B", ""),
+            item("c", NOTE, "C", ""),
+        ]));
+        let new = [item("a", NOTE, "A", ""), item("x", TICK, "X", "")];
+        assert!(patch_rows(&rows, &new));
+        let got: Vec<PrefItem> = slint::Model::iter(&rows).collect();
+        assert_eq!(got, new);
+        let other: ModelRc<PrefItem> = ModelRc::default();
+        assert!(!patch_rows(&other, &new));
     }
 }

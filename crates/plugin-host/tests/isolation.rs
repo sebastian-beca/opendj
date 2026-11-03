@@ -15,6 +15,7 @@ fn start(effect: &str) -> (Connection, Helper) {
         plugin: opendj_plugin_host::Plugin::Test(effect.into()),
         sample_rate: 48_000,
         max_frames: 1024,
+        title: None,
     })
     .expect("helper starts")
 }
@@ -127,6 +128,7 @@ fn an_unknown_effect_fails_to_start() {
         plugin: opendj_plugin_host::Plugin::Test("no-such-plugin".into()),
         sample_rate: 48_000,
         max_frames: 1024,
+        title: None,
     })
     .err()
     .expect("refused");
@@ -211,4 +213,36 @@ fn a_helper_that_never_exits_after_answering_does_not_stall_a_scan() {
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].name, "Name");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// openDJ asks for a plugin's window through the shared block; the helper
+/// opens it (where there is a display) or says there is none to show, and
+/// closes it when asked.
+#[test]
+fn the_editor_opens_and_closes_when_asked() {
+    use opendj_plugin_host::Editor;
+    let wait_for = |helper: &Helper, want: Editor| {
+        let end = Instant::now() + Duration::from_secs(10);
+        while helper.editor() != want && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        helper.editor()
+    };
+    let display = std::env::var_os("DISPLAY").is_some() || cfg!(any(target_os = "macos", windows));
+    let (_conn, helper) = start("test-gain");
+    assert_eq!(helper.editor(), Editor::Closed);
+    helper.set_editor(true);
+    if display {
+        assert_eq!(wait_for(&helper, Editor::Shown), Editor::Shown);
+        helper.set_editor(false);
+        assert_eq!(wait_for(&helper, Editor::Closed), Editor::Closed);
+    } else {
+        assert_eq!(wait_for(&helper, Editor::Missing), Editor::Missing);
+        assert!(!helper.editor_asked());
+    }
+    // An effect without a window says so, and takes the ask back.
+    let (_conn, helper) = start("test-slow");
+    helper.set_editor(true);
+    assert_eq!(wait_for(&helper, Editor::Missing), Editor::Missing);
+    assert!(!helper.editor_asked());
 }

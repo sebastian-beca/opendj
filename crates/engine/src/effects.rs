@@ -455,6 +455,8 @@ struct SlotControls {
     loaded_effect: ControlHandle,
     loaded: ControlHandle,
     num_parameters: ControlHandle,
+    #[allow(dead_code)] // read by the plugin host through the registry
+    show_editor: ControlHandle,
     effect_selector: ControlHandle,
     next: ControlHandle,
     prev: ControlHandle,
@@ -516,6 +518,9 @@ impl SlotControls {
             ),
             loaded: reg.indicator(g, "loaded", 1.0),
             num_parameters: reg.indicator(g, "num_parameters", MAX_PARAMETERS as f64),
+            // A plugin's own window: the plugin host opens it while this is
+            // on, and turns it off when the window closes.
+            show_editor: reg.toggle(g, "show_editor"),
             effect_selector: reg.create(g, "effect_selector", 0.0, -n, n, Behavior::Free),
             next: reg.push(g, "next_effect"),
             prev: reg.push(g, "prev_effect"),

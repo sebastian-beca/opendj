@@ -22,7 +22,7 @@ use memmap2::MmapMut;
 /// "openDJ P" in ASCII, so a helper can tell it was handed the right file.
 pub const MAGIC: u64 = 0x6f70_656e_444a_2050;
 /// Bumped whenever the layout below changes.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 /// Two channels: decks and the main mix are stereo.
 pub const CHANNELS: usize = 2;
 /// Parameters a slot can set without a round trip.
@@ -56,6 +56,12 @@ pub struct Header {
     /// it falls on in the high 32 bits and the three MIDI bytes below.
     pub events_len: AtomicU32,
     pub events: [AtomicU64; MAX_EVENTS],
+    /// openDJ asks for the plugin's own window: 1 open, 0 closed. The
+    /// helper's main thread follows it.
+    pub editor: AtomicU32,
+    /// What the helper did about it: 0 closed, 1 open, 2 the plugin has no
+    /// window of its own (or it failed to open). Closing the window sets 0.
+    pub editor_shown: AtomicU32,
 }
 
 /// One MIDI message at a frame of the block (a note for an instrument).

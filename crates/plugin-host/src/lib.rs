@@ -11,6 +11,7 @@
 //! - [`effects`]: what a helper can run. For now only test effects (gain,
 //!   crash, hang, slow) that prove the isolation; CLAP, VST3 and AU plugins
 //!   follow, as planned in the `add-audio-plugin-hosting` change.
+//! - [`window`] (in the helper): the window a plugin's own editor opens in.
 
 #[cfg(all(feature = "formats", target_os = "macos"))]
 pub mod au;
@@ -23,9 +24,11 @@ pub mod policy;
 pub mod shm;
 #[cfg(feature = "formats")]
 pub mod vst3;
+#[cfg(feature = "formats")]
+pub mod window;
 
 pub use client::{
-    scan, scan_audio_units, spawn, Connection, Helper, Options, Outcome, ScanError, Status,
+    scan, scan_audio_units, spawn, Connection, Editor, Helper, Options, Outcome, ScanError, Status,
     Transport,
 };
 pub use descriptor::Descriptor;
