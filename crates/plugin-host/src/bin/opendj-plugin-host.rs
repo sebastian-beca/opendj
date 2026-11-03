@@ -141,6 +141,7 @@ fn run_audio(shm: &Shm, mut fx: Box<dyn Effect>) {
     let mut events = Vec::with_capacity(MAX_EVENTS);
     let mut stdin = std::io::stdin().lock();
     let mut wake = [0u8; 64];
+    let mut promoted = false;
     loop {
         match stdin.read(&mut wake) {
             Ok(0) | Err(_) => return, // openDJ closed the pipe or quit
@@ -152,6 +153,14 @@ fn run_audio(shm: &Shm, mut fx: Box<dyn Effect>) {
         }
         let start = Instant::now();
         let frames = (h.frames.load(Ordering::Relaxed) as usize).min(max);
+        if !promoted && frames > 0 {
+            // Now that the block length is known: the audio thread runs at
+            // real-time priority, as openDJ's own does, so a busy computer
+            // (or the plugin's own window drawing) doesn't make it late.
+            promoted = true;
+            let rate = h.sample_rate.load(Ordering::Relaxed).max(1);
+            realtime::promote(Duration::from_secs_f64(frames as f64 / rate as f64));
+        }
         for (ch, buf) in input.iter_mut().enumerate() {
             shm.read(false, ch, &mut buf[..frames]);
         }
@@ -244,4 +253,58 @@ fn say(line: &str) {
 fn fail(msg: &str) -> ! {
     say(&format!("error {}", clean(msg)));
     std::process::exit(2);
+}
+
+/// Real-time priority for the helper's audio thread.
+mod realtime {
+    use std::time::Duration;
+
+    /// Asks for the calling thread to run every `period`, for up to half of
+    /// it, ahead of ordinary threads. Without permission it stays as it is.
+    #[cfg(target_os = "macos")]
+    #[allow(deprecated)] // libc's Mach items point at the mach2 crate
+    pub fn promote(period: Duration) {
+        // SAFETY: plain Mach calls about the calling thread.
+        unsafe {
+            let mut tb = libc::mach_timebase_info { numer: 0, denom: 0 };
+            if libc::mach_timebase_info(&mut tb) != 0 || tb.numer == 0 {
+                return;
+            }
+            let ticks = |d: Duration| {
+                (d.as_nanos() as f64 * tb.denom as f64 / tb.numer as f64).min(u32::MAX as f64)
+                    as u32
+            };
+            let period = period.clamp(Duration::from_micros(500), Duration::from_millis(100));
+            let mut policy = libc::thread_time_constraint_policy {
+                period: ticks(period),
+                computation: ticks(period / 2),
+                constraint: ticks(period),
+                preemptible: 1,
+            };
+            let r = libc::thread_policy_set(
+                libc::mach_thread_self(),
+                libc::THREAD_TIME_CONSTRAINT_POLICY as _,
+                &mut policy as *mut _ as libc::thread_policy_t,
+                libc::THREAD_TIME_CONSTRAINT_POLICY_COUNT,
+            );
+            if r != 0 {
+                eprintln!("plugin audio thread: no real-time priority ({r})");
+            }
+        }
+    }
+
+    /// Linux: real-time scheduling where the system allows it (a user in
+    /// the audio group with rtprio set); otherwise as it is.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    pub fn promote(_period: Duration) {
+        // SAFETY: plain calls about the calling thread.
+        unsafe {
+            let param = libc::sched_param { sched_priority: 10 };
+            let _ = libc::pthread_setschedparam(libc::pthread_self(), libc::SCHED_FIFO, &param);
+        }
+    }
+
+    /// Windows: not yet (MMCSS "Pro Audio" is the way there).
+    #[cfg(windows)]
+    pub fn promote(_period: Duration) {}
 }
