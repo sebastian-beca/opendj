@@ -214,6 +214,7 @@ pub struct Mp3 {
     resampler: Option<Resampler>,
     resampled: Vec<f32>,
     out: Vec<u8>,
+    flushed: bool,
 }
 
 impl Mp3 {
@@ -242,7 +243,23 @@ impl Mp3 {
             resampler: Resampler::new(rate, mp3_rate),
             resampled: Vec::new(),
             out: Vec::new(),
+            flushed: false,
         })
+    }
+
+    /// The last frames, for the end of a file.
+    pub fn finish(&mut self) -> Result<Vec<u8>, String> {
+        self.flushed = true;
+        let mut rest: Vec<MaybeUninit<u8>> = vec![MaybeUninit::uninit(); 7200];
+        let n = self
+            .encoder
+            .flush::<FlushNoGap>(&mut rest)
+            .map_err(|e| e.to_string())?;
+        // SAFETY: the encoder wrote the first `n` bytes.
+        Ok(rest[..n]
+            .iter()
+            .map(|b| unsafe { b.assume_init() })
+            .collect())
     }
 }
 
@@ -275,6 +292,9 @@ impl Encoder for Mp3 {
 
 impl Drop for Mp3 {
     fn drop(&mut self) {
+        if self.flushed {
+            return;
+        }
         let mut rest: Vec<MaybeUninit<u8>> = vec![MaybeUninit::uninit(); 7200];
         let _ = self.encoder.flush::<FlushNoGap>(&mut rest);
     }
