@@ -263,7 +263,7 @@ impl Server for Subsonic {
 
     fn missing(&self) -> Option<String> {
         (self.url.is_empty() || self.user.is_empty())
-            .then(|| "Fill in your server in Settings › Navidrome first.".into())
+            .then(|| "Fill in your server in Settings › Sources › Navidrome first.".into())
     }
 
     fn search(&self, query: &SourceQuery) -> Result<Results, String> {
