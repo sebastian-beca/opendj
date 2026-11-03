@@ -79,6 +79,26 @@ pub const PLUGIN_BASE: usize = KINDS.len() + 1;
 /// The most plugins a slot can choose from.
 pub const MAX_PLUGINS: usize = 1024;
 
+/// How long one plugin may take in a buffer that started at `start`: half
+/// the buffer, and all plugins together no more than [`PLUGIN_SHARE`] of it,
+/// so several slow plugins can't make the audio drop out (each waits in
+/// turn). `None` once the buffer's plugin time is used up: that plugin plays
+/// dry this buffer without being sent the block, so it isn't counted late.
+fn plugin_deadline(
+    start: std::time::Instant,
+    frames: usize,
+    sample_rate: f32,
+) -> Option<std::time::Duration> {
+    let block = std::time::Duration::from_secs_f32(frames as f32 / sample_rate);
+    let left =
+        (start + block.mul_f32(PLUGIN_SHARE)).checked_duration_since(std::time::Instant::now())?;
+    // Too little left to be worth a round trip.
+    (left >= std::time::Duration::from_micros(100)).then(|| left.min(block / 2))
+}
+
+/// The part of each buffer's time that plugins may use together.
+const PLUGIN_SHARE: f32 = 0.6;
+
 /// The plugin a `loaded_effect` value refers to, as an index into the list.
 pub fn plugin_index(loaded_effect: f64) -> Option<usize> {
     let v = loaded_effect.round();
@@ -995,6 +1015,9 @@ pub(crate) struct EffectRack {
     transport: [Transport; TARGETS],
     /// Planar scratch for plugins: left and right in, left and right out.
     planar: [Vec<f32>; 4],
+    /// When this buffer started (see [`EffectRack::prepare`]): every plugin
+    /// in it shares one time budget from here.
+    block_start: std::time::Instant,
     from_host: rtrb::Consumer<PluginMsg>,
     to_host: rtrb::Producer<Box<Attached>>,
     link: Option<PluginLink>,
@@ -1182,6 +1205,7 @@ impl EffectRack {
             attached: (0..n).map(|_| None).collect(),
             transport: [Transport::default(); TARGETS],
             planar: std::array::from_fn(|_| vec![0.0; BLOCK]),
+            block_start: std::time::Instant::now(),
             from_host,
             to_host,
             link: Some(PluginLink {
@@ -1251,7 +1275,10 @@ impl EffectRack {
         };
         let [silent, _, out_l, out_r] = &mut self.planar;
         silent[..frames].fill(0.0);
-        let deadline = std::time::Duration::from_secs_f32(0.5 * frames as f32 / self.sample_rate);
+        let Some(deadline) = plugin_deadline(self.block_start, frames, self.sample_rate) else {
+            buf.fill([0.0; 2]);
+            return true;
+        };
         let out = a.conn.process_events(
             [&silent[..frames], &silent[..frames]],
             [&mut out_l[..frames], &mut out_r[..frames]],
@@ -1315,6 +1342,7 @@ impl EffectRack {
     /// beat length, for tempo-synced effects; `now` is the engine clock in
     /// seconds, for tap tempo.
     pub(crate) fn prepare(&mut self, beat_seconds: [f64; TARGETS], now: f64) {
+        self.block_start = std::time::Instant::now();
         self.take_plugin_messages();
         self.legacy.update(&self.units, &self.slots);
         for u in 0..NUM_EFFECT_UNITS {
@@ -1478,9 +1506,11 @@ impl EffectRack {
                         in_l[f] = w[0];
                         in_r[f] = w[1];
                     }
-                    // Half the block's time: the rest is for everything else.
-                    let deadline =
-                        std::time::Duration::from_secs_f32(0.5 * frames as f32 / self.sample_rate);
+                    let Some(deadline) =
+                        plugin_deadline(self.block_start, frames, self.sample_rate)
+                    else {
+                        continue;
+                    };
                     let out = a.conn.process(
                         [&in_l[..frames], &in_r[..frames]],
                         [&mut out_l[..frames], &mut out_r[..frames]],
