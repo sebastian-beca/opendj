@@ -104,6 +104,11 @@ impl Sample {
         Sample::from_frames(frames, rate)
     }
 
+    /// A mono sound at `rate`, the same on both sides.
+    pub(crate) fn from_mono(frames: &[f32], rate: f64) -> Sample {
+        Sample::from_frames(frames.iter().map(|&v| [v, v]), rate)
+    }
+
     fn from_frames(frames: impl Iterator<Item = [f32; 2]>, rate: f64) -> Sample {
         let q = |v: f32| (v.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16;
         Sample {
@@ -132,7 +137,7 @@ impl Sample {
     }
 
     #[inline]
-    fn frame(&self, i: usize) -> [f32; 2] {
+    pub(crate) fn frame(&self, i: usize) -> [f32; 2] {
         let f = |v: i16| v as f32 * (1.0 / i16::MAX as f32);
         self.frames.get(i).map_or([0.0; 2], |&[l, r]| [f(l), f(r)])
     }

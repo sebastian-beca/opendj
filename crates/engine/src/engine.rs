@@ -20,6 +20,7 @@ use crate::dsp::{Isolator, Limiter, Sculpt};
 use crate::effects::{
     input_target, ColorFx, EffectRack, BLOCK, COLOR_FX, MAIN, TAPS, TAP_GAP, TARGETS,
 };
+use crate::groove::{pick_source, GrooveBox};
 use crate::inputs::{Ducker, Input, InputFeed, AUXILIARY, INSTRUMENT, MICROPHONE, NUM_INPUTS};
 use crate::key::{self, Key};
 use crate::keyshift::{transpose_factor, KeyShifter, MAX_RATE};
@@ -1267,6 +1268,12 @@ pub struct Engine {
     main_buf: Vec<[f32; 2]>,
     cue_buf: Vec<[f32; 2]>,
     samplers: Samplers,
+    /// Each deck's Groove Box (playing only while `[GrooveN],enabled`),
+    /// its sound for this buffer, and the gain each deck is ducked by.
+    grooves: Vec<GrooveBox>,
+    groove_buf: Vec<Vec<[f32; 2]>>,
+    duck_buf: Vec<Vec<f32>>,
+    duck_env: [f32; NUM_DECKS],
     commands: rtrb::Consumer<Command>,
     returned: rtrb::Producer<Returned>,
     master_vu: [f32; 2],
@@ -1429,6 +1436,10 @@ impl Engine {
         });
         let fx = EffectRack::new(registry, sample_rate);
         let (samplers, sampler_input) = Samplers::new(registry, sample_rate);
+        let kits: Arc<[crate::kits::Kit]> = crate::kits::build(sample_rate).into();
+        let grooves = (0..NUM_DECKS)
+            .map(|d| GrooveBox::new(registry, d, kits.clone(), sample_rate))
+            .collect();
         let (preview, preview_input) = Preview::new(registry, sample_rate);
         let (commands_tx, commands) = rtrb::RingBuffer::new(QUEUE);
         let (returned, returned_rx) = rtrb::RingBuffer::new(QUEUE * 2);
@@ -1465,6 +1476,10 @@ impl Engine {
                 main_buf: vec![[0.0; 2]; BLOCK],
                 cue_buf: vec![[0.0; 2]; BLOCK],
                 samplers,
+                grooves,
+                groove_buf: vec![vec![[0.0; 2]; BLOCK]; NUM_DECKS],
+                duck_buf: vec![vec![1.0; BLOCK]; NUM_DECKS],
+                duck_env: [0.0; NUM_DECKS],
                 commands,
                 returned,
                 master_vu: [0.0; 2],
@@ -1532,6 +1547,8 @@ impl Engine {
                     let held_bpm = followed
                         .then(|| self.decks[deck].effective_bpm())
                         .filter(|&b| b > 0.0);
+                    // A track loaded on a Groove Box makes it a track deck again.
+                    self.grooves[deck].c.enabled.set_bool(false);
                     let d = &mut self.decks[deck];
                     d.c.play.set_bool(false);
                     d.expected_pos = None;
@@ -1686,10 +1703,15 @@ impl Engine {
         }
     }
 
-    /// Ejects a stopped deck's track when its eject button is pressed.
+    /// Ejects a stopped deck's track when its eject button is pressed, or
+    /// when the deck is turned into a Groove Box.
     fn eject(&mut self) {
         for (deck, d) in self.decks.iter_mut().enumerate() {
-            if d.eject_edge.pressed(&d.c.eject) && !d.c.play.get_bool() {
+            let groove = self.grooves[deck].enabled() && d.track.is_some();
+            if groove {
+                d.c.play.set_bool(false);
+            }
+            if (d.eject_edge.pressed(&d.c.eject) && !d.c.play.get_bool()) || groove {
                 if let Some(track) = d.unload() {
                     // The loader clears the deck from the loaded tracks the UI shows.
                     let _ = self.returned.push(Returned::Ejected { deck, track });
@@ -2455,6 +2477,65 @@ impl Engine {
         let mut click_buf = std::mem::take(&mut self.click_buf);
         let mut main_buf = std::mem::take(&mut self.main_buf);
         let mut cue_buf = std::mem::take(&mut self.cue_buf);
+        // Groove Boxes render their buffer first, on the beat of the
+        // leading deck (the one SYNC follows, else the first playing), else
+        // Link's, else their own tempo.
+        let mut groove_buf = std::mem::take(&mut self.groove_buf);
+        let mut duck_buf = std::mem::take(&mut self.duck_buf);
+        let groove_on: [bool; NUM_DECKS] =
+            std::array::from_fn(|i| self.grooves[i].enabled() && self.decks[i].track.is_none());
+        for g in duck_buf.iter_mut() {
+            g[..frames].fill(1.0);
+        }
+        if groove_on.iter().any(|&on| on) {
+            let playing =
+                |d: &Deck| d.c.play.get_bool() && d.track.as_ref().is_some_and(|t| t.bpm > 0.0);
+            let leader = self
+                .sync_leader
+                .filter(|&k| playing(&self.decks[k]))
+                .or_else(|| (0..NUM_DECKS).find(|&k| playing(&self.decks[k])))
+                .and_then(|k| {
+                    let d = &self.decks[k];
+                    Some((d.effective_bpm(), d.track.as_ref()?.beat_at(d.seconds())))
+                });
+            let link_beat = link.map(|m| (m.tempo, m.beat));
+            for i in (0..NUM_DECKS).filter(|&i| groove_on[i]) {
+                let g = &mut self.grooves[i];
+                let source = pick_source(leader, link_beat, g.c.bpm.get());
+                if source.beat.is_some() {
+                    // Shown, and kept for when the leader stops.
+                    g.c.bpm.set(source.bpm);
+                }
+                g.c.following.set_bool(source.beat.is_some());
+                let mut kicks = [0usize; 32];
+                let mut n = 0;
+                let play = self.decks[i].c.play.get_bool();
+                g.render(play, source, &mut groove_buf[i][..frames], |f| {
+                    if n < kicks.len() {
+                        kicks[n] = f;
+                        n += 1;
+                    }
+                });
+                let target = (g.c.duck_deck.get().round() as usize).wrapping_sub(1);
+                if target < NUM_DECKS && target != i {
+                    let depth = 1.0 - 10f32.powf(-(g.c.duck_amount.get() as f32) / 20.0);
+                    // Back up over about half a 16th.
+                    let recover = 15.0 / source.bpm.max(1.0) * 0.5 * self.sample_rate;
+                    let fall = (-1.0 / recover).exp() as f32;
+                    let mut env = self.duck_env[target];
+                    let mut k = 0;
+                    for (f, gain) in duck_buf[target][..frames].iter_mut().enumerate() {
+                        while k < n && kicks[k] == f {
+                            env = 1.0;
+                            k += 1;
+                        }
+                        *gain *= 1.0 - depth * env;
+                        env *= fall;
+                    }
+                    self.duck_env[target] = env;
+                }
+            }
+        }
         for f in 0..frames {
             let r = (f + 1) as f32 / frames as f32;
             let lerp = |(a, b): (f32, f32)| a + (b - a) * r;
@@ -2527,6 +2608,9 @@ impl Engine {
                         d.pos = 0.0;
                     }
                 }
+                if groove_on[i] {
+                    s = groove_buf[i][f];
+                }
                 let gains = std::array::from_fn(|k| p.eq_from[k] + (p.eq_to[k] - p.eq_from[k]) * r);
                 let pre = lerp(p.pre);
                 s = d.eq.process([s[0] * pre, s[1] * pre], gains);
@@ -2563,7 +2647,7 @@ impl Engine {
                     cue[0] += s[0];
                     cue[1] += s[1];
                 }
-                let g = lerp(p.vol) * lerp(p.xf);
+                let g = lerp(p.vol) * lerp(p.xf) * duck_buf[i][f];
                 main[0] += s[0] * g;
                 main[1] += s[1] * g;
             }
@@ -2670,6 +2754,8 @@ impl Engine {
         }
         self.deck_buf = deck_buf;
         self.click_buf = click_buf;
+        self.groove_buf = groove_buf;
+        self.duck_buf = duck_buf;
         self.main_buf = main_buf;
         self.cue_buf = cue_buf;
         self.fx.finish();
@@ -4954,6 +5040,19 @@ mod tests {
     }
 
     #[test]
+    fn a_groove_box_ejects_its_decks_track() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 4.0));
+        run(&mut engine, 0.01);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        assert!(ctl("track_loaded").get_bool());
+        reg.get("[Groove1]", "enabled").unwrap().set_bool(true);
+        run(&mut engine, 0.01);
+        assert!(!ctl("track_loaded").get_bool());
+        assert!(reg.get("[Groove1]", "enabled").unwrap().get_bool());
+    }
+
+    #[test]
     fn eject_clears_the_deck() {
         let (reg, mut engine, mut input) = setup();
         let track = short_track(120.0, 4.0);
@@ -5495,5 +5594,55 @@ mod tests {
             filter(reg).set(0.5 + (n as f64 * 0.37).sin() * 0.4);
         }));
         assert!(wild < 0.005, "{wild}");
+    }
+
+    #[test]
+    fn a_groove_box_plays_through_its_deck_channel() {
+        let (reg, mut engine, _input) = setup();
+        let g = |k: &str| reg.get("[Groove2]", k).unwrap();
+        let ch = |k: &str| reg.get("[Channel2]", k).unwrap();
+        // Off, the deck is silent even with play pressed.
+        ch("play").set_bool(true);
+        assert!(run(&mut engine, 0.3) < 1e-4);
+        g("enabled").set_bool(true);
+        ch("play").set_bool(false);
+        run(&mut engine, 0.05);
+        ch("play").set_bool(true);
+        assert!(run(&mut engine, 0.5) > 0.05, "the groove is heard");
+        assert!(g("position").get() >= 0.0);
+        // The channel fader turns it down like any deck.
+        ch("volume").set(0.0);
+        run(&mut engine, 0.1);
+        let quiet = run(&mut engine, 0.5);
+        assert!(quiet < 1e-3, "{quiet}");
+        // A track loaded on it makes it a track deck again.
+        ch("play").set_bool(false);
+        let mut input = _input;
+        load(&mut input, 1, short_track(120.0, 4.0));
+        run(&mut engine, 0.05);
+        assert!(!g("enabled").get_bool());
+    }
+
+    #[test]
+    fn a_groove_box_follows_the_playing_deck() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(126.0, 20.0));
+        run(&mut engine, 0.05);
+        reg.get("[Channel1]", "play").unwrap().set_bool(true);
+        run(&mut engine, 0.3);
+        let g = |k: &str| reg.get("[Groove2]", k).unwrap();
+        g("enabled").set_bool(true);
+        reg.get("[Channel2]", "play").unwrap().set_bool(true);
+        run(&mut engine, 2.0);
+        assert!((g("bpm").get() - 126.0).abs() < 0.01, "{}", g("bpm").get());
+        // The step playing matches deck 1's 16th.
+        let pos = reg.get("[Channel1]", "playposition").unwrap().get() * 20.0;
+        let beat = (pos - 0.1) * 126.0 / 60.0;
+        let step = ((beat * 4.0).floor() as i64).rem_euclid(16) as f64;
+        let shown = g("position").get();
+        assert!(
+            (shown - step).abs() <= 1.0 || (shown - step).abs() >= 15.0,
+            "{shown} vs {step}"
+        );
     }
 }
