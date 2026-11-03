@@ -16,7 +16,7 @@ use opendj_engine::Track;
 use opendj_plugins::inbox::safe_name;
 use opendj_plugins::source::{
     megabytes, DownloadUpdate, Found, Prefer, Progress, QueryKind, SearchSource, Snapshot,
-    SourceInfo, SourceQuery, CACHE_SIZE, DEFAULT_CACHE_GB, DOWNLOAD_FOLDER,
+    SourceInfo, SourceQuery, DOWNLOAD_FOLDER,
 };
 use opendj_plugins::{Plugin, PluginConfig, PluginError};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
@@ -130,8 +130,11 @@ fn run(
                             caching.remove(&f.key);
                         }
                     }
-                    Request::Cache(_, items, dir, room) => {
-                        make_room(dir, *room);
+                    Request::Cache(_, items, _, room) => {
+                        // One limit for every source's cache together.
+                        if let Some(root) = caches_root() {
+                            make_room(&root, *room);
+                        }
                         caching.extend(items.iter().map(|f| f.key.clone()));
                     }
                     _ => {}
@@ -811,7 +814,7 @@ impl Sources {
                 cache: true,
             });
         }
-        let room = cache_bytes(source.id);
+        let room = cache_bytes();
         let _ = source
             .requests
             .send(Request::Cache(search.local, items, dir, room));
@@ -1625,25 +1628,89 @@ fn place(searches: &[Search], added: u64) -> usize {
         .unwrap_or(searches.len())
 }
 
+/// Where playing sources keep their caches: `sources` in the app's cache
+/// folder, one folder per source.
+fn caches_root() -> Option<PathBuf> {
+    opendj_engine::cache::cache_dir().map(|d| d.join("sources"))
+}
+
 /// Where a playing source keeps its cache: `sources/<name>` in the app's
 /// cache folder.
 fn cache_dir(name: &str) -> Option<PathBuf> {
-    opendj_engine::cache::cache_dir().map(|d| d.join("sources").join(safe_name(name, "Source")))
+    caches_root().map(|d| d.join(safe_name(name, "Source")))
 }
 
-/// How big a source's cache may grow, in bytes, from its setting.
-fn cache_bytes(id: &str) -> u64 {
-    let config = crate::settings::plugin_config(id);
-    let gb = config
-        .get(CACHE_SIZE)
-        .trim()
-        .trim_end_matches(|c: char| c.is_alphabetic() || c.is_whitespace())
-        .replace(',', ".")
-        .parse::<f64>()
-        .ok()
-        .filter(|g| g.is_finite() && *g >= 0.0)
-        .unwrap_or(DEFAULT_CACHE_GB);
+/// The setting for how big all sources' caches may grow together, in GB.
+pub const CACHE_GB: &str = "sources_cache_gb";
+
+/// How big the caches grow when the DJ hasn't picked a size.
+pub const DEFAULT_CACHE_GB: f64 = 10.0;
+
+/// How big all sources' caches may grow together, in bytes (Settings ›
+/// Sources).
+fn cache_bytes() -> u64 {
+    let gb = crate::settings::number(CACHE_GB, DEFAULT_CACHE_GB);
+    let gb = if gb.is_finite() && gb >= 0.0 {
+        gb
+    } else {
+        DEFAULT_CACHE_GB
+    };
     (gb * 1e9) as u64
+}
+
+/// The bytes in the sources' caches together, and in each source's by its
+/// folder name.
+pub fn cache_usage() -> (u64, HashMap<String, u64>) {
+    let mut each = HashMap::new();
+    let Some(root) = caches_root() else {
+        return (0, each);
+    };
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return (0, each);
+    };
+    for e in entries.flatten() {
+        if e.path().is_dir() {
+            each.insert(
+                e.file_name().to_string_lossy().into_owned(),
+                folder_size(&e.path()),
+            );
+        }
+    }
+    (each.values().sum(), each)
+}
+
+/// The key [`cache_usage`] lists source `name`'s cache under.
+pub fn cache_key(name: &str) -> String {
+    safe_name(name, "Source")
+}
+
+fn folder_size(dir: &Path) -> u64 {
+    let mut total = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let Ok(meta) = e.metadata() else { continue };
+            if meta.is_dir() {
+                stack.push(e.path());
+            } else {
+                total += meta.len();
+            }
+        }
+    }
+    total
+}
+
+/// Empties every source's cache; returns the bytes freed. Tracks kept in
+/// the collection aren't in it, so they stay.
+pub fn clear_cache() -> u64 {
+    let (used, _) = cache_usage();
+    if let Some(root) = caches_root() {
+        make_room(&root, 0);
+    }
+    used
 }
 
 /// A source's path for a file, if it stays below the folder it's joined

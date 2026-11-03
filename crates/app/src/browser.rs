@@ -164,7 +164,7 @@ pub const SOURCE_NAMES: [&str; 13] = [
 /// hidden sources' names.
 const HEALTH_RAIL_NAME: &str = "Collection Health";
 
-fn all_source_names() -> Vec<String> {
+pub(crate) fn all_source_names() -> Vec<String> {
     SOURCE_NAMES
         .iter()
         .map(|n| n.to_string())
@@ -596,8 +596,9 @@ struct FilesState {
 }
 
 /// The rail sources that are streaming services: their source, name, and
-/// how matches set by hand are saved for them.
-const STREAMS: [(i32, &str, &str); 5] = [
+/// id, which names how matches set by hand are saved for them and the file
+/// their sign-in is kept in (`<id>.json` in the config folder).
+pub(crate) const STREAMS: [(i32, &str, &str); 5] = [
     (SPOTIFY, "Spotify", "spotify"),
     (TIDAL, "TIDAL", "tidal"),
     (APPLE_MUSIC, "Apple Music", "applemusic"),
@@ -1423,6 +1424,15 @@ impl Browser {
         app.on_spotify_disconnect(move || {
             w(Box::new(|b| {
                 if let Some(st) = b.shown_stream_mut() {
+                    st.service.send(Request::Disconnect);
+                }
+            }))
+        });
+        // Sign out on Settings › Sources: the service named, shown or not.
+        let w = with.clone();
+        app.on_stream_sign_out(move |source| {
+            w(Box::new(move |b| {
+                if let Some(st) = b.streams.iter().find(|s| s.source == source) {
                     st.service.send(Request::Disconnect);
                 }
             }))

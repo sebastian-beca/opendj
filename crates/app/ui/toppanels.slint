@@ -460,7 +460,7 @@ component InstrumentPicker inherits VerticalLayout {
     }
     if open && EffectList.instruments.length == 0: PanelLink {
         text: "Tick instruments in Settings › Plugins…";
-        clicked => { Preferences.show-tab(6, 1); }
+        clicked => { Preferences.show-tab(7, 1); }
     }
     if open && EffectList.instruments.length > 0: InstrumentChoice {
         text: "None";
@@ -721,7 +721,7 @@ export component OnAirPanel inherits PopupWindow {
             text: "Broadcast Settings…";
             clicked => {
                 root.close();
-                Preferences.show(7);
+                Preferences.show(8);
             }
         }
     }
