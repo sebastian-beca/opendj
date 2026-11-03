@@ -657,73 +657,60 @@ component MenuSeparator inherits Rectangle {
     Rectangle { height: 1px; background: Theme.border; }
 }
 
-// One stage on the track menu's stage strip: lilac where the track is.
+// One stage on the track menu's stage strip, in its colour: filled where
+// the track is, outlined elsewhere.
 component StageStep inherits Rectangle {
     in property <string> text;
     in property <bool> here;
+    in property <color> tint;
     callback clicked();
     height: 22px;
-    width: label.preferred-width + 14px;
+    width: label.preferred-width + 16px;
     border-radius: 11px;
-    background: here ? Theme.accent : ta.has-hover ? #3a3a3d : transparent;
+    background: here ? tint : ta.has-hover ? tint.transparentize(0.8) : transparent;
     border-width: here ? 0px : 1px;
-    border-color: Theme.border;
+    border-color: tint.transparentize(0.5);
     label := Text {
         text: root.text;
-        color: here ? Theme.on-selection : Theme.text-dim;
+        color: here ? Theme.on-selection : tint;
         font-size: 11px;
-        font-weight: here ? 600 : 400;
+        font-weight: here ? 600 : 500;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
     ta := TouchArea {
         enabled: !here;
+        mouse-cursor: here ? default : pointer;
         clicked => { root.clicked(); }
     }
 }
 
-// The track menu's stage section, for a track at `stage` (as
-// `LibraryEdit.stage-of` numbers them): Inbox → In Prep → Play Ready with
-// the track's stage lit (a click on another moves it there), then a step
-// back and a step forward, with arrows saying which way.
+// The top of the track menu, for a track at `stage` (as
+// `LibraryEdit.stage-of` numbers them): Inbox → In Prep → Play Ready, the
+// track's stage filled; a click on another moves it there.
+component StageStrip inherits HorizontalLayout {
+    in property <int> stage;
+    callback picked(stage: int);
+    height: 28px;
+    padding-left: 10px;
+    padding-right: 8px;
+    spacing: 3px;
+    alignment: start;
+    StageStep { y: 3px; text: "Inbox"; tint: Theme.stage-inbox; here: stage == 1; clicked => { picked(1); } }
+    MenuIcon { y: 9px; width: 10px; height: 10px; icon: "chevron"; color: Theme.text-dim; }
+    StageStep { y: 3px; text: "In Prep"; tint: Theme.stage-prep; here: stage == 2; clicked => { picked(2); } }
+    MenuIcon { y: 9px; width: 10px; height: 10px; icon: "chevron"; color: Theme.text-dim; }
+    StageStep { y: 3px; text: "Play Ready"; tint: Theme.stage-ready; here: stage == 3; clicked => { picked(3); } }
+}
+
+// What the stage strip can't say: which prep crate to send a track into,
+// and passing over an Inbox track.
 component StageLines inherits VerticalLayout {
     in property <int> stage;
     callback picked(stage: int, crate: int);
     callback entered();
     spacing: 2px;
-    MenuSeparator {}
-    HorizontalLayout {
-        height: 28px;
-        padding-left: 10px;
-        padding-right: 8px;
-        spacing: 3px;
-        alignment: start;
-        StageStep { y: 3px; text: "Inbox"; here: stage == 1; clicked => { picked(1, -1); } }
-        MenuIcon { y: 9px; width: 10px; height: 10px; icon: "chevron"; color: Theme.text-dim; }
-        StageStep { y: 3px; text: "In Prep"; here: stage == 2; clicked => { picked(2, -1); } }
-        MenuIcon { y: 9px; width: 10px; height: 10px; icon: "chevron"; color: Theme.text-dim; }
-        StageStep { y: 3px; text: "Play Ready"; here: stage == 3; clicked => { picked(3, -1); } }
-    }
-    // Back a step.
-    if stage == 2 || stage == 4: MenuLine {
-        icon: "back";
-        text: "Back to Inbox";
-        entered => { root.entered(); }
-        clicked => { picked(1, -1); }
-    }
-    if stage == 3: MenuLine {
-        icon: "back";
-        text: "Back to In Prep";
-        entered => { root.entered(); }
-        clicked => { picked(2, -1); }
-    }
-    // Forward a step.
-    if stage != 2 && stage != 3: MenuLine {
-        icon: "forward";
-        text: "Send to In Prep";
-        entered => { root.entered(); }
-        clicked => { picked(2, -1); }
-    }
+    if stage == 1 || (stage != 2 && stage != 3 && LibraryEdit.triage-crates.length > 0): MenuSeparator {}
     if stage != 2 && stage != 3: VerticalLayout {
         spacing: 2px;
         for c[i] in LibraryEdit.triage-crates: MenuLine {
@@ -732,12 +719,6 @@ component StageLines inherits VerticalLayout {
             entered => { root.entered(); }
             clicked => { picked(2, i); }
         }
-    }
-    if stage == 2: MenuLine {
-        icon: "forward";
-        text: "Send to Play Ready";
-        entered => { root.entered(); }
-        clicked => { picked(3, -1); }
     }
     // Passed over: out of the Inbox for good, the file left where it is.
     if stage == 1: MenuLine {
@@ -1082,6 +1063,16 @@ component TrackMenu inherits PopupWindow {
         col := VerticalLayout {
             padding: 6px;
             spacing: 2px;
+            // The stage first: moving a track along is what the menu is
+            // opened for most.
+            if LibraryEdit.stages: StageStrip {
+                stage: LibraryEdit.stage-of(track-row);
+                picked(stage) => {
+                    LibraryEdit.set-stage(track-row, track-last, stage, -1);
+                    root.close();
+                }
+            }
+            if LibraryEdit.stages: MenuSeparator {}
             HorizontalLayout {
                 height: 28px;
                 padding-left: 10px;
@@ -1379,7 +1370,7 @@ component TrackMenu inherits PopupWindow {
     }
 }
 
-// Monochrome glyph per node kind.
+// Glyph per node kind, the collection's stages in their colours.
 component FolderIcon inherits Rectangle {
     in property <int> kind;
     width: 18px;
@@ -1441,8 +1432,9 @@ component FolderIcon inherits Rectangle {
         commands: "M 2 5 L 16 5 L 16 15 L 2 15 Z M 2 8.5 L 16 8.5 M 2 11.8 L 16 11.8";
     }
     if kind != 1 && kind != 6 && kind != 7 && kind != 9 && kind != 14 && kind != 15 && kind != 16 && kind != 17 && kind != 18: Text {
-        text: kind == 0 ? "♫" : kind == 3 ? "✦" : kind == 4 ? "♥" : kind == 5 ? "◷" : kind == 8 ? "★" : kind == 10 ? "↓" : kind == 11 ? "◐" : kind == 12 ? "✚" : kind == 13 ? "◦" : "≡";
-        color: Theme.text;
+        text: kind == 0 || kind == 19 ? "♫" : kind == 3 ? "✦" : kind == 4 ? "♥" : kind == 5 ? "◷" : kind == 8 ? "★" : kind == 10 ? "↓" : kind == 11 ? "◐" : kind == 12 ? "✚" : kind == 13 ? "◦" : "≡";
+        // The collection's stages in their own colours.
+        color: Theme.stage-tint(kind);
         font-size: kind == 2 ? 18px : 14px;
         font-weight: 700;
     }
@@ -2338,7 +2330,7 @@ component FolderTree inherits Rectangle {
                         if f.kind != 18: VerticalLayout { alignment: center; FolderIcon { kind: f.kind; } }
                         Text {
                             text: f.name;
-                            color: i == current ? Theme.on-row-selection : f.kind == 18 ? Theme.text-dim : Theme.text;
+                            color: i == current ? Theme.on-row-selection : f.kind == 18 ? Theme.text-dim : Theme.stage-labels ? Theme.stage-tint(f.kind) : Theme.text;
                             font-size: f.kind == 18 ? 13px : 15px;
                             font-weight: f.kind == 18 ? 700 : 400;
                             vertical-alignment: center;
