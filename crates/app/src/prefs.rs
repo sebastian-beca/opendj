@@ -4154,6 +4154,7 @@ mod tests {
             vendor: vendor.into(),
             format,
             plugin: Plugin::Au { id: name.into() },
+            features: Vec::new(),
         }
     }
 

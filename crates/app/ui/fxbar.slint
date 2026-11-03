@@ -9,7 +9,7 @@
 // in the top bar shows and hides the bar.
 import { Theme } from "theme.slint";
 import { ControlButton, Controls, PickupDot, PickupGhost } from "controls.slint";
-import { EffectList } from "deck.slint";
+import { EffectList, EffectMenu } from "deck.slint";
 import { MapMark } from "mapmark.slint";
 
 // ‹ or ›, stepping to the previous or next effect.
@@ -243,12 +243,18 @@ component EffectPicker inherits Rectangle {
             fill: transparent;
         }
     }
-    ta := TouchArea { mouse-cursor: pointer; clicked => { menu.show(); } }
+    property <int> menu-tab;
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            menu-tab = loaded > EffectList.builtin-count ? 1 : 0;
+            menu.show();
+        }
+    }
     menu := PopupWindow {
-        x: centred ? (root.width - 190px) / 2 : 0px;
+        x: centred ? (root.width - 210px) / 2 : 0px;
         y: root.height + 2px;
-        width: 190px;
-        height: list.height;
+        width: 210px;
         close-policy: close-on-click-outside;
         Rectangle {
             background: Theme.panel-raised;
@@ -258,42 +264,18 @@ component EffectPicker inherits Rectangle {
             drop-shadow-blur: 12px;
             drop-shadow-color: #000000a0;
         }
-        // Plugins come after the built-in effects, under a line; a long
-        // list scrolls.
-        list := Flickable {
-            height: min(EffectList.names.length * 26px + 12px + (EffectList.names.length > EffectList.builtin-count ? 9px : 0px), 440px);
-            viewport-height: fx-rows.preferred-height;
-            fx-rows := VerticalLayout {
-                padding: 6px;
-                spacing: 0px;
-                for e[i] in EffectList.names: VerticalLayout {
-                    if i == EffectList.builtin-count: Rectangle {
-                        height: 9px;
-                        Rectangle { y: 4px; height: 1px; background: Theme.border; }
-                    }
-                    Rectangle {
-                        property <bool> current: loaded == i + 1;
-                        height: 26px;
-                        border-radius: 4px;
-                        background: current ? tint.with-alpha(0.35) : eta.has-hover ? #3a3a3d : transparent;
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            Text { text: e; color: Theme.text; font-size: 12px; font-weight: current ? 700 : 400; vertical-alignment: center; horizontal-stretch: 1; }
-                        }
-                        eta := TouchArea {
-                            clicked => {
-                                if current {
-                                    Controls.toggle(enabled-index);
-                                } else {
-                                    Controls.set-value(loaded-index, i + 1);
-                                    Controls.set-value(enabled-index, 1);
-                                }
-                                menu.close();
-                            }
-                        }
-                    }
+        EffectMenu {
+            loaded: loaded;
+            tint: tint;
+            tab <=> root.menu-tab;
+            picked(i) => {
+                if loaded == i + 1 {
+                    Controls.toggle(enabled-index);
+                } else {
+                    Controls.set-value(loaded-index, i + 1);
+                    Controls.set-value(enabled-index, 1);
                 }
+                menu.close();
             }
         }
     }

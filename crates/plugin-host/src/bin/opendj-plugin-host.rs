@@ -117,8 +117,30 @@ fn main() {
             .map_or(IDLE, |d| d.min(IDLE))
             .max(Duration::from_millis(1));
         editor.step(m, &h.editor, &h.editor_shown, wait);
+        if editor.wants_run() {
+            break;
+        }
     }
-    std::process::exit(0);
+    if !editor.wants_run() {
+        std::process::exit(0);
+    }
+    // macOS, once a window was made: the system's loop runs the main thread
+    // from here, and this is done whenever it is idle.
+    editor.run(move |win, el| {
+        if audio.is_finished() {
+            std::process::exit(0);
+        }
+        let h = shm.header();
+        let m: &mut dyn MainThread = match main.as_mut() {
+            Some(m) => m.as_mut(),
+            None => &mut no_main,
+        };
+        m.idle();
+        win.step_in(m, &h.editor, &h.editor_shown, el);
+        m.next_idle()
+            .map_or(IDLE, |d| d.min(IDLE))
+            .max(Duration::from_millis(1))
+    })
 }
 
 /// How often the plugin's main thread is served, at the longest.

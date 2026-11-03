@@ -497,6 +497,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )));
     app.global::<EffectList>()
         .set_mic_unit(opendj_engine::MIC_FX_UNIT as i32);
+    app.global::<EffectList>()
+        .set_builtin_rows(ModelRc::new(VecModel::from(audio_plugins::builtin_rows())));
     // Plugins the DJ ticked join the FX lists after the built-in effects.
     let audio_plugins = Rc::new(RefCell::new(audio_plugins::AudioPlugins::new(
         &app,
