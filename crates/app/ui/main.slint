@@ -797,6 +797,11 @@ export component AppWindow inherits Window {
     callback automix-set-length(index: int);
     callback automix-set-style(index: int);
 
+    // Edit › Find (⌘F) on macOS, and the key everywhere.
+    public function focus-search() {
+        browser.focus-search();
+    }
+
     init => {
         Palette.color-scheme = ColorScheme.dark;
         keys.focus();
@@ -909,6 +914,17 @@ export component AppWindow inherits Window {
             }
             if e.text == Key.Escape && Preferences.open {
                 Preferences.open = false;
+                return accept;
+            }
+            // Esc clears the library search, as in the search box itself.
+            if e.text == Key.Escape && StoreUi.search-text != "" && !Preferences.open && !ImportWizard.open && !UsbExport.open {
+                StoreUi.search-text = "";
+                search("");
+                return accept;
+            }
+            // ⌘F (Ctrl+F on Linux and Windows) goes to the library search.
+            if (e.text == "f" || e.text == "F") && e.modifiers.control && !e.modifiers.alt && !e.modifiers.shift && !Preferences.open {
+                focus-search();
                 return accept;
             }
             // ⌘A (Ctrl+A on Linux and Windows) picks every track in the

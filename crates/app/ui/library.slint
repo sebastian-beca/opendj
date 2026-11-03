@@ -254,6 +254,9 @@ export global LibraryEdit {
     callback show-history(history: bool);
     // A search can be saved as a smart list (the collection is the saved library).
     in property <bool> can-save-search;
+    // Nothing matched the search exactly, so the list shows near misses
+    // (a letter off), and the count says "Close Matches".
+    in property <bool> close-matches;
     // The selected smart list's search, shown above the list; empty otherwise.
     in property <string> rule;
     // Saves a search as a smart list, selects it and returns its row in the tree.
@@ -2960,6 +2963,12 @@ component TrackList inherits Rectangle {
         current = i;
         took-focus();
     }
+    // ⌘F (Ctrl+F on Linux and Windows): into the search box, its text
+    // picked so typing replaces it.
+    public function focus-search() {
+        search-edit.focus();
+        search-edit.select-all();
+    }
     // ⌘A (Ctrl+A on Linux and Windows): every row, the first one current.
     public function select-all() {
         if rows.length > 0 {
@@ -3035,108 +3044,146 @@ component TrackList inherits Rectangle {
     VerticalLayout {
         padding: 6px;
         spacing: 4px;
-        HorizontalLayout {
-            spacing: 10px;
+        // The list's name on the left, the search in the middle (moved
+        // left when the buttons on the right need the room), Save and
+        // Filter on the right.
+        Rectangle {
             height: 32px;
-            padding-left: 6px;
-            // Back from an album opened in the covers view.
-            if AlbumsUi.opened: Rectangle {
-                width: 70px;
+            property <length> search-w: clamp(self.width * 0.4, 240px, 520px);
+            property <length> search-x: max(0px, min((self.width - search-w) / 2, self.width - buttons.preferred-width - 10px - search-w));
+            HorizontalLayout {
+                x: 0;
+                width: max(0px, search-x - 10px);
+                spacing: 10px;
+                padding-left: 6px;
+                // Back from an album opened in the covers view.
+                if AlbumsUi.opened: Rectangle {
+                    width: 70px;
+                    Text {
+                        text: "‹ Albums";
+                        color: bta.has-hover ? Theme.text : Theme.accent;
+                        font-size: 14px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                    bta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { AlbumsUi.back(); }
+                    }
+                }
+                Text { text: folder-name; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; overflow: elide; }
+                if empty-title == "" && AlbumsUi.grid: Text { text: AlbumsUi.tiles.length + (AlbumsUi.tiles.length == 1 ? " Album" : " Albums"); color: Theme.text-dim; font-size: 14px; vertical-alignment: center; }
+                if empty-title == "" && !AlbumsUi.grid: Text { text: rows.length + (results ? (rows.length == 1 ? " Result" : " Results") : LibraryEdit.close-matches ? (rows.length == 1 ? " Close Match" : " Close Matches") : (rows.length == 1 ? " Song" : " Songs")); color: Theme.text-dim; font-size: 14px; vertical-alignment: center; }
+                Text { text: duration; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
+                // A smart list's search, so it's clear why these tracks are here.
                 Text {
-                    text: "‹ Albums";
-                    color: bta.has-hover ? Theme.text : Theme.accent;
-                    font-size: 14px;
-                    font-weight: 600;
+                    text: LibraryEdit.rule != "" && empty-title == "" ? "· " + LibraryEdit.rule : "";
+                    color: Theme.accent;
+                    font-size: 13px;
                     vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    overflow: elide;
                 }
-                bta := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => { AlbumsUi.back(); }
+                if LibraryEdit.making-smart && search-text == "" && !FilterUi.any-active: Text {
+                    text: "Add filters for the smart playlist, then Save";
+                    color: Theme.accent;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                    overflow: elide;
                 }
             }
-            Text { text: folder-name; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; }
-            if empty-title == "" && AlbumsUi.grid: Text { text: AlbumsUi.tiles.length + (AlbumsUi.tiles.length == 1 ? " Album" : " Albums"); color: Theme.text-dim; font-size: 14px; vertical-alignment: center; }
-            if empty-title == "" && !AlbumsUi.grid: Text { text: rows.length + (results ? (rows.length == 1 ? " Result" : " Results") : (rows.length == 1 ? " Song" : " Songs")); color: Theme.text-dim; font-size: 14px; vertical-alignment: center; }
-            Text { text: duration; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
-            // A smart list's search, so it's clear why these tracks are here.
-            Text {
-                text: LibraryEdit.rule != "" && empty-title == "" ? "· " + LibraryEdit.rule : "";
-                color: Theme.accent;
-                font-size: 13px;
-                vertical-alignment: center;
-                horizontal-stretch: 1;
-                overflow: elide;
-            }
-            LineEdit {
-                width: 240px;
+            search-edit := LineEdit {
+                x: search-x;
+                width: search-w;
+                height: parent.height;
                 placeholder-text: "Search " + folder-name;
                 text <=> search-text;
                 edited(t) => { search(t); }
-            }
-            // Save the search as a smart list.
-            if LibraryEdit.making-smart && search-text == "" && !FilterUi.any-active: Text {
-                text: "Add filters for the smart playlist, then Save";
-                color: Theme.accent;
-                font-size: 13px;
-                vertical-alignment: center;
-            }
-            if (search-text != "" || FilterUi.any-active) && LibraryEdit.can-save-search: Rectangle {
-                width: LibraryEdit.making-smart ? 136px : 44px;
-                Text {
-                    text: LibraryEdit.making-smart ? "Save Smart Playlist" : "Save";
-                    color: sta.has-hover ? Theme.text : Theme.accent;
-                    font-size: 13px;
-                    font-weight: 600;
-                    vertical-alignment: center;
-                }
-                sta := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        LibraryEdit.making-smart = false;
-                        LibraryEdit.name-row = LibraryEdit.save-search(search-text);
-                        search-text = "";
-                        search("");
+                // Esc clears the search, or with nothing typed hands the
+                // keys back to the list; ↓ goes down into the list.
+                key-pressed(e) => {
+                    if e.text == Key.Escape {
+                        if search-text != "" {
+                            search-text = "";
+                            search("");
+                        } else {
+                            took-focus();
+                        }
+                        return accept;
                     }
+                    if e.text == Key.DownArrow && rows.length > 0 {
+                        took-focus();
+                        if current < 0 {
+                            current = 0;
+                        }
+                        return accept;
+                    }
+                    reject
                 }
             }
-            // Filter: shows or hides the filter bar; lit while the list
-            // is narrowed by a search or a filter.
-            VerticalLayout {
-                alignment: center;
-                Rectangle {
-                    property <bool> lit: search-text != "" || FilterUi.any-active;
-                    width: 28px;
-                    height: 28px;
-                    border-radius: 14px;
-                    border-width: 1.5px;
-                    background: FilterUi.shown && !results ? #ffffff14 : transparent;
-                    border-color: lit ? Theme.accent : (fta.has-hover ? Theme.text-dim : Theme.border);
-                    Path {
-                        width: 16px;
-                        height: 16px;
-                        viewbox-width: 20;
-                        viewbox-height: 20;
-                        stroke: lit ? Theme.accent : Theme.text-dim;
-                        stroke-width: 2.2px;
-                        stroke-line-cap: round;
-                        fill: transparent;
-                        commands: "M 4 5.5 L 16 5.5 M 6.5 10 L 13.5 10 M 9 14.5 L 11 14.5";
+            buttons := HorizontalLayout {
+                x: parent.width - self.width;
+                width: max(self.preferred-width, parent.width - search-x - search-w - 10px);
+                alignment: end;
+                spacing: 10px;
+                if (search-text != "" || FilterUi.any-active) && LibraryEdit.can-save-search: Rectangle {
+                    width: LibraryEdit.making-smart ? 136px : 44px;
+                    Text {
+                        text: LibraryEdit.making-smart ? "Save Smart Playlist" : "Save";
+                        color: sta.has-hover ? Theme.text : Theme.accent;
+                        font-size: 13px;
+                        font-weight: 600;
+                        vertical-alignment: center;
                     }
-                    fta := TouchArea {
+                    sta := TouchArea {
                         mouse-cursor: pointer;
                         clicked => {
-                            // Store results have no filters: clear the search.
-                            if results {
-                                search-text = "";
-                                search("");
-                            } else {
-                                FilterUi.set-shown(!FilterUi.shown);
+                            LibraryEdit.making-smart = false;
+                            LibraryEdit.name-row = LibraryEdit.save-search(search-text);
+                            search-text = "";
+                            search("");
+                        }
+                    }
+                }
+                // Filter: shows or hides the filter bar; lit while the list
+                // is narrowed by a search or a filter.
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        property <bool> lit: search-text != "" || FilterUi.any-active;
+                        width: 28px;
+                        height: 28px;
+                        border-radius: 14px;
+                        border-width: 1.5px;
+                        background: FilterUi.shown && !results ? #ffffff14 : transparent;
+                        border-color: lit ? Theme.accent : (fta.has-hover ? Theme.text-dim : Theme.border);
+                        Path {
+                            width: 16px;
+                            height: 16px;
+                            viewbox-width: 20;
+                            viewbox-height: 20;
+                            stroke: lit ? Theme.accent : Theme.text-dim;
+                            stroke-width: 2.2px;
+                            stroke-line-cap: round;
+                            fill: transparent;
+                            commands: "M 4 5.5 L 16 5.5 M 6.5 10 L 13.5 10 M 9 14.5 L 11 14.5";
+                        }
+                        fta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                // Store results have no filters: clear the search.
+                                if results {
+                                    search-text = "";
+                                    search("");
+                                } else {
+                                    FilterUi.set-shown(!FilterUi.shown);
+                                }
                             }
                         }
                     }
                 }
+                if AlbumsUi.offered: ViewSwitch {}
             }
-            if AlbumsUi.offered: ViewSwitch {}
         }
         if FilterUi.shown && !results: FilterBar {}
         // Column headers, scrolled sideways with the list when the columns
@@ -4001,6 +4048,9 @@ export component Browser inherits HorizontalLayout {
     in property <string> list-notice;
     // A track in the list was picked, so the keys go back to the window's
     // shortcuts (⌘A among them) from the side list or the search field.
+    public function focus-search() {
+        list.focus-search();
+    }
     callback list-clicked();
     callback select-source(source: int);
     callback spotify-connect(client-id: string);
