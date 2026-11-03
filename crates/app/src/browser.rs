@@ -4617,8 +4617,17 @@ impl Browser {
         }
     }
 
+    /// Whether the list shows near misses because nothing matched the
+    /// search as typed.
+    fn set_close_matches(&self, close: bool) {
+        if let Some(app) = self.app.upgrade() {
+            app.global::<LibraryEdit>().set_close_matches(close);
+        }
+    }
+
     fn refresh_rows(&mut self) {
         if self.shows_store_rows() {
+            self.set_close_matches(false);
             self.refresh_store_rows();
             return;
         }
@@ -4629,19 +4638,31 @@ impl Browser {
         // names, and only while nothing is filtered.
         let q = Query::parse(&self.full_search());
         let cx = self.context();
-        let needle = self.search.to_lowercase();
+        let needle = query::fold(&self.search);
         let filtering = self.filtering();
-        let mut data: Vec<RowData> = self
-            .row_data()
+        let all = self.row_data();
+        let keep = |q: &Query, r: &RowData| match r.local {
+            _ if q.is_empty() => true,
+            Some(id) => q.matches(&self.library[id], &self.indexed[id], &cx),
+            None if filtering => false,
+            None => [r.title, &r.artist, r.album]
+                .iter()
+                .any(|t| query::fold(t).contains(&needle)),
+        };
+        let mut kept: Vec<bool> = all.iter().map(|r| keep(&q, r)).collect();
+        // Nothing as typed: a letter off, and the count says so.
+        let mut close = false;
+        if !self.search.trim().is_empty() && !kept.contains(&true) {
+            if let Some(loose) = q.loosened() {
+                kept = all.iter().map(|r| keep(&loose, r)).collect();
+                close = kept.contains(&true);
+            }
+        }
+        self.set_close_matches(close);
+        let mut data: Vec<RowData> = all
             .into_iter()
-            .filter(|r| match r.local {
-                _ if q.is_empty() => true,
-                Some(id) => q.matches(&self.library[id], &self.indexed[id], &cx),
-                None if filtering => false,
-                None => [r.title, &r.artist, r.album]
-                    .iter()
-                    .any(|t| t.to_lowercase().contains(&needle)),
-            })
+            .zip(kept)
+            .filter_map(|(r, k)| k.then_some(r))
             .collect();
         // A Spotify playlist keeps its own order until a column is clicked.
         // So does a folder in Files, in file name order, and an album.

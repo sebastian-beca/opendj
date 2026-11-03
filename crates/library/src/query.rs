@@ -3,7 +3,11 @@
 //! searches, so the same text drives both.
 //!
 //! - Plain words match the artist, title, album, genre, comment, grouping
-//!   and tags; `"two words"` matches a phrase.
+//!   and tags; `"two words"` matches a phrase. Matching forgives what a DJ
+//!   doesn't type: accents (`olafur` finds "Ólafur"), punctuation (`acdc`
+//!   finds "AC/DC"), `&` for "and" and `ft`/`featuring` for "feat" (see
+//!   [`fold`]). When nothing matches, [`Query::loosened`] lets each word of
+//!   four letters or more be one letter off (`frahn` finds "Frahm").
 //! - `field:value` searches one field: `artist:`, `title:`, `album:`,
 //!   `genre:`, `comment:`, `grouping:`, `tag:` (every tag field), `key:`,
 //!   `location:`, `publisher:` (the record label), `composer:`, `remixer:`.
@@ -175,8 +179,11 @@ enum Flag {
 
 #[derive(Clone, Debug, PartialEq)]
 enum Test {
-    /// Lowercased text found in any of the searchable text fields.
+    /// Folded text (see [`fold`]) found in any of the searchable text fields.
     Anywhere(String),
+    /// Folded text found, one letter off at most, in any of them: a plain
+    /// word of a search that found nothing as typed.
+    Near(String),
     Contains(TextField, String),
     Exactly(TextField, String),
     Empty(TextField),
@@ -214,8 +221,8 @@ pub struct Context<'a> {
     pub crates: Option<&'a HashMap<usize, Vec<String>>>,
 }
 
-/// A track's text fields lowercased once, so searching while typing stays
-/// fast in a large library.
+/// A track's text fields folded once (see [`fold`]), so searching while
+/// typing stays fast in a large library.
 #[derive(Clone, Debug, Default)]
 pub struct Indexed {
     artist: String,
@@ -234,23 +241,23 @@ pub struct Indexed {
 
 impl Indexed {
     pub fn new(t: &Track) -> Self {
-        let lower = |s: &str| s.to_lowercase();
         Indexed {
-            artist: lower(&t.artist),
-            title: lower(&t.title),
-            album: lower(&t.album),
-            genre: lower(&t.genre),
-            comment: lower(&t.info.comment),
-            grouping: lower(&t.info.grouping),
-            tags: lower(&t.info.labels.join(" ")),
+            artist: fold(&t.artist),
+            title: fold(&t.title),
+            album: fold(&t.album),
+            genre: fold(&t.genre),
+            comment: fold(&t.info.comment),
+            grouping: fold(&t.info.grouping),
+            tags: fold(&t.info.labels.join(" ")),
+            // Paths keep their slashes and dots, so `location:/music/` works.
             location: match &t.source {
-                Source::File(p) => lower(&p.to_string_lossy()),
+                Source::File(p) => p.to_string_lossy().chars().map(unaccent).collect(),
                 Source::Synth { .. } => String::new(),
             },
-            publisher: lower(&t.info.label),
-            composer: lower(&t.info.composer),
-            remixer: lower(&t.info.remixer),
-            user: t.info.user_tags.iter().map(|f| lower(f)).collect(),
+            publisher: fold(&t.info.label),
+            composer: fold(&t.info.composer),
+            remixer: fold(&t.info.remixer),
+            user: t.info.user_tags.iter().map(|f| fold(f)).collect(),
         }
     }
 }
@@ -269,6 +276,33 @@ impl Query {
         }
         alternatives.retain(|a| !a.is_empty());
         Query { alternatives }
+    }
+
+    /// The same search with each plain word of four letters or more
+    /// allowed to be one letter off, to try when it finds nothing as
+    /// typed; `None` when it has no such word.
+    pub fn loosened(&self) -> Option<Query> {
+        let mut changed = false;
+        let alternatives = self
+            .alternatives
+            .iter()
+            .map(|terms| {
+                terms
+                    .iter()
+                    .map(|t| match &t.test {
+                        Test::Anywhere(s) if !t.negated && s.chars().count() >= 4 => {
+                            changed = true;
+                            Term {
+                                negated: false,
+                                test: Test::Near(s.clone()),
+                            }
+                        }
+                        _ => t.clone(),
+                    })
+                    .collect()
+            })
+            .collect();
+        changed.then_some(Query { alternatives })
     }
 
     /// Whether the search has nothing in it, so everything matches.
@@ -380,7 +414,7 @@ fn parse_test(word: &str) -> Option<Test> {
         return Some(Test::MixesWithDeck);
     }
     let Some((name, value)) = word.split_once(':').filter(|(n, _)| !n.contains('"')) else {
-        let text = unquote(word).to_lowercase();
+        let text = fold(&unquote(word));
         return (!text.is_empty()).then_some(Test::Anywhere(text));
     };
     let name = name.to_ascii_lowercase();
@@ -402,10 +436,17 @@ fn parse_test(word: &str) -> Option<Test> {
         if value == "\"\"" {
             return Some(Test::Empty(field));
         }
+        let text = |v: &str| {
+            if field == TextField::Location {
+                v.chars().map(unaccent).collect()
+            } else {
+                fold(v)
+            }
+        };
         if let Some(exact) = value.strip_prefix('=') {
-            return Some(Test::Exactly(field, unquote(exact).to_lowercase()));
+            return Some(Test::Exactly(field, text(&unquote(exact))));
         }
-        let v = unquote(value).to_lowercase();
+        let v = text(&unquote(value));
         return (!v.is_empty()).then_some(Test::Contains(field, v));
     }
     let v = unquote(value);
@@ -465,7 +506,13 @@ fn parse_test(word: &str) -> Option<Test> {
             },
         },
         // Not a field: search for the text as typed (a title with a colon).
-        _ => Test::Anywhere(unquote(word).to_lowercase()),
+        _ => {
+            let text = fold(&unquote(word));
+            if text.is_empty() {
+                return None;
+            }
+            Test::Anywhere(text)
+        }
     })
 }
 
@@ -650,20 +697,28 @@ impl Term {
             ]
             .iter()
             .any(|f| f.contains(s.as_str())),
+            Test::Near(s) => {
+                let s: Vec<char> = s.chars().collect();
+                [
+                    &text.artist,
+                    &text.title,
+                    &text.album,
+                    &text.genre,
+                    &text.comment,
+                    &text.grouping,
+                    &text.tags,
+                ]
+                .iter()
+                .any(|f| near(&s, f))
+            }
             Test::Contains(TextField::Key, s) => t.key.to_lowercase().contains(s.as_str()),
-            Test::Contains(TextField::Tag, s) => t.info.labels.iter().any(|l| {
-                l.to_lowercase()
-                    .trim_start_matches('#')
-                    .contains(s.trim_start_matches('#'))
-            }),
+            Test::Contains(TextField::Tag, s) => {
+                t.info.labels.iter().any(|l| fold(l).contains(s.as_str()))
+            }
             Test::Contains(f @ TextField::UserTag(_), s) => has_word(field(*f), s, false),
             Test::Contains(f, s) => field(*f).contains(s.as_str()),
             Test::Exactly(TextField::Key, s) => t.key.to_lowercase() == *s,
-            Test::Exactly(TextField::Tag, s) => t
-                .info
-                .labels
-                .iter()
-                .any(|l| l.to_lowercase().trim_start_matches('#') == s.trim_start_matches('#')),
+            Test::Exactly(TextField::Tag, s) => t.info.labels.iter().any(|l| fold(l) == *s),
             // Tags are words: a field matches when one of its words does.
             Test::Exactly(f @ TextField::UserTag(_), s) => has_word(field(*f), s, true),
             Test::Exactly(f, s) => field(*f) == s,
@@ -753,6 +808,131 @@ impl Term {
             Test::Never => false,
         }
     }
+}
+
+/// Text as a search compares it: lowercase, without accents ("Ólafur
+/// Arnalds" is "olafur arnalds"), without punctuation ("AC/DC" is "acdc",
+/// "Don't" is "dont", a leading `#` goes), and with the words DJs write
+/// several ways made one: "&" is "and", "ft", "ft." and "featuring" are
+/// "feat". Words are kept apart by single spaces.
+pub fn fold(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for word in s.split_whitespace() {
+        let word: String = word
+            .chars()
+            .flat_map(char::to_lowercase)
+            .flat_map(Unaccented::new)
+            .filter(|c| c.is_alphanumeric() || *c == '&')
+            .collect();
+        let word = match word.as_str() {
+            "&" => "and",
+            "ft" | "featuring" => "feat",
+            w => w.trim_matches('&'),
+        };
+        if word.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+    out
+}
+
+/// A lowercase letter without its accent, as one or two letters.
+struct Unaccented {
+    first: Option<char>,
+    second: Option<char>,
+}
+
+impl Unaccented {
+    fn new(c: char) -> Self {
+        let pair = |a, b| Unaccented {
+            first: Some(a),
+            second: Some(b),
+        };
+        match c {
+            'æ' => pair('a', 'e'),
+            'œ' => pair('o', 'e'),
+            'ß' => pair('s', 's'),
+            'þ' => pair('t', 'h'),
+            'ĳ' => pair('i', 'j'),
+            c => Unaccented {
+                first: Some(unaccent(c)),
+                second: None,
+            },
+        }
+    }
+}
+
+impl Iterator for Unaccented {
+    type Item = char;
+    fn next(&mut self) -> Option<char> {
+        self.first.take().or_else(|| self.second.take())
+    }
+}
+
+/// A letter without its accent: é is e, ø is o, ł is l. Lowercases too.
+fn unaccent(c: char) -> char {
+    let c = c.to_lowercase().next().unwrap_or(c);
+    match c {
+        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' => 'a',
+        'ç' | 'ć' | 'ĉ' | 'ċ' | 'č' => 'c',
+        'ď' | 'đ' | 'ð' => 'd',
+        'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ĕ' | 'ė' | 'ę' | 'ě' => 'e',
+        'ĝ' | 'ğ' | 'ġ' | 'ģ' => 'g',
+        'ĥ' | 'ħ' => 'h',
+        'ì' | 'í' | 'î' | 'ï' | 'ĩ' | 'ī' | 'ĭ' | 'į' | 'ı' => 'i',
+        'ĵ' => 'j',
+        'ķ' => 'k',
+        'ĺ' | 'ļ' | 'ľ' | 'ŀ' | 'ł' => 'l',
+        'ñ' | 'ń' | 'ņ' | 'ň' => 'n',
+        'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ō' | 'ŏ' | 'ő' => 'o',
+        'ŕ' | 'ŗ' | 'ř' => 'r',
+        'ś' | 'ŝ' | 'ş' | 'š' | 'ș' => 's',
+        'ţ' | 'ť' | 'ŧ' | 'ț' => 't',
+        'ù' | 'ú' | 'û' | 'ü' | 'ũ' | 'ū' | 'ŭ' | 'ů' | 'ű' | 'ų' => 'u',
+        'ŵ' => 'w',
+        'ý' | 'ÿ' | 'ŷ' => 'y',
+        'ź' | 'ż' | 'ž' => 'z',
+        c => c,
+    }
+}
+
+/// Whether `word` is in `text` with at most one letter wrong, missing,
+/// extra, or two letters swapped (Sellers' approximate search with the
+/// optimal string alignment distance).
+fn near(word: &[char], text: &str) -> bool {
+    let m = word.len();
+    if m == 0 {
+        return true;
+    }
+    // Three rows of the table: the one before last, the last and this one.
+    // Row i is how far word[..i] is from the best stretch of text ending
+    // at each letter; a stretch may start anywhere, so row 0 is all zeros.
+    let mut before = vec![0usize; m + 1];
+    let mut last: Vec<usize> = (0..=m).collect();
+    let mut this = vec![0usize; m + 1];
+    let mut prev_c = None;
+    for c in text.chars() {
+        this[0] = 0;
+        for i in 1..=m {
+            let cost = usize::from(word[i - 1] != c);
+            let mut d = (last[i - 1] + cost).min(last[i] + 1).min(this[i - 1] + 1);
+            if i > 1 && Some(word[i - 1]) == prev_c && word[i - 2] == c {
+                d = d.min(before[i - 2] + 1);
+            }
+            this[i] = d;
+        }
+        if this[m] <= 1 {
+            return true;
+        }
+        std::mem::swap(&mut before, &mut last);
+        std::mem::swap(&mut last, &mut this);
+        prev_c = Some(c);
+    }
+    false
 }
 
 /// A title or artist reduced to what identifies the song: lowercase,
@@ -882,6 +1062,51 @@ mod tests {
             "3B",
         );
         vec![a, b, c, d]
+    }
+
+    #[test]
+    fn forgives_accents_punctuation_and_spelling() {
+        let tracks = vec![
+            track(1, "Ólafur Arnalds", "Saman", 70.0, "1A"),
+            track(2, "AC/DC", "Thunderstruck", 134.0, "5B"),
+            track(3, "Sigur Rós", "Hoppípolla", 90.0, "2A"),
+            track(4, "Simon & Garfunkel", "Don't Know", 100.0, "8B"),
+            track(5, "Bonobo ft. Andreya Triana", "The Keeper", 120.0, "9A"),
+            track(6, "Nils Frahm", "Says", 74.0, "4A"),
+        ];
+        assert_eq!(find(&tracks, "olafur"), vec![1]);
+        assert_eq!(find(&tracks, "ÓLAFUR"), vec![1]);
+        assert_eq!(find(&tracks, "acdc"), vec![2]);
+        assert_eq!(find(&tracks, "ac/dc"), vec![2]);
+        assert_eq!(find(&tracks, "sigur ros hoppipolla"), vec![3]);
+        assert_eq!(find(&tracks, "simon and garfunkel"), vec![4]);
+        assert_eq!(find(&tracks, "\"simon & garfunkel\""), vec![4]);
+        assert_eq!(find(&tracks, "dont"), vec![4]);
+        assert_eq!(find(&tracks, "\"bonobo feat andreya\""), vec![5]);
+        assert_eq!(find(&tracks, "artist:featuring"), vec![5]);
+        // Punctuation alone is not a search.
+        assert_eq!(find(&tracks, "-").len(), 6);
+
+        // A letter off finds nothing as typed, and something loosened.
+        let loose = |q: &str| {
+            let q = Query::parse(q).loosened().expect("has a long word");
+            tracks
+                .iter()
+                .filter(|t| q.matches(t, &Indexed::new(t), &Context::default()))
+                .map(|t| t.id)
+                .collect::<Vec<_>>()
+        };
+        assert!(find(&tracks, "frahn").is_empty());
+        assert_eq!(loose("frahn"), vec![6]); // wrong letter
+        assert_eq!(loose("fraahm"), vec![6]); // extra letter
+        assert_eq!(loose("thundrstruck"), vec![2]); // missing letter
+        assert_eq!(loose("arnadls"), vec![1]); // swapped letters
+        assert_eq!(loose("nils frahn"), vec![6]);
+        assert!(loose("frxhx").is_empty()); // two letters off
+                                            // Short words and left-out words stay as typed.
+        assert_eq!(Query::parse("abc -frahn").loosened(), None);
+        assert_eq!(loose("frahn says").len(), 1);
+        assert!(loose("frahn moodymann").is_empty());
     }
 
     #[test]

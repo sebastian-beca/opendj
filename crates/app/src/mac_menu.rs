@@ -1,4 +1,5 @@
-//! Settings… (⌘,) in the macOS app menu, and an Edit menu with Undo (⌘Z).
+//! Settings… (⌘,) in the macOS app menu, and an Edit menu with Undo (⌘Z)
+//! and Find (⌘F).
 //! Slint builds the app menu itself (About, Services, Hide, Quit) with no
 //! way to add to it, so the items are added to the native menu once it
 //! exists.
@@ -18,6 +19,8 @@ thread_local! {
     /// What Undo does, and its menu item, renamed for what it takes back.
     static UNDO: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
     static UNDO_ITEM: RefCell<Option<Retained<NSMenuItem>>> = const { RefCell::new(None) };
+    /// What Find does: into the library search.
+    static FIND: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
 }
 
 define_class!(
@@ -53,6 +56,17 @@ define_class!(
             UNDO.with(|u| {
                 if let Some(undo) = u.borrow().as_ref() {
                     undo();
+                }
+            });
+        }
+
+        #[unsafe(method(findInLibrary:))]
+        fn find_in_library(&self, _sender: Option<&AnyObject>) {
+            // Going to the search twice (the item and the window both see
+            // ⌘F) does no harm.
+            FIND.with(|f| {
+                if let Some(find) = f.borrow().as_ref() {
+                    find();
                 }
             });
         }
@@ -109,6 +123,18 @@ pub fn add_settings_item(open: impl Fn() + 'static) -> bool {
     unsafe { undo.setTarget(Some(&target)) };
     undo.setEnabled(false);
     edit.addItem(&undo);
+    // SAFETY: as for Settings… above.
+    let find = unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(
+            NSMenuItem::alloc(mtm),
+            &NSString::from_str("Find"),
+            Some(sel!(findInLibrary:)),
+            &NSString::from_str("f"),
+        )
+    };
+    unsafe { find.setTarget(Some(&target)) };
+    edit.addItem(&NSMenuItem::separatorItem(mtm));
+    edit.addItem(&find);
     let holder = NSMenuItem::new(mtm);
     holder.setSubmenu(Some(&edit));
     if let Some(main) = app.mainMenu() {
@@ -122,6 +148,11 @@ pub fn add_settings_item(open: impl Fn() + 'static) -> bool {
 /// What Edit › Undo does when picked.
 pub fn on_undo(undo: impl Fn() + 'static) {
     UNDO.with(|u| *u.borrow_mut() = Some(Box::new(undo)));
+}
+
+/// What Edit › Find does when picked.
+pub fn on_find(find: impl Fn() + 'static) {
+    FIND.with(|f| *f.borrow_mut() = Some(Box::new(find)));
 }
 
 /// Names Edit › Undo for what it would take back ("Undo Send to In Prep
