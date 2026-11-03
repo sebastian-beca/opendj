@@ -9,7 +9,8 @@ platform asks for.
 Your station or streaming host gives you a server address, a port, a mount
 point and a source password. Put them into openDJ once:
 
-1. Open **Settings › Broadcast** and click **Add** next to **Add a station**.
+1. Open **Settings › Broadcast**, switch on **Broadcasting**, and click **Add**
+   next to **Add a station**.
 2. Fill in **Address**, **Port**, **Mount point** (Icecast) and **Password**.
    Leave **User** as `source` unless your host says otherwise.
 3. Choose the **Format** and **Bitrate**. **MP3 at 128 kb/s** plays everywhere
@@ -23,7 +24,9 @@ Manager on Windows, the Secret Service on Linux), never in openDJ's settings
 file. Where there's no keychain, openDJ remembers it until you quit.
 
 You can add several stations and switch each on or off: **ON AIR** streams to
-every station that's switched on, at once.
+every station that's switched on, at once. The **ON AIR** button only shows in
+the top bar while **Broadcasting** is on and at least one station is set up and
+switched on.
 
 ### Going on air
 
@@ -66,7 +69,7 @@ hosts include them; check yours before you go on air.
 
 ## The loudness meter
 
-Open the **MASTER** button in the top bar. Under the master meter, **Loudness**
+Open the **ON AIR** button in the top bar. Under **Go on air**, **Loudness**
 shows:
 
 | Reading | What it is |
@@ -83,9 +86,6 @@ again. They also start again when you press **REC** or go on air.
 
 While recording, the **REC** button in the top bar shows the short-term
 loudness next to the time.
-
-The master meter above it shows peaks in dB, marked from −40 to 0. It reads
-after the limiter, so it stops just under 0.
 
 ## Choosing a target
 

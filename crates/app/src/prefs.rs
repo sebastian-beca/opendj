@@ -1018,7 +1018,7 @@ impl Prefs {
                             "loudness_target",
                             MENU,
                             "Loudness target",
-                            "Where the loudness meter in the MASTER panel shows green. It doesn't change any level.",
+                            "Where the loudness meter in the ON AIR panel shows green. It doesn't change any level.",
                         )
                     }
                 },
@@ -3483,7 +3483,15 @@ impl Prefs {
             )];
         };
         let stations = broadcast::stations();
-        let mut items = vec![item("broadcast", HEADING, "STATIONS", "")];
+        let mut items = vec![
+            switch(
+                broadcast::ENABLED,
+                "Broadcasting",
+                "Shows ON AIR in the top bar, once a station below is set up and switched on.",
+                settings::flag(broadcast::ENABLED, false),
+            ),
+            item("broadcast", HEADING, "STATIONS", ""),
+        ];
         if stations.is_empty() {
             items.push(item(
                 "",
@@ -3679,7 +3687,7 @@ impl Prefs {
             NOTE,
             "",
             "While on air, the limiter keeps peaks under the ceiling set in Settings › Audio › \
-             Loudness, and the MASTER panel's loudness meter shows how loud the stream is \
+             Loudness, and the ON AIR panel's loudness meter shows how loud the stream is \
              against your target.",
         ));
         items.push(item(
