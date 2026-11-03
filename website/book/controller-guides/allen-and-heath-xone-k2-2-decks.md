@@ -25,7 +25,7 @@ half deck 2, mirrored:
 | Bottom buttons, rows 1-2 | Hot cues 1 2 / 3 4 (red when set) | Delete the hot cue |
 | Bottom buttons, row 3 | Beat jump back, forward 32 beats (amber) | 16 beats |
 | Bottom buttons, row 4 | SYNC outer (red when on), PLAY inner | Tempo reset; back to the start |
-| Bottom encoders | Browse; press to load the side's deck, hold to open a folder | Turn: the deck's jog wheel (bends while playing, moves through the track while paused); press: next pane (left), expand the browser (right) |
+| Bottom encoders | Browse; press to load the side's deck, hold to open a folder | Turn: moves the side's deck through the track, silently (about 0.5% of the track a click); press: next pane (left), expand the browser (right) |
 
 PLAY is green while the deck plays and blinks green while a track is loaded
 and paused. The kill buttons and the light under the gain encoder are the
