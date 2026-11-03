@@ -75,15 +75,47 @@ fn album_title(dir: &Path, root: &Path, albums: &[&str], artists: &[&str]) -> (S
     (name, artist)
 }
 
+/// The year in a year or date tag ("2019", "2019-03-08", "03/2019").
+fn year_of(tag: &str) -> Option<u32> {
+    let digits: Vec<char> = tag.chars().collect();
+    digits.windows(4).enumerate().find_map(|(i, w)| {
+        let before = i.checked_sub(1).and_then(|b| digits.get(b));
+        let after = digits.get(i + 4);
+        let alone =
+            !before.is_some_and(char::is_ascii_digit) && !after.is_some_and(char::is_ascii_digit);
+        let year: u32 = w.iter().collect::<String>().parse().ok()?;
+        (alone && (1000..3000).contains(&year)).then_some(year)
+    })
+}
+
+/// An album's year: the one most of its tracks' tags give (the newest of
+/// those tied), or `None` when none gives one.
+fn album_year(tags: &[&str]) -> Option<u32> {
+    let mut counts: HashMap<u32, usize> = HashMap::new();
+    for y in tags.iter().filter_map(|t| year_of(t)) {
+        *counts.entry(y).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .max_by_key(|&(y, n)| (n, y))
+        .map(|(y, _)| y)
+}
+
+/// Albums newest first, those without a year last, then by name.
+fn newest_first(year: Option<u32>, name: &str) -> (std::cmp::Reverse<u32>, String) {
+    (std::cmp::Reverse(year.unwrap_or(0)), name.to_lowercase())
+}
+
 /// One album folder in the Albums source.
 struct Album {
     dir: PathBuf,
     name: String,
     artist: String,
+    year: Option<u32>,
 }
 
 /// The Albums tree: All Albums, then each artist (by name, ignoring case)
-/// with their albums under them.
+/// with their albums under them, newest first.
 fn artist_tree(root: &Path, albums: Vec<Album>) -> Vec<Node> {
     let mut by_artist: BTreeMap<String, (String, Vec<Album>)> = BTreeMap::new();
     for a in albums {
@@ -100,7 +132,7 @@ fn artist_tree(root: &Path, albums: Vec<Album>) -> Vec<Node> {
         Contents::Under(root.to_path_buf()),
     )];
     for (_, (artist, mut albums)) in by_artist {
-        albums.sort_by_cached_key(|a| (a.name.to_lowercase(), a.dir.clone()));
+        albums.sort_by_cached_key(|a| (newest_first(a.year, &a.name), a.dir.clone()));
         let dirs = albums.iter().map(|a| a.dir.clone()).collect();
         let mut n = Node::new(artist, 1, KIND_ARTIST, Contents::Albums(dirs));
         // Artists start closed, so the list stays short.
@@ -302,6 +334,7 @@ impl Browser {
                     dir: dir.to_path_buf(),
                     name,
                     artist,
+                    year: self.album_year(&ids),
                 }
             })
             .collect()
@@ -318,6 +351,15 @@ impl Browser {
             .map(|&i| self.library[i].artist.as_str())
             .collect();
         album_title(dir, root, &albums, &artists)
+    }
+
+    /// The year of the album holding tracks `ids`.
+    fn album_year(&self, ids: &[usize]) -> Option<u32> {
+        let years: Vec<&str> = ids
+            .iter()
+            .map(|&i| self.library[i].info.year.as_str())
+            .collect();
+        album_year(&years)
     }
 
     /// The tracks right in album folder `dir`, as the album plays.
@@ -469,20 +511,36 @@ impl Browser {
             list.push(i);
         }
         let root = self.folders.albums.clone().unwrap_or_default();
-        let tiles: Vec<AlbumTile> = order
-            .iter()
+        // Under an artist the year says enough; elsewhere the artist too.
+        let on_artist = self
+            .nodes
+            .get(self.current_node)
+            .is_some_and(|n| n.kind == KIND_ARTIST);
+        let mut shown: Vec<(PathBuf, Option<u32>, AlbumTile)> = order
+            .into_iter()
             .map(|dir| {
-                let ids = &tracks[dir];
-                let (name, artist) = self.album_names(dir, &root, ids);
+                let ids = &tracks[&dir];
+                let (name, artist) = self.album_names(&dir, &root, ids);
+                let year = self.album_year(ids);
+                let detail = match year {
+                    Some(y) if on_artist => y.to_string(),
+                    Some(y) => format!("{y} · {artist}"),
+                    None => artist.clone(),
+                };
                 let cover = self.album_art.get(&self.library[ids[0]]);
-                AlbumTile {
+                let tile = AlbumTile {
                     name: name.into(),
                     artist: artist.into(),
+                    detail: detail.into(),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
-                }
+                };
+                (dir, year, tile)
             })
             .collect();
+        shown.sort_by_cached_key(|(_, year, t)| newest_first(*year, &t.name));
+        let (order, tiles): (Vec<PathBuf>, Vec<AlbumTile>) =
+            shown.into_iter().map(|(d, _, t)| (d, t)).unzip();
         self.album_tiles = order;
         ui.set_tiles(ModelRc::new(VecModel::from(tiles)));
     }
@@ -572,6 +630,7 @@ mod tests {
             dir: PathBuf::from(dir),
             name: name.into(),
             artist: artist.into(),
+            year: None,
         };
         let nodes = artist_tree(
             Path::new("/m/Albums"),
@@ -617,6 +676,33 @@ mod tests {
                 PathBuf::from("/m/Albums/East Forest - Spores"),
             ]
         );
+    }
+
+    #[test]
+    fn albums_go_newest_first() {
+        assert_eq!(year_of("2019-03-08"), Some(2019));
+        assert_eq!(year_of("03/2019"), Some(2019));
+        assert_eq!(year_of("12345"), None);
+        assert_eq!(year_of(""), None);
+        assert_eq!(album_year(&["2018", "2018-05-01", "2021", ""]), Some(2018));
+        assert_eq!(album_year(&["2018", "2021"]), Some(2021));
+        let album = |name: &str, year: Option<u32>| Album {
+            dir: PathBuf::from(format!("/m/Albums/{name}")),
+            name: name.into(),
+            artist: "Jon Hopkins".into(),
+            year,
+        };
+        let nodes = artist_tree(
+            Path::new("/m/Albums"),
+            vec![
+                album("Immunity", Some(2013)),
+                album("Demos", None),
+                album("RITUAL", Some(2024)),
+                album("Singularity", Some(2018)),
+            ],
+        );
+        let names: Vec<&str> = nodes.iter().skip(2).map(|n| n.name.as_str()).collect();
+        assert_eq!(names, ["RITUAL", "Singularity", "Immunity", "Demos"]);
     }
 
     #[test]

@@ -306,6 +306,8 @@ export global LibraryEdit {
 export struct AlbumTile {
     name: string,
     artist: string,
+    // The line under the name: "2024 · Artist", or the year under an artist.
+    detail: string,
     cover: image,
     has-cover: bool,
 }
@@ -2987,7 +2989,7 @@ component AlbumGrid inherits Rectangle {
                 x: 8px;
                 y: tile-width + 21px;
                 width: parent.width - 16px;
-                text: t.artist;
+                text: t.detail;
                 color: Theme.text-dim;
                 font-size: 13px;
                 overflow: elide;
