@@ -24,6 +24,7 @@ pub use rusqlite::Error;
 
 pub mod cleanup;
 pub mod dupes;
+pub mod fix_names;
 pub mod health;
 mod moves;
 pub mod query;

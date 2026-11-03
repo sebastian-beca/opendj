@@ -418,6 +418,26 @@ all. **×** takes a tag off all of them, and **+ tag** adds one to all.
 **Add Tag**: it lists the tags you added lately, then the ones you use most,
 and you can type to find one or make a new one.
 
+## Fixing names
+
+Right-click one or more tracks and choose **Fix Names…** to tidy their names
+in one go. Pick a tool, choose **In**: all names (track, artist, remix and
+album) or one field such as Genre or Comment, and watch the preview:
+
+- **Find and Replace**: what to find and what to put instead (leave it empty
+  to take it out). **Match case**, **Whole words**, and **Pattern** for a
+  regular expression, where `$1` in the replacement puts back what the first
+  brackets found.
+- **Change Case**: Title Case (small words like "of" and "the" stay lower,
+  DJ, MC and UK stay in capitals, names like McCartney are kept), Sentence
+  case, UPPER or lower.
+- **Remove Brackets**: takes out what's in (round) and [square] brackets.
+- **Swap Artist and Title**: for tracks that have them the wrong way round.
+
+**Review** opens the review table: untick what you'd rather keep, then
+**Apply**. Undo takes the whole change back. A track or artist name is never
+emptied.
+
 ## Columns
 
 Right-click any column heading to choose which columns the list shows, your

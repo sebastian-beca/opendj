@@ -424,6 +424,36 @@ export struct CleanupRow {
     on: bool,
 }
 
+// Fix Names: one tool run on the names of many tracks, with a preview,
+// whose changes go to the review table.
+export global FixNamesUi {
+    in property <bool> open;
+    // How many tracks it is for.
+    in property <int> count;
+    // 0 find and replace, 1 change case, 2 remove brackets, 3 swap artist
+    // and title.
+    in-out property <int> tool;
+    // 0 all names (track, artist, remix, album), then each field: 1 track,
+    // 2 artist, 3 remix, 4 album, 5 genre, 6 comment, 7 grouping.
+    in-out property <int> field;
+    in-out property <string> find;
+    in-out property <string> with;
+    in-out property <bool> match-case;
+    in-out property <bool> whole-words;
+    in-out property <bool> pattern;
+    // 0 Title Case, 1 Sentence case, 2 UPPER, 3 lower.
+    in-out property <int> case;
+    // The first changes it would make, how many tracks change, and why it
+    // can't run.
+    in property <[CleanupRow]> preview;
+    in property <int> changing;
+    in property <string> error;
+    callback start(first: int, last: int);
+    callback update();
+    callback review();
+    callback cancel();
+}
+
 // A genre in the library, with how many tracks have it.
 export struct GenreRow {
     name: string,
@@ -1098,6 +1128,15 @@ component TrackMenu inherits PopupWindow {
                 open: panel == 1;
                 entered => { open-panel(1); }
                 clicked => { open-panel(1); }
+            }
+            if StoreUi.source == 0: MenuLine {
+                icon: "fix";
+                text: one ? "Fix Names…" : "Fix Names of " + count + " Tracks…";
+                entered => { panel = 0; }
+                clicked => {
+                    FixNamesUi.start(track-row, track-last);
+                    root.close();
+                }
             }
             if StoreUi.source == 0: MenuLine {
                 icon: "plus";
@@ -3697,6 +3736,222 @@ component Dropdown inherits Rectangle {
     }
 }
 
+// A switch with its words, for the Fix Names dialog.
+component TickLine inherits HorizontalLayout {
+    in property <string> text;
+    in-out property <bool> on;
+    callback toggled();
+    horizontal-stretch: 0;
+    spacing: 6px;
+    VerticalLayout {
+        alignment: center;
+        Tick { on: root.on; }
+    }
+    Text { text: root.text; color: Theme.text; font-size: 12px; vertical-alignment: center; }
+    TouchArea {
+        clicked => {
+            root.on = !root.on;
+            root.toggled();
+        }
+    }
+}
+
+// A text box for the Fix Names dialog.
+component FixBox inherits Rectangle {
+    in property <string> hint;
+    in-out property <string> text;
+    in property <bool> autofocus;
+    callback edited();
+    callback accepted();
+    init => {
+        if autofocus { input.focus(); }
+    }
+    height: 30px;
+    border-radius: 4px;
+    background: Theme.well;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.border;
+    TouchArea { mouse-cursor: MouseCursor.text; clicked => { input.focus(); } }
+    if root.text == "": Text {
+        x: 8px;
+        text: root.hint;
+        color: Theme.text-dim.with-alpha(0.7);
+        font-size: 13px;
+        vertical-alignment: center;
+    }
+    input := TextInput {
+        x: 8px;
+        width: parent.width - 16px;
+        text <=> root.text;
+        single-line: true;
+        color: Theme.text;
+        font-size: 13px;
+        vertical-alignment: center;
+        selection-background-color: Theme.selection;
+        selection-foreground-color: Theme.on-selection;
+        edited => { root.edited(); }
+        accepted => { root.accepted(); }
+    }
+}
+
+// Fix Names: pick a tool, see what it would change, then review the
+// changes in the review table.
+component FixNamesDialog inherits Rectangle {
+    background: #000000a0;
+    TouchArea { }
+    Rectangle {
+        width: min(parent.width - 32px, 640px);
+        height: min(parent.height - 32px, col.preferred-height);
+        background: Theme.browser;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #000000c0;
+        col := VerticalLayout {
+            padding: 18px;
+            spacing: 12px;
+            VerticalLayout {
+                spacing: 2px;
+                Text { text: "Fix names in " + (FixNamesUi.count == 1 ? "1 track" : FixNamesUi.count + " tracks"); color: Theme.text; font-size: 18px; font-weight: 700; }
+                Text { text: "Nothing changes until you Apply in the review table. Undo takes the whole change back."; color: Theme.text-dim; font-size: 12px; wrap: word-wrap; }
+            }
+            // The tools.
+            HorizontalLayout {
+                height: 30px;
+                spacing: 6px;
+                for name[i] in ["Find and Replace", "Change Case", "Remove Brackets", "Swap Artist and Title"]: Rectangle {
+                    width: tool-text.preferred-width + 22px;
+                    border-radius: 15px;
+                    background: i == FixNamesUi.tool ? Theme.accent : tool-ta.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.control;
+                    tool-text := Text {
+                        text: name;
+                        color: i == FixNamesUi.tool ? #000000 : Theme.text;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+                    tool-ta := TouchArea {
+                        clicked => {
+                            FixNamesUi.tool = i;
+                            FixNamesUi.update();
+                        }
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            if FixNamesUi.tool != 3: HorizontalLayout {
+                spacing: 8px;
+                Dropdown {
+                    width: 180px;
+                    label: "IN";
+                    text: ["All names", "Track", "Artist", "Remix", "Album", "Genre", "Comment", "Grouping"][FixNamesUi.field];
+                    current: FixNamesUi.field;
+                    choices: [
+                        { text: "All names", value: 0 },
+                        { text: "Track", value: 1 },
+                        { text: "Artist", value: 2 },
+                        { text: "Remix", value: 3 },
+                        { text: "Album", value: 4 },
+                        { text: "Genre", value: 5 },
+                        { text: "Comment", value: 6 },
+                        { text: "Grouping", value: 7 },
+                    ];
+                    picked(v) => {
+                        FixNamesUi.field = v;
+                        FixNamesUi.update();
+                    }
+                }
+                if FixNamesUi.tool == 0: FixBox {
+                    horizontal-stretch: 1;
+                    autofocus: true;
+                    hint: "Find";
+                    text <=> FixNamesUi.find;
+                    edited => { FixNamesUi.update(); }
+                    accepted => { FixNamesUi.review(); }
+                }
+                if FixNamesUi.tool == 0: Text { text: "→"; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; }
+                if FixNamesUi.tool == 0: FixBox {
+                    horizontal-stretch: 1;
+                    hint: "Replace with (nothing)";
+                    text <=> FixNamesUi.with;
+                    edited => { FixNamesUi.update(); }
+                    accepted => { FixNamesUi.review(); }
+                }
+                if FixNamesUi.tool == 1: HorizontalLayout {
+                    spacing: 6px;
+                    for name[i] in ["Title Case", "Sentence case", "UPPER", "lower"]: Rectangle {
+                        width: case-text.preferred-width + 20px;
+                        border-radius: 13px;
+                        background: i == FixNamesUi.case ? Theme.accent.with-alpha(0.35) : case-ta.has-hover ? #ffffff10 : transparent;
+                        border-width: 1px;
+                        border-color: i == FixNamesUi.case ? Theme.accent : Theme.border;
+                        case-text := Text { text: name; color: Theme.text; font-size: 12px; }
+                        case-ta := TouchArea {
+                            clicked => {
+                                FixNamesUi.case = i;
+                                FixNamesUi.update();
+                            }
+                        }
+                    }
+                }
+                if FixNamesUi.tool == 2: Text {
+                    text: "Takes out what's in (round) and [square] brackets.";
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: FixNamesUi.tool == 0 ? 0 : 1; }
+            }
+            if FixNamesUi.tool == 0: HorizontalLayout {
+                spacing: 18px;
+                TickLine { text: "Match case"; on <=> FixNamesUi.match-case; toggled => { FixNamesUi.update(); } }
+                TickLine { text: "Whole words"; on <=> FixNamesUi.whole-words; toggled => { FixNamesUi.update(); } }
+                TickLine { text: "Pattern (regular expression)"; on <=> FixNamesUi.pattern; toggled => { FixNamesUi.update(); } }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            if FixNamesUi.tool == 3: Text {
+                text: "For tracks whose artist and title are the wrong way round, as from a file called \"Title - Artist\".";
+                color: Theme.text-dim;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            // What it would change.
+            VerticalLayout {
+                spacing: 2px;
+                for r in FixNamesUi.preview: HorizontalLayout {
+                    height: 26px;
+                    spacing: 10px;
+                    property <length> half: (self.width - 70px - 14px - 3 * 10px) / 2;
+                    Text { width: 70px; text: r.field; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; overflow: elide; }
+                    Text { width: half; text: r.old; color: Theme.text-dim; font-size: 13px; vertical-alignment: center; overflow: elide; }
+                    Text { width: 14px; text: "→"; color: Theme.text-dim; font-size: 13px; vertical-alignment: center; }
+                    Text { width: half; text: r.new == "" ? "(nothing)" : r.new; color: Theme.text; font-size: 13px; vertical-alignment: center; overflow: elide; }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    horizontal-stretch: 1;
+                    text: FixNamesUi.error != "" ? FixNamesUi.error
+                        : FixNamesUi.tool == 0 && FixNamesUi.find == "" ? "Type what to find."
+                        : FixNamesUi.changing == 0 ? "Nothing to change in these tracks."
+                        : FixNamesUi.changing + " of " + FixNamesUi.count + (FixNamesUi.count == 1 ? " track changes" : " tracks change");
+                    color: FixNamesUi.error != "" ? Theme.danger : Theme.text-dim;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                HealthButton { text: "Cancel"; clicked => { FixNamesUi.cancel(); } }
+                HealthButton {
+                    text: "Review" + (FixNamesUi.changing > 0 ? " (" + FixNamesUi.changing + ")" : "");
+                    primary: FixNamesUi.changing > 0 && FixNamesUi.error == "";
+                    clicked => { FixNamesUi.review(); }
+                }
+            }
+        }
+    }
+}
+
 component SidePanel inherits Rectangle {
     in property <[SideRow]> rows;
     in property <string> total;
@@ -4300,6 +4555,10 @@ export component Browser inherits HorizontalLayout {
             height: 100%;
         }
         if source == 0 && CleanupUi.genres-open && !CleanupUi.open: GenrePanel {
+            width: 100%;
+            height: 100%;
+        }
+        if FixNamesUi.open: FixNamesDialog {
             width: 100%;
             height: 100%;
         }

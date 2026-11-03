@@ -6673,6 +6673,7 @@ name = "opendj-library"
 version = "0.4.7"
 dependencies = [
  "opendj-engine",
+ "regex",
  "rusqlite",
 ]
 
