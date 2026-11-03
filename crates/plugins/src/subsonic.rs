@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 
 use crate::server::{self, encode, matches, Results, Server, ServerSource, Song};
-use crate::source::{Found, QueryKind, SearchSource, SourceInfo, SourceQuery, DOWNLOAD_FOLDER};
+use crate::source::{Found, QueryKind, SearchSource, SourceInfo, SourceQuery};
 use crate::{Manifest, Plugin, PluginConfig, Setting, SettingKind};
 
 const MANIFEST: Manifest = Manifest {
@@ -83,13 +83,10 @@ impl Plugin for Navidrome {
                 "Password",
                 "Sent only as a salted token, never as it is.",
             ),
-            Setting::new(
-                DOWNLOAD_FOLDER,
-                SettingKind::Folder,
-                "Download folder",
-                "Left empty, downloads go to Downloaded/Navidrome in your music folder.",
-            ),
         ]
+        .into_iter()
+        .chain(server::storage_settings(MANIFEST.name))
+        .collect()
     }
 
     fn configure(&mut self, config: &PluginConfig) {
@@ -450,6 +447,113 @@ mod tests {
         assert!(album.folder);
         assert_eq!(album.key, "album:al-9");
         assert_eq!(album.track_count, 12);
+    }
+
+    /// A stand-in Subsonic server on a local port: one album with one song.
+    fn mock_server() -> String {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                loop {
+                    let mut h = String::new();
+                    if reader.read_line(&mut h).unwrap() == 0 || h == "\r\n" {
+                        break;
+                    }
+                }
+                let path = line.split(' ').nth(1).unwrap_or("").to_string();
+                let song = json!({ "id": "s1", "title": "Kerala", "artist": "Bonobo",
+                    "album": "Migration", "track": 3, "suffix": "flac", "size": 5,
+                    "coverArt": "al-1", "duration": 251 });
+                let (kind, body): (&str, Vec<u8>) = if path.starts_with("/rest/search3") {
+                    (
+                        "application/json",
+                        json!({ "subsonic-response": { "status": "ok",
+                        "searchResult3": { "album": [{ "id": "al-1", "name": "Migration",
+                            "artist": "Bonobo", "songCount": 1 }], "song": [song] } } })
+                        .to_string()
+                        .into_bytes(),
+                    )
+                } else if path.starts_with("/rest/getAlbum") {
+                    (
+                        "application/json",
+                        json!({ "subsonic-response": { "status": "ok",
+                        "album": { "id": "al-1", "song": [song] } } })
+                        .to_string()
+                        .into_bytes(),
+                    )
+                } else if path.starts_with("/rest/download") {
+                    ("audio/flac", b"fLaC!".to_vec())
+                } else if path.starts_with("/rest/getCoverArt") {
+                    ("image/jpeg", b"jpeg".to_vec())
+                } else {
+                    ("text/plain", b"no".to_vec())
+                };
+                let mut out = stream;
+                let _ = write!(
+                    out,
+                    "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = out.write_all(&body);
+            }
+        });
+        format!("127.0.0.1:{port}")
+    }
+
+    #[test]
+    fn searches_and_downloads_from_a_server() {
+        use crate::source::Progress;
+        let mut nd = Navidrome::new();
+        let mut config = PluginConfig::default();
+        config.values.insert("server".into(), mock_server());
+        config.values.insert("user".into(), "dj".into());
+        config.values.insert("password".into(), "sesame".into());
+        nd.configure(&config);
+        let source = nd.source().unwrap();
+        assert!(source.plays());
+        let id = source
+            .start(&SourceQuery {
+                text: "kerala".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let snap = source.results(&id).unwrap();
+        assert_eq!(snap.items.len(), 2);
+        let album = snap.items.iter().find(|f| f.folder).unwrap().clone();
+        let song = snap.items.iter().find(|f| !f.folder).unwrap().clone();
+        assert_eq!(song.file, "Bonobo/Migration/03 Kerala.flac");
+        let tracks = source.open_folder(&id, &album).unwrap();
+        assert_eq!(tracks.len(), 1);
+
+        let dir = std::env::temp_dir().join(format!("opendj-nd-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        source
+            .download(&id, std::slice::from_ref(&song), &dir)
+            .unwrap();
+        let mut done = None;
+        for _ in 0..200 {
+            for u in source.progress() {
+                match u.progress {
+                    Progress::Done(paths) => done = Some(paths),
+                    Progress::Failed(e) => panic!("download failed: {e}"),
+                    _ => {}
+                }
+            }
+            if done.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let paths = done.expect("the download finished");
+        assert_eq!(paths, vec![dir.join(&song.file)]);
+        assert_eq!(std::fs::read(&paths[0]).unwrap(), b"fLaC!");
+        assert!(dir.join("Bonobo/Migration/cover.jpg").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

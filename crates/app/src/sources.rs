@@ -16,7 +16,7 @@ use opendj_engine::Track;
 use opendj_plugins::inbox::safe_name;
 use opendj_plugins::source::{
     megabytes, DownloadUpdate, Found, Prefer, Progress, QueryKind, SearchSource, Snapshot,
-    SourceInfo, SourceQuery, DOWNLOAD_FOLDER,
+    SourceInfo, SourceQuery, CACHE_SIZE, DEFAULT_CACHE_GB, DOWNLOAD_FOLDER,
 };
 use opendj_plugins::{Plugin, PluginConfig, PluginError};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
@@ -58,6 +58,11 @@ enum Request {
     Stop(u64),
     OpenFolder(u64, Box<Found>),
     Download(u64, Vec<Found>, PathBuf),
+    /// Downloads into the source's cache (see [`SearchSource::plays`]),
+    /// first making room so it stays under the size given, in bytes.
+    Cache(u64, Vec<Found>, PathBuf, u64),
+    /// Moves a cached file into the collection: its key, from, to.
+    Keep(String, PathBuf, PathBuf),
     Retry(String),
     Cancel(String),
     /// The DJ changed the plugin's settings.
@@ -72,6 +77,8 @@ enum Event {
     /// A folder's files, read when the DJ opened it.
     Folder(usize, u64, String, Vec<Found>),
     Download(usize, DownloadUpdate),
+    /// A download into the cache finished, with its files.
+    Cached(usize, String, Vec<PathBuf>),
     /// A finished download joined the library.
     Imported(Box<Track>),
 }
@@ -90,11 +97,45 @@ fn run(
     };
     let mut ids: HashMap<u64, String> = HashMap::new();
     let mut active: HashSet<u64> = HashSet::new();
+    // Downloads going to the cache, by key: they don't join the library.
+    let mut caching: HashSet<String> = HashSet::new();
     let mut last = Instant::now();
     loop {
         match rx.recv_timeout(TICK) {
             Ok(Request::Configure(config)) => plugin.configure(&config),
+            Ok(Request::Keep(key, from, to)) => {
+                let progress = match keep(&from, &to) {
+                    Ok(()) => {
+                        if let Some(library) = &library {
+                            match crate::inbox::add_download(library, &to, name) {
+                                Ok(track) => {
+                                    let _ = tx.send(Event::Imported(Box::new(track)));
+                                }
+                                Err(e) => eprintln!("{name}: {}: {e}", to.display()),
+                            }
+                        }
+                        Progress::Done(vec![to])
+                    }
+                    Err(e) => Progress::Failed(e),
+                };
+                let update = DownloadUpdate { key, progress };
+                if tx.send(Event::Download(index, update)).is_err() {
+                    return;
+                }
+            }
             Ok(request) => {
+                match &request {
+                    Request::Download(_, items, _) => {
+                        for f in items {
+                            caching.remove(&f.key);
+                        }
+                    }
+                    Request::Cache(_, items, dir, room) => {
+                        make_room(dir, *room);
+                        caching.extend(items.iter().map(|f| f.key.clone()));
+                    }
+                    _ => {}
+                }
                 let source = plugin.source().expect("a source");
                 if !handle(source, index, request, &mut ids, &mut active, &tx) {
                     return;
@@ -128,6 +169,16 @@ fn run(
         }
         for mut update in source.progress() {
             if let Progress::Done(paths) = &update.progress {
+                if caching.remove(&update.key) {
+                    let cached = Event::Cached(index, update.key.clone(), paths.clone());
+                    if tx.send(cached).is_err() {
+                        return;
+                    }
+                    if tx.send(Event::Download(index, update)).is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 for path in paths {
                     let Some(library) = &library else { break };
                     match crate::inbox::add_download(library, path, name) {
@@ -182,7 +233,7 @@ fn handle(
                 }
             }
         }
-        Request::Download(local, items, dir) => {
+        Request::Download(local, items, dir) | Request::Cache(local, items, dir, _) => {
             let id = ids.get(&local).cloned().unwrap_or_default();
             let _ = std::fs::create_dir_all(&dir);
             match source.download(&id, &items, &dir) {
@@ -201,7 +252,7 @@ fn handle(
                 }
             }
         }
-        Request::Configure(_) => None,
+        Request::Configure(_) | Request::Keep(..) => None,
         Request::Cancel(key) => {
             if let Err(e) = source.cancel(&key) {
                 eprintln!("can't cancel {key}: {e}");
@@ -286,6 +337,8 @@ struct Download {
     local: u64,
     label: String,
     progress: Progress,
+    /// Into the cache rather than the collection.
+    cache: bool,
 }
 
 /// Now, in Unix milliseconds.
@@ -305,11 +358,32 @@ struct Source {
     requests: Sender<Request>,
     searches: Vec<Search>,
     downloads: Vec<Download>,
+    /// Its files can play from a cache (see [`SearchSource::plays`]): the
+    /// cache's folder.
+    cache: Option<PathBuf>,
 }
 
 impl Source {
+    /// The latest download of `key` into the collection.
     fn download(&self, key: &str) -> Option<&Download> {
-        self.downloads.iter().rev().find(|d| d.key == key)
+        self.downloads
+            .iter()
+            .rev()
+            .find(|d| d.key == key && !d.cache)
+    }
+
+    /// The latest download of `key` into the cache.
+    fn caching(&self, key: &str) -> Option<&Download> {
+        self.downloads
+            .iter()
+            .rev()
+            .find(|d| d.key == key && d.cache)
+    }
+
+    /// Where a file from it is in the cache, if it's there.
+    fn cached(&self, f: &Found) -> Option<PathBuf> {
+        let path = self.cache.as_ref()?.join(relative(&f.file)?);
+        path.is_file().then_some(path)
     }
 
     fn save(&self) {
@@ -370,6 +444,10 @@ pub struct Sources {
     /// A copy of each source for the UI thread, to describe queries
     /// while the DJ types without waiting on the source's own thread.
     describers: Vec<Box<dyn Plugin>>,
+    /// Files to load onto a deck, once the frame loop takes them.
+    loads: Vec<PathBuf>,
+    /// Files to load once they're in the cache, by source and key.
+    play_after: HashSet<(usize, String)>,
 }
 
 impl Sources {
@@ -382,6 +460,8 @@ impl Sources {
             .map(|(index, (mut plugin, info))| {
                 let id = plugin.manifest().id;
                 let sites = plugin.source().map(|s| s.sites()).unwrap_or_default();
+                let plays = plugin.source().is_some_and(|s| s.plays());
+                let cache = plays.then(|| cache_dir(info.name)).flatten();
                 let (requests, rx) = channel();
                 let (tx, library) = (tx.clone(), library.clone());
                 std::thread::Builder::new()
@@ -395,6 +475,7 @@ impl Sources {
                     requests,
                     searches: Vec::new(),
                     downloads: Vec::new(),
+                    cache,
                 }
             })
             .collect();
@@ -431,6 +512,8 @@ impl Sources {
             music: opendj_engine::scan::default_music_dir(),
             list: list.clone(),
             describers: source_plugins().into_iter().map(|(p, _)| p).collect(),
+            loads: Vec::new(),
+            play_after: HashSet::new(),
         };
         // Saved searches run again when the app starts.
         for s in 0..me.sources.len() {
@@ -498,6 +581,12 @@ impl Sources {
         ui.on_cancel_downloads(move || w(Box::new(|s| s.cancel_downloads())));
         let w = with.clone();
         ui.on_download_selected(move || w(Box::new(|s| s.download_selected())));
+        let w = with.clone();
+        ui.on_play(move |row| w(Box::new(move |s| s.play_row(row as usize))));
+        let w = with.clone();
+        ui.on_cache(move |row| w(Box::new(move |s| s.cache_row(row as usize))));
+        let w = with.clone();
+        ui.on_cache_selected(move || w(Box::new(|s| s.cache_selected())));
         let w = with.clone();
         ui.on_pick_best(move || w(Box::new(|s| s.pick_best())));
         let w = with.clone();
@@ -604,6 +693,13 @@ impl Sources {
                         d.progress = update.progress;
                     }
                 }
+                Event::Cached(s, key, paths) => {
+                    if self.play_after.remove(&(s, key)) {
+                        if let Some(path) = paths.into_iter().next() {
+                            self.loads.push(path);
+                        }
+                    }
+                }
                 Event::Imported(track) => imported.push(*track),
             }
         }
@@ -632,6 +728,94 @@ impl Sources {
             self.refresh();
         }
         imported
+    }
+
+    /// Files from a source's cache to load onto a deck.
+    pub fn take_loads(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.loads)
+    }
+
+    /// Double-clicking a file of a source that plays: loads it from the
+    /// cache, fetching it there first if it isn't yet.
+    fn play_row(&mut self, row: usize) {
+        let (Some(s), Some(i)) = (self.shown, self.search) else {
+            return;
+        };
+        let Some(Row::Item(key)) = self.rows.get(row).cloned() else {
+            return;
+        };
+        let source = &self.sources[s];
+        let Some(found) = source.searches[i].find(&key) else {
+            return;
+        };
+        if found.folder {
+            return;
+        }
+        if let Some(path) = source.cached(found) {
+            self.loads.push(path);
+            return;
+        }
+        self.play_after.insert((s, key.clone()));
+        self.cache_in(s, i, vec![key]);
+    }
+
+    /// A row's cloud button: keeps it in the cache.
+    fn cache_row(&mut self, row: usize) {
+        let (Some(s), Some(i)) = (self.shown, self.search) else {
+            return;
+        };
+        if let Some(Row::Item(key)) = self.rows.get(row).cloned() {
+            self.cache_in(s, i, vec![key]);
+        }
+    }
+
+    fn cache_selected(&mut self) {
+        let (Some(s), Some(i)) = (self.shown, self.search) else {
+            return;
+        };
+        let keys = self.checked.drain().collect();
+        self.cache_in(s, i, keys);
+    }
+
+    /// Downloads results of search `i` of source `s` into its cache:
+    /// folders whole, and files not there yet.
+    fn cache_in(&mut self, s: usize, i: usize, keys: Vec<String>) {
+        let source = &mut self.sources[s];
+        let Some(dir) = source.cache.clone() else {
+            return;
+        };
+        let search = &source.searches[i];
+        let mut items: Vec<Found> = Vec::new();
+        for key in &keys {
+            let Some(found) = search.find(key) else {
+                continue;
+            };
+            let busy = source
+                .caching(key)
+                .is_some_and(|d| !matches!(d.progress, Progress::Failed(_)));
+            let there = !found.folder && source.cached(found).is_some();
+            if !busy && !there {
+                items.push(found.clone());
+            }
+        }
+        if items.is_empty() {
+            self.refresh();
+            return;
+        }
+        for f in &items {
+            source.downloads.push(Download {
+                key: f.key.clone(),
+                local: search.local,
+                label: label(f),
+                progress: Progress::Queued,
+                cache: true,
+            });
+        }
+        let room = cache_bytes(source.id);
+        let _ = source
+            .requests
+            .send(Request::Cache(search.local, items, dir, room));
+        self.refresh();
     }
 
     fn search_mut(&mut self, s: usize, local: u64) -> Option<&mut Search> {
@@ -1030,7 +1214,23 @@ impl Sources {
                 local: search.local,
                 label: label(f),
                 progress: Progress::Queued,
+                cache: false,
             });
+        }
+        // Files already in the cache move into the collection from there.
+        let (kept, items): (Vec<Found>, Vec<Found>) = items
+            .into_iter()
+            .partition(|f| !f.folder && source.cached(f).is_some() && relative(&f.file).is_some());
+        for f in kept {
+            if let (Some(from), Some(rel)) = (source.cached(&f), relative(&f.file)) {
+                let _ = source
+                    .requests
+                    .send(Request::Keep(f.key, from, dir.join(rel)));
+            }
+        }
+        if items.is_empty() {
+            self.refresh();
+            return;
         }
         let _ = source
             .requests
@@ -1072,6 +1272,7 @@ impl Sources {
             .collect();
         ui.set_searches(ModelRc::new(VecModel::from(items)));
         ui.set_current_search(self.search.map_or(-1, |i| i as i32));
+        ui.set_plays(source.cache.is_some());
         ui.set_queue_shown(!source.downloads.is_empty());
         ui.set_grouped(
             self.current()
@@ -1186,14 +1387,30 @@ impl Sources {
             let own = source.download(&f.key);
             let inherited = || search.parent(&f.key).and_then(|p| source.download(&p.key));
             rows.push(Row::Item(f.key.clone()));
-            list.push(found_row(
+            let mut row = found_row(
                 f,
                 self.covers.get(&f.cover_url),
                 depth,
                 self.checked.contains(&f.key) || parent_checked,
                 search.open.contains(&f.key),
                 own.or_else(inherited).map(|d| &d.progress),
-            ));
+            );
+            if source.cache.is_some() {
+                row.cached = !f.folder && source.cached(f).is_some();
+                let caching = source
+                    .caching(&f.key)
+                    .or_else(|| search.parent(&f.key).and_then(|p| source.caching(&p.key)));
+                match caching.map(|d| &d.progress) {
+                    Some(Progress::Queued) => row.caching = true,
+                    Some(Progress::Running(p)) => {
+                        row.caching = true;
+                        row.cache_progress = *p;
+                    }
+                    Some(Progress::Done(_)) if f.folder => row.cached = true,
+                    _ => {}
+                }
+            }
+            list.push(row);
         };
         let heading = |rows: &mut Vec<Row>, list: &mut Vec<FoundRow>, text: String| {
             rows.push(Row::Heading(None));
@@ -1295,14 +1512,16 @@ impl Sources {
                     ..Default::default()
                 });
             rows.push(Row::Download(i));
-            list.push(found_row(
+            let mut row = found_row(
                 &found,
                 self.covers.get(&found.cover_url),
                 0,
                 false,
                 false,
                 Some(&d.progress),
-            ));
+            );
+            row.to_cache = d.cache;
+            list.push(row);
         }
         (rows, list)
     }
@@ -1404,6 +1623,96 @@ fn place(searches: &[Search], added: u64) -> usize {
         .iter()
         .position(|x| x.added < added)
         .unwrap_or(searches.len())
+}
+
+/// Where a playing source keeps its cache: `sources/<name>` in the app's
+/// cache folder.
+fn cache_dir(name: &str) -> Option<PathBuf> {
+    opendj_engine::cache::cache_dir().map(|d| d.join("sources").join(safe_name(name, "Source")))
+}
+
+/// How big a source's cache may grow, in bytes, from its setting.
+fn cache_bytes(id: &str) -> u64 {
+    let config = crate::settings::plugin_config(id);
+    let gb = config
+        .get(CACHE_SIZE)
+        .trim()
+        .trim_end_matches(|c: char| c.is_alphabetic() || c.is_whitespace())
+        .replace(',', ".")
+        .parse::<f64>()
+        .ok()
+        .filter(|g| g.is_finite() && *g >= 0.0)
+        .unwrap_or(DEFAULT_CACHE_GB);
+    (gb * 1e9) as u64
+}
+
+/// A source's path for a file, if it stays below the folder it's joined
+/// to: no `..`, no root.
+fn relative(file: &str) -> Option<&Path> {
+    let path = Path::new(file);
+    let plain = !file.is_empty()
+        && path
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)));
+    plain.then_some(path)
+}
+
+/// Deletes the oldest files in `dir` (and folders left empty) until what's
+/// left is at most `room` bytes, leaving room for what comes next.
+fn make_room(dir: &Path, room: u64) {
+    let mut files = Vec::new();
+    let mut folders = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let Ok(meta) = e.metadata() else { continue };
+            if meta.is_dir() {
+                folders.push(e.path());
+                stack.push(e.path());
+            } else {
+                let modified = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+                files.push((modified, meta.len(), e.path()));
+            }
+        }
+    }
+    let mut total: u64 = files.iter().map(|f| f.1).sum();
+    files.sort();
+    for (_, size, path) in files {
+        if total <= room {
+            break;
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            total -= size;
+        }
+    }
+    // Deepest first, so a folder emptied by its subfolders goes too.
+    folders.sort_by_key(|f| std::cmp::Reverse(f.components().count()));
+    for f in folders {
+        let _ = std::fs::remove_dir(&f);
+    }
+}
+
+/// Moves a cached file to `to` in the collection: renamed when it's on the
+/// same disk, else copied and the cached one removed.
+fn keep(from: &Path, to: &Path) -> Result<(), String> {
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    if to.exists() {
+        let _ = std::fs::remove_file(from);
+        return Ok(());
+    }
+    if std::fs::rename(from, to).is_ok() {
+        return Ok(());
+    }
+    let part = to.with_extension("part");
+    std::fs::copy(from, &part).map_err(|e| e.to_string())?;
+    std::fs::rename(&part, to).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(from);
+    Ok(())
 }
 
 /// Where a source's downloads go: its download folder setting, else
@@ -1548,12 +1857,63 @@ fn found_row(
         note: note.into(),
         cover: cover.cloned().unwrap_or_default(),
         has_cover: cover.is_some(),
+        ..Default::default()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cache_paths_stay_inside() {
+        assert_eq!(
+            relative("Bonobo/Migration/03 Kerala.flac"),
+            Some(Path::new("Bonobo/Migration/03 Kerala.flac"))
+        );
+        assert_eq!(relative("../escape.flac"), None);
+        assert_eq!(relative("/etc/passwd"), None);
+        assert_eq!(relative(""), None);
+    }
+
+    #[test]
+    fn makes_room_oldest_first() {
+        let dir = std::env::temp_dir().join(format!("opendj-cache-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let old = dir.join("A/Old");
+        let new = dir.join("B/New");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        let first = old.join("1.flac");
+        std::fs::write(&first, vec![0u8; 600]).unwrap();
+        let earlier = std::time::SystemTime::now() - Duration::from_secs(3600);
+        std::fs::File::options()
+            .write(true)
+            .open(&first)
+            .unwrap()
+            .set_modified(earlier)
+            .unwrap();
+        std::fs::write(new.join("2.flac"), vec![0u8; 600]).unwrap();
+        make_room(&dir, 1000);
+        assert!(!first.exists());
+        assert!(!old.exists(), "an emptied folder goes too");
+        assert!(new.join("2.flac").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn keeps_a_cached_file() {
+        let dir = std::env::temp_dir().join(format!("opendj-keep-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let from = dir.join("cached.flac");
+        std::fs::write(&from, b"audio").unwrap();
+        let to = dir.join("Collection/Artist/Album/cached.flac");
+        keep(&from, &to).unwrap();
+        assert!(!from.exists());
+        assert_eq!(std::fs::read(&to).unwrap(), b"audio");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn file(key: &str, title: &str) -> Found {
         Found {
@@ -1662,12 +2022,14 @@ mod tests {
             requests,
             searches: Vec::new(),
             downloads: Vec::new(),
+            cache: None,
         };
         let progress = |key: &str, progress| Download {
             key: key.into(),
             local: 1,
             label: String::new(),
             progress,
+            cache: false,
         };
         source.downloads = vec![
             progress("a", Progress::Done(Vec::new())),

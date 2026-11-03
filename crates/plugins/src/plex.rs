@@ -11,7 +11,7 @@
 use serde_json::Value;
 
 use crate::server::{self, encode, matches, Results, Server, ServerSource, Song};
-use crate::source::{Found, QueryKind, SearchSource, SourceInfo, SourceQuery, DOWNLOAD_FOLDER};
+use crate::source::{Found, QueryKind, SearchSource, SourceInfo, SourceQuery};
 use crate::{Manifest, Plugin, PluginConfig, Setting, SettingKind};
 
 const MANIFEST: Manifest = Manifest {
@@ -77,13 +77,10 @@ impl Plugin for Plex {
                 "In Plex Web, open any track's ⋯ menu › Get Info › View XML: the token is \
                  the X-Plex-Token at the end of the address that opens.",
             ),
-            Setting::new(
-                DOWNLOAD_FOLDER,
-                SettingKind::Folder,
-                "Download folder",
-                "Left empty, downloads go to Downloaded/Plex in your music folder.",
-            ),
         ]
+        .into_iter()
+        .chain(server::storage_settings(MANIFEST.name))
+        .collect()
     }
 
     fn configure(&mut self, config: &PluginConfig) {

@@ -86,12 +86,26 @@ Then pick the source in the rail and start a **New search**: **Auto** finds
 albums and songs, **Track**, **Album** and **Artist** narrow it down (Artist
 lists that artist's albums), and **Playlist** lists your server's playlists
 whose name has the text in it (leave it as `*` for all of them). Open an
-album or playlist to see its songs, and download a song, an album or a whole
-playlist. openDJ fetches the original files (a FLAC stays a FLAC) into
-`Downloaded/Plex` or `Downloaded/Navidrome` in your music folder, one folder
-per artist and album with its cover, and adds them to your collection, ready
-to load on a deck. Pick another **Download folder** on the source's page in
-Settings if you like.
+album or playlist to see its songs.
+
+Each song, album and playlist offers two ways to bring it in:
+
+- **Play** (double-click a song, or its **▶**) loads it onto a deck that
+  isn't playing, fetching it into the cache first. A FLAC on your home
+  network takes a second or two.
+- The **cloud** downloads it into the cache, to play later or offline. A
+  filled cloud means it's there. Cached tracks stay out of your collection,
+  and the oldest go when the cache is full (5 GB unless you set **Cache
+  size** on the source's page). Their waveform, tempo and key are kept as
+  long as the file stays in the cache.
+- **+ Collection** (or **+ Album**) brings it into your collection for good:
+  `Downloaded/Plex` or `Downloaded/Navidrome` in your music folder, one
+  folder per artist and album with its cover, or the **Collection folder**
+  set on the source's page. A song already in the cache moves over from
+  there instead of downloading again.
+
+Tick several rows to **Download** them to the cache or **Add to Collection**
+together. openDJ fetches the original files, so a FLAC stays a FLAC.
 
 ## How tracks come in
 

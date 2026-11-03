@@ -1021,6 +1021,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 for track in sources.borrow_mut().poll() {
                     browser.borrow_mut().add_imported(track);
                 }
+                for path in sources.borrow_mut().take_loads() {
+                    browser.borrow_mut().load_cached(&path);
+                }
                 browser.borrow_mut().poll_art();
                 browser.borrow_mut().poll_waves();
                 browser.borrow_mut().poll_analysis();
