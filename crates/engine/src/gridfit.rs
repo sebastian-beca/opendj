@@ -26,6 +26,13 @@ const UNSURE_RMS: f64 = 0.04;
 /// A grid is marked unsure when fewer than this share of the downbeats fall
 /// on its bar lines.
 const UNSURE_DOWNBEATS: f64 = 0.6;
+/// How far (in BPM) a fitted tempo may be from a whole or half BPM to be
+/// tried at it.
+const ROUND_RANGE: f64 = 0.1;
+/// How much further (in seconds, the median distance) the beats may sit
+/// from the grid at the round tempo than from the fitted one for the round
+/// tempo to be taken.
+const ROUND_SLACK: f64 = 0.003;
 /// Two neighbouring sections closer than this in tempo (as a fraction) are
 /// one section.
 const SAME_TEMPO: f64 = 0.002;
@@ -61,7 +68,10 @@ pub fn fit(beats: &[f64], downbeats: Option<&[f64]>, bpm: f64) -> Option<Fitted>
     }
     let markers: Vec<(f64, Line)> = merged
         .iter()
-        .map(|&(a, b)| (numbered[a].0, Line::through(&numbered[a..b])))
+        .map(|&(a, b)| {
+            let beats = &numbered[a..b];
+            (numbered[a].0, Line::through(beats).rounded(beats))
+        })
         .collect();
 
     // Bar 1 on the downbeats: the beat number most of them land on, mod 4.
@@ -280,6 +290,38 @@ impl Line {
     fn at(&self, n: f64) -> f64 {
         self.offset + n * self.period
     }
+
+    /// This line at the nearest whole BPM, else half BPM, when `beats` sit
+    /// on that as well: tracks are mostly made at a round tempo, and a
+    /// fit a few hundredths off it drifts across a long track. A tempo the
+    /// beats really keep away from a round one stays.
+    fn rounded(self, beats: &[(f64, f64)]) -> Line {
+        let off = |line: &Line| {
+            let mut d: Vec<f64> = beats.iter().map(|&(n, t)| (t - line.at(n)).abs()).collect();
+            median(&mut d)
+        };
+        if beats.is_empty() || self.period <= 0.0 {
+            return self;
+        }
+        let bpm = 60.0 / self.period;
+        let fitted = off(&self);
+        for step in [1.0, 0.5] {
+            let round = (bpm / step).round() * step;
+            if (round - bpm).abs() > ROUND_RANGE {
+                continue;
+            }
+            let period = 60.0 / round;
+            let mut offsets: Vec<f64> = beats.iter().map(|&(n, t)| t - n * period).collect();
+            let line = Line {
+                offset: median(&mut offsets),
+                period,
+            };
+            if off(&line) <= fitted + ROUND_SLACK {
+                return line;
+            }
+        }
+        self
+    }
 }
 
 /// The median of `v` (which it reorders).
@@ -438,6 +480,33 @@ mod tests {
         let beats: Vec<f64> = (0..200).map(|k| k as f64 * 0.5).collect();
         let downbeats: Vec<f64> = beats.iter().step_by(3).copied().collect();
         assert!(fit(&beats, Some(&downbeats), 120.0).unwrap().unsure);
+    }
+
+    #[test]
+    fn a_tempo_near_a_whole_bpm_is_rounded() {
+        // 400 beats at 90 BPM, jittered: the fit lands a little off 90.
+        let beats: Vec<f64> = (0..400)
+            .map(|k| 0.07 + k as f64 * 60.0 / 90.0 + 0.015 * jitter(k * 7 + 1))
+            .collect();
+        let f = fit(&beats, None, 90.0).unwrap();
+        assert_eq!(f.grid.markers()[0].bpm, 90.0, "{:?}", f.grid);
+        let unrounded = Line::through(&number(&beats, 60.0 / 90.0)).period;
+        assert_ne!(60.0 / unrounded, 90.0);
+        // A track that really is 59.96 BPM keeps it: over 400 beats, 60
+        // would drift a fifth of a second.
+        let beats: Vec<f64> = (0..400).map(|k| k as f64 * 60.0 / 59.96).collect();
+        let f = fit(&beats, None, 60.0).unwrap();
+        assert!(
+            (f.grid.markers()[0].bpm - 59.96).abs() < 0.001,
+            "{:?}",
+            f.grid
+        );
+        // Near a half BPM too.
+        let beats: Vec<f64> = (0..300)
+            .map(|k| k as f64 * 60.0 / 127.5 + 0.015 * jitter(k * 3 + 2))
+            .collect();
+        let f = fit(&beats, None, 127.5).unwrap();
+        assert_eq!(f.grid.markers()[0].bpm, 127.5, "{:?}", f.grid);
     }
 
     #[test]

@@ -22,7 +22,7 @@ use crate::loudness::Loudness;
 use crate::track::{OverviewSlice, Waveform, WaveformBin};
 
 /// Changes whenever the analysis or this format changes, so old entries are ignored.
-const MAGIC: &[u8; 8] = b"MXRSAN06";
+const MAGIC: &[u8; 8] = b"MXRSAN07";
 
 /// Starts each stored overview, followed by the analysis's own [`MAGIC`],
 /// so overviews of an older analysis are made again too.
