@@ -24,7 +24,7 @@ The rail at the far left picks where the tree and the track list come from:
 - **Instruments**: the Groove Box, your instrument plugins and the Mic and
   Aux inputs, dragged onto a deck to play there instead of a track (see
   [Instruments on a deck](decks.md#instruments-on-a-deck)).
-- **Plex** and **Navidrome**: your own music server, searched from openDJ
+- **Plex**, **Navidrome** and **Jellyfin**: your own music server, searched from openDJ
   with its tracks downloaded into your collection (see
   [Your own music server](#your-own-music-server)).
 - **Bandcamp**, **Beatport** and **OneLibrary**: coming soon.
@@ -69,17 +69,20 @@ playlists again. Signing out forgets what was kept.
 
 ### Your own music server
 
-If your music lives on a **Plex Media Server** or on **Navidrome** (or any
-other server that speaks the Subsonic API, such as Gonic, Airsonic, Ampache
-or LMS), openDJ can search it and bring tracks into your collection. These
+If your music lives on a **Plex Media Server**, on **Jellyfin** (or Emby),
+or on **Navidrome** (or any other server that speaks the Subsonic API, such
+as Gonic, Airsonic, Ampache or LMS), openDJ can search it and bring tracks into your collection. These
 are your own files, so unlike the streaming services they play on decks.
 
-Fill in the server on its own page in Settings, **Settings › Plex** or
-**Settings › Navidrome**:
+Fill in the server on its own page in Settings, **Settings › Plex**,
+**Settings › Jellyfin** or **Settings › Navidrome**:
 
 - **Navidrome**: the server's address (for example
   `http://192.168.1.20:4533`), your username and your password. The
   password is only ever sent as a salted token.
+- **Jellyfin** (or Emby): the server's address (for example
+  `http://192.168.1.20:8096`), your username and your password. openDJ signs
+  in once and then uses the server's access token.
 - **Plex**: the server's address (for example `http://192.168.1.20:32400`)
   and your Plex token. To find the token, open any track's **⋯** menu in
   Plex Web, pick **Get Info › View XML**, and copy the `X-Plex-Token` at
@@ -102,7 +105,8 @@ Each song, album and playlist offers two ways to bring it in:
   size** on the source's page). Their waveform, tempo and key are kept as
   long as the file stays in the cache.
 - **+ Collection** (or **+ Album**) brings it into your collection for good:
-  `Downloaded/Plex` or `Downloaded/Navidrome` in your music folder, one
+  `Downloaded/Plex`, `Downloaded/Jellyfin` or `Downloaded/Navidrome` in your
+  music folder, one
   folder per artist and album with its cover, or the **Collection folder**
   set on the source's page. A song already in the cache moves over from
   there instead of downloading again.
