@@ -53,6 +53,8 @@ export global FilterUi {
     // Puts a field on the bar; returns its chip.
     callback add(field: string) -> int;
     callback edit(chip: int);
+    // BPM or Key: match the playing track, or stop filtering.
+    callback quick(chip: int);
     callback toggle(choice: int);
     callback search-choices(text: string);
     callback set-match-all(on: bool);
@@ -136,16 +138,21 @@ component Check inherits Rectangle {
 
 component Chip inherits Rectangle {
     in property <FilterChip> chip;
+    // BPM and Key: the chip itself matches the playing track, and a ▾ on
+    // its right opens the options.
+    property <bool> split: chip.kind == 2 || chip.kind == 3;
     callback clicked();
+    callback opened();
     callback cleared();
     height: 26px;
+    horizontal-stretch: 0;
     border-radius: 13px;
     background: cta.has-hover ? #2c2c2f : Theme.control;
     border-width: 1px;
     border-color: chip.active ? Theme.accent : Theme.border;
     HorizontalLayout {
         padding-left: 11px;
-        padding-right: chip.active ? 4px : 9px;
+        padding-right: split ? 0px : chip.active ? 4px : 9px;
         spacing: 6px;
         Text {
             text: chip.label;
@@ -162,9 +169,9 @@ component Chip inherits Rectangle {
             max-width: 150px;
             overflow: elide;
         }
-        if !chip.active: Text { text: "▾"; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
+        if !split && !chip.active: Text { text: "▾"; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
         // Clears the chip, without opening it.
-        if chip.active: Rectangle {
+        if !split && chip.active: Rectangle {
             width: 18px;
             VerticalLayout {
                 alignment: center;
@@ -177,9 +184,29 @@ component Chip inherits Rectangle {
             }
             xta := TouchArea { mouse-cursor: pointer; clicked => { cleared(); } }
         }
+        // Opens the options: a tempo range or tolerance, picked keys.
+        if split: Rectangle {
+            width: 24px;
+            border-radius: 13px;
+            background: dta.has-hover ? #ffffff1a : transparent;
+            Rectangle {
+                x: 0px;
+                width: 1px;
+                height: 14px;
+                background: chip.active ? Theme.accent : Theme.border;
+            }
+            Text {
+                x: 7px;
+                text: "▾";
+                color: dta.has-hover ? Theme.text : Theme.text-dim;
+                font-size: 11px;
+                vertical-alignment: center;
+            }
+            dta := TouchArea { mouse-cursor: pointer; clicked => { opened(); } }
+        }
     }
     cta := TouchArea {
-        // Under the ✕, so the ✕ gets its own clicks.
+        // Under the ✕ and ▾, so they get their own clicks.
         z: -1;
         mouse-cursor: pointer;
         clicked => { clicked(); }
@@ -221,7 +248,14 @@ export component FilterBar inherits Rectangle {
             alignment: center;
             Chip {
                 chip: c;
-                clicked => { open(i, self.absolute-position.x - root.absolute-position.x); }
+                clicked => {
+                    if c.kind == 2 || c.kind == 3 {
+                        FilterUi.quick(i);
+                    } else {
+                        open(i, self.absolute-position.x - root.absolute-position.x);
+                    }
+                }
+                opened => { open(i, self.absolute-position.x - root.absolute-position.x); }
                 cleared => { FilterUi.clear(i); }
             }
         }

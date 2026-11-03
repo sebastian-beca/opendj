@@ -36,6 +36,7 @@ mod columns;
 mod filters;
 mod health;
 mod info;
+mod mix_export;
 mod picks;
 mod sets;
 mod spotify_export;
@@ -385,6 +386,8 @@ const KIND_CHECK: i32 = 13;
 /// One of the DJ's crates, and the Crates and Playlists headings.
 const KIND_CRATE: i32 = 17;
 const KIND_SECTION: i32 = 18;
+/// The Play Ready stage, green in the sidebar.
+const KIND_READY: i32 = 19;
 /// An album's folder, and a folder of mixed sets.
 const KIND_ALBUM: i32 = 15;
 const KIND_MIX: i32 = 16;
@@ -535,6 +538,8 @@ pub struct Browser {
     folders: Folders,
     /// The mixed sets folder: its tracks are kept out of the collection.
     mixed_sets: Option<PathBuf>,
+    /// A mixed set being made into a Mixcloud MP3.
+    mix_export: Option<std::sync::mpsc::Receiver<mix_export::Progress>>,
     /// Play Album was picked, for Automix to play the list gaplessly.
     album_request: bool,
     /// The Albums source's covers, bigger than the list's thumbnails.
@@ -1117,6 +1122,7 @@ impl Browser {
             columns: columns::ColumnState::new(&crate::settings::field_names()),
             folders: crate::settings::stage_folders(),
             mixed_sets: crate::settings::mixed_sets_folder(),
+            mix_export: None,
             album_request: false,
             album_art: Art::sized(albums::COVER_SIZE),
             album_tiles: Vec::new(),
@@ -1662,6 +1668,7 @@ impl Browser {
         edit.on_set_rule(move |i, text| w(&|b| b.set_rule(i as usize, &text)));
         Self::install_staging(&edit, &with);
         Self::install_track_menu(&edit, &with);
+        Self::install_mix_export(&app.global::<FilesUi>(), &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
         Self::install_cleanup(&app.global::<crate::CleanupUi>(), &with);
         Self::install_fix_names(app, &with);

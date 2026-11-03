@@ -92,6 +92,64 @@ impl Decoder {
         self.length_known
     }
 
+    /// The file's length in seconds, when its headers say.
+    pub fn seconds(&self) -> Option<f64> {
+        let a = self.writer.audio();
+        (self.length_known && a.sample_rate > 0).then(|| a.len() as f64 / a.sample_rate as f64)
+    }
+
+    /// Decodes to the end without keeping the audio: `each` gets the sample
+    /// rate and each packet as interleaved stereo, and stops decoding early
+    /// by returning false. For files too long to hold in memory, such as a
+    /// recorded set. Returns the sample rate and the frames decoded.
+    pub fn stream(
+        mut self,
+        mut each: impl FnMut(u32, &[f32]) -> bool,
+    ) -> Result<(u32, u64), String> {
+        let path = self.path.clone();
+        let err = |e: Error| format!("{}: {e}", path.display());
+        let mut buf: Vec<f32> = Vec::new();
+        let mut stereo: Vec<f32> = Vec::new();
+        let mut rate = 0;
+        let mut frames = 0u64;
+        loop {
+            let packet = match self.format.next_packet() {
+                Ok(Some(p)) => p,
+                Ok(None) => break,
+                Err(Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                Err(e) => return Err(err(e)),
+            };
+            if packet.track_id != self.track_id {
+                continue;
+            }
+            let decoded = match self.decoder.decode(&packet) {
+                Ok(d) => d,
+                Err(Error::DecodeError(_)) => continue,
+                Err(e) => return Err(err(e)),
+            };
+            let spec = decoded.spec();
+            if rate == 0 {
+                rate = spec.rate();
+            } else if rate != spec.rate() {
+                return Err(format!("{}: sample rate changes", path.display()));
+            }
+            let channels = spec.channels().count().max(1);
+            decoded.copy_to_vec_interleaved(&mut buf);
+            stereo.clear();
+            for f in buf.chunks_exact(channels) {
+                stereo.extend_from_slice(&[f[0], if channels > 1 { f[1] } else { f[0] }]);
+            }
+            frames += (stereo.len() / 2) as u64;
+            if !each(rate, &stereo) {
+                return Err(format!("{}: decoding cancelled", path.display()));
+            }
+        }
+        if frames == 0 || rate == 0 {
+            return Err(format!("{}: no audio decoded", path.display()));
+        }
+        Ok((rate, frames))
+    }
+
     /// Decodes to the end, calling `progress` with the audio after each
     /// packet; decoding stops early if it returns false.
     pub fn run(mut self, mut progress: impl FnMut(&Audio) -> bool) -> Result<Arc<Audio>, String> {

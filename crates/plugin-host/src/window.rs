@@ -15,7 +15,7 @@ use std::time::Duration;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize, Size};
 use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowAttributes, WindowId, WindowLevel};
@@ -111,6 +111,68 @@ impl EditorWindow {
         shown: &AtomicU32,
         wait: Duration,
     ) {
+        self.follow(main, editor, shown, None);
+        let Some(el) = self.event_loop.as_mut() else {
+            std::thread::sleep(wait);
+            return;
+        };
+        let _ = el.pump_app_events(Some(wait), &mut self.events);
+        self.after_events(main, editor, shown);
+    }
+
+    /// On macOS, once a window was made the platform's own loop takes over
+    /// (see [`EditorWindow::run`]): pumping it in slices stops a plugin's
+    /// menus in the middle of their own loop, and they freeze.
+    pub fn wants_run(&self) -> bool {
+        cfg!(target_os = "macos") && self.event_loop.is_some()
+    }
+
+    /// Hands the main thread to the platform's loop for good, calling `tick`
+    /// whenever it is idle, and again after the time `tick` returns.
+    pub fn run(mut self, tick: impl FnMut(&mut EditorWindow, &ActiveEventLoop) -> Duration) -> ! {
+        struct Runner<F> {
+            win: EditorWindow,
+            tick: F,
+        }
+        impl<F: FnMut(&mut EditorWindow, &ActiveEventLoop) -> Duration> ApplicationHandler for Runner<F> {
+            fn resumed(&mut self, _el: &ActiveEventLoop) {}
+            fn window_event(&mut self, el: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+                self.win.events.window_event(el, id, event);
+            }
+            fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+                let wait = (self.tick)(&mut self.win, el);
+                el.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + wait));
+            }
+        }
+        let Some(el) = self.event_loop.take() else {
+            std::process::exit(0);
+        };
+        let mut runner = Runner { win: self, tick };
+        let _ = el.run_app(&mut runner);
+        std::process::exit(0);
+    }
+
+    /// [`EditorWindow::step`] inside the platform's loop: follows openDJ's
+    /// ask and handles what the window's events left.
+    pub fn step_in(
+        &mut self,
+        main: &mut dyn MainThread,
+        editor: &AtomicU32,
+        shown: &AtomicU32,
+        el: &ActiveEventLoop,
+    ) {
+        self.follow(main, editor, shown, Some(el));
+        self.after_events(main, editor, shown);
+    }
+
+    /// Opens or closes the editor as openDJ asks.
+    fn follow(
+        &mut self,
+        main: &mut dyn MainThread,
+        editor: &AtomicU32,
+        shown: &AtomicU32,
+        el: Option<&ActiveEventLoop>,
+    ) {
         let want = editor.load(Ordering::Acquire) == OPEN;
         if !want {
             self.refused = false;
@@ -118,7 +180,7 @@ impl EditorWindow {
                 self.close(main, shown);
             }
         } else if !self.open && !self.refused {
-            match self.open_editor(main) {
+            match self.open_editor(main, el) {
                 Ok(()) => shown.store(OPEN, Ordering::Release),
                 Err(e) => {
                     eprintln!("editor: {e}");
@@ -128,11 +190,10 @@ impl EditorWindow {
                 }
             }
         }
-        let Some(el) = self.event_loop.as_mut() else {
-            std::thread::sleep(wait);
-            return;
-        };
-        let _ = el.pump_app_events(Some(wait), &mut self.events);
+    }
+
+    /// The window was closed, or resized by the DJ or the plugin.
+    fn after_events(&mut self, main: &mut dyn MainThread, editor: &AtomicU32, shown: &AtomicU32) {
         if !self.open {
             return;
         }
@@ -149,25 +210,42 @@ impl EditorWindow {
             .scale
             .take()
             .unwrap_or_else(|| window.scale_factor());
+        let mut moved = false;
         if let Some(size) = main.take_editor_resize() {
             let _ = window.request_inner_size(window_size(size));
+            moved = true;
         } else if let Some(size) = self.events.resized.take() {
             let asked = editor_size(size, scale);
             let took = main.editor_resized(asked);
             if took != asked {
                 let _ = window.request_inner_size(window_size(took));
             }
+            moved = true;
+        }
+        if moved {
+            if let Ok(parent) = parent_of(window) {
+                pin_top_left(parent);
+            }
         }
     }
 
-    fn open_editor(&mut self, main: &mut dyn MainThread) -> Result<(), String> {
-        if self.event_loop.is_none() {
-            self.event_loop = Some(new_event_loop()?);
-        }
+    fn open_editor(
+        &mut self,
+        main: &mut dyn MainThread,
+        active: Option<&ActiveEventLoop>,
+    ) -> Result<(), String> {
         if self.events.window.is_none() {
             self.events.create = Some(self.title.clone());
-            if let Some(el) = self.event_loop.as_mut() {
-                let _ = el.pump_app_events(Some(Duration::ZERO), &mut self.events);
+            match active {
+                Some(el) => self.events.make_window(el),
+                None => {
+                    if self.event_loop.is_none() {
+                        self.event_loop = Some(new_event_loop()?);
+                    }
+                    if let Some(el) = self.event_loop.as_mut() {
+                        let _ = el.pump_app_events(Some(Duration::ZERO), &mut self.events);
+                    }
+                }
             }
         }
         let window = self
@@ -179,6 +257,8 @@ impl EditorWindow {
         let size = main.open_editor(parent, window.scale_factor())?;
         window.set_resizable(main.editor_can_resize());
         let _ = window.request_inner_size(window_size(size));
+        main.editor_placed();
+        pin_top_left(parent);
         window.set_visible(true);
         window.focus_window();
         self.events.resized = None;
@@ -194,6 +274,7 @@ impl EditorWindow {
         // window they were taken out of.
         self.events.window = None;
         if let Some(el) = self.event_loop.as_mut() {
+            // In the platform's own loop (macOS), it goes at the next turn.
             let _ = el.pump_app_events(Some(Duration::ZERO), &mut self.events);
         }
         self.open = false;
@@ -256,6 +337,47 @@ fn parent_of(window: &Window) -> Result<ParentWindow, String> {
         _ => Err("plugin windows need X11, Windows or macOS".into()),
     }
 }
+
+/// Keeps the editor at the window's top left on macOS. AppKit counts from
+/// the bottom, so an editor attached while the window was smaller (or that
+/// placed itself by the window's old height) shows only its bottom part,
+/// at the top, until it is moved.
+#[cfg(target_os = "macos")]
+fn pin_top_left(parent: ParentWindow) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSPoint, NSRect};
+    let ParentWindow::Cocoa(view) = parent else {
+        return;
+    };
+    let view = view as *mut AnyObject;
+    // SAFETY: the window's live content view and its subviews, on the main
+    // thread.
+    unsafe {
+        let bounds: NSRect = msg_send![view, bounds];
+        let flipped: bool = msg_send![view, isFlipped];
+        let subviews: *mut AnyObject = msg_send![view, subviews];
+        if subviews.is_null() {
+            return;
+        }
+        let n: usize = msg_send![subviews, count];
+        for i in 0..n {
+            let sub: *mut AnyObject = msg_send![subviews, objectAtIndex: i];
+            let frame: NSRect = msg_send![sub, frame];
+            let y = if flipped {
+                0.0
+            } else {
+                bounds.size.height - frame.size.height
+            };
+            if frame.origin.x != 0.0 || frame.origin.y != y {
+                let _: () = msg_send![sub, setFrameOrigin: NSPoint::new(0.0, y)];
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn pin_top_left(_parent: ParentWindow) {}
 
 /// While an editor is open, macOS would slow a helper whose window is
 /// hidden behind others (App Nap), and the plugin's audio with it.

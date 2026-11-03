@@ -13,6 +13,7 @@ The menu at the top left of the window switches layouts:
   click a deck's tempo there for key lock, quantize and a tempo reset. With
   **WAVEFORMS** lit in the top bar, the four large waveforms are stacked above
   the decks in the same order.
+  A [Groove Box](groove-box.md) deck shows its step grid only in 2-Deck.
 
 The button at the bottom left of the window hides the decks for a compact
 view, in any layout.

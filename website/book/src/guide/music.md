@@ -21,6 +21,9 @@ The rail at the far left picks where the tree and the track list come from:
 - **Spotify**, **TIDAL**, **Apple Music**, **SoundCloud** and
   **Mixcloud**: your playlists and saved tracks on those services, for
   browsing (see [Streaming services](#streaming-services)).
+- **Plex** and **Navidrome**: your own music server, searched from openDJ
+  with its tracks downloaded into your collection (see
+  [Your own music server](#your-own-music-server)).
 - **Bandcamp**, **Beatport** and **OneLibrary**: coming soon.
 
 ### Streaming services
@@ -60,6 +63,35 @@ the background and updated if it changed (Spotify, TIDAL, SoundCloud and
 Apple Music say when a playlist changed, so unchanged ones aren't fetched
 again at all). **Refresh**, beside **Sign out**, fetches the list of
 playlists again. Signing out forgets what was kept.
+
+### Your own music server
+
+If your music lives on a **Plex Media Server** or on **Navidrome** (or any
+other server that speaks the Subsonic API, such as Gonic, Airsonic, Ampache
+or LMS), openDJ can search it and bring tracks into your collection. These
+are your own files, so unlike the streaming services they play on decks.
+
+Fill in the server on its own page in Settings, **Settings › Plex** or
+**Settings › Navidrome**:
+
+- **Navidrome**: the server's address (for example
+  `http://192.168.1.20:4533`), your username and your password. The
+  password is only ever sent as a salted token.
+- **Plex**: the server's address (for example `http://192.168.1.20:32400`)
+  and your Plex token. To find the token, open any track's **⋯** menu in
+  Plex Web, pick **Get Info › View XML**, and copy the `X-Plex-Token` at
+  the end of the address that opens.
+
+Then pick the source in the rail and start a **New search**: **Auto** finds
+albums and songs, **Track**, **Album** and **Artist** narrow it down (Artist
+lists that artist's albums), and **Playlist** lists your server's playlists
+whose name has the text in it (leave it as `*` for all of them). Open an
+album or playlist to see its songs, and download a song, an album or a whole
+playlist. openDJ fetches the original files (a FLAC stays a FLAC) into
+`Downloaded/Plex` or `Downloaded/Navidrome` in your music folder, one folder
+per artist and album with its cover, and adds them to your collection, ready
+to load on a deck. Pick another **Download folder** on the source's page in
+Settings if you like.
 
 ## How tracks come in
 

@@ -394,7 +394,8 @@ mod editor {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    const kAudioUnitProperty_CocoaUI: u32 = 4013;
+    // AudioUnitProperties.h
+    const kAudioUnitProperty_CocoaUI: u32 = 31;
     const kAudioUnitProperty_RequestViewController: u32 = 56;
 
     #[repr(C)]
@@ -421,6 +422,7 @@ mod editor {
             } else if let Some((v, c)) = requested_view(unit) {
                 (v, Some(c), true)
             } else {
+                eprintln!("editor: no view of the Audio Unit's own; showing its parameters");
                 (generic_view(unit)?, None, true)
             };
             let parent = parent as *mut AnyObject;
@@ -502,6 +504,7 @@ mod editor {
         ) != 0
             || (size as usize) < std::mem::size_of::<CocoaViewInfo>()
         {
+            eprintln!("editor: the Audio Unit names no Cocoa view");
             return None;
         }
         let mut buf = vec![0u8; size as usize];
@@ -514,6 +517,7 @@ mod editor {
             &mut size,
         ) != 0
         {
+            eprintln!("editor: the Audio Unit's Cocoa view can't be read");
             return None;
         }
         let info = &*(buf.as_ptr() as *const CocoaViewInfo);
@@ -521,24 +525,40 @@ mod editor {
             / std::mem::size_of::<CFStringRef>();
         let view = (|| {
             if info.bundle.is_null() || classes == 0 || info.class[0].is_null() {
+                eprintln!("editor: the Audio Unit's Cocoa view is empty");
                 return None;
             }
             let bundle: Option<Retained<AnyObject>> =
                 msg_send![class!(NSBundle), bundleWithURL: info.bundle as *mut AnyObject];
-            let bundle = bundle?;
+            let Some(bundle) = bundle else {
+                eprintln!("editor: the Audio Unit's view bundle can't be opened");
+                return None;
+            };
+            let _: bool = msg_send![&*bundle, load];
             let class: *const AnyClass =
                 msg_send![&*bundle, classNamed: info.class[0] as *mut AnyObject];
             if class.is_null() {
+                eprintln!("editor: the Audio Unit's view class isn't in its bundle");
                 return None;
             }
             let factory: Option<Retained<AnyObject>> = msg_send![&*class, new];
-            let factory = factory?;
-            let view: Option<Retained<AnyObject>> = msg_send![
-                &*factory,
-                uiViewForAudioUnit: unit as *mut AnyObject,
-                withSize: NSSize::new(0.0, 0.0)
-            ];
-            view
+            let Some(factory) = factory else {
+                eprintln!("editor: the Audio Unit's view factory can't be made");
+                return None;
+            };
+            // Some factories give no view for a zero size; ask again with one.
+            for size in [NSSize::new(0.0, 0.0), NSSize::new(800.0, 500.0)] {
+                let view: Option<Retained<AnyObject>> = msg_send![
+                    &*factory,
+                    uiViewForAudioUnit: unit as *mut AnyObject,
+                    withSize: size
+                ];
+                if view.is_some() {
+                    return view;
+                }
+            }
+            eprintln!("editor: the Audio Unit's view factory gave no view");
+            None
         })();
         if !info.bundle.is_null() {
             CFRelease(info.bundle);

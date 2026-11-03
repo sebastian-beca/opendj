@@ -3,7 +3,8 @@
 ## 1. Isolation (format-independent)
 
 - [x] 1.1 `crates/plugin-host`: shared-memory block exchange, `opendj-plugin-host` helper, deadline with dry fallback, crash/hang detection, restart and disable policy, test effects (gain, crash, hang, slow)
-- [ ] 1.2 Real-time priority for the helper's audio thread; join openDJ's audio workgroup on macOS
+- [x] 1.2a Real-time priority for the helper's audio thread (macOS time-constraint policy, Linux SCHED_FIFO where allowed); all plugins in a buffer share 60% of its time
+- [ ] 1.2 Join openDJ's audio workgroup on macOS; real-time priority on Windows (MMCSS)
 - [x] 1.3a Plugin host thread in the engine (`opendj_engine::plugins`): a helper per slot and routed target, restart once with the slot off, then disable and empty the slot; hangs and long CPU overruns count; failed starts empty the slot
 - [ ] 1.3 Restart with saved state (also keeps editor changes when a plugin restarts or openDJ reopens); crash counter kept between sessions
 

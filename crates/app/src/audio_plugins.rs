@@ -21,7 +21,7 @@ use serde_json::{json, Value};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use crate::settings;
-use crate::{AppWindow, EffectList};
+use crate::{AppWindow, EffectList, FxRow};
 
 /// Settings keys: the folders looked through, and the effects shown.
 pub const FOLDERS: &str = "audio_plugin_folders";
@@ -44,6 +44,8 @@ pub struct Found {
     /// "CLAP", "VST3" or "AU".
     pub format: &'static str,
     pub plugin: Plugin,
+    /// What the plugin says it is (CLAP features, VST3 sub-categories).
+    pub features: Vec<String>,
 }
 
 /// What a scan learned about one file (or bundle).
@@ -156,6 +158,7 @@ impl AudioPlugins {
                     } else {
                         Plugin::Clap { file, id }
                     },
+                    features: d.features.clone(),
                 });
             }
         }
@@ -166,6 +169,7 @@ impl AudioPlugins {
                 vendor: d.vendor.clone(),
                 format: "AU",
                 plugin: Plugin::Au { id: d.id.clone() },
+                features: d.features.clone(),
             });
         }
         out.sort_by(|a, b| {
@@ -316,6 +320,11 @@ impl AudioPlugins {
                 .set_names(ModelRc::new(VecModel::from(names)));
             app.global::<EffectList>()
                 .set_builtin_count(AVAILABLE_EFFECTS.len() as i32);
+            app.global::<EffectList>()
+                .set_plugin_rows(ModelRc::new(VecModel::from(plugin_rows(
+                    &chosen,
+                    &effect_names,
+                ))));
             let names: Vec<SharedString> = list_names(&instruments)
                 .iter()
                 .map(|n| SharedString::from(n.as_str()))
@@ -324,6 +333,169 @@ impl AudioPlugins {
                 .set_instruments(ModelRc::new(VecModel::from(names)));
         }
     }
+}
+
+/// The kinds of effect the menu groups by, in its order.
+const KINDS: [&str; 8] = [
+    "Delay & Echo",
+    "Reverb",
+    "Filter & EQ",
+    "Modulation",
+    "Distortion",
+    "Dynamics",
+    "Rhythm",
+    "Other",
+];
+const OTHER: usize = KINDS.len() - 1;
+
+/// The built-in effects' kinds, by name.
+fn builtin_kind(name: &str) -> usize {
+    match name {
+        "Echo" | "Echo Out" | "Spiral" | "Filter Echo" => 0,
+        "Reverb" | "Hall" | "Rev Roll" => 1,
+        "Filter" | "Ladder" => 2,
+        "Flanger" | "Phaser" | "Chorus" => 3,
+        "Bitcrusher" | "Drive" | "Noise" => 4,
+        "Gate" | "Roll" | "Brake" => 6,
+        _ => OTHER,
+    }
+}
+
+/// A plugin's kind, from what it says it is (CLAP features, VST3
+/// sub-categories), else from words in its name (Audio Units say nothing).
+fn plugin_kind(features: &[String], name: &str) -> usize {
+    const WORDS: [(usize, &[&str]); 7] = [
+        (0, &["delay", "echo"]),
+        (
+            1,
+            &[
+                "reverb", "verb", "hall", "plate", "room", "spatial", "shimmer",
+            ],
+        ),
+        (2, &["filter", "eq", "equalizer"]),
+        (
+            3,
+            &[
+                "modulation",
+                "chorus",
+                "flanger",
+                "phaser",
+                "tremolo",
+                "vibrato",
+                "ensemble",
+                "rotary",
+                "pitch shifter",
+                "pitch",
+            ],
+        ),
+        (
+            4,
+            &[
+                "distortion",
+                "drive",
+                "saturat",
+                "crush",
+                "fuzz",
+                "amp",
+                "tape",
+                "lo-fi",
+                "lofi",
+            ],
+        ),
+        (
+            5,
+            &[
+                "dynamics",
+                "compressor",
+                "limiter",
+                "gate",
+                "expander",
+                "transient",
+                "mastering",
+                "comp",
+            ],
+        ),
+        (6, &["glitch", "stutter", "slicer", "beat"]),
+    ];
+    let features: Vec<String> = features.iter().map(|f| f.to_lowercase()).collect();
+    // What the plugin says first, then its name.
+    for (kind, words) in WORDS {
+        if features.iter().any(|f| words.contains(&f.as_str())) {
+            return kind;
+        }
+    }
+    // Long words anywhere in the name ("ValhallaDelay"); short ones only
+    // as a word of their own, so "eq" doesn't match "Frequency".
+    let name = name.to_lowercase();
+    let tokens: Vec<&str> = name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+    WORDS
+        .iter()
+        .find(|(_, words)| {
+            words.iter().any(|w| {
+                if w.len() >= 5 {
+                    name.contains(w)
+                } else {
+                    tokens.contains(w)
+                }
+            })
+        })
+        .map_or(OTHER, |(kind, _)| *kind)
+}
+
+/// Menu lines for `items` (a label, its place in EffectList.names and its
+/// kind): a heading per kind, in [`KINDS`] order, then its effects A to Z.
+fn grouped(items: Vec<(String, usize, usize)>) -> Vec<FxRow> {
+    let mut rows = Vec::new();
+    for (k, kind) in KINDS.iter().enumerate() {
+        let mut these: Vec<&(String, usize, usize)> =
+            items.iter().filter(|(_, _, i)| *i == k).collect();
+        if these.is_empty() {
+            continue;
+        }
+        these.sort_by_key(|(label, _, _)| label.to_lowercase());
+        rows.push(FxRow {
+            label: kind.to_uppercase().into(),
+            index: -1,
+        });
+        rows.extend(these.into_iter().map(|(label, index, _)| FxRow {
+            label: label.as_str().into(),
+            index: *index as i32,
+        }));
+    }
+    rows
+}
+
+/// The openDJ FX tab: the built-in effects by kind.
+pub fn builtin_rows() -> Vec<FxRow> {
+    grouped(
+        AVAILABLE_EFFECTS
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.to_string(), i, builtin_kind(n)))
+            .collect(),
+    )
+}
+
+/// The Plugins tab: the ticked effects by kind; `names` are their names
+/// in the lists (after the built-in effects).
+fn plugin_rows(chosen: &[Found], names: &[String]) -> Vec<FxRow> {
+    grouped(
+        chosen
+            .iter()
+            .zip(names)
+            .enumerate()
+            .map(|(i, (f, n))| {
+                (
+                    n.clone(),
+                    AVAILABLE_EFFECTS.len() + i,
+                    plugin_kind(&f.features, &f.name),
+                )
+            })
+            .collect(),
+    )
 }
 
 /// The names to show in a chooser: a plugin ticked in more than one format
@@ -698,5 +870,31 @@ mod tests {
             vec![dir.join("Delay.clap"), dir.join("Vendor/Reverb.vst3")]
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod menu_tests {
+    use super::*;
+
+    #[test]
+    fn effects_are_grouped_by_kind() {
+        let f = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(plugin_kind(&f(&["Fx", "Delay"]), "Anything"), 0);
+        assert_eq!(plugin_kind(&f(&["audio-effect", "reverb"]), "X"), 1);
+        assert_eq!(plugin_kind(&[], "ValhallaDelay"), 0);
+        assert_eq!(plugin_kind(&[], "Rev PLATE-140"), 1);
+        assert_eq!(plugin_kind(&[], "Pro-C 2 Comp"), 5);
+        assert_eq!(plugin_kind(&[], "Frequency Shifter X"), OTHER);
+        assert_eq!(plugin_kind(&[], "Chorus JUN-6"), 3);
+        let rows = builtin_rows();
+        // Every built-in effect once, under a heading; none in Other.
+        let items: Vec<_> = rows.iter().filter(|r| r.index >= 0).collect();
+        assert_eq!(items.len(), AVAILABLE_EFFECTS.len());
+        assert_eq!(rows[0].label, "DELAY & ECHO");
+        assert!(rows.iter().all(|r| r.label != "OTHER"));
+        // A to Z within a kind: Echo, Echo Out, Filter Echo, Spiral.
+        let first: Vec<&str> = rows[1..5].iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(first, ["Echo", "Echo Out", "Filter Echo", "Spiral"]);
     }
 }

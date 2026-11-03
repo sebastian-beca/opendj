@@ -47,6 +47,29 @@ export global Theme {
     // mixing with the track playing, grey for two.
     out property <color> lilac-dim: #b69cff99;
     out property <color> key-far: #8e8e93;
+    // The collection's prep stages, at the lilac's lightness and chroma
+    // (OKLCH ~0.77 / 0.12) so they sit beside it: Wanted pink-red, Inbox
+    // orange, In Prep yellow, Play Ready green.
+    out property <color> stage-wanted: #f2909f;
+    out property <color> stage-inbox: #f2a26a;
+    out property <color> stage-prep: #ead070;
+    out property <color> stage-ready: #83d494;
+    // Collection labels in their stage's colour too, not only the icons.
+    out property <bool> stage-labels: false;
+    // A sidebar node kind's stage colour (Wanted 4, Inbox 10, In Prep 11,
+    // Play Ready 19), or plain text for the rest.
+    public pure function stage-tint(kind: int) -> color {
+        kind == 4 ? root.stage-wanted
+            : kind == 10 ? root.stage-inbox
+            : kind == 11 ? root.stage-prep
+            : kind == 19 ? root.stage-ready
+            : root.text
+    }
+    // A track's stage colour, as `LibraryEdit.stage-of` numbers them
+    // (1 Inbox, 2 In Prep, 3 Play Ready).
+    public pure function stage-color(stage: int) -> color {
+        stage == 1 ? root.stage-inbox : stage == 2 ? root.stage-prep : root.stage-ready
+    }
     // The library highlight: a darker lilac so white text reads on it.
     out property <color> selection: #8c72d9;
     // The highlight in whichever list (folders or tracks) doesn't have focus.

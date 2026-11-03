@@ -800,6 +800,20 @@ impl MainThread for Vst3Main {
         self.view.as_ref().is_some_and(|(_, r)| *r)
     }
 
+    fn editor_placed(&mut self) {
+        let Some((view, _)) = &self.view else {
+            return;
+        };
+        // SAFETY: plain calls into the open view. Telling it its own size
+        // makes it lay itself out in the window as it now is.
+        unsafe {
+            let mut r: ViewRect = std::mem::zeroed();
+            if ok(view.getSize(&mut r)) && r.right > r.left && r.bottom > r.top {
+                view.onSize(&mut r);
+            }
+        }
+    }
+
     fn editor_resized(&mut self, size: EditorSize) -> EditorSize {
         let Some((view, resizable)) = &self.view else {
             return size;
