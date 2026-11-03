@@ -254,15 +254,18 @@ fn xone_k2_two_decks() {
     );
     assert!(reg.get("[Master]", "headGain").unwrap().get_parameter() < head);
 
-    // SHIFT + the bottom left encoder is deck 1's jog wheel; clicks add up
-    // until the engine takes them.
+    // SHIFT + a bottom encoder moves its own deck through the track
+    // silently (a seek, not the jog wheel, which is heard while paused).
+    set("[Channel2]", "playposition", 0.5);
     c.receive(&[0x9E, 0x0F, 0x7F]);
     c.receive(&[0xBE, 0x14, 0x01]);
     c.receive(&[0xBE, 0x14, 0x01]);
     c.receive(&[0xBE, 0x15, 0x7F]);
     c.receive(&[0x8E, 0x0F, 0x7F]);
-    assert_eq!(get(&reg, "[Channel1]", "jog"), 50.0);
-    assert_eq!(get(&reg, "[Channel2]", "jog"), -25.0);
+    assert!((get(&reg, "[Channel1]", "playposition") - 0.01).abs() < 1e-9);
+    assert!((get(&reg, "[Channel2]", "playposition") - 0.495).abs() < 1e-9);
+    assert_eq!(get(&reg, "[Channel1]", "jog"), 0.0);
+    assert_eq!(get(&reg, "[Channel2]", "jog"), 0.0);
 
     set("[Channel1]", "track_loaded", 1.0);
     // PLAY is inner for both decks: B for deck 1, O for deck 2. SYNC is outer.

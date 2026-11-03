@@ -257,9 +257,9 @@
   },
   {
    "midi": "BE 14",
-   "name": "JOG 1",
+   "name": "SEEK 1",
    "layer": "shift",
-   "script": "deck 1 jog",
+   "script": "deck 1 song_pos",
    "steps": true
   },
   {
@@ -504,9 +504,9 @@
   },
   {
    "midi": "BE 15",
-   "name": "JOG 2",
+   "name": "SEEK 2",
    "layer": "shift",
-   "script": "deck 2 jog",
+   "script": "deck 2 song_pos",
    "steps": true
   },
   {
