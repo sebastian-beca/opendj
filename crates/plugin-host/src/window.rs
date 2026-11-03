@@ -149,13 +149,21 @@ impl EditorWindow {
             .scale
             .take()
             .unwrap_or_else(|| window.scale_factor());
+        let mut moved = false;
         if let Some(size) = main.take_editor_resize() {
             let _ = window.request_inner_size(window_size(size));
+            moved = true;
         } else if let Some(size) = self.events.resized.take() {
             let asked = editor_size(size, scale);
             let took = main.editor_resized(asked);
             if took != asked {
                 let _ = window.request_inner_size(window_size(took));
+            }
+            moved = true;
+        }
+        if moved {
+            if let Ok(parent) = parent_of(window) {
+                pin_top_left(parent);
             }
         }
     }
@@ -179,6 +187,8 @@ impl EditorWindow {
         let size = main.open_editor(parent, window.scale_factor())?;
         window.set_resizable(main.editor_can_resize());
         let _ = window.request_inner_size(window_size(size));
+        main.editor_placed();
+        pin_top_left(parent);
         window.set_visible(true);
         window.focus_window();
         self.events.resized = None;
@@ -256,6 +266,47 @@ fn parent_of(window: &Window) -> Result<ParentWindow, String> {
         _ => Err("plugin windows need X11, Windows or macOS".into()),
     }
 }
+
+/// Keeps the editor at the window's top left on macOS. AppKit counts from
+/// the bottom, so an editor attached while the window was smaller (or that
+/// placed itself by the window's old height) shows only its bottom part,
+/// at the top, until it is moved.
+#[cfg(target_os = "macos")]
+fn pin_top_left(parent: ParentWindow) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSPoint, NSRect};
+    let ParentWindow::Cocoa(view) = parent else {
+        return;
+    };
+    let view = view as *mut AnyObject;
+    // SAFETY: the window's live content view and its subviews, on the main
+    // thread.
+    unsafe {
+        let bounds: NSRect = msg_send![view, bounds];
+        let flipped: bool = msg_send![view, isFlipped];
+        let subviews: *mut AnyObject = msg_send![view, subviews];
+        if subviews.is_null() {
+            return;
+        }
+        let n: usize = msg_send![subviews, count];
+        for i in 0..n {
+            let sub: *mut AnyObject = msg_send![subviews, objectAtIndex: i];
+            let frame: NSRect = msg_send![sub, frame];
+            let y = if flipped {
+                0.0
+            } else {
+                bounds.size.height - frame.size.height
+            };
+            if frame.origin.x != 0.0 || frame.origin.y != y {
+                let _: () = msg_send![sub, setFrameOrigin: NSPoint::new(0.0, y)];
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn pin_top_left(_parent: ParentWindow) {}
 
 /// While an editor is open, macOS would slow a helper whose window is
 /// hidden behind others (App Nap), and the plugin's audio with it.
