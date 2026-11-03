@@ -228,6 +228,17 @@ fn encoder_clicks_move_a_level_from_where_it_is() {
     assert_eq!(t.get("[Channel2]", "play"), 1.0);
 }
 
+/// The browser's actions count presses, so the app sees one that came and
+/// went before it looked.
+#[test]
+fn presses_of_a_counted_action_add_up() {
+    let mut t = Test::new();
+    t.reg.free("[Channel1]", "LoadSelectedTrack");
+    run("deck 1 load", &mut t).unwrap();
+    run("press '[Channel1],LoadSelectedTrack'", &mut t).unwrap();
+    assert_eq!(t.get("[Channel1]", "LoadSelectedTrack"), 2.0);
+}
+
 #[test]
 fn blink_takes_a_colour() {
     assert!(opendj_script::parse("blink 500 'green'").is_ok());

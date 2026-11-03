@@ -78,8 +78,9 @@ pub(crate) struct Hotcue {
     pub(crate) kind: ControlHandle,
     pub(crate) goto_play: ControlHandle,
     pub(crate) goto_stop: ControlHandle,
-    /// Presses of activate, gotoandplay and gotoandstop.
-    pub(crate) edges: [Edge; 3],
+    /// Presses of activate, goto_play, goto_stop and clear, so a press
+    /// shorter than a block still counts.
+    pub(crate) edges: [Edge; 4],
 }
 
 /// One stem's controls, `[ChannelN_StemM]` as in Mixxx 2.6.
@@ -309,7 +310,7 @@ impl DeckControls {
                 kind: reg.indicator(g, &format!("hotcue_{n}_type"), 8.0),
                 goto_play: reg.push(g, &format!("hotcue_{n}_gotoandplay")),
                 goto_stop: reg.push(g, &format!("hotcue_{n}_gotoandstop")),
-                edges: [Edge::default(); 3],
+                edges: [Edge::default(); 4],
             })
             .collect();
         let mut rolls: Vec<_> = BEATLOOP_SIZES

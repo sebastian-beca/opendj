@@ -57,6 +57,6 @@
   {"id": "layer", "label": "LAYER", "kind": "button", "round": false, "x": 83, "y": 1001, "w": 58, "h": 58, "midi": ["9? 0C"]},
   {"id": "enc-bl", "label": "ENCODER (bottom left)", "kind": "encoder", "round": true, "x": 165, "y": 1003, "w": 54, "h": 54, "midi": ["B? 14", "Press|9? 0D"]},
   {"id": "enc-br", "label": "ENCODER (bottom right)", "kind": "encoder", "round": true, "x": 260, "y": 1003, "w": 54, "h": 54, "midi": ["B? 15", "Press|9? 0E"]},
-  {"id": "exit", "label": "EXIT SETUP", "kind": "button", "round": false, "x": 339, "y": 1001, "w": 58, "h": 58, "midi": ["9? 0F"]}
+  {"id": "exit", "label": "SHIFT", "kind": "button", "round": false, "x": 339, "y": 1001, "w": 58, "h": 58, "midi": ["9? 0F"]}
  ]
 }

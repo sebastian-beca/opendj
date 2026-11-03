@@ -220,7 +220,7 @@ mod tests {
             ("l-pad2", "Keyboard + SHIFT")
         );
         let k2 = Layout::for_file("Allen and Heath Xone K2.midi.xml").unwrap();
-        assert_eq!(k2.find(0x8E, 0x0F).unwrap().0.label, "EXIT SETUP");
+        assert_eq!(k2.find(0x8E, 0x0F).unwrap().0.label, "SHIFT");
         assert!(k2.shows_channel(0x9E) && !k2.shows_channel(0x9D));
     }
 

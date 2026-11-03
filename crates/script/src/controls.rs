@@ -1,6 +1,6 @@
 //! The verbs that are controls underneath.
 
-use opendj_control::{ControlHandle, ControlRegistry};
+use opendj_control::{Behavior, ControlHandle, ControlRegistry};
 
 use crate::verbs::Kind;
 use crate::{Call, Error};
@@ -63,6 +63,12 @@ fn set_level(c: &ControlHandle, call: &Call, i: usize) -> Result<(), Error> {
 }
 
 fn press(c: &ControlHandle) {
+    // The browser's actions (load, open, next pane) count presses for the
+    // app to take on its next look; a press and let-go would be missed.
+    if c.behavior() == Behavior::Free {
+        c.set(c.get() + 1.0);
+        return;
+    }
     c.set_bool(true);
     c.set_bool(false);
 }
