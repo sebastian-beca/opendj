@@ -2368,6 +2368,17 @@ impl Prefs {
             title,
             settings::import_theirs_win(id),
         ));
+        // Mixxx has no streamed tracks.
+        if id != "mixxx" {
+            rows.push(switch(
+                &settings::import_wants_streamed_key(id),
+                "Add streamed tracks to Wanted",
+                &format!(
+                    "TIDAL and Spotify tracks in {title}'s playlists that your collection hasn't got go on the Wanted list. History never does."
+                ),
+                settings::import_wants_streamed(id),
+            ));
+        }
         rows.push(PrefItem {
             action: "Stop".into(),
             ..item(

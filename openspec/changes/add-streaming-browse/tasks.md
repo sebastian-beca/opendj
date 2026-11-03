@@ -13,6 +13,8 @@
 - [ ] 2.5 Collection matching (ISRC, then artist, title and duration); greyed unmatched tracks; Copy to openDJ list; screenshot
 - [x] 2.6 Update the matching user guide page in website/book/src/guide
 - [x] 2.7 Export a list or history session to a Spotify playlist, in order
+- [x] 2.8 Wanted only by hand: imports stop filling it (and their old entries go), Add to Wanted and Add to Downloads on streaming tracks, playlists and placeholders, Remove from Wanted
+- [x] 2.9 Opt-in: Add streamed tracks to Wanted per import (playlists only), Sync to Wanted per streaming playlist; removed tracks stay removed
 
 ## Workflow follow-up
 
