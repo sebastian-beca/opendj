@@ -320,7 +320,17 @@ pub struct Playlist {
     /// The app it was brought in from, for lists an import keeps up to date;
     /// None for the DJ's own.
     pub source: Option<String>,
+    /// The colour the DJ gave it (0xRRGGBB), drawn on its icon.
+    pub color: Option<u32>,
+    /// The icon the DJ picked for it by name (see [`LIST_ICONS`]); None for
+    /// its kind's own.
+    pub icon: Option<String>,
 }
+
+/// Icons a crate can wear in the sidebar, by the name the library keeps.
+pub const LIST_ICONS: [&str; 8] = [
+    "crate", "star", "heart", "flame", "bolt", "moon", "sun", "leaf",
+];
 
 /// A track the DJ went to buy and hasn't received yet.
 #[derive(Clone, Debug, PartialEq)]
@@ -549,6 +559,15 @@ impl Library {
                 )?;
             }
             db.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
+        }
+        // A list's colour and icon, which the DJ picks in the sidebar.
+        for (name, definition) in [("color", "color INTEGER"), ("icon", "icon TEXT")] {
+            let has = db
+                .prepare("SELECT 1 FROM pragma_table_info('playlists') WHERE name = ?1")?
+                .exists([name])?;
+            if !has {
+                db.execute_batch(&format!("ALTER TABLE playlists ADD COLUMN {definition}"))?;
+            }
         }
         db.execute_batch(LINKS_SCHEMA)?;
         db.execute_batch(MOVES_SCHEMA)?;
@@ -1218,8 +1237,8 @@ impl Library {
     /// children, siblings in order.
     pub fn playlists(&self) -> Result<Vec<Playlist>, Error> {
         let mut q = self.db.prepare(
-            "SELECT id, parent, name, kind, query, created, source FROM playlists
-                 ORDER BY position, id",
+            "SELECT id, parent, name, kind, query, created, source, color, icon
+                 FROM playlists ORDER BY position, id",
         )?;
         let all: Vec<Playlist> = q
             .query_map([], |r| {
@@ -1231,6 +1250,8 @@ impl Library {
                     query: r.get(4)?,
                     created: r.get(5)?,
                     source: r.get(6)?,
+                    color: r.get::<_, Option<i64>>(7)?.map(|c| c as u32 & 0xff_ffff),
+                    icon: r.get(8)?,
                 })
             })?
             .collect::<Result<_, _>>()?;
@@ -1291,6 +1312,24 @@ impl Library {
         self.db.execute(
             "UPDATE playlists SET name = ?2 WHERE id = ?1",
             params![id, name],
+        )?;
+        Ok(())
+    }
+
+    /// Gives a list a colour (0xRRGGBB, or None for none).
+    pub fn set_playlist_color(&self, id: i64, color: Option<u32>) -> Result<(), Error> {
+        self.db.execute(
+            "UPDATE playlists SET color = ?2 WHERE id = ?1",
+            params![id, color.map(|c| i64::from(c & 0xff_ffff))],
+        )?;
+        Ok(())
+    }
+
+    /// Gives a list one of [`LIST_ICONS`] by name, or None for its kind's own.
+    pub fn set_playlist_icon(&self, id: i64, icon: Option<&str>) -> Result<(), Error> {
+        self.db.execute(
+            "UPDATE playlists SET icon = ?2 WHERE id = ?1",
+            params![id, icon],
         )?;
         Ok(())
     }
@@ -2399,6 +2438,29 @@ mod tests {
             cover: None,
             info: Default::default(),
         }
+    }
+
+    #[test]
+    fn crates_keep_their_colour_and_icon() {
+        let lib = Library::in_memory().unwrap();
+        let krate = lib
+            .create_playlist("Yoga", None, PlaylistKind::List)
+            .unwrap();
+        let get = |lib: &Library| {
+            lib.playlists()
+                .unwrap()
+                .into_iter()
+                .find(|p| p.id == krate)
+                .unwrap()
+        };
+        assert_eq!((get(&lib).color, get(&lib).icon), (None, None));
+        lib.set_playlist_color(krate, Some(0x34c759)).unwrap();
+        lib.set_playlist_icon(krate, Some("leaf")).unwrap();
+        assert_eq!(get(&lib).color, Some(0x34c759));
+        assert_eq!(get(&lib).icon.as_deref(), Some("leaf"));
+        lib.set_playlist_color(krate, None).unwrap();
+        lib.set_playlist_icon(krate, None).unwrap();
+        assert_eq!((get(&lib).color, get(&lib).icon), (None, None));
     }
 
     #[test]
