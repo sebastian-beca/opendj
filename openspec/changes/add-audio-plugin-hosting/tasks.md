@@ -12,6 +12,7 @@
 - [x] 2.1 Host CLAP effects in the helper with `clack-host`: load, process, parameters, transport (state comes with 1.3)
 - [x] 2.2a Scanner process with a timeout (`opendj-plugin-host --scan`, `scan()`)
 - [x] 2.2a Settings › Mixer › FX plugins: folders (system defaults), Scan in throwaway helpers, cache by file size and date (`audio-plugins.json`), failures with Retry, a tick per effect for the FX lists (allow-list)
+- [x] 2.2b Settings › Plugins page with Effects, Instruments and Folders tabs; CLAP/VST3/AU chips, plugins by maker (tick a whole maker), search; up to six files scanned at once (#255)
 - [ ] 2.2 Favourites
 - [x] 2.3a Ticked plugins in every FX chooser under a line after the built-in effects (the list scrolls); ON, D/W and the slider (first parameter) work as for built-in effects; tempo and beat from the routed deck; crash and failure messages as alerts
 - [ ] 2.3 Controller mapping of plugin parameters beyond the first four

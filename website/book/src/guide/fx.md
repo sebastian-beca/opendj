@@ -113,10 +113,14 @@ off in **Settings › Decks** under **Auto reset on load** (see
 openDJ runs CLAP and VST3 plugins, and Audio Units on a Mac. Nothing is
 loaded until you ask:
 
-1. Open **Settings › Mixer › Plugins**, check the plugin folders and press
-   **Scan**. Each file is opened once in a separate helper, so a broken
-   plugin only fails its own row.
-2. Tick the effects you want. Only ticked ones show in the effect lists,
+1. Open **Settings › Plugins**, check the folders on the **Folders** tab
+   and press **Scan**. Each file is opened once in a separate helper, a few
+   at a time, so a broken plugin only fails its own row.
+2. On the **Effects** tab, tick the effects you want. Plugins are grouped by
+   maker: tick a maker to take all of theirs, or open it with the arrow.
+   The **CLAP**, **VST3** and **AU** chips narrow the list to those formats
+   (none lit shows all), and the search box finds a plugin or a maker.
+   Only ticked effects show in the effect lists,
    under a line after the built-in effects, in every slot: decks, Beat FX,
    Mic and Aux. A plugin's first four settings follow the slot's
    parameter knobs.
@@ -128,8 +132,8 @@ playing either way.
 
 ### Instruments
 
-Tick an instrument under **Instruments for the Instrument input** in the
-same tab, then open the **MIC** panel. Under **Mic** and **Aux** is the
+Tick an instrument on the **Instruments** tab of **Settings › Plugins**,
+then open the **MIC** panel. Under **Mic** and **Aux** is the
 **Instrument** input:
 
 - Pick the instrument from the list, and turn it **ON** to hear it in the

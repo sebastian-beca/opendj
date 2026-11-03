@@ -2,7 +2,7 @@
 //! finding them, remembering what was found, and which ones the DJ wants
 //! in the FX lists.
 //!
-//! Nothing is scanned at start-up. Scan, in Settings › Mixer › Plugins,
+//! Nothing is scanned at start-up. Scan, in Settings › Plugins,
 //! looks through the plugin folders and checks each new or changed file in
 //! a throwaway helper process, so a plugin that crashes or hangs while it is
 //! looked at only fails its own row. What was found is kept in
@@ -29,6 +29,8 @@ pub const SHOWN: &str = "audio_plugins_shown";
 
 /// How long one file may take to describe itself.
 const SCAN_TIMEOUT: Duration = Duration::from_secs(10);
+/// How many files are looked at side by side, at most.
+const SCAN_WORKERS: usize = 6;
 /// How deep under a folder plugins are looked for.
 const DEPTH: usize = 4;
 
@@ -194,10 +196,15 @@ impl AudioPlugins {
 
     /// Shows or hides an effect in the FX lists.
     pub fn set_shown(&mut self, key: &str, on: bool) {
+        self.set_shown_all(&[key.to_string()], on);
+    }
+
+    /// Shows or hides several at once, such as everything from one maker.
+    pub fn set_shown_all(&mut self, keys: &[String], on: bool) {
         let mut shown = self.shown();
-        shown.retain(|k| k != key);
+        shown.retain(|k| !keys.contains(k));
         if on {
-            shown.push(key.to_string());
+            shown.extend(keys.iter().cloned());
         }
         settings::set(SHOWN, json!(shown));
         self.publish();
@@ -294,7 +301,8 @@ impl AudioPlugins {
     fn publish(&mut self) {
         let chosen = self.chosen();
         self.engine.set_plugins(chosen.iter().map(entry).collect());
-        NAMES.with(|n| *n.borrow_mut() = chosen.iter().map(|f| f.name.clone()).collect());
+        let effect_names = list_names(&chosen);
+        NAMES.with(|n| *n.borrow_mut() = effect_names.clone());
         let instruments = self.chosen_instruments();
         self.engine
             .set_instruments(instruments.iter().map(entry).collect());
@@ -302,20 +310,34 @@ impl AudioPlugins {
             let names: Vec<SharedString> = AVAILABLE_EFFECTS
                 .iter()
                 .map(|&n| SharedString::from(n))
-                .chain(chosen.iter().map(|f| SharedString::from(f.name.as_str())))
+                .chain(effect_names.iter().map(|n| SharedString::from(n.as_str())))
                 .collect();
             app.global::<EffectList>()
                 .set_names(ModelRc::new(VecModel::from(names)));
             app.global::<EffectList>()
                 .set_builtin_count(AVAILABLE_EFFECTS.len() as i32);
-            let names: Vec<SharedString> = instruments
+            let names: Vec<SharedString> = list_names(&instruments)
                 .iter()
-                .map(|f| SharedString::from(f.name.as_str()))
+                .map(|n| SharedString::from(n.as_str()))
                 .collect();
             app.global::<EffectList>()
                 .set_instruments(ModelRc::new(VecModel::from(names)));
         }
     }
+}
+
+/// The names to show in a chooser: a plugin ticked in more than one format
+/// says which, as in "Pro-Q 3 · VST3".
+fn list_names(list: &[Found]) -> Vec<String> {
+    list.iter()
+        .map(|f| {
+            if list.iter().filter(|o| o.name == f.name).count() > 1 {
+                format!("{} · {}", f.name, f.format)
+            } else {
+                f.name.clone()
+            }
+        })
+        .collect()
 }
 
 fn entry(f: &Found) -> PluginEntry {
@@ -455,38 +477,73 @@ fn run_scan(
     helper: &Path,
     folders: &[PathBuf],
     known: &Catalog,
-    progress: impl Fn(usize, usize, &Path),
+    progress: impl Fn(usize, usize, &Path) + Sync,
 ) -> Catalog {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
     let files = find_plugins(folders);
     let total = files.len();
-    let mut out = Catalog::default();
-    for (i, path) in files.into_iter().enumerate() {
-        progress(i, total, &path);
-        let (size, modified) = stamp(&path);
-        if let Some(k) = known
-            .files
-            .iter()
-            .find(|f| f.path == path && f.size == size && f.modified == modified)
-        {
-            out.files.push(k.clone());
-            continue;
+    let next = AtomicUsize::new(0);
+    let done = AtomicUsize::new(0);
+    let entries: Mutex<Vec<Option<FileEntry>>> = Mutex::new(vec![None; total]);
+    // Each file is opened in its own helper process, so several can be
+    // looked at side by side; most of the time goes on loading libraries.
+    let workers = std::thread::available_parallelism()
+        .map_or(2, |n| n.get())
+        .clamp(1, SCAN_WORKERS);
+    let mut audio_units = Vec::new();
+    std::thread::scope(|s| {
+        let au = cfg!(target_os = "macos")
+            .then(|| s.spawn(|| scan_audio_units(helper, SCAN_TIMEOUT * 3).unwrap_or_default()));
+        for _ in 0..workers {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some(path) = files.get(i) else {
+                    break;
+                };
+                progress(done.load(Ordering::Relaxed), total, path);
+                let entry = scan_file(helper, path, known);
+                entries.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(entry);
+                done.fetch_add(1, Ordering::Relaxed);
+            });
         }
-        let (found, error) = match scan(helper, &path, SCAN_TIMEOUT) {
-            Ok(found) => (found, None),
-            Err(e) => (Vec::new(), Some(scan_error(&e))),
-        };
-        out.files.push(FileEntry {
-            path,
-            size,
-            modified,
-            found,
-            error,
-        });
+        if let Some(au) = au {
+            audio_units = au.join().unwrap_or_default();
+        }
+    });
+    Catalog {
+        files: entries
+            .into_inner()
+            .unwrap_or_else(|e| e.into_inner())
+            .into_iter()
+            .flatten()
+            .collect(),
+        audio_units,
     }
-    if cfg!(target_os = "macos") {
-        out.audio_units = scan_audio_units(helper, SCAN_TIMEOUT * 3).unwrap_or_default();
+}
+
+/// What one file holds: from the last scan when it hasn't changed since,
+/// otherwise from a throwaway helper.
+fn scan_file(helper: &Path, path: &Path, known: &Catalog) -> FileEntry {
+    let (size, modified) = stamp(path);
+    if let Some(k) = known
+        .files
+        .iter()
+        .find(|f| f.path == path && f.size == size && f.modified == modified)
+    {
+        return k.clone();
     }
-    out
+    let (found, error) = match scan(helper, path, SCAN_TIMEOUT) {
+        Ok(found) => (found, None),
+        Err(e) => (Vec::new(), Some(scan_error(&e))),
+    };
+    FileEntry {
+        path: path.to_path_buf(),
+        size,
+        modified,
+        found,
+        error,
+    }
 }
 
 fn scan_error(e: &ScanError) -> String {
