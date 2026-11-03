@@ -1,6 +1,8 @@
-//! Mixed sets: recordings join the Mixed Sets source as soon as they stop,
-//! and "Export for Mixcloud" turns one into a 320 kbps MP3 whose ID3 tag
-//! carries the tracklist as chapters, with a `.tracklist.txt` beside it.
+//! Mixed sets: recordings join the Mixed Sets source as soon as they stop;
+//! "Export for Mixcloud" turns one into a 320 kbps MP3 whose ID3 tag
+//! carries the tracklist as chapters, with a `.tracklist.txt` beside it;
+//! "Upload to Mixcloud" signs in to the DJ's Mixcloud account (see
+//! [`crate::mixcloud_upload`]) and sends that MP3 with its tracklist.
 //!
 //! The tracklist comes from the `.cue` sheet the recorder writes next to
 //! the recording (each track from when it became audible). Recordings
@@ -10,18 +12,33 @@
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
 
-use opendj_broadcast::mixcloud::{self, Mp3File, Section};
+use opendj_broadcast::mixcloud::{self, Mp3File, Section, Show};
 use opendj_engine::decode::Decoder;
 use opendj_engine::scan::read_track;
 use slint::ComponentHandle;
 
 use super::{file_path, Browser, MIXED_SETS};
+use crate::mixcloud_upload::{self, UploadError};
+use crate::spotify::open_in_browser;
 use crate::{files, AppWindow, FilesUi};
 
 /// What the export thread says.
 pub(super) enum Progress {
     Status(String),
-    Done(Result<PathBuf, String>),
+    /// The MP3 is made.
+    Made(PathBuf),
+    /// The show is on Mixcloud, at this address.
+    Uploaded(String),
+    /// Signed in, or the sign-in turned out to be revoked.
+    SignedIn(bool),
+    Failed(String),
+}
+
+/// What to do with a mixed set.
+#[derive(Clone, Copy, PartialEq)]
+enum Job {
+    Export,
+    Upload,
 }
 
 impl Browser {
@@ -29,20 +46,19 @@ impl Browser {
         ui: &FilesUi,
         with: &(impl Fn(&dyn Fn(&mut Browser)) + Clone + 'static),
     ) {
+        ui.set_mixcloud_signed_in(mixcloud_upload::saved_token().is_some());
         let w = with.clone();
-        ui.on_export_mixcloud(move |row| {
+        ui.on_export_mixcloud(move |row| w(&|b| b.mix_job(row as usize, Job::Export)));
+        let w = with.clone();
+        ui.on_upload_mixcloud(move |row| w(&|b| b.mix_job(row as usize, Job::Upload)));
+        let w = with.clone();
+        ui.on_mixcloud_sign_out(move || {
             w(&|b| {
-                let path = b.rows.get(row as usize).copied().flatten().and_then(|i| {
-                    let t = &b.library[i];
-                    Some((
-                        file_path(t)?.to_path_buf(),
-                        t.title.clone(),
-                        t.artist.clone(),
-                    ))
-                });
-                if let Some((path, title, artist)) = path {
-                    b.export_for_mixcloud(path, title, artist);
+                mixcloud_upload::forget_token();
+                if let Some(app) = b.app.upgrade() {
+                    app.global::<FilesUi>().set_mixcloud_signed_in(false);
                 }
+                b.set_mix_status("Signed out of Mixcloud.");
             })
         });
     }
@@ -88,54 +104,159 @@ impl Browser {
         }
     }
 
-    fn export_for_mixcloud(&mut self, path: PathBuf, title: String, artist: String) {
+    fn mix_job(&mut self, row: usize, job: Job) {
         if self.mix_export.is_some() {
             return;
         }
+        let Some((path, title, artist)) = self.rows.get(row).copied().flatten().and_then(|i| {
+            let t = &self.library[i];
+            Some((
+                file_path(t)?.to_path_buf(),
+                t.title.clone(),
+                t.artist.clone(),
+            ))
+        }) else {
+            return;
+        };
         let (tx, rx) = channel();
         self.mix_export = Some(rx);
-        self.set_mix_status("Making the Mixcloud MP3…");
+        self.set_mix_status(match job {
+            Job::Export => "Making the Mixcloud MP3…",
+            Job::Upload if mixcloud_upload::saved_token().is_none() => {
+                "Sign in to Mixcloud in your browser…"
+            }
+            Job::Upload => "Getting ready to upload…",
+        });
         std::thread::Builder::new()
-            .name("mixcloud-export".into())
+            .name("mixcloud".into())
             .spawn(move || {
-                let status = |s: String| {
-                    let _ = tx.send(Progress::Status(s));
+                let send = |p: Progress| {
+                    let _ = tx.send(p);
                 };
-                let result = export(&path, &title, &artist, &status);
-                let _ = tx.send(Progress::Done(result));
+                let status = |s: String| send(Progress::Status(s));
+                match job {
+                    Job::Export => match export(&path, &title, &artist, &status) {
+                        Ok((mp3, _)) => send(Progress::Made(mp3)),
+                        Err(e) => send(Progress::Failed(format!(
+                            "Couldn't make the Mixcloud MP3: {e}"
+                        ))),
+                    },
+                    Job::Upload => upload(&path, &title, &artist, &send),
+                }
             })
-            .expect("spawn mixcloud export");
+            .expect("spawn mixcloud thread");
     }
 
-    /// Picks up what the export thread said. Called every frame.
+    /// Picks up what the Mixcloud thread said. Called every frame.
     pub fn poll_mix_export(&mut self, app: &AppWindow) {
         let Some(rx) = &self.mix_export else { return };
-        let mut done = None;
-        let mut status = None;
-        while let Ok(p) = rx.try_recv() {
+        let mut said = Vec::new();
+        let mut finished = false;
+        loop {
+            match rx.try_recv() {
+                Ok(p) => said.push(p),
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    finished = true;
+                    break;
+                }
+            }
+        }
+        let ui = app.global::<FilesUi>();
+        for p in said {
             match p {
-                Progress::Status(s) => status = Some(s),
-                Progress::Done(r) => done = Some(r),
+                Progress::Status(s) => ui.set_mix_status(s.into()),
+                Progress::SignedIn(on) => ui.set_mixcloud_signed_in(on),
+                Progress::Made(mp3) => {
+                    let name = mp3.file_name().unwrap_or_default().to_string_lossy();
+                    ui.set_mix_status(
+                        format!("Made {name}, with its tracklist. Upload to Mixcloud sends it.")
+                            .into(),
+                    );
+                    files::reveal(&mp3);
+                    self.add_recordings(&[mp3]);
+                }
+                Progress::Uploaded(url) => {
+                    ui.set_mix_status(
+                        "On Mixcloud, private for now: name it, add tags and a cover, then publish."
+                            .into(),
+                    );
+                    open_in_browser(&url);
+                }
+                Progress::Failed(e) => ui.set_mix_status(e.into()),
             }
         }
-        if let Some(s) = status {
-            app.global::<FilesUi>().set_mix_status(s.into());
+        if finished {
+            self.mix_export = None;
         }
-        match done {
-            Some(Ok(mp3)) => {
-                self.mix_export = None;
-                let name = mp3.file_name().unwrap_or_default().to_string_lossy();
-                self.set_mix_status(&format!(
-                    "Made {name}, with its tracklist. Upload it on mixcloud.com/upload."
-                ));
-                files::reveal(&mp3);
-                self.add_recordings(&[mp3]);
+    }
+}
+
+/// Signs in if need be, makes the MP3 if it isn't there, and uploads it as
+/// a private show with the tracklist as its sections and description.
+fn upload(path: &Path, title: &str, artist: &str, send: &dyn Fn(Progress)) {
+    let status = |s: String| send(Progress::Status(s));
+    let mut token = match mixcloud_upload::saved_token() {
+        Some(t) => t,
+        None => match mixcloud_upload::sign_in() {
+            Ok(t) => {
+                send(Progress::SignedIn(true));
+                t
             }
-            Some(Err(e)) => {
-                self.mix_export = None;
-                self.set_mix_status(&format!("Couldn't make the Mixcloud MP3: {e}"));
+            Err(e) => return send(Progress::Failed(e)),
+        },
+    };
+    let made = existing_mp3(path).map_or_else(
+        || export(path, title, artist, &status),
+        |mp3| tracklist(path).map(|t| (mp3, t.sections)),
+    );
+    let (mp3, sections) = match made {
+        Ok(m) => m,
+        Err(e) => {
+            return send(Progress::Failed(format!(
+                "Couldn't make the Mixcloud MP3: {e}"
+            )))
+        }
+    };
+    let show = Show {
+        name: show_name(path, title),
+        description: mixcloud::tracklist_text(&sections),
+        tags: Vec::new(),
+        unlisted: true,
+        sections,
+    };
+    // A revoked sign-in gets one more go.
+    for attempt in 0..2 {
+        let mut last = -1i64;
+        let result = mixcloud_upload::upload(&token, &show, &mp3, |share| {
+            let pct = (share * 100.0).min(99.0) as i64;
+            if pct != last {
+                last = pct;
+                status(format!("Uploading to Mixcloud… {pct}%"));
             }
-            None => {}
+        });
+        match result {
+            Ok(url) => return send(Progress::Uploaded(url)),
+            Err(UploadError::SignedOut) if attempt == 0 => {
+                mixcloud_upload::forget_token();
+                send(Progress::SignedIn(false));
+                status("Mixcloud signed you out. Sign in again in your browser…".into());
+                match mixcloud_upload::sign_in() {
+                    Ok(t) => {
+                        send(Progress::SignedIn(true));
+                        token = t;
+                    }
+                    Err(e) => return send(Progress::Failed(e)),
+                }
+            }
+            Err(UploadError::SignedOut) => {
+                return send(Progress::Failed(
+                    "Mixcloud didn't accept the sign-in.".into(),
+                ))
+            }
+            Err(UploadError::Other(e)) => {
+                return send(Progress::Failed(format!("Mixcloud upload failed: {e}")))
+            }
         }
     }
 }
@@ -148,6 +269,10 @@ fn recording_base(path: &Path) -> PathBuf {
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned();
+    let stem = stem
+        .strip_suffix(" (Mixcloud)")
+        .unwrap_or(&stem)
+        .to_string();
     let stem = match stem.rfind(" (part ") {
         Some(at) if stem.ends_with(')') => stem[..at].to_string(),
         _ => stem,
@@ -176,18 +301,51 @@ fn plan(path: &Path) -> (Vec<PathBuf>, Vec<mixcloud::CueFile>) {
         .collect();
     // A cue sheet naming files that aren't there (renamed, say) is no use
     // for timing; keep the file picked.
-    if cue.is_empty() || parts.len() != cue.len() || !parts.iter().any(|p| p == path) {
+    let is_ours = parts.iter().any(|p| p == path) || existing_mp3(path).as_deref() == Some(path);
+    if cue.is_empty() || parts.len() != cue.len() || !is_ours {
         return (vec![path.to_path_buf()], Vec::new());
     }
     (parts, cue)
 }
 
-fn export(
-    path: &Path,
-    title: &str,
-    artist: &str,
-    status: &dyn Fn(String),
-) -> Result<PathBuf, String> {
+/// The MP3 already made for this recording, if it is newer than the
+/// recording.
+fn existing_mp3(path: &Path) -> Option<PathBuf> {
+    if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("mp3"))
+        && path.to_string_lossy().ends_with(" (Mixcloud).mp3")
+    {
+        return Some(path.to_path_buf());
+    }
+    let mp3 = with_suffix(&recording_base(path), " (Mixcloud).mp3");
+    let modified = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    (modified(&mp3)? >= modified(path)?).then_some(mp3)
+}
+
+/// The show's name: the track's title, else the recording's file name.
+fn show_name(path: &Path, title: &str) -> String {
+    if title.trim().is_empty() {
+        recording_base(path)
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        title.trim().to_string()
+    }
+}
+
+/// A recording opened for export: its parts, their decoders and the
+/// tracklist timed across them.
+struct Tracklist {
+    parts: Vec<PathBuf>,
+    decoders: Vec<Decoder>,
+    sections: Vec<Section>,
+    total: f64,
+}
+
+fn tracklist(path: &Path) -> Result<Tracklist, String> {
     let (parts, cue) = plan(path);
     let decoders = parts
         .iter()
@@ -197,17 +355,28 @@ fn export(
         .iter()
         .map(|d| d.seconds().unwrap_or(0.0))
         .collect();
-    let total: f64 = lengths.iter().sum();
-    let sections: Vec<Section> = mixcloud::sections(&cue, &lengths);
+    Ok(Tracklist {
+        parts,
+        decoders,
+        sections: mixcloud::sections(&cue, &lengths),
+        total: lengths.iter().sum(),
+    })
+}
+
+fn export(
+    path: &Path,
+    title: &str,
+    artist: &str,
+    status: &dyn Fn(String),
+) -> Result<(PathBuf, Vec<Section>), String> {
+    let Tracklist {
+        parts,
+        decoders,
+        sections,
+        total,
+    } = tracklist(path)?;
     let base = recording_base(&parts[0]);
-    let name = if title.trim().is_empty() {
-        base.file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned()
-    } else {
-        title.trim().to_string()
-    };
+    let name = show_name(&parts[0], title);
     let mp3 = with_suffix(&base, " (Mixcloud).mp3");
     if mp3 == path {
         return Err("this is already a Mixcloud MP3".into());
@@ -253,7 +422,7 @@ fn export(
         std::fs::write(&list, mixcloud::tracklist_text(&sections))
             .map_err(|e| format!("{}: {e}", list.display()))?;
     }
-    Ok(mp3)
+    Ok((mp3, sections))
 }
 
 #[cfg(test)]
@@ -310,7 +479,11 @@ mod tests {
              FILE \"set (part 2).wav\" WAVE\n  TRACK 02 AUDIO\n    TITLE \"Two\"\n    PERFORMER \"B\"\n    INDEX 01 00:00:38\n",
         )
         .unwrap();
-        let mp3 = export(&dir.join("set.wav"), "", "DJ", &|_| {}).unwrap();
+        let (mp3, sections) = export(&dir.join("set.wav"), "", "DJ", &|_| {}).unwrap();
+        assert_eq!(sections.len(), 2);
+        assert_eq!(existing_mp3(&dir.join("set.wav")), Some(mp3.clone()));
+        // Uploading the MP3 itself still finds the recording's tracklist.
+        assert_eq!(tracklist(&mp3).unwrap().sections, sections);
         assert_eq!(mp3, dir.join("set (Mixcloud).mp3"));
         let list = std::fs::read_to_string(dir.join("set.tracklist.txt")).unwrap();
         assert_eq!(list, "0:00 A - One\n0:02 B - Two\n");

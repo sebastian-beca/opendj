@@ -351,6 +351,11 @@ export global FilesUi {
     // Makes the mixed set at a row of the list into an MP3 for Mixcloud,
     // its tracklist as chapters.
     callback export-mixcloud(row: int);
+    // Signs in to Mixcloud if need be and uploads the mixed set at a row,
+    // with its tracklist, as a private show.
+    callback upload-mixcloud(row: int);
+    in property <bool> mixcloud-signed-in;
+    callback mixcloud-sign-out();
     // What making it is doing, under the Mixed Sets folders.
     in property <string> mix-status;
 }
@@ -1186,6 +1191,24 @@ component TrackMenu inherits PopupWindow {
                 entered => { panel = 0; }
                 clicked => {
                     FilesUi.export-mixcloud(track-row);
+                    root.close();
+                }
+            }
+            if StoreUi.source == 10 && one: MenuLine {
+                icon: "link";
+                text: "Upload to Mixcloud";
+                entered => { panel = 0; }
+                clicked => {
+                    FilesUi.upload-mixcloud(track-row);
+                    root.close();
+                }
+            }
+            if StoreUi.source == 10 && FilesUi.mixcloud-signed-in: MenuLine {
+                icon: "minus";
+                text: "Sign Out of Mixcloud";
+                entered => { panel = 0; }
+                clicked => {
+                    FilesUi.mixcloud-sign-out();
                     root.close();
                 }
             }

@@ -59,6 +59,7 @@ mod mac_menu;
 mod mac_titlebar;
 mod map_mode;
 mod mixcloud;
+mod mixcloud_upload;
 mod prefs;
 mod remote;
 mod sampler;
