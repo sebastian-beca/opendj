@@ -302,6 +302,19 @@ steady grid or a beat map with tempo changes. Playlists come in a
 **Playlists** folder, crates in a **Crates** folder, and history sessions go
 to the History tab. Auto DJ's queue stays in Mixxx.
 
+## Bringing in a Traktor library
+
+**Import from Traktor** works the same way. openDJ reads Traktor's
+`collection.nml` (only reading it), which it finds in the newest
+`Documents/Native Instruments/Traktor x.y.z` folder on a Mac or Windows. If
+yours is elsewhere, choose the file in the first step.
+
+Each track keeps its tags, stars, colour, comment, play count, dates, key,
+hot cues 1 to 8 with their names, saved loops, its beat grid, other cues (as
+memory cues) and fade in and fade out (as Automix points). Playlists come in
+their folders, folders within folders just as Traktor shows them. Traktor's
+own `_LOOPS` and `_RECORDINGS` lists and its smart lists stay out.
+
 ### The same song from two apps
 
 When a second app's library has a different file of a song you already have
