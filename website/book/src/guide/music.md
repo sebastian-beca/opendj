@@ -177,7 +177,7 @@ grid while it plays: **Bar 1 here** on a downbeat puts bar 1 there,
 speeds up or slows down.
 
 To analyse tracks yourself, right-click them and choose **Analyze Track**
-(or **Analyze 12 Tracks** for a shift-click selection), or right-click a
+(or **Analyze 12 Tracks** when you picked several), or right-click a
 list, folder or stage and choose **Analyze All**. They are analysed again
 from scratch in the background, one at a time: tempo, beat grid, key,
 loudness, mini waveform and phrases. A grid you edited and a key you typed
@@ -374,6 +374,40 @@ more.
 
 Search, the filter bar and smart lists have a page of their own:
 [Filtering tracks](filtering.md).
+
+## Picking several tracks
+
+Click a track to pick it, **shift-click** another to pick every track in
+between, and **⌘-click** (Ctrl-click on Windows and Linux) to add or drop
+one track at a time; ⌘A picks the whole list. Right-click, drag, rate or
+add to a playlist and it applies to every picked track. Sorting or a
+refreshed list keeps the same tracks picked.
+
+## Track info
+
+The **Info** tab on the right of the browser shows the picked track (or
+the track on a deck) and lets you edit it in place. The rating is under the
+title. Below, three tabs keep everything in view without scrolling:
+
+- **Track**: track, artist, remix, album and genre, then year and track
+  number, BPM and key, gain and time, two to a line.
+- **Tags**: your own tag fields, grouping and the comment.
+- **File**: format, audio, size, the file (with Show in Finder), its folder,
+  plays, when it was added and last played.
+
+openDJ remembers the tab you were on. Tags go into the file as well as your
+collection.
+
+Pick several tracks and **Info** edits them together. A field they share
+shows its value; one that differs says how many values it has. Type a value
+to give it to them all, or click **▾** to pick one of the values they have
+(with how many tracks have it), keep each track's own, or clear it in all.
+Changed fields are marked in lilac (a tab with changes gets a dot) and wait
+for **Apply** (or **Discard**).
+Apply writes them to your collection and the files' tags in one go, and
+⌘Z takes the whole change back. Fields you typed this way are left alone by
+Clean up and Look up online. The stars set the rating of every picked track
+at once.
 
 ## Columns
 

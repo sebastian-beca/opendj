@@ -217,7 +217,16 @@ export global LibraryEdit {
     pure callback accepts-list-drop(data: data-transfer) -> bool;
     callback drop-on-list(data: data-transfer);
     callback set-rating(row: int, rating: int);
-    // The rows `first` to `last`, the tracks picked with shift-click.
+    // Which rows of the track list are picked, one flag per row, and how
+    // many. Click picks a row, shift-click the rows from `from` to `to`
+    // (added to the picks before it with `add`, for Cmd-shift-click), and
+    // Cmd-click (Ctrl-click on Windows and Linux) adds or drops one.
+    in property <[bool]> picks;
+    in property <int> picked-count;
+    callback pick-rows(from: int, to: int, add: bool);
+    callback toggle-row(row: int);
+    // The rows `first` to `last`; when `first` is one of several picked
+    // rows, every picked row. The same for the callbacks below.
     callback add-to-list(first: int, last: int, list: int);
     callback remove-from-list(row: int);
     callback add-to-automix(first: int, last: int);
@@ -855,8 +864,10 @@ component ListPanel inherits Rectangle {
 component TrackMenu inherits PopupWindow {
     callback change-match();
     in property <int> track-row;
-    // The last row picked with shift-click, when the menu is for several.
+    // The last row of a shift-click range, when the menu is for several.
     in property <int> track-last: track-row;
+    // How many tracks the menu is for.
+    in property <int> count: 1;
     in property <int> rating;
     // The row is a streaming service's track, matched to the collection.
     in property <bool> streamed;
@@ -865,7 +876,7 @@ component TrackMenu inherits PopupWindow {
     // The side panel shown: 0 none, 1 add to a list, 2 the lists it's in.
     property <int> panel;
     property <string> find;
-    property <bool> one: track-last <= track-row;
+    property <bool> one: count <= 1;
     property <[string]> go-text: LibraryEdit.go-to-text(track-row);
     property <length> menu-width: 250px;
     property <length> panel-width: 280px;
@@ -1077,7 +1088,7 @@ component TrackMenu inherits PopupWindow {
             // Analysis, and the stores.
             MenuLine {
                 icon: "analyze";
-                text: track-last > track-row ? "Analyze " + (track-last - track-row + 1) + " Tracks" : "Analyze Track";
+                text: count > 1 ? "Analyze " + count + " Tracks" : "Analyze Track";
                 entered => { panel = 0; }
                 clicked => {
                     LibraryEdit.analyze(track-row, track-last);
@@ -1104,7 +1115,7 @@ component TrackMenu inherits PopupWindow {
             }
             if StoreUi.source == 2 && StoreUi.downloads-to != "": MenuLine {
                 icon: "download";
-                text: track-last > track-row ? "Download " + (track-last - track-row + 1) + " Tracks" : "Download Track";
+                text: count > 1 ? "Download " + count + " Tracks" : "Download Track";
                 entered => { panel = 0; }
                 clicked => {
                     StoreUi.download-tracks(track-row, track-last);
@@ -1164,7 +1175,7 @@ component TrackMenu inherits PopupWindow {
             }
             if StoreUi.source == 0 && HealthUi.can-quarantine: MenuLine {
                 icon: "quarantine";
-                text: track-last > track-row ? "Move " + (track-last - track-row + 1) + " Tracks to Quarantine" : "Move to Quarantine";
+                text: count > 1 ? "Move " + count + " Tracks to Quarantine" : "Move to Quarantine";
                 entered => { panel = 0; }
                 clicked => {
                     HealthUi.quarantine(track-row, track-last);
@@ -2878,6 +2889,7 @@ component TrackList inherits Rectangle {
     // The row the track menu was opened on, and where.
     property <int> menu-row;
     property <int> menu-last;
+    property <int> menu-count: 1;
     property <int> menu-rating;
     property <length> menu-x;
     property <length> menu-y;
@@ -2891,6 +2903,7 @@ component TrackList inherits Rectangle {
         panel-left: menu-flip;
         track-row: menu-row;
         track-last: menu-last;
+        count: menu-count;
         rating: menu-rating;
         streamed: menu-row >= 0 && menu-row < rows.length && rows[menu-row].streamed;
         change-match => {
@@ -2917,39 +2930,54 @@ component TrackList inherits Rectangle {
         ColumnUi.first-shown = first-shown;
         ColumnUi.shown-count = shown-count;
     }
-    // Shift-click picks every row from `anchor` to the one clicked. The
-    // range holds while `range-end` is still the current row; moving the
-    // selection another way (arrows, a controller) drops back to one row.
+    // Click picks a row, shift-click every row from `anchor` to the one
+    // clicked, and Cmd-click (Ctrl-click on Windows and Linux) adds or
+    // drops one. The browser keeps the picks (`LibraryEdit.picks`), so they
+    // last through a re-sort; `current` is the row the keyboard and
+    // controllers move from.
     property <int> anchor: -1;
-    property <int> range-end: -1;
-    property <bool> ranged: anchor >= 0 && range-end == current && anchor != current;
-    out property <int> first-picked: ranged ? min(anchor, current) : current;
-    out property <int> last-picked: ranged ? max(anchor, current) : current;
+    out property <int> first-picked: current;
+    out property <int> last-picked: current;
     property <bool> shift-held;
+    property <bool> cmd-held;
     function pick(i: int) {
         anchor = i;
-        range-end = i;
+        LibraryEdit.pick-rows(i, i, false);
         current = i;
         took-focus();
     }
-    function extend(i: int) {
-        if anchor < 0 || !(range-end == current) {
+    function extend(i: int, add: bool) {
+        if anchor < 0 {
             anchor = current;
         }
-        range-end = i;
+        LibraryEdit.pick-rows(anchor, i, add);
         current = i;
+        took-focus();
+    }
+    function toggle(i: int) {
+        anchor = i;
+        LibraryEdit.toggle-row(i);
+        current = i;
+        took-focus();
     }
     // ⌘A (Ctrl+A on Linux and Windows): every row, the first one current.
     public function select-all() {
         if rows.length > 0 {
-            anchor = rows.length - 1;
-            range-end = 0;
+            anchor = 0;
+            LibraryEdit.pick-rows(0, rows.length - 1, false);
             current = 0;
             took-focus();
         }
     }
     // Keep the selection in view when a controller moves it.
     changed current => {
+        // Moved some other way than a click (arrows, a controller, a new
+        // list) to a row not picked: just that row is picked. A click has
+        // made `current` the anchor or picked it already.
+        if current < 0 || (current != anchor && !LibraryEdit.picks[current]) {
+            anchor = current;
+            LibraryEdit.pick-rows(current, current, false);
+        }
         if current >= 0 {
             if current * row-height + lv.content-y < 0 {
                 lv.content-y = -current * row-height;
@@ -3139,9 +3167,8 @@ component TrackList inherits Rectangle {
                 ascending: ascending;
                 header-x: header.absolute-position.x;
                 header-width: header.width;
-                // Sorting keeps only the current track picked: a shift-click
-                // range would no longer be one block of rows.
-                sort(id) => { anchor = -1; sort(id); }
+                // Sorting keeps the same tracks picked, wherever they land.
+                sort(id) => { sort(id); }
                 menu(x, y) => {
                     column-menu-x = x + lv.content-x;
                     column-menu.show();
@@ -3172,13 +3199,14 @@ component TrackList inherits Rectangle {
             for r[i] in rows: Rectangle {
                 width: list-width;
                 height: row-height;
-                property <bool> selected: i >= first-picked && i <= last-picked;
+                property <bool> selected: LibraryEdit.picks[i];
                 border-radius: 4px;
                 // Rows alternate darker and lighter.
                 background: selected ? (focused ? Theme.selection : Theme.selection-idle) : rta.has-hover ? #2a2a2e : mod(i, 2) == 1 ? Theme.row-alt : Theme.row;
                 DragArea {
-                    // Picked rows go together; any other row goes alone.
-                    data: selected ? TrackDrag.payload(first-picked, last-picked) : TrackDrag.payload(i, i);
+                    // Picked rows go together (the browser knows which); any
+                    // other row goes alone.
+                    data: TrackDrag.payload(i, i);
                     allow-copy: true;
                     changed dragging => {
                         TrackDrag.active = self.dragging;
@@ -3187,7 +3215,9 @@ component TrackList inherits Rectangle {
                     rta := TouchArea {
                         clicked => {
                             if shift-held {
-                                extend(i);
+                                extend(i, cmd-held);
+                            } else if cmd-held {
+                                toggle(i);
                             } else {
                                 pick(i);
                             }
@@ -3196,6 +3226,7 @@ component TrackList inherits Rectangle {
                         pointer-event(e) => {
                             if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
                                 shift-held = e.modifiers.shift;
+                                cmd-held = e.modifiers.control;
                             }
                             // A Spotify track the collection doesn't have: pick which it is.
                             if !r.available && r.streamed && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
@@ -3209,8 +3240,9 @@ component TrackList inherits Rectangle {
                             }
                             if r.available && r.action == "" && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                                 if !selected { pick(i); }
-                                menu-row = selected ? first-picked : i;
-                                menu-last = selected ? last-picked : i;
+                                menu-row = i;
+                                menu-last = i;
+                                menu-count = max(1, LibraryEdit.picked-count);
                                 menu-rating = r.rating;
                                 menu-x = self.mouse-x;
                                 menu-y = self.absolute-position.y - root.absolute-position.y + self.mouse-y;

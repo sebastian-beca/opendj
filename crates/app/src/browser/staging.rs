@@ -128,10 +128,7 @@ impl Browser {
                     let name = b.folders.crates(Stage::Triage).into_iter().nth(i)?;
                     Some(b.folders.triage.as_ref()?.join(name))
                 });
-                let last = (last.max(0) as usize).min(b.rows.len().saturating_sub(1));
-                let indices: Vec<usize> = (first.max(0) as usize..=last)
-                    .filter_map(|row| b.rows.get(row).copied().flatten())
-                    .collect();
+                let indices = b.chosen_tracks(first.max(0) as usize, last.max(0) as usize);
                 b.change_stage(&indices, stage, dir.as_deref());
             })
         });

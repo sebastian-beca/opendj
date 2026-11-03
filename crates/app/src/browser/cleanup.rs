@@ -322,7 +322,7 @@ impl Browser {
                 }
                 CleanupRow {
                     track: track.into(),
-                    field: p.change.field.label().into(),
+                    field: p.change.field.label().as_ref().into(),
                     old: p.change.old.clone().into(),
                     new: p.change.new.clone().into(),
                     on: p.on,
@@ -376,7 +376,11 @@ impl Browser {
     /// Sets fields of tracks (indices into `library`), in the library and
     /// the files' tags, as one batch the undo line takes back. Says what
     /// was done.
-    fn make_changes(&mut self, changes: Vec<(usize, Field, String)>, what: &str) -> String {
+    pub(super) fn make_changes(
+        &mut self,
+        changes: Vec<(usize, Field, String)>,
+        what: &str,
+    ) -> String {
         let (logged, unwritten) = self.set_fields(changes);
         if logged.is_empty() {
             return "Nothing changed.".into();
