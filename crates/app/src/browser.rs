@@ -32,7 +32,7 @@ use opendj_plugins::{ItemKind, StoreItem, StoreQuery};
 mod albums;
 mod analysis;
 mod cleanup;
-mod columns;
+pub(crate) mod columns;
 mod filters;
 mod health;
 mod info;
