@@ -78,6 +78,13 @@ impl Keeper {
                 let g = groove_group(d);
                 keys.iter()
                     .filter_map(|k| Some((k.clone(), registry.get(&g, k)?)))
+                    // The input the deck plays instead (see
+                    // `crate::instruments`), kept beside its Groove Box.
+                    .chain(
+                        registry
+                            .get(&format!("[Channel{}]", d + 1), "live_input")
+                            .map(|c| ("live_input".to_string(), c)),
+                    )
                     .collect()
             })
             .collect();

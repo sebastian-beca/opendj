@@ -19,6 +19,7 @@
 ## 3. 2-Deck Groove Box
 
 - [x] 3.1 Groove Box / Track deck in the deck header (a button on a stopped deck), kept across restarts; eject first on a loaded deck
+- [x] 3.6 Instruments source in the library rail replaces the header buttons: Groove Box kits, instrument plugins and the Mic and Aux inputs dragged onto a deck (`[ChannelN],live_input` plays an input through the deck's channel, one deck per input); a track or EJECT makes it a track deck again
 - [ ] 3.2 Rows × 16 steps with names, M and S, playhead and shaded beats; click to toggle and preview; right-click step menu (done except the step menu)
 - [ ] 3.3 LEVEL, PITCH, DECAY for the selected row, SWING; grooves A-D switched on the bar; kit menu with author and licence; DUCK menu (done except author and licence, and the DUCK menu: the `duck_deck` control works)
 - [ ] 3.4 Tooltips on every control and a Groove Box part in the first-run tour (Help › Tour)

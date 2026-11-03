@@ -229,6 +229,8 @@ pub(crate) struct Input {
     peak_hold: f32,
     /// This buffer's audio after gain, EQ and effects, before the fader.
     pub(crate) buf: Vec<[f32; 2]>,
+    /// This buffer's audio as it came in, for a deck playing the input.
+    pub(crate) raw: Vec<[f32; 2]>,
     /// The fader level at the start and end of this buffer: 0 while the
     /// input is off or muted.
     pub(crate) level_ramp: (f32, f32),
@@ -253,6 +255,7 @@ impl Input {
             vu: [0.0; 2],
             peak_hold: 0.0,
             buf: vec![[0.0; 2]; 4096],
+            raw: vec![[0.0; 2]; 4096],
             level_ramp: (0.0, 0.0),
             pfl: false,
             live: false,
@@ -269,10 +272,21 @@ impl Input {
 
     /// Takes in `frames` from the device and runs them through the gain,
     /// the EQ and the effects routed to `target`; the result is in `buf`.
-    /// `dt` is the buffer's length in seconds.
-    pub(crate) fn render(&mut self, frames: usize, fx: &mut EffectRack, target: usize, dt: f32) {
+    /// `dt` is the buffer's length in seconds. While `on_deck`, a deck
+    /// plays the input (from `raw`) and its own channel is quiet.
+    pub(crate) fn render(
+        &mut self,
+        frames: usize,
+        fx: &mut EffectRack,
+        target: usize,
+        dt: f32,
+        on_deck: bool,
+    ) {
         if self.buf.len() < frames {
             self.buf.resize(frames, [0.0; 2]);
+        }
+        if self.raw.len() < frames {
+            self.raw.resize(frames, [0.0; 2]);
         }
         let buf = &mut self.buf[..frames];
         let source = if self.index == INSTRUMENT {
@@ -291,12 +305,13 @@ impl Input {
             self.feed.is_some()
         };
 
-        let on = self.c.on.get_bool() && !self.c.mute.get_bool() && source;
+        self.raw[..frames].copy_from_slice(buf);
+        let on = self.c.on.get_bool() && !self.c.mute.get_bool() && source && !on_deck;
         let level = if on { self.c.volume.get() as f32 } else { 0.0 };
         self.level_ramp = (self.level, level);
         self.level = level;
-        self.live = self.c.on.get_bool() && source;
-        self.pfl = self.c.pfl.get_bool();
+        self.live = self.c.on.get_bool() && source && !on_deck;
+        self.pfl = self.c.pfl.get_bool() && !on_deck;
         let pre = (self.pregain, self.c.pregain.get() as f32);
         self.pregain = pre.1;
         let eq_from = self.eq_gains;

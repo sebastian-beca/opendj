@@ -6,6 +6,7 @@
 // A two-deck controller (the DDJ-FLX4) plays decks 1 and 2 until a strip's
 // deck number is clicked: then that side plays deck 3 or 4.
 import { TrackDrag } from "library.slint";
+import { InstrumentsUi } from "instruments.slint";
 import { Theme } from "theme.slint";
 import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, StereoMeter, SyncButton } from "controls.slint";
 import { DeckInfo, Header, LoopStepper, Pads, PlayButton, TempoStep } from "deck.slint";
@@ -112,10 +113,15 @@ export component DeckStrip inherits Rectangle {
     // Tracks dragged from the browser load here, as on the other layouts.
     // First, so the sampler pads' own drop areas sit above it.
     drop := DropArea {
-        can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
+        can-drop(e) => { TrackDrag.accepts(e.data) || InstrumentsUi.item(e.data) >= 0 ? DragAction.copy : DragAction.none }
         dropped(e) => {
-            TrackDrag.drop(deck, e.data);
+            if InstrumentsUi.item(e.data) >= 0 {
+                InstrumentsUi.drop(deck, InstrumentsUi.item(e.data));
+            } else {
+                TrackDrag.drop(deck, e.data);
+            }
             TrackDrag.active = false;
+            InstrumentsUi.dragging = false;
             DragAction.copy
         }
     }
@@ -177,7 +183,7 @@ export component DeckStrip inherits Rectangle {
         }
     }
 
-    if TrackDrag.active || TrackDrag.files-over || drop.has-drag: Rectangle {
+    if TrackDrag.active || InstrumentsUi.dragging || TrackDrag.files-over || drop.has-drag: Rectangle {
         border-radius: Theme.radius + 2px;
         border-width: drop.has-drag || files-here ? 3px : 2px;
         border-color: drop.has-drag || files-here ? tint : tint.transparentize(0.55);
