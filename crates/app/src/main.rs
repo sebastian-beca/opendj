@@ -287,7 +287,7 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
 #[cfg(target_os = "macos")]
 const TOP_BAR_HEIGHT: f64 = 52.0;
 
-/// The 4-Deck layout's value of `layout` (0 is 2-Deck, 1 Simple).
+/// The 4-Deck layout's value of `layout` (0 is 2-Deck, 1 Player).
 const FOUR_DECK_LAYOUT: i32 = 2;
 
 /// Seconds of audio shown across the scrolling waveform at normal speed.
@@ -397,10 +397,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             EventResult::Propagate
         });
     }
-    // 2-Deck, Simple or 4-Deck, as last picked.
+    // 2-Deck, Player or 4-Deck, as last picked.
     app.set_layout(settings::number("layout", 0.0).clamp(0.0, FOUR_DECK_LAYOUT as f64) as i32);
     // `[Skin],layout` lets controllers switch it too (the DDJ-FLX4's
-    // SHIFT + right LOAD, VIEW): 0 2-Deck, 1 Simple, 2 4-Deck. VIEW toggles,
+    // SHIFT + right LOAD, VIEW): 0 2-Deck, 1 Player, 2 4-Deck. VIEW toggles,
     // so from 4-Deck it goes to 2-Deck.
     let layout_control = registry.create(
         "[Skin]",

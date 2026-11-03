@@ -390,7 +390,7 @@ export component Jog inherits Rectangle {
 // Album art, large; without any, the deck colour with the
 // artist's initials. Picking it up drags the deck's track to another deck,
 // the side panel or one of the DJ's lists.
-component Cover inherits Rectangle {
+export component Cover inherits Rectangle {
     in property <int> deck;
     in property <color> tint;
     in property <DeckInfo> info;
