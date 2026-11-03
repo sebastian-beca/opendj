@@ -277,7 +277,7 @@ impl Server for PlexServer {
 
     fn missing(&self) -> Option<String> {
         (self.url.is_empty() || self.token.is_empty())
-            .then(|| "Fill in your server and token in Settings › Plex first.".into())
+            .then(|| "Fill in your server and token in Settings › Sources › Plex first.".into())
     }
 
     fn search(&self, query: &SourceQuery) -> Result<Results, String> {
