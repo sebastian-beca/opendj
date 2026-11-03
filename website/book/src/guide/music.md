@@ -437,6 +437,11 @@ place of the whole list's time.
 The track menu's **Rating** and **Colour** rows set every picked track at
 once; the colours are the ones `color:red`, `color:blue` and so on search for.
 
+A track's colour shows as a dot in the **Colour** column (headed ●, sorted
+red, orange, yellow, green, cyan, blue, purple, pink). **Settings › Library ›
+Track colour** changes that to a strip at the row's left edge or a soft tint
+of the whole row, or turns it off; colour searches work either way.
+
 ## Track info
 
 The **Info** tab on the right of the browser shows the picked track (or
