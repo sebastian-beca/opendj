@@ -1653,6 +1653,7 @@ impl Browser {
         Self::install_track_menu(&edit, &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
         Self::install_cleanup(&app.global::<crate::CleanupUi>(), &with);
+        Self::install_fix_names(app, &with);
         Self::install_analysis(&edit, &with);
         Self::install_albums(&edit, &with);
         Self::install_album_covers(&app.global::<crate::AlbumsUi>(), &with);
