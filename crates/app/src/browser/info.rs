@@ -16,9 +16,10 @@ use std::collections::BTreeMap;
 
 use opendj_library::cleanup::Field;
 
+use super::tag_chips;
 use super::*;
 use crate::coverart::{self, Event as CoverEvent, Found as FoundCover};
-use crate::{CoverChoice, InfoField, InfoLine, TrackInfo, ValueChoice};
+use crate::{CoverChoice, InfoField, InfoLine, TagChip, TrackInfo, ValueChoice};
 
 /// The side panel's Info tab.
 pub(super) const INFO_TAB: usize = 3;
@@ -29,6 +30,8 @@ const COVER_SIZE: u32 = 160;
 const TEXT: i32 = 0;
 const READ: i32 = 1;
 const READ_WITH_BUTTON: i32 = 4;
+/// A tag field: its tags as chips, and a box to add more.
+const CHIPS: i32 = 5;
 
 /// The tabs of the Info tab: the names, the DJ's own tags and comment,
 /// and the file with its stats.
@@ -40,7 +43,7 @@ pub(super) struct InfoState {
     /// 0 the selected track, 1 deck A, 2 deck B.
     pub(super) subject: i32,
     /// The library's copy of the track shown, and where it is in `library`.
-    shown: Option<(usize, Arc<Track>)>,
+    pub(super) shown: Option<(usize, Arc<Track>)>,
     fields: Rc<VecModel<InfoLine>>,
     /// The cover being read for the track shown, and the generation it is for.
     cover_job: Option<(u64, Receiver<Option<Cover>>)>,
@@ -62,9 +65,12 @@ pub(super) struct InfoState {
     tab: i32,
     /// Several tracks picked: where they are in `library`, and the copies
     /// shown. The tab edits them together.
-    many: Vec<(usize, Arc<Track>)>,
+    pub(super) many: Vec<(usize, Arc<Track>)>,
     /// Changes typed for the tracks in `many`, by field id, until Apply.
     pending: BTreeMap<String, String>,
+    /// Tags added lately (tag field, tag), newest first, which the track
+    /// menu's Add Tag offers first.
+    pub(super) recent_tags: Vec<(usize, String)>,
 }
 
 impl InfoState {
@@ -89,6 +95,7 @@ impl InfoState {
             tab: (crate::settings::number("info_tab", 0.0) as i32).clamp(TRACK_TAB, FILE_TAB),
             many: Vec::new(),
             pending: BTreeMap::new(),
+            recent_tags: Vec::new(),
         }
     }
 }
@@ -153,6 +160,16 @@ fn field(id: &str, label: &str, value: impl Into<SharedString>, kind: i32) -> In
         half: false,
         mixed: 0,
         edited: false,
+        chips: ModelRc::default(),
+    }
+}
+
+/// A tag field of `tracks` as chips.
+fn chips_field(tracks: &[&Track], n: usize, id: &str, label: &str) -> InfoField {
+    InfoField {
+        chips: tag_chips::chip_model(tracks, n),
+        hint: "+ tag".into(),
+        ..on(TAGS_TAB, field(id, label, "", CHIPS))
     }
 }
 
@@ -210,16 +227,11 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
     ];
     // The DJ's tag fields, by the names they gave them.
     for (i, name) in names.tags.iter().enumerate() {
-        out.push(on(
-            TAGS_TAB,
-            InfoField {
-                hint: "words, with spaces between".into(),
-                ..text(
-                    &format!("tag{}", i + 1),
-                    &name.to_uppercase(),
-                    t.info.user_tag(i),
-                )
-            },
+        out.push(chips_field(
+            &[t],
+            i,
+            &format!("tag{}", i + 1),
+            &name.to_uppercase(),
         ));
     }
     out.extend(
@@ -318,6 +330,20 @@ fn lines(fields: Vec<InfoField>) -> Vec<InfoLine> {
         });
     }
     out
+}
+
+/// The two lines show the same, chips and all (models compare by identity).
+fn same_line(a: &InfoLine, b: &InfoLine) -> bool {
+    let chips = |f: &InfoField| -> Vec<TagChip> { f.chips.iter().collect() };
+    let bare = |f: &InfoField| InfoField {
+        chips: ModelRc::default(),
+        ..f.clone()
+    };
+    a.two == b.two
+        && bare(&a.a) == bare(&b.a)
+        && bare(&a.b) == bare(&b.b)
+        && chips(&a.a) == chips(&b.a)
+        && chips(&a.b) == chips(&b.b)
 }
 
 /// Which tab field `f` is on.
@@ -427,6 +453,10 @@ fn many_fields(
             Field::Tag(n) => names.tags[n as usize].to_uppercase(),
             other => other.label().to_uppercase(),
         };
+        if let Field::Tag(n) = f {
+            out.push(chips_field(tracks, n as usize, &id, &label));
+            continue;
+        }
         let values = values_of(tracks, f);
         let mut line = on(tab_of(f), field(&id, &label, "", TEXT));
         if let Some(v) = pending.get(&id) {
@@ -575,6 +605,7 @@ impl Browser {
                 f(&mut b.borrow_mut());
             }
         };
+        Self::install_tag_chips(&ui, with.clone());
         let w = with.clone();
         ui.on_set_subject(move |s| {
             w(&|b| {
@@ -811,7 +842,7 @@ impl Browser {
         let model = &self.info.fields;
         if model.row_count() == fields.len() {
             for (i, f) in fields.into_iter().enumerate() {
-                if model.row_data(i).as_ref() != Some(&f) {
+                if !model.row_data(i).is_some_and(|l| same_line(&l, &f)) {
                     model.set_row_data(i, f);
                 }
             }
@@ -822,7 +853,7 @@ impl Browser {
 
     /// The DJ changed field `id` of the track shown to `value`: it is saved
     /// to the file's tags and the library.
-    fn info_edit(&mut self, id: &str, value: &str) {
+    pub(super) fn info_edit(&mut self, id: &str, value: &str) {
         if !self.info.many.is_empty() {
             self.many_edit(id, value);
             return;

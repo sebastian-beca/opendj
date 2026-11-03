@@ -3,6 +3,12 @@
 // preview player for the headphones and a cover art search.
 import { Theme, EdgeLine, CloseIcon } from "theme.slint";
 
+// A tag in a tag field, and how many of the tracks shown have it.
+export struct TagChip {
+    tag: string,
+    count: int,
+}
+
 // One line of the info list.
 export struct InfoField {
     // What the line is, for `TrackInfo.edit` ("title", "artist", ...).
@@ -10,7 +16,8 @@ export struct InfoField {
     label: string,
     value: string,
     // 0 text to edit, 1 text to read, 2 rating (value "0" to "5"),
-    // 4 text to read with a button (`action`).
+    // 4 text to read with a button (`action`), 5 tags as `chips` with a
+    // box to add more.
     kind: int,
     // Shown greyed in an empty field.
     hint: string,
@@ -23,6 +30,7 @@ export struct InfoField {
     // they share one), and whether a change waits for Apply.
     mixed: int,
     edited: bool,
+    chips: [TagChip],
 }
 
 // A line of the info list: one field, or two short ones side by side.
@@ -61,6 +69,13 @@ export global TrackInfo {
     in property <int> tab;
     in property <[bool]> tab-edited;
     callback set-tab(tab: int);
+    // Tag fields: adds the tags typed to every track shown, or takes one
+    // off them all; while typing, the collection's tags that match.
+    callback tag-add(id: string, tags: string);
+    callback tag-remove(id: string, tag: string);
+    callback tag-suggest(id: string, typed: string);
+    in property <[string]> suggestions;
+    in property <string> suggest-for;
     // The rating, shown under the title.
     in property <int> rating;
     // Several tracks shown (how many; 0 for one): fields edit them all,
@@ -258,6 +273,134 @@ component ValueLine inherits Rectangle {
     ta := TouchArea { clicked => { root.clicked(); } }
 }
 
+// A tag. On only some of the tracks shown, it is outlined with how many
+// have it, and a click puts it on all; × takes it off all.
+component Chip inherits Rectangle {
+    in property <string> tag;
+    in property <int> count;
+    in property <bool> enabled: true;
+    // A suggestion to add, not a tag the tracks have.
+    in property <bool> offer;
+    callback add();
+    callback remove();
+    property <bool> some: !offer && TrackInfo.many > 0 && count < TrackInfo.many;
+    height: 22px;
+    width: row.preferred-width;
+    border-radius: 11px;
+    background: offer ? (ta.has-hover ? Theme.selection : transparent)
+        : some ? (ta.has-hover ? #ffffff10 : transparent) : #4A4A4D;
+    border-width: offer || some ? 1px : 0px;
+    border-color: offer ? Theme.accent.with-alpha(0.5) : Theme.text-dim;
+    ta := TouchArea {
+        enabled: root.enabled && (root.offer || root.some);
+        mouse-cursor: self.enabled ? pointer : default;
+        clicked => { root.add(); }
+    }
+    row := HorizontalLayout {
+        padding-left: 8px;
+        padding-right: offer ? 8px : 2px;
+        spacing: 4px;
+        Text {
+            text: root.tag;
+            color: offer ? (ta.has-hover ? Theme.on-selection : Theme.accent) : some ? Theme.text-dim : Theme.text;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+        if some: Text {
+            text: root.count + "/" + TrackInfo.many;
+            color: Theme.text-dim;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+        if !offer: Rectangle {
+            width: 16px;
+            Rectangle {
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                background: x.has-hover ? #ffffff20 : transparent;
+            }
+            Text {
+                text: "×";
+                color: x.has-hover ? Theme.text : Theme.text-dim;
+                font-size: 13px;
+            }
+            x := TouchArea {
+                enabled: root.enabled;
+                clicked => { root.remove(); }
+            }
+        }
+    }
+}
+
+// A tag field: its tags, a box to type more in, and the collection's tags
+// that match what is typed.
+component TagField inherits VerticalLayout {
+    in property <InfoField> field;
+    in property <bool> editable;
+    spacing: 4px;
+    padding-top: 1px;
+    padding-bottom: 1px;
+    FlexboxLayout {
+        spacing: 4px;
+        for c in field.chips: Chip {
+            tag: c.tag;
+            count: c.count;
+            enabled: editable;
+            add => { TrackInfo.tag-add(field.id, c.tag); }
+            remove => { TrackInfo.tag-remove(field.id, c.tag); }
+        }
+        Rectangle {
+            width: 90px;
+            height: 22px;
+            border-radius: 11px;
+            background: input.has-focus ? Theme.well : add-ta.has-hover ? #ffffff0c : transparent;
+            border-width: 1px;
+            border-color: input.has-focus ? Theme.accent : Theme.border;
+            add-ta := TouchArea {
+                enabled: editable;
+                mouse-cursor: text;
+                clicked => { input.focus(); }
+            }
+            if input.text == "" && !input.has-focus: Text {
+                x: 9px;
+                text: field.hint;
+                color: Theme.text-dim.with-alpha(0.7);
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+            input := TextInput {
+                x: 9px;
+                width: parent.width - 18px;
+                enabled: editable;
+                single-line: true;
+                color: Theme.text;
+                selection-background-color: Theme.selection;
+                selection-foreground-color: Theme.on-selection;
+                font-size: 12px;
+                vertical-alignment: center;
+                edited => { TrackInfo.tag-suggest(field.id, self.text); }
+                accepted => {
+                    if self.text != "" { TrackInfo.tag-add(field.id, self.text); }
+                    self.text = "";
+                }
+                changed has-focus => {
+                    if !self.has-focus { TrackInfo.tag-suggest(field.id, ""); }
+                }
+            }
+        }
+    }
+    if TrackInfo.suggest-for == field.id && TrackInfo.suggestions.length > 0: FlexboxLayout {
+        spacing: 4px;
+        for s in TrackInfo.suggestions: Chip {
+            tag: s;
+            offer: true;
+            enabled: editable;
+            add => { TrackInfo.tag-add(field.id, s); }
+        }
+    }
+}
+
 // One field: its label and its value.
 component InfoCell inherits Rectangle {
     in property <InfoField> field;
@@ -266,16 +409,26 @@ component InfoCell inherits Rectangle {
     min-height: 24px;
     HorizontalLayout {
         spacing: 6px;
-        Text {
-            width: root.label-width;
-            // A change waiting for Apply is marked in lilac.
-            text: (field.edited ? "● " : "") + field.label;
-            color: field.edited ? Theme.accent : Theme.label;
-            font-size: 10px;
-            font-weight: 600;
-            letter-spacing: 0.4px;
-            vertical-alignment: center;
-            overflow: elide;
+        // Level with the first line of a field that takes several.
+        VerticalLayout {
+            alignment: start;
+            Text {
+                width: root.label-width;
+                height: 24px;
+                // A change waiting for Apply is marked in lilac.
+                text: (field.edited ? "● " : "") + field.label;
+                color: field.edited ? Theme.accent : Theme.label;
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 0.4px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        if field.kind == 5: TagField {
+            horizontal-stretch: 1;
+            field: root.field;
+            editable: root.editable;
         }
         if field.kind == 0: EditLine {
             horizontal-stretch: 1;

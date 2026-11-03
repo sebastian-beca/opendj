@@ -17,8 +17,8 @@
 
 ## 3. Tags for many
 
-- [ ] 3.1 Tag fields as chips: on all, on some, add, remove
-- [ ] 3.2 Add Tag › in the track menu, with recent tags
+- [x] 3.1 Tag fields as chips: on all, on some, add, remove
+- [x] 3.2 Add Tag › in the track menu, with recent tags
 
 ## 4. Fix Names into the review table
 
