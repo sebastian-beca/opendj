@@ -22,11 +22,11 @@
 
 ## 4. Fix Names into the review table
 
-- [ ] 4.1 Review table takes Comment, Grouping and the tag fields
-- [ ] 4.2 Find and Replace (match case, whole words, pattern)
-- [ ] 4.3 Change Case (Title, Sentence, UPPER, lower)
-- [ ] 4.4 Remove Between brackets, Swap Artist and Title, Number in List Order
-- [ ] 4.5 Update the user guide
+- [x] 4.1 Review table takes Comment, Grouping and the tag fields
+- [x] 4.2 Find and Replace (match case, whole words, pattern)
+- [x] 4.3 Change Case (Title, Sentence, UPPER, lower)
+- [ ] 4.4 Remove Between brackets, Swap Artist and Title, Number in List Order (brackets and swap done; numbering to come)
+- [x] 4.5 Update the user guide
 
 ## Workflow follow-up
 

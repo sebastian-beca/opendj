@@ -18,7 +18,46 @@ use super::info::{tag_fields, writable};
 use super::{file_path, is_browsed, Browser, Undo};
 use crate::coverart::{self, Wanted};
 use crate::lookup::{self, Found, Miss, Query};
-use crate::{cover_scan, settings, CleanupRow, CleanupUi, GenreRow};
+use crate::{cover_scan, settings, CleanupRow, CleanupUi, FixNamesUi, GenreRow};
+use opendj_library::fix_names::{self, Ready, Tool};
+
+/// How many changes the Fix Names dialog shows before Review.
+const PREVIEW: usize = 6;
+
+/// The fields of the Fix Names dialog's field menu: all names, then one.
+fn fix_fields(field: i32) -> Vec<Field> {
+    match field {
+        1 => vec![Field::Title],
+        2 => vec![Field::Artist],
+        3 => vec![Field::Remix],
+        4 => vec![Field::Album],
+        5 => vec![Field::Genre],
+        6 => vec![Field::Comment],
+        7 => vec![Field::Grouping],
+        _ => fix_names::NAMES.to_vec(),
+    }
+}
+
+/// The tool the Fix Names dialog is set to.
+fn fix_tool(ui: &FixNamesUi) -> Tool {
+    match ui.get_tool() {
+        1 => Tool::Case(match ui.get_case() {
+            1 => fix_names::Case::Sentence,
+            2 => fix_names::Case::Upper,
+            3 => fix_names::Case::Lower,
+            _ => fix_names::Case::Title,
+        }),
+        2 => Tool::RemoveBrackets,
+        3 => Tool::Swap,
+        _ => Tool::Replace {
+            find: ui.get_find().to_string(),
+            with: ui.get_with().to_string(),
+            match_case: ui.get_match_case(),
+            whole_words: ui.get_whole_words(),
+            pattern: ui.get_pattern(),
+        },
+    }
+}
 
 /// A change waiting in the review table, for a track (an index into
 /// `library`).
@@ -62,6 +101,7 @@ enum Review {
     LookUp,
     FileNames,
     AlbumTags,
+    FixNames,
 }
 
 impl Review {
@@ -71,6 +111,7 @@ impl Review {
             Review::LookUp => "Look-up results for",
             Review::FileNames => "From file names for",
             Review::AlbumTags => "Album tags for",
+            Review::FixNames => "Fix names for",
         }
     }
 
@@ -81,6 +122,7 @@ impl Review {
             Review::LookUp => "look-up",
             Review::FileNames => "file names",
             Review::AlbumTags => "album tags",
+            Review::FixNames => "fix names",
         }
     }
 }
@@ -150,6 +192,9 @@ pub(super) struct CleanupState {
     lookups: Option<LookupBatch>,
     /// What the review table is of.
     kind: Review,
+    /// The tracks the Fix Names dialog is open for (indices into
+    /// `library`).
+    fix_tracks: Vec<usize>,
 }
 
 /// A genre as compared for "spelled like another": letters and digits
@@ -241,6 +286,120 @@ impl Browser {
                 b.refresh_cleanup_ui();
             })
         });
+    }
+
+    pub(super) fn install_fix_names(
+        app: &crate::AppWindow,
+        with: &(impl Fn(&dyn Fn(&mut Browser)) + Clone + 'static),
+    ) {
+        let ui = app.global::<FixNamesUi>();
+        let w = with.clone();
+        ui.on_start(move |first, last| {
+            w(&|b| {
+                let tracks: Vec<usize> = b
+                    .chosen_tracks(first.max(0) as usize, last.max(0) as usize)
+                    .into_iter()
+                    .filter(|&i| !is_browsed(&b.library[i]))
+                    .collect();
+                if tracks.is_empty() {
+                    return;
+                }
+                b.cleanup.fix_tracks = tracks;
+                b.fix_names_preview(true);
+            })
+        });
+        let w = with.clone();
+        ui.on_update(move || w(&|b| b.fix_names_preview(false)));
+        let w = with.clone();
+        ui.on_review(move || w(&|b| b.fix_names_review()));
+        let w = with.clone();
+        ui.on_cancel(move || {
+            w(&|b| {
+                b.cleanup.fix_tracks.clear();
+                if let Some(app) = b.app.upgrade() {
+                    app.global::<FixNamesUi>().set_open(false);
+                }
+            })
+        });
+    }
+
+    /// The changes the Fix Names dialog's tool makes to its tracks, or why
+    /// it can't run.
+    fn fix_names_changes(&self) -> Result<Vec<Pending>, String> {
+        let Some(app) = self.app.upgrade() else {
+            return Ok(Vec::new());
+        };
+        let ui = app.global::<FixNamesUi>();
+        let ready = Ready::new(fix_tool(&ui))?;
+        let fields = fix_fields(ui.get_field());
+        Ok(self
+            .cleanup
+            .fix_tracks
+            .iter()
+            .flat_map(|&i| {
+                ready
+                    .changes(&self.library[i], &fields)
+                    .into_iter()
+                    .map(move |change| Pending {
+                        index: i,
+                        change,
+                        on: true,
+                        note: String::new(),
+                    })
+            })
+            .collect())
+    }
+
+    /// Opens the Fix Names dialog (`open`), or shows what its tool, as set
+    /// now, would change.
+    fn fix_names_preview(&mut self, open: bool) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let ui = app.global::<FixNamesUi>();
+        if open {
+            ui.set_count(self.cleanup.fix_tracks.len() as i32);
+            ui.set_open(true);
+        }
+        // An empty Find box isn't a mistake yet.
+        let typing = ui.get_tool() == 0 && ui.get_find().is_empty();
+        let (changes, error) = match self.fix_names_changes() {
+            Ok(c) => (c, String::new()),
+            Err(_) if typing => (Vec::new(), String::new()),
+            Err(e) => (Vec::new(), e),
+        };
+        let rows: Vec<CleanupRow> = changes
+            .iter()
+            .take(PREVIEW)
+            .map(|p| CleanupRow {
+                track: SharedString::new(),
+                field: p.change.field.label().as_ref().into(),
+                old: p.change.old.clone().into(),
+                new: p.change.new.clone().into(),
+                on: true,
+            })
+            .collect();
+        let changing: HashSet<usize> = changes.iter().map(|p| p.index).collect();
+        ui.set_preview(ModelRc::new(VecModel::from(rows)));
+        ui.set_changing(changing.len() as i32);
+        ui.set_error(error.into());
+    }
+
+    /// Puts the Fix Names dialog's changes in the review table.
+    fn fix_names_review(&mut self) {
+        let Ok(changes) = self.fix_names_changes() else {
+            return;
+        };
+        if changes.is_empty() {
+            return;
+        }
+        if let Some(app) = self.app.upgrade() {
+            app.global::<FixNamesUi>().set_open(false);
+        }
+        self.cleanup.fix_tracks.clear();
+        self.cleanup.review = changes;
+        self.cleanup.kind = Review::FixNames;
+        self.refresh_cleanup_ui();
     }
 
     /// Closes the review table and the genres page, as another list is
