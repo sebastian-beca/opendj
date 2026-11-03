@@ -5,7 +5,7 @@ import { ListView, ScrollView } from "scroll.slint";
 import { Theme, EdgeLine, CloseIcon } from "theme.slint";
 import { HoverTip } from "controls.slint";
 import { SourceUi, SearchesPanel, SourceResults } from "sources.slint";
-import { InfoPanel, SideTabIcon, TrackInfo } from "info.slint";
+import { InfoPanel, TrackInfo } from "info.slint";
 import { FilterBar, FilterUi } from "filters.slint";
 
 export struct Folder {
@@ -3959,7 +3959,7 @@ component FixNamesDialog inherits Rectangle {
 component SidePanel inherits Rectangle {
     in property <[SideRow]> rows;
     in property <string> total;
-    // 0 Automix, 1 Sidelist, 2 Linked, 3 Info (the selected track's
+    // 0 Automix, 1 Sidelist, 2 Related, 3 Info (the selected track's
     // details, see info.slint).
     in-out property <int> tab: 0;
     callback activate(row: int);
@@ -4025,18 +4025,22 @@ component SidePanel inherits Rectangle {
     }
     background: Theme.browser;
     width: 340px;
-    // The tabs, as icons along the top, the one shown underlined.
+    // The tabs, as words along the top, the one shown underlined.
     tab-bar := Rectangle {
         y: 0px;
         height: 40px;
         HorizontalLayout {
-            for name[i] in ["Automix", "Sidelist", "Linked", "Info"]: Rectangle {
+            for name[i] in ["Automix", "Sidelist", "Related", "Info"]: Rectangle {
                 horizontal-stretch: 1;
                 property <bool> on: i == tab;
                 background: tta.has-hover && !on ? #ffffff08 : transparent;
-                SideTabIcon {
-                    tab: i;
-                    ink: on ? Theme.accent : tta.has-hover ? Theme.text : Theme.text-dim;
+                Text {
+                    text: name;
+                    color: on ? Theme.accent : tta.has-hover ? Theme.text : Theme.text-dim;
+                    font-size: 13px;
+                    font-weight: on ? 600 : 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
                 }
                 Rectangle {
                     y: parent.height - self.height;
@@ -4091,7 +4095,7 @@ component SidePanel inherits Rectangle {
             HorizontalLayout {
                 height: 30px;
                 spacing: 8px;
-                Text { text: ["Automix", "Sidelist", "Linked"][tab]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; }
+                Text { text: ["Automix", "Sidelist", "Related"][tab]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; }
                 Text { text: total; color: Theme.label; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                 if tab == 0: VerticalLayout {
                     alignment: center;
