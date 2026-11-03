@@ -77,6 +77,8 @@ const STORES: i32 = 5;
 /// in the rail after Files.
 const ALBUMS: i32 = 9;
 const MIXED_SETS: i32 = 10;
+/// The Groove Box, instrument plugins and inputs (see [`crate::instruments`]).
+const INSTRUMENTS: i32 = 12;
 
 /// Whether `source` shows store results.
 fn is_stores(source: i32) -> bool {
@@ -140,7 +142,7 @@ const MATCH_CANDIDATES: usize = 8;
 
 /// The sources in the rail, in order, as saved when hidden. The rail's
 /// `names` and `source-names` in `library.slint` must list the same.
-pub const SOURCE_NAMES: [&str; 12] = [
+pub const SOURCE_NAMES: [&str; 13] = [
     "Collection",
     "Files",
     "Spotify",
@@ -153,6 +155,7 @@ pub const SOURCE_NAMES: [&str; 12] = [
     "Albums",
     "Mixed Sets",
     "Mixcloud",
+    "Instruments",
 ];
 
 /// Every source in the rail: the built-in ones, then add-ons' own (see
@@ -1747,7 +1750,7 @@ impl Browser {
     /// tree of their own keep the current one underneath their placeholder.
     fn select_source(&mut self, source: i32) {
         let usable = match source {
-            COLLECTION | FILES | ALBUMS | MIXED_SETS => true,
+            COLLECTION | FILES | ALBUMS | MIXED_SETS | INSTRUMENTS => true,
             SPOTIFY | TIDAL | APPLE_MUSIC | SOUNDCLOUD | MIXCLOUD => STREAMING_ENABLED,
             STORES => STORES_ENABLED,
             _ => false,
