@@ -14,6 +14,7 @@
 - [Looping](guide/looping.md)
 - [Effects](guide/fx.md)
 - [Sampler](guide/sampler.md)
+- [Groove Box](guide/groove-box.md)
 - [Stems](guide/stems.md)
 - [Layouts](guide/layouts.md)
 - [Automix](guide/automix.md)

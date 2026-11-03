@@ -50,6 +50,7 @@ mod coverart;
 mod diagnostics;
 mod file_drop;
 mod files;
+mod groove_box;
 mod inbox;
 mod list_picker;
 mod lookup;
@@ -436,6 +437,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The FX bar, likewise.
     app.set_fx_bar_visible(settings::flag("fx_bar_visible", true));
     app.on_fx_bar_visible_changed(|on| settings::set("fx_bar_visible", serde_json::json!(on)));
+    // The Groove Boxes: their kits' names, and what they held last time,
+    // saved again as it changes.
+    groove_box::install(&app);
+    let groove_keeper = RefCell::new(groove_box::Keeper::new(&registry));
+    let groove_timer = slint::Timer::default();
+    groove_timer.start(
+        slint::TimerMode::Repeated,
+        Duration::from_millis(500),
+        move || groove_keeper.borrow_mut().tick(),
+    );
     // The beat counter in the deck headers: off, beats, or beats and
     // phrases, picked in Settings › Decks.
     {
