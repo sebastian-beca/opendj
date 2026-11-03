@@ -2,9 +2,9 @@
 
 ## 1. Prep layout
 
-- [ ] 1.1 Prep in the layout menu on Deck 1: header, large waveform with zoom, overview, grid panel, transport, eight hot cue pads; mixer, crossfader and FX bar hidden
-- [ ] 1.2 Play Ready, next track (Enter): lock grid, move to Play Ready, load next In Prep track
-- [ ] 1.3 Browser opens on In Prep with Grid, Cues, Tags and Cover columns
+- [x] 1.1 Prep in the layout menu on Deck 1: header, large waveform with zoom, overview, grid panel, transport, eight hot cue pads; mixer, crossfader and FX bar hidden
+- [x] 1.2 Play Ready, next track (Enter): lock grid, move to Play Ready, load next In Prep track
+- [ ] 1.3 Browser opens on In Prep with Grid, Cues, Tags and Cover columns (opens on In Prep done; status columns to come)
 
 ## 2. Grid and cues
 

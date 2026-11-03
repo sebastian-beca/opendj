@@ -289,6 +289,8 @@ const TOP_BAR_HEIGHT: f64 = 52.0;
 
 /// The 4-Deck layout's value of `layout` (0 is 2-Deck, 1 Simple).
 const FOUR_DECK_LAYOUT: i32 = 2;
+/// Deck 1 alone, for preparing tracks (prep.slint).
+const PREP_LAYOUT: i32 = 3;
 
 /// Seconds of audio shown across the scrolling waveform at normal speed.
 /// Dragging the waveform (`Waveform` in main.slint) uses the same figure.
@@ -397,17 +399,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             EventResult::Propagate
         });
     }
-    // 2-Deck, Simple or 4-Deck, as last picked.
-    app.set_layout(settings::number("layout", 0.0).clamp(0.0, FOUR_DECK_LAYOUT as f64) as i32);
+    // 2-Deck, Simple, 4-Deck or Prep, as last picked.
+    app.set_layout(settings::number("layout", 0.0).clamp(0.0, PREP_LAYOUT as f64) as i32);
     // `[Skin],layout` lets controllers switch it too (the DDJ-FLX4's
-    // SHIFT + right LOAD, VIEW): 0 2-Deck, 1 Simple, 2 4-Deck. VIEW toggles,
-    // so from 4-Deck it goes to 2-Deck.
+    // SHIFT + right LOAD, VIEW): 0 2-Deck, 1 Simple, 2 4-Deck, 3 Prep. VIEW
+    // toggles, so from 4-Deck or Prep it goes to 2-Deck.
     let layout_control = registry.create(
         "[Skin]",
         "layout",
         app.get_layout() as f64,
         0.0,
-        FOUR_DECK_LAYOUT as f64,
+        PREP_LAYOUT as f64,
         opendj_control::Behavior::Toggle,
     );
     // The deck 3 and 4 switches for two-deck controllers (see
@@ -422,15 +424,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     reset_layers(app.get_layout());
-    {
-        let layout_control = layout_control.clone();
-        let reset_layers = reset_layers.clone();
-        app.on_layout_changed(move |layout| {
-            layout_control.set(layout as f64);
-            settings::set("layout", serde_json::json!(layout));
-            reset_layers(layout);
-        });
-    }
     // The large waveforms, shown or hidden from the top bar.
     app.set_waveforms_visible(settings::flag("waveforms_visible", true));
     app.on_waveforms_visible_changed(|on| {
@@ -537,6 +530,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         engine.clone(),
         &registry,
     );
+    // Opening Prep shows the In Prep list (the layout menu; a controller's
+    // VIEW is handled on the timer below).
+    {
+        let layout_control = layout_control.clone();
+        let reset_layers = reset_layers.clone();
+        let browser = browser.clone();
+        app.on_layout_changed(move |layout| {
+            layout_control.set(layout as f64);
+            settings::set("layout", serde_json::json!(layout));
+            reset_layers(layout);
+            if layout == PREP_LAYOUT {
+                browser.borrow_mut().show_in_prep();
+            }
+        });
+    }
     let sources = sources::Sources::install(&app, library_path.clone());
     {
         // Spotify's "Open in Browser" and "Add to Downloads", the latter
@@ -883,6 +891,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let alert_until: Cell<Option<Instant>> = Cell::new(None);
     let alert_engine = engine.clone();
     let layout_version = Cell::new(layout_control.version());
+    // Whether the In Prep list was shown for a start in the Prep layout.
+    let prep_shown = Cell::new(false);
     // Switched off or on from the crossfader's menu, a controller or a
     // script: remembered for next time, as the Settings switch is.
     let xfader_enabled = registry.create(
@@ -935,6 +945,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     app.set_layout(layout);
                     settings::set("layout", serde_json::json!(layout));
                     reset_layers(layout);
+                    if layout == PREP_LAYOUT {
+                        browser.borrow_mut().show_in_prep();
+                    }
                 }
                 if big_browser_version.get() != big_browser.version() {
                     app.set_library_expanded(big_browser.get_bool());
@@ -1009,6 +1022,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 if let Ok(scanned) = scan_rx.try_recv() {
                     browser.borrow_mut().set_library(scanned);
+                    // Started in Prep: the In Prep list, once the library is in.
+                    if app.get_layout() == PREP_LAYOUT && !prep_shown.replace(true) {
+                        browser.borrow_mut().show_in_prep();
+                    }
                 }
                 browser.borrow_mut().poll_controllers(&app);
                 // A recording that just stopped shows in Mixed Sets.
@@ -1069,6 +1086,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 b.learn_deck_phrases(&tracks);
                 b.learn_analysis(&tracks);
+                b.poll_prep();
                 b.keep(&tracks, 0.016);
                 let mut host = browser::AutomixHost {
                     browser: &mut b,
@@ -1776,19 +1794,32 @@ impl Decks {
         }
     }
 
-    fn frame(&self, deck: usize, t: &Track, play_seconds: f64, phrases: Phrases) -> Frame {
+    /// `bars`: how many bars the scrolling waveform shows, when set (Prep's
+    /// zoom); else it shows VISIBLE_SECONDS.
+    fn frame(
+        &self,
+        deck: usize,
+        t: &Track,
+        play_seconds: f64,
+        phrases: Phrases,
+        bars: Option<f64>,
+    ) -> Frame {
         let h = &self.0[deck];
+        let seconds = match bars {
+            Some(bars) if t.bpm > 0.0 => bars * 4.0 * 60.0 / t.bpm,
+            _ => VISIBLE_SECONDS,
+        };
         Frame {
             play_seconds,
             // Show more of the track when it plays faster, so synced decks'
             // beats are the same distance apart on screen.
-            visible_seconds: VISIBLE_SECONDS * speed(&h.rate, &h.rate_range, &h.rate_dir),
+            visible_seconds: seconds * speed(&h.rate, &h.rate_range, &h.rate_dir),
             duration: t.duration,
             first_bar_beat: first_bar_beat(t),
             grid: if t.grid.is_empty() {
                 steady_grid(t.bpm, t.first_beat)
             } else {
-                let half = VISIBLE_SECONDS * 2.0;
+                let half = seconds.max(VISIBLE_SECONDS) * 2.0;
                 t.grid
                     .sections_in::<GRID_SECTIONS>(play_seconds - half, play_seconds + half)
                     .map(|s| s.map(|(seconds, bpm, beat)| GridSection { seconds, bpm, beat }))
@@ -1903,6 +1934,9 @@ impl Gpu {
         let mut changed = !self.images_set;
         self.moving = false;
         let four = app.get_layout() == FOUR_DECK_LAYOUT;
+        // Prep zooms deck 1's waveform to a number of bars.
+        let prep_bars = (app.get_layout() == PREP_LAYOUT && !app.get_library_expanded())
+            .then(|| app.global::<PrepUi>().get_bars().max(1) as f64);
         let show_phrases = app.global::<PhraseView>().get_visible();
         for (d, track) in tracks.iter().enumerate() {
             changed |= self.scrolling[d].resize(&self.device, ww, wh);
@@ -1938,7 +1972,8 @@ impl Gpu {
                 _ => Vec::new(),
             };
             self.beat_count(app, d, track, play_seconds, speed != 0.0, &phrases);
-            let frame = track.map(|t| decks.frame(d, t, play_seconds, phrases));
+            let bars = prep_bars.filter(|_| d == 0);
+            let frame = track.map(|t| decks.frame(d, t, play_seconds, phrases, bars));
             // The jog marker turns with the same smoothed clock as the
             // waveform, set here as each frame is drawn rather than on the UI
             // timer, whose ticks beat against the display. A 33 rpm record

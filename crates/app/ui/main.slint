@@ -5,6 +5,7 @@ import { Deck, DeckInfo, KeyItem, EffectList, FxRow, DeckActions, PhraseView, Ph
 import { Mixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } from "mixer.slint";
 import { MasterPanel, MicPanel, Loudness, OnAirPanel, BroadcastState, BroadcastStation, AirTime } from "toppanels.slint";
 import { PlayerDeck, PlayerMixer } from "player.slint";
+import { PrepDeck, PrepUi } from "prep.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { FxBar } from "fxbar.slint";
 import { InstrumentsUi, LiveItem } from "instruments.slint";
@@ -23,6 +24,7 @@ export { SamplerUi, SamplerPad, SamplePack, SampleChoice } from "sampler.slint";
 export { ColumnUi, ListColumn }
 export { Tour, TourSetup }
 export { MapMode }
+export { PrepUi }
 export { RemoteUi, RemoteDevice }
 export { MixerMode, InputSettings, InputRow }
 export { BroadcastState, BroadcastStation }
@@ -451,7 +453,7 @@ component SettingsButton inherits Rectangle {
 
 // A small picture of a layout, after djay's: 0 two decks side by side,
 // 1 Simple (one wide strip), 2 four decks, 3 Automix (a play arrow
-// between lines).
+// between lines), 4 Prep (one deck with beat lines over it).
 component LayoutIcon inherits Rectangle {
     in property <int> kind;
     in property <color> tint: Theme.text;
@@ -478,6 +480,15 @@ component LayoutIcon inherits Rectangle {
         padding: 3.5px;
         spacing: 1.5px;
         for _ in 4: Rectangle { background: tint; border-radius: 0.5px; }
+    }
+    if kind == 4: Path {
+        width: 22px;
+        height: 16px;
+        viewbox-width: 22;
+        viewbox-height: 16;
+        stroke: tint;
+        stroke-width: 1.5px;
+        commands: "M 7 4 L 7 12 M 11 4 L 11 12 M 15 4 L 15 12";
     }
     if kind == 3: Path {
         width: 22px;
@@ -529,8 +540,8 @@ component LayoutItem inherits Rectangle {
 }
 
 // The layout button: the current layout's icon and name, opening a menu of
-// layouts. 0 is 2-Deck, 1 Simple and 2 4-Deck (the stored values); Automix
-// is still to come.
+// layouts. 0 is 2-Deck, 1 Simple, 2 4-Deck and 3 Prep (the stored values);
+// Automix is still to come.
 component LayoutPill inherits Rectangle {
     in-out property <int> layout;
     callback changed-to(layout: int);
@@ -543,8 +554,8 @@ component LayoutPill inherits Rectangle {
         padding-left: 12px;
         padding-right: 14px;
         spacing: 8px;
-        VerticalLayout { alignment: center; LayoutIcon { kind: layout; } }
-        Text { text: layout == 1 ? "Simple" : layout == 2 ? "4-Deck" : "2-Deck"; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+        VerticalLayout { alignment: center; LayoutIcon { kind: layout == 3 ? 4 : layout; } }
+        Text { text: layout == 1 ? "Simple" : layout == 2 ? "4-Deck" : layout == 3 ? "Prep" : "2-Deck"; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
     }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -568,6 +579,7 @@ component LayoutPill inherits Rectangle {
             LayoutItem { kind: 1; text: "Simple"; current: layout == 1; picked => { layout = 1; changed-to(1); } }
             LayoutItem { kind: 0; text: "2-Deck"; current: layout == 0; picked => { layout = 0; changed-to(0); } }
             LayoutItem { kind: 2; text: "4-Deck"; current: layout == 2; picked => { layout = 2; changed-to(2); } }
+            LayoutItem { kind: 4; text: "Prep"; current: layout == 3; picked => { layout = 3; changed-to(3); } }
             LayoutItem { kind: 3; text: "Automix"; enabled: false; }
         }
     }
@@ -740,7 +752,8 @@ export component AppWindow inherits Window {
     in property <int> automix-length;
     in property <int> automix-style;
     // 0 Pro (the full decks and mixer), 1 Player (a compact row of the
-    // basics), 2 four decks in strips.
+    // basics), 2 four decks in strips, 3 Prep (deck 1 alone, for
+    // preparing tracks).
     in-out property <int> layout: 0;
     callback layout-changed(layout: int);
     // The large scrolling waveforms above the decks, from the top bar button.
@@ -758,11 +771,12 @@ export component AppWindow inherits Window {
     out property <length> waveform-width: waveforms.width;
     // Two waveforms, or four in 4-Deck, share the room between the lines.
     out property <length> waveform-height: max(1px, (waveforms.height - (wave-rows + 1) * 1px) / wave-rows);
-    property <int> wave-rows: four ? 4 : 2;
+    property <int> wave-rows: four ? 4 : prep ? 1 : 2;
     // From whichever layout's deck A is showing.
-    out property <length> overview-width: four ? strip-1.overview-width : compact ? player-a.overview-width : deck-a.overview-width;
-    out property <length> overview-height: four ? strip-1.overview-height : compact ? player-a.overview-height : deck-a.overview-height;
+    out property <length> overview-width: four ? strip-1.overview-width : compact ? player-a.overview-width : prep ? prep-deck.overview-width : deck-a.overview-width;
+    out property <length> overview-height: four ? strip-1.overview-height : compact ? player-a.overview-height : prep ? prep-deck.overview-height : deck-a.overview-height;
     property <bool> four: layout == 2 && !library-expanded;
+    property <bool> prep: layout == 3 && !library-expanded;
     // The Player row shows in the Player layout, and in either layout while
     // the footer button has the library expanded (then with no waveforms).
     property <bool> compact: layout == 1 || library-expanded;
@@ -840,6 +854,68 @@ export component AppWindow inherits Window {
     property <int> last-started: 0;
     // The bend control an arrow key holds down, -1 for none.
     property <int> bend-held: -1;
+    // Presses one of deck 1's controls once, for Prep's keys.
+    function press(key: string) {
+        Controls.set-value(Controls.resolve("[Channel1]", key), 1);
+        Controls.set-value(Controls.resolve("[Channel1]", key), 0);
+    }
+    function flip(key: string) {
+        let i = Controls.resolve("[Channel1]", key);
+        Controls.set-value(i, Controls.value(i, Controls.tick) > 0 ? 0 : 1);
+    }
+    // The Prep layout's keys (see the prep-layout spec); true when one ran.
+    function prep-key(text: string, shift: bool) -> bool {
+        if text == Key.Return {
+            PrepUi.ready();
+            return true;
+        }
+        let n = text == "1" || text == "!" ? 1 : text == "2" || text == "@" ? 2 : text == "3" || text == "#" ? 3 : text == "4" || text == "$" ? 4
+            : text == "5" || text == "%" ? 5 : text == "6" || text == "^" ? 6 : text == "7" || text == "&" ? 7 : text == "8" || text == "*" ? 8 : 0;
+        if n > 0 {
+            press("hotcue_" + n + (shift ? "_clear" : "_activate"));
+            return true;
+        }
+        if shift {
+            return false;
+        }
+        let locked = Controls.value(Controls.resolve("[Channel1]", "bpmlock"), Controls.tick) > 0;
+        if text == "l" {
+            flip("bpmlock");
+            return true;
+        }
+        if text == "m" {
+            flip("metronome");
+            return true;
+        }
+        if locked {
+            return false;
+        }
+        if text == "b" {
+            press("beats_downbeat_here");
+            return true;
+        }
+        if text == "t" {
+            press("bpm_tap");
+            return true;
+        }
+        if text == "[" {
+            press("beats_translate_earlier");
+            return true;
+        }
+        if text == "]" {
+            press("beats_translate_later");
+            return true;
+        }
+        if text == "-" {
+            press("beats_adjust_slower");
+            return true;
+        }
+        if text == "=" {
+            press("beats_adjust_faster");
+            return true;
+        }
+        false
+    }
     function playing-changed(deck: int) {
         if playing[deck] {
             last-started = deck;
@@ -935,6 +1011,11 @@ export component AppWindow inherits Window {
                 browser.select-all();
                 return accept;
             }
+            // Prep's own keys, ahead of the DJ's shortcuts: Enter for Play
+            // Ready and next, 1-8 the hot cues, and the grid tools.
+            if prep && !Preferences.open && !e.modifiers.control && !e.modifiers.meta && !e.modifiers.alt && prep-key(e.text, e.modifiers.shift) {
+                return accept;
+            }
             if !Preferences.open && shortcut(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift, master-deck, browser.first-picked, browser.last-picked) {
                 return accept;
             }
@@ -1005,11 +1086,17 @@ export component AppWindow inherits Window {
                 // Not rounded or clipped: that renders into a cached layer, which
                 // would freeze the GPU-updated waveform images. Folded away while
                 // the library is expanded or the top bar button hides them.
-                height: library-expanded || !waveforms-visible ? 0px : four ? 213px : 144px;
+                height: library-expanded || !waveforms-visible ? 0px : four ? 213px : prep ? 200px : 144px;
                 visible: !library-expanded && waveforms-visible;
                 background: Theme.well;
                 // Thin grey lines above, between and below the waveforms.
-                if !four: VerticalLayout {
+                if prep: VerticalLayout {
+                    spacing: 0px;
+                    Rectangle { height: 1px; background: Theme.border; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; }
+                    Rectangle { height: 1px; background: Theme.border; }
+                }
+                if !four && !prep: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
                     Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; }
@@ -1070,6 +1157,15 @@ export component AppWindow inherits Window {
                 PlayerDeck { deck: 1; info: decks[1]; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 330px; }
             }
 
+            // Prep: deck 1's header over the grid tools, transport and hot
+            // cue pads.
+            prep-deck := PrepDeck {
+                info: decks[0];
+                overview: overview-1;
+                height: prep ? 280px : 0px;
+                visible: prep;
+            }
+
             FourDeckBar {
                 decks: decks;
                 height: four ? 48px : 0px;
@@ -1081,8 +1177,8 @@ export component AppWindow inherits Window {
             // bar hides it.
             FxBar {
                 four: four;
-                height: library-expanded || !fx-bar-visible ? 0px : four ? 96px : 68px;
-                visible: !library-expanded && fx-bar-visible;
+                height: library-expanded || !fx-bar-visible || prep ? 0px : four ? 96px : 68px;
+                visible: !library-expanded && fx-bar-visible && !prep;
             }
 
             browser := Browser {
