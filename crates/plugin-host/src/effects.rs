@@ -18,9 +18,65 @@ pub trait Effect: Send {
 }
 
 /// The part of a plugin that must stay on the helper's main thread
-/// (CLAP's instance, later editors). The helper calls `idle` regularly.
+/// (CLAP's instance, the editor). The helper calls `idle` regularly.
 pub trait MainThread {
     fn idle(&mut self);
+
+    /// Puts the plugin's own window (its editor) inside `parent` and returns
+    /// its size, in the units `parent` uses (points on macOS, pixels
+    /// elsewhere). Errors when the plugin has none.
+    fn open_editor(&mut self, parent: ParentWindow, scale: f64) -> Result<EditorSize, String> {
+        let _ = (parent, scale);
+        Err("it has no window of its own".into())
+    }
+
+    /// Takes the editor out of its window again.
+    fn close_editor(&mut self) {}
+
+    /// The window was resized to `size`; returns the size the editor took.
+    fn editor_resized(&mut self, size: EditorSize) -> EditorSize {
+        size
+    }
+
+    /// Whether the editor can be resized by dragging the window's edge.
+    fn editor_can_resize(&self) -> bool {
+        false
+    }
+
+    /// A size the editor asked its window to take, since the last call.
+    fn take_editor_resize(&mut self) -> Option<EditorSize> {
+        None
+    }
+
+    /// Whether the plugin closed its own editor (or lost it), since the last
+    /// call.
+    fn take_editor_closed(&mut self) -> bool {
+        false
+    }
+
+    /// When `idle` next needs calling, at the latest (timers a plugin asked
+    /// for, its file descriptors on Linux).
+    fn next_idle(&self) -> Option<std::time::Duration> {
+        None
+    }
+}
+
+/// The window an editor is put in, as each platform names it.
+#[derive(Clone, Copy, Debug)]
+pub enum ParentWindow {
+    /// An `NSView *`.
+    Cocoa(*mut std::ffi::c_void),
+    /// An `HWND`.
+    Win32(*mut std::ffi::c_void),
+    /// An X11 window id.
+    X11(u64),
+}
+
+/// An editor's size.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EditorSize {
+    pub width: u32,
+    pub height: u32,
 }
 
 /// One parameter, in the plugin's own (plain) units.
@@ -70,6 +126,21 @@ pub enum Plugin {
     Au { id: String },
 }
 
+/// The test gain's "editor": an empty window of a set size, so the editor
+/// window can be tested without third-party plugins.
+struct TestEditor;
+
+impl MainThread for TestEditor {
+    fn idle(&mut self) {}
+
+    fn open_editor(&mut self, _parent: ParentWindow, _scale: f64) -> Result<EditorSize, String> {
+        Ok(EditorSize {
+            width: 320,
+            height: 200,
+        })
+    }
+}
+
 /// Ids of the test effects.
 pub const TEST_EFFECTS: [&str; 5] = [
     "test-gain",
@@ -99,7 +170,10 @@ pub fn load(plugin: &Plugin, sample_rate: u32, max_frames: usize) -> Result<Load
     };
     match plugin {
         Plugin::Test(id) => match id.as_str() {
-            "test-gain" => Ok(test(Box::new(Gain), id, "Gain", 2.0, 1.0)),
+            "test-gain" => Ok(Loaded {
+                main: Some(Box::new(TestEditor)),
+                ..test(Box::new(Gain), id, "Gain", 2.0, 1.0)
+            }),
             "test-crash" => Ok(test(
                 Box::new(Crash { blocks: 0 }),
                 id,

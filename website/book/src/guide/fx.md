@@ -125,6 +125,21 @@ loaded until you ask:
    Mic and Aux. A plugin's first four settings follow the slot's
    parameter knobs.
 
+### The plugin's own window
+
+When a slot plays a plugin, an **EDIT** button shows beside its **ON**
+(in the FX bar, the Beat FX and the Mic FX). Press it to open the plugin's
+own window, with its presets and every setting; press it again, or close
+the window, to put it away. The window floats above openDJ and is titled
+after the plugin and where it plays, for example "Pro-Q 3 · Deck 1 · FX 1".
+Closing it leaves the plugin playing.
+
+When an FX unit plays on more than one deck, each deck has its own copy of
+the plugin and **EDIT** opens the first one's window. Changes made in the
+window last while the plugin stays loaded; openDJ doesn't keep them when it
+restarts the plugin or quits yet. On Linux the windows need X11 (XWayland
+on a Wayland desktop).
+
 Each plugin runs in its own helper process. If it crashes, openDJ restarts
 it once with the slot switched off; if it crashes again, or keeps the
 audio waiting, it is switched off and a message says so. The music keeps
@@ -137,7 +152,8 @@ then open the **MIC** panel. Under **Mic** and **Aux** is the
 **Instrument** input:
 
 - Pick the instrument from the list, and turn it **ON** to hear it in the
-  main mix. The headphone button cues it, and **INST** next to **AUX**
+  main mix. **EDIT** beside the list opens the instrument's own window, for
+  its sounds and presets. The headphone button cues it, and **INST** next to **AUX**
   sends it through the Mic FX.
 - Play it with the eight pads under the list, a white-key octave from C,
   moved up or down with **OCTAVE**.

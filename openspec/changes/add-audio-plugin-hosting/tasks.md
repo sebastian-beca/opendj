@@ -5,7 +5,7 @@
 - [x] 1.1 `crates/plugin-host`: shared-memory block exchange, `opendj-plugin-host` helper, deadline with dry fallback, crash/hang detection, restart and disable policy, test effects (gain, crash, hang, slow)
 - [ ] 1.2 Real-time priority for the helper's audio thread; join openDJ's audio workgroup on macOS
 - [x] 1.3a Plugin host thread in the engine (`opendj_engine::plugins`): a helper per slot and routed target, restart once with the slot off, then disable and empty the slot; hangs and long CPU overruns count; failed starts empty the slot
-- [ ] 1.3 Restart with saved state; crash counter kept between sessions
+- [ ] 1.3 Restart with saved state (also keeps editor changes when a plugin restarts or openDJ reopens); crash counter kept between sessions
 
 ## 2. CLAP
 
@@ -19,18 +19,19 @@
 - [x] 2.4a Block processing for plugin slots in the effects engine: `loaded_effect` 13 and up are plugins, the first four parameters on the slot knobs, tempo and beat from the routed deck
 - [ ] 2.4 Per-slot load meter
 - [ ] 2.5 Latency compensation by reading the deck ahead
-- [ ] 2.6 Editor windows from the helper (macOS, Windows, Linux X11)
+- [x] 2.6 Editor windows from the helper (macOS, Windows, Linux X11): EDIT beside a plugin's ON (deck FX, Beat FX, Mic FX) and beside the instrument, `show_editor` controls, a floating window titled after the plugin and where it plays; closing it leaves the plugin playing (#255)
 
 ## 3. VST3
 
 - [x] 3.1 Host VST3 effects with the `vst3` crate (coupler-rs): component, processor, separate controller (connection, component state), parameters, process context
 - [x] 3.2a Scanning via `moduleinfo.json` when present, else in a throwaway helper
-- [ ] 3.2 VST3 editors (with 2.6)
+- [x] 3.2 VST3 editors (with 2.6); edits made in the editor reach the audio
 
 ## 4. AU (macOS)
 
 - [x] 4.1a Host Audio Unit effects in the helper through AudioToolbox (AUv3 extensions run in their own process, as macOS does); list from the component registry (`--scan-au`)
-- [ ] 4.1 Run the AU tests on a Mac (they use Apple's AUDelay); AU editors (with 2.6)
+- [x] 4.1b AU editors (with 2.6): the unit's Cocoa view, else its AUv3 view controller, else Apple's generic view
+- [ ] 4.1 Run the AU tests on a Mac (they use Apple's AUDelay)
 
 ## 5. Ship
 

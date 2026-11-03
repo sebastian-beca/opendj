@@ -20,14 +20,14 @@ use std::time::Duration;
 
 use opendj_control::{ControlHandle, ControlRegistry};
 pub use opendj_plugin_host::{scan, scan_audio_units, Descriptor, Limits, Plugin, ScanError};
-use opendj_plugin_host::{spawn, Action, Helper, Options, Policy, Status};
+use opendj_plugin_host::{spawn, Action, Editor, Helper, Options, Policy, Status};
 
 use crate::controls::{effect_group, effect_unit_group, EFFECTS_PER_UNIT, NUM_EFFECT_UNITS};
 use crate::effects::{
-    instance_indices, plugin_index, route_name, Attached, PluginLink, PluginMsg, BLOCK,
+    instance_indices, plugin_index, route_name, Attached, PluginLink, PluginMsg, BLOCK, MAIN,
     MAX_PARAMETERS, MAX_PLUGINS, PLUGIN_BASE, TARGETS,
 };
-use crate::inputs::{input_group, INSTRUMENT};
+use crate::inputs::{input_group, INSTRUMENT, NUM_INPUTS};
 
 const INSTRUMENT_GROUP: &str = input_group(INSTRUMENT);
 
@@ -50,6 +50,8 @@ pub enum PluginEvent {
     Restarted { name: String },
     /// It crashed again, or ran too slow: off for the rest of the session.
     Disabled { name: String, reason: String },
+    /// Its own window was asked for and can't be shown.
+    NoWindow { name: String, reason: String },
 }
 
 impl std::fmt::Display for PluginEvent {
@@ -66,6 +68,9 @@ impl std::fmt::Display for PluginEvent {
                 f,
                 "{name} is off until you restart openDJ: {reason}. The music kept playing."
             ),
+            PluginEvent::NoWindow { name, reason } => {
+                write!(f, "{name}'s window can't open: {reason}.")
+            }
         }
     }
 }
@@ -180,6 +185,7 @@ struct SlotHandles {
     enabled: ControlHandle,
     params: [ControlHandle; MAX_PARAMETERS],
     num_parameters: ControlHandle,
+    show_editor: ControlHandle,
 }
 
 /// A helper running for one instance.
@@ -188,6 +194,50 @@ struct Running {
     helper: Helper,
     unit: usize,
     slot: usize,
+    /// Its editor was asked for (see [`Supervisor::follow_editors`]).
+    editor: bool,
+}
+
+/// Where an instance plays, for its window's title.
+fn target_name(target: usize) -> String {
+    if target < MAIN {
+        format!("Deck {}", target + 1)
+    } else if target == MAIN {
+        "Master".into()
+    } else {
+        ["Mic", "Aux", "Instrument"][(target - MAIN - 1).min(NUM_INPUTS - 1)].into()
+    }
+}
+
+/// Keeps a helper's editor in step with a `show_editor` control: asks for
+/// it, takes it away, and turns the control off when the window was closed
+/// or can't open. Returns why it can't, when it can't.
+fn follow_editor(
+    helper: &Helper,
+    asked: &mut bool,
+    control: &ControlHandle,
+    want: bool,
+) -> Option<String> {
+    if want && !*asked {
+        helper.set_editor(true);
+        *asked = true;
+    } else if !want && *asked {
+        helper.set_editor(false);
+        *asked = false;
+    } else if *asked && !helper.editor_asked() {
+        // The helper let go of it: the DJ closed the window, or it failed.
+        *asked = false;
+        control.set_bool(false);
+        if helper.editor() == Editor::Missing {
+            return Some(if cfg!(any(target_os = "macos", windows)) {
+                "it has no window of its own".into()
+            } else {
+                "it has no window of its own, or there is no X11 display (XWayland) to show it on"
+                    .into()
+            });
+        }
+    }
+    None
 }
 
 struct Supervisor {
@@ -219,6 +269,9 @@ struct InstrumentState {
     /// `[Instrument1],main_mix`, switched off after a crash.
     on: ControlHandle,
     running: Option<(u16, Helper)>,
+    /// `[Instrument1],show_editor`, and whether its editor was asked for.
+    show_editor: ControlHandle,
+    editor: bool,
     policies: HashMap<u16, Policy>,
     disabled: HashSet<u16>,
 }
@@ -248,6 +301,7 @@ impl Supervisor {
                             get(reg, &g, &format!("parameter{}", k + 1))
                         }),
                         num_parameters: get(reg, &g, "num_parameters"),
+                        show_editor: get(reg, &g, "show_editor"),
                     }
                 })
             })
@@ -277,6 +331,8 @@ impl Supervisor {
                 choice: get(reg, INSTRUMENT_GROUP, "instrument"),
                 on: get(reg, INSTRUMENT_GROUP, "main_mix"),
                 running: None,
+                show_editor: get(reg, INSTRUMENT_GROUP, "show_editor"),
+                editor: false,
                 policies: HashMap::new(),
                 disabled: HashSet::new(),
             },
@@ -290,6 +346,66 @@ impl Supervisor {
         self.watch();
         self.follow_slots();
         self.follow_instrument();
+        self.follow_editors();
+    }
+
+    /// Opens and closes plugin windows as the `show_editor` controls ask.
+    /// A slot playing on several targets shows the first one's window.
+    fn follow_editors(&mut self) {
+        for u in 0..NUM_EFFECT_UNITS {
+            for s in 0..EFFECTS_PER_UNIT {
+                let control = &self.slots[u][s].show_editor;
+                let mut want = control.get_bool();
+                let mut any = false;
+                for t in 0..TARGETS {
+                    let Some(i) = self.index[u][s][t] else {
+                        continue;
+                    };
+                    let Some(r) = self.running[i as usize].as_mut() else {
+                        continue;
+                    };
+                    any = true;
+                    if let Some(reason) = follow_editor(&r.helper, &mut r.editor, control, want) {
+                        let name = self
+                            .entries
+                            .get(r.plugin as usize)
+                            .map_or_else(String::new, |e| e.name.clone());
+                        let _ = self.events.send(PluginEvent::NoWindow { name, reason });
+                    }
+                    // Only the first instance shows its window.
+                    want = false;
+                }
+                if !any && control.get_bool() {
+                    // No plugin playing in this slot: nothing to show.
+                    control.set_bool(false);
+                    let name = plugin_index(self.slots[u][s].loaded_effect.get())
+                        .and_then(|p| self.entries.get(p))
+                        .map(|e| e.name.clone());
+                    if let Some(name) = name {
+                        let _ = self.events.send(PluginEvent::NoWindow {
+                            name,
+                            reason: "it opens once its FX unit plays on a deck or the master"
+                                .into(),
+                        });
+                    }
+                }
+            }
+        }
+        let ins = &mut self.instrument;
+        match ins.running.as_ref() {
+            Some((plugin, helper)) => {
+                let want = ins.show_editor.get_bool();
+                if let Some(reason) = follow_editor(helper, &mut ins.editor, &ins.show_editor, want)
+                {
+                    let name = ins.entries[*plugin as usize].name.clone();
+                    let _ = self.events.send(PluginEvent::NoWindow { name, reason });
+                }
+            }
+            None => {
+                ins.editor = false;
+                ins.show_editor.set_bool(false);
+            }
+        }
     }
 
     fn take_list(&mut self) {
@@ -419,20 +535,26 @@ impl Supervisor {
                         self.stop(i);
                     }
                     if let Some(p) = want {
-                        self.start(i, u, s, p);
+                        self.start(i, u, s, p, t);
                     }
                 }
             }
         }
     }
 
-    fn start(&mut self, i: usize, unit: usize, slot: usize, plugin: u16) {
+    fn start(&mut self, i: usize, unit: usize, slot: usize, plugin: u16, target: usize) {
         let entry = &self.entries[plugin as usize];
         let opts = Options {
             helper: self.opts.helper.clone(),
             plugin: entry.plugin.clone(),
             sample_rate: self.opts.sample_rate,
             max_frames: BLOCK,
+            title: Some(format!(
+                "{} · {} · FX {}",
+                entry.name,
+                target_name(target),
+                slot + 1
+            )),
         };
         match spawn(&opts) {
             Ok((conn, helper)) => {
@@ -475,6 +597,7 @@ impl Supervisor {
                         helper,
                         unit,
                         slot,
+                        editor: false,
                     });
                 }
             }
@@ -592,6 +715,7 @@ impl Supervisor {
             plugin: entry.plugin.clone(),
             sample_rate: self.opts.sample_rate,
             max_frames: BLOCK,
+            title: Some(format!("{} · Instrument", entry.name)),
         };
         match spawn(&opts) {
             Ok((conn, helper)) => {
@@ -608,6 +732,7 @@ impl Supervisor {
                     .is_ok()
                 {
                     ins.running = Some((plugin, helper));
+                    ins.editor = false;
                 }
             }
             Err(e) => {
@@ -856,6 +981,48 @@ mod tests {
         assert_eq!(rig.reg.get("[Master]", "num_plugins").unwrap().get(), 0.0);
         rig.until(|r, _| r.slot("loaded_effect").get() == 0.0);
         rig.until(|_, out| (out - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_plugin_without_a_window_turns_its_edit_button_off() {
+        let mut rig = Rig::new("test-slow");
+        rig.until(|r, _| r.slot("num_parameters").get() == 1.0);
+        rig.slot("show_editor").set_bool(true);
+        let mut events = Vec::new();
+        rig.until(|r, _| {
+            events.extend(r.host.events());
+            !events.is_empty()
+        });
+        assert!(
+            matches!(&events[0], PluginEvent::NoWindow { name, .. } if name == "Test test-slow"),
+            "{events:?}"
+        );
+        assert!(!rig.slot("show_editor").get_bool());
+        // The plugin plays on.
+        rig.until(|_, out| (out - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_plugin_window_opens_and_closes_with_its_edit_button() {
+        let mut rig = Rig::new("test-gain");
+        rig.until(|r, _| r.slot("num_parameters").get() == 1.0);
+        rig.slot("show_editor").set_bool(true);
+        let display = cfg!(any(target_os = "macos", windows))
+            || std::env::var_os("DISPLAY").is_some_and(|d| !d.is_empty());
+        if !display {
+            // Nowhere to show it: the button goes off again.
+            rig.until(|r, _| !r.slot("show_editor").get_bool());
+            return;
+        }
+        // The window stays up while the button is on and the plugin plays.
+        for _ in 0..50 {
+            rig.buffer();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(rig.slot("show_editor").get_bool());
+        rig.slot("show_editor").set_bool(false);
+        rig.until(|_, out| (out - 0.5).abs() < 1e-6);
+        assert!(rig.host.events().is_empty());
     }
 
     impl Rig {
