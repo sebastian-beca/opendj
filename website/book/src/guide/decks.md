@@ -52,6 +52,9 @@ they're on. **Shift-click** and hold PLAY while the deck plays for
 
 The decks' effects are in the [FX bar](fx.md#the-fx-bar) under them.
 
+A stopped or empty deck can be a drum machine instead of a track: click
+**Groove Box** in its header (see [Groove Box](groove-box.md)).
+
 ## Slip, bend and censor
 
 **SLIP** keeps the track in time while you play with it. While it's lit,

@@ -2,27 +2,27 @@
 
 ## 1. Engine: clock and voices
 
-- [ ] 1.1 Deck source is a track or a groove; a Groove Box deck renders into the deck's channel before EQ, so the channel chain is unchanged
-- [ ] 1.2 Groove clock: follows the leading deck, then Link, then its own tempo; phase-locks rather than copying the leader's position, moves on a leader's jump only at the next bar
-- [ ] 1.3 Sample-accurate steps: every step's frame offset within the buffer, swing, nudge and chance; start on the next bar
-- [ ] 1.4 Voices: one per row plus a fading tail (a new hit chokes the last), pitch by resampling, decay envelope, velocity and level with 5 ms glides; nothing allocated on the audio thread
-- [ ] 1.5 DUCK on the chosen deck's channel gain
-- [ ] 1.6 `[GrooveN]` controls; regenerate website/book/supported-controls.txt
-- [ ] 1.7 Tests: the same hits on the same frames at buffer sizes 64, 333 and 2048; hits within one frame of the grid through a tempo ramp; a beat jump on the leader moves the groove at the next bar; no allocation in `process`
+- [x] 1.1 Deck source is a track or a groove; a Groove Box deck renders into the deck's channel before EQ, so the channel chain is unchanged
+- [x] 1.2 Groove clock: follows the leading deck, then Link, then its own tempo; phase-locks rather than copying the leader's position, moves on a leader's jump only at the next bar
+- [ ] 1.3 Sample-accurate steps: every step's frame offset within the buffer, swing, nudge and chance; start on the next bar (done except nudge and chance)
+- [ ] 1.4 Voices: one per row plus a fading tail (a new hit chokes the last), pitch by resampling, decay envelope, velocity and level with 5 ms glides; nothing allocated on the audio thread (done except velocity and glides)
+- [x] 1.5 DUCK on the chosen deck's channel gain
+- [x] 1.6 `[GrooveN]` controls; regenerate website/book/supported-controls.txt
+- [ ] 1.7 Tests: the same hits on the same frames at buffer sizes 64, 333 and 2048; hits within one frame of the grid through a tempo ramp; a beat jump on the leader moves the groove at the next bar; no allocation in `process` (done except the allocation test)
 
 ## 2. Kits
 
 - [ ] 2.1 `pack.json` kits: `"kind": "kit"`, rows, named grooves as step strings
-- [ ] 2.2 Four synthesised built-in kits in classic drum machine styles, each with at least four grooves (see design.md)
+- [x] 2.2 Four synthesised built-in kits in classic drum machine styles, each with at least four grooves (see design.md)
 - [ ] 2.3 Kit edits as overrides in settings, Back to the kit's groove; import and export with `.opendjpack`
 
 ## 3. 2-Deck Groove Box
 
-- [ ] 3.1 Groove Box / Track deck in the deck header menu, kept across restarts; eject first on a loaded deck
-- [ ] 3.2 Rows × 16 steps with names, M and S, playhead and shaded beats; click to toggle and preview; right-click step menu
-- [ ] 3.3 LEVEL, PITCH, DECAY for the selected row, SWING; grooves A-D switched on the bar; kit menu with author and licence; DUCK menu
+- [x] 3.1 Groove Box / Track deck in the deck header (a button on a stopped deck), kept across restarts; eject first on a loaded deck
+- [ ] 3.2 Rows × 16 steps with names, M and S, playhead and shaded beats; click to toggle and preview; right-click step menu (done except the step menu)
+- [ ] 3.3 LEVEL, PITCH, DECAY for the selected row, SWING; grooves A-D switched on the bar; kit menu with author and licence; DUCK menu (done except author and licence, and the DUCK menu: the `duck_deck` control works)
 - [ ] 3.4 Tooltips on every control and a Groove Box part in the first-run tour (Help › Tour)
-- [ ] 3.5 Update the user guide: new website/book/src/guide/groove-box.md, linked from decks.md and layouts.md
+- [x] 3.5 Update the user guide: new website/book/src/guide/groove-box.md, linked from decks.md and layouts.md
 
 ## 4. 4-Deck and pads
 
@@ -36,6 +36,8 @@
 - [ ] 5.2 Record what you play on the sampler pads into the groove
 - [ ] 5.3 Classic Machines kit pack in Get more Packs (CC0 recordings checked file by file, see design.md)
 - [ ] 5.4 A melodic row
+- [ ] 5.5 Accent per step and more rows per kit, in the style of rhythm composers with one lane per instrument
+- [ ] 5.6 Replace drums: a Groove Box over a track deck with that track's drum stem muted, plus drum roll and stutter on the groove
 
 ## Workflow follow-up
 
