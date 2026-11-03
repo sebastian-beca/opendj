@@ -21,6 +21,9 @@ The rail at the far left picks where the tree and the track list come from:
 - **Spotify**, **TIDAL**, **Apple Music**, **SoundCloud** and
   **Mixcloud**: your playlists and saved tracks on those services, for
   browsing (see [Streaming services](#streaming-services)).
+- **Instruments**: the Groove Box, your instrument plugins and the Mic and
+  Aux inputs, dragged onto a deck to play there instead of a track (see
+  [Instruments on a deck](decks.md#instruments-on-a-deck)).
 - **Plex** and **Navidrome**: your own music server, searched from openDJ
   with its tracks downloaded into your collection (see
   [Your own music server](#your-own-music-server)).

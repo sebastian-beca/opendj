@@ -331,6 +331,7 @@ impl AudioPlugins {
                 .collect();
             app.global::<EffectList>()
                 .set_instruments(ModelRc::new(VecModel::from(names)));
+            crate::instruments::show_plugins(&app, &instruments, &list_names(&instruments));
         }
     }
 }

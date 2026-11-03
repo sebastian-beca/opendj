@@ -9,6 +9,7 @@ import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
 import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, KeyLock, MasterBadge, PitchReset, SyncButton } from "controls.slint";
 import { TourMark } from "tourmark.slint";
 import { MapMark } from "mapmark.slint";
+import { InstrumentsUi, LiveIcon } from "instruments.slint";
 
 // A line of the key menu: a key shift and the key it gives.
 export struct KeyItem {
@@ -732,6 +733,12 @@ export component Header inherits Rectangle {
     property <float> groove-bpm: Controls.value(Controls.resolve(groove-group, "bpm"), Controls.tick);
     property <bool> playing: Controls.value(Controls.resolve(group, "play"), Controls.tick) > 0;
     property <bool> groove-following: Controls.value(Controls.resolve(groove-group, "following"), Controls.tick) > 0;
+    // A live input played through the deck instead of a track: 1 the
+    // microphone, 2 the aux input, 3 the instrument plugin.
+    property <int> live: info.loaded || groove ? 0 : InstrumentsUi.live(deck);
+    property <int> instrument: InstrumentsUi.instrument();
+    property <string> live-name: live == 1 ? "Microphone" : live == 2 ? "Aux input"
+        : instrument > 0 && instrument <= EffectList.instruments.length ? EffectList.instruments[instrument - 1] : "Instrument";
     property <int> hold-index: Controls.resolve(group, "seek_hold");
     property <int> position-index: Controls.resolve(group, "playposition");
     // Where a press on the overview started, and whether it became a drag.
@@ -811,35 +818,14 @@ export component Header inherits Rectangle {
                     horizontal-stretch: 1;
                     alignment: center;
                     spacing: 2px;
-                    Text { text: groove ? "Groove Box" : info.loaded ? info.title : "Empty deck"; color: Theme.text; font-size: compact ? 14px : 18px; font-weight: 500; overflow: elide; }
+                    Text { text: groove ? "Groove Box" : live > 0 ? live-name : info.loaded ? info.title : "Empty deck"; color: Theme.text; font-size: compact ? 14px : 18px; font-weight: 500; overflow: elide; }
                     Text {
                         text: groove ? GrooveUi.kits[groove-kit].name + " kit   |   " + round(groove-bpm * 10) / 10 + (groove-following ? " BPM, in time with the mix" : " BPM")
+                            : live > 0 ? (live == 3 ? "Instrument plugin, live" : "Live input")
                             : info.loaded ? (compact ? info.artist : info.artist + "   |   " + info.bpm) : compact ? "Drop a track here" : "Drop a track here or double-click one in the browser";
                         color: Theme.text-dim;
                         font-size: compact ? 11px : 13px;
                         overflow: elide;
-                    }
-                }
-                // An empty or stopped deck can become a Groove Box (its
-                // track is ejected); a Groove Box goes back to a track deck
-                // with ×, or when a track is loaded.
-                if !groove && !compact && !playing: VerticalLayout {
-                    alignment: center;
-                    GrooveButton {
-                        text: "Groove Box";
-                        width: 92px;
-                        clicked => { Controls.set-value(Controls.resolve(groove-group, "enabled"), 1); }
-                    }
-                }
-                if groove: VerticalLayout {
-                    alignment: center;
-                    GrooveButton {
-                        text: compact ? "×" : "× Track deck";
-                        width: compact ? 24px : 96px;
-                        clicked => {
-                            Controls.set-value(Controls.resolve(group, "play"), 0);
-                            Controls.set-value(Controls.resolve(groove-group, "enabled"), 0);
-                        }
                     }
                 }
                 if info.loaded && BeatCounter.decks[deck].shown: BeatBox {
@@ -847,7 +833,11 @@ export component Header inherits Rectangle {
                     tint: tint;
                     compact: compact || BeatCounter.mode == 1;
                 }
-                if !groove: TimeKey { group: group; info: info; tint: tint; show-time: !compact; }
+                if live > 0: VerticalLayout {
+                    alignment: center;
+                    LiveIcon { kind: live + 2; tint: tint; size: compact ? 24px : 30px; }
+                }
+                if !groove && live == 0: TimeKey { group: group; info: info; tint: tint; show-time: !compact; }
             }
             // Out to the header's edge on the side away from the cover.
             EdgeLine { left: mirrored ? 6px : 0px; right: mirrored ? 0px : 6px; line-color: #2c2c2f; }
@@ -864,11 +854,21 @@ export component Header inherits Rectangle {
                 // layer, which would freeze the GPU-updated image.
                 clip: true;
                 Image { width: parent.width; height: parent.height; source: overview; image-fit: fill; }
+                // A live input has no waveform either.
+                if live > 0: Text {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    text: compact ? "Live through this channel" : "Playing live through this deck's channel: EQ, filter, effects and fader. Drop a track here to go back.";
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
                 // A Groove Box has no waveform: a hint for the first steps.
                 if groove: Text {
                     x: 10px;
                     width: parent.width - 20px;
-                    text: compact ? "Press PLAY" : "Press PLAY, then click a square to add or remove a hit. A to D switch grooves on the next bar.";
+                    text: compact ? "Press PLAY" : "Press PLAY, then click a square to add or remove a hit. A to D switch grooves on the next bar. Drop a track here to go back.";
                     color: Theme.text-dim;
                     font-size: 12px;
                     vertical-alignment: center;
@@ -2538,6 +2538,74 @@ component GrooveBox inherits HorizontalLayout {
     }
 }
 
+// A deck playing a live input: what it plays, its level, and for an
+// instrument plugin its window and the KEYBOARD pads switch.
+component LivePanel inherits Rectangle {
+    in property <int> live;
+    in property <string> group;
+    in property <color> tint;
+    property <string> input-group: ["[Microphone]", "[Auxiliary1]", "[Instrument1]"][live - 1];
+    property <bool> ready: Controls.value(Controls.resolve(input-group, "input_configured"), Controls.tick) > 0;
+    property <float> level: Controls.value(Controls.resolve(group, "vu_meter"), Controls.tick);
+    border-radius: 10px;
+    background: Theme.well;
+    VerticalLayout {
+        alignment: center;
+        spacing: 8px;
+        padding: 10px;
+        HorizontalLayout {
+            alignment: center;
+            LiveIcon { kind: live + 2; tint: tint; size: 40px; }
+        }
+        Text {
+            text: !ready ? (live == 3 ? "Pick an instrument plugin to hear it." : "No input picked for it yet.")
+                : live == 3 ? "Play it with a MIDI keyboard or the KEYBOARD pads."
+                : "Live through this deck's EQ, filter, effects and fader.";
+            color: ready ? Theme.text-dim : #ff9f0a;
+            font-size: 13px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+        // The deck's level.
+        HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: 180px;
+                height: 6px;
+                border-radius: 3px;
+                background: #2a2a2d;
+                Rectangle {
+                    x: 0;
+                    width: parent.width * clamp(level, 0, 1);
+                    height: parent.height;
+                    border-radius: 3px;
+                    background: tint;
+                }
+            }
+        }
+        if live == 3 && ready: HorizontalLayout {
+            alignment: center;
+            spacing: 8px;
+            ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "EDIT"; tint: Theme.accent; width: 60px; height: 26px; font-size: 11px; outline-when-lit: true; }
+            ControlButton { group: "[Instrument1]"; key: "keyboard_pads"; text: "KEYBOARD PADS"; tint: Theme.accent; width: 120px; height: 26px; font-size: 11px; }
+        }
+        if !ready: HorizontalLayout {
+            alignment: center;
+            GrooveButton {
+                text: live == 3 ? "Settings › Plugins" : "Settings › Audio";
+                width: 150px;
+                clicked => {
+                    if live == 3 {
+                        InstrumentsUi.open-settings(6, 1);
+                    } else {
+                        InstrumentsUi.open-settings(0, 0);
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component Deck inherits Rectangle {
     in property <int> deck;
     in property <DeckInfo> info;
@@ -2550,6 +2618,7 @@ export component Deck inherits Rectangle {
     property <string> group: "[Channel" + (deck + 1) + "]";
     property <color> tint: Theme.deck-color(deck);
     property <bool> groove: Controls.value(Controls.resolve("[Groove" + (deck + 1) + "]", "enabled"), Controls.tick) > 0;
+    property <int> live: info.loaded || groove ? 0 : InstrumentsUi.live(deck);
     // Files dragged in from Finder or a file manager (see TrackDrag.files-over).
     property <bool> under-files: TrackDrag.files-x >= self.absolute-position.x && TrackDrag.files-x < self.absolute-position.x + self.width
         && TrackDrag.files-y >= self.absolute-position.y && TrackDrag.files-y < self.absolute-position.y + self.height;
@@ -2565,10 +2634,15 @@ export component Deck inherits Rectangle {
     // flight every deck shows a faint outline; the one under the cursor lights up.
     // First, so the sampler pads' own drop areas sit above it.
     drop := DropArea {
-        can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
+        can-drop(e) => { TrackDrag.accepts(e.data) || InstrumentsUi.item(e.data) >= 0 ? DragAction.copy : DragAction.none }
         dropped(e) => {
-            TrackDrag.drop(deck, e.data);
+            if InstrumentsUi.item(e.data) >= 0 {
+                InstrumentsUi.drop(deck, InstrumentsUi.item(e.data));
+            } else {
+                TrackDrag.drop(deck, e.data);
+            }
             TrackDrag.active = false;
+            InstrumentsUi.dragging = false;
             DragAction.copy
         }
     }
@@ -2583,7 +2657,8 @@ export component Deck inherits Rectangle {
             // Outside in: the tempo column, the pads, the loop, and the jog
             // with play and CUE under it beside the mixer. Deck B is the mirror image.
             if groove: GrooveBox { x: 8px; y: 8px; width: parent.width - 16px; height: parent.height - 16px; deck: deck; group: group; tint: tint; }
-            if !groove: HorizontalLayout {
+            if live > 0: LivePanel { x: 8px; y: 8px; width: parent.width - 16px; height: parent.height - 16px; live: live; group: group; tint: tint; }
+            if !groove && live == 0: HorizontalLayout {
                 padding: 8px;
                 spacing: 0px;
                 if mirrored: JogSection { group: group; info: info; tint: tint; spin: spin; }
@@ -2604,7 +2679,7 @@ export component Deck inherits Rectangle {
     }
 
     // Drop target for tracks dragged from the browser. While any drag is in
-    if TrackDrag.active || TrackDrag.files-over || drop.has-drag: Rectangle {
+    if TrackDrag.active || InstrumentsUi.dragging || TrackDrag.files-over || drop.has-drag: Rectangle {
         border-radius: Theme.radius + 2px;
         border-width: drop.has-drag || files-here ? 3px : 2px;
         border-color: drop.has-drag || files-here ? tint : tint.transparentize(0.55);
