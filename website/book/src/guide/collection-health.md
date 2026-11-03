@@ -155,7 +155,7 @@ of the Collection Health page shows how many files are waiting, and
 their files back. The merged plays and tags stay on the kept copy.
 
 **Link as versions** keeps copies of different lengths and links them, so
-each shows the others on its Linked tab, and they leave the Duplicates list.
+each shows the others on its Related tab, and they leave the Duplicates list.
 
 ## Quarantine
 

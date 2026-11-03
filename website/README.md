@@ -31,6 +31,24 @@ security headers, and `404.html` is the not-found page.
 The Download buttons link to the latest GitHub release; `main.js` swaps in the
 direct file links from GitHub's API when it can.
 
+## Mixcloud sign-in
+
+`functions/mixcloud/` holds two Cloudflare Pages Functions that let the app
+sign DJs in to their own Mixcloud accounts without shipping the app's client
+secret: `/mixcloud/login` sends the DJ to Mixcloud, `/mixcloud/callback`
+swaps the code for a token and hands it to the app on `127.0.0.1`. They need
+two variables in the Pages project (Settings › Variables and Secrets, for
+Production):
+
+| Variable | Value |
+|---|---|
+| `MIXCLOUD_CLIENT_ID` | the client id of the openDJ app on mixcloud.com/developers |
+| `MIXCLOUD_CLIENT_SECRET` | its client secret (type: Secret) |
+
+Register the app at https://www.mixcloud.com/developers/create/ with the
+redirect URI `https://opendj.app/mixcloud/callback`. Until the variables are
+set, the sign-in pages say it isn't set up yet.
+
 ## Controller pages
 
 `tools/controllers.py` writes a docs page for every mapping in

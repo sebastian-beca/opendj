@@ -52,6 +52,7 @@ mod file_drop;
 mod files;
 mod groove_box;
 mod inbox;
+mod instruments;
 mod list_picker;
 mod lookup;
 #[cfg(target_os = "macos")]
@@ -60,6 +61,7 @@ mod mac_menu;
 mod mac_titlebar;
 mod map_mode;
 mod mixcloud;
+mod mixcloud_upload;
 mod prefs;
 mod remote;
 mod sampler;
@@ -440,6 +442,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The Groove Boxes: their kits' names, and what they held last time,
     // saved again as it changes.
     groove_box::install(&app);
+    instruments::install(&app);
     let groove_keeper = RefCell::new(groove_box::Keeper::new(&registry));
     let groove_timer = slint::Timer::default();
     groove_timer.start(
@@ -508,6 +511,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )));
     app.global::<EffectList>()
         .set_mic_unit(opendj_engine::MIC_FX_UNIT as i32);
+    app.global::<EffectList>()
+        .set_builtin_rows(ModelRc::new(VecModel::from(audio_plugins::builtin_rows())));
     // Plugins the DJ ticked join the FX lists after the built-in effects.
     let audio_plugins = Rc::new(RefCell::new(audio_plugins::AudioPlugins::new(
         &app,
@@ -900,6 +905,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let deck_rows = Rc::new(VecModel::from(vec![DeckInfo::default(); NUM_DECKS]));
     app.set_decks(ModelRc::from(deck_rows.clone()));
     let positions = engine.visual_positions();
+    // Recordings finished so far, to add the next one's files to Mixed Sets.
+    let recordings_seen = Cell::new(recorder.finished().0);
+    let finished_recorder = recorder.clone();
     {
         let app_weak = app.as_weak();
         timer.start(
@@ -1003,10 +1011,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     browser.borrow_mut().set_library(scanned);
                 }
                 browser.borrow_mut().poll_controllers(&app);
+                // A recording that just stopped shows in Mixed Sets.
+                let (finished, files) = finished_recorder.finished();
+                if finished != recordings_seen.get() {
+                    recordings_seen.set(finished);
+                    browser.borrow_mut().add_recordings(&files);
+                }
+                browser.borrow_mut().poll_mix_export(&app);
                 browser.borrow_mut().poll_streams();
                 browser.borrow_mut().poll_stores(&app);
                 for track in sources.borrow_mut().poll() {
                     browser.borrow_mut().add_imported(track);
+                }
+                for path in sources.borrow_mut().take_loads() {
+                    browser.borrow_mut().load_cached(&path);
                 }
                 browser.borrow_mut().poll_art();
                 browser.borrow_mut().poll_waves();

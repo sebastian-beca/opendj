@@ -397,6 +397,11 @@ impl Deck {
     }
 
     /// Takes the track off the deck; it goes back to the loader to be freed.
+    /// The input played through the deck: 0 none, else 1 + the input.
+    fn live_input(&self) -> usize {
+        (self.c.live_input.get().round().max(0.0) as usize).min(NUM_INPUTS)
+    }
+
     fn unload(&mut self) -> Option<Arc<Track>> {
         let track = self.track.take()?;
         self.audio = None;
@@ -1274,6 +1279,10 @@ pub struct Engine {
     groove_buf: Vec<Vec<[f32; 2]>>,
     duck_buf: Vec<Vec<f32>>,
     duck_env: [f32; NUM_DECKS],
+    /// Each deck's `live_input` and Groove Box switch as last seen, to tell
+    /// which one the DJ picked last.
+    live_seen: [usize; NUM_DECKS],
+    groove_seen: [bool; NUM_DECKS],
     commands: rtrb::Consumer<Command>,
     returned: rtrb::Producer<Returned>,
     master_vu: [f32; 2],
@@ -1480,6 +1489,8 @@ impl Engine {
                 groove_buf: vec![vec![[0.0; 2]; BLOCK]; NUM_DECKS],
                 duck_buf: vec![vec![1.0; BLOCK]; NUM_DECKS],
                 duck_env: [0.0; NUM_DECKS],
+                live_seen: [0; NUM_DECKS],
+                groove_seen: [false; NUM_DECKS],
                 commands,
                 returned,
                 master_vu: [0.0; 2],
@@ -1547,8 +1558,11 @@ impl Engine {
                     let held_bpm = followed
                         .then(|| self.decks[deck].effective_bpm())
                         .filter(|&b| b > 0.0);
-                    // A track loaded on a Groove Box makes it a track deck again.
+                    // A track loaded on a Groove Box or a live input makes
+                    // it a track deck again.
                     self.grooves[deck].c.enabled.set_bool(false);
+                    self.decks[deck].c.live_input.set(0.0);
+                    self.live_seen[deck] = 0;
                     let d = &mut self.decks[deck];
                     d.c.play.set_bool(false);
                     d.expected_pos = None;
@@ -1711,12 +1725,49 @@ impl Engine {
             if groove {
                 d.c.play.set_bool(false);
             }
-            if (d.eject_edge.pressed(&d.c.eject) && !d.c.play.get_bool()) || groove {
+            let pressed = d.eject_edge.pressed(&d.c.eject) && !d.c.play.get_bool();
+            // Ejecting an empty Groove Box or live input deck makes it an
+            // empty track deck.
+            if pressed && d.track.is_none() {
+                self.grooves[deck].c.enabled.set_bool(false);
+                d.c.live_input.set(0.0);
+            }
+            if pressed || groove {
                 if let Some(track) = d.unload() {
                     // The loader clears the deck from the loaded tracks the UI shows.
                     let _ = self.returned.push(Returned::Ejected { deck, track });
                 }
             }
+        }
+    }
+
+    /// Plays live inputs through decks (`[ChannelN],live_input`). The input
+    /// picked last for a deck wins over its Groove Box and the other way
+    /// round; an input plays through one deck at a time, so picking it for
+    /// another deck takes it off the first; and a deck's track is ejected
+    /// (its deck stopped) when an input takes it over.
+    fn live_inputs(&mut self) {
+        for deck in 0..NUM_DECKS {
+            let live = self.decks[deck].live_input();
+            let groove = self.grooves[deck].enabled();
+            if live > 0 && live != self.live_seen[deck] {
+                self.grooves[deck].c.enabled.set_bool(false);
+                for other in (0..NUM_DECKS).filter(|&k| k != deck) {
+                    if self.decks[other].live_input() == live {
+                        self.decks[other].c.live_input.set(0.0);
+                        self.live_seen[other] = 0;
+                    }
+                }
+                let d = &mut self.decks[deck];
+                d.c.play.set_bool(false);
+                if let Some(track) = d.unload() {
+                    let _ = self.returned.push(Returned::Ejected { deck, track });
+                }
+            } else if live > 0 && groove && !self.groove_seen[deck] {
+                self.decks[deck].c.live_input.set(0.0);
+            }
+            self.live_seen[deck] = self.decks[deck].live_input();
+            self.groove_seen[deck] = self.grooves[deck].enabled();
         }
     }
 
@@ -2087,6 +2138,7 @@ impl Engine {
         let buffer_end = Instant::now() + Duration::from_secs_f64(dt);
         self.apply_commands();
         self.eject();
+        self.live_inputs();
         let link = self.link.begin(frames, self.sample_rate);
         self.sync(link);
         let mut moved = [Move::None; NUM_DECKS];
@@ -2159,8 +2211,19 @@ impl Engine {
             self.clock,
         );
         debug_assert_eq!(TARGETS, NUM_DECKS + 1 + NUM_INPUTS);
+        // The input each deck plays instead of a track, if any: that input's
+        // own channel is quiet meanwhile.
+        let live_on: [usize; NUM_DECKS] = std::array::from_fn(|i| {
+            let d = &self.decks[i];
+            if d.track.is_none() && !self.grooves[i].enabled() {
+                d.live_input()
+            } else {
+                0
+            }
+        });
         for (i, input) in self.inputs.iter_mut().enumerate() {
-            input.render(frames, &mut self.fx, input_target(i), dt as f32);
+            let on_deck = live_on.contains(&(i + 1));
+            input.render(frames, &mut self.fx, input_target(i), dt as f32, on_deck);
         }
         let duck = self.ducker.settings();
 
@@ -2610,6 +2673,9 @@ impl Engine {
                 }
                 if groove_on[i] {
                     s = groove_buf[i][f];
+                }
+                if live_on[i] > 0 {
+                    s = self.inputs[live_on[i] - 1].raw[f];
                 }
                 let gains = std::array::from_fn(|k| p.eq_from[k] + (p.eq_to[k] - p.eq_from[k]) * r);
                 let pre = lerp(p.pre);
@@ -5428,6 +5494,60 @@ mod tests {
         aux("main_mix").set_bool(false);
         let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
         assert!(peak(&out[out.len() / 2..]) < 1e-4);
+    }
+
+    #[test]
+    fn a_deck_plays_a_live_input_through_its_channel() {
+        let (reg, mut engine, mut input) = setup();
+        let aux = |k: &str| reg.get("[Auxiliary1]", k).unwrap();
+        let ch = |d: usize, k: &str| reg.get(&format!("[Channel{d}]"), k).unwrap();
+        let (feed, mut tx) = mic_feed();
+        engine.set_input(AUXILIARY, Some(feed));
+        // The aux's own channel is off: nothing is heard.
+        let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
+        assert!(peak(&out[out.len() / 2..]) < 1e-4);
+        // On deck 2 it plays through the deck's channel, play or not, and
+        // the deck's track is ejected.
+        load(&mut input, 1, short_track(120.0, 4.0));
+        run(&mut engine, 0.05);
+        ch(2, "live_input").set(2.0);
+        let out = talk(&mut engine, &mut tx, 0.4, sine(500.0, 0.4));
+        assert!(!ch(2, "track_loaded").get_bool());
+        let level = level_at(&out[out.len() / 2..], 500.0);
+        assert!(level > 0.1, "{level}");
+        // The deck's fader turns it down.
+        ch(2, "volume").set(0.0);
+        talk(&mut engine, &mut tx, 0.1, sine(500.0, 0.4));
+        let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
+        assert!(peak(&out[out.len() / 2..]) < 1e-3);
+        // With the deck holding it, the aux's own switch adds nothing.
+        ch(2, "volume").set(1.0);
+        aux("main_mix").set_bool(true);
+        let out = talk(&mut engine, &mut tx, 0.4, sine(500.0, 0.4));
+        let doubled = level_at(&out[out.len() / 2..], 500.0);
+        assert!((doubled - level).abs() < 0.05, "{level} {doubled}");
+        aux("main_mix").set_bool(false);
+        // Picked for deck 1, it leaves deck 2.
+        ch(1, "live_input").set(2.0);
+        talk(&mut engine, &mut tx, 0.05, sine(500.0, 0.4));
+        assert_eq!(ch(2, "live_input").get(), 0.0);
+        // A Groove Box picked on deck 1 takes over; eject empties the deck.
+        reg.get("[Groove1]", "enabled").unwrap().set_bool(true);
+        talk(&mut engine, &mut tx, 0.05, sine(500.0, 0.4));
+        assert_eq!(ch(1, "live_input").get(), 0.0);
+        ch(1, "live_input").set(2.0);
+        talk(&mut engine, &mut tx, 0.05, sine(500.0, 0.4));
+        assert!(!reg.get("[Groove1]", "enabled").unwrap().get_bool());
+        ch(1, "eject").set_bool(true);
+        talk(&mut engine, &mut tx, 0.05, sine(500.0, 0.4));
+        ch(1, "eject").set_bool(false);
+        assert_eq!(ch(1, "live_input").get(), 0.0);
+        // A track loaded makes it a track deck again.
+        ch(2, "live_input").set(2.0);
+        talk(&mut engine, &mut tx, 0.05, sine(500.0, 0.4));
+        load(&mut input, 1, short_track(120.0, 4.0));
+        talk(&mut engine, &mut tx, 0.05, sine(500.0, 0.4));
+        assert_eq!(ch(2, "live_input").get(), 0.0);
     }
 
     /// The largest jump in slope between neighbouring samples of the left

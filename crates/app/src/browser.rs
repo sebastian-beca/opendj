@@ -36,6 +36,7 @@ mod columns;
 mod filters;
 mod health;
 mod info;
+mod mix_export;
 mod picks;
 mod sets;
 mod spotify_export;
@@ -76,6 +77,8 @@ const STORES: i32 = 5;
 /// in the rail after Files.
 const ALBUMS: i32 = 9;
 const MIXED_SETS: i32 = 10;
+/// The Groove Box, instrument plugins and inputs (see [`crate::instruments`]).
+const INSTRUMENTS: i32 = 12;
 
 /// Whether `source` shows store results.
 fn is_stores(source: i32) -> bool {
@@ -142,7 +145,7 @@ const MATCH_CANDIDATES: usize = 8;
 
 /// The sources in the rail, in order, as saved when hidden. The rail's
 /// `names` and `source-names` in `library.slint` must list the same.
-pub const SOURCE_NAMES: [&str; 12] = [
+pub const SOURCE_NAMES: [&str; 13] = [
     "Collection",
     "Files",
     "Spotify",
@@ -155,6 +158,7 @@ pub const SOURCE_NAMES: [&str; 12] = [
     "Albums",
     "Mixed Sets",
     "Mixcloud",
+    "Instruments",
 ];
 
 /// Every source in the rail: the built-in ones, then add-ons' own (see
@@ -388,11 +392,13 @@ const KIND_CHECK: i32 = 13;
 /// One of the DJ's crates, and the Crates and Playlists headings.
 const KIND_CRATE: i32 = 17;
 const KIND_SECTION: i32 = 18;
+/// The Play Ready stage, green in the sidebar.
+const KIND_READY: i32 = 19;
 /// An album's folder, and a folder of mixed sets.
 const KIND_ALBUM: i32 = 15;
 const KIND_MIX: i32 = 16;
 /// An artist in the Albums source, with their albums under them.
-const KIND_ARTIST: i32 = 19;
+const KIND_ARTIST: i32 = 20;
 
 /// Seconds a track must play on a deck to count as played, for the history.
 const PLAYED_AFTER: f64 = 30.0;
@@ -540,6 +546,8 @@ pub struct Browser {
     folders: Folders,
     /// The mixed sets folder: its tracks are kept out of the collection.
     mixed_sets: Option<PathBuf>,
+    /// A mixed set being made into a Mixcloud MP3.
+    mix_export: Option<std::sync::mpsc::Receiver<mix_export::Progress>>,
     /// Play Album was picked, for Automix to play the list gaplessly.
     album_request: bool,
     /// The Albums source's covers, bigger than the list's thumbnails.
@@ -1122,6 +1130,7 @@ impl Browser {
             columns: columns::ColumnState::new(&crate::settings::field_names()),
             folders: crate::settings::stage_folders(),
             mixed_sets: crate::settings::mixed_sets_folder(),
+            mix_export: None,
             album_request: false,
             album_art: Art::sized(albums::COVER_SIZE),
             album_tiles: Vec::new(),
@@ -1616,6 +1625,17 @@ impl Browser {
             })
         });
         let w = with.clone();
+        edit.on_set_color(move |row, n| {
+            w(&|b| {
+                let row = row.max(0) as usize;
+                let color = usize::try_from(n)
+                    .ok()
+                    .and_then(|i| opendj_library::query::COLOR_NAMES.get(i))
+                    .map(|&(_, rgb)| rgb);
+                b.color_rows(row, row, color);
+            })
+        });
+        let w = with.clone();
         edit.on_set_rating(move |row, n| {
             w(&|b| {
                 let row = row.max(0) as usize;
@@ -1660,6 +1680,7 @@ impl Browser {
         edit.on_set_rule(move |i, text| w(&|b| b.set_rule(i as usize, &text)));
         Self::install_staging(&edit, &with);
         Self::install_track_menu(&edit, &with);
+        Self::install_mix_export(&app.global::<FilesUi>(), &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
         Self::install_cleanup(&app.global::<crate::CleanupUi>(), &with);
         Self::install_fix_names(app, &with);
@@ -1751,7 +1772,7 @@ impl Browser {
     /// tree of their own keep the current one underneath their placeholder.
     fn select_source(&mut self, source: i32) {
         let usable = match source {
-            COLLECTION | FILES | ALBUMS | MIXED_SETS => true,
+            COLLECTION | FILES | ALBUMS | MIXED_SETS | INSTRUMENTS => true,
             SPOTIFY | TIDAL | APPLE_MUSIC | SOUNDCLOUD | MIXCLOUD => STREAMING_ENABLED,
             STORES => STORES_ENABLED,
             _ => false,
@@ -2348,6 +2369,19 @@ impl Browser {
         }
         if changed && self.tree == FILES {
             self.refresh_rows();
+        }
+    }
+
+    /// Loads a file from a music server's cache onto a deck that isn't
+    /// playing (deck A first), without it joining the collection: it stays
+    /// a file shown, as in Files, until the DJ adds it.
+    pub fn load_cached(&mut self, path: &Path) {
+        let index = match self.path_index.get(path) {
+            Some(&i) => Some(i),
+            None => self.add_browsed(read_track(0, path)),
+        };
+        if let Some(i) = index {
+            self.load_to_free_deck(i);
         }
     }
 
@@ -3323,6 +3357,18 @@ impl Browser {
             t.rating = rating;
             if let Some(Err(e)) = db.map(|db| db.set_rating(t.id, rating)) {
                 eprintln!("can't save the rating: {e}");
+            }
+        });
+    }
+
+    /// Gives the rows picked in the track list (all of them when `first`
+    /// is one of several picked) a colour, or none.
+    pub fn color_rows(&mut self, first: usize, last: usize, color: Option<u32>) {
+        let tracks = self.chosen_tracks(first, last);
+        self.change_tracks(&tracks, |t, db| {
+            t.info.color = color;
+            if let Some(Err(e)) = db.map(|db| db.set_color(t.id, color)) {
+                eprintln!("can't save the colour: {e}");
             }
         });
     }

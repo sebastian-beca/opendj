@@ -13,6 +13,7 @@
 //! some. `[Broadcast],on_air_seconds` counts the time on air.
 
 pub mod encode;
+pub mod mixcloud;
 pub mod resample;
 pub mod server;
 

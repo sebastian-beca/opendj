@@ -7,15 +7,16 @@ track.
 
 ## Start a groove
 
-1. Stop the deck you want to use (or pick an empty one) and click
-   **Groove Box** in its header. A loaded track is ejected first.
+1. Click **Instruments** in the rail at the far left (the keyboard icon)
+   and drag a kit from **Groove Box** onto a deck. A track on that deck is
+   stopped and ejected first.
 2. Press **PLAY** in the Groove Box. It starts on the next downbeat of the
    playing deck, so it is in time from the first hit.
 3. Pick a groove from **Grooves ▾**: Four to the floor, Off-beat hats,
    Breakbeat, Half time, Electro or Minimal.
 
-To go back to a normal deck, click **× Track deck**, or load a track onto
-the deck.
+To go back to a normal deck, load a track onto the deck, or press EJECT
+on the stopped Groove Box.
 
 ## Change the steps
 

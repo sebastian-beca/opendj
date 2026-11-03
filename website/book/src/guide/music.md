@@ -21,6 +21,12 @@ The rail at the far left picks where the tree and the track list come from:
 - **Spotify**, **TIDAL**, **Apple Music**, **SoundCloud** and
   **Mixcloud**: your playlists and saved tracks on those services, for
   browsing (see [Streaming services](#streaming-services)).
+- **Instruments**: the Groove Box, your instrument plugins and the Mic and
+  Aux inputs, dragged onto a deck to play there instead of a track (see
+  [Instruments on a deck](decks.md#instruments-on-a-deck)).
+- **Plex** and **Navidrome**: your own music server, searched from openDJ
+  with its tracks downloaded into your collection (see
+  [Your own music server](#your-own-music-server)).
 - **Bandcamp**, **Beatport** and **OneLibrary**: coming soon.
 
 ### Streaming services
@@ -60,6 +66,49 @@ the background and updated if it changed (Spotify, TIDAL, SoundCloud and
 Apple Music say when a playlist changed, so unchanged ones aren't fetched
 again at all). **Refresh**, beside **Sign out**, fetches the list of
 playlists again. Signing out forgets what was kept.
+
+### Your own music server
+
+If your music lives on a **Plex Media Server** or on **Navidrome** (or any
+other server that speaks the Subsonic API, such as Gonic, Airsonic, Ampache
+or LMS), openDJ can search it and bring tracks into your collection. These
+are your own files, so unlike the streaming services they play on decks.
+
+Fill in the server on its own page in Settings, **Settings › Plex** or
+**Settings › Navidrome**:
+
+- **Navidrome**: the server's address (for example
+  `http://192.168.1.20:4533`), your username and your password. The
+  password is only ever sent as a salted token.
+- **Plex**: the server's address (for example `http://192.168.1.20:32400`)
+  and your Plex token. To find the token, open any track's **⋯** menu in
+  Plex Web, pick **Get Info › View XML**, and copy the `X-Plex-Token` at
+  the end of the address that opens.
+
+Then pick the source in the rail and start a **New search**: **Auto** finds
+albums and songs, **Track**, **Album** and **Artist** narrow it down (Artist
+lists that artist's albums), and **Playlist** lists your server's playlists
+whose name has the text in it (leave it as `*` for all of them). Open an
+album or playlist to see its songs.
+
+Each song, album and playlist offers two ways to bring it in:
+
+- **Play** (double-click a song, or its **▶**) loads it onto a deck that
+  isn't playing, fetching it into the cache first. A FLAC on your home
+  network takes a second or two.
+- The **cloud** downloads it into the cache, to play later or offline. A
+  filled cloud means it's there. Cached tracks stay out of your collection,
+  and the oldest go when the cache is full (5 GB unless you set **Cache
+  size** on the source's page). Their waveform, tempo and key are kept as
+  long as the file stays in the cache.
+- **+ Collection** (or **+ Album**) brings it into your collection for good:
+  `Downloaded/Plex` or `Downloaded/Navidrome` in your music folder, one
+  folder per artist and album with its cover, or the **Collection folder**
+  set on the source's page. A song already in the cache moves over from
+  there instead of downloading again.
+
+Tick several rows to **Download** them to the cache or **Add to Collection**
+together. openDJ fetches the original files, so a FLAC stays a FLAC.
 
 ## How tracks come in
 
@@ -381,7 +430,12 @@ Click a track to pick it, **shift-click** another to pick every track in
 between, and **⌘-click** (Ctrl-click on Windows and Linux) to add or drop
 one track at a time; ⌘A picks the whole list. Right-click, drag, rate or
 add to a playlist and it applies to every picked track. Sorting or a
-refreshed list keeps the same tracks picked.
+refreshed list keeps the same tracks picked. With several picked, the list's
+heading says how many and their total time ("12 selected · 1h 14m") in
+place of the whole list's time.
+
+The track menu's **Rating** and **Colour** rows set every picked track at
+once; the colours are the ones `color:red`, `color:blue` and so on search for.
 
 ## Track info
 
