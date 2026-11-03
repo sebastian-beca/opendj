@@ -768,6 +768,17 @@ pub fn set_filter_tolerance(i: usize) {
     save(|v| v["filter_tolerance"] = json!(i));
 }
 
+/// How track colours show in the track list: 0 a dot in the Colour
+/// column (the default), 1 a strip at the row's edge, 2 the row tinted,
+/// 3 not at all. `None` before it was ever set.
+pub fn track_color() -> Option<u8> {
+    load()["track_color"].as_u64().map(|m| m.min(3) as u8)
+}
+
+pub fn set_track_color(mode: u8) {
+    save(|v| v["track_color"] = json!(mode.min(3)));
+}
+
 /// The track list's columns, in order, as (column id, width); empty for
 /// the default set.
 pub fn columns() -> Vec<(i32, f32)> {
