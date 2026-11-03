@@ -30,6 +30,9 @@ pub struct Options {
     pub sample_rate: u32,
     /// The longest block `process` will be given.
     pub max_frames: usize,
+    /// The title of the plugin's editor window, when it opens (the
+    /// plugin's name when None).
+    pub title: Option<String>,
 }
 
 /// The routed deck's tempo and position, for beat-synced plugins.
@@ -38,6 +41,15 @@ pub struct Transport {
     pub bpm: f64,
     pub beat: f64,
     pub playing: bool,
+}
+
+/// A plugin's own window, as the helper reports it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Editor {
+    Closed,
+    Shown,
+    /// The plugin has no window of its own, or it failed to open.
+    Missing,
 }
 
 /// What became of a block.
@@ -287,6 +299,11 @@ pub fn spawn(opts: &Options) -> io::Result<(Connection, Helper)> {
         .arg("--shm")
         .arg(&path)
         .args(plugin_args(&opts.plugin))
+        .args(
+            opts.title
+                .iter()
+                .flat_map(|t| [std::ffi::OsString::from("--title"), t.into()]),
+        )
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -542,6 +559,29 @@ impl Helper {
     /// Lines the helper printed after it started (errors, notes).
     pub fn messages(&self) -> impl Iterator<Item = String> + '_ {
         self.messages.try_iter()
+    }
+
+    /// Asks the helper to open (or close) the plugin's own window.
+    pub fn set_editor(&self, open: bool) {
+        self.shm
+            .header()
+            .editor
+            .store(open as u32, Ordering::Release);
+    }
+
+    /// Whether openDJ's ask for the window still stands: the helper takes
+    /// it back when the DJ closes the window or the plugin has none.
+    pub fn editor_asked(&self) -> bool {
+        self.shm.header().editor.load(Ordering::Acquire) == 1
+    }
+
+    /// What became of the window: shown, closed, or none to show.
+    pub fn editor(&self) -> Editor {
+        match self.shm.header().editor_shown.load(Ordering::Acquire) {
+            1 => Editor::Shown,
+            2 => Editor::Missing,
+            _ => Editor::Closed,
+        }
     }
 
     /// The plugin's name, parameters and latency, as it reported them.

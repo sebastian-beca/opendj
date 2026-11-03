@@ -182,6 +182,8 @@ impl InputControls {
                 crate::effects::MAX_PLUGINS as f64,
                 Behavior::Linear,
             );
+            // The instrument's own window, as an effect slot's `show_editor`.
+            reg.toggle(g, "show_editor");
         }
         let configured = reg.indicator(g, "input_configured", 1.0);
         alias(reg, g, "enabled", g, "input_configured");

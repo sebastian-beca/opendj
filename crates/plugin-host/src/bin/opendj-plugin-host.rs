@@ -5,7 +5,8 @@
 //!   maps the block openDJ shares, loads one effect, describes it on stdout
 //!   (`name`, `latency`, `param` lines, then `ready`) and runs a block each
 //!   time openDJ writes a byte to stdin. It exits when stdin closes, so a
-//!   helper never outlives openDJ.
+//!   helper never outlives openDJ. `--title <text>` names the window the
+//!   plugin's editor opens in, when openDJ asks for it.
 //! - `opendj-plugin-host --scan <file>` lists the plugins in a CLAP file or
 //!   VST3 bundle, and `--scan-au` lists the installed Audio Units (macOS)
 //!   (`plugin` lines, then `done`) and exits.
@@ -19,8 +20,9 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use opendj_plugin_host::effects::{self, Effect, Plugin};
+use opendj_plugin_host::effects::{self, Effect, MainThread, Plugin};
 use opendj_plugin_host::shm::{self, Midi, Shm, CHANNELS, MAX_EVENTS, MAX_PARAMS};
+use opendj_plugin_host::window::EditorWindow;
 use opendj_plugin_host::Transport;
 
 fn main() {
@@ -32,6 +34,7 @@ fn main() {
     let mut scan_au = false;
     let mut id = None;
     let mut scan = None;
+    let mut title = None;
     let mut args = std::env::args_os().skip(1);
     while let Some(a) = args.next() {
         match a.to_str() {
@@ -43,6 +46,7 @@ fn main() {
             Some("--scan-au") => scan_au = true,
             Some("--id") => id = args.next().and_then(|s| s.into_string().ok()),
             Some("--scan") => scan = args.next().map(PathBuf::from),
+            Some("--title") => title = args.next().and_then(|s| s.into_string().ok()),
             _ => fail(&format!("unknown argument {a:?}")),
         }
     }
@@ -95,16 +99,36 @@ fn main() {
         .unwrap_or_else(|e| fail(&format!("audio thread: {e}")));
     say("ready");
 
-    // Main thread: serve the plugin's main-thread requests until openDJ
-    // lets go. Exiting without tearing the plugin down is deliberate: a
-    // plugin can't crash on the way out if it is never asked to clean up.
+    // Main thread: serve the plugin's main-thread requests, and its editor
+    // window, until openDJ lets go. Exiting without tearing the plugin down
+    // is deliberate: a plugin can't crash on the way out if it is never
+    // asked to clean up.
+    let title = title.unwrap_or_else(|| info.name.clone());
+    let mut editor = EditorWindow::new(title);
+    let mut no_main = NoMain;
     while !audio.is_finished() {
-        if let Some(m) = main.as_mut() {
-            m.idle();
-        }
-        std::thread::sleep(Duration::from_millis(10));
+        let m: &mut dyn MainThread = match main.as_mut() {
+            Some(m) => m.as_mut(),
+            None => &mut no_main,
+        };
+        m.idle();
+        let wait = m
+            .next_idle()
+            .map_or(IDLE, |d| d.min(IDLE))
+            .max(Duration::from_millis(1));
+        editor.step(m, &h.editor, &h.editor_shown, wait);
     }
     std::process::exit(0);
+}
+
+/// How often the plugin's main thread is served, at the longest.
+const IDLE: Duration = Duration::from_millis(10);
+
+/// The main thread of an effect that needs none (the test effects).
+struct NoMain;
+
+impl MainThread for NoMain {
+    fn idle(&mut self) {}
 }
 
 fn run_audio(shm: &Shm, mut fx: Box<dyn Effect>) {

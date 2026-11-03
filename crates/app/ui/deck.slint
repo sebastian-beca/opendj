@@ -904,12 +904,12 @@ export global DeckActions {
 
 export global EffectList {
     // The built-in effects, then the FX plugins the DJ ticked in Settings ›
-    // Mixer › Plugins (after the built-in effects).
+    // Settings › Plugins (after the built-in effects).
     in property <[string]> names;
     // How many of `names` are built in (the engine's AVAILABLE_EFFECTS).
     // Set from the engine's list at start-up.
     in property <int> builtin-count: 18;
-    // The instrument plugins ticked in Settings › Mixer › Plugins, for the
+    // The instrument plugins ticked in Settings › Plugins, for the
     // Instrument input (`[Instrument1],instrument` 1 and up).
     in property <[string]> instruments;
     // The Color FX the filter knobs can play, `loaded_chain_preset` 1 and up.

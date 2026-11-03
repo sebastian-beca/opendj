@@ -6,13 +6,22 @@
 //! values and are sent to the plugin as events when they change; the routed
 //! deck's tempo and beat position go in as a transport event.
 
+use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, CString};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use clack_extensions::audio_ports::{AudioPortInfoBuffer, PluginAudioPorts};
+use clack_extensions::gui::{
+    GuiApiType, GuiConfiguration, GuiSize, HostGui, HostGuiImpl, PluginGui, Window,
+};
 use clack_extensions::latency::PluginLatency;
 use clack_extensions::params::{ParamInfoBuffer, ParamInfoFlags, PluginParams};
+#[cfg(all(unix, not(target_os = "macos")))]
+use clack_extensions::posix_fd::{FdFlags, HostPosixFd, HostPosixFdImpl, PluginPosixFd};
+use clack_extensions::timer::{HostTimer, HostTimerImpl, PluginTimer, TimerId};
 use clack_host::events::event_types::{
     MidiEvent, NoteOffEvent, NoteOnEvent, ParamValueEvent, TransportEvent, TransportFlags,
 };
@@ -23,7 +32,7 @@ use clack_host::utils::{BeatTime, SecondsTime};
 
 use crate::client::Transport;
 use crate::descriptor::Descriptor;
-use crate::effects::{Effect, Info, Loaded, MainThread, Param};
+use crate::effects::{EditorSize, Effect, Info, Loaded, MainThread, Param, ParentWindow};
 use crate::shm::{Midi, CHANNELS, MAX_EVENTS, MAX_PARAMS};
 
 fn text(s: Option<&CStr>) -> String {
@@ -61,8 +70,13 @@ pub fn scan(file: &Path) -> Result<Vec<Descriptor>, String> {
 
 struct Host;
 
+#[derive(Default)]
 struct HostShared {
     callback: AtomicBool,
+    /// A size the editor asked its window to take.
+    resize: Mutex<Option<GuiSize>>,
+    /// The plugin closed (or lost) its editor.
+    gui_closed: AtomicBool,
 }
 
 impl<'a> SharedHandler<'a> for HostShared {
@@ -73,16 +87,181 @@ impl<'a> SharedHandler<'a> for HostShared {
     }
 }
 
-impl HostHandlers for Host {
-    type Shared<'a> = HostShared;
-    type MainThread<'a> = ();
-    type AudioProcessor<'a> = ();
+impl HostGuiImpl for HostShared {
+    fn resize_hints_changed(&self) {}
+
+    fn request_resize(&self, new_size: GuiSize) -> Result<(), HostError> {
+        *self.resize.lock().unwrap_or_else(|e| e.into_inner()) = Some(new_size);
+        Ok(())
+    }
+
+    fn request_show(&self) -> Result<(), HostError> {
+        Ok(())
+    }
+
+    fn request_hide(&self) -> Result<(), HostError> {
+        Ok(())
+    }
+
+    fn closed(&self, _was_destroyed: bool) {
+        self.gui_closed.store(true, Ordering::Release);
+    }
 }
 
-/// Keeps the instance (and the library) alive on the main thread.
+/// Timers (and, on Linux, file descriptors) the plugin asked for, served
+/// from the helper's main loop.
+#[derive(Default)]
+struct HostMain {
+    timers: RefCell<Vec<ClapTimer>>,
+    next_timer: Cell<u32>,
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fds: RefCell<Vec<(i32, FdFlags)>>,
+}
+
+struct ClapTimer {
+    id: u32,
+    period: Duration,
+    next: Instant,
+}
+
+impl<'a> MainThreadHandler<'a> for HostMain {}
+
+impl HostTimerImpl for HostMain {
+    fn register_timer(&self, period_ms: u32) -> Result<TimerId, HostError> {
+        let id = self.next_timer.get();
+        self.next_timer.set(id.wrapping_add(1));
+        let period = Duration::from_millis(period_ms.max(10) as u64);
+        self.timers.borrow_mut().push(ClapTimer {
+            id,
+            period,
+            next: Instant::now() + period,
+        });
+        Ok(TimerId(id))
+    }
+
+    fn unregister_timer(&self, timer_id: TimerId) -> Result<(), HostError> {
+        self.timers.borrow_mut().retain(|t| t.id != timer_id.0);
+        Ok(())
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+impl HostPosixFdImpl for HostMain {
+    fn register_fd(&self, fd: i32, flags: FdFlags) -> Result<(), HostError> {
+        let mut fds = self.fds.borrow_mut();
+        fds.retain(|(f, _)| *f != fd);
+        fds.push((fd, flags));
+        Ok(())
+    }
+
+    fn modify_fd(&self, fd: i32, flags: FdFlags) -> Result<(), HostError> {
+        self.register_fd(fd, flags)
+    }
+
+    fn unregister_fd(&self, fd: i32) -> Result<(), HostError> {
+        self.fds.borrow_mut().retain(|(f, _)| *f != fd);
+        Ok(())
+    }
+}
+
+impl HostHandlers for Host {
+    type Shared<'a> = HostShared;
+    type MainThread<'a> = HostMain;
+    type AudioProcessor<'a> = ();
+
+    fn declare_extensions(builder: &mut HostExtensions<Self>, _shared: &Self::Shared<'_>) {
+        builder.register::<HostGui>().register::<HostTimer>();
+        #[cfg(all(unix, not(target_os = "macos")))]
+        builder.register::<HostPosixFd>();
+    }
+}
+
+/// Keeps the instance (and the library) alive on the main thread, and
+/// runs its editor.
 struct ClapMain {
     instance: PluginInstance<Host>,
     _entry: PluginEntry,
+    /// The editor, while it is open.
+    gui: Option<PluginGui>,
+    /// Whether the open editor can be resized.
+    resizable: bool,
+}
+
+impl ClapMain {
+    /// Runs the plugin's timers that are due.
+    fn run_timers(&mut self) {
+        let now = Instant::now();
+        let due: Vec<u32> = self.instance.access_handler(|h: &HostMain| {
+            let mut timers = h.timers.borrow_mut();
+            timers
+                .iter_mut()
+                .filter(|t| t.next <= now)
+                .map(|t| {
+                    t.next = now + t.period;
+                    t.id
+                })
+                .collect()
+        });
+        if due.is_empty() {
+            return;
+        }
+        let handle = self.instance.plugin_handle();
+        if let Some(timer) = handle.get_extension::<PluginTimer>() {
+            for id in due {
+                timer.on_timer(&handle, TimerId(id));
+            }
+        }
+    }
+
+    /// Hands the plugin the file descriptors that are ready (Linux).
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn run_fds(&mut self) {
+        let fds: Vec<(i32, FdFlags)> = self
+            .instance
+            .access_handler(|h: &HostMain| h.fds.borrow().clone());
+        if fds.is_empty() {
+            return;
+        }
+        let mut polls: Vec<libc::pollfd> = fds
+            .iter()
+            .map(|(fd, flags)| {
+                let mut events = 0;
+                if flags.contains(FdFlags::READ) {
+                    events |= libc::POLLIN;
+                }
+                if flags.contains(FdFlags::WRITE) {
+                    events |= libc::POLLOUT;
+                }
+                libc::pollfd {
+                    fd: *fd,
+                    events,
+                    revents: 0,
+                }
+            })
+            .collect();
+        // SAFETY: `polls` is a valid array of its length; no waiting.
+        let n = unsafe { libc::poll(polls.as_mut_ptr(), polls.len() as libc::nfds_t, 0) };
+        if n <= 0 {
+            return;
+        }
+        let handle = self.instance.plugin_handle();
+        let Some(ext) = handle.get_extension::<PluginPosixFd>() else {
+            return;
+        };
+        for p in polls.iter().filter(|p| p.revents != 0) {
+            let mut flags = FdFlags::empty();
+            if p.revents & libc::POLLIN != 0 {
+                flags |= FdFlags::READ;
+            }
+            if p.revents & libc::POLLOUT != 0 {
+                flags |= FdFlags::WRITE;
+            }
+            if p.revents & (libc::POLLERR | libc::POLLHUP) != 0 {
+                flags |= FdFlags::ERROR;
+            }
+            ext.on_fd(&handle, p.fd, flags);
+        }
+    }
 }
 
 impl MainThread for ClapMain {
@@ -93,6 +272,119 @@ impl MainThread for ClapMain {
         if asked {
             self.instance.call_on_main_thread_callback();
         }
+        self.run_timers();
+        #[cfg(all(unix, not(target_os = "macos")))]
+        self.run_fds();
+    }
+
+    fn next_idle(&self) -> Option<Duration> {
+        let now = Instant::now();
+        self.instance.access_handler(|h: &HostMain| {
+            h.timers
+                .borrow()
+                .iter()
+                .map(|t| t.next.saturating_duration_since(now))
+                .min()
+        })
+    }
+
+    fn open_editor(&mut self, parent: ParentWindow, scale: f64) -> Result<EditorSize, String> {
+        let handle = self.instance.plugin_handle();
+        let gui = handle
+            .get_extension::<PluginGui>()
+            .ok_or("it has no window of its own")?;
+        let (api, window) = match parent {
+            ParentWindow::Cocoa(view) => (
+                GuiApiType::COCOA,
+                Window::from_generic_ptr(GuiApiType::COCOA, view),
+            ),
+            ParentWindow::Win32(hwnd) => (
+                GuiApiType::WIN32,
+                Window::from_generic_ptr(GuiApiType::WIN32, hwnd),
+            ),
+            ParentWindow::X11(id) => (GuiApiType::X11, Window::from_x11_handle(id as _)),
+        };
+        let config = GuiConfiguration {
+            api_type: api,
+            is_floating: false,
+        };
+        if !gui.is_api_supported(&handle, config) {
+            return Err("its window can't be shown inside openDJ's".into());
+        }
+        gui.create(&handle, config)
+            .map_err(|_| "its window failed to open")?;
+        if api != GuiApiType::COCOA {
+            // Cocoa sizes are in points; elsewhere the plugin scales itself.
+            let _ = gui.set_scale(&handle, scale);
+        }
+        // SAFETY: the window stays until `close_editor` destroys the editor.
+        if unsafe { gui.set_parent(&handle, window) }.is_err() {
+            gui.destroy(&handle);
+            return Err("its window failed to open".into());
+        }
+        let size = gui.get_size(&handle).unwrap_or(GuiSize {
+            width: 640,
+            height: 400,
+        });
+        let _ = gui.show(&handle);
+        self.resizable = gui.can_resize(&handle);
+        self.gui = Some(gui);
+        Ok(EditorSize {
+            width: size.width,
+            height: size.height,
+        })
+    }
+
+    fn close_editor(&mut self) {
+        if let Some(gui) = self.gui.take() {
+            let handle = self.instance.plugin_handle();
+            let _ = gui.hide(&handle);
+            gui.destroy(&handle);
+        }
+        self.instance.access_shared_handler(|s| {
+            s.gui_closed.store(false, Ordering::Release);
+            s.resize.lock().unwrap_or_else(|e| e.into_inner()).take();
+        });
+    }
+
+    fn editor_can_resize(&self) -> bool {
+        self.gui.is_some() && self.resizable
+    }
+
+    fn editor_resized(&mut self, size: EditorSize) -> EditorSize {
+        let Some(gui) = self.gui else {
+            return size;
+        };
+        let handle = self.instance.plugin_handle();
+        let asked = GuiSize {
+            width: size.width,
+            height: size.height,
+        };
+        let took = if gui.can_resize(&handle) {
+            let s = gui.adjust_size(&handle, asked).unwrap_or(asked);
+            let _ = gui.set_size(&handle, s);
+            s
+        } else {
+            gui.get_size(&handle).unwrap_or(asked)
+        };
+        EditorSize {
+            width: took.width,
+            height: took.height,
+        }
+    }
+
+    fn take_editor_resize(&mut self) -> Option<EditorSize> {
+        self.instance
+            .access_shared_handler(|s| s.resize.lock().unwrap_or_else(|e| e.into_inner()).take())
+            .map(|s| EditorSize {
+                width: s.width,
+                height: s.height,
+            })
+    }
+
+    fn take_editor_closed(&mut self) -> bool {
+        self.instance
+            .access_shared_handler(|s| s.gui_closed.swap(false, Ordering::AcqRel))
     }
 }
 
@@ -117,10 +409,8 @@ pub fn load(file: &Path, id: &str, sample_rate: u32, max_frames: usize) -> Resul
     )
     .map_err(|e| e.to_string())?;
     let mut instance = PluginInstance::<Host>::new(
-        |_| HostShared {
-            callback: AtomicBool::new(false),
-        },
-        |_| (),
+        |_| HostShared::default(),
+        |_| HostMain::default(),
         &entry,
         &cid,
         &host,
@@ -212,6 +502,8 @@ pub fn load(file: &Path, id: &str, sample_rate: u32, max_frames: usize) -> Resul
         main: Some(Box::new(ClapMain {
             instance,
             _entry: entry,
+            gui: None,
+            resizable: false,
         })),
         info: Info {
             name,

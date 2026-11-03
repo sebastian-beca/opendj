@@ -8,7 +8,7 @@
 // in 4-Deck each deck's three are stacked in one-line rows. The FX button
 // in the top bar shows and hides the bar.
 import { Theme } from "theme.slint";
-import { Controls, PickupDot, PickupGhost } from "controls.slint";
+import { ControlButton, Controls, PickupDot, PickupGhost } from "controls.slint";
 import { EffectList } from "deck.slint";
 import { MapMark } from "mapmark.slint";
 
@@ -312,6 +312,7 @@ component FxControls inherits HorizontalLayout {
     property <float> beats: Controls.value(beats-index, Controls.tick);
     property <bool> has-effect: loaded > 0 && loaded <= EffectList.names.length;
     property <int> param: !has-effect ? -1 : loaded > EffectList.builtin-count ? 0 : loaded <= EffectList.slider-params.length ? EffectList.slider-params[loaded - 1] : -1;
+    property <bool> plugin: has-effect && loaded > EffectList.builtin-count;
     padding-left: 6px;
     padding-right: 6px;
     spacing: 4px;
@@ -333,6 +334,19 @@ component FxControls inherits HorizontalLayout {
                 }
             }
         }        MapMark { key: root.fx + ",enabled"; }
+    }
+    // A plugin's own window, for its presets and every setting: lit while
+    // it is open.
+    if plugin: ControlButton {
+        width: 34px;
+        height: 23px;
+        y: (parent.height - self.height) / 2;
+        group: fx;
+        key: "show_editor";
+        text: "EDIT";
+        tint: tint;
+        font-size: 10px;
+        outline-when-lit: true;
     }
     if with-name: EffectPicker { fx: fx; tint: tint; font-size: 13px; centred: false; min-width: 64px; preferred-width: 110px; horizontal-stretch: 0; }
     Rectangle {

@@ -436,28 +436,34 @@ component InstrumentPicker inherits VerticalLayout {
     property <int> chosen: Controls.value(index, Controls.tick);
     property <bool> open;
     spacing: 1px;
-    Rectangle {
-        height: 24px;
-        border-radius: 4px;
-        background: ta.has-hover ? #2a2b2e : Theme.control;
-        HorizontalLayout {
-            padding-left: 8px;
-            padding-right: 8px;
-            Text {
-                text: chosen > 0 && chosen <= EffectList.instruments.length ? EffectList.instruments[chosen - 1] : "No instrument";
-                color: chosen > 0 ? Theme.text : Theme.text-dim;
-                font-size: 12px;
-                vertical-alignment: center;
-                overflow: elide;
-                horizontal-stretch: 1;
+    HorizontalLayout {
+        spacing: 4px;
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 24px;
+            border-radius: 4px;
+            background: ta.has-hover ? #2a2b2e : Theme.control;
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                Text {
+                    text: chosen > 0 && chosen <= EffectList.instruments.length ? EffectList.instruments[chosen - 1] : "No instrument";
+                    color: chosen > 0 ? Theme.text : Theme.text-dim;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                Text { text: open ? "▴" : "▾"; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
             }
-            Text { text: open ? "▴" : "▾"; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
+            ta := TouchArea { mouse-cursor: pointer; clicked => { open = !open; } }
         }
-        ta := TouchArea { mouse-cursor: pointer; clicked => { open = !open; } }
+        // The instrument's own window, for its sounds and presets.
+        if chosen > 0 && chosen <= EffectList.instruments.length: ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "EDIT"; tint: Theme.accent; width: 34px; height: 24px; font-size: 9px; outline-when-lit: true; }
     }
     if open && EffectList.instruments.length == 0: PanelLink {
-        text: "Tick instruments in Settings › Mixer › Plugins…";
-        clicked => { Preferences.show(5); }
+        text: "Tick instruments in Settings › Plugins…";
+        clicked => { Preferences.show-tab(6, 1); }
     }
     if open && EffectList.instruments.length > 0: InstrumentChoice {
         text: "None";
@@ -535,6 +541,11 @@ component MicFxSlot inherits HorizontalLayout {
         slot: slot;
         tint: Theme.mic;
         name: loaded > 0 && loaded <= EffectList.names.length ? EffectList.names[loaded - 1] : "";
+    }
+    // The plugin's own window.
+    if loaded > EffectList.builtin-count && loaded <= EffectList.names.length: HorizontalLayout {
+        padding-left: 4px;
+        ControlButton { group: "[EffectRack1_EffectUnit" + (EffectList.mic-unit + 1) + "_Effect" + (slot + 1) + "]"; key: "show_editor"; text: "EDIT"; tint: Theme.mic; width: 34px; height: 22px; font-size: 9px; outline-when-lit: true; }
     }
 }
 
@@ -710,7 +721,7 @@ export component OnAirPanel inherits PopupWindow {
             text: "Broadcast Settings…";
             clicked => {
                 root.close();
-                Preferences.show(6);
+                Preferences.show(7);
             }
         }
     }

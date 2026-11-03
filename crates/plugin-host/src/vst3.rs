@@ -17,7 +17,11 @@ use std::cell::{Cell, RefCell};
 use std::ffi::{c_char, c_void};
 use std::path::{Path, PathBuf};
 use std::ptr;
+use std::sync::{Arc, Mutex};
 
+#[allow(unused_imports)]
+use vst3::ComRef;
+use vst3::Steinberg::Vst::ViewType;
 use vst3::Steinberg::Vst::{
     AudioBusBuffers, AudioBusBuffers__type0, BusDirections_, Event, Event_::EventTypes_,
     Event__type0, IAudioProcessor, IAudioProcessorTrait, IComponent, IComponentHandler,
@@ -34,11 +38,15 @@ use vst3::Steinberg::{
     IBStreamTrait, IBStream_::IStreamSeekMode_, IPluginBaseTrait, IPluginFactory, IPluginFactory2,
     IPluginFactory2Trait, IPluginFactoryTrait, PClassInfo, PClassInfo2, TUID,
 };
+use vst3::Steinberg::{
+    kPlatformTypeHWND, kPlatformTypeNSView, kPlatformTypeX11EmbedWindowID, IPlugFrame,
+    IPlugFrameTrait, IPlugView, IPlugViewTrait, ViewRect,
+};
 use vst3::{Class, ComPtr, ComWrapper, Interface};
 
 use crate::client::Transport;
 use crate::descriptor::{features, Descriptor, AUDIO_MODULE};
-use crate::effects::{Effect, Info, Loaded, MainThread, Param};
+use crate::effects::{EditorSize, Effect, Info, Loaded, MainThread, Param, ParentWindow};
 use crate::shm::{Midi, CHANNELS, MAX_EVENTS, MAX_PARAMS};
 
 fn cstr(buf: &[c_char]) -> String {
@@ -252,9 +260,14 @@ impl IHostApplicationTrait for HostApp {
     }
 }
 
-/// Edits from the plugin's own editor; editors come later, so these are
-/// accepted and ignored.
-struct Handler;
+/// Edits made in the plugin's own editor, on their way to its processor.
+type Edits = Arc<Mutex<Vec<(ParamID, ParamValue)>>>;
+
+/// Takes the edits made in the plugin's own editor: a plugin with a
+/// separate controller only hears of them through the host.
+struct Handler {
+    edits: Edits,
+}
 
 impl Class for Handler {
     type Interfaces = (IComponentHandler,);
@@ -264,7 +277,13 @@ impl IComponentHandlerTrait for Handler {
     unsafe fn beginEdit(&self, _id: ParamID) -> tresult {
         kResultOk
     }
-    unsafe fn performEdit(&self, _id: ParamID, _value: ParamValue) -> tresult {
+    unsafe fn performEdit(&self, id: ParamID, value: ParamValue) -> tresult {
+        let mut edits = self.edits.lock().unwrap_or_else(|e| e.into_inner());
+        edits.retain(|(i, _)| *i != id);
+        // Bounded: the audio thread takes them every block.
+        if edits.len() < EDITS {
+            edits.push((id, value));
+        }
         kResultOk
     }
     unsafe fn endEdit(&self, _id: ParamID) -> tresult {
@@ -537,17 +556,289 @@ impl IEventListTrait for Events {
 
 // ---- Loading and processing ----------------------------------------------
 
-/// Keeps the module, component and controller alive on the main thread.
+/// Edits from the editor that one block can carry, beyond the slot's own.
+const EDITS: usize = 64;
+
+/// The window the plugin's view sits in, as the plugin sees it: it asks
+/// for a new size through it, and on Linux for its timers and file events.
+struct Frame {
+    resize: Cell<Option<EditorSize>>,
+    #[cfg(all(unix, not(target_os = "macos")))]
+    run_loop: run_loop::RunLoop,
+}
+
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+impl Class for Frame {
+    type Interfaces = (IPlugFrame,);
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+impl Class for Frame {
+    type Interfaces = (IPlugFrame, vst3::Steinberg::Linux::IRunLoop);
+}
+
+impl IPlugFrameTrait for Frame {
+    unsafe fn resizeView(&self, _view: *mut IPlugView, size: *mut ViewRect) -> tresult {
+        if size.is_null() {
+            return kInvalidArgument;
+        }
+        let r = &*size;
+        self.resize.set(Some(EditorSize {
+            width: (r.right - r.left).max(1) as u32,
+            height: (r.bottom - r.top).max(1) as u32,
+        }));
+        kResultOk
+    }
+}
+
+/// Linux has no main loop every plugin can use, so the host runs the
+/// plugin's timers and watches its file descriptors (its X11 connection).
+#[cfg(all(unix, not(target_os = "macos")))]
+mod run_loop {
+    use super::*;
+    use std::time::{Duration, Instant};
+    use vst3::Steinberg::Linux::{
+        FileDescriptor, IEventHandler, IEventHandlerTrait, IRunLoopTrait, ITimerHandler,
+        ITimerHandlerTrait, TimerInterval,
+    };
+
+    #[derive(Default)]
+    pub struct RunLoop {
+        handlers: RefCell<Vec<(ComPtr<IEventHandler>, FileDescriptor)>>,
+        timers: RefCell<Vec<(ComPtr<ITimerHandler>, Duration, Instant)>>,
+    }
+
+    impl RunLoop {
+        /// Runs the timers that are due and the handlers whose descriptors
+        /// are ready.
+        pub fn run(&self) {
+            let now = Instant::now();
+            let due: Vec<ComPtr<ITimerHandler>> = self
+                .timers
+                .borrow_mut()
+                .iter_mut()
+                .filter(|(_, _, next)| *next <= now)
+                .map(|(t, period, next)| {
+                    *next = now + *period;
+                    t.clone()
+                })
+                .collect();
+            for t in due {
+                // SAFETY: a handler the plugin registered and hasn't removed.
+                unsafe { t.onTimer() };
+            }
+            let handlers = self.handlers.borrow().clone();
+            if handlers.is_empty() {
+                return;
+            }
+            let mut polls: Vec<libc::pollfd> = handlers
+                .iter()
+                .map(|(_, fd)| libc::pollfd {
+                    fd: *fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                })
+                .collect();
+            // SAFETY: a valid array of its length; no waiting.
+            if unsafe { libc::poll(polls.as_mut_ptr(), polls.len() as libc::nfds_t, 0) } <= 0 {
+                return;
+            }
+            for ((h, fd), p) in handlers.iter().zip(&polls) {
+                if p.revents != 0 {
+                    // SAFETY: as for timers.
+                    unsafe { h.onFDIsSet(*fd) };
+                }
+            }
+        }
+
+        pub fn next(&self) -> Option<Duration> {
+            let now = Instant::now();
+            self.timers
+                .borrow()
+                .iter()
+                .map(|(_, _, next)| next.saturating_duration_since(now))
+                .min()
+        }
+    }
+
+    impl IRunLoopTrait for super::Frame {
+        unsafe fn registerEventHandler(
+            &self,
+            handler: *mut IEventHandler,
+            fd: FileDescriptor,
+        ) -> tresult {
+            let Some(h) = ComRef::from_raw(handler) else {
+                return kInvalidArgument;
+            };
+            self.run_loop
+                .handlers
+                .borrow_mut()
+                .push((h.to_com_ptr(), fd));
+            kResultOk
+        }
+
+        unsafe fn unregisterEventHandler(&self, handler: *mut IEventHandler) -> tresult {
+            self.run_loop
+                .handlers
+                .borrow_mut()
+                .retain(|(h, _)| h.as_ptr() != handler);
+            kResultOk
+        }
+
+        unsafe fn registerTimer(
+            &self,
+            handler: *mut ITimerHandler,
+            milliseconds: TimerInterval,
+        ) -> tresult {
+            let Some(h) = ComRef::from_raw(handler) else {
+                return kInvalidArgument;
+            };
+            let period = Duration::from_millis(milliseconds.max(10));
+            self.run_loop.timers.borrow_mut().push((
+                h.to_com_ptr(),
+                period,
+                Instant::now() + period,
+            ));
+            kResultOk
+        }
+
+        unsafe fn unregisterTimer(&self, handler: *mut ITimerHandler) -> tresult {
+            self.run_loop
+                .timers
+                .borrow_mut()
+                .retain(|(h, _, _)| h.as_ptr() != handler);
+            kResultOk
+        }
+    }
+}
+
+/// Keeps the module, component and controller alive on the main thread,
+/// and runs the editor.
 struct Vst3Main {
     _component: ComPtr<IComponent>,
-    _controller: Option<ComPtr<IEditController>>,
+    controller: Option<ComPtr<IEditController>>,
     _host: ComWrapper<HostApp>,
     _handler: ComWrapper<Handler>,
+    frame: ComWrapper<Frame>,
+    /// The editor, while it is open, and whether it can be resized.
+    view: Option<(ComPtr<IPlugView>, bool)>,
     _module: Module,
 }
 
 impl MainThread for Vst3Main {
-    fn idle(&mut self) {}
+    fn idle(&mut self) {
+        #[cfg(all(unix, not(target_os = "macos")))]
+        self.frame.run_loop.run();
+    }
+
+    fn next_idle(&self) -> Option<std::time::Duration> {
+        #[cfg(all(unix, not(target_os = "macos")))]
+        return self.frame.run_loop.next();
+        #[cfg(not(all(unix, not(target_os = "macos"))))]
+        None
+    }
+
+    fn open_editor(&mut self, parent: ParentWindow, _scale: f64) -> Result<EditorSize, String> {
+        let controller = self
+            .controller
+            .as_ref()
+            .ok_or("it has no window of its own")?;
+        let (ptr, kind) = match parent {
+            ParentWindow::Cocoa(view) => (view, kPlatformTypeNSView),
+            ParentWindow::Win32(hwnd) => (hwnd, kPlatformTypeHWND),
+            ParentWindow::X11(id) => (id as usize as *mut c_void, kPlatformTypeX11EmbedWindowID),
+        };
+        // SAFETY: plain calls into the controller and its view, on the main
+        // thread; the parent window outlives the view (see close_editor).
+        unsafe {
+            let view = ComPtr::from_raw(controller.createView(ViewType::kEditor))
+                .ok_or("it has no window of its own")?;
+            if view.isPlatformTypeSupported(kind) != kResultTrue {
+                return Err("its window can't be shown inside openDJ's".into());
+            }
+            let frame = self
+                .frame
+                .as_com_ref::<IPlugFrame>()
+                .ok_or("no frame")?
+                .as_ptr();
+            view.setFrame(frame);
+            if !ok(view.attached(ptr, kind)) {
+                view.setFrame(ptr::null_mut());
+                return Err("its window failed to open".into());
+            }
+            let mut r: ViewRect = std::mem::zeroed();
+            let size = if ok(view.getSize(&mut r)) && r.right > r.left && r.bottom > r.top {
+                EditorSize {
+                    width: (r.right - r.left) as u32,
+                    height: (r.bottom - r.top) as u32,
+                }
+            } else {
+                EditorSize {
+                    width: 640,
+                    height: 400,
+                }
+            };
+            let resizable = view.canResize() == kResultTrue;
+            self.view = Some((view, resizable));
+            self.frame.resize.set(None);
+            Ok(size)
+        }
+    }
+
+    fn close_editor(&mut self) {
+        if let Some((view, _)) = self.view.take() {
+            // SAFETY: the view was attached in open_editor.
+            unsafe {
+                view.removed();
+                view.setFrame(ptr::null_mut());
+            }
+        }
+        self.frame.resize.set(None);
+    }
+
+    fn editor_can_resize(&self) -> bool {
+        self.view.as_ref().is_some_and(|(_, r)| *r)
+    }
+
+    fn editor_resized(&mut self, size: EditorSize) -> EditorSize {
+        let Some((view, resizable)) = &self.view else {
+            return size;
+        };
+        // SAFETY: plain calls into the open view.
+        unsafe {
+            let mut r = ViewRect {
+                left: 0,
+                top: 0,
+                right: size.width as i32,
+                bottom: size.height as i32,
+            };
+            if *resizable {
+                view.checkSizeConstraint(&mut r);
+                view.onSize(&mut r);
+            } else {
+                view.getSize(&mut r);
+            }
+            EditorSize {
+                width: (r.right - r.left).max(1) as u32,
+                height: (r.bottom - r.top).max(1) as u32,
+            }
+        }
+    }
+
+    fn take_editor_resize(&mut self) -> Option<EditorSize> {
+        let size = self.frame.resize.take()?;
+        if let Some((view, _)) = &self.view {
+            let mut r = ViewRect {
+                left: 0,
+                top: 0,
+                right: size.width as i32,
+                bottom: size.height as i32,
+            };
+            // SAFETY: the plugin asked for this size; it is told it has it.
+            unsafe { view.onSize(&mut r) };
+        }
+        Some(size)
+    }
 }
 
 fn ok(r: tresult) -> bool {
@@ -572,7 +863,10 @@ pub fn load(
         .ok_or_else(|| format!("{} has no plugin {id:?}", bundle.display()))?;
     let host = ComWrapper::new(HostApp);
     let host_ptr = host.as_com_ref::<IHostApplication>().unwrap().as_ptr() as *mut FUnknown;
-    let handler = ComWrapper::new(Handler);
+    let edits: Edits = Arc::new(Mutex::new(Vec::with_capacity(EDITS)));
+    let handler = ComWrapper::new(Handler {
+        edits: edits.clone(),
+    });
 
     // SAFETY: calls through the plugin's COM interfaces, following the
     // order the VST3 SDK documents for hosts.
@@ -722,7 +1016,8 @@ pub fn load(
             processing: false,
             input: [vec![0.0; max_frames], vec![0.0; max_frames]],
             output: [vec![0.0; max_frames], vec![0.0; max_frames]],
-            changes: ComWrapper::new(Changes::new(MAX_PARAMS)),
+            changes: ComWrapper::new(Changes::new(MAX_PARAMS + EDITS)),
+            edits: edits.clone(),
             out_changes: ComWrapper::new(Changes::new(64)),
             events: ComWrapper::new(Events::new()),
             has_input,
@@ -735,9 +1030,15 @@ pub fn load(
             effect: Box::new(effect),
             main: Some(Box::new(Vst3Main {
                 _component: component,
-                _controller: controller,
+                controller,
                 _host: host,
                 _handler: handler,
+                frame: ComWrapper::new(Frame {
+                    resize: Cell::new(None),
+                    #[cfg(all(unix, not(target_os = "macos")))]
+                    run_loop: Default::default(),
+                }),
+                view: None,
                 _module: module,
             })),
             info: Info {
@@ -761,6 +1062,8 @@ struct Vst3Effect {
     changes: ComWrapper<Changes>,
     out_changes: ComWrapper<Changes>,
     events: ComWrapper<Events>,
+    /// Edits from the plugin's editor, for the processor.
+    edits: Edits,
     /// False for an instrument.
     has_input: bool,
     ids: Vec<ParamID>,
@@ -795,6 +1098,13 @@ impl Effect for Vst3Effect {
                 if params[i] != self.sent[i] {
                     self.sent[i] = params[i];
                     self.changes.push(*id, params[i] as f64);
+                }
+            }
+            // Never waits: the editor's edits come next block if the main
+            // thread holds them now.
+            if let Ok(mut edits) = self.edits.try_lock() {
+                for (id, value) in edits.drain(..) {
+                    self.changes.push(id, value);
                 }
             }
             self.out_changes.clear();

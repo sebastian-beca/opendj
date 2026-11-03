@@ -70,6 +70,7 @@ fn start() -> (Connection, Helper) {
         },
         sample_rate: 48_000,
         max_frames: 1024,
+        title: None,
     })
     .expect("the VST3 plugin loads")
 }
@@ -147,6 +148,7 @@ fn a_missing_class_fails_to_start() {
         },
         sample_rate: 48_000,
         max_frames: 1024,
+        title: None,
     })
     .err()
     .expect("refused");

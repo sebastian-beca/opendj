@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::client::Transport;
 use crate::descriptor::Descriptor;
-use crate::effects::{Effect, Info, Loaded, MainThread, Param};
+use crate::effects::{EditorSize, Effect, Info, Loaded, MainThread, Param, ParentWindow};
 use crate::shm::{Midi, CHANNELS, MAX_PARAMS};
 
 type OSStatus = i32;
@@ -335,8 +335,12 @@ pub fn scan() -> Vec<Descriptor> {
     found
 }
 
-/// Keeps AUv3 extensions' messages flowing on the helper's main thread.
-struct AuMain;
+/// Keeps AUv3 extensions' messages flowing on the helper's main thread,
+/// and shows the unit's view.
+struct AuMain {
+    unit: AudioUnit,
+    view: Option<editor::View>,
+}
 
 impl MainThread for AuMain {
     fn idle(&mut self) {
@@ -344,6 +348,264 @@ impl MainThread for AuMain {
         unsafe {
             CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0, 1);
         }
+    }
+
+    fn open_editor(&mut self, parent: ParentWindow, _scale: f64) -> Result<EditorSize, String> {
+        let ParentWindow::Cocoa(parent) = parent else {
+            return Err("Audio Units only show on macOS".into());
+        };
+        let unit = self.unit;
+        // SAFETY: the unit lives as long as the helper; on the main thread.
+        let view = objc2::rc::autoreleasepool(|_| unsafe { editor::View::open(unit, parent) })?;
+        let size = view.size();
+        self.view = Some(view);
+        Ok(size)
+    }
+
+    fn close_editor(&mut self) {
+        self.view = None;
+    }
+
+    fn editor_can_resize(&self) -> bool {
+        self.view.as_ref().is_some_and(|v| v.resizable)
+    }
+
+    fn editor_resized(&mut self, size: EditorSize) -> EditorSize {
+        match &mut self.view {
+            Some(v) => v.resize(size),
+            None => size,
+        }
+    }
+
+    fn take_editor_resize(&mut self) -> Option<EditorSize> {
+        self.view.as_mut()?.take_own_resize()
+    }
+}
+
+/// An Audio Unit's view in the helper's window: its own Cocoa view, its
+/// AUv3 view controller's view, or else Apple's generic view of its
+/// parameters (as Logic shows for units without one).
+mod editor {
+    use super::*;
+    use objc2::rc::{Allocated, Retained};
+    use objc2::runtime::{AnyClass, AnyObject};
+    use objc2::{class, msg_send};
+    use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    const kAudioUnitProperty_CocoaUI: u32 = 4013;
+    const kAudioUnitProperty_RequestViewController: u32 = 56;
+
+    #[repr(C)]
+    struct CocoaViewInfo {
+        bundle: *const c_void,
+        class: [CFStringRef; 1],
+    }
+
+    pub struct View {
+        view: Retained<AnyObject>,
+        /// Keeps an AUv3 view controller (and so its view) alive.
+        _controller: Option<Retained<AnyObject>>,
+        pub resizable: bool,
+        /// The view's size as last seen, to notice it resizing itself.
+        last: EditorSize,
+    }
+
+    impl View {
+        /// # Safety
+        /// `unit` is a live unit and `parent` a live `NSView`; main thread.
+        pub unsafe fn open(unit: AudioUnit, parent: *mut c_void) -> Result<View, String> {
+            let (view, controller, resizable) = if let Some(v) = cocoa_view(unit) {
+                (v, None, false)
+            } else if let Some((v, c)) = requested_view(unit) {
+                (v, Some(c), true)
+            } else {
+                (generic_view(unit)?, None, true)
+            };
+            let parent = parent as *mut AnyObject;
+            let frame: NSRect = msg_send![&*view, frame];
+            let mut size = frame.size;
+            if size.width < 1.0 || size.height < 1.0 {
+                size = NSSize::new(480.0, 320.0);
+            }
+            let _: () = msg_send![&*view, setFrameOrigin: NSPoint::new(0.0, 0.0)];
+            let _: () = msg_send![&*view, setFrameSize: size];
+            let _: () = msg_send![parent, addSubview: &*view];
+            let last = EditorSize {
+                width: size.width.round() as u32,
+                height: size.height.round() as u32,
+            };
+            Ok(View {
+                view,
+                _controller: controller,
+                resizable,
+                last,
+            })
+        }
+
+        pub fn size(&self) -> EditorSize {
+            self.last
+        }
+
+        fn current(&self) -> EditorSize {
+            // SAFETY: a live view, on the main thread.
+            let frame: NSRect = unsafe { msg_send![&*self.view, frame] };
+            EditorSize {
+                width: frame.size.width.round().max(1.0) as u32,
+                height: frame.size.height.round().max(1.0) as u32,
+            }
+        }
+
+        pub fn resize(&mut self, size: EditorSize) -> EditorSize {
+            if self.resizable {
+                let s = NSSize::new(size.width as f64, size.height as f64);
+                // SAFETY: as above.
+                unsafe {
+                    let _: () = msg_send![&*self.view, setFrameSize: s];
+                }
+            }
+            self.last = self.current();
+            self.last
+        }
+
+        /// A size the view gave itself (custom views resize on their own).
+        pub fn take_own_resize(&mut self) -> Option<EditorSize> {
+            let now = self.current();
+            (now != self.last).then(|| {
+                self.last = now;
+                now
+            })
+        }
+    }
+
+    impl Drop for View {
+        fn drop(&mut self) {
+            // SAFETY: as above.
+            unsafe {
+                let _: () = msg_send![&*self.view, removeFromSuperview];
+            }
+        }
+    }
+
+    /// The unit's own Cocoa view, from the factory class it names.
+    unsafe fn cocoa_view(unit: AudioUnit) -> Option<Retained<AnyObject>> {
+        let mut size = 0u32;
+        let mut writable = 0u8;
+        if AudioUnitGetPropertyInfo(
+            unit,
+            kAudioUnitProperty_CocoaUI,
+            kAudioUnitScope_Global,
+            0,
+            &mut size,
+            &mut writable,
+        ) != 0
+            || (size as usize) < std::mem::size_of::<CocoaViewInfo>()
+        {
+            return None;
+        }
+        let mut buf = vec![0u8; size as usize];
+        if AudioUnitGetProperty(
+            unit,
+            kAudioUnitProperty_CocoaUI,
+            kAudioUnitScope_Global,
+            0,
+            buf.as_mut_ptr() as *mut c_void,
+            &mut size,
+        ) != 0
+        {
+            return None;
+        }
+        let info = &*(buf.as_ptr() as *const CocoaViewInfo);
+        let classes = (size as usize - std::mem::size_of::<*const c_void>())
+            / std::mem::size_of::<CFStringRef>();
+        let view = (|| {
+            if info.bundle.is_null() || classes == 0 || info.class[0].is_null() {
+                return None;
+            }
+            let bundle: Option<Retained<AnyObject>> =
+                msg_send![class!(NSBundle), bundleWithURL: info.bundle as *mut AnyObject];
+            let bundle = bundle?;
+            let class: *const AnyClass =
+                msg_send![&*bundle, classNamed: info.class[0] as *mut AnyObject];
+            if class.is_null() {
+                return None;
+            }
+            let factory: Option<Retained<AnyObject>> = msg_send![&*class, new];
+            let factory = factory?;
+            let view: Option<Retained<AnyObject>> = msg_send![
+                &*factory,
+                uiViewForAudioUnit: unit as *mut AnyObject,
+                withSize: NSSize::new(0.0, 0.0)
+            ];
+            view
+        })();
+        if !info.bundle.is_null() {
+            CFRelease(info.bundle);
+        }
+        for c in info.class.iter().take(classes.min(1)) {
+            if !c.is_null() {
+                CFRelease(*c);
+            }
+        }
+        view
+    }
+
+    /// An AUv3 unit's view, from its view controller.
+    unsafe fn requested_view(
+        unit: AudioUnit,
+    ) -> Option<(Retained<AnyObject>, Retained<AnyObject>)> {
+        let got: Rc<RefCell<Option<Retained<AnyObject>>>> = Rc::default();
+        let done = Rc::new(std::cell::Cell::new(false));
+        let block = {
+            let got = got.clone();
+            let done = done.clone();
+            block2::RcBlock::new(move |vc: *mut AnyObject| {
+                *got.borrow_mut() = Retained::retain(vc);
+                done.set(true);
+            })
+        };
+        let ptr: *const block2::Block<dyn Fn(*mut AnyObject)> = &*block;
+        if AudioUnitSetProperty(
+            unit,
+            kAudioUnitProperty_RequestViewController,
+            kAudioUnitScope_Global,
+            0,
+            &ptr as *const _ as *const c_void,
+            std::mem::size_of::<*const c_void>() as u32,
+        ) != 0
+        {
+            return None;
+        }
+        // The answer may come later, through the main run loop.
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !done.get() && std::time::Instant::now() < end {
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, 1);
+        }
+        let controller = got.borrow_mut().take()?;
+        let view: Option<Retained<AnyObject>> = msg_send![&*controller, view];
+        Some((view?, controller))
+    }
+
+    /// Apple's generic view of a unit's parameters (CoreAudioKit).
+    unsafe fn generic_view(unit: AudioUnit) -> Result<Retained<AnyObject>, String> {
+        let path = NSString::from_str("/System/Library/Frameworks/CoreAudioKit.framework");
+        let bundle: Option<Retained<AnyObject>> =
+            msg_send![class!(NSBundle), bundleWithPath: &*path];
+        if let Some(b) = &bundle {
+            let _: bool = msg_send![&**b, load];
+        }
+        let class = AnyClass::get(c"AUGenericView").ok_or("it has no window of its own")?;
+        let view: Allocated<AnyObject> = msg_send![class, alloc];
+        // AUViewTitleDisplayFlag | AUViewPropertiesDisplayFlag |
+        // AUViewParametersDisplayFlag
+        let flags: u32 = 1 | 2 | 4;
+        let view: Option<Retained<AnyObject>> = msg_send![
+            view,
+            initWithAudioUnit: unit as *mut AnyObject,
+            displayFlags: flags
+        ];
+        view.ok_or_else(|| "it has no window of its own".into())
     }
 }
 
@@ -598,7 +860,7 @@ pub fn load(id: &str, sample_rate: u32, max_frames: usize) -> Result<Loaded, Str
         };
         Ok(Loaded {
             effect: Box::new(effect),
-            main: Some(Box::new(AuMain)),
+            main: Some(Box::new(AuMain { unit, view: None })),
             info: Info {
                 name,
                 params: params.into_iter().map(|(_, p)| p).collect(),
