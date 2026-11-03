@@ -5,6 +5,7 @@ import { ListView, ScrollView } from "scroll.slint";
 import { Theme, EdgeLine, CloseIcon } from "theme.slint";
 import { HoverTip } from "controls.slint";
 import { SourceUi, SearchesPanel, SourceResults } from "sources.slint";
+import { InstrumentsPanel, LiveIcon } from "instruments.slint";
 import { InfoPanel, TrackInfo } from "info.slint";
 import { FilterBar, FilterUi } from "filters.slint";
 
@@ -1687,9 +1688,10 @@ component SourceRail inherits Rectangle {
     callback picked(source: int);
     callback health-picked();
     callback shown-changed(source: int, on: bool);
-    property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud"];
-    // The order the rail shows them in: Albums and Mixed Sets after Files.
-    property <[int]> order: [0, 1, 9, 10, 2, 3, 4, 5, 6, 7, 8, 11];
+    property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud", "Instruments"];
+    // The order the rail shows them in: Albums, Mixed Sets and Instruments
+    // after Files.
+    property <[int]> order: [0, 1, 9, 10, 12, 2, 3, 4, 5, 6, 7, 8, 11];
     // What each source is, for its tooltip.
     property <[string]> tips: [
         "Every track in your library.",
@@ -1703,7 +1705,8 @@ component SourceRail inherits Rectangle {
         "Search and browse SoundCloud.",
         "The albums in your Albums folder.",
         "The long mixes in your Mixed Sets folder.",
-        "Search and browse Mixcloud."
+        "Search and browse Mixcloud.",
+        "The Groove Box, instrument plugins and inputs, to drag onto a deck."
     ];
     width: 52px;
     background: Theme.browser;
@@ -1732,7 +1735,8 @@ component SourceRail inherits Rectangle {
                         selected: i == source && !(i == 0 && HealthUi.view);
                         tip: names[i];
                         tip-body: tips[i];
-                        SourceIcon { kind: i; }
+                        if i != 12: SourceIcon { kind: i; }
+                        if i == 12: LiveIcon { kind: 0; }
                         clicked => { source = i; picked(i); }
                     }
                     if i == 0 && HealthUi.rail-shown: RailButton {
@@ -1810,7 +1814,7 @@ component SourceRail inherits Rectangle {
                 padding-left: 6px;
                 padding-right: 6px;
                 spacing: 10px;
-                VerticalLayout { alignment: center; SourceIcon { kind: i; } }
+                VerticalLayout { alignment: center; if i != 12: SourceIcon { kind: i; } if i == 12: LiveIcon { kind: 0; } }
                 Text { text: names[i]; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
                 VerticalLayout {
                     alignment: center;
@@ -4566,9 +4570,9 @@ export component Browser inherits HorizontalLayout {
     // "Go to" lines).
     property <bool> history-tab: LibraryEdit.history-tab;
     changed history-tab => { library-tab = history-tab ? 1 : 0; }
-    property <[string]> source-names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud"];
+    property <[string]> source-names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud", "Instruments"];
     // Which sources the rail shows, by index; picked under its "...".
-    in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true, true, true, true];
+    in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true, true, true, true, true];
     callback source-shown-changed(source: int, on: bool);
     in property <bool> side-visible: true;
     // Square panels split by thin black lines.
@@ -4604,7 +4608,9 @@ export component Browser inherits HorizontalLayout {
     if plugin-source: SearchesPanel {
         source-name: plugin-index < SourceUi.sources.length ? SourceUi.sources[plugin-index].name : "";
     }
-    if !plugin-source: FolderTree {
+    // The Instruments source: its page over the tree and the list.
+    property <bool> instruments-source: source == 12;
+    if !plugin-source && !instruments-source: FolderTree {
         folders: folders;
         current: current-folder;
         focused: folders-focused;
@@ -4638,7 +4644,7 @@ export component Browser inherits HorizontalLayout {
         }
         list := TrackList {
             focused: !folders-focused;
-            visible: !plugin-source && !health-page && !cleanup-page;
+            visible: !plugin-source && !instruments-source && !health-page && !cleanup-page;
             y: health-bar ? 45px : 0;
             width: 100%;
             height: parent.height - self.y;
@@ -4681,6 +4687,10 @@ export component Browser inherits HorizontalLayout {
             width: 100%;
             height: 100%;
             hint: plugin-index < SourceUi.sources.length ? SourceUi.sources[plugin-index].hint : "";
+        }
+        if instruments-source: InstrumentsPanel {
+            width: 100%;
+            height: 100%;
         }
     }
     // Shown and hidden from the footer's right-hand button.

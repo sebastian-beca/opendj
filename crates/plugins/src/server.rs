@@ -13,9 +13,10 @@ use std::time::Duration;
 
 use crate::inbox::safe_name;
 use crate::source::{
-    DownloadUpdate, Found, Progress, SearchSource, Snapshot, SourceInfo, SourceQuery,
+    DownloadUpdate, Found, Progress, SearchSource, Snapshot, SourceInfo, SourceQuery, CACHE_SIZE,
+    DOWNLOAD_FOLDER,
 };
-use crate::{PluginError, USER_AGENT};
+use crate::{PluginError, Setting, SettingKind, USER_AGENT};
 
 /// A song on the server, with what it takes to download it.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -59,6 +60,12 @@ impl Song {
             size: self.size,
             from: from.to_string(),
             cover_url: self.thumb_url.clone(),
+            file: self
+                .files(Path::new(""))
+                .into_iter()
+                .find(|f| !f.cover)
+                .map(|f| f.to.to_string_lossy().into_owned())
+                .unwrap_or_default(),
             ..Default::default()
         }
     }
@@ -161,6 +168,10 @@ impl<S: Server> SearchSource for ServerSource<S> {
         self.server.info()
     }
 
+    fn plays(&self) -> bool {
+        true
+    }
+
     fn describe(&self, query: &SourceQuery) -> Vec<String> {
         if let Some(why) = self.server.missing() {
             return vec![why];
@@ -253,6 +264,31 @@ impl<S: Server> SearchSource for ServerSource<S> {
     fn cancel(&mut self, key: &str) -> Result<(), PluginError> {
         self.downloads.cancel(key)
     }
+}
+
+/// The settings every server source ends with: where Add to Collection
+/// puts files, and how big the cache of played tracks may grow.
+pub(crate) fn storage_settings(name: &str) -> Vec<Setting> {
+    vec![
+        Setting {
+            key: DOWNLOAD_FOLDER,
+            kind: SettingKind::Folder,
+            title: "Collection folder".into(),
+            detail: format!(
+                "Where Add to Collection puts files. Left empty, Downloaded/{name} in your \
+                 music folder."
+            ),
+        },
+        Setting {
+            key: CACHE_SIZE,
+            kind: SettingKind::Text,
+            title: "Cache size (GB)".into(),
+            detail: format!(
+                "Tracks you play or Download from {name} are kept in a cache, outside your \
+                 collection, until it is this full; the oldest go first. Left empty, 5 GB."
+            ),
+        },
+    ]
 }
 
 /// Whether `name` has `text` in it, ignoring case; an empty text or "*"

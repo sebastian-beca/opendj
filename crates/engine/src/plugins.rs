@@ -1030,8 +1030,13 @@ mod tests {
         /// frame's level.
         fn instrument_buffer(&mut self) -> f32 {
             self.rack.prepare([0.5; TARGETS], self.now);
-            self.instrument
-                .render(FRAMES, &mut self.rack, input_target(INSTRUMENT), 0.01);
+            self.instrument.render(
+                FRAMES,
+                &mut self.rack,
+                input_target(INSTRUMENT),
+                0.01,
+                false,
+            );
             self.rack.finish();
             self.now += FRAMES as f64 / SR as f64;
             self.instrument.buf[FRAMES - 1][0]
