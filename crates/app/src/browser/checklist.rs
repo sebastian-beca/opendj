@@ -179,6 +179,16 @@ impl Browser {
             cover: self.health.has_cover(t.id),
             score: self.score(t.id),
             ready: ids.contains(&columns::READY).then(|| self.ready_count(t)),
+            ..if ids.contains(&columns::PROBLEM) || ids.contains(&columns::FIX) {
+                let (problem, fix) = self.health_cells(t);
+                columns::PrepFacts {
+                    problem,
+                    fix,
+                    ..Default::default()
+                }
+            } else {
+                Default::default()
+            }
         }
     }
 

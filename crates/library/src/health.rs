@@ -464,6 +464,16 @@ impl Facts {
         self.album_tags.get(&id).map(String::as_str)
     }
 
+    /// The file's bitrate (kb/s), once the cover scan has read it.
+    pub fn bitrate(&self, id: usize) -> Option<u32> {
+        self.bitrates.get(&id).copied().filter(|&b| b > 0)
+    }
+
+    /// What the clean-up rules would change in `t`'s names.
+    pub fn junk(&self, t: &Track) -> Vec<cleanup::Change> {
+        cleanup::changes(t, &self.rules)
+    }
+
     /// The music folders and stage folders, for [`Check::Outside`]. With
     /// none, that check finds nothing.
     pub fn with_folders(mut self, folders: Vec<PathBuf>) -> Self {
