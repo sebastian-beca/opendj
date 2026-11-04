@@ -72,6 +72,10 @@ pub const CUES: i32 = 26;
 pub const TAGGED: i32 = 27;
 /// Whether the file has a cover, once Collection Health has looked.
 pub const COVER: i32 = 28;
+/// How many Prep checklist lines are ticked, of how many.
+pub const READY: i32 = 29;
+/// The DJ's own score, from the Prep checklist.
+pub const SCORE: i32 = 30;
 /// Tag field `i` (from 0) is column `TAGS + i`.
 pub const TAGS: i32 = 100;
 
@@ -120,6 +124,8 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
         d(CUES, "Cues", 44.0, true, TEXT),
         d(TAGGED, "Tags", 44.0, false, TEXT),
         d(COVER, "Cover", 48.0, false, TEXT),
+        d(READY, "Ready", 52.0, true, TEXT),
+        d(SCORE, "Score", 48.0, true, TEXT),
         d(PLAYED, "Plays", 48.0, true, DIM),
         d(ADDED, "Added", 86.0, false, DIM),
         d(LAST_PLAYED, "Last Played", 86.0, false, DIM),
@@ -147,8 +153,8 @@ pub const HISTORY_DEFAULT: [i32; 8] = [
 
 /// The columns the In Prep list shows until the DJ changes them: what is
 /// left to prepare on each track.
-pub const PREP_DEFAULT: [i32; 11] = [
-    COLOR, RATING_ID, TITLE_ID, ARTIST, BPM, KEY_ID, GRID, CUES, TAGGED, COVER, GENRE,
+pub const PREP_DEFAULT: [i32; 13] = [
+    COLOR, RATING_ID, TITLE_ID, ARTIST, BPM, KEY_ID, GRID, CUES, TAGGED, COVER, READY, SCORE, GENRE,
 ];
 
 /// Narrowest a column can be dragged.
@@ -415,12 +421,12 @@ pub fn grid_state(t: &Track) -> String {
         "✓ locked".into()
     } else if i.grid_unsure && matches!(i.grid_from.as_str(), "" | "analysis") {
         "? check".into()
+    } else if !matches!(i.grid_from.as_str(), "" | "analysis") {
+        "✓ edited".into()
     } else if sections > 1 {
         format!("{sections} sections")
-    } else if matches!(i.grid_from.as_str(), "" | "analysis") {
-        "detected".into()
     } else {
-        "✓".into()
+        "detected".into()
     }
 }
 
@@ -449,13 +455,23 @@ pub fn prep_dots(t: &Track) -> String {
 /// result or a Spotify track the collection doesn't have) and the crates
 /// it is in, and where it is in the list shown (see [`InList`]). The title
 /// and rating are drawn from the row itself.
+/// What a row's Prep columns show that the track alone doesn't say.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PrepFacts {
+    /// Whether the file has a cover, once Collection Health has looked.
+    pub cover: Option<bool>,
+    pub score: Option<u8>,
+    /// Checklist lines ticked, of how many.
+    pub ready: Option<(usize, usize)>,
+}
+
 pub fn row_cells(
     ids: &[i32],
     row: &TrackRow,
     track: Option<&Track>,
     crates: Option<&[String]>,
     list: InList,
-    cover: Option<bool>,
+    prep: PrepFacts,
 ) -> ModelRc<SharedString> {
     let cells: Vec<SharedString> = ids
         .iter()
@@ -471,7 +487,19 @@ pub fn row_cells(
             ORDER if list.order > 0 => list.order.to_string().into(),
             ORDER => SharedString::new(),
             PLAYED_AT => list.played_at.map(time_of_day).unwrap_or_default().into(),
-            COVER => match cover {
+            READY => prep
+                .ready
+                .map(|(done, total)| {
+                    if done >= total {
+                        "✓".to_string()
+                    } else {
+                        format!("{done}/{total}")
+                    }
+                })
+                .unwrap_or_default()
+                .into(),
+            SCORE => prep.score.map(|s| s.to_string()).unwrap_or_default().into(),
+            COVER => match prep.cover {
                 Some(true) => "✓".into(),
                 Some(false) => "—".into(),
                 None => SharedString::new(),

@@ -1111,3 +1111,67 @@ pub fn set_remote_devices(devices: &[opendj_remote::Device]) {
     let list: Vec<Value> = devices.iter().map(|d| d.to_json()).collect();
     save(|v| v["remote_devices"] = Value::Array(list));
 }
+
+/// The DJ's own Prep checklist lines (Settings › Collection › Stages), in
+/// order; empty ones are left out.
+pub fn prep_lines() -> Vec<String> {
+    load()["prep_lines"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The lines as typed, empty ones too, for the settings page.
+pub fn prep_lines_typed() -> Vec<String> {
+    load()["prep_lines"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn set_prep_lines(lines: &[String]) {
+    set("prep_lines", json!(lines));
+}
+
+/// The Prep checklist lines the app ticks itself: key and name.
+pub const PREP_APP_LINES: [(&str, &str); 5] = [
+    ("grid", "Grid checked"),
+    ("cues", "4 hot cues"),
+    ("genre", "Genre"),
+    ("rating", "Rating"),
+    ("cover", "Cover"),
+];
+
+/// The settings key turning one of the app's checklist lines on or off.
+pub fn prep_check_key(line: &str) -> String {
+    format!("prep_check_{line}")
+}
+
+/// Quick review so far: seconds spent on tracks sent to Play Ready from
+/// Prep, and how many.
+pub fn prep_review() -> (f64, u64) {
+    let v = load();
+    (
+        v["prep_review_seconds"].as_f64().unwrap_or(0.0),
+        v["prep_review_tracks"].as_u64().unwrap_or(0),
+    )
+}
+
+pub fn set_prep_review(seconds: f64, tracks: u64) {
+    save(|v| {
+        v["prep_review_seconds"] = json!(seconds);
+        v["prep_review_tracks"] = json!(tracks);
+    });
+}
