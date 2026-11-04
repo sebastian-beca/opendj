@@ -229,7 +229,11 @@ impl Browser {
         }
         let track = self.cue_track(deck).cloned();
         let mut rows = cues.clone();
-        rows.sort_by(|a, b| a.seconds.total_cmp(&b.seconds).then(a.number.cmp(&b.number)));
+        rows.sort_by(|a, b| {
+            a.seconds
+                .total_cmp(&b.seconds)
+                .then(a.number.cmp(&b.number))
+        });
         let ui = app.global::<CueList>();
         ui.set_prep(prep);
         ui.set_title(
@@ -262,7 +266,11 @@ impl Browser {
             .collect();
         ui.set_rows(ModelRc::new(VecModel::from(model)));
         // Prep's pads are deck 1's.
-        let pad_cues = if deck == 0 { cues.clone() } else { self.deck_cues(0) };
+        let pad_cues = if deck == 0 {
+            cues.clone()
+        } else {
+            self.deck_cues(0)
+        };
         let pad = |n: usize| pad_cues.iter().find(|c| c.number == n);
         let names: Vec<SharedString> = (0..NUM_HOTCUES)
             .map(|n| pad(n).map(|c| c.name.as_str().into()).unwrap_or_default())
