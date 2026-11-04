@@ -1,10 +1,11 @@
-//! The DJ's tag fields as chips in the Info tab: each word of a field is a
-//! tag, shown on all the tracks shown or on some ("#dreamy 5/12"). Tags
+//! The DJ's tag groups as chips in the Info tab: each tag of a group is a
+//! chip, shown on all the tracks shown or on some ("Dreamy 5/12"). Tags
 //! are added to and taken off every track at once, as one change Undo takes
 //! back, and the field suggests tags already in the collection.
 
 use std::collections::{BTreeMap, HashMap};
 
+use opendj_engine::{hashtags, same_tag as same, split_tags};
 use opendj_library::cleanup::Field;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
@@ -19,48 +20,25 @@ const SUGGESTIONS: usize = 6;
 const MENU_TAGS: usize = 12;
 const RECENT: usize = 8;
 
-/// The tags in a tag field: its words.
-pub(super) fn tags_in(words: &str) -> impl Iterator<Item = &str> {
-    words.split_whitespace()
-}
-
-/// Two tags are the same tag whatever their case.
-fn same(a: &str, b: &str) -> bool {
-    a.to_lowercase() == b.to_lowercase()
-}
-
-/// `words` with `tag` added at the end, unless it is there already.
-pub(super) fn with_tag(words: &str, tag: &str) -> String {
-    let mut out: Vec<&str> = tags_in(words).collect();
-    if !out.iter().any(|t| same(t, tag)) {
-        out.push(tag);
+/// The tags typed in a group's field: parted by commas ("Peak Time,
+/// Dark"), or hashtags ("#dark #synth") as VirtualDJ users type them.
+pub(super) fn typed_tags(typed: &str) -> Vec<String> {
+    if typed.contains('#') {
+        hashtags(typed)
+    } else {
+        split_tags(typed)
     }
-    out.join(" ")
 }
 
-/// `words` without `tag`.
-pub(super) fn without_tag(words: &str, tag: &str) -> String {
-    tags_in(words)
-        .filter(|t| !same(t, tag))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// The tags of field `n` on `tracks`, each with how many tracks have it:
-/// in the order of the first track's field, then the others' by how many
-/// have them.
-pub(super) fn chips_of(tracks: &[&Track], n: usize) -> Vec<(String, usize)> {
+/// The tags of `group` on `tracks`, each with how many tracks have it:
+/// in the order of the first track's, then the others' by how many have
+/// them.
+pub(super) fn chips_of(tracks: &[&Track], group: i64) -> Vec<(String, usize)> {
     let mut order: Vec<String> = Vec::new();
     let mut counts: HashMap<String, usize> = HashMap::new();
     for t in tracks {
-        // A tag twice in one field counts once.
-        let mut seen: Vec<String> = Vec::new();
-        for tag in tags_in(t.info.user_tag(n)) {
+        for tag in t.info.tags_in(group) {
             let key = tag.to_lowercase();
-            if seen.contains(&key) {
-                continue;
-            }
-            seen.push(key.clone());
             if !counts.contains_key(&key) {
                 order.push(tag.to_string());
             }
@@ -68,9 +46,7 @@ pub(super) fn chips_of(tracks: &[&Track], n: usize) -> Vec<(String, usize)> {
         }
     }
     let count = |t: &String| counts[&t.to_lowercase()];
-    let first = tracks
-        .first()
-        .map_or(0, |t| tags_in(t.info.user_tag(n)).count());
+    let first = tracks.first().map_or(0, |t| t.info.tags_in(group).count());
     let (mine, rest) = order.split_at(first.min(order.len()));
     let mut rest = rest.to_vec();
     rest.sort_by(|a, b| {
@@ -84,9 +60,14 @@ pub(super) fn chips_of(tracks: &[&Track], n: usize) -> Vec<(String, usize)> {
         .collect()
 }
 
-/// Tags of field `n` in the collection that start with `typed` (the `#`
+/// Tags of `group` in the collection that start with `typed` (a `#`
 /// ignored), most used first, leaving out `taken`.
-pub(super) fn suggest(library: &[&Track], n: usize, typed: &str, taken: &[String]) -> Vec<String> {
+pub(super) fn suggest(
+    library: &[&Track],
+    group: i64,
+    typed: &str,
+    taken: &[String],
+) -> Vec<String> {
     let bare = |s: &str| s.trim_start_matches('#').to_lowercase();
     let typed = bare(typed.trim());
     if typed.is_empty() {
@@ -94,7 +75,7 @@ pub(super) fn suggest(library: &[&Track], n: usize, typed: &str, taken: &[String
     }
     let mut counts: BTreeMap<String, (String, usize)> = BTreeMap::new();
     for t in library {
-        for tag in tags_in(t.info.user_tag(n)) {
+        for tag in t.info.tags_in(group) {
             if bare(tag).starts_with(&typed) && !taken.iter().any(|k| same(k, tag)) {
                 counts
                     .entry(tag.to_lowercase())
@@ -112,45 +93,43 @@ pub(super) fn suggest(library: &[&Track], n: usize, typed: &str, taken: &[String
         .collect()
 }
 
-/// The tags the track menu offers: `recent` ones (field, tag) first, then
-/// the most used in every tag field of `library`; those containing `find`
-/// (the `#` ignored) when it isn't empty.
+/// The tags the track menu offers: `recent` ones (group, tag) first, then
+/// the most used in every one of `groups` in `library`; those containing
+/// `find` (a `#` ignored) when it isn't empty.
 pub(super) fn menu_tags(
     library: &[&Track],
-    fields: usize,
-    recent: &[(usize, String)],
+    groups: &[i64],
+    recent: &[(i64, String)],
     find: &str,
-) -> Vec<(usize, String)> {
+) -> Vec<(i64, String)> {
     let bare = |s: &str| s.trim_start_matches('#').to_lowercase();
     let find = bare(find.trim());
-    let mut counts: BTreeMap<(usize, String), (String, usize)> = BTreeMap::new();
+    let mut counts: BTreeMap<(i64, String), (String, usize)> = BTreeMap::new();
     for t in library {
-        for n in 0..fields {
-            for tag in tags_in(t.info.user_tag(n)) {
-                counts
-                    .entry((n, tag.to_lowercase()))
-                    .or_insert_with(|| (tag.to_string(), 0))
-                    .1 += 1;
-            }
+        for tag in t.info.tags.iter().filter(|t| groups.contains(&t.group)) {
+            counts
+                .entry((tag.group, tag.name.to_lowercase()))
+                .or_insert_with(|| (tag.name.clone(), 0))
+                .1 += 1;
         }
     }
-    let mut used: Vec<(usize, String, usize)> = counts
+    let mut used: Vec<(i64, String, usize)> = counts
         .into_iter()
-        .map(|((n, _), (tag, c))| (n, tag, c))
+        .map(|((g, _), (tag, c))| (g, tag, c))
         .collect();
     used.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.1.cmp(&b.1)));
-    let mut out: Vec<(usize, String)> = Vec::new();
+    let mut out: Vec<(i64, String)> = Vec::new();
     let candidates = recent
         .iter()
-        .filter(|(n, _)| *n < fields)
+        .filter(|(g, _)| groups.contains(g))
         .cloned()
-        .chain(used.into_iter().map(|(n, t, _)| (n, t)));
-    for (n, tag) in candidates {
+        .chain(used.into_iter().map(|(g, t, _)| (g, t)));
+    for (g, tag) in candidates {
         if !find.is_empty() && !bare(&tag).contains(&find) {
             continue;
         }
-        if !out.iter().any(|(m, t)| *m == n && same(t, &tag)) {
-            out.push((n, tag));
+        if !out.iter().any(|(m, t)| *m == g && same(t, &tag)) {
+            out.push((g, tag));
         }
         if out.len() == MENU_TAGS {
             break;
@@ -159,9 +138,26 @@ pub(super) fn menu_tags(
     out
 }
 
-/// The chips the Info tab draws for field `n`.
-pub(super) fn chip_model(tracks: &[&Track], n: usize) -> ModelRc<TagChip> {
-    let chips: Vec<TagChip> = chips_of(tracks, n)
+/// The track's tags in `group` with `tags` added (one per track in a
+/// group set to one, the last of them) or taken off, as one line.
+fn changed(t: &Track, group: i64, tags: &[String], add: bool) -> String {
+    let single = super::query::field_names()
+        .group(group)
+        .is_some_and(|g| g.single);
+    let mut info = t.info.clone();
+    for tag in tags {
+        if add {
+            info.add_tag(group, tag, single);
+        } else {
+            info.remove_tag(group, tag);
+        }
+    }
+    info.tag_text(group)
+}
+
+/// The chips the Info tab draws for `group`.
+pub(super) fn chip_model(tracks: &[&Track], group: i64) -> ModelRc<TagChip> {
+    let chips: Vec<TagChip> = chips_of(tracks, group)
         .into_iter()
         .map(|(tag, count)| TagChip {
             tag: tag.into(),
@@ -193,40 +189,33 @@ impl Browser {
         }
     }
 
-    /// Adds the tags typed (`add`), or takes one off, in tag field `id` of
-    /// every track shown.
+    /// Adds the tags typed (`add`), or takes one off, in the tag group
+    /// field `id` of every track shown.
     fn change_tag(&mut self, id: &str, typed: &str, add: bool) {
-        let Some(Field::Tag(n)) = Field::from_name(id) else {
+        let Some(Field::Tag(group)) = Field::from_name(id) else {
             return;
         };
-        let tags: Vec<&str> = if add {
-            tags_in(typed).collect()
+        let tags: Vec<String> = if add {
+            typed_tags(typed)
         } else {
-            vec![typed.trim()]
+            vec![typed.trim().to_string()]
         };
-        if tags.is_empty() {
+        if tags.iter().all(|t| t.is_empty()) {
             return;
         }
         let shown = self.info_tracks();
         if let [(_, t)] = shown.as_slice() {
             // One track: saved as any field typed in the tab.
-            let mut words = t.info.user_tag(n as usize).to_string();
-            for tag in &tags {
-                words = if add {
-                    with_tag(&words, tag)
-                } else {
-                    without_tag(&words, tag)
-                };
-            }
+            let text = changed(t, group, &tags, add);
             self.set_suggestions(Vec::new());
-            if words != t.info.user_tag(n as usize) {
-                self.info_edit(id, &words);
+            if text != t.info.tag_text(group) {
+                self.info_edit(id, &text);
             }
             return;
         }
         self.set_suggestions(Vec::new());
         let indices: Vec<usize> = shown.iter().map(|(i, _)| *i).collect();
-        if let Some(status) = self.tag_tracks(&indices, n as usize, &tags, add) {
+        if let Some(status) = self.tag_tracks(&indices, group, &tags, add) {
             if let Some(app) = self.app.upgrade() {
                 let ui = app.global::<TrackInfo>();
                 ui.set_status(status.into());
@@ -235,14 +224,14 @@ impl Browser {
         }
     }
 
-    /// Adds `tags` to tag field `n` of the library tracks `indices`, or
-    /// takes them off, as one change Undo takes back. Says what it did,
+    /// Adds `tags` to tag group `group` of the library tracks `indices`,
+    /// or takes them off, as one change Undo takes back. Says what it did,
     /// or `None` when nothing changed.
     pub(super) fn tag_tracks(
         &mut self,
         indices: &[usize],
-        n: usize,
-        tags: &[&str],
+        group: i64,
+        tags: &[String],
         add: bool,
     ) -> Option<String> {
         let mut changes = Vec::new();
@@ -250,25 +239,17 @@ impl Browser {
             let Some(t) = self.library.get(index) else {
                 continue;
             };
-            let before = t.info.user_tag(n);
-            let mut words = before.to_string();
-            for tag in tags {
-                words = if add {
-                    with_tag(&words, tag)
-                } else {
-                    without_tag(&words, tag)
-                };
-            }
-            if words != before {
-                changes.push((index, Field::Tag(n as u8), words));
+            let text = changed(t, group, tags, add);
+            if text != t.info.tag_text(group) {
+                changes.push((index, Field::Tag(group), text));
             }
         }
         if add {
             for tag in tags {
                 self.info
                     .recent_tags
-                    .retain(|(m, t)| !(*m == n && same(t, tag)));
-                self.info.recent_tags.insert(0, (n, tag.to_string()));
+                    .retain(|(g, t)| !(*g == group && same(t, tag)));
+                self.info.recent_tags.insert(0, (group, tag.to_string()));
             }
             self.info.recent_tags.truncate(RECENT);
         }
@@ -287,13 +268,18 @@ impl Browser {
     pub(super) fn find_menu_tags(&mut self, find: &str) {
         let names = super::query::field_names();
         let library: Vec<&Track> = self.library.iter().map(|t| &**t).collect();
-        let picks = menu_tags(&library, names.tags.len(), &self.info.recent_tags, find);
+        let groups: Vec<i64> = names.tags.iter().map(|g| g.id).collect();
+        let picks = menu_tags(&library, &groups, &self.info.recent_tags, find);
         let rows: Vec<MenuTag> = picks
             .into_iter()
-            .map(|(n, tag)| MenuTag {
+            .map(|(g, tag)| MenuTag {
                 tag: tag.into(),
-                id: format!("tag{}", n + 1).into(),
-                field: names.tags.get(n).cloned().unwrap_or_default().into(),
+                id: Field::Tag(g).name().into_owned().into(),
+                field: names
+                    .group(g)
+                    .map(|g| g.name.clone())
+                    .unwrap_or_default()
+                    .into(),
             })
             .collect();
         if let Some(app) = self.app.upgrade() {
@@ -302,37 +288,37 @@ impl Browser {
         }
     }
 
-    /// The track menu's Add Tag: tag `tag` in field `id` goes on the rows
-    /// `first` to `last` (or all the picked rows).
+    /// The track menu's Add Tag: tag `tag` of group field `id` goes on the
+    /// rows `first` to `last` (or all the picked rows).
     pub(super) fn add_tag_to_rows(&mut self, first: usize, last: usize, id: &str, tag: &str) {
-        let Some(Field::Tag(n)) = Field::from_name(id) else {
+        let Some(Field::Tag(group)) = Field::from_name(id) else {
             return;
         };
-        let tags: Vec<&str> = tags_in(tag).collect();
+        let tags = split_tags(tag);
         if tags.is_empty() {
             return;
         }
         let indices = self.chosen_tracks(first, last);
         self.adopt(&indices);
-        self.tag_tracks(&indices, n as usize, &tags, true);
+        self.tag_tracks(&indices, group, &tags, true);
     }
 
-    /// Offers the collection's tags that start with what is typed in tag
-    /// field `id`.
+    /// Offers the collection's tags that start with what is typed in the
+    /// tag group field `id`.
     fn suggest_tags(&mut self, id: &str, typed: &str) {
-        let Some(Field::Tag(n)) = Field::from_name(id) else {
+        let Some(Field::Tag(group)) = Field::from_name(id) else {
             return;
         };
         let shown = self.info_tracks();
         let tracks: Vec<&Track> = shown.iter().map(|(_, t)| &**t).collect();
         // Tags every track has already aren't offered again.
-        let taken: Vec<String> = chips_of(&tracks, n as usize)
+        let taken: Vec<String> = chips_of(&tracks, group)
             .into_iter()
             .filter(|(_, c)| *c == tracks.len())
             .map(|(t, _)| t)
             .collect();
         let library: Vec<&Track> = self.library.iter().map(|t| &**t).collect();
-        let found = suggest(&library, n as usize, typed, &taken);
+        let found = suggest(&library, group, typed, &taken);
         if let Some(app) = self.app.upgrade() {
             app.global::<TrackInfo>().set_suggest_for(id.into());
         }
@@ -372,78 +358,88 @@ mod tests {
             grid: Default::default(),
             info: Default::default(),
         };
-        t.info.set_user_tag(0, tags.into());
+        t.info.set_tags_in(1, split_tags(tags));
         t
     }
 
     #[test]
+    fn reads_typed_tags() {
+        assert_eq!(typed_tags("Peak Time, dark"), ["Peak Time", "dark"]);
+        assert_eq!(typed_tags("#dark #synth"), ["dark", "synth"]);
+        assert!(typed_tags(" , ").is_empty());
+    }
+
+    #[test]
     fn adds_and_takes_off_tags() {
-        assert_eq!(with_tag("#dark #synth", "#sunset"), "#dark #synth #sunset");
+        let t = track("dark, synth");
         assert_eq!(
-            with_tag("#dark", "#DARK"),
-            "#dark",
+            changed(&t, 1, &["Sunset".into()], true),
+            "dark, synth, Sunset"
+        );
+        assert_eq!(
+            changed(&t, 1, &["DARK".into()], true),
+            "dark, synth",
             "once, whatever the case"
         );
-        assert_eq!(with_tag("", "#a"), "#a");
-        assert_eq!(without_tag("#dark  #synth", "#Dark"), "#synth");
-        assert_eq!(without_tag("#synth", "#vox"), "#synth");
+        assert_eq!(changed(&t, 1, &["Dark".into()], false), "synth");
+        assert_eq!(changed(&t, 2, &["a".into()], true), "a");
     }
 
     #[test]
     fn counts_tags_on_several_tracks() {
-        let a = track("#uplifting #dreamy");
-        let b = track("#uplifting #synth #synth");
-        let c = track("#Uplifting #synth");
-        let chips = chips_of(&[&a, &b, &c], 0);
+        let a = track("uplifting, dreamy");
+        let b = track("uplifting, synth, synth");
+        let c = track("Uplifting, synth");
+        let chips = chips_of(&[&a, &b, &c], 1);
         assert_eq!(
             chips,
             [
-                ("#uplifting".to_string(), 3),
-                ("#dreamy".to_string(), 1),
-                ("#synth".to_string(), 2),
+                ("uplifting".to_string(), 3),
+                ("dreamy".to_string(), 1),
+                ("synth".to_string(), 2),
             ],
             "the first track's order, then the rest by count"
         );
-        assert!(chips_of(&[&a], 1).is_empty());
+        assert!(chips_of(&[&a], 2).is_empty());
     }
 
     #[test]
     fn suggests_tags_in_use() {
-        let a = track("#sunset #synth");
-        let b = track("#sunrise #synth");
-        let c = track("#synth #sunset");
+        let a = track("sunset, synth");
+        let b = track("sunrise, synth");
+        let c = track("synth, sunset");
         let lib = [&a, &b, &c];
-        assert_eq!(suggest(&lib, 0, "su", &[]), ["#sunset", "#sunrise"]);
-        assert_eq!(suggest(&lib, 0, "#sy", &[]), ["#synth"]);
+        assert_eq!(suggest(&lib, 1, "su", &[]), ["sunset", "sunrise"]);
+        assert_eq!(suggest(&lib, 1, "#sy", &[]), ["synth"]);
         assert_eq!(
-            suggest(&lib, 0, "s", &["#synth".to_string()]),
-            ["#sunset", "#sunrise"],
+            suggest(&lib, 1, "s", &["synth".to_string()]),
+            ["sunset", "sunrise"],
             "tags already on every track aren't offered"
         );
-        assert!(suggest(&lib, 0, " ", &[]).is_empty());
+        assert!(suggest(&lib, 1, " ", &[]).is_empty());
     }
 
     #[test]
     fn offers_recent_then_most_used_tags() {
-        let a = track("#sunset #synth");
-        let b = track("#synth");
-        let mut c = track("#dark");
-        c.info.set_user_tag(1, "#vox".into());
+        let a = track("sunset, synth");
+        let b = track("synth");
+        let mut c = track("dark");
+        c.info.set_tags_in(2, ["vox".into()]);
         let lib = [&a, &b, &c];
-        let recent = [(0, "#dark".to_string())];
+        let recent = [(1, "dark".to_string())];
         assert_eq!(
-            menu_tags(&lib, 2, &recent, ""),
+            menu_tags(&lib, &[1, 2], &recent, ""),
             [
-                (0, "#dark".to_string()),
-                (0, "#synth".to_string()),
-                (0, "#sunset".to_string()),
-                (1, "#vox".to_string()),
+                (1, "dark".to_string()),
+                (1, "synth".to_string()),
+                (1, "sunset".to_string()),
+                (2, "vox".to_string()),
             ]
         );
         assert_eq!(
-            menu_tags(&lib, 2, &recent, "#S"),
-            [(0, "#synth".to_string()), (0, "#sunset".to_string())]
+            menu_tags(&lib, &[1, 2], &recent, "#S"),
+            [(1, "synth".to_string()), (1, "sunset".to_string())]
         );
-        assert_eq!(menu_tags(&lib, 1, &[], "vox"), []);
+        assert_eq!(menu_tags(&lib, &[1], &[], "vox"), []);
     }
 }

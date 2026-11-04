@@ -11,13 +11,13 @@ does. The **filter button** next to the search box shows or hides it. The
 bar starts hidden, and the button lights up while any filter is on.
 
 The bar starts with chips for **Grouping**, **Genre**, your first two tag
-fields (see [Your own fields](music.md#your-own-fields)), **BPM** and
+groups (see [Your tags](music.md#your-tags)), **BPM** and
 **Key**. Click a chip to pick values:
 
 - **Genre, Grouping, Artist, Album**: tick the values you want. Each one
   shows how many tracks of the list have it, and a search box at the top
   finds one in a long list.
-- **Tag fields** such as Mood: tick words, and choose **Match Any** (a track
+- **Tag groups** such as Mood: tick tags, and choose **Match Any** (a track
   needs one of them) or **Match All** (it needs all of them).
 - **BPM**: type a range, **From** and **To**, or turn on **Near the playing
   track** to follow the tempo of what's playing, within a few percent.
@@ -43,8 +43,8 @@ box for a moment to see everything search understands:
 | Search | Finds |
 |---|---|
 | `daft punk` | Both words, in any field |
-| `artist:"daft punk"` | In one field: title, artist, album, genre, a tag field… |
-| `mood:uplifting tag2:synth` | Your tag fields, by name or number |
+| `artist:"daft punk"` | In one field: title, artist, album, genre, a tag group… |
+| `mood:uplifting tag2:synth` | Your tag groups, by name or place |
 | `title:=glue album:""` | The whole field; an empty field |
 | `bpm:120-128 rating:>=4` | Numbers: `>`, `>=`, `<`, `<=` and ranges |
 | `duration:>6m played:0` | Length; times played |

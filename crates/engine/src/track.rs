@@ -319,8 +319,14 @@ pub struct LibraryInfo {
     pub comment: String,
     /// The track's grouping, e.g. "11 YOGA".
     pub grouping: String,
-    /// Words the DJ tagged the track with, e.g. hashtags ("#uplifting", "#synth").
-    pub labels: Vec<String>,
+    /// The DJ's tags on the track, each in one of their tag groups (see
+    /// `opendj_library::tags`): "Uplifting" in Mood, "Synth" and "Vocals"
+    /// in Instruments.
+    pub tags: Vec<TrackTag>,
+    /// Tags another app keeps for the track, as it brings them in: where
+    /// that app keeps the tag (VirtualDJ's "User 1", a rekordbox My Tag
+    /// category) and the tag. The library puts them in the DJ's groups.
+    pub imported_tags: Vec<(String, String)>,
     /// Colour as 0xRRGGBB.
     pub color: Option<u32>,
     pub play_count: u32,
@@ -353,11 +359,6 @@ pub struct LibraryInfo {
     pub year: String,
     /// Its number on the album; 0 for none.
     pub track_number: u32,
-    /// The DJ's own tag fields, from Tag 1 up: words such as moods
-    /// ("#uplifting") in one and instruments ("#synth #vox") in another.
-    /// VirtualDJ's User 1 and User 2 are the first two. What each field is
-    /// called is the DJ's choice (see the app's settings).
-    pub user_tags: Vec<String>,
     /// A gain the DJ set for this track, in dB; the deck's gain knob is set
     /// to it when the track loads.
     pub gain_db: Option<f32>,
@@ -380,27 +381,107 @@ pub struct LibraryInfo {
 }
 
 impl LibraryInfo {
-    /// Tag field `i` (from 0), empty when the track has none there.
-    pub fn user_tag(&self, i: usize) -> &str {
-        self.user_tags.get(i).map_or("", String::as_str)
-    }
-
-    /// Sets tag field `i` (from 0), making room for it.
-    pub fn set_user_tag(&mut self, i: usize, words: String) {
-        if self.user_tags.len() <= i {
-            self.user_tags.resize(i + 1, String::new());
-        }
-        self.user_tags[i] = words;
-    }
-
-    /// The words of every tag field, as `labels` keeps them for searching.
-    pub fn user_words(&self) -> Vec<String> {
-        self.user_tags
+    /// The names of the track's tags in `group`, in the order they were added.
+    pub fn tags_in(&self, group: i64) -> impl Iterator<Item = &str> {
+        self.tags
             .iter()
-            .flat_map(|f| f.split_whitespace())
-            .map(str::to_string)
-            .collect()
+            .filter(move |t| t.group == group)
+            .map(|t| t.name.as_str())
     }
+
+    /// Whether the track has `name` in `group`, whatever its case.
+    pub fn has_tag(&self, group: i64, name: &str) -> bool {
+        self.tags_in(group).any(|t| same_tag(t, name))
+    }
+
+    /// The track's tags in `group` as one line, "Synth, Vocals"; as
+    /// [`split_tags`] reads it back.
+    pub fn tag_text(&self, group: i64) -> String {
+        self.tags_in(group).collect::<Vec<_>>().join(", ")
+    }
+
+    /// Makes `names` the track's tags in `group`, in that order: tidied
+    /// ([`tag_name`]), empty ones and repeats left out.
+    pub fn set_tags_in(&mut self, group: i64, names: impl IntoIterator<Item = String>) {
+        let at = self
+            .tags
+            .iter()
+            .position(|t| t.group == group)
+            .unwrap_or(self.tags.len());
+        self.tags.retain(|t| t.group != group);
+        let mut new: Vec<TrackTag> = Vec::new();
+        for name in names {
+            let name = tag_name(&name);
+            if !name.is_empty() && !new.iter().any(|t| same_tag(&t.name, &name)) {
+                new.push(TrackTag { group, name });
+            }
+        }
+        let at = at.min(self.tags.len());
+        self.tags.splice(at..at, new);
+    }
+
+    /// Adds `name` to `group`, unless the track has it; with `single`, it
+    /// replaces the tag the track had there.
+    pub fn add_tag(&mut self, group: i64, name: &str, single: bool) {
+        if self.has_tag(group, name) {
+            return;
+        }
+        let mut names: Vec<String> = if single {
+            Vec::new()
+        } else {
+            self.tags_in(group).map(str::to_string).collect()
+        };
+        names.push(name.to_string());
+        self.set_tags_in(group, names);
+    }
+
+    /// Takes `name` out of `group`.
+    pub fn remove_tag(&mut self, group: i64, name: &str) {
+        self.tags
+            .retain(|t| t.group != group || !same_tag(&t.name, name));
+    }
+}
+
+/// A tag on a track: its name, in one of the DJ's tag groups (by the
+/// group's id in the library).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrackTag {
+    pub group: i64,
+    pub name: String,
+}
+
+/// Two tag names are the same tag whatever their case.
+pub fn same_tag(a: &str, b: &str) -> bool {
+    a.to_lowercase() == b.to_lowercase()
+}
+
+/// A tag's name as the library keeps it: trimmed, without the `#` other
+/// apps' hashtags start with, with no commas or line breaks (which part
+/// tags in [`LibraryInfo::tag_text`]) and single spaces.
+pub fn tag_name(s: &str) -> String {
+    s.trim()
+        .trim_start_matches('#')
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Tags typed on one line, parted by commas: "Synth, Vocals".
+pub fn split_tags(text: &str) -> Vec<String> {
+    text.split([',', '\n'])
+        .map(tag_name)
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
+/// Hashtags as VirtualDJ users type them, "#synth #vox": one tag per
+/// word, without the `#`. Text with no `#` at all is one tag per word too.
+pub fn hashtags(text: &str) -> Vec<String> {
+    text.split_whitespace()
+        .map(tag_name)
+        .filter(|t| !t.is_empty())
+        .collect()
 }
 
 /// Hot cues numbered from here up are memory cues: rekordbox's unnumbered
