@@ -560,6 +560,11 @@ pub struct Browser {
     /// The chip picked on each Collection Health area (an index into
     /// `health::area_chips`); unpicked, the first with tracks.
     area_chip: HashMap<Area, usize>,
+    /// Tracks each area found when first opened, for its progress bar.
+    area_start: HashMap<Area, usize>,
+    /// Audio files in the stage and music folders by lower-case name, for
+    /// the Fix column of missing files; read when first needed.
+    relink_files: OnceCell<HashMap<String, Vec<PathBuf>>>,
     /// The node selected on the other tab, to go back to.
     other_tab_node: usize,
     /// The list or history session the sort was last set up for: each
@@ -1180,6 +1185,8 @@ impl Browser {
             history_tab: false,
             health_view: false,
             area_chip: HashMap::new(),
+            area_start: HashMap::new(),
+            relink_files: OnceCell::new(),
             other_tab_node: 0,
             sorted_list: None,
             view_sort: (1, true),
@@ -5108,8 +5115,12 @@ impl Browser {
             .filter(|_| self.tree == COLLECTION);
         let history = list.is_some() && node.is_some_and(|n| n.history);
         let prep = node.is_some_and(|n| matches!(n.contents, Contents::Stage(Stage::Triage, _)));
+        let area =
+            self.health_view && node.is_some_and(|n| matches!(n.contents, Contents::Area(_)));
         let kind = if history {
             columns::Columns::History
+        } else if area {
+            columns::Columns::Health
         } else if prep {
             columns::Columns::Prep
         } else {

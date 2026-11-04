@@ -462,6 +462,10 @@ export global HealthUi {
     // An area's chips and the one shown, or -1 outside an area.
     in property <[HealthChip]> chips;
     in property <int> chip: -1;
+    // The area's progress since it was first opened: tracks fixed, of how
+    // many it found then.
+    in property <int> fixed;
+    in property <int> fixed-of;
     callback open-area(area: int);
     callback pick-chip(chip: int);
     // The tree shows Collection Health's checks, picked in the rail.
@@ -3294,7 +3298,7 @@ component HealthBar inherits Rectangle {
     in property <int> listed;
     height: HealthUi.chips.length > 0 ? 80px : 44px;
     background: Theme.panel;
-    // An area's checks, one chip each.
+    // An area's checks, one chip each, and how far it has come.
     if HealthUi.chips.length > 0: HorizontalLayout {
         y: 0;
         height: 36px;
@@ -3302,7 +3306,6 @@ component HealthBar inherits Rectangle {
         padding-right: 12px;
         padding-top: 8px;
         spacing: 6px;
-        alignment: start;
         for c[i] in HealthUi.chips: Rectangle {
             width: chip.preferred-width + 22px;
             height: 26px;
@@ -3319,6 +3322,20 @@ component HealthBar inherits Rectangle {
             ct := TouchArea {
                 mouse-cursor: pointer;
                 clicked => { HealthUi.pick-chip(i); }
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        if HealthUi.fixed-of > 0: HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                HealthMeter { width: 120px; percent: HealthUi.fixed * 100 / HealthUi.fixed-of; }
+            }
+            Text {
+                text: HealthUi.fixed + " of " + HealthUi.fixed-of + " fixed";
+                color: HealthUi.fixed >= HealthUi.fixed-of ? Theme.health-clear : Theme.text-dim;
+                font-size: 12px;
+                vertical-alignment: center;
             }
         }
     }

@@ -373,6 +373,9 @@ impl Browser {
         if let Some(c) = chip {
             self.area_chip.insert(area, c);
         }
+        let now = self.area_count(area);
+        let start = self.area_start.entry(area).or_insert(now);
+        *start = (*start).max(now);
         self.health_status.clear();
         self.current_node = n;
         self.folders_focused = false;
@@ -381,6 +384,161 @@ impl Browser {
         }
         self.refresh_tree();
         self.refresh_rows();
+    }
+
+    /// The folders missing files are looked for in.
+    fn relink_roots(&self) -> Vec<PathBuf> {
+        let mut roots: Vec<PathBuf> = self
+            .folders
+            .all()
+            .into_iter()
+            .map(Path::to_path_buf)
+            .collect();
+        roots.extend(settings::music_folders());
+        roots
+    }
+
+    /// The one file a missing track's name matches, if exactly one does.
+    fn relink_match(&self, t: &Track) -> Result<&Path, usize> {
+        let found = self
+            .relink_files
+            .get_or_init(|| files_by_name(&self.relink_roots()));
+        let name = file_path(t)
+            .and_then(Path::file_name)
+            .map(|n| n.to_string_lossy().to_lowercase());
+        match name.and_then(|n| found.get(&n)).map(Vec::as_slice) {
+            Some([one]) => Ok(one),
+            Some(many) => Err(many.len()),
+            None => Err(0),
+        }
+    }
+
+    /// A Collection Health area's Problem and Fix cells for `t`: what the
+    /// listed check found, and what its first fix would do.
+    pub(super) fn health_cells(&self, t: &Track) -> (String, String) {
+        let Some(check) = self.listed_check() else {
+            return Default::default();
+        };
+        let short = |p: &Path| {
+            let parts: Vec<String> = p
+                .components()
+                .rev()
+                .take(2)
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect();
+            parts.into_iter().rev().collect::<Vec<_>>().join("/")
+        };
+        let s = |a: &str, b: &str| (a.to_string(), b.to_string());
+        match check {
+            Check::Missing => match self.relink_match(t) {
+                Ok(p) => ("File not found".into(), format!("Relink to {}", short(p))),
+                Err(0) => s(
+                    "File not found",
+                    "Not found in your folders: find it or remove it",
+                ),
+                Err(n) => (
+                    "File not found".into(),
+                    format!("{n} files match: pick one"),
+                ),
+            },
+            Check::LowBitrate => (
+                self.health
+                    .bitrate(t.id)
+                    .map_or_else(|| "Low bitrate".into(), |b| format!("{b} kb/s")),
+                "Find a better copy".into(),
+            ),
+            Check::NotMusic => s("Audiobook or podcast", "Remove from collection"),
+            Check::Stray if self.folders.is_set() => {
+                s("Outside the stage folders", "Move to In Prep")
+            }
+            Check::Stray => s("Outside the stage folders", "Remove from collection"),
+            Check::Outside => s(
+                "Outside your music folders",
+                if self.folders.is_set() {
+                    "Move to In Prep"
+                } else {
+                    "Remove from collection"
+                },
+            ),
+            Check::Long => (
+                format!("{} min", (t.duration / 60.0).round() as i64),
+                format!("Tag as {MIX_TAG}"),
+            ),
+            Check::Duplicate => {
+                let Some(g) = self.dupe_groups().iter().find(|g| g.tracks.contains(&t.id)) else {
+                    return s("Copy", "");
+                };
+                if g.tracks[0] == t.id {
+                    (
+                        format!("{}: kept", g.case.title()),
+                        "Keeps the others' cues and plays".into(),
+                    )
+                } else {
+                    let keep = self
+                        .index_of
+                        .get(&g.tracks[0])
+                        .and_then(|&i| file_path(&self.library[i]))
+                        .map(short)
+                        .unwrap_or_default();
+                    (g.case.title().into(), format!("Merge into {keep}"))
+                }
+            }
+            Check::MissingInfo => {
+                let lacking: Vec<&str> = [
+                    ("artist", &t.artist),
+                    ("title", &t.title),
+                    ("album", &t.album),
+                    ("year", &t.info.year),
+                    ("genre", &t.genre),
+                ]
+                .into_iter()
+                .filter(|(_, v)| health::says_nothing(v))
+                .map(|(what, _)| what)
+                .collect();
+                let problem = format!("No {}", lacking.join(", "));
+                let named = file_path(t).and_then(health::from_file_name);
+                let fix = match named {
+                    Some((artist, title))
+                        if health::says_nothing(&t.artist) || health::says_nothing(&t.title) =>
+                    {
+                        format!("{artist} – {title}, from the file name")
+                    }
+                    _ => "Look up online".into(),
+                };
+                (problem, fix)
+            }
+            Check::Junk => {
+                let changes = self.health.junk(t);
+                let fix = changes
+                    .iter()
+                    .map(|c| format!("{} → {}", c.old, c.new))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                ("Junk in names".into(), fix)
+            }
+            Check::AlbumTags => (
+                if t.album.trim().is_empty() {
+                    "No album tag".into()
+                } else {
+                    format!("Album: {}", t.album)
+                },
+                self.health
+                    .album_tag(t.id)
+                    .map(|a| format!("Album: {a}"))
+                    .unwrap_or_default(),
+            ),
+            Check::NoCover => s("No cover", "Look online for one"),
+            Check::NotAnalyzed => s("No tempo or key", "Analyze"),
+            Check::NoRating => s("No stars", "Rate it"),
+        }
+    }
+
+    /// How far an area has come since it was first opened: tracks fixed,
+    /// of those it found then.
+    fn area_progress(&self, area: Area) -> (usize, usize) {
+        let now = self.area_count(area);
+        let start = self.area_start.get(&area).copied().unwrap_or(now).max(now);
+        (start - now, start)
     }
 
     /// The check whose tracks are listed: a case of copies is Duplicates'.
@@ -921,6 +1079,19 @@ impl Browser {
                 // Fixes for copies count the groups they merge or link.
                 let counts: Vec<i32> = if Some(c) == listed && c == Check::Duplicate {
                     offered.iter().map(|&f| self.fix_groups(f) as i32).collect()
+                } else if Some(c) == listed && c == Check::Missing {
+                    // Only files found once by name are relinked: the sure ones.
+                    let sure = self
+                        .rows
+                        .iter()
+                        .flatten()
+                        .filter(|&&i| self.relink_match(&self.library[i]).is_ok())
+                        .count();
+                    let listed = self.rows.iter().flatten().count();
+                    offered
+                        .iter()
+                        .map(|&f| if f == Fix::Relink { sure } else { listed } as i32)
+                        .collect()
                 } else {
                     Vec::new()
                 };
@@ -1069,6 +1240,9 @@ impl Browser {
                     .collect()
             })
             .unwrap_or_default();
+        let (fixed, of) = area.map_or((0, 0), |a| self.area_progress(a));
+        ui.set_fixed(fixed as i32);
+        ui.set_fixed_of(of as i32);
         ui.set_chip(area.map_or(-1, |a| self.chip_of(a) as i32));
         ui.set_chips(ModelRc::new(VecModel::from(chips)));
     }
@@ -1345,14 +1519,7 @@ impl Browser {
     /// Looks for missing files by name in the stage folders and the music
     /// folders, and points each track with exactly one match at it.
     fn relink(&mut self, indices: &[usize]) -> String {
-        let mut roots: Vec<PathBuf> = self
-            .folders
-            .all()
-            .into_iter()
-            .map(Path::to_path_buf)
-            .collect();
-        roots.extend(settings::music_folders());
-        let found = files_by_name(&roots);
+        let found = files_by_name(&self.relink_roots());
         let (mut linked, mut many, mut none, mut taken) = (0, 0, 0, 0);
         let Some(db) = &mut self.db else {
             return String::new();
@@ -1376,6 +1543,10 @@ impl Browser {
                 _ => many += 1,
             }
         }
+        self.relink_files = OnceCell::new();
+        let Some(db) = &mut self.db else {
+            return String::new();
+        };
         if linked > 0 {
             if let Err(e) = db.assign_stages(&self.folders) {
                 eprintln!("can't give the found files their stage: {e}");
