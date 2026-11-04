@@ -22,7 +22,7 @@ With `slip_enabled` on, a playing deck SHALL keep a silent playhead moving while
 ## ADDED Requirements
 
 ### Requirement: Ghost playhead
-While slipping, both waveforms SHALL draw the silent playhead as a dashed lilac line, and the deck's SLIP button SHALL blink.
+While slipping, both waveforms SHALL draw the silent playhead as a dashed lilac line, and the deck's SLIP toggle SHALL blink.
 
 #### Scenario: Ghost
 - **WHEN** a loop runs with slip on
