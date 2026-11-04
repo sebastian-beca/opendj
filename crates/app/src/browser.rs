@@ -38,6 +38,7 @@ mod health;
 mod info;
 mod mix_export;
 mod picks;
+mod prep;
 mod sets;
 mod spotify_export;
 mod staging;
@@ -444,6 +445,10 @@ pub struct Browser {
     match_candidates: Vec<usize>,
     /// Ids (not indices) of the tracks on each deck.
     loaded: [Option<usize>; NUM_DECKS],
+    /// Prep's Play Ready, next track waiting for the deck to lock the
+    /// finished track's grid: that track's id, the library index of the
+    /// track to load next, and when it was asked for.
+    prep_pending: Option<(usize, Option<usize>, std::time::Instant)>,
     /// The decks the layout shows: 4 in 4-Deck, else 2. "Load on a free
     /// deck" picks among these.
     decks_shown: usize,
@@ -1029,6 +1034,7 @@ impl Browser {
             placed: Default::default(),
             match_candidates: Vec::new(),
             loaded: [None; NUM_DECKS],
+            prep_pending: None,
             decks_shown: 2,
             side: [Vec::new(), Vec::new()],
             automix_before_order: None,
@@ -1709,6 +1715,7 @@ impl Browser {
         let w = with.clone();
         edit.on_set_rule(move |i, text| w(&|b| b.set_rule(i as usize, &text)));
         Self::install_staging(&edit, &with);
+        Self::install_prep(app, &with);
         Self::install_track_menu(&edit, &with);
         Self::install_mix_export(&app.global::<FilesUi>(), &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
@@ -3916,6 +3923,7 @@ impl Browser {
             self.update_reference();
             self.refresh_rows();
             self.refresh_side();
+            self.refresh_prep();
         } else if self.update_reference() {
             // Keys light up when they mix with the track playing now.
             self.refresh_rows();
