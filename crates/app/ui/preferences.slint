@@ -36,6 +36,9 @@ export struct PrefItem {
     // id + "#add", id + "#remove:" + index and id + "#reveal:" + path, 22
     // how track colors show: the title, then `choices` as segmented
     // buttons with a small preview of the `chosen` one beside them.
+    // (18 is a tag group: its name to edit in `value` (typing sends id),
+    // Several or One tag per track (`choices`, `chosen`) and × (pressing id
+    // + "#remove").)
     kind: int,
     title: string,
     detail: string,
@@ -57,7 +60,7 @@ export global Preferences {
     in-out property <bool> open;
     in-out property <int> page;
     in-out property <string> query;
-    // The page's tabs (Library has General, Stages, Fields and Import);
+    // The page's tabs (Library has General, Stages, Tags and Import);
     // most pages have none.
     in property <[string]> tabs;
     in-out property <int> tab;
@@ -1174,6 +1177,18 @@ export component PrefRow inherits Rectangle {
                         }
                     }
                 }
+            }
+            if item.kind == 18: HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    alignment: center;
+                    TextField { item: item; width: 180px; }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Segmented { choices: item.choices; chosen: item.chosen; picked(i) => { Preferences.picked(item.id, i); } }
+                }
+                RemoveCross { clicked => { Preferences.pressed(item.id + "#remove"); } }
             }
             if item.kind == 15: HorizontalLayout {
                 spacing: 8px;

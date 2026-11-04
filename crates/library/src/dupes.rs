@@ -264,24 +264,9 @@ pub fn quarantine_root(folders: &Folders) -> Option<PathBuf> {
 }
 
 /// Text columns a kept copy takes from the others when it has none.
-const FILL_TEXT: [&str; 17] = [
-    "artist",
-    "title",
-    "album",
-    "genre",
-    "key",
-    "comment",
-    "grouping",
-    "labels",
-    "remix",
-    "year",
-    "label",
-    "composer",
-    "remixer",
-    "isrc",
-    "user1",
-    "user2",
-    "user_more",
+const FILL_TEXT: [&str; 13] = [
+    "artist", "title", "album", "genre", "key", "comment", "grouping", "remix", "year", "label",
+    "composer", "remixer", "isrc",
 ];
 
 impl Library {
@@ -314,6 +299,12 @@ impl Library {
         }
         let tx = self.db.transaction()?;
         for &o in &others {
+            // Every copy's tags, after the kept one's own.
+            tx.execute(
+                "INSERT OR IGNORE INTO track_tags (track_id, tag_id, position)
+                 SELECT ?1, tag_id, position + 1000 FROM track_tags WHERE track_id = ?2",
+                params![k, o],
+            )?;
             for col in FILL_TEXT {
                 tx.execute(
                     &format!(
