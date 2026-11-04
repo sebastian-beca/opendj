@@ -23,15 +23,8 @@ A signed-in streaming source SHALL list the DJ's playlists and liked or favourit
 - **WHEN** the DJ opens a TIDAL playlist of 40 tracks, 25 of them in the collection
 - **THEN** 25 tracks can be loaded and 15 are greyed out
 
-### Requirement: Copy a streaming playlist
-Copy to openDJ list SHALL make an openDJ list of a streaming playlist's matched tracks, and add the unmatched ones to the wanted list.
-
-#### Scenario: Copy
-- **WHEN** the DJ copies a Spotify playlist with 3 unmatched tracks
-- **THEN** a list with the matched tracks appears, and the 3 others are on the wanted list
-
 ### Requirement: Add to Wanted
-The Wanted list SHALL hold only tracks the DJ put there: Buy on a store result, Copy to openDJ's unmatched tracks, and Add to Wanted. Add to Wanted SHALL be offered on the right-click menu of streaming tracks the collection hasn't got (every picked one), of streaming playlists, and of lists with streamed tracks standing in them (their placeholders); library imports SHALL NOT add tracks to it unless the DJ turns on Add streamed tracks to Wanted for that import (off by default), and then only from its playlists, never from history or smart lists. A streaming playlist SHALL offer Sync to Wanted (off by default), which adds its missing tracks now and those added to it later. A track the DJ took off the Wanted list SHALL NOT come back from an import or a synced playlist; adding it by hand brings it back. With an add-on source that downloads installed, Add to Downloads SHALL sit beside it and search the add-on for each track. Remove from Wanted SHALL take the picked rows of the Wanted list off it.
+The Wanted list SHALL hold only tracks the DJ put there: Buy on a store result and Add to Wanted. Add to Wanted SHALL be offered on the right-click menu of streaming tracks the collection hasn't got (every picked one), of streaming playlists, and of lists with streamed tracks standing in them (their placeholders); library imports SHALL NOT add tracks to it unless the DJ turns on Add streamed tracks to Wanted for that import (off by default), and then only from its playlists, never from history or smart lists. On a streaming playlist, Add to Wanted SHALL add its missing tracks now and those added to it later, until the DJ picks Stop Adding to Wanted. A track the DJ took off the Wanted list SHALL NOT come back from an import or a synced playlist; adding it by hand brings it back. With an add-on source that downloads installed, Add to Downloads SHALL sit beside it and search the add-on for each track. Remove from Wanted SHALL take the picked rows of the Wanted list off it.
 
 #### Scenario: Imported history stays off the Wanted list
 - **WHEN** a VirtualDJ import brings in history sessions full of TIDAL tracks without files
