@@ -186,7 +186,7 @@ impl Browser {
     }
 
     /// The deck the tab follows: deck 1 in Prep.
-    fn cue_deck(&self) -> usize {
+    pub(super) fn cue_deck(&self) -> usize {
         let Some(app) = self.app.upgrade() else {
             return 0;
         };
@@ -198,7 +198,7 @@ impl Browser {
     }
 
     /// The track on `deck`, from the library.
-    fn cue_track(&self, deck: usize) -> Option<&std::sync::Arc<Track>> {
+    pub(super) fn cue_track(&self, deck: usize) -> Option<&std::sync::Arc<Track>> {
         self.loaded[deck]
             .and_then(|id| self.index_of.get(&id))
             .map(|&i| &self.library[i])
@@ -222,6 +222,10 @@ impl Browser {
         };
         let deck = self.cue_deck();
         let prep = app.get_layout() == PREP_LAYOUT;
+        // Cues and Checklist are Prep's tabs: out of Prep, back to Automix.
+        if !prep && app.get_side_tab() > super::info::INFO_TAB as i32 {
+            app.set_side_tab(0);
+        }
         let cues = self.deck_cues(deck);
         let key = (deck, self.loaded[deck], cues.clone(), prep);
         if self.cues.shown.as_ref() == Some(&key) {
@@ -448,9 +452,76 @@ impl Browser {
     }
 }
 
+impl Browser {
+    /// Quick review's Tab: to the start of the next phrase of the track on
+    /// the Prep deck (`direction` 1), or back to the start of this one, or
+    /// the one before when just past a start (-1). Without phrases, 8 bars
+    /// at a time.
+    pub(super) fn jump_phrase(&mut self, direction: i32) {
+        let loaded = self.engine.loaded_tracks();
+        let Some(t) = loaded.read().ok().and_then(|l| l[0].clone()) else {
+            return;
+        };
+        let d = &self.cues.decks[0];
+        let duration = d.duration.get();
+        if duration <= 0.0 {
+            return;
+        }
+        let now = d.playposition.get() * duration;
+        let phrases = if opendj_engine::phrases::waveform_ready(&t) {
+            opendj_engine::phrases::detect(&t)
+        } else {
+            opendj_engine::phrases::stored(&t)
+        };
+        let mut starts: Vec<f64> = phrases.iter().map(|p| p.start).collect();
+        if starts.len() < 2 {
+            if t.bpm <= 0.0 {
+                return;
+            }
+            // Every 8 bars along the grid.
+            let first = t.seconds_at(crate::beat_counter::first_bar_beat(&t));
+            let step = 32.0 * 60.0 / t.bpm;
+            starts = (0..)
+                .map(|n| first + n as f64 * step)
+                .take_while(|&s| s < duration)
+                .collect();
+        }
+        if let Some(to) = phrase_target(&starts, now, direction) {
+            d.playposition.set((to / duration).clamp(0.0, 1.0));
+        }
+    }
+}
+
+/// Where Tab goes from `now` among phrase `starts` (in order): the next
+/// start, or back to this phrase's start (the one before when within a
+/// second of it), or the track's start.
+fn phrase_target(starts: &[f64], now: f64, direction: i32) -> Option<f64> {
+    if direction > 0 {
+        starts.iter().copied().find(|&s| s > now + 0.05)
+    } else {
+        starts
+            .iter()
+            .copied()
+            .rev()
+            .find(|&s| s < now - 1.0)
+            .or(Some(0.0))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tab_goes_phrase_by_phrase() {
+        let starts = [0.0, 15.5, 31.0, 62.0];
+        assert_eq!(phrase_target(&starts, 0.0, 1), Some(15.5));
+        assert_eq!(phrase_target(&starts, 15.5, 1), Some(31.0));
+        assert_eq!(phrase_target(&starts, 70.0, 1), None);
+        assert_eq!(phrase_target(&starts, 40.0, -1), Some(31.0));
+        assert_eq!(phrase_target(&starts, 31.5, -1), Some(15.5));
+        assert_eq!(phrase_target(&starts, 0.5, -1), Some(0.0));
+    }
 
     #[test]
     fn clock_reads_like_the_pads() {

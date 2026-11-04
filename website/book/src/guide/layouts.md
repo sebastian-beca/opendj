@@ -34,11 +34,12 @@ The menu at the top left of the window switches layouts:
   **WAVEFORMS** lit in the top bar, the four large waveforms are stacked above
   the decks in the same order.
   A [Groove Box](groove-box.md) deck shows its step grid only in 2-Deck.
-- **Prep** is for getting tracks ready to play: deck 1 alone, with a large
-  waveform and its tools laid out flat. See [Prep](#prep) below.
 
 The button at the bottom left of the window hides the decks for a compact
 view in 2-Deck and 4-Deck.
+
+<!-- The Prep layout is hidden until v0.6 (PREP_OFFERED in crates/app/src/main.rs).
+   Put this section and its line in the list above back with it.
 
 ## Prep
 
@@ -47,8 +48,9 @@ browser on **In Prep** (see
 [Stages](music.md#stages-inbox-in-prep-and-play-ready)). The In Prep list has
 its own columns, to see what each track still needs: **Grid** (✓ locked,
 ✓ edited, ? check when the analysis wasn't sure, the number of tempo
-sections, or detected), **Cues** (how many hot cues), **Tags** (✓ with a genre and at least
-one of your tags) and **Cover**. Pick other columns from the header's menu as
+sections, or detected), **Cues** (how many hot cues), **Tags** (✓ with a
+genre and at least one of your tags), **Cover**, **Ready** (checklist lines
+ticked) and **Score**. Pick other columns from the header's menu as
 in any list; In Prep keeps its own set. Load a track and work through it:
 
 - The large waveform shows 8 bars; **−** and **+** above the hot cues show
@@ -71,13 +73,30 @@ in any list; In Prep keeps its own set. Load a track and work through it:
   pad (the cue on that pad takes its place) or make it a memory cue.
   **+ Memory cue** (or **C**) adds one at the playhead; while a loop plays it
   saves the loop instead. Outside Prep the tab follows deck 1 or deck 2.
-- **Play Ready, next** locks the grid, moves the track to Play Ready and loads
+- The side panel's **Checklist** tab lists what makes the track ready. The
+  app ticks its own lines when the track has them: **Grid checked** (locked
+  or edited), **4 hot cues**, **Genre**, **Rating** and **Cover**; tick one
+  by hand when the track is fine without it. Add your own lines, such as
+  "Vocals checked", in Settings › Collection › Stages (or **Edit checklist
+  lines…** at the bottom of the tab), where you can also turn the app's
+  lines off. Tick a line with a click or **Option+1**–**9**. Below the lines,
+  give the track your own score from 1 to 10; it shows in the Score column
+  and doesn't count towards ready.
+- **Play Ready, next** lights up once every line is ticked (the count is
+  beside it). It works before that too, for a track that is fine as it is.
+  It locks the grid, moves the track to Play Ready and loads
   the next track In Prep. Cmd-Z (Ctrl-Z) takes the stage change back.
 
-Keys in Prep: **Enter** Play Ready, next; **1**–**8** set or jump to a hot cue
+A strip under the waveform lists the quick review keys, with how long this
+track has taken and your average per track sent to Play Ready from Prep.
+
+Keys in Prep: **Enter** Play Ready, next; **Tab** and **Shift-Tab** next and
+previous phrase (8 bars at a time when the track has no phrases); **←** and
+**→** four bars; **Option+1**–**9** tick a checklist line; **1**–**8** set or jump to a hot cue
 (Shift clears it); **B** Bar 1 here; **T** tap; **M** the click; **[** and **]**
 move the grid; **−** and **=** tempo; **L** lock; **C** memory cue. Space plays and pauses, as
 everywhere.
+-->
 
 ## Crossfader assignment
 

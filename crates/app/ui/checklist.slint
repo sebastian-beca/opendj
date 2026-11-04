@@ -1,0 +1,126 @@
+// The side panel's Checklist tab: what makes the track on the Prep deck
+// ready to play. Lines the app checks tick themselves (a grid you checked,
+// four hot cues, genre, rating, cover); your own lines, set in Settings ›
+// Collection › Stages, you tick here or with Option+1–9. A personal score
+// sits below. Play Ready lights up when every line is ticked.
+import { Theme } from "theme.slint";
+
+export struct CheckRow {
+    name: string,
+    // Why the app ticked it, or what to do: "3 of 4 hot cues".
+    detail: string,
+    // Ticked by the app (it can't be unticked here).
+    auto: bool,
+    ticked: bool,
+}
+
+export global ChecklistUi {
+    // The track the list is for, empty when none.
+    in property <string> title;
+    in property <[CheckRow]> rows;
+    // 0 none, else 1 to 10.
+    in property <int> score;
+    // How many lines are ticked.
+    in property <int> done;
+    callback tick(row: int);
+    callback set-score(score: int);
+    // Opens Settings › Collection › Stages, where the lines are set.
+    callback edit-lines();
+}
+
+component Box inherits Rectangle {
+    in property <bool> ticked;
+    in property <bool> auto;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border-width: ticked ? 0px : 1.5px;
+    border-color: Theme.text-dim;
+    background: ticked ? (auto ? Theme.stage-ready.with-alpha(0.55) : Theme.stage-ready) : transparent;
+    if ticked: Text { text: "✓"; color: #0e0e10; font-size: 12px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+}
+
+export component ChecklistPanel inherits Rectangle {
+    property <int> done: ChecklistUi.done;
+    background: Theme.browser;
+    VerticalLayout {
+        padding: 8px;
+        spacing: 6px;
+        HorizontalLayout {
+            height: 30px;
+            spacing: 6px;
+            Text { text: "Checklist"; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; }
+            Text { text: ChecklistUi.title == "" ? "No track on the deck" : ChecklistUi.title; color: Theme.label; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+            if ChecklistUi.rows.length > 0: Text {
+                text: done + "/" + ChecklistUi.rows.length;
+                color: done >= ChecklistUi.rows.length ? Theme.stage-ready : Theme.text-dim;
+                font-family: "Inter Tabular";
+                font-size: 13px;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+        }
+        for row[i] in ChecklistUi.rows: Rectangle {
+            height: 34px;
+            border-radius: Theme.radius;
+            background: ta.has-hover && !row.auto ? #ffffff08 : transparent;
+            ta := TouchArea {
+                mouse-cursor: row.auto ? default : pointer;
+                clicked => { ChecklistUi.tick(i); }
+            }
+            HorizontalLayout {
+                padding-left: 6px;
+                padding-right: 6px;
+                spacing: 10px;
+                VerticalLayout {
+                    alignment: center;
+                    Box { ticked: row.ticked; auto: row.auto; }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 1;
+                    Text { text: row.name; color: row.ticked ? Theme.text : Theme.text-dim; font-size: 13px; font-weight: 600; overflow: elide; }
+                    if row.detail != "": Text { text: row.detail; color: Theme.text-dim; font-size: 10px; overflow: elide; }
+                }
+                // Option+1–9 ticks the first nine lines.
+                if i < 9: Text {
+                    text: "⌥" + (i + 1);
+                    color: Theme.text-dim.with-alpha(0.7);
+                    font-family: "Inter Tabular";
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        Rectangle { height: 4px; }
+        Text { text: "YOUR SCORE · doesn't count towards ready"; color: Theme.label; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; }
+        HorizontalLayout {
+            spacing: 3px;
+            height: 26px;
+            for n in 10: Rectangle {
+                horizontal-stretch: 1;
+                border-radius: Theme.radius;
+                property <bool> on: ChecklistUi.score > n;
+                background: on ? Theme.accent.with-alpha(stta.has-hover ? 1.0 : 0.85) : stta.has-hover ? #2a2a2e : Theme.control;
+                border-width: 1px;
+                border-color: on ? transparent : Theme.border;
+                Text { text: n + 1; color: on ? #151329 : Theme.text-dim; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                stta := TouchArea {
+                    mouse-cursor: pointer;
+                    // The score given again takes it off.
+                    clicked => { ChecklistUi.set-score(ChecklistUi.score == n + 1 ? 0 : n + 1); }
+                }
+            }
+        }
+        Rectangle { vertical-stretch: 1; }
+        Rectangle {
+            height: 28px;
+            border-radius: Theme.radius;
+            background: ela.has-hover ? #2a2a2e : Theme.control;
+            border-width: 1px;
+            border-color: Theme.border;
+            Text { text: "Edit checklist lines…"; color: Theme.text; font-size: 12px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+            ela := TouchArea { mouse-cursor: pointer; clicked => { ChecklistUi.edit-lines(); } }
+        }
+    }
+}

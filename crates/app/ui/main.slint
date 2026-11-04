@@ -9,6 +9,7 @@ import { PlayerBar, PlayerDeck, PlayerMixer, TopSearch, QuickResults, QuickSearc
 export { QuickSearch, QuickRow } from "player.slint";
 import { PrepDeck, PrepUi } from "prep.slint";
 import { CueList } from "cues.slint";
+import { ChecklistUi } from "checklist.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { FxBar } from "fxbar.slint";
 import { InstrumentsUi, LiveItem } from "instruments.slint";
@@ -29,6 +30,7 @@ export { Tour, TourSetup }
 export { MapMode }
 export { PrepUi }
 export { CueList, CueRow } from "cues.slint";
+export { ChecklistUi, CheckRow } from "checklist.slint";
 export { RemoteUi, RemoteDevice }
 export { MixerMode, InputSettings, InputRow }
 export { BroadcastState, BroadcastStation }
@@ -606,7 +608,7 @@ component LayoutPill inherits Rectangle {
             LayoutItem { kind: 1; text: "Player"; current: layout == 1; picked => { layout = 1; changed-to(1); } }
             LayoutItem { kind: 0; text: "2-Deck"; current: layout == 0; picked => { layout = 0; changed-to(0); } }
             LayoutItem { kind: 2; text: "4-Deck"; current: layout == 2; picked => { layout = 2; changed-to(2); } }
-            LayoutItem { kind: 4; text: "Prep"; current: layout == 3; picked => { layout = 3; changed-to(3); } }
+            if PrepUi.offered: LayoutItem { kind: 4; text: "Prep"; current: layout == 3; picked => { layout = 3; changed-to(3); } }
         }
     }
 }
@@ -807,7 +809,7 @@ export component AppWindow inherits Window {
     callback zoom-window();
     out property <length> waveform-width: waveforms.width;
     // Two waveforms, or four in 4-Deck, share the room between the lines.
-    out property <length> waveform-height: max(1px, (waveforms.height - (wave-rows + 1) * 1px) / wave-rows);
+    out property <length> waveform-height: max(1px, (waveforms.height - (wave-rows + 1) * 1px - (prep ? 24px : 0px)) / wave-rows);
     property <int> wave-rows: four ? 4 : prep ? 1 : 2;
     // From whichever layout's deck A is showing.
     out property <length> overview-width: player ? player-bar.overview-width : four ? strip-1.overview-width : compact ? player-a.overview-width : prep ? prep-deck.overview-width : deck-a.overview-width;
@@ -914,6 +916,17 @@ export component AppWindow inherits Window {
         Controls.set-value(i, Controls.value(i, Controls.tick) > 0 ? 0 : 1);
     }
     // The Prep layout's keys (see the prep-layout spec); true when one ran.
+    // Option+1-9 in Prep: ticks checklist line 1-9 (macOS types ¡™£¢∞§¶•ª
+    // for them).
+    function prep-alt-key(text: string) -> bool {
+        let n = text == "1" || text == "¡" ? 1 : text == "2" || text == "™" ? 2 : text == "3" || text == "£" ? 3 : text == "4" || text == "¢" ? 4
+            : text == "5" || text == "∞" ? 5 : text == "6" || text == "§" ? 6 : text == "7" || text == "¶" ? 7 : text == "8" || text == "•" ? 8
+            : text == "9" || text == "ª" ? 9 : 0;
+        if n > 0 {
+            ChecklistUi.tick(n - 1);
+        }
+        n > 0
+    }
     function prep-key(text: string, shift: bool) -> bool {
         if text == Key.Return {
             PrepUi.ready();
@@ -923,6 +936,15 @@ export component AppWindow inherits Window {
             : text == "5" || text == "%" ? 5 : text == "6" || text == "^" ? 6 : text == "7" || text == "&" ? 7 : text == "8" || text == "*" ? 8 : 0;
         if n > 0 {
             press("hotcue_" + n + (shift ? "_clear" : "_activate"));
+            return true;
+        }
+        // Quick review: phrase by phrase, or four bars at a time.
+        if text == Key.Tab || text == Key.Backtab {
+            PrepUi.phrase(shift || text == Key.Backtab ? -1 : 1);
+            return true;
+        }
+        if text == Key.LeftArrow || text == Key.RightArrow {
+            press(text == Key.RightArrow ? "beatjump_16_forward" : "beatjump_16_backward");
             return true;
         }
         if shift {
@@ -1076,6 +1098,9 @@ export component AppWindow inherits Window {
             if prep && !Preferences.open && !e.modifiers.control && !e.modifiers.meta && !e.modifiers.alt && prep-key(e.text, e.modifiers.shift) {
                 return accept;
             }
+            if prep && !Preferences.open && e.modifiers.alt && !e.modifiers.control && !e.modifiers.meta && prep-alt-key(e.text) {
+                return accept;
+            }
             if !Preferences.open && shortcut(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift, master-deck, browser.first-picked, browser.last-picked) {
                 return accept;
             }
@@ -1163,6 +1188,32 @@ export component AppWindow inherits Window {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
                     Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; drag-grid: true; zoom-seconds: PrepUi.seconds; }
+                    // The quick review keys, and how long this track has taken.
+                    Rectangle {
+                        height: 24px;
+                        background: Theme.panel;
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 14px;
+                            for hint in ["Tab", "next phrase", "← →", "4 bars", "1–8", "hot cues", "B", "bar 1", "[ ]", "move grid", "M", "click", "⌥1–9", "checklist", "⏎", "ready, next"]: Text {
+                                // Keys and what they do take turns.
+                                text: hint;
+                                color: hint == "Tab" || hint == "← →" || hint == "1–8" || hint == "B" || hint == "[ ]" || hint == "M" || hint == "⌥1–9" || hint == "⏎" ? Theme.text : Theme.text-dim;
+                                font-size: 11px;
+                                font-weight: hint == "Tab" || hint == "← →" || hint == "1–8" || hint == "B" || hint == "[ ]" || hint == "M" || hint == "⌥1–9" || hint == "⏎" ? 700 : 400;
+                                vertical-alignment: center;
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            Text {
+                                text: "This track " + PrepUi.clock(PrepUi.track-seconds) + (PrepUi.average-seconds > 0 ? "  ·  average " + PrepUi.clock(PrepUi.average-seconds) : "");
+                                color: Theme.text-dim;
+                                font-family: "Inter Tabular";
+                                font-size: 11px;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
                     Rectangle { height: 1px; background: Theme.border; }
                 }
                 if !four && !prep: VerticalLayout {

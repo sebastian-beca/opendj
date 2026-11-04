@@ -31,6 +31,7 @@ use opendj_plugins::{ItemKind, StoreItem, StoreQuery};
 
 mod albums;
 mod analysis;
+mod checklist;
 mod cleanup;
 pub(crate) mod columns;
 mod cues;
@@ -574,6 +575,13 @@ pub struct Browser {
     hotcues: [Vec<(ControlHandle, ControlHandle, ControlHandle)>; NUM_DECKS],
     watch: [CueWatch; NUM_DECKS],
     cues: cues::CueState,
+    /// The Prep checklist's ticks and scores, by track id.
+    marks: HashMap<usize, opendj_library::checklist::Marks>,
+    /// The checklist's lines, as last read from the settings.
+    checklist_setup: RefCell<Option<(std::time::Instant, checklist::Setup)>>,
+    /// What the Checklist tab and Prep's count show.
+    checklist_shown: Option<checklist::Shown>,
+    review: checklist::Review,
     /// The side panel's Info tab.
     info: info::InfoState,
     /// The filter bar.
@@ -1186,6 +1194,10 @@ impl Browser {
             }),
             watch: Default::default(),
             cues: cues::CueState::new(registry),
+            marks: HashMap::new(),
+            checklist_setup: RefCell::new(None),
+            checklist_shown: None,
+            review: Default::default(),
             info: info::InfoState::new(registry),
             filter: filters::FilterState::new(),
             columns: columns::ColumnState::new(&crate::settings::field_names()),
@@ -1766,6 +1778,7 @@ impl Browser {
         Self::install_staging(&edit, &with);
         Self::install_prep(app, &with);
         Self::install_cues(app, &with);
+        Self::install_checklist(app, &with);
         Self::install_track_menu(&edit, &with);
         Self::install_mix_export(&app.global::<FilesUi>(), &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
@@ -2297,7 +2310,14 @@ impl Browser {
                     ..Default::default()
                 };
                 TrackRow {
-                    cells: columns::row_cells(&ids, &row, None, None, Default::default(), None),
+                    cells: columns::row_cells(
+                        &ids,
+                        &row,
+                        None,
+                        None,
+                        Default::default(),
+                        Default::default(),
+                    ),
                     ..row
                 }
             })
@@ -2924,6 +2944,8 @@ impl Browser {
         if let Some(db) = &self.db {
             self.store.wanted = db.wanted().unwrap_or_default();
         }
+        self.load_marks();
+        self.show_review_average();
         let tree = self.collection_tree();
         if self.tree == COLLECTION {
             self.nodes = tree;
@@ -4029,6 +4051,8 @@ impl Browser {
             }
         }
         self.refresh_cues();
+        self.refresh_checklist();
+        self.tick_review();
     }
 
     /// Copies the tempo, key and beat grid found by analysing a loaded
@@ -5003,7 +5027,9 @@ impl Browser {
                         r.local.map(|id| &*library[id]),
                         crates.map(Vec::as_slice),
                         r.list,
-                        r.local.and_then(|id| self.health.has_cover(library[id].id)),
+                        r.local.map_or_else(Default::default, |id| {
+                            self.prep_facts(&library[id], &ids)
+                        }),
                     ),
                     ..row
                 }
