@@ -13,8 +13,8 @@
 
 ## 3. Checklist and quick review
 
-- [ ] 3.1 Checklist tab: app-checked lines and DJ-defined lines (Settings › Library › Stages), Option+1–9, personal score column
-- [ ] 3.2 Quick review keys and time per track
+- [x] 3.1 Checklist tab: app-checked lines and DJ-defined lines (Settings › Library › Stages), Option+1–9, personal score column
+- [x] 3.2 Quick review keys and time per track (K waits for the suggested cues of step 4)
 
 ## 4. Suggested cues
 

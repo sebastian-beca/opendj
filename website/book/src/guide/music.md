@@ -48,21 +48,19 @@ own site; SoundCloud tracks and Mixcloud shows also have a **▶** button
 (and **Play on…** when you right-click) that plays them there in your
 browser. Tracks are matched by ISRC when both sides have one, then by
 artist and title. If a match is wrong, right-click the track and pick
-**Change Match…**. **Copy to openDJ** makes a list of a playlist in your
-collection, once; tracks you don't have are kept as wanted, for the
-stores to find later.
+**Change Match…**.
 
 To keep track of songs you mean to get, right-click a greyed-out track
-(or several picked ones) and pick **Add to Wanted**, or right-click a
-playlist for **Add to Wanted** on every track of it you don't have. With
-a download add-on such as the Soulseek add-on installed, **Add to
+(or several picked ones) and pick **Add to Wanted**. Right-click a
+playlist and pick **Add to Wanted** to use it as a shopping list: its
+tracks you don't have go on the Wanted list, and so does anything you add
+to it later, each time openDJ signs in or you open it. Tracks you take off
+the Wanted list stay off. **Stop Adding to Wanted** leaves what's there.
+With a download add-on such as the Soulseek add-on installed, **Add to
 Downloads** sits beside it and searches the add-on for each track.
 
-For a playlist you use as a shopping list, right-click it and pick **Sync to
-Wanted**: its tracks you don't have go on the Wanted list, and so does
-anything you add to it later, each time openDJ signs in or you open it.
-Tracks you take off the Wanted list stay off. **Stop Syncing to Wanted**
-leaves what's there.
+Under the playlists, **Signed in as** shows your account; click it to
+**Sign out**.
 
 Each service is signed in to with your own app, so openDJ ships no keys:
 
@@ -86,8 +84,8 @@ openDJ keeps your playlists and the tracks of those you opened, so after a
 restart they show straight away. A playlist you open is checked again in
 the background and updated if it changed (Spotify, TIDAL, SoundCloud and
 Apple Music say when a playlist changed, so unchanged ones aren't fetched
-again at all). **Refresh**, beside **Sign out**, fetches the list of
-playlists again. Signing out forgets what was kept.
+again at all). The refresh button at the top right of the track list
+fetches the list of playlists again. Signing out forgets what was kept.
 
 ### Your own music server
 
@@ -191,7 +189,12 @@ arrows say whether a track goes back or forward:
 2. In In Prep, prepare each track: tags, cover, rating, tempo and key. Show
    the **Prep** column (right-click a column heading) for a dot each for
    tags, rating, and tempo and key; tracks in In Prep are analysed in the
-   background, so tempo and key fill in on their own.
+   background, so tempo and key fill in on their own. The In Prep list has
+   its own columns, to see what each track still needs: **Grid** (✓ locked,
+   ✓ edited, ? check when the analysis wasn't sure, the number of tempo
+   sections, or detected), **Cues** (how many hot cues), **Tags** (✓ with a
+   genre and at least one of your tags) and **Cover**. Pick other columns
+   from the header's menu as in any list; In Prep keeps its own set.
 3. **Send to Play Ready** when it's ready. A track from a prep crate also
    joins the list named after the crate (`Yoga STG` goes to **Yoga**).
 
@@ -355,9 +358,8 @@ streamed tracks to Wanted** under that app in Settings › Library › Import.
 New ones join at each import; tracks you take off stay off. History is
 never added: what you played isn't always what you want to keep.
 
-The Wanted list holds only what you put there: tracks you clicked Buy on,
-tracks left over from **Copy to openDJ**, and tracks you added with **Add
-to Wanted**. While the stores are off, it's under Collection. The search
+The Wanted list holds only what you put there: tracks you clicked Buy on
+and tracks you added with **Add to Wanted**. While the stores are off, it's under Collection. The search
 box narrows it. A track leaves the list once your collection has it; to
 take tracks off by hand, pick them (⌘A picks all) and right-click for
 **Remove from Wanted**.

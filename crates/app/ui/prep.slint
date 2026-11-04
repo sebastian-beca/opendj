@@ -10,6 +10,8 @@ import { DeckInfo, Header, PlayButton } from "deck.slint";
 import { CueList } from "cues.slint";
 
 export global PrepUi {
+    // Whether the Prep layout is offered (off until v0.6).
+    in property <bool> offered: false;
     // The loaded track's stage: 0 none (not in the library, or no
     // stages), 1 Inbox, 2 In Prep, 3 Play Ready.
     in property <int> stage;
@@ -20,10 +22,23 @@ export global PrepUi {
     // The track seconds those bars take at normal speed (0: no tempo),
     // for dragging the waveform.
     in property <float> seconds;
+    // Checklist lines ticked on the loaded track, of how many: Play Ready
+    // lights up when all are (see checklist.slint).
+    in property <int> done;
+    in property <int> total;
+    // Quick review: seconds on this track, and the average per track
+    // (0: none yet).
+    in property <int> track-seconds;
+    in property <int> average-seconds;
+    // Moves to the next phrase (1) or back (-1).
+    callback phrase(direction: int);
     // Moves the loaded track to Play Ready and loads the next In Prep
     // track (the grid is locked first, in PrepReady below).
     callback ready-next();
 
+    public pure function clock(seconds: int) -> string {
+        floor(seconds / 60) + ":" + (mod(seconds, 60) < 10 ? "0" : "") + mod(seconds, 60)
+    }
     public pure function stage-name(stage: int) -> string {
         stage == 1 ? "Inbox" : stage == 2 ? "In Prep" : stage == 3 ? "Play Ready" : "Not in a stage"
     }
@@ -257,11 +272,26 @@ component ReadyBar inherits HorizontalLayout {
     }
     ZoomButton { text: "+"; clicked => { PrepUi.bars = max(2, PrepUi.bars / 2); } }
     Rectangle { width: 8px; }
+    // Lit when every checklist line is ticked; outlined until then (it
+    // still works, for a track that is fine as it is).
+    property <bool> all-done: PrepUi.done >= PrepUi.total;
+    if PrepUi.total > 0: Text {
+        text: PrepUi.done + "/" + PrepUi.total;
+        color: all-done ? Theme.stage-ready : Theme.text-dim;
+        font-family: "Inter Tabular";
+        font-size: 12px;
+        font-weight: 600;
+        vertical-alignment: center;
+    }
     ready := Rectangle {
         width: ready-text.preferred-width + 28px;
         border-radius: Theme.radius;
-        background: ready-touch.pressed ? Theme.stage-ready.darker(0.2) : ready-touch.has-hover ? Theme.stage-ready.brighter(0.1) : Theme.stage-ready;
-        ready-text := Text { text: "✓ Play Ready, next  ⏎"; color: #0e0e10; font-size: 13px; font-weight: 700; }
+        border-width: all-done ? 0px : 1px;
+        border-color: Theme.stage-ready;
+        background: all-done
+            ? (ready-touch.pressed ? Theme.stage-ready.darker(0.2) : ready-touch.has-hover ? Theme.stage-ready.brighter(0.1) : Theme.stage-ready)
+            : (ready-touch.pressed ? Theme.stage-ready.with-alpha(0.3) : ready-touch.has-hover ? Theme.stage-ready.with-alpha(0.2) : Theme.stage-ready.with-alpha(0.1));
+        ready-text := Text { text: "✓ Play Ready, next  ⏎"; color: all-done ? #0e0e10 : Theme.stage-ready; font-size: 13px; font-weight: 700; }
         ready-touch := TouchArea { mouse-cursor: pointer; clicked => { PrepUi.ready(); } }
     }
 }

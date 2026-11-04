@@ -360,7 +360,7 @@ export component MasterPanel inherits PopupWindow {
 component InputSection inherits VerticalLayout {
     in property <string> group;
     in property <string> name;
-    // talkover for the microphone, main_mix for the auxiliary input.
+    // talkover for the microphone.
     in property <string> on-key;
     in property <color> tint;
     // Shown while nothing feeds it.
@@ -401,133 +401,6 @@ component InputSection inherits VerticalLayout {
     }
 }
 
-component InstrumentChoice inherits Rectangle {
-    in property <string> text;
-    in property <bool> on;
-    callback clicked;
-    height: 22px;
-    border-radius: 3px;
-    background: on ? Theme.accent.with-alpha(0.2) : ta.has-hover ? #2a2b2e : transparent;
-    HorizontalLayout {
-        padding-left: 8px;
-        Text { text: root.text; color: on ? Theme.accent : Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; }
-    }
-    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
-}
-
-component OctaveStep inherits Rectangle {
-    in property <string> text;
-    callback clicked;
-    width: 20px;
-    height: 18px;
-    border-radius: 3px;
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2b2e : Theme.control;
-    Text { text: root.text; color: Theme.text; font-size: 12px; }
-    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
-}
-
-// The Instrument input's plugin: the one picked, and while open the
-// ticked instruments to pick from.
-component InstrumentPicker inherits VerticalLayout {
-    property <int> index: Controls.resolve("[Instrument1]", "instrument");
-    property <int> chosen: Controls.value(index, Controls.tick);
-    property <bool> open;
-    spacing: 1px;
-    HorizontalLayout {
-        spacing: 4px;
-        Rectangle {
-            horizontal-stretch: 1;
-            height: 24px;
-            border-radius: 4px;
-            background: ta.has-hover ? #2a2b2e : Theme.control;
-            HorizontalLayout {
-                padding-left: 8px;
-                padding-right: 8px;
-                Text {
-                    text: chosen > 0 && chosen <= EffectList.instruments.length ? EffectList.instruments[chosen - 1] : "No instrument";
-                    color: chosen > 0 ? Theme.text : Theme.text-dim;
-                    font-size: 12px;
-                    vertical-alignment: center;
-                    overflow: elide;
-                    horizontal-stretch: 1;
-                }
-                Text { text: open ? "▴" : "▾"; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
-            }
-            ta := TouchArea { mouse-cursor: pointer; clicked => { open = !open; } }
-        }
-        // The instrument's own window, for its sounds and presets.
-        if chosen > 0 && chosen <= EffectList.instruments.length: ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "EDIT"; tint: Theme.accent; width: 34px; height: 24px; font-size: 9px; outline-when-lit: true; }
-    }
-    if open && EffectList.instruments.length == 0: PanelLink {
-        text: "Tick instruments in Settings › Plugins…";
-        clicked => { Preferences.show-tab(7, 1); }
-    }
-    if open && EffectList.instruments.length > 0: InstrumentChoice {
-        text: "None";
-        on: chosen == 0;
-        clicked => { Controls.set-value(index, 0); open = false; }
-    }
-    if open: VerticalLayout {
-        spacing: 1px;
-        for name[i] in EffectList.instruments: InstrumentChoice {
-            text: name;
-            on: chosen == i + 1;
-            clicked => { Controls.set-value(index, i + 1); open = false; }
-        }
-    }
-}
-
-// One of the Instrument input's pads, held to play its note.
-component NotePad inherits Rectangle {
-    in property <int> number;
-    in property <int> octave;
-    property <int> index: Controls.resolve("[Instrument1]", "pad_" + number);
-    property <bool> down: Controls.value(index, Controls.tick) > 0;
-    height: 26px;
-    border-radius: 3px;
-    background: down || touch.pressed ? Theme.accent.with-alpha(0.35) : touch.has-hover ? #2a2b2e : Theme.control;
-    Text {
-        text: ["C", "D", "E", "F", "G", "A", "B", "C"][number - 1] + (4 + octave + (number == 8 ? 1 : 0));
-        color: down ? Theme.accent : Theme.text;
-        font-size: 10px;
-        font-weight: 600;
-    }
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        pointer-event(e) => {
-            if e.button != PointerEventButton.left {
-                return;
-            }
-            if e.kind == PointerEventKind.down {
-                Controls.set-value(index, 1);
-            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
-                Controls.set-value(index, 0);
-            }
-        }
-    }
-}
-
-// Under the picker: eight pads, the octave they play in, and whether the
-// decks' KEYBOARD pads play the instrument too.
-component InstrumentKeys inherits VerticalLayout {
-    property <int> octave-index: Controls.resolve("[Instrument1]", "octave");
-    property <int> octave: Controls.value(octave-index, Controls.tick);
-    spacing: 6px;
-    HorizontalLayout {
-        spacing: 2px;
-        for n in 8: NotePad { number: n + 1; octave: octave; horizontal-stretch: 1; }
-    }
-    HorizontalLayout {
-        spacing: 6px;
-        Caption { text: "OCTAVE"; vertical-alignment: center; }
-        OctaveStep { text: "−"; clicked => { Controls.set-value(octave-index, max(-3, octave - 1)); } }
-        Text { text: octave > 0 ? "+" + octave : "" + octave; color: Theme.text; font-size: 11px; vertical-alignment: center; horizontal-alignment: center; width: 18px; }
-        OctaveStep { text: "+"; clicked => { Controls.set-value(octave-index, min(3, octave + 1)); } }
-        Rectangle { horizontal-stretch: 1; }
-        ControlButton { group: "[Instrument1]"; key: "keyboard_pads"; text: "KEYBOARD PADS"; tint: Theme.accent; width: 96px; height: 18px; font-size: 9px; }
-    }
-}
-
 // One of the microphone effect unit's slots, as a deck's FX row.
 component MicFxSlot inherits HorizontalLayout {
     in property <int> slot;
@@ -547,9 +420,8 @@ component MicFxSlot inherits HorizontalLayout {
 }
 
 // MIC: the microphone with its own effect unit (EffectList.mic-unit,
-// which the decks' effects never touch) on the top half, the auxiliary
-// input on the bottom. AUX sends the auxiliary input through the
-// microphone's effects too.
+// which the decks' effects never touch), shown as one effect slot. The
+// auxiliary and instrument inputs are played from the Instruments source.
 export component MicPanel inherits PopupWindow {
     width: 320px;
     close-policy: close-on-click-outside;
@@ -560,34 +432,8 @@ export component MicPanel inherits PopupWindow {
         InputSection { group: "[Microphone]"; name: "Mic"; on-key: "talkover"; tint: Theme.mic; }
         VerticalLayout {
             spacing: 3px;
-            HorizontalLayout {
-                spacing: 4px;
-                Caption { text: "MIC FX"; vertical-alignment: center; horizontal-alignment: left; horizontal-stretch: 1; }
-                ControlButton { group: "[EffectRack1_EffectUnit" + (EffectList.mic-unit + 1) + "]"; key: "group_[Auxiliary1]_enable"; text: "AUX"; tint: Theme.accent; width: 34px; height: 18px; font-size: 9px; }
-                ControlButton { group: "[EffectRack1_EffectUnit" + (EffectList.mic-unit + 1) + "]"; key: "group_[Instrument1]_enable"; text: "INST"; tint: Theme.accent; width: 34px; height: 18px; font-size: 9px; }
-            }
-            for i in 3: MicFxSlot { slot: i; }
-        }
-        EdgeLine { line-color: Theme.border; }
-        InputSection { group: "[Auxiliary1]"; name: "Aux"; on-key: "main_mix"; tint: Theme.accent; }
-        // The second and third auxiliary inputs, once set up in Settings › Audio.
-        for n in 2: VerticalLayout {
-            property <string> group: "[Auxiliary" + (n + 2) + "]";
-            visible: Controls.value(Controls.resolve(group, "input_configured"), Controls.tick) > 0;
-            height: self.visible ? self.preferred-height : 0px;
-            spacing: 12px;
-            EdgeLine { line-color: Theme.border; }
-            InputSection { group: group; name: "Aux " + (n + 2); on-key: "main_mix"; tint: Theme.accent; }
-        }
-        EdgeLine { line-color: Theme.border; }
-        InputSection {
-            group: "[Instrument1]";
-            name: "Instrument";
-            on-key: "main_mix";
-            tint: Theme.accent;
-            hint: "Pick an instrument plugin to play it with a MIDI keyboard or the pads";
-            InstrumentPicker { }
-            InstrumentKeys { }
+            Caption { text: "MIC FX"; horizontal-alignment: left; }
+            MicFxSlot { slot: 0; }
         }
         PanelLink {
             text: "Audio Settings…";

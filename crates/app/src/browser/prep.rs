@@ -83,6 +83,9 @@ impl Browser {
         }
         let current = self.prep_track();
         let next = self.next_in_prep(current);
+        if current.is_some() {
+            self.review_done();
+        }
         if let Some(i) = current {
             if self.library[i].info.stage != Stage::Collection.name() {
                 self.change_stage(&[i], Stage::Collection, None);

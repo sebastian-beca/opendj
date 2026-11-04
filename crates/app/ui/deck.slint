@@ -40,6 +40,9 @@ export struct DeckInfo {
     rate: string,
     range: string,
     key: string,
+    // The key's number on the Camelot wheel (1 to 12), for its colour; 0
+    // when the track has no key.
+    key-wheel: int,
     elapsed: string,
     remaining: string,
     // Remaining time in whole seconds, for the deck header.
@@ -396,9 +399,10 @@ export component Cover inherits Rectangle {
     in property <color> tint;
     in property <DeckInfo> info;
     in property <length> size: 96px;
+    in property <length> radius: 4px;
     width: size;
     height: size;
-    border-radius: 4px;
+    border-radius: radius;
     clip: true;
     background: info.loaded ? @linear-gradient(135deg, tint 0%, tint.darker(0.6) 55%, #101012 100%) : Theme.control;
     border-width: info.loaded ? 0px : 1px;
@@ -2545,8 +2549,19 @@ component GrooveBox inherits HorizontalLayout {
     }
 }
 
+component OctaveStep inherits Rectangle {
+    in property <string> text;
+    callback clicked;
+    width: 20px;
+    height: 18px;
+    border-radius: 3px;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2b2e : Theme.control;
+    Text { text: root.text; color: Theme.text; font-size: 12px; }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
 // A deck playing a live input: what it plays, its level, and for an
-// instrument plugin its window and the KEYBOARD pads switch.
+// instrument plugin its window, the KEYBOARD pads switch and their octave.
 component LivePanel inherits Rectangle {
     in property <int> live;
     in property <string> group;
@@ -2554,6 +2569,8 @@ component LivePanel inherits Rectangle {
     property <string> input-group: ["[Microphone]", "[Auxiliary1]", "[Instrument1]", "[Auxiliary2]", "[Auxiliary3]"][live - 1];
     property <bool> ready: Controls.value(Controls.resolve(input-group, "input_configured"), Controls.tick) > 0;
     property <float> level: Controls.value(Controls.resolve(group, "vu_meter"), Controls.tick);
+    property <int> octave-index: Controls.resolve("[Instrument1]", "octave");
+    property <int> octave: Controls.value(octave-index, Controls.tick);
     border-radius: 10px;
     background: Theme.well;
     VerticalLayout {
@@ -2595,6 +2612,15 @@ component LivePanel inherits Rectangle {
             spacing: 8px;
             ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "EDIT"; tint: Theme.accent; width: 60px; height: 26px; font-size: 11px; outline-when-lit: true; }
             ControlButton { group: "[Instrument1]"; key: "keyboard_pads"; text: "KEYBOARD PADS"; tint: Theme.accent; width: 120px; height: 26px; font-size: 11px; }
+        }
+        // The octave the KEYBOARD pads play the instrument in.
+        if live == 3 && ready: HorizontalLayout {
+            alignment: center;
+            spacing: 6px;
+            Caption { text: "OCTAVE"; vertical-alignment: center; }
+            OctaveStep { text: "−"; clicked => { Controls.set-value(octave-index, max(-3, octave - 1)); } }
+            Text { text: octave > 0 ? "+" + octave : "" + octave; color: Theme.text; font-size: 11px; vertical-alignment: center; horizontal-alignment: center; width: 18px; }
+            OctaveStep { text: "+"; clicked => { Controls.set-value(octave-index, min(3, octave + 1)); } }
         }
         if !ready: HorizontalLayout {
             alignment: center;

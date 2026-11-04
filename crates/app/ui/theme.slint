@@ -65,6 +65,17 @@ export global Theme {
             : kind == 19 ? root.stage-ready
             : root.text
     }
+    // A Collection Health area's state: 0 clear, 1 to look at, 2 won't
+    // play, 3 a goal.
+    out property <color> health-clear: #83d494;
+    out property <color> health-check: #ead070;
+    out property <color> health-problem: #ff6961;
+    public pure function health-state(state: int) -> color {
+        state == 0 ? root.health-clear
+            : state == 1 ? root.health-check
+            : state == 2 ? root.health-problem
+            : root.lilac
+    }
     // A track's stage color, as `LibraryEdit.stage-of` numbers them
     // (1 Inbox, 2 In Prep, 3 Play Ready).
     public pure function stage-color(stage: int) -> color {
@@ -105,6 +116,16 @@ export global Theme {
 
     public pure function deck-color(deck: int) -> color {
         deck == 0 ? root.deck1 : deck == 1 ? root.deck2 : deck == 2 ? root.deck3 : root.deck4
+    }
+
+    // A key's colour by its Camelot number (1 to 12), round the wheel as
+    // DJ key charts colour it, so keys that mix sit in neighbouring hues;
+    // grey for no key.
+    public pure function key-wheel-color(n: int) -> color {
+        n == 1 ? #4fe3c6 : n == 2 ? #5fe68e : n == 3 ? #93e85f : n == 4 ? #cde65c
+        : n == 5 ? #f1d35e : n == 6 ? #f4a960 : n == 7 ? #f2806c : n == 8 ? #ef6f9a
+        : n == 9 ? #dc72d4 : n == 10 ? #ad80f4 : n == 11 ? #7f95f6 : n == 12 ? #5cc3f0
+        : root.key-far
     }
 }
 

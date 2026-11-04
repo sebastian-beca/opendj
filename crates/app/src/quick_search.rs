@@ -2,6 +2,8 @@
 //! collection in a dropdown, each with Play next, Add to queue and Play now.
 //! The queue is the Automix list, so all three put the track there; Play now
 //! then has Automix mix into it as soon as it is waiting on the other deck.
+//! What is typed also filters the track list, so Player needs no second
+//! search box over the list.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -15,7 +17,7 @@ use crate::automix::AutoMix;
 use crate::browser::Browser;
 use crate::remote::held_count;
 use crate::settings::show_key;
-use crate::{AppWindow, QuickRow, QuickSearch};
+use crate::{AppWindow, QuickRow, QuickSearch, StoreUi};
 
 /// How many matches the dropdown shows.
 const SHOWN: usize = 8;
@@ -57,21 +59,32 @@ impl Quick {
         let b = browser.clone();
         let weak = app.as_weak();
         g.on_search(move |text| {
-            let (Ok(b), Some(app)) = (b.try_borrow(), weak.upgrade()) else {
+            let Some(app) = weak.upgrade() else {
                 return;
             };
-            let g = app.global::<QuickSearch>();
-            let text = text.trim();
-            if text.is_empty() {
-                g.set_rows(ModelRc::default());
-                g.set_total(0);
-                return;
+            // Player has this one search box: it fills the dropdown and
+            // filters the track list too, as the list's own box does.
+            app.global::<StoreUi>().set_search_text(text.clone());
+            let typed = text.trim();
+            {
+                let Ok(b) = b.try_borrow() else {
+                    return;
+                };
+                let g = app.global::<QuickSearch>();
+                if typed.is_empty() {
+                    g.set_rows(ModelRc::default());
+                    g.set_total(0);
+                } else {
+                    let (mut found, total) = b.find_tracks(typed, 0, RANKED);
+                    rank(&mut found, typed, |t| t.title.as_str());
+                    let rows: Vec<QuickRow> =
+                        found.iter().take(SHOWN).map(|t| row(&b, t)).collect();
+                    g.set_rows(ModelRc::new(VecModel::from(rows)));
+                    g.set_total(total as i32);
+                }
             }
-            let (mut found, total) = b.find_tracks(text, 0, RANKED);
-            rank(&mut found, text, |t| t.title.as_str());
-            let rows: Vec<QuickRow> = found.iter().take(SHOWN).map(|t| row(&b, t)).collect();
-            g.set_rows(ModelRc::new(VecModel::from(rows)));
-            g.set_total(total as i32);
+            // After the borrow ends: the list's search borrows the browser.
+            app.invoke_search(text);
         });
         let j = jobs.clone();
         g.on_act(move |id, mode| {

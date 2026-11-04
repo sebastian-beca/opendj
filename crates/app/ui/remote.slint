@@ -34,17 +34,18 @@ export global RemoteUi {
     callback opened();
 }
 
-// A phone, drawn small.
+// A phone in outline, with its earpiece and home bar.
 component PhoneIcon inherits Path {
     in property <color> ink;
-    width: 10px;
-    height: 16px;
-    viewbox-width: 10;
-    viewbox-height: 16;
+    width: 24px;
+    height: 24px;
+    viewbox-width: 24;
+    viewbox-height: 24;
     stroke: ink;
-    stroke-width: 1.4px;
+    stroke-width: 1.25px;
+    stroke-line-cap: round;
     fill: transparent;
-    commands: "M 2 0.7 L 8 0.7 A 1.3 1.3 0 0 1 9.3 2 L 9.3 14 A 1.3 1.3 0 0 1 8 15.3 L 2 15.3 A 1.3 1.3 0 0 1 0.7 14 L 0.7 2 A 1.3 1.3 0 0 1 2 0.7 Z M 4 12.8 L 6 12.8";
+    commands: "M 8.5 2 L 15.5 2 A 2.5 2.5 0 0 1 18 4.5 L 18 19.5 A 2.5 2.5 0 0 1 15.5 22 L 8.5 22 A 2.5 2.5 0 0 1 6 19.5 L 6 4.5 A 2.5 2.5 0 0 1 8.5 2 Z M 10 4.5 L 14 4.5 M 10.5 19.5 L 13.5 19.5";
 }
 
 component SmallLink inherits Text {
@@ -167,7 +168,7 @@ export component RemotePanel inherits PopupWindow {
     }
 }
 
-// The top bar button: a phone and REMOTE. Lilac while on, Automix green
+// The top bar button: a phone, no label. Outlined while on, Automix green
 // once a phone is connected.
 export component RemoteButton inherits Rectangle {
     property <bool> on: RemoteUi.on;
@@ -179,13 +180,9 @@ export component RemoteButton inherits Rectangle {
     height: 36px;
     y: 8px;
     horizontal-stretch: 0;
-    HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
-        spacing: 7px;
-        PhoneIcon { ink: on ? tint : Theme.text-dim; y: (parent.height - self.height) / 2; }
-        Text { text: "REMOTE"; color: on ? tint : Theme.text-dim; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
-    }
+    width: 36px;
+    // The phone alone, lilac (green once a phone is connected).
+    PhoneIcon { ink: tint; }
     ta := TouchArea {
         mouse-cursor: pointer;
         clicked => {
