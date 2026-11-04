@@ -27,8 +27,8 @@ use opendj_engine::{
 use opendj_library::Library;
 use opendj_plugins::source::{QueryKind, SourceQuery};
 use opendj_waveform::{
-    steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, PhraseKind, Style, WaveformRenderer,
-    WaveformView, GRID_SECTIONS,
+    steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, Palette, PhraseKind, Style,
+    WaveformRenderer, WaveformView, GRID_SECTIONS,
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use smooth::SmoothClock;
@@ -293,6 +293,11 @@ const TOP_BAR_HEIGHT: f64 = 52.0;
 const FOUR_DECK_LAYOUT: i32 = 2;
 /// Deck 1 alone, for preparing tracks (prep.slint).
 const PREP_LAYOUT: i32 = 3;
+/// The Player layout's value of `layout`: one bar over Automix.
+const PLAYER_LAYOUT: i32 = 1;
+/// Behind the Player bar's overview: the bar's own colour (Theme.panel),
+/// so the waveform sits on the bar rather than in a black box.
+const PLAYER_OVERVIEW_BACKGROUND: [f32; 4] = [0.102, 0.102, 0.110, 1.0];
 /// Whether the Prep layout is offered (the layout menu, a controller's
 /// VIEW, the Cues and Checklist tabs, the checklist settings). Off until
 /// v0.6: the code stays and is built and tested, only hidden.
@@ -1986,9 +1991,15 @@ impl Gpu {
         let prep_bars = (app.get_layout() == PREP_LAYOUT && !app.get_library_expanded())
             .then(|| app.global::<PrepUi>().get_bars().max(1) as f64);
         let show_phrases = app.global::<PhraseView>().get_visible();
+        let overview_background = if app.get_layout() == PLAYER_LAYOUT {
+            PLAYER_OVERVIEW_BACKGROUND
+        } else {
+            Palette::default().background
+        };
         for (d, track) in tracks.iter().enumerate() {
             changed |= self.scrolling[d].resize(&self.device, ww, wh);
             changed |= self.overview[d].resize(&self.device, ow, oh);
+            self.overview[d].set_background(overview_background);
             let track = track.as_ref().filter(|t| !t.waveform.is_empty());
             let gpu_track = match (track, &self.tracks[d]) {
                 (None, _) => None,
