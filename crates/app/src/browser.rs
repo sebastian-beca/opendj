@@ -136,6 +136,8 @@ enum Contents {
     /// One of Collection Health's areas: the tracks of the check (or case
     /// of copies) picked on its chips.
     Area(Area),
+    /// The tracks a Collection Health check was told to leave alone.
+    Ignored,
 }
 
 /// Whether the streaming services that are built (Spotify, TIDAL) can be
@@ -440,6 +442,8 @@ const KIND_ALBUM: i32 = 15;
 const KIND_MIX: i32 = 16;
 /// An artist in the Albums source, with their albums under them.
 const KIND_ARTIST: i32 = 20;
+/// Collection Health's Ignored node.
+const KIND_IGNORED: i32 = 22;
 
 /// Seconds a track must play on a deck to count as played, for the history.
 const PLAYED_AFTER: f64 = 30.0;
@@ -4214,6 +4218,7 @@ impl Browser {
                         Contents::Health(Some(check)) => self.health_count(*check) as i32,
                         Contents::Dupes(case) => self.dupe_tracks(Some(*case)).len() as i32,
                         Contents::Area(a) => self.area_count(*a) as i32,
+                        Contents::Ignored => self.ignored_tracks().len() as i32,
                         _ => -1,
                     },
                 }
@@ -4427,6 +4432,7 @@ impl Browser {
             Contents::Dupes(case) => self.dupe_tracks(Some(*case)),
             Contents::Health(Some(check)) => self.health_tracks(*check),
             Contents::Health(None) | Contents::Area(_) => Vec::new(),
+            Contents::Ignored => self.ignored_tracks(),
             Contents::Grouping(g) => all()
                 .into_iter()
                 .filter(|&t| self.library[t].info.grouping == *g)
@@ -5124,8 +5130,8 @@ impl Browser {
             .filter(|_| self.tree == COLLECTION);
         let history = list.is_some() && node.is_some_and(|n| n.history);
         let prep = node.is_some_and(|n| matches!(n.contents, Contents::Stage(Stage::Triage, _)));
-        let area =
-            self.health_view && node.is_some_and(|n| matches!(n.contents, Contents::Area(_)));
+        let area = self.health_view
+            && node.is_some_and(|n| matches!(n.contents, Contents::Area(_) | Contents::Ignored));
         let kind = if history {
             columns::Columns::History
         } else if area {
