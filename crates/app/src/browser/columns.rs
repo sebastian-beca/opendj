@@ -64,6 +64,14 @@ pub const ORDER: i32 = 22;
 pub const PLAYED_AT: i32 = 23;
 /// The colour the DJ gave the track.
 pub const COLOR: i32 = 24;
+/// The beat grid: checked (locked or edited), unsure, or in sections.
+pub const GRID: i32 = 25;
+/// How many hot cues the track has.
+pub const CUES: i32 = 26;
+/// Genre and at least one of the DJ's tags.
+pub const TAGGED: i32 = 27;
+/// Whether the file has a cover, once Collection Health has looked.
+pub const COVER: i32 = 28;
 /// Tag field `i` (from 0) is column `TAGS + i`.
 pub const TAGS: i32 = 100;
 
@@ -108,6 +116,10 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
         d(YEAR, "Year", 48.0, true, DIM),
         d(TRACK_NUMBER, "Track #", 52.0, true, DIM),
         d(PREP, "Prep", 52.0, false, TEXT),
+        d(GRID, "Grid", 84.0, false, TEXT),
+        d(CUES, "Cues", 44.0, true, TEXT),
+        d(TAGGED, "Tags", 44.0, false, TEXT),
+        d(COVER, "Cover", 48.0, false, TEXT),
         d(PLAYED, "Plays", 48.0, true, DIM),
         d(ADDED, "Added", 86.0, false, DIM),
         d(LAST_PLAYED, "Last Played", 86.0, false, DIM),
@@ -131,6 +143,12 @@ pub const DEFAULT: [i32; 9] = [
 /// order and time each track was played first.
 pub const HISTORY_DEFAULT: [i32; 8] = [
     ORDER, PLAYED_AT, TITLE_ID, ARTIST, LENGTH, BPM, KEY_ID, GENRE,
+];
+
+/// The columns the In Prep list shows until the DJ changes them: what is
+/// left to prepare on each track.
+pub const PREP_DEFAULT: [i32; 11] = [
+    COLOR, RATING_ID, TITLE_ID, ARTIST, BPM, KEY_ID, GRID, CUES, TAGGED, COVER, GENRE,
 ];
 
 /// Narrowest a column can be dragged.
@@ -354,6 +372,12 @@ pub fn cell(id: i32, t: &Track, camelot: bool) -> String {
         COMPOSER => i.composer.clone(),
         TRACK_NUMBER => number(i.track_number),
         PREP => prep_dots(t),
+        GRID => grid_state(t),
+        CUES => match cue_count(t) {
+            0 => "—".into(),
+            n => n.to_string(),
+        },
+        TAGGED => if tagged(t) { "✓" } else { "—" }.into(),
         KEY_ID => crate::settings::show_key(&t.key, camelot),
         LOCATION => match &t.source {
             opendj_engine::Source::File(p) => {
@@ -380,6 +404,36 @@ pub fn cell(id: i32, t: &Track, camelot: bool) -> String {
     }
 }
 
+/// The grid's state for the Grid column: locked, edited or imported (✓),
+/// one the analysis is unsure of (?), sections, or plain detected.
+pub fn grid_state(t: &Track) -> String {
+    let i = &t.info;
+    let sections = t.grid.markers().len();
+    if t.bpm <= 0.0 && t.grid.is_empty() {
+        "—".into()
+    } else if i.grid_locked {
+        "✓ locked".into()
+    } else if i.grid_unsure && matches!(i.grid_from.as_str(), "" | "analysis") {
+        "? check".into()
+    } else if sections > 1 {
+        format!("{sections} sections")
+    } else if matches!(i.grid_from.as_str(), "" | "analysis") {
+        "detected".into()
+    } else {
+        "✓".into()
+    }
+}
+
+/// Hot cues (not memory cues or saved loops' places in the list).
+pub fn cue_count(t: &Track) -> usize {
+    t.info.hotcues.iter().filter(|c| !c.is_memory()).count()
+}
+
+/// A genre and at least one word in the DJ's tag fields.
+pub fn tagged(t: &Track) -> bool {
+    !t.genre.trim().is_empty() && !t.info.labels.is_empty()
+}
+
 /// A dot for each part of basic preparation, filled when done: tags
 /// (artist and title), rating, tempo and key.
 pub fn prep_dots(t: &Track) -> String {
@@ -401,6 +455,7 @@ pub fn row_cells(
     track: Option<&Track>,
     crates: Option<&[String]>,
     list: InList,
+    cover: Option<bool>,
 ) -> ModelRc<SharedString> {
     let cells: Vec<SharedString> = ids
         .iter()
@@ -416,6 +471,11 @@ pub fn row_cells(
             ORDER if list.order > 0 => list.order.to_string().into(),
             ORDER => SharedString::new(),
             PLAYED_AT => list.played_at.map(time_of_day).unwrap_or_default().into(),
+            COVER => match cover {
+                Some(true) => "✓".into(),
+                Some(false) => "—".into(),
+                None => SharedString::new(),
+            },
             id => track.map(|t| cell(id, t, true).into()).unwrap_or_default(),
         })
         .collect();
@@ -450,6 +510,7 @@ pub fn compare(id: i32, a: &Track, b: &Track) -> Ordering {
         LAST_PLAYED => x.last_played.cmp(&y.last_played),
         TRACK_NUMBER => x.track_number.cmp(&y.track_number),
         PREP => prep_count(a).cmp(&prep_count(b)),
+        CUES => cue_count(a).cmp(&cue_count(b)),
         // Analysed tracks, which have a waveform, first.
         WAVE => analysed(b).cmp(&analysed(a)),
         KEY_ID => key_order(&a.key, true).cmp(&key_order(&b.key, true)),
@@ -518,15 +579,35 @@ fn natural(s: &str) -> (u64, String) {
     (digits.parse().unwrap_or(u64::MAX), s.to_lowercase())
 }
 
+/// Which column set a list shows: the lists', a history session's, or
+/// the In Prep list's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Columns {
+    Lists = 0,
+    History = 1,
+    Prep = 2,
+}
+
+impl Columns {
+    fn default_ids(self) -> &'static [i32] {
+        match self {
+            Columns::Lists => &DEFAULT,
+            Columns::History => &HISTORY_DEFAULT,
+            Columns::Prep => &PREP_DEFAULT,
+        }
+    }
+}
+
 /// The list's columns in the browser.
 pub(super) struct ColumnState {
     pub defs: Vec<Def>,
-    /// The columns shown now: a history session's while one is shown.
+    /// The columns shown now: a history session's or In Prep's while one
+    /// is shown.
     pub layout: Layout,
-    /// The other layout: the lists' while a history session is shown, and
-    /// the other way round.
-    other: Layout,
-    history: bool,
+    /// The other layouts, by [`Columns`]; the one shown is kept in
+    /// `layout` and its slot here is stale until it is swapped back.
+    others: [Layout; 3],
+    pub shown: Columns,
 }
 
 impl ColumnState {
@@ -541,47 +622,49 @@ impl ColumnState {
             }
             settings::set_track_color(0);
         }
-        let other = Layout::new_or(
+        let history = Layout::new_or(
             settings::history_columns(),
             settings::hidden_history_columns(),
             &defs,
             &HISTORY_DEFAULT,
         );
+        let prep = Layout::new_or(
+            settings::prep_columns(),
+            settings::hidden_prep_columns(),
+            &defs,
+            &PREP_DEFAULT,
+        );
         ColumnState {
             defs,
             layout,
-            other,
-            history: false,
+            others: [Layout::default(), history, prep],
+            shown: Columns::Lists,
         }
     }
 
-    /// Shows a history session's columns (`on`) or the lists' again.
-    /// Returns whether that changed anything.
-    pub fn show_history(&mut self, on: bool) -> bool {
-        if on == self.history {
+    /// Shows the columns for `kind` of list. Returns whether that changed
+    /// anything.
+    pub fn show(&mut self, kind: Columns) -> bool {
+        if kind == self.shown {
             return false;
         }
-        self.history = on;
-        std::mem::swap(&mut self.layout, &mut self.other);
+        std::mem::swap(&mut self.layout, &mut self.others[self.shown as usize]);
+        std::mem::swap(&mut self.layout, &mut self.others[kind as usize]);
+        self.shown = kind;
         true
     }
 
     /// The layout shown back to what it starts as.
     pub fn reset(&mut self) {
-        let ids: &[i32] = if self.history {
-            &HISTORY_DEFAULT
-        } else {
-            &DEFAULT
-        };
-        self.layout = Layout::with(&self.defs, ids);
+        self.layout = Layout::with(&self.defs, self.shown.default_ids());
     }
 
     /// Keeps the layout shown in settings.
     pub fn save(&self) {
-        if self.history {
-            settings::set_history_columns(&self.layout);
-        } else {
-            settings::set_columns(&self.layout);
+        match self.shown {
+            Columns::Lists => settings::set_columns(&self.layout),
+            Columns::History => settings::set_history_columns(&self.layout),
+            Columns::Prep => settings::set_prep_columns(&self.layout),
         }
     }
 
@@ -659,17 +742,14 @@ impl Browser {
                 settings::set_track_color(mode as u8);
                 // The dots come with the Colour column, and go with it.
                 let c = &mut b.columns;
-                let lists = if c.history {
-                    &mut c.other
-                } else {
+                let defs = &c.defs;
+                let lists = if c.shown == Columns::Lists {
                     &mut c.layout
+                } else {
+                    &mut c.others[Columns::Lists as usize]
                 };
-                if lists.show_color(mode == 0, &c.defs) {
-                    if c.history {
-                        settings::set_columns(&c.other);
-                    } else {
-                        c.save();
-                    }
+                if lists.show_color(mode == 0, defs) {
+                    settings::set_columns(lists);
                 }
                 if let Some(app) = b.app.upgrade() {
                     app.global::<ColumnUi>().set_color_mode(mode);
@@ -752,7 +832,9 @@ impl Browser {
         let c = &mut self.columns;
         c.defs = all(names);
         c.layout.fit(&c.defs);
-        c.other.fit(&c.defs);
+        for l in &mut c.others {
+            l.fit(&c.defs);
+        }
         self.refresh_column_ui();
     }
 
@@ -792,6 +874,18 @@ mod tests {
 
     fn ids(l: &Layout) -> Vec<i32> {
         l.shown.iter().map(|(id, _)| *id).collect()
+    }
+
+    #[test]
+    fn every_column_has_its_own_id() {
+        let defs = all(&FieldNames::default());
+        let mut ids: Vec<i32> = defs.iter().map(|d| d.id).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), defs.len());
+        for id in PREP_DEFAULT {
+            assert!(ids.contains(&id), "In Prep column {id}");
+        }
     }
 
     #[test]

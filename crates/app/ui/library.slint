@@ -7,6 +7,7 @@ import { HoverTip } from "controls.slint";
 import { SourceUi, SearchesPanel, SourceResults, SourceSetup } from "sources.slint";
 import { InstrumentsPanel, LiveIcon } from "instruments.slint";
 import { InfoPanel, TrackInfo } from "info.slint";
+import { CuesPanel } from "cues.slint";
 import { FilterBar, FilterUi } from "filters.slint";
 import { TourMark } from "tourmark.slint";
 
@@ -4347,7 +4348,7 @@ component SidePanel inherits Rectangle {
     in property <[SideRow]> rows;
     in property <string> total;
     // 0 Automix, 1 Sidelist, 2 Related, 3 Info (the selected track's
-    // details, see info.slint).
+    // details, see info.slint), 4 Cues (a deck's cues, see cues.slint).
     in-out property <int> tab: 0;
     callback activate(row: int);
     // Takes out the rows `first` to `last`.
@@ -4417,7 +4418,7 @@ component SidePanel inherits Rectangle {
         y: 0px;
         height: 40px;
         HorizontalLayout {
-            for name[i] in ["Automix", "Sidelist", "Related", "Info"]: Rectangle {
+            for name[i] in ["Automix", "Sidelist", "Related", "Info", "Cues"]: Rectangle {
                 horizontal-stretch: 1;
                 property <bool> on: i == tab;
                 background: tta.has-hover && !on ? #ffffff08 : transparent;
@@ -4445,6 +4446,10 @@ component SidePanel inherits Rectangle {
         }
     }
     if tab == 3: InfoPanel {
+        y: tab-bar.height;
+        height: parent.height - tab-bar.height;
+    }
+    if tab == 4: CuesPanel {
         y: tab-bar.height;
         height: parent.height - tab-bar.height;
     }

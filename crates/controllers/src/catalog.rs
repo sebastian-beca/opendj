@@ -355,6 +355,7 @@ fn deck_function(key: &str, target: &str) -> Function {
         "beats_translate_curpos" => ("Tempo & sync", "Move grid to playhead"),
         "beats_translate_earlier" => ("Tempo & sync", "Move grid earlier"),
         "beats_translate_later" => ("Tempo & sync", "Move grid later"),
+        "beats_translate_by" => ("Tempo & sync", "Move grid by seconds"),
         "keylock" => ("Key", "Key lock"),
         "pitch" | "pitch_adjust" => ("Key", "Key shift"),
         "pitch_up" | "pitch_adjust_up" => ("Key", "Key up"),

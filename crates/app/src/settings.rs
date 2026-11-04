@@ -882,6 +882,19 @@ pub fn set_history_columns(layout: &Layout) {
     set_columns_at("history_columns", "hidden_history_columns", layout);
 }
 
+/// The In Prep list's columns, kept apart from the other lists'.
+pub fn prep_columns() -> Vec<(i32, f32)> {
+    columns_at("prep_columns")
+}
+
+pub fn hidden_prep_columns() -> Vec<Hidden> {
+    hidden_at("hidden_prep_columns")
+}
+
+pub fn set_prep_columns(layout: &Layout) {
+    set_columns_at("prep_columns", "hidden_prep_columns", layout);
+}
+
 fn set_columns_at(key: &str, hidden_key: &str, layout: &Layout) {
     let list: Vec<Value> = layout
         .shown

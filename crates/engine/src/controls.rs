@@ -212,6 +212,9 @@ pub(crate) struct DeckControls {
     /// Moves the loop by that many beats (Mixxx's loop_move), or by that many
     /// of its own lengths (openDJ's loop_move_loops, VirtualDJ's loop_move).
     pub(crate) loop_move: [ControlHandle; 2],
+    /// Set to N to move the beat grid N seconds later (negative: earlier),
+    /// as a drag of the waveform does; the engine zeroes it.
+    pub(crate) grid_move: ControlHandle,
     pub(crate) eject: ControlHandle,
     pub(crate) beatsync: ControlHandle,
     /// beatlooproll_N_activate by size, plus beatlooproll_activate as size 0
@@ -458,6 +461,7 @@ impl DeckControls {
             loop_scale: reg.create(g, "loop_scale", 0.0, 0.0, 64.0, Behavior::Free),
             loop_move: ["loop_move", "loop_move_loops"]
                 .map(|k| reg.create(g, k, 0.0, -512.0, 512.0, Behavior::Free)),
+            grid_move: reg.create(g, "beats_translate_by", 0.0, -60.0, 60.0, Behavior::Free),
             eject: reg.push(g, "eject"),
             beatsync: reg.push(g, "beatsync"),
             rolls,

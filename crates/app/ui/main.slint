@@ -7,6 +7,7 @@ import { Mixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } f
 import { MasterPanel, MicPanel, Loudness, OnAirPanel, BroadcastState, BroadcastStation, AirTime } from "toppanels.slint";
 import { PlayerBar, PlayerDeck, PlayerMixer } from "player.slint";
 import { PrepDeck, PrepUi } from "prep.slint";
+import { CueList } from "cues.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { FxBar } from "fxbar.slint";
 import { InstrumentsUi, LiveItem } from "instruments.slint";
@@ -26,6 +27,7 @@ export { ColumnUi, ListColumn }
 export { Tour, TourSetup }
 export { MapMode }
 export { PrepUi }
+export { CueList, CueRow } from "cues.slint";
 export { RemoteUi, RemoteDevice }
 export { MixerMode, InputSettings, InputRow }
 export { BroadcastState, BroadcastStation }
@@ -38,17 +40,26 @@ export { InstrumentsUi, LiveItem, Theme, Controls, DeckActions, PhraseView, Phra
 component Waveform inherits Rectangle {
     in property <image> source;
     in property <string> group;
+    // Prep's waveform: dragging it moves an unlocked grid with the audio,
+    // and it shows `zoom-seconds` across its width (set from the app).
+    in property <bool> drag-grid;
+    in property <float> zoom-seconds;
     // Must match the app's VISIBLE_SECONDS: the track seconds the waveform
     // shows across its width at normal speed.
-    property <float> visible-seconds: 10 * (1 + Controls.value(rate-index, Controls.tick) * Controls.value(range-index, Controls.tick));
+    property <float> visible-seconds: (zoom-seconds > 0 ? zoom-seconds : 10) * (1 + Controls.value(rate-index, Controls.tick) * Controls.value(range-index, Controls.tick));
     property <int> rate-index: Controls.resolve(group, "rate");
     property <int> range-index: Controls.resolve(group, "rateRange");
     property <int> position-index: Controls.resolve(group, "playposition");
     property <int> duration-index: Controls.resolve(group, "duration");
     property <int> scrub-index: Controls.resolve(group, "scrub_position");
     property <int> scrub-enable-index: Controls.resolve(group, "scrub_enable");
+    property <int> grid-by-index: Controls.resolve(group, "beats_translate_by");
+    property <bool> grid-open: drag-grid && Controls.value(Controls.resolve(group, "bpmlock"), Controls.tick) == 0;
     property <float> press-position;
     property <bool> holding;
+    // While the grid is dragged: whether it is, and how far it has moved.
+    property <bool> moving-grid;
+    property <float> grid-moved;
     background: Theme.well;
     clip: true;
     Image { width: parent.width; height: parent.height; source: source; image-fit: fill; }
@@ -61,6 +72,8 @@ component Waveform inherits Rectangle {
             if e.kind == PointerEventKind.down {
                 holding = Controls.value(duration-index, Controls.tick) > 0;
                 if holding {
+                    moving-grid = grid-open;
+                    grid-moved = 0;
                     press-position = Controls.value(position-index, Controls.tick);
                     Controls.set-value(scrub-index, press-position);
                     Controls.set-value(scrub-enable-index, 1);
@@ -76,6 +89,13 @@ component Waveform inherits Rectangle {
             if self.pressed && holding {
                 // Dragging right pulls earlier audio under the playhead.
                 Controls.set-value(scrub-index, clamp(press-position - (self.mouse-x - self.pressed-x) / self.width * visible-seconds / Controls.value(duration-index, Controls.tick), 0, 1));
+                // The grid moves back as far as the audio does, so it stays
+                // where it is on screen while the audio slides under it.
+                if moving-grid {
+                    let moved = -(self.mouse-x - self.pressed-x) / self.width * visible-seconds;
+                    Controls.set-value(grid-by-index, Controls.value(grid-by-index, Controls.tick) + moved - grid-moved);
+                    grid-moved = moved;
+                }
             }
         }
     }
@@ -906,6 +926,10 @@ export component AppWindow inherits Window {
             flip("metronome");
             return true;
         }
+        if text == "c" {
+            CueList.add-memory();
+            return true;
+        }
         if locked {
             return false;
         }
@@ -1112,7 +1136,7 @@ export component AppWindow inherits Window {
                 if prep: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; drag-grid: true; zoom-seconds: PrepUi.seconds; }
                     Rectangle { height: 1px; background: Theme.border; }
                 }
                 if !four && !prep: VerticalLayout {

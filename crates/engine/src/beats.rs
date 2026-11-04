@@ -18,6 +18,9 @@ pub enum GridEdit {
     BeatHere,
     /// Moves the grid by this many seconds (`beats_translate_earlier`/`_later`).
     Shift(f64),
+    /// Moves the grid by this many seconds as a drag of the waveform
+    /// (`beats_translate_by`): one drag is one undo step.
+    Drag(f64),
     /// Changes the tempo here by this many BPM (`beats_adjust_faster`/`_slower`).
     Tempo(f64),
     /// Sets the tempo here to this many BPM (a deck's tapped `bpm_tap`).
@@ -45,7 +48,7 @@ impl BeatGrid {
         match edit {
             GridEdit::BeatHere => self.with_beat_at(seconds),
             GridEdit::BarHere => self.with_beat_at(seconds).with_bar_at(seconds),
-            GridEdit::Shift(by) => self.shifted(by),
+            GridEdit::Shift(by) | GridEdit::Drag(by) => self.shifted(by),
             GridEdit::Tempo(by) => self.with_bpm_at(seconds, self.bpm_at(seconds) + by),
             GridEdit::SetTempo(bpm) => self.with_bpm_at(seconds, bpm),
             GridEdit::AddSection => self.with_marker(seconds, self.bpm_at(seconds)),

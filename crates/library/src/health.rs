@@ -438,6 +438,11 @@ impl Facts {
         self.covers.contains_key(&id)
     }
 
+    /// Whether a track has a cover, once looked at.
+    pub fn has_cover(&self, id: usize) -> Option<bool> {
+        self.covers.get(&id).copied()
+    }
+
     /// Notes whether a track has a cover.
     pub fn set_cover(&mut self, id: usize, has: bool) {
         self.covers.insert(id, has);
