@@ -187,5 +187,7 @@ outputs in Settings. Levels are kept between runs.
 The **MIC** button opens the microphone and the auxiliary input, each with
 **ON** and a level. The microphone has effects of its own under **MIC FX**,
 which the decks' effects never touch, and **AUX** sends the auxiliary input
-through them too. Choose the inputs in **Settings › Audio**. The auxiliary
-input starts off.
+through them too. Choose the inputs in **Settings › Audio**: **+** under
+the inputs adds a second and third auxiliary input, and each auxiliary
+input takes a pair of channels (stereo) or one (mono). Auxiliary inputs
+start off.

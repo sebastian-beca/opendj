@@ -16,7 +16,7 @@ use opendj_controllers::{is_system_port, own, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
     analysis, beatthis, cache, channel_names, deck_group, engine, input_devices, key, meter,
-    separation, InputRole, InputRoute, RecordFormat, Recorder, BUFFER_SIZES,
+    separation, AudioSetup, InputRole, InputRoute, RecordFormat, Recorder, BUFFER_SIZES,
     DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES,
 };
 use opendj_library::query;
@@ -466,9 +466,13 @@ pub struct Prefs {
     /// Opens the inputs again with the saved audio settings, and tells
     /// each input's state (see [`opendj_engine::AudioEngine::input_status`]).
     inputs: InputHooks,
-    /// What each input's menus offered last, by [`InputRole::index`]:
-    /// the devices ("" for None) and the first channel of each choice.
-    input_menus: [(Vec<String>, Vec<u16>); 2],
+    /// The inputs table's rows last shown, and what each row's menus
+    /// offered: the devices ("" for None), and the first channel of each
+    /// choice and whether it is mono.
+    input_menus: Vec<(InputRole, Vec<String>, Vec<(u16, bool)>)>,
+    /// Auxiliary rows after the first that + added and that have no device
+    /// yet: 0 to 2.
+    aux_added: usize,
     /// The import being set up, if any.
     wizard: Option<WizardState>,
     /// The import whose Remove was pressed once, waiting for a second press.
@@ -548,7 +552,8 @@ impl Prefs {
             plugin_changed,
             audio_changed,
             inputs,
-            input_menus: Default::default(),
+            input_menus: Vec::new(),
+            aux_added: 0,
             wizard: None,
             removing: None,
             shortcut_note: String::new(),
@@ -592,6 +597,10 @@ impl Prefs {
             p.borrow_mut()
                 .input_picked(row.max(0) as usize, None, Some(i.max(0) as usize))
         });
+        let p = prefs.clone();
+        inputs.on_add(move || p.borrow_mut().input_added());
+        let p = prefs.clone();
+        inputs.on_remove(move |row| p.borrow_mut().input_removed(row.max(0) as usize));
         prefs
     }
 
@@ -1668,119 +1677,185 @@ impl Prefs {
         }
     }
 
-    /// The menu choosing `role`'s device and channels: None, then each
-    /// input device's channels (pairs for the auxiliary input).
+    /// The auxiliary rows after the first that the inputs table shows: those
+    /// set up, and those + added.
+    fn extra_aux_rows(&self, setup: &AudioSetup) -> usize {
+        let has = |role| setup.inputs.iter().any(|r| r.role == role);
+        let set_up = if has(InputRole::Auxiliary3) {
+            2
+        } else if has(InputRole::Auxiliary2) {
+            1
+        } else {
+            0
+        };
+        set_up.max(self.aux_added).min(2)
+    }
+
     /// The inputs table: fills its rows (see InputsTable in mixer.slint)
-    /// and returns the settings row that shows it.
+    /// and returns the settings row that shows it. The microphone and the
+    /// first auxiliary input are always there; + adds up to two more.
     fn inputs_item(&mut self) -> PrefItem {
         let setup = settings::audio_setup();
         let status = (self.inputs.status)();
         let devices = input_devices();
-        let rows: Vec<InputRow> = InputRole::ALL
-            .iter()
-            .map(|&role| {
-                let saved = setup.inputs.iter().find(|r| r.role == role);
-                let width = role.channels();
-                // "None", then each device with room for the input.
-                let mut names = vec![String::new()];
-                let mut shown = vec!["None".to_string()];
-                for d in devices.iter().filter(|d| d.channels >= width) {
-                    names.push(d.name.clone());
-                    shown.push(d.name.clone());
+        let extra = self.extra_aux_rows(&setup);
+        let roles = &InputRole::ALL[..2 + extra];
+        self.input_menus.clear();
+        let mut rows = Vec::new();
+        for (n, &role) in roles.iter().enumerate() {
+            let saved = setup.inputs.iter().find(|r| r.role == role);
+            // "None", then each input device.
+            let mut names = vec![String::new()];
+            let mut shown = vec!["None".to_string()];
+            for d in devices.iter().filter(|d| d.channels >= 1) {
+                names.push(d.name.clone());
+                shown.push(d.name.clone());
+            }
+            let mut device = 0;
+            // Each choice's first channel and whether it is mono: the
+            // microphone takes one channel; an auxiliary input a pair, or
+            // one.
+            let mut starts: Vec<(u16, bool)> = Vec::new();
+            if let Some(r) = saved {
+                match devices.iter().find(|d| d.name == r.device) {
+                    Some(d) => {
+                        device = names.iter().position(|n| *n == r.device).unwrap_or(0);
+                        starts = channel_choices(role, d.channels);
+                    }
+                    None => {
+                        let name = if r.device.is_empty() {
+                            "System default"
+                        } else {
+                            &r.device
+                        };
+                        names.push(r.device.clone());
+                        shown.push(format!("{name} (not connected)"));
+                        device = names.len() - 1;
+                        starts = vec![(r.channel, r.mono)];
+                    }
                 }
-                let mut device = 0;
-                let mut starts: Vec<u16> = Vec::new();
-                if let Some(r) = saved {
-                    match devices
+            }
+            let channel = saved
+                .and_then(|r| {
+                    starts
                         .iter()
-                        .find(|d| d.name == r.device && d.channels >= width)
-                    {
-                        Some(d) => {
-                            device = names.iter().position(|n| *n == r.device).unwrap_or(0);
-                            starts = (0..d.channels)
-                                .step_by(width as usize)
-                                .take_while(|c| c + width <= d.channels)
-                                .collect();
+                        .position(|&(c, mono)| c == r.channel && mono == (r.channels() == 1))
+                })
+                .unwrap_or(0);
+            let channels: Vec<String> = if starts.is_empty() {
+                vec!["–".to_string()]
+            } else {
+                starts
+                    .iter()
+                    .map(|&(c, mono)| {
+                        if mono && role.can_be_stereo() {
+                            format!("{} · mono", channel_names(c, 1))
+                        } else {
+                            channel_names(c, if mono { 1 } else { 2 })
                         }
-                        None => {
-                            let name = if r.device.is_empty() {
-                                "System default"
-                            } else {
-                                &r.device
-                            };
-                            names.push(r.device.clone());
-                            shown.push(format!("{name} (not connected)"));
-                            device = names.len() - 1;
-                            starts = vec![r.channel];
-                        }
-                    }
+                    })
+                    .collect()
+            };
+            let state = status.get(role.index()).cloned().unwrap_or_default();
+            self.input_menus.push((role, names, starts));
+            rows.push(InputRow {
+                name: match n {
+                    0 => "Microphone".to_string(),
+                    _ if extra == 0 => "Auxiliary".to_string(),
+                    _ => format!("Auxiliary {n}"),
                 }
-                let channel = saved
-                    .and_then(|r| starts.iter().position(|&c| c == r.channel))
-                    .unwrap_or(0);
-                let channels: Vec<String> = if starts.is_empty() {
-                    vec!["–".to_string()]
+                .into(),
+                devices: strings(&shown),
+                device: device as i32,
+                channels: strings(&channels),
+                channel: channel as i32,
+                ok: !state.contains("can't") && !state.contains("not "),
+                status: if saved.is_some() {
+                    state
                 } else {
-                    starts.iter().map(|&c| channel_names(c, width)).collect()
-                };
-                let state = status.get(role.index()).cloned().unwrap_or_default();
-                self.input_menus[role.index()] = (names, starts);
-                InputRow {
-                    name: match role {
-                        InputRole::Microphone => "Microphone",
-                        InputRole::Auxiliary => "Auxiliary",
-                    }
-                    .into(),
-                    devices: strings(&shown),
-                    device: device as i32,
-                    channels: strings(&channels),
-                    channel: channel as i32,
-                    ok: !state.contains("can't") && !state.contains("not "),
-                    status: if saved.is_some() {
-                        state
-                    } else {
-                        String::new()
-                    }
-                    .into(),
+                    String::new()
                 }
-            })
-            .collect();
+                .into(),
+                removable: n >= 2,
+            });
+        }
         if let Some(app) = self.app.upgrade() {
-            app.global::<InputSettings>()
-                .set_rows(ModelRc::new(VecModel::from(rows)));
+            let g = app.global::<InputSettings>();
+            g.set_rows(ModelRc::new(VecModel::from(rows)));
+            g.set_can_add(extra < 2);
         }
         item(
             "inputs_table",
             INPUTS_TABLE,
             "Microphone and auxiliary",
-            "The microphone turns on with MIC; the auxiliary input mixes in with the decks.",
+            "The microphone turns on with MIC; auxiliary inputs mix in with the decks.",
         )
     }
 
     /// An input's device (`device`) or channels (`channel`) picked in the
     /// inputs table, by their place in its menus.
     fn input_picked(&mut self, row: usize, device: Option<usize>, channel: Option<usize>) {
-        let Some(&role) = InputRole::ALL.get(row) else {
+        let Some((role, names, starts)) = self.input_menus.get(row) else {
             return;
         };
-        let (names, starts) = &self.input_menus[row];
+        let role = *role;
         let mut setup = settings::audio_setup();
         let old = setup.inputs.iter().find(|r| r.role == role).cloned();
         let route = match (device, channel) {
             (Some(0), _) => None,
-            (Some(d), _) => names.get(d).map(|name| InputRoute {
-                role,
-                device: name.clone(),
-                channel: 0,
+            (Some(d), _) => names.get(d).map(|name| {
+                // A one-channel device can only be mono.
+                let width = input_devices()
+                    .iter()
+                    .find(|x| x.name == *name)
+                    .map_or(2, |x| x.channels);
+                InputRoute {
+                    role,
+                    device: name.clone(),
+                    channel: 0,
+                    mono: width < 2,
+                }
             }),
             (None, Some(c)) => match (old, starts.get(c)) {
-                (Some(r), Some(&channel)) => Some(InputRoute { channel, ..r }),
+                (Some(r), Some(&(channel, mono))) => Some(InputRoute { channel, mono, ..r }),
                 (old, _) => old,
             },
             (None, None) => return,
         };
         setup.inputs.retain(|r| r.role != role);
         setup.inputs.extend(route);
+        settings::set_audio_setup(&setup);
+        (self.inputs.changed)();
+        self.refresh();
+    }
+
+    /// + under the inputs table: one more auxiliary row, up to three.
+    fn input_added(&mut self) {
+        let setup = settings::audio_setup();
+        self.aux_added = (self.extra_aux_rows(&setup) + 1).min(2);
+        self.refresh();
+    }
+
+    /// × on an auxiliary row after the first: forgets that input. The ones
+    /// after it move up, so they keep being Auxiliary 2 and 3 in order.
+    fn input_removed(&mut self, row: usize) {
+        let Some(&(role, ..)) = self.input_menus.get(row) else {
+            return;
+        };
+        if !matches!(role, InputRole::Auxiliary2 | InputRole::Auxiliary3) {
+            return;
+        }
+        let mut setup = settings::audio_setup();
+        let extra = self.extra_aux_rows(&setup);
+        setup.inputs.retain(|r| r.role != role);
+        if role == InputRole::Auxiliary2 {
+            for r in &mut setup.inputs {
+                if r.role == InputRole::Auxiliary3 {
+                    r.role = InputRole::Auxiliary2;
+                }
+            }
+        }
+        self.aux_added = extra.saturating_sub(1);
         settings::set_audio_setup(&setup);
         (self.inputs.changed)();
         self.refresh();
@@ -4555,6 +4630,26 @@ mod tests {
     use super::*;
     use opendj_engine::plugins::Plugin;
 
+    #[test]
+    fn auxiliary_inputs_offer_pairs_then_mono_channels() {
+        assert_eq!(
+            channel_choices(InputRole::Auxiliary2, 4),
+            [
+                (0, false),
+                (2, false),
+                (0, true),
+                (1, true),
+                (2, true),
+                (3, true)
+            ]
+        );
+        assert_eq!(channel_choices(InputRole::Auxiliary, 1), [(0, true)]);
+        assert_eq!(
+            channel_choices(InputRole::Microphone, 2),
+            [(0, true), (1, true)]
+        );
+    }
+
     fn found(name: &str, vendor: &str, format: &'static str) -> Found {
         Found {
             key: format!("{format}:{name}"),
@@ -4604,4 +4699,20 @@ mod tests {
         let other: ModelRc<PrefItem> = ModelRc::default();
         assert!(!patch_rows(&other, &new));
     }
+}
+
+/// The channels an input can take from a device with `channels` of them:
+/// each one for the microphone; each pair, then each one (mono), for an
+/// auxiliary input.
+fn channel_choices(role: InputRole, channels: u16) -> Vec<(u16, bool)> {
+    let mut out = Vec::new();
+    if role.can_be_stereo() {
+        out.extend(
+            (0..channels.saturating_sub(1))
+                .step_by(2)
+                .map(|c| (c, false)),
+        );
+    }
+    out.extend((0..channels).map(|c| (c, true)));
+    out
 }

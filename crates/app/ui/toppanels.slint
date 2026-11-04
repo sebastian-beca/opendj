@@ -570,6 +570,15 @@ export component MicPanel inherits PopupWindow {
         }
         EdgeLine { line-color: Theme.border; }
         InputSection { group: "[Auxiliary1]"; name: "Aux"; on-key: "main_mix"; tint: Theme.accent; }
+        // The second and third auxiliary inputs, once set up in Settings › Audio.
+        for n in 2: VerticalLayout {
+            property <string> group: "[Auxiliary" + (n + 2) + "]";
+            visible: Controls.value(Controls.resolve(group, "input_configured"), Controls.tick) > 0;
+            height: self.visible ? self.preferred-height : 0px;
+            spacing: 12px;
+            EdgeLine { line-color: Theme.border; }
+            InputSection { group: group; name: "Aux " + (n + 2); on-key: "main_mix"; tint: Theme.accent; }
+        }
         EdgeLine { line-color: Theme.border; }
         InputSection {
             group: "[Instrument1]";

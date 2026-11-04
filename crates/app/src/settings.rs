@@ -124,6 +124,7 @@ pub fn audio_setup() -> AudioSetup {
                         role: InputRole::from_name(r["role"].as_str()?)?,
                         device: r["device"].as_str().unwrap_or_default().to_string(),
                         channel: r["channel"].as_u64().unwrap_or(0) as u16,
+                        mono: r["mono"].as_bool().unwrap_or(false),
                     })
                 })
                 .collect()
@@ -183,7 +184,14 @@ pub fn set_audio_setup(setup: &AudioSetup) {
         v["inputs"] = setup
             .inputs
             .iter()
-            .map(|r| json!({ "role": r.role.name(), "device": r.device, "channel": r.channel }))
+            .map(|r| {
+                json!({
+                    "role": r.role.name(),
+                    "device": r.device,
+                    "channel": r.channel,
+                    "mono": r.mono,
+                })
+            })
             .collect();
     });
 }

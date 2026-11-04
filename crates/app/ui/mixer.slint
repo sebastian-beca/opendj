@@ -25,7 +25,7 @@ export struct OutputRow {
 // One input in the settings table: what it is, the device and the
 // channels it comes in on.
 export struct InputRow {
-    // "Microphone" or "Auxiliary".
+    // "Microphone", "Auxiliary" or "Auxiliary 2".
     name: string,
     // "None" first, then the input devices.
     devices: [string],
@@ -34,13 +34,19 @@ export struct InputRow {
     channel: int,
     status: string,
     ok: bool,
+    // An auxiliary input after the first: × takes it away.
+    removable: bool,
 }
 
 // The settings' inputs table (see InputsTable).
 export global InputSettings {
     in property <[InputRow]> rows;
+    // Fewer than three auxiliary inputs: + adds one.
+    in property <bool> can-add;
     callback set-device(row: int, device: int);
     callback set-channel(row: int, channel: int);
+    callback add();
+    callback remove(row: int);
 }
 
 // The audio settings: the output routes table, and
@@ -243,11 +249,12 @@ export component OutputsTable inherits VerticalLayout {
     }
 }
 
-// The settings' inputs: the microphone and the auxiliary input, each on a
-// device and its channels, laid out as the outputs are.
+// The settings' inputs: the microphone and up to three auxiliary inputs,
+// each on a device and its channels (a pair, or one for mono), laid out as
+// the outputs are.
 export component InputsTable inherits VerticalLayout {
     spacing: 8px;
-    ColumnTitles { first: "Input"; first-width: 120px; last-width: 90px; }
+    ColumnTitles { first: "Input"; first-width: 120px; last-width: 110px; }
     for row[r] in InputSettings.rows: VerticalLayout {
         spacing: 2px;
         HorizontalLayout {
@@ -269,17 +276,34 @@ export component InputsTable inherits VerticalLayout {
                 picked(i) => { InputSettings.set-device(r, i); }
             }
             MenuField {
-                width: 90px;
+                width: 110px;
                 text: row.channels[row.channel];
                 choices: row.channels;
                 chosen: row.channel;
-                menu-width: 110px;
+                menu-width: 130px;
                 opacity: row.device == 0 ? 0.4 : 1;
                 picked(i) => { InputSettings.set-channel(r, i); }
             }
-            Rectangle { width: 20px; }
+            Rectangle {
+                width: 20px;
+                if row.removable: CloseIcon { size: 9px; color: ixta.has-hover ? Theme.text : Theme.text-dim; }
+                ixta := TouchArea { enabled: row.removable; mouse-cursor: row.removable ? pointer : default; clicked => { InputSettings.remove(r); } }
+            }
         }
         if row.status != "": Text { text: row.status; color: row.ok ? Theme.text-dim : #ff9f0a; font-size: 10px; overflow: elide; x: 4px; }
+    }
+    if InputSettings.can-add: HorizontalLayout {
+        alignment: end;
+        Rectangle {
+            width: 26px;
+            height: 22px;
+            border-radius: Theme.radius;
+            background: iata.has-hover ? #2a2a2e : Theme.control;
+            border-width: 1px;
+            border-color: Theme.border;
+            Text { text: "+"; color: Theme.text; font-size: 15px; }
+            iata := TouchArea { mouse-cursor: pointer; clicked => { InputSettings.add(); } }
+        }
     }
 }
 

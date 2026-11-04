@@ -117,7 +117,7 @@ pub fn parameter_names(loaded_effect: f64) -> &'static [&'static str] {
 }
 
 /// Signal paths an effect unit can be routed to: the decks, the main mix,
-/// then the microphone and auxiliary inputs.
+/// then the inputs (see [`crate::inputs`]).
 pub(crate) const TARGETS: usize = NUM_DECKS + 1 + NUM_INPUTS;
 pub(crate) const MAIN: usize = NUM_DECKS;
 
@@ -666,7 +666,8 @@ struct UnitControls {
     mix: ControlHandle,
     super1: ControlHandle,
     /// group_[ChannelN]_enable for each deck, group_[Master]_enable, then
-    /// group_[Microphone]_enable and group_[Auxiliary1]_enable.
+    /// group_[Microphone]_enable and the other inputs' (see
+    /// [`crate::inputs::input_group`]).
     routes: [ControlHandle; TARGETS],
     super_seen: u32,
     /// The unit's own tempo, from `bpm_tap`; 0 follows each target's tempo.

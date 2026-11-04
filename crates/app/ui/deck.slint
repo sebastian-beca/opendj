@@ -2551,7 +2551,7 @@ component LivePanel inherits Rectangle {
     in property <int> live;
     in property <string> group;
     in property <color> tint;
-    property <string> input-group: ["[Microphone]", "[Auxiliary1]", "[Instrument1]"][live - 1];
+    property <string> input-group: ["[Microphone]", "[Auxiliary1]", "[Instrument1]", "[Auxiliary2]", "[Auxiliary3]"][live - 1];
     property <bool> ready: Controls.value(Controls.resolve(input-group, "input_configured"), Controls.tick) > 0;
     property <float> level: Controls.value(Controls.resolve(group, "vu_meter"), Controls.tick);
     border-radius: 10px;
