@@ -72,6 +72,7 @@ mod smooth;
 mod soundcloud;
 mod sources;
 mod spotify;
+mod storage;
 mod stores;
 mod stream_cache;
 mod tidal;

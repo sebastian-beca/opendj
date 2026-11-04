@@ -36,7 +36,8 @@ switch shows or hides it in the rail, as right-clicking the rail does. Click
 a source to open its settings: its server and sign-in, the folder its
 downloads go to, or **Sign out** for a streaming service. The cache for
 tracks played from your own servers is at the top of the page: one size
-for all of them (10 GB unless you pick another) and a **Clear** button.
+for all of them (10 GB unless you pick another); **Manage** under
+**Settings › Collection › Storage** clears it.
 
 ### Streaming services
 
@@ -214,8 +215,14 @@ Tracks in In Prep are analysed in the background. Any other track is
 analysed the first time it is loaded on a deck: its waveform,
 tempo and beat grid, and its key when the tags don't have one. It plays
 while that happens, and the waveform fills in as it goes. The result is
-saved, so the track loads at once next time; **Clear** in **Settings ›
-Collection** throws those results away.
+saved, so the track loads at once next time.
+
+**Storage** at the bottom of **Settings › Collection › General** shows how
+the disk with your music is used: your music, the analysis results, high
+quality stems, tracks played from your servers, everything else, and how
+much is free. **Manage** clears the analysis results, the stems or the
+played tracks, each after saying what it costs, and **Show cache folder**
+opens the folder they are kept in.
 
 Grids, keys and cues brought in from VirtualDJ are used as they are, so
 those tracks don't wait for analysis.

@@ -29,7 +29,7 @@ use crate::tour::Part;
 use crate::{
     beat_counter_mode, settings, short_port_name, shortcuts, AppWindow, AudioSettings, BeatCounter,
     ControllerEditor, ImportWizard, InputRow, InputSettings, KeyNotation, PluginErrors, PrefItem,
-    Preferences, Tour,
+    Preferences, StoragePart, StorageUi, Tour,
 };
 
 const AUDIO: i32 = 0;
@@ -94,6 +94,15 @@ const SOURCE_ROW: i32 = 17;
 const FOLDER_LIST: i32 = 21;
 /// How track colors show: segmented buttons with a preview beside them.
 const TRACK_COLOR: i32 = 22;
+/// The storage bar with its Manage menu (see StorageUi in preferences.slint).
+const STORAGE: i32 = 23;
+/// The Manage menu's clean-ups, in its order.
+const STORAGE_ACTIONS: [&str; 4] = [
+    "Clear analysis cache…",
+    "Clear high quality stems…",
+    "Clear played tracks…",
+    "Show cache folder",
+];
 /// A folder list's title icon in `chosen`: the sidebar's stage icons (its node
 /// kinds), or 0 for a folder.
 const STAGE_ICON_INBOX: i32 = 10;
@@ -443,9 +452,11 @@ pub struct Prefs {
     cleanup_open: bool,
     /// What the last import change set going, shown on the Import tab.
     import_note: String,
-    cache_note: String,
-    /// What Clear stems did, shown under it.
-    stems_note: String,
+    /// The Manage menu's clean-up waiting for a yes, by its place in
+    /// [`STORAGE_ACTIONS`].
+    storage_pending: Option<usize>,
+    /// What the last clean-up freed.
+    storage_note: String,
     /// The devices shown on the controllers page.
     ports: Vec<Port>,
     /// Plugins with settings, shown on Settings › Sources.
@@ -541,8 +552,8 @@ impl Prefs {
             library_note: String::new(),
             cleanup_open: false,
             import_note: String::new(),
-            cache_note: String::new(),
-            stems_note: String::new(),
+            storage_pending: None,
+            storage_note: String::new(),
             ports: Vec::new(),
             plugins,
             plugin_plays,
@@ -606,7 +617,7 @@ impl Prefs {
 
     /// Called every frame: picks up chosen paths and plugged-in devices.
     pub fn poll(&mut self) {
-        let mut tested = false;
+        let mut tested = crate::storage::take_fresh();
         while let Ok((id, note)) = self.tested_rx.try_recv() {
             self.station_notes.insert(id, note);
             tested = true;
@@ -800,6 +811,7 @@ impl Prefs {
     /// brings in what is there and finds what is now outside.
     fn music_folders_changed(&mut self) {
         (self.rescan)();
+        crate::storage::forget();
         // Plugins are told the music folders with their settings.
         for plugin in &mut self.plugins {
             let id = plugin.manifest().id;
@@ -824,8 +836,8 @@ impl Prefs {
         if let Some(app) = self.app.upgrade() {
             app.global::<AudioSettings>().invoke_refresh();
         }
-        self.cache_note.clear();
-        self.stems_note.clear();
+        self.storage_pending = None;
+        self.storage_note.clear();
         self.sources_note.clear();
         self.shortcut_note.clear();
         self.refresh();
@@ -2239,23 +2251,11 @@ impl Prefs {
                     MENU,
                     "High quality stems kept",
                     &format!(
-                        "{count} {} · {}. The stems played longest ago make room for new ones.",
+                        "{count} {} · {}. The stems played longest ago make room for new ones; \
+                         Manage under Collection › Storage clears them.",
                         if count == 1 { "track" } else { "tracks" },
                         size(bytes),
                     ),
-                )
-            },
-            PrefItem {
-                action: "Clear".into(),
-                ..item(
-                    "clear_stems",
-                    BUTTON,
-                    "Clear high quality stems",
-                    if self.stems_note.is_empty() {
-                        "Deletes the stems kept for every track. Tracks still get quick stems on load."
-                    } else {
-                        &self.stems_note
-                    },
                 )
             },
             item(
@@ -2274,16 +2274,6 @@ impl Prefs {
     /// Settings › Collection › General: the music folders, the cache and
     /// cover art.
     fn library_general(&self) -> Vec<PrefItem> {
-        let (count, bytes) = cache::analysis_usage();
-        let cache_detail = if self.cache_note.is_empty() {
-            format!(
-                "{count} {} · {}. Tracks are analysed again when loaded; stems are kept.",
-                if count == 1 { "track" } else { "tracks" },
-                size(bytes),
-            )
-        } else {
-            self.cache_note.clone()
-        };
         let mut items = self.music_folder_items();
         items.extend([
             folder_list(
@@ -2316,16 +2306,144 @@ impl Prefs {
         }
         items.extend([
             PrefItem {
-                action: "Clear".into(),
-                ..item("clear_cache", BUTTON, "Analysis cache", &cache_detail)
-            },
-            PrefItem {
                 choices: strings(&["Dot", "Strip", "Tint", "Off"]),
                 chosen: settings::track_color().unwrap_or(0) as i32,
                 ..item("track_color", TRACK_COLOR, "Track color", "")
             },
+            self.storage_item(),
         ]);
         items
+    }
+
+    /// Settings › Collection › General › Storage: fills StorageUi with the
+    /// disk's parts and returns the row that shows them.
+    fn storage_item(&self) -> PrefItem {
+        let mut folders = settings::music_folders();
+        folders.extend(settings::albums_folder());
+        folders.extend(settings::mixed_sets_folder());
+        let music = crate::storage::music_bytes(folders.clone());
+        let (_, analysis) = cache::analysis_usage();
+        let (_, stems) = cache::stems_usage();
+        let (played, _) = crate::sources::cache_usage();
+        let disk = folders
+            .first()
+            .cloned()
+            .or_else(cache::cache_dir)
+            .and_then(|p| crate::storage::disk(&p));
+        let ours = music.unwrap_or(0) + analysis + stems + played;
+        let whole = disk.map_or(ours.max(1), |(total, _)| total.max(1)) as f32;
+        let part = |name: &str, bytes: u64, tint: slint::Color| StoragePart {
+            name: name.into(),
+            size: size(bytes).into(),
+            share: bytes as f32 / whole,
+            tint,
+        };
+        let rgb = slint::Color::from_rgb_u8;
+        let mut parts = vec![
+            match music {
+                Some(bytes) => part("Music", bytes, rgb(0xb6, 0x9c, 0xff)),
+                None => StoragePart {
+                    size: "measuring…".into(),
+                    ..part("Music", 0, rgb(0xb6, 0x9c, 0xff))
+                },
+            },
+            part("Analysis", analysis, rgb(0x5a, 0xc8, 0xfa)),
+            part("Stems", stems, rgb(0xff, 0x9f, 0x0a)),
+            part("Played tracks", played, rgb(0x30, 0xd1, 0x58)),
+        ];
+        let mut summary = String::new();
+        if let Some((total, free)) = disk {
+            let other = total.saturating_sub(free).saturating_sub(ours);
+            parts.push(part("Other", other, rgb(0x63, 0x63, 0x66)));
+            summary = format!("{} free of {}", size(free), size(total));
+        }
+        if let Some(app) = self.app.upgrade() {
+            let g = app.global::<StorageUi>();
+            g.set_free_share((1.0 - parts.iter().map(|p| p.share).sum::<f32>()).max(0.0));
+            g.set_parts(ModelRc::new(VecModel::from(parts)));
+            g.set_summary(summary.into());
+            g.set_actions(strings(&STORAGE_ACTIONS));
+            let (confirm, warning, label) = match self.storage_pending {
+                Some(0) => (
+                    format!("Clear the analysis cache ({})?", size(analysis)),
+                    "Every track is analyzed again when it next loads: its waveform, tempo \
+                     and key. Cues and tags stay in your collection.",
+                    "Clear",
+                ),
+                Some(1) => (
+                    format!("Clear high quality stems ({})?", size(stems)),
+                    "Preparing them again takes a while for each track. Tracks still get \
+                     quick stems when they load.",
+                    "Clear",
+                ),
+                Some(2) => (
+                    format!("Clear played tracks ({})?", size(played)),
+                    "Tracks played from your servers download again when next played. \
+                     Tracks you added to your collection stay.",
+                    "Clear",
+                ),
+                _ => (String::new(), "", ""),
+            };
+            g.set_confirm(confirm.into());
+            g.set_warning(warning.into());
+            g.set_confirm_label(label.into());
+            g.set_note(self.storage_note.clone().into());
+        }
+        item(
+            "storage_manage",
+            STORAGE,
+            "Storage",
+            "Clear the analysis cache, stems and played tracks",
+        )
+    }
+
+    /// Manage › a clean-up: asks first, but Show cache folder just opens it.
+    fn storage_picked(&mut self, index: usize) {
+        self.storage_note.clear();
+        if index == 3 {
+            self.storage_pending = None;
+            if let Some(dir) = cache::cache_dir() {
+                crate::files::reveal(&dir);
+            }
+        } else {
+            self.storage_pending = Some(index);
+        }
+        self.refresh();
+    }
+
+    /// The yes to the clean-up picked from Manage.
+    fn storage_confirmed(&mut self) {
+        let Some(index) = self.storage_pending.take() else {
+            return;
+        };
+        let (_, before) = match index {
+            0 => cache::analysis_usage(),
+            1 => cache::stems_usage(),
+            _ => (0, 0),
+        };
+        self.storage_note = match index {
+            0 => {
+                let n = cache::clear_analysis();
+                format!(
+                    "Cleared {} from {n} {}.",
+                    size(before),
+                    if n == 1 { "analysis" } else { "analyses" }
+                )
+            }
+            1 => {
+                let n = cache::clear_stems();
+                format!(
+                    "Cleared {} of stems from {n} {}.",
+                    size(before),
+                    if n == 1 { "track" } else { "tracks" }
+                )
+            }
+            _ => match crate::sources::clear_cache() {
+                0 => "There were no played tracks to clear.".into(),
+                freed => format!("Cleared {} of played tracks.", size(freed)),
+            },
+        };
+        self.refresh();
     }
 
     /// Settings › Collection › Tags: names for grouping and the tag fields.
@@ -2682,6 +2800,9 @@ impl Prefs {
     }
 
     fn picked(&mut self, id: &str, index: usize) {
+        if id == "storage_manage" {
+            return self.storage_picked(index);
+        }
         if id == "audio_plugin_filter" {
             if let Some(f) = plugin_formats(&self.plugin_list()).get(index) {
                 let formats = &mut self.plugin_view.formats;
@@ -3180,42 +3301,30 @@ impl Prefs {
                 }
             })
             .collect();
-        let cache_rows = vec![
-            PrefItem {
-                choices: strings(&limits),
-                chosen: SOURCES_CACHE_GB
-                    .iter()
-                    .position(|&gb| gb == limit)
-                    .unwrap_or(2) as i32,
-                ..item(
-                    "sources_cache_gb",
-                    MENU,
-                    "Cache for played tracks",
-                    &format!(
-                        "{} used by tracks played from your servers; the oldest go first.",
-                        if used == 0 {
-                            "Nothing".to_string()
-                        } else {
-                            size(used)
-                        },
-                    ),
-                )
-            },
-            PrefItem {
-                action: "Clear".into(),
-                ..item(
-                    "sources_cache_clear",
-                    BUTTON,
-                    "Clear the cache",
-                    if self.sources_note.is_empty() {
-                        "Tracks you added to your collection stay; the rest download again \
-                         when next played."
+        let mut cache_rows = vec![PrefItem {
+            choices: strings(&limits),
+            chosen: SOURCES_CACHE_GB
+                .iter()
+                .position(|&gb| gb == limit)
+                .unwrap_or(2) as i32,
+            ..item(
+                "sources_cache_gb",
+                MENU,
+                "Cache for played tracks",
+                &format!(
+                    "{} used by tracks played from your servers; the oldest go first. \
+                         Manage under Collection › Storage clears them.",
+                    if used == 0 {
+                        "Nothing".to_string()
                     } else {
-                        &self.sources_note
+                        size(used)
                     },
-                )
-            },
-        ];
+                ),
+            )
+        }];
+        if !self.sources_note.is_empty() {
+            cache_rows.push(item("", NOTE, "", &self.sources_note));
+        }
         let rail = self.rail_shown();
         let shown = |i: i32| rail.get(i as usize).copied().unwrap_or(true);
         let place = |name: &str| {
@@ -3722,28 +3831,8 @@ impl Prefs {
                 }
                 set_field_names(names);
             }
-            "sources_cache_clear" => {
-                let freed = crate::sources::clear_cache();
-                self.sources_note = if freed == 0 {
-                    "The cache was already empty.".into()
-                } else {
-                    format!("Cleared {}.", size(freed))
-                };
-            }
-            "clear_stems" => {
-                let n = cache::clear_stems();
-                self.stems_note = format!(
-                    "Cleared the stems of {n} {}.",
-                    if n == 1 { "track" } else { "tracks" }
-                );
-            }
-            "clear_cache" => {
-                let n = cache::clear_analysis();
-                self.cache_note = format!(
-                    "Cleared {n} {}. Tracks are analysed again when loaded.",
-                    if n == 1 { "analysis" } else { "analyses" }
-                );
-            }
+            "storage_confirm" => return self.storage_confirmed(),
+            "storage_cancel" => self.storage_pending = None,
             _ => return,
         }
         self.refresh();
