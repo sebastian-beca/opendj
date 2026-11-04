@@ -552,6 +552,20 @@ impl Facts {
         self.bitrates.insert(id, kbps);
     }
 
+    /// The checks told to leave `id` alone, in [`Check::ALL`] order.
+    pub fn ignored_by(&self, id: usize) -> Vec<Check> {
+        Check::ALL
+            .iter()
+            .copied()
+            .filter(|c| self.ignored.get(c).is_some_and(|i| i.contains(&id)))
+            .collect()
+    }
+
+    /// Whether any check was told to leave `id` alone.
+    pub fn is_ignored(&self, id: usize) -> bool {
+        self.ignored.values().any(|i| i.contains(&id))
+    }
+
     /// Tells `check` to leave these tracks alone, or (with `on` false) to
     /// look at them again.
     pub fn set_ignored(&mut self, check: Check, ids: &[usize], on: bool) {
@@ -920,6 +934,9 @@ mod tests {
         assert!(facts.finds(Check::NoRating, &t, &none));
         facts.set_ignored(Check::NoRating, &[1], true);
         assert!(!facts.finds(Check::NoRating, &t, &none));
+        assert!(facts.is_ignored(1));
+        assert_eq!(facts.ignored_by(1), [Check::NotMusic, Check::NoRating]);
+        assert!(!facts.is_ignored(2));
     }
 
     #[test]

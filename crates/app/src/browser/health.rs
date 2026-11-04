@@ -15,7 +15,9 @@ use opendj_library::query::Indexed;
 use opendj_library::stages::Stage;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
-use super::{file_path, is_browsed, Browser, Contents, Node, Undo, KIND_AREA, KIND_HEALTH};
+use super::{
+    file_path, is_browsed, Browser, Contents, Node, Undo, KIND_AREA, KIND_HEALTH, KIND_IGNORED,
+};
 use crate::cover_scan;
 use crate::{settings, HealthArea, HealthCard, HealthChip, HealthLine, HealthStage, HealthUi};
 
@@ -30,7 +32,6 @@ enum Fix {
     /// The check leaves it alone: for "Not music", it is music after all.
     MarkMusic,
     ToTriage,
-    Analyze,
     FillFromName,
     TagMix,
     /// Merges each listed group into the copy picked to keep.
@@ -55,7 +56,6 @@ impl Fix {
             Fix::Remove => "Remove from collection",
             Fix::MarkMusic => "It's music",
             Fix::ToTriage => "Move to In Prep",
-            Fix::Analyze => "Analyze",
             Fix::FillFromName => "Fill from file name…",
             Fix::TagMix => "Tag as #mix",
             Fix::KeepBest => "Keep the best copies",
@@ -76,7 +76,8 @@ fn fixes(check: Check, stages: bool) -> Vec<Fix> {
         Check::Stray => vec![Fix::Remove],
         Check::Outside if stages => vec![Fix::ToTriage, Fix::Remove],
         Check::Outside => vec![Fix::Remove],
-        Check::NotAnalyzed => vec![Fix::Analyze],
+        // The bar's "Analyze" does these.
+        Check::NotAnalyzed => Vec::new(),
         Check::MissingInfo => vec![Fix::LookUp, Fix::FillFromName],
         // The bar's "Auto-fix" relinks files found once by name,
         // and merges the easy copies.
@@ -179,6 +180,7 @@ pub(super) fn health_nodes() -> Vec<Node> {
             .iter()
             .map(|&a| Node::new(a.title(), 0, KIND_AREA, Contents::Area(a))),
     );
+    nodes.push(Node::new("Ignored", 0, KIND_IGNORED, Contents::Ignored));
     nodes
 }
 
@@ -244,6 +246,11 @@ impl Browser {
         let w = with.clone();
         ui.on_fix(move |action, first, last| {
             w(&|b| {
+                if matches!(b.current_shown(), Some(Contents::Ignored)) {
+                    let indices = b.picked_rows(first, last);
+                    b.bring_back(&indices);
+                    return;
+                }
                 let Some(check) = b.listed_check() else {
                     return;
                 };
@@ -421,6 +428,18 @@ impl Browser {
     /// A Collection Health area's Problem and Fix cells for `t`: what the
     /// listed check found, and what its first fix would do.
     pub(super) fn health_cells(&self, t: &Track) -> (String, String) {
+        if matches!(self.current_shown(), Some(Contents::Ignored)) {
+            let by: Vec<&str> = self
+                .health
+                .ignored_by(t.id)
+                .into_iter()
+                .map(|c| match c {
+                    Check::NotMusic => "Kept as music",
+                    c => c.title(),
+                })
+                .collect();
+            return (by.join(", "), "Bring back".into());
+        }
         let Some(check) = self.listed_check() else {
             return Default::default();
         };
@@ -1069,9 +1088,12 @@ impl Browser {
         ui.set_overview(on && matches!(current, Some(Contents::Health(None))));
         let listed = self.listed_check().filter(|_| on);
         let check = listed.and_then(|c| Check::ALL.iter().position(|&x| x == c));
+        // The Ignored node's bar is the card after the checks'.
+        let ignored = on && matches!(current, Some(Contents::Ignored));
+        let check = check.or(ignored.then_some(Check::ALL.len()));
         ui.set_check(check.map_or(-1, |c| c as i32));
         let case = self.dupe_view().flatten();
-        let cards: Vec<HealthCard> = Check::ALL
+        let mut cards: Vec<HealthCard> = Check::ALL
             .iter()
             .map(|&c| {
                 let offered = if Some(c) == listed {
@@ -1108,6 +1130,16 @@ impl Browser {
             })
             .collect();
         ui.set_view(self.health_view && self.tree == super::COLLECTION);
+        let fixes: Vec<SharedString> = vec!["Bring back".into()];
+        cards.push(HealthCard {
+            title: "Ignored".into(),
+            about: "Tracks you told a check to leave alone.".into(),
+            count: self.ignored_tracks().len() as i32,
+            detail: SharedString::new(),
+            fixes: ModelRc::new(VecModel::from(fixes)),
+            counts: ModelRc::default(),
+            menu_fixes: ModelRc::new(VecModel::from(vec![0])),
+        });
         ui.set_cards(ModelRc::new(VecModel::from(cards)));
         ui.set_status(self.health_status.clone().into());
         ui.set_removed(self.removed as i32);
@@ -1239,6 +1271,14 @@ impl Browser {
         ui.set_fixed(fixed as i32);
         ui.set_fixed_of(of as i32);
         ui.set_sure(area.map_or(0, |a| self.sure_count(a)) as i32);
+        ui.set_sure_label(
+            if area == Some(Area::Prep) {
+                "Analyze"
+            } else {
+                "Auto-fix"
+            }
+            .into(),
+        );
         ui.set_chip(area.map_or(-1, |a| self.chip_of(a) as i32));
         ui.set_chips(ModelRc::new(VecModel::from(chips)));
     }
@@ -1363,12 +1403,6 @@ impl Browser {
                 self.change_stage(indices, Stage::Triage, None);
                 format!("{} moved to In Prep.", tracks(indices.len()))
             }
-            Fix::Analyze => {
-                let picked: Vec<Arc<Track>> =
-                    indices.iter().map(|&i| self.library[i].clone()).collect();
-                self.analysis.add(&picked);
-                format!("Analyzing {} in the background.", tracks(picked.len()))
-            }
             Fix::FillFromName => self.review_file_names(indices),
             Fix::TagMix => self.tag_mix(indices),
             Fix::KeepBest => {
@@ -1404,6 +1438,39 @@ impl Browser {
         self.health.set_ignored(check, &ids, true);
         self.refresh_dupes();
         self.health_status = format!("{} left out of {}.", tracks(ids.len()), check.title());
+        self.refresh_tree();
+        self.refresh_rows();
+    }
+
+    /// The tracks (indices into `library`) any check was told to leave
+    /// alone.
+    pub(super) fn ignored_tracks(&self) -> Vec<usize> {
+        (0..self.library.len())
+            .filter(|&i| {
+                let t = &self.library[i];
+                self.in_collection(t) && self.health.is_ignored(t.id)
+            })
+            .collect()
+    }
+
+    /// Every check looks at these tracks (indices into `library`) again.
+    fn bring_back(&mut self, indices: &[usize]) {
+        let ids: Vec<usize> = indices.iter().map(|&i| self.library[i].id).collect();
+        let checks: HashSet<Check> = ids
+            .iter()
+            .flat_map(|&id| self.health.ignored_by(id))
+            .collect();
+        for check in checks {
+            if let Some(db) = &mut self.db {
+                if let Err(e) = db.set_health_ignored(check, &ids, false) {
+                    eprintln!("can't save: {e}");
+                    return;
+                }
+            }
+            self.health.set_ignored(check, &ids, false);
+        }
+        self.refresh_dupes();
+        self.health_status = format!("{} checked again.", tracks(ids.len()));
         self.refresh_tree();
         self.refresh_rows();
     }
@@ -1539,7 +1606,8 @@ impl Browser {
                 .map(|c| c.0)
                 .collect::<HashSet<_>>()
                 .len(),
-            Area::OutOfPlace | Area::Prep => 0,
+            Area::Prep => self.health_count(Check::NotAnalyzed),
+            Area::OutOfPlace => 0,
         }
     }
 
@@ -1566,7 +1634,16 @@ impl Browser {
                 let changes = self.sure_junk();
                 self.make_changes(changes, "clean-up")
             }
-            Area::OutOfPlace | Area::Prep => return,
+            Area::Prep => {
+                let picked: Vec<Arc<Track>> = self
+                    .health_tracks(Check::NotAnalyzed)
+                    .into_iter()
+                    .map(|i| self.library[i].clone())
+                    .collect();
+                self.analysis.add(&picked);
+                format!("Analyzing {} in the background.", tracks(picked.len()))
+            }
+            Area::OutOfPlace => return,
         };
         self.refresh_crates();
         self.refresh_tree();
@@ -1681,8 +1758,10 @@ mod tests {
     #[test]
     fn every_check_has_a_node_and_fixes_fit() {
         let nodes = health_nodes();
-        assert_eq!(nodes.len(), Area::ALL.len() + 1);
+        // Overview, the areas, then Ignored.
+        assert_eq!(nodes.len(), Area::ALL.len() + 2);
         assert_eq!(nodes[0].name, "Overview");
+        assert!(matches!(nodes.last().unwrap().contents, Contents::Ignored));
         assert!(nodes.iter().all(|n| n.depth == 0));
         let chips: usize = Area::ALL.iter().map(|&a| area_chips(a).len()).sum();
         assert_eq!(chips, Check::ALL.len() + Case::ALL.len());
