@@ -1758,8 +1758,10 @@ mod tests {
     #[test]
     fn every_check_has_a_node_and_fixes_fit() {
         let nodes = health_nodes();
-        assert_eq!(nodes.len(), Area::ALL.len() + 1);
+        // Overview, the areas, then Ignored.
+        assert_eq!(nodes.len(), Area::ALL.len() + 2);
         assert_eq!(nodes[0].name, "Overview");
+        assert!(matches!(nodes.last().unwrap().contents, Contents::Ignored));
         assert!(nodes.iter().all(|n| n.depth == 0));
         let chips: usize = Area::ALL.iter().map(|&a| area_chips(a).len()).sum();
         assert_eq!(chips, Check::ALL.len() + Case::ALL.len());
