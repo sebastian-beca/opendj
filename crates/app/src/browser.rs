@@ -182,6 +182,30 @@ pub(crate) fn all_source_names() -> Vec<String> {
         .collect()
 }
 
+/// The rail sources hidden on a fresh install: the streaming services not
+/// signed in, the stores (v0.6), OneLibrary, and add-on sources that still
+/// need setting up. Settings › Sources switches any of them on.
+fn default_hidden_sources() -> Vec<String> {
+    let mut hidden: Vec<String> = ["Bandcamp", "Beatport", "OneLibrary"]
+        .iter()
+        .map(|n| n.to_string())
+        .collect();
+    for &(_, name, id) in STREAMS.iter() {
+        let signed_in = crate::spotify::Saved::load(&format!("{id}.json"))
+            .is_some_and(|s| !s.refresh_token.is_empty());
+        if !signed_in && id != "spotify" {
+            hidden.push(name.to_string());
+        }
+    }
+    for (plugin, info) in crate::sources::source_plugins() {
+        let config = crate::settings::plugin_config(plugin.manifest().id);
+        if crate::sources::needs_setup(&plugin.settings(), &config) {
+            hidden.push(info.name.to_string());
+        }
+    }
+    hidden
+}
+
 /// A source's tree while another source is shown.
 /// What the track menu's undo line takes back.
 struct Undo {
@@ -1393,8 +1417,14 @@ impl Browser {
         let w = with.clone();
         app.on_select_source(move |s| w(Box::new(move |b| b.select_source(s))));
         // The sources the rail shows, by name so new ones appear by default.
-        let hidden = crate::settings::hidden_sources();
+        // Before any choice is saved, the ones that need an account or a
+        // server stay out until they have one.
         let names = all_source_names();
+        let hidden = crate::settings::hidden_sources().unwrap_or_else(|| {
+            let hidden = default_hidden_sources();
+            crate::settings::set_hidden_sources(hidden.clone());
+            hidden
+        });
         let shown: Vec<bool> = names
             .iter()
             .map(|n| !hidden.iter().any(|h| h == n))

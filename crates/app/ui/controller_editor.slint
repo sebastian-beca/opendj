@@ -564,11 +564,11 @@ component DialogButton inherits Rectangle {
     height: 28px;
     width: max(80px, bl.preferred-width);
     border-radius: Theme.radius;
-    background: primary ? (ta.pressed ? Theme.knob-arc.darker(0.3) : Theme.knob-arc) : ta.has-hover ? #3a3a3e : #2c2c30;
+    background: primary ? (ta.pressed ? Theme.accent.darker(0.3) : Theme.accent) : ta.has-hover ? #3a3a3e : #2c2c30;
     bl := HorizontalLayout {
         padding-left: 14px;
         padding-right: 14px;
-        Text { text: root.text; color: Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center; }
+        Text { text: root.text; color: primary ? #000000 : Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center; }
     }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -887,7 +887,7 @@ component EditorDialog inherits Rectangle {
                 border-radius: 6px;
                 background: Theme.well;
                 border-width: 1px;
-                border-color: Theme.knob-arc;
+                border-color: Theme.accent;
                 name := TextInput {
                     x: 10px;
                     width: parent.width - 20px;

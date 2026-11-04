@@ -147,7 +147,7 @@ export component Switch inherits Rectangle {
     width: 38px;
     height: 22px;
     border-radius: 11px;
-    background: on ? Theme.knob-arc : #3a3a3e;
+    background: on ? Theme.accent : #3a3a3e;
     animate background { duration: 120ms; }
     Rectangle {
         x: on ? parent.width - self.width - 2px : 2px;
@@ -174,14 +174,14 @@ export component Button inherits Rectangle {
     height: 26px;
     min-width: 72px;
     border-radius: Theme.radius;
-    background: primary ? (ta.pressed ? Theme.knob-arc.darker(0.3) : Theme.knob-arc)
+    background: primary ? (ta.pressed ? Theme.accent.darker(0.3) : Theme.accent)
         : ta.pressed ? Theme.control-pressed : ta.has-hover ? #2e2e32 : Theme.panel-raised;
     border-width: 1px;
-    border-color: primary ? Theme.knob-arc : Theme.border;
+    border-color: primary ? Theme.accent : Theme.border;
     HorizontalLayout {
         padding-left: 12px;
         padding-right: 12px;
-        Text { text: root.text; color: Theme.text; font-size: 12px; font-weight: 500; vertical-alignment: center; horizontal-alignment: center; }
+        Text { text: root.text; color: primary ? #000000 : Theme.text; font-size: 12px; font-weight: primary ? 600 : 500; vertical-alignment: center; horizontal-alignment: center; }
     }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -227,7 +227,7 @@ component TextField inherits Rectangle {
     border-radius: Theme.radius;
     background: Theme.well;
     border-width: 1px;
-    border-color: input.has-focus ? Theme.knob-arc : Theme.separator;
+    border-color: input.has-focus ? Theme.accent : Theme.separator;
     input := TextInput {
         x: 8px;
         width: parent.width - 16px;
@@ -251,10 +251,10 @@ component KeyButton inherits Rectangle {
     border-radius: Theme.radius;
     background: listening ? #2a2440 : ta.has-hover ? #222225 : Theme.well;
     border-width: 1px;
-    border-color: listening ? Theme.knob-arc : Theme.separator;
+    border-color: listening ? Theme.accent : Theme.separator;
     Text {
         text: listening ? "Press a key…" : root.text == "" ? "Add a key…" : root.text;
-        color: listening ? Theme.knob-arc : root.text == "" ? Theme.text-dim : Theme.text;
+        color: listening ? Theme.accent : root.text == "" ? Theme.text-dim : Theme.text;
         font-size: 13px;
         font-weight: root.text == "" ? 400 : 600;
         horizontal-alignment: center;
@@ -286,7 +286,7 @@ component ScriptField inherits Rectangle {
     border-radius: Theme.radius;
     background: Theme.well;
     border-width: 1px;
-    border-color: item.on ? #ff6b6b : input.has-focus ? Theme.knob-arc : Theme.separator;
+    border-color: item.on ? #ff6b6b : input.has-focus ? Theme.accent : Theme.separator;
     if input.text == "": Text {
         x: 8px;
         text: "Type an action…";
@@ -336,7 +336,7 @@ export component SearchField inherits Rectangle {
     border-radius: 8px;
     background: Theme.well;
     border-width: 1px;
-    border-color: input.has-focus ? Theme.knob-arc : Theme.separator;
+    border-color: input.has-focus ? Theme.accent : Theme.separator;
     Path {
         x: 9px;
         width: 14px;
@@ -568,7 +568,7 @@ export component PrefRow inherits Rectangle {
                 horizontal-stretch: 1;
                 alignment: center;
                 spacing: 3px;
-                if searching: Text { text: item.page-name; color: Theme.knob-arc; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
+                if searching: Text { text: item.page-name; color: Theme.accent; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
                 if item.title != "": Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; overflow: elide; }
                 // Add-on pages (notes and text fields) wrap: their help is longer.
                 if item.detail != "" && item.kind != 6 && item.kind != 9: Text { text: item.detail; color: bright ? #c8c8cd : Theme.text-dim; font-size: bright ? 13px : 12px; overflow: elide; }
@@ -859,9 +859,9 @@ export component PreferencesOverlay inherits Rectangle {
                             spacing: 12px;
                             VerticalLayout {
                                 alignment: center;
-                                PageIcon { kind: i; color: selected ? Theme.knob-arc : Theme.text-dim; }
+                                PageIcon { kind: i; color: selected ? Theme.accent : Theme.text-dim; }
                             }
-                            Text { text: name; color: selected ? Theme.knob-arc : Theme.text; font-size: 14px; font-weight: selected ? 600 : 400; vertical-alignment: center; }
+                            Text { text: name; color: selected ? Theme.accent : Theme.text; font-size: 14px; font-weight: selected ? 600 : 400; vertical-alignment: center; }
                         }
                         pta := TouchArea {
                             mouse-cursor: pointer;
