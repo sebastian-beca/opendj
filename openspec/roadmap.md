@@ -64,6 +64,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-find-and-buy](changes/add-find-and-buy/proposal.md)
 - [add-artist-direct-stores](changes/add-artist-direct-stores/proposal.md)
 - [add-live-broadcast](changes/add-live-broadcast/proposal.md) (steps 3-5: Go live to Twitch, YouTube and Mixcloud Live over RTMP with a now-playing picture, WebRTC (WHIP), radio show tools)
+- [add-dvs](changes/add-dvs/proposal.md) (timecode vinyl and CDs; moved from after 1.0, issue #317)
 
 ## v0.7 · Your library, everywhere
 
@@ -81,7 +82,6 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 
 ## v1.x · after 1.0
 
-- [add-dvs](changes/add-dvs/proposal.md)
 - [add-karaoke](changes/add-karaoke/proposal.md)
 - [add-library-cloud-sync](changes/add-library-cloud-sync/proposal.md)
 - [add-phrase-aware-automix](changes/add-phrase-aware-automix/proposal.md)

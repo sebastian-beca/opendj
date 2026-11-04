@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v1.x · after 1.0**
+Planned for: **v0.6 · Buy it from the artist**
 
 ## Why
 
@@ -8,7 +8,9 @@ Serato, Traktor, rekordbox and VirtualDJ all play digital files from timecode vi
 
 ## What Changes
 
-- Control a deck from Serato, Traktor or rekordbox timecode vinyl or CDs through an audio interface's inputs.
+- Control a deck from Serato, Traktor, rekordbox, MixVibes or djay timecode vinyl or CDs through an audio interface's inputs.
+- Decode with a Rust port of the xwax timecoder (GPL-3.0-only crate `opendj-timecode`) inside the audio callback, and follow the record's position, not only its speed.
+- Mixxx `vinylcontrol_*` controls, so DVS mixer mappings work.
 
 ## Capabilities
 
@@ -26,4 +28,4 @@ None.
 
 ## Impact
 
-engine inputs and deck control; xwax-style decoder.
+engine inputs and deck control; new `opendj-timecode` crate (GPL-3.0-only, from xwax); Settings › Audio; deck header.
