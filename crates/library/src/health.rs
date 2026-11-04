@@ -190,7 +190,7 @@ impl Check {
     pub fn area(self) -> Area {
         match self {
             Check::Missing | Check::LowBitrate => Area::Files,
-            Check::NotMusic | Check::Stray | Check::Outside | Check::Long => Area::Belongs,
+            Check::NotMusic | Check::Stray | Check::Outside | Check::Long => Area::OutOfPlace,
             Check::Duplicate => Area::Duplicates,
             Check::MissingInfo | Check::Junk | Check::AlbumTags | Check::NoCover => Area::Info,
             Check::NotAnalyzed | Check::NoRating => Area::Prep,
@@ -205,7 +205,7 @@ impl Check {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Area {
     Files,
-    Belongs,
+    OutOfPlace,
     Duplicates,
     Info,
     Prep,
@@ -214,7 +214,7 @@ pub enum Area {
 impl Area {
     pub const ALL: [Area; 5] = [
         Area::Files,
-        Area::Belongs,
+        Area::OutOfPlace,
         Area::Duplicates,
         Area::Info,
         Area::Prep,
@@ -223,7 +223,7 @@ impl Area {
     pub fn title(self) -> &'static str {
         match self {
             Area::Files => "Files",
-            Area::Belongs => "Belongs",
+            Area::OutOfPlace => "Out of place",
             Area::Duplicates => "Duplicates",
             Area::Info => "Info",
             Area::Prep => "Prep",
@@ -234,7 +234,7 @@ impl Area {
     pub fn question(self) -> &'static str {
         match self {
             Area::Files => "Can it play?",
-            Area::Belongs => "Should it be here?",
+            Area::OutOfPlace => "Should it be here?",
             Area::Duplicates => "Same track twice?",
             Area::Info => "Can you find it?",
             Area::Prep => "Ready to play?",

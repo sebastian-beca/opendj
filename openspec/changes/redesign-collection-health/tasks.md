@@ -9,7 +9,7 @@
 ## 2. Area pages
 
 - [x] 2.1 Problem and Fix (old → new) columns, progress bar
-- [ ] 2.2 Sure vs review split: Fix sure ones in one undo step, Review one by one
+- [x] 2.2 Auto-fix vs Review split: Auto-fix in one undo step (the Review button comes with 3.1)
 
 ## 3. One by one
 

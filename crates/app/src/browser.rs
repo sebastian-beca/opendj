@@ -222,6 +222,9 @@ struct Undo {
     /// The batch of changes to tags to take back (see
     /// [`opendj_library::cleanup`]).
     changes: Option<i64>,
+    /// Missing tracks that were found elsewhere, by id, with the place
+    /// they pointed at before.
+    relinked: Vec<(usize, PathBuf)>,
 }
 
 struct Parked {
@@ -561,7 +564,7 @@ pub struct Browser {
     /// `health::area_chips`); unpicked, the first with tracks.
     area_chip: HashMap<Area, usize>,
     /// Tracks each area found when first opened, for its progress bar.
-    area_start: HashMap<Area, usize>,
+    area_start: std::cell::RefCell<HashMap<Area, usize>>,
     /// Audio files in the stage and music folders by lower-case name, for
     /// the Fix column of missing files; read when first needed.
     relink_files: OnceCell<HashMap<String, Vec<PathBuf>>>,
@@ -1185,7 +1188,7 @@ impl Browser {
             history_tab: false,
             health_view: false,
             area_chip: HashMap::new(),
-            area_start: HashMap::new(),
+            area_start: Default::default(),
             relink_files: OnceCell::new(),
             other_tab_node: 0,
             sorted_list: None,

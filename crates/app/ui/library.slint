@@ -468,6 +468,9 @@ export global HealthUi {
     in property <int> fixed-of;
     callback open-area(area: int);
     callback pick-chip(chip: int);
+    // How many of the area's tracks have one clear fix, and making those.
+    in property <int> sure;
+    callback fix-sure();
     // The tree shows Collection Health's checks, picked in the rail.
     in property <bool> view;
     // Collection Health has a button in the rail; it can be hidden under
@@ -3019,7 +3022,7 @@ component HealthPanel inherits Rectangle {
                             font-weight: 600;
                         }
                         Text {
-                            text: "Clean means nothing to fix in Files, Belongs, Duplicates or Info. Prep doesn't count against it.";
+                            text: "Clean means nothing to fix in Files, Out of place, Duplicates or Info. Prep doesn't count against it.";
                             color: Theme.text-dim;
                             font-size: 12px;
                             wrap: word-wrap;
@@ -3353,6 +3356,14 @@ component HealthBar inherits Rectangle {
             vertical-alignment: center;
             overflow: elide;
         }
+        if HealthUi.sure > 0: VerticalLayout {
+            alignment: center;
+            HealthButton {
+                text: "Auto-fix " + HealthUi.sure;
+                primary: true;
+                clicked => { HealthUi.fix-sure(); }
+            }
+        }
         if listed > 0: HorizontalLayout {
             spacing: 8px;
             for f[j] in card.fixes: VerticalLayout {
@@ -3360,7 +3371,7 @@ component HealthBar inherits Rectangle {
                 HealthButton {
                     property <int> n: j < card.counts.length ? card.counts[j] : listed;
                     text: f + (n > 1 ? " (" + n + ")" : "");
-                    primary: j == 0;
+                    primary: j == 0 && HealthUi.sure == 0;
                     clicked => { HealthUi.fix(j, -1, -1); }
                 }
             }
