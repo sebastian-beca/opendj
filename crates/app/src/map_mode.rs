@@ -85,6 +85,9 @@ pub struct Mapper {
     /// The controls bound on the controllers plugged in, for the tint.
     mapped: Rc<RefCell<HashSet<String>>>,
     tick: i32,
+    /// Map mode was started from the Controller Editor, which opens again
+    /// when it's done.
+    from_editor: bool,
 }
 
 impl Mapper {
@@ -103,6 +106,7 @@ impl Mapper {
             last_heard: None,
             mapped: mapped.clone(),
             tick: 0,
+            from_editor: false,
         }));
         let g = app.global::<MapMode>();
         g.on_mapped(move |key, _| mapped.borrow().contains(key.as_str()));
@@ -142,7 +146,9 @@ impl Mapper {
         };
         let g = app.global::<MapMode>();
         if on {
-            app.global::<ControllerEditor>().set_open(false);
+            let editor = app.global::<ControllerEditor>();
+            self.from_editor = editor.get_open();
+            editor.set_open(false);
             self.steps.clear();
             g.set_last("".into());
             g.set_replaced("".into());
@@ -166,6 +172,9 @@ impl Mapper {
             c.take_monitored();
         }
         self.say_status();
+        if !on && std::mem::take(&mut self.from_editor) {
+            app.global::<ControllerEditor>().invoke_reopen();
+        }
     }
 
     /// The controllers plugged in that run a mapping: port and mapping

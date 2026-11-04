@@ -18,7 +18,7 @@ use opendj_engine::key::{self, Key};
 use opendj_engine::scan::{is_audio, read_track};
 use opendj_engine::{deck_group, AudioEngine, Hotcue, Track, NUM_DECKS, NUM_HOTCUES};
 use opendj_library::dupes::{Case, Group};
-use opendj_library::health::{Check, Facts};
+use opendj_library::health::{Area, Check, Facts};
 use opendj_library::query::{self, Context, Indexed, Query};
 use opendj_library::sets::is_crate;
 use opendj_library::stages::{Folders, Stage};
@@ -31,6 +31,7 @@ use opendj_plugins::{ItemKind, StoreItem, StoreQuery};
 
 mod albums;
 mod analysis;
+mod checklist;
 mod cleanup;
 pub(crate) mod columns;
 mod cues;
@@ -132,6 +133,9 @@ enum Contents {
     /// The groups of copies of one case, under Collection Health's
     /// Duplicates (see [`opendj_library::dupes`]).
     Dupes(Case),
+    /// One of Collection Health's areas: the tracks of the check (or case
+    /// of copies) picked on its chips.
+    Area(Area),
 }
 
 /// Whether the streaming services that are built (Spotify, TIDAL) can be
@@ -420,7 +424,8 @@ const KIND_INBOX: i32 = 10;
 const KIND_TRIAGE: i32 = 11;
 /// Collection Health, and one of its checks.
 const KIND_HEALTH: i32 = 12;
-const KIND_CHECK: i32 = 13;
+/// One of Collection Health's areas, drawn as a dot in its state's colour.
+const KIND_AREA: i32 = 21;
 /// A set: a folder made for one gig, drawn in lilac.
 /// One of the DJ's crates, and the Crates and Playlists headings.
 const KIND_CRATE: i32 = 17;
@@ -552,6 +557,9 @@ pub struct Browser {
     /// The collection's tree shows Collection Health's checks, picked in
     /// the rail.
     health_view: bool,
+    /// The chip picked on each Collection Health area (an index into
+    /// `health::area_chips`); unpicked, the first with tracks.
+    area_chip: HashMap<Area, usize>,
     /// The node selected on the other tab, to go back to.
     other_tab_node: usize,
     /// The list or history session the sort was last set up for: each
@@ -574,6 +582,13 @@ pub struct Browser {
     hotcues: [Vec<(ControlHandle, ControlHandle, ControlHandle)>; NUM_DECKS],
     watch: [CueWatch; NUM_DECKS],
     cues: cues::CueState,
+    /// The Prep checklist's ticks and scores, by track id.
+    marks: HashMap<usize, opendj_library::checklist::Marks>,
+    /// The checklist's lines, as last read from the settings.
+    checklist_setup: RefCell<Option<(std::time::Instant, checklist::Setup)>>,
+    /// What the Checklist tab and Prep's count show.
+    checklist_shown: Option<checklist::Shown>,
+    review: checklist::Review,
     /// The side panel's Info tab.
     info: info::InfoState,
     /// The filter bar.
@@ -848,6 +863,10 @@ impl crate::automix::Host for AutomixHost<'_> {
 
     fn remove(&mut self, id: usize) {
         self.browser.remove_from_automix(id);
+    }
+
+    fn requeue(&mut self, id: usize) {
+        self.browser.requeue_in_automix(id);
     }
 
     fn queued(&self) -> usize {
@@ -1160,6 +1179,7 @@ impl Browser {
             deck_track: None,
             history_tab: false,
             health_view: false,
+            area_chip: HashMap::new(),
             other_tab_node: 0,
             sorted_list: None,
             view_sort: (1, true),
@@ -1182,6 +1202,10 @@ impl Browser {
             }),
             watch: Default::default(),
             cues: cues::CueState::new(registry),
+            marks: HashMap::new(),
+            checklist_setup: RefCell::new(None),
+            checklist_shown: None,
+            review: Default::default(),
             info: info::InfoState::new(registry),
             filter: filters::FilterState::new(),
             columns: columns::ColumnState::new(&crate::settings::field_names()),
@@ -1762,6 +1786,7 @@ impl Browser {
         Self::install_staging(&edit, &with);
         Self::install_prep(app, &with);
         Self::install_cues(app, &with);
+        Self::install_checklist(app, &with);
         Self::install_track_menu(&edit, &with);
         Self::install_mix_export(&app.global::<FilesUi>(), &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
@@ -2293,7 +2318,14 @@ impl Browser {
                     ..Default::default()
                 };
                 TrackRow {
-                    cells: columns::row_cells(&ids, &row, None, None, Default::default(), None),
+                    cells: columns::row_cells(
+                        &ids,
+                        &row,
+                        None,
+                        None,
+                        Default::default(),
+                        Default::default(),
+                    ),
                     ..row
                 }
             })
@@ -2920,6 +2952,8 @@ impl Browser {
         if let Some(db) = &self.db {
             self.store.wanted = db.wanted().unwrap_or_default();
         }
+        self.load_marks();
+        self.show_review_average();
         let tree = self.collection_tree();
         if self.tree == COLLECTION {
             self.nodes = tree;
@@ -2960,6 +2994,18 @@ impl Browser {
         };
         if let Some(i) = self.side[0].iter().position(|&t| t == index) {
             self.side[0].remove(i);
+            self.refresh_side();
+        }
+    }
+
+    /// Moves the track with id `id` to the end of the Automix list.
+    pub fn requeue_in_automix(&mut self, id: usize) {
+        let Some(&index) = self.index_of.get(&id) else {
+            return;
+        };
+        if let Some(i) = self.side[0].iter().position(|&t| t == index) {
+            let t = self.side[0].remove(i);
+            self.side[0].push(t);
             self.refresh_side();
         }
     }
@@ -4013,6 +4059,8 @@ impl Browser {
             }
         }
         self.refresh_cues();
+        self.refresh_checklist();
+        self.tick_review();
     }
 
     /// Copies the tempo, key and beat grid found by analysing a loaded
@@ -4134,7 +4182,10 @@ impl Browser {
                     stage: matches!(n.contents, Contents::Stage(..)),
                     separator: n.separator,
                     color: n.color.map_or(-1, |c| c as i32),
-                    icon: n.icon as i32,
+                    icon: match n.contents {
+                        Contents::Area(a) => self.area_state(a) as i32,
+                        _ => n.icon as i32,
+                    },
                     count: match &n.contents {
                         Contents::All if self.saved() && self.tree == COLLECTION => {
                             self.library
@@ -4152,6 +4203,7 @@ impl Browser {
                             .count() as i32,
                         Contents::Health(Some(check)) => self.health_count(*check) as i32,
                         Contents::Dupes(case) => self.dupe_tracks(Some(*case)).len() as i32,
+                        Contents::Area(a) => self.area_count(*a) as i32,
                         _ => -1,
                     },
                 }
@@ -4333,7 +4385,7 @@ impl Browser {
         let Some(node) = self.nodes.get(i) else {
             return Vec::new();
         };
-        match &node.contents {
+        match &self.resolved(&node.contents) {
             Contents::Stream(_) | Contents::Store(_) | Contents::OtherStores | Contents::Wanted => {
                 Vec::new()
             }
@@ -4364,7 +4416,7 @@ impl Browser {
             Contents::Health(Some(Check::Duplicate)) => self.dupe_tracks(None),
             Contents::Dupes(case) => self.dupe_tracks(Some(*case)),
             Contents::Health(Some(check)) => self.health_tracks(*check),
-            Contents::Health(None) => Vec::new(),
+            Contents::Health(None) | Contents::Area(_) => Vec::new(),
             Contents::Grouping(g) => all()
                 .into_iter()
                 .filter(|&t| self.library[t].info.grouping == *g)
@@ -4993,7 +5045,9 @@ impl Browser {
                         r.local.map(|id| &*library[id]),
                         crates.map(Vec::as_slice),
                         r.list,
-                        r.local.and_then(|id| self.health.has_cover(library[id].id)),
+                        r.local.map_or_else(Default::default, |id| {
+                            self.prep_facts(&library[id], &ids)
+                        }),
                     ),
                     ..row
                 }

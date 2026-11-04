@@ -9,14 +9,14 @@ use std::sync::Arc;
 
 use opendj_engine::{tags, Track};
 use opendj_library::dupes::{self, Case, FileFacts, Group};
-use opendj_library::health::{self, Check, Facts};
+use opendj_library::health::{self, Area, Check, Facts};
 use opendj_library::query::Indexed;
 use opendj_library::stages::Stage;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
-use super::{file_path, is_browsed, Browser, Contents, Node, Undo, KIND_CHECK, KIND_HEALTH};
+use super::{file_path, is_browsed, Browser, Contents, Node, Undo, KIND_AREA, KIND_HEALTH};
 use crate::cover_scan;
-use crate::{settings, HealthCard, HealthUi};
+use crate::{settings, HealthArea, HealthCard, HealthChip, HealthLine, HealthStage, HealthUi};
 
 /// The word the "Tag as mix" fix adds to a track's first tag field.
 const MIX_TAG: &str = "mix";
@@ -102,8 +102,73 @@ fn copies(n: usize) -> String {
     format!("{n} cop{}", if n == 1 { "y" } else { "ies" })
 }
 
-/// Collection Health's tree: the overview page, then a node per check, the
-/// cases of copies under Duplicates (closed: they read the copies' files).
+/// What one of an area's chips lists: a check's tracks, or one case of
+/// copies.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Chip {
+    Check(Check),
+    Case(Case),
+}
+
+impl Chip {
+    fn title(self) -> &'static str {
+        match self {
+            Chip::Check(Check::Duplicate) => "All copies",
+            Chip::Check(c) => c.title(),
+            Chip::Case(c) => c.title(),
+        }
+    }
+
+    fn contents(self) -> Contents {
+        match self {
+            Chip::Check(c) => Contents::Health(Some(c)),
+            Chip::Case(c) => Contents::Dupes(c),
+        }
+    }
+}
+
+/// An area's chips: one per check, and for Duplicates all copies, then
+/// each case.
+pub(super) fn area_chips(area: Area) -> Vec<Chip> {
+    let mut chips: Vec<Chip> = area.checks().into_iter().map(Chip::Check).collect();
+    if area == Area::Duplicates {
+        chips.extend(Case::ALL.map(Chip::Case));
+    }
+    chips
+}
+
+/// How an area stands, for its dot and tile: nothing found, something to
+/// look at, something that won't play, or a goal (Prep).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum AreaState {
+    Clear = 0,
+    Check = 1,
+    Problem = 2,
+    Goal = 3,
+}
+
+fn area_state(area: Area, count: usize) -> AreaState {
+    match (area, count) {
+        (_, 0) => AreaState::Clear,
+        (Area::Files, _) => AreaState::Problem,
+        (Area::Prep, _) => AreaState::Goal,
+        _ => AreaState::Check,
+    }
+}
+
+/// The area to start with: the first whose findings are problems, else
+/// Prep when it has any.
+fn start_area(counts: &[usize; 5]) -> Option<usize> {
+    let first = |problem: bool| {
+        Area::ALL
+            .iter()
+            .zip(counts)
+            .position(|(a, &n)| a.problem() == problem && n > 0)
+    };
+    first(true).or_else(|| first(false))
+}
+
+/// Collection Health's tree: the overview page, then a node per area.
 pub(super) fn health_nodes() -> Vec<Node> {
     let mut nodes = vec![Node::new(
         "Overview",
@@ -111,22 +176,26 @@ pub(super) fn health_nodes() -> Vec<Node> {
         KIND_HEALTH,
         Contents::Health(None),
     )];
-    for check in Check::ALL {
-        let mut node = Node::new(check.title(), 0, KIND_CHECK, Contents::Health(Some(check)));
-        node.expanded = false;
-        nodes.push(node);
-        if check == Check::Duplicate {
-            for case in Case::ALL {
-                nodes.push(Node::new(
-                    case.title(),
-                    1,
-                    KIND_CHECK,
-                    Contents::Dupes(case),
-                ));
-            }
-        }
-    }
+    nodes.extend(
+        Area::ALL
+            .iter()
+            .map(|&a| Node::new(a.title(), 0, KIND_AREA, Contents::Area(a))),
+    );
     nodes
+}
+
+/// What the dashboard counts in each stage.
+#[derive(Default)]
+struct StageCount {
+    tracks: usize,
+    clean: usize,
+    /// Tracks each check finds, by its index in `Check::ALL`.
+    found: [usize; 13],
+}
+
+/// "86%" of `part` in `whole`, rounded down so 99.6% isn't "100%".
+fn percent(part: usize, whole: usize) -> i32 {
+    (part * 100).checked_div(whole).map_or(100, |p| p as i32)
 }
 
 /// Every audio file under `roots`, by its file name in lower case.
@@ -198,6 +267,27 @@ impl Browser {
             })
         });
         let w = with.clone();
+        ui.on_open_area(move |i| {
+            w(&|b| {
+                if let Some(&a) = usize::try_from(i).ok().and_then(|i| Area::ALL.get(i)) {
+                    b.open_area(a, None)
+                }
+            })
+        });
+        let w = with.clone();
+        ui.on_pick_chip(move |i| {
+            w(&|b| {
+                let Some(Contents::Area(a)) =
+                    b.nodes.get(b.current_node).map(|n| n.contents.clone())
+                else {
+                    return;
+                };
+                if let Ok(i) = usize::try_from(i) {
+                    b.open_area(a, Some(i));
+                }
+            })
+        });
+        let w = with.clone();
         ui.on_restore(move || w(&|b| b.restore_removed()));
         let w = with.clone();
         ui.on_tidy_lists(move || w(&|b| b.tidy_lists()));
@@ -223,9 +313,79 @@ impl Browser {
         });
     }
 
+    /// What a node lists, with an area taken as the check its chip picks.
+    pub(super) fn resolved(&self, contents: &Contents) -> Contents {
+        match contents {
+            Contents::Area(a) => area_chips(*a)[self.chip_of(*a)].contents(),
+            c => c.clone(),
+        }
+    }
+
+    /// What the selected node lists (see [`Self::resolved`]).
+    pub(super) fn current_shown(&self) -> Option<Contents> {
+        self.nodes
+            .get(self.current_node)
+            .map(|n| self.resolved(&n.contents))
+    }
+
+    /// The chip shown for an area: the one picked, else the first check
+    /// with tracks (copies are never counted for this: that reads files).
+    fn chip_of(&self, area: Area) -> usize {
+        let chips = area_chips(area);
+        if let Some(&i) = self.area_chip.get(&area).filter(|&&i| i < chips.len()) {
+            return i;
+        }
+        chips
+            .iter()
+            .position(|c| matches!(c, Chip::Check(check) if self.health_count(*check) > 0))
+            .unwrap_or(0)
+    }
+
+    /// Tracks any of an area's checks finds.
+    pub(super) fn area_count(&self, area: Area) -> usize {
+        let checks = area.checks();
+        self.library
+            .iter()
+            .filter(|t| {
+                self.in_collection(t)
+                    && checks
+                        .iter()
+                        .any(|&c| self.health.finds(c, t, &self.duplicates))
+            })
+            .count()
+    }
+
+    /// How an area stands (see [`AreaState`]).
+    pub(super) fn area_state(&self, area: Area) -> AreaState {
+        area_state(area, self.area_count(area))
+    }
+
+    /// Selects an area's node, with its chip `chip` (or the one it had).
+    fn open_area(&mut self, area: Area, chip: Option<usize>) {
+        self.show_health(true);
+        let Some(n) = self
+            .nodes
+            .iter()
+            .position(|n| matches!(n.contents, Contents::Area(a) if a == area))
+        else {
+            return;
+        };
+        if let Some(c) = chip {
+            self.area_chip.insert(area, c);
+        }
+        self.health_status.clear();
+        self.current_node = n;
+        self.folders_focused = false;
+        if let Some(app) = self.app.upgrade() {
+            app.set_current_track(-1);
+        }
+        self.refresh_tree();
+        self.refresh_rows();
+    }
+
     /// The check whose tracks are listed: a case of copies is Duplicates'.
     fn listed_check(&self) -> Option<Check> {
-        match self.nodes.get(self.current_node)?.contents {
+        match self.current_shown()? {
             Contents::Health(check) => check,
             Contents::Dupes(_) => Some(Check::Duplicate),
             _ => None,
@@ -244,7 +404,7 @@ impl Browser {
 
     /// Copies are listed: all of them (`Some(None)`), or one case's.
     pub(super) fn dupe_view(&self) -> Option<Option<Case>> {
-        match self.nodes.get(self.current_node)?.contents {
+        match self.current_shown()? {
             Contents::Health(Some(Check::Duplicate)) => Some(None),
             Contents::Dupes(case) => Some(Some(case)),
             _ => None,
@@ -702,39 +862,34 @@ impl Browser {
         }
         self.refresh_tree();
         if matches!(
-            self.nodes.get(self.current_node).map(|n| &n.contents),
+            self.current_shown(),
             Some(Contents::Health(Some(Check::NoCover | Check::LowBitrate)))
         ) {
             self.refresh_rows();
         }
     }
 
-    /// Selects a check's node (or the Collection Health node), opening it.
+    /// Selects a check's area with that check's chip, or the Overview.
     fn review(&mut self, check: Option<Check>) {
-        self.show_health(true);
-        let Some(n) = self.nodes.iter().position(|n| match (&n.contents, check) {
-            (Contents::Health(c), _) => *c == check,
-            _ => false,
-        }) else {
+        let Some(check) = check else {
+            self.show_health(true);
+            if let Some(n) = self
+                .nodes
+                .iter()
+                .position(|n| matches!(n.contents, Contents::Health(None)))
+            {
+                self.health_status.clear();
+                self.current_node = n;
+                self.refresh_tree();
+                self.refresh_rows();
+            }
             return;
         };
-        // A case of copies sits under Duplicates.
-        if let Some(dupes) = self
-            .nodes
+        let area = check.area();
+        let chip = area_chips(area)
             .iter()
-            .position(|n| matches!(n.contents, Contents::Health(Some(Check::Duplicate))))
-            .filter(|&d| d < n && self.nodes[n].depth > 0)
-        {
-            self.nodes[dupes].expanded = true;
-        }
-        self.health_status.clear();
-        self.current_node = n;
-        self.folders_focused = false;
-        if let Some(app) = self.app.upgrade() {
-            app.set_current_track(-1);
-        }
-        self.refresh_tree();
-        self.refresh_rows();
+            .position(|&c| c == Chip::Check(check));
+        self.open_area(area, chip);
     }
 
     /// Shows the page and bar as things are now.
@@ -795,7 +950,127 @@ impl Browser {
         ui.set_lists(self.list_health_text().into());
         ui.set_quarantine_exists(self.quarantine_root().is_some_and(|d| d.is_dir()));
         ui.set_can_quarantine(self.saved() && self.quarantine_root().is_some());
+        self.refresh_dashboard(&ui);
+        self.refresh_chips(&ui);
         self.refresh_cleanup_ui();
+    }
+
+    /// The Overview's numbers: how much is clean, by stage, and each area.
+    fn refresh_dashboard(&self, ui: &HealthUi) {
+        let stages = [Stage::Inbox, Stage::Triage, Stage::Collection];
+        let mut by_stage: [StageCount; 3] = Default::default();
+        let (mut total, mut clean) = (0, 0);
+        let mut areas = [0usize; 5];
+        for t in self.library.iter().filter(|t| self.in_collection(t)) {
+            if t.info.stage == Stage::Dismissed.name() {
+                continue;
+            }
+            let found: Vec<bool> = Check::ALL
+                .iter()
+                .map(|&c| self.health.finds(c, t, &self.duplicates))
+                .collect();
+            let problem = Check::ALL
+                .iter()
+                .zip(&found)
+                .any(|(c, &f)| f && c.area().problem());
+            for (i, a) in Area::ALL.iter().enumerate() {
+                if Check::ALL
+                    .iter()
+                    .zip(&found)
+                    .any(|(c, &f)| f && c.area() == *a)
+                {
+                    areas[i] += 1;
+                }
+            }
+            total += 1;
+            clean += usize::from(!problem);
+            if let Some(s) = stages.iter().position(|s| t.info.stage == s.name()) {
+                let count = &mut by_stage[s];
+                count.tracks += 1;
+                count.clean += usize::from(!problem);
+                for (n, &f) in count.found.iter_mut().zip(&found) {
+                    *n += usize::from(f);
+                }
+            }
+        }
+        ui.set_total(total as i32);
+        ui.set_clean(clean as i32);
+        ui.set_clean_percent(percent(clean, total));
+        let stage_rows: Vec<HealthStage> = if self.folders.is_set() {
+            stages
+                .iter()
+                .zip(&by_stage)
+                .map(|(stage, count)| {
+                    // The check finding most of the stage's problems.
+                    let top = Check::ALL
+                        .iter()
+                        .zip(count.found)
+                        .filter(|(c, n)| c.area().problem() && *n > 0)
+                        .max_by_key(|&(_, n)| n);
+                    HealthStage {
+                        title: stage.title().into(),
+                        count: count.tracks as i32,
+                        percent: percent(count.clean, count.tracks),
+                        note: top
+                            .map(|(c, n)| format!("{n} {}", c.title().to_lowercase()))
+                            .unwrap_or_default()
+                            .into(),
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        ui.set_stages(ModelRc::new(VecModel::from(stage_rows)));
+        let start = start_area(&areas);
+        let tiles: Vec<HealthArea> = Area::ALL
+            .iter()
+            .enumerate()
+            .map(|(i, &a)| {
+                let lines: Vec<HealthLine> = a
+                    .checks()
+                    .into_iter()
+                    .map(|c| HealthLine {
+                        title: c.title().into(),
+                        count: self.health_count(c) as i32,
+                        check: Check::ALL.iter().position(|&x| x == c).unwrap_or(0) as i32,
+                    })
+                    .collect();
+                HealthArea {
+                    title: a.title().into(),
+                    question: a.question().into(),
+                    count: areas[i] as i32,
+                    state: area_state(a, areas[i]) as i32,
+                    start: start == Some(i),
+                    lines: ModelRc::new(VecModel::from(lines)),
+                }
+            })
+            .collect();
+        ui.set_areas(ModelRc::new(VecModel::from(tiles)));
+    }
+
+    /// The chips over an area's tracks, when one is selected.
+    fn refresh_chips(&self, ui: &HealthUi) {
+        let area = match self.nodes.get(self.current_node).map(|n| &n.contents) {
+            Some(Contents::Area(a)) if self.health_view => Some(*a),
+            _ => None,
+        };
+        let chips: Vec<HealthChip> = area
+            .map(|a| {
+                area_chips(a)
+                    .into_iter()
+                    .map(|c| HealthChip {
+                        title: c.title().into(),
+                        count: match c {
+                            Chip::Check(check) => self.health_count(check),
+                            Chip::Case(case) => self.dupe_tracks(Some(case)).len(),
+                        } as i32,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        ui.set_chip(area.map_or(-1, |a| self.chip_of(a) as i32));
+        ui.set_chips(ModelRc::new(VecModel::from(chips)));
     }
 
     /// A line on what a check found beyond its count.
@@ -1157,11 +1432,25 @@ mod tests {
     #[test]
     fn every_check_has_a_node_and_fixes_fit() {
         let nodes = health_nodes();
-        assert_eq!(nodes.len(), Check::ALL.len() + Case::ALL.len() + 1);
+        assert_eq!(nodes.len(), Area::ALL.len() + 1);
         assert_eq!(nodes[0].name, "Overview");
-        assert!(nodes.iter().all(|n| n.depth <= 1));
+        assert!(nodes.iter().all(|n| n.depth == 0));
+        let chips: usize = Area::ALL.iter().map(|&a| area_chips(a).len()).sum();
+        assert_eq!(chips, Check::ALL.len() + Case::ALL.len());
         assert_eq!(fixes(Check::Stray, false), [Fix::Remove]);
         assert_eq!(fixes(Check::Stray, true)[0], Fix::ToTriage);
+    }
+
+    #[test]
+    fn starts_with_the_first_problem_then_prep() {
+        assert_eq!(start_area(&[0, 28, 0, 5, 9]), Some(1));
+        assert_eq!(start_area(&[0, 0, 0, 0, 9]), Some(4));
+        assert_eq!(start_area(&[0; 5]), None);
+        assert_eq!(area_state(Area::Files, 3), AreaState::Problem);
+        assert_eq!(area_state(Area::Prep, 3), AreaState::Goal);
+        assert_eq!(area_state(Area::Info, 0), AreaState::Clear);
+        assert_eq!(percent(862, 1105), 78);
+        assert_eq!(percent(0, 0), 100);
     }
 
     #[test]

@@ -26,6 +26,7 @@
 - [x] 4.3 Quick map becomes the Mapping wizard: asks which controller (buttons, or a press on it); the computer's own ports (Network Session, IAC Driver, Midi Through, GS Wavetable) are never offered or called unmapped
 - [x] 4.4 Used with, Deck order and Knobs and faders move from Settings › Controllers to the editor's Options tab
 - [x] 4.5 Settings › Controllers lists like Audio: + adds a row with a device menu, × removes; Find controllers and the Mixxx note go
+- [x] 4.6 The MIDI button leaves the top bar: Map mode starts from MIDI map in the Controller Editor, which opens again when Map mode is done
 
 ## Workflow follow-up
 

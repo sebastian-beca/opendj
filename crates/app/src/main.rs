@@ -27,8 +27,8 @@ use opendj_engine::{
 use opendj_library::Library;
 use opendj_plugins::source::{QueryKind, SourceQuery};
 use opendj_waveform::{
-    steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, PhraseKind, Style, WaveformRenderer,
-    WaveformView, GRID_SECTIONS,
+    steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, Palette, PhraseKind, Style,
+    WaveformRenderer, WaveformView, GRID_SECTIONS,
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use smooth::SmoothClock;
@@ -293,6 +293,17 @@ const TOP_BAR_HEIGHT: f64 = 52.0;
 const FOUR_DECK_LAYOUT: i32 = 2;
 /// Deck 1 alone, for preparing tracks (prep.slint).
 const PREP_LAYOUT: i32 = 3;
+/// The Player layout's value of `layout`: one bar over Automix.
+const PLAYER_LAYOUT: i32 = 1;
+/// Behind the Player bar's overview: the bar's own colour (Theme.panel),
+/// so the waveform sits on the bar rather than in a black box.
+const PLAYER_OVERVIEW_BACKGROUND: [f32; 4] = [0.102, 0.102, 0.110, 1.0];
+/// Whether the Prep layout is offered (the layout menu, a controller's
+/// VIEW, the Cues and Checklist tabs, the checklist settings). Off until
+/// v0.6: the code stays and is built and tested, only hidden.
+pub(crate) const PREP_OFFERED: bool = false;
+/// The last layout the menu and controllers can pick.
+const LAST_LAYOUT: i32 = if PREP_OFFERED { PREP_LAYOUT } else { 2 };
 
 /// Seconds of audio shown across the scrolling waveform at normal speed.
 /// Dragging the waveform (`Waveform` in main.slint) uses the same figure.
@@ -409,7 +420,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     // 2-Deck, Player, 4-Deck or Prep, as last picked.
-    app.set_layout(settings::number("layout", 0.0).clamp(0.0, PREP_LAYOUT as f64) as i32);
+    app.global::<PrepUi>().set_offered(PREP_OFFERED);
+    // A layout no longer offered (Prep, while hidden) opens 2-Deck.
+    let layout = settings::number("layout", 0.0) as i32;
+    app.set_layout(if (0..=LAST_LAYOUT).contains(&layout) {
+        layout
+    } else {
+        0
+    });
     // `[Skin],layout` lets controllers switch it too (the DDJ-FLX4's
     // SHIFT + right LOAD, VIEW): 0 2-Deck, 1 Player, 2 4-Deck, 3 Prep. VIEW
     // toggles, so from 4-Deck or Prep it goes to 2-Deck.
@@ -418,7 +436,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "layout",
         app.get_layout() as f64,
         0.0,
-        PREP_LAYOUT as f64,
+        LAST_LAYOUT as f64,
         opendj_control::Behavior::Toggle,
     );
     // The deck 3 and 4 switches for two-deck controllers (see
@@ -635,6 +653,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app.on_automix_mix_now(move || a.borrow_mut().mix_now());
         let a = automix.clone();
         app.on_automix_skip(move || a.borrow_mut().skip());
+        let a = automix.clone();
+        app.on_automix_set_repeat(move |on| a.borrow_mut().set_repeat(on));
         let a = automix.clone();
         app.on_automix_set_length(move |i| a.borrow_mut().set_length(i.max(0) as usize));
         let a = automix.clone();
@@ -1809,6 +1829,9 @@ impl Decks {
                 None => t.key.clone(),
             }
             .into(),
+            key_wheel: Key::from_mixxx_number(h.key.get())
+                .or_else(|| Key::parse(&t.key))
+                .map_or(0, |k| k.camelot_number() as i32),
             key_shift: match h.pitch.get().round() as i32 {
                 0 => String::new(),
                 n => format!("{n:+}"),
@@ -1977,9 +2000,15 @@ impl Gpu {
         let prep_bars = (app.get_layout() == PREP_LAYOUT && !app.get_library_expanded())
             .then(|| app.global::<PrepUi>().get_bars().max(1) as f64);
         let show_phrases = app.global::<PhraseView>().get_visible();
+        let overview_background = if app.get_layout() == PLAYER_LAYOUT {
+            PLAYER_OVERVIEW_BACKGROUND
+        } else {
+            Palette::default().background
+        };
         for (d, track) in tracks.iter().enumerate() {
             changed |= self.scrolling[d].resize(&self.device, ww, wh);
             changed |= self.overview[d].resize(&self.device, ow, oh);
+            self.overview[d].set_background(overview_background);
             let track = track.as_ref().filter(|t| !t.waveform.is_empty());
             let gpu_track = match (track, &self.tracks[d]) {
                 (None, _) => None,

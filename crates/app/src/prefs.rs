@@ -2095,6 +2095,50 @@ impl Prefs {
             "Names them \"Artist - Title (Remix)\" from their tags.",
             settings::rename_to_triage(),
         ));
+        // With the Prep layout (v0.6).
+        if crate::PREP_OFFERED {
+            items.push(item("", HEADING, "PREP CHECKLIST", ""));
+            items.push(item(
+                "",
+                NOTE,
+                "",
+                "What makes a track ready, in the Prep layout's Checklist tab. Play Ready lights up \
+                 when every line is ticked. The app ticks these itself when the track has them:",
+            ));
+            for (key, name) in settings::PREP_APP_LINES {
+                items.push(PrefItem {
+                    on: settings::flag(&settings::prep_check_key(key), true),
+                    ..item(&settings::prep_check_key(key), TICK, name, "")
+                });
+            }
+            items.push(item(
+                "",
+                NOTE,
+                "",
+                "Your own lines, ticked by hand (Option+1–9 in Prep). Clear a line to take it away.",
+            ));
+            for (i, line) in settings::prep_lines_typed().iter().enumerate() {
+                items.push(PrefItem {
+                    value: line.as_str().into(),
+                    on: false,
+                    ..item(
+                        &format!("prep_line:{i}"),
+                        TEXT,
+                        &format!("Line {}", i + 1),
+                        "",
+                    )
+                });
+            }
+            items.push(PrefItem {
+                action: "Add a line".into(),
+                ..item(
+                    "prep_line_add",
+                    BUTTON,
+                    "",
+                    "Such as \"Vocals checked\" or \"Intro is clean\".",
+                )
+            });
+        }
         items.push(item("", HEADING, "CLEAN-UP", ""));
         items.push(item(
             "",
@@ -3514,6 +3558,17 @@ impl Prefs {
     /// The DJ typed in a plugin's text field. The page isn't filled again,
     /// so the field keeps its place while typing.
     fn typed(&mut self, id: &str, text: &str) {
+        if let Some(i) = id
+            .strip_prefix("prep_line:")
+            .and_then(|i| i.parse::<usize>().ok())
+        {
+            let mut lines = settings::prep_lines_typed();
+            if let Some(line) = lines.get_mut(i) {
+                *line = text.to_string();
+                settings::set_prep_lines(&lines);
+            }
+            return;
+        }
         if id == "audio_plugin_filter" {
             self.plugin_view.search = text.to_string();
             self.refresh();
@@ -3748,6 +3803,12 @@ impl Prefs {
             return;
         }
         match id {
+            // A new checklist line; empty ones left from before go.
+            "prep_line_add" => {
+                let mut lines = settings::prep_lines();
+                lines.push(String::new());
+                settings::set_prep_lines(&lines);
+            }
             // + under the controllers: a row to pick one, after looking
             // for them again.
             "controller_new" => {

@@ -22,6 +22,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 pub use rusqlite::Error;
 
+pub mod checklist;
 pub mod cleanup;
 pub mod dupes;
 pub mod fix_names;
@@ -581,6 +582,7 @@ impl Library {
             db.execute_batch("ALTER TABLE covers ADD COLUMN bitrate INTEGER")?;
         }
         db.execute_batch(cleanup::CHANGES_SCHEMA)?;
+        db.execute_batch(checklist::CHECKLIST_SCHEMA)?;
         tags::setup(&db)?;
         let lib = Library { db };
         if version < 2 {
