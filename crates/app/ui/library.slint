@@ -8,6 +8,7 @@ import { SourceUi, SearchesPanel, SourceResults, SourceSetup } from "sources.sli
 import { InstrumentsPanel, LiveIcon } from "instruments.slint";
 import { InfoPanel, TrackInfo } from "info.slint";
 import { CuesPanel } from "cues.slint";
+import { ChecklistPanel } from "checklist.slint";
 import { FilterBar, FilterUi } from "filters.slint";
 import { TourMark } from "tourmark.slint";
 
@@ -4341,7 +4342,8 @@ component SidePanel inherits Rectangle {
     in property <[SideRow]> rows;
     in property <string> total;
     // 0 Automix, 1 Sidelist, 2 Related, 3 Info (the selected track's
-    // details, see info.slint), 4 Cues (a deck's cues, see cues.slint).
+    // details, see info.slint), 4 Cues (a deck's cues, see cues.slint),
+    // 5 Checklist (what makes the deck's track ready, see checklist.slint).
     in-out property <int> tab: 0;
     callback activate(row: int);
     // Takes out the rows `first` to `last`.
@@ -4411,14 +4413,17 @@ component SidePanel inherits Rectangle {
         y: 0px;
         height: 40px;
         HorizontalLayout {
-            for name[i] in ["Automix", "Sidelist", "Related", "Info", "Cues"]: Rectangle {
+            // Each tab as wide as its word, with the room left shared out.
+            for name[i] in ["Automix", "Sidelist", "Related", "Info", "Cues", "Checklist"]: Rectangle {
                 horizontal-stretch: 1;
+                preferred-width: tab-word.preferred-width + 8px;
+                min-width: tab-word.preferred-width + 4px;
                 property <bool> on: i == tab;
                 background: tta.has-hover && !on ? #ffffff08 : transparent;
-                Text {
+                tab-word := Text {
                     text: name;
                     color: on ? Theme.accent : tta.has-hover ? Theme.text : Theme.text-dim;
-                    font-size: 13px;
+                    font-size: 12px;
                     font-weight: on ? 600 : 500;
                     horizontal-alignment: center;
                     vertical-alignment: center;
@@ -4443,6 +4448,10 @@ component SidePanel inherits Rectangle {
         height: parent.height - tab-bar.height;
     }
     if tab == 4: CuesPanel {
+        y: tab-bar.height;
+        height: parent.height - tab-bar.height;
+    }
+    if tab == 5: ChecklistPanel {
         y: tab-bar.height;
         height: parent.height - tab-bar.height;
     }
