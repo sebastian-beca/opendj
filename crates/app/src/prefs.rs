@@ -12,9 +12,7 @@ use crate::audio_plugins::{AudioPlugins, Found};
 use crate::broadcast::{self, Broadcast};
 use crate::list_picker::{Picker, Ticked};
 use opendj_control::ControlRegistry;
-use opendj_controllers::{
-    device_key, is_system_port, own, support, Controllers, MappingChoice, Port,
-};
+use opendj_controllers::{is_system_port, own, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
     analysis, beatthis, cache, channel_names, deck_group, engine, input_devices, key, meter,
@@ -86,10 +84,6 @@ const SHORTCUT: i32 = 11;
 const TICK: i32 = 12;
 /// The inputs table (see [`Prefs::inputs_item`]).
 const INPUTS_TABLE: i32 = 13;
-/// A + on its own, adding a row (a controller).
-const ADD_ROW: i32 = 14;
-/// A row to pick a controller plugged in from, with × to drop it.
-const NEW_CONTROLLER: i32 = 15;
 /// Filter chips (`choices`, on by bit in `chosen`) and a search box
 /// (`value`, its hint in `detail`), above a long list.
 const FILTER_BAR: i32 = 16;
@@ -455,10 +449,6 @@ pub struct Prefs {
     stems_note: String,
     /// The devices shown on the controllers page.
     ports: Vec<Port>,
-    /// The devices under Add a controller, in its menu's order.
-    hidden_ports: Vec<String>,
-    /// Settings › Controllers has a row to pick a controller from (+).
-    adding_controller: bool,
     /// Plugins with settings, shown on Settings › Sources.
     plugins: Vec<Box<dyn Plugin>>,
     /// Whether each of `plugins` plays from a cache: the DJ's own server.
@@ -551,8 +541,6 @@ impl Prefs {
             cache_note: String::new(),
             stems_note: String::new(),
             ports: Vec::new(),
-            hidden_ports: Vec::new(),
-            adding_controller: false,
             plugins,
             plugin_plays,
             open_source: None,
@@ -1848,33 +1836,20 @@ impl Prefs {
         };
         self.ports = c.ports();
         let mappings = c.mappings();
-        let shown = settings::controllers_shown();
-        let (visible, hidden): (Vec<&Port>, Vec<&Port>) = self.ports.iter().partition(|port| {
-            shown
-                .get(&device_key(&port.name))
-                .copied()
-                .unwrap_or_else(|| {
-                    port.running.is_some()
-                        || c.auto_mapping(&port.name).is_some()
-                        || matches!(
-                            c.choice(&port.name),
-                            MappingChoice::File(_) | MappingChoice::Own(_)
-                        )
-                })
-        });
+        // Every controller plugged in, the computer's own ports (macOS's
+        // Network Session) last.
+        let mut ports: Vec<&Port> = self.ports.iter().collect();
+        ports.sort_by_key(|p| is_system_port(&p.name));
         let quick = quick_maps();
-        let mut items: Vec<PrefItem> = visible
+        let mut items: Vec<PrefItem> = ports
             .iter()
-            .flat_map(|port| {
+            .map(|port| {
                 let choice = c.choice(&port.name);
                 let matched = c.auto_mapping(&port.name);
-                let mut choices = vec![
-                    match &matched {
-                        Some(n) => format!("Automatic · {n}"),
-                        None => "Automatic · none found".to_string(),
-                    },
-                    "Off".to_string(),
-                ];
+                let mut choices = vec![match &matched {
+                    Some(n) => format!("Automatic · {n}"),
+                    None => "Automatic · none found".to_string(),
+                }];
                 // An HID controller runs its HID mapping or nothing: MIDI
                 // mappings and Quick map don't apply to it.
                 if !port.hid {
@@ -1883,59 +1858,52 @@ impl Prefs {
                     choices.extend(quick.iter().map(|m| m.name.clone()));
                 }
                 let chosen = match &choice {
-                    MappingChoice::Auto => 0,
-                    MappingChoice::Off => 1,
+                    MappingChoice::Auto | MappingChoice::Off => 0,
                     MappingChoice::File(f) => mappings
                         .iter()
                         .position(|(_, m)| m == f)
-                        .map_or(0, |i| i + 2),
+                        .map_or(0, |i| i + 1),
                     MappingChoice::Own(p) => quick
                         .iter()
                         .position(|m| p.file_stem().is_some_and(|s| *s == *m.id))
-                        .map_or(0, |i| i + 2 + mappings.len()),
+                        .map_or(0, |i| i + 1 + mappings.len()),
                 };
-                let detail = match (&port.running, &choice, &port.mapping_file) {
-                    (Some(m), _, _) => match port
-                        .mapping_file
-                        .as_deref()
-                        .or_else(|| {
-                            mappings
-                                .iter()
-                                .find(|(n, _)| n == m)
-                                .map(|(_, f)| f.as_str())
-                        })
-                        .and_then(support::status)
-                    {
-                        Some(s) => format!("Running {m} · {}", s.label()),
-                        None => format!("Running {m}"),
-                    },
-                    (None, MappingChoice::Off, _) => "Not used".to_string(),
-                    (None, _, _) if port.problem.is_some() => {
-                        port.problem.clone().unwrap_or_default()
-                    }
-                    (None, _, None) => "No mapping found: pick one, or press Map it.".to_string(),
-                    (None, _, Some(_)) => "Starting, or its mapping failed to load".to_string(),
+                let on = choice != MappingChoice::Off;
+                // Only what needs the DJ: a problem, or no mapping.
+                let detail = match (&port.running, &port.mapping_file) {
+                    _ if !on => String::new(),
+                    (Some(_), _) => String::new(),
+                    _ if port.problem.is_some() => port.problem.clone().unwrap_or_default(),
+                    (None, None) => "No mapping found".to_string(),
+                    (None, Some(_)) => String::new(),
                 };
-                // Edit opens the Controller Editor on the mapping it uses.
-                let editable = edit_file(c, port).is_some() && choice != MappingChoice::Off;
-                // Without one, the mapping wizard makes one.
+                // The cog opens the Controller Editor on the mapping it
+                // uses, or without one, the mapping wizard.
+                let editable = edit_file(c, port).is_some() && on;
                 let action = match (editable, &port.mapping_file) {
                     (true, _) => "Edit",
-                    (false, None) => "Map it",
+                    (false, None) if on && !port.hid => "Map it",
                     _ => "",
                 };
-                let rows = vec![PrefItem {
+                let file = port.mapping_file.clone().or_else(|| {
+                    mappings
+                        .iter()
+                        .find(|(n, _)| Some(n) == port.running.as_ref())
+                        .map(|(_, f)| f.clone())
+                });
+                PrefItem {
                     choices: strings(&choices),
                     chosen: chosen as i32,
+                    on,
                     action: action.into(),
+                    value: controller_outline(file.as_deref()).into(),
                     ..item(
                         &format!("controller:{}", port.name),
                         CONTROLLER,
                         short_port_name(&port.name),
                         &detail,
                     )
-                }];
-                rows
+                }
             })
             .collect();
         if items.is_empty() {
@@ -1943,34 +1911,9 @@ impl Prefs {
                 "",
                 NOTE,
                 "No controllers",
-                "Plug in a controller openDJ has a mapping for and it shows up here within a \
-                 second or so.",
+                "Plug in a MIDI or HID controller and it shows up here within a second or so.",
             ));
         }
-        // The rest plugged in, the computer's own ports (macOS's Network
-        // Session) last: + adds a row to pick one from.
-        let mut hidden: Vec<String> = hidden.iter().map(|p| p.name.clone()).collect();
-        hidden.sort_by_key(|p| is_system_port(p));
-        self.hidden_ports = hidden;
-        if self.adding_controller {
-            let mut names = vec!["Choose a controller…".to_string()];
-            names.extend(
-                self.hidden_ports
-                    .iter()
-                    .map(|p| short_port_name(p).to_string()),
-            );
-            let detail = if self.hidden_ports.is_empty() {
-                "No other MIDI devices are plugged in."
-            } else {
-                "The MIDI devices plugged in that aren't listed yet."
-            };
-            items.push(PrefItem {
-                choices: strings(&names),
-                chosen: 0,
-                ..item("controller_add", NEW_CONTROLLER, "", detail)
-            });
-        }
-        items.push(item("controller_new", ADD_ROW, "", ""));
         items
     }
 
@@ -2550,6 +2493,23 @@ impl Prefs {
     }
 
     fn toggled(&mut self, id: &str, on: bool) {
+        // A controller's switch: off stops it, on runs its automatic
+        // mapping again (or the one picked in its menu after).
+        if let Some(port) = id.strip_prefix("controller:") {
+            if let Some(c) = &self.controllers {
+                c.set_choice(
+                    port,
+                    if on {
+                        MappingChoice::Auto
+                    } else {
+                        MappingChoice::Off
+                    },
+                );
+                settings::set_controller_mappings(&c.choices());
+            }
+            self.refresh();
+            return;
+        }
         if let Some(i) = id.strip_prefix("source:").and_then(|i| i.parse().ok()) {
             self.set_rail_shown(i, on);
             self.refresh();
@@ -2732,33 +2692,16 @@ impl Prefs {
             self.refresh();
             return;
         }
-        if id == "controller_add" {
-            // 0 is "Choose a controller…".
-            let Some(i) = index.checked_sub(1) else {
-                return;
-            };
-            self.adding_controller = false;
-            if let (Some(c), Some(port)) = (&self.controllers, self.hidden_ports.get(i)) {
-                settings::set_controller_shown(&device_key(port), true);
-                if c.choice(port) == MappingChoice::Off {
-                    c.set_choice(port, MappingChoice::Auto);
-                    settings::set_controller_mappings(&c.choices());
-                }
-            }
-            self.refresh();
-            return;
-        }
         if let Some(port) = id.strip_prefix("controller:") {
             if let Some(c) = &self.controllers {
                 let choice = match index {
                     0 => MappingChoice::Auto,
-                    1 => MappingChoice::Off,
                     i => {
                         let mappings = c.mappings();
-                        match mappings.get(i - 2) {
+                        match mappings.get(i - 1) {
                             Some((_, file)) => MappingChoice::File(file.clone()),
                             None => match (
-                                quick_maps().get(i - 2 - mappings.len()),
+                                quick_maps().get(i - 1 - mappings.len()),
                                 settings::own_mappings_dir(),
                             ) {
                                 (Some(m), Some(d)) => MappingChoice::Own(own::path(&d, &m.id)),
@@ -3630,29 +3573,11 @@ impl Prefs {
                         app.global::<crate::MapMode>().invoke_quick_map(port.into());
                     }
                 }
-                "remove" => {
-                    // Taken off the list and not used, until added again.
-                    settings::set_controller_shown(&device_key(port), false);
-                    if let Some(c) = &self.controllers {
-                        c.set_choice(port, MappingChoice::Off);
-                        settings::set_controller_mappings(&c.choices());
-                    }
-                    self.refresh();
-                }
                 _ => {}
             }
             return;
         }
         match id {
-            // + under the controllers: a row to pick one, after looking
-            // for them again.
-            "controller_new" => {
-                if let Some(c) = &self.controllers {
-                    c.refresh();
-                }
-                self.adding_controller = true;
-            }
-            "controller_add#remove" => self.adding_controller = false,
             "stage_inbox_add" => choose(
                 id,
                 "Choose a folder to watch for new music",
@@ -4276,6 +4201,53 @@ fn folder_list(
         action: if fixed { "fixed".into() } else { "".into() },
         ..item(id, FOLDER_LIST, title, info)
     }
+}
+
+/// A small outline of a controller for its row on Settings › Controllers,
+/// as Path commands in a 100 × 60 box: its picture's panels and controls
+/// when openDJ has one for the mapping, else a generic two-deck shape.
+fn controller_outline(mapping_file: Option<&str>) -> String {
+    use std::fmt::Write;
+    let Some(layout) = mapping_file.and_then(opendj_controllers::layout::Layout::for_file) else {
+        return "M 6 10 L 94 10 L 94 50 L 6 50 Z M 20 18 A 12 12 0 1 1 19.99 18 Z \
+                M 80 18 A 12 12 0 1 1 79.99 18 Z M 46 18 L 46 42 M 54 18 L 54 42"
+            .to_string();
+    };
+    let (w, h) = (layout.width.max(1.0), layout.height.max(1.0));
+    let scale = (100.0 / w).min(60.0 / h);
+    let (ox, oy) = ((100.0 - w * scale) / 2.0, (60.0 - h * scale) / 2.0);
+    let mut out = String::new();
+    let rect = |out: &mut String, x: f32, y: f32, rw: f32, rh: f32| {
+        let (x0, y0) = (ox + x * scale, oy + y * scale);
+        let (x1, y1) = (x0 + rw * scale, y0 + rh * scale);
+        let _ = write!(
+            out,
+            "M {x0:.1} {y0:.1} L {x1:.1} {y0:.1} L {x1:.1} {y1:.1} L {x0:.1} {y1:.1} Z "
+        );
+    };
+    for p in &layout.panels {
+        rect(&mut out, p[0], p[1], p[2], p[3]);
+    }
+    for p in &layout.parts {
+        if p.round {
+            let r = p.w.min(p.h) * scale / 2.0;
+            let (cx, cy) = (
+                ox + (p.x + p.w / 2.0) * scale,
+                oy + (p.y + p.h / 2.0) * scale,
+            );
+            let _ = write!(
+                out,
+                "M {:.1} {:.1} A {r:.1} {r:.1} 0 1 1 {:.1} {:.1} Z ",
+                cx,
+                cy - r,
+                cx - 0.01,
+                cy - r
+            );
+        } else {
+            rect(&mut out, p.x, p.y, p.w, p.h);
+        }
+    }
+    out.trim_end().to_string()
 }
 
 /// What an imported library is called in its list: the folder its file is

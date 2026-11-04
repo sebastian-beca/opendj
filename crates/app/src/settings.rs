@@ -446,19 +446,9 @@ pub fn set_wanted_sync(service: &str, key: &str, on: bool) {
     set(&wanted_sync_key(service), json!(keys));
 }
 
-/// Controllers shown in Settings › Controllers, or taken off it, by their
-/// device key. A device not listed shows if openDJ has a mapping for it.
-pub fn controllers_shown() -> HashMap<String, bool> {
-    load()["controllers_shown"]
-        .as_object()
-        .map(|m| {
-            m.iter()
-                .filter_map(|(k, v)| Some((k.clone(), v.as_bool()?)))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
+/// Notes a controller as shown in Settings › Controllers, by its device key.
+/// The page lists every controller plugged in now; this is kept for
+/// settings files that read it.
 pub fn set_controller_shown(key: &str, shown: bool) {
     save(|v| {
         if !v["controllers_shown"].is_object() {

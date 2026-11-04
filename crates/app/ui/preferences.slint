@@ -15,9 +15,10 @@ export struct PrefItem {
     // 0 switch, 1 menu, 2 button, 3 file or folder with a Choose button,
     // 4 the output routes table, 5 headphone and booth level knobs, 6 a
     // note, 7 a heading, 8 segmented buttons, 9 a text field (hidden
-    // typing when `on`, for a password), 10 a controller: its mapping menu
-    // with Edit (when `action` is set) and Remove, pressing id + "#edit"
-    // and id + "#remove", 11 a keyboard shortcut: its key in `title` (none
+    // typing when `on`, for a password), 10 a controller: its outline (Path
+    // commands in `value`), its mapping menu, an on/off switch (`on`) and a
+    // cog pressing id + "#edit" ("Edit" in `action`) or id + "#quick"
+    // ("Map it"), 11 a keyboard shortcut: its key in `title` (none
     // for the row that adds one), its openDJscript line in `value`, the
     // verbs to pick from in `choices`, the button's label in `action`; `on`
     // shows `detail` as a mistake, 12 a tick box, 13 the inputs table, 14
@@ -471,6 +472,19 @@ component StageIcon inherits Rectangle {
     }
 }
 
+// A cog: a controller's mapping settings.
+component CogIcon inherits Path {
+    in property <color> color: Theme.text-dim;
+    width: 16px;
+    height: 16px;
+    viewbox-width: 16;
+    viewbox-height: 16;
+    stroke: color;
+    stroke-width: 1.4px;
+    fill: transparent;
+    commands: "M 8 5.5 A 2.5 2.5 0 1 1 7.99 5.5 Z M 8 1.5 L 8 3.5 M 8 12.5 L 8 14.5 M 1.5 8 L 3.5 8 M 12.5 8 L 14.5 8 M 3.4 3.4 L 4.8 4.8 M 11.2 11.2 L 12.6 12.6 M 3.4 12.6 L 4.8 11.2 M 11.2 4.8 L 12.6 3.4 M 8 3.5 A 4.5 4.5 0 1 1 7.99 3.5 Z";
+}
+
 // + or − under a folder list.
 component ListButton inherits Rectangle {
     in property <bool> minus;
@@ -890,6 +904,25 @@ export component PrefRow inherits Rectangle {
         }
         if item.kind != 7 && item.kind != 11 && item.kind != 12 && item.kind != 16 && item.kind != 17 && item.kind != 21 && item.kind != 22: HorizontalLayout {
             spacing: 16px;
+            // A controller's outline, drawn from its picture when openDJ
+            // has one.
+            if item.kind == 10: VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 56px;
+                    height: 34px;
+                    Path {
+                        width: 56px;
+                        height: 34px;
+                        viewbox-width: 100;
+                        viewbox-height: 60;
+                        stroke: Theme.text-dim;
+                        stroke-width: 1px;
+                        fill: transparent;
+                        commands: item.value;
+                    }
+                }
+            }
             VerticalLayout {
                 horizontal-stretch: 1;
                 alignment: center;
@@ -932,12 +965,16 @@ export component PrefRow inherits Rectangle {
                     soon := Text { x: 8px; text: item.value; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
                 }
             }
+            // A controller: its mapping menu (dimmed while off), its
+            // on/off switch and a cog opening its mapping in the Controller
+            // Editor (or the mapping wizard when it has none).
             if item.kind == 10: HorizontalLayout {
-                spacing: 8px;
+                spacing: 12px;
                 VerticalLayout {
                     alignment: center;
                     MenuField {
                         width: 260px;
+                        opacity: item.on ? 1 : 0.4;
                         text: item.choices[item.chosen];
                         choices: item.choices;
                         chosen: item.chosen;
@@ -947,22 +984,29 @@ export component PrefRow inherits Rectangle {
                 }
                 VerticalLayout {
                     alignment: center;
-                    // Edit, or Map it (the mapping wizard) for a controller
-                    // with no mapping.
-                    Button {
-                        text: item.action == "Map it" ? "Map it" : "Edit";
-                        width: 80px;
-                        opacity: item.action != "" ? 1 : 0.4;
-                        clicked => {
-                            if item.action == "Map it" {
-                                Preferences.pressed(item.id + "#quick");
-                            } else if item.action != "" {
-                                Preferences.pressed(item.id + "#edit");
+                    Switch { on: item.on; toggled(on) => { Preferences.toggled(item.id, on); } }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 26px;
+                        height: 26px;
+                        border-radius: Theme.radius;
+                        background: cta.has-hover && item.action != "" ? #2a2a2e : transparent;
+                        opacity: item.action != "" ? 1 : 0.3;
+                        CogIcon { color: cta.has-hover ? Theme.text : Theme.text-dim; }
+                        cta := TouchArea {
+                            mouse-cursor: item.action != "" ? pointer : default;
+                            clicked => {
+                                if item.action == "Map it" {
+                                    Preferences.pressed(item.id + "#quick");
+                                } else if item.action != "" {
+                                    Preferences.pressed(item.id + "#edit");
+                                }
                             }
                         }
                     }
                 }
-                RemoveCross { clicked => { Preferences.pressed(item.id + "#remove"); } }
             }
             if item.kind == 15: HorizontalLayout {
                 spacing: 8px;
