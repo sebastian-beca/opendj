@@ -7,6 +7,7 @@
 import { Theme } from "theme.slint";
 import { ControlButton, ControlKnob, Controls, CueHeadphones } from "controls.slint";
 import { DeckInfo, Header, PlayButton } from "deck.slint";
+import { CueList } from "cues.slint";
 
 export global PrepUi {
     // The loaded track's stage: 0 none (not in the library, or no
@@ -16,6 +17,9 @@ export global PrepUi {
     in property <int> left;
     // How many bars the large waveform shows.
     in-out property <int> bars: 8;
+    // The track seconds those bars take at normal speed (0: no tempo),
+    // for dragging the waveform.
+    in property <float> seconds;
     // Moves the loaded track to Play Ready and loads the next In Prep
     // track (the grid is locked first, in PrepReady below).
     callback ready-next();
@@ -152,7 +156,9 @@ component PrepTransport inherits VerticalLayout {
 component PrepPad inherits Rectangle {
     in property <string> group;
     in property <int> number;
-    in property <color> tint: Theme.hotcues[number - 1];
+    property <color> saved-color: CueList.pad-colors[number - 1];
+    property <string> name: CueList.pad-names[number - 1];
+    in property <color> tint: saved-color.alpha > 0 ? saved-color : Theme.hotcues[number - 1];
     property <int> index: Controls.resolve(group, "hotcue_" + number + "_activate");
     property <int> clear-index: Controls.resolve(group, "hotcue_" + number + "_clear");
     property <bool> clearing;
@@ -168,9 +174,13 @@ component PrepPad inherits Rectangle {
     border-color: Theme.border;
     VerticalLayout {
         padding: 7px;
-        Text { text: number; color: set ? #ffffff : Theme.text-dim; font-size: 13px; font-weight: 700; }
+        HorizontalLayout {
+            spacing: 6px;
+            Text { text: number; color: set ? #ffffff : Theme.text-dim; font-size: 13px; font-weight: 700; }
+            if set: Text { text: name; color: #ffffff; font-size: 12px; font-weight: 600; overflow: elide; horizontal-stretch: 1; }
+        }
         Rectangle { vertical-stretch: 1; }
-        Text { text: set ? time : "Click to set"; color: set ? #ffffffd0 : Theme.text-dim; font-family: "Inter Tabular"; font-size: 11px; }
+        Text { text: set ? time : "Click to set"; color: set ? #ffffffd0 : Theme.text-dim; font-family: "Inter Tabular"; font-size: 11px; overflow: elide; }
     }
     touch := TouchArea {
         mouse-cursor: pointer;
@@ -288,11 +298,11 @@ export component PrepDeck inherits Rectangle {
                     ReadyBar { }
                     HorizontalLayout {
                         spacing: 6px;
-                        for n in 4: PrepPad { group: group; number: n + 1; }
+                        for n in 4: PrepPad { group: group; number: n + 1; horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
                     }
                     HorizontalLayout {
                         spacing: 6px;
-                        for n in 4: PrepPad { group: group; number: n + 5; }
+                        for n in 4: PrepPad { group: group; number: n + 5; horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
                     }
                 }
             }

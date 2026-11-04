@@ -659,6 +659,10 @@ impl Deck {
                 self.loop_end = self.loop_start + (self.loop_end - self.loop_start) * scale;
             }
         }
+        let by = take_value(&self.c.grid_move);
+        if by != 0.0 {
+            self.grid_edit = Some((GridEdit::Drag(by), self.seconds()));
+        }
         for action in actions.into_iter().flatten() {
             let enabled = self.c.loop_enabled.get_bool();
             let size = self.c.beatloop_size.get();

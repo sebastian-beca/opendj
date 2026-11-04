@@ -39,11 +39,18 @@ view in 2-Deck and 4-Deck.
 
 Prep shows deck 1 alone, with no mixer, crossfader or effects, and opens the
 browser on **In Prep** (see
-[Stages](music.md#stages-inbox-in-prep-and-play-ready)). Load a track and
-work through it:
+[Stages](music.md#stages-inbox-in-prep-and-play-ready)). The In Prep list has
+its own columns, to see what each track still needs: **Grid** (✓ locked,
+✓ edited, ? check when the analysis wasn't sure, the number of tempo
+sections, or detected), **Cues** (how many hot cues), **Tags** (✓ with a genre and at least
+one of your tags) and **Cover**. Pick other columns from the header's menu as
+in any list; In Prep keeps its own set. Load a track and work through it:
 
 - The large waveform shows 8 bars; **−** and **+** above the hot cues show
-  more or fewer.
+  more or fewer. While the grid is unlocked, dragging the waveform slides the
+  audio under the grid, so you can line the beat lines up with the kicks by
+  hand; one drag is one **Undo**. With the grid locked, dragging moves through
+  the track as on the other layouts.
 - **Beat grid** has the grid tools from the deck's grid menu: **Bar 1 here**,
   **Beat here**, **Tap**, **Click** (a metronome on every beat), move the grid
   earlier or later, tempo **−** and **+**, **½** and **×2**, tempo sections,
@@ -51,14 +58,20 @@ work through it:
   grid from being changed.
 - **CUE** and play, jumps of 1, 4 and 8 bars, a loop, and the deck's
   headphone cue and level.
-- Eight hot cue pads with their times: click an empty pad to set it, a set one
-  to jump there, Shift-click to clear it.
+- Eight hot cue pads with their names and times: click an empty pad to set
+  it, a set one to jump there, Shift-click to clear it.
+- The side panel's **Cues** tab lists the track's hot cues, memory cues and
+  saved loops in track order. Type a name, click the dot for the next colour,
+  click a time to jump there, or click the number to move the cue to another
+  pad (the cue on that pad takes its place) or make it a memory cue.
+  **+ Memory cue** (or **C**) adds one at the playhead; while a loop plays it
+  saves the loop instead. Outside Prep the tab follows deck 1 or deck 2.
 - **Play Ready, next** locks the grid, moves the track to Play Ready and loads
   the next track In Prep. Cmd-Z (Ctrl-Z) takes the stage change back.
 
 Keys in Prep: **Enter** Play Ready, next; **1**–**8** set or jump to a hot cue
 (Shift clears it); **B** Bar 1 here; **T** tap; **M** the click; **[** and **]**
-move the grid; **−** and **=** tempo; **L** lock. Space plays and pauses, as
+move the grid; **−** and **=** tempo; **L** lock; **C** memory cue. Space plays and pauses, as
 everywhere.
 
 ## Crossfader assignment

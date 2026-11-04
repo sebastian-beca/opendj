@@ -4,12 +4,12 @@
 
 - [x] 1.1 Prep in the layout menu on Deck 1: header, large waveform with zoom, overview, grid panel, transport, eight hot cue pads; mixer, crossfader and FX bar hidden
 - [x] 1.2 Play Ready, next track (Enter): lock grid, move to Play Ready, load next In Prep track
-- [ ] 1.3 Browser opens on In Prep with Grid, Cues, Tags and Cover columns (opens on In Prep done; status columns to come)
+- [x] 1.3 Browser opens on In Prep with Grid, Cues, Tags and Cover columns
 
 ## 2. Grid and cues
 
-- [ ] 2.1 Drag the waveform to move an unlocked grid
-- [ ] 2.2 Cues side tab: hot cues, memory cues and saved loops; rename, recolour, renumber
+- [x] 2.1 Drag the waveform to move an unlocked grid
+- [x] 2.2 Cues side tab: hot cues, memory cues and saved loops; rename, recolour, renumber
 
 ## 3. Checklist and quick review
 

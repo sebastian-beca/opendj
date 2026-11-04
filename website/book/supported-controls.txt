@@ -104,6 +104,7 @@
 [Channel1],beats_scale_half
 [Channel1],beats_section_add
 [Channel1],beats_section_remove
+[Channel1],beats_translate_by
 [Channel1],beats_translate_curpos
 [Channel1],beats_translate_earlier
 [Channel1],beats_translate_later
@@ -384,6 +385,7 @@
 [Channel2],beats_scale_half
 [Channel2],beats_section_add
 [Channel2],beats_section_remove
+[Channel2],beats_translate_by
 [Channel2],beats_translate_curpos
 [Channel2],beats_translate_earlier
 [Channel2],beats_translate_later
@@ -664,6 +666,7 @@
 [Channel3],beats_scale_half
 [Channel3],beats_section_add
 [Channel3],beats_section_remove
+[Channel3],beats_translate_by
 [Channel3],beats_translate_curpos
 [Channel3],beats_translate_earlier
 [Channel3],beats_translate_later
@@ -944,6 +947,7 @@
 [Channel4],beats_scale_half
 [Channel4],beats_section_add
 [Channel4],beats_section_remove
+[Channel4],beats_translate_by
 [Channel4],beats_translate_curpos
 [Channel4],beats_translate_earlier
 [Channel4],beats_translate_later

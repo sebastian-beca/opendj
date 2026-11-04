@@ -1,0 +1,281 @@
+// The side panel's Cues tab: the hot cues, memory cues and saved loops of
+// the track on a deck, in the order they come in the track. Names are
+// edited in place, the dot picks a colour, the number moves a cue to
+// another pad or makes it a memory cue.
+import { Theme, CloseIcon } from "theme.slint";
+
+export struct CueRow {
+    // 0 to 7 for hot cues 1 to 8, -1 for a memory cue.
+    pad: int,
+    is-loop: bool,
+    time: string,
+    // Where it is: "bar 17", or how long a loop is: "4 bars".
+    detail: string,
+    name: string,
+    color: color,
+}
+
+export global CueList {
+    // The deck the tab follows: 0 deck 1, 1 deck 2. Prep keeps it on deck 1.
+    in-out property <int> deck;
+    in property <bool> prep;
+    // The track on that deck, empty when none.
+    in property <string> title;
+    in property <[CueRow]> rows;
+    // Whether a loop plays on the deck, so Save loop is offered.
+    in property <bool> looping;
+    // Names and colours of hot cues 1 to 8 on deck 1, for Prep's pads
+    // (an empty name: none; transparent: the pad's own colour).
+    in property <[string]> pad-names: ["", "", "", "", "", "", "", ""];
+    in property <[color]> pad-colors: [transparent, transparent, transparent, transparent, transparent, transparent, transparent, transparent];
+    callback pick-deck(deck: int);
+    callback rename(row: int, name: string);
+    callback recolor(row: int);
+    // Moves the cue to hot cue `pad` (0 to 7), or -1: a memory cue.
+    callback renumber(row: int, pad: int);
+    callback remove(row: int);
+    callback go(row: int);
+    // A memory cue at the playhead, or the loop playing saved.
+    callback add-memory();
+}
+
+component SmallButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> lit;
+    callback clicked();
+    height: 24px;
+    border-radius: Theme.radius;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2a2e : Theme.control;
+    border-width: 1px;
+    border-color: lit ? Theme.accent : Theme.border;
+    HorizontalLayout {
+        padding-left: 9px;
+        padding-right: 9px;
+        Text { text: root.text; color: lit ? Theme.accent : Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center; }
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// The cue's number, as a pad does: click for a menu of where it can go.
+component CueNumber inherits Rectangle {
+    in property <CueRow> cue;
+    callback open-menu();
+    width: 30px;
+    height: 24px;
+    border-radius: Theme.radius;
+    background: cue.pad >= 0 ? cue.color : transparent;
+    border-width: cue.pad >= 0 ? 0px : 1px;
+    border-color: cue.color;
+    Text {
+        text: cue.pad >= 0 ? cue.pad + 1 : "M";
+        color: cue.pad >= 0 ? #ffffff : cue.color;
+        font-size: 12px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.open-menu(); } }
+}
+
+component NameEdit inherits Rectangle {
+    in property <string> value;
+    callback commit(text: string);
+    height: 26px;
+    border-radius: Theme.radius;
+    background: input.has-focus ? Theme.well : transparent;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : ta.has-hover ? Theme.border : transparent;
+    ta := TouchArea { }
+    if input.text == "": Text {
+        x: 6px;
+        text: "Name";
+        color: Theme.text-dim.with-alpha(0.6);
+        font-size: 13px;
+        vertical-alignment: center;
+    }
+    input := TextInput {
+        x: 6px;
+        width: parent.width - 12px;
+        text: value;
+        single-line: true;
+        color: Theme.text;
+        selection-background-color: Theme.selection;
+        selection-foreground-color: Theme.on-selection;
+        font-size: 13px;
+        vertical-alignment: center;
+        accepted => {
+            if self.text != value { commit(self.text); }
+            self.clear-focus();
+        }
+        changed has-focus => {
+            if !self.has-focus && self.text != value { commit(self.text); }
+        }
+    }
+}
+
+export component CuesPanel inherits Rectangle {
+    // The row whose number menu is open, and where.
+    property <int> menu-row: -1;
+    property <length> menu-y;
+    background: Theme.browser;
+    VerticalLayout {
+        padding: 8px;
+        spacing: 6px;
+        HorizontalLayout {
+            height: 30px;
+            spacing: 6px;
+            Text { text: "Cues"; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; }
+            Text { text: CueList.title == "" ? "No track on the deck" : CueList.title; color: Theme.label; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+            if !CueList.prep: VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    spacing: 4px;
+                    for d in [0, 1]: SmallButton {
+                        text: "Deck " + (d + 1);
+                        lit: CueList.deck == d;
+                        clicked => { CueList.pick-deck(d); }
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            SmallButton {
+                text: CueList.looping ? "Save loop" : "+ Memory cue";
+                clicked => { CueList.add-memory(); }
+            }
+            Text {
+                text: "Click the number to move a cue to a pad, the dot for its colour.";
+                color: Theme.text-dim;
+                font-size: 11px;
+                wrap: word-wrap;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+        }
+        if CueList.rows.length == 0: Text {
+            text: CueList.title == "" ? "Load a track to see its cues." : "No cues yet. Click a pad, or add a memory cue at the playhead.";
+            color: Theme.text-dim;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+        Flickable {
+            vertical-stretch: 1;
+            VerticalLayout {
+                alignment: start;
+                spacing: 2px;
+                for cue[i] in CueList.rows: Rectangle {
+                    height: 40px;
+                    border-radius: Theme.radius;
+                    background: row-ta.has-hover ? #ffffff08 : transparent;
+                    row-ta := TouchArea { }
+                    HorizontalLayout {
+                        padding-left: 4px;
+                        padding-right: 4px;
+                        spacing: 8px;
+                        VerticalLayout {
+                            alignment: center;
+                            CueNumber {
+                                cue: cue;
+                                open-menu => {
+                                    menu-row = i;
+                                    menu-y = parent.absolute-position.y - root.absolute-position.y + 30px;
+                                }
+                            }
+                        }
+                        // Jump there.
+                        Rectangle {
+                            width: 74px;
+                            go-ta := TouchArea { mouse-cursor: pointer; clicked => { CueList.go(i); } }
+                            VerticalLayout {
+                                alignment: center;
+                                Text { text: cue.time; color: go-ta.has-hover ? Theme.accent : Theme.text; font-family: "Inter Tabular"; font-size: 12px; font-weight: 600; }
+                                Text { text: (cue.is-loop ? "Loop · " : "") + cue.detail; color: Theme.text-dim; font-size: 10px; }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            horizontal-stretch: 1;
+                            NameEdit {
+                                value: cue.name;
+                                commit(text) => { CueList.rename(i, text); }
+                            }
+                        }
+                        // The colour: click for the next one.
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 16px;
+                                height: 16px;
+                                border-radius: 8px;
+                                background: cue.color;
+                                border-width: dot-ta.has-hover ? 2px : 0px;
+                                border-color: #ffffff;
+                                dot-ta := TouchArea { mouse-cursor: pointer; clicked => { CueList.recolor(i); } }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 22px;
+                                height: 22px;
+                                border-radius: Theme.radius;
+                                background: x-ta.has-hover ? #2a2a2e : transparent;
+                                CloseIcon { width: 10px; height: 10px; }
+                                x-ta := TouchArea { mouse-cursor: pointer; clicked => { CueList.remove(i); } }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Where the cue can go: a pad (the cue there moves to this one's
+    // place) or the memory cues.
+    if menu-row >= 0: Rectangle {
+        TouchArea { clicked => { menu-row = -1; } }
+    }
+    if menu-row >= 0: Rectangle {
+        x: 12px;
+        y: min(menu-y, root.height - self.height - 8px);
+        width: 196px;
+        height: 76px;
+        border-radius: 6px;
+        background: Theme.panel-raised;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: #00000080;
+        VerticalLayout {
+            padding: 6px;
+            spacing: 4px;
+            HorizontalLayout {
+                spacing: 4px;
+                for p in [0, 1, 2, 3, 4, 5, 6, 7]: Rectangle {
+                    height: 26px;
+                    horizontal-stretch: 1;
+                    border-radius: Theme.radius;
+                    background: Theme.hotcues[p].with-alpha(pta.has-hover ? 1.0 : 0.7);
+                    border-width: CueList.rows[menu-row].pad == p ? 2px : 0px;
+                    border-color: #ffffff;
+                    Text { text: p + 1; color: #ffffff; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                    pta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            CueList.renumber(menu-row, p);
+                            menu-row = -1;
+                        }
+                    }
+                }
+            }
+            SmallButton {
+                text: "Memory cue";
+                lit: CueList.rows[menu-row].pad < 0;
+                clicked => {
+                    CueList.renumber(menu-row, -1);
+                    menu-row = -1;
+                }
+            }
+        }
+    }
+}
