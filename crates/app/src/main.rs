@@ -293,6 +293,12 @@ const TOP_BAR_HEIGHT: f64 = 52.0;
 const FOUR_DECK_LAYOUT: i32 = 2;
 /// Deck 1 alone, for preparing tracks (prep.slint).
 const PREP_LAYOUT: i32 = 3;
+/// Whether the Prep layout is offered (the layout menu, a controller's
+/// VIEW, the Cues and Checklist tabs, the checklist settings). Off until
+/// v0.6: the code stays and is built and tested, only hidden.
+pub(crate) const PREP_OFFERED: bool = false;
+/// The last layout the menu and controllers can pick.
+const LAST_LAYOUT: i32 = if PREP_OFFERED { PREP_LAYOUT } else { 2 };
 
 /// Seconds of audio shown across the scrolling waveform at normal speed.
 /// Dragging the waveform (`Waveform` in main.slint) uses the same figure.
@@ -402,7 +408,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     // 2-Deck, Player, 4-Deck or Prep, as last picked.
-    app.set_layout(settings::number("layout", 0.0).clamp(0.0, PREP_LAYOUT as f64) as i32);
+    app.global::<PrepUi>().set_offered(PREP_OFFERED);
+    // A layout no longer offered (Prep, while hidden) opens 2-Deck.
+    let layout = settings::number("layout", 0.0) as i32;
+    app.set_layout(if (0..=LAST_LAYOUT).contains(&layout) {
+        layout
+    } else {
+        0
+    });
     // `[Skin],layout` lets controllers switch it too (the DDJ-FLX4's
     // SHIFT + right LOAD, VIEW): 0 2-Deck, 1 Player, 2 4-Deck, 3 Prep. VIEW
     // toggles, so from 4-Deck or Prep it goes to 2-Deck.
@@ -411,7 +424,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "layout",
         app.get_layout() as f64,
         0.0,
-        PREP_LAYOUT as f64,
+        LAST_LAYOUT as f64,
         opendj_control::Behavior::Toggle,
     );
     // The deck 3 and 4 switches for two-deck controllers (see

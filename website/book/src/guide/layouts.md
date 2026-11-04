@@ -34,11 +34,12 @@ The menu at the top left of the window switches layouts:
   **WAVEFORMS** lit in the top bar, the four large waveforms are stacked above
   the decks in the same order.
   A [Groove Box](groove-box.md) deck shows its step grid only in 2-Deck.
-- **Prep** is for getting tracks ready to play: deck 1 alone, with a large
-  waveform and its tools laid out flat. See [Prep](#prep) below.
 
 The button at the bottom left of the window hides the decks for a compact
 view in 2-Deck and 4-Deck.
+
+<!-- The Prep layout is hidden until v0.6 (PREP_OFFERED in crates/app/src/main.rs).
+   Put this section and its line in the list above back with it.
 
 ## Prep
 
@@ -95,6 +96,7 @@ previous phrase (8 bars at a time when the track has no phrases); **←** and
 (Shift clears it); **B** Bar 1 here; **T** tap; **M** the click; **[** and **]**
 move the grid; **−** and **=** tempo; **L** lock; **C** memory cue. Space plays and pauses, as
 everywhere.
+-->
 
 ## Crossfader assignment
 
