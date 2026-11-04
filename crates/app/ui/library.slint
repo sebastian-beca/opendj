@@ -237,6 +237,9 @@ export global LibraryEdit {
     in-out property <length> window-height;
     // The window's width, so the library search can sit in its middle.
     in-out property <length> window-width;
+    // The top bar's search box (Player) filters the list, so the list's
+    // own box is hidden.
+    in-out property <bool> top-search;
     // The sidebar shows the history; set when the app goes back to the library.
     in-out property <bool> history-tab;
     // The selected node is one of the DJ's lists, so a track can be taken out.
@@ -3599,6 +3602,7 @@ component TrackList inherits Rectangle {
             }
             TourMark { id: "ui,search"; x: search-x; width: search-w; height: parent.height; }
             search-edit := LineEdit {
+                visible: !LibraryEdit.top-search;
                 x: search-x;
                 width: search-w;
                 height: parent.height;

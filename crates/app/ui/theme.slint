@@ -106,6 +106,16 @@ export global Theme {
     public pure function deck-color(deck: int) -> color {
         deck == 0 ? root.deck1 : deck == 1 ? root.deck2 : deck == 2 ? root.deck3 : root.deck4
     }
+
+    // A key's colour by its Camelot number (1 to 12), round the wheel as
+    // DJ key charts colour it, so keys that mix sit in neighbouring hues;
+    // grey for no key.
+    public pure function key-wheel-color(n: int) -> color {
+        n == 1 ? #4fe3c6 : n == 2 ? #5fe68e : n == 3 ? #93e85f : n == 4 ? #cde65c
+        : n == 5 ? #f1d35e : n == 6 ? #f4a960 : n == 7 ? #f2806c : n == 8 ? #ef6f9a
+        : n == 9 ? #dc72d4 : n == 10 ? #ad80f4 : n == 11 ? #7f95f6 : n == 12 ? #5cc3f0
+        : root.key-far
+    }
 }
 
 // How keys are written everywhere: Camelot ("8A") or notes ("Am").

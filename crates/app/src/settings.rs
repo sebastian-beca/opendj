@@ -82,6 +82,15 @@ pub fn set_automix_style(i: usize) {
     save(|v| v["automix_style"] = json!(i));
 }
 
+/// Automix puts each track back at the end of its list once played.
+pub fn automix_repeat() -> bool {
+    load()["automix_repeat"].as_bool().unwrap_or(false)
+}
+
+pub fn set_automix_repeat(on: bool) {
+    save(|v| v["automix_repeat"] = json!(on));
+}
+
 /// Where mixes are recorded, and in what format: in the mixed sets folder
 /// once there is one, else the recordings folder.
 pub fn recording() -> RecordSettings {

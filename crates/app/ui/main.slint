@@ -786,6 +786,8 @@ export component AppWindow inherits Window {
     // The track Automix plays next and the time before its mix starts.
     in property <string> automix-next;
     in property <string> automix-next-in;
+    // Played tracks go back to the end of the Automix list (Repeat).
+    in property <bool> automix-repeat;
     // 0 2-Deck (the full decks and mixer), 1 Player (one bar: a music
     // player over Automix), 2 four decks in strips, 3 Prep (deck 1 alone,
     // for preparing tracks).
@@ -843,6 +845,7 @@ export component AppWindow inherits Window {
     callback shortcut(text: string, cmd: bool, alt: bool, shift: bool, master: int, first: int, last: int) -> bool;
     callback automix-toggle();
     callback automix-mix-now();
+    callback automix-set-repeat(bool);
     callback automix-skip();
     callback automix-order(int);
     callback automix-order-undo();
@@ -860,6 +863,14 @@ export component AppWindow inherits Window {
         keys.focus();
         LibraryEdit.window-height = root.height;
         LibraryEdit.window-width = root.width;
+        LibraryEdit.top-search = player;
+    }
+    changed player => {
+        LibraryEdit.top-search = player;
+        // The list's search carries over into the top bar's box.
+        if player {
+            QuickSearch.text = StoreUi.search-text;
+        }
     }
     // For the track menu, which moves up to fit in the window.
     changed height => { LibraryEdit.window-height = root.height; }
@@ -1040,6 +1051,8 @@ export component AppWindow inherits Window {
             // Esc clears the library search, as in the search box itself.
             if e.text == Key.Escape && StoreUi.search-text != "" && !Preferences.open && !ImportWizard.open && !UsbExport.open {
                 StoreUi.search-text = "";
+                QuickSearch.text = "";
+                QuickSearch.open = false;
                 search("");
                 return accept;
             }
@@ -1205,7 +1218,7 @@ export component AppWindow inherits Window {
 
             // Player: one bar, what is playing, the transport and the queue button.
             player-bar := PlayerBar {
-                height: player ? 88px : 0px;
+                height: player ? 176px : 0px;
                 visible: player;
                 decks: decks;
                 overview-1: overview-1;
@@ -1218,6 +1231,8 @@ export component AppWindow inherits Window {
                 automix-next-in: automix-next-in;
                 queue-has-tracks: automix-queued > 0;
                 queue-shown: side-panel-visible && side-tab == 0;
+                automix-repeat: automix-repeat;
+                automix-set-repeat(on) => { automix-set-repeat(on); }
                 automix-toggle => { automix-toggle(); }
                 automix-mix-now => { automix-mix-now(); }
                 automix-order(i) => { automix-order(i); }
