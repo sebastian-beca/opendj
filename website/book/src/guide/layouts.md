@@ -9,6 +9,11 @@ The menu at the top left of the window switches layouts:
   is where the next mix starts. On the right are what Automix does next, the
   master volume, and the queue button, which shows or hides **Up Next** (the
   Automix list).
+  The search box in the top bar (**⌘F**) shows the best matching tracks as
+  you type. Point at one, or move with **↑** and **↓**, and pick **Play
+  next**, **Add to queue** (the end of Up Next) or **Play now**, which mixes
+  into it straight away. The keys are **↵**, **⇧↵** and **⌘↵**; **Esc**
+  clears the box.
   Underneath, decks 1 and 2 take turns and [Automix](automix.md) mixes from
   one to the other. **Play** switches Automix on, **Next** mixes into the next
   track straight away, **Previous** goes back to the start of the track, and

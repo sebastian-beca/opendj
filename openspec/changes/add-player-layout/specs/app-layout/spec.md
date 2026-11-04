@@ -22,3 +22,7 @@ The layout menu at the top left SHALL offer Player (one bar that plays music lik
 #### Scenario: Nothing extra
 - **WHEN** Player is chosen
 - **THEN** the large waveforms, the FX bar and the WAVEFORMS and FX buttons are hidden
+
+#### Scenario: Search and play next
+- **WHEN** Player is chosen and the DJ types in the search box in the top bar
+- **THEN** the best matching tracks show in a list under it, titles that match first, each with Play next, Add to queue and Play now, and Play next puts the track on the Automix list after the tracks Automix is playing or has waiting

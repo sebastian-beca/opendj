@@ -5,7 +5,8 @@ import { Controls, VuMeter, ControlKnob, HoverTipView, HoverTip } from "controls
 import { Deck, DeckInfo, KeyItem, EffectList, FxRow, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit } from "deck.slint";
 import { Mixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } from "mixer.slint";
 import { MasterPanel, MicPanel, Loudness, OnAirPanel, BroadcastState, BroadcastStation, AirTime } from "toppanels.slint";
-import { PlayerBar, PlayerDeck, PlayerMixer } from "player.slint";
+import { PlayerBar, PlayerDeck, PlayerMixer, TopSearch, QuickResults, QuickSearch, QuickRow } from "player.slint";
+export { QuickSearch, QuickRow } from "player.slint";
 import { PrepDeck, PrepUi } from "prep.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { FxBar } from "fxbar.slint";
@@ -1021,6 +1022,10 @@ export component AppWindow inherits Window {
             }
             // ⌘F (Ctrl+F on Linux and Windows) goes to the library search.
             if (e.text == "f" || e.text == "F") && e.modifiers.control && !e.modifiers.alt && !e.modifiers.shift && !Preferences.open {
+                if player {
+                    QuickSearch.focus-box();
+                    return accept;
+                }
                 focus-search();
                 return accept;
             }
@@ -1069,8 +1074,9 @@ export component AppWindow inherits Window {
                     }
                     double-clicked => { zoom-window(); }
                 }
-                // The logo and name, centred on the window whatever the pills' widths.
-                HorizontalLayout {
+                // The logo and name, centred on the window whatever the pills'
+                // widths; in Player, the search box takes their place.
+                if !player: HorizontalLayout {
                     alignment: center;
                     spacing: 8px;
                     VerticalLayout {
@@ -1086,7 +1092,15 @@ export component AppWindow inherits Window {
                     LayoutPill { layout <=> root.layout; changed-to(l) => { layout-changed(l); } }
                     if !player: WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
                     if !player: FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
-                    Rectangle { horizontal-stretch: 1; }
+                    if !player: Rectangle { horizontal-stretch: 1; }
+                    // Between the pills, as wide as there is room for.
+                    if player: HorizontalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        VerticalLayout { alignment: center; TopSearch { } }
+                    }
                     RemoteButton { }
                     MidiButton { }
                     MicButton { }
@@ -1393,6 +1407,18 @@ export component AppWindow inherits Window {
                 vertical-alignment: center;
             }
             TouchArea { clicked => { alert = ""; } }
+        }
+
+        // Player's search results, under the box in the top bar. A click
+        // anywhere else closes them.
+        if player && QuickSearch.open && QuickSearch.text != "": TouchArea {
+            y: 52px;
+            height: root.height - 52px;
+            clicked => { QuickSearch.open = false; }
+        }
+        if player && QuickSearch.open && QuickSearch.text != "": QuickResults {
+            x: (root.width - self.width) / 2;
+            y: 48px;
         }
 
         if Tour.offer && Tour.mode == 0 && update-version == "": TourOffer {

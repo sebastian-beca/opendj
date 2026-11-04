@@ -9,9 +9,9 @@
 
 ## 2. Search in the top bar
 
-- [ ] 2.1 Centred search box (⌘F) with a dropdown of tracks, artists and playlists
-- [ ] 2.2 Play next, Add to queue and Play now on each result, with keys
-- [ ] 2.3 Update the user guide
+- [x] 2.1 Search box in the top bar (⌘F) with a dropdown of the best track matches, titles first (artists and playlists later)
+- [x] 2.2 Play next, Add to queue and Play now on each result, with keys
+- [x] 2.3 Update the user guide
 
 ## 3. Now Playing
 
