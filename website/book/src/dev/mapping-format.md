@@ -7,7 +7,7 @@ other DJ apps, in one documented format: a JSON file with the extension
 The format is a **superset of Mixxx's** `.midi.xml`: anything a Mixxx
 mapping says can be written in it without loss, and it adds what other apps
 have and Mixxx doesn't (one-line openDJscript actions, shift layers, long
-press, LED scripts with colours, variables). A mapping can stand alone or be
+press, LED scripts with colors, variables). A mapping can stand alone or be
 **based on** a Mixxx mapping and hold only what it changes.
 
 ## A small example
@@ -101,9 +101,9 @@ encoder (`options: ["rot64"]` or `["diff"]`), as steps.
 | `midi` | required | The message sent: `"90 0B"`. |
 | `bind` + `min`, `max`, `on_value`, `off_value` | one of | Mixxx's `<output>`: send `on_value` (127 unless given) while the control is between `min` and `max`, else `off_value` (0). |
 | `js` | one of | Lights driven by the scripts (nothing to do here; listed so the editor can show them). |
-| `script` | one of | An openDJscript line asked several times a second; it ends in `on`, `off`, `blink` (with a time and a colour: `blink 500 'green'`), `color 'red'` or a number 0 to 127. A condition picks between them: `get_vu_meter > 75% ? off : color 'orange'`. A line that is only a level (`vu_meter`, `adjust 'rate'`, `value`) sends that level, 0 to 127, for LED rings and meters. | |
+| `script` | one of | An openDJscript line asked several times a second; it ends in `on`, `off`, `blink` (with a time and a color: `blink 500 'green'`), `color 'red'` or a number 0 to 127. A condition picks between them: `get_vu_meter > 75% ? off : color 'orange'`. A line that is only a level (`vu_meter`, `adjust 'rate'`, `value`) sends that level, 0 to 127, for LED rings and meters. | |
 | `colors` | optional | What `color` sends on this controller: `{ "red": 15, "orange": 51, "green": 60 }`. |
-| `color_notes` | optional | `true` when the controller picks a colour by note, not velocity (the Xone K2: red is the button's note, amber 36 above it, green 72 above). `color` then sends the note plus the colour's number at full velocity. |
+| `color_notes` | optional | `true` when the controller picks a color by note, not velocity (the Xone K2: red is the button's note, amber 36 above it, green 72 above). `color` then sends the note plus the color's number at full velocity. |
 | `layer`, `by_position` | optional | As for rows; a `script` light on a layer is off while the layer doesn't hold. |
 | `name`, `off`, `original`, `note` | optional | As for rows. |
 
@@ -115,7 +115,7 @@ to what worked before.
 
 | App | File | What comes across |
 |---|---|---|
-| VirtualDJ | `Mappers/*.xml` | VDJscript is read and written as openDJscript: `holding` becomes `long` and `tap` rows, deck and side words are settled for the control, `LED_` keys become lights (the Xone K2 VU meters and colours too). VirtualDJ keeps its controller definitions encrypted, so the keys are placed with openDJ's own tables for the FLX4, Xone K2 and Midi Fighter Twister. A keyboard mapping becomes a shortcut set. |
+| VirtualDJ | `Mappers/*.xml` | VDJscript is read and written as openDJscript: `holding` becomes `long` and `tap` rows, deck and side words are settled for the control, `LED_` keys become lights (the Xone K2 VU meters and colors too). VirtualDJ keeps its controller definitions encrypted, so the keys are placed with openDJ's own tables for the FLX4, Xone K2 and Midi Fighter Twister. A keyboard mapping becomes a shortcut set. |
 | Traktor | `.tsi` | Every device in the file on the same port, with its MIDI names, encoder modes, modifier conditions (as `layer`s like `m1=2`), Hold/Toggle/Direct modifier buttons and LED outputs. Native Instruments controllers in their own mode (S2, S4) can't come across. |
 | rekordbox | `.midi.csv` | The functions and their deck columns, with SHIFT rows and LEDs. |
 | djay Pro | `.djayMidiMapping` | Its actions on each message, with the deck it names. |

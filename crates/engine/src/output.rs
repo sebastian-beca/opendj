@@ -26,7 +26,7 @@ use cpal::{BufferSize, ErrorKind, FromSample, SampleFormat, SizedSample, Support
 use opendj_control::{ControlHandle, ControlRegistry};
 
 use crate::engine::Engine;
-use crate::inputs::{InputFeed, AUXILIARY, MICROPHONE, NUM_INPUTS};
+use crate::inputs::{InputFeed, AUXILIARY, AUXILIARY_2, AUXILIARY_3, MICROPHONE, NUM_INPUTS};
 
 /// The engine's mixes, each a stereo pair of the buffer it renders.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,17 +74,26 @@ pub struct Route {
 pub enum InputRole {
     /// Mono: one channel of the device, heard in both sides.
     Microphone,
-    /// Stereo: a pair of channels.
+    /// Stereo by default (a pair of channels), or mono. Up to three.
     Auxiliary,
+    Auxiliary2,
+    Auxiliary3,
 }
 
 impl InputRole {
-    pub const ALL: [InputRole; 2] = [InputRole::Microphone, InputRole::Auxiliary];
+    pub const ALL: [InputRole; 4] = [
+        InputRole::Microphone,
+        InputRole::Auxiliary,
+        InputRole::Auxiliary2,
+        InputRole::Auxiliary3,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             InputRole::Microphone => "microphone",
             InputRole::Auxiliary => "auxiliary",
+            InputRole::Auxiliary2 => "auxiliary2",
+            InputRole::Auxiliary3 => "auxiliary3",
         }
     }
 
@@ -97,15 +106,14 @@ impl InputRole {
         match self {
             InputRole::Microphone => MICROPHONE,
             InputRole::Auxiliary => AUXILIARY,
+            InputRole::Auxiliary2 => AUXILIARY_2,
+            InputRole::Auxiliary3 => AUXILIARY_3,
         }
     }
 
-    /// Channels it takes from the device.
-    pub fn channels(self) -> u16 {
-        match self {
-            InputRole::Microphone => 1,
-            InputRole::Auxiliary => 2,
-        }
+    /// Whether it can take one channel or two (the auxiliary inputs).
+    pub fn can_be_stereo(self) -> bool {
+        self != InputRole::Microphone
     }
 }
 
@@ -116,6 +124,20 @@ pub struct InputRoute {
     pub role: InputRole,
     pub device: String,
     pub channel: u16,
+    /// An auxiliary input taking one channel, heard in both sides. The
+    /// microphone is always mono.
+    pub mono: bool,
+}
+
+impl InputRoute {
+    /// Channels it takes from the device.
+    pub fn channels(&self) -> u16 {
+        if self.mono || !self.role.can_be_stereo() {
+            1
+        } else {
+            2
+        }
+    }
 }
 
 /// The routes in use, in the order the settings show them, and how the
@@ -602,12 +624,12 @@ impl Outputs {
         let device = find_input(&r.device).ok_or_else(|| format!("{label} unavailable"))?;
         let name = device_name(&device);
         let first = r.channel as usize;
-        let needed = r.channel + r.role.channels();
+        let needed = r.channel + r.channels();
         let khz = self.rate / 1000.0;
         let config = input_config_at(&device, self.rate, needed).ok_or_else(|| {
             format!(
                 "{name} can't record {} at {khz} kHz",
-                channel_names(r.channel, r.role.channels())
+                channel_names(r.channel, r.channels())
             )
         })?;
         let channels = config.channels() as usize;
@@ -615,7 +637,7 @@ impl Outputs {
         let (mut tx, rx) = rtrb::RingBuffer::<f32>::new((self.rate * 0.5) as usize * 2);
         let period = Arc::new(AtomicUsize::new(0));
         let heard = Arc::new(AtomicBool::new(false));
-        let stereo = r.role.channels() == 2;
+        let stereo = r.channels() == 2;
         let stream = input_stream(&device, &config, {
             let (period, heard) = (period.clone(), heard.clone());
             move |data: &[f32]| {
@@ -636,7 +658,7 @@ impl Outputs {
         })?;
         let status = format!(
             "{name} · {} · {khz} kHz",
-            channel_names(r.channel, r.role.channels())
+            channel_names(r.channel, r.channels())
         );
         Ok((stream, InputFeed { rx, period }, status, heard))
     }

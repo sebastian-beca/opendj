@@ -26,7 +26,7 @@ pub const DIM: i32 = 4;
 pub const TAG_WORDS: i32 = 5;
 /// The track's mini waveform.
 pub const WAVEFORM: i32 = 6;
-/// The track's colour, as a dot.
+/// The track's color, as a dot.
 pub const COLOR_DOT: i32 = 7;
 
 /// Column ids. The first eight are the list's original sort columns, so
@@ -62,7 +62,7 @@ pub const CRATES: i32 = 21;
 pub const ORDER: i32 = 22;
 /// When a history session's track was played.
 pub const PLAYED_AT: i32 = 23;
-/// The colour the DJ gave the track.
+/// The color the DJ gave the track.
 pub const COLOR: i32 = 24;
 /// The beat grid: checked (locked or edited), unsure, or in sections.
 pub const GRID: i32 = 25;
@@ -100,7 +100,7 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
         kind,
     };
     let mut out = vec![
-        d(COLOR, "Colour", 30.0, false, COLOR_DOT),
+        d(COLOR, "Color", 30.0, false, COLOR_DOT),
         d(RATING_ID, "Rating", 64.0, false, RATING),
         d(TITLE_ID, "Title", 0.0, false, TITLE),
         d(ARTIST, "Artist", 170.0, false, TEXT),
@@ -246,7 +246,7 @@ impl Layout {
         });
     }
 
-    /// Shows the Colour column first (`on`) or hides it. Returns whether
+    /// Shows the Color column first (`on`) or hides it. Returns whether
     /// that changed anything.
     pub fn show_color(&mut self, on: bool, defs: &[Def]) -> bool {
         if self.has(COLOR) == on {
@@ -561,7 +561,7 @@ pub fn compare(id: i32, a: &Track, b: &Track) -> Ordering {
     }
 }
 
-/// Colours in the order the menu lists them (red, orange, yellow, green,
+/// Colors in the order the menu lists them (red, orange, yellow, green,
 /// cyan, blue, purple, pink), others after them, none last.
 pub fn color_order(color: Option<u32>) -> (usize, u32) {
     use opendj_library::query::COLOR_NAMES;
@@ -649,8 +649,8 @@ impl ColumnState {
     pub fn new(names: &FieldNames) -> Self {
         let defs = all(names);
         let mut layout = Layout::new(settings::columns(), settings::hidden_columns(), &defs);
-        // Colours show as dots unless the DJ picked otherwise: a layout
-        // saved before the Colour column existed gets it once.
+        // Colors show as dots unless the DJ picked otherwise: a layout
+        // saved before the Color column existed gets it once.
         if settings::track_color().is_none() {
             if layout.show_color(true, &defs) {
                 settings::set_columns(&layout);
@@ -775,7 +775,7 @@ impl Browser {
             w(&|b| {
                 let mode = mode.clamp(0, 3);
                 settings::set_track_color(mode as u8);
-                // The dots come with the Colour column, and go with it.
+                // The dots come with the Color column, and go with it.
                 let c = &mut b.columns;
                 let defs = &c.defs;
                 let lists = if c.shown == Columns::Lists {

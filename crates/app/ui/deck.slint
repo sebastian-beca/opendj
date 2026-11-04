@@ -205,7 +205,7 @@ component GridMenu inherits PopupWindow {
 }
 
 // The jog: a black platter with the progress ring on its rim,
-// a coloured sticker that turns with the record, and a grey centre with the
+// a colored sticker that turns with the record, and a grey centre with the
 // rate, tempo, and elapsed and remaining time.
 export component Jog inherits Rectangle {
     in property <string> group;
@@ -220,7 +220,7 @@ export component Jog inherits Rectangle {
     width: 104px;
     height: 104px;
     property <float> scale: self.width / 104px;
-    // The last hot cue pressed colours the sticker; the deck colour until then.
+    // The last hot cue pressed colors the sticker; the deck color until then.
     property <int> last-cue: Controls.value(Controls.resolve(group, "hotcue_focus"), Controls.tick);
     property <color> sticker: last-cue >= 1 ? Theme.hotcues[last-cue - 1] : tint;
     property <length> centre: 70px * scale;
@@ -391,7 +391,7 @@ export component Jog inherits Rectangle {
     TourMark { id: plain ? "" : root.group + ",jog"; }
 }
 
-// Album art, large; without any, the deck colour with the
+// Album art, large; without any, the deck color with the
 // artist's initials. Picking it up drags the deck's track to another deck,
 // the side panel or one of the DJ's lists.
 export component Cover inherits Rectangle {
@@ -462,7 +462,7 @@ component KeyBox inherits VerticalLayout {
         // Click to switch every key display between Camelot and notes.
         Text {
             text: info.loaded ? info.key : "--";
-            // A shifted key is shown in the accent colour.
+            // A shifted key is shown in the accent color.
             color: info.key-shift != "" ? Theme.accent : Theme.key;
             font-size: 18px;
             font-weight: 600;
@@ -575,7 +575,7 @@ export struct BeatCount {
     bar: int,
     // The last bar before the next phrase.
     last-bar: bool,
-    // "phrase.bar.beat", and "↓ 6 › DROP" in the next phrase's colour.
+    // "phrase.bar.beat", and "↓ 6 › DROP" in the next phrase's color.
     label: string,
     countdown: string,
     next-color: color,
@@ -1408,7 +1408,7 @@ component StemPad inherits Rectangle {
         letter-spacing: 0.5px;
         color: info.stem-hq ? Theme.accent : Theme.text-dim.with-alpha(0.7);
     }
-    // The stem's colour, under its name.
+    // The stem's color, under its name.
     Rectangle {
         y: parent.height / 2 + 8px;
         width: min(parent.width * 0.4, 44px);
@@ -1473,7 +1473,7 @@ component StemPad inherits Rectangle {
     }
 }
 
-// One cell of the pad grid: flat, lit in its colour while its light is on.
+// One cell of the pad grid: flat, lit in its color while its light is on.
 component PadCell inherits Rectangle {
     in property <string> group;
     in property <string> key;
@@ -1547,7 +1547,7 @@ component KeyPad inherits Rectangle {
 }
 
 // A hot cue: a small play triangle and the cue's time in
-// its colour, or "+" while it isn't set (pressing sets it).
+// its color, or "+" while it isn't set (pressing sets it).
 // Shift + press deletes a set cue, as on controllers.
 component HotcueCell inherits Rectangle {
     in property <string> group;
@@ -1831,7 +1831,7 @@ export component Pads inherits HorizontalLayout {
     // each, and with Shift a step up or down.
     property <[float]> key-shift: [0, 1, 2, 3, -3, -2, -1, 0];
     property <[float]> key-steps: [1, 2, 3, 4, -4, -3, -2, -1];
-    // KEYBOARD pads take the colour of the hot cue they play.
+    // KEYBOARD pads take the color of the hot cue they play.
     property <int> cue-focus: Controls.value(Controls.resolve(group, "hotcue_focus"), Controls.tick);
     property <color> keyboard-tint: cue-focus >= 1 && cue-focus <= 8 ? Theme.hotcues[cue-focus - 1] : tint;
     // A controller's pad mode buttons open a tab by its place through
@@ -1975,7 +1975,7 @@ export component Pads inherits HorizontalLayout {
                             stem: stem-pads[row * 4 + i].stem;
                             text: stem-pads[row * 4 + i].text;
                             show-quality: row == 0 && i == 3;
-                            // The track's own colour for a stem, else VirtualDJ's.
+                            // The track's own color for a stem, else VirtualDJ's.
                             tint: stem-pads[row * 4 + i].stem > 0 && stem-pads[row * 4 + i].stem <= info.stem-colors.length
                                 ? info.stem-colors[stem-pads[row * 4 + i].stem - 1] : stem-pads[row * 4 + i].tint;
                             horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
@@ -2160,7 +2160,7 @@ component Pitch inherits VerticalLayout {
 }
 
 // Play and pause in one button showing ▶: outlined and drawn in the deck
-// colour while playing, and that same outline blinks while a track waits,
+// color while playing, and that same outline blinks while a track waits,
 // as in djay Pro. The background stays plain, like every other button.
 export component PlayButton inherits Rectangle {
     // Names it for the guided tour (see TourMark).
@@ -2373,7 +2373,7 @@ component JogSection inherits VerticalLayout {
 }
 
 
-// One step: lit in the deck colour when on; the step playing has a white
+// One step: lit in the deck color when on; the step playing has a white
 // edge, and the first of each beat is shaded a little lighter.
 component StepCell inherits Rectangle {
     in property <bool> on;
@@ -2590,7 +2590,7 @@ component LivePanel inherits Rectangle {
     in property <int> live;
     in property <string> group;
     in property <color> tint;
-    property <string> input-group: ["[Microphone]", "[Auxiliary1]", "[Instrument1]"][live - 1];
+    property <string> input-group: ["[Microphone]", "[Auxiliary1]", "[Instrument1]", "[Auxiliary2]", "[Auxiliary3]"][live - 1];
     property <bool> ready: Controls.value(Controls.resolve(input-group, "input_configured"), Controls.tick) > 0;
     property <float> level: Controls.value(Controls.resolve(group, "vu_meter"), Controls.tick);
     property <int> octave-index: Controls.resolve("[Instrument1]", "octave");

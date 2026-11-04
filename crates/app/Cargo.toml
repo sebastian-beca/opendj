@@ -26,6 +26,8 @@ read-fonts = "0.41"
 ring = "0.17"
 rusty-chromaprint = "0.3"
 skrifa = "0.44"
+# The disk's size and free room, for Settings › Collection › Storage.
+sysinfo = { version = "0.38", default-features = false, features = ["disk"] }
 slint = { version = "~1.18", features = ["unstable-wgpu-30", "unstable-fontique-011", "unstable-winit-030", "renderer-femtovg-wgpu"] }
 ureq = { version = "3", features = ["json"] }
 write-fonts = "0.50"

@@ -31,7 +31,7 @@ passes.
 
 Beside the title, four squares light up one beat at a time, so you can see
 where the bar is: the first beat of each bar lights white, the others in the
-deck's colour. The thin bars under them fill up through each group of four
+deck's color. The thin bars under them fill up through each group of four
 bars, and all four turn lilac in the last bar before a new phrase starts,
 so you know the change is one bar away.
 
@@ -47,7 +47,7 @@ Choose **Off**, **Beats** (squares only) or **Beats and phrases** under
 **Settings › Decks › Beat counter**. The 4-Deck strips show the squares
 only.
 
-**PLAY**, **CUE** and **SYNC** show an outline in the deck's colour while
+**PLAY**, **CUE** and **SYNC** show an outline in the deck's color while
 they're on. **Shift-click** and hold PLAY while the deck plays for
 [censor](#slip-bend-and-censor).
 
@@ -189,8 +189,9 @@ headphones. Its **Ableton Link** switch is described in
 [Ableton Link](link.md). **Audio Settings…** opens the
 outputs in Settings. Levels are kept between runs.
 
-The **MIC** button opens the microphone and the auxiliary input, each with
-**ON** and a level. The microphone has effects of its own under **MIC FX**,
-which the decks' effects never touch, and **AUX** sends the auxiliary input
-through them too. Choose the inputs in **Settings › Audio**. The auxiliary
-input starts off.
+The arrow on the **MIC** button opens the microphone, with **ON**, a level
+and one **MIC FX** slot of its own, which the decks' effects never touch.
+Auxiliary inputs play on a deck from the **Instruments** source. Choose
+the inputs in **Settings › Audio**: **+** under the inputs adds a second
+and third auxiliary input, and each auxiliary input takes a pair of
+channels (stereo) or one (mono).

@@ -31,9 +31,9 @@ a big list takes a while. Music already on the stick isn't copied again.
 
 - The audio, under `Contents/Artist/Album/` on the stick.
 - Each track's analysis: beat grid, hot cues A–H with their names and
-  colours, memory cues and loops, and the waveforms players draw (blue,
+  colors, memory cues and loops, and the waveforms players draw (blue,
   RGB and three-band).
-- Title, artist, album, genre, label, key, BPM, rating, colour, comment,
+- Title, artist, album, genre, label, key, BPM, rating, color, comment,
   year and play count. Keys are written the way openDJ shows them (Camelot
   or notes, from **Settings › Analysis**).
 - Album art.
@@ -63,7 +63,7 @@ USB export stands on the work of others:
   around and has reported upstream.
 - **[Bake'n Deck](https://github.com/M-Igashi/baken)** by Masanari Higashi
   (MIT) worked out, and tested on real CDJs, how rekordbox encodes
-  waveforms, cue colours, analysis folders and album art. openDJ follows it.
+  waveforms, cue colors, analysis folders and album art. openDJ follows it.
 - **[rbxport](https://github.com/chrisle/rbxport)** by Chris Le
   (GPL-2.0-or-later) documents the stick format in depth; openDJ checks its
   exports against that reference.

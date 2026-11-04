@@ -6585,6 +6585,7 @@ dependencies = [
  "skrifa",
  "slint",
  "slint-build",
+ "sysinfo 0.38.4",
  "ureq",
  "windows-sys 0.61.2",
  "winresource",

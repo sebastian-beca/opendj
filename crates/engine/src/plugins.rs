@@ -205,7 +205,8 @@ fn target_name(target: usize) -> String {
     } else if target == MAIN {
         "Master".into()
     } else {
-        ["Mic", "Aux", "Instrument"][(target - MAIN - 1).min(NUM_INPUTS - 1)].into()
+        ["Mic", "Aux", "Instrument", "Aux 2", "Aux 3"][(target - MAIN - 1).min(NUM_INPUTS - 1)]
+            .into()
     }
 }
 
