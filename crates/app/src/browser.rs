@@ -882,6 +882,18 @@ fn dragged(data: &DataTransfer) -> Option<Dragged> {
 
 /// Moves `list[first..=last]` to go in before `at` (an index into the list
 /// as it was), keeping their order.
+/// `base`, or `base 2`, `base 3`… when the DJ already has a list by that name.
+fn untaken_name(base: &str, taken: &[&str]) -> String {
+    let free = |name: &str| !taken.iter().any(|t| t.eq_ignore_ascii_case(name));
+    if free(base) {
+        return base.to_string();
+    }
+    (2..)
+        .map(|n| format!("{base} {n}"))
+        .find(|name| free(name))
+        .unwrap_or_default()
+}
+
 fn move_block<T>(list: &mut Vec<T>, first: usize, last: usize, at: usize) {
     let len = list.len();
     if first >= len {
@@ -3278,14 +3290,23 @@ impl Browser {
             .map(|&n| &self.nodes[n])
             .filter(|n| n.kind == KIND_FOLDER)
             .and_then(|n| n.playlist);
+        // Numbered past the DJ's other lists, so each new one can be told
+        // apart even when it keeps the name it was given.
+        let taken: Vec<&str> = self
+            .nodes
+            .iter()
+            .filter(|n| n.playlist.is_some())
+            .map(|n| n.name.as_str())
+            .collect();
+        let name = |base: &str| untaken_name(base, &taken);
         let made = match (what, parent) {
-            (0, _) => db.create_playlist("New crate", None, PlaylistKind::List),
-            (1, parent) => db.create_playlist("New folder", parent, PlaylistKind::Folder),
+            (0, _) => db.create_playlist(&name("New crate"), None, PlaylistKind::List),
+            (1, parent) => db.create_playlist(&name("New folder"), parent, PlaylistKind::Folder),
             (_, Some(parent)) => {
-                db.create_playlist("New playlist", Some(parent), PlaylistKind::List)
+                db.create_playlist(&name("New playlist"), Some(parent), PlaylistKind::List)
             }
             // At the top of Playlists, marked so it isn't taken for a crate.
-            (_, None) => db.create_top_playlist("New playlist"),
+            (_, None) => db.create_top_playlist(&name("New playlist")),
         };
         match made {
             Ok(id) => {
@@ -3308,10 +3329,11 @@ impl Browser {
     }
 
     fn rename_node(&mut self, row: usize, name: &str) {
-        let (Some(id), Some(db)) = (self.playlist_at(row), &self.db) else {
+        let name = name.trim();
+        let (Some(id), Some(db), false) = (self.playlist_at(row), &self.db, name.is_empty()) else {
             return;
         };
-        if let Err(e) = db.rename_playlist(id, name.trim()) {
+        if let Err(e) = db.rename_playlist(id, name) {
             eprintln!("can't rename the list: {e}");
         }
         self.reload_tree(None);
@@ -5345,5 +5367,23 @@ mod stream_state_tests {
         assert!(!new.fresh.contains("liked"), "no version: fetched again");
         assert!(new.tracks.contains_key("changed"), "shown until then");
         assert!(!new.tracks.contains_key("gone"));
+    }
+}
+
+#[cfg(test)]
+mod naming_tests {
+    use super::untaken_name;
+
+    #[test]
+    fn new_lists_are_numbered_past_taken_names() {
+        assert_eq!(untaken_name("New playlist", &["Warm-up"]), "New playlist");
+        assert_eq!(
+            untaken_name("New playlist", &["new playlist"]),
+            "New playlist 2"
+        );
+        assert_eq!(
+            untaken_name("New crate", &["New crate", "New crate 2", "New crate 4"]),
+            "New crate 3"
+        );
     }
 }
