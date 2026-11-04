@@ -4,7 +4,8 @@
 //! screen or on a controller (both just move the controls).
 //!
 //! A lesson is data ([`Lesson`], [`Step`]), so other lessons, such as the
-//! advanced tutorials, are more of the same. The setup dialog shows the
+//! advanced tutorials ([`crate::tutorials`]), are more of the same. The
+//! setup dialog shows the
 //! Settings pages' own rows ([`Prefs::tour_items`]), so they work as they
 //! do there. Settings › Help runs the tour again, whole or a part.
 
@@ -21,6 +22,7 @@ use serde_json::json;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use crate::prefs::Prefs;
+use crate::tutorials::{self, Tutorial};
 use crate::{
     settings, short_port_name, AppWindow, ControllerEditor, MixerMode, PrefItem, Tour as TourUi,
     TourSetup,
@@ -57,8 +59,16 @@ pub enum Wait {
     Below(&'static str, &'static str, f64),
     /// A different track on the deck (from 0) than when the step began.
     Loaded(usize),
+    /// Any track on the deck (from 0), even the one there when the step
+    /// began.
+    HasTrack(usize),
+    /// A control's value differs from when the step began.
+    Changed(&'static str, &'static str),
+    /// Something on screen that isn't a control, such as the FX bar showing.
+    App(fn(&AppWindow) -> bool),
     Both(&'static Wait, &'static Wait),
     Either(&'static Wait, &'static Wait),
+    Any(&'static [Wait]),
 }
 
 /// What a tip's button does for the DJ.
@@ -66,6 +76,10 @@ pub enum Wait {
 pub enum Action {
     /// Puts demo track `demo` (from 0) on `deck`.
     LoadDemo { deck: usize, demo: usize },
+    /// Sets a control, such as `pad_panel` to show a page of pads.
+    Set(&'static str, &'static str, f64),
+    /// Opens a page, such as the step's part of the user guide.
+    Open(&'static str),
 }
 
 /// One tip of a lesson.
@@ -87,6 +101,9 @@ pub struct Lesson {
     pub layout: Option<i32>,
     /// Controls set before the first tip, so it starts the same each time.
     pub prepare: &'static [(&'static str, &'static str, f64)],
+    /// Controls its steps may change that are put back after, such as which
+    /// panel each pad tab shows.
+    pub keep: &'static [Control],
     pub steps: &'static [Step],
 }
 
@@ -112,6 +129,7 @@ pub const FIRST_MIX: Lesson = Lesson {
         (EQ_B, "parameter1", 1.0),
         ("[Mixer]", "knob_mode", 0.0),
     ],
+    keep: &[],
     steps: &[
         Step {
             target: "[Channel1],load",
@@ -247,6 +265,12 @@ enum State {
         step: usize,
         /// The decks' tracks when the step began, for [`Wait::Loaded`].
         loaded: [Option<Arc<Track>>; NUM_DECKS],
+        /// The values of the step's [`Wait::Changed`] controls when it began.
+        start: Vec<(Control, f64)>,
+        /// The tutorial this lesson is, marked done once finished.
+        tutorial: Option<&'static Tutorial>,
+        /// The lesson's [`Lesson::keep`] controls as they were, to put back.
+        kept: Vec<(Control, f64)>,
         /// When the step was done, to go on a moment later.
         done_at: Option<Instant>,
         /// The layout to put back.
@@ -329,6 +353,8 @@ impl Tour {
                 .and_then(|p| Part::ALL.get(p).copied());
             t.borrow_mut().start(part)
         });
+        let t = tour.clone();
+        g.on_start_tutorial(move |id| t.borrow_mut().start_tutorial(&id));
         let weak = app.as_weak();
         g.on_dismiss_offer(move || {
             settings::set(TOUR_KEY, json!(TOUR_DONE));
@@ -401,7 +427,7 @@ impl Tour {
         match &mut self.state {
             State::Off => {}
             State::Setup { pages, at } if pages[*at] == Page::Part(Part::Mixing) => {
-                self.start_lesson(&FIRST_MIX)
+                self.start_lesson(&FIRST_MIX, None)
             }
             State::Setup { pages, at } if *at + 1 < pages.len() => {
                 *at += 1;
@@ -411,7 +437,13 @@ impl Tour {
                 *step += 1;
                 self.show_step();
             }
-            State::Setup { .. } | State::Lesson { .. } => self.end(),
+            State::Lesson { tutorial, .. } => {
+                if let Some(t) = tutorial {
+                    tutorials::mark_done(t.id);
+                }
+                self.end()
+            }
+            State::Setup { .. } => self.end(),
         }
     }
 
@@ -461,8 +493,38 @@ impl Tour {
                     self.engine.load_track(deck, t.clone());
                 }
             }
+            Some((_, Action::Set(group, key, value))) => {
+                if let Some(c) = self.registry.get(group, key) {
+                    c.set(value);
+                }
+            }
+            Some((_, Action::Open(url))) => {
+                crate::spotify::open_in_browser(url);
+            }
             None => {}
         }
+    }
+
+    /// Starts a tutorial from Settings › Help, if what it needs is there.
+    pub fn start_tutorial(&mut self, id: &str) {
+        let Some(tutorial) = tutorials::find(id) else {
+            return;
+        };
+        if !self.can_take(tutorial) {
+            return;
+        }
+        self.stop_lesson();
+        self.listen_off();
+        self.whole = false;
+        self.start_lesson(tutorial.lesson, Some(tutorial));
+    }
+
+    /// Whether a tutorial can start: its controller, if it needs one, is
+    /// plugged in.
+    pub fn can_take(&self, tutorial: &Tutorial) -> bool {
+        tutorial
+            .controller
+            .is_none_or(|name| self.plugged_in().iter().any(|p| p.contains(name)))
     }
 
     /// A tour button on a settings row in the dialog.
@@ -611,7 +673,7 @@ impl Tour {
         self.ports_now().into_iter().map(|p| p.name).collect()
     }
 
-    fn start_lesson(&mut self, lesson: &'static Lesson) {
+    fn start_lesson(&mut self, lesson: &'static Lesson, tutorial: Option<&'static Tutorial>) {
         self.listen_off();
         let Some(app) = self.app.upgrade() else {
             return;
@@ -623,6 +685,11 @@ impl Tour {
         // The decks and mixer show, with the EQ knobs.
         app.set_library_expanded(false);
         app.global::<MixerMode>().set_mode(0);
+        let kept = lesson
+            .keep
+            .iter()
+            .filter_map(|&(g, k)| self.registry.get(g, k).map(|c| ((g, k), c.get())))
+            .collect();
         for &(group, key, value) in lesson.prepare {
             if let Some(c) = self.registry.get(group, key) {
                 c.set(value);
@@ -632,6 +699,9 @@ impl Tour {
             lesson,
             step: 0,
             loaded: Default::default(),
+            start: Vec::new(),
+            tutorial,
+            kept,
             done_at: None,
             layout,
         };
@@ -641,7 +711,18 @@ impl Tour {
 
     /// Puts back what the lesson changed, if one runs.
     fn stop_lesson(&mut self) {
-        if let State::Lesson { lesson, layout, .. } = self.state {
+        if let State::Lesson {
+            lesson,
+            layout,
+            ref kept,
+            ..
+        } = self.state
+        {
+            for &((g, k), value) in kept {
+                if let Some(c) = self.registry.get(g, k) {
+                    c.set(value);
+                }
+            }
             if lesson.layout.is_some() {
                 self.set_layout(layout);
             }
@@ -660,10 +741,12 @@ impl Tour {
     /// Shows the lesson's step.
     fn show_step(&mut self) {
         let tracks = self.engine.loaded_tracks().read().unwrap().clone();
+        let registry = self.registry.clone();
         let State::Lesson {
             lesson,
             step,
             loaded,
+            start,
             done_at,
             ..
         } = &mut self.state
@@ -672,13 +755,22 @@ impl Tour {
         };
         *loaded = tracks;
         *done_at = None;
+        start.clear();
+        changed_controls(&lesson.steps[*step].wait, start);
+        for (control, value) in start.iter_mut() {
+            *value = registry.get(control.0, control.1).map_or(0.0, |c| c.get());
+        }
         let s = &lesson.steps[*step];
         let last = *step + 1 == lesson.steps.len();
         let Some(app) = self.app.upgrade() else {
             return;
         };
         let g = app.global::<TourUi>();
-        g.set_placed(false);
+        // The mark places the tip when it rings, so it keeps its place when
+        // the next step points at the same control.
+        if g.get_target() != s.target {
+            g.set_placed(false);
+        }
         g.set_target(s.target.into());
         g.set_step(format!("STEP {} OF {}", *step + 1, lesson.steps.len()).into());
         g.set_title(s.title.into());
@@ -694,10 +786,12 @@ impl Tour {
     fn check_step(&mut self) {
         let tracks = self.engine.loaded_tracks().read().unwrap().clone();
         let registry = self.registry.clone();
+        let app = self.app.upgrade();
         let State::Lesson {
             lesson,
             step,
             loaded,
+            start,
             done_at,
             ..
         } = &mut self.state
@@ -709,9 +803,16 @@ impl Tour {
             Some(_) => return,
             None => {
                 let value = |g: &str, k: &str| registry.get(g, k).map(|c| c.get());
-                if met(&lesson.steps[*step].wait, &value, loaded, &tracks) {
+                let seen = Seen {
+                    value: &value,
+                    start,
+                    before: loaded,
+                    now: &tracks,
+                    app: app.as_ref(),
+                };
+                if met(&lesson.steps[*step].wait, &seen) {
                     *done_at = Some(Instant::now());
-                    if let Some(app) = self.app.upgrade() {
+                    if let Some(app) = &app {
                         app.global::<TourUi>().set_done(true);
                     }
                 }
@@ -726,28 +827,75 @@ impl Tour {
 const TOUR_KEY: &str = "tour";
 const TOUR_DONE: &str = "done";
 
-/// Whether `wait` is met, with `value` reading a control and `before` the
-/// decks' tracks when the step began.
-fn met(
-    wait: &Wait,
-    value: &dyn Fn(&str, &str) -> Option<f64>,
-    before: &[Option<Arc<Track>>],
-    now: &[Option<Arc<Track>>],
-) -> bool {
+/// A control, by group and key.
+pub type Control = (&'static str, &'static str);
+
+/// What a step's [`Wait`] is checked against.
+struct Seen<'a> {
+    /// Reads a control.
+    value: &'a dyn Fn(&str, &str) -> Option<f64>,
+    /// The [`Wait::Changed`] controls' values when the step began.
+    start: &'a [(Control, f64)],
+    /// The decks' tracks when the step began, and now.
+    before: &'a [Option<Arc<Track>>],
+    now: &'a [Option<Arc<Track>>],
+    /// The window, for [`Wait::App`]; none in tests.
+    app: Option<&'a AppWindow>,
+}
+
+/// Whether `wait` is met.
+fn met(wait: &Wait, seen: &Seen) -> bool {
     match *wait {
         Wait::Next => false,
-        Wait::Above(g, k, level) => value(g, k).is_some_and(|v| v > level),
-        Wait::Below(g, k, level) => value(g, k).is_some_and(|v| v < level),
+        Wait::Above(g, k, level) => (seen.value)(g, k).is_some_and(|v| v > level),
+        Wait::Below(g, k, level) => (seen.value)(g, k).is_some_and(|v| v < level),
         Wait::Loaded(deck) => match (
-            before.get(deck).cloned().flatten(),
-            now.get(deck).cloned().flatten(),
+            seen.before.get(deck).cloned().flatten(),
+            seen.now.get(deck).cloned().flatten(),
         ) {
             (_, None) => false,
             (None, Some(_)) => true,
             (Some(a), Some(b)) => !Arc::ptr_eq(&a, &b),
         },
-        Wait::Both(a, b) => met(a, value, before, now) && met(b, value, before, now),
-        Wait::Either(a, b) => met(a, value, before, now) || met(b, value, before, now),
+        Wait::HasTrack(deck) => seen.now.get(deck).is_some_and(Option::is_some),
+        Wait::Changed(g, k) => {
+            let was = seen
+                .start
+                .iter()
+                .find(|((sg, sk), _)| *sg == g && *sk == k)
+                .map(|&(_, v)| v);
+            match ((seen.value)(g, k), was) {
+                (Some(now), Some(was)) => (now - was).abs() > 1e-6,
+                _ => false,
+            }
+        }
+        Wait::App(f) => seen.app.is_some_and(f),
+        Wait::Both(a, b) => met(a, seen) && met(b, seen),
+        Wait::Either(a, b) => met(a, seen) || met(b, seen),
+        Wait::Any(waits) => waits.iter().any(|w| met(w, seen)),
+    }
+}
+
+/// The controls `wait` watches for a change, each once, with a value to
+/// fill in.
+fn changed_controls(wait: &Wait, out: &mut Vec<(Control, f64)>) {
+    match *wait {
+        Wait::Changed(g, k) => {
+            if !out.iter().any(|(c, _)| *c == (g, k)) {
+                out.push(((g, k), 0.0));
+            }
+        }
+        Wait::Both(a, b) | Wait::Either(a, b) => {
+            changed_controls(a, out);
+            changed_controls(b, out);
+        }
+        Wait::Any(waits) => waits.iter().for_each(|w| changed_controls(w, out)),
+        Wait::Next
+        | Wait::Above(..)
+        | Wait::Below(..)
+        | Wait::Loaded(_)
+        | Wait::HasTrack(_)
+        | Wait::App(_) => {}
     }
 }
 
@@ -893,6 +1041,24 @@ mod tests {
         synth::sample_library().get(id).cloned()
     }
 
+    /// Checks `wait` with controls read by `value`, no tracks and no window.
+    fn met_with(wait: &Wait, value: &dyn Fn(&str, &str) -> Option<f64>) -> bool {
+        let none: [Option<Arc<Track>>; 1] = [None];
+        let mut start = Vec::new();
+        changed_controls(wait, &mut start);
+        for (_, v) in start.iter_mut() {
+            *v = 0.5;
+        }
+        let seen = Seen {
+            value,
+            start: &start,
+            before: &none,
+            now: &none,
+            app: None,
+        };
+        met(wait, &seen)
+    }
+
     #[test]
     fn a_step_waits_for_its_controls() {
         let values = |play: f64, low: f64| {
@@ -902,72 +1068,131 @@ mod tests {
                 _ => None,
             }
         };
-        let none: [Option<Arc<Track>>; 1] = [None];
         let play = Wait::Above("[Channel1]", "play", 0.5);
-        assert!(!met(&play, &values(0.0, 1.0), &none, &none));
-        assert!(met(&play, &values(1.0, 1.0), &none, &none));
+        assert!(!met_with(&play, &values(0.0, 1.0)));
+        assert!(met_with(&play, &values(1.0, 1.0)));
         let both = Wait::Both(
             &Wait::Above("[Channel1]", "play", 0.5),
             &Wait::Below(EQ_A, "parameter1", 0.25),
         );
-        assert!(!met(&both, &values(1.0, 1.0), &none, &none));
-        assert!(met(&both, &values(1.0, 0.0), &none, &none));
+        assert!(!met_with(&both, &values(1.0, 1.0)));
+        assert!(met_with(&both, &values(1.0, 0.0)));
         let either = Wait::Either(
             &Wait::Below("[Channel1]", "play", 0.5),
             &Wait::Below(EQ_A, "parameter1", 0.25),
         );
-        assert!(met(&either, &values(1.0, 0.0), &none, &none));
-        // A control that isn't there never counts, and Next waits for Next.
-        assert!(!met(
+        assert!(met_with(&either, &values(1.0, 0.0)));
+        let any = Wait::Any(&[
+            Wait::Below("[Channel1]", "play", 0.5),
+            Wait::Below(EQ_A, "parameter1", 0.25),
+        ]);
+        assert!(!met_with(&any, &values(1.0, 1.0)));
+        assert!(met_with(&any, &values(1.0, 0.0)));
+        // A control that isn't there never counts, Next waits for Next, and
+        // with no window nothing on screen counts.
+        assert!(!met_with(
             &Wait::Above("[Nope]", "x", 0.0),
-            &values(1.0, 1.0),
-            &none,
-            &none
+            &values(1.0, 1.0)
         ));
-        assert!(!met(&Wait::Next, &values(1.0, 1.0), &none, &none));
+        assert!(!met_with(&Wait::Next, &values(1.0, 1.0)));
+        assert!(!met_with(&Wait::App(|_| true), &values(1.0, 1.0)));
+    }
+
+    #[test]
+    fn a_change_counts_from_when_the_step_began() {
+        // met_with takes 0.5 as each watched control's starting value.
+        let at = |low: f64| move |_: &str, _: &str| Some(low);
+        let changed = Wait::Changed(EQ_A, "parameter1");
+        assert!(!met_with(&changed, &at(0.5)));
+        assert!(met_with(&changed, &at(0.7)));
+        let mut watched = Vec::new();
+        changed_controls(
+            &Wait::Any(&[
+                Wait::Changed(EQ_A, "parameter1"),
+                Wait::Either(
+                    &Wait::Changed(EQ_A, "parameter1"),
+                    &Wait::Changed(EQ_B, "parameter1"),
+                ),
+            ]),
+            &mut watched,
+        );
+        assert_eq!(watched.len(), 2);
     }
 
     #[test]
     fn loading_counts_only_a_different_track() {
         let value = |_: &str, _: &str| None;
         let (a, b) = (track(0), track(1));
+        let check = |wait: &Wait, before: &[Option<Arc<Track>>], now: &[Option<Arc<Track>>]| {
+            met(
+                wait,
+                &Seen {
+                    value: &value,
+                    start: &[],
+                    before,
+                    now,
+                    app: None,
+                },
+            )
+        };
         let wait = Wait::Loaded(0);
-        assert!(!met(
-            &wait,
-            &value,
+        assert!(!check(&wait, slice::from_ref(&a), slice::from_ref(&a)));
+        assert!(check(&wait, slice::from_ref(&a), slice::from_ref(&b)));
+        assert!(check(&wait, &[None], slice::from_ref(&b)));
+        assert!(!check(&wait, slice::from_ref(&a), &[None]));
+        // Any track will do for HasTrack, even the one already there.
+        assert!(check(
+            &Wait::HasTrack(0),
             slice::from_ref(&a),
             slice::from_ref(&a)
         ));
-        assert!(met(&wait, &value, slice::from_ref(&a), slice::from_ref(&b)));
-        assert!(met(&wait, &value, &[None], &[b]));
-        assert!(!met(&wait, &value, &[a], &[None]));
+        assert!(!check(&Wait::HasTrack(0), &[None], &[None]));
     }
 
     #[test]
-    fn the_first_mix_points_at_controls_that_exist() {
+    fn every_lesson_points_at_controls_that_exist() {
         let registry = ControlRegistry::new();
         opendj_engine::create_controls(&registry);
-        for step in FIRST_MIX.steps {
-            if let Some((group, key)) = step.target.split_once(',') {
-                if key != "load" {
-                    assert!(registry.get(group, key).is_some(), "{}", step.target);
+        let lessons =
+            std::iter::once(&FIRST_MIX).chain(tutorials::TUTORIALS.iter().map(|t| t.lesson));
+        for lesson in lessons {
+            for step in lesson.steps {
+                // "ui,…" marks a part of the window, and load and pads a
+                // deck's header and pads, rather than a control.
+                if let Some((group, key)) = step.target.split_once(',') {
+                    if group != "ui" && key != "load" && key != "pads" {
+                        assert!(registry.get(group, key).is_some(), "{}", step.target);
+                    }
+                }
+                check(&registry, &step.wait);
+                if let Some((_, Action::Set(g, k, _))) = step.action {
+                    assert!(registry.get(g, k).is_some(), "{g},{k}");
                 }
             }
-            check(&registry, &step.wait);
+            for &(group, key, _) in lesson.prepare {
+                exists(&registry, group, key);
+            }
+            for &(group, key) in lesson.keep {
+                exists(&registry, group, key);
+            }
         }
-        for (group, key, _) in FIRST_MIX.prepare {
-            assert!(registry.get(group, key).is_some(), "{group},{key}");
+        fn exists(registry: &ControlRegistry, g: &str, k: &str) {
+            // Automix makes its own controls (see automix.rs).
+            if g != "[AutoDJ]" {
+                assert!(registry.get(g, k).is_some(), "{g},{k}");
+            }
         }
         fn check(registry: &ControlRegistry, wait: &Wait) {
             match wait {
-                Wait::Above(g, k, _) | Wait::Below(g, k, _) => {
-                    assert!(registry.get(g, k).is_some(), "{g},{k}")
+                Wait::Above(g, k, _) | Wait::Below(g, k, _) | Wait::Changed(g, k) => {
+                    exists(registry, g, k)
                 }
                 Wait::Both(a, b) | Wait::Either(a, b) => {
                     check(registry, a);
                     check(registry, b);
                 }
-                Wait::Next | Wait::Loaded(_) => {}
+                Wait::Any(waits) => waits.iter().for_each(|w| check(registry, w)),
+                Wait::Next | Wait::Loaded(_) | Wait::HasTrack(_) | Wait::App(_) => {}
             }
         }
     }

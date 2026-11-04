@@ -2,62 +2,72 @@
 
 ## How a tutorial runs
 
-- Built on the `add-first-run-setup` tour engine: a dimmed window with the real control highlighted, a tip bubble beside it, and **Skip step** / **Close** in the bubble.
-- Each step names the control (by its control key or UI element) and the condition that ends it, read from the same control values the engine and controllers use, so doing it on screen or on a controller both count.
-- On start a tutorial remembers the layout, decks and FX, switches to 2-Deck, and loads the CC0 demo tracks (two at about the same BPM, keys that mix). **Use my tracks** at the start skips the loading and asks the DJ to load tracks instead. Closing or finishing puts back the layout; demo tracks stay loaded only if the DJ finished.
-- Done marks are kept in settings. Help › Tutorials shows each tutorial with its length, a tick when done, and **Open guide** for its page.
-- Guide pages (stable paths agreed with the website docs update): `guide/looping.md`, `guide/fx.md`, `guide/filtering.md`, `guide/automix.md`, `guide/controllers/ddj-flx4.md`.
+- Built on the `add-first-run-setup` tour engine (`crates/app/src/tour.rs`): each tutorial is a `Lesson` in `crates/app/src/tutorials.rs`. The tip rings the real control (its `TourMark`) and goes on once the step's `Wait` is met; **Skip** and ✕ are always there.
+- Waits read the same control values the engine and controllers use, so doing a step on screen or on a controller both count. The engine gained:
+  - `HasTrack(deck)`: any track on the deck, so a tutorial doesn't make a DJ who already has one load another.
+  - `Changed(group, key)`: a control differs from when the step began (picking another effect, setting a hot cue).
+  - `Any(&[Wait])`: one of several, such as any of the eight pads.
+  - `App(fn(&AppWindow) -> bool)`: something on screen that isn't a control, such as the FX bar showing, a filter chip on or the Automix tab open.
+  - Tip buttons `Action::Set` (open a pad page through `pad_panel`) and `Action::Open` (the guide page).
+- Starting one switches to 2-Deck and sets the few controls it needs (`prepare`); closing or finishing puts the layout back. Finishing the last tip marks it done (`tutorial_done_<id>` in settings).
+- **Settings › Help › Tutorials** lists each with what it covers, its length, ✓ once done, and **Start**. The DDJ-FLX4 tutorial shows "Plug in a DDJ-FLX4 to start" instead of Start until one is plugged in.
+- The last tip of each has **Open the guide**: `guide/looping`, `guide/fx`, `guide/filtering`, `guide/automix`, `guide/controllers/ddj-flx4` on opendj.app/docs.
 
 ## Steps
 
-### Looping (about 3 min, deck 1 playing)
+### Looping (deck A)
 
-1. Press a beat loop size (4) in the loop column. Ends when `loop_enabled`.
-2. Halve it with the left arrow of the loop size, then double it back. Ends after `loop_halve` then `loop_double`.
-3. Press the loop size again to let go. Ends when not `loop_enabled`.
-4. Manual loop: press **IN** and then **OUT** where you want it to end. Ends when `loop_enabled` after `loop_in`.
-5. Save it: switch the pads to HOT CUE and press an empty pad while the loop plays. Ends when a `hotcue_N_type` becomes a loop.
-6. Exit the loop, then press that pad again to jump back into the saved loop. Ends when `loop_enabled` from the pad.
-7. Loop roll: switch pads to LOOP ROLL and hold a pad; let go and the track carries on where it would have been. Ends after a roll is held and released.
+1. Have a track on deck A (or **Load demo track**). 2. PLAY.
+3. Press 4 in the LOOP box (`loop_enabled`).
+4. ‹ halves it (`beatloop_size` under 3). 5. › doubles it back.
+6. Press the length again to let go.
+7. IN, then OUT: your own loop.
+8. While it loops, press an empty HOT CUES pad: a saved loop (`hotcue_N_type` 4). **Show hot cues** opens the page.
+9. Leave the loop. 10. Press the pad: back into the saved loop.
+11. Hold a LOOP ROLL pad (**Show loop rolls**).
+12. Done, **Open the guide**.
 
-### Using FX (about 3 min, both decks playing, deck 2 low)
+### Using FX (deck A)
 
-1. Open the FX bar with the **FX** button in the top bar. Ends when `fx_bar_visible`.
-2. Deck FX: turn on Echo on deck 1 (ON), change its beats, turn D/W up. Ends after the unit is on and its beats changed.
-3. Pick another effect from the name dropdown. Ends when the effect changes.
-4. Beat FX: pick an effect in the centre, choose where it plays, press ON. Ends when the Beat FX is on.
-5. Color FX: pick **Space** from Color FX ▾ beside deck 1's filter knob, and turn the knob both ways. Ends after the knob passes both sides of centre.
-6. Turn everything off. Ends when all FX on deck 1 and Beat FX are off.
+1. Track on deck A. 2. PLAY.
+3. FX button: the FX bar shows.
+4. ON on deck A's second effect. 5. D/W up.
+6. Another effect from its name or arrows (`loaded_effect` changes).
+7. Another length in beats (skip for a slider effect). 8. Off again.
+9. Beat FX on deck 1, ON. 10. Off.
+11. Color FX ▾ beside deck A's filter knob: Space.
+12. Knob left. 13. Right. 14. Back to the middle.
+15. Done, **Open the guide**.
 
-### Filtering tracks (about 3 min, deck 1 playing)
+### Filtering tracks
 
-1. Search: type an artist or title in the search box. Ends when the list narrows.
-2. Add a filter chip: **+** › Genre, pick one. Ends when a Genre chip is active.
-3. BPM chip: set a range around the playing track. Ends when a BPM chip is active.
-4. Key chip: **Mixes with the playing track**; note the lilac keys in the list. Ends when key match is on.
-5. Save the search as a smart list and name it. Ends when a smart list is made.
-6. **Clear** the bar. Ends when no chip is active.
+1. Track on deck A. 2. PLAY.
+3. Type a search. 4. Clear it.
+5. BPM chip on (match deck A's tempo). 6. Key chip on (keys that mix).
+7. **+** and a field, such as Genre.
+8. **Save** as a smart playlist (it opens).
+9. **Clear** the filter bar.
+10. Done, **Open the guide**.
 
-### Automix (about 3 min)
+### Automix
 
-1. Open the Automix panel on the right. Ends when the panel shows.
-2. Queue three demo tracks: drag them in or right-click › **Add to Automix**. Ends at three or more tracks.
-3. Pick a length (16 bars) and a style (Bass swap). Ends after both change.
-4. Press **AUTOMIX**. Ends when Automix is on and a track plays.
-5. Press **Mix now** to start the next transition early. Ends when a transition starts.
-6. Take over: move a channel fader or the crossfader, or press AUTOMIX again. Ends when Automix is off.
+1. Automix tab in the side panel. 2. Three tracks queued.
+3. Length 16 bars. 4. Style Bass swap.
+5. AUTOMIX on (`[AutoDJ],enabled`).
+6. **Mix now** (the crossfader moves). 7. AUTOMIX off: take over.
+8. Done, **Open the guide**.
 
-### DDJ-FLX4 (about 5 min, only with a DDJ-FLX4 connected)
+### DDJ-FLX4 (only with one plugged in)
 
-Every step waits for the controller's own control; the tip shows where it is on the controller picture from the Controller Editor.
+Each tip names the controller's own button and rings the matching control on screen.
 
-1. Turn the browse knob and press **LOAD** on deck 1, then on deck 2.
-2. **PLAY/PAUSE** deck 1; **CUE** to go back to the cue point; play again.
-3. Jog wheel: nudge with the outer ring while playing, scratch on the top.
-4. **BEAT SYNC** on deck 2, then play it; watch the tempo follow deck 1.
-5. Headphones: the channel **CUE** button on deck 2, then the headphones **MIXING** knob.
-6. Bring deck 2 in: channel fader up, swap the bass with the **LOW** EQs, then turn the **CFX** filter knob on deck 1.
-7. Pads: **HOT CUE** set and press a cue; **BEAT LOOP** a 4-beat loop; **SAMPLER** a sound.
-8. Beat FX: **BEAT FX SELECT**, **CH SELECT**, **ON/OFF** and the **LEVEL/DEPTH** knob.
+1. Browse knob and LOAD on deck 1. 2. PLAY/PAUSE. 3. CUE. 4. PLAY/PAUSE.
+5. Scratch on the jog's top (`scratch2_enable`).
+6. LOAD on deck 2. 7. Channel 2 headphones CUE. 8. BEAT SYNC on deck 2.
+9. Channel 2 LOW down. 10. PLAY deck 2. 11. Channel 2 fader up.
+12. Bass swap. 13. Channel 1 CFX knob to an end. 14. Channel 1 fader down or crossfader right.
+15. HOT CUE: set a cue on deck 2. 16. SHIFT + BEAT JUMP (BEAT LOOP): a pad loop.
+17. SAMPLER: play a pad. 18. Beat FX ON/OFF and LEVEL/DEPTH. 19. Beat FX off.
+20. Done, **Open the guide**.
 
-Steps that rely on parts of the FLX4 mapping not yet checked on hardware (master/phones level, some LEDs) are kept out until Seba has tried them.
+Not in it until tried on hardware: the master and headphones level knobs (their MIDI numbers are unverified).

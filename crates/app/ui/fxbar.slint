@@ -8,6 +8,7 @@
 // in 4-Deck each deck's three are stacked in one-line rows. The FX button
 // in the top bar shows and hides the bar.
 import { Theme } from "theme.slint";
+import { TourMark } from "tourmark.slint";
 import { ControlButton, Controls, PickupDot, PickupGhost } from "controls.slint";
 import { EffectList, EffectMenu } from "deck.slint";
 import { MapMark } from "mapmark.slint";
@@ -315,7 +316,9 @@ component FxControls inherits HorizontalLayout {
                     Controls.toggle(enabled-index);
                 }
             }
-        }        MapMark { key: root.fx + ",enabled"; }
+        }
+        MapMark { key: root.fx + ",enabled"; }
+        TourMark { id: root.fx + ",enabled"; }
     }
     // A plugin's own window, for its presets and every setting: lit while
     // it is open.
@@ -335,6 +338,7 @@ component FxControls inherits HorizontalLayout {
         horizontal-stretch: 1;
         min-width: 50px;
         if beats > 0: BeatChooser { width: parent.width; height: parent.height; index: beats-index; }
+        if beats > 0: TourMark { width: parent.width; height: parent.height; id: root.fx + ",beats"; }
         if beats <= 0 && param >= 0: ParamSlider { width: parent.width; height: parent.height; index: Controls.resolve(fx, "parameter" + (param + 1)); }
         if beats <= 0 && param >= 0: MapMark { width: parent.width; height: parent.height; key: root.fx + ",parameter" + (param + 1); }
     }
@@ -349,6 +353,7 @@ component FxControls inherits HorizontalLayout {
                 height: 20px;
                 DwKnob { index: Controls.resolve(fx, "meta"); tint: tint; }
                 MapMark { key: root.fx + ",meta"; }
+                TourMark { id: root.fx + ",meta"; }
             }
         }
         Text { text: "W"; color: Theme.text-dim; font-size: 10px; font-weight: 700; vertical-alignment: center; }
@@ -377,6 +382,8 @@ component FxCell inherits Rectangle {
         Rectangle { height: 1px; background: #000000; }
         FxControls { height: 37px; fx: fx; tint: tint; }
     }
+    // The name, for the step that picks another effect.
+    TourMark { id: root.fx; y: 0px; height: 30px; }
 }
 
 // 4-Deck: a deck's three effects stacked, one line each.
@@ -447,6 +454,7 @@ component BeatFxSection inherits Rectangle {
         Rectangle { height: 1px; background: #000000; }
         FxControls { height: 37px; fx: fx; tint: Theme.accent; }
     }
+    TourMark { id: root.unit; }
 }
 
 export component FxBar inherits Rectangle {
