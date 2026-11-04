@@ -11,7 +11,7 @@
 use std::time::Instant;
 
 use opendj_engine::Track;
-use opendj_library::checklist::{Marks, MAX_SCORE};
+use opendj_library::checklist::MAX_SCORE;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::{columns, Browser};
@@ -260,7 +260,7 @@ impl Browser {
                 eprintln!("can't save the score: {e}");
             }
         }
-        self.marks.entry(t.id).or_insert_with(Marks::default).score = score;
+        self.marks.entry(t.id).or_default().score = score;
         self.refresh_checklist();
         self.refresh_rows();
     }
