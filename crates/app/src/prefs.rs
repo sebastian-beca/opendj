@@ -158,6 +158,7 @@ pub fn apply_saved(registry: &ControlRegistry) {
         );
         set(&g, "rate_dir", rate_dir());
         set(&g, "quantize", f(settings::flag("quantize", true)));
+        set(&g, "vinyl_mode", f(settings::flag("vinyl_mode", true)));
         if settings::flag("keylock_default", false) {
             set(&g, "keylock", 1.0);
         }
@@ -1226,6 +1227,13 @@ impl Prefs {
                         "Decks start with quantize on: cues, loops, play and jumps land on the beat. \
                          Right-click a deck's SYNC to switch it for that deck.",
                         settings::flag("quantize", true),
+                    ),
+                    switch(
+                        "vinyl_mode",
+                        "Vinyl mode",
+                        "Touching the top of a controller's jog grabs the record to scratch. \
+                         Off, the top bends the tempo like the rim, as CDJ mode does.",
+                        settings::flag("vinyl_mode", true),
                     ),
                     switch(
                         "protect_playing",
@@ -2717,6 +2725,7 @@ impl Prefs {
         match id {
             "keylock_default" if on => self.each_deck("keylock", 1.0),
             "quantize" => self.each_deck("quantize", f(on)),
+            "vinyl_mode" => self.each_deck("vinyl_mode", f(on)),
             "protect_playing" => self.set("[Controls]", "AllowTrackLoadToPlayingDeck", f(!on)),
             "xfader_reverse" => self.set("[Mixer Profile]", "xFaderReverse", f(on)),
             "xfader_enabled" => self.set("[Mixer]", "crossfader_enabled", f(on)),
