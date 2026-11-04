@@ -2003,6 +2003,11 @@ impl Gpu {
             };
             self.beat_count(app, d, track, play_seconds, speed != 0.0, &phrases);
             let bars = prep_bars.filter(|_| d == 0);
+            if let Some(bars) = bars {
+                let bpm = track.map_or(0.0, |t| t.bpm);
+                let seconds = if bpm > 0.0 { bars * 240.0 / bpm } else { 0.0 };
+                app.global::<PrepUi>().set_seconds(seconds as f32);
+            }
             let frame = track.map(|t| decks.frame(d, t, play_seconds, phrases, bars));
             // The jog marker turns with the same smoothed clock as the
             // waveform, set here as each frame is drawn rather than on the UI

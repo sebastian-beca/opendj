@@ -321,6 +321,11 @@ impl Shared {
 static UNDO: Mutex<[Vec<(usize, BeatGrid)>; NUM_DECKS]> =
     Mutex::new([const { Vec::new() }; NUM_DECKS]);
 
+/// When each deck's grid was last dragged, so a drag is one undo step.
+static LAST_DRAG: Mutex<[Option<Instant>; NUM_DECKS]> = Mutex::new([None; NUM_DECKS]);
+/// A pause this long ends a drag.
+const DRAG_PAUSE: Duration = Duration::from_millis(600);
+
 /// Most edits kept for undo per deck.
 const UNDO_DEPTH: usize = 64;
 
@@ -383,9 +388,18 @@ fn edit_grid(
             if after == before {
                 return None;
             }
-            history.push((current.id, before));
-            if history.len() > UNDO_DEPTH {
-                history.remove(0);
+            // A drag moves the grid a little many times: the moves that
+            // follow one another closely are one step to undo.
+            let mut last_drag = LAST_DRAG.lock().unwrap();
+            let dragging = matches!(edit, GridEdit::Drag(_))
+                && last_drag[deck].is_some_and(|t| t.elapsed() < DRAG_PAUSE)
+                && history.last().is_some_and(|(id, _)| *id == current.id);
+            last_drag[deck] = matches!(edit, GridEdit::Drag(_)).then(Instant::now);
+            if !dragging {
+                history.push((current.id, before));
+                if history.len() > UNDO_DEPTH {
+                    history.remove(0);
+                }
             }
             after
         }
@@ -723,6 +737,24 @@ mod tests {
         let moved = edit_grid(&loaded, 0, &open, GridEdit::Shift(0.01), 0.0).unwrap();
         assert!((moved.first_beat - 0.21).abs() < 1e-9);
         assert_eq!(moved.info.grid_from, "user");
+    }
+
+    #[test]
+    fn a_drag_is_one_undo_step() {
+        // Deck 4: the undo history is shared with the other tests.
+        let deck = NUM_DECKS - 1;
+        let loaded: LoadedTracks = Default::default();
+        let mut t = (*synth::sample_library()[0]).clone();
+        t.set_grid(BeatGrid::constant(124.0, 0.2));
+        t.audio = Some(Arc::new(Audio::from_frames(44_100, vec![[0.0; 2]; 44_100])));
+        let mut t = Arc::new(t);
+        loaded.write().unwrap()[deck] = Some(t.clone());
+        for _ in 0..3 {
+            t = edit_grid(&loaded, deck, &t, GridEdit::Drag(0.01), 0.0).unwrap();
+        }
+        assert!((t.first_beat - 0.23).abs() < 1e-9);
+        let back = edit_grid(&loaded, deck, &t, GridEdit::Undo, 0.0).unwrap();
+        assert!((back.first_beat - 0.2).abs() < 1e-9);
     }
 
     #[test]

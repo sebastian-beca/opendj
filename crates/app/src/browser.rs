@@ -33,6 +33,7 @@ mod albums;
 mod analysis;
 mod cleanup;
 pub(crate) mod columns;
+mod cues;
 mod filters;
 mod health;
 mod info;
@@ -548,6 +549,7 @@ pub struct Browser {
     /// Each deck's hot cues: enabled, position and a saved loop's end.
     hotcues: [Vec<(ControlHandle, ControlHandle, ControlHandle)>; NUM_DECKS],
     watch: [CueWatch; NUM_DECKS],
+    cues: cues::CueState,
     /// The side panel's Info tab.
     info: info::InfoState,
     /// The filter bar.
@@ -1155,6 +1157,7 @@ impl Browser {
                     .collect()
             }),
             watch: Default::default(),
+            cues: cues::CueState::new(registry),
             info: info::InfoState::new(registry),
             filter: filters::FilterState::new(),
             columns: columns::ColumnState::new(&crate::settings::field_names()),
@@ -1728,6 +1731,7 @@ impl Browser {
         edit.on_set_rule(move |i, text| w(&|b| b.set_rule(i as usize, &text)));
         Self::install_staging(&edit, &with);
         Self::install_prep(app, &with);
+        Self::install_cues(app, &with);
         Self::install_track_menu(&edit, &with);
         Self::install_mix_export(&app.global::<FilesUi>(), &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
@@ -2259,7 +2263,7 @@ impl Browser {
                     ..Default::default()
                 };
                 TrackRow {
-                    cells: columns::row_cells(&ids, &row, None, None, Default::default()),
+                    cells: columns::row_cells(&ids, &row, None, None, Default::default(), None),
                     ..row
                 }
             })
@@ -3543,6 +3547,7 @@ impl Browser {
             return;
         }
         let mut changed = false;
+        let mut cues_changed = false;
         for (d, t) in loaded.iter().enumerate().take(NUM_DECKS) {
             let Some(t) = t.as_ref() else {
                 self.watch[d] = CueWatch::default();
@@ -3601,6 +3606,8 @@ impl Browser {
                         let mut e = (*self.library[i]).clone();
                         e.info.hotcues = now;
                         self.library[i] = Arc::new(e);
+                        // The Cues column counts them.
+                        cues_changed = true;
                     }
                 }
             }
@@ -3614,7 +3621,7 @@ impl Browser {
                 }
             }
         }
-        if changed && self.history_tab {
+        if (changed && self.history_tab) || cues_changed {
             self.refresh_rows();
         }
     }
@@ -3975,6 +3982,7 @@ impl Browser {
                 play.set_bool(true);
             }
         }
+        self.refresh_cues();
     }
 
     /// Copies the tempo, key and beat grid found by analysing a loaded
@@ -4949,6 +4957,7 @@ impl Browser {
                         r.local.map(|id| &*library[id]),
                         crates.map(Vec::as_slice),
                         r.list,
+                        r.local.and_then(|id| self.health.has_cover(library[id].id)),
                     ),
                     ..row
                 }
@@ -5014,7 +5023,15 @@ impl Browser {
             })
             .filter(|_| self.tree == COLLECTION);
         let history = list.is_some() && node.is_some_and(|n| n.history);
-        if self.columns.show_history(history) {
+        let prep = node.is_some_and(|n| matches!(n.contents, Contents::Stage(Stage::Triage, _)));
+        let kind = if history {
+            columns::Columns::History
+        } else if prep {
+            columns::Columns::Prep
+        } else {
+            columns::Columns::Lists
+        };
+        if self.columns.show(kind) {
             self.refresh_column_ui();
         }
         if self.tree != COLLECTION || list == self.sorted_list {
