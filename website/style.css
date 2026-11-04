@@ -212,6 +212,12 @@ td { color: var(--text-2); }
 .tut-cards { margin-bottom: 40px; }
 .tut-cards .label { margin-left: 4px; }
 .tut-cards .card p { margin-bottom: 16px; }
+.tut-live .card { padding: 0; }
+.tut-live .card a { display: block; height: 100%; padding: 26px; color: inherit; }
+.tut-live .card a:hover { text-decoration: none; }
+.tut-live .card:hover { border-color: var(--lilac); }
+.tut-live .go { color: var(--lilac); font-weight: 600; font-size: 14px; }
+.tut-heading { margin-top: 56px; }
 .soon { display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--lilac); background: var(--lilac-dim); border-radius: 999px; padding: 3px 10px; }
 @media (max-width: 900px) {
   .page-grid { grid-template-columns: 1fr; gap: 32px; }
@@ -248,6 +254,7 @@ td { color: var(--text-2); }
 .switch .sub { color: var(--text-2); font-size: 19px; max-width: 780px; }
 .switch-cards .card h3 { margin-top: 0; font-size: 22px; }
 .switch-note { color: var(--text-2); margin-top: 28px; max-width: 780px; }
+.switch-cards { grid-template-columns: repeat(2, 1fr); }
 @media (max-width: 900px) { .switch-cards { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .switch { padding: 72px 0; } }
 

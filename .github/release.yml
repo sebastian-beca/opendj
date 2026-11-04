@@ -5,12 +5,12 @@ changelog:
     authors: [dependabot, "dependabot[bot]"]
   categories:
     - title: New features
-      labels: [feature]
+      labels: [feature, enhancement]
     - title: Fixes
-      labels: [fix]
+      labels: [fix, bug]
     - title: Docs and website
-      labels: [docs]
+      labels: [docs, documentation]
     - title: Build and CI
-      labels: [ci, dependencies]
+      labels: [ci, dependencies, github_actions]
     - title: Other changes
       labels: ["*"]

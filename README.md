@@ -2,44 +2,53 @@
 
 **[Download the latest release](https://github.com/sebastian-beca/opendj/releases/latest)** · [All releases](https://github.com/sebastian-beca/opendj/releases)
 
-openDJ is a free, open-source DJ app for macOS and Linux. It's built to be fast,
-pleasant to use, and to have a great automix, for DJs just starting out and for
-more experienced DJs alike.
+openDJ is a free, open-source DJ app for macOS, Linux and Windows (preview).
+It's built to be fast, pleasant to use, and to have a great automix, for DJs
+just starting out and for more experienced DJs alike.
 
 ![openDJ](docs/screenshot.jpg)
 
 ## Features
 
-- **Two decks** with hot cues, loops, beat jumps, sync, quantize, key lock and key shift
-- **Mixer** with gain, 3-band EQ, filter, faders, crossfader and headphone cue
-- **Effects**: four beat-synced effect units, with echo, reverb, filter, flanger and more
-- **Automix** that crossfades through a list for you, in several lengths and styles
-- **Collection** of your music folders, with playlists, smart lists, ratings, colors,
-  play history and fast search
-- **Accurate beat grids** that follow tempo changes, with tools to fix them by hand
-- **Key detection** and harmonic mixing hints
-- **Stems**: play NI stem files, or split any track with Demucs if it's installed
-- **Ableton Link** to play in time with other apps and devices on your network
-- **Fast GPU waveforms**, colored by frequency
+- **Decks**: two or four, with hot cues, loops, beat jumps, slip, sync, key lock,
+  key shift and a beat and phrase counter; 2-Deck, 4-Deck and Player layouts
+- **Mixer and effects**: gain, 3-band EQ, Color FX on the filter knob, and an FX bar
+  of beat-locked effects, plus your own CLAP, VST3 and Audio Unit plugins
+- **Stems** on every track: instant stems on load, high quality ones in the background
+- **Automix** that mixes through a list for you, run from the app or from your phone
+- **Collection** of your music folders with stages (Inbox, In Prep, Play Ready),
+  crates, playlists, smart lists, tag groups, batch editing and forgiving search
+- **Collection Health** to find missing files, duplicates and poor tags, and fix them
+- **Imports** from rekordbox, VirtualDJ, Traktor and Mixxx, keeping your cues, grids and lists
+- **Sources**: browse Spotify and other streaming services, play from your own Plex,
+  Navidrome or Jellyfin server
+- **Sampler, Groove Box** drum machine and instrument plugins on the decks
+- **Recording and broadcasting**: record your mix, export it for Mixcloud, or stream to
+  Icecast and Shoutcast with a loudness meter
+- **Ableton Link**, fast GPU waveforms, accurate beat grids and key detection
+- **Tutorials** inside the app, and a [user guide](https://opendj.app/docs/)
 
 ## Controllers
 
 openDJ uses [Mixxx](https://mixxx.org)'s controller mappings, so most MIDI
-controllers that Mixxx supports work as soon as they're plugged in. Since
-0.4.7 that includes USB HID controllers with a Mixxx HID mapping: Native
-Instruments' Traktor Kontrol S2 (MK1 to MK3), S3, S4 (MK2, MK3), F1, Z1 and
-MX2. Quit Traktor first; on Linux, add the udev rule that comes with the
-download.
+controllers that Mixxx supports work as soon as they're plugged in, and
+ships its own mappings for some (DDJ-FLX6, XDJ-RX3, Xone K2). USB HID
+controllers with a Mixxx HID mapping work too: Native Instruments' Traktor
+Kontrol S2 (MK1 to MK3), S3, S4 (MK2, MK3), F1, Z1 and MX2. Quit Traktor
+first; on Linux, the .deb and .rpm set up the USB permissions, or add the
+udev rule that comes with the other downloads. The Controller Editor maps
+anything else, with a wizard for controllers that have no mapping.
 
 ## Streaming services and stores
 
-Streaming services and music stores are coming soon, we hope as source add-ons.
-For now, openDJ plays the music on your computer.
+Spotify, TIDAL, Apple Music, SoundCloud and Mixcloud can be browsed, and
+tracks you have as files play from your collection. Streaming services
+can't be played on the decks, and stores are coming later.
 
 ## Beta testing
 
 openDJ is in beta, and feedback of any kind helps: bugs, ideas, or just how
-it felt to use. In the app, **Settings → Feedback** has links to report a
+it felt to use. In the app, **Settings › Help** has links to report a
 problem or suggest a feature, with your version already filled in, and opens
 the folder with your logs to attach. You can also
 [open an issue](https://github.com/sebastian-beca/opendj/issues/new/choose)
