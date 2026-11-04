@@ -9,7 +9,7 @@ import { TrackDrag } from "library.slint";
 import { InstrumentsUi } from "instruments.slint";
 import { Theme } from "theme.slint";
 import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, StereoMeter, SyncButton } from "controls.slint";
-import { DeckInfo, Header, LoopStepper, Pads, PlayButton, SlipToggle, TempoStep } from "deck.slint";
+import { DeckInfo, Header, LoopStepper, Pads, PlayButton, TempoStep } from "deck.slint";
 import { AudioSettings, Knob, ModeMenu, SideKnob } from "mixer.slint";
 
 // Which side of the crossfader a deck is on, as Mixxx's `orientation`:
@@ -166,17 +166,11 @@ export component DeckStrip inherits Rectangle {
                         HorizontalLayout { alignment: center; vertical-stretch: 1; StereoMeter { group: group; } }
                     }
                 }
-                // PLAY, CUE with SLIP under it, and the loop.
+                // PLAY, CUE and the loop.
                 HorizontalLayout {
                     spacing: 6px;
                     PlayButton { group: group; tint: tint; width: 52px; height: 32px; }
-                    // SLIP under CUE, level with LOOP under the loop box.
-                    VerticalLayout {
-                        spacing: 2px;
-                        horizontal-stretch: 1;
-                        ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; outline: Controls.paused-blink(group, Controls.blink, Controls.tick); font-size: 13px; height: 32px; }
-                        HorizontalLayout { alignment: center; SlipToggle { group: group; tip-right-aligned: Math.mod(deck, 2) == 1; font-size: 9px; height: 11px; } }
-                    }
+                    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; outline: Controls.paused-blink(group, Controls.blink, Controls.tick); font-size: 13px; horizontal-stretch: 1; height: 32px; }
                     VerticalLayout {
                         spacing: 2px;
                         horizontal-stretch: 1;

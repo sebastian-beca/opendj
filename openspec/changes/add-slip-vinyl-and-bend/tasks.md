@@ -13,7 +13,7 @@
 - [x] 2.3 « » bend buttons and ← → bend keys
 - [x] 2.4 Shift-click PLAY for censor
 - [x] 2.5 Update website/book/src/guide/decks.md and shortcuts.md, regenerate supported-controls.txt
-- [x] 2.6 SLIP as a lilac/grey word in the jog's top right corner (under CUE in 4-Deck); Vinyl mode moves from the deck to Settings › Decks
+- [x] 2.6 SLIP as a lilac/grey word in the jog's top right corner (2-Deck; 4-Deck shows no SLIP); Vinyl mode moves from the deck to Settings › Decks
 
 ## Workflow follow-up
 

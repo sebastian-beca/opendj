@@ -10,7 +10,7 @@ Slip mode only brought the track back when slip was switched off, not when each 
 
 - Slip mode returns when each trick ends: letting go of the jog, ending a loop, letting go of a hot cue (which plays only while held), turning reverse off, or pressing play after a pause. Only a playing deck slips.
 - A dashed lilac ghost playhead on both waveforms while slipping (`slip_position`).
-- SLIP as a word in the top right corner of each deck's jog (lilac when on, light grey when off; under CUE in 4-Deck); vinyl mode as a switch in Settings › Decks.
+- SLIP as a word in the top right corner of each deck's jog (lilac when on, light grey when off, 2-Deck only); vinyl mode as a switch in Settings › Decks.
 - `vinyl_mode` per deck (on by default): the DDJ-FLX4 and DDJ-FLX6 scratch on jog touch only while it's on; off, the top bends like the rim.
 - « and » pitch bend buttons in the jog's lower corners (2%, 4% with Shift), and ← → bend the deck started last.
 - Shift-click and hold PLAY on a playing deck for censor.

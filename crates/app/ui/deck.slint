@@ -2305,14 +2305,13 @@ export component SlipToggle inherits Rectangle {
     property <bool> on: Controls.value(index, Controls.tick) > 0;
     property <bool> slipping: Controls.value(Controls.resolve(group, "slip_position"), Controls.tick) >= 0;
     property <bool> tip-mine;
-    in property <length> font-size: 12px;
-    width: 34px;
-    height: 18px;
+    width: 24px;
+    height: 12px;
     Text {
         text: "SLIP";
         color: on ? (slipping && !Controls.blink ? Theme.text-dim : Theme.lilac)
             : ta.has-hover ? Theme.text : #a1a1a6;
-        font-size: root.font-size;
+        font-size: 9px;
         font-weight: 700;
         letter-spacing: 0.3px;
         horizontal-alignment: center;

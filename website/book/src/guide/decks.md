@@ -79,7 +79,7 @@ stopped. openDJ remembers what each deck plays for next time.
 ## Slip, bend and censor
 
 **SLIP** keeps the track in time while you play with it. Click the word
-SLIP in the jog's top right corner (under CUE in 4-Deck): it turns lilac
+SLIP in the jog's top right corner (2-Deck only): it turns lilac
 when on and light grey when off. While it's on,
 scratching, a loop, a hot cue held down, reverse or a pause takes the sound
 away, but a silent playhead carries on, drawn as a dashed lilac line on the
