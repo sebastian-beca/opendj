@@ -1,6 +1,6 @@
-// Colours and sizes for the default skin. A skin restyles the app by changing these.
+// Colors and sizes for the default skin. A skin restyles the app by changing these.
 // Near-black panels, flat dark controls with thin
-// borders, Electric Lilac as the accent, Apple system colours elsewhere and a SF-like typeface (Inter, bundled).
+// borders, Electric Lilac as the accent, Apple system colors elsewhere and a SF-like typeface (Inter, bundled).
 import "fonts/InterTabular-Regular.otf";
 import "fonts/InterTabular-Medium.otf";
 import "fonts/InterTabular-SemiBold.otf";
@@ -39,7 +39,7 @@ export global Theme {
     out property <color> knob-ring: #3a3a3e;
     out property <color> fader-handle: #8e8e93;
     out property <color> tick: #3e3e42;
-    // Electric Lilac, openDJ's own colour: the logo, the accent and the
+    // Electric Lilac, openDJ's own color: the logo, the accent and the
     // library highlight.
     out property <color> lilac: #b69cff;
     out property <color> accent: root.lilac;
@@ -54,9 +54,9 @@ export global Theme {
     out property <color> stage-inbox: #f2a26a;
     out property <color> stage-prep: #ead070;
     out property <color> stage-ready: #83d494;
-    // Collection labels in their stage's colour too, not only the icons.
+    // Collection labels in their stage's color too, not only the icons.
     out property <bool> stage-labels: false;
-    // A sidebar node kind's stage colour (Wanted 4, Inbox 10, In Prep 11,
+    // A sidebar node kind's stage color (Wanted 4, Inbox 10, In Prep 11,
     // Play Ready 19), or plain text for the rest.
     public pure function stage-tint(kind: int) -> color {
         kind == 4 ? root.stage-wanted
@@ -65,7 +65,7 @@ export global Theme {
             : kind == 19 ? root.stage-ready
             : root.text
     }
-    // A track's stage colour, as `LibraryEdit.stage-of` numbers them
+    // A track's stage color, as `LibraryEdit.stage-of` numbers them
     // (1 Inbox, 2 In Prep, 3 Play Ready).
     public pure function stage-color(stage: int) -> color {
         stage == 1 ? root.stage-inbox : stage == 2 ? root.stage-prep : root.stage-ready
@@ -99,7 +99,7 @@ export global Theme {
     out property <length> font-large: 17px;
     out property <length> font-xl: 24px;
 
-    // Hotcue colours: blue, green, yellow, orange, red, pink, purple, teal.
+    // Hotcue colors: blue, green, yellow, orange, red, pink, purple, teal.
     // Same order as the waveform shader.
     out property <[color]> hotcues: [#0064c8, #04bc00, #dcb800, #c45800, #c0002c, #c42874, #7838c4, #10bcbc];
 

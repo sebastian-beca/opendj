@@ -3,7 +3,7 @@
 //! The collection is the saved library (see `opendj_library`): the scanned
 //! music folder, or the built-in sample
 //! library when there is none. The DJ's lists and folders, ratings,
-//! colours and play history are kept in the library database. With the Spotify source
+//! colors and play history are kept in the library database. With the Spotify source
 //! the tree lists the user's Spotify playlists, and their tracks play when the
 //! collection has them (see [`crate::spotify`]).
 
@@ -269,7 +269,7 @@ struct Node {
     lazy: bool,
     /// Drawn with a line above it, setting it apart from what's before.
     separator: bool,
-    /// A crate's colour, an index into `COLOR_NAMES`, and its icon, an
+    /// A crate's color, an index into `COLOR_NAMES`, and its icon, an
     /// index into `LIST_ICONS` (0 the crate's own).
     color: Option<usize>,
     icon: usize,
@@ -1641,7 +1641,7 @@ impl Browser {
     }
 
     /// Hooks up making, naming and deleting lists, adding tracks to them,
-    /// ratings and colours, and the history tab.
+    /// ratings and colors, and the history tab.
     fn install_editing(app: &AppWindow, b: &Rc<RefCell<Self>>) {
         let edit = app.global::<LibraryEdit>();
         let weak = Rc::downgrade(b);
@@ -3383,7 +3383,7 @@ impl Browser {
         self.reload_tree(None);
     }
 
-    /// Gives the crate at a sidebar row a colour (an index into
+    /// Gives the crate at a sidebar row a color (an index into
     /// `COLOR_NAMES`, None for none).
     fn color_node(&mut self, row: usize, color: Option<usize>) {
         let (Some(id), Some(db)) = (self.playlist_at(row), &self.db) else {
@@ -3393,7 +3393,7 @@ impl Browser {
             .and_then(|i| opendj_library::query::COLOR_NAMES.get(i))
             .map(|&(_, rgb)| rgb);
         if let Err(e) = db.set_playlist_color(id, rgb) {
-            eprintln!("can't colour the list: {e}");
+            eprintln!("can't color the list: {e}");
         }
         self.reload_tree(None);
     }
@@ -3521,13 +3521,13 @@ impl Browser {
     }
 
     /// Gives the rows picked in the track list (all of them when `first`
-    /// is one of several picked) a colour, or none.
+    /// is one of several picked) a color, or none.
     pub fn color_rows(&mut self, first: usize, last: usize, color: Option<u32>) {
         let tracks = self.chosen_tracks(first, last);
         self.change_tracks(&tracks, |t, db| {
             t.info.color = color;
             if let Some(Err(e)) = db.map(|db| db.set_color(t.id, color)) {
-                eprintln!("can't save the colour: {e}");
+                eprintln!("can't save the color: {e}");
             }
         });
     }
@@ -3607,7 +3607,7 @@ impl Browser {
                     .map(|(n, (_, pos, end))| {
                         let seconds = pos.get();
                         let end = Some(end.get()).filter(|&e| e > seconds);
-                        // Keep a cue's name and colour while it stays where
+                        // Keep a cue's name and color while it stays where
                         // it was.
                         let kept = w
                             .saved

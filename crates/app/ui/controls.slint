@@ -122,7 +122,7 @@ export component ControlKnob inherits Rectangle {
     in property <string> group;
     in property <string> key;
     in property <string> label;
-    // Pointer colour. Defaults to white; big knobs use the deck colour.
+    // Pointer color. Defaults to white; big knobs use the deck color.
     in property <color> tint: Theme.text;
     in property <length> size: 34px;
     // Centre detent (EQs, filter): marks the default position above the knob.
@@ -623,7 +623,7 @@ export component CueHeadphones inherits Rectangle {
     // Names it for the guided tour (see TourMark).
     in property <string> tour-id;
     in property <string> group;
-    // The fill while on: the deck's colour.
+    // The fill while on: the deck's color.
     in property <color> tint: Theme.accent;
     property <int> index: Controls.resolve(group, "pfl");
     property <bool> lit: Controls.value(index, Controls.tick) > 0;

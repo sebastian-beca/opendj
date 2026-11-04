@@ -28,7 +28,13 @@ export struct PrefItem {
     // is typed), 17 a source on Settings › Sources: a fold arrow in
     // `action` (none when there's nothing to open; the row presses id +
     // "#fold"), a status dot (`chosen` 0 grey, 1 green, 2 orange), the
-    // name, what it's doing in `detail`, and an In rail switch (`on`).
+    // name, what it's doing in `detail`, and a switch putting it in the rail (`on`), 18
+    // a list of folders by name (`choices`, their whole paths in `paths`)
+    // with + and − under it and `detail` in an ⓘ beside the title; `on`
+    // holds one folder only (+ replaces it), `action` "fixed" can't be changed. It presses
+    // id + "#add", id + "#remove:" + index and id + "#reveal:" + path, 19
+    // how track colors show: the title, then `choices` as segmented
+    // buttons with a small preview of the `chosen` one beside them.
     kind: int,
     title: string,
     detail: string,
@@ -40,6 +46,8 @@ export struct PrefItem {
     value: string,
     // A button's label.
     action: string,
+    // A folder list's whole paths, one for each of `choices`.
+    paths: [string],
     // While searching: the page the row is on.
     page-name: string,
 }
@@ -168,7 +176,7 @@ export component Switch inherits Rectangle {
 
 export component Button inherits Rectangle {
     in property <string> text;
-    // The step a dialog's Next or Import takes, in the accent colour.
+    // The step a dialog's Next or Import takes, in the accent color.
     in property <bool> primary;
     callback clicked();
     height: 26px;
@@ -371,6 +379,278 @@ export component SearchField inherits Rectangle {
 
 // One setting: its name and a line on what it does on the left, the
 // control on the right.
+// An ⓘ beside a setting's name: a click shows what it means.
+component InfoButton inherits Rectangle {
+    in property <string> text;
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: ita.has-hover ? Theme.text : Theme.text-dim;
+    Text {
+        text: "i";
+        color: ita.has-hover ? Theme.text : Theme.text-dim;
+        font-size: 11px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ita := TouchArea { mouse-cursor: pointer; clicked => { tip.show(); } }
+    tip := PopupWindow {
+        x: 0;
+        y: root.height + 6px;
+        width: 300px;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 10px;
+            drop-shadow-color: #00000090;
+        }
+        VerticalLayout {
+            padding: 10px;
+            Text { text: root.text; color: Theme.text; font-size: 12px; wrap: word-wrap; }
+        }
+    }
+}
+
+// A folder, filled, as in Finder's lists.
+component FolderIcon inherits Path {
+    width: 16px;
+    height: 14px;
+    viewbox-width: 16;
+    viewbox-height: 14;
+    fill: Theme.accent;
+    commands: "M 1 2.5 Q 1 1 2.5 1 L 6 1 L 7.5 2.5 L 13.5 2.5 Q 15 2.5 15 4 L 15 11.5 Q 15 13 13.5 13 L 2.5 13 Q 1 13 1 11.5 Z";
+}
+
+// A folder list's icon: a folder, or the sidebar's icon for a stage (its
+// node kind: Inbox 10, In Prep 11, Play Ready 19) in the stage's color.
+component StageIcon inherits Rectangle {
+    in property <int> kind;
+    width: 16px;
+    height: 16px;
+    if kind != 10 && kind != 11 && kind != 19: FolderIcon { }
+    if kind == 10 || kind == 19: Text {
+        text: kind == 10 ? "↓" : "♫";
+        color: Theme.stage-tint(kind);
+        font-size: 14px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if kind == 11: Rectangle {
+        Path {
+            width: 16px;
+            height: 16px;
+            viewbox-width: 18;
+            viewbox-height: 18;
+            fill: Theme.stage-prep;
+            commands: "M 9 3 A 6 6 0 0 0 9 15 Z";
+        }
+        Path {
+            width: 16px;
+            height: 16px;
+            viewbox-width: 18;
+            viewbox-height: 18;
+            stroke: Theme.stage-prep;
+            stroke-width: 1.5px;
+            fill: transparent;
+            commands: "M 9 3 A 6 6 0 1 1 8.99 3 Z";
+        }
+    }
+}
+
+// + or − under a folder list.
+component ListButton inherits Rectangle {
+    in property <bool> minus;
+    in property <bool> enabled: true;
+    callback clicked();
+    width: 26px;
+    height: 22px;
+    background: lta.pressed && enabled ? Theme.control-pressed : lta.has-hover && enabled ? #2a2a2e : Theme.control;
+    border-width: 1px;
+    border-color: Theme.border;
+    Path {
+        width: 10px;
+        height: 10px;
+        viewbox-width: 10;
+        viewbox-height: 10;
+        stroke: enabled ? Theme.text : #55555a;
+        stroke-width: 1.4px;
+        commands: minus ? "M 0 5 L 10 5" : "M 0 5 L 10 5 M 5 0 L 5 10";
+    }
+    lta := TouchArea { mouse-cursor: enabled ? pointer : default; clicked => { if enabled { root.clicked(); } } }
+}
+
+// Folders shown by name in a box, picked with + (the system's folder
+// picker) and taken off with − (the selected one). A folder's whole path
+// shows under the box while it is pointed at or selected; its arrow shows
+// it in Finder or the file manager.
+component FolderList inherits VerticalLayout {
+    in property <PrefItem> item;
+    in property <bool> bright;
+    property <int> selected: -1;
+    property <int> hovered: -1;
+    property <bool> fixed: item.action == "fixed";
+    property <int> shown: hovered >= 0 && hovered < item.paths.length ? hovered
+        : selected >= 0 && selected < item.paths.length ? selected : -1;
+    spacing: 6px;
+    HorizontalLayout {
+        alignment: start;
+        spacing: 6px;
+        Text { text: item.title; color: Theme.text; font-size: bright ? 15px : 14px; font-weight: 500; vertical-alignment: center; }
+        if item.detail != "": VerticalLayout {
+            alignment: center;
+            InfoButton { text: item.detail; }
+        }
+    }
+    Rectangle {
+        // One line for a single folder, room for a few otherwise.
+        height: item.on ? 32px : max(3, item.choices.length) * 26px + 6px;
+        border-radius: Theme.radius;
+        background: Theme.well;
+        border-width: 1px;
+        border-color: Theme.separator;
+        clip: true;
+        if item.choices.length == 0: Text {
+            x: 10px;
+            height: 30px;
+            y: 1px;
+            text: item.on ? "No folder chosen" : "No folders yet";
+            color: Theme.text-dim;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+        VerticalLayout {
+            padding: 3px;
+            alignment: start;
+            for name[i] in item.choices: Rectangle {
+                property <bool> hover: rta.has-hover;
+                changed hover => {
+                    if hover {
+                        root.hovered = i;
+                    } else if root.hovered == i {
+                        root.hovered = -1;
+                    }
+                }
+                height: 26px;
+                border-radius: 4px;
+                background: i == root.selected ? Theme.selection-idle : rta.has-hover ? #232326 : transparent;
+                rta := TouchArea {
+                    clicked => { root.selected = i; }
+                    double-clicked => { Preferences.pressed(item.id + "#reveal:" + item.paths[i]); }
+                }
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 6px;
+                    spacing: 8px;
+                    VerticalLayout { alignment: center; StageIcon { kind: item.chosen; } }
+                    Text { text: name; color: Theme.text; font-size: 13px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                    // Show in Finder, as djay's arrow does.
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 16px;
+                            height: 16px;
+                            Path {
+                                width: 16px;
+                                height: 16px;
+                                viewbox-width: 16;
+                                viewbox-height: 16;
+                                stroke: ata.has-hover ? Theme.text : Theme.text-dim;
+                                stroke-width: 1.2px;
+                                fill: transparent;
+                                commands: "M 8 1.5 A 6.5 6.5 0 1 1 7.99 1.5 Z M 4.5 8 L 11 8 M 8.5 5.5 L 11 8 L 8.5 10.5";
+                            }
+                            ata := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { Preferences.pressed(item.id + "#reveal:" + item.paths[i]); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: -1px;
+            ListButton {
+                // On a single folder, + picks another in its place.
+                enabled: !fixed;
+                clicked => { Preferences.pressed(item.id + "#add"); }
+            }
+            ListButton {
+                minus: true;
+                enabled: !fixed && root.selected >= 0 && root.selected < item.choices.length;
+                clicked => {
+                    Preferences.pressed(item.id + "#remove:" + root.selected);
+                    root.selected = -1;
+                }
+            }
+        }
+        Text {
+            text: shown >= 0 ? item.paths[shown] : "";
+            color: Theme.text-dim;
+            font-size: 11px;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+    }
+}
+
+// Two made-up track rows showing how track colors look in the list: 0 a
+// dot in the Color column, 1 a strip at the row's edge, 2 the row tinted,
+// 3 off.
+component TrackColorPreview inherits Rectangle {
+    in property <int> mode;
+    property <[{title: string, artist: string, tint: color}]> rows: [
+        { title: "Sunrise", artist: "Artist", tint: #ff9f0a },
+        { title: "Night Drive", artist: "Artist", tint: #b69cff },
+    ];
+    width: 240px;
+    height: 52px;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.separator;
+    clip: true;
+    VerticalLayout {
+        padding: 1px;
+        for r[i] in rows: Rectangle {
+            height: 25px;
+            background: mode == 2 ? (mod(i, 2) == 1 ? Theme.row-alt : Theme.row).mix(r.tint, 0.86)
+                : mod(i, 2) == 1 ? Theme.row-alt : Theme.row;
+            if mode == 1: Rectangle {
+                x: 0px;
+                width: 3px;
+                height: parent.height - 8px;
+                border-radius: 1.5px;
+                background: r.tint;
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 10px;
+                Rectangle {
+                    width: 10px;
+                    if mode == 0: Rectangle {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 4px;
+                        background: r.tint;
+                    }
+                }
+                Text { text: r.title; color: Theme.text; font-size: 11px; vertical-alignment: center; width: 90px; overflow: elide; }
+                Text { text: r.artist; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+            }
+        }
+    }
+}
+
 export component PrefRow inherits Rectangle {
     in property <PrefItem> item;
     in property <bool> searching;
@@ -383,16 +663,37 @@ export component PrefRow inherits Rectangle {
         mouse-cursor: pointer;
         clicked => { Preferences.pressed(item.id + "#fold"); }
     }
+    if item.kind == 7 && item.action != "": TouchArea {
+        mouse-cursor: pointer;
+        clicked => { Preferences.pressed(item.id); }
+    }
     VerticalLayout {
         padding-top: item.kind == 7 ? 14px : item.kind == 12 ? 4px : 10px;
         padding-bottom: item.kind == 7 ? 4px : item.kind == 12 ? 4px : 10px;
         spacing: 8px;
-        if item.kind == 7: Text {
-            text: item.title;
-            color: Theme.text-dim;
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: 0.6px;
+        // A heading; one with `action` "open" or "closed" folds what's
+        // under it, pressing id.
+        if item.kind == 7: HorizontalLayout {
+            spacing: 6px;
+            if item.action != "": Path {
+                width: 10px;
+                height: 10px;
+                y: 2px;
+                viewbox-width: 10;
+                viewbox-height: 10;
+                stroke: Theme.text-dim;
+                stroke-width: 1.4px;
+                fill: transparent;
+                commands: item.action == "open" ? "M 1.5 3.5 L 5 7 L 8.5 3.5" : "M 3.5 1.5 L 7 5 L 3.5 8.5";
+            }
+            Text {
+                text: item.title;
+                color: Theme.text-dim;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.6px;
+                horizontal-stretch: 1;
+            }
         }
         if item.kind == 11: HorizontalLayout {
             spacing: 10px;
@@ -556,13 +857,27 @@ export component PrefRow inherits Rectangle {
                 overflow: elide;
                 horizontal-stretch: 1;
             }
-            Text { text: "In rail"; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
             VerticalLayout {
                 alignment: center;
                 Switch { on: item.on; toggled(on) => { Preferences.toggled(item.id, on); } }
             }
         }
-        if item.kind != 7 && item.kind != 11 && item.kind != 12 && item.kind != 16 && item.kind != 17: HorizontalLayout {
+        if item.kind == 18: FolderList { item: item; bright: bright; }
+        if item.kind == 19: VerticalLayout {
+            spacing: 8px;
+            if searching: Text { text: item.page-name; color: Theme.accent; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
+            Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 16px;
+                VerticalLayout {
+                    alignment: center;
+                    Segmented { choices: item.choices; chosen: item.chosen; picked(i) => { Preferences.picked(item.id, i); } }
+                }
+                TrackColorPreview { mode: item.chosen; }
+            }
+        }
+        if item.kind != 7 && item.kind != 11 && item.kind != 12 && item.kind != 16 && item.kind != 17 && item.kind != 18 && item.kind != 19: HorizontalLayout {
             spacing: 16px;
             VerticalLayout {
                 horizontal-stretch: 1;

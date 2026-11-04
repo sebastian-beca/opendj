@@ -64,7 +64,7 @@ pub fn fields(names: &FieldNames) -> Vec<Field> {
         f("bpm", "BPM", Kind::Bpm),
         f("key", "Key", Kind::Key),
         f("rating", "Rating", Kind::Rating),
-        f("color", "Colour", Kind::Color),
+        f("color", "Color", Kind::Color),
         f("artist", "Artist", Kind::Text),
         f("album", "Album", Kind::Text),
         f("year", "Year", Kind::Year),
@@ -78,7 +78,7 @@ pub fn fields(names: &FieldNames) -> Vec<Field> {
 pub const DEFAULT_PINNED: [&str; 6] = ["grouping", "genre", "tag1", "tag2", "bpm", "key"];
 
 /// One value a chip offers: what it says, the search it stands for, how
-/// many tracks of the list have it, and a colour swatch for colours.
+/// many tracks of the list have it, and a color swatch for colors.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Choice {
     pub label: String,
@@ -773,7 +773,7 @@ pub fn choices<'a>(
                     swatch: Some(rgb),
                     ..choice(capitalized(name), format!("color:{name}"))
                 })
-                .chain([choice("No colour".into(), "color:\"\"".into())])
+                .chain([choice("No color".into(), "color:\"\"".into())])
                 .collect();
             count(&mut list, &|t, c| t.info.color == c.swatch);
             list

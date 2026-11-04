@@ -66,7 +66,7 @@ or the track menu takes the whole batch back.
 | Featured artists | `Road (feat. Arctic Lake)` by Lane 8 becomes `Road` by `Lane 8 feat. Arctic Lake` |
 | Title Case (off) | `CARBON BASED LIFEFORMS` becomes `Carbon Based Lifeforms` |
 
-Each rule can be turned off in Settings › Collection › Stages, under
+Each rule can be turned off in Settings › Collection › Health, under
 Clean-up. Titles that start with a number, such as `99 Luftballons`, stay
 as they are.
 
@@ -111,7 +111,7 @@ or MusicBrainz was busy (try those again later), and how many are in iCloud
 only, so they were looked up by name and not by their sound.
 
 With an **AcoustID key** (free on acoustid.org; paste it in Settings ›
-Collection under Online lookup) openDJ recognises tracks by their sound, so
+Collection › Health under Online lookup) openDJ recognises tracks by their sound, so
 files called `track01.mp3` are found too. Without one, tracks are looked up
 by artist and title (from the tags or the file name), and those with
 neither are skipped.

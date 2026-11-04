@@ -1,6 +1,6 @@
 // The side panel's Cues tab: the hot cues, memory cues and saved loops of
 // the track on a deck, in the order they come in the track. Names are
-// edited in place, the dot picks a colour, the number moves a cue to
+// edited in place, the dot picks a color, the number moves a cue to
 // another pad or makes it a memory cue.
 import { Theme, CloseIcon } from "theme.slint";
 
@@ -24,8 +24,8 @@ export global CueList {
     in property <[CueRow]> rows;
     // Whether a loop plays on the deck, so Save loop is offered.
     in property <bool> looping;
-    // Names and colours of hot cues 1 to 8 on deck 1, for Prep's pads
-    // (an empty name: none; transparent: the pad's own colour).
+    // Names and colors of hot cues 1 to 8 on deck 1, for Prep's pads
+    // (an empty name: none; transparent: the pad's own color).
     in property <[string]> pad-names: ["", "", "", "", "", "", "", ""];
     in property <[color]> pad-colors: [transparent, transparent, transparent, transparent, transparent, transparent, transparent, transparent];
     callback pick-deck(deck: int);
@@ -145,7 +145,7 @@ export component CuesPanel inherits Rectangle {
                 clicked => { CueList.add-memory(); }
             }
             Text {
-                text: "Click the number to move a cue to a pad, the dot for its colour.";
+                text: "Click the number to move a cue to a pad, the dot for its color.";
                 color: Theme.text-dim;
                 font-size: 11px;
                 wrap: word-wrap;
@@ -201,7 +201,7 @@ export component CuesPanel inherits Rectangle {
                                 commit(text) => { CueList.rename(i, text); }
                             }
                         }
-                        // The colour: click for the next one.
+                        // The color: click for the next one.
                         VerticalLayout {
                             alignment: center;
                             Rectangle {

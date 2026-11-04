@@ -603,15 +603,6 @@ pub fn set_music_folders(folders: &[PathBuf]) {
     save(|v| v[MUSIC_FOLDERS] = json!(folders));
 }
 
-/// Whether the library is brought up to date each time openDJ starts:
-/// new files in the music and stage folders, and changed imports. When off,
-/// that only happens on Update library.
-pub const SCAN_ON_START: &str = "scan_on_start";
-
-pub fn scan_on_start() -> bool {
-    flag(SCAN_ON_START, true)
-}
-
 /// The stage folders (see [`opendj_library::stages`]): any number of inbox
 /// folders, one triage folder and one collection folder.
 pub fn stage_folders() -> opendj_library::stages::Folders {

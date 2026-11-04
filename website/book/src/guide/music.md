@@ -2,7 +2,7 @@
 
 Your **collection** is every track openDJ knows about, with everything it
 knows about them: one database file with every track's tags, rating,
-colour, cues, loops and beat grid, your playlists, smart lists and folders,
+color, cues, loops and beat grid, your playlists, smart lists and folders,
 and the history of what you played. It points at your audio files where
 they are, and only moves them between your stage folders when you turn that
 on (see [Stages](#stages-inbox-in-prep-and-play-ready)).
@@ -142,11 +142,11 @@ together. openDJ fetches the original files, so a FLAC stays a FLAC.
 Tracks come into your collection in three ways:
 
 - **Your music folders.** openDJ looks through them each time it starts,
-  and when you press **Rescan** in **Settings › Collection**. New files are
-  added, and changed files have their tags read again. With a big collection
-  you can turn off **Update collection on start** there, and press **Rescan**
-  when you add music. Add as many folders as you like there with
-  **Add…**, and take one out with **Remove**, or start openDJ with the
+  and when you press the circling arrows at the top right of the Collection
+  sidebar. New files are added, and changed files have their tags read
+  again. Add as many folders as you like under **Music Collection** in
+  **Settings › Collection** with **+** (pick the folder in Finder or your
+  file manager), and take one out by selecting it and pressing **−**, or start openDJ with the
   `OPENDJ_MUSIC` environment variable set to one. There's no default folder:
   `~/Music` is where Ableton, GarageBand and other apps keep their samples,
   so openDJ only looks there if you add it. When a folder is no longer looked through,
@@ -165,12 +165,12 @@ or analysed yet.
 Stages take new music from wherever it lands to tracks that are ready to
 play. Set them up in **Settings › Collection › Stages**:
 
-- **Inbox folders**: any number of folders where new music arrives, such
-  as Downloads, a Soulseek folder, or where purchases land.
-- **In Prep folder**: where tracks you are preparing are kept. Its
+- **Inbox**: the folder where new music arrives, such as Downloads, a
+  Soulseek folder, or where purchases land.
+- **In Prep**: where tracks you are preparing are kept. Its
   subfolders are **prep crates** (for example `Yoga STG` or
   `Journey STG`), for sorting tracks by where they'll go.
-- **Play Ready folder**: where prepared tracks are kept. Its subfolders
+- **Play Ready**: where prepared tracks are kept. Its subfolders
   (such as `Albums`) stay as they are.
 
 Once the In Prep and Play Ready folders are set, **Inbox**, **In Prep**
@@ -202,8 +202,7 @@ Files only move between the folders when **Move files** is on. Leave it
 off while another app, such as VirtualDJ, still uses them: tracks change
 stage in openDJ at once, their moves wait, and they are made when you turn
 it on. Files going from the inbox to In Prep are renamed `Artist - Title
-(Remix)` from their tags, unless you turn **Rename files sent to In Prep**
-off. A file is never moved over another one.
+(Remix)` from their tags, unless you turn **Rename files** off. A file is never moved over another one.
 
 Search with `stage:inbox`, `stage:prep` or `stage:playready` (the older
 `stage:triage` and `stage:collection` work too), and
@@ -298,12 +297,12 @@ Three steps follow:
    the top does the lot. History is grouped by year. Everything starts
    ticked except filter folders, whose searches may not mean quite the same
    here. Lists you add in VirtualDJ later come in ticked.
-3. **Choose whose tags win** when a track's title, rating or colour differ:
+3. **Choose whose tags win** when a track's title, rating or color differ:
    VirtualDJ's, while you still use it, or openDJ's.
 
-Press **Import**. Each track keeps VirtualDJ's tags, stars, colour, comment,
+Press **Import**. Each track keeps VirtualDJ's tags, stars, color, comment,
 play count, dates, BPM, beat grid, key, hot cues with their names and
-colours, saved loops, gain, and its remix and automix points. Anything
+colors, saved loops, gain, and its remix and automix points. Anything
 VirtualDJ leaves empty is filled in from the file's own tags. The lists go
 into a **VirtualDJ** folder, and history into the History tab.
 
@@ -365,9 +364,9 @@ on Windows). For rekordbox 5, or if the database can't be opened, export
 your collection from rekordbox (**File › Export Collection in xml format**)
 and choose that file in the first step.
 
-From `master.db` each track keeps its tags, stars, colour, comment, play
+From `master.db` each track keeps its tags, stars, color, comment, play
 count, date added, key, My Tags (as tags like `#warmup`), hot cues A to H
-with their names and colours, memory cues, saved loops, its beat grid with
+with their names and colors, memory cues, saved loops, its beat grid with
 any tempo changes, and rekordbox's phrases (Intro, Verse, Chorus and so on,
 shown on the waveform as openDJ's own phrases are). Playlists come in their
 folders, intelligent playlists as smart lists where openDJ's search can say
@@ -382,8 +381,8 @@ where Mixxx keeps it: `~/Library/Containers/org.mixxx.mixxx/Data/Library/Applica
 or `~/Library/Application Support/Mixxx` on a Mac, `~/.mixxx` on Linux and
 `AppData\Local\Mixxx` on Windows.
 
-Each track keeps its tags, stars, colour, comment, play count, dates, key,
-hot cues with their labels and colours, saved loops, the main cue (as a
+Each track keeps its tags, stars, color, comment, play count, dates, key,
+hot cues with their labels and colors, saved loops, the main cue (as a
 memory cue), intro and outro (as sections) and its beat grid, whether a
 steady grid or a beat map with tempo changes. Playlists come in a
 **Playlists** folder, crates in a **Crates** folder, and history sessions go
@@ -396,7 +395,7 @@ to the History tab. Auto DJ's queue stays in Mixxx.
 `Documents/Native Instruments/Traktor x.y.z` folder on a Mac or Windows. If
 yours is elsewhere, choose the file in the first step.
 
-Each track keeps its tags, stars, colour, comment, play count, dates, key,
+Each track keeps its tags, stars, color, comment, play count, dates, key,
 hot cues 1 to 8 with their names, saved loops, its beat grid, other cues (as
 memory cues) and fade in and fade out (as Automix points). Playlists come in
 their folders, folders within folders just as Traktor shows them. Traktor's
@@ -485,13 +484,13 @@ refreshed list keeps the same tracks picked. With several picked, the list's
 heading says how many and their total time ("12 selected · 1h 14m") in
 place of the whole list's time.
 
-The track menu's **Rating** and **Colour** rows set every picked track at
-once; the colours are the ones `color:red`, `color:blue` and so on search for.
+The track menu's **Rating** and **Color** rows set every picked track at
+once; the colors are the ones `color:red`, `color:blue` and so on search for.
 
-A track's colour shows as a dot in the **Colour** column (headed ●, sorted
+A track's color shows as a dot in the **Color** column (headed ●, sorted
 red, orange, yellow, green, cyan, blue, purple, pink). **Settings › Library ›
-Track colour** changes that to a strip at the row's left edge or a soft tint
-of the whole row, or turns it off; colour searches work either way.
+Track color** changes that to a strip at the row's left edge or a soft tint
+of the whole row, or turns it off; color searches work either way.
 
 ## Track info
 
@@ -558,7 +557,7 @@ to move it. Click a heading to sort by it. openDJ remembers your columns.
 
 ## Your own fields
 
-Name grouping and your tag fields in **Settings › Collection › Fields**,
+Name grouping and your tag fields in **Settings › Collection › Tags**,
 for example Trip Stage, Mood and Instrument, and add as many tag fields as
 you need. VirtualDJ's User 1 and User 2 come in as the first two. Each name
 works as a search word too (`mood:uplifting`, `tripstage:"4 peak"`), and so

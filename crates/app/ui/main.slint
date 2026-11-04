@@ -368,7 +368,7 @@ component RecordButton inherits Rectangle {
             letter-spacing: on ? 0px : 0.5px;
             vertical-alignment: center;
         }
-        // The mix's short-term loudness, coloured against the target.
+        // The mix's short-term loudness, colored against the target.
         if on: Text {
             text: Loudness.text(short-term) + " LUFS";
             color: Loudness.tint(short-term, target);

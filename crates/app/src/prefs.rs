@@ -3,7 +3,7 @@
 //! settings.json. Saved choices are applied again at start.
 
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
@@ -38,9 +38,11 @@ const AUDIO: i32 = 0;
 const CONTROLLERS: i32 = 1;
 const LIBRARY: i32 = 2;
 /// Settings › Collection's tabs.
-const LIBRARY_TABS: [&str; 4] = ["General", "Stages", "Fields", "Import"];
+const LIBRARY_TABS: [&str; 5] = ["General", "Stages", "Tags", "Import", "Health"];
 /// The Import tab's place in LIBRARY_TABS.
 const IMPORT_TAB: usize = 3;
+/// The Health tab's place in LIBRARY_TABS: online lookup and clean-up.
+const HEALTH_TAB: usize = 4;
 /// Other DJ apps whose libraries openDJ can't bring in yet, listed on the
 /// Import tab so the DJ sees what's coming.
 const COMING_IMPORTS: [(&str, &str); 1] = [("Serato DJ", "Tracks, cues, loops and crates.")];
@@ -95,6 +97,15 @@ const FILTER_BAR: i32 = 16;
 /// grey, 1 green, 2 orange), what it's doing, and its In rail switch
 /// (`on`). `action` is its fold arrow, empty when there's nothing to open.
 const SOURCE_ROW: i32 = 17;
+/// A list of folders, by name, with + and − under it (see `folder_list`).
+const FOLDER_LIST: i32 = 18;
+/// How track colors show: segmented buttons with a preview beside them.
+const TRACK_COLOR: i32 = 19;
+/// A folder list's icon in `chosen`: the sidebar's stage icons (its node
+/// kinds), or 0 for a folder.
+const STAGE_ICON_INBOX: i32 = 10;
+const STAGE_ICON_PREP: i32 = 11;
+const STAGE_ICON_READY: i32 = 19;
 
 /// Tempo fader ranges, as fractions of normal speed.
 const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
@@ -435,6 +446,8 @@ pub struct Prefs {
     chosen_rx: Receiver<(String, PathBuf)>,
     /// What the last Rescan or Clear did, shown on its row.
     library_note: String,
+    /// Whether the Clean-up rules on the Health tab are open.
+    cleanup_open: bool,
     /// What the last import change set going, shown on the Import tab.
     import_note: String,
     cache_note: String,
@@ -533,6 +546,7 @@ impl Prefs {
             chosen_tx,
             chosen_rx,
             library_note: String::new(),
+            cleanup_open: false,
             import_note: String::new(),
             cache_note: String::new(),
             stems_note: String::new(),
@@ -723,6 +737,64 @@ impl Prefs {
         }
     }
 
+    /// + or − under a list of folders, or a folder's reveal arrow. + opens
+    /// the folder picker under the id the picked folder is handled by.
+    fn folder_list_pressed(&mut self, id: &str) -> bool {
+        let Some((list, what)) = id.split_once('#') else {
+            return false;
+        };
+        if let Some(path) = what.strip_prefix("reveal:") {
+            crate::files::reveal(Path::new(path));
+            return true;
+        }
+        let remove = what
+            .strip_prefix("remove:")
+            .and_then(|i| i.parse::<usize>().ok());
+        if what != "add" && remove.is_none() {
+            return false;
+        }
+        let single = [
+            settings::ALBUMS_FOLDER,
+            settings::MIXED_SETS_FOLDER,
+            settings::STAGE_TRIAGE,
+            settings::STAGE_COLLECTION,
+        ];
+        if list.starts_with("import_database:") {
+            match remove {
+                None => {
+                    self.pressed(list);
+                }
+                Some(_) => {
+                    settings::set(list, json!(""));
+                    self.refresh();
+                }
+            }
+            return true;
+        }
+        match (list, remove) {
+            (MUSIC_FOLDERS_LIST, None) => self.pressed("music_folder_add"),
+            (MUSIC_FOLDERS_LIST, Some(i)) => self.pressed(&format!("music_folder_remove:{i}")),
+            (settings::STAGE_INBOX, None) => self.pressed("stage_inbox_add"),
+            (settings::STAGE_INBOX, Some(i)) => self.pressed(&format!("stage_inbox_remove:{i}")),
+            (PLUGIN_FOLDERS_LIST, None) => self.pressed("audio_plugin_folder_add"),
+            (PLUGIN_FOLDERS_LIST, Some(i)) => {
+                self.pressed(&format!("audio_plugin_folder_remove:{i}"))
+            }
+            (list, None) if single.contains(&list) => self.pressed(list),
+            (list, Some(_)) if single.contains(&list) => {
+                settings::set(list, json!(""));
+                if list == settings::STAGE_TRIAGE || list == settings::STAGE_COLLECTION {
+                    self.stages_changed();
+                } else {
+                    self.recorder.configure(settings::recording());
+                    self.music_folders_changed();
+                }
+            }
+            _ => return false,
+        }
+        true
+    }
+
     /// A music folder was added or removed: the library is updated, which
     /// brings in what is there and finds what is now outside.
     fn music_folders_changed(&mut self) {
@@ -866,9 +938,6 @@ impl Prefs {
             }
             Part::Library => {
                 let mut items = self.music_folder_items();
-                for i in items.iter_mut().filter(|i| i.id == "music_folder_add") {
-                    i.detail = "Where openDJ finds your tracks.".into();
-                }
                 items.push(item("", HEADING, "IMPORT", ""));
                 let mut found = false;
                 let importers = crate::stores::importers();
@@ -995,69 +1064,21 @@ impl Prefs {
                         )
                     }
                 },
-                {
-                    // With a mixed sets folder, recordings go in it.
-                    let in_sets = settings::mixed_sets_folder().is_some();
-                    PrefItem {
-                        value: settings::recording().dir.display().to_string().into(),
-                        action: if in_sets { "" } else { "Choose…" }.into(),
-                        ..item(
-                            "recording_folder",
-                            PATH,
-                            "Recordings folder",
-                            if in_sets {
-                                "In your Mixed Sets folder (Settings › Collection). Each mix is \
-                                 saved with a .cue tracklist and a log of every control move."
-                            } else {
-                                "Each mix is saved with a .cue tracklist and a log of every \
-                                 control move. Choose a Mixed Sets folder in Settings › Collection \
-                                 to keep them with your other sets."
-                            },
-                        )
-                    }
-                },
-                PrefItem {
-                    action: "Show".into(),
-                    ..item(
-                        "show_recordings",
-                        BUTTON,
-                        "Show recordings",
-                        "Opens the folder, with the last recording selected.",
-                    )
-                },
-                item("loudness", HEADING, "LOUDNESS", ""),
-                {
-                    let target = settings::number("loudness_target", meter::DEFAULT_LOUDNESS_TARGET);
-                    PrefItem {
-                        choices: strings(&LOUDNESS_TARGETS.map(|t| t.1)),
-                        chosen: LOUDNESS_TARGETS
-                            .iter()
-                            .position(|t| (t.0 - target).abs() < 1e-6)
-                            .unwrap_or(0) as i32,
-                        ..item(
-                            "loudness_target",
-                            MENU,
-                            "Loudness target",
-                            "Where the loudness meter in the ON AIR panel shows green. It doesn't change any level.",
-                        )
-                    }
-                },
-                {
-                    let ceiling = settings::number("air_ceiling", engine::DEFAULT_AIR_CEILING_DB);
-                    PrefItem {
-                        choices: strings(&AIR_CEILINGS.map(|t| t.1)),
-                        chosen: AIR_CEILINGS
-                            .iter()
-                            .position(|t| (t.0 - ceiling).abs() < 1e-6)
-                            .unwrap_or(0) as i32,
-                        ..item(
-                            "air_ceiling",
-                            MENU,
-                            "Limiter while recording or on air",
-                            "Keeps peaks, also those between samples, under this level so MP3, AAC and Opus files and streams don't clip.",
-                        )
-                    }
-                },
+                // The same folder as Recordings and Mixed Sets in Settings ›
+                // Collection: recordings go in a folder inside it.
+                folder_list(
+                    settings::MIXED_SETS_FOLDER,
+                    "Recordings",
+                    &format!(
+                        "Saved in the \"{}\" folder inside your Recordings and Mixed Sets \
+                         folder, the same one as in Settings › Collection. Each mix comes with \
+                         a .cue tracklist.",
+                        settings::RECORDINGS_SUBFOLDER
+                    ),
+                    &settings::mixed_sets_folder().into_iter().collect::<Vec<_>>(),
+                    true,
+                    false,
+                ),
             ],
             CONTROLLERS => self.controllers_page(),
             LIBRARY => self.library_page(tab),
@@ -1250,7 +1271,11 @@ impl Prefs {
             MIXER => self.mixer_general(),
             SOURCES => self.sources_page(tab.is_none()),
             AUDIO_PLUGINS => self.audio_plugin_page(tab),
-            BROADCAST => self.broadcast_page(),
+            BROADCAST => {
+                let mut items = self.broadcast_page();
+                items.extend(loudness_items());
+                items
+            }
             KEYBOARD => self.keyboard_page(),
             FEEDBACK => vec![
                 item("", HEADING, "GUIDED TOUR", ""),
@@ -1470,32 +1495,15 @@ impl Prefs {
                 "Plugins",
                 "CLAP and VST3 plugins, and Audio Units on a Mac. Effects go in any effect slot: decks, Beat FX, Mic and Aux. Instruments play through the Instrument input in the MIC panel. Each runs in its own helper process, so a plugin that crashes or stalls is switched off and the music keeps playing.",
             ));
-            let folders = p.folders();
-            for (i, dir) in folders.iter().enumerate() {
-                items.push(PrefItem {
-                    value: dir.to_string_lossy().into_owned().into(),
-                    action: "Remove".into(),
-                    ..item(
-                        &format!("audio_plugin_folder_remove:{i}"),
-                        PATH,
-                        if i == 0 { "Plugin folders" } else { "" },
-                        "",
-                    )
-                });
-            }
-            items.push(PrefItem {
-                action: "Add…".into(),
-                ..item(
-                    "audio_plugin_folder_add",
-                    BUTTON,
-                    if folders.is_empty() {
-                        "Plugin folders"
-                    } else {
-                        "Add a plugin folder"
-                    },
-                    "Where openDJ looks for .clap and .vst3 plugins.",
-                )
-            });
+            items.push(folder_list(
+                PLUGIN_FOLDERS_LIST,
+                "Plugin folders",
+                "Where openDJ looks for .clap and .vst3 plugins, besides the system's own plugin \
+                 folders.",
+                &p.folders(),
+                false,
+                false,
+            ));
             items.push(scan.clone());
             if !failures.is_empty() {
                 items.push(item(
@@ -1978,44 +1986,21 @@ impl Prefs {
         items
     }
 
-    /// Settings › Collection: the music folders, each with Remove, then Add.
+    /// Settings › Collection: the music folders, as a list with + and −.
     fn music_folder_items(&self) -> Vec<PrefItem> {
         let env = std::env::var_os("OPENDJ_MUSIC").is_some();
-        let folders = settings::music_folders();
-        let mut items = Vec::new();
-        for (i, dir) in folders.iter().enumerate() {
-            items.push(PrefItem {
-                value: dir.to_string_lossy().into_owned().into(),
-                action: if env { "".into() } else { "Remove".into() },
-                ..item(
-                    &format!("music_folder_remove:{i}"),
-                    PATH,
-                    if i == 0 { "Music folders" } else { "" },
-                    if env && i == 0 {
-                        "Set by OPENDJ_MUSIC for now."
-                    } else {
-                        ""
-                    },
-                )
-            });
-        }
-        if !env {
-            items.push(PrefItem {
-                action: "Add…".into(),
-                ..item(
-                    "music_folder_add",
-                    BUTTON,
-                    if folders.is_empty() {
-                        "Music folders"
-                    } else {
-                        "Add a music folder"
-                    },
-                    "Where openDJ looks for your music. Tracks elsewhere show up in Collection \
-                     Health under Outside folders.",
-                )
-            });
-        }
-        items
+        vec![folder_list(
+            MUSIC_FOLDERS_LIST,
+            "Music Collection",
+            if env {
+                "Set by OPENDJ_MUSIC for now."
+            } else {
+                ""
+            },
+            &settings::music_folders(),
+            false,
+            env,
+        )]
     }
 
     /// Settings › Collection › Stages: the inbox folders, the triage and
@@ -2026,65 +2011,93 @@ impl Prefs {
             "",
             NOTE,
             "",
-            "New music lands in the Inbox. Send what you like to In Prep to prepare it \
-                 (tags, cover, rating, tempo and key), then send it to Play Ready. \
-                 Subfolders of the In Prep folder are prep crates.",
+            "Stages follow a track from new to ready to play. New music lands in the Inbox, \
+             you prepare it in In Prep (tags, cover, rating, tempo and key), and it ends up in \
+             Play Ready.",
         )];
-        for (i, dir) in folders.inbox.iter().enumerate() {
-            items.push(PrefItem {
-                value: dir.to_string_lossy().into_owned().into(),
-                action: "Remove".into(),
-                ..item(
-                    &format!("stage_inbox_remove:{i}"),
-                    PATH,
-                    if i == 0 { "Inbox folders" } else { "" },
-                    "",
-                )
-            });
-        }
         items.push(PrefItem {
-            action: "Add…".into(),
-            ..item(
-                "stage_inbox_add",
-                BUTTON,
-                if folders.inbox.is_empty() { "Inbox folders" } else { "Add an inbox folder" },
-                "Downloads, a Soulseek folder, where purchases land: anything new there shows up in the Inbox.",
+            chosen: STAGE_ICON_INBOX,
+            ..folder_list(
+                settings::STAGE_INBOX,
+                "Inbox",
+                "",
+                &folders.inbox,
+                true,
+                false,
             )
         });
         items.push(PrefItem {
-            value: show(folders.triage.clone(), "None").into(),
-            action: "Choose…".into(),
-            ..item(
+            chosen: STAGE_ICON_PREP,
+            ..folder_list(
                 settings::STAGE_TRIAGE,
-                PATH,
-                "In Prep folder",
-                "Where tracks you are preparing are kept.",
+                "In Prep",
+                "Its subfolders are prep crates.",
+                &folders.triage.into_iter().collect::<Vec<_>>(),
+                true,
+                false,
             )
         });
         items.push(PrefItem {
-            value: show(folders.collection.clone(), "None").into(),
-            action: "Choose…".into(),
-            ..item(
+            chosen: STAGE_ICON_READY,
+            ..folder_list(
                 settings::STAGE_COLLECTION,
-                PATH,
-                "Play Ready folder",
-                "Where prepared tracks are kept. Its subfolders (such as Albums) stay as they are.",
+                "Play Ready",
+                "",
+                &folders.collection.into_iter().collect::<Vec<_>>(),
+                true,
+                false,
             )
         });
         items.push(switch(
             settings::MOVE_FILES,
             "Move files",
-            "Moves files into these folders as tracks change stage. Leave it off while another \
-             app such as VirtualDJ still uses them: moves wait, and happen when you turn it on.",
+            "Allow openDJ to move files between stage folders.",
             settings::move_files(),
         ));
         items.push(switch(
             settings::RENAME_TO_TRIAGE,
-            "Rename files sent to In Prep",
-            "Names them \"Artist - Title (Remix)\" from their tags.",
+            "Rename files",
+            "Allow openDJ to rename files when moving them to the In Prep folder.",
             settings::rename_to_triage(),
         ));
-        items.push(item("", HEADING, "CLEAN-UP", ""));
+        items
+    }
+
+    /// Settings › Collection › Health: looking tracks up online, and what
+    /// Collection Health's clean-up looks for.
+    fn health_items(&self, searching: bool) -> Vec<PrefItem> {
+        let mut items = vec![
+            item("cover_art", HEADING, "ONLINE LOOKUP", ""),
+            PrefItem {
+                value: settings::discogs_token().into(),
+                on: true,
+                ..item(
+                    "discogs_token",
+                    TEXT,
+                    "Discogs token",
+                    "Adds Discogs to cover search and Look up online. Make one on \
+                     discogs.com under Settings › Developers.",
+                )
+            },
+            PrefItem {
+                value: settings::acoustid_key().into(),
+                on: true,
+                ..item(
+                    "acoustid_key",
+                    TEXT,
+                    "AcoustID key",
+                    "Recognizes tracks by their sound. A free key from acoustid.org under \
+                     My applications.",
+                )
+            },
+        ];
+        items.push(PrefItem {
+            action: if self.cleanup_open { "open" } else { "closed" }.into(),
+            ..item(CLEANUP_FOLD, HEADING, "CLEAN-UP", "")
+        });
+        if !self.cleanup_open && !searching {
+            return items;
+        }
         items.push(item(
             "",
             NOTE,
@@ -2107,7 +2120,7 @@ impl Prefs {
         }
     }
 
-    /// Settings › Collection: General, Stages, Fields and Import. `tab` None
+    /// Settings › Collection: General, Stages, Fields, Health and Import. `tab` None
     /// is every tab, for a search.
     fn library_page(&mut self, tab: Option<usize>) -> Vec<PrefItem> {
         let shows = |t: usize| tab.is_none_or(|x| x == t);
@@ -2123,6 +2136,9 @@ impl Prefs {
         }
         if shows(IMPORT_TAB) {
             items.extend(self.import_items());
+        }
+        if shows(HEALTH_TAB) {
+            items.extend(self.health_items(tab.is_none()));
         }
         items
     }
@@ -2153,19 +2169,16 @@ impl Prefs {
                         &format!("import_start:{}", importer.id()),
                         BUTTON,
                         &format!("Import from {title}"),
-                        &format!(
-                            "Brings in {title}'s tracks, cues, grids and lists, and keeps them \
-                             up to date."
-                        ),
+                        "",
                     )
                 });
             }
         }
         items.push(item("", HEADING, "COMING SOON", ""));
-        for (title, detail) in COMING_IMPORTS {
+        for (title, _) in COMING_IMPORTS {
             items.push(PrefItem {
                 value: "Coming soon".into(),
-                ..item("", BUTTON, &format!("Import from {title}"), detail)
+                ..item("", BUTTON, &format!("Import from {title}"), "")
             });
         }
         items
@@ -2260,46 +2273,35 @@ impl Prefs {
         };
         let mut items = self.music_folder_items();
         items.extend([
-            PrefItem {
-                value: show(settings::albums_folder(), "None").into(),
-                action: "Choose…".into(),
-                ..item(
-                    settings::ALBUMS_FOLDER,
-                    PATH,
-                    "Albums folder",
-                    "A folder per album, or Artist › Album. In the collection and under Albums.",
-                )
-            },
-            PrefItem {
-                value: show(settings::mixed_sets_folder(), "None").into(),
-                action: "Choose…".into(),
-                ..item(
-                    settings::MIXED_SETS_FOLDER,
-                    PATH,
-                    "Mixed Sets folder",
-                    "Whole DJ sets, kept out of the collection. Your recordings go in it too.",
-                )
-            },
-            PrefItem {
-                action: "Rescan".into(),
-                ..item(
-                    "rescan",
-                    BUTTON,
-                    "Update collection",
-                    if self.library_note.is_empty() {
-                        "Looks for new and changed tracks in the music folders now."
-                    } else {
-                        &self.library_note
-                    },
-                )
-            },
-            switch(
-                settings::SCAN_ON_START,
-                "Update collection on start",
-                "Looks for new and changed tracks each time openDJ starts. Turn it off for a \
-                 big collection and use Update collection when you add music.",
-                settings::scan_on_start(),
+            folder_list(
+                settings::ALBUMS_FOLDER,
+                "Albums",
+                "One folder per album, or Artist › Album folders. Albums are in your collection \
+                 and under Albums in the rail, where they play gapless.",
+                &settings::albums_folder().into_iter().collect::<Vec<_>>(),
+                true,
+                false,
             ),
+            folder_list(
+                settings::MIXED_SETS_FOLDER,
+                "Recordings and Mixed Sets",
+                &format!(
+                    "Whole DJ mixes, yours and others'. They stay out of your collection and show \
+                     under Mixed Sets in the rail. Your recordings are saved in its \
+                     \"{}\" folder.",
+                    settings::RECORDINGS_SUBFOLDER
+                ),
+                &settings::mixed_sets_folder()
+                    .into_iter()
+                    .collect::<Vec<_>>(),
+                true,
+                false,
+            ),
+        ]);
+        if !self.library_note.is_empty() {
+            items.push(item("", NOTE, "", &self.library_note));
+        }
+        items.extend([
             PrefItem {
                 action: "Clear".into(),
                 ..item("clear_cache", BUTTON, "Analysis cache", &cache_detail)
@@ -2307,44 +2309,13 @@ impl Prefs {
             PrefItem {
                 choices: strings(&["Dot", "Strip", "Tint", "Off"]),
                 chosen: settings::track_color().unwrap_or(0) as i32,
-                ..item(
-                    "track_color",
-                    SEGMENTED,
-                    "Track colour",
-                    "How the colours you give tracks show in the list: a dot in the Colour \
-                     column, a strip at the row's edge, or the whole row tinted. Off hides \
-                     them; color:red searches still find them.",
-                )
-            },
-            item("cover_art", HEADING, "ONLINE LOOKUP", ""),
-            PrefItem {
-                value: settings::discogs_token().into(),
-                on: true,
-                ..item(
-                    "discogs_token",
-                    TEXT,
-                    "Discogs token",
-                    "Lets cover search and Look up online use Discogs too (label, year, \
-                     style). Make one on discogs.com under Settings › Developers.",
-                )
-            },
-            PrefItem {
-                value: settings::acoustid_key().into(),
-                on: true,
-                ..item(
-                    "acoustid_key",
-                    TEXT,
-                    "AcoustID key",
-                    "Lets Look up online recognise tracks by their sound, so even badly \
-                     named files are found. Get a free key on acoustid.org under My \
-                     applications. Without one, tracks are looked up by artist and title.",
-                )
+                ..item("track_color", TRACK_COLOR, "Track color", "")
             },
         ]);
         items
     }
 
-    /// Settings › Collection › Fields: names for grouping and the tag fields.
+    /// Settings › Collection › Tags: names for grouping and the tag fields.
     fn field_items(&self) -> Vec<PrefItem> {
         let mut items = vec![item(
             "",
@@ -2397,25 +2368,24 @@ impl Prefs {
     /// come in, whose tags win, and ways to stop or remove it.
     fn import_rows(&self, importer: &dyn LibraryImport) -> Vec<PrefItem> {
         let (id, title) = (importer.id(), importer.title());
+        // The library's file, shown by the folder it's in (VirtualDJ's
+        // database.xml as "VirtualDJ"); + picks another.
+        let db = settings::import_database(importer);
         let mut rows = vec![PrefItem {
-            value: show(settings::import_database(importer), "Not found").into(),
-            action: "Choose…".into(),
-            ..item(
+            choices: strings(&db.iter().map(|p| library_name(p)).collect::<Vec<_>>()),
+            ..folder_list(
                 &settings::import_database_key(id),
-                PATH,
                 &format!("{title} library"),
-                &format!("Read when openDJ starts. Change its lists in {title}."),
+                "",
+                &db.into_iter().collect::<Vec<_>>(),
+                true,
+                false,
             )
         }];
         if !importer.list_groups().is_empty() {
             rows.push(PrefItem {
                 action: "Choose…".into(),
-                ..item(
-                    &format!("import_lists:{id}"),
-                    BUTTON,
-                    "Lists",
-                    &format!("Which of {title}'s playlists, folders and history come in."),
-                )
+                ..item(&format!("import_lists:{id}"), BUTTON, "Lists", "")
             });
         }
         rows.push(theirs_row(
@@ -2428,20 +2398,13 @@ impl Prefs {
             rows.push(switch(
                 &settings::import_wants_streamed_key(id),
                 "Add streamed tracks to Wanted",
-                &format!(
-                    "TIDAL and Spotify tracks in {title}'s playlists that your collection hasn't got go on the Wanted list. History never does."
-                ),
+                "",
                 settings::import_wants_streamed(id),
             ));
         }
         rows.push(PrefItem {
             action: "Stop".into(),
-            ..item(
-                &format!("import_stop:{id}"),
-                BUTTON,
-                "Stop importing",
-                &format!("Keeps what came in from {title}, but stops updating it."),
-            )
+            ..item(&format!("import_stop:{id}"), BUTTON, "Stop importing", "")
         });
         let confirm = self.removing.as_deref() == Some(id);
         rows.push(PrefItem {
@@ -2453,7 +2416,7 @@ impl Prefs {
                 &if confirm {
                     "Press again to remove. Tracks in your lists or music folder stay.".to_string()
                 } else {
-                    format!("Takes out everything that came in from {title}.")
+                    String::new()
                 },
             )
         });
@@ -3588,6 +3551,14 @@ impl Prefs {
         if self.import_pressed(id) {
             return;
         }
+        if id == CLEANUP_FOLD {
+            self.cleanup_open = !self.cleanup_open;
+            self.refresh();
+            return;
+        }
+        if self.folder_list_pressed(id) {
+            return;
+        }
         if self.audio_plugin_pressed(id) {
             return;
         }
@@ -4222,6 +4193,97 @@ fn item(id: &str, kind: i32, title: &str, detail: &str) -> PrefItem {
     }
 }
 
+/// Settings › Broadcast: the loudness meter's target and the limiter.
+fn loudness_items() -> Vec<PrefItem> {
+    vec![
+        item("loudness", HEADING, "LOUDNESS", ""),
+        {
+            let target = settings::number("loudness_target", meter::DEFAULT_LOUDNESS_TARGET);
+            PrefItem {
+                choices: strings(&LOUDNESS_TARGETS.map(|t| t.1)),
+                chosen: LOUDNESS_TARGETS
+                    .iter()
+                    .position(|t| (t.0 - target).abs() < 1e-6)
+                    .unwrap_or(0) as i32,
+                ..item(
+                    "loudness_target",
+                    MENU,
+                    "Loudness target",
+                    "Where the loudness meter in the ON AIR panel shows green. It doesn't change any level.",
+                )
+            }
+        },
+        {
+            let ceiling = settings::number("air_ceiling", engine::DEFAULT_AIR_CEILING_DB);
+            PrefItem {
+                choices: strings(&AIR_CEILINGS.map(|t| t.1)),
+                chosen: AIR_CEILINGS
+                    .iter()
+                    .position(|t| (t.0 - ceiling).abs() < 1e-6)
+                    .unwrap_or(0) as i32,
+                ..item(
+                    "air_ceiling",
+                    MENU,
+                    "Limiter while recording or on air",
+                    "Keeps peaks, also those between samples, under this level so MP3, AAC and Opus files and streams don't clip.",
+                )
+            }
+        },
+    ]
+}
+
+/// The Clean-up heading on Settings › Collection › Health, which folds.
+const CLEANUP_FOLD: &str = "cleanup#fold";
+
+/// The music folders' list on Settings › Collection.
+const MUSIC_FOLDERS_LIST: &str = "music_folders";
+/// The plugin folders' list on Settings › Plugins › Folders.
+const PLUGIN_FOLDERS_LIST: &str = "audio_plugin_folders";
+
+/// A list of folders shown by name, as in Finder, with + (pick one in the
+/// system's folder picker; on a `single` list, in place of the one there)
+/// and − (take the selected one off) under it.
+/// `info` goes in the ⓘ beside the title (none when empty). A `single`
+/// list holds one folder; a `fixed` one can't be changed here. The row
+/// presses `id#add`, `id#remove:<index>` and `id#reveal:<path>`.
+fn folder_list(
+    id: &str,
+    title: &str,
+    info: &str,
+    folders: &[PathBuf],
+    single: bool,
+    fixed: bool,
+) -> PrefItem {
+    let names: Vec<String> = folders.iter().map(|p| folder_name(p)).collect();
+    let paths: Vec<String> = folders
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    PrefItem {
+        choices: strings(&names),
+        paths: strings(&paths),
+        on: single,
+        action: if fixed { "fixed".into() } else { "".into() },
+        ..item(id, FOLDER_LIST, title, info)
+    }
+}
+
+/// What an imported library is called in its list: the folder its file is
+/// in, as the app's own folder ("VirtualDJ"), or the file's name.
+fn library_name(p: &Path) -> String {
+    p.parent()
+        .filter(|d| d.file_name().is_some())
+        .map(folder_name)
+        .unwrap_or_else(|| folder_name(p))
+}
+
+/// What a folder is called in a list: its own name, not its whole path.
+fn folder_name(p: &Path) -> String {
+    p.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| p.to_string_lossy().into_owned())
+}
+
 /// A shortcut's row on the Keyboard page.
 fn shortcut_item(r: &shortcuts::Row) -> PrefItem {
     let (detail, wrong) = shortcuts::describe(&r.script);
@@ -4306,7 +4368,7 @@ fn theirs_row(id: &str, title: &str, theirs_win: bool) -> PrefItem {
             id,
             SEGMENTED,
             "When tags differ",
-            "Whose titles, ratings and colours a track keeps.",
+            "Whose titles, ratings and colors a track keeps.",
         )
     }
 }

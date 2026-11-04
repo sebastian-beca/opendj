@@ -42,16 +42,16 @@ A hot cue marks a place in the track to jump back to.
 - **Shift-click a pad** to delete its cue.
 
 The eight hot cues are blue, green, yellow, orange, red, pink, purple and
-teal, and show in the same colour on the waveform. A saved loop shows a loop
+teal, and show in the same color on the waveform. A saved loop shows a loop
 sign instead of a play mark. Hot cues from VirtualDJ come in with their names
-and colours, and are written to the stick in a
+and colors, and are written to the stick in a
 [USB export](usb-export.md).
 
 ## Keyboard and key shift
 
 **KEYBOARD** plays from the deck's hot cue at another key, like a sampler
 keyboard: the pads go 0, +1, +2, +3 semitones on the top row and −4, −3,
-−2, −1 on the bottom. They take the colour of the hot cue they play.
+−2, −1 on the bottom. They take the color of the hot cue they play.
 With **KEYBOARD PADS** on in the MIC panel they play the instrument
 plugin instead, from C up (see [Instruments](fx.md#instruments)).
 

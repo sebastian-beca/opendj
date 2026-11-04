@@ -61,7 +61,7 @@ in any list; In Prep keeps its own set. Load a track and work through it:
 - Eight hot cue pads with their names and times: click an empty pad to set
   it, a set one to jump there, Shift-click to clear it.
 - The side panel's **Cues** tab lists the track's hot cues, memory cues and
-  saved loops in track order. Type a name, click the dot for the next colour,
+  saved loops in track order. Type a name, click the dot for the next color,
   click a time to jump there, or click the number to move the cue to another
   pad (the cue on that pad takes its place) or make it a memory cue.
   **+ Memory cue** (or **C**) adds one at the playhead; while a loop plays it

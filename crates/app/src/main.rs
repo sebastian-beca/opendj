@@ -718,13 +718,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         engine.load_track(1, library[4].clone());
     }
 
-    // Bring the library up to date in the background with new files in the
-    // music folder, unless the DJ turned that off. The browser then shows the
-    // library as saved.
+    // Bring the library up to date in the background with new and changed
+    // files in the music folders, every start. The browser shows the library
+    // as saved meanwhile.
     let (scan_tx, scan_rx) = std::sync::mpsc::channel();
-    if settings::scan_on_start() {
-        sync_library(library_path.clone(), scan_tx.clone());
-    }
+    sync_library(library_path.clone(), scan_tx.clone());
     let controller_editor = controller_editor::Editor::install(&app, controllers.clone());
     let map_mode = map_mode::Mapper::install(&app, controllers.clone());
     prefs::apply_saved(&registry);
@@ -756,6 +754,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         audio_plugins.clone(),
         broadcast.clone(),
     );
+    // The circling arrows over the Collection sidebar update the collection,
+    // as Update collection did in Settings.
+    {
+        let weak = app.as_weak();
+        app.global::<LibraryEdit>().on_update_collection(move || {
+            if let Some(app) = weak.upgrade() {
+                app.global::<Preferences>().invoke_pressed("rescan".into());
+            }
+        });
+    }
     // The ON AIR panel and saving typed passwords, a few times a second.
     let _broadcast_timer = broadcast.clone().map(|b| {
         let app = app.as_weak();

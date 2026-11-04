@@ -30,7 +30,7 @@ passes.
 
 Beside the title, four squares light up one beat at a time, so you can see
 where the bar is: the first beat of each bar lights white, the others in the
-deck's colour. The thin bars under them fill up through each group of four
+deck's color. The thin bars under them fill up through each group of four
 bars, and all four turn lilac in the last bar before a new phrase starts,
 so you know the change is one bar away.
 
@@ -46,7 +46,7 @@ Choose **Off**, **Beats** (squares only) or **Beats and phrases** under
 **Settings › Decks › Beat counter**. The 4-Deck strips show the squares
 only.
 
-**PLAY**, **CUE** and **SYNC** show an outline in the deck's colour while
+**PLAY**, **CUE** and **SYNC** show an outline in the deck's color while
 they're on. **Shift-click** and hold PLAY while the deck plays for
 [censor](#slip-bend-and-censor).
 
