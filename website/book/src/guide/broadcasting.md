@@ -98,7 +98,7 @@ Pick the target in **Settings › Audio › Loudness**:
 | **Livestream · −14 LUFS** | Twitch, YouTube, Mixcloud, and uploads to streaming services |
 | **Broadcast, EBU R128 · −23 LUFS** | FM and DAB radio, TV |
 
-The target only colours the meter: it doesn't change any level. To move your
+The target only colors the meter: it doesn't change any level. To move your
 mix, turn the master down (or up) until the short-term reading sits green most
 of the time. With **Auto gain** on (**Settings › Mixer**), every track already
 starts at the same loudness, so the mix stays close once it's set.

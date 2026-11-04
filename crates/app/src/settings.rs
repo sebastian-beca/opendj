@@ -133,6 +133,7 @@ pub fn audio_setup() -> AudioSetup {
                         role: InputRole::from_name(r["role"].as_str()?)?,
                         device: r["device"].as_str().unwrap_or_default().to_string(),
                         channel: r["channel"].as_u64().unwrap_or(0) as u16,
+                        mono: r["mono"].as_bool().unwrap_or(false),
                     })
                 })
                 .collect()
@@ -192,7 +193,14 @@ pub fn set_audio_setup(setup: &AudioSetup) {
         v["inputs"] = setup
             .inputs
             .iter()
-            .map(|r| json!({ "role": r.role.name(), "device": r.device, "channel": r.channel }))
+            .map(|r| {
+                json!({
+                    "role": r.role.name(),
+                    "device": r.device,
+                    "channel": r.channel,
+                    "mono": r.mono,
+                })
+            })
             .collect();
     });
 }
@@ -455,19 +463,9 @@ pub fn set_wanted_sync(service: &str, key: &str, on: bool) {
     set(&wanted_sync_key(service), json!(keys));
 }
 
-/// Controllers shown in Settings › Controllers, or taken off it, by their
-/// device key. A device not listed shows if openDJ has a mapping for it.
-pub fn controllers_shown() -> HashMap<String, bool> {
-    load()["controllers_shown"]
-        .as_object()
-        .map(|m| {
-            m.iter()
-                .filter_map(|(k, v)| Some((k.clone(), v.as_bool()?)))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
+/// Notes a controller as shown in Settings › Controllers, by its device key.
+/// The page lists every controller plugged in now; this is kept for
+/// settings files that read it.
 pub fn set_controller_shown(key: &str, shown: bool) {
     save(|v| {
         if !v["controllers_shown"].is_object() {
@@ -610,15 +608,6 @@ pub fn set_music_folders(folders: &[PathBuf]) {
         .map(|p| p.to_string_lossy().into_owned())
         .collect();
     save(|v| v[MUSIC_FOLDERS] = json!(folders));
-}
-
-/// Whether the library is brought up to date each time openDJ starts:
-/// new files in the music and stage folders, and changed imports. When off,
-/// that only happens on Update library.
-pub const SCAN_ON_START: &str = "scan_on_start";
-
-pub fn scan_on_start() -> bool {
-    flag(SCAN_ON_START, true)
 }
 
 /// The stage folders (see [`opendj_library::stages`]): any number of inbox

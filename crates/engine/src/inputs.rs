@@ -1,5 +1,6 @@
 //! The microphone and auxiliary inputs, Mixxx's `[Microphone]` and
-//! `[Auxiliary1]`, and the instrument, `[Instrument1]`. The first two take
+//! `[Auxiliary1]` to `[Auxiliary3]`, and the instrument, `[Instrument1]`.
+//! The microphone and auxiliaries take
 //! audio from an input device (see [`crate::output`]), the instrument from an
 //! instrument plugin playing the notes it is sent (see
 //! [`crate::plugins`]). Each goes through its gain, a 3-band EQ and the
@@ -25,15 +26,27 @@ use crate::controls::alias;
 use crate::dsp::Isolator;
 use crate::effects::EffectRack;
 
-pub const NUM_INPUTS: usize = 3;
+pub const NUM_INPUTS: usize = 5;
 pub const MICROPHONE: usize = 0;
 pub const AUXILIARY: usize = 1;
-/// The instrument plugin, joining the music as the auxiliary input does.
+/// The instrument plugin, joining the music as the auxiliary inputs do.
 pub const INSTRUMENT: usize = 2;
+/// The second and third auxiliary inputs, after the instrument so the
+/// first three keep their numbers.
+pub const AUXILIARY_2: usize = 3;
+pub const AUXILIARY_3: usize = 4;
+/// The auxiliary inputs, in order.
+pub const AUXILIARIES: [usize; 3] = [AUXILIARY, AUXILIARY_2, AUXILIARY_3];
 
 /// The input's control group.
 pub const fn input_group(input: usize) -> &'static str {
-    ["[Microphone]", "[Auxiliary1]", "[Instrument1]"][input]
+    [
+        "[Microphone]",
+        "[Auxiliary1]",
+        "[Instrument1]",
+        "[Auxiliary2]",
+        "[Auxiliary3]",
+    ][input]
 }
 
 /// The input's EQ, named as the decks' are.

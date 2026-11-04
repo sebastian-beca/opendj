@@ -14,13 +14,13 @@ more experienced DJs alike.
 - **Mixer** with gain, 3-band EQ, filter, faders, crossfader and headphone cue
 - **Effects**: four beat-synced effect units, with echo, reverb, filter, flanger and more
 - **Automix** that crossfades through a list for you, in several lengths and styles
-- **Collection** of your music folders, with playlists, smart lists, ratings, colours,
+- **Collection** of your music folders, with playlists, smart lists, ratings, colors,
   play history and fast search
 - **Accurate beat grids** that follow tempo changes, with tools to fix them by hand
 - **Key detection** and harmonic mixing hints
 - **Stems**: play NI stem files, or split any track with Demucs if it's installed
 - **Ableton Link** to play in time with other apps and devices on your network
-- **Fast GPU waveforms**, coloured by frequency
+- **Fast GPU waveforms**, colored by frequency
 
 ## Controllers
 
