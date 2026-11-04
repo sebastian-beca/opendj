@@ -95,8 +95,10 @@ or on **Navidrome** (or any other server that speaks the Subsonic API, such
 as Gonic, Airsonic, Ampache or LMS), openDJ can search it and bring tracks into your collection. These
 are your own files, so unlike the streaming services they play on decks.
 
-Fill in the server in **Settings › Sources**: click **Plex**, **Jellyfin**
-or **Navidrome** to open its settings.
+Pick the source in the rail: until it's set up, its panel asks for the
+server and sign-in, and **Connect** saves them. You can also fill them in
+later in **Settings › Sources**: click **Plex**, **Jellyfin** or
+**Navidrome** to open its settings.
 
 - **Navidrome**: the server's address (for example
   `http://192.168.1.20:4533`), your username and your password. The
