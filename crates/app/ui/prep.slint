@@ -1,0 +1,301 @@
+// The Prep layout: deck 1 alone, for getting In Prep tracks ready to play.
+// Under the deck's header (cover, title, tempo, key, time, overview) one
+// row: the beat grid tools on the left, transport in the middle and eight
+// big hot cue pads on the right, with the track's stage and Play Ready,
+// next track above them. The large scrolling waveform above is deck 1's,
+// zoomed to a number of bars (PrepUi.bars). No mixer, crossfader or FX.
+import { Theme } from "theme.slint";
+import { ControlButton, ControlKnob, Controls, CueHeadphones } from "controls.slint";
+import { DeckInfo, Header, PlayButton } from "deck.slint";
+
+export global PrepUi {
+    // The loaded track's stage: 0 none (not in the library, or no
+    // stages), 1 Inbox, 2 In Prep, 3 Play Ready.
+    in property <int> stage;
+    // Tracks still In Prep, the one loaded included.
+    in property <int> left;
+    // How many bars the large waveform shows.
+    in-out property <int> bars: 8;
+    // Moves the loaded track to Play Ready and loads the next In Prep
+    // track (the grid is locked first, in PrepReady below).
+    callback ready-next();
+
+    public pure function stage-name(stage: int) -> string {
+        stage == 1 ? "Inbox" : stage == 2 ? "In Prep" : stage == 3 ? "Play Ready" : "Not in a stage"
+    }
+    public pure function stage-color(stage: int) -> color {
+        stage == 1 ? Theme.stage-inbox : stage == 2 ? Theme.stage-prep : stage == 3 ? Theme.stage-ready : Theme.text-dim
+    }
+    // Locks deck 1's grid and moves on: the button and Enter both do this.
+    public function ready() {
+        Controls.set-value(Controls.resolve("[Channel1]", "bpmlock"), 1);
+        ready-next();
+    }
+}
+
+// A small caption over a group of buttons.
+component PrepLabel inherits Text {
+    color: Theme.label;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    vertical-alignment: center;
+}
+
+// A button that presses a control once (grid moves, beat jumps).
+component PressButton inherits ControlButton {
+    momentary: true;
+    font-size: 12px;
+    height: 28px;
+}
+
+// The beat grid tools, the jog grid menu's controls laid out flat: Bar 1
+// here, a beat here, tap, the click, lock; move, tempo, ½ and ×2; tempo
+// sections, undo and back to the detected grid.
+component GridPanel inherits VerticalLayout {
+    in property <string> group;
+    in property <DeckInfo> info;
+    property <bool> locked: Controls.value(Controls.resolve(group, "bpmlock"), Controls.tick) > 0;
+    padding: 10px;
+    spacing: 6px;
+    HorizontalLayout {
+        height: 24px;
+        spacing: 8px;
+        PrepLabel { text: "BEAT GRID"; }
+        Text {
+            text: (info.grid-sections > 1 ? info.grid-sections + " tempo sections" : "Steady tempo") + " · "
+                + (info.grid-unsure && info.grid-source == "Detected" ? "may be off, check by ear" : info.grid-source);
+            color: info.grid-unsure && info.grid-source == "Detected" ? Theme.stage-prep : Theme.text-dim;
+            font-size: 12px;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+        ControlButton { group: group; key: "bpmlock"; text: locked ? "Locked" : "Lock"; font-size: 12px; width: 70px; outline-when-lit: true; tip-title: "Lock grid (L)"; tip-body: "A locked grid can't be moved by mistake, and analysis leaves it alone."; tip-right-aligned: true; }
+    }
+    if locked: Text {
+        text: "Unlock the grid to edit it.";
+        color: Theme.text-dim;
+        font-size: 13px;
+        vertical-alignment: center;
+        vertical-stretch: 1;
+    }
+    if !locked: HorizontalLayout {
+        spacing: 6px;
+        PressButton { group: group; key: "beats_downbeat_here"; text: "Bar 1 here  B"; tint: Theme.accent; horizontal-stretch: 3; }
+        PressButton { group: group; key: "beats_translate_curpos"; text: "Beat here"; horizontal-stretch: 2; }
+        PressButton { group: group; key: "bpm_tap"; text: "Tap  T"; horizontal-stretch: 2; }
+        ControlButton { group: group; key: "metronome"; text: "Click  M"; font-size: 12px; height: 28px; outline-when-lit: true; horizontal-stretch: 2; }
+    }
+    if !locked: HorizontalLayout {
+        spacing: 6px;
+        PrepLabel { text: "MOVE"; width: 38px; }
+        PressButton { group: group; key: "beats_translate_earlier"; text: "‹  ["; width: 44px; }
+        PressButton { group: group; key: "beats_translate_later"; text: "]  ›"; width: 44px; }
+        Rectangle { width: 4px; }
+        PrepLabel { text: "TEMPO"; width: 44px; }
+        PressButton { group: group; key: "beats_adjust_slower"; text: "−"; width: 30px; }
+        Text { text: info.bpm; color: Theme.text; font-family: "Inter Tabular"; font-size: 13px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; width: 54px; }
+        PressButton { group: group; key: "beats_adjust_faster"; text: "+"; width: 30px; }
+        PressButton { group: group; key: "beats_scale_half"; text: "½"; width: 30px; }
+        PressButton { group: group; key: "beats_scale_double"; text: "×2"; width: 30px; }
+    }
+    if !locked: HorizontalLayout {
+        spacing: 6px;
+        PressButton { group: group; key: "beats_section_add"; text: "+ Section here"; horizontal-stretch: 2; }
+        if info.grid-sections > 1: PressButton { group: group; key: "beats_section_remove"; text: "− Section"; horizontal-stretch: 2; }
+        PressButton { group: group; key: "beats_undo_adjustment"; text: "Undo"; horizontal-stretch: 1; }
+        if info.grid-source != "Detected": PressButton { group: group; key: "beats_reset"; text: "↺ Detected"; horizontal-stretch: 2; }
+    }
+}
+
+// Play and CUE, beat jumps of 1, 4 and 8 bars, a loop, and the deck's level
+// and headphone cue, since Prep has no mixer.
+component PrepTransport inherits VerticalLayout {
+    in property <string> group;
+    in property <DeckInfo> info;
+    in property <color> tint;
+    padding: 10px;
+    spacing: 6px;
+    alignment: center;
+    HorizontalLayout {
+        alignment: center;
+        spacing: 10px;
+        ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; outline: Controls.paused-blink(group, Controls.blink, Controls.tick); font-size: 14px; width: 72px; height: 40px; }
+        PlayButton { group: group; tint: tint; width: 72px; height: 40px; }
+    }
+    HorizontalLayout {
+        alignment: center;
+        spacing: 4px;
+        PressButton { group: group; key: "beatjump_32_backward"; text: "‹8"; width: 38px; }
+        PressButton { group: group; key: "beatjump_16_backward"; text: "‹4"; width: 38px; }
+        PressButton { group: group; key: "beatjump_4_backward"; text: "‹1"; width: 38px; }
+        PrepLabel { text: "BARS"; horizontal-alignment: center; width: 40px; }
+        PressButton { group: group; key: "beatjump_4_forward"; text: "1›"; width: 38px; }
+        PressButton { group: group; key: "beatjump_16_forward"; text: "4›"; width: 38px; }
+        PressButton { group: group; key: "beatjump_32_forward"; text: "8›"; width: 38px; }
+    }
+    HorizontalLayout {
+        alignment: center;
+        spacing: 4px;
+        ControlButton { group: group; key: "beatloop_activate"; light-key: "loop_enabled"; text: "LOOP " + info.loop-size; momentary: true; tint: Theme.loop; font-size: 12px; height: 28px; width: 82px; }
+        PressButton { group: group; key: "loop_in"; text: "IN"; width: 40px; }
+        PressButton { group: group; key: "loop_out"; text: "OUT"; width: 44px; }
+        Rectangle { width: 6px; }
+        VerticalLayout { alignment: center; CueHeadphones { group: group; tint: tint; } }
+        ControlKnob { group: group; key: "volume"; size: 28px; }
+    }
+}
+
+// One hot cue pad: its number and time, filled with its colour once set.
+// Click an empty pad to set it, a set one to jump there; Shift-click clears.
+component PrepPad inherits Rectangle {
+    in property <string> group;
+    in property <int> number;
+    in property <color> tint: Theme.hotcues[number - 1];
+    property <int> index: Controls.resolve(group, "hotcue_" + number + "_activate");
+    property <int> clear-index: Controls.resolve(group, "hotcue_" + number + "_clear");
+    property <bool> clearing;
+    property <bool> set: Controls.value(Controls.resolve(group, "hotcue_" + number + "_enabled"), Controls.tick) > 0;
+    property <float> seconds: Controls.value(Controls.resolve(group, "hotcue_" + number + "_position"), Controls.tick);
+    property <int> minutes: floor(seconds / 60);
+    property <float> secs: mod(seconds, 60);
+    property <int> tenths: floor(mod(seconds * 10, 10));
+    property <string> time: minutes + ":" + (secs < 10 ? "0" : "") + floor(secs) + "." + tenths;
+    border-radius: Theme.radius;
+    background: set ? (touch.pressed ? tint.darker(0.3) : tint) : touch.pressed ? Theme.control-pressed : touch.has-hover ? #1d1d20 : Theme.control;
+    border-width: set ? 0px : 1px;
+    border-color: Theme.border;
+    VerticalLayout {
+        padding: 7px;
+        Text { text: number; color: set ? #ffffff : Theme.text-dim; font-size: 13px; font-weight: 700; }
+        Rectangle { vertical-stretch: 1; }
+        Text { text: set ? time : "Click to set"; color: set ? #ffffffd0 : Theme.text-dim; font-family: "Inter Tabular"; font-size: 11px; }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.button != PointerEventButton.left {
+                return;
+            }
+            if e.kind == PointerEventKind.down {
+                if e.modifiers.shift {
+                    clearing = true;
+                    if set {
+                        Controls.set-value(clear-index, 1);
+                    }
+                } else {
+                    Controls.set-value(index, 1);
+                }
+            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                if clearing {
+                    clearing = false;
+                    Controls.set-value(clear-index, 0);
+                } else {
+                    Controls.set-value(index, 0);
+                }
+            }
+        }
+    }
+}
+
+// The waveform zoom's − and +.
+component ZoomButton inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+    width: 28px;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.border;
+    background: zt.pressed ? Theme.control-pressed : Theme.control;
+    Text { text: root.text; color: Theme.text; font-size: 15px; }
+    zt := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// The stage, the waveform zoom and Play Ready, next track, over the pads.
+component ReadyBar inherits HorizontalLayout {
+    spacing: 8px;
+    height: 30px;
+    Rectangle {
+        width: stage-text.preferred-width + 26px;
+        border-radius: 15px;
+        border-width: 1px;
+        border-color: PrepUi.stage-color(PrepUi.stage);
+        background: PrepUi.stage-color(PrepUi.stage).with-alpha(0.12);
+        stage-text := Text {
+            text: "● " + PrepUi.stage-name(PrepUi.stage);
+            color: PrepUi.stage-color(PrepUi.stage);
+            font-size: 12px;
+            font-weight: 600;
+        }
+    }
+    Text {
+        text: PrepUi.left == 1 ? "1 track In Prep" : PrepUi.left + " tracks In Prep";
+        color: Theme.text-dim;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+    Rectangle { horizontal-stretch: 1; }
+    ZoomButton { text: "−"; clicked => { PrepUi.bars = min(32, PrepUi.bars * 2); } }
+    Text {
+        text: PrepUi.bars + " bars";
+        color: Theme.text;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: 52px;
+    }
+    ZoomButton { text: "+"; clicked => { PrepUi.bars = max(2, PrepUi.bars / 2); } }
+    Rectangle { width: 8px; }
+    ready := Rectangle {
+        width: ready-text.preferred-width + 28px;
+        border-radius: Theme.radius;
+        background: ready-touch.pressed ? Theme.stage-ready.darker(0.2) : ready-touch.has-hover ? Theme.stage-ready.brighter(0.1) : Theme.stage-ready;
+        ready-text := Text { text: "✓ Play Ready, next  ⏎"; color: #0e0e10; font-size: 13px; font-weight: 700; }
+        ready-touch := TouchArea { mouse-cursor: pointer; clicked => { PrepUi.ready(); } }
+    }
+}
+
+export component PrepDeck inherits Rectangle {
+    in property <DeckInfo> info;
+    in property <image> overview;
+    out property <length> overview-width: header.overview-width;
+    out property <length> overview-height: header.overview-height;
+    property <string> group: "[Channel1]";
+    property <color> tint: Theme.deck-color(0);
+    VerticalLayout {
+        spacing: 1px;
+        header := Header { deck: 0; info: info; overview: overview; group: group; }
+        HorizontalLayout {
+            spacing: 1px;
+            vertical-stretch: 1;
+            Rectangle {
+                background: Theme.panel;
+                width: 440px;
+                GridPanel { group: group; info: info; }
+            }
+            Rectangle {
+                background: Theme.panel;
+                width: 310px;
+                PrepTransport { group: group; info: info; tint: tint; }
+            }
+            Rectangle {
+                background: Theme.panel;
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 8px;
+                    ReadyBar { }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        for n in 4: PrepPad { group: group; number: n + 1; }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        for n in 4: PrepPad { group: group; number: n + 5; }
+                    }
+                }
+            }
+        }
+    }
+}

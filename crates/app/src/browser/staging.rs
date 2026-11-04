@@ -68,7 +68,7 @@ fn crate_list_name(folder: &str) -> &str {
 }
 
 /// The number `LibraryEdit.stage-of` gives a stage.
-fn stage_number(stage: &str) -> i32 {
+pub(super) fn stage_number(stage: &str) -> i32 {
     match Stage::from_name(stage) {
         None => 0,
         Some(Stage::Inbox) => 1,
@@ -318,6 +318,7 @@ impl Browser {
             self.refresh_tree();
         }
         self.refresh_rows();
+        self.refresh_prep();
     }
 
     /// Takes back the last stage change (stages, file moves and all), or
@@ -387,6 +388,7 @@ impl Browser {
         }
         self.refresh_tree();
         self.refresh_rows();
+        self.refresh_prep();
     }
 
     /// Shows the track menu's stage lines as things are now.

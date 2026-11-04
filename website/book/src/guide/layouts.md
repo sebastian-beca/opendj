@@ -24,9 +24,37 @@ The menu at the top left of the window switches layouts:
   **WAVEFORMS** lit in the top bar, the four large waveforms are stacked above
   the decks in the same order.
   A [Groove Box](groove-box.md) deck shows its step grid only in 2-Deck.
+- **Prep** is for getting tracks ready to play: deck 1 alone, with a large
+  waveform and its tools laid out flat. See [Prep](#prep) below.
 
 The button at the bottom left of the window hides the decks for a compact
 view in 2-Deck and 4-Deck.
+
+## Prep
+
+Prep shows deck 1 alone, with no mixer, crossfader or effects, and opens the
+browser on **In Prep** (see
+[Stages](music.md#stages-inbox-in-prep-and-play-ready)). Load a track and
+work through it:
+
+- The large waveform shows 8 bars; **−** and **+** above the hot cues show
+  more or fewer.
+- **Beat grid** has the grid tools from the deck's grid menu: **Bar 1 here**,
+  **Beat here**, **Tap**, **Click** (a metronome on every beat), move the grid
+  earlier or later, tempo **−** and **+**, **½** and **×2**, tempo sections,
+  **Undo** and **Detected** (back to the detected grid). **Lock** keeps the
+  grid from being changed.
+- **CUE** and play, jumps of 1, 4 and 8 bars, a loop, and the deck's
+  headphone cue and level.
+- Eight hot cue pads with their times: click an empty pad to set it, a set one
+  to jump there, Shift-click to clear it.
+- **Play Ready, next** locks the grid, moves the track to Play Ready and loads
+  the next track In Prep. Cmd-Z (Ctrl-Z) takes the stage change back.
+
+Keys in Prep: **Enter** Play Ready, next; **1**–**8** set or jump to a hot cue
+(Shift clears it); **B** Bar 1 here; **T** tap; **M** the click; **[** and **]**
+move the grid; **−** and **=** tempo; **L** lock. Space plays and pauses, as
+everywhere.
 
 ## Crossfader assignment
 
