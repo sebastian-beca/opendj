@@ -13,4 +13,4 @@
 
 ## 3. One by one
 
-- [ ] 3.1 Review card: suggestions with source and confidence, play preview, keys (Return, →, I, E, Space, ⌘Z), Next area when clear
+- [x] 3.1 Review card: suggestions with source and confidence, play preview, keys (Return, →, I, E, Space, ⌘Z), Next area when clear

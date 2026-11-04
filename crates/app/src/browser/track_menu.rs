@@ -291,7 +291,7 @@ impl Browser {
     }
 
     /// "Show Info": the side panel's Info tab, on the track picked.
-    fn show_info(&mut self, row: i32) {
+    pub(super) fn show_info(&mut self, row: i32) {
         let Some(app) = self.app.upgrade() else {
             return;
         };
