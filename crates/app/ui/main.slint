@@ -383,36 +383,6 @@ component OnAirButton inherits Rectangle {
 }
 
 // Opens the settings: the gear at the right of the top bar.
-component SettingsButton inherits Rectangle {
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2e2e32 : Theme.panel-raised;
-    border-radius: 10px;
-    width: 36px;
-    height: 36px;
-    y: 8px;
-    horizontal-stretch: 0;
-    // A gear: eight teeth round a ring, and the hole.
-    Path {
-        width: 18px;
-        height: 18px;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        fill: transparent;
-        stroke: Preferences.open ? Theme.accent : Theme.text;
-        stroke-width: 1.7px;
-        commands: "M 9.68 4.34 L 9.75 1.74 L 14.25 1.74 L 14.32 4.34 L 15.77 4.94 L 17.66 3.16 L 20.84 6.34 L 19.06 8.23 L 19.66 9.68 L 22.26 9.75 L 22.26 14.25 L 19.66 14.32 L 19.06 15.77 L 20.84 17.66 L 17.66 20.84 L 15.77 19.06 L 14.32 19.66 L 14.25 22.26 L 9.75 22.26 L 9.68 19.66 L 8.23 19.06 L 6.34 20.84 L 3.16 17.66 L 4.94 15.77 L 4.34 14.32 L 1.74 14.25 L 1.74 9.75 L 4.34 9.68 L 4.94 8.23 L 3.16 6.34 L 6.34 3.16 L 8.23 4.94 Z M 8.5 12 A 3.5 3.5 0 1 0 15.5 12 A 3.5 3.5 0 1 0 8.5 12";
-    }
-    ta := TouchArea {
-        mouse-cursor: pointer;
-        clicked => {
-            if Preferences.open {
-                Preferences.open = false;
-            } else {
-                Preferences.show(Preferences.page);
-            }
-        }
-    }
-}
-
 // A small picture of a layout, after djay's: 0 two decks side by side,
 // 1 Player (a cover beside two lines), 2 four decks, 3 Automix (a play arrow
 // between lines), 4 Prep (one deck with beat lines over it).
@@ -1107,7 +1077,6 @@ export component AppWindow inherits Window {
                     if BroadcastState.shown || Controls.value(Controls.resolve("[Shoutcast]", "enabled"), Controls.tick) > 0: OnAirButton { }
                     RecordButton { }
                     MasterPill { clock: clock; }
-                    SettingsButton { }
                 }
             }
 
