@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.5 · Stems, performance and switching over** (issue #292; follows improve-beatgrids, issue #134)
+Planned for: **v0.6 · Buy it from the artist** (issue #292; follows improve-beatgrids, issue #134). Steps 1-3 were built in v0.5 behind a switch (`PREP_OFFERED` in `crates/app/src/main.rs`), hidden to leave time to test it.
 
 ## Why
 

@@ -190,7 +190,12 @@ arrows say whether a track goes back or forward:
 2. In In Prep, prepare each track: tags, cover, rating, tempo and key. Show
    the **Prep** column (right-click a column heading) for a dot each for
    tags, rating, and tempo and key; tracks in In Prep are analysed in the
-   background, so tempo and key fill in on their own.
+   background, so tempo and key fill in on their own. The In Prep list has
+   its own columns, to see what each track still needs: **Grid** (✓ locked,
+   ✓ edited, ? check when the analysis wasn't sure, the number of tempo
+   sections, or detected), **Cues** (how many hot cues), **Tags** (✓ with a
+   genre and at least one of your tags) and **Cover**. Pick other columns
+   from the header's menu as in any list; In Prep keeps its own set.
 3. **Send to Play Ready** when it's ready. A track from a prep crate also
    joins the list named after the crate (`Yoga STG` goes to **Yoga**).
 
