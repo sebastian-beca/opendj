@@ -13,8 +13,9 @@
 - [x] 2.3 « » bend buttons and ← → bend keys
 - [x] 2.4 Shift-click PLAY for censor
 - [x] 2.5 Update website/book/src/guide/decks.md and shortcuts.md, regenerate supported-controls.txt
+- [x] 2.6 SLIP as a lilac/grey word in the jog's top right corner (2-Deck; 4-Deck shows no SLIP); Vinyl mode moves from the deck to Settings › Decks
 
 ## Workflow follow-up
 
-- Try VINYL off and the bend buttons on the DDJ-FLX4.
+- Try Vinyl mode off and the bend buttons on the DDJ-FLX4.
 - Archive the change once its PR is merged, so the main specs take its requirements.

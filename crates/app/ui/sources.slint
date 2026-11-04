@@ -290,6 +290,7 @@ export component SearchesPanel inherits Rectangle {
         }
         ListView {
             vertical-stretch: 1;
+            gutter: true;
             for s[i] in SourceUi.searches: Rectangle {
                 height: 46px;
                 border-radius: Theme.radius;

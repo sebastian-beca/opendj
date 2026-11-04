@@ -15,11 +15,12 @@ In 2-Deck each deck runs, from the outer edge in:
   back to the track's own, and the padlock above it is
   [key lock](#keys).
 - **The pads**, with their tabs on top (see [Pads](pads.md)).
-- **The LOOP column** (see [Looping](looping.md)), with **SLIP** and
-  **VINYL** at the bottom (see [Slip, bend and censor](#slip-bend-and-censor)).
+- **The LOOP column** (see [Looping](looping.md)).
 - **The jog wheel**, with **CUE** and **PLAY** under it, next to the mixer.
   Drag round its black rim to bend the tempo, scroll over it to nudge, and
   hold **«** or **»** in its lower corners to bend slower or faster.
+  **SLIP** sits in its top right corner (see
+  [Slip, bend and censor](#slip-bend-and-censor)).
 
 Above them, the deck's header shows the cover, title and artist, the time
 left and the track's tempo and key, with the overview waveform of the whole
@@ -30,7 +31,7 @@ passes.
 
 Beside the title, four squares light up one beat at a time, so you can see
 where the bar is: the first beat of each bar lights white, the others in the
-deck's colour. The thin bars under them fill up through each group of four
+deck's color. The thin bars under them fill up through each group of four
 bars, and all four turn lilac in the last bar before a new phrase starts,
 so you know the change is one bar away.
 
@@ -46,7 +47,7 @@ Choose **Off**, **Beats** (squares only) or **Beats and phrases** under
 **Settings › Decks › Beat counter**. The 4-Deck strips show the squares
 only.
 
-**PLAY**, **CUE** and **SYNC** show an outline in the deck's colour while
+**PLAY**, **CUE** and **SYNC** show an outline in the deck's color while
 they're on. **Shift-click** and hold PLAY while the deck plays for
 [censor](#slip-bend-and-censor).
 
@@ -77,7 +78,9 @@ stopped. openDJ remembers what each deck plays for next time.
 
 ## Slip, bend and censor
 
-**SLIP** keeps the track in time while you play with it. While it's lit,
+**SLIP** keeps the track in time while you play with it. Click the word
+SLIP in the jog's top right corner (2-Deck only): it turns lilac
+when on and light grey when off. While it's on,
 scratching, a loop, a hot cue held down, reverse or a pause takes the sound
 away, but a silent playhead carries on, drawn as a dashed lilac line on the
 waveforms. When the trick ends (you let go of the jog or the pad, end the
@@ -88,10 +91,12 @@ switching it off then also brings the track back. Slip only works on a deck
 that's playing: on a paused deck, scratching and hot cues find a spot as
 usual.
 
-**VINYL** decides what touching the top of a controller's jog does. Lit (the
-default), it grabs the record so you can scratch. Off, the top bends the
-tempo like the rim does, so brushing the jog doesn't stop the track, as CDJ
-mode does on a Pioneer player. The DDJ-FLX4 and DDJ-FLX6 follow it.
+**Vinyl mode** (Settings › Decks) decides what touching the top of a
+controller's jog does. On (the default), it grabs the record so you can
+scratch. Off, the top bends the tempo like the rim does, so brushing the jog
+doesn't stop the track, as CDJ mode does on a Pioneer player. The DDJ-FLX4
+and DDJ-FLX6 follow it, and a controller's own VINYL button still switches
+it for its deck.
 
 **Pitch bend** nudges a deck's beat into line by ear: it plays a little
 faster or slower while you bend and springs back when you stop. Turn a
@@ -184,8 +189,9 @@ headphones. Its **Ableton Link** switch is described in
 [Ableton Link](link.md). **Audio Settings…** opens the
 outputs in Settings. Levels are kept between runs.
 
-The **MIC** button opens the microphone and the auxiliary input, each with
-**ON** and a level. The microphone has effects of its own under **MIC FX**,
-which the decks' effects never touch, and **AUX** sends the auxiliary input
-through them too. Choose the inputs in **Settings › Audio**. The auxiliary
-input starts off.
+The arrow on the **MIC** button opens the microphone, with **ON**, a level
+and one **MIC FX** slot of its own, which the decks' effects never touch.
+Auxiliary inputs play on a deck from the **Instruments** source. Choose
+the inputs in **Settings › Audio**: **+** under the inputs adds a second
+and third auxiliary input, and each auxiliary input takes a pair of
+channels (stereo) or one (mono).

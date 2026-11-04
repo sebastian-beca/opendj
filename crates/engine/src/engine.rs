@@ -21,7 +21,10 @@ use crate::effects::{
     input_target, ColorFx, EffectRack, BLOCK, COLOR_FX, MAIN, TAPS, TAP_GAP, TARGETS,
 };
 use crate::groove::{pick_source, GrooveBox};
-use crate::inputs::{Ducker, Input, InputFeed, AUXILIARY, INSTRUMENT, MICROPHONE, NUM_INPUTS};
+use crate::inputs::{
+    Ducker, Input, InputFeed, AUXILIARY, AUXILIARY_2, AUXILIARY_3, INSTRUMENT, MICROPHONE,
+    NUM_INPUTS,
+};
 use crate::key::{self, Key};
 use crate::keyshift::{transpose_factor, KeyShifter, MAX_RATE};
 use crate::link::{phase_error, Link, Moment};
@@ -2735,8 +2738,8 @@ impl Engine {
             let m = mic.buf[f];
             let gm = lerp(mic.level_ramp);
             let ducked = self.ducker.next(duck, mic.live && gm > 0.0, m);
-            // The auxiliary input and the instrument play with the music.
-            for input in [AUXILIARY, INSTRUMENT] {
+            // The auxiliary inputs and the instrument play with the music.
+            for input in [AUXILIARY, INSTRUMENT, AUXILIARY_2, AUXILIARY_3] {
                 let inp = &self.inputs[input];
                 let a = inp.buf[f];
                 let ga = lerp(inp.level_ramp);

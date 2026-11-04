@@ -3,7 +3,7 @@
 //! Tags sit in **groups** the DJ makes and names (Mood, Instruments,
 //! Vibe…). A group holds as many tags as the DJ likes, and lets a track
 //! have several of them or, for a group set to one per track, only one.
-//! A **tag** is an entry of its own (a name, later a colour), so renaming
+//! A **tag** is an entry of its own (a name, later a color), so renaming
 //! or merging one changes it on every track. Names may have spaces
 //! ("Peak Time") and need no `#`.
 //!
@@ -64,7 +64,7 @@ pub struct TagGroup {
     pub name: String,
     /// A track has at most one tag of the group.
     pub single: bool,
-    /// Colour as 0xRRGGBB.
+    /// Color as 0xRRGGBB.
     pub color: Option<u32>,
 }
 

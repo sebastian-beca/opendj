@@ -23,7 +23,7 @@ groups (see [Your tags](music.md#your-tags)), **BPM** and
   track** to follow the tempo of what's playing, within a few percent.
 - **Key**: tick keys, or turn on **Mixes with the playing track** to list
   only the keys that mix with it (see [Keys](decks.md#keys)).
-- **Rating, Colour, Year, Play Count, Date Added** are in **+**.
+- **Rating, Color, Year, Play Count, Date Added** are in **+**.
 
 A chip that's on is lit and says what it picked. **Clear** in a chip empties
 it, and **Clear** at the end of the bar empties them all.
@@ -51,7 +51,7 @@ box for a moment to see everything search understands:
 | `added:<7d added:>=2026-01-31` | Days or weeks ago, or a date |
 | `~key:8A ~bpm:124` | Keys that mix with 8A; a tempo within 6% of 124 |
 | `~deck` | Tracks that mix with the one playing |
-| `color:red` | A track colour |
+| `color:red` | A track color |
 | `crate:yoga crate:""` | In a crate with "yoga" in its name; in no crate |
 | `stage:inbox` `stage:prep` `stage:playready` | A [stage](music.md#stages-inbox-in-prep-and-play-ready) |
 | `is:prepped` | Tracks with tags, rating, tempo and key |

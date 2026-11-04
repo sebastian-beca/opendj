@@ -56,7 +56,8 @@ and **HQ** once they play.
   space of the track. Once they pass this size (10 GB at first), the stems
   played longest ago are deleted to make room. Shows how many tracks have
   them and how much space they take.
-- **Clear high quality stems** deletes them all.
+- To delete them all, use **Manage › Clear high quality stems** under
+  **Settings › Collection › Storage**.
 - Whether each stems model is downloaded yet.
 
 NI stem files (`.stem.mp4`) play their own stems.

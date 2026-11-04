@@ -5,7 +5,7 @@ import { ListView, ScrollView } from "scroll.slint";
 import { Theme, EdgeLine, CloseIcon } from "theme.slint";
 import { HoverTip } from "controls.slint";
 import { SourceUi, SearchesPanel, SourceResults, SourceSetup } from "sources.slint";
-import { InstrumentsPanel, LiveIcon } from "instruments.slint";
+import { InstrumentsPanel } from "instruments.slint";
 import { InfoPanel, TrackInfo } from "info.slint";
 import { CuesPanel, CueList } from "cues.slint";
 import { ChecklistPanel } from "checklist.slint";
@@ -35,7 +35,7 @@ export struct Folder {
     count: int,
     // Holds library tracks, so its menu offers Analyze All.
     analysable: bool,
-    // A crate's colour, an index into LibraryEdit.list-colors; -1 for none.
+    // A crate's color, an index into LibraryEdit.list-colors; -1 for none.
     color: int,
     // A crate's icon: 0 = crate, then star, heart, flame, bolt, moon, sun,
     // leaf (LIST_ICONS in the library).
@@ -60,7 +60,7 @@ export struct TrackRow {
     // Album art thumbnail, once found.
     cover: image,
     has-cover: bool,
-    // The colour the DJ gave the track: a dot in the Colour column, a strip
+    // The color the DJ gave the track: a dot in the Color column, a strip
     // at the row's edge or a tint, as `ColumnUi.color-mode` says.
     color: color,
     has-color: bool,
@@ -73,7 +73,7 @@ export struct TrackRow {
     key-match: bool,
     // Or would, shifted by this many semitones (0: no shift within reach).
     key-shift: int,
-    // Its mini waveform, a white image coloured by the list: only rows in
+    // Its mini waveform, a white image colored by the list: only rows in
     // view have one, and only once the track is analysed.
     wave: image,
     has-wave: bool,
@@ -121,8 +121,8 @@ export global ColumnUi {
     // The rows in view, so Rust gives just those their mini waveforms.
     in-out property <int> first-shown;
     in-out property <int> shown-count;
-    // How track colours show (Settings › Library › Track Colour): 0 a dot
-    // in the Colour column, 1 a strip at the row's left edge, 2 the row
+    // How track colors show (Settings › Library › Track Color): 0 a dot
+    // in the Color column, 1 a strip at the row's left edge, 2 the row
     // tinted, 3 not at all.
     in property <int> color-mode;
     // Settings picked a way to show them.
@@ -201,12 +201,15 @@ export struct MenuTag {
 }
 
 export global LibraryEdit {
-    // Colours a crate can have, as the track menu offers for tracks: red,
+    // Colors a crate can have, as the track menu offers for tracks: red,
     // orange, yellow, green, cyan, blue, purple, pink.
     out property <[color]> list-colors: [#ff3b30, #ff9500, #ffcc00, #34c759, #5ac8fa, #007aff, #af52de, #ff2d55];
-    // Gives the crate at a sidebar row a colour (-1 for none) or an icon.
+    // Gives the crate at a sidebar row a color (-1 for none) or an icon.
     callback set-list-color(index: int, color: int);
     callback set-list-icon(index: int, icon: int);
+    // The circling arrows over the Collection sidebar: look for new and
+    // changed tracks in the music folders now.
+    callback update-collection();
     // The DJ has lists a track can be added to.
     in property <bool> has-lists;
     // The lists the track menu's side panel shows: found by `find-lists`
@@ -258,8 +261,8 @@ export global LibraryEdit {
     pure callback accepts-list-drop(data: data-transfer) -> bool;
     callback drop-on-list(data: data-transfer);
     callback set-rating(row: int, rating: int);
-    // Gives the row (or all the picked rows) colour `color`: one of the
-    // colours searched as color:red and so on, in their order, or -1 for
+    // Gives the row (or all the picked rows) color `color`: one of the
+    // colors searched as color:red and so on, in their order, or -1 for
     // none.
     callback set-color(row: int, color: int);
     // The total time of the picked tracks, when several are picked.
@@ -459,6 +462,10 @@ export global HealthUi {
     // An area's chips and the one shown, or -1 outside an area.
     in property <[HealthChip]> chips;
     in property <int> chip: -1;
+    // The area's progress since it was first opened: tracks fixed, of how
+    // many it found then.
+    in property <int> fixed;
+    in property <int> fixed-of;
     callback open-area(area: int);
     callback pick-chip(chip: int);
     // The tree shows Collection Health's checks, picked in the rail.
@@ -760,7 +767,7 @@ component MenuSeparator inherits Rectangle {
     Rectangle { height: 1px; background: Theme.border; }
 }
 
-// One stage on the track menu's stage strip, in its colour: filled where
+// One stage on the track menu's stage strip, in its color: filled where
 // the track is, outlined elsewhere.
 component StageStep inherits Rectangle {
     in property <string> text;
@@ -1209,7 +1216,7 @@ component TrackMenu inherits PopupWindow {
                 padding-left: 10px;
                 // Eight swatches and none fit in the menu's width.
                 spacing: 2px;
-                Text { text: "Colour"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 48px; }
+                Text { text: "Color"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 48px; }
                 for c[i] in [#ff3b30, #ff9500, #ffcc00, #34c759, #5ac8fa, #007aff, #af52de, #ff2d55]: Rectangle {
                     width: 17px;
                     Rectangle {
@@ -1525,10 +1532,10 @@ component TrackMenu inherits PopupWindow {
     }
 }
 
-// Glyph per node kind, the collection's stages in their colours.
+// Glyph per node kind, the collection's stages in their colors.
 component FolderIcon inherits Rectangle {
     in property <int> kind;
-    // A crate's colour (-1 for none) and icon; see Folder.
+    // A crate's color (-1 for none) and icon; see Folder.
     in property <int> tint: -1;
     in property <int> icon;
     width: 18px;
@@ -1590,7 +1597,7 @@ component FolderIcon inherits Rectangle {
         commands: "M 2 8 L 2 10 M 5 5 L 5 13 M 8 7 L 8 11 M 11 3 L 11 15 M 14 6 L 14 12 M 17 8 L 17 10";
     }
     // Crate: an open box seen from the front, with its slats, or the icon
-    // the DJ picked for it, in its colour.
+    // the DJ picked for it, in its color.
     if kind == 17: Path {
         width: 18px;
         height: 18px;
@@ -1650,7 +1657,7 @@ component FolderIcon inherits Rectangle {
     }
     if kind != 1 && kind != 6 && kind != 7 && kind != 9 && kind != 11 && kind != 12 && kind != 21 && kind != 14 && kind != 15 && kind != 16 && kind != 17 && kind != 18 && kind != 20: Text {
         text: kind == 0 || kind == 19 ? "♫" : kind == 3 ? "✦" : kind == 4 ? "♥" : kind == 5 ? "◷" : kind == 8 ? "★" : kind == 10 ? "↓" : kind == 12 ? "✚" : kind == 13 ? "◦" : "≡";
-        // The collection's stages in their own colours.
+        // The collection's stages in their own colors.
         color: Theme.stage-tint(kind);
         font-size: kind == 2 ? 18px : 14px;
         font-weight: 700;
@@ -1675,15 +1682,19 @@ component Placeholder inherits Rectangle {
 component SourceIcon inherits Rectangle {
     // 0 = collection, 1 = files, 2 = Spotify, 3 = TIDAL, 4 = Apple Music,
     // 5 = Bandcamp, 6 = Beatport, 7 = OneLibrary, 8 = SoundCloud,
-    // 9 = albums, 10 = mixed sets, 11 = Mixcloud
+    // 9 = albums, 10 = mixed sets, 11 = Mixcloud, 12 = instruments
     in property <int> kind;
+    // Every icon fills the same 30 px; openDJ's own sit on a tile tinted
+    // with their colour.
     width: 30px;
     height: 30px;
     border-radius: kind == 2 ? 15px : 7px;
     clip: kind == 3 || kind == 4 || kind == 6 || kind == 8;
     background: kind == 0 ? transparent
-        : kind == 1 ? transparent
-        : kind == 9 || kind == 10 ? #2a2a2d
+        : kind == 1 ? #B59AFF1F
+        : kind == 9 ? #F3BD671F
+        : kind == 10 ? #FF686F1F
+        : kind == 12 ? #62D6CD1F
         : kind == 11 ? #314359
         : kind == 2 ? transparent
         : kind == 3 ? #000000
@@ -1695,8 +1706,8 @@ component SourceIcon inherits Rectangle {
     border-color: Theme.border;
     // Collection: openDJ's own logo.
     if kind == 0: Image { width: 30px; height: 30px; source: @image-url("icons/opendj.svg"); }
-    // Files: a folder.
-    if kind == 1: Image { width: 30px; height: 30px; source: @image-url("icons/files.png"); }
+    // Files: an open folder, in lilac.
+    if kind == 1: Image { width: 22px; height: 22px; source: @image-url("icons/rail-files.svg"); }
     // Spotify: its own logo, unaltered as its brand rules ask.
     if kind == 2: Image { width: 30px; height: 30px; source: @image-url("icons/spotify.png"); }
     // TIDAL: its own logo.
@@ -1711,28 +1722,8 @@ component SourceIcon inherits Rectangle {
     if kind == 7: Image { width: 22px; height: 22px; source: @image-url("icons/onelibrary.svg"); }
     // SoundCloud: its own logo.
     if kind == 8: Image { width: 30px; height: 30px; source: @image-url("icons/soundcloud.png"); }
-    // Albums: a record on the platter with its tonearm, in lilac.
-    if kind == 9: Path {
-        width: 30px;
-        height: 30px;
-        viewbox-width: 30;
-        viewbox-height: 30;
-        stroke: Theme.accent;
-        stroke-width: 1.6px;
-        stroke-line-cap: round;
-        stroke-line-join: round;
-        fill: transparent;
-        commands: "M 24 16 A 10 10 0 1 1 24 15.99 M 7.42 13.61 A 7 7 0 0 1 11.61 9.42 M 9.92 14.1 A 4.5 4.5 0 0 1 12.1 11.92 M 25.5 4.5 L 23 19.6 L 19.8 20.4";
-    }
-    // Its label and the stylus, filled.
-    if kind == 9: Path {
-        width: 30px;
-        height: 30px;
-        viewbox-width: 30;
-        viewbox-height: 30;
-        fill: Theme.accent;
-        commands: "M 16.3 16 A 2.3 2.3 0 1 1 16.3 15.99 Z M 20.3 20.6 A 1.9 1.9 0 1 1 20.3 20.59 Z";
-    }
+    // Albums: a record, in amber.
+    if kind == 9: Image { width: 22px; height: 22px; source: @image-url("icons/rail-albums.svg"); }
     // Mixcloud: a cloud on its navy.
     if kind == 11: Path {
         width: 30px;
@@ -1742,44 +1733,19 @@ component SourceIcon inherits Rectangle {
         fill: #ffffff;
         commands: "M 9.5 20 A 3.5 3.5 0 0 1 9.2 13 A 6 6 0 0 1 20.6 11.8 A 4.1 4.1 0 0 1 21 20 Z";
     }
-    // Mixed sets: a mixer's four channel faders, in lilac.
-    if kind == 10: Path {
-        width: 30px;
-        height: 30px;
-        viewbox-width: 30;
-        viewbox-height: 30;
-        stroke: Theme.accent;
-        stroke-width: 1.5px;
-        stroke-line-cap: round;
-        stroke-line-join: round;
-        fill: transparent;
-        commands: "M 6.75 6 L 6.75 15.9 M 6.75 19.1 L 6.75 24 M 4.85 15.9 L 8.65 15.9 L 8.65 19.1 L 4.85 19.1 Z M 12.25 6 L 12.25 9.4 M 12.25 12.6 L 12.25 24 M 10.35 9.4 L 14.15 9.4 L 14.15 12.6 L 10.35 12.6 Z M 17.75 6 L 17.75 18.4 M 17.75 21.6 L 17.75 24 M 15.85 18.4 L 19.65 18.4 L 19.65 21.6 L 15.85 21.6 Z M 23.25 6 L 23.25 7.9 M 23.25 11.1 L 23.25 24 M 21.35 7.9 L 25.15 7.9 L 25.15 11.1 L 21.35 11.1 Z";
-    }
+    // Mixed sets, where recordings go too: a record button, in red.
+    if kind == 10: Image { width: 22px; height: 22px; source: @image-url("icons/rail-recordings.svg"); }
+    // Instruments: a grid of pads, in teal.
+    if kind == 12: Image { width: 22px; height: 22px; source: @image-url("icons/rail-instruments.svg"); }
 }
 
-// Collection Health in the rail: a first-aid cross on a black disc, in lilac.
+// Collection Health in the rail: a first-aid cross, in pink.
 component HealthIcon inherits Rectangle {
     width: 30px;
     height: 30px;
-    Rectangle {
-        width: 26px;
-        height: 26px;
-        border-radius: 13px;
-        background: #000000;
-        border-width: 1.6px;
-        border-color: Theme.accent;
-    }
-    Path {
-        width: 30px;
-        height: 30px;
-        viewbox-width: 30;
-        viewbox-height: 30;
-        fill: Theme.accent;
-        stroke: Theme.accent;
-        stroke-width: 1.4px;
-        stroke-line-join: round;
-        commands: "M 12.6 7.8 L 17.4 7.8 L 17.4 12.6 L 22.2 12.6 L 22.2 17.4 L 17.4 17.4 L 17.4 22.2 L 12.6 22.2 L 12.6 17.4 L 7.8 17.4 L 7.8 12.6 L 12.6 12.6 Z";
-    }
+    border-radius: 7px;
+    background: #F577A81F;
+    Image { width: 22px; height: 22px; source: @image-url("icons/rail-health.svg"); }
 }
 
 // A button in the source rail, named in a tooltip beside it after a
@@ -1824,6 +1790,55 @@ component RailButton inherits Rectangle {
     }
 }
 
+// Circling arrows at the top right of the Collection sidebar: looks for
+// new and changed tracks in the music folders now. Turns once when clicked.
+component UpdateCollectionButton inherits Rectangle {
+    property <int> turns;
+    property <bool> tip-mine;
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    background: uta.has-hover ? #2a2a2e : transparent;
+    Path {
+        width: 14px;
+        height: 14px;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        stroke: uta.has-hover ? Theme.text : Theme.text-dim;
+        stroke-width: 1.5px;
+        fill: transparent;
+        transform-rotation: turns * 360deg;
+        animate transform-rotation { duration: 700ms; easing: ease-in-out; }
+        commands: "M 13.5 6.5 A 5.8 5.8 0 0 0 2.6 6 M 2.5 9.5 A 5.8 5.8 0 0 0 13.4 10 M 13.6 2.5 L 13.6 6.5 L 9.6 6.5 M 2.4 13.5 L 2.4 9.5 L 6.4 9.5";
+    }
+    uta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            turns += 1;
+            LibraryEdit.update-collection();
+        }
+        changed has-hover => {
+            if !self.has-hover && tip-mine {
+                tip-mine = false;
+                HoverTip.shown = false;
+            }
+        }
+    }
+    Timer {
+        interval: 600ms;
+        running: uta.has-hover && !tip-mine;
+        triggered => {
+            tip-mine = true;
+            HoverTip.title = "Update collection";
+            HoverTip.body = "Looks for new and changed tracks in your music folders.";
+            HoverTip.right-aligned = true;
+            HoverTip.x = root.absolute-position.x + root.width;
+            HoverTip.y = root.absolute-position.y + root.height + 6px;
+            HoverTip.shown = true;
+        }
+    }
+}
+
 // An on/off switch, as in macOS.
 component Switch inherits Rectangle {
     in property <bool> on;
@@ -1852,8 +1867,10 @@ component SourceRail inherits Rectangle {
     callback shown-changed(source: int, on: bool);
     property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud", "Instruments"];
     // The order the rail shows them in: Albums, Mixed Sets and Instruments
-    // after Files.
-    property <[int]> order: [0, 1, 9, 10, 12, 2, 3, 4, 5, 6, 7, 8, 11];
+    // after Files. OneLibrary (7) isn't a source: openDJ writes it when
+    // exporting to a USB stick. Bandcamp (5) and Beatport (6) wait for the
+    // stores, later.
+    property <[int]> order: [0, 1, 9, 10, 12, 2, 3, 4, 8, 11];
     // What each source is, for its tooltip.
     property <[string]> tips: [
         "Every track in your library.",
@@ -1897,8 +1914,7 @@ component SourceRail inherits Rectangle {
                         selected: i == source && !(i == 0 && HealthUi.view);
                         tip: names[i];
                         tip-body: tips[i];
-                        if i != 12: SourceIcon { kind: i; }
-                        if i == 12: LiveIcon { kind: 0; }
+                        SourceIcon { kind: i; }
                         clicked => { source = i; picked(i); }
                     }
                     if i == 0 && HealthUi.rail-shown: RailButton {
@@ -1976,7 +1992,7 @@ component SourceRail inherits Rectangle {
                 padding-left: 6px;
                 padding-right: 6px;
                 spacing: 10px;
-                VerticalLayout { alignment: center; if i != 12: SourceIcon { kind: i; } if i == 12: LiveIcon { kind: 0; } }
+                VerticalLayout { alignment: center; SourceIcon { kind: i; } }
                 Text { text: names[i]; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
                 VerticalLayout {
                     alignment: center;
@@ -2268,7 +2284,7 @@ component FolderTree inherits Rectangle {
     folder-menu := PopupWindow {
         x: 40px;
         y: menu-y;
-        // Wider for a crate's colour and icon rows.
+        // Wider for a crate's color and icon rows.
         width: menu-editable && menu-kind == 17 ? 252px : 170px;
         close-policy: close-on-click-outside;
         MenuBackground {}
@@ -2351,12 +2367,12 @@ component FolderTree inherits Rectangle {
                 }
             }
             if (menu-analysable || menu-kind == 1) && menu-editable: MenuSeparator {}
-            // A crate's colour and icon.
+            // A crate's color and icon.
             if menu-editable && menu-kind == 17: HorizontalLayout {
                 height: 26px;
                 padding-left: 10px;
                 spacing: 2px;
-                Text { text: "Colour"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 44px; }
+                Text { text: "Color"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 44px; }
                 for c[i] in LibraryEdit.list-colors: Rectangle {
                     width: 18px;
                     Rectangle {
@@ -2583,8 +2599,13 @@ component FolderTree inherits Rectangle {
                 padding-left: 8px;
                 height: 26px;
                 Text { text: tab == 1 ? "Sessions" : source == 1 ? "Folders" : source == 0 ? (HealthUi.view ? "Collection Health" : "Library") : ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud"][source]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                if tab == 0 && source == 0 && !HealthUi.view: VerticalLayout {
+                    alignment: center;
+                    UpdateCollectionButton { }
+                }
             }
             ListView {
+                gutter: true;
                 for f[i] in folders: Rectangle {
                     // A line sets the Crates heading apart from the collection.
                     height: f.separator ? 45px : 34px;
@@ -3277,7 +3298,7 @@ component HealthBar inherits Rectangle {
     in property <int> listed;
     height: HealthUi.chips.length > 0 ? 80px : 44px;
     background: Theme.panel;
-    // An area's checks, one chip each.
+    // An area's checks, one chip each, and how far it has come.
     if HealthUi.chips.length > 0: HorizontalLayout {
         y: 0;
         height: 36px;
@@ -3285,7 +3306,6 @@ component HealthBar inherits Rectangle {
         padding-right: 12px;
         padding-top: 8px;
         spacing: 6px;
-        alignment: start;
         for c[i] in HealthUi.chips: Rectangle {
             width: chip.preferred-width + 22px;
             height: 26px;
@@ -3302,6 +3322,20 @@ component HealthBar inherits Rectangle {
             ct := TouchArea {
                 mouse-cursor: pointer;
                 clicked => { HealthUi.pick-chip(i); }
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        if HealthUi.fixed-of > 0: HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                HealthMeter { width: 120px; percent: HealthUi.fixed * 100 / HealthUi.fixed-of; }
+            }
+            Text {
+                text: HealthUi.fixed + " of " + HealthUi.fixed-of + " fixed";
+                color: HealthUi.fixed >= HealthUi.fixed-of ? Theme.health-clear : Theme.text-dim;
+                font-size: 12px;
+                vertical-alignment: center;
             }
         }
     }
@@ -3900,7 +3934,7 @@ component TrackList inherits Rectangle {
                 horizontal-stretch: 0;
                 min-width: col.width;
                 max-width: col.width;
-                // The Colour column is narrow: a dot heads it.
+                // The Color column is narrow: a dot heads it.
                 text: col.kind == 7 ? "●" : col.label;
                 column: col.id;
                 index: c;
@@ -4128,7 +4162,7 @@ component TrackList inherits Rectangle {
                             }
                         }
                         // The mini waveform, in lilac (white on the highlight).
-                        // The track's colour as a dot.
+                        // The track's color as a dot.
                         if col.kind == 7 && r.has-color: Rectangle {
                             x: (parent.width - self.width) / 2;
                             width: 10px;

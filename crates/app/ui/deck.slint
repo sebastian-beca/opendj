@@ -205,7 +205,7 @@ component GridMenu inherits PopupWindow {
 }
 
 // The jog: a black platter with the progress ring on its rim,
-// a coloured sticker that turns with the record, and a grey centre with the
+// a colored sticker that turns with the record, and a grey centre with the
 // rate, tempo, and elapsed and remaining time.
 export component Jog inherits Rectangle {
     in property <string> group;
@@ -220,7 +220,7 @@ export component Jog inherits Rectangle {
     width: 104px;
     height: 104px;
     property <float> scale: self.width / 104px;
-    // The last hot cue pressed colours the sticker; the deck colour until then.
+    // The last hot cue pressed colors the sticker; the deck color until then.
     property <int> last-cue: Controls.value(Controls.resolve(group, "hotcue_focus"), Controls.tick);
     property <color> sticker: last-cue >= 1 ? Theme.hotcues[last-cue - 1] : tint;
     property <length> centre: 70px * scale;
@@ -391,7 +391,7 @@ export component Jog inherits Rectangle {
     TourMark { id: plain ? "" : root.group + ",jog"; }
 }
 
-// Album art, large; without any, the deck colour with the
+// Album art, large; without any, the deck color with the
 // artist's initials. Picking it up drags the deck's track to another deck,
 // the side panel or one of the DJ's lists.
 export component Cover inherits Rectangle {
@@ -462,7 +462,7 @@ component KeyBox inherits VerticalLayout {
         // Click to switch every key display between Camelot and notes.
         Text {
             text: info.loaded ? info.key : "--";
-            // A shifted key is shown in the accent colour.
+            // A shifted key is shown in the accent color.
             color: info.key-shift != "" ? Theme.accent : Theme.key;
             font-size: 18px;
             font-weight: 600;
@@ -575,7 +575,7 @@ export struct BeatCount {
     bar: int,
     // The last bar before the next phrase.
     last-bar: bool,
-    // "phrase.bar.beat", and "↓ 6 › DROP" in the next phrase's colour.
+    // "phrase.bar.beat", and "↓ 6 › DROP" in the next phrase's color.
     label: string,
     countdown: string,
     next-color: color,
@@ -1408,7 +1408,7 @@ component StemPad inherits Rectangle {
         letter-spacing: 0.5px;
         color: info.stem-hq ? Theme.accent : Theme.text-dim.with-alpha(0.7);
     }
-    // The stem's colour, under its name.
+    // The stem's color, under its name.
     Rectangle {
         y: parent.height / 2 + 8px;
         width: min(parent.width * 0.4, 44px);
@@ -1473,7 +1473,7 @@ component StemPad inherits Rectangle {
     }
 }
 
-// One cell of the pad grid: flat, lit in its colour while its light is on.
+// One cell of the pad grid: flat, lit in its color while its light is on.
 component PadCell inherits Rectangle {
     in property <string> group;
     in property <string> key;
@@ -1547,7 +1547,7 @@ component KeyPad inherits Rectangle {
 }
 
 // A hot cue: a small play triangle and the cue's time in
-// its colour, or "+" while it isn't set (pressing sets it).
+// its color, or "+" while it isn't set (pressing sets it).
 // Shift + press deletes a set cue, as on controllers.
 component HotcueCell inherits Rectangle {
     in property <string> group;
@@ -1831,7 +1831,7 @@ export component Pads inherits HorizontalLayout {
     // each, and with Shift a step up or down.
     property <[float]> key-shift: [0, 1, 2, 3, -3, -2, -1, 0];
     property <[float]> key-steps: [1, 2, 3, 4, -4, -3, -2, -1];
-    // KEYBOARD pads take the colour of the hot cue they play.
+    // KEYBOARD pads take the color of the hot cue they play.
     property <int> cue-focus: Controls.value(Controls.resolve(group, "hotcue_focus"), Controls.tick);
     property <color> keyboard-tint: cue-focus >= 1 && cue-focus <= 8 ? Theme.hotcues[cue-focus - 1] : tint;
     // A controller's pad mode buttons open a tab by its place through
@@ -1975,7 +1975,7 @@ export component Pads inherits HorizontalLayout {
                             stem: stem-pads[row * 4 + i].stem;
                             text: stem-pads[row * 4 + i].text;
                             show-quality: row == 0 && i == 3;
-                            // The track's own colour for a stem, else VirtualDJ's.
+                            // The track's own color for a stem, else VirtualDJ's.
                             tint: stem-pads[row * 4 + i].stem > 0 && stem-pads[row * 4 + i].stem <= info.stem-colors.length
                                 ? info.stem-colors[stem-pads[row * 4 + i].stem - 1] : stem-pads[row * 4 + i].tint;
                             horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
@@ -2041,15 +2041,14 @@ export component LoopStepper inherits Rectangle {
 }
 
 // The loop controls in a column between the pads and the transport: the
-// LOOP title, the loop length box (see LoopStepper), IN and OUT, then SLIP
-// and VINYL level with play and CUE. The effects are in the FX bar.
+// LOOP title, the loop length box (see LoopStepper), and IN and OUT. The
+// effects are in the FX bar; SLIP is in the jog's corner (see SlipToggle).
 export component LoopSection inherits VerticalLayout {
     in property <string> group;
     in property <DeckInfo> info;
     in property <color> tint;
     // Deck B: tips open towards the middle.
     in property <bool> mirrored;
-    property <bool> slipping: Controls.value(Controls.resolve(group, "slip_position"), Controls.tick) >= 0;
     spacing: 6px;
     alignment: center;
     width: 96px;
@@ -2062,34 +2061,6 @@ export component LoopSection inherits VerticalLayout {
         // waveform marks the loop out; OUT closes it, and it turns lilac.
         ControlButton { group: group; key: "loop_in"; light-key: "loop_in_pending"; text: "IN"; momentary: true; tint: #d1d1d6; font-size: 11px; horizontal-stretch: 1; tour-id: group + ",loop_in"; }
         ControlButton { group: group; key: "loop_out"; light-key: "loop_enabled"; text: "OUT"; momentary: true; tint: Theme.lilac; font-size: 11px; horizontal-stretch: 1; tour-id: group + ",loop_out"; }
-    }
-    HorizontalLayout {
-        spacing: 6px;
-        height: 28px;
-        // Lilac when on; while a trick holds the track elsewhere it blinks
-        // and the waveforms show where it will carry on from.
-        ControlButton {
-            group: group;
-            key: "slip_enabled";
-            text: "SLIP";
-            tint: slipping && !Controls.blink ? Theme.text-dim : Theme.lilac;
-            font-size: 11px;
-            horizontal-stretch: 1;
-            tip-title: "SLIP";
-            tip-body: "Scratch, loop, hold a hot cue, reverse or pause,\nthen carry on as if the track had played on.";
-            tip-right-aligned: mirrored;
-        }
-        ControlButton {
-            group: group;
-            key: "vinyl_mode";
-            text: "VINYL";
-            tint: #d1d1d6;
-            font-size: 11px;
-            horizontal-stretch: 1;
-            tip-title: "VINYL";
-            tip-body: "On: touching the jog's top scratches.\nOff: it bends the tempo like the rim.";
-            tip-right-aligned: mirrored;
-        }
     }
 }
 
@@ -2189,7 +2160,7 @@ component Pitch inherits VerticalLayout {
 }
 
 // Play and pause in one button showing ▶: outlined and drawn in the deck
-// colour while playing, and that same outline blinks while a track waits,
+// color while playing, and that same outline blinks while a track waits,
 // as in djay Pro. The background stays plain, like every other button.
 export component PlayButton inherits Rectangle {
     // Names it for the guided tour (see TourMark).
@@ -2323,10 +2294,62 @@ component BendButton inherits Rectangle {
     }
 }
 
-// The jog, as big as the room over play and CUE allows, with the pitch
-// bend buttons in its lower corners.
+// SLIP as a word, no button around it, as in djay Pro: light grey when
+// off, lilac when on. While a trick holds the track elsewhere it blinks and
+// the waveforms show where it will carry on from.
+export component SlipToggle inherits Rectangle {
+    in property <string> group;
+    // Deck B: the tip opens towards the middle.
+    in property <bool> tip-right-aligned;
+    property <int> index: Controls.resolve(group, "slip_enabled");
+    property <bool> on: Controls.value(index, Controls.tick) > 0;
+    property <bool> slipping: Controls.value(Controls.resolve(group, "slip_position"), Controls.tick) >= 0;
+    property <bool> tip-mine;
+    width: 24px;
+    height: 12px;
+    Text {
+        text: "SLIP";
+        color: on ? (slipping && !Controls.blink ? Theme.text-dim : Theme.lilac)
+            : ta.has-hover ? Theme.text : #a1a1a6;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            Controls.set-value(index, on ? 0 : 1);
+        }
+        changed has-hover => {
+            if !self.has-hover && tip-mine {
+                tip-mine = false;
+                HoverTip.shown = false;
+            }
+        }
+    }
+    Timer {
+        interval: 700ms;
+        running: ta.has-hover && !tip-mine;
+        triggered => {
+            tip-mine = true;
+            HoverTip.title = "SLIP";
+            HoverTip.body = "Scratch, loop, hold a hot cue, reverse or pause,\nthen carry on as if the track had played on.";
+            HoverTip.right-aligned = tip-right-aligned;
+            HoverTip.x = root.absolute-position.x + (tip-right-aligned ? root.width : 0px);
+            HoverTip.y = root.absolute-position.y + root.height + 6px;
+            HoverTip.shown = true;
+        }
+    }
+    MapMark { key: root.group + ",slip_enabled"; }
+}
+
+// The jog, as big as the room over play and CUE allows, with SLIP in its
+// top right corner and the pitch bend buttons in its lower corners.
 component JogSection inherits VerticalLayout {
     in property <string> group;
+    in property <bool> mirrored;
     in property <DeckInfo> info;
     in property <color> tint;
     in property <angle> spin;
@@ -2344,12 +2367,13 @@ component JogSection inherits VerticalLayout {
         }
         BendButton { group: group; faster: false; tint: tint; x: 0px; y: parent.height - self.height; }
         BendButton { group: group; faster: true; tint: tint; x: parent.width - self.width; y: parent.height - self.height; }
+        SlipToggle { group: group; tip-right-aligned: mirrored; x: parent.width - self.width; y: 0px; }
     }
     Transport { group: group; tint: tint; }
 }
 
 
-// One step: lit in the deck colour when on; the step playing has a white
+// One step: lit in the deck color when on; the step playing has a white
 // edge, and the first of each beat is shaded a little lighter.
 component StepCell inherits Rectangle {
     in property <bool> on;
@@ -2566,7 +2590,7 @@ component LivePanel inherits Rectangle {
     in property <int> live;
     in property <string> group;
     in property <color> tint;
-    property <string> input-group: ["[Microphone]", "[Auxiliary1]", "[Instrument1]"][live - 1];
+    property <string> input-group: ["[Microphone]", "[Auxiliary1]", "[Instrument1]", "[Auxiliary2]", "[Auxiliary3]"][live - 1];
     property <bool> ready: Controls.value(Controls.resolve(input-group, "input_configured"), Controls.tick) > 0;
     property <float> level: Controls.value(Controls.resolve(group, "vu_meter"), Controls.tick);
     property <int> octave-index: Controls.resolve("[Instrument1]", "octave");
@@ -2694,7 +2718,7 @@ export component Deck inherits Rectangle {
             if !groove && live == 0: HorizontalLayout {
                 padding: 8px;
                 spacing: 0px;
-                if mirrored: JogSection { group: group; info: info; tint: tint; spin: spin; }
+                if mirrored: JogSection { group: group; info: info; tint: tint; spin: spin; mirrored: true; }
                 if mirrored: Rectangle { width: 10px; }
                 if mirrored: LoopSection { group: group; info: info; tint: tint; mirrored: true; }
                 if mirrored: VDivider { }

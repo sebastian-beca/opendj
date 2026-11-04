@@ -10,7 +10,7 @@ DJ library tools that do tags well (Lexicon's tag categories, rekordbox's My Tag
 
 ## What Changes
 
-- The library keeps **tag groups** (`tag_groups`: name, order, one-or-several per track, colour) and **tags** (`tags`: a name per group, case-insensitive, colour), linked to tracks by `track_tags`. Names are free text: spaces allowed, no `#` needed.
+- The library keeps **tag groups** (`tag_groups`: name, order, one-or-several per track, color) and **tags** (`tags`: a name per group, case-insensitive, color), linked to tracks by `track_tags`. Names are free text: spaces allowed, no `#` needed.
 - On first open, the old fields move into groups ("Tag 1", "Tag 2"… renamed from the names the DJ gave them in settings), hashtags become tags without `#`, and the change log follows.
 - Imports map into groups through `tag_sources` (app, where it keeps tags → group): VirtualDJ's User 1 and User 2 fill the migrated groups, each rekordbox My Tag category becomes a group of its name. A first-seen place gets a group of its name (or the DJ's group with that name).
 - Settings › Collection › **Tags** (was Fields) lists the groups: rename, Several/One per track, remove (asking first when tracks use it), add. Grouping's name stays on the same tab.

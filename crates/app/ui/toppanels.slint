@@ -194,7 +194,7 @@ component LinkRow inherits HorizontalLayout {
     }
 }
 
-// Loudness readings: text and colours for the [Master],loudness_* controls,
+// Loudness readings: text and colors for the [Master],loudness_* controls,
 // which read -100 while there is nothing to measure.
 export global Loudness {
     // "−15.8", or "—" with no reading.
@@ -247,7 +247,7 @@ component LoudnessReading inherits VerticalLayout {
 }
 
 // The master's loudness, as broadcasters measure it (EBU R128): short-term
-// (3 s) large and coloured against the target, with momentary (400 ms),
+// (3 s) large and colored against the target, with momentary (400 ms),
 // integrated since the reset, the loudness range and the highest true peak.
 component LoudnessSection inherits VerticalLayout {
     property <float> momentary: Controls.value(Controls.resolve("[Master]", "loudness_momentary"), Controls.tick);

@@ -510,14 +510,14 @@ pub static VERBS: &[Verb] = &[
                 default: Some(f64::NAN),
             },
         ],
-        "In a light: blink, 500 ms on and off unless given, in a colour if named: blink 500 'green'",
+        "In a light: blink, 500 ms on and off unless given, in a color if named: blink 500 'green'",
     ),
     def(
         "color",
         Light,
         TakesDeck::No,
         &[NAME],
-        "In a light: a colour the controller knows, color 'red'",
+        "In a light: a color the controller knows, color 'red'",
     ),
     def(
         "led",
