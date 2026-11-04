@@ -40,6 +40,9 @@ export struct DeckInfo {
     rate: string,
     range: string,
     key: string,
+    // The key's number on the Camelot wheel (1 to 12), for its colour; 0
+    // when the track has no key.
+    key-wheel: int,
     elapsed: string,
     remaining: string,
     // Remaining time in whole seconds, for the deck header.
@@ -396,9 +399,10 @@ export component Cover inherits Rectangle {
     in property <color> tint;
     in property <DeckInfo> info;
     in property <length> size: 96px;
+    in property <length> radius: 4px;
     width: size;
     height: size;
-    border-radius: 4px;
+    border-radius: radius;
     clip: true;
     background: info.loaded ? @linear-gradient(135deg, tint 0%, tint.darker(0.6) 55%, #101012 100%) : Theme.control;
     border-width: info.loaded ? 0px : 1px;
