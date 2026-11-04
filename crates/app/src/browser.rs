@@ -3537,6 +3537,7 @@ impl Browser {
             return;
         }
         let mut changed = false;
+        let mut cues_changed = false;
         for (d, t) in loaded.iter().enumerate().take(NUM_DECKS) {
             let Some(t) = t.as_ref() else {
                 self.watch[d] = CueWatch::default();
@@ -3595,6 +3596,8 @@ impl Browser {
                         let mut e = (*self.library[i]).clone();
                         e.info.hotcues = now;
                         self.library[i] = Arc::new(e);
+                        // The Cues column counts them.
+                        cues_changed = true;
                     }
                 }
             }
@@ -3608,7 +3611,7 @@ impl Browser {
                 }
             }
         }
-        if changed && self.history_tab {
+        if (changed && self.history_tab) || cues_changed {
             self.refresh_rows();
         }
     }

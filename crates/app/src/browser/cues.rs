@@ -123,7 +123,12 @@ fn detail(t: Option<&Track>, c: &Hotcue) -> String {
         }
         None => {
             let beat = t.beat_at(c.seconds) - crate::beat_counter::first_bar_beat(t);
-            format!("bar {}", (beat / 4.0 + 1e-6).floor() as i64 + 1)
+            let bar = (beat / 4.0 + 1e-6).floor() as i64 + 1;
+            if bar < 1 {
+                "before bar 1".into()
+            } else {
+                format!("bar {bar}")
+            }
         }
     }
 }

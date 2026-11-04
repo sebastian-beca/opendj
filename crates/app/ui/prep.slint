@@ -180,7 +180,7 @@ component PrepPad inherits Rectangle {
             if set: Text { text: name; color: #ffffff; font-size: 12px; font-weight: 600; overflow: elide; horizontal-stretch: 1; }
         }
         Rectangle { vertical-stretch: 1; }
-        Text { text: set ? time : "Click to set"; color: set ? #ffffffd0 : Theme.text-dim; font-family: "Inter Tabular"; font-size: 11px; }
+        Text { text: set ? time : "Click to set"; color: set ? #ffffffd0 : Theme.text-dim; font-family: "Inter Tabular"; font-size: 11px; overflow: elide; }
     }
     touch := TouchArea {
         mouse-cursor: pointer;
@@ -298,11 +298,11 @@ export component PrepDeck inherits Rectangle {
                     ReadyBar { }
                     HorizontalLayout {
                         spacing: 6px;
-                        for n in 4: PrepPad { group: group; number: n + 1; }
+                        for n in 4: PrepPad { group: group; number: n + 1; horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
                     }
                     HorizontalLayout {
                         spacing: 6px;
-                        for n in 4: PrepPad { group: group; number: n + 5; }
+                        for n in 4: PrepPad { group: group; number: n + 5; horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
                     }
                 }
             }
