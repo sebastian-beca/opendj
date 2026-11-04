@@ -24,10 +24,19 @@ The rail at the far left picks where the tree and the track list come from:
 - **Instruments**: the Groove Box, your instrument plugins and the Mic and
   Aux inputs, dragged onto a deck to play there instead of a track (see
   [Instruments on a deck](decks.md#instruments-on-a-deck)).
-- **Plex** and **Navidrome**: your own music server, searched from openDJ
+- **Plex**, **Navidrome** and **Jellyfin**: your own music server, searched from openDJ
   with its tracks downloaded into your collection (see
   [Your own music server](#your-own-music-server)).
 - **Bandcamp**, **Beatport** and **OneLibrary**: coming soon.
+
+**Settings › Sources** lists every source by kind (streaming services,
+stores, your own servers, free music, add-ons and the built-in ones). Each
+row says whether the source is signed in or set up, and its **In rail**
+switch shows or hides it in the rail, as right-clicking the rail does. Click
+a source to open its settings: its server and sign-in, the folder its
+downloads go to, or **Sign out** for a streaming service. The cache for
+tracks played from your own servers is at the top of the page: one size
+for all of them (10 GB unless you pick another) and a **Clear** button.
 
 ### Streaming services
 
@@ -41,6 +50,18 @@ artist and title. If a match is wrong, right-click the track and pick
 **Change Match…**. **Copy to openDJ** makes a list of a playlist in your
 collection, once; tracks you don't have are kept as wanted, for the
 stores to find later.
+
+To keep track of songs you mean to get, right-click a greyed-out track
+(or several picked ones) and pick **Add to Wanted**, or right-click a
+playlist for **Add to Wanted** on every track of it you don't have. With
+a download add-on such as the Soulseek add-on installed, **Add to
+Downloads** sits beside it and searches the add-on for each track.
+
+For a playlist you use as a shopping list, right-click it and pick **Sync to
+Wanted**: its tracks you don't have go on the Wanted list, and so does
+anything you add to it later, each time openDJ signs in or you open it.
+Tracks you take off the Wanted list stay off. **Stop Syncing to Wanted**
+leaves what's there.
 
 Each service is signed in to with your own app, so openDJ ships no keys:
 
@@ -69,17 +90,22 @@ playlists again. Signing out forgets what was kept.
 
 ### Your own music server
 
-If your music lives on a **Plex Media Server** or on **Navidrome** (or any
-other server that speaks the Subsonic API, such as Gonic, Airsonic, Ampache
-or LMS), openDJ can search it and bring tracks into your collection. These
+If your music lives on a **Plex Media Server**, on **Jellyfin** (or Emby),
+or on **Navidrome** (or any other server that speaks the Subsonic API, such
+as Gonic, Airsonic, Ampache or LMS), openDJ can search it and bring tracks into your collection. These
 are your own files, so unlike the streaming services they play on decks.
 
-Fill in the server on its own page in Settings, **Settings › Plex** or
-**Settings › Navidrome**:
+Pick the source in the rail: until it's set up, its panel asks for the
+server and sign-in, and **Connect** saves them. You can also fill them in
+later in **Settings › Sources**: click **Plex**, **Jellyfin** or
+**Navidrome** to open its settings.
 
 - **Navidrome**: the server's address (for example
   `http://192.168.1.20:4533`), your username and your password. The
   password is only ever sent as a salted token.
+- **Jellyfin** (or Emby): the server's address (for example
+  `http://192.168.1.20:8096`), your username and your password. openDJ signs
+  in once and then uses the server's access token.
 - **Plex**: the server's address (for example `http://192.168.1.20:32400`)
   and your Plex token. To find the token, open any track's **⋯** menu in
   Plex Web, pick **Get Info › View XML**, and copy the `X-Plex-Token` at
@@ -98,13 +124,14 @@ Each song, album and playlist offers two ways to bring it in:
   network takes a second or two.
 - The **cloud** downloads it into the cache, to play later or offline. A
   filled cloud means it's there. Cached tracks stay out of your collection,
-  and the oldest go when the cache is full (5 GB unless you set **Cache
-  size** on the source's page). Their waveform, tempo and key are kept as
+  and the oldest go when the cache is full (10 GB for all sources together
+  unless you pick another size in **Settings › Sources**). Their waveform, tempo and key are kept as
   long as the file stays in the cache.
 - **+ Collection** (or **+ Album**) brings it into your collection for good:
-  `Downloaded/Plex` or `Downloaded/Navidrome` in your music folder, one
+  `Downloaded/Plex`, `Downloaded/Jellyfin` or `Downloaded/Navidrome` in your
+  music folder, one
   folder per artist and album with its cover, or the **Collection folder**
-  set on the source's page. A song already in the cache moves over from
+  set for the source in **Settings › Sources**. A song already in the cache moves over from
   there instead of downloading again.
 
 Tick several rows to **Download** them to the cache or **Add to Collection**
@@ -314,9 +341,20 @@ in to TIDAL or Spotify, openDJ asks the service for its tracks' ISRCs, so
 the match is sure. If a match is wrong, or one is missed, right-click the
 track and pick **Change Match…**.
 
-Placeholders with a page on their service also wait on the **Wanted** list.
-While the stores are off, the Wanted list is under Collection. A track
-leaves the list once your collection has it.
+Placeholders aren't put on the **Wanted** list for you: right-click one
+(or several) for **Add to Wanted** or **Add to Downloads**, or right-click
+the list in the tree to add every placeholder in it. To have every
+streamed track in the app's playlists go on the Wanted list, turn on **Add
+streamed tracks to Wanted** under that app in Settings › Library › Import.
+New ones join at each import; tracks you take off stay off. History is
+never added: what you played isn't always what you want to keep.
+
+The Wanted list holds only what you put there: tracks you clicked Buy on,
+tracks left over from **Copy to openDJ**, and tracks you added with **Add
+to Wanted**. While the stores are off, it's under Collection. The search
+box narrows it. A track leaves the list once your collection has it; to
+take tracks off by hand, pick them (⌘A picks all) and right-click for
+**Remove from Wanted**.
 
 ## Bringing in a rekordbox library
 
@@ -351,6 +389,19 @@ steady grid or a beat map with tempo changes. Playlists come in a
 **Playlists** folder, crates in a **Crates** folder, and history sessions go
 to the History tab. Auto DJ's queue stays in Mixxx.
 
+## Bringing in a Traktor library
+
+**Import from Traktor** works the same way. openDJ reads Traktor's
+`collection.nml` (only reading it), which it finds in the newest
+`Documents/Native Instruments/Traktor x.y.z` folder on a Mac or Windows. If
+yours is elsewhere, choose the file in the first step.
+
+Each track keeps its tags, stars, colour, comment, play count, dates, key,
+hot cues 1 to 8 with their names, saved loops, its beat grid, other cues (as
+memory cues) and fade in and fade out (as Automix points). Playlists come in
+their folders, folders within folders just as Traktor shows them. Traktor's
+own `_LOOPS` and `_RECORDINGS` lists and its smart lists stay out.
+
 ### The same song from two apps
 
 When a second app's library has a different file of a song you already have
@@ -367,8 +418,8 @@ it added and leaves the track as it was.
 The collection's tree has three parts:
 
 - **Collection**, with how many tracks you have. Select it for all of
-  them; open it for **Wanted** (tracks you went to buy, or streamed tracks
-  in imported lists you don't have a file for yet) and the stages.
+  them; open it for **Wanted** (tracks you went to buy or added with **Add to
+  Wanted**) and the stages.
 - **Crates**: lists you keep, such as Yoga, Journeys, Dance or a style.
   The **+** beside the heading adds one.
 - **Playlists**: folders of lists, for gigs or anything else. The **+**
@@ -436,6 +487,11 @@ place of the whole list's time.
 
 The track menu's **Rating** and **Colour** rows set every picked track at
 once; the colours are the ones `color:red`, `color:blue` and so on search for.
+
+A track's colour shows as a dot in the **Colour** column (headed ●, sorted
+red, orange, yellow, green, cyan, blue, purple, pink). **Settings › Library ›
+Track colour** changes that to a strip at the row's left edge or a soft tint
+of the whole row, or turns it off; colour searches work either way.
 
 ## Track info
 

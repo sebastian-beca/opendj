@@ -24,6 +24,7 @@ pub use opendj_engine::import::{ImportedLibrary, ImportedList, ListGroup};
 pub mod archive;
 pub mod bandcamp;
 pub mod inbox;
+pub mod jellyfin;
 pub mod links;
 pub mod mixxx;
 pub mod plex;
@@ -32,6 +33,7 @@ pub mod remote;
 mod server;
 pub mod source;
 pub mod subsonic;
+pub mod traktor;
 pub mod virtualdj;
 
 /// What a plugin is and which web hosts it talks to, as Settings shows it.
@@ -307,13 +309,14 @@ pub trait LibraryImport: Send {
 }
 
 /// The plugins that come with the app: Bandcamp, the Internet Archive, the
-/// DJ's own music servers (Plex, Navidrome), then the stores we link to.
+/// DJ's own music servers (Plex, Navidrome, Jellyfin), then the stores we link to.
 pub fn builtin() -> Vec<Box<dyn Plugin>> {
     let mut out: Vec<Box<dyn Plugin>> = vec![
         Box::new(bandcamp::Bandcamp::new()),
         Box::new(archive::InternetArchive::new()),
         Box::new(plex::Plex::new()),
         Box::new(subsonic::Navidrome::new()),
+        Box::new(jellyfin::Jellyfin::new()),
     ];
     out.extend(
         links::STORES
@@ -330,6 +333,7 @@ pub fn importers() -> Vec<Box<dyn LibraryImport>> {
         Box::new(virtualdj::VirtualDj),
         Box::new(rekordbox::Rekordbox),
         Box::new(mixxx::Mixxx),
+        Box::new(traktor::Traktor),
     ]
 }
 

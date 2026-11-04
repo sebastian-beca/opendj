@@ -2,8 +2,18 @@
 
 The menu at the top left of the window switches layouts:
 
-- **Simple** shrinks decks 1 and 2 to a single row, so the browser gets most
-  of the screen.
+- **Player** works like a music player and mixes for you. One bar shows the
+  track you hear (cover, title, artist, BPM and key), with **Order**,
+  **Previous**, **Play/Pause** and **Next** over the track's overview. Click
+  or drag the overview to move through the track; the shaded part at the end
+  is where the next mix starts. On the right are what Automix does next, the
+  master volume, and the queue button, which shows or hides **Up Next** (the
+  Automix list).
+  Underneath, decks 1 and 2 take turns and [Automix](automix.md) mixes from
+  one to the other. **Play** switches Automix on, **Next** mixes into the next
+  track straight away, **Previous** goes back to the start of the track, and
+  **Order** puts Up Next in order (shuffle, BPM, harmonic and so on). The
+  large waveforms and the FX bar are hidden in Player.
 - **2-Deck** shows the full decks, with pads and loops, and the mixer between
   them (see [Decks and mixer](decks.md)).
 - **4-Deck** shows four decks side by side, in the order 3, 1, 2, 4, as djay Pro
@@ -18,7 +28,7 @@ The menu at the top left of the window switches layouts:
   waveform and its tools laid out flat. See [Prep](#prep) below.
 
 The button at the bottom left of the window hides the decks for a compact
-view, in any layout.
+view in 2-Deck and 4-Deck.
 
 ## Prep
 

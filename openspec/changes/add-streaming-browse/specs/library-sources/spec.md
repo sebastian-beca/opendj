@@ -30,6 +30,25 @@ Copy to openDJ list SHALL make an openDJ list of a streaming playlist's matched 
 - **WHEN** the DJ copies a Spotify playlist with 3 unmatched tracks
 - **THEN** a list with the matched tracks appears, and the 3 others are on the wanted list
 
+### Requirement: Add to Wanted
+The Wanted list SHALL hold only tracks the DJ put there: Buy on a store result, Copy to openDJ's unmatched tracks, and Add to Wanted. Add to Wanted SHALL be offered on the right-click menu of streaming tracks the collection hasn't got (every picked one), of streaming playlists, and of lists with streamed tracks standing in them (their placeholders); library imports SHALL NOT add tracks to it unless the DJ turns on Add streamed tracks to Wanted for that import (off by default), and then only from its playlists, never from history or smart lists. A streaming playlist SHALL offer Sync to Wanted (off by default), which adds its missing tracks now and those added to it later. A track the DJ took off the Wanted list SHALL NOT come back from an import or a synced playlist; adding it by hand brings it back. With an add-on source that downloads installed, Add to Downloads SHALL sit beside it and search the add-on for each track. Remove from Wanted SHALL take the picked rows of the Wanted list off it.
+
+#### Scenario: Imported history stays off the Wanted list
+- **WHEN** a VirtualDJ import brings in history sessions full of TIDAL tracks without files
+- **THEN** they show as placeholders in the sessions, and the Wanted list doesn't change
+
+#### Scenario: Want a TIDAL playlist
+- **WHEN** the DJ right-clicks a TIDAL playlist of 40 tracks, 25 of them in the collection, and picks Add to Wanted
+- **THEN** the 15 others are on the Wanted list
+
+#### Scenario: VirtualDJ playlists to Wanted
+- **WHEN** Add streamed tracks to Wanted is on for the VirtualDJ import, a playlist holds 5 TIDAL tracks without files and a history session holds 50
+- **THEN** the 5 go on the Wanted list and the 50 don't; one removed by hand stays off at the next import
+
+#### Scenario: Clean up the Wanted list
+- **WHEN** the DJ picks every row of the Wanted list with ⌘A and picks Remove from Wanted
+- **THEN** the Wanted list is empty
+
 ### Requirement: Export to a Spotify playlist
 Export to Spotify Playlist on one of the DJ's lists, crates or history sessions SHALL make a new private Spotify playlist with the list's tracks in the list's order (a history session in the order played), finding each by its Spotify id, then ISRC, then artist, title and length, and SHALL name the tracks Spotify doesn't have.
 

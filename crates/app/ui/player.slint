@@ -1,13 +1,17 @@
-// The Player layout: one short row, so the browser gets more room. The
-// decks are just their headers (cover, title, time, key and overview); the
+// The compact row (PlayerDeck, PlayerMixer): shown over the expanded
+// library in 2-Deck and 4-Deck, so the browser gets more room. The decks
+// are just their headers (cover, title, time, key and overview); the
 // middle holds the basics: on each outer side a small text-free jog over
 // play, CUE and SYNC, then the EQs in a 2 x 2 grid, gain over the channel
 // fader, and the meters in the centre. No pads, FX, loops, tempo faders or
 // crossfader.
+//
+// PlayerBar, further down, is the Player layout itself.
 import { TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
-import { ControlButton, ControlFader, StereoMeter, SyncButton } from "controls.slint";
-import { DeckInfo, Header, Jog, PlayButton } from "deck.slint";
+import { ControlButton, ControlFader, Controls, StereoMeter, SyncButton } from "controls.slint";
+import { Cover, DeckInfo, Header, Jog, PlayButton } from "deck.slint";
+import { LevelSlider } from "toppanels.slint";
 import { Knob, ModeMenu, SideKnob } from "mixer.slint";
 
 export component PlayerDeck inherits Rectangle {
@@ -135,5 +139,356 @@ export component PlayerMixer inherits Rectangle {
             }
         }
         PlayerChannel { deck: 1; info: decks[1]; spin: spin-2; }
+    }
+}
+
+// A plain transport icon button for the Player bar: no box, the glyph
+// brightens on hover and dims when there is nothing to do.
+component BarButton inherits Rectangle {
+    in property <bool> enabled: true;
+    in property <string> tip;
+    callback clicked();
+    width: 32px;
+    height: 32px;
+    border-radius: 16px;
+    background: enabled && ta.has-hover ? #ffffff14 : transparent;
+    out property <color> ink: !enabled ? Theme.text-dim.with-alpha(0.5) : ta.has-hover ? Theme.text : Theme.text.with-alpha(0.85);
+    @children
+    ta := TouchArea {
+        mouse-cursor: enabled ? pointer : default;
+        clicked => {
+            if enabled {
+                root.clicked();
+            }
+        }
+    }
+}
+
+// The Player layout's one bar: what is playing on the left (cover, title,
+// artist, BPM and key), the transport over the track overview in the
+// middle, and Automix's next step, the master volume and the queue button
+// on the right. Underneath, decks 1 and 2 keep alternating and Automix
+// mixes from one to the other, so a song never just stops and the next
+// starts cold; the bar always shows the deck playing.
+export component PlayerBar inherits Rectangle {
+    in property <[DeckInfo]> decks;
+    in property <image> overview-1;
+    in property <image> overview-2;
+    // The deck to show: Automix's live deck, else the master deck.
+    in property <int> live;
+    // The deck Automix is mixing into, -1 when not mixing.
+    in property <int> mixing-into: -1;
+    in property <bool> automix-on;
+    in property <string> automix-status;
+    // The track Automix plays next, and the time before its mix starts.
+    in property <string> automix-next;
+    in property <string> automix-next-in;
+    // The Automix list has tracks to play.
+    in property <bool> queue-has-tracks;
+    in property <bool> queue-shown;
+    callback automix-toggle();
+    callback automix-mix-now();
+    callback automix-order(int);
+    callback toggle-queue();
+    out property <length> overview-width: ov.width;
+    out property <length> overview-height: ov.height;
+    property <int> d: live == 1 ? 1 : 0;
+    property <DeckInfo> info: decks[d];
+    property <string> group: "[Channel" + (d + 1) + "]";
+    property <int> play-index: Controls.resolve(group, "play");
+    property <bool> playing: Controls.value(play-index, Controls.tick) > 0;
+    property <int> position-index: Controls.resolve(group, "playposition");
+    property <int> hold-index: Controls.resolve(group, "seek_hold");
+    property <length> press-x;
+    property <bool> scrubbing;
+    background: Theme.panel;
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 18px;
+
+        // Now playing.
+        HorizontalLayout {
+            width: 320px;
+            spacing: 12px;
+            VerticalLayout {
+                alignment: center;
+                Cover { deck: d; tint: Theme.deck-color(d); info: info; size: 60px; }
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                Text { text: info.loaded ? info.title : "Nothing playing"; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
+                Text { text: info.loaded ? info.artist : queue-has-tracks ? "Press play to start the queue" : "Add tracks to Up Next, then press play"; color: Theme.text-dim; font-size: 13px; overflow: elide; }
+                if info.loaded: Text { text: info.bpm + " BPM · " + info.key; color: Theme.text-dim; font-size: 11px; overflow: elide; }
+            }
+        }
+
+        // Transport over the overview.
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 4px;
+            HorizontalLayout {
+                alignment: center;
+                spacing: 16px;
+                // Order: shuffle, BPM, harmonic … (as the Automix panel's Order ▾).
+                order := BarButton {
+                    enabled: queue-has-tracks;
+                    clicked => { order-menu.show(); }
+                    Path {
+                        width: 18px;
+                        height: 18px;
+                        viewbox-width: 18;
+                        viewbox-height: 18;
+                        stroke: order.ink;
+                        stroke-width: 1.6px;
+                        commands: "M 2 5 L 6 5 L 12 13 L 16 13 M 2 13 L 6 13 L 12 5 L 16 5 M 14 3 L 16 5 L 14 7 M 14 11 L 16 13 L 14 15";
+                    }
+                }
+                // Previous: back to the start of the track.
+                prev := BarButton {
+                    enabled: info.loaded;
+                    clicked => { Controls.set-value(Controls.resolve(group, "start"), 1); }
+                    Path {
+                        width: 18px;
+                        height: 18px;
+                        viewbox-width: 18;
+                        viewbox-height: 18;
+                        fill: prev.ink;
+                        commands: "M 2 3 L 4 3 L 4 15 L 2 15 Z M 15 3 L 6 9 L 15 15 Z";
+                    }
+                }
+                // Play or pause. Starting also switches Automix on, so the
+                // next track in Up Next mixes in when this one ends.
+                Rectangle {
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 20px;
+                    background: pta.pressed ? Theme.text.darker(0.2) : Theme.text;
+                    if playing: Path {
+                        width: 16px;
+                        height: 16px;
+                        viewbox-width: 16;
+                        viewbox-height: 16;
+                        fill: Theme.background;
+                        commands: "M 3 2 L 6.5 2 L 6.5 14 L 3 14 Z M 9.5 2 L 13 2 L 13 14 L 9.5 14 Z";
+                    }
+                    if !playing: Path {
+                        x: 13px;
+                        width: 16px;
+                        height: 16px;
+                        viewbox-width: 16;
+                        viewbox-height: 16;
+                        fill: Theme.background;
+                        commands: "M 2 1 L 15 8 L 2 15 Z";
+                    }
+                    pta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            if playing {
+                                Controls.set-value(play-index, 0);
+                            } else {
+                                if info.loaded {
+                                    Controls.set-value(play-index, 1);
+                                }
+                                if !automix-on && (queue-has-tracks || !info.loaded) {
+                                    automix-toggle();
+                                }
+                            }
+                        }
+                    }
+                }
+                // Next: mix into the next track now.
+                next := BarButton {
+                    enabled: automix-on && queue-has-tracks;
+                    clicked => { automix-mix-now(); }
+                    Path {
+                        width: 18px;
+                        height: 18px;
+                        viewbox-width: 18;
+                        viewbox-height: 18;
+                        fill: next.ink;
+                        commands: "M 14 3 L 16 3 L 16 15 L 14 15 Z M 3 3 L 12 9 L 3 15 Z";
+                    }
+                }
+                // Keeps the play button centred between Order and Next.
+                Rectangle { width: 32px; }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                height: 24px;
+                Text { text: info.loaded ? info.elapsed : "0:00"; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; horizontal-alignment: right; min-width: 40px; }
+                ov := Rectangle {
+                    horizontal-stretch: 1;
+                    max-width: 620px;
+                    background: Theme.well;
+                    // Not rounded: a rounded clip renders into a cached
+                    // layer, which would freeze the GPU-updated image.
+                    clip: true;
+                    if d == 0: Image { width: parent.width; height: parent.height; source: overview-1; image-fit: fill; }
+                    if d == 1: Image { width: parent.width; height: parent.height; source: overview-2; image-fit: fill; }
+                    // Where Automix mixes out, as on the deck overview.
+                    if info.automix-to > info.automix-from: Rectangle {
+                        x: info.automix-from * parent.width;
+                        width: (info.automix-to - info.automix-from) * parent.width;
+                        height: parent.height;
+                        background: Theme.accent.with-alpha(0.22);
+                        Rectangle { x: 0; width: 1px; background: Theme.accent.with-alpha(0.8); }
+                    }
+                    // A click jumps there; a drag holds the deck silent
+                    // under the pointer and carries on from where it is let go.
+                    ota := TouchArea {
+                        enabled: info.loaded;
+                        mouse-cursor: ew-resize;
+                        pointer-event(e) => {
+                            if e.button != PointerEventButton.left {
+                                return;
+                            }
+                            if e.kind == PointerEventKind.down {
+                                press-x = self.mouse-x;
+                                scrubbing = false;
+                                Controls.set-value(position-index, clamp(self.mouse-x / self.width, 0, 1));
+                            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                                if scrubbing {
+                                    Controls.set-value(hold-index, 0);
+                                }
+                                scrubbing = false;
+                            }
+                        }
+                        moved => {
+                            if self.pressed {
+                                if !scrubbing && abs(self.mouse-x - press-x) > 4px {
+                                    scrubbing = true;
+                                    Controls.set-value(hold-index, 1);
+                                }
+                                if scrubbing {
+                                    Controls.set-value(position-index, clamp(self.mouse-x / self.width, 0, 1));
+                                }
+                            }
+                        }
+                    }
+                }
+                Text { text: info.loaded ? "-" + info.remaining-seconds : "-0:00"; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; min-width: 40px; }
+            }
+        }
+
+        // Automix's next step, the volume and the queue.
+        HorizontalLayout {
+            width: 320px;
+            spacing: 12px;
+            alignment: end;
+            if mixing-into >= 0: VerticalLayout {
+                alignment: center;
+                Cover { deck: mixing-into; tint: Theme.deck-color(mixing-into); info: decks[mixing-into]; size: 30px; }
+            }
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                min-width: 0px;
+                spacing: 2px;
+                Text {
+                    text: mixing-into >= 0 ? "MIXING" : automix-next-in != "" ? "NEXT IN " + automix-next-in : automix-on ? "AUTOMIX" : "AUTOMIX OFF";
+                    color: automix-on ? Theme.accent : Theme.text-dim;
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 0.5px;
+                    horizontal-alignment: right;
+                }
+                Text {
+                    text: automix-next != "" ? automix-next
+                        : automix-status != "" ? automix-status
+                        : automix-on ? "" : queue-has-tracks ? "Press play to mix through Up Next" : "Up Next is empty";
+                    color: Theme.text;
+                    font-size: 12px;
+                    overflow: elide;
+                    horizontal-alignment: right;
+                }
+            }
+            // The master level, as in the MASTER panel.
+            VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    spacing: 6px;
+                    Path {
+                        width: 16px;
+                        height: 14px;
+                        y: 3px;
+                        viewbox-width: 16;
+                        viewbox-height: 14;
+                        fill: Theme.text-dim;
+                        commands: "M 1 5 L 4 5 L 8 2 L 8 12 L 4 9 L 1 9 Z";
+                    }
+                    LevelSlider { group: "[Master]"; key: "gain"; width: 80px; horizontal-stretch: 0; tint: Theme.text; }
+                }
+            }
+            // Shows or hides Up Next (the Automix list) on the right.
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 34px;
+                    height: 30px;
+                    border-radius: 7px;
+                    background: queue-shown ? Theme.accent.with-alpha(0.18) : qta.has-hover ? #3a3a3d : transparent;
+                    border-width: queue-shown ? 1px : 0px;
+                    border-color: Theme.accent;
+                    Path {
+                        width: 18px;
+                        height: 16px;
+                        viewbox-width: 18;
+                        viewbox-height: 16;
+                        stroke: queue-shown ? Theme.accent : Theme.text;
+                        stroke-width: 1.7px;
+                        commands: "M 1 2 L 13 2 M 1 7 L 13 7 M 1 12 L 8 12";
+                    }
+                    Path {
+                        width: 18px;
+                        height: 16px;
+                        viewbox-width: 18;
+                        viewbox-height: 16;
+                        fill: queue-shown ? Theme.accent : Theme.text;
+                        commands: "M 11 10 L 16 12.5 L 11 15 Z";
+                    }
+                    qta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { toggle-queue(); }
+                    }
+                }
+            }
+        }
+    }
+
+    order-menu := PopupWindow {
+        // Just under the Order button.
+        x: order.absolute-position.x - root.absolute-position.x - 8px;
+        y: order.absolute-position.y - root.absolute-position.y + order.height + 4px;
+        width: 230px;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000080;
+        }
+        VerticalLayout {
+            padding: 6px;
+            Text { height: 22px; x: 6px; text: "PUT UP NEXT IN ORDER"; color: Theme.text-dim; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; vertical-alignment: center; }
+            // In automix_order::ORDERS order.
+            for name[i] in ["Shuffle", "BPM low to high", "BPM high to low", "Harmonic path", "Smooth flow (key and BPM)", "Reverse"]: Rectangle {
+                height: 26px;
+                border-radius: 4px;
+                background: ita.has-hover ? #3a3a3d : transparent;
+                Text { x: 12px; text: name; color: Theme.text; font-size: 13px; vertical-alignment: center; }
+                ita := TouchArea {
+                    clicked => {
+                        automix-order(i);
+                        order-menu.close();
+                    }
+                }
+            }
+        }
     }
 }

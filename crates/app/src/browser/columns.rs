@@ -26,6 +26,8 @@ pub const DIM: i32 = 4;
 pub const TAG_WORDS: i32 = 5;
 /// The track's mini waveform.
 pub const WAVEFORM: i32 = 6;
+/// The track's colour, as a dot.
+pub const COLOR_DOT: i32 = 7;
 
 /// Column ids. The first eight are the list's original sort columns, so
 /// sort orders saved before stay as they were.
@@ -60,6 +62,8 @@ pub const CRATES: i32 = 21;
 pub const ORDER: i32 = 22;
 /// When a history session's track was played.
 pub const PLAYED_AT: i32 = 23;
+/// The colour the DJ gave the track.
+pub const COLOR: i32 = 24;
 /// Tag field `i` (from 0) is column `TAGS + i`.
 pub const TAGS: i32 = 100;
 
@@ -84,6 +88,7 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
         kind,
     };
     let mut out = vec![
+        d(COLOR, "Colour", 30.0, false, COLOR_DOT),
         d(RATING_ID, "Rating", 64.0, false, RATING),
         d(TITLE_ID, "Title", 0.0, false, TITLE),
         d(ARTIST, "Artist", 170.0, false, TEXT),
@@ -118,8 +123,8 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
 }
 
 /// The columns shown when the DJ hasn't chosen: the list as it always was.
-pub const DEFAULT: [i32; 8] = [
-    RATING_ID, TITLE_ID, ARTIST, LENGTH, BPM, KEY_ID, WAVE, GENRE,
+pub const DEFAULT: [i32; 9] = [
+    COLOR, RATING_ID, TITLE_ID, ARTIST, LENGTH, BPM, KEY_ID, WAVE, GENRE,
 ];
 
 /// The columns a history session shows until the DJ changes them: the
@@ -131,22 +136,41 @@ pub const HISTORY_DEFAULT: [i32; 8] = [
 /// Narrowest a column can be dragged.
 pub const MIN_WIDTH: f32 = 30.0;
 
-/// The columns shown, in order, with their widths.
-#[derive(Clone, Debug, PartialEq)]
+/// The columns shown, in order, with their widths, and where the hidden
+/// ones were so they come back there.
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct Layout {
     pub shown: Vec<(i32, f32)>,
+    pub hidden: Vec<Hidden>,
+}
+
+/// A column the DJ hid: its width and the column it was right of (`None`
+/// when it was first), so showing it again puts it back there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Hidden {
+    pub id: i32,
+    pub width: f32,
+    pub after: Option<i32>,
 }
 
 impl Layout {
     /// The saved layout, or the default; unknown columns are dropped and
     /// the title is always there.
-    pub fn new(saved: Vec<(i32, f32)>, defs: &[Def]) -> Self {
-        Self::new_or(saved, defs, &DEFAULT)
+    pub fn new(saved: Vec<(i32, f32)>, hidden: Vec<Hidden>, defs: &[Def]) -> Self {
+        Self::new_or(saved, hidden, defs, &DEFAULT)
     }
 
     /// The saved layout, or `default`.
-    pub fn new_or(saved: Vec<(i32, f32)>, defs: &[Def], default: &[i32]) -> Self {
-        let mut l = Layout { shown: saved };
+    pub fn new_or(
+        saved: Vec<(i32, f32)>,
+        hidden: Vec<Hidden>,
+        defs: &[Def],
+        default: &[i32],
+    ) -> Self {
+        let mut l = Layout {
+            shown: saved,
+            hidden,
+        };
         if l.shown.is_empty() {
             l = Self::with(defs, default);
         }
@@ -161,6 +185,7 @@ impl Layout {
                 .filter_map(|id| defs.iter().find(|d| d.id == *id))
                 .map(|d| (d.id, d.width))
                 .collect(),
+            hidden: Vec::new(),
         }
     }
 
@@ -177,27 +202,86 @@ impl Layout {
         if !self.shown.iter().any(|(id, _)| *id == TITLE_ID) {
             self.shown.insert(0, (TITLE_ID, 0.0));
         }
+        let shown: Vec<i32> = self.shown.iter().map(|(id, _)| *id).collect();
+        let mut seen = Vec::new();
+        self.hidden.retain(|h| {
+            defs.iter().any(|d| d.id == h.id)
+                && !shown.contains(&h.id)
+                && !seen.contains(&h.id)
+                && {
+                    seen.push(h.id);
+                    true
+                }
+        });
+    }
+
+    /// Shows the Colour column first (`on`) or hides it. Returns whether
+    /// that changed anything.
+    pub fn show_color(&mut self, on: bool, defs: &[Def]) -> bool {
+        if self.has(COLOR) == on {
+            return false;
+        }
+        if on {
+            let width = defs
+                .iter()
+                .find(|d| d.id == COLOR)
+                .map_or(30.0, |d| d.width);
+            self.shown.insert(0, (COLOR, width));
+        } else {
+            self.shown.retain(|(id, _)| *id != COLOR);
+        }
+        true
     }
 
     pub fn has(&self, id: i32) -> bool {
         self.shown.iter().any(|(c, _)| *c == id)
     }
 
-    /// Shows a column (at the end) or hides it; the title stays.
+    /// Hides a column, or shows it again where it was when hidden (a new
+    /// one goes at the end); the title stays.
     pub fn toggle(&mut self, id: i32, defs: &[Def]) {
         if id == TITLE_ID {
             return;
         }
         match self.shown.iter().position(|(c, _)| *c == id) {
             Some(i) => {
-                self.shown.remove(i);
+                let (_, width) = self.shown.remove(i);
+                let after = i.checked_sub(1).map(|l| self.shown[l].0);
+                self.hidden.retain(|h| h.id != id);
+                self.hidden.push(Hidden { id, width, after });
             }
-            None => {
-                if let Some(d) = defs.iter().find(|d| d.id == id) {
-                    self.shown.push((id, d.width));
+            None => match self.hidden.iter().position(|h| h.id == id) {
+                Some(h) => {
+                    let h = self.hidden.remove(h);
+                    let at = self.place_after(h.after);
+                    self.shown.insert(at, (id, h.width));
                 }
+                None => {
+                    if let Some(d) = defs.iter().find(|d| d.id == id) {
+                        self.shown.push((id, d.width));
+                    }
+                }
+            },
+        }
+    }
+
+    /// Where a column that was right of `after` goes now: right of it if
+    /// it's shown, else right of where that one was in turn (it may be
+    /// hidden too), first when nothing was left of it.
+    fn place_after(&self, mut after: Option<i32>) -> usize {
+        for _ in 0..=self.hidden.len() {
+            let Some(left) = after else {
+                return 0;
+            };
+            if let Some(i) = self.shown.iter().position(|(c, _)| *c == left) {
+                return i + 1;
+            }
+            match self.hidden.iter().find(|h| h.id == left) {
+                Some(h) => after = h.after,
+                None => break,
             }
         }
+        self.shown.len()
     }
 
     pub fn resize(&mut self, index: usize, width: f32) {
@@ -229,8 +313,18 @@ impl Layout {
             return;
         }
         let (to, _) = self.slot(x, title_width, spacing);
-        let c = self.shown.remove(from);
         let to = if to > from { to - 1 } else { to };
+        if to == from {
+            return;
+        }
+        let c = self.shown.remove(from);
+        // Hidden columns that were right of this one stay where they were.
+        let left = from.checked_sub(1).map(|l| self.shown[l].0);
+        for h in &mut self.hidden {
+            if h.after == Some(c.0) {
+                h.after = left;
+            }
+        }
         self.shown.insert(to.min(self.shown.len()), c);
     }
 }
@@ -317,7 +411,7 @@ pub fn row_cells(
             LENGTH => row.length.clone(),
             BPM => row.bpm.clone(),
             KEY_ID => row.key.clone(),
-            TITLE_ID | RATING_ID => SharedString::new(),
+            TITLE_ID | RATING_ID | COLOR => SharedString::new(),
             CRATES => crates.map(|c| c.join("  ")).unwrap_or_default().into(),
             ORDER if list.order > 0 => list.order.to_string().into(),
             ORDER => SharedString::new(),
@@ -359,6 +453,7 @@ pub fn compare(id: i32, a: &Track, b: &Track) -> Ordering {
         // Analysed tracks, which have a waveform, first.
         WAVE => analysed(b).cmp(&analysed(a)),
         KEY_ID => key_order(&a.key, true).cmp(&key_order(&b.key, true)),
+        COLOR => color_order(x.color).cmp(&color_order(y.color)),
         _ => {
             let (s, t) = (cell(id, a, true), cell(id, b, true));
             match (s.is_empty(), t.is_empty()) {
@@ -367,6 +462,22 @@ pub fn compare(id: i32, a: &Track, b: &Track) -> Ordering {
                 _ => natural(&s).cmp(&natural(&t)),
             }
         }
+    }
+}
+
+/// Colours in the order the menu lists them (red, orange, yellow, green,
+/// cyan, blue, purple, pink), others after them, none last.
+pub fn color_order(color: Option<u32>) -> (usize, u32) {
+    use opendj_library::query::COLOR_NAMES;
+    match color {
+        Some(c) => (
+            COLOR_NAMES
+                .iter()
+                .position(|&(_, n)| n == c)
+                .unwrap_or(COLOR_NAMES.len()),
+            c,
+        ),
+        None => (usize::MAX, 0),
     }
 }
 
@@ -421,8 +532,21 @@ pub(super) struct ColumnState {
 impl ColumnState {
     pub fn new(names: &FieldNames) -> Self {
         let defs = all(names);
-        let layout = Layout::new(settings::columns(), &defs);
-        let other = Layout::new_or(settings::history_columns(), &defs, &HISTORY_DEFAULT);
+        let mut layout = Layout::new(settings::columns(), settings::hidden_columns(), &defs);
+        // Colours show as dots unless the DJ picked otherwise: a layout
+        // saved before the Colour column existed gets it once.
+        if settings::track_color().is_none() {
+            if layout.show_color(true, &defs) {
+                settings::set_columns(&layout);
+            }
+            settings::set_track_color(0);
+        }
+        let other = Layout::new_or(
+            settings::history_columns(),
+            settings::hidden_history_columns(),
+            &defs,
+            &HISTORY_DEFAULT,
+        );
         ColumnState {
             defs,
             layout,
@@ -455,9 +579,9 @@ impl ColumnState {
     /// Keeps the layout shown in settings.
     pub fn save(&self) {
         if self.history {
-            settings::set_history_columns(&self.layout.shown);
+            settings::set_history_columns(&self.layout);
         } else {
-            settings::set_columns(&self.layout.shown);
+            settings::set_columns(&self.layout);
         }
     }
 
@@ -529,6 +653,31 @@ impl Browser {
             })
         });
         let w = with.clone();
+        ui.on_set_color_mode(move |mode| {
+            w(&|b| {
+                let mode = mode.clamp(0, 3);
+                settings::set_track_color(mode as u8);
+                // The dots come with the Colour column, and go with it.
+                let c = &mut b.columns;
+                let lists = if c.history {
+                    &mut c.other
+                } else {
+                    &mut c.layout
+                };
+                if lists.show_color(mode == 0, &c.defs) {
+                    if c.history {
+                        settings::set_columns(&c.other);
+                    } else {
+                        c.save();
+                    }
+                }
+                if let Some(app) = b.app.upgrade() {
+                    app.global::<ColumnUi>().set_color_mode(mode);
+                }
+                b.columns_changed();
+            })
+        });
+        let w = with.clone();
         ui.on_reset(move || {
             w(&|b| {
                 b.columns.reset();
@@ -587,6 +736,7 @@ impl Browser {
                 b.columns_changed();
             })
         });
+        ui.set_color_mode(settings::track_color().unwrap_or(0) as i32);
         b.borrow().refresh_column_ui();
     }
 
@@ -647,8 +797,9 @@ mod tests {
     #[test]
     fn picks_resizes_and_moves_columns() {
         let defs = all(&FieldNames::default());
-        let mut l = Layout::new(Vec::new(), &defs);
+        let mut l = Layout::new(Vec::new(), Vec::new(), &defs);
         assert_eq!(ids(&l), DEFAULT);
+        l.toggle(COLOR, &defs);
         l.toggle(GROUPING, &defs);
         l.toggle(GENRE, &defs);
         l.toggle(WAVE, &defs);
@@ -675,10 +826,71 @@ mod tests {
     }
 
     #[test]
+    fn hidden_columns_come_back_where_they_were() {
+        let defs = all(&FieldNames::default());
+        let mut l = Layout::new(
+            vec![
+                (TITLE_ID, 0.0),
+                (TRACK_NUMBER, 44.0),
+                (ARTIST, 170.0),
+                (BPM, 56.0),
+            ],
+            Vec::new(),
+            &defs,
+        );
+        l.toggle(TRACK_NUMBER, &defs);
+        assert_eq!(ids(&l), [TITLE_ID, ARTIST, BPM]);
+        l.toggle(TRACK_NUMBER, &defs);
+        assert_eq!(ids(&l), [TITLE_ID, TRACK_NUMBER, ARTIST, BPM]);
+        assert_eq!(l.shown[1].1, 44.0, "keeps its width");
+        assert!(l.hidden.is_empty());
+
+        // Its left neighbour hidden too: it goes right of where that was.
+        l.toggle(TRACK_NUMBER, &defs);
+        l.toggle(TITLE_ID, &defs);
+        l.toggle(ARTIST, &defs);
+        l.toggle(BPM, &defs);
+        l.toggle(TRACK_NUMBER, &defs);
+        assert_eq!(ids(&l), [TITLE_ID, TRACK_NUMBER]);
+
+        // First when hidden: first again.
+        let mut l = Layout::new(
+            vec![(BPM, 56.0), (TITLE_ID, 0.0), (ARTIST, 170.0)],
+            Vec::new(),
+            &defs,
+        );
+        l.toggle(BPM, &defs);
+        l.toggle(BPM, &defs);
+        assert_eq!(ids(&l), [BPM, TITLE_ID, ARTIST]);
+
+        // Its neighbour moved away: it stays in place.
+        let mut l = Layout::new(
+            vec![
+                (TITLE_ID, 300.0),
+                (ARTIST, 200.0),
+                (YEAR, 50.0),
+                (BPM, 56.0),
+            ],
+            Vec::new(),
+            &defs,
+        );
+        l.toggle(YEAR, &defs);
+        l.move_to(1, 5000.0, 300.0, 8.0);
+        assert_eq!(ids(&l), [TITLE_ID, BPM, ARTIST]);
+        l.toggle(YEAR, &defs);
+        assert_eq!(ids(&l), [TITLE_ID, YEAR, BPM, ARTIST]);
+
+        // Never shown before: at the end.
+        l.toggle(GENRE, &defs);
+        assert_eq!(ids(&l).last(), Some(&GENRE));
+    }
+
+    #[test]
     fn keeps_the_title_and_drops_gone_columns() {
         let defs = all(&FieldNames::default());
         let l = Layout::new(
             vec![(ARTIST, 100.0), (TAGS + 5, 80.0), (ARTIST, 90.0)],
+            Vec::new(),
             &defs,
         );
         assert_eq!(l.shown, [(TITLE_ID, 0.0), (ARTIST, 100.0)]);
@@ -699,6 +911,25 @@ mod tests {
         assert_eq!(compare(PLAYED, &b, &a), Ordering::Less);
         b.info.grouping.clear();
         assert_eq!(compare(GROUPING, &a, &b), Ordering::Less, "empty last");
+    }
+
+    #[test]
+    fn shows_and_sorts_colours() {
+        let defs = all(&FieldNames::default());
+        let mut l = Layout::new(vec![(TITLE_ID, 0.0)], Vec::new(), &defs);
+        assert!(l.show_color(true, &defs));
+        assert!(!l.show_color(true, &defs));
+        assert_eq!(ids(&l), [COLOR, TITLE_ID]);
+        assert!(l.show_color(false, &defs));
+        assert_eq!(ids(&l), [TITLE_ID]);
+
+        let mut a = std::sync::Arc::unwrap_or_clone(opendj_engine::sample_library().remove(0));
+        let mut b = a.clone();
+        a.info.color = Some(0x007aff);
+        b.info.color = Some(0xff3b30);
+        assert_eq!(compare(COLOR, &b, &a), Ordering::Less, "red before blue");
+        b.info.color = None;
+        assert_eq!(compare(COLOR, &a, &b), Ordering::Less, "none last");
     }
 
     #[test]
