@@ -629,6 +629,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let a = automix.clone();
         app.on_automix_skip(move || a.borrow_mut().skip());
         let a = automix.clone();
+        app.on_automix_set_repeat(move |on| a.borrow_mut().set_repeat(on));
+        let a = automix.clone();
         app.on_automix_set_length(move |i| a.borrow_mut().set_length(i.max(0) as usize));
         let a = automix.clone();
         app.on_automix_set_style(move |i| a.borrow_mut().set_style(i.max(0) as usize));
@@ -1800,6 +1802,9 @@ impl Decks {
                 None => t.key.clone(),
             }
             .into(),
+            key_wheel: Key::from_mixxx_number(h.key.get())
+                .or_else(|| Key::parse(&t.key))
+                .map_or(0, |k| k.camelot_number() as i32),
             key_shift: match h.pitch.get().round() as i32 {
                 0 => String::new(),
                 n => format!("{n:+}"),

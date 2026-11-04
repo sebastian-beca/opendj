@@ -3,17 +3,22 @@
 The menu at the top left of the window switches layouts:
 
 - **Player** works like a music player and mixes for you. One bar shows the
-  track you hear (cover, title, artist, BPM and key), with **Order**,
-  **Previous**, **Play/Pause** and **Next** over the track's overview. Click
-  or drag the overview to move through the track; the shaded part at the end
-  is where the next mix starts. On the right are what Automix does next, the
-  master volume, and the queue button, which shows or hides **Up Next** (the
-  Automix list).
-  The search box in the top bar (**⌘F**) shows the best matching tracks as
-  you type. Point at one, or move with **↑** and **↓**, and pick **Play
-  next**, **Add to queue** (the end of Up Next) or **Play now**, which mixes
-  into it straight away. The keys are **↵**, **⇧↵** and **⌘↵**; **Esc**
-  clears the box.
+  track you hear: its album art, title, artist, BPM and key (coloured by its
+  place on the key wheel, so keys that mix have neighbouring colours). The
+  track's overview runs across the middle, with the time played on its left
+  and the track's length on its right. Click or drag it to move through the
+  track; the shaded part at the end is where the next mix starts. Under it
+  are **Order**, **Previous**, **Play/Pause**, **Next** and **Repeat**. With
+  Repeat on, a played track goes back to the end of Up Next instead of
+  leaving it, so the list keeps going round. On the right are what Automix
+  does next, the master volume, and the queue button, which shows or hides
+  **Up Next** (the Automix list).
+  The search box in the top bar (**⌘F**) is Player's only search box: it
+  filters the track list below and shows the best matching tracks as you
+  type. Point at one, or move with **↑** and **↓**, and pick **Play next**,
+  **Add to queue** (the end of Up Next) or **Play now**, which mixes into it
+  straight away. The keys are **↵**, **⇧↵** and **⌘↵**; **Esc** clears the
+  box and the list's search.
   Underneath, decks 1 and 2 take turns and [Automix](automix.md) mixes from
   one to the other. **Play** switches Automix on, **Next** mixes into the next
   track straight away, **Previous** goes back to the start of the track, and

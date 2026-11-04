@@ -858,6 +858,10 @@ impl crate::automix::Host for AutomixHost<'_> {
         self.browser.remove_from_automix(id);
     }
 
+    fn requeue(&mut self, id: usize) {
+        self.browser.requeue_in_automix(id);
+    }
+
     fn queued(&self) -> usize {
         self.browser.automix_len()
     }
@@ -2982,6 +2986,18 @@ impl Browser {
         };
         if let Some(i) = self.side[0].iter().position(|&t| t == index) {
             self.side[0].remove(i);
+            self.refresh_side();
+        }
+    }
+
+    /// Moves the track with id `id` to the end of the Automix list.
+    pub fn requeue_in_automix(&mut self, id: usize) {
+        let Some(&index) = self.index_of.get(&id) else {
+            return;
+        };
+        if let Some(i) = self.side[0].iter().position(|&t| t == index) {
+            let t = self.side[0].remove(i);
+            self.side[0].push(t);
             self.refresh_side();
         }
     }
