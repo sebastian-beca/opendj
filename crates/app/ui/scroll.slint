@@ -2,6 +2,8 @@
 // hugging the right (or bottom) edge, drawn over the content, that widens
 // under the pointer. Stands in for the std-widgets ScrollView and
 // ListView, whose Fluent bars sit inset with room for arrow buttons.
+// Sidebars set `gutter` so the vertical bar gets its own strip on the
+// right instead of covering row highlights, counts and + buttons.
 import { Theme } from "theme.slint";
 
 component Bar inherits Rectangle {
@@ -57,6 +59,10 @@ component Bar inherits Rectangle {
 
 export component ScrollView {
     in property <bool> enabled: true;
+    // Keep a strip on the right for the vertical bar. Always reserved, so
+    // the content width never depends on whether the bar shows (that
+    // would loop for content whose height follows its width).
+    in property <bool> gutter: false;
     out property <length> visible-width <=> flickable.width;
     out property <length> visible-height <=> flickable.height;
     in-out property <length> content-width <=> flickable.content-width;
@@ -74,7 +80,7 @@ export component ScrollView {
 
     flickable := Flickable {
         mouse-drag-pan-enabled: false;
-        width: parent.width;
+        width: gutter ? parent.width - 12px : parent.width;
         height: parent.height;
         @children
     }
