@@ -2037,15 +2037,14 @@ export component LoopStepper inherits Rectangle {
 }
 
 // The loop controls in a column between the pads and the transport: the
-// LOOP title, the loop length box (see LoopStepper), IN and OUT, then SLIP
-// and VINYL level with play and CUE. The effects are in the FX bar.
+// LOOP title, the loop length box (see LoopStepper), and IN and OUT. The
+// effects are in the FX bar; SLIP is in the jog's corner (see SlipToggle).
 export component LoopSection inherits VerticalLayout {
     in property <string> group;
     in property <DeckInfo> info;
     in property <color> tint;
     // Deck B: tips open towards the middle.
     in property <bool> mirrored;
-    property <bool> slipping: Controls.value(Controls.resolve(group, "slip_position"), Controls.tick) >= 0;
     spacing: 6px;
     alignment: center;
     width: 96px;
@@ -2058,34 +2057,6 @@ export component LoopSection inherits VerticalLayout {
         // waveform marks the loop out; OUT closes it, and it turns lilac.
         ControlButton { group: group; key: "loop_in"; light-key: "loop_in_pending"; text: "IN"; momentary: true; tint: #d1d1d6; font-size: 11px; horizontal-stretch: 1; tour-id: group + ",loop_in"; }
         ControlButton { group: group; key: "loop_out"; light-key: "loop_enabled"; text: "OUT"; momentary: true; tint: Theme.lilac; font-size: 11px; horizontal-stretch: 1; tour-id: group + ",loop_out"; }
-    }
-    HorizontalLayout {
-        spacing: 6px;
-        height: 28px;
-        // Lilac when on; while a trick holds the track elsewhere it blinks
-        // and the waveforms show where it will carry on from.
-        ControlButton {
-            group: group;
-            key: "slip_enabled";
-            text: "SLIP";
-            tint: slipping && !Controls.blink ? Theme.text-dim : Theme.lilac;
-            font-size: 11px;
-            horizontal-stretch: 1;
-            tip-title: "SLIP";
-            tip-body: "Scratch, loop, hold a hot cue, reverse or pause,\nthen carry on as if the track had played on.";
-            tip-right-aligned: mirrored;
-        }
-        ControlButton {
-            group: group;
-            key: "vinyl_mode";
-            text: "VINYL";
-            tint: #d1d1d6;
-            font-size: 11px;
-            horizontal-stretch: 1;
-            tip-title: "VINYL";
-            tip-body: "On: touching the jog's top scratches.\nOff: it bends the tempo like the rim.";
-            tip-right-aligned: mirrored;
-        }
     }
 }
 
@@ -2319,10 +2290,63 @@ component BendButton inherits Rectangle {
     }
 }
 
-// The jog, as big as the room over play and CUE allows, with the pitch
-// bend buttons in its lower corners.
+// SLIP as a word, no button around it, as in djay Pro: light grey when
+// off, lilac when on. While a trick holds the track elsewhere it blinks and
+// the waveforms show where it will carry on from.
+export component SlipToggle inherits Rectangle {
+    in property <string> group;
+    // Deck B: the tip opens towards the middle.
+    in property <bool> tip-right-aligned;
+    property <int> index: Controls.resolve(group, "slip_enabled");
+    property <bool> on: Controls.value(index, Controls.tick) > 0;
+    property <bool> slipping: Controls.value(Controls.resolve(group, "slip_position"), Controls.tick) >= 0;
+    property <bool> tip-mine;
+    in property <length> font-size: 12px;
+    width: 34px;
+    height: 18px;
+    Text {
+        text: "SLIP";
+        color: on ? (slipping && !Controls.blink ? Theme.text-dim : Theme.lilac)
+            : ta.has-hover ? Theme.text : #a1a1a6;
+        font-size: root.font-size;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            Controls.set-value(index, on ? 0 : 1);
+        }
+        changed has-hover => {
+            if !self.has-hover && tip-mine {
+                tip-mine = false;
+                HoverTip.shown = false;
+            }
+        }
+    }
+    Timer {
+        interval: 700ms;
+        running: ta.has-hover && !tip-mine;
+        triggered => {
+            tip-mine = true;
+            HoverTip.title = "SLIP";
+            HoverTip.body = "Scratch, loop, hold a hot cue, reverse or pause,\nthen carry on as if the track had played on.";
+            HoverTip.right-aligned = tip-right-aligned;
+            HoverTip.x = root.absolute-position.x + (tip-right-aligned ? root.width : 0px);
+            HoverTip.y = root.absolute-position.y + root.height + 6px;
+            HoverTip.shown = true;
+        }
+    }
+    MapMark { key: root.group + ",slip_enabled"; }
+}
+
+// The jog, as big as the room over play and CUE allows, with SLIP in its
+// top right corner and the pitch bend buttons in its lower corners.
 component JogSection inherits VerticalLayout {
     in property <string> group;
+    in property <bool> mirrored;
     in property <DeckInfo> info;
     in property <color> tint;
     in property <angle> spin;
@@ -2340,6 +2364,7 @@ component JogSection inherits VerticalLayout {
         }
         BendButton { group: group; faster: false; tint: tint; x: 0px; y: parent.height - self.height; }
         BendButton { group: group; faster: true; tint: tint; x: parent.width - self.width; y: parent.height - self.height; }
+        SlipToggle { group: group; tip-right-aligned: mirrored; x: parent.width - self.width; y: 0px; }
     }
     Transport { group: group; tint: tint; }
 }
@@ -2668,7 +2693,7 @@ export component Deck inherits Rectangle {
             if !groove && live == 0: HorizontalLayout {
                 padding: 8px;
                 spacing: 0px;
-                if mirrored: JogSection { group: group; info: info; tint: tint; spin: spin; }
+                if mirrored: JogSection { group: group; info: info; tint: tint; spin: spin; mirrored: true; }
                 if mirrored: Rectangle { width: 10px; }
                 if mirrored: LoopSection { group: group; info: info; tint: tint; mirrored: true; }
                 if mirrored: VDivider { }
