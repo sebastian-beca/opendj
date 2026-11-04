@@ -2715,7 +2715,7 @@ dependencies = [
  "hkdf",
  "num",
  "once_cell",
- "sha2",
+ "sha2 0.10.9",
  "zeroize",
 ]
 
@@ -6581,7 +6581,7 @@ dependencies = [
  "ring",
  "rusty-chromaprint",
  "serde_json",
- "sha2",
+ "sha2 0.11.1",
  "skrifa",
  "slint",
  "slint-build",
@@ -6718,7 +6718,7 @@ dependencies = [
  "if-addrs",
  "qrcode",
  "serde_json",
- "sha2",
+ "sha2 0.11.1",
  "tungstenite",
 ]
 
@@ -8395,7 +8395,7 @@ dependencies = [
  "once_cell",
  "rand 0.8.8",
  "serde",
- "sha2",
+ "sha2 0.10.9",
  "zbus 4.4.0",
 ]
 
@@ -8563,6 +8563,17 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
  "digest 0.10.7",
+]
+
+[[package]]
+name = "sha2"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.1",
+ "digest 0.11.3",
 ]
 
 [[package]]
@@ -9772,7 +9783,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "sha2",
+ "sha2 0.10.9",
  "tar",
  "walkdir",
 ]
