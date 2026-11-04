@@ -445,6 +445,8 @@ pub struct Prefs {
     cache_note: String,
     /// The tag group whose Remove was pressed, waiting for a second press.
     removing_group: Option<i64>,
+    /// What Copy into a tag group did.
+    grouping_note: String,
     /// What Clear stems did, shown under it.
     stems_note: String,
     /// The devices shown on the controllers page.
@@ -543,6 +545,7 @@ impl Prefs {
             import_note: String::new(),
             cache_note: String::new(),
             removing_group: None,
+            grouping_note: String::new(),
             stems_note: String::new(),
             ports: Vec::new(),
             hidden_ports: Vec::new(),
@@ -2414,6 +2417,24 @@ impl Prefs {
                 "What you use the Grouping tag for, such as Trip Stage.",
             )
         });
+        let grouping = settings::field_names().grouping;
+        items.push(PrefItem {
+            action: "Copy".into(),
+            value: self.grouping_note.clone().into(),
+            ..item(
+                "copy_grouping",
+                BUTTON,
+                "Copy into a tag group",
+                &if self.grouping_note.is_empty() {
+                    format!(
+                        "Makes a {grouping} group with each track's {grouping} as a tag, so a \
+                         track can have more than one. Grouping stays as it is."
+                    )
+                } else {
+                    self.grouping_note.clone()
+                },
+            )
+        });
         items
     }
 
@@ -3799,6 +3820,17 @@ impl Prefs {
                     let _ = std::fs::create_dir_all(&dir);
                     crate::files::reveal(&dir);
                 }
+            }
+            "copy_grouping" => {
+                let name = settings::field_names().grouping;
+                let mut note = String::new();
+                with_library(|db| {
+                    let (_, n) = db.copy_grouping_to_group(&name)?;
+                    note = format!("Copied: {} tagged in {name}.", count(n, "track"));
+                    Ok(())
+                });
+                self.grouping_note = note;
+                settings::tags_changed();
             }
             "add_tag_group" => {
                 let n = settings::field_names().tags.len();

@@ -580,8 +580,21 @@ impl Browser {
 
     /// Grouping or the tag groups changed in Settings (or an import).
     pub(super) fn field_names_changed(&mut self, names: FieldNames) {
-        // A group taken away takes its tags off every track.
+        // Groups came or went (Settings, an import): tracks take their tags
+        // as the library has them now.
         let groups: HashSet<i64> = names.tags.iter().map(|g| g.id).collect();
+        let before: HashSet<i64> = self.filter.names.tags.iter().map(|g| g.id).collect();
+        if groups != before || names.tags_revision != self.filter.names.tags_revision {
+            if let Some(Ok(mut tags)) = self.db.as_ref().map(|db| db.all_track_tags()) {
+                for t in &mut self.library {
+                    let now = tags.remove(&t.id).unwrap_or_default();
+                    if t.info.tags != now {
+                        std::sync::Arc::make_mut(t).info.tags = now;
+                    }
+                }
+            }
+        }
+        // A group taken away takes its tags off every track.
         for t in &mut self.library {
             if t.info.tags.iter().any(|x| !groups.contains(&x.group)) {
                 std::sync::Arc::make_mut(t)

@@ -569,7 +569,9 @@ Each group's name works as a search word (`mood:uplifting`,
 `vibe:"peak time"`), and so does its place (`tag1:uplifting` for the first
 group); `tag:` searches every group. The `#` in front of a tag is optional
 when searching. On the same tab, give Grouping the name you use it for, such
-as Trip Stage (`tripstage:"4 peak"`).
+as Trip Stage (`tripstage:"4 peak"`). **Copy into a tag group** there
+makes a group of that name with each track's grouping as a tag, so a track
+can then have more than one (the Grouping tag itself stays as it is).
 
 Tags from other apps come into your groups: VirtualDJ's User 1 and User 2
 each fill a group (each word a tag, the `#` dropped), and each rekordbox My

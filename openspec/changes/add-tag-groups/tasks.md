@@ -16,4 +16,4 @@
 
 ## 3. Grouping
 
-- [ ] 3.1 Grouping as a one-tag group kept in the file's Grouping tag (pending decision)
+- [x] 3.1 Copy into a tag group: each track's grouping becomes a tag in a group of the grouping's name (several per track); Grouping itself stays a plain field

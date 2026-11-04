@@ -451,6 +451,53 @@ impl Library {
         Ok(())
     }
 
+    /// Copies each track's grouping into the tag group named `name` (made
+    /// if there isn't one, set to several tags per track), as a tag added
+    /// to those it has there. The grouping stays as it is. Returns the
+    /// group and how many tracks got a tag.
+    pub fn copy_grouping_to_group(&mut self, name: &str) -> Result<(i64, usize), Error> {
+        let tx = self.db.transaction()?;
+        let found: Option<i64> = tx
+            .query_row(
+                "SELECT id FROM tag_groups WHERE name = ?1 COLLATE NOCASE",
+                [name.trim()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let group = match found {
+            Some(id) => id,
+            None => add_group(&tx, name.trim())?,
+        };
+        let rows: Vec<(i64, String)> = tx
+            .prepare("SELECT id, grouping FROM tracks WHERE TRIM(grouping) != ''")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        let mut n = 0;
+        for (row, grouping) in rows {
+            let name = tag_name(&grouping);
+            if name.is_empty() {
+                continue;
+            }
+            let tag = tag_id(&tx, group, &name)?;
+            n += tx.execute(
+                "INSERT OR IGNORE INTO track_tags (track_id, tag_id, position)
+                 VALUES (?1, ?2, (SELECT COUNT(*) FROM track_tags tt JOIN tags t ON t.id = tt.tag_id
+                                  WHERE tt.track_id = ?1 AND t.group_id = ?3))",
+                params![row, tag, group],
+            )?;
+        }
+        tx.commit()?;
+        Ok((group, n))
+    }
+
+    /// Every track's tags, by track id.
+    pub fn all_track_tags(&self) -> Result<HashMap<usize, Vec<TrackTag>>, Error> {
+        Ok(track_tags(&self.db)?
+            .into_iter()
+            .map(|(row, tags)| (crate::track_id(row), tags))
+            .collect())
+    }
+
     /// Saves a track's tags in every group.
     pub fn save_tags(&self, id: usize, info: &LibraryInfo) -> Result<(), Error> {
         let Some(row) = row_id(id) else { return Ok(()) };
@@ -549,6 +596,26 @@ mod tests {
             .info
             .tags
             .is_empty());
+    }
+
+    #[test]
+    fn grouping_copies_into_a_group() {
+        let mut lib = Library::in_memory().unwrap();
+        let mut a = file_track("/m/a.mp3", "A");
+        a.info.grouping = "4 PEAK".into();
+        let b = file_track("/m/b.mp3", "B");
+        lib.sync(&[a, b]).unwrap();
+        let (group, n) = lib.copy_grouping_to_group("Trip Stage").unwrap();
+        assert_eq!(n, 1);
+        let tracks = lib.all_tracks(|_: &Path| true).unwrap();
+        assert_eq!(tracks[0].info.tag_text(group), "4 PEAK");
+        assert_eq!(tracks[0].info.grouping, "4 PEAK", "grouping stays");
+        // Again: the same group, nothing twice.
+        assert_eq!(
+            lib.copy_grouping_to_group("trip stage").unwrap(),
+            (group, 0)
+        );
+        assert!(!lib.tag_groups().unwrap().last().unwrap().single);
     }
 
     #[test]

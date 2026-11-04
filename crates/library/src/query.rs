@@ -99,6 +99,9 @@ enum TextField {
 pub struct FieldNames {
     pub grouping: String,
     pub tags: Vec<TagGroup>,
+    /// Goes up when tracks' tags changed outside the browser (Settings),
+    /// so it reads them again.
+    pub tags_revision: u64,
 }
 
 impl FieldNames {
@@ -114,6 +117,7 @@ impl Default for FieldNames {
         FieldNames {
             grouping: "Grouping".into(),
             tags: vec![TagGroup::new(1, "Tag 1"), TagGroup::new(2, "Tag 2")],
+            tags_revision: 0,
         }
     }
 }
@@ -1178,6 +1182,7 @@ mod tests {
                 TagGroup::new(2, "Instrument"),
                 TagGroup::new(7, "Time of day"),
             ],
+            tags_revision: 0,
         });
         assert_eq!(find(&lib, "tag1:peak"), [2]);
         assert_eq!(find(&lib, "tag:peak"), [1, 2], "tag: searches every group");

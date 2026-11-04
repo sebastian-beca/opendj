@@ -15,7 +15,8 @@ DJ library tools that do tags well (Lexicon's tag categories, rekordbox's My Tag
 - Imports map into groups through `tag_sources` (app, where it keeps tags → group): VirtualDJ's User 1 and User 2 fill the migrated groups, each rekordbox My Tag category becomes a group of its name. A first-seen place gets a group of its name (or the DJ's group with that name).
 - Settings › Collection › **Tags** (was Fields) lists the groups: rename, Several/One per track, remove (asking first when tracks use it), add. Grouping's name stays on the same tab.
 - Search: a group by its name (`mood:`) or place (`tag1:`), `tag:` across all groups; filter chips, columns, Info tab chips and the track menu's Add Tag work per group. Typed tags part on commas (hashtags still work).
-- Next steps: manage single tags (rename, merge, Color, delete) from the Tags tab; Grouping as a one-tag group kept in the file's Grouping tag (pending a decision).
+- Grouping stays a plain field; **Copy into a tag group** on the Tags tab copies each track's grouping into a group of the grouping's name (say Trip Stage), where a track can have several.
+- Next step: manage single tags (rename, merge, Color, delete) from the Tags tab.
 
 ## Capabilities
 

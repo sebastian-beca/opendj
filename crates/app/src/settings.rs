@@ -761,6 +761,7 @@ pub fn field_names() -> FieldNames {
             .filter(|s| !s.trim().is_empty())
             .map_or_else(|| FieldNames::default().grouping, String::from),
         tags: opendj_library::query::field_names().tags,
+        tags_revision: opendj_library::query::field_names().tags_revision,
     }
 }
 
@@ -784,9 +785,17 @@ pub fn old_tag_field_names() -> Vec<String> {
 /// groups as they are now.
 pub fn publish_tag_groups(db: &opendj_library::Library) {
     if let Ok(tags) = db.tag_groups() {
-        let grouping = field_names().grouping;
-        opendj_library::query::set_field_names(FieldNames { grouping, tags });
+        let names = field_names();
+        opendj_library::query::set_field_names(FieldNames { tags, ..names });
     }
+}
+
+/// Tells the browser that tracks' tags changed in the library, so it reads
+/// them again.
+pub fn tags_changed() {
+    let mut names = field_names();
+    names.tags_revision += 1;
+    opendj_library::query::set_field_names(names);
 }
 
 /// The filter chips kept on the bar, by field.
