@@ -134,9 +134,10 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
     out
 }
 
-/// The columns shown when the DJ hasn't chosen: the list as it always was.
+/// The columns shown when the DJ hasn't chosen. Genre comes before the
+/// mini waveform, so a narrow window cuts off the waveform, not the genre.
 pub const DEFAULT: [i32; 9] = [
-    COLOR, RATING_ID, TITLE_ID, ARTIST, LENGTH, BPM, KEY_ID, WAVE, GENRE,
+    COLOR, RATING_ID, TITLE_ID, ARTIST, LENGTH, BPM, KEY_ID, GENRE, WAVE,
 ];
 
 /// The columns a history session shows until the DJ changes them: the

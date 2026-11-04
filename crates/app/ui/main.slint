@@ -457,7 +457,7 @@ component SettingsButton inherits Rectangle {
         viewbox-width: 24;
         viewbox-height: 24;
         fill: transparent;
-        stroke: Preferences.open ? Theme.knob-arc : Theme.text;
+        stroke: Preferences.open ? Theme.accent : Theme.text;
         stroke-width: 1.7px;
         commands: "M 9.68 4.34 L 9.75 1.74 L 14.25 1.74 L 14.32 4.34 L 15.77 4.94 L 17.66 3.16 L 20.84 6.34 L 19.06 8.23 L 19.66 9.68 L 22.26 9.75 L 22.26 14.25 L 19.66 14.32 L 19.06 15.77 L 20.84 17.66 L 17.66 20.84 L 15.77 19.06 L 14.32 19.66 L 14.25 22.26 L 9.75 22.26 L 9.68 19.66 L 8.23 19.06 L 6.34 20.84 L 3.16 17.66 L 4.94 15.77 L 4.34 14.32 L 1.74 14.25 L 1.74 9.75 L 4.34 9.68 L 4.94 8.23 L 3.16 6.34 L 6.34 3.16 L 8.23 4.94 Z M 8.5 12 A 3.5 3.5 0 1 0 15.5 12 A 3.5 3.5 0 1 0 8.5 12";
     }
@@ -568,7 +568,7 @@ component LayoutItem inherits Rectangle {
 
 // The layout button: the current layout's icon and name, opening a menu of
 // layouts. 0 is 2-Deck, 1 Player, 2 4-Deck and 3 Prep (the stored values);
-// Automix is still to come.
+// Player is the Automix layout.
 component LayoutPill inherits Rectangle {
     in-out property <int> layout;
     callback changed-to(layout: int);
@@ -607,7 +607,6 @@ component LayoutPill inherits Rectangle {
             LayoutItem { kind: 0; text: "2-Deck"; current: layout == 0; picked => { layout = 0; changed-to(0); } }
             LayoutItem { kind: 2; text: "4-Deck"; current: layout == 2; picked => { layout = 2; changed-to(2); } }
             LayoutItem { kind: 4; text: "Prep"; current: layout == 3; picked => { layout = 3; changed-to(3); } }
-            LayoutItem { kind: 3; text: "Automix"; enabled: false; }
         }
     }
 }
