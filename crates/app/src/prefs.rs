@@ -70,7 +70,6 @@ const MENU: i32 = 1;
 const BUTTON: i32 = 2;
 const PATH: i32 = 3;
 const OUTPUTS: i32 = 4;
-const LEVELS: i32 = 5;
 const NOTE: i32 = 6;
 const HEADING: i32 = 7;
 const SEGMENTED: i32 = 8;
@@ -565,6 +564,11 @@ impl Prefs {
         }));
         let p = prefs.clone();
         g.on_changed(move || p.borrow_mut().shown());
+        let audio = app.global::<AudioSettings>();
+        let p = prefs.clone();
+        audio.on_set_rate(move |i| p.borrow_mut().picked("sample_rate", i.max(0) as usize));
+        let p = prefs.clone();
+        audio.on_set_buffer(move |i| p.borrow_mut().picked("buffer_frames", i.max(0) as usize));
         let p = prefs.clone();
         g.on_toggled(move |id, on| p.borrow_mut().toggled(&id, on));
         let p = prefs.clone();
@@ -991,20 +995,23 @@ impl Prefs {
     fn page(&mut self, app: &AppWindow, page: i32, tab: Option<usize>) -> Vec<PrefItem> {
         match page {
             AUDIO => vec![
-                item(
-                    "outputs",
-                    OUTPUTS,
-                    "Outputs",
-                    "A device and channel pair for the master, headphone and booth mixes.",
-                ),
-                item(
-                    "levels",
-                    LEVELS,
-                    "Headphones and booth",
-                    "Cue mix blends the cue with the master in the headphones.",
-                ),
-                self.sample_rate_item(),
-                self.buffer_item(),
+                {
+                    // Sample rate and buffer show as columns of the outputs
+                    // table; their notes go under it.
+                    let rate = self.sample_rate_item();
+                    let buffer = self.buffer_item();
+                    let g = app.global::<AudioSettings>();
+                    g.set_rates(rate.choices.clone());
+                    g.set_rate(rate.chosen);
+                    g.set_buffers(buffer.choices.clone());
+                    g.set_buffer(buffer.chosen);
+                    item(
+                        "outputs",
+                        OUTPUTS,
+                        "Outputs",
+                        &format!("{} {}", rate.detail, self.audio_health()),
+                    )
+                },
                 item("inputs", HEADING, "INPUTS", ""),
                 self.inputs_item(),
                 PrefItem {
@@ -3159,7 +3166,7 @@ impl Prefs {
             }
         }
         // Everything online in one section: the streaming services, the
-        // stores, the DJ's own servers and free music. Add-ons after.
+        // DJ's own servers and free music (the stores come later). Add-ons after.
         items.push(item("", HEADING, "STREAMING", ""));
         if crate::browser::STREAMING_ENABLED {
             for &(source, name, id) in crate::browser::STREAMS.iter() {
@@ -3194,17 +3201,6 @@ impl Prefs {
                         });
                     }
                 }
-            }
-        }
-
-        for name in ["Bandcamp", "Beatport"] {
-            if let Some(i) = place(name) {
-                let detail = if name == "Bandcamp" {
-                    "Bandcamp and the other stores you buy from"
-                } else {
-                    "Search and browse Beatport"
-                };
-                items.push(row(i, name, 0, detail, ""));
             }
         }
 

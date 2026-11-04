@@ -1838,8 +1838,9 @@ component SourceRail inherits Rectangle {
     property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud", "Instruments"];
     // The order the rail shows them in: Albums, Mixed Sets and Instruments
     // after Files. OneLibrary (7) isn't a source: openDJ writes it when
-    // exporting to a USB stick.
-    property <[int]> order: [0, 1, 9, 10, 12, 2, 3, 4, 5, 6, 8, 11];
+    // exporting to a USB stick. Bandcamp (5) and Beatport (6) wait for the
+    // stores, later.
+    property <[int]> order: [0, 1, 9, 10, 12, 2, 3, 4, 8, 11];
     // What each source is, for its tooltip.
     property <[string]> tips: [
         "Every track in your library.",

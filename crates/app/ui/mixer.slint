@@ -57,6 +57,15 @@ export global AudioSettings {
     callback set-pair(row: int, pair: int);
     callback add();
     callback remove(row: int);
+    // How the audio runs, for every output: the sample rate and buffer
+    // menus beside the first output in Settings (picked by index, 0 the
+    // device's own).
+    in property <[string]> rates: ["Device default"];
+    in property <int> rate;
+    in property <[string]> buffers: ["Device default"];
+    in property <int> buffer;
+    callback set-rate(index: int);
+    callback set-buffer(index: int);
 }
 
 // A small field that shows a choice and opens a list to change it. Long
@@ -145,11 +154,15 @@ component ColumnTitles inherits HorizontalLayout {
     in property <length> first-width;
     in property <length> last-width;
     in property <bool> bright;
+    // Sample rate and Buffer columns after Channels.
+    in property <bool> timing;
     spacing: 3px;
     padding-left: 2px;
     Text { text: first; width: first-width; color: bright ? Theme.text : Theme.text-dim; font-size: 11px; font-weight: 600; }
     Text { text: "Device"; horizontal-stretch: 1; color: bright ? Theme.text : Theme.text-dim; font-size: 11px; font-weight: 600; }
     Text { text: "Channels"; width: last-width; color: bright ? Theme.text : Theme.text-dim; font-size: 11px; font-weight: 600; }
+    if timing: Text { text: "Sample rate"; width: 110px; color: bright ? Theme.text : Theme.text-dim; font-size: 11px; font-weight: 600; }
+    if timing: Text { text: "Buffer"; width: 150px; color: bright ? Theme.text : Theme.text-dim; font-size: 11px; font-weight: 600; }
     Rectangle { width: 20px; }
 }
 
@@ -159,7 +172,7 @@ export component OutputsTable inherits VerticalLayout {
     // Lighter words, for the tour's setup dialog.
     in property <bool> bright;
     spacing: roomy ? 8px : 6px;
-    ColumnTitles { first: "Output"; first-width: roomy ? 120px : 78px; last-width: roomy ? 90px : 62px; bright: bright; }
+    ColumnTitles { first: "Output"; first-width: roomy ? 120px : 78px; last-width: roomy ? 90px : 62px; bright: bright; timing: roomy; }
     for row[r] in AudioSettings.rows: VerticalLayout {
         spacing: 2px;
         HorizontalLayout {
@@ -189,6 +202,24 @@ export component OutputsTable inherits VerticalLayout {
                 menu-width: 110px;
                 picked(i) => { AudioSettings.set-pair(r, i); }
             }
+            // The whole setup's sample rate and buffer, on the first row.
+            if roomy && r == 0: MenuField {
+                width: 110px;
+                text: AudioSettings.rates[AudioSettings.rate];
+                choices: AudioSettings.rates;
+                chosen: AudioSettings.rate;
+                menu-width: 140px;
+                picked(i) => { AudioSettings.set-rate(i); }
+            }
+            if roomy && r == 0: MenuField {
+                width: 150px;
+                text: AudioSettings.buffers[AudioSettings.buffer];
+                choices: AudioSettings.buffers;
+                chosen: AudioSettings.buffer;
+                menu-width: 220px;
+                picked(i) => { AudioSettings.set-buffer(i); }
+            }
+            if roomy && r != 0: Rectangle { width: 263px; }
             Rectangle {
                 width: 20px;
                 CloseIcon { size: 9px; color: xta.has-hover ? Theme.text : Theme.text-dim; }
