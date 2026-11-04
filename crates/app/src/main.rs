@@ -62,6 +62,7 @@ mod mac_titlebar;
 mod map_mode;
 mod mixcloud;
 mod mixcloud_upload;
+mod now_playing;
 mod prefs;
 mod quick_search;
 mod remote;
@@ -792,6 +793,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    // The now-playing files and overlay follow the mix a few times a second.
+    let _now_playing_timer = {
+        let mut feed = now_playing::NowPlaying::new(registry.clone(), engine.loaded_tracks());
+        let timer = slint::Timer::default();
+        timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(250),
+            move || feed.tick(),
+        );
+        timer
+    };
     // The ON AIR panel and saving typed passwords, a few times a second.
     let _broadcast_timer = broadcast.clone().map(|b| {
         let app = app.as_weak();
@@ -1102,6 +1114,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 browser.borrow_mut().poll_waves();
                 browser.borrow_mut().poll_analysis();
                 browser.borrow_mut().poll_usb_export();
+                browser.borrow_mut().poll_playlist_files();
                 browser.borrow_mut().poll_covers();
                 browser.borrow_mut().poll_cleanup();
                 browser.borrow_mut().poll_files();

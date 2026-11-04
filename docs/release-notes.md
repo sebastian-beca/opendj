@@ -1,4 +1,4 @@
-openDJ 0.5 is about switching over and keeping your collection in shape. Bring your Traktor library in next to rekordbox, VirtualDJ and Mixxx, play from your own Plex, Navidrome or Jellyfin server, edit many tracks at once with your own tag groups, and see how clean your collection is on the new Collection Health dashboard. There's a Groove Box drum machine that takes the place of a deck, a Player layout that turns openDJ into a music player over Automix, hands-on tutorials inside the app, Mixcloud export for recorded mixes, and a tidier, lilac look throughout.
+openDJ 0.5 is about switching over and keeping your collection in shape. Bring your Traktor library in next to rekordbox, VirtualDJ and Mixxx, play from your own Plex, Navidrome or Jellyfin server, edit many tracks at once with your own tag groups, and see how clean your collection is on the new Collection Health dashboard. There's a Groove Box drum machine that takes the place of a deck, a Player layout that turns openDJ into a music player over Automix, hands-on tutorials inside the app, M3U8 playlist files in and out, a now-playing overlay for OBS, Mixcloud export for recorded mixes, and a tidier, lilac look throughout.
 
 ## What's new
 
@@ -6,6 +6,7 @@ openDJ 0.5 is about switching over and keeping your collection in shape. Bring y
 
 - **Import from Traktor.** Settings › Collection › Import reads Traktor's `collection.nml`: tracks, cues, loops, beat grids and nested playlist folders, kept as folders. It sits next to the rekordbox, VirtualDJ and Mixxx imports, and the same song in two apps becomes one track.
 - **Your own tag groups.** Tags are no longer shaped like VirtualDJ's User 1 and User 2 fields. Settings › Collection › Tags holds named groups (Mood, Vibe, Set…), each allowing one or several tags per track. Your old tag words move into groups on first start, VirtualDJ's User fields and rekordbox's My Tag categories import into groups, and searches like `mood:dreamy` find them.
+- **Playlist files.** Right-click any playlist, crate, folder, history session, album or mixed set for **Export as M3U8…**; a folder becomes a folder of files, and tracks beside the file get paths from there, so a USB stick works anywhere. **Import Playlist File…** in the Playlists + menu reads M3U, M3U8, PLS and XSPF from VLC, foobar2000, Serato and others, and finds each track in your collection.
 - **Wanted only by hand.** Imports no longer fill the Wanted list with every streamed track in your old app. Add to Wanted (and Add to Downloads, with a download add-on) is on streaming tracks and playlists, and Add to Wanted on a streaming playlist keeps adding the tracks that join it later.
 
 **Your music servers**
@@ -43,6 +44,7 @@ openDJ 0.5 is about switching over and keeping your collection in shape. Bring y
 
 - **Recordings show up in Mixed Sets at once**, with a tracklist file next to them.
 - **Export for Mixcloud** on a mixed set makes a 320 kbps MP3 with the tracklist and chapters, and you can sign in to Mixcloud and upload it from openDJ.
+- **Now playing for OBS and Streamlabs.** Settings › Broadcast can show the track the audience hears on your stream: an overlay page with a clear background in three styles (lower third, corner, ticker) for a Browser Source, plus `now-playing.txt` for a Text source and `now-playing.json` with the last ten tracks. It works without a radio station.
 - Settings › Broadcast has a **Broadcasting** switch, off by default; the ON AIR pill only shows once it's on and a station is set up. The loudness meter lives in the ON AIR panel.
 
 **Plugins**

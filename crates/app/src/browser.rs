@@ -40,6 +40,7 @@ mod health;
 mod info;
 mod mix_export;
 mod picks;
+mod playlist_files;
 mod prep;
 mod sets;
 mod spotify_export;
@@ -619,6 +620,7 @@ pub struct Browser {
     analysis_shown: analysis::Shown,
     /// Export to USB's dialog and export.
     usb: usb::State,
+    playlist_files: playlist_files::State,
     phrases_seen: analysis::SeenDecks,
     /// The last stage change or merge of copies, which the track menu can
     /// take back.
@@ -1226,6 +1228,7 @@ impl Browser {
             analysis: AnalysisQueue::start(),
             analysis_shown: Default::default(),
             usb: Default::default(),
+            playlist_files: Default::default(),
             phrases_seen: Default::default(),
             undo: None,
             pending_moves: HashMap::new(),
@@ -1804,6 +1807,7 @@ impl Browser {
         Self::install_album_covers(&app.global::<crate::AlbumsUi>(), &with);
         Self::install_usb_export(app, &edit, &with);
         Self::install_spotify_export(&edit, &with);
+        Self::install_playlist_files(&edit, &with);
     }
 
     /// Saves a search as a smart list at the top level (under "Smart

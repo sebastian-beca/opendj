@@ -158,6 +158,17 @@ fn keychain(id: &str) -> Result<keyring::Entry, String> {
 /// The track heard most: playing, its channel fader up, weighted by the
 /// crossfader's side. None when nothing is heard.
 fn audible(registry: &ControlRegistry, loaded: &LoadedTracks) -> Option<(String, String)> {
+    let (_, track) = audible_deck(registry, loaded)?;
+    Some((track.artist.clone(), track.title.clone()))
+}
+
+/// The deck heard most in the master mix and its track: playing, with a
+/// track, its channel fader up, weighted by the crossfader's side. A deck
+/// heard only in the headphones (fader down) never counts.
+pub fn audible_deck(
+    registry: &ControlRegistry,
+    loaded: &LoadedTracks,
+) -> Option<(usize, std::sync::Arc<opendj_engine::Track>)> {
     let get = |g: &str, k: &str, d: f64| registry.get(g, k).map_or(d, |c| c.get());
     let xfader = if get("[Mixer]", "crossfader_enabled", 1.0) > 0.5 {
         get("[Master]", "crossfader", 0.0)
@@ -165,24 +176,41 @@ fn audible(registry: &ControlRegistry, loaded: &LoadedTracks) -> Option<(String,
         0.0
     };
     let tracks = loaded.read().ok()?;
+    let levels: Vec<Option<f64>> = (0..NUM_DECKS)
+        .map(|d| {
+            let g = deck_group(d);
+            if tracks[d].is_none() || get(&g, "play", 0.0) < 0.5 {
+                return None;
+            }
+            let orientation = get(&g, "orientation", 1.0).round() as i32;
+            Some(get(&g, "volume", 0.0) * crossfader_side(orientation, xfader))
+        })
+        .collect();
+    let d = loudest(&levels)?;
+    Some((d, tracks[d].clone()?))
+}
+
+/// How much of a deck the crossfader lets through: left decks (0) fade as
+/// it moves right, right decks (2) as it moves left, others never.
+fn crossfader_side(orientation: i32, xfader: f64) -> f64 {
+    match orientation {
+        0 => (1.0 - xfader).clamp(0.0, 1.0),
+        2 => (1.0 + xfader).clamp(0.0, 1.0),
+        _ => 1.0,
+    }
+}
+
+/// The deck with the highest level above [`AUDIBLE`]; the first on a tie.
+fn loudest(levels: &[Option<f64>]) -> Option<usize> {
     let mut best: Option<(f64, usize)> = None;
-    for d in 0..NUM_DECKS {
-        let g = deck_group(d);
-        if tracks[d].is_none() || get(&g, "play", 0.0) < 0.5 {
-            continue;
-        }
-        let side = match get(&g, "orientation", 1.0).round() as i32 {
-            0 => (1.0 - xfader).clamp(0.0, 1.0),
-            2 => (1.0 + xfader).clamp(0.0, 1.0),
-            _ => 1.0,
-        };
-        let level = get(&g, "volume", 0.0) * side;
-        if level > AUDIBLE && best.is_none_or(|(b, _)| level > b) {
-            best = Some((level, d));
+    for (d, level) in levels.iter().enumerate() {
+        if let Some(level) = *level {
+            if level > AUDIBLE && best.is_none_or(|(b, _)| level > b) {
+                best = Some((level, d));
+            }
         }
     }
-    let track = tracks[best?.1].as_ref()?;
-    Some((track.artist.clone(), track.title.clone()))
+    best.map(|(_, d)| d)
 }
 
 /// Broadcasting in the app.
@@ -360,5 +388,23 @@ impl Broadcast {
     pub fn shut_down(&self) {
         self.broadcaster.stop();
         self.secrets.borrow_mut().save(true);
+    }
+}
+
+#[cfg(test)]
+mod audible_tests {
+    use super::*;
+
+    #[test]
+    fn the_loudest_deck_in_the_mix_is_heard() {
+        // A blend: deck 2 passes deck 1 halfway through.
+        assert_eq!(loudest(&[Some(0.8), Some(0.5), None, None]), Some(0));
+        assert_eq!(loudest(&[Some(0.4), Some(0.9), None, None]), Some(1));
+        // A deck cued in the headphones with its fader down isn't heard.
+        assert_eq!(loudest(&[None, None, Some(0.0), None]), None);
+        // A cut with the crossfader: full right silences a left deck.
+        let left = 1.0 * crossfader_side(0, 1.0);
+        let right = 1.0 * crossfader_side(2, 1.0);
+        assert_eq!(loudest(&[Some(left), Some(right), None, None]), Some(1));
     }
 }

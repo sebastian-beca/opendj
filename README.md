@@ -19,12 +19,13 @@ just starting out and for more experienced DJs alike.
 - **Collection** of your music folders with stages (Inbox, In Prep, Play Ready),
   crates, playlists, smart lists, tag groups, batch editing and forgiving search
 - **Collection Health** to find missing files, duplicates and poor tags, and fix them
-- **Imports** from rekordbox, VirtualDJ, Traktor and Mixxx, keeping your cues, grids and lists
+- **Imports** from rekordbox, VirtualDJ, Traktor and Mixxx, keeping your cues, grids and lists,
+  plus M3U8, PLS and XSPF playlist files in and out
 - **Sources**: browse Spotify and other streaming services, play from your own Plex,
   Navidrome or Jellyfin server
 - **Sampler, Groove Box** drum machine and instrument plugins on the decks
 - **Recording and broadcasting**: record your mix, export it for Mixcloud, or stream to
-  Icecast and Shoutcast with a loudness meter
+  Icecast and Shoutcast with a loudness meter, with a now-playing overlay for OBS
 - **Ableton Link**, fast GPU waveforms, accurate beat grids and key detection
 - **Tutorials** inside the app, and a [user guide](https://opendj.app/docs/)
 

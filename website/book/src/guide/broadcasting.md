@@ -61,6 +61,29 @@ carries titles inside the stream: the first title always goes out, and later
 ones only with **Send each new title in the stream**, because starting the
 stream again at each track stops some players.
 
+### Now playing in OBS
+
+Streaming on Twitch or YouTube with OBS or Streamlabs? Switch on **Settings ›
+Broadcast › Now playing for streaming software** to show the track on screen.
+It follows the same track listeners would see, once it has been heard for the
+**Changes after** time (10 seconds at first), and works without a radio
+station.
+
+- **The overlay page**: in OBS add a **Browser Source** with the address shown
+  under the switch (such as `http://127.0.0.1:7487/now-playing`), 1920 × 1080.
+  Its background is clear, so only the card with the cover, artist and title
+  shows, and it fades from one track to the next. Pick **Lower third**,
+  **Corner** or **Ticker** under **Overlay style**; the page follows without
+  being reloaded. It is read only, and only this computer can open it unless
+  you switch on **Open to other devices**.
+- **The text file**: in OBS add a **Text** source, tick **Read from file** and
+  pick `now-playing.txt` in the **Files folder** (`Music/openDJ/Now Playing`
+  at first). Its line is `{artist} - {title}`; change it under **Text file
+  line**, with `{album}`, `{label}`, `{genre}`, `{bpm}` and `{key}` too.
+- **`now-playing.json`**, beside it, has the track, its BPM, key, deck and
+  start time, and the ten tracks before it, for chat bots and other tools.
+  The same JSON is at `/now-playing.json` on the overlay's address.
+
 ### Licences
 
 Playing other people's music to the public needs licences in most countries,
