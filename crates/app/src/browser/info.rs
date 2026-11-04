@@ -70,7 +70,7 @@ pub(super) struct InfoState {
     pending: BTreeMap<String, String>,
     /// Tags added lately (tag field, tag), newest first, which the track
     /// menu's Add Tag offers first.
-    pub(super) recent_tags: Vec<(usize, String)>,
+    pub(super) recent_tags: Vec<(i64, String)>,
 }
 
 impl InfoState {
@@ -165,11 +165,12 @@ fn field(id: &str, label: &str, value: impl Into<SharedString>, kind: i32) -> In
 }
 
 /// A tag field of `tracks` as chips.
-fn chips_field(tracks: &[&Track], n: usize, id: &str, label: &str) -> InfoField {
+fn chips_field(tracks: &[&Track], group: i64, label: &str) -> InfoField {
+    let id = Field::Tag(group).name();
     InfoField {
-        chips: tag_chips::chip_model(tracks, n),
+        chips: tag_chips::chip_model(tracks, group),
         hint: "+ tag".into(),
-        ..on(TAGS_TAB, field(id, label, "", CHIPS))
+        ..on(TAGS_TAB, field(&id, label, "", CHIPS))
     }
 }
 
@@ -184,7 +185,7 @@ fn half(f: InfoField) -> InfoField {
 }
 
 /// The info list for `t`, on three tabs: Track (the names, then genre,
-/// year and track number, tempo and key, gain), Tags (the DJ's tag fields,
+/// year and track number, tempo and key, gain), Tags (the DJ's tag groups,
 /// grouping and comment) and File (format, size, where it is, plays).
 /// Short fields share a line. The rating is in the panel's header.
 fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
@@ -225,14 +226,9 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
         }),
         half(field("", "TIME", short_time(t.duration), READ)),
     ];
-    // The DJ's tag fields, by the names they gave them.
-    for (i, name) in names.tags.iter().enumerate() {
-        out.push(chips_field(
-            &[t],
-            i,
-            &format!("tag{}", i + 1),
-            &name.to_uppercase(),
-        ));
+    // The DJ's tag groups, by the names they gave them.
+    for g in &names.tags {
+        out.push(chips_field(&[t], g.id, &g.name.to_uppercase()));
     }
     out.extend(
         [
@@ -356,7 +352,7 @@ fn tab_of(f: Field) -> i32 {
 
 /// The fields several tracks can be given together, in the order of the
 /// list for one track.
-fn shared_fields(tags: usize) -> Vec<Field> {
+fn shared_fields(groups: &[i64]) -> Vec<Field> {
     let mut out = vec![
         Field::Title,
         Field::Artist,
@@ -365,7 +361,7 @@ fn shared_fields(tags: usize) -> Vec<Field> {
         Field::Genre,
         Field::Year,
     ];
-    out.extend((0..tags.min(u8::MAX as usize)).map(|i| Field::Tag(i as u8)));
+    out.extend(groups.iter().map(|&g| Field::Tag(g)));
     out.extend([Field::Grouping, Field::Comment]);
     out
 }
@@ -373,14 +369,11 @@ fn shared_fields(tags: usize) -> Vec<Field> {
 /// What the tracks have in field `f`: each value and how many tracks have
 /// it, most first (then A to Z).
 fn values_of(tracks: &[&Track], f: Field) -> Vec<(String, usize)> {
-    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     for t in tracks {
-        *counts.entry(f.get(t).trim()).or_default() += 1;
+        *counts.entry(f.get(t).trim().to_string()).or_default() += 1;
     }
-    let mut out: Vec<(String, usize)> = counts
-        .into_iter()
-        .map(|(v, n)| (v.to_string(), n))
-        .collect();
+    let mut out: Vec<(String, usize)> = counts.into_iter().collect();
     out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     out
 }
@@ -445,16 +438,16 @@ fn many_fields(
 ) -> Vec<InfoField> {
     let names = query::field_names();
     let mut out = Vec::new();
-    for f in shared_fields(names.tags.len()) {
+    let groups: Vec<i64> = names.tags.iter().map(|g| g.id).collect();
+    for f in shared_fields(&groups) {
         let id = f.name().into_owned();
         let label = match f {
             Field::Title => "TRACK".to_string(),
             Field::Grouping => names.grouping.to_uppercase(),
-            Field::Tag(n) => names.tags[n as usize].to_uppercase(),
             other => other.label().to_uppercase(),
         };
-        if let Field::Tag(n) = f {
-            out.push(chips_field(tracks, n as usize, &id, &label));
+        if let Field::Tag(group) = f {
+            out.push(chips_field(tracks, group, &label));
             continue;
         }
         let values = values_of(tracks, f);
@@ -546,12 +539,8 @@ fn apply(t: &mut Track, id: &str, value: &str) -> Result<(), String> {
         "genre" => t.genre = v,
         "grouping" => t.info.grouping = v,
         "comment" => t.info.comment = v,
-        tag if tag.starts_with("tag") => match tag[3..].parse::<usize>() {
-            Ok(n) if n >= 1 => {
-                t.info.set_user_tag(n - 1, v);
-                // As the library saves them, for `tag:` searches.
-                t.info.labels = t.info.user_words();
-            }
+        tag if tag.starts_with("tag") => match Field::from_name(tag) {
+            Some(f @ Field::Tag(_)) => f.set(t, v),
             _ => return Err(format!("No field {tag}.")),
         },
         "key" => t.key = v,
@@ -1245,8 +1234,8 @@ mod tests {
         assert_eq!(t.info.gain_db, None);
         assert!(apply(&mut t, "gain", "40").is_err());
         apply(&mut t, "rating", "4").unwrap();
-        apply(&mut t, "tag3", "#dusk").unwrap();
-        assert_eq!(t.info.user_tags[2], "#dusk");
+        apply(&mut t, "tag:3", "#dusk, Late Night").unwrap();
+        assert_eq!(t.info.tag_text(3), "dusk, Late Night");
         assert!(apply(&mut t, "tag0", "x").is_err());
         assert_eq!(t.rating, 4);
         apply(&mut t, "bpm", "124").unwrap();

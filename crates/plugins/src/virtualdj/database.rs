@@ -253,13 +253,14 @@ fn song_track(id: usize, path: PathBuf, song: roxmltree::Node) -> Track {
             })
         })
         .collect::<Vec<_>>();
-    let labels = ["User1", "User2"]
+    // VirtualDJ's two user fields, as hashtags: each word a tag, put in
+    // the DJ's groups by the library.
+    let imported_tags = [("User1", "User 1"), ("User2", "User 2")]
         .iter()
-        .flat_map(|k| {
-            attr(tags, k)
-                .split_whitespace()
-                .map(str::to_string)
-                .collect::<Vec<_>>()
+        .flat_map(|(key, field)| {
+            opendj_engine::hashtags(&attr(tags, key))
+                .into_iter()
+                .map(|t| (field.to_string(), t))
         })
         .collect();
     let track_color = number(infos, "UserColor").map(color);
@@ -337,7 +338,7 @@ fn song_track(id: usize, path: PathBuf, song: roxmltree::Node) -> Track {
                 .trim()
                 .to_string(),
             grouping: attr(tags, "Grouping"),
-            labels,
+            imported_tags,
             color: track_color,
             play_count: number(infos, "PlayCount").unwrap_or(0.0) as u32,
             hotcues,
@@ -352,7 +353,6 @@ fn song_track(id: usize, path: PathBuf, song: roxmltree::Node) -> Track {
             composer: attr(tags, "Composer"),
             remixer: attr(tags, "Remixer"),
             remix,
-            user_tags: vec![attr(tags, "User1"), attr(tags, "User2")],
             added: number(infos, "FirstSeen").unwrap_or(0.0) as i64,
             last_played: number(infos, "LastPlay")
                 .filter(|p| *p > 0.0)
@@ -465,7 +465,20 @@ mod tests {
         assert_eq!(a.duration, 300.5);
         assert!(a.info.fixed_grid);
         assert_eq!(a.info.grouping, "11 YOGA");
-        assert_eq!(a.info.labels, ["#uplifting", "#synth", "#vox"]);
+        let tags: Vec<(&str, &str)> = a
+            .info
+            .imported_tags
+            .iter()
+            .map(|(f, t)| (f.as_str(), t.as_str()))
+            .collect();
+        assert_eq!(
+            tags,
+            [
+                ("User 1", "uplifting"),
+                ("User 2", "synth"),
+                ("User 2", "vox")
+            ]
+        );
         assert_eq!(a.info.color, Some(0xffe000));
         assert_eq!(a.info.play_count, 7);
         assert_eq!(a.info.comment, "nice one");
@@ -513,10 +526,6 @@ mod tests {
         assert_eq!((i.year.as_str(), i.track_number), ("1999", 3));
         assert_eq!((i.label.as_str(), i.composer.as_str()), ("Warp", "C"));
         assert_eq!(i.remix, "Club Mix");
-        assert_eq!(
-            (i.user_tag(0), i.user_tag(1)),
-            ("#uplifting", "#synth #vox")
-        );
         assert_eq!(
             (i.added, i.last_played),
             (1_648_875_124, Some(1_714_769_511))

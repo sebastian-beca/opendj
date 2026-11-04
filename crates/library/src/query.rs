@@ -9,11 +9,12 @@
 //!   [`fold`]). When nothing matches, [`Query::loosened`] lets each word of
 //!   four letters or more be one letter off (`frahn` finds "Frahm").
 //! - `field:value` searches one field: `artist:`, `title:`, `album:`,
-//!   `genre:`, `comment:`, `grouping:`, `tag:` (every tag field), `key:`,
+//!   `genre:`, `comment:`, `grouping:`, `tag:` (every tag group), `key:`,
 //!   `location:`, `publisher:` (the record label), `composer:`, `remixer:`.
-//!   The DJ's tag fields are `tag1:`, `tag2:` and so on, or the names the
-//!   DJ gave them (`mood:`), and grouping goes by its own name too; see
-//!   [`set_field_names`].
+//!   Each of the DJ's tag groups goes by its name (`mood:`, `tripstage:`
+//!   for "Trip Stage") or its place (`tag1:`, `tag2:`…), and grouping goes
+//!   by its own name too; see [`set_field_names`]. A tag group matches when
+//!   one of the track's tags in it does.
 //!   `field:=value` matches the whole field, `field:""` an empty one.
 //! - Numbers: `bpm:`, `rating:`, `played:`, `year:` and `duration:` take a value,
 //!   `>`, `>=`, `<`, `<=` or a range `a-b`; durations as `3:30`, `5m` or seconds.
@@ -42,6 +43,8 @@ use std::sync::RwLock;
 
 use opendj_engine::key::Key;
 use opendj_engine::{Source, Track};
+
+pub use crate::tags::TagGroup;
 
 /// Tempos within this fraction count as close for `~bpm` and `~deck`.
 const BPM_TOLERANCE: f64 = 0.06;
@@ -85,23 +88,36 @@ enum TextField {
     Publisher,
     Composer,
     Remixer,
-    /// One of the DJ's tag fields, from 0.
-    UserTag(usize),
+    /// One of the DJ's tag groups, by its id.
+    UserTag(i64),
 }
 
 /// What the DJ calls the fields they fill in themselves: grouping (say
-/// "Trip Stage") and each tag field (say "Mood", "Instrument").
+/// "Trip Stage"), and their tag groups (say "Mood", "Instruments") in
+/// order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FieldNames {
     pub grouping: String,
-    pub tags: Vec<String>,
+    pub tags: Vec<TagGroup>,
+    /// Goes up when tracks' tags changed outside the browser (Settings),
+    /// so it reads them again.
+    pub tags_revision: u64,
+}
+
+impl FieldNames {
+    /// The group with this id.
+    pub fn group(&self, id: i64) -> Option<&TagGroup> {
+        self.tags.iter().find(|g| g.id == id)
+    }
 }
 
 impl Default for FieldNames {
+    /// The groups a new library starts with.
     fn default() -> Self {
         FieldNames {
             grouping: "Grouping".into(),
-            tags: vec!["Tag 1".into(), "Tag 2".into()],
+            tags: vec![TagGroup::new(1, "Tag 1"), TagGroup::new(2, "Tag 2")],
+            tags_revision: 0,
         }
     }
 }
@@ -119,6 +135,15 @@ pub fn field_names() -> FieldNames {
         .unwrap_or_else(|e| e.into_inner())
         .clone()
         .unwrap_or_default()
+}
+
+/// The id of the DJ's tag group at place `i` (from 0).
+pub fn group_at(i: usize) -> Option<i64> {
+    let names = FIELD_NAMES.read().unwrap_or_else(|e| e.into_inner());
+    match names.as_ref() {
+        Some(n) => n.tags.get(i).map(|g| g.id),
+        None => FieldNames::default().tags.get(i).map(|g| g.id),
+    }
 }
 
 /// The search word for a field the DJ named: lowercase letters and digits
@@ -236,7 +261,8 @@ pub struct Indexed {
     publisher: String,
     composer: String,
     remixer: String,
-    user: Vec<String>,
+    /// Each tag's group and folded name.
+    user: Vec<(i64, String)>,
 }
 
 impl Indexed {
@@ -248,7 +274,13 @@ impl Indexed {
             genre: fold(&t.genre),
             comment: fold(&t.info.comment),
             grouping: fold(&t.info.grouping),
-            tags: fold(&t.info.labels.join(" ")),
+            tags: t
+                .info
+                .tags
+                .iter()
+                .map(|t| fold(&t.name))
+                .collect::<Vec<_>>()
+                .join(" "),
             // Paths keep their slashes and dots, so `location:/music/` works.
             location: match &t.source {
                 Source::File(p) => p.to_string_lossy().chars().map(unaccent).collect(),
@@ -257,7 +289,12 @@ impl Indexed {
             publisher: fold(&t.info.label),
             composer: fold(&t.info.composer),
             remixer: fold(&t.info.remixer),
-            user: t.info.user_tags.iter().map(|f| fold(f)).collect(),
+            user: t
+                .info
+                .tags
+                .iter()
+                .map(|t| (t.group, fold(&t.name)))
+                .collect(),
         }
     }
 }
@@ -516,39 +553,39 @@ fn parse_test(word: &str) -> Option<Test> {
     })
 }
 
-/// `tag2:`, `user2:`, or a field by the name the DJ gave it.
+/// A tag group by its place (`tag2:`, or `user2:` as VirtualDJ's smart
+/// lists say), or by the name the DJ gave it; grouping by its name.
 fn user_field(name: &str) -> Option<TextField> {
+    let names = field_names();
     let numbered = name
         .strip_prefix("tag")
         .or_else(|| name.strip_prefix("user"))
         .and_then(|n| n.parse::<usize>().ok())
         .filter(|&n| n >= 1);
     if let Some(n) = numbered {
-        return Some(TextField::UserTag(n - 1));
+        // A place with no group matches no track.
+        return Some(TextField::UserTag(
+            names.tags.get(n - 1).map_or(-1, |g| g.id),
+        ));
     }
-    let names = field_names();
     if keyword(&names.grouping) == name {
         return Some(TextField::Grouping);
     }
     names
         .tags
         .iter()
-        .position(|t| keyword(t) == name && !name.is_empty())
-        .map(TextField::UserTag)
+        .find(|g| keyword(&g.name) == name && !name.is_empty())
+        .map(|g| TextField::UserTag(g.id))
 }
 
-/// Whether a word of `words` contains (or is, if `whole`) `s`; a leading
-/// `#` is ignored on both.
-fn has_word(words: &str, s: &str, whole: bool) -> bool {
+/// Whether one of the track's tags (in `group`, or any with None)
+/// contains (or is, if `whole`) `s`; a leading `#` is ignored.
+fn has_tag(text: &Indexed, group: Option<i64>, s: &str, whole: bool) -> bool {
     let s = s.trim_start_matches('#');
-    words.split_whitespace().any(|w| {
-        let w = w.trim_start_matches('#');
-        if whole {
-            w == s
-        } else {
-            w.contains(s)
-        }
-    })
+    text.user
+        .iter()
+        .filter(|(g, _)| group.is_none_or(|group| *g == group))
+        .any(|(_, t)| if whole { t == s } else { t.contains(s) })
 }
 
 fn plain(s: &str) -> Option<f64> {
@@ -681,7 +718,7 @@ impl Term {
                 TextField::Publisher => &text.publisher,
                 TextField::Composer => &text.composer,
                 TextField::Remixer => &text.remixer,
-                TextField::UserTag(i) => text.user.get(i).map_or("", String::as_str),
+                TextField::UserTag(_) => "",
             }
         };
         let key = || Key::parse(&t.key);
@@ -712,17 +749,16 @@ impl Term {
                 .any(|f| near(&s, f))
             }
             Test::Contains(TextField::Key, s) => t.key.to_lowercase().contains(s.as_str()),
-            Test::Contains(TextField::Tag, s) => {
-                t.info.labels.iter().any(|l| fold(l).contains(s.as_str()))
-            }
-            Test::Contains(f @ TextField::UserTag(_), s) => has_word(field(*f), s, false),
+            Test::Contains(TextField::Tag, s) => has_tag(text, None, s, false),
+            Test::Contains(TextField::UserTag(g), s) => has_tag(text, Some(*g), s, false),
             Test::Contains(f, s) => field(*f).contains(s.as_str()),
             Test::Exactly(TextField::Key, s) => t.key.to_lowercase() == *s,
-            Test::Exactly(TextField::Tag, s) => t.info.labels.iter().any(|l| fold(l) == *s),
-            // Tags are words: a field matches when one of its words does.
-            Test::Exactly(f @ TextField::UserTag(_), s) => has_word(field(*f), s, true),
+            Test::Exactly(TextField::Tag, s) => has_tag(text, None, s, true),
+            Test::Exactly(TextField::UserTag(g), s) => has_tag(text, Some(*g), s, true),
             Test::Exactly(f, s) => field(*f) == s,
             Test::Empty(TextField::Key) => t.key.trim().is_empty(),
+            Test::Empty(TextField::Tag) => text.user.is_empty(),
+            Test::Empty(TextField::UserTag(g)) => !text.user.iter().any(|(t, _)| t == g),
             Test::Empty(f) => field(*f).trim().is_empty(),
             Test::Number(f, c) => {
                 let x = match f {
@@ -1035,8 +1071,8 @@ mod tests {
         let mut a = track(1, "Daft Punk", "One More Time", 123.0, "8A");
         a.rating = 5;
         a.info.play_count = 3;
-        a.info.labels = vec!["#vocal".into(), "#peak".into()];
-        a.info.user_tags = vec!["#vocal".into(), "#peak".into()];
+        a.info.set_tags_in(1, ["vocal".into()]);
+        a.info.set_tags_in(2, ["peak".into()]);
         a.info.color = Some(0xff3b30);
         a.info.added = 1_800_000_000 - 2 * 86_400;
         let mut b = track(2, "Moodymann", "Shades of Jae", 118.0, "Dm");
@@ -1134,19 +1170,29 @@ mod tests {
     #[test]
     fn tag_fields_by_number_and_name() {
         let mut lib = library();
-        lib[1].info.user_tags = vec!["#peaktime #dark".into(), String::new(), "#dusk".into()];
+        lib[1]
+            .info
+            .set_tags_in(1, ["Peak Time".into(), "dark".into()]);
+        lib[1].info.set_tags_in(7, ["dusk".into()]);
         lib[1].info.grouping = "4 PEAK".into();
+        set_field_names(FieldNames {
+            grouping: "Trip Stage".into(),
+            tags: vec![
+                TagGroup::new(1, "Mood"),
+                TagGroup::new(2, "Instrument"),
+                TagGroup::new(7, "Time of day"),
+            ],
+            tags_revision: 0,
+        });
         assert_eq!(find(&lib, "tag1:peak"), [2]);
-        assert_eq!(find(&lib, "tag:peak"), [1], "tag: searches labels");
+        assert_eq!(find(&lib, "tag:peak"), [1, 2], "tag: searches every group");
+        assert_eq!(find(&lib, "tag:=\"peak time\""), [2]);
         assert_eq!(find(&lib, "tag2:=peak"), [1]);
         assert_eq!(find(&lib, "tag2:=#peak"), [1]);
         assert_eq!(find(&lib, "user1:=peak"), Vec::<usize>::new());
         assert_eq!(find(&lib, "tag3:dusk"), [2]);
+        assert_eq!(find(&lib, "tag9:dusk"), Vec::<usize>::new());
         assert_eq!(find(&lib, "tag2:\"\""), [2, 3, 4]);
-        set_field_names(FieldNames {
-            grouping: "Trip Stage".into(),
-            tags: vec!["Mood".into(), "Instrument".into(), "Time of day".into()],
-        });
         assert_eq!(find(&lib, "mood:dark"), [2]);
         assert_eq!(find(&lib, "timeofday:=dusk"), [2]);
         assert_eq!(find(&lib, "tripstage:=\"4 peak\""), [2]);
