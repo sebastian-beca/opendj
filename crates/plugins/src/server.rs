@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use crate::inbox::safe_name;
 use crate::source::{
-    DownloadUpdate, Found, Progress, SearchSource, Snapshot, SourceInfo, SourceQuery, CACHE_SIZE,
+    DownloadUpdate, Found, Progress, SearchSource, Snapshot, SourceInfo, SourceQuery,
     DOWNLOAD_FOLDER,
 };
 use crate::{PluginError, Setting, SettingKind, USER_AGENT};
@@ -267,28 +267,18 @@ impl<S: Server> SearchSource for ServerSource<S> {
 }
 
 /// The settings every server source ends with: where Add to Collection
-/// puts files, and how big the cache of played tracks may grow.
+/// puts files. The cache of played tracks has one size for every source,
+/// set in Settings › Sources.
 pub(crate) fn storage_settings(name: &str) -> Vec<Setting> {
-    vec![
-        Setting {
-            key: DOWNLOAD_FOLDER,
-            kind: SettingKind::Folder,
-            title: "Collection folder".into(),
-            detail: format!(
-                "Where Add to Collection puts files. Left empty, Downloaded/{name} in your \
-                 music folder."
-            ),
-        },
-        Setting {
-            key: CACHE_SIZE,
-            kind: SettingKind::Text,
-            title: "Cache size (GB)".into(),
-            detail: format!(
-                "Tracks you play or Download from {name} are kept in a cache, outside your \
-                 collection, until it is this full; the oldest go first. Left empty, 5 GB."
-            ),
-        },
-    ]
+    vec![Setting {
+        key: DOWNLOAD_FOLDER,
+        kind: SettingKind::Folder,
+        title: "Collection folder".into(),
+        detail: format!(
+            "Where Add to Collection puts files. Left empty, Downloaded/{name} in your \
+             music folder."
+        ),
+    }]
 }
 
 /// Whether `name` has `text` in it, ignoring case; an empty text or "*"

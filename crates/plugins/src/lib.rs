@@ -33,6 +33,7 @@ pub mod remote;
 mod server;
 pub mod source;
 pub mod subsonic;
+pub mod traktor;
 pub mod virtualdj;
 
 /// What a plugin is and which web hosts it talks to, as Settings shows it.
@@ -332,6 +333,7 @@ pub fn importers() -> Vec<Box<dyn LibraryImport>> {
         Box::new(virtualdj::VirtualDj),
         Box::new(rekordbox::Rekordbox),
         Box::new(mixxx::Mixxx),
+        Box::new(traktor::Traktor),
     ]
 }
 

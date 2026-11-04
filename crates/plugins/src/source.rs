@@ -203,7 +203,8 @@ pub trait SearchSource: Send {
     /// Whether its files can be played straight from it: the DJ's own
     /// music server. The app then offers a cache besides the collection: a
     /// file loads onto a deck through it, and stays there until the cache
-    /// is full. Such a source fills in [`Found::file`].
+    /// is full (one limit for every source, in Settings › Sources). Such a
+    /// source fills in [`Found::file`].
     fn plays(&self) -> bool {
         false
     }
@@ -231,13 +232,6 @@ pub trait SearchSource: Send {
 /// empty, they go to `Downloaded/<source name>` in the music folder. `~`
 /// at the start is the home folder.
 pub const DOWNLOAD_FOLDER: &str = "download_folder";
-
-/// The key of a playing source's setting for how big its cache may grow,
-/// in GB (see [`SearchSource::plays`]). Left empty, [`DEFAULT_CACHE_GB`].
-pub const CACHE_SIZE: &str = "cache_size";
-
-/// How big a playing source's cache grows when its setting is left empty.
-pub const DEFAULT_CACHE_GB: f64 = 5.0;
 
 /// A size as the list shows it: "40 MB", "1.2 GB".
 pub fn megabytes(bytes: u64) -> String {

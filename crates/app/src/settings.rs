@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::browser::columns::{Hidden, Layout};
 use opendj_controllers::MappingChoice;
 use opendj_engine::key::{Key, Notation};
 use opendj_engine::scan::default_music_dir;
@@ -846,20 +847,56 @@ fn columns_at(key: &str) -> Vec<(i32, f32)> {
         .unwrap_or_default()
 }
 
-pub fn set_columns(columns: &[(i32, f32)]) {
-    set_columns_at("columns", columns);
+/// The columns the DJ hid from the track list, and where they were.
+pub fn hidden_columns() -> Vec<Hidden> {
+    hidden_at("hidden_columns")
 }
 
-pub fn set_history_columns(columns: &[(i32, f32)]) {
-    set_columns_at("history_columns", columns);
+/// The columns hidden from a history session, as [`hidden_columns`].
+pub fn hidden_history_columns() -> Vec<Hidden> {
+    hidden_at("hidden_history_columns")
 }
 
-fn set_columns_at(key: &str, columns: &[(i32, f32)]) {
-    let list: Vec<Value> = columns
+fn hidden_at(key: &str) -> Vec<Hidden> {
+    load()[key]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|c| {
+                    Some(Hidden {
+                        id: c["id"].as_i64()? as i32,
+                        width: c["width"].as_f64().unwrap_or(0.0) as f32,
+                        after: c["after"].as_i64().map(|a| a as i32),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn set_columns(layout: &Layout) {
+    set_columns_at("columns", "hidden_columns", layout);
+}
+
+pub fn set_history_columns(layout: &Layout) {
+    set_columns_at("history_columns", "hidden_history_columns", layout);
+}
+
+fn set_columns_at(key: &str, hidden_key: &str, layout: &Layout) {
+    let list: Vec<Value> = layout
+        .shown
         .iter()
         .map(|(id, width)| json!({ "id": id, "width": width }))
         .collect();
-    save(|v| v[key] = json!(list));
+    let hidden: Vec<Value> = layout
+        .hidden
+        .iter()
+        .map(|h| json!({ "id": h.id, "width": h.width, "after": h.after }))
+        .collect();
+    save(|v| {
+        v[key] = json!(list);
+        v[hidden_key] = json!(hidden);
+    });
 }
 
 fn shortcut_list(v: &Value) -> Vec<(String, String)> {

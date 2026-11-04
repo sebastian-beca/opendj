@@ -32,7 +32,7 @@ use opendj_plugins::{ItemKind, StoreItem, StoreQuery};
 mod albums;
 mod analysis;
 mod cleanup;
-mod columns;
+pub(crate) mod columns;
 mod filters;
 mod health;
 mod info;
@@ -168,7 +168,7 @@ pub const SOURCE_NAMES: [&str; 13] = [
 /// hidden sources' names.
 const HEALTH_RAIL_NAME: &str = "Collection Health";
 
-fn all_source_names() -> Vec<String> {
+pub(crate) fn all_source_names() -> Vec<String> {
     SOURCE_NAMES
         .iter()
         .map(|n| n.to_string())
@@ -243,6 +243,10 @@ struct Node {
     lazy: bool,
     /// Drawn with a line above it, setting it apart from what's before.
     separator: bool,
+    /// A crate's colour, an index into `COLOR_NAMES`, and its icon, an
+    /// index into `LIST_ICONS` (0 the crate's own).
+    color: Option<usize>,
+    icon: usize,
 }
 
 impl Node {
@@ -257,6 +261,8 @@ impl Node {
             history: false,
             lazy: false,
             separator: false,
+            color: None,
+            icon: 0,
         }
     }
 
@@ -602,8 +608,9 @@ struct FilesState {
 }
 
 /// The rail sources that are streaming services: their source, name, and
-/// how matches set by hand are saved for them.
-const STREAMS: [(i32, &str, &str); 5] = [
+/// id, which names how matches set by hand are saved for them and the file
+/// their sign-in is kept in (`<id>.json` in the config folder).
+pub(crate) const STREAMS: [(i32, &str, &str); 5] = [
     (SPOTIFY, "Spotify", "spotify"),
     (TIDAL, "TIDAL", "tidal"),
     (APPLE_MUSIC, "Apple Music", "applemusic"),
@@ -1453,6 +1460,15 @@ impl Browser {
                 }
             }))
         });
+        // Sign out on Settings › Sources: the service named, shown or not.
+        let w = with.clone();
+        app.on_stream_sign_out(move |source| {
+            w(Box::new(move |b| {
+                if let Some(st) = b.streams.iter().find(|s| s.source == source) {
+                    st.service.send(Request::Disconnect);
+                }
+            }))
+        });
         let w = with.clone();
         app.on_spotify_copy(move || w(Box::new(|b| b.copy_stream_playlist())));
         let w = with.clone();
@@ -1605,6 +1621,14 @@ impl Browser {
         edit.on_rename(move |i, name| w(&|b| b.rename_node(i as usize, &name)));
         let w = with.clone();
         edit.on_delete(move |i| w(&|b| b.delete_node(i as usize)));
+        let w = with.clone();
+        edit.on_set_list_color(move |i, c| {
+            w(&|b| b.color_node(i.max(0) as usize, usize::try_from(c).ok()))
+        });
+        let w = with.clone();
+        edit.on_set_list_icon(move |i, n| {
+            w(&|b| b.icon_node(i.max(0) as usize, n.max(0) as usize))
+        });
         // The open list's own rows are already in it, so only the side
         // panel's rows and the decks' tracks go in by dropping on it.
         edit.on_accepts_list_drop(|data| {
@@ -3108,6 +3132,16 @@ impl Browser {
         {
             let mut n = Node::new(p.name.clone(), 1, KIND_CRATE, Contents::Playlist(p.id));
             n.playlist = Some(p.id);
+            n.color = p.color.and_then(|rgb| {
+                opendj_library::query::COLOR_NAMES
+                    .iter()
+                    .position(|&(_, c)| c == rgb)
+            });
+            n.icon = p
+                .icon
+                .as_deref()
+                .and_then(|name| opendj_library::LIST_ICONS.iter().position(|&i| i == name))
+                .unwrap_or(0);
             sections.push(n);
         }
         sections.push(Node::new("Playlists", 0, KIND_SECTION, Contents::Folder));
@@ -3294,6 +3328,37 @@ impl Browser {
         };
         if let Err(e) = db.rename_playlist(id, name) {
             eprintln!("can't rename the list: {e}");
+        }
+        self.reload_tree(None);
+    }
+
+    /// Gives the crate at a sidebar row a colour (an index into
+    /// `COLOR_NAMES`, None for none).
+    fn color_node(&mut self, row: usize, color: Option<usize>) {
+        let (Some(id), Some(db)) = (self.playlist_at(row), &self.db) else {
+            return;
+        };
+        let rgb = color
+            .and_then(|i| opendj_library::query::COLOR_NAMES.get(i))
+            .map(|&(_, rgb)| rgb);
+        if let Err(e) = db.set_playlist_color(id, rgb) {
+            eprintln!("can't colour the list: {e}");
+        }
+        self.reload_tree(None);
+    }
+
+    /// Gives the crate at a sidebar row one of `LIST_ICONS` (0, the crate,
+    /// is kept as none).
+    fn icon_node(&mut self, row: usize, icon: usize) {
+        let (Some(id), Some(db)) = (self.playlist_at(row), &self.db) else {
+            return;
+        };
+        let name = opendj_library::LIST_ICONS
+            .get(icon)
+            .filter(|_| icon > 0)
+            .copied();
+        if let Err(e) = db.set_playlist_icon(id, name) {
+            eprintln!("can't change the list's icon: {e}");
         }
         self.reload_tree(None);
     }
@@ -4012,6 +4077,8 @@ impl Browser {
                     analysable: !n.history && Self::analysable(&n.contents),
                     stage: matches!(n.contents, Contents::Stage(..)),
                     separator: n.separator,
+                    color: n.color.map_or(-1, |c| c as i32),
+                    icon: n.icon as i32,
                     count: match &n.contents {
                         Contents::All if self.saved() && self.tree == COLLECTION => {
                             self.library

@@ -29,6 +29,15 @@ The rail at the far left picks where the tree and the track list come from:
   [Your own music server](#your-own-music-server)).
 - **Bandcamp**, **Beatport** and **OneLibrary**: coming soon.
 
+**Settings › Sources** lists every source by kind (streaming services,
+stores, your own servers, free music, add-ons and the built-in ones). Each
+row says whether the source is signed in or set up, and its **In rail**
+switch shows or hides it in the rail, as right-clicking the rail does. Click
+a source to open its settings: its server and sign-in, the folder its
+downloads go to, or **Sign out** for a streaming service. The cache for
+tracks played from your own servers is at the top of the page: one size
+for all of them (10 GB unless you pick another) and a **Clear** button.
+
 ### Streaming services
 
 openDJ shows what you saved on a streaming service, but doesn't play its
@@ -86,8 +95,10 @@ or on **Navidrome** (or any other server that speaks the Subsonic API, such
 as Gonic, Airsonic, Ampache or LMS), openDJ can search it and bring tracks into your collection. These
 are your own files, so unlike the streaming services they play on decks.
 
-Fill in the server on its own page in Settings, **Settings › Plex**,
-**Settings › Jellyfin** or **Settings › Navidrome**:
+Pick the source in the rail: until it's set up, its panel asks for the
+server and sign-in, and **Connect** saves them. You can also fill them in
+later in **Settings › Sources**: click **Plex**, **Jellyfin** or
+**Navidrome** to open its settings.
 
 - **Navidrome**: the server's address (for example
   `http://192.168.1.20:4533`), your username and your password. The
@@ -113,14 +124,14 @@ Each song, album and playlist offers two ways to bring it in:
   network takes a second or two.
 - The **cloud** downloads it into the cache, to play later or offline. A
   filled cloud means it's there. Cached tracks stay out of your collection,
-  and the oldest go when the cache is full (5 GB unless you set **Cache
-  size** on the source's page). Their waveform, tempo and key are kept as
+  and the oldest go when the cache is full (10 GB for all sources together
+  unless you pick another size in **Settings › Sources**). Their waveform, tempo and key are kept as
   long as the file stays in the cache.
 - **+ Collection** (or **+ Album**) brings it into your collection for good:
   `Downloaded/Plex`, `Downloaded/Jellyfin` or `Downloaded/Navidrome` in your
   music folder, one
   folder per artist and album with its cover, or the **Collection folder**
-  set on the source's page. A song already in the cache moves over from
+  set for the source in **Settings › Sources**. A song already in the cache moves over from
   there instead of downloading again.
 
 Tick several rows to **Download** them to the cache or **Add to Collection**
@@ -377,6 +388,19 @@ memory cue), intro and outro (as sections) and its beat grid, whether a
 steady grid or a beat map with tempo changes. Playlists come in a
 **Playlists** folder, crates in a **Crates** folder, and history sessions go
 to the History tab. Auto DJ's queue stays in Mixxx.
+
+## Bringing in a Traktor library
+
+**Import from Traktor** works the same way. openDJ reads Traktor's
+`collection.nml` (only reading it), which it finds in the newest
+`Documents/Native Instruments/Traktor x.y.z` folder on a Mac or Windows. If
+yours is elsewhere, choose the file in the first step.
+
+Each track keeps its tags, stars, colour, comment, play count, dates, key,
+hot cues 1 to 8 with their names, saved loops, its beat grid, other cues (as
+memory cues) and fade in and fade out (as Automix points). Playlists come in
+their folders, folders within folders just as Traktor shows them. Traktor's
+own `_LOOPS` and `_RECORDINGS` lists and its smart lists stay out.
 
 ### The same song from two apps
 

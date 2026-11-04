@@ -310,7 +310,7 @@ impl Server for JellyfinServer {
 
     fn missing(&self) -> Option<String> {
         (self.url.is_empty() || self.user.is_empty())
-            .then(|| "Fill in your server in Settings › Jellyfin first.".into())
+            .then(|| "Fill in your server in Settings › Sources › Jellyfin first.".into())
     }
 
     fn search(&self, query: &SourceQuery) -> Result<Results, String> {
