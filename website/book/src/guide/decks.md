@@ -184,10 +184,9 @@ headphones. Its **Ableton Link** switch is described in
 [Ableton Link](link.md). **Audio Settings…** opens the
 outputs in Settings. Levels are kept between runs.
 
-The **MIC** button opens the microphone and the auxiliary input, each with
-**ON** and a level. The microphone has effects of its own under **MIC FX**,
-which the decks' effects never touch, and **AUX** sends the auxiliary input
-through them too. Choose the inputs in **Settings › Audio**: **+** under
-the inputs adds a second and third auxiliary input, and each auxiliary
-input takes a pair of channels (stereo) or one (mono). Auxiliary inputs
-start off.
+The arrow on the **MIC** button opens the microphone, with **ON**, a level
+and one **MIC FX** slot of its own, which the decks' effects never touch.
+Auxiliary inputs play on a deck from the **Instruments** source. Choose
+the inputs in **Settings › Audio**: **+** under the inputs adds a second
+and third auxiliary input, and each auxiliary input takes a pair of
+channels (stereo) or one (mono).
