@@ -188,16 +188,14 @@ pub fn set_audio_setup(setup: &AudioSetup) {
     });
 }
 
-/// The sources hidden from the library rail, by name.
-pub fn hidden_sources() -> Vec<String> {
-    load()["hidden_sources"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default()
+/// The sources hidden from the library rail, by name; `None` until the DJ
+/// (or openDJ, on first start) has saved a choice.
+pub fn hidden_sources() -> Option<Vec<String>> {
+    load()["hidden_sources"].as_array().map(|a| {
+        a.iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect()
+    })
 }
 
 pub fn set_hidden_sources(names: Vec<String>) {

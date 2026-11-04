@@ -493,10 +493,11 @@ component KeyBox inherits VerticalLayout {
             }
         }
     }
-    // The sync master, right under the key.
+    // The sync master, right under the key; kept out of sight (but its
+    // room kept) on an empty deck.
     HorizontalLayout {
         alignment: center;
-        MasterBadge { group: group; font-size: compact ? 7px : 8px; height: compact ? 12px : 14px; }
+        MasterBadge { group: group; font-size: compact ? 7px : 8px; height: compact ? 12px : 14px; visible: info.loaded; }
     }
     // Key shifts with the key each gives.
     menu := PopupWindow {

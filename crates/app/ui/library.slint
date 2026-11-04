@@ -1141,7 +1141,7 @@ component TrackMenu inherits PopupWindow {
                 height: 28px;
                 padding-left: 10px;
                 spacing: 2px;
-                Text { text: "Rating"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 60px; }
+                Text { text: "Rating"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 48px; }
                 for n in [1, 2, 3, 4, 5]: Rectangle {
                     width: 22px;
                     Text { text: n <= rating ? "★" : "☆"; color: #ffd60a; font-size: 16px; }
@@ -1158,10 +1158,11 @@ component TrackMenu inherits PopupWindow {
             HorizontalLayout {
                 height: 26px;
                 padding-left: 10px;
-                spacing: 4px;
-                Text { text: "Colour"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 62px; }
+                // Eight swatches and none fit in the menu's width.
+                spacing: 2px;
+                Text { text: "Colour"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 48px; }
                 for c[i] in [#ff3b30, #ff9500, #ffcc00, #34c759, #5ac8fa, #007aff, #af52de, #ff2d55]: Rectangle {
-                    width: 18px;
+                    width: 17px;
                     Rectangle {
                         width: sw.has-hover ? 16px : 14px;
                         height: self.width;
@@ -1176,7 +1177,7 @@ component TrackMenu inherits PopupWindow {
                     }
                 }
                 Rectangle {
-                    width: 18px;
+                    width: 17px;
                     Rectangle {
                         width: 14px;
                         height: 14px;
@@ -1944,23 +1945,6 @@ component SourceRail inherits Rectangle {
     }
 }
 
-// Tab icons over the sidebar: the music library and the history.
-component LibraryTabIcon inherits Path {
-    in property <bool> history;
-    in property <color> color;
-    width: 20px;
-    height: 20px;
-    viewbox-width: 20;
-    viewbox-height: 20;
-    fill: transparent;
-    stroke: color;
-    stroke-width: 1.6px;
-    // History: a clock face and hands. Library: a list with a note.
-    commands: history
-        ? "M 10 2 A 8 8 0 1 1 9.99 2 Z M 10 5.5 L 10 10 L 13 12"
-        : "M 2 4 L 12 4 M 2 9 L 12 9 M 2 14 L 8 14 M 15 15.5 L 15 3.5 L 18.5 5 M 15 15.5 A 2 2 0 1 1 14.99 15.5";
-}
-
 // The purchase inbox, under the stores: what it's doing, on or off, and
 // what it does with what arrives.
 component InboxPanel inherits Rectangle {
@@ -2459,18 +2443,27 @@ component FolderTree inherits Rectangle {
         padding: 8px;
         padding-top: 0px;
         spacing: 6px;
-        // Library and history tabs, underlined in orange when selected; not
-        // over Collection Health.
+        // Lists and History tabs, in words like the side panel's and
+        // underlined in the accent when selected; not over Collection Health.
         if !HealthUi.view: HorizontalLayout {
             height: 38px;
-            for history[i] in [false, true]: Rectangle {
-                LibraryTabIcon { history: history; color: i == tab ? Theme.accent : Theme.text-dim; }
+            for name[i] in ["Lists", "History"]: Rectangle {
+                property <bool> on: i == tab;
+                background: lta.has-hover && !on ? #ffffff08 : transparent;
+                Text {
+                    text: name;
+                    color: on ? Theme.accent : lta.has-hover ? Theme.text : Theme.text-dim;
+                    font-size: 13px;
+                    font-weight: on ? 600 : 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
                 Rectangle {
                     y: parent.height - 2px;
                     height: 2px;
-                    background: i == tab ? Theme.accent : transparent;
+                    background: on ? Theme.accent : transparent;
                 }
-                TouchArea {
+                lta := TouchArea {
                     clicked => {
                         if tab != i {
                             tab = i;
@@ -2505,7 +2498,7 @@ component FolderTree inherits Rectangle {
             HorizontalLayout {
                 padding-left: 8px;
                 height: 26px;
-                Text { text: tab == 1 ? "Sessions" : source == 1 ? "Folders" : source == 0 ? (HealthUi.view ? "Collection Health" : "Collection") : ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud"][source]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                Text { text: tab == 1 ? "Sessions" : source == 1 ? "Folders" : source == 0 ? (HealthUi.view ? "Collection Health" : "Library") : ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud"][source]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
             }
             ListView {
                 for f[i] in folders: Rectangle {
