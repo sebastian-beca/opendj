@@ -64,21 +64,29 @@ pub fn read(
             cues.entry(c.content_id.clone()).or_default().push(c);
         }
     }
-    let tag_names: HashMap<String, String> = db
-        .get_my_tags()
-        .map_err(err)?
-        .into_iter()
-        .map(|t| (t.id, t.name))
+    let my_tags = db.get_my_tags().map_err(err)?;
+    let tag_names: HashMap<String, String> = my_tags
+        .iter()
+        .map(|t| (t.id.clone(), t.name.clone()))
         .collect();
-    let mut labels: HashMap<String, Vec<String>> = HashMap::new();
-    for tag in tag_names.keys() {
-        for s in db.get_my_tag_songs(tag).map_err(err)? {
-            if let Some(name) = tag_names.get(&s.my_tag_id) {
-                labels
-                    .entry(s.content_id)
-                    .or_default()
-                    .push(format!("#{}", name.replace(' ', "_")));
-            }
+    // Each My Tag category (a top-level folder) becomes one of the DJ's
+    // tag groups.
+    let category = |t: &rbox_masterdb::DjmdMyTag| {
+        tag_names
+            .get(&t.parent_id)
+            .cloned()
+            .unwrap_or_else(|| "My Tag".to_string())
+    };
+    let mut labels: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for tag in &my_tags {
+        if tag.rb_local_deleted != 0 {
+            continue;
+        }
+        for s in db.get_my_tag_songs(&tag.id).map_err(err)? {
+            labels
+                .entry(s.content_id)
+                .or_default()
+                .push((category(tag), tag.name.clone()));
         }
     }
     let mut tracks = Vec::new();
@@ -90,7 +98,7 @@ pub fn read(
             continue;
         }
         let mut t = track(c, file, cues.remove(&c.id).unwrap_or_default());
-        t.info.labels = labels.remove(&c.id).unwrap_or_default();
+        t.info.imported_tags = labels.remove(&c.id).unwrap_or_default();
         analysis(&mut db, &c.id, &mut t);
         tracks.push(t);
     }

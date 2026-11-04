@@ -229,7 +229,7 @@ impl Ready {
             .iter()
             .filter_map(|&field| {
                 let old = field.get(t);
-                let new = self.fix(old);
+                let new = self.fix(&old);
                 // Nothing to change, and a title or artist is never emptied.
                 let emptied = new.is_empty() && matches!(field, Field::Title | Field::Artist);
                 (new != old && !emptied).then(|| Change {

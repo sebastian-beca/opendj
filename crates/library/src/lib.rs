@@ -30,6 +30,7 @@ mod moves;
 pub mod query;
 pub mod sets;
 pub mod stages;
+pub mod tags;
 
 pub use moves::{Change, FileMove, MoveReport};
 
@@ -175,8 +176,8 @@ const ADDED_COLUMNS: [(&str, &str); 18] = [
     ("remix", "remix TEXT NOT NULL DEFAULT ''"),
     ("year", "year TEXT NOT NULL DEFAULT ''"),
     ("track_number", "track_number INTEGER NOT NULL DEFAULT 0"),
-    // VirtualDJ's User 1 and User 2: the DJ's own tags. `labels` holds
-    // their words together, for searching.
+    // VirtualDJ's User 1 and User 2, from before tag groups: read once
+    // into them (see `tags`), no longer written.
     ("user1", "user1 TEXT NOT NULL DEFAULT ''"),
     ("user2", "user2 TEXT NOT NULL DEFAULT ''"),
     // The DJ's gain for the track in dB; NULL for none.
@@ -188,7 +189,8 @@ const ADDED_COLUMNS: [(&str, &str); 18] = [
     ("composer", "composer TEXT NOT NULL DEFAULT ''"),
     ("remixer", "remixer TEXT NOT NULL DEFAULT ''"),
     ("isrc", "isrc TEXT NOT NULL DEFAULT ''"),
-    // The DJ's tag fields after the first two, one per line (version 8).
+    // The tag fields after the first two, one per line (version 8); read
+    // once into tag groups, as `user1` is.
     ("user_more", "user_more TEXT NOT NULL DEFAULT ''"),
     // Inbox, triage or collection, as `Stage::name`; empty for none (version 9).
     ("stage", "stage TEXT NOT NULL DEFAULT ''"),
@@ -445,27 +447,6 @@ fn mtime(path: &Path) -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
-/// A track's tag fields from the `user1`, `user2` and `user_more` columns.
-fn user_tags(user1: String, user2: String, more: &str) -> Vec<String> {
-    let mut tags = vec![user1, user2];
-    if !more.is_empty() {
-        tags.extend(more.split('\n').map(str::to_string));
-    }
-    tags
-}
-
-/// The `user1`, `user2` and `user_more` columns for a track's tag fields.
-fn user_columns(info: &LibraryInfo) -> (&str, &str, String) {
-    let more = info.user_tags.get(2..).unwrap_or_default();
-    // Fields hold words, so a line break can't be part of one.
-    let more: Vec<String> = more.iter().map(|f| f.replace('\n', " ")).collect();
-    (
-        info.user_tag(0),
-        info.user_tag(1),
-        more.join("\n").trim_end().to_string(),
-    )
-}
-
 fn path_text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
@@ -600,6 +581,7 @@ impl Library {
             db.execute_batch("ALTER TABLE covers ADD COLUMN bitrate INTEGER")?;
         }
         db.execute_batch(cleanup::CHANGES_SCHEMA)?;
+        tags::setup(&db)?;
         let lib = Library { db };
         if version < 2 {
             lib.add_starter_smart_lists()?;
@@ -696,6 +678,7 @@ impl Library {
                 });
             }
         }
+        let mut tags = tags::track_tags(&self.db)?;
         let mut q = self.db.prepare(
             "SELECT id, path, artist, title, album, genre, duration, bpm, key, rating, color,
                     comment, grouping, labels, play_count, grid, added, key_source,
@@ -708,7 +691,6 @@ impl Library {
             let id: i64 = r.get(0)?;
             let path: String = r.get(1)?;
             let grid: Option<String> = r.get(15)?;
-            let labels: String = r.get(13)?;
             let key_source: Option<String> = r.get(17)?;
             let grid_source: Option<String> = r.get(32)?;
             Ok((
@@ -735,7 +717,8 @@ impl Library {
                         color: r.get::<_, Option<i64>>(10)?.map(|c| c as u32),
                         comment: r.get(11)?,
                         grouping: r.get(12)?,
-                        labels: labels.split_whitespace().map(str::to_string).collect(),
+                        tags: Vec::new(),
+                        imported_tags: Vec::new(),
                         play_count: r.get::<_, i64>(14)?.max(0) as u32,
                         hotcues: Vec::new(),
                         fixed_grid: false,
@@ -749,7 +732,6 @@ impl Library {
                         remix: r.get(18)?,
                         year: r.get(19)?,
                         track_number: r.get::<_, i64>(20)?.max(0) as u32,
-                        user_tags: user_tags(r.get(21)?, r.get(22)?, &r.get::<_, String>(30)?),
                         gain_db: r.get::<_, Option<f64>>(23)?.map(|g| g as f32),
                         last_played: r.get(24)?,
                         disc_number: r.get::<_, i64>(25)?.max(0) as u32,
@@ -770,6 +752,7 @@ impl Library {
             t.source = Source::File(path);
             t.info.hotcues = cues.remove(&id).unwrap_or_default();
             t.info.markers = markers.remove(&id).unwrap_or_default();
+            t.info.tags = tags.remove(&id).unwrap_or_default();
             if let Some(g) = grid.map(|g| BeatGrid::from_text(&g)) {
                 if !g.is_empty() {
                     t.set_grid(g);
@@ -1158,13 +1141,11 @@ impl Library {
     /// DJ's own, so analysis leaves it alone.
     pub fn save_info(&self, id: usize, t: &Track) -> Result<(), Error> {
         let Some(row) = row_id(id) else { return Ok(()) };
-        let (user1, user2, more) = user_columns(&t.info);
         self.db.execute(
             "UPDATE tracks SET title = ?2, artist = ?3, remix = ?4, album = ?5, year = ?6,
                     genre = ?7, track_number = ?8, grouping = ?9, key = ?10,
                     key_source = CASE WHEN key = ?10 THEN key_source ELSE 'user' END,
-                    rating = ?11, user1 = ?12, user2 = ?13, labels = ?14, comment = ?15,
-                    gain = ?16, file_mtime = ?17, user_more = ?18
+                    rating = ?11, comment = ?12, gain = ?13, file_mtime = ?14
              WHERE id = ?1",
             params![
                 row,
@@ -1178,9 +1159,6 @@ impl Library {
                 t.info.grouping,
                 t.key,
                 t.rating.min(5) as i64,
-                user1,
-                user2,
-                t.info.user_words().join(" "),
                 t.info.comment,
                 t.info.gain_db.map(f64::from),
                 match &t.source {
@@ -1188,10 +1166,9 @@ impl Library {
                     Source::File(path) => mtime(path),
                     Source::Synth { .. } => 0,
                 },
-                more,
             ],
         )?;
-        Ok(())
+        tags::write_track_tags(&self.db, row, &t.info.tags, None)
     }
 
     fn update(&self, id: usize, column: &str, value: impl rusqlite::ToSql) -> Result<(), Error> {
@@ -1951,16 +1928,12 @@ fn import_tracks(
                 color = CASE WHEN ?18 OR color IS NULL THEN ?7 ELSE color END,
                 comment = CASE WHEN ?18 OR comment = '' THEN ?8 ELSE comment END,
                 grouping = CASE WHEN ?18 OR grouping = '' THEN ?9 ELSE grouping END,
-                labels = CASE WHEN ?18 OR labels = '' THEN ?10 ELSE labels END,
                 play_count = MAX(play_count, ?11),
                 source = CASE WHEN ?20 THEN source ELSE ?14 END,
                 duration = CASE WHEN ?12 > 0 AND (NOT ?20 OR duration <= 0) THEN ?12 ELSE duration END,
                 key_source = CASE WHEN ?13 != '' AND (NOT ?20 OR key = '') THEN ?14 ELSE key_source END,
                 key = CASE WHEN ?13 != '' AND (NOT ?20 OR key = '') THEN ?13 ELSE key END,
-                remix = CASE WHEN ?15 != '' AND (NOT ?20 OR remix = '') THEN ?15 ELSE remix END,
-                user1 = CASE WHEN ?16 != '' AND (NOT ?20 OR user1 = '') THEN ?16 ELSE user1 END,
-                user2 = CASE WHEN ?17 != '' AND (NOT ?20 OR user2 = '') THEN ?17 ELSE user2 END,
-                user_more = CASE WHEN ?19 != '' AND (NOT ?20 OR user_more = '') THEN ?19 ELSE user_more END
+                remix = CASE WHEN ?15 != '' AND (NOT ?20 OR remix = '') THEN ?15 ELSE remix END
          WHERE id = ?1",
     )?;
     let mut set_grid = tx.prepare(
@@ -2036,18 +2009,19 @@ fn import_tracks(
             t.info.color.map(|c| c as i64),
             t.info.comment,
             t.info.grouping,
-            t.info.labels.join(" "),
+            "",
             t.info.play_count as i64,
             t.duration,
             t.key,
             source,
             t.info.remix,
-            t.info.user_tag(0),
-            t.info.user_tag(1),
+            "",
+            "",
             theirs_win && !guest,
-            user_columns(&t.info).2,
+            "",
             guest
         ])?;
+        tags::import_track_tags(tx, source, id, &t.info, theirs_win && !guest)?;
         let grid = t.beat_grid();
         if t.info.fixed_grid && !grid.is_empty() {
             let from: Option<String> = grid_source.query_row([id], |r| r.get(0))?;
@@ -2498,21 +2472,17 @@ mod tests {
 
         t.title = "Edited".into();
         t.key = "8A".into();
-        t.info.user_tags = vec![
-            "#uplifting".into(),
-            "#synth #vox".into(),
-            "".into(),
-            "#dusk".into(),
-        ];
+        let groups = lib.tag_groups().unwrap();
+        let (mood, instruments) = (groups[0].id, groups[1].id);
+        t.info.set_tags_in(mood, ["Uplifting".into()]);
+        t.info
+            .set_tags_in(instruments, ["Synth".into(), "Vocals".into()]);
         t.info.gain_db = Some(-2.5);
         lib.save_info(t.id, &t).unwrap();
         let back = lib.tracks(|_| true).unwrap().remove(0);
         assert_eq!(back.title, "Edited");
-        assert_eq!(
-            back.info.user_tags,
-            ["#uplifting", "#synth #vox", "", "#dusk"]
-        );
-        assert_eq!(back.info.labels, ["#uplifting", "#synth", "#vox", "#dusk"]);
+        assert_eq!(back.info.tag_text(mood), "Uplifting");
+        assert_eq!(back.info.tag_text(instruments), "Synth, Vocals");
         assert_eq!(back.info.gain_db, Some(-2.5));
         // A key the DJ typed in is theirs, not analysis's.
         assert_eq!(back.info.key_detected, Some(false));
@@ -2526,7 +2496,10 @@ mod tests {
         t.info = LibraryInfo {
             comment: "nice".into(),
             grouping: "11 YOGA".into(),
-            labels: vec!["#synth".into(), "#vox".into()],
+            imported_tags: vec![
+                ("User 2".into(), "#synth".into()),
+                ("User 2".into(), "#vox".into()),
+            ],
             color: Some(0xff8800),
             play_count: 3,
             hotcues: vec![Hotcue {
@@ -2562,7 +2535,10 @@ mod tests {
         assert!(b.id >= ID_BASE);
         assert_eq!(b.rating, 4);
         assert_eq!(b.info.color, Some(0xff8800));
-        assert_eq!(b.info.labels, ["#synth", "#vox"]);
+        // A place for tags seen first gets a group of its name.
+        let group = lib.tag_groups().unwrap().last().unwrap().clone();
+        assert_eq!(group.name, "User 2");
+        assert_eq!(b.info.tag_text(group.id), "synth, vox");
         assert_eq!(b.info.grouping, "11 YOGA");
         assert_eq!(b.info.hotcues.len(), 1);
         assert!(b.info.fixed_grid);

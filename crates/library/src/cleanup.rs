@@ -144,12 +144,13 @@ pub enum Field {
     Label,
     Comment,
     Grouping,
-    /// The DJ's own tag field `n` (from 0).
-    Tag(u8),
+    /// The track's tags in one of the DJ's tag groups (by its id), as one
+    /// line: "Synth, Vocals".
+    Tag(i64),
 }
 
 impl Field {
-    /// The fields with a fixed name (the tag fields come after them).
+    /// The fields with a fixed name (the tag groups come after them).
     pub const ALL: [Field; 9] = [
         Field::Artist,
         Field::Title,
@@ -163,7 +164,7 @@ impl Field {
     ];
 
     /// The name kept in the change log, which is also the Info tab's id
-    /// for the field ("tag1" for the first tag field).
+    /// for the field ("tag:3" for the tag group with id 3).
     pub fn name(self) -> std::borrow::Cow<'static, str> {
         match self {
             Field::Artist => "artist".into(),
@@ -175,16 +176,13 @@ impl Field {
             Field::Label => "label".into(),
             Field::Comment => "comment".into(),
             Field::Grouping => "grouping".into(),
-            Field::Tag(n) => format!("tag{}", n as usize + 1).into(),
+            Field::Tag(group) => crate::tags::field_name(group).into(),
         }
     }
 
     pub fn from_name(s: &str) -> Option<Self> {
-        if let Some(n) = s.strip_prefix("tag") {
-            let n: usize = n.parse().ok()?;
-            return (1..=u8::MAX as usize)
-                .contains(&n)
-                .then(|| Field::Tag((n - 1) as u8));
+        if let Some(group) = s.strip_prefix("tag:") {
+            return group.parse().ok().map(Field::Tag);
         }
         Field::ALL.into_iter().find(|f| f.name() == s)
     }
@@ -201,22 +199,26 @@ impl Field {
             Field::Label => "Label".into(),
             Field::Comment => "Comment".into(),
             Field::Grouping => "Grouping".into(),
-            Field::Tag(n) => format!("Tag {}", n as usize + 1).into(),
+            Field::Tag(group) => crate::query::field_names()
+                .tags
+                .into_iter()
+                .find(|g| g.id == group)
+                .map_or_else(|| "Tags".into(), |g| g.name.into()),
         }
     }
 
-    pub fn get(self, t: &Track) -> &str {
+    pub fn get(self, t: &Track) -> std::borrow::Cow<'_, str> {
         match self {
-            Field::Artist => &t.artist,
-            Field::Title => &t.title,
-            Field::Remix => &t.info.remix,
-            Field::Album => &t.album,
-            Field::Genre => &t.genre,
-            Field::Year => &t.info.year,
-            Field::Label => &t.info.label,
-            Field::Comment => &t.info.comment,
-            Field::Grouping => &t.info.grouping,
-            Field::Tag(n) => t.info.user_tag(n as usize),
+            Field::Artist => t.artist.as_str().into(),
+            Field::Title => t.title.as_str().into(),
+            Field::Remix => t.info.remix.as_str().into(),
+            Field::Album => t.album.as_str().into(),
+            Field::Genre => t.genre.as_str().into(),
+            Field::Year => t.info.year.as_str().into(),
+            Field::Label => t.info.label.as_str().into(),
+            Field::Comment => t.info.comment.as_str().into(),
+            Field::Grouping => t.info.grouping.as_str().into(),
+            Field::Tag(group) => t.info.tag_text(group).into(),
         }
     }
 
@@ -231,11 +233,7 @@ impl Field {
             Field::Label => t.info.label = value,
             Field::Comment => t.info.comment = value,
             Field::Grouping => t.info.grouping = value,
-            Field::Tag(n) => {
-                t.info.set_user_tag(n as usize, value);
-                // As the library keeps them, for `tag:` searches.
-                t.info.labels = t.info.user_words();
-            }
+            Field::Tag(group) => t.info.set_tags_in(group, opendj_engine::split_tags(&value)),
         }
     }
 }
@@ -756,12 +754,12 @@ mod tests {
         for f in Field::ALL.into_iter().chain([Field::Tag(0), Field::Tag(4)]) {
             assert_eq!(Field::from_name(&f.name()), Some(f));
         }
-        assert_eq!(Field::Tag(1).name(), "tag2");
-        assert_eq!(Field::from_name("tag0"), None);
+        assert_eq!(Field::Tag(2).name(), "tag:2");
+        assert_eq!(Field::from_name("tag2"), None);
         assert_eq!(Field::from_name("bpm"), None);
         let mut t = file_track("/m/a.mp3", "Song");
-        Field::Tag(1).set(&mut t, "#synth #vox".into());
-        assert_eq!(Field::Tag(1).get(&t), "#synth #vox");
-        assert_eq!(t.info.labels, ["#synth", "#vox"]);
+        Field::Tag(2).set(&mut t, "Synth, #vox, synth".into());
+        assert_eq!(Field::Tag(2).get(&t), "Synth, vox");
+        assert_eq!(t.info.tags.len(), 2);
     }
 }

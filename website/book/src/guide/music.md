@@ -366,7 +366,8 @@ your collection from rekordbox (**File › Export Collection in xml format**)
 and choose that file in the first step.
 
 From `master.db` each track keeps its tags, stars, colour, comment, play
-count, date added, key, My Tags (as tags like `#warmup`), hot cues A to H
+count, date added, key, My Tags (each category a tag group, see
+[Your tags](#your-tags)), hot cues A to H
 with their names and colours, memory cues, saved loops, its beat grid with
 any tempo changes, and rekordbox's phrases (Intro, Verse, Chorus and so on,
 shown on the waveform as openDJ's own phrases are). Playlists come in their
@@ -501,9 +502,9 @@ title. Below, three tabs keep everything in view without scrolling:
 
 - **Track**: track, artist, remix, album and genre, then year and track
   number, BPM and key, gain and time, two to a line.
-- **Tags**: your own tag fields, grouping and the comment. Each tag is a
+- **Tags**: your tag groups, grouping and the comment. Each tag is a
   chip: **×** takes it off, and the **+ tag** box adds one (or several,
-  with spaces between), suggesting tags you already use.
+  with commas between), suggesting tags you already use.
 - **File**: format, audio, size, the file (with Show in Finder), its folder,
   plays, when it was added and last played.
 
@@ -522,7 +523,7 @@ Clean up and Look up online. The stars set the rating of every picked track
 at once.
 
 Tags work on all the picked tracks at once, with no Apply. A tag on only
-some of them shows how many have it ("#dreamy 5/12"): click it to put it on
+some of them shows how many have it ("dreamy 5/12"): click it to put it on
 all. **×** takes a tag off all of them, and **+ tag** adds one to all.
 ⌘Z takes a tag change back. You can also right-click tracks and choose
 **Add Tag**: it lists the tags you added lately, then the ones you use most,
@@ -551,16 +552,27 @@ emptied.
 ## Columns
 
 Right-click any column heading to choose which columns the list shows, your
-own fields included, or **Reset columns** to go back to the default. Drag a
+tag groups included, or **Reset columns** to go back to the default. Drag a
 divider on a heading's right edge to make that column wider or narrower (the
 columns after it move along and keep their widths), and drag the heading itself
 to move it. Click a heading to sort by it. openDJ remembers your columns.
 
-## Your own fields
+## Your tags
 
-Name grouping and your tag fields in **Settings › Collection › Fields**,
-for example Trip Stage, Mood and Instrument, and add as many tag fields as
-you need. VirtualDJ's User 1 and User 2 come in as the first two. Each name
-works as a search word too (`mood:uplifting`, `tripstage:"4 peak"`), and so
-does each number (`tag1:uplifting`). The `#` in front of a tag is optional
-when searching.
+Tags sit in groups you make in **Settings › Collection › Tags**, for example
+Mood, Instruments or Vibe: add as many as you need, rename them, and set
+each to **Several** tags per track or **One**. A tag is a name of its own,
+spaces included ("Peak Time"), with no `#` needed. Removing a group takes its
+tags off every track (openDJ asks first when tracks use it).
+
+Each group's name works as a search word (`mood:uplifting`,
+`vibe:"peak time"`), and so does its place (`tag1:uplifting` for the first
+group); `tag:` searches every group. The `#` in front of a tag is optional
+when searching. On the same tab, give Grouping the name you use it for, such
+as Trip Stage (`tripstage:"4 peak"`).
+
+Tags from other apps come into your groups: VirtualDJ's User 1 and User 2
+each fill a group (each word a tag, the `#` dropped), and each rekordbox My
+Tag category becomes a group of the same name. A group you already have
+with that name takes them. Rename a group made this way and later imports
+still go into it.

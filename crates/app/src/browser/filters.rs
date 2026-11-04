@@ -23,8 +23,9 @@ pub const TOLERANCES: [f64; 5] = [0.02, 0.04, 0.06, 0.08, 0.10];
 pub enum Kind {
     /// Pick values of a text field (genre, artist, ...).
     Text,
-    /// Pick words of a tag field, from 0; all of them or any.
-    Tags(usize),
+    /// Pick tags of one of the DJ's tag groups (by its id); all of them
+    /// or any.
+    Tags(i64),
     /// A tempo range, or near the playing track's.
     Bpm,
     /// Keys, or those that mix with the playing track's.
@@ -39,14 +40,15 @@ pub enum Kind {
 /// A field the bar can filter on.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Field {
-    /// Names the field in settings: "genre", "tag1", "bpm".
+    /// Names the field in settings and searches: "genre", "bpm", or
+    /// "tag1" for the first tag group.
     pub id: String,
     pub label: String,
     pub kind: Kind,
 }
 
 /// The fields offered, in the order "+" lists them; grouping and the tag
-/// fields go by the names the DJ gave them.
+/// groups go by the names the DJ gave them.
 pub fn fields(names: &FieldNames) -> Vec<Field> {
     let f = |id: &str, label: &str, kind| Field {
         id: id.into(),
@@ -57,8 +59,12 @@ pub fn fields(names: &FieldNames) -> Vec<Field> {
         f("grouping", &names.grouping, Kind::Text),
         f("genre", "Genre", Kind::Text),
     ];
-    for (i, name) in names.tags.iter().enumerate() {
-        out.push(f(&format!("tag{}", i + 1), name, Kind::Tags(i)));
+    for (i, group) in names.tags.iter().enumerate() {
+        out.push(f(
+            &format!("tag{}", i + 1),
+            &group.name,
+            Kind::Tags(group.id),
+        ));
     }
     out.extend([
         f("bpm", "BPM", Kind::Bpm),
@@ -572,8 +578,18 @@ impl Browser {
         self.refresh_filter_ui();
     }
 
-    /// The names of grouping or the tag fields changed in Settings.
+    /// Grouping or the tag groups changed in Settings (or an import).
     pub(super) fn field_names_changed(&mut self, names: FieldNames) {
+        // A group taken away takes its tags off every track.
+        let groups: HashSet<i64> = names.tags.iter().map(|g| g.id).collect();
+        for t in &mut self.library {
+            if t.info.tags.iter().any(|x| !groups.contains(&x.group)) {
+                std::sync::Arc::make_mut(t)
+                    .info
+                    .tags
+                    .retain(|x| groups.contains(&x.group));
+            }
+        }
         let f = &mut self.filter;
         f.fields = fields(&names);
         self.column_names_changed(&names);
@@ -817,8 +833,8 @@ pub fn choices<'a>(
     out
 }
 
-/// The values a track has for a list field: one for text, each word for a
-/// tag field (without its `#`), the year.
+/// The values a track has for a list field: one for text, each tag for a
+/// tag group, the year.
 fn values_of(field: &Field, t: &Track) -> Vec<String> {
     let one = |s: &str| {
         let s = s.trim();
@@ -829,14 +845,7 @@ fn values_of(field: &Field, t: &Track) -> Vec<String> {
         }
     };
     match (field.kind, field.id.as_str()) {
-        (Kind::Tags(i), _) => t
-            .info
-            .user_tag(i)
-            .split_whitespace()
-            .map(|w| w.trim_start_matches('#'))
-            .filter(|w| !w.is_empty())
-            .map(str::to_string)
-            .collect(),
+        (Kind::Tags(group), _) => t.info.tags_in(group).map(str::to_string).collect(),
         (Kind::Year, _) => t
             .info
             .year
@@ -884,8 +893,7 @@ mod tests {
         t.bpm = bpm;
         t.key = key.into();
         t.info.grouping = grouping.into();
-        t.info.user_tags = vec![tags.into()];
-        t.info.labels = t.info.user_words();
+        t.info.set_tags_in(1, opendj_engine::hashtags(tags));
         t.info.color = None;
         t.rating = 0;
         t

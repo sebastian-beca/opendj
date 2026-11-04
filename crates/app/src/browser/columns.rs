@@ -86,7 +86,8 @@ pub struct Def {
 }
 
 /// Every column, in the order the header's menu lists them; grouping and
-/// the tag fields go by the names the DJ gave them.
+/// the tag groups go by the names the DJ gave them (a group's column by
+/// its place among them).
 pub fn all(names: &FieldNames) -> Vec<Def> {
     let d = |id, label: &str, width, right, kind| Def {
         id,
@@ -109,8 +110,8 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
         d(GROUPING, &names.grouping, 90.0, false, TEXT),
         d(WAVE, "Waveform", 120.0, false, WAVEFORM),
     ];
-    for (i, name) in names.tags.iter().enumerate() {
-        out.push(d(TAGS + i as i32, name, 140.0, false, TAG_WORDS));
+    for (i, group) in names.tags.iter().enumerate() {
+        out.push(d(TAGS + i as i32, &group.name, 140.0, false, TAG_WORDS));
     }
     out.extend([
         d(YEAR, "Year", 48.0, true, DIM),
@@ -395,12 +396,9 @@ pub fn cell(id: i32, t: &Track, camelot: bool) -> String {
             }
             _ => String::new(),
         },
-        id if id >= TAGS => i
-            .user_tag((id - TAGS) as usize)
-            .split_whitespace()
-            .map(|w| w.trim_start_matches('#'))
-            .collect::<Vec<_>>()
-            .join("  "),
+        id if id >= TAGS => opendj_library::query::group_at((id - TAGS) as usize)
+            .map(|g| i.tags_in(g).collect::<Vec<_>>().join("  "))
+            .unwrap_or_default(),
         _ => String::new(),
     }
 }
@@ -430,9 +428,9 @@ pub fn cue_count(t: &Track) -> usize {
     t.info.hotcues.iter().filter(|c| !c.is_memory()).count()
 }
 
-/// A genre and at least one word in the DJ's tag fields.
+/// A genre and at least one of the DJ's tags.
 pub fn tagged(t: &Track) -> bool {
-    !t.genre.trim().is_empty() && !t.info.labels.is_empty()
+    !t.genre.trim().is_empty() && !t.info.tags.is_empty()
 }
 
 /// A dot for each part of basic preparation, filled when done: tags
@@ -997,9 +995,10 @@ mod tests {
         let mut b = a.clone();
         a.info.grouping = "10 SONG".into();
         b.info.grouping = "2 ONS".into();
-        a.info.user_tags = vec!["#uplifting #bright".into()];
+        a.info
+            .set_tags_in(1, ["uplifting".into(), "Bright Pads".into()]);
         a.info.play_count = 3;
-        assert_eq!(cell(TAGS, &a, true), "uplifting  bright");
+        assert_eq!(cell(TAGS, &a, true), "uplifting  Bright Pads");
         assert_eq!(cell(PLAYED, &a, true), "3");
         assert_eq!(cell(PLAYED, &b, true), "");
         assert_eq!(compare(GROUPING, &b, &a), Ordering::Less);

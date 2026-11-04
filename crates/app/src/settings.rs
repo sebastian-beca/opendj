@@ -750,37 +750,43 @@ fn strings(v: &Value) -> Option<Vec<String>> {
     })
 }
 
-/// What the DJ calls grouping and their tag fields ("Trip Stage", "Mood",
-/// "Instrument"); Grouping, Tag 1 and Tag 2 until they choose.
+/// What the DJ calls grouping ("Trip Stage"; Grouping until they choose),
+/// with their tag groups as the library has them (see
+/// [`publish_tag_groups`]).
 pub fn field_names() -> FieldNames {
     let v = load();
-    let d = FieldNames::default();
     FieldNames {
         grouping: v["grouping_name"]
             .as_str()
             .filter(|s| !s.trim().is_empty())
-            .map_or(d.grouping, String::from),
-        tags: strings(&v["tag_fields"])
-            .filter(|t| !t.is_empty())
-            .map(|t| {
-                // A name left empty goes by its number.
-                t.into_iter()
-                    .enumerate()
-                    .map(|(i, n)| match n.trim() {
-                        "" => format!("Tag {}", i + 1),
-                        n => n.to_string(),
-                    })
-                    .collect()
-            })
-            .unwrap_or(d.tags),
+            .map_or_else(|| FieldNames::default().grouping, String::from),
+        tags: opendj_library::query::field_names().tags,
     }
 }
 
-pub fn set_field_names(names: &FieldNames) {
-    save(|v| {
-        v["grouping_name"] = json!(names.grouping);
-        v["tag_fields"] = json!(names.tags);
-    });
+pub fn set_grouping_name(name: &str) {
+    save(|v| v["grouping_name"] = json!(name));
+    publish_grouping_name();
+}
+
+/// Makes searches, chips and columns know the grouping by its name.
+fn publish_grouping_name() {
+    opendj_library::query::set_field_names(field_names());
+}
+
+/// What the DJ called the numbered tag fields before tag groups, for
+/// naming the groups made from them.
+pub fn old_tag_field_names() -> Vec<String> {
+    strings(&load()["tag_fields"]).unwrap_or_default()
+}
+
+/// Makes searches, chips, columns and the Info tab know the library's tag
+/// groups as they are now.
+pub fn publish_tag_groups(db: &opendj_library::Library) {
+    if let Ok(tags) = db.tag_groups() {
+        let grouping = field_names().grouping;
+        opendj_library::query::set_field_names(FieldNames { grouping, tags });
+    }
 }
 
 /// The filter chips kept on the bar, by field.

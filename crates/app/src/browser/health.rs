@@ -19,7 +19,7 @@ use crate::cover_scan;
 use crate::{settings, HealthCard, HealthUi};
 
 /// The word the "Tag as mix" fix adds to a track's first tag field.
-const MIX_TAG: &str = "#mix";
+const MIX_TAG: &str = "mix";
 
 /// A fix a check offers.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1120,25 +1120,18 @@ impl Browser {
         s
     }
 
-    /// Adds "#mix" to the first tag field of long tracks.
+    /// Tags long tracks "mix", in the first tag group.
     fn tag_mix(&mut self, indices: &[usize]) -> String {
+        let Some(group) = opendj_library::query::group_at(0) else {
+            return "Make a tag group first, in Settings › Collection › Tags.".into();
+        };
         let mut n = 0;
         for &i in indices {
             let mut t = (*self.library[i]).clone();
-            let first = t.info.user_tag(0).to_string();
-            if first
-                .split_whitespace()
-                .any(|w| w.eq_ignore_ascii_case(MIX_TAG))
-            {
+            if t.info.has_tag(group, MIX_TAG) {
                 continue;
             }
-            let words = if first.trim().is_empty() {
-                MIX_TAG.to_string()
-            } else {
-                format!("{} {MIX_TAG}", first.trim())
-            };
-            t.info.set_user_tag(0, words);
-            t.info.labels = t.info.user_words();
+            t.info.add_tag(group, MIX_TAG, false);
             if let Some(db) = &self.db {
                 if let Err(e) = db.save_info(t.id, &t) {
                     eprintln!("can't save: {e}");
@@ -1153,7 +1146,7 @@ impl Browser {
             self.library[i] = Arc::new(t);
             n += 1;
         }
-        format!("Tagged {} as {MIX_TAG}.", tracks(n))
+        format!("Tagged {} as \"{MIX_TAG}\".", tracks(n))
     }
 }
 

@@ -38,7 +38,7 @@ const AUDIO: i32 = 0;
 const CONTROLLERS: i32 = 1;
 const LIBRARY: i32 = 2;
 /// Settings › Collection's tabs.
-const LIBRARY_TABS: [&str; 4] = ["General", "Stages", "Fields", "Import"];
+const LIBRARY_TABS: [&str; 4] = ["General", "Stages", "Tags", "Import"];
 /// The Import tab's place in LIBRARY_TABS.
 const IMPORT_TAB: usize = 3;
 /// Other DJ apps whose libraries openDJ can't bring in yet, listed on the
@@ -95,6 +95,11 @@ const FILTER_BAR: i32 = 16;
 /// grey, 1 green, 2 orange), what it's doing, and its In rail switch
 /// (`on`). `action` is its fold arrow, empty when there's nothing to open.
 const SOURCE_ROW: i32 = 17;
+/// A tag group on Settings › Collection › Tags: its name in `title`, how
+/// much it's used in `detail`, a text field to rename it (`value`; typing
+/// sends id), Several/One per track (`chosen`; picks send id) and ×
+/// (pressing id + "#remove").
+const TAG_GROUP: i32 = 18;
 
 /// Tempo fader ranges, as fractions of normal speed.
 const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
@@ -438,6 +443,8 @@ pub struct Prefs {
     /// What the last import change set going, shown on the Import tab.
     import_note: String,
     cache_note: String,
+    /// The tag group whose Remove was pressed, waiting for a second press.
+    removing_group: Option<i64>,
     /// What Clear stems did, shown under it.
     stems_note: String,
     /// The devices shown on the controllers page.
@@ -535,6 +542,7 @@ impl Prefs {
             library_note: String::new(),
             import_note: String::new(),
             cache_note: String::new(),
+            removing_group: None,
             stems_note: String::new(),
             ports: Vec::new(),
             hidden_ports: Vec::new(),
@@ -2107,7 +2115,7 @@ impl Prefs {
         }
     }
 
-    /// Settings › Collection: General, Stages, Fields and Import. `tab` None
+    /// Settings › Collection: General, Stages, Tags and Import. `tab` None
     /// is every tab, for a search.
     fn library_page(&mut self, tab: Option<usize>) -> Vec<PrefItem> {
         let shows = |t: usize| tab.is_none_or(|x| x == t);
@@ -2119,7 +2127,7 @@ impl Prefs {
             items.extend(self.stage_items());
         }
         if shows(2) {
-            items.extend(self.field_items());
+            items.extend(self.tag_items());
         }
         if shows(IMPORT_TAB) {
             items.extend(self.import_items());
@@ -2344,53 +2352,96 @@ impl Prefs {
         items
     }
 
-    /// Settings › Collection › Fields: names for grouping and the tag fields.
-    fn field_items(&self) -> Vec<PrefItem> {
+    /// Settings › Collection › Tags: the DJ's tag groups, to add, rename,
+    /// set to one tag per track or remove, and the grouping's name.
+    fn tag_items(&self) -> Vec<PrefItem> {
         let mut items = vec![item(
             "",
             NOTE,
             "",
-            "Name grouping and your tag fields for what you use them for, such as Trip Stage, \
-             Mood or Instrument. Each name is also a search word (mood:uplifting) and a \
-             filter on the bar above the track list.",
+            "Tags sit in groups you make, such as Mood, Instruments or Vibe. Each group \
+             is a search word (mood:uplifting) and a filter on the bar above the track list.",
         )];
-        let names = settings::field_names();
-        items.push(PrefItem {
-            value: names.grouping.clone().into(),
-            ..item("grouping_name", TEXT, "Grouping", "")
-        });
-        for (i, name) in names.tags.iter().enumerate() {
+        let Some(db) = open_library() else {
+            return items;
+        };
+        let groups = db.tag_groups().unwrap_or_default();
+        for g in &groups {
+            let used = db.tag_group_use(g.id).unwrap_or_default();
+            let usage = match (used.tags, used.tracks) {
+                (0, _) => "No tags yet".to_string(),
+                (t, n) => format!("{} on {}", count(t, "tag"), count(n, "track")),
+            };
             items.push(PrefItem {
-                value: name.clone().into(),
+                value: g.name.clone().into(),
+                choices: strings(&["Several", "One"]),
+                chosen: g.single as i32,
                 ..item(
-                    &format!("tag_name:{i}"),
-                    TEXT,
-                    &format!("Tag {}", i + 1),
-                    &format!("Search with tag{}: or {}:", i + 1, query::keyword(name)),
+                    &format!("tag_group:{}", g.id),
+                    TAG_GROUP,
+                    &g.name,
+                    &format!("{usage} · {}:", query::keyword(&g.name)),
                 )
             });
+            if self.removing_group == Some(g.id) {
+                items.push(PrefItem {
+                    action: "Remove".into(),
+                    ..item(
+                        &format!("tag_group_remove:{}", g.id),
+                        BUTTON,
+                        &format!("Remove {}?", g.name),
+                        &format!("Its tags come off {}.", count(used.tracks, "track")),
+                    )
+                });
+            }
         }
         items.push(PrefItem {
             action: "Add".into(),
             ..item(
-                "add_tag_field",
+                "add_tag_group",
                 BUTTON,
-                "Add a tag field",
-                "Another set of words to tag tracks with.",
+                "Add a group",
+                "Another set of tags, such as Vibe or Energy.",
             )
         });
-        if names.tags.len() > 1 {
-            items.push(PrefItem {
-                action: "Remove".into(),
-                ..item(
-                    "remove_tag_field",
-                    BUTTON,
-                    &format!("Remove {}", names.tags.last().map_or("", String::as_str)),
-                    "Its tags stay on your tracks, and come back if you add the field again.",
-                )
-            });
-        }
+        items.push(item("", HEADING, "GROUPING", ""));
+        items.push(PrefItem {
+            value: settings::field_names().grouping.into(),
+            ..item(
+                "grouping_name",
+                TEXT,
+                "Grouping",
+                "What you use the Grouping tag for, such as Trip Stage.",
+            )
+        });
         items
+    }
+
+    /// Remove on a tag group: at once for one no track uses, otherwise
+    /// after a second press on the row that asks. Whether `id` was one.
+    fn tag_group_pressed(&mut self, id: &str) -> bool {
+        let group = |prefix: &str| {
+            id.strip_prefix(prefix)
+                .and_then(|g| g.trim_end_matches("#remove").parse::<i64>().ok())
+        };
+        if let Some(g) = group("tag_group_remove:") {
+            self.removing_group = None;
+            with_library(|db| db.remove_tag_group(g));
+            return true;
+        }
+        let Some(g) = group("tag_group:").filter(|_| id.ends_with("#remove")) else {
+            return false;
+        };
+        let unused = open_library()
+            .and_then(|db| db.tag_group_use(g).ok())
+            .is_some_and(|u| u.tracks == 0);
+        if unused {
+            self.removing_group = None;
+            with_library(|db| db.remove_tag_group(g));
+        } else {
+            self.removing_group = (self.removing_group != Some(g)).then_some(g);
+        }
+        true
     }
 
     /// What an import that is on shows: where it reads from, which lists
@@ -2689,6 +2740,14 @@ impl Prefs {
     }
 
     fn picked(&mut self, id: &str, index: usize) {
+        if let Some(group) = id
+            .strip_prefix("tag_group:")
+            .and_then(|g| g.parse::<i64>().ok())
+        {
+            with_library(|db| db.set_tag_group_single(group, index == 1));
+            self.refresh();
+            return;
+        }
         if id == "audio_plugin_filter" {
             if let Some(f) = plugin_formats(&self.plugin_list()).get(index) {
                 let formats = &mut self.plugin_view.formats;
@@ -3488,17 +3547,18 @@ impl Prefs {
             settings::set_acoustid_key(text);
             return;
         }
-        if id == "grouping_name" || id.starts_with("tag_name:") {
-            let mut names = settings::field_names();
-            match id
-                .strip_prefix("tag_name:")
-                .and_then(|i| i.parse::<usize>().ok())
-            {
-                Some(i) if i < names.tags.len() => names.tags[i] = text.to_string(),
-                Some(_) => return,
-                None => names.grouping = text.to_string(),
+        if id == "grouping_name" {
+            settings::set_grouping_name(text);
+            return;
+        }
+        if let Some(group) = id
+            .strip_prefix("tag_group:")
+            .and_then(|g| g.parse::<i64>().ok())
+        {
+            // A name typed away keeps the old one until there's a new one.
+            if !text.trim().is_empty() {
+                with_library(|db| db.rename_tag_group(group, text));
             }
-            set_field_names(names);
             return;
         }
         self.set_plugin_value(id, text);
@@ -3527,6 +3587,10 @@ impl Prefs {
 
     fn pressed(&mut self, id: &str) {
         if self.broadcast_pressed(id) {
+            return;
+        }
+        if self.tag_group_pressed(id) {
+            self.refresh();
             return;
         }
         if let Some(tutorial) = id.strip_prefix("tutorial_start:") {
@@ -3736,14 +3800,9 @@ impl Prefs {
                     crate::files::reveal(&dir);
                 }
             }
-            "add_tag_field" | "remove_tag_field" => {
-                let mut names = settings::field_names();
-                if id == "add_tag_field" {
-                    names.tags.push(format!("Tag {}", names.tags.len() + 1));
-                } else if names.tags.len() > 1 {
-                    names.tags.pop();
-                }
-                set_field_names(names);
+            "add_tag_group" => {
+                let n = settings::field_names().tags.len();
+                with_library(|db| db.add_tag_group(&format!("Tag {}", n + 1)).map(|_| ()));
             }
             "sources_cache_clear" => {
                 let freed = crate::sources::clear_cache();
@@ -3795,10 +3854,28 @@ fn rate_dir() -> f64 {
     }
 }
 
-/// Keeps what the DJ calls their fields; the browser picks it up.
-fn set_field_names(names: query::FieldNames) {
-    settings::set_field_names(&names);
-    query::set_field_names(settings::field_names());
+/// The library, for changing its tag groups here.
+fn open_library() -> Option<opendj_library::Library> {
+    let path = settings::config_dir().map(|d| opendj_library::default_path(&d))?;
+    opendj_library::Library::open(&path).ok()
+}
+
+/// Changes the library's tag groups; the browser picks the change up.
+fn with_library(
+    change: impl FnOnce(&mut opendj_library::Library) -> Result<(), opendj_library::Error>,
+) {
+    let Some(mut db) = open_library() else {
+        return;
+    };
+    if let Err(e) = change(&mut db) {
+        eprintln!("can't change the tag groups: {e}");
+    }
+    settings::publish_tag_groups(&db);
+}
+
+/// "1 tag", "12 tracks".
+fn count(n: usize, what: &str) -> String {
+    format!("{n} {what}{}", if n == 1 { "" } else { "s" })
 }
 
 /// The DJ's own mappings that stand alone, made with Quick map.

@@ -365,6 +365,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 None
             }
         });
+    if let Some(db) = &db {
+        // Tag groups made from the old numbered fields take their names.
+        if let Err(e) = db.name_migrated_tag_groups(&settings::old_tag_field_names()) {
+            eprintln!("can't name the tag groups: {e}");
+        }
+        settings::publish_tag_groups(db);
+    }
     let saved: Vec<Arc<Track>> = db
         .as_ref()
         .and_then(|db| db.all_tracks(Path::exists).ok())
@@ -1383,6 +1390,8 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                         Err(e) => eprintln!("can't import {}: {e}", database.display()),
                     }
                 }
+                // An import may have made tag groups for tags seen first.
+                settings::publish_tag_groups(&db);
                 match db.assign_stages(&folders) {
                     Ok(0) => {}
                     Ok(n) => eprintln!("library: {n} tracks given a stage by their folder"),

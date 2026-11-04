@@ -972,8 +972,8 @@ fn imported_tree(library: &[Arc<Track>]) -> Vec<Node> {
         if !g.is_empty() && !groupings.contains(&g) {
             groupings.push(g);
         }
-        for l in &t.info.labels {
-            *labels.entry(l.as_str()).or_default() += 1;
+        for l in &t.info.tags {
+            *labels.entry(l.name.as_str()).or_default() += 1;
         }
     }
     if groupings.is_empty() && labels.is_empty() {
@@ -4001,7 +4001,7 @@ impl Browser {
                 self.refresh_filter_ui();
             }
         }
-        // Grouping or a tag field renamed in Settings.
+        // Grouping or the tag groups changed in Settings or by an import.
         let names = query::field_names();
         if names != self.filter.names {
             self.field_names_changed(names);
@@ -4371,7 +4371,13 @@ impl Browser {
                 .collect(),
             Contents::Label(l) => all()
                 .into_iter()
-                .filter(|&t| self.library[t].info.labels.contains(l))
+                .filter(|&t| {
+                    self.library[t]
+                        .info
+                        .tags
+                        .iter()
+                        .any(|x| opendj_engine::same_tag(&x.name, l))
+                })
                 .collect(),
             Contents::Folder => {
                 let depth = self.nodes[i].depth;
