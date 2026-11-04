@@ -193,6 +193,9 @@ export global ControllerEditor {
     // Opens the editor on this mapping file, from a controller's Edit in
     // Settings.
     callback show-mapping(file: string);
+    // Opens the editor again after Map mode, reading the mapping afresh
+    // for what was learned.
+    callback reopen();
     callback pick(index: int);
     callback pick-version(index: int);
     callback dialog-done(ok: bool);
@@ -972,13 +975,11 @@ export component ControllerEditorOverlay inherits Rectangle {
                 }
                 VerticalLayout {
                     alignment: center;
-                    // Map mode over the main window: the editor closes for it.
+                    // Map mode over the main window: the editor closes for
+                    // it and comes back when Map mode is done.
                     SmallButton {
                         text: "MIDI map";
-                        clicked => {
-                            ControllerEditor.open = false;
-                            MapMode.start();
-                        }
+                        clicked => { MapMode.start(); }
                     }
                 }
                 if ControllerEditor.support != "": VerticalLayout {
