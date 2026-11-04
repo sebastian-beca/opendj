@@ -201,6 +201,8 @@ impl Editor {
         let e = editor.clone();
         g.on_show_mapping(move |file| e.borrow_mut().show_mapping(&file));
         let e = editor.clone();
+        g.on_reopen(move || e.borrow_mut().reopen());
+        let e = editor.clone();
         g.on_pick(move |i| e.borrow_mut().pick(i.max(0) as usize));
         let e = editor.clone();
         g.on_pick_version(move |i| e.borrow_mut().pick_version(i.max(0) as usize));
@@ -382,6 +384,18 @@ impl Editor {
         let reading = self.loading.as_ref().is_some_and(|(f, _)| f == file);
         if !reading && self.chosen() != Some(i) {
             self.pick(i);
+        }
+    }
+
+    /// Opens the editor again after Map mode, which may have changed the
+    /// mapping shown or made the DJ's own copy of it.
+    fn reopen(&mut self) {
+        self.show();
+        if self.loading.is_none() && self.view.is_some() {
+            if let Some(base) = self.base() {
+                self.versions(&base);
+                self.read(true);
+            }
         }
     }
 
