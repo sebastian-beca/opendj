@@ -78,7 +78,7 @@ fn fixes(check: Check, stages: bool) -> Vec<Fix> {
         Check::Outside => vec![Fix::Remove],
         Check::NotAnalyzed => vec![Fix::Analyze],
         Check::MissingInfo => vec![Fix::LookUp, Fix::FillFromName],
-        // The bar's "Fix sure ones" relinks files found once by name,
+        // The bar's "Auto-fix" relinks files found once by name,
         // and merges the easy copies.
         Check::Missing => vec![Fix::Remove],
         Check::Long => vec![Fix::TagMix],
@@ -1539,7 +1539,7 @@ impl Browser {
                 .map(|c| c.0)
                 .collect::<HashSet<_>>()
                 .len(),
-            Area::Belongs | Area::Prep => 0,
+            Area::OutOfPlace | Area::Prep => 0,
         }
     }
 
@@ -1566,7 +1566,7 @@ impl Browser {
                 let changes = self.sure_junk();
                 self.make_changes(changes, "clean-up")
             }
-            Area::Belongs | Area::Prep => return,
+            Area::OutOfPlace | Area::Prep => return,
         };
         self.refresh_crates();
         self.refresh_tree();

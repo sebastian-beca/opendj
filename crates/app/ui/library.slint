@@ -3022,7 +3022,7 @@ component HealthPanel inherits Rectangle {
                             font-weight: 600;
                         }
                         Text {
-                            text: "Clean means nothing to fix in Files, Belongs, Duplicates or Info. Prep doesn't count against it.";
+                            text: "Clean means nothing to fix in Files, Out of place, Duplicates or Info. Prep doesn't count against it.";
                             color: Theme.text-dim;
                             font-size: 12px;
                             wrap: word-wrap;
@@ -3359,7 +3359,7 @@ component HealthBar inherits Rectangle {
         if HealthUi.sure > 0: VerticalLayout {
             alignment: center;
             HealthButton {
-                text: "Fix " + HealthUi.sure + " sure " + (HealthUi.sure == 1 ? "one" : "ones");
+                text: "Auto-fix " + HealthUi.sure;
                 primary: true;
                 clicked => { HealthUi.fix-sure(); }
             }
