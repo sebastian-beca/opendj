@@ -394,6 +394,11 @@ impl WaveformView {
         self.style = style;
     }
 
+    /// The colour behind the waveform, as RGBA from 0 to 1.
+    pub fn set_background(&mut self, background: [f32; 4]) {
+        self.palette.background = background;
+    }
+
     /// The texture the UI displays. Cheap to clone (reference counted).
     pub fn texture(&self) -> wgpu::Texture {
         self.texture.clone()
