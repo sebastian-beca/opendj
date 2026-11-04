@@ -28,11 +28,11 @@ export struct PrefItem {
     // is typed), 17 a source on Settings › Sources: a fold arrow in
     // `action` (none when there's nothing to open; the row presses id +
     // "#fold"), a status dot (`chosen` 0 grey, 1 green, 2 orange), the
-    // name, what it's doing in `detail`, and a switch putting it in the rail (`on`), 18
+    // name, what it's doing in `detail`, and a switch putting it in the rail (`on`), 21
     // a list of folders by name (`choices`, their whole paths in `paths`)
     // with + and − under it and `detail` in an ⓘ beside the title; `on`
     // holds one folder only (+ replaces it), `action` "fixed" can't be changed. It presses
-    // id + "#add", id + "#remove:" + index and id + "#reveal:" + path, 19
+    // id + "#add", id + "#remove:" + index and id + "#reveal:" + path, 22
     // how track colors show: the title, then `choices` as segmented
     // buttons with a small preview of the `chosen` one beside them.
     kind: int,
@@ -117,6 +117,15 @@ export global ImportWizard {
     in property <string> next-label: "Next";
     in property <bool> can-next: true;
     in property <bool> can-back;
+}
+
+// The plugins that couldn't be loaded, in a console-like window over
+// Settings: each file's path and why, for whoever wants to look into it.
+// Its buttons press "audio_plugin_retry_all" and "audio_plugin_errors_close".
+export global PluginErrors {
+    in-out property <bool> open;
+    in property <string> title;
+    in property <string> text;
 }
 
 // Line icons on a 24-unit grid.
@@ -425,7 +434,7 @@ component FolderIcon inherits Path {
     commands: "M 1 2.5 Q 1 1 2.5 1 L 6 1 L 7.5 2.5 L 13.5 2.5 Q 15 2.5 15 4 L 15 11.5 Q 15 13 13.5 13 L 2.5 13 Q 1 13 1 11.5 Z";
 }
 
-// A folder list's icon: a folder, or the sidebar's icon for a stage (its
+// The icon beside a folder list's title: the sidebar's icon for a stage (its
 // node kind: Inbox 10, In Prep 11, Play Ready 19) in the stage's color.
 component StageIcon inherits Rectangle {
     in property <int> kind;
@@ -500,6 +509,8 @@ component FolderList inherits VerticalLayout {
     HorizontalLayout {
         alignment: start;
         spacing: 6px;
+        // A stage's sidebar icon beside its name.
+        if item.chosen != 0: VerticalLayout { alignment: center; StageIcon { kind: item.chosen; } }
         Text { text: item.title; color: Theme.text; font-size: bright ? 15px : 14px; font-weight: 500; vertical-alignment: center; }
         if item.detail != "": VerticalLayout {
             alignment: center;
@@ -546,7 +557,7 @@ component FolderList inherits VerticalLayout {
                     padding-left: 8px;
                     padding-right: 6px;
                     spacing: 8px;
-                    VerticalLayout { alignment: center; StageIcon { kind: item.chosen; } }
+                    VerticalLayout { alignment: center; FolderIcon { } }
                     Text { text: name; color: Theme.text; font-size: 13px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                     // Show in Finder, as djay's arrow does.
                     VerticalLayout {
@@ -862,8 +873,8 @@ export component PrefRow inherits Rectangle {
                 Switch { on: item.on; toggled(on) => { Preferences.toggled(item.id, on); } }
             }
         }
-        if item.kind == 18: FolderList { item: item; bright: bright; }
-        if item.kind == 19: VerticalLayout {
+        if item.kind == 21: FolderList { item: item; bright: bright; }
+        if item.kind == 22: VerticalLayout {
             spacing: 8px;
             if searching: Text { text: item.page-name; color: Theme.accent; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
             Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; }
@@ -877,7 +888,7 @@ export component PrefRow inherits Rectangle {
                 TrackColorPreview { mode: item.chosen; }
             }
         }
-        if item.kind != 7 && item.kind != 11 && item.kind != 12 && item.kind != 16 && item.kind != 17 && item.kind != 18 && item.kind != 19: HorizontalLayout {
+        if item.kind != 7 && item.kind != 11 && item.kind != 12 && item.kind != 16 && item.kind != 17 && item.kind != 21 && item.kind != 22: HorizontalLayout {
             spacing: 16px;
             VerticalLayout {
                 horizontal-stretch: 1;
@@ -1125,6 +1136,74 @@ export component ImportWizardDialog inherits Rectangle {
     }
 }
 
+export component PluginErrorsDialog inherits Rectangle {
+    background: #00000080;
+    TouchArea { clicked => { Preferences.pressed("audio_plugin_errors_close"); } }
+    Rectangle {
+        width: min(760px, root.width - 64px);
+        height: min(520px, root.height - 64px);
+        border-radius: 12px;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 40px;
+        drop-shadow-color: #000000c0;
+        clip: true;
+        TouchArea { }
+        VerticalLayout {
+            padding: 18px;
+            spacing: 10px;
+            HorizontalLayout {
+                Text {
+                    text: PluginErrors.title;
+                    color: Theme.text;
+                    font-size: 16px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    CloseButton { clicked => { Preferences.pressed("audio_plugin_errors_close"); } }
+                }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                border-radius: Theme.radius;
+                background: Theme.well;
+                border-width: 1px;
+                border-color: Theme.separator;
+                clip: true;
+                Flickable {
+                    x: 10px;
+                    y: 8px;
+                    width: parent.width - 20px;
+                    height: parent.height - 16px;
+                    content-height: log.preferred-height;
+                    // Selectable, so it can be copied into a bug report.
+                    log := TextInput {
+                        width: parent.width;
+                        text: PluginErrors.text;
+                        read-only: true;
+                        single-line: false;
+                        wrap: word-wrap;
+                        color: #c8c8cd;
+                        font-family: "Menlo";
+                        font-size: 11px;
+                        selection-background-color: Theme.selection;
+                    }
+                }
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Button { text: "Retry all"; clicked => { Preferences.pressed("audio_plugin_retry_all"); } }
+                Button { text: "Close"; primary: true; clicked => { Preferences.pressed("audio_plugin_errors_close"); } }
+            }
+        }
+    }
+}
+
 export component PreferencesOverlay inherits Rectangle {
     property <bool> searching: Preferences.query != "";
     // Where focus goes after a shortcut edit (Preferences.refocus).
@@ -1242,6 +1321,7 @@ export component PreferencesOverlay inherits Rectangle {
         }
     }
     if ImportWizard.open: ImportWizardDialog { }
+    if PluginErrors.open: PluginErrorsDialog { }
     public function focus-search() {
         search.focus-input();
     }

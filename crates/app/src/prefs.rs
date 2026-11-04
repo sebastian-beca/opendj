@@ -30,8 +30,8 @@ use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use crate::tour::Part;
 use crate::{
     beat_counter_mode, settings, short_port_name, shortcuts, AppWindow, AudioSettings, BeatCounter,
-    ControllerEditor, ImportWizard, InputRow, InputSettings, KeyNotation, PrefItem, Preferences,
-    Tour,
+    ControllerEditor, ImportWizard, InputRow, InputSettings, KeyNotation, PluginErrors, PrefItem,
+    Preferences, Tour,
 };
 
 const AUDIO: i32 = 0;
@@ -98,10 +98,10 @@ const FILTER_BAR: i32 = 16;
 /// (`on`). `action` is its fold arrow, empty when there's nothing to open.
 const SOURCE_ROW: i32 = 17;
 /// A list of folders, by name, with + and − under it (see `folder_list`).
-const FOLDER_LIST: i32 = 18;
+const FOLDER_LIST: i32 = 21;
 /// How track colors show: segmented buttons with a preview beside them.
-const TRACK_COLOR: i32 = 19;
-/// A folder list's icon in `chosen`: the sidebar's stage icons (its node
+const TRACK_COLOR: i32 = 22;
+/// A folder list's title icon in `chosen`: the sidebar's stage icons (its node
 /// kinds), or 0 for a folder.
 const STAGE_ICON_INBOX: i32 = 10;
 const STAGE_ICON_PREP: i32 = 11;
@@ -1489,12 +1489,6 @@ impl Prefs {
         };
         let mut items = Vec::new();
         if tab.is_none_or(|t| t == FOLDERS_TAB) {
-            items.push(item(
-                "",
-                NOTE,
-                "Plugins",
-                "CLAP and VST3 plugins, and Audio Units on a Mac. Effects go in any effect slot: decks, Beat FX, Mic and Aux. Instruments play through the Instrument input in the MIC panel. Each runs in its own helper process, so a plugin that crashes or stalls is switched off and the music keeps playing.",
-            ));
             items.push(folder_list(
                 PLUGIN_FOLDERS_LIST,
                 "Plugin folders",
@@ -1506,25 +1500,19 @@ impl Prefs {
             ));
             items.push(scan.clone());
             if !failures.is_empty() {
-                items.push(item(
-                    "",
-                    HEADING,
-                    &format!(
-                        "COULDN'T BE READ ({}): CRASHED, STALLED OR NOT BUILT FOR THIS COMPUTER",
-                        failures.len()
-                    ),
-                    "",
-                ));
-                for (i, (path, why)) in failures.iter().enumerate() {
-                    let name = path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    items.push(PrefItem {
-                        action: "Retry".into(),
-                        ..item(&format!("audio_plugin_retry:{i}"), BUTTON, &name, why)
-                    });
-                }
+                let n = failures.len();
+                items.push(PrefItem {
+                    action: "Details…".into(),
+                    ..item(
+                        "audio_plugin_errors",
+                        BUTTON,
+                        &format!(
+                            "{n} {} couldn't be loaded",
+                            if n == 1 { "plugin" } else { "plugins" }
+                        ),
+                        "",
+                    )
+                });
             }
         }
         let Some(tab) = tab else {
@@ -2956,12 +2944,39 @@ impl Prefs {
                 folders.remove(i);
             }
             p.set_folders(&folders);
-        } else if let Some(i) = id
-            .strip_prefix("audio_plugin_retry:")
-            .and_then(|i| i.parse::<usize>().ok())
-        {
-            if let Some((path, _)) = p.failures().get(i).cloned() {
+        } else if id == "audio_plugin_errors" {
+            let failures = p.failures();
+            let text: Vec<String> = failures
+                .iter()
+                .map(|(path, why)| format!("{}\n    {why}", path.display()))
+                .collect();
+            if let Some(app) = self.app.upgrade() {
+                let g = app.global::<PluginErrors>();
+                g.set_title(
+                    format!(
+                        "{} {} couldn't be loaded",
+                        failures.len(),
+                        if failures.len() == 1 {
+                            "plugin"
+                        } else {
+                            "plugins"
+                        }
+                    )
+                    .into(),
+                );
+                g.set_text(text.join("\n\n").into());
+                g.set_open(true);
+            }
+        } else if id == "audio_plugin_errors_close" {
+            if let Some(app) = self.app.upgrade() {
+                app.global::<PluginErrors>().set_open(false);
+            }
+        } else if id == "audio_plugin_retry_all" {
+            for (path, _) in p.failures() {
                 p.retry(&path);
+            }
+            if let Some(app) = self.app.upgrade() {
+                app.global::<PluginErrors>().set_open(false);
             }
         } else {
             return false;
@@ -3140,7 +3155,7 @@ impl Prefs {
                 }
             })
             .collect();
-        let mut items = vec![
+        let cache_rows = vec![
             PrefItem {
                 choices: strings(&limits),
                 chosen: SOURCES_CACHE_GB
@@ -3193,13 +3208,17 @@ impl Prefs {
             ..item(&format!("source:{i}"), SOURCE_ROW, title, detail)
         };
 
+        let mut items = Vec::new();
+        items.push(item("", HEADING, "BUILT IN", ""));
+        for name in ["Collection", "Files", "Albums", "Mixed Sets", "Instruments"] {
+            if let Some(i) = place(name) {
+                items.push(row(i, name, 0, "", ""));
+            }
+        }
+        // Everything online in one section: the streaming services, the
+        // stores, the DJ's own servers and free music. Add-ons after.
+        items.push(item("", HEADING, "STREAMING", ""));
         if crate::browser::STREAMING_ENABLED {
-            items.push(item(
-                "",
-                HEADING,
-                "STREAMING SERVICES · BROWSE AND MATCH",
-                "",
-            ));
             for &(source, name, id) in crate::browser::STREAMS.iter() {
                 let signed_in = crate::spotify::Saved::load(&format!("{id}.json"))
                     .is_some_and(|s| !s.refresh_token.is_empty());
@@ -3235,7 +3254,6 @@ impl Prefs {
             }
         }
 
-        items.push(item("", HEADING, "STORES", ""));
         for name in ["Bandcamp", "Beatport"] {
             if let Some(i) = place(name) {
                 let detail = if name == "Bandcamp" {
@@ -3262,17 +3280,20 @@ impl Prefs {
                 2
             }
         };
-        let headings = [
-            "YOUR SERVERS · PLAY FROM THE CACHE",
-            "FREE MUSIC",
-            "ADD-ONS",
-        ];
-        for (k, heading) in headings.into_iter().enumerate() {
+        let mut addons = Vec::new();
+        for k in 0..3 {
             let members: Vec<usize> = (0..self.plugins.len()).filter(|&n| kind(n) == k).collect();
             if members.is_empty() {
                 continue;
             }
-            items.push(item("", HEADING, heading, ""));
+            // Servers and free music join the streaming section; add-ons
+            // get their own, last.
+            let items = if k == 2 {
+                addons.push(item("", HEADING, "ADD-ONS", ""));
+                &mut addons
+            } else {
+                &mut items
+            };
             for n in members {
                 let plugin = &self.plugins[n];
                 let name = plugin.manifest().name;
@@ -3322,19 +3343,8 @@ impl Prefs {
             }
         }
 
-        items.push(item("", HEADING, "BUILT IN", ""));
-        for name in [
-            "Collection",
-            "Files",
-            "Albums",
-            "Mixed Sets",
-            "Instruments",
-            "OneLibrary",
-        ] {
-            if let Some(i) = place(name) {
-                items.push(row(i, name, 0, "", ""));
-            }
-        }
+        items.extend(cache_rows);
+        items.extend(addons);
         items
     }
 
