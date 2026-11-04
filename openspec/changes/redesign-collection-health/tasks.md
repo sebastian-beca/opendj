@@ -8,7 +8,7 @@
 
 ## 2. Area pages
 
-- [ ] 2.1 Problem and Fix (old → new) columns, progress bar
+- [x] 2.1 Problem and Fix (old → new) columns, progress bar
 - [ ] 2.2 Sure vs review split: Fix sure ones in one undo step, Review one by one
 
 ## 3. One by one

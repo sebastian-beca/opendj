@@ -76,6 +76,10 @@ pub const COVER: i32 = 28;
 pub const READY: i32 = 29;
 /// The DJ's own score, from the Prep checklist.
 pub const SCORE: i32 = 30;
+/// In a Collection Health area: what the check found, and what its fix
+/// would do.
+pub const PROBLEM: i32 = 31;
+pub const FIX: i32 = 32;
 /// Tag field `i` (from 0) is column `TAGS + i`.
 pub const TAGS: i32 = 100;
 
@@ -134,6 +138,8 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
         d(CRATES, "Crates", 160.0, false, TAG_WORDS),
         d(ORDER, "#", 34.0, true, DIM),
         d(PLAYED_AT, "Played At", 70.0, false, DIM),
+        d(PROBLEM, "Problem", 190.0, false, TEXT),
+        d(FIX, "Fix", 260.0, false, DIM),
     ]);
     // The checklist's columns, with the Prep layout.
     if crate::PREP_OFFERED {
@@ -163,6 +169,10 @@ pub const HISTORY_DEFAULT: [i32; 8] = [
 pub const PREP_DEFAULT: [i32; 11] = [
     COLOR, RATING_ID, TITLE_ID, ARTIST, BPM, KEY_ID, GRID, CUES, TAGGED, COVER, GENRE,
 ];
+
+/// The columns a Collection Health area shows until the DJ changes them:
+/// what's wrong with each track and what the fix would do.
+pub const HEALTH_DEFAULT: [i32; 6] = [COLOR, TITLE_ID, ARTIST, PROBLEM, FIX, LENGTH];
 
 /// Narrowest a column can be dragged.
 pub const MIN_WIDTH: f32 = 30.0;
@@ -463,13 +473,16 @@ pub fn prep_dots(t: &Track) -> String {
 /// it is in, and where it is in the list shown (see [`InList`]). The title
 /// and rating are drawn from the row itself.
 /// What a row's Prep columns show that the track alone doesn't say.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct PrepFacts {
     /// Whether the file has a cover, once Collection Health has looked.
     pub cover: Option<bool>,
     pub score: Option<u8>,
     /// Checklist lines ticked, of how many.
     pub ready: Option<(usize, usize)>,
+    /// In a Collection Health area: what's wrong, and the fix.
+    pub problem: String,
+    pub fix: String,
 }
 
 pub fn row_cells(
@@ -506,6 +519,8 @@ pub fn row_cells(
                 .unwrap_or_default()
                 .into(),
             SCORE => prep.score.map(|s| s.to_string()).unwrap_or_default().into(),
+            PROBLEM => prep.problem.as_str().into(),
+            FIX => prep.fix.as_str().into(),
             COVER => match prep.cover {
                 Some(true) => "✓".into(),
                 Some(false) => "—".into(),
@@ -621,6 +636,7 @@ pub(super) enum Columns {
     Lists = 0,
     History = 1,
     Prep = 2,
+    Health = 3,
 }
 
 impl Columns {
@@ -629,6 +645,7 @@ impl Columns {
             Columns::Lists => &DEFAULT,
             Columns::History => &HISTORY_DEFAULT,
             Columns::Prep => &PREP_DEFAULT,
+            Columns::Health => &HEALTH_DEFAULT,
         }
     }
 }
@@ -641,7 +658,7 @@ pub(super) struct ColumnState {
     pub layout: Layout,
     /// The other layouts, by [`Columns`]; the one shown is kept in
     /// `layout` and its slot here is stale until it is swapped back.
-    others: [Layout; 3],
+    others: [Layout; 4],
     pub shown: Columns,
 }
 
@@ -669,10 +686,16 @@ impl ColumnState {
             &defs,
             &PREP_DEFAULT,
         );
+        let health = Layout::new_or(
+            settings::health_columns(),
+            settings::hidden_health_columns(),
+            &defs,
+            &HEALTH_DEFAULT,
+        );
         ColumnState {
             defs,
             layout,
-            others: [Layout::default(), history, prep],
+            others: [Layout::default(), history, prep, health],
             shown: Columns::Lists,
         }
     }
@@ -700,6 +723,7 @@ impl ColumnState {
             Columns::Lists => settings::set_columns(&self.layout),
             Columns::History => settings::set_history_columns(&self.layout),
             Columns::Prep => settings::set_prep_columns(&self.layout),
+            Columns::Health => settings::set_health_columns(&self.layout),
         }
     }
 

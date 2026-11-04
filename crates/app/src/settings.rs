@@ -891,6 +891,19 @@ pub fn set_prep_columns(layout: &Layout) {
     set_columns_at("prep_columns", "hidden_prep_columns", layout);
 }
 
+/// The columns a Collection Health area shows.
+pub fn health_columns() -> Vec<(i32, f32)> {
+    columns_at("health_columns")
+}
+
+pub fn hidden_health_columns() -> Vec<Hidden> {
+    hidden_at("hidden_health_columns")
+}
+
+pub fn set_health_columns(layout: &Layout) {
+    set_columns_at("health_columns", "hidden_health_columns", layout);
+}
+
 fn set_columns_at(key: &str, hidden_key: &str, layout: &Layout) {
     let list: Vec<Value> = layout
         .shown
