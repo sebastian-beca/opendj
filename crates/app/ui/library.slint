@@ -7,7 +7,7 @@ import { HoverTip } from "controls.slint";
 import { SourceUi, SearchesPanel, SourceResults, SourceSetup } from "sources.slint";
 import { InstrumentsPanel, LiveIcon } from "instruments.slint";
 import { InfoPanel, TrackInfo } from "info.slint";
-import { CuesPanel } from "cues.slint";
+import { CuesPanel, CueList } from "cues.slint";
 import { ChecklistPanel } from "checklist.slint";
 import { FilterBar, FilterUi } from "filters.slint";
 import { TourMark } from "tourmark.slint";
@@ -4421,7 +4421,8 @@ component SidePanel inherits Rectangle {
         height: 40px;
         HorizontalLayout {
             // Each tab as wide as its word, with the room left shared out.
-            for name[i] in ["Automix", "Sidelist", "Related", "Info", "Cues", "Checklist"]: Rectangle {
+            // Cues and Checklist only in the Prep layout.
+            for name[i] in CueList.prep ? ["Automix", "Sidelist", "Related", "Info", "Cues", "Checklist"] : ["Automix", "Sidelist", "Related", "Info"]: Rectangle {
                 horizontal-stretch: 1;
                 preferred-width: tab-word.preferred-width + 8px;
                 min-width: tab-word.preferred-width + 4px;
@@ -4454,11 +4455,11 @@ component SidePanel inherits Rectangle {
         y: tab-bar.height;
         height: parent.height - tab-bar.height;
     }
-    if tab == 4: CuesPanel {
+    if tab == 4 && CueList.prep: CuesPanel {
         y: tab-bar.height;
         height: parent.height - tab-bar.height;
     }
-    if tab == 5: ChecklistPanel {
+    if tab == 5 && CueList.prep: ChecklistPanel {
         y: tab-bar.height;
         height: parent.height - tab-bar.height;
     }

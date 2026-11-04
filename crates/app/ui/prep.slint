@@ -10,6 +10,8 @@ import { DeckInfo, Header, PlayButton } from "deck.slint";
 import { CueList } from "cues.slint";
 
 export global PrepUi {
+    // Whether the Prep layout is offered (off until v0.6).
+    in property <bool> offered: false;
     // The loaded track's stage: 0 none (not in the library, or no
     // stages), 1 Inbox, 2 In Prep, 3 Play Ready.
     in property <int> stage;

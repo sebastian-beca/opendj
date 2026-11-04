@@ -222,6 +222,10 @@ impl Browser {
         };
         let deck = self.cue_deck();
         let prep = app.get_layout() == PREP_LAYOUT;
+        // Cues and Checklist are Prep's tabs: out of Prep, back to Automix.
+        if !prep && app.get_side_tab() > super::info::INFO_TAB as i32 {
+            app.set_side_tab(0);
+        }
         let cues = self.deck_cues(deck);
         let key = (deck, self.loaded[deck], cues.clone(), prep);
         if self.cues.shown.as_ref() == Some(&key) {

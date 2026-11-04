@@ -124,8 +124,6 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
         d(CUES, "Cues", 44.0, true, TEXT),
         d(TAGGED, "Tags", 44.0, false, TEXT),
         d(COVER, "Cover", 48.0, false, TEXT),
-        d(READY, "Ready", 52.0, true, TEXT),
-        d(SCORE, "Score", 48.0, true, TEXT),
         d(PLAYED, "Plays", 48.0, true, DIM),
         d(ADDED, "Added", 86.0, false, DIM),
         d(LAST_PLAYED, "Last Played", 86.0, false, DIM),
@@ -137,6 +135,13 @@ pub fn all(names: &FieldNames) -> Vec<Def> {
         d(ORDER, "#", 34.0, true, DIM),
         d(PLAYED_AT, "Played At", 70.0, false, DIM),
     ]);
+    // The checklist's columns, with the Prep layout.
+    if crate::PREP_OFFERED {
+        out.extend([
+            d(READY, "Ready", 52.0, true, TEXT),
+            d(SCORE, "Score", 48.0, true, TEXT),
+        ]);
+    }
     out
 }
 
@@ -153,8 +158,9 @@ pub const HISTORY_DEFAULT: [i32; 8] = [
 
 /// The columns the In Prep list shows until the DJ changes them: what is
 /// left to prepare on each track.
-pub const PREP_DEFAULT: [i32; 13] = [
-    COLOR, RATING_ID, TITLE_ID, ARTIST, BPM, KEY_ID, GRID, CUES, TAGGED, COVER, READY, SCORE, GENRE,
+/// (Ready and Score come back with the Prep layout, in v0.6.)
+pub const PREP_DEFAULT: [i32; 11] = [
+    COLOR, RATING_ID, TITLE_ID, ARTIST, BPM, KEY_ID, GRID, CUES, TAGGED, COVER, GENRE,
 ];
 
 /// Narrowest a column can be dragged.
