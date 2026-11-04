@@ -304,6 +304,7 @@ impl Browser {
             text: format!("Undo {label} ({n} track{})", if n == 1 { "" } else { "s" }),
             restore: Vec::new(),
             changes: None,
+            relinked: Vec::new(),
         });
         if stage == Stage::Triage {
             let tracks: Vec<Arc<Track>> = picked
@@ -329,6 +330,10 @@ impl Browser {
         };
         if let Some(batch) = undo.changes {
             self.undo_tag_changes(batch);
+            return;
+        }
+        if !undo.relinked.is_empty() {
+            self.unlink(&undo.relinked);
             return;
         }
         let Some(db) = &mut self.db else { return };

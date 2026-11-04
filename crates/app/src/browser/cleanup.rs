@@ -553,6 +553,7 @@ impl Browser {
                         text: format!("Undo {what} ({})", tracks(n)),
                         restore: Vec::new(),
                         changes: Some(batch),
+                        relinked: Vec::new(),
                     });
                 }
                 Err(e) => eprintln!("can't log the changes: {e}"),

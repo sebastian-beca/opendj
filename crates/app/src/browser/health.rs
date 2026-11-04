@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use opendj_engine::{tags, Track};
+use opendj_library::cleanup::Field;
 use opendj_library::dupes::{self, Case, FileFacts, Group};
 use opendj_library::health::{self, Area, Check, Facts};
 use opendj_library::query::Indexed;
@@ -31,10 +32,7 @@ enum Fix {
     ToTriage,
     Analyze,
     FillFromName,
-    Relink,
     TagMix,
-    /// Duplicates: merges every group of copies that is safe to merge.
-    AllEasy,
     /// Merges each listed group into the copy picked to keep.
     KeepBest,
     /// Copies of different lengths stay, linked to each other.
@@ -59,9 +57,7 @@ impl Fix {
             Fix::ToTriage => "Move to In Prep",
             Fix::Analyze => "Analyze",
             Fix::FillFromName => "Fill from file name…",
-            Fix::Relink => "Find files",
             Fix::TagMix => "Tag as #mix",
-            Fix::AllEasy => "Fix all easy",
             Fix::KeepBest => "Keep the best copies",
             Fix::LinkVersions => "Link as versions",
             Fix::CleanUp => "Clean up…",
@@ -82,9 +78,11 @@ fn fixes(check: Check, stages: bool) -> Vec<Fix> {
         Check::Outside => vec![Fix::Remove],
         Check::NotAnalyzed => vec![Fix::Analyze],
         Check::MissingInfo => vec![Fix::LookUp, Fix::FillFromName],
-        Check::Missing => vec![Fix::Relink, Fix::Remove],
+        // The bar's "Fix sure ones" relinks files found once by name,
+        // and merges the easy copies.
+        Check::Missing => vec![Fix::Remove],
         Check::Long => vec![Fix::TagMix],
-        Check::Duplicate => vec![Fix::AllEasy],
+        Check::Duplicate => Vec::new(),
         Check::Junk => vec![Fix::CleanUp, Fix::LookUp],
         Check::NoCover => vec![Fix::FindCovers],
         Check::AlbumTags => vec![Fix::SameAlbum],
@@ -275,6 +273,16 @@ impl Browser {
             })
         });
         let w = with.clone();
+        ui.on_fix_sure(move || {
+            w(&|b| {
+                if let Some(Contents::Area(a)) =
+                    b.nodes.get(b.current_node).map(|n| n.contents.clone())
+                {
+                    b.fix_sure(a);
+                }
+            })
+        });
+        let w = with.clone();
         ui.on_pick_chip(move |i| {
             w(&|b| {
                 let Some(Contents::Area(a)) =
@@ -373,9 +381,6 @@ impl Browser {
         if let Some(c) = chip {
             self.area_chip.insert(area, c);
         }
-        let now = self.area_count(area);
-        let start = self.area_start.entry(area).or_insert(now);
-        *start = (*start).max(now);
         self.health_status.clear();
         self.current_node = n;
         self.folders_focused = false;
@@ -537,8 +542,10 @@ impl Browser {
     /// of those it found then.
     fn area_progress(&self, area: Area) -> (usize, usize) {
         let now = self.area_count(area);
-        let start = self.area_start.get(&area).copied().unwrap_or(now).max(now);
-        (start - now, start)
+        let mut starts = self.area_start.borrow_mut();
+        let start = starts.entry(area).or_insert(now);
+        *start = (*start).max(now);
+        (*start - now, *start)
     }
 
     /// The check whose tracks are listed: a case of copies is Duplicates'.
@@ -680,7 +687,6 @@ impl Browser {
         self.dupe_groups()
             .iter()
             .filter(|g| match fix {
-                Fix::AllEasy => g.case.easy(),
                 Fix::LinkVersions => g.case == Case::Versions,
                 _ => case.map_or(g.case.easy(), |c| g.case == c),
             })
@@ -783,6 +789,7 @@ impl Browser {
                 text: format!("Undo merging {}", copies(n)),
                 restore,
                 changes: None,
+                relinked: Vec::new(),
             });
         }
         self.read_pending_moves();
@@ -847,6 +854,7 @@ impl Browser {
             text: format!("Undo moving {} to Quarantine", tracks(n)),
             restore: ids,
             changes: None,
+            relinked: Vec::new(),
         });
         self.read_pending_moves();
         self.reload_library();
@@ -1074,24 +1082,11 @@ impl Browser {
                 // The track menu has the stage lines already, and "Keep
                 // this copy" instead of fixing every group.
                 let menu: Vec<i32> = (0..offered.len() as i32)
-                    .filter(|&j| !matches!(offered[j as usize], Fix::ToTriage | Fix::AllEasy))
+                    .filter(|&j| offered[j as usize] != Fix::ToTriage)
                     .collect();
                 // Fixes for copies count the groups they merge or link.
                 let counts: Vec<i32> = if Some(c) == listed && c == Check::Duplicate {
                     offered.iter().map(|&f| self.fix_groups(f) as i32).collect()
-                } else if Some(c) == listed && c == Check::Missing {
-                    // Only files found once by name are relinked: the sure ones.
-                    let sure = self
-                        .rows
-                        .iter()
-                        .flatten()
-                        .filter(|&&i| self.relink_match(&self.library[i]).is_ok())
-                        .count();
-                    let listed = self.rows.iter().flatten().count();
-                    offered
-                        .iter()
-                        .map(|&f| if f == Fix::Relink { sure } else { listed } as i32)
-                        .collect()
                 } else {
                     Vec::new()
                 };
@@ -1243,6 +1238,7 @@ impl Browser {
         let (fixed, of) = area.map_or((0, 0), |a| self.area_progress(a));
         ui.set_fixed(fixed as i32);
         ui.set_fixed_of(of as i32);
+        ui.set_sure(area.map_or(0, |a| self.sure_count(a)) as i32);
         ui.set_chip(area.map_or(-1, |a| self.chip_of(a) as i32));
         ui.set_chips(ModelRc::new(VecModel::from(chips)));
     }
@@ -1374,16 +1370,7 @@ impl Browser {
                 format!("Analyzing {} in the background.", tracks(picked.len()))
             }
             Fix::FillFromName => self.review_file_names(indices),
-            Fix::Relink => self.relink(indices),
             Fix::TagMix => self.tag_mix(indices),
-            Fix::AllEasy => {
-                let plan = self
-                    .picked_groups(indices, Case::easy)
-                    .iter()
-                    .map(|g| self.merge_plan(g, g.tracks[0]))
-                    .collect();
-                self.merge(plan)
-            }
             Fix::KeepBest => {
                 let case = self.dupe_view().flatten();
                 let plan = self
@@ -1516,54 +1503,145 @@ impl Browser {
         }
     }
 
-    /// Looks for missing files by name in the stage folders and the music
-    /// folders, and points each track with exactly one match at it.
-    fn relink(&mut self, indices: &[usize]) -> String {
-        let found = files_by_name(&self.relink_roots());
-        let (mut linked, mut many, mut none, mut taken) = (0, 0, 0, 0);
+    /// Missing tracks (indices into `library`) whose file name matches
+    /// exactly one file: the sure relinks, with the file each goes to.
+    fn sure_relinks(&self) -> Vec<(usize, PathBuf)> {
+        self.health_tracks(Check::Missing)
+            .into_iter()
+            .filter_map(|i| Some((i, self.relink_match(&self.library[i]).ok()?.to_path_buf())))
+            .collect()
+    }
+
+    /// What the clean-up rules take out of names that have junk in them,
+    /// as fields to set (indices into `library`).
+    fn sure_junk(&self) -> Vec<(usize, Field, String)> {
+        self.health_tracks(Check::Junk)
+            .into_iter()
+            .flat_map(|i| {
+                self.health
+                    .junk(&self.library[i])
+                    .into_iter()
+                    .map(move |c| (i, c.field, c.new))
+            })
+            .collect()
+    }
+
+    /// How many tracks an area's sure fixes would fix: those with one
+    /// clear answer (a file found once by name, an easy copy, junk the
+    /// rules know). The rest are for review.
+    pub(super) fn sure_count(&self, area: Area) -> usize {
+        match area {
+            Area::Files => self.sure_relinks().len(),
+            Area::Duplicates => self.dupe_faded(None).len(),
+            Area::Info => self
+                .sure_junk()
+                .iter()
+                .map(|c| c.0)
+                .collect::<HashSet<_>>()
+                .len(),
+            Area::Belongs | Area::Prep => 0,
+        }
+    }
+
+    /// Makes an area's sure fixes, as one change the undo line takes back.
+    fn fix_sure(&mut self, area: Area) {
+        if !self.saved() {
+            return;
+        }
+        self.health_status = match area {
+            Area::Files => {
+                let plan = self.sure_relinks();
+                self.relink_sure(&plan)
+            }
+            Area::Duplicates => {
+                let plan = self
+                    .dupe_groups()
+                    .iter()
+                    .filter(|g| g.case.easy())
+                    .map(|g| self.merge_plan(g, g.tracks[0]))
+                    .collect();
+                self.merge(plan)
+            }
+            Area::Info => {
+                let changes = self.sure_junk();
+                self.make_changes(changes, "clean-up")
+            }
+            Area::Belongs | Area::Prep => return,
+        };
+        self.refresh_crates();
+        self.refresh_tree();
+        self.refresh_rows();
+    }
+
+    /// Points missing tracks (indices into `library`) at the files found
+    /// for them, as one change the undo line takes back.
+    fn relink_sure(&mut self, plan: &[(usize, PathBuf)]) -> String {
         let Some(db) = &mut self.db else {
             return String::new();
         };
-        for &i in indices {
-            let t = &self.library[i];
-            let Some(name) = file_path(t).and_then(Path::file_name) else {
+        let (mut relinked, mut taken) = (Vec::new(), 0);
+        for (i, path) in plan {
+            let t = &self.library[*i];
+            let Some(old) = file_path(t).map(Path::to_path_buf) else {
                 continue;
             };
-            let candidates: Vec<&PathBuf> = found
-                .get(&name.to_string_lossy().to_lowercase())
-                .map(|v| v.iter().collect())
-                .unwrap_or_default();
-            match candidates.as_slice() {
-                [one] => match db.relink(t.id, one) {
-                    Ok(()) => linked += 1,
-                    // Another track has that file, with lists or cues of its own.
-                    Err(_) => taken += 1,
-                },
-                [] => none += 1,
-                _ => many += 1,
+            match db.relink(t.id, path) {
+                Ok(()) => relinked.push((t.id, old)),
+                // Another track has that file, with lists or cues of its own.
+                Err(_) => taken += 1,
             }
         }
         self.relink_files = OnceCell::new();
-        let Some(db) = &mut self.db else {
-            return String::new();
-        };
-        if linked > 0 {
+        let n = relinked.len();
+        if n > 0 {
             if let Err(e) = db.assign_stages(&self.folders) {
                 eprintln!("can't give the found files their stage: {e}");
             }
+            self.undo = Some(Undo {
+                batch: None,
+                text: format!("Undo finding {}", tracks(n)),
+                restore: Vec::new(),
+                changes: None,
+                relinked,
+            });
             self.reload_library();
         }
-        let mut s = format!("Found {}.", tracks(linked));
-        if none > 0 {
-            s += &format!(" {none} not found.");
-        }
-        if many > 0 {
-            s += &format!(" {many} matched more than one file, so they were left alone.");
-        }
+        let mut s = format!("Found {}.", tracks(n));
         if taken > 0 {
             s += &format!(" {taken} matched a track your collection has already: see Duplicates.");
         }
         s
+    }
+
+    /// Points tracks found elsewhere back at where they were before. The
+    /// files found join the collection as tracks of their own again, as a
+    /// scan had added them.
+    pub(super) fn unlink(&mut self, back: &[(usize, PathBuf)]) {
+        let found: Vec<Track> = back
+            .iter()
+            .filter_map(|(id, _)| file_path(&self.library[*self.index_of.get(id)?]))
+            .filter(|p| p.exists())
+            .map(|p| opendj_engine::scan::read_track(0, p))
+            .collect();
+        let Some(db) = &mut self.db else { return };
+        let mut n = 0;
+        for (id, old) in back {
+            match db.relink(*id, old) {
+                Ok(()) => n += 1,
+                Err(e) => eprintln!("can't point the track back: {e}"),
+            }
+        }
+        if let Err(e) = db.add_files(&found) {
+            eprintln!("can't add the found files back: {e}");
+        }
+        if let Err(e) = db.assign_stages(&self.folders) {
+            eprintln!("can't give the tracks their stage: {e}");
+        }
+        self.relink_files = OnceCell::new();
+        self.reload_library();
+        self.health_status = format!("{} missing again, as before.", tracks(n));
+        self.refresh_tree();
+        self.refresh_rows();
     }
 
     /// Adds "#mix" to the first tag field of long tracks.
