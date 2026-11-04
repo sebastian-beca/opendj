@@ -18,10 +18,10 @@ use opendj_plugins::source::{
     megabytes, DownloadUpdate, Found, Prefer, Progress, QueryKind, SearchSource, Snapshot,
     SourceInfo, SourceQuery, DOWNLOAD_FOLDER,
 };
-use opendj_plugins::{Plugin, PluginConfig, PluginError};
+use opendj_plugins::{Plugin, PluginConfig, PluginError, Setting, SettingKind};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
-use crate::{AppWindow, FoundRow, QueueLine, SearchItem, SourceTab, SourceUi, StoreUi};
+use crate::{AppWindow, FoundRow, QueueLine, SearchItem, SetupField, SourceTab, SourceUi, StoreUi};
 
 /// Where plugin sources start in the rail, after the built-in ones.
 pub const FIRST_SOURCE: i32 = crate::browser::SOURCE_NAMES.len() as i32;
@@ -364,6 +364,8 @@ struct Source {
     /// Its files can play from a cache (see [`SearchSource::plays`]): the
     /// cache's folder.
     cache: Option<PathBuf>,
+    /// Its settings, for the set-up form shown until it is set up.
+    settings: Vec<Setting>,
 }
 
 impl Source {
@@ -447,6 +449,10 @@ pub struct Sources {
     /// A copy of each source for the UI thread, to describe queries
     /// while the DJ types without waiting on the source's own thread.
     describers: Vec<Box<dyn Plugin>>,
+    /// What the DJ typed in the shown source's set-up form, by setting.
+    setup_values: HashMap<String, String>,
+    /// What the last Connect on the set-up form said.
+    setup_status: String,
     /// Files to load onto a deck, once the frame loop takes them.
     loads: Vec<PathBuf>,
     /// Files to load once they're in the cache, by source and key.
@@ -465,6 +471,7 @@ impl Sources {
                 let sites = plugin.source().map(|s| s.sites()).unwrap_or_default();
                 let plays = plugin.source().is_some_and(|s| s.plays());
                 let cache = plays.then(|| cache_dir(info.name)).flatten();
+                let settings = plugin.settings();
                 let (requests, rx) = channel();
                 let (tx, library) = (tx.clone(), library.clone());
                 std::thread::Builder::new()
@@ -479,6 +486,7 @@ impl Sources {
                     searches: Vec::new(),
                     downloads: Vec::new(),
                     cache,
+                    settings,
                 }
             })
             .collect();
@@ -515,6 +523,8 @@ impl Sources {
             music: opendj_engine::scan::default_music_dir(),
             list: list.clone(),
             describers: source_plugins().into_iter().map(|(p, _)| p).collect(),
+            setup_values: HashMap::new(),
+            setup_status: String::new(),
             loads: Vec::new(),
             play_after: HashSet::new(),
         };
@@ -560,6 +570,22 @@ impl Sources {
             let query = query(&text, kind, prefer);
             w(Box::new(move |s| s.add_search(query.clone(), auto)))
         });
+        let w = with.clone();
+        ui.on_setup_typed(move |key, text| {
+            let (key, text) = (key.to_string(), text.to_string());
+            w(Box::new(move |s| {
+                s.setup_values.insert(key.clone(), text.clone());
+            }))
+        });
+        let weak = app.as_weak();
+        ui.on_open_settings(move || {
+            if let Some(app) = weak.upgrade() {
+                app.global::<crate::Preferences>()
+                    .invoke_show(crate::prefs::SOURCES_PAGE);
+            }
+        });
+        let w = with.clone();
+        ui.on_setup_connect(move || w(Box::new(|s| s.setup_connect())));
         let w = with.clone();
         ui.on_select_search(move |i| w(Box::new(move |s| s.select(i))));
         let w = with.clone();
@@ -619,6 +645,30 @@ impl Sources {
     /// Takes in what the sources have done, and follows the rail. Called
     /// every frame; returns tracks that joined the library.
     /// The DJ changed plugin `id`'s settings: its source hears of it.
+    /// Connect on the shown source's set-up form: what was typed is saved
+    /// as its settings, and the source told; the form goes once every field
+    /// it needs is filled.
+    fn setup_connect(&mut self) {
+        let Some(s) = self.shown else {
+            return;
+        };
+        let id = self.sources[s].id;
+        for (key, value) in self.setup_values.drain() {
+            let value = value.trim();
+            if !value.is_empty() {
+                crate::settings::set_plugin_value(id, &key, value);
+            }
+        }
+        self.configure(id);
+        let config = crate::settings::plugin_config(id);
+        self.setup_status = if needs_setup(&self.sources[s].settings, &config) {
+            "Fill in every field first.".into()
+        } else {
+            String::new()
+        };
+        self.refresh();
+    }
+
     pub fn configure(&mut self, id: &str) {
         let config = crate::settings::plugin_config(id);
         for source in self.sources.iter().filter(|s| s.id == id) {
@@ -720,6 +770,8 @@ impl Sources {
                 .filter(|&s| s < self.sources.len());
             if shown != self.shown {
                 self.shown = shown;
+                self.setup_values.clear();
+                self.setup_status.clear();
                 self.search = shown
                     .filter(|&s| !self.sources[s].searches.is_empty())
                     .map(|_| 0);
@@ -1276,6 +1328,43 @@ impl Sources {
         ui.set_searches(ModelRc::new(VecModel::from(items)));
         ui.set_current_search(self.search.map_or(-1, |i| i as i32));
         ui.set_plays(source.cache.is_some());
+        let config = crate::settings::plugin_config(source.id);
+        let fields: Vec<SetupField> = if needs_setup(&source.settings, &config) {
+            source
+                .settings
+                .iter()
+                .filter(|f| matches!(f.kind, SettingKind::Text | SettingKind::Secret))
+                .filter(|f| f.key != DOWNLOAD_FOLDER)
+                .map(|f| SetupField {
+                    key: f.key.into(),
+                    title: f.title.as_str().into(),
+                    detail: f.detail.as_str().into(),
+                    secret: f.kind == SettingKind::Secret,
+                    value: self
+                        .setup_values
+                        .get(f.key)
+                        .map(String::as_str)
+                        .unwrap_or_default()
+                        .into(),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let intro = source
+            .settings
+            .iter()
+            .find(|f| f.kind == SettingKind::Note)
+            .map(|f| f.detail.clone())
+            .unwrap_or_default();
+        // Set anew only when it changes, so a field being typed in keeps
+        // its focus.
+        let old: Vec<SetupField> = ui.get_setup().iter().collect();
+        if old.len() != fields.len() || old.iter().zip(&fields).any(|(a, b)| a.key != b.key) {
+            ui.set_setup(ModelRc::new(VecModel::from(fields)));
+        }
+        ui.set_setup_intro(intro.into());
+        ui.set_setup_status(self.setup_status.as_str().into());
         ui.set_queue_shown(!source.downloads.is_empty());
         ui.set_grouped(
             self.current()
@@ -1628,6 +1717,16 @@ fn place(searches: &[Search], added: u64) -> usize {
         .unwrap_or(searches.len())
 }
 
+/// Whether a source with these settings still needs some filled in: a
+/// text or password field (not its download folder) left empty.
+pub fn needs_setup(settings: &[Setting], config: &PluginConfig) -> bool {
+    settings.iter().any(|s| {
+        matches!(s.kind, SettingKind::Text | SettingKind::Secret)
+            && s.key != DOWNLOAD_FOLDER
+            && config.get(s.key).trim().is_empty()
+    })
+}
+
 /// Where playing sources keep their caches: `sources` in the app's cache
 /// folder, one folder per source.
 fn caches_root() -> Option<PathBuf> {
@@ -1969,6 +2068,29 @@ mod tests {
     }
 
     #[test]
+    fn needs_setup_until_every_field_is_filled() {
+        let settings = vec![
+            Setting::new("", SettingKind::Note, "About", "A note"),
+            Setting::new("server", SettingKind::Text, "Server", ""),
+            Setting::new("token", SettingKind::Secret, "Token", ""),
+            Setting::new(DOWNLOAD_FOLDER, SettingKind::Folder, "Folder", ""),
+        ];
+        let mut config = PluginConfig::default();
+        assert!(needs_setup(&settings, &config));
+        config
+            .values
+            .insert("server".into(), "http://x:32400".into());
+        config.values.insert("token".into(), "  ".into());
+        assert!(needs_setup(&settings, &config), "blank isn't filled in");
+        config.values.insert("token".into(), "abc".into());
+        assert!(
+            !needs_setup(&settings, &config),
+            "the folder may stay empty"
+        );
+        assert!(!needs_setup(&[], &config), "nothing to fill in");
+    }
+
+    #[test]
     fn keeps_a_cached_file() {
         let dir = std::env::temp_dir().join(format!("opendj-keep-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -2090,6 +2212,7 @@ mod tests {
             searches: Vec::new(),
             downloads: Vec::new(),
             cache: None,
+            settings: Vec::new(),
         };
         let progress = |key: &str, progress| Download {
             key: key.into(),

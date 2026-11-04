@@ -62,8 +62,30 @@ export struct QueueLine {
     progress: float,
 }
 
+// A field of a source's set-up form, shown in its panel until it is set
+// up.
+export struct SetupField {
+    // Names the setting.
+    key: string,
+    title: string,
+    detail: string,
+    // Typed hidden: a password or token.
+    secret: bool,
+    // What was typed so far.
+    value: string,
+}
+
 export global SourceUi {
     in property <[SourceTab]> sources;
+    // The shown source's set-up form, empty once it is set up; what it is,
+    // and what the last Connect did.
+    in property <[SetupField]> setup;
+    in property <string> setup-intro;
+    in property <string> setup-status;
+    callback setup-typed(key: string, text: string);
+    callback setup-connect();
+    // Opens Settings › Sources.
+    callback open-settings();
     in property <[SearchItem]> searches;
     // The search shown; -1 is the Downloads list.
     in property <int> current-search: -1;
@@ -856,6 +878,50 @@ export component SourceResults inherits Rectangle {
                         SourceUi.search(dialog-text, dialog-kind, dialog-prefer, dialog-kind == 0 || dialog-kind == 4 ? dialog-auto : false);
                         SourceUi.dialog-open = false;
                     }
+                }
+            }
+        }
+    }
+}
+
+// A source that isn't set up yet: its settings, as on Settings › Sources,
+// in the middle of its panel, like the streaming services' sign-in card.
+export component SourceSetup inherits Rectangle {
+    in property <string> source-name;
+    background: Theme.panel;
+    VerticalLayout {
+        alignment: center;
+        HorizontalLayout {
+            alignment: center;
+            VerticalLayout {
+                width: 420px;
+                spacing: 10px;
+                Text { text: "Set up " + source-name; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; }
+                if SourceUi.setup-intro != "": Text { text: SourceUi.setup-intro; color: Theme.text-dim; font-size: 13px; horizontal-alignment: center; wrap: word-wrap; }
+                for field in SourceUi.setup: VerticalLayout {
+                    spacing: 4px;
+                    Text { text: field.title; color: Theme.text-dim; font-size: 12px; }
+                    LineEdit {
+                        text: field.value;
+                        input-type: field.secret ? InputType.password : InputType.text;
+                        edited(text) => { SourceUi.setup-typed(field.key, text); }
+                    }
+                    if field.detail != "": Text { text: field.detail; color: Theme.text-dim; font-size: 11px; wrap: word-wrap; }
+                }
+                Rectangle {
+                    height: 32px;
+                    border-radius: 16px;
+                    background: connect.pressed ? Theme.lilac-dim : Theme.lilac;
+                    Text { text: "Connect"; color: #000000; font-size: 13px; font-weight: 700; }
+                    connect := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.setup-connect(); } }
+                }
+                if SourceUi.setup-status != "": Text { text: SourceUi.setup-status; color: Theme.text; font-size: 13px; horizontal-alignment: center; wrap: word-wrap; }
+                Text {
+                    text: "Download folder and cache: Settings › Sources";
+                    color: more.has-hover ? Theme.text : Theme.text-dim;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    more := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.open-settings(); } }
                 }
             }
         }

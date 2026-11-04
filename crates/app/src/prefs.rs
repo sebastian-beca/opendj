@@ -50,6 +50,8 @@ const MIXER: i32 = 5;
 /// Where music comes from: the rail's sources, their sign-ins, download
 /// folders and the cache they share.
 const SOURCES: i32 = 6;
+/// Settings › Sources, for opening it from elsewhere.
+pub const SOURCES_PAGE: i32 = SOURCES;
 /// CLAP, VST3 and AU plugins.
 const AUDIO_PLUGINS: i32 = 7;
 /// Settings › Plugins' tabs.
@@ -3272,11 +3274,7 @@ impl Prefs {
                 let plugin = &self.plugins[n];
                 let name = plugin.manifest().name;
                 let config = settings::plugin_config(plugin.manifest().id);
-                let set_up = plugin.settings().iter().all(|s| {
-                    !matches!(s.kind, SettingKind::Text | SettingKind::Secret)
-                        || s.key == DOWNLOAD_FOLDER
-                        || !config.get(s.key).trim().is_empty()
-                });
+                let set_up = !crate::sources::needs_setup(&plugin.settings(), &config);
                 let mut detail = if !set_up {
                     "Not set up".to_string()
                 } else if self.plugin_plays[n] {
