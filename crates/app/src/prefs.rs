@@ -480,7 +480,7 @@ pub struct Prefs {
     /// The inputs table's rows last shown, and what each row's menus
     /// offered: the devices ("" for None), and the first channel of each
     /// choice and whether it is mono.
-    input_menus: Vec<(InputRole, Vec<String>, Vec<(u16, bool)>)>,
+    input_menus: Vec<InputMenus>,
     /// Auxiliary rows after the first that + added and that have no device
     /// yet: 0 to 2.
     aux_added: usize,
@@ -749,8 +749,9 @@ impl Prefs {
         }
     }
 
-    /// + or − under a list of folders, or a folder's reveal arrow. + opens
-    /// the folder picker under the id the picked folder is handled by.
+    /// The plus or minus under a list of folders, or a folder's reveal
+    /// arrow. Plus opens the folder picker under the id the picked folder
+    /// is handled by.
     fn folder_list_pressed(&mut self, id: &str) -> bool {
         let Some((list, what)) = id.split_once('#') else {
             return false;
@@ -4775,6 +4776,26 @@ fn system_dialog(prompt: &str, folder: bool) -> Option<PathBuf> {
     }
 }
 
+/// The channels an input can take from a device with `channels` of them:
+/// each one for the microphone; each pair, then each one (mono), for an
+/// auxiliary input.
+fn channel_choices(role: InputRole, channels: u16) -> Vec<(u16, bool)> {
+    let mut out = Vec::new();
+    if role.can_be_stereo() {
+        out.extend(
+            (0..channels.saturating_sub(1))
+                .step_by(2)
+                .map(|c| (c, false)),
+        );
+    }
+    out.extend((0..channels).map(|c| (c, true)));
+    out
+}
+
+/// An inputs table row's input, its devices ("" for None), and each
+/// channel choice's first channel and whether it is mono.
+type InputMenus = (InputRole, Vec<String>, Vec<(u16, bool)>);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4849,20 +4870,4 @@ mod tests {
         let other: ModelRc<PrefItem> = ModelRc::default();
         assert!(!patch_rows(&other, &new));
     }
-}
-
-/// The channels an input can take from a device with `channels` of them:
-/// each one for the microphone; each pair, then each one (mono), for an
-/// auxiliary input.
-fn channel_choices(role: InputRole, channels: u16) -> Vec<(u16, bool)> {
-    let mut out = Vec::new();
-    if role.can_be_stereo() {
-        out.extend(
-            (0..channels.saturating_sub(1))
-                .step_by(2)
-                .map(|c| (c, false)),
-        );
-    }
-    out.extend((0..channels).map(|c| (c, true)));
-    out
 }
