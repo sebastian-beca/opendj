@@ -65,6 +65,17 @@ export global Theme {
             : kind == 19 ? root.stage-ready
             : root.text
     }
+    // A Collection Health area's state: 0 clear, 1 to look at, 2 won't
+    // play, 3 a goal.
+    out property <color> health-clear: #83d494;
+    out property <color> health-check: #ead070;
+    out property <color> health-problem: #ff6961;
+    public pure function health-state(state: int) -> color {
+        state == 0 ? root.health-clear
+            : state == 1 ? root.health-check
+            : state == 2 ? root.health-problem
+            : root.lilac
+    }
     // A track's stage colour, as `LibraryEdit.stage-of` numbers them
     // (1 Inbox, 2 In Prep, 3 Play Ready).
     public pure function stage-color(stage: int) -> color {

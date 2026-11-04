@@ -18,7 +18,7 @@ use opendj_engine::key::{self, Key};
 use opendj_engine::scan::{is_audio, read_track};
 use opendj_engine::{deck_group, AudioEngine, Hotcue, Track, NUM_DECKS, NUM_HOTCUES};
 use opendj_library::dupes::{Case, Group};
-use opendj_library::health::{Check, Facts};
+use opendj_library::health::{Area, Check, Facts};
 use opendj_library::query::{self, Context, Indexed, Query};
 use opendj_library::sets::is_crate;
 use opendj_library::stages::{Folders, Stage};
@@ -133,6 +133,9 @@ enum Contents {
     /// The groups of copies of one case, under Collection Health's
     /// Duplicates (see [`opendj_library::dupes`]).
     Dupes(Case),
+    /// One of Collection Health's areas: the tracks of the check (or case
+    /// of copies) picked on its chips.
+    Area(Area),
 }
 
 /// Whether the streaming services that are built (Spotify, TIDAL) can be
@@ -421,7 +424,8 @@ const KIND_INBOX: i32 = 10;
 const KIND_TRIAGE: i32 = 11;
 /// Collection Health, and one of its checks.
 const KIND_HEALTH: i32 = 12;
-const KIND_CHECK: i32 = 13;
+/// One of Collection Health's areas, drawn as a dot in its state's colour.
+const KIND_AREA: i32 = 21;
 /// A set: a folder made for one gig, drawn in lilac.
 /// One of the DJ's crates, and the Crates and Playlists headings.
 const KIND_CRATE: i32 = 17;
@@ -553,6 +557,9 @@ pub struct Browser {
     /// The collection's tree shows Collection Health's checks, picked in
     /// the rail.
     health_view: bool,
+    /// The chip picked on each Collection Health area (an index into
+    /// `health::area_chips`); unpicked, the first with tracks.
+    area_chip: HashMap<Area, usize>,
     /// The node selected on the other tab, to go back to.
     other_tab_node: usize,
     /// The list or history session the sort was last set up for: each
@@ -1172,6 +1179,7 @@ impl Browser {
             deck_track: None,
             history_tab: false,
             health_view: false,
+            area_chip: HashMap::new(),
             other_tab_node: 0,
             sorted_list: None,
             view_sort: (1, true),
@@ -4174,7 +4182,10 @@ impl Browser {
                     stage: matches!(n.contents, Contents::Stage(..)),
                     separator: n.separator,
                     color: n.color.map_or(-1, |c| c as i32),
-                    icon: n.icon as i32,
+                    icon: match n.contents {
+                        Contents::Area(a) => self.area_state(a) as i32,
+                        _ => n.icon as i32,
+                    },
                     count: match &n.contents {
                         Contents::All if self.saved() && self.tree == COLLECTION => {
                             self.library
@@ -4192,6 +4203,7 @@ impl Browser {
                             .count() as i32,
                         Contents::Health(Some(check)) => self.health_count(*check) as i32,
                         Contents::Dupes(case) => self.dupe_tracks(Some(*case)).len() as i32,
+                        Contents::Area(a) => self.area_count(*a) as i32,
                         _ => -1,
                     },
                 }
@@ -4373,7 +4385,7 @@ impl Browser {
         let Some(node) = self.nodes.get(i) else {
             return Vec::new();
         };
-        match &node.contents {
+        match &self.resolved(&node.contents) {
             Contents::Stream(_) | Contents::Store(_) | Contents::OtherStores | Contents::Wanted => {
                 Vec::new()
             }
@@ -4404,7 +4416,7 @@ impl Browser {
             Contents::Health(Some(Check::Duplicate)) => self.dupe_tracks(None),
             Contents::Dupes(case) => self.dupe_tracks(Some(*case)),
             Contents::Health(Some(check)) => self.health_tracks(*check),
-            Contents::Health(None) => Vec::new(),
+            Contents::Health(None) | Contents::Area(_) => Vec::new(),
             Contents::Grouping(g) => all()
                 .into_iter()
                 .filter(|&t| self.library[t].info.grouping == *g)
