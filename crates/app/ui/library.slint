@@ -2120,20 +2120,37 @@ component FolderTree inherits Rectangle {
     callback spotify-copy();
     // Fetch the streaming service's playlists again.
     callback spotify-refresh();
-    // The node being named, and the name typed so far.
+    // The smart list whose search the popup is editing, and the search.
     property <int> rename-index: -1;
     property <string> rename-text;
-    // The popup edits a smart list's search rather than a name.
-    property <bool> editing-rule;
-    // A search just saved as a smart list: ask what to call it.
+    // The row being named in place, as in Finder, and the name typed so far.
+    property <int> naming-row: -1;
+    property <string> naming-text;
+    // Opens the name editor on a row with its name selected, so typing
+    // replaces it and Esc keeps it.
+    function name-in-place(row: int) {
+        if row >= 0 && row < folders.length {
+            naming-text = folders[row].name;
+            naming-row = row;
+        }
+    }
+    // Enter or a click elsewhere keeps what was typed; Esc keeps the old name.
+    function finish-naming(keep: bool) {
+        if naming-row >= 0 {
+            let row = naming-row;
+            naming-row = -1;
+            if keep && naming-text != folders[row].name {
+                LibraryEdit.rename(row, naming-text);
+            }
+        }
+    }
+    // A search just saved as a smart list: name it in place.
     property <int> name-row: LibraryEdit.name-row;
     changed name-row => {
         if name-row >= 0 {
-            rename-index = name-row;
-            rename-text = "";
-            editing-rule = false;
+            let row = name-row;
             LibraryEdit.name-row = -1;
-            rename-popup.show();
+            name-in-place(row);
         }
     }
     // The node the right-click menu is for, and where it opens.
@@ -2158,11 +2175,8 @@ component FolderTree inherits Rectangle {
             MenuLine {
                 text: "Playlist";
                 clicked => {
-                    rename-index = LibraryEdit.create(2, -1);
-                    rename-text = "";
-                    editing-rule = false;
                     add-menu.close();
-                    if rename-index >= 0 { rename-popup.show(); }
+                    name-in-place(LibraryEdit.create(2, -1));
                 }
             }
             MenuLine {
@@ -2177,11 +2191,8 @@ component FolderTree inherits Rectangle {
             MenuLine {
                 text: "Playlist Folder";
                 clicked => {
-                    rename-index = LibraryEdit.create(1, -1);
-                    rename-text = "";
-                    editing-rule = false;
                     add-menu.close();
-                    if rename-index >= 0 { rename-popup.show(); }
+                    name-in-place(LibraryEdit.create(1, -1));
                 }
             }
         }
@@ -2259,21 +2270,15 @@ component FolderTree inherits Rectangle {
             if menu-editable && menu-kind == 1: MenuLine {
                 text: "New Playlist";
                 clicked => {
-                    rename-index = LibraryEdit.create(2, menu-index);
-                    rename-text = "";
-                    editing-rule = false;
                     folder-menu.close();
-                    if rename-index >= 0 { rename-popup.show(); }
+                    name-in-place(LibraryEdit.create(2, menu-index));
                 }
             }
             if menu-editable && menu-kind == 1: MenuLine {
                 text: "New Folder";
                 clicked => {
-                    rename-index = LibraryEdit.create(1, menu-index);
-                    rename-text = "";
-                    editing-rule = false;
                     folder-menu.close();
-                    if rename-index >= 0 { rename-popup.show(); }
+                    name-in-place(LibraryEdit.create(1, menu-index));
                 }
             }
             if (menu-analysable || menu-kind == 1) && menu-editable: MenuSeparator {}
@@ -2351,11 +2356,8 @@ component FolderTree inherits Rectangle {
             if menu-editable: MenuLine {
                 text: "Rename…";
                 clicked => {
-                    rename-index = menu-index;
-                    rename-text = menu-name;
-                    editing-rule = false;
                     folder-menu.close();
-                    rename-popup.show();
+                    name-in-place(menu-index);
                 }
             }
             if menu-editable && menu-kind == 3: MenuLine {
@@ -2363,7 +2365,6 @@ component FolderTree inherits Rectangle {
                 clicked => {
                     rename-index = menu-index;
                     rename-text = LibraryEdit.rule-at(menu-index);
-                    editing-rule = true;
                     folder-menu.close();
                     rename-popup.show();
                 }
@@ -2423,13 +2424,12 @@ component FolderTree inherits Rectangle {
         VerticalLayout {
             padding: 8px;
             spacing: 6px;
-            Text { text: editing-rule ? "Search" : "Name"; color: Theme.text-dim; font-size: 12px; }
-            name-edit := LineEdit {
+            Text { text: "Search"; color: Theme.text-dim; font-size: 12px; }
+            LineEdit {
                 text <=> rename-text;
-                placeholder-text: editing-rule ? "bpm:120-128 ~key:8A" : "Untitled";
+                placeholder-text: "bpm:120-128 ~key:8A";
                 accepted(t) => {
-                    if editing-rule { LibraryEdit.set-rule(rename-index, t); }
-                    else if t != "" { LibraryEdit.rename(rename-index, t); }
+                    LibraryEdit.set-rule(rename-index, t);
                     rename-popup.close();
                 }
                 init => { self.focus(); }
@@ -2447,8 +2447,7 @@ component FolderTree inherits Rectangle {
                     text: "OK";
                     text-color: Theme.accent;
                     clicked => {
-                        if editing-rule { LibraryEdit.set-rule(rename-index, rename-text); }
-                        else if rename-text != "" { LibraryEdit.rename(rename-index, rename-text); }
+                        LibraryEdit.set-rule(rename-index, rename-text);
                         rename-popup.close();
                     }
                 }
@@ -2572,7 +2571,44 @@ component FolderTree inherits Rectangle {
                         }
                         // The Crates and Playlists headings have no icon.
                         if f.kind != 18: VerticalLayout { alignment: center; FolderIcon { kind: f.kind; tint: f.color; icon: f.icon; } }
-                        Text {
+                        // A new or renamed list is named right here.
+                        if i == naming-row: VerticalLayout {
+                            alignment: center;
+                            padding-right: 4px;
+                            horizontal-stretch: 1;
+                            Rectangle {
+                                height: 26px;
+                                border-radius: 4px;
+                                background: Theme.well;
+                                name-input := TextInput {
+                                    x: 6px;
+                                    width: parent.width - 12px;
+                                    text <=> naming-text;
+                                    color: Theme.text;
+                                    selection-background-color: Theme.accent;
+                                    selection-foreground-color: #ffffff;
+                                    font-size: 15px;
+                                    vertical-alignment: center;
+                                    single-line: true;
+                                    accepted => { finish-naming(true); }
+                                    key-pressed(e) => {
+                                        if e.text == Key.Escape {
+                                            finish-naming(false);
+                                            return accept;
+                                        }
+                                        reject
+                                    }
+                                    changed has-focus => {
+                                        if !self.has-focus { finish-naming(true); }
+                                    }
+                                    init => {
+                                        self.focus();
+                                        self.select-all();
+                                    }
+                                }
+                            }
+                        }
+                        if i != naming-row: Text {
                             text: f.name;
                             color: i == current ? Theme.on-row-selection : f.kind == 18 ? Theme.text-dim : Theme.stage-labels ? Theme.stage-tint(f.kind) : Theme.text;
                             font-size: f.kind == 18 ? 13px : 15px;
@@ -2600,10 +2636,7 @@ component FolderTree inherits Rectangle {
                                         add-y = self.absolute-position.y - root.absolute-position.y + self.height;
                                         add-menu.show();
                                     } else {
-                                        rename-index = LibraryEdit.create(0, -1);
-                                        rename-text = "";
-                                        editing-rule = false;
-                                        if rename-index >= 0 { rename-popup.show(); }
+                                        name-in-place(LibraryEdit.create(0, -1));
                                     }
                                 }
                             }
