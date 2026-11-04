@@ -63,6 +63,7 @@ mod map_mode;
 mod mixcloud;
 mod mixcloud_upload;
 mod prefs;
+mod quick_search;
 mod remote;
 mod sampler;
 mod settings;
@@ -652,6 +653,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // The Player layout's search box in the top bar.
+    let quick = Rc::new(RefCell::new(quick_search::Quick::install(&app, &browser)));
+
     // The phone remote: REMOTE in the top bar.
     let remote = Rc::new(RefCell::new(remote::Remote::new(&registry)));
     remote::Remote::install(&remote, &app);
@@ -1120,6 +1124,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &tracks,
                     dt.min(0.1),
                 );
+                quick
+                    .borrow_mut()
+                    .tick(&app, &mut automix.borrow_mut(), &mut b, &tracks);
                 automix.borrow().show(&app, &tracks);
                 let automix_spans = automix.borrow().spans(&tracks);
                 drop(b);
