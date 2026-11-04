@@ -4,7 +4,7 @@ import { TourMark } from "tourmark.slint";
 import { Controls, VuMeter, ControlKnob, HoverTipView, HoverTip } from "controls.slint";
 import { Deck, DeckInfo, KeyItem, EffectList, FxRow, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit } from "deck.slint";
 import { Mixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } from "mixer.slint";
-import { MasterPanel, MicPanel, Loudness, OnAirPanel, BroadcastState, BroadcastStation, AirTime } from "toppanels.slint";
+import { MasterPanel, MicPanel, OnAirPanel, BroadcastState, BroadcastStation, AirTime } from "toppanels.slint";
 import { PlayerBar, PlayerDeck, PlayerMixer, TopSearch, QuickResults, QuickSearch, QuickRow } from "player.slint";
 export { QuickSearch, QuickRow } from "player.slint";
 import { PrepDeck, PrepUi } from "prep.slint";
@@ -13,7 +13,7 @@ import { ChecklistUi } from "checklist.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { FxBar } from "fxbar.slint";
 import { InstrumentsUi, LiveItem } from "instruments.slint";
-import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, MenuTag, StoreUi, StreamMatch, WantedUi, FilesUi, AlbumsUi, AlbumTile, ColumnUi, ListColumn, HealthUi, HealthCard, CleanupUi, CleanupRow, FixNamesUi, GenreRow } from "library.slint";
+import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, MenuTag, StoreUi, StreamMatch, WantedUi, FilesUi, AlbumsUi, AlbumTile, ColumnUi, ListColumn, HealthUi, HealthCard, HealthStage, HealthLine, HealthArea, HealthChip, CleanupUi, CleanupRow, FixNamesUi, GenreRow } from "library.slint";
 import { Preferences, PreferencesOverlay, PrefItem, ImportWizard } from "preferences.slint";
 import { UsbExport, UsbExportDialog } from "usb_export.slint";
 import { Tour, TourSetup, TourSetupDialog, TourTip, TourOffer } from "tour.slint";
@@ -34,7 +34,7 @@ export { ChecklistUi, CheckRow } from "checklist.slint";
 export { RemoteUi, RemoteDevice }
 export { MixerMode, InputSettings, InputRow }
 export { BroadcastState, BroadcastStation }
-export { InstrumentsUi, LiveItem, Theme, Controls, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit, AudioSettings, OutputRow, EffectList, FxRow, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, MenuTag, StoreUi, StreamMatch, WantedUi, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, CleanupUi, CleanupRow, FixNamesUi, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, EditorSetting, UsbExport }
+export { InstrumentsUi, LiveItem, Theme, Controls, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit, AudioSettings, OutputRow, EffectList, FxRow, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, MenuTag, StoreUi, StreamMatch, WantedUi, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, HealthStage, HealthLine, HealthArea, HealthChip, CleanupUi, CleanupRow, FixNamesUi, GenreRow, Preferences, PrefItem, ImportWizard, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, EditorSetting, UsbExport }
 
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
 // the track under the pointer, like a hand on a record, and drag left or
@@ -219,58 +219,6 @@ component MicButton inherits Rectangle {
     }
 }
 
-// The MIDI Association's MIDI wordmark, drawn from blocks (a Path this
-// small loses the gaps between its letters). Its height sets its size.
-component MidiLogo inherits Rectangle {
-    in property <color> ink;
-    // One unit of the 1424 × 532 drawing.
-    property <length> u: self.height / 532;
-    width: 1424 * u;
-    Rectangle { x: 0 * u; y: 0 * u; width: 529 * u; height: 134 * u; background: root.ink; border-top-right-radius: 62 * u; }
-    Rectangle { x: 0 * u; y: 134 * u; width: 130 * u; height: 398 * u; background: root.ink; }
-    Rectangle { x: 205 * u; y: 134 * u; width: 118 * u; height: 398 * u; background: root.ink; }
-    Rectangle { x: 398 * u; y: 60 * u; width: 131 * u; height: 472 * u; background: root.ink; }
-    Rectangle { x: 592 * u; y: 0 * u; width: 130 * u; height: 532 * u; background: root.ink; }
-    Rectangle { x: 784 * u; y: 0 * u; width: 448 * u; height: 121 * u; background: root.ink; border-top-right-radius: 62 * u; }
-    Rectangle { x: 1102 * u; y: 60 * u; width: 130 * u; height: 412 * u; background: root.ink; }
-    Rectangle { x: 784 * u; y: 402 * u; width: 448 * u; height: 130 * u; background: root.ink; border-bottom-right-radius: 62 * u; }
-    Rectangle { x: 784 * u; y: 194 * u; width: 132 * u; height: 338 * u; background: root.ink; }
-    Rectangle { x: 1292 * u; y: 0 * u; width: 132 * u; height: 532 * u; background: root.ink; }
-}
-
-// MIDI: Map mode on or off (see mapmark.slint), lit lilac while on.
-component MidiButton inherits Rectangle {
-    property <bool> on: MapMode.active;
-    background: ta.pressed ? Theme.control-pressed : on ? Theme.lilac.with-alpha(0.2) : ta.has-hover ? #2e2e32 : Theme.panel-raised;
-    border-radius: 10px;
-    border-width: 1px;
-    border-color: on ? Theme.lilac : transparent;
-    height: 36px;
-    y: 8px;
-    horizontal-stretch: 0;
-    HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
-        // The MIDI Association's wordmark, as tall as the capitals of the
-        // other buttons' names (MIC, REC).
-        MidiLogo {
-            height: 10.5px;
-            y: (parent.height - self.height) / 2;
-            ink: on ? Theme.lilac : Theme.text-dim;
-        }
-    }
-    ta := TouchArea {
-        mouse-cursor: pointer;
-        clicked => {
-            if on {
-                MapMode.done();
-            } else {
-                MapMode.start();
-            }
-        }
-    }
-}
-
 component MapBarButton inherits Rectangle {
     in property <string> text;
     in property <bool> primary;
@@ -338,8 +286,6 @@ component RecordButton inherits Rectangle {
     property <int> hours: floor(seconds / 3600);
     property <int> minutes: mod(floor(seconds / 60), 60);
     property <int> secs: mod(floor(seconds), 60);
-    property <float> short-term: Controls.value(Controls.resolve("[Master]", "loudness_short_term"), Controls.tick);
-    property <float> target: Controls.value(Controls.resolve("[Master]", "loudness_target"), Controls.tick);
     background: ta.pressed ? Theme.control-pressed : on ? #e5484d.with-alpha(0.16) : ta.has-hover ? #2e2e32 : Theme.panel-raised;
     border-radius: 10px;
     border-width: 1px;
@@ -368,14 +314,6 @@ component RecordButton inherits Rectangle {
             font-size: on ? 13px : 11px;
             font-weight: on ? 500 : 700;
             letter-spacing: on ? 0px : 0.5px;
-            vertical-alignment: center;
-        }
-        // The mix's short-term loudness, coloured against the target.
-        if on: Text {
-            text: Loudness.text(short-term) + " LUFS";
-            color: Loudness.tint(short-term, target);
-            font-size: 11px;
-            font-weight: 600;
             vertical-alignment: center;
         }
     }
@@ -445,36 +383,6 @@ component OnAirButton inherits Rectangle {
 }
 
 // Opens the settings: the gear at the right of the top bar.
-component SettingsButton inherits Rectangle {
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2e2e32 : Theme.panel-raised;
-    border-radius: 10px;
-    width: 36px;
-    height: 36px;
-    y: 8px;
-    horizontal-stretch: 0;
-    // A gear: eight teeth round a ring, and the hole.
-    Path {
-        width: 18px;
-        height: 18px;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        fill: transparent;
-        stroke: Preferences.open ? Theme.accent : Theme.text;
-        stroke-width: 1.7px;
-        commands: "M 9.68 4.34 L 9.75 1.74 L 14.25 1.74 L 14.32 4.34 L 15.77 4.94 L 17.66 3.16 L 20.84 6.34 L 19.06 8.23 L 19.66 9.68 L 22.26 9.75 L 22.26 14.25 L 19.66 14.32 L 19.06 15.77 L 20.84 17.66 L 17.66 20.84 L 15.77 19.06 L 14.32 19.66 L 14.25 22.26 L 9.75 22.26 L 9.68 19.66 L 8.23 19.06 L 6.34 20.84 L 3.16 17.66 L 4.94 15.77 L 4.34 14.32 L 1.74 14.25 L 1.74 9.75 L 4.34 9.68 L 4.94 8.23 L 3.16 6.34 L 6.34 3.16 L 8.23 4.94 Z M 8.5 12 A 3.5 3.5 0 1 0 15.5 12 A 3.5 3.5 0 1 0 8.5 12";
-    }
-    ta := TouchArea {
-        mouse-cursor: pointer;
-        clicked => {
-            if Preferences.open {
-                Preferences.open = false;
-            } else {
-                Preferences.show(Preferences.page);
-            }
-        }
-    }
-}
-
 // A small picture of a layout, after djay's: 0 two decks side by side,
 // 1 Player (a cover beside two lines), 2 four decks, 3 Automix (a play arrow
 // between lines), 4 Prep (one deck with beat lines over it).
@@ -608,7 +516,7 @@ component LayoutPill inherits Rectangle {
             LayoutItem { kind: 1; text: "Player"; current: layout == 1; picked => { layout = 1; changed-to(1); } }
             LayoutItem { kind: 0; text: "2-Deck"; current: layout == 0; picked => { layout = 0; changed-to(0); } }
             LayoutItem { kind: 2; text: "4-Deck"; current: layout == 2; picked => { layout = 2; changed-to(2); } }
-            LayoutItem { kind: 4; text: "Prep"; current: layout == 3; picked => { layout = 3; changed-to(3); } }
+            if PrepUi.offered: LayoutItem { kind: 4; text: "Prep"; current: layout == 3; picked => { layout = 3; changed-to(3); } }
         }
     }
 }
@@ -788,6 +696,8 @@ export component AppWindow inherits Window {
     // The track Automix plays next and the time before its mix starts.
     in property <string> automix-next;
     in property <string> automix-next-in;
+    // Played tracks go back to the end of the Automix list (Repeat).
+    in property <bool> automix-repeat;
     // 0 2-Deck (the full decks and mixer), 1 Player (one bar: a music
     // player over Automix), 2 four decks in strips, 3 Prep (deck 1 alone,
     // for preparing tracks).
@@ -845,6 +755,7 @@ export component AppWindow inherits Window {
     callback shortcut(text: string, cmd: bool, alt: bool, shift: bool, master: int, first: int, last: int) -> bool;
     callback automix-toggle();
     callback automix-mix-now();
+    callback automix-set-repeat(bool);
     callback automix-skip();
     callback automix-order(int);
     callback automix-order-undo();
@@ -862,6 +773,14 @@ export component AppWindow inherits Window {
         keys.focus();
         LibraryEdit.window-height = root.height;
         LibraryEdit.window-width = root.width;
+        LibraryEdit.top-search = player;
+    }
+    changed player => {
+        LibraryEdit.top-search = player;
+        // The list's search carries over into the top bar's box.
+        if player {
+            QuickSearch.text = StoreUi.search-text;
+        }
     }
     // For the track menu, which moves up to fit in the window.
     changed height => { LibraryEdit.window-height = root.height; }
@@ -1062,6 +981,8 @@ export component AppWindow inherits Window {
             // Esc clears the library search, as in the search box itself.
             if e.text == Key.Escape && StoreUi.search-text != "" && !Preferences.open && !ImportWizard.open && !UsbExport.open {
                 StoreUi.search-text = "";
+                QuickSearch.text = "";
+                QuickSearch.open = false;
                 search("");
                 return accept;
             }
@@ -1150,14 +1071,12 @@ export component AppWindow inherits Window {
                         VerticalLayout { alignment: center; TopSearch { } }
                     }
                     RemoteButton { }
-                    MidiButton { }
                     MicButton { }
                     // Only for DJs who broadcast; on air from a controller
                     // shows it too.
                     if BroadcastState.shown || Controls.value(Controls.resolve("[Shoutcast]", "enabled"), Controls.tick) > 0: OnAirButton { }
                     RecordButton { }
                     MasterPill { clock: clock; }
-                    SettingsButton { }
                 }
             }
 
@@ -1256,7 +1175,7 @@ export component AppWindow inherits Window {
 
             // Player: one bar, what is playing, the transport and the queue button.
             player-bar := PlayerBar {
-                height: player ? 88px : 0px;
+                height: player ? 176px : 0px;
                 visible: player;
                 decks: decks;
                 overview-1: overview-1;
@@ -1269,6 +1188,8 @@ export component AppWindow inherits Window {
                 automix-next-in: automix-next-in;
                 queue-has-tracks: automix-queued > 0;
                 queue-shown: side-panel-visible && side-tab == 0;
+                automix-repeat: automix-repeat;
+                automix-set-repeat(on) => { automix-set-repeat(on); }
                 automix-toggle => { automix-toggle(); }
                 automix-mix-now => { automix-mix-now(); }
                 automix-order(i) => { automix-order(i); }

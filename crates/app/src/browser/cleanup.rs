@@ -1055,7 +1055,7 @@ impl Browser {
         };
         self.refresh_tree();
         if matches!(
-            self.nodes.get(self.current_node).map(|n| &n.contents),
+            self.current_shown(),
             Some(super::Contents::Health(Some(Check::NoCover)))
         ) {
             self.refresh_rows();

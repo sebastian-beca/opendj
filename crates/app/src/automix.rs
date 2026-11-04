@@ -32,6 +32,9 @@ pub trait Host {
     fn queued(&self) -> usize;
     /// Takes the track off the Automix list: it has been played (or skipped).
     fn remove(&mut self, id: usize);
+    /// Moves the track to the end of the Automix list: it has been played
+    /// and Repeat is on.
+    fn requeue(&mut self, id: usize);
     fn load(&mut self, deck: usize, track: Arc<Track>);
 }
 
@@ -235,6 +238,8 @@ pub struct AutoMix {
     played: Option<Played>,
     /// Tracks on the list still to come, for the panel.
     left: usize,
+    /// Played tracks go back to the end of the list instead of coming off.
+    repeat: bool,
 }
 
 /// Automix mixes between decks 1 and 2, whatever the layout.
@@ -305,6 +310,7 @@ impl AutoMix {
             note: String::new(),
             played: None,
             left: 0,
+            repeat: crate::settings::automix_repeat(),
         }
     }
 
@@ -346,6 +352,12 @@ impl AutoMix {
             self.length = i;
             crate::settings::set_automix_length(i);
         }
+    }
+
+    /// Repeat: played tracks go back to the end of the list.
+    pub fn set_repeat(&mut self, on: bool) {
+        self.repeat = on;
+        crate::settings::set_automix_repeat(on);
     }
 
     pub fn set_style(&mut self, i: usize) {
@@ -402,7 +414,11 @@ impl AutoMix {
             p.seconds += dt.max(0.0);
         }
         if p.seconds >= PLAYED_AFTER {
-            host.remove(p.id);
+            if self.repeat {
+                host.requeue(p.id);
+            } else {
+                host.remove(p.id);
+            }
             self.played = None;
         }
     }
@@ -1066,6 +1082,9 @@ impl AutoMix {
         if app.get_automix_style() != self.style as i32 {
             app.set_automix_style(self.style as i32);
         }
+        if app.get_automix_repeat() != self.repeat {
+            app.set_automix_repeat(self.repeat);
+        }
         // For the Player layout's bar.
         let queued = self.left as i32;
         if app.get_automix_queued() != queued {
@@ -1112,6 +1131,12 @@ mod tests {
         fn remove(&mut self, id: usize) {
             if let Some(i) = self.queue.iter().position(|t| t.id == id) {
                 self.queue.remove(i);
+            }
+        }
+        fn requeue(&mut self, id: usize) {
+            if let Some(i) = self.queue.iter().position(|t| t.id == id) {
+                let t = self.queue.remove(i);
+                self.queue.push(t);
             }
         }
         fn queued(&self) -> usize {
@@ -1280,6 +1305,17 @@ mod tests {
         r.run(50.0);
         assert!(!r.ctl("[AutoDJ]", "enabled").get_bool());
         assert_eq!(r.automix.note, "The Automix list has finished.");
+    }
+
+    #[test]
+    fn repeat_puts_played_tracks_back_at_the_end() {
+        let mut r = Rig::new(vec![track(0, 20.0), track(1, 40.0), track(2, 20.0)]);
+        r.automix.repeat = true;
+        r.ctl("[AutoDJ]", "enabled").set(1.0);
+        r.run(7.0);
+        assert_eq!(r.host.queued(), 3, "nothing comes off the list");
+        let ids: Vec<usize> = r.host.queue.iter().map(|t| t.id).collect();
+        assert_eq!(ids, [1001, 1002, 1000], "the played track went to the end");
     }
 
     #[test]

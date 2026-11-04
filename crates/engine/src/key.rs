@@ -204,7 +204,8 @@ impl Key {
             .find(|&n| self.transpose(n).mixes(target, mixing))
     }
 
-    fn camelot_number(self) -> u8 {
+    /// The key's number on the Camelot wheel, 1 to 12.
+    pub fn camelot_number(self) -> u8 {
         let major_tonic = if self.minor {
             self.tonic + 3
         } else {

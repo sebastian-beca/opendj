@@ -26,3 +26,15 @@ The layout menu at the top left SHALL offer Player (one bar that plays music lik
 #### Scenario: Search and play next
 - **WHEN** Player is chosen and the DJ types in the search box in the top bar
 - **THEN** the best matching tracks show in a list under it, titles that match first, each with Play next, Add to queue and Play now, and Play next puts the track on the Automix list after the tracks Automix is playing or has waiting
+
+#### Scenario: One search box
+- **WHEN** Player is chosen and the DJ types in the search box in the top bar
+- **THEN** the track list is filtered by the same text, and the list's own search box is hidden
+
+#### Scenario: Repeat
+- **WHEN** Repeat is on in the Player bar and Automix has played a track for long enough to count as played
+- **THEN** the track moves to the end of the Automix list instead of leaving it
+
+#### Scenario: Key colour
+- **WHEN** the track playing in Player has a key
+- **THEN** the bar shows the key in the colour of its number on the Camelot wheel
