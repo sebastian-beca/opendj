@@ -3054,6 +3054,16 @@ impl Browser {
         self.automix_before_order.is_some()
     }
 
+    /// The collection track with id `id`.
+    pub fn track_by_id(&self, id: usize) -> Option<&Arc<Track>> {
+        self.index_of.get(&id).map(|&i| &self.library[i])
+    }
+
+    /// A track's album art thumbnail, once found (as in the list).
+    pub fn cover_of(&self, track: &Track) -> Option<slint::Image> {
+        self.art.get(track)
+    }
+
     /// Whether keys are shown in Camelot notation.
     pub fn camelot(&self) -> bool {
         self.camelot

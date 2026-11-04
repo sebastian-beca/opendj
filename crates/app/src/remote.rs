@@ -32,7 +32,7 @@ const PANEL_EVERY: Duration = Duration::from_millis(500);
 const DECKS: usize = 2;
 /// The track waiting on a deck can be moved or swapped until its mix is
 /// this many seconds away.
-const LOCK_BEFORE_MIX: f64 = 15.0;
+pub(crate) const LOCK_BEFORE_MIX: f64 = 15.0;
 /// How long the sleep timer's fade out takes.
 const SLEEP_FADE: f64 = 20.0;
 
@@ -813,7 +813,7 @@ fn is_held(
 /// playing, and the one waiting on a deck once its mix is under
 /// [`LOCK_BEFORE_MIX`] away or under way. Until then the waiting track can
 /// be moved or swapped, and Automix loads whatever is next instead.
-fn held_count(
+pub(crate) fn held_count(
     automix: &AutoMix,
     browser: &Browser,
     tracks: &[Option<Arc<Track>>; NUM_DECKS],
