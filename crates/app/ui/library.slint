@@ -1611,12 +1611,17 @@ component SourceIcon inherits Rectangle {
     // 5 = Bandcamp, 6 = Beatport, 7 = OneLibrary, 8 = SoundCloud,
     // 9 = albums, 10 = mixed sets, 11 = Mixcloud, 12 = instruments
     in property <int> kind;
-    // Every icon is drawn the same width, whatever its shape.
-    width: 26px;
-    height: 26px;
-    border-radius: kind == 2 ? 13px : 6px;
+    // Every icon fills the same 30 px; openDJ's own sit on a tile tinted
+    // with their colour.
+    width: 30px;
+    height: 30px;
+    border-radius: kind == 2 ? 15px : 7px;
     clip: kind == 3 || kind == 4 || kind == 6 || kind == 8;
-    background: kind == 0 || kind == 1 || kind == 9 || kind == 10 || kind == 12 ? transparent
+    background: kind == 0 ? transparent
+        : kind == 1 ? #B59AFF1F
+        : kind == 9 ? #F3BD671F
+        : kind == 10 ? #FF686F1F
+        : kind == 12 ? #62D6CD1F
         : kind == 11 ? #314359
         : kind == 2 ? transparent
         : kind == 3 ? #000000
@@ -1627,45 +1632,47 @@ component SourceIcon inherits Rectangle {
     border-width: kind == 3 || kind == 7 ? 1px : 0px;
     border-color: Theme.border;
     // Collection: openDJ's own logo.
-    if kind == 0: Image { width: 26px; height: 26px; source: @image-url("icons/opendj.svg"); }
+    if kind == 0: Image { width: 30px; height: 30px; source: @image-url("icons/opendj.svg"); }
     // Files: an open folder, in lilac.
-    if kind == 1: Image { width: 26px; height: 26px; source: @image-url("icons/rail-files.svg"); }
+    if kind == 1: Image { width: 22px; height: 22px; source: @image-url("icons/rail-files.svg"); }
     // Spotify: its own logo, unaltered as its brand rules ask.
-    if kind == 2: Image { width: 26px; height: 26px; source: @image-url("icons/spotify.png"); }
+    if kind == 2: Image { width: 30px; height: 30px; source: @image-url("icons/spotify.png"); }
     // TIDAL: its own logo.
-    if kind == 3: Image { width: 26px; height: 26px; source: @image-url("icons/tidal.png"); }
+    if kind == 3: Image { width: 30px; height: 30px; source: @image-url("icons/tidal.png"); }
     // Apple Music: its own logo, cropped to the button.
-    if kind == 4: Image { width: 26px; height: 26px; source: @image-url("icons/applemusic.png"); }
+    if kind == 4: Image { width: 30px; height: 30px; source: @image-url("icons/applemusic.png"); }
     // Bandcamp: its logo.
-    if kind == 5: Image { width: 26px; height: 26px; source: @image-url("icons/bandcamp.png"); }
+    if kind == 5: Image { width: 30px; height: 30px; source: @image-url("icons/bandcamp.png"); }
     // Beatport: its own logo.
-    if kind == 6: Image { width: 26px; height: 26px; source: @image-url("icons/beatport.png"); }
+    if kind == 6: Image { width: 30px; height: 30px; source: @image-url("icons/beatport.png"); }
     // OneLibrary: its white logo on black.
-    if kind == 7: Image { width: 19px; height: 19px; source: @image-url("icons/onelibrary.svg"); }
+    if kind == 7: Image { width: 22px; height: 22px; source: @image-url("icons/onelibrary.svg"); }
     // SoundCloud: its own logo.
-    if kind == 8: Image { width: 26px; height: 26px; source: @image-url("icons/soundcloud.png"); }
+    if kind == 8: Image { width: 30px; height: 30px; source: @image-url("icons/soundcloud.png"); }
     // Albums: a record, in amber.
-    if kind == 9: Image { width: 26px; height: 26px; source: @image-url("icons/rail-albums.svg"); }
+    if kind == 9: Image { width: 22px; height: 22px; source: @image-url("icons/rail-albums.svg"); }
     // Mixcloud: a cloud on its navy.
     if kind == 11: Path {
-        width: 26px;
-        height: 26px;
+        width: 30px;
+        height: 30px;
         viewbox-width: 30;
         viewbox-height: 30;
         fill: #ffffff;
         commands: "M 9.5 20 A 3.5 3.5 0 0 1 9.2 13 A 6 6 0 0 1 20.6 11.8 A 4.1 4.1 0 0 1 21 20 Z";
     }
     // Mixed sets, where recordings go too: a record button, in red.
-    if kind == 10: Image { width: 26px; height: 26px; source: @image-url("icons/rail-recordings.svg"); }
+    if kind == 10: Image { width: 22px; height: 22px; source: @image-url("icons/rail-recordings.svg"); }
     // Instruments: a grid of pads, in teal.
-    if kind == 12: Image { width: 26px; height: 26px; source: @image-url("icons/rail-instruments.svg"); }
+    if kind == 12: Image { width: 22px; height: 22px; source: @image-url("icons/rail-instruments.svg"); }
 }
 
 // Collection Health in the rail: a first-aid cross, in pink.
 component HealthIcon inherits Rectangle {
-    width: 26px;
-    height: 26px;
-    Image { width: 26px; height: 26px; source: @image-url("icons/rail-health.svg"); }
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    background: #F577A81F;
+    Image { width: 22px; height: 22px; source: @image-url("icons/rail-health.svg"); }
 }
 
 // A button in the source rail, named in a tooltip beside it after a
@@ -1805,7 +1812,7 @@ component SourceRail inherits Rectangle {
                         selected: i == source;
                         tip: p.name;
                         tip-body: "From an add-on.";
-                        Image { width: 26px; height: 26px; source: p.icon; }
+                        Image { width: 30px; height: 30px; source: p.icon; }
                         clicked => { source = i; picked(i); }
                     }
                 }
@@ -1880,7 +1887,7 @@ component SourceRail inherits Rectangle {
                 padding-left: 6px;
                 padding-right: 6px;
                 spacing: 10px;
-                VerticalLayout { alignment: center; Image { width: 26px; height: 26px; source: p.icon; } }
+                VerticalLayout { alignment: center; Image { width: 30px; height: 30px; source: p.icon; } }
                 Text { text: p.name; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
                 VerticalLayout {
                     alignment: center;
