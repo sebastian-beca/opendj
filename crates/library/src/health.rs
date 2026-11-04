@@ -185,6 +185,87 @@ impl Check {
     fn needs_music(self) -> bool {
         !matches!(self, Check::NotMusic | Check::Missing)
     }
+
+    /// The area of the Health page the check belongs to.
+    pub fn area(self) -> Area {
+        match self {
+            Check::Missing | Check::LowBitrate => Area::Files,
+            Check::NotMusic | Check::Stray | Check::Outside | Check::Long => Area::Belongs,
+            Check::Duplicate => Area::Duplicates,
+            Check::MissingInfo | Check::Junk | Check::AlbumTags | Check::NoCover => Area::Info,
+            Check::NotAnalyzed | Check::NoRating => Area::Prep,
+        }
+    }
+}
+
+/// The checks grouped by the question a DJ asks of a track, in the order
+/// they are best fixed: files first (a missing track may be the better
+/// copy), then what doesn't belong (audiobook chapters look like copies),
+/// then copies (so nothing is edited twice), then tags, then prep.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Area {
+    Files,
+    Belongs,
+    Duplicates,
+    Info,
+    Prep,
+}
+
+impl Area {
+    pub const ALL: [Area; 5] = [
+        Area::Files,
+        Area::Belongs,
+        Area::Duplicates,
+        Area::Info,
+        Area::Prep,
+    ];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Area::Files => "Files",
+            Area::Belongs => "Belongs",
+            Area::Duplicates => "Duplicates",
+            Area::Info => "Info",
+            Area::Prep => "Prep",
+        }
+    }
+
+    /// The question the area answers.
+    pub fn question(self) -> &'static str {
+        match self {
+            Area::Files => "Can it play?",
+            Area::Belongs => "Should it be here?",
+            Area::Duplicates => "Same track twice?",
+            Area::Info => "Can you find it?",
+            Area::Prep => "Ready to play?",
+        }
+    }
+
+    /// Its checks, in the order its page offers them.
+    pub fn checks(self) -> Vec<Check> {
+        let order = [
+            Check::Missing,
+            Check::LowBitrate,
+            Check::NotMusic,
+            Check::Long,
+            Check::Stray,
+            Check::Outside,
+            Check::Duplicate,
+            Check::MissingInfo,
+            Check::Junk,
+            Check::AlbumTags,
+            Check::NoCover,
+            Check::NotAnalyzed,
+            Check::NoRating,
+        ];
+        order.into_iter().filter(|c| c.area() == self).collect()
+    }
+
+    /// Whether what it finds is a problem: Prep is a goal, so a track
+    /// without stars still counts as clean.
+    pub fn problem(self) -> bool {
+        self != Area::Prep
+    }
 }
 
 /// Whether a track looks like it isn't music, from where it is and its tags
@@ -309,6 +390,14 @@ pub struct Facts {
 }
 
 impl Facts {
+    /// Whether any check of an area where findings are problems finds the
+    /// track: such a track isn't clean.
+    pub fn has_problem(&self, t: &Track, duplicates: &HashSet<usize>) -> bool {
+        Check::ALL
+            .into_iter()
+            .any(|c| c.area().problem() && self.finds(c, t, duplicates))
+    }
+
     pub fn new<'a>(
         tracks: impl IntoIterator<Item = &'a Track>,
         ignored: HashMap<Check, HashSet<usize>>,
@@ -972,5 +1061,24 @@ mod tests {
         };
         lib.save_covers(&[(t.id, look)]).unwrap();
         assert_eq!(lib.covers().unwrap()[&t.id], look);
+    }
+    #[test]
+    fn every_check_is_in_one_area() {
+        let mut all: Vec<Check> = Area::ALL.iter().flat_map(|a| a.checks()).collect();
+        assert_eq!(all.len(), Check::ALL.len());
+        all.dedup();
+        assert_eq!(all.len(), Check::ALL.len());
+        assert!(Check::ALL.iter().all(|c| c.area().checks().contains(c)));
+        assert_eq!(Area::Files.checks()[0], Check::Missing);
+        assert!(!Area::Prep.problem());
+    }
+
+    #[test]
+    fn a_missing_file_is_a_problem() {
+        let mut gone = track(1, "/m/a.mp3", "Song");
+        gone.info.missing = true;
+        let tracks = [gone];
+        let facts = Facts::new(&tracks, HashMap::new(), HashMap::new(), false);
+        assert!(facts.has_problem(&tracks[0], &HashSet::new()));
     }
 }
