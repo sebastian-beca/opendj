@@ -5441,9 +5441,9 @@ dependencies = [
 
 [[package]]
 name = "lofty"
-version = "0.25.4"
+version = "0.25.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb21dd79145b0781f2423fda92dd807fcd3911e44b66044d86db3b11ec7accf9"
+checksum = "35d45c446382e04663705aa8e786157f64ef1fa85755d410121ffbf08f54b0db"
 dependencies = [
  "byteorder",
  "data-encoding",
@@ -5626,9 +5626,9 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "memmap2"
-version = "0.9.11"
+version = "0.9.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
+checksum = "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157"
 dependencies = [
  "libc",
  "stable_deref_trait",
@@ -6535,9 +6535,9 @@ dependencies = [
 
 [[package]]
 name = "ogg_pager"
-version = "0.7.2"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d36b1d6964c3ac92b7aea701057e02b6b91143d70d83b20abf75a231a3c0216"
+checksum = "166611b491f939446e64c6be930843a31eb8e6798204ec3e9f57e084c18e7446"
 dependencies = [
  "byteorder",
 ]
@@ -6590,7 +6590,7 @@ dependencies = [
  "winresource",
  "write-fonts",
  "x11-dl",
- "zip 9.1.0",
+ "zip 9.2.0",
 ]
 
 [[package]]
@@ -6707,7 +6707,7 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "ureq",
- "zip 9.1.0",
+ "zip 9.2.0",
 ]
 
 [[package]]
@@ -10492,9 +10492,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.10"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
+checksum = "f5f280bbb2b287bc8e7de7e3852945a0ff50d1bbcb5ed42b6c7a568c546df171"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -11987,9 +11987,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.1.0"
+version = "9.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2886b00003a72c4ccee3f42cfc34908d33b2508a74d827dc2a4244706475c704"
+checksum = "3f5b58784007ff6e5f280ec82c8596686a3b9b5dd5836c63288d4479f84728b9"
 dependencies = [
  "crc32fast",
  "flate2",
