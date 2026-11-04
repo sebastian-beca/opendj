@@ -22,6 +22,7 @@ use opendj_engine::{
     DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES,
 };
 use opendj_library::query;
+use opendj_plugins::source::DOWNLOAD_FOLDER;
 use opendj_plugins::{LibraryImport, Plugin, SettingKind};
 use serde_json::json;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
@@ -42,25 +43,24 @@ const LIBRARY_TABS: [&str; 4] = ["General", "Stages", "Fields", "Import"];
 const IMPORT_TAB: usize = 3;
 /// Other DJ apps whose libraries openDJ can't bring in yet, listed on the
 /// Import tab so the DJ sees what's coming.
-const COMING_IMPORTS: [(&str, &str); 2] = [
-    ("Serato DJ", "Tracks, cues, loops and crates."),
-    (
-        "Traktor",
-        "Tracks, cues, loops and playlists from collection.nml.",
-    ),
-];
+const COMING_IMPORTS: [(&str, &str); 1] = [("Serato DJ", "Tracks, cues, loops and crates.")];
 const ANALYSIS: i32 = 3;
 const DECKS: i32 = 4;
 const MIXER: i32 = 5;
+/// Where music comes from: the rail's sources, their sign-ins, download
+/// folders and the cache they share.
+const SOURCES: i32 = 6;
+/// Settings › Sources, for opening it from elsewhere.
+pub const SOURCES_PAGE: i32 = SOURCES;
 /// CLAP, VST3 and AU plugins.
-const AUDIO_PLUGINS: i32 = 6;
+const AUDIO_PLUGINS: i32 = 7;
 /// Settings › Plugins' tabs.
 const PLUGIN_TABS: [&str; 3] = ["Effects", "Instruments", "Folders"];
 /// The Folders tab's place in PLUGIN_TABS.
 const FOLDERS_TAB: usize = 2;
-const BROADCAST: i32 = 7;
-const KEYBOARD: i32 = 8;
-const FEEDBACK: i32 = 9;
+const BROADCAST: i32 = 8;
+const KEYBOARD: i32 = 9;
+const FEEDBACK: i32 = 10;
 
 /// Bitrates offered for a broadcast, in kb/s.
 const BITRATES: [u32; 7] = [64, 96, 128, 160, 192, 256, 320];
@@ -91,6 +91,10 @@ const NEW_CONTROLLER: i32 = 15;
 /// Filter chips (`choices`, on by bit in `chosen`) and a search box
 /// (`value`, its hint in `detail`), above a long list.
 const FILTER_BAR: i32 = 16;
+/// A source on Settings › Sources: its name, a status dot (`chosen` 0
+/// grey, 1 green, 2 orange), what it's doing, and its In rail switch
+/// (`on`). `action` is its fold arrow, empty when there's nothing to open.
+const SOURCE_ROW: i32 = 17;
 
 /// Tempo fader ranges, as fractions of normal speed.
 const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
@@ -442,8 +446,17 @@ pub struct Prefs {
     hidden_ports: Vec<String>,
     /// Settings › Controllers has a row to pick a controller from (+).
     adding_controller: bool,
-    /// Plugins with a page of their own, after the built-in pages.
+    /// Plugins with settings, shown on Settings › Sources.
     plugins: Vec<Box<dyn Plugin>>,
+    /// Whether each of `plugins` plays from a cache: the DJ's own server.
+    plugin_plays: Vec<bool>,
+    /// The source open on Settings › Sources, by its place in the rail.
+    open_source: Option<i32>,
+    /// What the last Clear or Sign out on Settings › Sources did.
+    sources_note: String,
+    /// The rail's sources by name, in its order (see
+    /// [`crate::browser::all_source_names`]).
+    rail_names: Vec<String>,
     /// Tells the rest of the app a plugin's settings changed, by its id.
     plugin_changed: Box<dyn Fn(&str)>,
     /// Opens the outputs again with the saved audio settings.
@@ -502,18 +515,15 @@ impl Prefs {
     ) -> Rc<RefCell<Prefs>> {
         let (chosen_tx, chosen_rx) = mpsc::channel();
         let (tested_tx, tested_rx) = mpsc::channel();
-        let plugins: Vec<Box<dyn Plugin>> = crate::stores::configured()
+        let mut plugins: Vec<Box<dyn Plugin>> = crate::stores::configured()
             .into_iter()
             .filter(|p| !p.settings().is_empty())
             .collect();
+        let plugin_plays = plugins
+            .iter_mut()
+            .map(|p| p.source().is_some_and(|s| s.plays()))
+            .collect();
         let g = app.global::<Preferences>();
-        let mut pages: Vec<SharedString> = slint::Model::iter(&g.get_pages()).collect();
-        pages.extend(
-            plugins
-                .iter()
-                .map(|p| SharedString::from(p.manifest().name)),
-        );
-        g.set_pages(ModelRc::new(VecModel::from(pages)));
         let prefs = Rc::new(RefCell::new(Prefs {
             app: app.as_weak(),
             registry,
@@ -530,6 +540,10 @@ impl Prefs {
             hidden_ports: Vec::new(),
             adding_controller: false,
             plugins,
+            plugin_plays,
+            open_source: None,
+            sources_note: String::new(),
+            rail_names: crate::browser::all_source_names(),
             plugin_changed,
             audio_changed,
             inputs,
@@ -739,6 +753,7 @@ impl Prefs {
         }
         self.cache_note.clear();
         self.stems_note.clear();
+        self.sources_note.clear();
         self.shortcut_note.clear();
         self.refresh();
     }
@@ -764,7 +779,7 @@ impl Prefs {
             self.page(&app, g.get_page(), Some(tab))
         } else {
             let words: Vec<&str> = query.split_whitespace().collect();
-            (AUDIO..FEEDBACK + 1 + self.plugins.len() as i32)
+            (AUDIO..FEEDBACK + 1)
                 .flat_map(|p| {
                     let name = slint::Model::row_data(&pages, p as usize).unwrap_or_default();
                     self.page(&app, p, None).into_iter().map(move |mut item| {
@@ -1232,9 +1247,9 @@ impl Prefs {
                 .collect()
             }
             MIXER => self.mixer_general(),
+            SOURCES => self.sources_page(tab.is_none()),
             AUDIO_PLUGINS => self.audio_plugin_page(tab),
             BROADCAST => self.broadcast_page(),
-            p if p > FEEDBACK => self.plugin_page((p - FEEDBACK - 1) as usize),
             KEYBOARD => self.keyboard_page(),
             FEEDBACK => vec![
                 item("", HEADING, "GUIDED TOUR", ""),
@@ -2407,6 +2422,17 @@ impl Prefs {
             title,
             settings::import_theirs_win(id),
         ));
+        // Mixxx has no streamed tracks.
+        if id != "mixxx" {
+            rows.push(switch(
+                &settings::import_wants_streamed_key(id),
+                "Add streamed tracks to Wanted",
+                &format!(
+                    "TIDAL and Spotify tracks in {title}'s playlists that your collection hasn't got go on the Wanted list. History never does."
+                ),
+                settings::import_wants_streamed(id),
+            ));
+        }
         rows.push(PrefItem {
             action: "Stop".into(),
             ..item(
@@ -2572,6 +2598,11 @@ impl Prefs {
     }
 
     fn toggled(&mut self, id: &str, on: bool) {
+        if let Some(i) = id.strip_prefix("source:").and_then(|i| i.parse().ok()) {
+            self.set_rail_shown(i, on);
+            self.refresh();
+            return;
+        }
         if let Some(key) = id.strip_prefix("audio_plugin_show:") {
             self.audio_plugins.borrow_mut().set_shown(key, on);
             self.refresh();
@@ -2798,6 +2829,12 @@ impl Prefs {
                 settings::set("bpm_min", json!(lo));
                 settings::set("bpm_max", json!(hi));
                 analysis::set_bpm_range(lo, hi);
+            }
+            "sources_cache_gb" => {
+                let Some(&gb) = SOURCES_CACHE_GB.get(index) else {
+                    return;
+                };
+                settings::set(crate::sources::CACHE_GB, json!(gb));
             }
             "stems_cache_gb" => {
                 let Some(&gb) = STEMS_CACHE_GB.get(index) else {
@@ -3123,6 +3160,241 @@ impl Prefs {
         true
     }
 
+    /// Settings › Sources: the cache every source shares, then each source
+    /// by kind with its status and In rail switch. The open source shows
+    /// its settings under it; a search (`all`) shows every source's.
+    fn sources_page(&self, all: bool) -> Vec<PrefItem> {
+        let (used, each) = crate::sources::cache_usage();
+        let limit = settings::number(crate::sources::CACHE_GB, crate::sources::DEFAULT_CACHE_GB);
+        let limits: Vec<String> = SOURCES_CACHE_GB
+            .iter()
+            .map(|&gb| {
+                if gb == crate::sources::DEFAULT_CACHE_GB {
+                    format!("{gb} GB (default)")
+                } else {
+                    format!("{gb} GB")
+                }
+            })
+            .collect();
+        let mut items = vec![
+            PrefItem {
+                choices: strings(&limits),
+                chosen: SOURCES_CACHE_GB
+                    .iter()
+                    .position(|&gb| gb == limit)
+                    .unwrap_or(2) as i32,
+                ..item(
+                    "sources_cache_gb",
+                    MENU,
+                    "Cache for played tracks",
+                    &format!(
+                        "{} used by tracks played from your servers; the oldest go first.",
+                        if used == 0 {
+                            "Nothing".to_string()
+                        } else {
+                            size(used)
+                        },
+                    ),
+                )
+            },
+            PrefItem {
+                action: "Clear".into(),
+                ..item(
+                    "sources_cache_clear",
+                    BUTTON,
+                    "Clear the cache",
+                    if self.sources_note.is_empty() {
+                        "Tracks you added to your collection stay; the rest download again \
+                         when next played."
+                    } else {
+                        &self.sources_note
+                    },
+                )
+            },
+        ];
+        let rail = self.rail_shown();
+        let shown = |i: i32| rail.get(i as usize).copied().unwrap_or(true);
+        let place = |name: &str| {
+            self.rail_names
+                .iter()
+                .position(|n| n == name)
+                .map(|i| i as i32)
+        };
+        let open = |i: i32| all || self.open_source == Some(i);
+        let fold = |i: i32| if open(i) { "▾" } else { "▸" };
+        let row = |i: i32, title: &str, status: i32, detail: &str, arrow: &str| PrefItem {
+            on: shown(i),
+            chosen: status,
+            action: arrow.into(),
+            ..item(&format!("source:{i}"), SOURCE_ROW, title, detail)
+        };
+
+        if crate::browser::STREAMING_ENABLED {
+            items.push(item(
+                "",
+                HEADING,
+                "STREAMING SERVICES · BROWSE AND MATCH",
+                "",
+            ));
+            for &(source, name, id) in crate::browser::STREAMS.iter() {
+                let signed_in = crate::spotify::Saved::load(&format!("{id}.json"))
+                    .is_some_and(|s| !s.refresh_token.is_empty());
+                let (status, detail) = if signed_in {
+                    (1, "Signed in".to_string())
+                } else {
+                    (0, "Not signed in".to_string())
+                };
+                items.push(row(source, name, status, &detail, fold(source)));
+                if open(source) {
+                    items.push(item(
+                        "",
+                        NOTE,
+                        "",
+                        &format!(
+                            "Sign in from {name} in the rail. Its playlists show there, and \
+                             tracks also in your collection can be played. {name} is browse \
+                             only: nothing downloads and nothing is cached."
+                        ),
+                    ));
+                    if signed_in {
+                        items.push(PrefItem {
+                            action: "Sign out".into(),
+                            ..item(
+                                &format!("stream_sign_out:{source}"),
+                                BUTTON,
+                                &format!("Sign out of {name}"),
+                                "Your playlists there are forgotten here until you sign in again.",
+                            )
+                        });
+                    }
+                }
+            }
+        }
+
+        items.push(item("", HEADING, "STORES", ""));
+        for name in ["Bandcamp", "Beatport"] {
+            if let Some(i) = place(name) {
+                let detail = if name == "Bandcamp" {
+                    "Bandcamp and the other stores you buy from"
+                } else {
+                    "Search and browse Beatport"
+                };
+                items.push(row(i, name, 0, detail, ""));
+            }
+        }
+
+        // Plugin sources, by kind: the DJ's own servers, built-in sources,
+        // then add-ons.
+        let builtin: Vec<&str> = opendj_plugins::builtin()
+            .iter()
+            .map(|p| p.manifest().id)
+            .collect();
+        let kind = |n: usize| {
+            if self.plugin_plays[n] {
+                0
+            } else if builtin.contains(&self.plugins[n].manifest().id) {
+                1
+            } else {
+                2
+            }
+        };
+        let headings = [
+            "YOUR SERVERS · PLAY FROM THE CACHE",
+            "FREE MUSIC",
+            "ADD-ONS",
+        ];
+        for (k, heading) in headings.into_iter().enumerate() {
+            let members: Vec<usize> = (0..self.plugins.len()).filter(|&n| kind(n) == k).collect();
+            if members.is_empty() {
+                continue;
+            }
+            items.push(item("", HEADING, heading, ""));
+            for n in members {
+                let plugin = &self.plugins[n];
+                let name = plugin.manifest().name;
+                let config = settings::plugin_config(plugin.manifest().id);
+                let set_up = !crate::sources::needs_setup(&plugin.settings(), &config);
+                let mut detail = if !set_up {
+                    "Not set up".to_string()
+                } else if self.plugin_plays[n] {
+                    "Set up".to_string()
+                } else {
+                    "Ready".to_string()
+                };
+                let cached = each
+                    .get(&crate::sources::cache_key(name))
+                    .copied()
+                    .unwrap_or(0);
+                if cached > 0 {
+                    detail.push_str(&format!(" · {} cached", size(cached)));
+                }
+                let folder = match config.get(DOWNLOAD_FOLDER).trim() {
+                    "" => format!("Downloaded/{name}"),
+                    set => set.to_string(),
+                };
+                if plugin.settings().iter().any(|s| s.key == DOWNLOAD_FOLDER) {
+                    // A server's files reach the collection with Add to
+                    // Collection; other sources' with Download.
+                    let verb = if self.plugin_plays[n] {
+                        "adds to"
+                    } else {
+                        "downloads to"
+                    };
+                    detail.push_str(&format!(" · {verb} {folder}"));
+                }
+                match place(name) {
+                    Some(i) => {
+                        items.push(row(i, name, set_up as i32, &detail, fold(i)));
+                        if open(i) {
+                            items.extend(self.plugin_page(n));
+                        }
+                    }
+                    // Settings with no source in the rail: always open.
+                    None => {
+                        items.push(item("", HEADING, &name.to_uppercase(), ""));
+                        items.extend(self.plugin_page(n));
+                    }
+                }
+            }
+        }
+
+        items.push(item("", HEADING, "BUILT IN", ""));
+        for name in [
+            "Collection",
+            "Files",
+            "Albums",
+            "Mixed Sets",
+            "Instruments",
+            "OneLibrary",
+        ] {
+            if let Some(i) = place(name) {
+                items.push(row(i, name, 0, "", ""));
+            }
+        }
+        items
+    }
+
+    /// Whether each source shows in the rail, in the rail's order.
+    fn rail_shown(&self) -> Vec<bool> {
+        self.app
+            .upgrade()
+            .map(|app| slint::Model::iter(&app.get_sources_shown()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Shows or hides source `i` in the rail, as its right-click menu does.
+    fn set_rail_shown(&self, i: i32, on: bool) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let shown = app.get_sources_shown();
+        if i < 0 || i as usize >= slint::Model::row_count(&shown) {
+            return;
+        }
+        slint::Model::set_row_data(&shown, i as usize, on);
+        app.invoke_source_shown_changed(i, on);
+    }
+
     /// Plugin `index`'s page: its own rows, ids `plugin:<index>:<key>`.
     fn plugin_page(&self, index: usize) -> Vec<PrefItem> {
         let Some(plugin) = self.plugins.get(index) else {
@@ -3261,6 +3533,26 @@ impl Prefs {
                 app.global::<Preferences>().set_open(false);
                 app.global::<Tour>().invoke_start_tutorial(tutorial.into());
             }
+            return;
+        }
+        if let Some(i) = id
+            .strip_prefix("source:")
+            .and_then(|i| i.strip_suffix("#fold"))
+            .and_then(|i| i.parse().ok())
+        {
+            self.open_source = (self.open_source != Some(i)).then_some(i);
+            self.refresh();
+            return;
+        }
+        if let Some(source) = id
+            .strip_prefix("stream_sign_out:")
+            .and_then(|i| i.parse().ok())
+        {
+            if let Some(app) = self.app.upgrade() {
+                app.invoke_stream_sign_out(source);
+            }
+            self.sources_note = "Signed out.".into();
+            self.refresh();
             return;
         }
         if id.starts_with("tour_") {
@@ -3451,6 +3743,14 @@ impl Prefs {
                     names.tags.pop();
                 }
                 set_field_names(names);
+            }
+            "sources_cache_clear" => {
+                let freed = crate::sources::clear_cache();
+                self.sources_note = if freed == 0 {
+                    "The cache was already empty.".into()
+                } else {
+                    format!("Cleared {}.", size(freed))
+                };
             }
             "clear_stems" => {
                 let n = cache::clear_stems();
@@ -3958,6 +4258,9 @@ fn strings<S: AsRef<str>>(v: &[S]) -> ModelRc<SharedString> {
             .collect::<Vec<SharedString>>(),
     ))
 }
+
+/// How big the sources' cache may grow, in GB.
+const SOURCES_CACHE_GB: [f64; 6] = [2.0, 5.0, 10.0, 20.0, 50.0, 100.0];
 
 /// How many GB of high-quality stems may be kept; 0 is no limit.
 const STEMS_CACHE_GB: [f64; 6] = [2.0, 5.0, 10.0, 20.0, 50.0, 0.0];

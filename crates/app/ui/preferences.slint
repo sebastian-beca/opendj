@@ -25,7 +25,10 @@ export struct PrefItem {
     // add: a menu of `choices` and ×, pressing id + "#remove", 16 filter
     // chips (`choices`, on by bit in `chosen`; a click picks the chip's
     // index) and a search box (`value`, its hint in `detail`; each change
-    // is typed).
+    // is typed), 17 a source on Settings › Sources: a fold arrow in
+    // `action` (none when there's nothing to open; the row presses id +
+    // "#fold"), a status dot (`chosen` 0 grey, 1 green, 2 orange), the
+    // name, what it's doing in `detail`, and an In rail switch (`on`).
     kind: int,
     title: string,
     detail: string,
@@ -50,8 +53,7 @@ export global Preferences {
     in property <[string]> tabs;
     in-out property <int> tab;
     in property <[PrefItem]> items;
-    // The app adds a page for each plugin with settings after these.
-    in-out property <[string]> pages: ["Audio", "Controllers", "Collection", "Analysis", "Decks", "Mixer", "Plugins", "Broadcast", "Keyboard", "Help"];
+    in-out property <[string]> pages: ["Audio", "Controllers", "Collection", "Analysis", "Decks", "Mixer", "Sources", "Plugins", "Broadcast", "Keyboard", "Help"];
     // The page or the search changed: the app fills `items` again.
     callback changed();
     callback toggled(id: string, on: bool);
@@ -122,19 +124,19 @@ component PageIcon inherits Path {
     stroke-width: 1.7px;
     // Audio: a speaker. Controllers: a two-deck controller. Library: a
     // list with a note. Analysis: a waveform. Decks:
-    // a platter. Mixer: three faders. Plugins: a rack unit with a knob.
-    // Broadcast: a mast. Keyboard: keys.
-    // Help: a speech bubble. A plugin's page: a plug.
+    // a platter. Mixer: three faders. Sources: stacked discs, as in the
+    // rail. Plugins: a rack unit with a knob. Broadcast: a mast. Keyboard:
+    // keys. Help: a speech bubble.
     commands: kind == 0 ? "M 3 9 L 7 9 L 12 5 L 12 19 L 7 15 L 3 15 Z M 15.5 9 Q 17.5 12 15.5 15 M 18 6.5 Q 21.5 12 18 17.5"
         : kind == 1 ? "M 2 7 L 22 7 L 22 17 L 2 17 Z M 4.5 12 A 2.5 2.5 0 1 0 9.5 12 A 2.5 2.5 0 1 0 4.5 12 M 14.5 12 A 2.5 2.5 0 1 0 19.5 12 A 2.5 2.5 0 1 0 14.5 12 M 12 9.5 L 12 14.5"
         : kind == 2 ? "M 3 5 L 15 5 M 3 10 L 15 10 M 3 15 L 10 15 M 18 18 L 18 7 L 22 8.5 M 18 18 A 2 2 0 1 1 17.99 18"
         : kind == 3 ? "M 3 10 L 3 14 M 6 7 L 6 17 M 9 4 L 9 20 M 12 8 L 12 16 M 15 5 L 15 19 M 18 9 L 18 15 M 21 11 L 21 13"
         : kind == 4 ? "M 3 12 A 9 9 0 1 0 21 12 A 9 9 0 1 0 3 12 M 9.5 12 A 2.5 2.5 0 1 0 14.5 12 A 2.5 2.5 0 1 0 9.5 12"
-        : kind >= 10 ? "M 9 3 L 9 8 M 15 3 L 15 8 M 6 8 L 18 8 L 18 11 A 6 6 0 0 1 6 11 Z M 12 17 L 12 21"
-        : kind == 6 ? "M 3 4 L 21 4 L 21 20 L 3 20 Z M 3 9 L 21 9 M 7.5 13 A 2 2 0 1 0 11.5 13 A 2 2 0 1 0 7.5 13 M 9.5 15 L 9.5 17 M 14 13 L 18 13 M 14 16.5 L 18 16.5 M 6 6.5 L 6.5 6.5 M 9 6.5 L 9.5 6.5"
-        : kind == 7 ? "M 10.5 9 A 1.5 1.5 0 1 0 13.5 9 A 1.5 1.5 0 1 0 10.5 9 M 12 10.5 L 12 21 M 8.5 5.5 A 5 5 0 0 0 8.5 12.5 M 15.5 5.5 A 5 5 0 0 1 15.5 12.5 M 5.5 3 A 8.5 8.5 0 0 0 5.5 15 M 18.5 3 A 8.5 8.5 0 0 1 18.5 15"
-        : kind == 8 ? "M 2 6 L 22 6 L 22 18 L 2 18 Z M 6 10 L 6.5 10 M 10 10 L 10.5 10 M 14 10 L 14.5 10 M 18 10 L 18.5 10 M 7 14 L 17 14"
-        : kind == 9 ? "M 4 5 L 20 5 L 20 16 L 11 16 L 6 20 L 6 16 L 4 16 Z M 8 9 L 16 9 M 8 12 L 13 12"
+        : kind == 6 ? "M 3 7 A 9 3 0 1 0 21 7 A 9 3 0 1 0 3 7 M 3 7 L 3 12 A 9 3 0 0 0 21 12 L 21 7 M 3 12 L 3 17 A 9 3 0 0 0 21 17 L 21 12"
+        : kind == 7 ? "M 3 4 L 21 4 L 21 20 L 3 20 Z M 3 9 L 21 9 M 7.5 13 A 2 2 0 1 0 11.5 13 A 2 2 0 1 0 7.5 13 M 9.5 15 L 9.5 17 M 14 13 L 18 13 M 14 16.5 L 18 16.5 M 6 6.5 L 6.5 6.5 M 9 6.5 L 9.5 6.5"
+        : kind == 8 ? "M 10.5 9 A 1.5 1.5 0 1 0 13.5 9 A 1.5 1.5 0 1 0 10.5 9 M 12 10.5 L 12 21 M 8.5 5.5 A 5 5 0 0 0 8.5 12.5 M 15.5 5.5 A 5 5 0 0 1 15.5 12.5 M 5.5 3 A 8.5 8.5 0 0 0 5.5 15 M 18.5 3 A 8.5 8.5 0 0 1 18.5 15"
+        : kind == 9 ? "M 2 6 L 22 6 L 22 18 L 2 18 Z M 6 10 L 6.5 10 M 10 10 L 10.5 10 M 14 10 L 14.5 10 M 18 10 L 18.5 10 M 7 14 L 17 14"
+        : kind == 10 ? "M 4 5 L 20 5 L 20 16 L 11 16 L 6 20 L 6 16 L 4 16 Z M 8 9 L 16 9 M 8 12 L 13 12"
         : "M 6 3 L 6 12 M 6 16 L 6 21 M 12 3 L 12 6 M 12 10 L 12 21 M 18 3 L 18 9 M 18 13 L 18 21 M 4 12 L 8 12 L 8 16 L 4 16 Z M 10 6 L 14 6 L 14 10 L 10 10 Z M 16 9 L 20 9 L 20 13 L 16 13 Z";
 }
 
@@ -374,7 +376,13 @@ export component PrefRow inherits Rectangle {
     in property <bool> searching;
     // Larger, lighter words, for the tour's setup dialog.
     in property <bool> bright;
-    min-height: item.kind == 7 ? 34px : item.kind == 12 ? 30px : item.kind == 16 ? 44px : 52px;
+    min-height: item.kind == 7 ? 34px : item.kind == 12 ? 30px : item.kind == 16 || item.kind == 17 ? 44px : 52px;
+    // A source with settings opens and closes with a click on its row;
+    // its switch, drawn over this, still works.
+    if item.kind == 17 && item.action != "": TouchArea {
+        mouse-cursor: pointer;
+        clicked => { Preferences.pressed(item.id + "#fold"); }
+    }
     VerticalLayout {
         padding-top: item.kind == 7 ? 14px : item.kind == 12 ? 4px : 10px;
         padding-bottom: item.kind == 7 ? 4px : item.kind == 12 ? 4px : 10px;
@@ -510,7 +518,51 @@ export component PrefRow inherits Rectangle {
                 edited => { Preferences.typed(item.id, self.text); }
             }
         }
-        if item.kind != 7 && item.kind != 11 && item.kind != 12 && item.kind != 16: HorizontalLayout {
+        if item.kind == 17: HorizontalLayout {
+            spacing: 10px;
+            Rectangle {
+                width: 12px;
+                Text {
+                    text: item.action;
+                    color: Theme.text-dim;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 4px;
+                    background: item.chosen == 1 ? #30c158 : item.chosen == 2 ? #ff9f0a : #4a4a4f;
+                }
+            }
+            Text {
+                text: item.title;
+                width: 150px;
+                color: Theme.text;
+                font-size: 14px;
+                font-weight: 500;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Text {
+                text: item.detail;
+                color: Theme.text-dim;
+                font-size: 12px;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            Text { text: "In rail"; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
+            VerticalLayout {
+                alignment: center;
+                Switch { on: item.on; toggled(on) => { Preferences.toggled(item.id, on); } }
+            }
+        }
+        if item.kind != 7 && item.kind != 11 && item.kind != 12 && item.kind != 16 && item.kind != 17: HorizontalLayout {
             spacing: 16px;
             VerticalLayout {
                 horizontal-stretch: 1;

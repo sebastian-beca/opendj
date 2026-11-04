@@ -49,7 +49,9 @@ pub const ID_BASE: usize = 1_000_000;
 /// 9 added `tracks.stage` (see [`stages`]).
 /// 10 added `tracks.grid_locked` and `grid_unsure`; imported grids start
 /// locked.
-const VERSION: i32 = 11;
+/// 12 takes off the wanted list the streamed tracks imports used to put
+/// there: only the DJ puts tracks on it now.
+const VERSION: i32 = 12;
 
 /// The `source` of grids, keys and markers found by this app's analysis.
 const ANALYSIS: &str = "analysis";
@@ -275,6 +277,14 @@ CREATE TABLE IF NOT EXISTS list_streams (
 CREATE INDEX IF NOT EXISTS list_streams_id ON list_streams(service, stream_id);
 ";
 
+/// Pages the DJ took off the wanted list, so an import or a playlist kept
+/// in sync with it doesn't put them back. Adding one by hand forgets it.
+const WANTED_DISMISSED_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS wanted_dismissed (
+    page_url TEXT PRIMARY KEY
+);
+";
+
 /// Stores the tags a scan reads beyond the basic ones (`?1` is the row),
 /// for tracks whose tags come from their files. A rating in the tags fills
 /// in one the library doesn't have.
@@ -310,7 +320,17 @@ pub struct Playlist {
     /// The app it was brought in from, for lists an import keeps up to date;
     /// None for the DJ's own.
     pub source: Option<String>,
+    /// The colour the DJ gave it (0xRRGGBB), drawn on its icon.
+    pub color: Option<u32>,
+    /// The icon the DJ picked for it by name (see [`LIST_ICONS`]); None for
+    /// its kind's own.
+    pub icon: Option<String>,
 }
+
+/// Icons a crate can wear in the sidebar, by the name the library keeps.
+pub const LIST_ICONS: [&str; 8] = [
+    "crate", "star", "heart", "flame", "bolt", "moon", "sun", "leaf",
+];
 
 /// A track the DJ went to buy and hasn't received yet.
 #[derive(Clone, Debug, PartialEq)]
@@ -540,11 +560,21 @@ impl Library {
             }
             db.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
         }
+        // A list's colour and icon, which the DJ picks in the sidebar.
+        for (name, definition) in [("color", "color INTEGER"), ("icon", "icon TEXT")] {
+            let has = db
+                .prepare("SELECT 1 FROM pragma_table_info('playlists') WHERE name = ?1")?
+                .exists([name])?;
+            if !has {
+                db.execute_batch(&format!("ALTER TABLE playlists ADD COLUMN {definition}"))?;
+            }
+        }
         db.execute_batch(LINKS_SCHEMA)?;
         db.execute_batch(MOVES_SCHEMA)?;
         db.execute_batch(ALIASES_SCHEMA)?;
         db.execute_batch(STREAM_MATCHES_SCHEMA)?;
         db.execute_batch(LIST_STREAMS_SCHEMA)?;
+        db.execute_batch(WANTED_DISMISSED_SCHEMA)?;
         // The import that put a wanted track there (its streamed tracks),
         // NULL for tracks the DJ went to buy.
         let has_wanted_source = db
@@ -552,6 +582,14 @@ impl Library {
             .exists([])?;
         if !has_wanted_source {
             db.execute_batch("ALTER TABLE wanted ADD COLUMN source TEXT")?;
+        }
+        if version < 12 {
+            // Imports put every streamed track of every list (history
+            // sessions too) on the wanted list; the DJ picks them now.
+            db.execute(
+                "DELETE FROM wanted WHERE source IS NOT NULL AND track_id IS NULL",
+                [],
+            )?;
         }
         db.execute_batch(health::HEALTH_SCHEMA)?;
         // Bitrates came after covers: files looked at before get read again.
@@ -825,18 +863,22 @@ impl Library {
         stamp: &str,
         read: impl FnOnce() -> Result<ImportedLibrary, String>,
     ) -> Result<Option<SyncReport>, String> {
-        self.import_with(source, title, stamp, true, read)
+        self.import_with(source, title, stamp, true, false, read)
     }
 
     /// [`Library::import`], where `theirs_win` says whether the other app's
     /// tags, ratings and colours replace what the library has; without it
-    /// they only fill in what is empty here.
+    /// they only fill in what is empty here. With `want_streamed`, streamed
+    /// tracks in its playlists (not history or smart lists) that the
+    /// collection hasn't got go on the wanted list, as the DJ's own; ones
+    /// the DJ took off stay off.
     pub fn import_with(
         &mut self,
         source: &str,
         title: &str,
         stamp: &str,
         theirs_win: bool,
+        want_streamed: bool,
         read: impl FnOnce() -> Result<ImportedLibrary, String>,
     ) -> Result<Option<SyncReport>, String> {
         let key = format!("import_stamp:{source}");
@@ -848,8 +890,15 @@ impl Library {
         let tx = self.db.transaction().map_err(|e| e.to_string())?;
         import_tracks(&tx, source, &imported.tracks, theirs_win, &mut report)
             .map_err(|e| e.to_string())?;
-        import_lists(&tx, source, title, &imported.lists, &mut report)
-            .map_err(|e| e.to_string())?;
+        import_lists(
+            &tx,
+            source,
+            title,
+            &imported.lists,
+            want_streamed,
+            &mut report,
+        )
+        .map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
         self.set_meta(&key, stamp).map_err(|e| e.to_string())?;
         Ok(Some(report))
@@ -1188,8 +1237,8 @@ impl Library {
     /// children, siblings in order.
     pub fn playlists(&self) -> Result<Vec<Playlist>, Error> {
         let mut q = self.db.prepare(
-            "SELECT id, parent, name, kind, query, created, source FROM playlists
-                 ORDER BY position, id",
+            "SELECT id, parent, name, kind, query, created, source, color, icon
+                 FROM playlists ORDER BY position, id",
         )?;
         let all: Vec<Playlist> = q
             .query_map([], |r| {
@@ -1201,6 +1250,8 @@ impl Library {
                     query: r.get(4)?,
                     created: r.get(5)?,
                     source: r.get(6)?,
+                    color: r.get::<_, Option<i64>>(7)?.map(|c| c as u32 & 0xff_ffff),
+                    icon: r.get(8)?,
                 })
             })?
             .collect::<Result<_, _>>()?;
@@ -1261,6 +1312,24 @@ impl Library {
         self.db.execute(
             "UPDATE playlists SET name = ?2 WHERE id = ?1",
             params![id, name],
+        )?;
+        Ok(())
+    }
+
+    /// Gives a list a colour (0xRRGGBB, or None for none).
+    pub fn set_playlist_color(&self, id: i64, color: Option<u32>) -> Result<(), Error> {
+        self.db.execute(
+            "UPDATE playlists SET color = ?2 WHERE id = ?1",
+            params![id, color.map(|c| i64::from(c & 0xff_ffff))],
+        )?;
+        Ok(())
+    }
+
+    /// Gives a list one of [`LIST_ICONS`] by name, or None for its kind's own.
+    pub fn set_playlist_icon(&self, id: i64, icon: Option<&str>) -> Result<(), Error> {
+        self.db.execute(
+            "UPDATE playlists SET icon = ?2 WHERE id = ?1",
+            params![id, icon],
         )?;
         Ok(())
     }
@@ -1734,21 +1803,50 @@ impl Library {
         Ok(id)
     }
 
-    /// Remembers that the DJ went to buy a track. The same page twice is
-    /// kept once.
+    /// Remembers that the DJ wants a track: went to buy it, or added it
+    /// from a streaming service. The same page twice is kept once, as the
+    /// DJ's own (no import takes it off again). Returns whether it's new.
     pub fn add_wanted(
         &self,
         store: &str,
         artist: &str,
         title: &str,
         page_url: &str,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
+        let known = self
+            .db
+            .prepare("SELECT 1 FROM wanted WHERE page_url = ?1 AND track_id IS NULL")?
+            .exists([page_url])?;
         self.db.execute(
             "INSERT INTO wanted (store, artist, title, page_url, added) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(page_url) DO UPDATE SET source = NULL",
+            params![store, artist, title, page_url, now()],
+        )?;
+        self.db.execute(
+            "DELETE FROM wanted_dismissed WHERE page_url = ?1",
+            [page_url],
+        )?;
+        Ok(!known)
+    }
+
+    /// Puts a track on the wanted list for a playlist kept in sync with it,
+    /// unless the DJ took it off before or it's there already. Returns
+    /// whether it went on.
+    pub fn add_wanted_unless_dismissed(
+        &self,
+        store: &str,
+        artist: &str,
+        title: &str,
+        page_url: &str,
+    ) -> Result<bool, Error> {
+        let n = self.db.execute(
+            "INSERT INTO wanted (store, artist, title, page_url, added)
+             SELECT ?1, ?2, ?3, ?4, ?5
+             WHERE NOT EXISTS (SELECT 1 FROM wanted_dismissed WHERE page_url = ?4)
              ON CONFLICT(page_url) DO NOTHING",
             params![store, artist, title, page_url, now()],
         )?;
-        Ok(())
+        Ok(n > 0)
     }
 
     /// Tracks the DJ went to buy that haven't arrived yet, newest first.
@@ -1772,6 +1870,26 @@ impl Library {
     pub fn remove_wanted(&self, id: i64) -> Result<(), Error> {
         self.db.execute("DELETE FROM wanted WHERE id = ?1", [id])?;
         Ok(())
+    }
+
+    /// Takes these tracks off the wanted list, at once, for good: no import
+    /// or synced playlist puts them back. Returns how many went.
+    pub fn remove_wanted_many(&mut self, ids: &[i64]) -> Result<usize, Error> {
+        let tx = self.db.transaction()?;
+        let mut n = 0;
+        {
+            let mut dismiss = tx.prepare(
+                "INSERT OR IGNORE INTO wanted_dismissed (page_url)
+                 SELECT page_url FROM wanted WHERE id = ?1",
+            )?;
+            let mut q = tx.prepare("DELETE FROM wanted WHERE id = ?1")?;
+            for id in ids {
+                dismiss.execute([id])?;
+                n += q.execute([id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(n)
     }
 
     /// Whether the inbox has already dealt with this file.
@@ -2125,6 +2243,7 @@ fn import_lists(
     source: &str,
     title: &str,
     lists: &[ImportedList],
+    want_streamed: bool,
     report: &mut SyncReport,
 ) -> Result<(), Error> {
     // Deleting the folder takes everything in it along.
@@ -2177,14 +2296,15 @@ fn import_lists(
              (playlist_id, position, service, stream_id, uri, artist, title, duration, isrc, played_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
     )?;
-    // Streamed tracks go on the wanted list, made again on each import.
-    tx.execute(
-        "DELETE FROM wanted WHERE source = ?1 AND track_id IS NULL",
-        [source],
-    )?;
+    // Streamed tracks stay in their lists; they go on the wanted list only
+    // when the DJ adds them (Add to Wanted), or from playlists when the DJ
+    // turned that on for this import. Never from history: what was played
+    // isn't always what's wanted.
     let mut want = tx.prepare(
-        "INSERT OR IGNORE INTO wanted (store, artist, title, page_url, added, source)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO wanted (store, artist, title, page_url, added)
+         SELECT ?1, ?2, ?3, ?4, ?5
+         WHERE NOT EXISTS (SELECT 1 FROM wanted_dismissed WHERE page_url = ?4)
+         ON CONFLICT(page_url) DO NOTHING",
     )?;
     // The collection's copy of a streamed track: the same ISRC, else the
     // same artist and title at the same length.
@@ -2264,6 +2384,7 @@ fn import_lists(
         };
         let id = make(Some(parent), &list.name, kind, i as i64, created, query)?;
         report.lists += 1;
+        let wanted_here = want_streamed && matches!(list.kind, ImportedListKind::List);
         for (position, (row, played_at)) in rows.into_iter().enumerate() {
             let played_at = played_at.unwrap_or(created);
             match row {
@@ -2283,15 +2404,8 @@ fn import_lists(
                         s.isrc,
                         played_at
                     ])?;
-                    if let Some(url) = s.page_url() {
-                        want.execute(params![
-                            s.service_name(),
-                            s.artist,
-                            s.title,
-                            url,
-                            now(),
-                            source
-                        ])?;
+                    if let Some(url) = s.page_url().filter(|_| wanted_here) {
+                        want.execute(params![s.service_name(), s.artist, s.title, url, now()])?;
                     }
                 }
             }
@@ -2324,6 +2438,29 @@ mod tests {
             cover: None,
             info: Default::default(),
         }
+    }
+
+    #[test]
+    fn crates_keep_their_colour_and_icon() {
+        let lib = Library::in_memory().unwrap();
+        let krate = lib
+            .create_playlist("Yoga", None, PlaylistKind::List)
+            .unwrap();
+        let get = |lib: &Library| {
+            lib.playlists()
+                .unwrap()
+                .into_iter()
+                .find(|p| p.id == krate)
+                .unwrap()
+        };
+        assert_eq!((get(&lib).color, get(&lib).icon), (None, None));
+        lib.set_playlist_color(krate, Some(0x34c759)).unwrap();
+        lib.set_playlist_icon(krate, Some("leaf")).unwrap();
+        assert_eq!(get(&lib).color, Some(0x34c759));
+        assert_eq!(get(&lib).icon.as_deref(), Some("leaf"));
+        lib.set_playlist_color(krate, None).unwrap();
+        lib.set_playlist_icon(krate, None).unwrap();
+        assert_eq!((get(&lib).color, get(&lib).icon), (None, None));
     }
 
     #[test]
@@ -2555,13 +2692,13 @@ mod tests {
                 lists: Vec::new(),
             })
         };
-        lib.import_with("vdj", "VirtualDJ", "1", false, read)
+        lib.import_with("vdj", "VirtualDJ", "1", false, false, read)
             .unwrap()
             .unwrap();
         let t = &lib.tracks(|_| true).unwrap()[0];
         // The title stays; the rating, which was empty here, comes in.
         assert_eq!((t.title.as_str(), t.rating), ("Mine", 4));
-        lib.import_with("vdj", "VirtualDJ", "2", true, read)
+        lib.import_with("vdj", "VirtualDJ", "2", true, false, read)
             .unwrap()
             .unwrap();
         assert_eq!(lib.tracks(|_| true).unwrap()[0].title, "Theirs");
@@ -2708,27 +2845,8 @@ mod tests {
         let a = tracks.iter().find(|t| t.title == "Have It").unwrap().id;
         lib.add_to_playlist(id("Mixed").unwrap(), &[a]).unwrap();
         assert_eq!(lib.playlist_entries(id("Mixed").unwrap()).unwrap().len(), 4);
-        // Streamed tracks wait on the wanted list, until the import goes.
-        let mut wanted: Vec<(String, String)> = lib
-            .wanted()
-            .unwrap()
-            .into_iter()
-            .map(|w| (w.store, w.page_url))
-            .collect();
-        wanted.sort();
-        assert_eq!(
-            wanted,
-            [
-                (
-                    "TIDAL".to_string(),
-                    "https://tidal.com/browse/track/1".to_string()
-                ),
-                (
-                    "TIDAL".to_string(),
-                    "https://tidal.com/browse/track/3".to_string()
-                ),
-            ]
-        );
+        // Streamed tracks stay in their lists, off the wanted list.
+        assert!(lib.wanted().unwrap().is_empty());
         // What the service says fills in what the list didn't.
         lib.describe_streamed(&StreamedTrack {
             service: "tidal".into(),
@@ -3319,6 +3437,131 @@ mod tests {
         lib.delete_playlist(sets).unwrap();
         assert!(lib.playlist_tracks(friday).unwrap().is_empty());
         assert!(!lib.playlists().unwrap().iter().any(|p| p.id == friday));
+    }
+
+    #[test]
+    fn an_import_can_want_its_playlists_streamed_tracks() {
+        use opendj_engine::import::ImportedEntry;
+        let mut lib = Library::in_memory().unwrap();
+        let streamed = |id: &str| {
+            let mut e = ImportedEntry::new(format!("netsearch://td{id}"), None);
+            let s = e.streamed.as_mut().unwrap();
+            s.artist = "Artist".into();
+            s.title = format!("Track {id}");
+            e
+        };
+        let read = |n: usize| {
+            move || {
+                Ok(ImportedLibrary {
+                    tracks: Vec::new(),
+                    lists: vec![
+                        ImportedList {
+                            folders: Vec::new(),
+                            name: "To buy".into(),
+                            kind: ImportedListKind::List,
+                            entries: (1..=n).map(|i| streamed(&i.to_string())).collect(),
+                        },
+                        ImportedList {
+                            folders: Vec::new(),
+                            name: "Friday".into(),
+                            kind: ImportedListKind::History { started: 0 },
+                            entries: vec![streamed("99")],
+                        },
+                    ],
+                })
+            }
+        };
+        lib.import_with("vdj", "VirtualDJ", "1", true, true, read(2))
+            .unwrap();
+        let titles = |lib: &Library| {
+            let mut t: Vec<String> = lib.wanted().unwrap().into_iter().map(|w| w.title).collect();
+            t.sort();
+            t
+        };
+        // History stays off the list.
+        assert_eq!(titles(&lib), ["Track 1", "Track 2"]);
+        // Taken off by hand, it stays off; new ones come on; none go.
+        let one = lib
+            .wanted()
+            .unwrap()
+            .into_iter()
+            .find(|w| w.title == "Track 1");
+        lib.remove_wanted_many(&[one.unwrap().id]).unwrap();
+        lib.import_with("vdj", "VirtualDJ", "2", true, true, read(3))
+            .unwrap();
+        assert_eq!(titles(&lib), ["Track 2", "Track 3"]);
+        lib.import_with("vdj", "VirtualDJ", "3", true, true, read(0))
+            .unwrap();
+        assert_eq!(titles(&lib), ["Track 2", "Track 3"]);
+        lib.remove_import("vdj", |_| false).unwrap();
+        assert_eq!(titles(&lib), ["Track 2", "Track 3"]);
+        // Adding it by hand brings it back.
+        assert!(lib
+            .add_wanted(
+                "TIDAL",
+                "Artist",
+                "Track 1",
+                "https://tidal.com/browse/track/1"
+            )
+            .unwrap());
+        assert!(!lib
+            .add_wanted_unless_dismissed(
+                "TIDAL",
+                "Artist",
+                "Track 1",
+                "https://tidal.com/browse/track/1"
+            )
+            .unwrap());
+    }
+
+    #[test]
+    fn the_wanted_list_is_the_djs_own() {
+        let mut lib = Library::in_memory().unwrap();
+        // A wanted track from before, put there by an import.
+        lib.db
+            .execute(
+                "INSERT INTO wanted (store, artist, title, page_url, source)
+                 VALUES ('TIDAL', 'A', 'Old', 'https://tidal.com/browse/track/9', 'vdj')",
+                [],
+            )
+            .unwrap();
+        // Adding it by hand makes it the DJ's: removing the import keeps it.
+        assert!(!lib
+            .add_wanted("TIDAL", "A", "Old", "https://tidal.com/browse/track/9")
+            .unwrap());
+        assert!(lib
+            .add_wanted("TIDAL", "B", "New", "https://tidal.com/browse/track/8")
+            .unwrap());
+        lib.remove_import("vdj", |_| false).unwrap();
+        let ids: Vec<i64> = lib.wanted().unwrap().iter().map(|w| w.id).collect();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(lib.remove_wanted_many(&ids).unwrap(), 2);
+        assert!(lib.wanted().unwrap().is_empty());
+    }
+
+    #[test]
+    fn opening_drops_what_imports_put_on_the_wanted_list() {
+        let dir = std::env::temp_dir().join(format!("opendj-wanted-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("library.db");
+        let _ = std::fs::remove_file(&path);
+        {
+            let lib = Library::open(&path).unwrap();
+            lib.add_wanted("Bandcamp", "A", "Bought", "https://a.bandcamp.com/track/x")
+                .unwrap();
+            lib.db
+                .execute_batch(
+                    "INSERT INTO wanted (store, artist, title, page_url, source)
+                     VALUES ('TIDAL', 'B', 'Streamed', 'https://tidal.com/browse/track/1', 'vdj');
+                     PRAGMA user_version = 11;",
+                )
+                .unwrap();
+        }
+        let lib = Library::open(&path).unwrap();
+        let left: Vec<String> = lib.wanted().unwrap().into_iter().map(|w| w.title).collect();
+        assert_eq!(left, ["Bought"]);
+        drop(lib);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
