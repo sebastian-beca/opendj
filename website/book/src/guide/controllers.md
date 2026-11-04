@@ -89,14 +89,16 @@ the list by any of those words.
 
 ## Map mode
 
-The quickest way to change a few controls: press **MIDI** in the top bar (or
-**MIDI map** in the Controller Editor). Every control on screen that can be
+The quickest way to change a few controls: open the Controller Editor
+(Settings → Controllers, **Edit**) and press **MIDI map**. The editor makes
+way for the main window, and every control on screen that can be
 mapped turns lilac, brighter where the controller already does it. Click
 one, then press, turn or move a control on the controller, and from then on
 it does that. The bar says what changed and what the control did before.
 **Keep both** makes it do both, **Undo** (or ⌘Z, Ctrl+Z on Windows and
-Linux) takes the last one back, and **Done** or Esc ends Map mode. While Map
-mode is on, the controller only teaches: pressing PLAY doesn't start a deck.
+Linux) takes the last one back, and **Done** or Esc ends Map mode and brings
+the editor back. While Map mode is on, the controller only teaches:
+pressing PLAY doesn't start a deck.
 
 Besides the deck and mixer controls, the effects (ON, D/W, the second
 control's slider and the ‹ › that step through effects), the pad mode tabs

@@ -437,7 +437,8 @@ impl Browser {
         Some((stream, key.clone()))
     }
 
-    /// "Sync to Wanted" on a streaming playlist, or stopping it.
+    /// "Add to Wanted" on a streaming playlist, which keeps adding what joins
+    /// it later, or stopping that.
     fn toggle_sync(&mut self, row: i32) {
         let Some((stream, key)) = self.stream_at(row) else {
             return;
@@ -446,18 +447,18 @@ impl Browser {
         crate::settings::set_wanted_sync(self.streams[stream].id, &key, on);
         if !on {
             return self.wanted_note(
-                "This playlist isn't synced to Wanted any more. Its tracks stay on the list."
+                "New tracks in this playlist won't join Wanted any more. Its tracks stay on the list."
                     .into(),
             );
         }
         if self.streams[stream].state.tracks.contains_key(&key) {
             let text = match self.sync_stream(stream, &key) {
-                0 => "Synced to Wanted. Tracks added to the playlist from now on join the list."
+                0 => "Nothing missing yet. Tracks added to the playlist from now on join Wanted."
                     .to_string(),
-                1 => "Synced to Wanted: added 1 track. Tracks added to the playlist later join it."
+                1 => "Added 1 track to Wanted. Tracks added to the playlist later join it."
                     .to_string(),
                 n => format!(
-                    "Synced to Wanted: added {n} tracks. Tracks added to the playlist later join them."
+                    "Added {n} tracks to Wanted. Tracks added to the playlist later join them."
                 ),
             };
             self.wanted_note(text);
@@ -466,7 +467,7 @@ impl Browser {
             if st.state.loading.insert(key.clone()) {
                 st.service.send(crate::spotify::Request::Tracks(key));
             }
-            self.wanted_note("Synced to Wanted; adding its tracks once it loads…".into());
+            self.wanted_note("Adding its tracks to Wanted once it loads…".into());
         }
     }
 
