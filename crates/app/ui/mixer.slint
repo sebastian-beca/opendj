@@ -3,6 +3,7 @@
 // faders in the middle with the main meter between them, crossfader below.
 // Dark knobs with white pointers, ticked faders.
 import { Theme, EdgeLine, CloseIcon } from "theme.slint";
+import { TourMark } from "tourmark.slint";
 import { Caption, Controls, ControlButton, ControlFader, ControlKnob, Crossfader, CueHeadphones, StereoMeter } from "controls.slint";
 import { EffectList } from "deck.slint";
 
@@ -274,6 +275,7 @@ component ColorFxArrow inherits Rectangle {
         fill: ta.has-hover ? Theme.text : Theme.text-dim;
     }
     ta := TouchArea { mouse-cursor: pointer; clicked => { menu.show(); } }
+    TourMark { id: "[QuickEffectRack1_[Channel" + (deck + 1) + "]],loaded_chain_preset"; }
     menu := PopupWindow {
         // Opens beside the knob, away from it: down and inwards.
         x: left ? root.width - 130px : 0px;

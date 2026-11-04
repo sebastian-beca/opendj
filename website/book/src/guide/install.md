@@ -61,3 +61,12 @@ can be skipped.
 
 **Settings → Help** runs the tour again, whole or one part. If you used openDJ
 before the tour existed, it's offered once in a banner under the top bar.
+
+## Tutorials
+
+**Settings → Help → Tutorials** has short hands-on lessons that work the
+same way, a few minutes each: **Looping**, **Using FX**, **Filtering
+tracks**, **Automix** and, with one plugged in, the **DDJ-FLX4**. Each rings
+the real controls and waits for you; the ✕ on the tip leaves at any step and
+puts the layout back. A ✓ marks the ones you've finished, and the last tip
+links to that part of this guide.
