@@ -2522,6 +2522,7 @@ component FolderTree inherits Rectangle {
                 Text { text: tab == 1 ? "Sessions" : source == 1 ? "Folders" : source == 0 ? (HealthUi.view ? "Collection Health" : "Library") : ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud"][source]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
             }
             ListView {
+                gutter: true;
                 for f[i] in folders: Rectangle {
                     // A line sets the Crates heading apart from the collection.
                     height: f.separator ? 45px : 34px;
