@@ -24,7 +24,7 @@ None.
 
 ## Out of Scope
 
-- DVS (after 1.0).
+- DVS (add-dvs, v0.6), which builds on this scratch path.
 
 ## Impact
 
