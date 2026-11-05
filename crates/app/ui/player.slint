@@ -224,50 +224,66 @@ export component PlayerBar inherits Rectangle {
     property <string> elapsed: floor(elapsed-s / 60) + ":" + (mod(elapsed-s, 60) < 10 ? "0" : "") + mod(elapsed-s, 60);
     // BPM to one decimal, without a trailing ".0".
     property <string> bpm: info.bpm.is-float() ? "" + round(info.bpm.to-float() * 10) / 10 : "";
+    // Both sides of the overview and transport are this wide, so they sit
+    // in the middle of the window: the cover and title on the left, the
+    // Automix status, volume and queue on the right.
+    property <length> side: clamp(root.width * 0.28, 380px, 500px);
+    property <length> pad-left: 20px;
+    property <length> pad-right: 18px;
+    property <length> gap: 28px;
+    property <length> cover-size: 136px;
+    property <length> cover-gap: 18px;
     background: Theme.panel;
 
     HorizontalLayout {
-        // The album art, edge to edge: as tall as the bar, no frame.
-        Cover { deck: d; tint: Theme.deck-color(d); info: info; size: root.height; radius: 0px; }
-
         HorizontalLayout {
-            padding-left: 22px;
-            padding-right: 18px;
+            padding-left: pad-left;
+            padding-right: pad-right;
             padding-top: 18px;
             padding-bottom: 18px;
-            spacing: 28px;
+            spacing: gap;
 
-            // Title, artist, then BPM and the key in its wheel colour.
-            VerticalLayout {
-                width: 250px;
-                alignment: center;
-                spacing: 4px;
-                Text { text: info.loaded ? info.title : "Nothing playing"; color: Theme.text; font-size: 22px; font-weight: 700; overflow: elide; }
-                Text { text: info.loaded ? info.artist : queue-has-tracks ? "Press play to start the queue" : "Add tracks to Up Next, then press play"; color: Theme.text-dim; font-size: 17px; overflow: elide; }
-                if info.loaded: HorizontalLayout {
-                    padding-top: 8px;
-                    spacing: 8px;
-                    alignment: start;
-                    if bpm != "": Rectangle {
-                        height: 24px;
-                        width: bpm-text.preferred-width + 18px;
-                        border-radius: 12px;
-                        background: #ffffff12;
-                        bpm-text := Text { text: bpm + " BPM"; color: Theme.text; font-size: 12px; font-weight: 600; }
-                    }
-                    if info.key != "": Rectangle {
-                        height: 24px;
-                        width: key-text.preferred-width + 18px;
-                        border-radius: 12px;
-                        background: Theme.key-wheel-color(info.key-wheel).with-alpha(0.18);
-                        border-width: 1px;
-                        border-color: Theme.key-wheel-color(info.key-wheel).with-alpha(0.55);
-                        key-text := Text { text: info.key; color: Theme.key-wheel-color(info.key-wheel); font-size: 12px; font-weight: 700; }
+            // The album art, then title, artist, BPM and the key in its
+            // wheel colour.
+            HorizontalLayout {
+                width: side - pad-left - gap;
+                spacing: cover-gap;
+                VerticalLayout {
+                    alignment: center;
+                    Cover { deck: d; tint: Theme.deck-color(d); info: info; size: cover-size; radius: 6px; }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    alignment: center;
+                    spacing: 3px;
+                    Text { text: info.loaded ? info.title : "Nothing playing"; color: Theme.text; font-size: 18px; font-weight: 700; overflow: elide; }
+                    Text { text: info.loaded ? info.artist : queue-has-tracks ? "Press play to start the queue" : "Add tracks to Up Next, then press play"; color: Theme.text-dim; font-size: 14px; overflow: elide; }
+                    if info.loaded: HorizontalLayout {
+                        padding-top: 8px;
+                        spacing: 8px;
+                        alignment: start;
+                        if bpm != "": Rectangle {
+                            height: 24px;
+                            width: bpm-text.preferred-width + 18px;
+                            border-radius: 12px;
+                            background: #ffffff12;
+                            bpm-text := Text { text: bpm + " BPM"; color: Theme.text; font-size: 12px; font-weight: 600; }
+                        }
+                        if info.key != "": Rectangle {
+                            height: 24px;
+                            width: key-text.preferred-width + 18px;
+                            border-radius: 12px;
+                            background: Theme.key-wheel-color(info.key-wheel).with-alpha(0.18);
+                            border-width: 1px;
+                            border-color: Theme.key-wheel-color(info.key-wheel).with-alpha(0.55);
+                            key-text := Text { text: info.key; color: Theme.key-wheel-color(info.key-wheel); font-size: 12px; font-weight: 700; }
+                        }
                     }
                 }
             }
 
-            // The overview (waveform and phrase bar) over the transport.
+            // The overview (the waveform) over the transport.
             VerticalLayout {
                 horizontal-stretch: 1;
                 alignment: center;
@@ -449,7 +465,7 @@ export component PlayerBar inherits Rectangle {
 
             // Automix's next step, the volume and the queue.
             VerticalLayout {
-                width: 250px;
+                width: side - gap - pad-right;
                 alignment: center;
                 spacing: 14px;
                 HorizontalLayout {
