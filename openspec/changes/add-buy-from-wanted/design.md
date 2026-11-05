@@ -23,8 +23,9 @@ No store offers a public link or API that fills a cart with several tracks. Open
 
 - **Batches of up to 10 pages** per click, so stores' bot checks are not tripped and the browser isn't flooded.
 - **Pending purchase** = `wanted.pending_store` + `wanted.pending_since`; cleared on match or after 7 days.
-- **Matching order**: ISRC, store comment/tag (Bandcamp writes its URL into the comment), artist + title (normalised) + length within 2 s. Only pending rows are matched automatically; others need "Match to Wanted…".
-- **Extra inbox folders** take only files newer than when the folder was added and never move files out of a store app's folder (copy mode), since that folder is the store app's library.
+- **Matching order**: store plugins recognise the store (Bandcamp's comment tag); the Wanted row is found by ISRC, then artist + title (normalised) + length within 2 s, rows being bought first.
+- **The Music app's folder** (macOS, `~/Music/Music/Media.localized/Music`) is watched two folders deep, looking only into folders changed since the watch began; only files that match a Wanted track being bought are taken, and they're added where they are (no copy: disk space), since that folder is the Music app's library. A general "add a folder" setting for other store apps (Qobuz, Amazon) is a follow-up.
+- **The purchase inbox is off by default** and switched on from the Buy sheet; switching on resets the time from which files count.
 - **Cross-links**: MusicBrainz by ISRC first (open data); Odesli as a fallback with a short cache.
 
 ## Ranking

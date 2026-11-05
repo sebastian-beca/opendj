@@ -2,7 +2,7 @@
 
 Planned for: **v0.6 · Buy it from the artist**
 
-Status: direction chosen 2026-11-05: Beatport partner access is being requested; no affiliate links; stores ranked by coverage and speed to the library.
+Status: direction chosen 2026-11-05 (Beatport partner access being requested; no affiliate links; stores ranked by coverage and speed to the library). Steps 1-4 built; the Beatport steps wait on partner access.
 
 ## Why
 

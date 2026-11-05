@@ -643,6 +643,49 @@ export global WantedUi {
     callback open(row: int);
 }
 
+// A store on the Buy sheet, with the tracks chosen to buy there.
+export struct BuyGroup {
+    store: string,
+    count: int,
+    // The store has these tracks; false when it's only a search to try.
+    found: bool,
+    // How many of its pages were opened.
+    opened: int,
+}
+
+// A track on the Buy sheet: the store chosen for it, and how many other
+// stores it could be bought on.
+export struct BuyRow {
+    name: string,
+    store: string,
+    found: bool,
+    others: int,
+}
+
+// Buy on Wanted rows: each track's best store, artist-direct first,
+// grouped so each store's own cart collects them for one checkout. openDJ
+// never takes payment.
+export global BuyUi {
+    in property <bool> open;
+    in property <int> count;
+    // Tracks looked up so far, of count.
+    in property <int> looked;
+    in property <[BuyGroup]> groups;
+    in property <[BuyRow]> rows;
+    // The purchase inbox: what arrives in Downloads goes to Inbox.
+    in property <bool> inbox-on;
+    in property <string> inbox-note;
+    // The Music app's folder is there to watch (macOS).
+    in property <bool> music-app-offered;
+    in property <bool> music-app-on;
+    callback start(first: int, last: int);
+    callback open-group(index: int);
+    callback switch-store(row: int);
+    callback set-inbox(on: bool);
+    callback set-music-app(on: bool);
+    callback close();
+}
+
 // Fixing which collection track a streaming track is, by hand.
 export global StreamMatch {
     // What the DJ typed to find the track, and what it found.
@@ -3824,12 +3867,19 @@ component TrackList inherits Rectangle {
     // picked tracks off the list.
     wanted-menu := PopupWindow {
         x: min(menu-x, root.width - 230px);
-        y: min(menu-y, root.height - 110px);
+        y: min(menu-y, root.height - 140px);
         width: 220px;
         close-policy: close-on-click-outside;
         MenuBackground {}
         VerticalLayout {
             padding: 6px;
+            MenuLine {
+                text: menu-count > 1 ? "Buy " + menu-count + " Tracks…" : "Buy…";
+                clicked => {
+                    BuyUi.start(menu-row, menu-row);
+                    wanted-menu.close();
+                }
+            }
             if menu-count == 1: MenuLine {
                 text: "Open Page";
                 clicked => {
@@ -4801,6 +4851,142 @@ component FixNamesDialog inherits Rectangle {
     }
 }
 
+// A switch line on the Buy sheet: the whole line is clickable.
+component BuyTick inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback toggled();
+    height: 20px;
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: start;
+        VerticalLayout {
+            alignment: center;
+            Tick { on: root.on; }
+        }
+        Text { text: root.text; color: Theme.text; font-size: 12px; vertical-alignment: center; }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+    }
+}
+
+// Buy: the Wanted tracks picked, grouped by the store chosen for each.
+// Opening a store opens its pages ten at a time; the DJ adds each to the
+// store's cart and checks out there.
+component BuyDialog inherits Rectangle {
+    background: #000000a0;
+    TouchArea { }
+    Rectangle {
+        width: min(parent.width - 32px, 600px);
+        height: min(parent.height - 32px, col.preferred-height);
+        background: Theme.browser;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #000000c0;
+        col := VerticalLayout {
+            padding: 18px;
+            spacing: 12px;
+            VerticalLayout {
+                spacing: 2px;
+                Text { text: BuyUi.count == 1 ? "Buy 1 track" : "Buy " + BuyUi.count + " tracks"; color: Theme.text; font-size: 18px; font-weight: 700; }
+                Text {
+                    text: BuyUi.looked < BuyUi.count
+                        ? "Looking in the stores… " + BuyUi.looked + " of " + BuyUi.count
+                        : "Add each page to the store's cart, then check out once on that store. Payment happens on the store, never in openDJ.";
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+            // The stores, best first.
+            for g[i] in BuyUi.groups: Rectangle {
+                height: 40px;
+                border-radius: 6px;
+                background: Theme.panel-raised;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 8px;
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        Text { text: g.store; color: Theme.text; font-size: 13px; font-weight: 600; overflow: elide; }
+                        Text {
+                            text: (g.count == 1 ? "1 track" : g.count + " tracks") + (g.found ? "" : " · not found, opens a search");
+                            color: Theme.text-dim;
+                            font-size: 11px;
+                            overflow: elide;
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    VerticalLayout {
+                        alignment: center;
+                        HealthButton {
+                            text: !g.found ? (g.opened >= g.count && g.opened > 0 ? "Search Again" : g.count == 1 ? "Search" : "Search " + min(10, g.count - g.opened))
+                                : g.opened >= g.count ? "Open Again"
+                                : g.opened > 0 ? "Open Next " + min(10, g.count - g.opened)
+                                : g.count > 10 ? "Open First 10"
+                                : g.count == 1 ? "Open" : "Open " + g.count;
+                            primary: g.opened < g.count && g.found;
+                            clicked => { BuyUi.open-group(i); }
+                        }
+                    }
+                }
+            }
+            // The tracks: click the store to pick another.
+            Flickable {
+                height: min(BuyUi.rows.length * 28px, 196px);
+                content-height: BuyUi.rows.length * 28px;
+                for r[i] in BuyUi.rows: Rectangle {
+                    y: i * 28px;
+                    height: 28px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text { text: r.name; color: Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                        Rectangle {
+                            width: store-text.preferred-width + 18px;
+                            height: 22px;
+                            y: 3px;
+                            border-radius: 11px;
+                            background: store-ta.has-hover && r.others > 0 ? Theme.panel-raised.brighter(0.3) : Theme.control;
+                            store-text := Text {
+                                text: r.store == "" ? "…" : (r.found ? "" : "Try ") + r.store + (r.others > 0 ? "  ⇄" : "");
+                                color: r.found ? Theme.text : Theme.text-dim;
+                                font-size: 11px;
+                            }
+                            store-ta := TouchArea {
+                                mouse-cursor: r.others > 0 ? pointer : default;
+                                clicked => { BuyUi.switch-store(i); }
+                            }
+                        }
+                    }
+                }
+            }
+            VerticalLayout {
+                spacing: 6px;
+                BuyTick {
+                    text: "Bring purchases into Inbox";
+                    on: BuyUi.inbox-on;
+                    toggled => { BuyUi.set-inbox(!BuyUi.inbox-on); }
+                }
+                if BuyUi.music-app-offered: BuyTick {
+                    text: "Also take purchases from the Music app";
+                    on: BuyUi.music-app-on;
+                    toggled => { BuyUi.set-music-app(!BuyUi.music-app-on); }
+                }
+                Text { text: BuyUi.inbox-note; color: Theme.text-dim; font-size: 11px; wrap: word-wrap; }
+            }
+            HorizontalLayout {
+                alignment: end;
+                HealthButton { text: "Done"; clicked => { BuyUi.close(); } }
+            }
+        }
+    }
+}
+
 component SidePanel inherits Rectangle {
     in property <[SideRow]> rows;
     in property <string> total;
@@ -5434,6 +5620,10 @@ export component Browser inherits HorizontalLayout {
             height: 100%;
         }
         if FixNamesUi.open: FixNamesDialog {
+            width: 100%;
+            height: 100%;
+        }
+        if BuyUi.open: BuyDialog {
             width: 100%;
             height: 100%;
         }

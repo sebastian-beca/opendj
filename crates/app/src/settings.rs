@@ -669,13 +669,17 @@ pub struct InboxSettings {
     pub on: bool,
     pub dir: Option<PathBuf>,
     pub mode: Mode,
-    /// Seconds since 1970 when it was first switched on: files older than
+    /// Seconds since 1970 when it was last switched on: files older than
     /// this were already there and are left alone.
     pub since: u64,
+    /// The Music app's media folder, watched too (for iTunes Store
+    /// purchases) since when it was switched on; None when not.
+    pub music_app: Option<(PathBuf, u64)>,
 }
 
 /// The inbox settings. `OPENDJ_INBOX` sets the folder (and switches it
-/// on); otherwise it watches Downloads.
+/// on); otherwise it watches Downloads. It's off until the DJ turns it on,
+/// so nothing in Downloads moves unasked.
 pub fn inbox() -> InboxSettings {
     let v = load();
     let env = std::env::var_os("OPENDJ_INBOX").map(PathBuf::from);
@@ -683,27 +687,68 @@ pub fn inbox() -> InboxSettings {
         .clone()
         .or_else(|| v["inbox_dir"].as_str().map(PathBuf::from))
         .or_else(|| opendj_engine::paths::home_dir().map(|h| h.join("Downloads")));
-    let since = match v["inbox_since"].as_u64() {
-        Some(s) => s,
-        None => {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs());
-            save(|v| v["inbox_since"] = json!(now));
-            now
-        }
+    let since = v["inbox_since"].as_u64().unwrap_or_else(now_secs);
+    let music_app = match (music_app_folder(), v["inbox_music_app_since"].as_u64()) {
+        (Some(dir), Some(since)) => Some((dir, since)),
+        _ => None,
     };
     InboxSettings {
-        on: crate::browser::STORES_ENABLED
-            && (env.is_some() || v["inbox_on"].as_bool().unwrap_or(true)),
+        on: env.is_some() || v["inbox_on"].as_bool().unwrap_or(false),
         dir,
         mode: Mode::from_name(v["inbox_mode"].as_str().unwrap_or("move")),
         since,
+        music_app,
     }
 }
 
-pub fn set_inbox_on(on: bool) {
-    save(|v| v["inbox_on"] = json!(on));
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// Switches the inbox on or off. Switched on, it takes only files that
+/// arrive from now; returns that time.
+pub fn set_inbox_on(on: bool) -> u64 {
+    let now = now_secs();
+    save(|v| {
+        v["inbox_on"] = json!(on);
+        if on {
+            v["inbox_since"] = json!(now);
+        }
+    });
+    now
+}
+
+/// Where the Music app (or iTunes before it) keeps its music, on macOS:
+/// iTunes Store purchases download there. None elsewhere or when missing.
+pub fn music_app_folder() -> Option<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let music = opendj_engine::paths::home_dir()?.join("Music");
+    [
+        "Music/Media.localized/Music",
+        "Music/Media/Music",
+        "iTunes/iTunes Media/Music",
+    ]
+    .iter()
+    .map(|p| music.join(p))
+    .find(|p| p.is_dir())
+}
+
+/// Watches the Music app's folder for purchases from now, or stops.
+/// Returns the folder and time when on.
+pub fn set_music_app_on(on: bool) -> Option<(PathBuf, u64)> {
+    let now = now_secs();
+    save(|v| {
+        v["inbox_music_app_since"] = if on { json!(now) } else { json!(null) };
+    });
+    if on {
+        music_app_folder().map(|d| (d, now))
+    } else {
+        None
+    }
 }
 
 pub fn set_inbox_mode(mode: Mode) {

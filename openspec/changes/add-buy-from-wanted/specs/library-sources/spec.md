@@ -29,9 +29,16 @@ A file arriving in any inbox folder SHALL be matched to pending Wanted rows by I
 - **WHEN** a file with the ISRC of a pending Wanted row lands in Downloads
 - **THEN** the track is in Inbox and no longer on Wanted
 
-### Requirement: More inbox folders
-The inbox SHALL watch Downloads and any further folders the DJ adds. Files in added folders SHALL be copied, not moved, and only files newer than when the folder was added SHALL be taken.
+### Requirement: Purchase inbox off until turned on
+The purchase inbox SHALL be off until the DJ turns it on (on the Buy sheet), and SHALL take only files that arrive after it was last turned on.
 
-#### Scenario: Music app folder
-- **WHEN** the Music app's media folder is added and an older song is already there
-- **THEN** that older song is left alone
+#### Scenario: Turned on later
+- **WHEN** a zip was in Downloads before the inbox was turned on
+- **THEN** it is left alone
+
+### Requirement: Music app purchases
+On macOS the inbox SHALL optionally watch the Music app's media folder, its Artist/Album subfolders included. From it, only files matching Wanted tracks being bought SHALL be taken, and they SHALL be added where they are, never moved or copied.
+
+#### Scenario: The DJ's own music
+- **WHEN** a song the DJ imported into the Music app appears in its folder and isn't being bought
+- **THEN** openDJ leaves it alone
