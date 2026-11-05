@@ -10,9 +10,9 @@
 
 ## 2. Single tags
 
-- [ ] 2.1 A group's tags with counts on the Tags tab
-- [ ] 2.2 Rename a tag (merging when the name exists), delete one, give it a Color
-- [ ] 2.3 Move groups up and down
+- [x] 2.1 A group's tags with counts on the Tags tab
+- [x] 2.2 Rename a tag (merging when the name exists), delete one, give it a Color
+- [x] 2.3 Move groups up and down
 
 ## 3. Grouping
 

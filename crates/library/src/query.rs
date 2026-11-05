@@ -102,9 +102,19 @@ pub struct FieldNames {
     /// Goes up when tracks' tags changed outside the browser (Settings),
     /// so it reads them again.
     pub tags_revision: u64,
+    /// Tags given a color: group, name, color (0xRRGGBB).
+    pub tag_colors: Vec<(i64, String, u32)>,
 }
 
 impl FieldNames {
+    /// The color of tag `name` in `group`, if it has one.
+    pub fn tag_color(&self, group: i64, name: &str) -> Option<u32> {
+        self.tag_colors
+            .iter()
+            .find(|(g, n, _)| *g == group && opendj_engine::same_tag(n, name))
+            .map(|(_, _, c)| *c)
+    }
+
     /// The group with this id.
     pub fn group(&self, id: i64) -> Option<&TagGroup> {
         self.tags.iter().find(|g| g.id == id)
@@ -118,6 +128,7 @@ impl Default for FieldNames {
             grouping: "Grouping".into(),
             tags: vec![TagGroup::new(1, "Tag 1"), TagGroup::new(2, "Tag 2")],
             tags_revision: 0,
+            tag_colors: Vec::new(),
         }
     }
 }
@@ -1183,6 +1194,7 @@ mod tests {
                 TagGroup::new(7, "Time of day"),
             ],
             tags_revision: 0,
+            tag_colors: Vec::new(),
         });
         assert_eq!(find(&lib, "tag1:peak"), [2]);
         assert_eq!(find(&lib, "tag:peak"), [1, 2], "tag: searches every group");

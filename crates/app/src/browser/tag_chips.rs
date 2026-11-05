@@ -157,11 +157,17 @@ fn changed(t: &Track, group: i64, tags: &[String], add: bool) -> String {
 
 /// The chips the Info tab draws for `group`.
 pub(super) fn chip_model(tracks: &[&Track], group: i64) -> ModelRc<TagChip> {
+    let names = super::query::field_names();
     let chips: Vec<TagChip> = chips_of(tracks, group)
         .into_iter()
-        .map(|(tag, count)| TagChip {
-            tag: tag.into(),
-            count: count as i32,
+        .map(|(tag, count)| {
+            let color = names.tag_color(group, &tag);
+            TagChip {
+                count: count as i32,
+                tint: slint::Color::from_argb_encoded(0xff00_0000 | color.unwrap_or(0)),
+                has_color: color.is_some(),
+                tag: tag.into(),
+            }
         })
         .collect();
     ModelRc::new(VecModel::from(chips))
