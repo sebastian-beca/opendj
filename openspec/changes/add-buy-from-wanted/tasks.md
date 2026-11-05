@@ -17,14 +17,20 @@
 - [ ] 3.2 Match arrivals to pending Wanted rows (ISRC, tags, artist/title/length) with tests
 - [ ] 3.3 Match to Wanted… on unmatched Inbox tracks
 
-## 4. Optional (awaiting a decision)
+## 4. Ranking
 
-- [ ] 4.1 Beatport partner cart: add selected tracks, open checkout
-- [ ] 4.2 Affiliate tags behind a Settings switch
+- [ ] 4.1 Search all checkable stores at once; rank by has-it, artist-direct, speed to library, lossless; tests
+- [ ] 4.2 Search links for Bleep, Boomkat, Qobuz, Amazon; Mirlo via `add-artist-direct-stores`
 
-## 5. Docs
+## 5. Beatport (only if partner access is granted)
 
-- [ ] 5.1 Update the matching user guide page in website/book/src/guide
+- [ ] 5.1 Beatport sign-in (OAuth PKCE, loopback callback), catalogue lookup by ISRC
+- [ ] 5.2 Add selected tracks to the Beatport cart, open checkout
+- [ ] 5.3 Pull purchased tracks from the Beatport library into the inbox
+
+## 6. Docs
+
+- [ ] 6.1 Update the matching user guide page in website/book/src/guide
 
 ## Workflow follow-up
 

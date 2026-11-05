@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Buy from Wanted
-Selecting one or more Wanted tracks and choosing Buy… SHALL show each track's best store match, artist-direct stores first, grouped by store. Opening a store group SHALL open its track pages (or its search page when no track link is known) in batches of at most 10. openDJ SHALL never take payment.
+Selecting one or more Wanted tracks and choosing Buy… SHALL search every store that can be checked and show, per track, the stores that have it, ranked artist-direct first, then by how fast the file reaches the library, then lossless first; stores that can only be searched SHALL follow. Store links SHALL carry no affiliate or referral tags. Opening a store group SHALL open its track pages (or its search page when no track link is known) in batches of at most 10. openDJ SHALL never take payment.
 
 #### Scenario: Several tracks on Bandcamp
 - **WHEN** three Wanted tracks are bought and all are found on Bandcamp
 - **THEN** their three Bandcamp track pages open, so the store's cart can hold them for one checkout
+
+#### Scenario: Only on Boomkat
+- **WHEN** an ambient track is found on Boomkat and Bandcamp but not on Beatport
+- **THEN** Bandcamp is first, Boomkat second, and Beatport only appears as "Try on Beatport"
 
 #### Scenario: No track link
 - **WHEN** a track has no known page on Traxsource
