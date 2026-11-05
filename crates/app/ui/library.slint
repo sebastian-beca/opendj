@@ -294,6 +294,11 @@ export global LibraryEdit {
     // Sends the tree's row `row` (a list or history session) to Spotify as
     // a new playlist, in its order.
     callback export-spotify(row: int);
+    // Saves the list, folder, history session, album or mixed set at a
+    // sidebar row as M3U8 files; asks where first.
+    callback export-m3u(row: int);
+    // Makes a playlist from an M3U, M3U8, PLS or XSPF file the DJ picks.
+    callback import-playlist-file();
     // Prepares high-quality stems for the rows `first` to `last`, one
     // track after another in the background.
     callback prepare-hq-stems(first: int, last: int);
@@ -2312,6 +2317,14 @@ component FolderTree inherits Rectangle {
                     name-in-place(LibraryEdit.create(1, -1));
                 }
             }
+            MenuSeparator {}
+            MenuLine {
+                text: "Import Playlist File…";
+                clicked => {
+                    add-menu.close();
+                    LibraryEdit.import-playlist-file();
+                }
+            }
         }
     }
     folder-menu := PopupWindow {
@@ -2367,6 +2380,13 @@ component FolderTree inherits Rectangle {
                 text: "Analyze All";
                 clicked => {
                     LibraryEdit.analyze-all(menu-index);
+                    folder-menu.close();
+                }
+            }
+            if menu-analysable || (source == 0 && menu-kind == 5): MenuLine {
+                text: "Export as M3U8…";
+                clicked => {
+                    LibraryEdit.export-m3u(menu-index);
                     folder-menu.close();
                 }
             }

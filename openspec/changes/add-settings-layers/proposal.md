@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.5 · Stems, performance and switching over** (Seba agreed the three layers, 2026-10-31)
+Planned for: **v0.6 · Buy it from the artist** (moved from v0.5 at the 0.5.0 release) (Seba agreed the three layers, 2026-10-31)
 
 ## Why
 

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>openDJ · Now Playing</title>
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; }
+  body { font-family: Inter, "Helvetica Neue", Arial, sans-serif; color: #fff; }
+  #card { position: fixed; display: flex; align-items: center; gap: 16px;
+    background: rgba(16, 17, 18, 0.82); border-left: 4px solid #B69CFF;
+    opacity: 0; transform: translateY(12px); transition: opacity .5s, transform .5s; }
+  #card.on { opacity: 1; transform: none; }
+  #cover { width: 72px; height: 72px; border-radius: 6px; object-fit: cover; background: #2a2a2e; flex: none; }
+  #cover.none { display: none; }
+  .text { min-width: 0; }
+  #label { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: #B69CFF; font-weight: 700; }
+  #title { font-size: 26px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #artist { font-size: 19px; color: #d6d6dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Lower third: bottom left, wide. */
+  body.lower-third #card { left: 48px; bottom: 48px; max-width: 70vw; padding: 14px 24px 14px 14px; border-radius: 8px; }
+  /* Corner card: top right, small. */
+  body.corner #card { right: 24px; top: 24px; max-width: 40vw; padding: 10px 16px 10px 10px; border-radius: 8px; }
+  body.corner #cover { width: 56px; height: 56px; }
+  body.corner #title { font-size: 20px; }
+  body.corner #artist { font-size: 15px; }
+  /* Ticker: a strip along the bottom. */
+  body.ticker #card { left: 0; right: 0; bottom: 0; padding: 8px 20px; border-left: none; border-top: 3px solid #B69CFF; }
+  body.ticker #cover { width: 40px; height: 40px; }
+  body.ticker .text { display: flex; align-items: baseline; gap: 14px; }
+  body.ticker #title { font-size: 20px; }
+  body.ticker #artist { font-size: 18px; }
+</style>
+</head>
+<body class="__STYLE__">
+<div id="card">
+  <img id="cover" class="none" alt="">
+  <div class="text">
+    <div id="label">Now playing</div>
+    <div id="title"></div>
+    <div id="artist"></div>
+  </div>
+</div>
+<script>
+  const card = document.getElementById('card');
+  const cover = document.getElementById('cover');
+  let shown = null;
+  function show(t) {
+    const key = t && t.title !== undefined ? (t.artist + '\u0000' + t.title + '\u0000' + t.started) : '';
+    if (key === shown) return;
+    shown = key;
+    card.classList.remove('on');
+    setTimeout(() => {
+      if (!key) return;
+      document.getElementById('title').textContent = t.title || '';
+      document.getElementById('artist').textContent = t.artist || '';
+      if (t.cover) {
+        cover.src = '/now-playing/cover?t=' + encodeURIComponent(t.started);
+        cover.classList.remove('none');
+      } else {
+        cover.classList.add('none');
+      }
+      card.classList.add('on');
+    }, shown === null ? 0 : 500);
+  }
+  async function poll() {
+    try {
+      const r = await fetch('/now-playing.json', { cache: 'no-store' });
+      const j = await r.json();
+      if (j.style && document.body.className !== j.style) document.body.className = j.style;
+      show(j.current || null);
+    } catch (e) { /* openDJ closed or the feed was switched off */ }
+  }
+  poll();
+  setInterval(poll, 1000);
+</script>
+</body>
+</html>

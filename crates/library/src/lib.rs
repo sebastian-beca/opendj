@@ -28,6 +28,7 @@ pub mod dupes;
 pub mod fix_names;
 pub mod health;
 mod moves;
+pub mod playlist_files;
 pub mod query;
 pub mod sets;
 pub mod stages;

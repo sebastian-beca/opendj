@@ -23,6 +23,7 @@
 //! few, and the app has no async runtime. Nothing here touches audio.
 
 pub mod http;
+pub mod overlay;
 pub mod pairing;
 pub mod qr;
 

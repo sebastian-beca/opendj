@@ -734,6 +734,11 @@ impl Prefs {
                 continue;
             }
             settings::set(&id, json!(path.to_string_lossy()));
+            if id == crate::now_playing::FOLDER {
+                crate::now_playing::settings_changed();
+                self.refresh();
+                continue;
+            }
             if id == "recording_folder" {
                 self.recorder.configure(settings::recording());
             } else {
@@ -796,6 +801,22 @@ impl Prefs {
                     settings::set(list, json!(""));
                     self.refresh();
                 }
+            }
+            return true;
+        }
+        if list == crate::now_playing::FOLDER {
+            if remove.is_some() {
+                // Back to the default folder.
+                settings::set(list, json!(""));
+                crate::now_playing::settings_changed();
+                self.refresh();
+            } else {
+                choose(
+                    list,
+                    "Choose where to keep the now-playing files",
+                    true,
+                    self.chosen_tx.clone(),
+                );
             }
             return true;
         }
@@ -2898,6 +2919,9 @@ impl Prefs {
             return;
         }
         settings::set(id, json!(on));
+        if id == crate::now_playing::ENABLED || id == crate::now_playing::NETWORK {
+            crate::now_playing::settings_changed();
+        }
         if id == settings::MOVE_FILES && on {
             // The library update makes the moves that were waiting.
             (self.rescan)();
@@ -2929,6 +2953,17 @@ impl Prefs {
     }
 
     fn picked(&mut self, id: &str, index: usize) {
+        if id == crate::now_playing::STYLE || id == crate::now_playing::HOLD {
+            let value = if id == crate::now_playing::HOLD {
+                [0.0, 5.0, 10.0, 20.0, 30.0][index.min(4)]
+            } else {
+                index as f64
+            };
+            settings::set(id, json!(value));
+            crate::now_playing::settings_changed();
+            self.refresh();
+            return;
+        }
         if id == "storage_manage" {
             return self.storage_picked(index);
         }
@@ -3706,6 +3741,11 @@ impl Prefs {
             });
             return;
         }
+        if id == crate::now_playing::TEMPLATE {
+            settings::set(id, json!(text));
+            crate::now_playing::settings_changed();
+            return;
+        }
         if id == broadcast::TITLE_TEMPLATE || id == broadcast::DJ_NAME {
             settings::set(id, json!(text));
             if let Some(b) = &self.broadcast {
@@ -3954,6 +3994,12 @@ impl Prefs {
                 true,
                 self.chosen_tx.clone(),
             ),
+            "now_playing_open" => {
+                let url = crate::now_playing::status();
+                if url.starts_with("http") {
+                    crate::spotify::open_in_browser(&url);
+                }
+            }
             "show_recordings" => {
                 let dir = settings::recording().dir;
                 let _ = std::fs::create_dir_all(&dir);
@@ -4295,6 +4341,7 @@ impl Prefs {
                 "For {dj} in the title.",
             )
         });
+        items.extend(now_playing_items());
         items.push(item("", HEADING, "BEFORE YOU GO ON AIR", ""));
         items.push(item(
             "",
@@ -4517,6 +4564,90 @@ const CLEANUP_FOLD: &str = "cleanup#fold";
 const MUSIC_FOLDERS_LIST: &str = "music_folders";
 /// The plugin folders' list on Settings › Plugins › Folders.
 const PLUGIN_FOLDERS_LIST: &str = "audio_plugin_folders";
+
+/// Settings › Broadcast › NOW PLAYING FEED: the track the audience hears,
+/// for OBS and other streaming software.
+fn now_playing_items() -> Vec<PrefItem> {
+    use crate::now_playing as np;
+    let on = settings::flag(np::ENABLED, false);
+    let mut items = vec![
+        item("", HEADING, "NOW PLAYING FEED", ""),
+        switch(
+            np::ENABLED,
+            "Now playing for streaming software",
+            "Writes the track heard to now-playing.txt and now-playing.json, and serves an \
+             overlay page for OBS or Streamlabs. Works with or without broadcasting.",
+            on,
+        ),
+    ];
+    if !on {
+        return items;
+    }
+    let status = np::status();
+    if !status.is_empty() {
+        let overlay = status.starts_with("http");
+        items.push(PrefItem {
+            action: if overlay { "Open".into() } else { "".into() },
+            ..item(
+                "now_playing_open",
+                if overlay { BUTTON } else { NOTE },
+                if overlay { "Overlay page" } else { "" },
+                &if overlay {
+                    format!("{status}  ·  Add it as a Browser Source, 1920 × 1080.")
+                } else {
+                    status
+                },
+            )
+        });
+    }
+    items.push(PrefItem {
+        choices: strings(&["Lower third", "Corner", "Ticker"]),
+        chosen: settings::number(np::STYLE, 0.0).clamp(0.0, 2.0) as i32,
+        ..item(np::STYLE, SEGMENTED, "Overlay style", "")
+    });
+    items.push(folder_list(
+        np::FOLDER,
+        "Files folder",
+        "Where now-playing.txt and now-playing.json are kept, for a Text source in OBS.",
+        &[np::folder()],
+        true,
+        false,
+    ));
+    items.push(PrefItem {
+        value: settings::string(np::TEMPLATE).into(),
+        ..item(
+            np::TEMPLATE,
+            TEXT,
+            "Text file line",
+            "{artist}, {title}, {album}, {label}, {genre}, {bpm} and {key} are filled in. \
+             Empty is {artist} - {title}.",
+        )
+    });
+    let holds = [0.0, 5.0, 10.0, 20.0, 30.0];
+    let hold = settings::number(np::HOLD, np::DEFAULT_HOLD);
+    items.push(PrefItem {
+        choices: strings(&["At once", "5 s", "10 s", "20 s", "30 s"]),
+        chosen: holds
+            .iter()
+            .position(|&h| (h - hold).abs() < 0.5)
+            .unwrap_or(2) as i32,
+        ..item(
+            np::HOLD,
+            MENU,
+            "Changes after",
+            "How long a track must be the one heard before it shows, so a quick cut or a \
+             long blend doesn't flip the title back and forth.",
+        )
+    });
+    items.push(switch(
+        np::NETWORK,
+        "Open to other devices",
+        "Lets a second computer running OBS open the overlay page over your network. Off, \
+         only this computer can.",
+        settings::flag(np::NETWORK, false),
+    ));
+    items
+}
 
 /// A list of folders shown by name, as in Finder, with + (pick one in the
 /// system's folder picker; on a `single` list, in place of the one there)

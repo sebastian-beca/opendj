@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.5 · Stems, performance and switching over** (Seba 2026-11-02: "I've used this to send separate decks to Ableton in the past using 4 channels; it was nice to record decks separately and apply FX in Ableton separately")
+Planned for: **v0.6 · Buy it from the artist** (moved from v0.5 at the 0.5.0 release) (Seba 2026-11-02: "I've used this to send separate decks to Ableton in the past using 4 channels; it was nice to record decks separately and apply FX in Ableton separately")
 
 ## Why
 

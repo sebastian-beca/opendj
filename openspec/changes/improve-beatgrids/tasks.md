@@ -6,13 +6,13 @@
 
 ## 2. Detection
 
-- [ ] 2.1 Build the chosen detector; better downbeats; dynamic sections only where needed; unsure mark
+- [x] 2.1 Build the chosen detector; better downbeats; dynamic sections only where needed; unsure mark
 
 ## 3. Saving and editing
 
-- [ ] 3.1 Saved grids: lock, source shown, back to analysed; file tags if the research says so
+- [x] 3.1 Saved grids: lock, source shown, back to analysed; file tags if the research says so
 - [ ] 3.2 Grid edit mode on the waveform with undo; screenshot
-- [ ] 3.3 Update the matching user guide page in website/book/src/guide
+- [x] 3.3 Update the matching user guide page in website/book/src/guide
 
 ## Workflow follow-up
 
