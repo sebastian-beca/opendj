@@ -3795,7 +3795,7 @@ impl Browser {
 
     /// The library tracks a drop carries: the rows of the list it names, or
     /// an audio file from outside.
-    fn dropped_tracks(&mut self, data: &DataTransfer) -> Vec<usize> {
+    pub(crate) fn dropped_tracks(&mut self, data: &DataTransfer) -> Vec<usize> {
         match dragged(data) {
             Some(Dragged::Rows(first, last)) => self.playable_rows(first, last),
             Some(Dragged::Side(tab, first, last)) => {
