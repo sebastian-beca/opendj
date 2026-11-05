@@ -1062,13 +1062,16 @@ export component AppWindow inherits Window {
                     if !player: WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
                     if !player: FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
                     if !player: Rectangle { horizontal-stretch: 1; }
-                    // Between the pills, as wide as there is room for.
-                    if player: HorizontalLayout {
+                    // Between the pills, centred on the window (as the
+                    // Player bar below is) while there is room, else
+                    // pushed aside by the wider group of pills.
+                    if player: search-area := Rectangle {
                         horizontal-stretch: 1;
-                        alignment: center;
-                        padding-left: 10px;
-                        padding-right: 10px;
-                        VerticalLayout { alignment: center; TopSearch { } }
+                        property <length> room: self.width - 20px;
+                        TopSearch {
+                            width: min(440px, room);
+                            x: 10px + clamp(root.width / 2 - search-area.absolute-position.x - 10px - self.width / 2, 0px, room - self.width);
+                        }
                     }
                     RemoteButton { }
                     MicButton { }

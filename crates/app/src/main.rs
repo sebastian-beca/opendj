@@ -2021,7 +2021,9 @@ impl Gpu {
         // Prep zooms deck 1's waveform to a number of bars.
         let prep_bars = (app.get_layout() == PREP_LAYOUT && !app.get_library_expanded())
             .then(|| app.global::<PrepUi>().get_bars().max(1) as f64);
-        let show_phrases = app.global::<PhraseView>().get_visible();
+        // The Player bar shows the waveform alone, without the phrase bar.
+        let show_phrases =
+            app.global::<PhraseView>().get_visible() && app.get_layout() != PLAYER_LAYOUT;
         let overview_background = if app.get_layout() == PLAYER_LAYOUT {
             PLAYER_OVERVIEW_BACKGROUND
         } else {
