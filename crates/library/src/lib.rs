@@ -1333,6 +1333,23 @@ impl Library {
         ids
     }
 
+    /// How many entries each list holds, streamed ones included, by list
+    /// id; empty lists are left out.
+    pub fn list_sizes(&self) -> Result<HashMap<i64, usize>, Error> {
+        let mut q = self.db.prepare(
+            "SELECT playlist_id, COUNT(*) FROM (
+                 SELECT playlist_id FROM playlist_tracks
+                 UNION ALL SELECT playlist_id FROM list_streams)
+             GROUP BY playlist_id",
+        )?;
+        let sizes = q
+            .query_map([], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)? as usize))
+            })?
+            .collect();
+        sizes
+    }
+
     /// A list in order, streamed tracks that stand in it included.
     pub fn playlist_entries(&self, id: i64) -> Result<Vec<ListEntry>, Error> {
         let mut q = self.db.prepare(

@@ -37,6 +37,7 @@ pub(crate) mod columns;
 mod cues;
 mod filters;
 mod health;
+mod history;
 mod info;
 mod mix_export;
 mod picks;
@@ -111,6 +112,9 @@ enum Contents {
     Stream(String),
     /// One of the DJ's lists (or a history session) in the library database.
     Playlist(i64),
+    /// A day of history: its sessions' tracks one after another, the
+    /// sessions oldest first.
+    HistoryDay(Vec<i64>),
     /// Search results from every store but Bandcamp.
     OtherStores,
     /// Search results from one store, by its index in `Stores`, or all.
@@ -283,6 +287,13 @@ struct Node {
     /// index into `LIST_ICONS` (0 the crate's own).
     color: Option<usize>,
     icon: usize,
+    /// What the list's header calls it, when not its name (a history day
+    /// or set in full).
+    title: Option<String>,
+    /// How many tracks it holds, shown after its name.
+    count: Option<usize>,
+    /// Shown dimmed: a history set of a single song.
+    dim: bool,
 }
 
 impl Node {
@@ -299,6 +310,9 @@ impl Node {
             separator: false,
             color: None,
             icon: 0,
+            title: None,
+            count: None,
+            dim: false,
         }
     }
 
@@ -418,6 +432,8 @@ const KIND_LIST: i32 = 2;
 const KIND_SMART: i32 = 3;
 const KIND_WANTED: i32 = 4;
 const KIND_HISTORY: i32 = 5;
+/// A day on the history tab, its sets under it.
+const KIND_HISTORY_DAY: i32 = 19;
 /// Bandcamp in the stores list, shown with its logo.
 const KIND_BANDCAMP: i32 = 6;
 /// A drive, and a folder pinned to the top, in Files.
@@ -586,6 +602,9 @@ pub struct Browser {
     export_status: Option<(i64, String)>,
     /// This run's history session, made when the first track is played.
     session: Option<i64>,
+    /// When the last track counted as played (Unix seconds): an hour
+    /// later, or on a new day, the next play starts a new set.
+    last_play: Option<i64>,
     /// Lists tracks can be added to, as offered in the track menu.
     menu_lists: Vec<track_menu::MenuList>,
     /// The crates each track is in, by track id.
@@ -1204,6 +1223,7 @@ impl Browser {
             view_sort: (1, true),
             export_status: None,
             session: None,
+            last_play: None,
             menu_lists: Vec::new(),
             crates: HashMap::new(),
             list_health: Default::default(),
@@ -3188,7 +3208,7 @@ impl Browser {
         let mut nodes = self.collection_nodes();
         if self.saved() {
             let open: HashSet<String> = crate::settings::open_folders().into_iter().collect();
-            for n in &mut nodes {
+            for n in nodes.iter_mut().filter(|n| !n.history) {
                 n.expanded = open.contains(&Self::node_key(n));
             }
         }
@@ -3305,15 +3325,69 @@ impl Browser {
             sections.extend(smart.into_iter().map(|p| smart_node(p, 2)));
         }
         tree.extend(sections);
-        // Newest session first, sessions brought in from other apps among
-        // the DJ's own.
-        sessions.sort_by_key(|p| (p.created, p.id));
-        for p in sessions.iter().rev() {
-            let mut n = Node::new(p.name.clone(), 0, KIND_HISTORY, Contents::Playlist(p.id));
-            n.history = true;
-            tree.push(n);
-        }
+        tree.extend(self.history_nodes(&playlists, &sessions));
         tree
+    }
+
+    /// The history tab: a row per day, newest first, holding the day's
+    /// sets, newest first. Sessions brought in from other apps go among
+    /// the DJ's own. The newest day starts open.
+    fn history_nodes(
+        &self,
+        playlists: &[opendj_library::Playlist],
+        sessions: &[&opendj_library::Playlist],
+    ) -> Vec<Node> {
+        let sizes = self
+            .db
+            .as_ref()
+            .and_then(|db| db.list_sizes().ok())
+            .unwrap_or_default();
+        let names: HashMap<i64, &str> = playlists.iter().map(|p| (p.id, p.name.as_str())).collect();
+        let found: Vec<history::Session> = sessions
+            .iter()
+            .map(|p| history::Session {
+                id: p.id,
+                name: &p.name,
+                started: p.created,
+                from: p
+                    .source
+                    .as_ref()
+                    .and(p.parent)
+                    .and_then(|parent| names.get(&parent).copied()),
+                songs: sizes.get(&p.id).copied().unwrap_or(0),
+            })
+            .collect();
+        let full: HashMap<i64, &str> = sessions.iter().map(|p| (p.id, p.name.as_str())).collect();
+        let today = history::day_of(history::now());
+        let mut nodes = Vec::new();
+        for (d, day) in history::by_day(&found).into_iter().enumerate() {
+            let ids = day.sets.iter().map(|s| s.id).collect();
+            let mut n = Node::new(
+                history::day_label(day.date, today),
+                0,
+                KIND_HISTORY_DAY,
+                Contents::HistoryDay(ids),
+            );
+            n.history = true;
+            n.expanded = d == 0;
+            n.title = Some(history::day_title(day.date));
+            n.count = Some(day.songs());
+            nodes.push(n);
+            for set in day.sets.iter().rev() {
+                let mut n = Node::new(
+                    set.label.clone(),
+                    1,
+                    KIND_HISTORY,
+                    Contents::Playlist(set.id),
+                );
+                n.history = true;
+                n.title = full.get(&set.id).map(|s| s.to_string());
+                n.count = Some(set.songs);
+                n.dim = set.songs <= 1;
+                nodes.push(n);
+            }
+        }
+        nodes
     }
 
     /// The first node shown on the library tab (or the history tab).
@@ -3726,6 +3800,14 @@ impl Browser {
     /// Adds a played track to this session's history.
     fn record_play(&mut self, id: usize) {
         let Some(db) = &mut self.db else { return };
+        let now = history::now();
+        if self
+            .last_play
+            .is_some_and(|last| history::new_set(last, now))
+        {
+            self.session = None;
+        }
+        self.last_play = Some(now);
         if self.session.is_none() {
             let name = chrono::Local::now()
                 .format("%a %e %b %Y, %H:%M")
@@ -3746,14 +3828,14 @@ impl Browser {
             e.info.play_count += 1;
             self.library[i] = Arc::new(e);
         }
-        let showing_session = self
-            .nodes
-            .get(self.current_node)
-            .and_then(|n| match n.contents {
-                Contents::Playlist(p) => Some(p),
-                _ => None,
-            })
-            == self.session;
+        let showing_session =
+            self.nodes
+                .get(self.current_node)
+                .is_some_and(|n| match (&n.contents, self.session) {
+                    (Contents::Playlist(p), Some(s)) => *p == s,
+                    (Contents::HistoryDay(sets), Some(s)) => sets.contains(&s),
+                    _ => false,
+                });
         if showing_session {
             self.refresh_rows();
         }
@@ -4226,8 +4308,9 @@ impl Browser {
                         Contents::Dupes(case) => self.dupe_tracks(Some(*case)).len() as i32,
                         Contents::Area(a) => self.area_count(*a) as i32,
                         Contents::Ignored => self.ignored_tracks().len() as i32,
-                        _ => -1,
+                        _ => n.count.map_or(-1, |c| c as i32),
                     },
+                    dim: n.dim,
                 }
             })
             .collect();
@@ -4277,7 +4360,7 @@ impl Browser {
                 .unwrap_or(-1);
             app.set_current_folder(current);
             let name = match self.nodes.get(self.current_node) {
-                Some(n) => n.name.clone(),
+                Some(n) => n.title.clone().unwrap_or_else(|| n.name.clone()),
                 None if self.tree == FILES => "Files".into(),
                 None if self.tree == ALBUMS => "Albums".into(),
                 None if self.tree == MIXED_SETS => "Mixed Sets".into(),
@@ -4289,6 +4372,13 @@ impl Browser {
             };
             app.set_folder_name(name.into());
         }
+    }
+
+    /// What a node is called in full: a history set's own name ("Mon  2
+    /// Nov 2026, 21:20") rather than its time on the tree.
+    fn node_title(&self, i: usize) -> String {
+        let n = &self.nodes[i];
+        n.title.clone().unwrap_or_else(|| n.name.clone())
     }
 
     fn has_children(&self, i: usize) -> bool {
@@ -4417,6 +4507,16 @@ impl Browser {
                 .and_then(|db| db.playlist_tracks(*id).ok())
                 .unwrap_or_default()
                 .into_iter()
+                .filter_map(|t| self.index_of.get(&t).copied())
+                .collect(),
+            Contents::HistoryDay(sets) => sets
+                .iter()
+                .flat_map(|id| {
+                    self.db
+                        .as_ref()
+                        .and_then(|db| db.playlist_tracks(*id).ok())
+                        .unwrap_or_default()
+                })
                 .filter_map(|t| self.index_of.get(&t).copied())
                 .collect(),
             Contents::All => all(),
@@ -4551,11 +4651,43 @@ impl Browser {
                         list: columns::InList {
                             order: n + 1,
                             played_at: times.get(n).copied().flatten(),
+                            set_start: false,
                         },
                         ..local(i)
                     })
                 })
                 .collect();
+        }
+        // A day of history: its sets one after another, numbered through,
+        // each set after the first marked where it starts.
+        if let (Some(Contents::HistoryDay(sets)), Some(db)) = (
+            self.nodes.get(self.current_node).map(|n| &n.contents),
+            &self.db,
+        ) {
+            let mut rows = Vec::new();
+            for (s, id) in sets.iter().enumerate() {
+                let tracks = db.playlist_tracks(*id).unwrap_or_default();
+                let times = db
+                    .playlist_times(*id)
+                    .ok()
+                    .filter(|t| t.len() == tracks.len())
+                    .unwrap_or_default();
+                let mut first = s > 0;
+                for (n, t) in tracks.into_iter().enumerate() {
+                    let Some(&i) = self.index_of.get(&t) else {
+                        continue;
+                    };
+                    rows.push(RowData {
+                        list: columns::InList {
+                            order: rows.len() + 1,
+                            played_at: times.get(n).copied().flatten(),
+                            set_start: std::mem::take(&mut first),
+                        },
+                        ..local(i)
+                    });
+                }
+            }
+            return rows;
         }
         let Some(key) = self.current_playlist() else {
             return self
@@ -5059,6 +5191,8 @@ impl Browser {
                     analysing: 0,
                     fade: r.local.is_some_and(|id| fade.contains(&library[id].id)),
                     streamed: r.stream.is_some(),
+                    // Only while the day is in play order.
+                    set_start: r.list.set_start && self.sort_column == columns::ORDER,
                 };
                 let crates = r.local.and_then(|id| self.crates.get(&library[id].id));
                 TrackRow {
@@ -5130,8 +5264,10 @@ impl Browser {
     fn follow_list_sort(&mut self) {
         let node = self.nodes.get(self.current_node);
         let list = node
-            .and_then(|n| match n.contents {
-                Contents::Playlist(id) => Some(id),
+            .and_then(|n| match &n.contents {
+                Contents::Playlist(id) => Some(*id),
+                // Keyed apart from the lists by its first set.
+                Contents::HistoryDay(sets) => sets.first().map(|id| -id),
                 _ => None,
             })
             .filter(|_| self.tree == COLLECTION);

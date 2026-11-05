@@ -80,7 +80,7 @@ impl Browser {
         let ticket = self.playlist_files.next;
         self.playlist_files.waiting = Some((ticket, lists, list));
         let tx = self.playlist_files.export_tx.clone();
-        let prompt = format!("Choose where to save \"{}\"", self.nodes[node].name);
+        let prompt = format!("Choose where to save \"{}\"", self.node_title(node));
         crate::prefs::choose_folder(&prompt, move |dir| {
             let _ = tx.send((ticket, dir));
         });
@@ -91,7 +91,7 @@ impl Browser {
         let list_of = |n: usize, parent: Option<usize>| -> OutList {
             let folder = matches!(self.nodes[n].contents, Contents::Folder);
             OutList {
-                name: self.nodes[n].name.clone(),
+                name: self.node_title(n),
                 parent,
                 folder,
                 entries: if folder {
