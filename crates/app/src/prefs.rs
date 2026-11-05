@@ -1303,6 +1303,18 @@ impl Prefs {
                              and names it.",
                         )
                     },
+                    PrefItem {
+                        choices: strings(&crate::track_end::LABELS),
+                        chosen: crate::track_end::chosen() as i32,
+                        ..item(
+                            crate::track_end::KEY,
+                            MENU,
+                            "Track end warning",
+                            "A playing deck's overview flashes red and its time turns red this \
+                             long before the track ends, faster in the last 10 seconds. Not \
+                             while a loop plays.",
+                        )
+                    },
                     switch(
                         "quantize",
                         "Quantize",
@@ -3245,6 +3257,7 @@ impl Prefs {
                 settings::set("key_mixing", json!(m.id()));
                 key::set_mixing(m);
             }
+            crate::track_end::KEY => crate::track_end::choose(index),
             "beat_counter" => {
                 settings::set("beat_counter", json!(index.min(2)));
                 if let Some(app) = self.app.upgrade() {

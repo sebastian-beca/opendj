@@ -78,6 +78,7 @@ mod stores;
 mod stream_cache;
 mod tidal;
 mod tour;
+mod track_end;
 mod tutorials;
 mod ui_font;
 mod update;
@@ -477,6 +478,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let counter = app.global::<BeatCounter>();
         counter.set_mode(beat_counter_mode());
+        track_end::load();
         counter.set_decks(ModelRc::new(VecModel::from(vec![
             BeatCount::default();
             NUM_DECKS
@@ -1629,6 +1631,7 @@ fn fmt_seconds(seconds: f64, round_up: bool) -> String {
 
 /// Handles to the controls the deck displays and waveforms read every frame.
 struct DeckHandles {
+    play: ControlHandle,
     playposition: ControlHandle,
     rate: ControlHandle,
     rate_range: ControlHandle,
@@ -1678,6 +1681,7 @@ impl Decks {
                     .unwrap_or_else(|| panic!("missing control {g},{k}"))
             };
             DeckHandles {
+                play: c("play"),
                 playposition: c("playposition"),
                 rate: c("rate"),
                 rate_range: c("rateRange"),
@@ -1767,6 +1771,12 @@ impl Decks {
             };
         };
         let pos = h.playposition.get() * t.duration;
+        let (end_warning, end_flash) = track_end::warning(
+            t.duration - pos,
+            h.play.get_bool(),
+            h.loop_enabled.get_bool(),
+            track_end::seconds(),
+        );
         let size = h.beatloop_size.get();
         // A loop made with IN and OUT shows its own length while it plays;
         // the box goes back to the beat loop size when it ends.
@@ -1871,6 +1881,8 @@ impl Decks {
                 None => size,
             }),
             progress: (pos / t.duration) as f32,
+            end_warning,
+            end_flash,
             // Filled in by the caller, from Automix.
             automix_from: 0.0,
             automix_to: 0.0,
