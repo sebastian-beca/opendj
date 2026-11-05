@@ -6,6 +6,9 @@
 
 use std::sync::mpsc::Receiver;
 
+use super::cleanup::{info_proposals, query_for, QueryFor};
+use crate::lookup::{Found, Miss};
+
 use opendj_engine::cover::{self, Cover};
 use opendj_engine::preview::PREVIEW_GROUP;
 use opendj_engine::scan::is_cloud_only;
@@ -68,6 +71,12 @@ pub(super) struct InfoState {
     pub(super) many: Vec<(usize, Arc<Track>)>,
     /// Changes typed for the tracks in `many`, by field id, until Apply.
     pending: BTreeMap<String, String>,
+    /// The fields in `pending` a look-up filled, not the DJ: Apply leaves
+    /// them open to later look-ups and clean-up.
+    looked_up: HashSet<String>,
+    /// Look up online for the track shown: where it is in `library`, and
+    /// what comes back.
+    lookup: Option<(usize, Receiver<Result<Found, Miss>>)>,
     /// Tags added lately (tag field, tag), newest first, which the track
     /// menu's Add Tag offers first.
     pub(super) recent_tags: Vec<(i64, String)>,
@@ -95,6 +104,8 @@ impl InfoState {
             tab: (crate::settings::number("info_tab", 0.0) as i32).clamp(TRACK_TAB, FILE_TAB),
             many: Vec::new(),
             pending: BTreeMap::new(),
+            looked_up: HashSet::new(),
+            lookup: None,
             recent_tags: Vec::new(),
         }
     }
@@ -612,6 +623,7 @@ impl Browser {
         ui.on_keep(move |id| {
             w(&|b| {
                 b.info.pending.remove(id.as_str());
+                b.info.looked_up.remove(id.as_str());
                 if let Some(app) = b.app.upgrade() {
                     b.refresh_info(&app);
                 }
@@ -621,6 +633,7 @@ impl Browser {
         ui.on_discard(move || {
             w(&|b| {
                 b.info.pending.clear();
+                b.info.looked_up.clear();
                 if let Some(app) = b.app.upgrade() {
                     b.refresh_info(&app);
                 }
@@ -665,6 +678,8 @@ impl Browser {
         });
         let w = with.clone();
         ui.on_find_covers(move || w(&|b| b.find_covers()));
+        let w = with.clone();
+        ui.on_look_up(move || w(&|b| b.info_look_up()));
         let w = with.clone();
         ui.on_save_cover(move |i| w(&|b| b.save_cover(i.max(0) as usize)));
     }
@@ -713,6 +728,7 @@ impl Browser {
                 && many.iter().zip(&self.info.many).all(|(&i, (j, _))| i == *j);
             if !same_tracks {
                 self.info.pending.clear();
+                self.info.looked_up.clear();
             }
             self.info.many = many.iter().map(|&i| (i, self.library[i].clone())).collect();
         }
@@ -738,6 +754,7 @@ impl Browser {
             }
         }
         self.poll_cover_search(app);
+        self.poll_info_lookup(app);
         self.poll_preview(app);
     }
 
@@ -751,6 +768,13 @@ impl Browser {
         ui.set_status(SharedString::new());
         ui.set_cover_open(false);
         self.info.search = None;
+        // What a look-up found was for the track that was shown.
+        if self.info.many.is_empty() {
+            self.info.pending.clear();
+            self.info.looked_up.clear();
+        }
+        self.info.lookup = None;
+        ui.set_looking_up(false);
         self.info.found.clear();
         self.read_info_cover();
     }
@@ -817,10 +841,16 @@ impl Browser {
         ui.set_title(t.title.clone().into());
         ui.set_artist(t.artist.clone().into());
         ui.set_rating(t.rating as i32);
-        let fields = shown_fields(
-            fields_of(t, self.camelot, files::file_manager()),
-            self.info.tab,
-        );
+        let mut fields = fields_of(t, self.camelot, files::file_manager());
+        // What a look-up found waits for Apply, as typing does for
+        // several tracks.
+        for f in &mut fields {
+            if let Some(v) = self.info.pending.get(f.id.as_str()) {
+                f.value = v.clone().into();
+                f.edited = true;
+            }
+        }
+        let fields = shown_fields(fields, self.info.tab);
         self.show_info_fields(fields);
     }
 
@@ -847,6 +877,9 @@ impl Browser {
             self.many_edit(id, value);
             return;
         }
+        // Typed over what a look-up found: what was typed wins.
+        self.info.pending.remove(id);
+        self.info.looked_up.remove(id);
         let Some((index, _)) = self.info.shown.clone() else {
             return;
         };
@@ -957,6 +990,7 @@ impl Browser {
             return;
         };
         let v = value.trim().to_string();
+        self.info.looked_up.remove(id);
         let tracks: Vec<&Track> = self.info.many.iter().map(|(_, t)| &**t).collect();
         let values = values_of(&tracks, f);
         // Typing back what they all have already changes nothing.
@@ -994,19 +1028,32 @@ impl Browser {
     /// alone by clean-up and look-ups from then on.
     fn apply_many(&mut self) {
         let pending = std::mem::take(&mut self.info.pending);
+        let looked_up = std::mem::take(&mut self.info.looked_up);
+        // One track shown: what a look-up found for it.
+        let targets: Vec<usize> = if self.info.many.is_empty() {
+            let Some(i) = self.info_index() else {
+                return;
+            };
+            // A file shown in Files joins the collection, as editing it does.
+            self.adopt(&[i]);
+            vec![i]
+        } else {
+            self.info.many.iter().map(|(i, _)| *i).collect()
+        };
         let mut changes = Vec::new();
-        for (index, _) in &self.info.many {
+        for &index in &targets {
             for (id, value) in &pending {
                 if let Some(f) = Field::from_name(id) {
-                    changes.push((*index, f, value.clone()));
+                    changes.push((index, f, value.clone()));
                 }
             }
         }
         let status = self.make_changes(changes, "edit");
         if let Some(db) = &self.db {
-            for (_, t) in &self.info.many {
-                for id in pending.keys() {
-                    let _ = db.mark_hand_edited(t.id, id);
+            for &i in &targets {
+                let id = self.library[i].id;
+                for field in pending.keys().filter(|k| !looked_up.contains(*k)) {
+                    let _ = db.mark_hand_edited(id, field);
                 }
             }
         }
@@ -1018,6 +1065,112 @@ impl Browser {
         self.refresh_tree();
         self.refresh_rows();
         self.refresh_side();
+    }
+
+    /// Looks the track shown up online; what's found waits in its fields
+    /// for Apply. Several tracks shown are looked up together, and the
+    /// review table opens with what was found.
+    fn info_look_up(&mut self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let ui = app.global::<TrackInfo>();
+        if !self.info.many.is_empty() {
+            let picked: Vec<usize> = self.info.many.iter().map(|(i, _)| *i).collect();
+            let status = self.batch_lookup(&picked);
+            ui.set_status(status.into());
+            ui.set_status_ok(true);
+            return;
+        }
+        let Some((index, t)) = self.info.shown.clone() else {
+            return;
+        };
+        if self.info.lookup.is_some() {
+            return;
+        }
+        let (key, token) = (
+            crate::settings::acoustid_key(),
+            crate::settings::discogs_token(),
+        );
+        let Some(QueryFor { query, .. }) = query_for(&t, &key, &token) else {
+            ui.set_status(
+                "There's no artist and title to look this track up by, in its tags or \
+                 file name. An AcoustID key in Settings › Collection lets openDJ \
+                 recognise it by its sound."
+                    .into(),
+            );
+            ui.set_status_ok(false);
+            return;
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        let spawned = std::thread::Builder::new()
+            .name("info-lookup".into())
+            .spawn(move || {
+                let _ = tx.send(crate::lookup::look_up(&query));
+            });
+        if spawned.is_err() {
+            return;
+        }
+        self.info.lookup = Some((index, rx));
+        ui.set_looking_up(true);
+        ui.set_status("Looking up online…".into());
+        ui.set_status_ok(true);
+    }
+
+    /// Takes in what Look up online found for the track shown.
+    fn poll_info_lookup(&mut self, app: &AppWindow) {
+        let Some((index, rx)) = &self.info.lookup else {
+            return;
+        };
+        let Ok(result) = rx.try_recv() else {
+            return;
+        };
+        let index = *index;
+        self.info.lookup = None;
+        let ui = app.global::<TrackInfo>();
+        ui.set_looking_up(false);
+        if self.info_index() != Some(index) || !self.info.many.is_empty() {
+            return;
+        }
+        let t = self.library[index].clone();
+        let hand = self
+            .db
+            .as_ref()
+            .and_then(|db| db.hand_edited().ok())
+            .unwrap_or_default();
+        let key = crate::settings::acoustid_key();
+        let name = query_for(&t, &key, "").and_then(|q| q.name);
+        let (found, status) = match &result {
+            Ok(f) => (
+                Some(f),
+                format!("Found on {} ({:.0}% sure).", f.source, f.score * 100.0),
+            ),
+            Err(Miss::NotFound) => (None, "Not found online.".to_string()),
+            Err(Miss::Unreachable) => {
+                ui.set_status(
+                    "Couldn't reach MusicBrainz. Check the connection and try again.".into(),
+                );
+                ui.set_status_ok(false);
+                return;
+            }
+        };
+        let changes = info_proposals(&t, found, name.as_ref(), &hand);
+        let status = match (changes.is_empty(), found.is_some()) {
+            (true, true) => format!("{status} Nothing to change."),
+            (true, false) => status,
+            (false, true) => format!("{status} Check the ● fields, then Apply."),
+            (false, false) => {
+                format!("{status} The file name gives the ● fields; check them, then Apply.")
+            }
+        };
+        for c in changes {
+            let id = c.field.name().into_owned();
+            self.info.pending.insert(id.clone(), c.new);
+            self.info.looked_up.insert(id);
+        }
+        ui.set_status(status.into());
+        ui.set_status_ok(true);
+        self.refresh_info(app);
     }
 
     /// Starts looking for covers for the track shown.
