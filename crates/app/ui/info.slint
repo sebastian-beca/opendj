@@ -7,6 +7,9 @@ import { Theme, EdgeLine, CloseIcon } from "theme.slint";
 export struct TagChip {
     tag: string,
     count: int,
+    // The color the DJ gave the tag, when `has-color`.
+    tint: color,
+    has-color: bool,
 }
 
 // One line of the info list.
@@ -259,6 +262,9 @@ component Chip inherits Rectangle {
     in property <string> tag;
     in property <int> count;
     in property <bool> enabled: true;
+    // The tag's color, as a dot before its name.
+    in property <color> tint;
+    in property <bool> has-color;
     // A suggestion to add, not a tag the tracks have.
     in property <bool> offer;
     callback add();
@@ -280,6 +286,10 @@ component Chip inherits Rectangle {
         padding-left: 8px;
         padding-right: offer ? 8px : 2px;
         spacing: 4px;
+        if has-color: VerticalLayout {
+            alignment: center;
+            Rectangle { width: 8px; height: 8px; border-radius: 4px; background: root.tint; }
+        }
         Text {
             text: root.tag;
             color: offer ? (ta.has-hover ? Theme.on-selection : Theme.accent) : some ? Theme.text-dim : Theme.text;
@@ -326,6 +336,8 @@ component TagField inherits VerticalLayout {
         for c in field.chips: Chip {
             tag: c.tag;
             count: c.count;
+            tint: c.tint;
+            has-color: c.has-color;
             enabled: editable;
             add => { TrackInfo.tag-add(field.id, c.tag); }
             remove => { TrackInfo.tag-remove(field.id, c.tag); }

@@ -36,9 +36,12 @@ export struct PrefItem {
     // id + "#add", id + "#remove:" + index and id + "#reveal:" + path, 22
     // how track colors show: the title, then `choices` as segmented
     // buttons with a small preview of the `chosen` one beside them.
-    // (18 is a tag group: its name to edit in `value` (typing sends id),
-    // Several or One tag per track (`choices`, `chosen`) and × (pressing id
-    // + "#remove").)
+    // (18 is a tag group: ↑ (id + "#up", hidden when `action` is
+    // "first"), its name to edit in `value` (typing sends id), Several or
+    // One tag per track (`choices`, `chosen`), Tags (id + "#open"; `on`
+    // while open) and × (id + "#remove"). 19 is one of its tags: a color
+    // menu (`choices`, `chosen`), its name renamed on Return (typed sends
+    // id) and × (id + "#remove").)
     kind: int,
     title: string,
     detail: string,
@@ -287,6 +290,28 @@ component TextField inherits Rectangle {
         vertical-alignment: center;
         single-line: true;
         edited => { Preferences.typed(item.id, self.text); }
+    }
+}
+
+// A tag's name, renamed on Return (not while typing, as a name the group
+// has already merges the two).
+component TagNameField inherits Rectangle {
+    in property <PrefItem> item;
+    width: 180px;
+    height: 28px;
+    border-radius: Theme.radius;
+    background: Theme.well;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.separator;
+    input := TextInput {
+        x: 8px;
+        width: parent.width - 16px;
+        text: item.value;
+        color: Theme.text;
+        font-size: 13px;
+        vertical-alignment: center;
+        single-line: true;
+        accepted => { Preferences.typed(item.id, self.text); }
     }
 }
 
@@ -1180,13 +1205,54 @@ export component PrefRow inherits Rectangle {
             }
             if item.kind == 18: HorizontalLayout {
                 spacing: 8px;
+                // Up, unless it's the first group (`action` "first").
                 VerticalLayout {
                     alignment: center;
-                    TextField { item: item; width: 180px; }
+                    Rectangle {
+                        width: 22px;
+                        height: 22px;
+                        border-radius: Theme.radius;
+                        opacity: item.action == "first" ? 0.3 : 1;
+                        background: up-ta.has-hover && item.action != "first" ? #2a2a2e : transparent;
+                        Text { text: "↑"; color: Theme.text-dim; font-size: 13px; }
+                        up-ta := TouchArea {
+                            enabled: item.action != "first";
+                            mouse-cursor: self.enabled ? pointer : default;
+                            clicked => { Preferences.pressed(item.id + "#up"); }
+                        }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    TextField { item: item; width: 160px; }
                 }
                 VerticalLayout {
                     alignment: center;
                     Segmented { choices: item.choices; chosen: item.chosen; picked(i) => { Preferences.picked(item.id, i); } }
+                }
+                // Its tags, opened below the row (`on` when open).
+                VerticalLayout {
+                    alignment: center;
+                    Button { text: item.on ? "Hide tags" : "Tags"; width: 84px; clicked => { Preferences.pressed(item.id + "#open"); } }
+                }
+                RemoveCross { clicked => { Preferences.pressed(item.id + "#remove"); } }
+            }
+            if item.kind == 19: HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    alignment: center;
+                    MenuField {
+                        width: 110px;
+                        text: item.choices[item.chosen];
+                        choices: item.choices;
+                        chosen: item.chosen;
+                        menu-width: 140px;
+                        picked(i) => { Preferences.picked(item.id, i); }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    TagNameField { item: item; }
                 }
                 RemoveCross { clicked => { Preferences.pressed(item.id + "#remove"); } }
             }

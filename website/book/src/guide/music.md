@@ -590,7 +590,13 @@ Tags sit in groups you make in **Settings › Collection › Tags**, for example
 Mood, Instruments or Vibe: add as many as you need, rename them, and set
 each to **Several** tags per track or **One**. A tag is a name of its own,
 spaces included ("Peak Time"), with no `#` needed. Removing a group takes its
-tags off every track (openDJ asks first when tracks use it).
+tags off every track (openDJ asks first when tracks use it), and **↑**
+moves a group up.
+
+**Tags** on a group's row lists its tags with how many tracks have each.
+Give a tag a color (it shows as a dot on its chip), or type a new name and
+press Return to rename it on every track: a name the group has already
+merges the two into one. **×** deletes a tag from every track.
 
 Each group's name works as a search word (`mood:uplifting`,
 `vibe:"peak time"`), and so does its place (`tag1:uplifting` for the first
