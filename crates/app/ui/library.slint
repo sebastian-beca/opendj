@@ -144,12 +144,6 @@ export struct SideRow {
     key-match: bool,
     // Or would, shifted by this many semitones (0: no shift within reach).
     key-shift: int,
-    // Automix list: how the track before mixes into this one, for the mark
-    // between them. 0 nothing to show, 1 the keys mix, 2 a semitone away,
-    // 3 they clash.
-    fit: int,
-    // And the tempo jump when it is large, e.g. "+9%".
-    jump: string,
 }
 
 // Dragging tracks between the list, the side panel, the decks and the
@@ -5128,27 +5122,6 @@ component SidePanel inherits Rectangle {
                                     }
                                 }
                             }
-                        }
-                        // How the track above mixes into this one: a short line
-                        // across the top of the row, green when the keys mix,
-                        // dim lilac a semitone away, gray when they clash, with
-                        // a large tempo jump named beside it.
-                        if tab == 0 && r.fit > 0: Rectangle {
-                            x: 4px;
-                            y: -1px;
-                            width: row-height - 8px;
-                            height: 2px;
-                            border-radius: 1px;
-                            background: r.fit == 1 ? Theme.automix : r.fit == 2 ? Theme.lilac-dim : Theme.key-far;
-                        }
-                        if tab == 0 && r.jump != "": Text {
-                            x: row-height;
-                            y: -6px;
-                            height: 12px;
-                            text: r.jump;
-                            color: Theme.text-dim;
-                            font-size: 9px;
-                            font-weight: 600;
                         }
                         // Cover, then two lines: title and tempo; artist, key and length.
                         if r.heading == "": HorizontalLayout {
