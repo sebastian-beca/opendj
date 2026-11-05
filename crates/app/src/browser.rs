@@ -166,7 +166,7 @@ pub const SOURCE_NAMES: [&str; 13] = [
     "OneLibrary",
     "SoundCloud",
     "Albums",
-    "Mixed Sets",
+    "Recordings",
     "Mixcloud",
     "Instruments",
 ];
@@ -4280,7 +4280,7 @@ impl Browser {
                 Some(n) => n.name.clone(),
                 None if self.tree == FILES => "Files".into(),
                 None if self.tree == ALBUMS => "Albums".into(),
-                None if self.tree == MIXED_SETS => "Mixed Sets".into(),
+                None if self.tree == MIXED_SETS => "Recordings".into(),
                 None if self.shown_stream().is_some() => {
                     self.shown_stream().map_or("", |st| st.name).into()
                 }
@@ -4869,7 +4869,7 @@ impl Browser {
             return if self.tree == ALBUMS {
                 "Choose your albums folder in Settings › Collection."
             } else {
-                "Choose your mixed sets folder in Settings › Collection. Recordings are saved there too."
+                "Choose your Recordings folder in Settings › Collection. It holds your own recordings and other DJ mixes."
             }
             .into();
         }
