@@ -1830,7 +1830,12 @@ component RailButton inherits Rectangle {
 
 // Circling arrows at the top right of the Collection sidebar: looks for
 // new and changed tracks in the music folders now. Turns once when clicked.
-component UpdateCollectionButton inherits Rectangle {
+// The round-arrow refresh button at the top right of the side panel: Update
+// collection under Library, reload playlists under a streaming service.
+component RefreshButton inherits Rectangle {
+    in property <string> tip-title;
+    in property <string> tip-body;
+    callback activated();
     property <int> turns;
     property <bool> tip-mine;
     width: 22px;
@@ -1853,7 +1858,7 @@ component UpdateCollectionButton inherits Rectangle {
         mouse-cursor: pointer;
         clicked => {
             turns += 1;
-            LibraryEdit.update-collection();
+            activated();
         }
         changed has-hover => {
             if !self.has-hover && tip-mine {
@@ -1867,8 +1872,8 @@ component UpdateCollectionButton inherits Rectangle {
         running: uta.has-hover && !tip-mine;
         triggered => {
             tip-mine = true;
-            HoverTip.title = "Update collection";
-            HoverTip.body = "Looks for new and changed tracks in your music folders.";
+            HoverTip.title = tip-title;
+            HoverTip.body = tip-body;
             HoverTip.right-aligned = true;
             HoverTip.x = root.absolute-position.x + root.width;
             HoverTip.y = root.absolute-position.y + root.height + 6px;
@@ -2223,6 +2228,7 @@ component FolderTree inherits Rectangle {
     callback toggle(index: int);
     callback spotify-connect(client-id: string);
     callback spotify-disconnect();
+    callback spotify-refresh();
     // The smart list whose search the popup is editing, and the search.
     property <int> rename-index: -1;
     property <string> rename-text;
@@ -2654,7 +2660,19 @@ component FolderTree inherits Rectangle {
                 Text { text: tab == 1 ? "Sessions" : source == 1 ? "Folders" : source == 0 ? (HealthUi.view ? "Collection Health" : "Library") : ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud"][source]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
                 if tab == 0 && source == 0 && !HealthUi.view: VerticalLayout {
                     alignment: center;
-                    UpdateCollectionButton { }
+                    RefreshButton {
+                        tip-title: "Update collection";
+                        tip-body: "Looks for new and changed tracks in your music folders.";
+                        activated => { LibraryEdit.update-collection(); }
+                    }
+                }
+                if tab == 0 && StoreUi.streaming && StoreUi.stream(source) && spotify-connected: VerticalLayout {
+                    alignment: center;
+                    RefreshButton {
+                        tip-title: "Refresh";
+                        tip-body: "Reloads your playlists from the service.";
+                        activated => { spotify-refresh(); }
+                    }
                 }
             }
             ListView {
@@ -3770,8 +3788,6 @@ component TrackList inherits Rectangle {
     in property <string> duration;
     // A signed-in streaming service: the refresh button fetches its
     // playlists again.
-    in property <bool> refreshable;
-    callback refresh();
     // Shown instead of the list when a source has nothing to list yet.
     in property <string> empty-title;
     // The list is store results, not songs.
@@ -4087,32 +4103,6 @@ component TrackList inherits Rectangle {
                             LibraryEdit.name-row = LibraryEdit.save-search(search-text);
                             search-text = "";
                             search("");
-                        }
-                    }
-                }
-                if refreshable: VerticalLayout {
-                    alignment: center;
-                    Rectangle {
-                        width: 28px;
-                        height: 28px;
-                        border-radius: 14px;
-                        border-width: 1.5px;
-                        border-color: refresh-ta.has-hover ? Theme.text-dim : Theme.border;
-                        Path {
-                            width: 16px;
-                            height: 16px;
-                            viewbox-width: 20;
-                            viewbox-height: 20;
-                            stroke: refresh-ta.has-hover ? Theme.text : Theme.text-dim;
-                            stroke-width: 2px;
-                            stroke-line-cap: round;
-                            stroke-line-join: round;
-                            fill: transparent;
-                            commands: "M 15.5 7 A 6 6 0 1 0 16 10 M 16 3.5 L 16 7.5 L 12 7.5";
-                        }
-                        refresh-ta := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => { refresh(); }
                         }
                     }
                 }
@@ -5377,6 +5367,7 @@ export component Browser inherits HorizontalLayout {
         toggle(i) => { toggle-folder(i); }
         spotify-connect(id) => { spotify-connect(id); }
         spotify-disconnect => { spotify-disconnect(); }
+        spotify-refresh => { spotify-refresh(); }
     }
     // The Collection Health page, or the bar over one check's tracks.
     property <bool> cleanup-page: source == 0 && (CleanupUi.open || CleanupUi.genres-open);
@@ -5401,8 +5392,6 @@ export component Browser inherits HorizontalLayout {
             ascending: ascending;
             folder-name: listing ? folder-name : source-names[source];
             duration: listing ? folder-duration : "";
-            refreshable: StoreUi.streaming && StoreUi.stream(source) && spotify-connected;
-            refresh => { spotify-refresh(); }
             empty-title: source == 0 ? "" : listing ? (list-notice != "" ? " " : "") : source-names[source];
             empty-text: source >= 2 && source != 9 && source != 10 && source < 12 && !(StoreUi.streaming && StoreUi.stream(source)) && !(StoreUi.stores && source == 5) ? "Coming soon."
                 : StoreUi.stream(source) && !spotify-connected ? "Sign in on the left to see your playlists here."
