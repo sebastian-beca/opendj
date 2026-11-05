@@ -472,6 +472,25 @@ have, and the new playlist opens in your browser. If you signed in to
 Spotify before this was added, sign out and in again so openDJ may make
 playlists.
 
+### Playlist files
+
+Right-click a playlist, crate, folder, history session, album or mixed set
+and pick **Export as M3U8…**, then the folder to save it in. A list becomes
+one `.m3u8` file named after it; a folder becomes a folder of them, with
+its folders inside. Tracks kept in the file's folder or below it are
+written with paths from there, so a USB stick with the music beside the
+list works on any computer; the rest are written in full. Online tracks
+in a list have no file, so they go in as a note with their name and
+service.
+
+To bring a list in from another app, pick **Import Playlist File…** from
+the **+** beside Playlists. openDJ reads M3U, M3U8, PLS and XSPF (from
+VLC, foobar2000, Winamp, Serato and others), makes a playlist with the
+file's name and finds each track in your collection: by its path, by its
+path from the file's folder, then by its file name. Files on disk that
+aren't in your collection yet join it. The list's header names any tracks
+it couldn't find.
+
 ## Collection Health
 
 [Collection Health](collection-health.md), the cross under Collection in the

@@ -9,3 +9,4 @@ license.workspace = true
 opendj-engine = { path = "../engine" }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 regex = "1"
+roxmltree = "0.21"
