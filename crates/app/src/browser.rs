@@ -569,6 +569,8 @@ pub struct Browser {
     area_chip: HashMap<Area, usize>,
     /// Tracks each area found when first opened, for its progress bar.
     area_start: std::cell::RefCell<HashMap<Area, usize>>,
+    /// The review card's place among the listed tracks, while it's open.
+    review_at: Option<usize>,
     /// Audio files in the stage and music folders by lower-case name, for
     /// the Fix column of missing files; read when first needed.
     relink_files: OnceCell<HashMap<String, Vec<PathBuf>>>,
@@ -1193,6 +1195,7 @@ impl Browser {
             health_view: false,
             area_chip: HashMap::new(),
             area_start: Default::default(),
+            review_at: None,
             relink_files: OnceCell::new(),
             other_tab_node: 0,
             sorted_list: None,
