@@ -14,4 +14,4 @@
 ## 3. One by one
 
 - [x] 3.1 Review card: the fix, play preview, keys (Return, →, I, E, Space, ⌘Z), Next area when clear
-- [ ] 3.2 Several suggestions per track on the card, with source and confidence (online lookup candidates)
+- [ ] 3.2 Several suggestions per track on the card, with source and confidence (online lookup candidates): moved to v0.6, #346
