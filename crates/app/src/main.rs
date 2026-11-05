@@ -591,9 +591,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 spotify::open_in_browser(&link);
             }
         });
-        // "Add to Downloads" on a list: a Spotify playlist by its link,
-        // anything else (a TIDAL playlist, an imported list's streamed
-        // tracks) track by track.
+        // "Download Track": a track search for each.
         let queue_tracks = {
             let (b, s) = (browser.clone(), sources.clone());
             move |tracks: Vec<String>| {
@@ -622,21 +620,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let queue = Rc::new(queue_tracks);
         let (b, s, q) = (browser.clone(), sources.clone(), queue.clone());
         ui.on_download_playlist(move |i| {
-            let link = b.borrow().spotify_playlist_link(i as usize);
-            let Some(link) = link else {
-                let names = b.borrow_mut().list_download_names(i as usize);
+            let names = b.borrow_mut().list_download_names(i as usize);
+            if names.is_empty() {
+                return;
+            }
+            // A playlist search with the songs openDJ read, so the source
+            // needs no Spotify sign-in of its own, and downloads go into a
+            // folder named after the list.
+            let Some(name) = b.borrow().list_name(i as usize) else {
                 return q(names);
             };
             s.borrow_mut().add_download(
                 SPOTIFY_SITE,
                 SourceQuery {
-                    text: link,
+                    text: name,
                     kind: QueryKind::Playlist,
+                    songs: names,
                     ..Default::default()
                 },
             );
             b.borrow_mut()
-                .set_stream_status(format!("Downloading the playlist in {to}."));
+                .wanted_note(format!("Downloading the playlist in {to}."));
         });
         let (b, q) = (browser.clone(), queue.clone());
         ui.on_download_tracks(move |first, last| {
