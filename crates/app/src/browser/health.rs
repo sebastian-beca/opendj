@@ -19,7 +19,9 @@ use super::{
     file_path, is_browsed, Browser, Contents, Node, Undo, KIND_AREA, KIND_HEALTH, KIND_IGNORED,
 };
 use crate::cover_scan;
-use crate::{settings, HealthArea, HealthCard, HealthChip, HealthLine, HealthStage, HealthUi};
+use crate::{
+    settings, HealthArea, HealthCard, HealthChip, HealthLine, HealthReview, HealthStage, HealthUi,
+};
 
 /// The word the "Tag as mix" fix adds to a track's first tag field.
 const MIX_TAG: &str = "mix";
@@ -290,6 +292,8 @@ impl Browser {
             })
         });
         let w = with.clone();
+        ui.on_review_key(move |key| w(&|b| b.review_key(&key)));
+        let w = with.clone();
         ui.on_pick_chip(move |i| {
             w(&|b| {
                 let Some(Contents::Area(a)) =
@@ -388,6 +392,7 @@ impl Browser {
         if let Some(c) = chip {
             self.area_chip.insert(area, c);
         }
+        self.review_at = None;
         self.health_status.clear();
         self.current_node = n;
         self.folders_focused = false;
@@ -1150,6 +1155,7 @@ impl Browser {
         ui.set_can_quarantine(self.saved() && self.quarantine_root().is_some());
         self.refresh_dashboard(&ui);
         self.refresh_chips(&ui);
+        self.refresh_review(&ui);
         self.refresh_cleanup_ui();
     }
 
@@ -1245,6 +1251,127 @@ impl Browser {
             })
             .collect();
         ui.set_areas(ModelRc::new(VecModel::from(tiles)));
+    }
+
+    /// The area shown, while Collection Health is.
+    fn shown_area(&self) -> Option<Area> {
+        match self.nodes.get(self.current_node).map(|n| &n.contents) {
+            Some(Contents::Area(a)) if self.health_view => Some(*a),
+            _ => None,
+        }
+    }
+
+    /// The listed tracks (indices into `library`) in list order.
+    fn listed(&self) -> Vec<usize> {
+        self.rows.iter().flatten().copied().collect()
+    }
+
+    /// The first area after the one shown that still finds tracks.
+    fn next_area(&self) -> Option<Area> {
+        let now = self.shown_area()?;
+        let from = Area::ALL.iter().position(|&a| a == now)?;
+        Area::ALL[from + 1..]
+            .iter()
+            .copied()
+            .find(|&a| self.area_count(a) > 0)
+    }
+
+    /// What Return does on the review card for the listed check, if
+    /// anything.
+    fn review_action(&self) -> Option<String> {
+        if self.dupe_view().is_some() {
+            return Some("Keep this copy".into());
+        }
+        let check = self.listed_check()?;
+        self.offered(check).first().map(|f| f.label().to_string())
+    }
+
+    /// Shows the review card as things are now.
+    fn refresh_review(&self, ui: &HealthUi) {
+        let on = self.review_at.is_some() && self.shown_area().is_some();
+        ui.set_reviewing(on);
+        if !on {
+            return;
+        }
+        let listed = self.listed();
+        let at = self.review_at.unwrap_or(0);
+        let next = self.next_area().map_or("", |a| a.title()).into();
+        let Some(&i) = listed.get(at) else {
+            ui.set_card(HealthReview {
+                of: listed.len() as i32,
+                done: true,
+                next,
+                ..Default::default()
+            });
+            return;
+        };
+        let t = &self.library[i];
+        let (problem, fix) = self.health_cells(t);
+        ui.set_card(HealthReview {
+            at: at as i32 + 1,
+            of: listed.len() as i32,
+            check: self.listed_check().map_or("", |c| c.title()).into(),
+            title: t.title.as_str().into(),
+            artist: t.artist.as_str().into(),
+            problem: problem.into(),
+            fix: fix.into(),
+            action: self.review_action().unwrap_or_default().into(),
+            done: false,
+            next,
+        });
+    }
+
+    /// A key or button on the review card (see `ReviewCard` in the UI).
+    fn review_key(&mut self, key: &str) {
+        let listed = self.listed();
+        let at = self.review_at.unwrap_or(0);
+        let here = listed.get(at).copied();
+        let row = |b: &Self| here.and_then(|i| b.rows.iter().position(|r| *r == Some(i)));
+        match key {
+            "start" => self.review_at = Some(0),
+            "close" => self.review_at = None,
+            "skip" => self.review_at = Some(at + 1),
+            "next" => {
+                if let Some(a) = self.next_area() {
+                    self.open_area(a, None);
+                    self.review_at = Some(0);
+                }
+            }
+            "edit" => {
+                if let Some(r) = row(self) {
+                    self.show_info(r as i32);
+                }
+            }
+            "use" | "ignore" => {
+                let Some(i) = here else { return };
+                if key == "ignore" {
+                    let check = self.listed_check().unwrap_or(Check::Duplicate);
+                    self.ignore(check, &[i]);
+                } else if self.dupe_view().is_some() {
+                    if let Some(r) = row(self) {
+                        self.keep_this(r as i32);
+                    }
+                } else if let Some(fix) = self
+                    .listed_check()
+                    .and_then(|c| self.offered(c).first().copied())
+                {
+                    self.fix(fix, &[i]);
+                }
+                // A fix that leaves the track listed (one that opens a
+                // review table) moves on, so the card never sticks.
+                if self.listed().get(at) == Some(&i) {
+                    self.review_at = Some(at + 1);
+                }
+            }
+            _ => return,
+        }
+        // The card's track is the current one, for Space to play it.
+        let shown = self.listed().get(self.review_at.unwrap_or(0)).copied();
+        let r = shown.and_then(|i| self.rows.iter().position(|r| *r == Some(i)));
+        if let (Some(app), Some(r)) = (self.app.upgrade(), r) {
+            app.set_current_track(r as i32);
+        }
+        self.refresh_health_ui();
     }
 
     /// The chips over an area's tracks, when one is selected.
