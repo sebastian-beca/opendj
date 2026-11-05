@@ -79,6 +79,14 @@ impl KeyShifter {
         self.active
     }
 
+    /// Gapless playback: the audio fed in ran on past the end of a track
+    /// `len` frames long into the next, which is `scale` times as many
+    /// frames a second; carries on in the next track's frames.
+    pub(crate) fn carry_over(&mut self, len: f64, scale: f64) {
+        self.read_pos = (self.read_pos - len) * scale;
+        self.expected_pos = (self.expected_pos - len) * scale;
+    }
+
     /// Source frames per output frame in the last buffer.
     pub(crate) fn last_step(&self) -> f64 {
         self.last.0 * self.last.1

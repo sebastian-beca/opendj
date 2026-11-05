@@ -282,7 +282,22 @@ struct Deck {
     stem_upgrade: f32,
     /// The stems reported in `stem_count` and the stem colours (by address).
     stems_shown: usize,
+    /// Gapless playback: this deck's track ends during this buffer and the
+    /// deck plays on past its end into the next track (see `join_after`),
+    /// which carries on from there at the start of the next buffer.
+    hand_over: Option<usize>,
+    /// Gapless playback, the deck whose track carries on from this one's
+    /// end; reads past the end (the interpolation, the time-stretcher's
+    /// look-ahead) hear its start rather than silence.
+    join_after: Option<usize>,
+    /// The deck whose track this one carried on from, and that track's
+    /// audio (by address), while reads before this one's start hear its end.
+    join_before: Option<(usize, usize)>,
 }
+
+/// How long after a gapless start reads before the track's start still
+/// hear the track before it, in seconds: past the time-stretcher's seed.
+const JOIN_SECONDS: f64 = 1.0;
 
 impl Deck {
     fn source_rate(&self) -> f64 {
@@ -991,8 +1006,69 @@ impl Deck {
 pub(crate) trait Frames {
     /// Frame `i`, or silence where there is none.
     fn frame(&self, i: usize) -> [f32; 2];
+    /// Frame `k`, which may be before the start.
+    fn frame_at(&self, k: isize) -> [f32; 2] {
+        if k >= 0 {
+            self.frame(k as usize)
+        } else {
+            [0.0; 2]
+        }
+    }
     /// The next frames read run on from `start` (see [`StemMix`]).
     fn begin(&self, _start: f64) {}
+}
+
+/// The audio played gaplessly before and after a deck's own.
+type Joins = (Option<Arc<Audio>>, Option<Arc<Audio>>);
+
+fn joined<'a>(audio: &'a Audio, joins: &'a Joins) -> Joined<'a> {
+    Joined {
+        audio,
+        before: joins.0.as_deref(),
+        after: joins.1.as_deref(),
+    }
+}
+
+/// A track's audio joined to the tracks played gaplessly before and after
+/// it, so reads across either end hear the other track instead of silence.
+pub(crate) struct Joined<'a> {
+    audio: &'a Audio,
+    before: Option<&'a Audio>,
+    after: Option<&'a Audio>,
+}
+
+impl Joined<'_> {
+    /// Reads `other` at `k` frames of `self.audio` from its start.
+    fn other(&self, other: &Audio, k: f64) -> [f32; 2] {
+        let k = k * other.sample_rate as f64 / self.audio.sample_rate.max(1) as f64;
+        if other.sample_rate == self.audio.sample_rate {
+            Frames::frame_at(other, k.round() as isize)
+        } else {
+            read(other, k)
+        }
+    }
+}
+
+impl Frames for Joined<'_> {
+    #[inline]
+    fn frame(&self, i: usize) -> [f32; 2] {
+        self.frame_at(i as isize)
+    }
+
+    fn frame_at(&self, k: isize) -> [f32; 2] {
+        let len = self.audio.len() as isize;
+        match (self.before, self.after) {
+            (Some(b), _) if k < 0 => {
+                let at = b.len() as f64 * self.audio.sample_rate as f64
+                    / b.sample_rate.max(1) as f64
+                    + k as f64;
+                self.other(b, at)
+            }
+            (_, Some(a)) if k >= len => self.other(a, (k - len) as f64),
+            _ if k >= 0 => self.audio.frame(k as usize),
+            _ => [0.0; 2],
+        }
+    }
 }
 
 impl Frames for Audio {
@@ -1184,13 +1260,7 @@ pub(crate) fn crossfade(old: [f32; 2], new: [f32; 2], t: f32) -> [f32; 2] {
 pub(crate) fn read<F: Frames + ?Sized>(audio: &F, pos: f64) -> [f32; 2] {
     let i = pos.floor() as isize;
     let t = (pos - i as f64) as f32;
-    let at = |k: isize| {
-        if k >= 0 {
-            audio.frame(k as usize)
-        } else {
-            [0.0; 2]
-        }
-    };
+    let at = |k: isize| audio.frame_at(k);
     let (xm1, x0, x1, x2) = (at(i - 1), at(i), at(i + 1), at(i + 2));
     let mut y = [0.0; 2];
     for c in 0..2 {
@@ -1449,6 +1519,9 @@ impl Engine {
             stem_gains: [1.0; MAX_STEMS],
             stem_upgrade: 0.0,
             stems_shown: 0,
+            hand_over: None,
+            join_after: None,
+            join_before: None,
         });
         let fx = EffectRack::new(registry, sample_rate);
         let (samplers, sampler_input) = Samplers::new(registry, sample_rate);
@@ -2125,6 +2198,88 @@ impl Engine {
 
     /// Renders one buffer of interleaved audio with `channels` channels. With
     /// four or more channels, channels 3 and 4 carry the headphone mix.
+    /// Gapless playback: a deck with a `play_next` deck reads on past its
+    /// track's end into that deck's track. In the buffer where its track
+    /// ends it plays on into the next track to the end of the buffer, and
+    /// the next deck takes over from there (see [`Self::hand_over`]), so
+    /// the two join with neither a gap nor an overlap. (A UI timer can only
+    /// start the next deck to within a screen frame.)
+    fn start_gapless(&mut self, frames: usize) {
+        let out_rate = self.sample_rate;
+        for d in &mut self.decks {
+            d.join_after = None;
+            // Reads before the start hear the track before only just after
+            // it ended.
+            if !(d.c.play.get_bool() && d.pos < JOIN_SECONDS * d.source_rate()) {
+                d.join_before = None;
+            }
+        }
+        for i in 0..NUM_DECKS {
+            let next = self.decks[i].c.play_next.get().round() as usize;
+            let Some(j) = next.checked_sub(1).filter(|&j| j < NUM_DECKS && j != i) else {
+                continue;
+            };
+            if self.decks[j].audio.is_none() || self.decks[j].c.play.get_bool() {
+                continue;
+            }
+            let a = &mut self.decks[i];
+            let Some(len) = a.audio.as_ref().map(|x| x.len() as f64) else {
+                continue;
+            };
+            let looping = a.c.loop_enabled.get_bool() && a.loop_end > a.loop_start;
+            if !a.c.play.get_bool() || looping || a.velocity <= 0.0 {
+                continue;
+            }
+            a.join_after = Some(j);
+            let step = a.velocity * a.source_rate() / out_rate;
+            if a.pos + step * frames as f64 >= len {
+                a.c.play_next.set(0.0);
+                a.hand_over = Some(j);
+            }
+        }
+    }
+
+    /// The other half of [`Self::start_gapless`]: deck `i` has played past
+    /// its track's end into deck `j`'s, which starts where it got to, with
+    /// the time-stretcher's state if it was in use, so even a key-locked
+    /// deck carries on without a seam.
+    /// Returns whether deck `i`'s track has ended.
+    fn hand_over(&mut self, i: usize, j: usize) -> bool {
+        let (a_len, a_rate, at) = {
+            let a = &self.decks[i];
+            let Some(audio) = a.audio.as_ref() else {
+                return true;
+            };
+            (
+                audio.len() as f64,
+                a.source_rate(),
+                Arc::as_ptr(audio) as usize,
+            )
+        };
+        let [a, b] = self.decks.get_disjoint_mut([i, j]).expect("two decks");
+        a.hand_over = None;
+        let past = a.pos - a_len;
+        if past < 0.0 {
+            // It slowed down and didn't get there after all.
+            a.c.play_next.set((j + 1) as f64);
+            return false;
+        }
+        a.pos = a_len;
+        if b.audio.is_none() || b.c.play.get_bool() {
+            return true;
+        }
+        let scale = b.source_rate() / a_rate;
+        b.pos = (past * scale).max(0.0);
+        if a.shifter.is_active() {
+            std::mem::swap(&mut a.shifter, &mut b.shifter);
+            b.shifter.carry_over(a_len, scale);
+            a.shifter.stop();
+        }
+        b.join_before = Some((i, at));
+        b.c.play.set_bool(true);
+        true
+    }
+
     pub fn process(&mut self, out: &mut [f32], channels: usize) {
         let channels = channels.max(1);
         let frames = out.len() / channels;
@@ -2172,6 +2327,21 @@ impl Engine {
             }
         }
         self.land_in_phase(moved);
+        self.start_gapless(frames);
+        // The audio each deck's own joins on to, for this buffer.
+        let joins: [Joins; NUM_DECKS] = std::array::from_fn(|i| {
+            let d = &self.decks[i];
+            let before = d.join_before.and_then(|(k, at)| {
+                self.decks[k]
+                    .audio
+                    .clone()
+                    .filter(|a| Arc::as_ptr(a) as usize == at)
+            });
+            (
+                before,
+                d.join_after.and_then(|k| self.decks[k].audio.clone()),
+            )
+        });
         self.update_color_fx();
         self.samplers.update();
         self.preview.update();
@@ -2440,7 +2610,7 @@ impl Engine {
                             );
                         }
                         _ => d.shifter.render(
-                            &**audio,
+                            &joined(audio, &joins[i]),
                             d.pos,
                             speed,
                             ratio,
@@ -2469,7 +2639,10 @@ impl Engine {
                             let mix = StemMix::blending(s, audio, from, to, upgrade, span);
                             d.shifter.render_on(&mix, d.pos, loop_frames, out);
                         }
-                        _ => d.shifter.render_on(&**audio, d.pos, loop_frames, out),
+                        _ => {
+                            d.shifter
+                                .render_on(&joined(audio, &joins[i]), d.pos, loop_frames, out)
+                        }
                     }
                     d.shifter.stop();
                     shift_fade = Some(ShiftFade::Out(n));
@@ -2627,7 +2800,7 @@ impl Engine {
                                 pos,
                             )
                         }
-                        _ => read(&**audio, pos),
+                        _ => read(&joined(audio, &joins[i]), pos),
                     };
                     s = if p.shifted {
                         d.shifted[f]
@@ -2671,7 +2844,8 @@ impl Engine {
                         }
                     }
                     let len = audio.len() as f64;
-                    if d.pos >= len {
+                    // Handing over, it plays on into the next track.
+                    if d.pos >= len && d.hand_over.is_none() {
                         d.pos = len;
                         ended[i] = true;
                     } else if d.pos < 0.0 {
@@ -2837,6 +3011,11 @@ impl Engine {
         self.clock += dt;
         // On for half a second, off for half a second, as Mixxx blinks
         // play and cue on controllers.
+        for (i, ended) in ended.iter_mut().enumerate() {
+            if let Some(j) = self.decks[i].hand_over {
+                *ended |= self.hand_over(i, j);
+            }
+        }
         let blink = self.clock.rem_euclid(1.0) < 0.5;
         for (i, d) in self.decks.iter_mut().enumerate() {
             let p = &plans[i];
