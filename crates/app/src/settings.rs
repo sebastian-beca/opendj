@@ -758,8 +758,7 @@ pub fn field_names() -> FieldNames {
             .as_str()
             .filter(|s| !s.trim().is_empty())
             .map_or_else(|| FieldNames::default().grouping, String::from),
-        tags: opendj_library::query::field_names().tags,
-        tags_revision: opendj_library::query::field_names().tags_revision,
+        ..opendj_library::query::field_names()
     }
 }
 
@@ -782,9 +781,13 @@ pub fn old_tag_field_names() -> Vec<String> {
 /// Makes searches, chips, columns and the Info tab know the library's tag
 /// groups as they are now.
 pub fn publish_tag_groups(db: &opendj_library::Library) {
-    if let Ok(tags) = db.tag_groups() {
+    if let (Ok(tags), Ok(tag_colors)) = (db.tag_groups(), db.tag_colors()) {
         let names = field_names();
-        opendj_library::query::set_field_names(FieldNames { tags, ..names });
+        opendj_library::query::set_field_names(FieldNames {
+            tags,
+            tag_colors,
+            ..names
+        });
     }
 }
 

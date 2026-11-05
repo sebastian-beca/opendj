@@ -89,6 +89,17 @@ pub struct GroupUse {
     pub tracks: usize,
 }
 
+/// One tag of a group, with how many tracks have it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TagInfo {
+    pub id: i64,
+    pub group: i64,
+    pub name: String,
+    /// Color as 0xRRGGBB.
+    pub color: Option<u32>,
+    pub tracks: usize,
+}
+
 /// Creates the tag tables, and on first run moves the old numbered tag
 /// fields (`user1`, `user2`, `user_more`: VirtualDJ's User 1 and User 2
 /// and more like them) into groups.
@@ -181,6 +192,12 @@ fn migrate_fields(db: &Connection) -> Result<(), Error> {
         params![UNNAMED, ids.join(",")],
     )?;
     Ok(())
+}
+
+/// Sorts "2 ONS" before "10 SONG": a leading number counts as a number.
+fn natural(s: &str) -> (u64, String) {
+    let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+    (digits.parse().unwrap_or(u64::MAX), s.to_lowercase())
 }
 
 /// The name the change log and the Info tab know a group's field by.
@@ -498,6 +515,97 @@ impl Library {
             .collect())
     }
 
+    /// A group's tags with how many tracks have each, A to Z (a leading
+    /// number counts as a number, so "2 ONS" comes before "10 SONG").
+    pub fn tags_of_group(&self, group: i64) -> Result<Vec<TagInfo>, Error> {
+        let mut q = self.db.prepare(
+            "SELECT t.id, t.name, t.color, COUNT(tt.track_id) FROM tags t
+             LEFT JOIN track_tags tt ON tt.tag_id = t.id
+             WHERE t.group_id = ?1 GROUP BY t.id",
+        )?;
+        let rows = q.query_map([group], |r| {
+            Ok(TagInfo {
+                id: r.get(0)?,
+                group,
+                name: r.get(1)?,
+                color: r.get::<_, Option<i64>>(2)?.map(|c| c as u32),
+                tracks: r.get::<_, i64>(3)? as usize,
+            })
+        })?;
+        let mut out: Vec<TagInfo> = rows.collect::<Result<_, _>>()?;
+        out.sort_by_key(|t| natural(&t.name));
+        Ok(out)
+    }
+
+    /// Renames a tag on every track. When the group has a tag of that name
+    /// already, the two become one: its tracks get that tag. Returns the
+    /// tag the tracks have now.
+    pub fn rename_tag(&mut self, id: i64, name: &str) -> Result<i64, Error> {
+        let name = tag_name(name);
+        if name.is_empty() {
+            return Ok(id);
+        }
+        let tx = self.db.transaction()?;
+        let group: i64 = tx.query_row("SELECT group_id FROM tags WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })?;
+        let other: Option<i64> = tx
+            .query_row(
+                "SELECT id FROM tags WHERE group_id = ?1 AND name = ?2 AND id != ?3",
+                params![group, name, id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let kept = match other {
+            Some(other) => {
+                tx.execute(
+                    "INSERT OR IGNORE INTO track_tags (track_id, tag_id, position)
+                     SELECT track_id, ?2, position FROM track_tags WHERE tag_id = ?1",
+                    params![id, other],
+                )?;
+                // The merged tag keeps a color either had.
+                tx.execute(
+                    "UPDATE tags SET color = COALESCE(color, (SELECT color FROM tags WHERE id = ?1))
+                     WHERE id = ?2",
+                    params![id, other],
+                )?;
+                tx.execute("DELETE FROM tags WHERE id = ?1", [id])?;
+                other
+            }
+            None => {
+                tx.execute("UPDATE tags SET name = ?2 WHERE id = ?1", params![id, name])?;
+                id
+            }
+        };
+        tx.commit()?;
+        Ok(kept)
+    }
+
+    /// Takes a tag off every track and out of its group.
+    pub fn delete_tag(&self, id: i64) -> Result<(), Error> {
+        self.db.execute("DELETE FROM tags WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    pub fn set_tag_color(&self, id: i64, color: Option<u32>) -> Result<(), Error> {
+        self.db.execute(
+            "UPDATE tags SET color = ?2 WHERE id = ?1",
+            params![id, color.map(i64::from)],
+        )?;
+        Ok(())
+    }
+
+    /// Every tag with a color: group, name, color.
+    pub fn tag_colors(&self) -> Result<Vec<(i64, String, u32)>, Error> {
+        let mut q = self
+            .db
+            .prepare("SELECT group_id, name, color FROM tags WHERE color IS NOT NULL")?;
+        let rows = q.query_map([], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? as u32))
+        })?;
+        rows.collect()
+    }
+
     /// Saves a track's tags in every group.
     pub fn save_tags(&self, id: usize, info: &LibraryInfo) -> Result<(), Error> {
         let Some(row) = row_id(id) else { return Ok(()) };
@@ -616,6 +724,41 @@ mod tests {
             (group, 0)
         );
         assert!(!lib.tag_groups().unwrap().last().unwrap().single);
+    }
+
+    #[test]
+    fn tags_rename_merge_color_and_go() {
+        let mut lib = Library::in_memory().unwrap();
+        let tracks = [file_track("/m/a.mp3", "A"), file_track("/m/b.mp3", "B")];
+        let tracks = lib.add_files(&tracks).unwrap();
+        let mut a = tracks[0].info.clone();
+        a.set_tags_in(1, ["dark".into(), "dusk".into()]);
+        lib.save_tags(tracks[0].id, &a).unwrap();
+        let mut b = tracks[1].info.clone();
+        b.set_tags_in(1, ["Dark".into(), "10 SONG".into(), "2 ONS".into()]);
+        lib.save_tags(tracks[1].id, &b).unwrap();
+        let tags = lib.tags_of_group(1).unwrap();
+        let list: Vec<(&str, usize)> = tags.iter().map(|t| (t.name.as_str(), t.tracks)).collect();
+        assert_eq!(
+            list,
+            [("2 ONS", 1), ("10 SONG", 1), ("dark", 2), ("dusk", 1)]
+        );
+        let id = |name: &str| tags.iter().find(|t| t.name == name).unwrap().id;
+        lib.set_tag_color(id("dusk"), Some(0xff9500)).unwrap();
+        // Renamed to a name the group has: one tag, with the color.
+        let kept = lib.rename_tag(id("dusk"), "DARK").unwrap();
+        assert_eq!(kept, id("dark"));
+        assert_eq!(
+            lib.tag_colors().unwrap(),
+            [(1, "dark".to_string(), 0xff9500)]
+        );
+        let back = lib.all_tracks(|_: &Path| true).unwrap();
+        assert_eq!(back[0].info.tag_text(1), "dark");
+        // A plain rename changes it on every track.
+        lib.rename_tag(id("dark"), "Dark Room").unwrap();
+        lib.delete_tag(id("2 ONS")).unwrap();
+        let back = lib.all_tracks(|_: &Path| true).unwrap();
+        assert_eq!(back[1].info.tag_text(1), "Dark Room, 10 SONG");
     }
 
     #[test]

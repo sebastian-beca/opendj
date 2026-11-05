@@ -95,6 +95,9 @@ const SOURCE_ROW: i32 = 17;
 /// sends id), Several/One per track (`chosen`; picks send id) and ×
 /// (pressing id + "#remove").
 const TAG_GROUP: i32 = 18;
+/// One tag of an open group: a color menu (`choices`, `chosen`), its name
+/// renamed on Return (`value`; typed sends id) and × (id + "#remove").
+const TAG_ROW: i32 = 19;
 /// A list of folders, by name, with + and − under it (see `folder_list`).
 const FOLDER_LIST: i32 = 21;
 /// How track colors show: segmented buttons with a preview beside them.
@@ -462,6 +465,10 @@ pub struct Prefs {
     removing_group: Option<i64>,
     /// What Copy into a tag group did.
     grouping_note: String,
+    /// The tag group whose tags are listed under it.
+    open_group: Option<i64>,
+    /// The tag whose × was pressed, waiting for a second press.
+    removing_tag: Option<i64>,
     /// The Manage menu's clean-up waiting for a yes, by its place in
     /// [`STORAGE_ACTIONS`].
     storage_pending: Option<usize>,
@@ -568,6 +575,8 @@ impl Prefs {
             import_note: String::new(),
             removing_group: None,
             grouping_note: String::new(),
+            open_group: None,
+            removing_tag: None,
             storage_pending: None,
             storage_note: String::new(),
             ports: Vec::new(),
@@ -2548,16 +2557,19 @@ impl Prefs {
             return items;
         };
         let groups = db.tag_groups().unwrap_or_default();
-        for g in &groups {
+        for (n, g) in groups.iter().enumerate() {
             let used = db.tag_group_use(g.id).unwrap_or_default();
             let usage = match (used.tags, used.tracks) {
                 (0, _) => "No tags yet".to_string(),
                 (t, n) => format!("{} on {}", count(t, "tag"), count(n, "track")),
             };
+            let open = self.open_group == Some(g.id);
             items.push(PrefItem {
                 value: g.name.clone().into(),
                 choices: strings(&["Several", "One"]),
                 chosen: g.single as i32,
+                on: open,
+                action: if n == 0 { "first".into() } else { "".into() },
                 ..item(
                     &format!("tag_group:{}", g.id),
                     TAG_GROUP,
@@ -2575,6 +2587,9 @@ impl Prefs {
                         &format!("Its tags come off {}.", count(used.tracks, "track")),
                     )
                 });
+            }
+            if open {
+                items.extend(self.tag_rows(&db, g.id));
             }
         }
         items.push(PrefItem {
@@ -2615,6 +2630,97 @@ impl Prefs {
             )
         });
         items
+    }
+
+    /// An open group's tags: color, name (renamed on Return; a name the
+    /// group has merges the two) and ×.
+    fn tag_rows(&self, db: &opendj_library::Library, group: i64) -> Vec<PrefItem> {
+        let tags = db.tags_of_group(group).unwrap_or_default();
+        if tags.is_empty() {
+            return vec![item(
+                "",
+                NOTE,
+                "",
+                "No tags in this group yet: add them in the Info tab.",
+            )];
+        }
+        let mut colors = vec!["No color".to_string()];
+        colors.extend(query::COLOR_NAMES.iter().map(|(n, _)| capitalized(n)));
+        let mut rows = vec![item(
+            "",
+            NOTE,
+            "",
+            "Rename a tag and press Return: it changes on every track. A name the group has \
+             already merges the two.",
+        )];
+        for t in tags {
+            let chosen = t
+                .color
+                .and_then(|c| query::COLOR_NAMES.iter().position(|(_, x)| *x == c))
+                .map_or(0, |i| i as i32 + 1);
+            rows.push(PrefItem {
+                value: t.name.clone().into(),
+                choices: strings(&colors),
+                chosen,
+                ..item(
+                    &format!("tag:{}", t.id),
+                    TAG_ROW,
+                    &t.name,
+                    &count(t.tracks, "track"),
+                )
+            });
+            if self.removing_tag == Some(t.id) {
+                rows.push(PrefItem {
+                    action: "Delete".into(),
+                    ..item(
+                        &format!("tag_delete:{}", t.id),
+                        BUTTON,
+                        &format!("Delete {}?", t.name),
+                        &format!("It comes off {}.", count(t.tracks, "track")),
+                    )
+                });
+            }
+        }
+        rows
+    }
+
+    /// A tag's ×, Delete, a group's Tags or ↑. Whether `id` was one.
+    fn tag_pressed(&mut self, id: &str) -> bool {
+        let number = |prefix: &str, suffix: &str| {
+            id.strip_prefix(prefix)
+                .and_then(|x| x.strip_suffix(suffix))
+                .and_then(|x| x.parse::<i64>().ok())
+        };
+        if let Some(t) = id.strip_prefix("tag_delete:").and_then(|x| x.parse().ok()) {
+            self.removing_tag = None;
+            with_library(|db| db.delete_tag(t));
+            settings::tags_changed();
+        } else if let Some(t) = number("tag:", "#remove") {
+            let unused = open_library()
+                .and_then(|db| db.tags_of_group(self.open_group?).ok())
+                .is_some_and(|tags| tags.iter().any(|x| x.id == t && x.tracks == 0));
+            if unused {
+                self.removing_tag = None;
+                with_library(|db| db.delete_tag(t));
+                settings::tags_changed();
+            } else {
+                self.removing_tag = (self.removing_tag != Some(t)).then_some(t);
+            }
+        } else if let Some(g) = number("tag_group:", "#open") {
+            self.open_group = (self.open_group != Some(g)).then_some(g);
+            self.removing_tag = None;
+        } else if let Some(g) = number("tag_group:", "#up") {
+            with_library(|db| {
+                let at = db.tag_groups()?.iter().position(|x| x.id == g);
+                match at {
+                    Some(at) if at > 0 => db.move_tag_group(g, at - 1),
+                    _ => Ok(()),
+                }
+            });
+        } else {
+            return false;
+        }
+        true
     }
 
     /// Remove on a tag group: at once for one no track uses, otherwise
@@ -2953,6 +3059,15 @@ impl Prefs {
     }
 
     fn picked(&mut self, id: &str, index: usize) {
+        if let Some(t) = id.strip_prefix("tag:").and_then(|x| x.parse::<i64>().ok()) {
+            let color = index
+                .checked_sub(1)
+                .and_then(|i| query::COLOR_NAMES.get(i))
+                .map(|(_, c)| *c);
+            with_library(|db| db.set_tag_color(t, color));
+            self.refresh();
+            return;
+        }
         if id == crate::now_playing::STYLE || id == crate::now_playing::HOLD {
             let value = if id == crate::now_playing::HOLD {
                 [0.0, 5.0, 10.0, 20.0, 30.0][index.min(4)]
@@ -3776,6 +3891,12 @@ impl Prefs {
             settings::set_grouping_name(text);
             return;
         }
+        if let Some(t) = id.strip_prefix("tag:").and_then(|x| x.parse::<i64>().ok()) {
+            with_library(|db| db.rename_tag(t, text).map(|_| ()));
+            settings::tags_changed();
+            self.refresh();
+            return;
+        }
         if let Some(group) = id
             .strip_prefix("tag_group:")
             .and_then(|g| g.parse::<i64>().ok())
@@ -3814,7 +3935,7 @@ impl Prefs {
         if self.broadcast_pressed(id) {
             return;
         }
-        if self.tag_group_pressed(id) {
+        if self.tag_pressed(id) || self.tag_group_pressed(id) {
             self.refresh();
             return;
         }
@@ -5042,6 +5163,14 @@ fn channel_choices(role: InputRole, channels: u16) -> Vec<(u16, bool)> {
     }
     out.extend((0..channels).map(|c| (c, true)));
     out
+}
+
+/// "Red" for "red".
+fn capitalized(s: &str) -> String {
+    let mut c = s.chars();
+    c.next()
+        .map(|f| f.to_uppercase().chain(c).collect())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
