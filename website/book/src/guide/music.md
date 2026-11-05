@@ -611,3 +611,22 @@ each fill a group (each word a tag, the `#` dropped), and each rekordbox My
 Tag category becomes a group of the same name. A group you already have
 with that name takes them. Rename a group made this way and later imports
 still go into it.
+
+## Backups
+
+openDJ backs up your collection (cues, tags, crates, playlists and
+history) and your settings once a day, under **Backups** in
+**Settings › Collection › General**. **Back up** sets how often: **Off**,
+**Daily** (the default) or **Weekly**. The newest 10 backups are kept.
+Each is one `.opendjbackup` file, which also holds your own controller
+mappings. Sign-ins to streaming services stay out of it.
+
+**Backup folder** is a `Backups` folder next to openDJ's settings until
+you pick another; a cloud folder (iCloud Drive, Dropbox) keeps your
+backups off the computer. **Back Up Now** makes one straight away.
+
+**Restore…** picks a backup. It goes in when openDJ next starts, so quit
+and open it again. How things were before is saved first, as a
+"Before restore" backup in the backup folder, and you stay signed in to
+your services. **Cancel** drops a restore that hasn't happened yet.
+Music and sample files are not part of a backup.

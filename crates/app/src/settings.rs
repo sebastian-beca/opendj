@@ -32,8 +32,13 @@ fn path() -> Option<PathBuf> {
 }
 
 pub fn load() -> Value {
-    path()
-        .and_then(|p| std::fs::read(p).ok())
+    path().map_or_else(|| json!({}), |p| load_from(&p))
+}
+
+/// The settings saved in the file at `path`; empty if there are none.
+pub fn load_from(path: &std::path::Path) -> Value {
+    std::fs::read(path)
+        .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_else(|| json!({}))
 }

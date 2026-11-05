@@ -9,6 +9,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
 use crate::audio_plugins::{AudioPlugins, Found};
+use crate::backup;
 use crate::broadcast::{self, Broadcast};
 use crate::list_picker::{Picker, Ticked};
 use opendj_control::ControlRegistry;
@@ -474,6 +475,12 @@ pub struct Prefs {
     storage_pending: Option<usize>,
     /// What the last clean-up freed.
     storage_note: String,
+    /// What the last Back up now or Restore did, shown on its row.
+    backup_note: String,
+    /// Back up now runs on its own thread; its outcome comes back here.
+    backup_tx: Sender<String>,
+    backup_rx: Receiver<String>,
+    backup_running: bool,
     /// The devices shown on the controllers page.
     ports: Vec<Port>,
     /// Plugins with settings, shown on Settings › Sources.
@@ -553,6 +560,7 @@ impl Prefs {
     ) -> Rc<RefCell<Prefs>> {
         let (chosen_tx, chosen_rx) = mpsc::channel();
         let (tested_tx, tested_rx) = mpsc::channel();
+        let (backup_tx, backup_rx) = mpsc::channel();
         let mut plugins: Vec<Box<dyn Plugin>> = crate::stores::configured()
             .into_iter()
             .filter(|p| !p.settings().is_empty())
@@ -579,6 +587,10 @@ impl Prefs {
             removing_tag: None,
             storage_pending: None,
             storage_note: String::new(),
+            backup_note: String::new(),
+            backup_tx,
+            backup_rx,
+            backup_running: false,
             ports: Vec::new(),
             plugins,
             plugin_plays,
@@ -650,7 +662,32 @@ impl Prefs {
         if tested {
             self.refresh();
         }
+        if let Ok(note) = self.backup_rx.try_recv() {
+            self.backup_running = false;
+            self.backup_note = note;
+            self.refresh();
+        }
         while let Ok((id, path)) = self.chosen_rx.try_recv() {
+            if id == backup::FOLDER_KEY {
+                settings::set(&id, json!(path.to_string_lossy()));
+                backup::run_if_due();
+                self.refresh();
+                continue;
+            }
+            if id == "backup_restore" {
+                self.backup_note = match settings::config_dir()
+                    .ok_or_else(|| "There is no settings folder.".to_string())
+                    .and_then(|d| backup::stage_restore(&d, &path))
+                {
+                    Ok(s) => format!(
+                        "Restores {} when openDJ next starts. Quit and open it again.",
+                        s.describe()
+                    ),
+                    Err(e) => e,
+                };
+                self.refresh();
+                continue;
+            }
             if id == "keyboard_set_import" {
                 let file = path
                     .file_name()
@@ -810,6 +847,21 @@ impl Prefs {
                     settings::set(list, json!(""));
                     self.refresh();
                 }
+            }
+            return true;
+        }
+        if list == backup::FOLDER_KEY {
+            if remove.is_some() {
+                // Back to the default folder.
+                settings::set(list, json!(""));
+                self.refresh();
+            } else {
+                choose(
+                    list,
+                    "Choose where to keep backups",
+                    true,
+                    self.chosen_tx.clone(),
+                );
             }
             return true;
         }
@@ -2409,7 +2461,123 @@ impl Prefs {
             },
             self.storage_item(),
         ]);
+        items.extend(self.backup_items());
         items
+    }
+
+    /// Settings › Collection › General: how often the collection and
+    /// settings are backed up, where to, Back up now and Restore.
+    fn backup_items(&self) -> Vec<PrefItem> {
+        let dir = backup::folder();
+        let last = dir
+            .as_deref()
+            .and_then(backup::last_backup)
+            .map(|t| {
+                let t: chrono::DateTime<chrono::Local> = t.into();
+                let today = chrono::Local::now().date_naive();
+                if t.date_naive() == today {
+                    format!("Last backup today at {}", t.format("%H:%M"))
+                } else {
+                    format!("Last backup {}", t.format("%b %-d at %H:%M"))
+                }
+            })
+            .unwrap_or_else(|| "No backups yet".into());
+        let pending = settings::config_dir().is_some_and(|d| backup::restore_pending(&d));
+        let now_note = if self.backup_running {
+            "Backing up…".to_string()
+        } else if !self.backup_note.is_empty() && !pending {
+            self.backup_note.clone()
+        } else {
+            last
+        };
+        vec![
+            item("backups", HEADING, "BACKUPS", ""),
+            PrefItem {
+                choices: strings(&backup::EVERY_CHOICES),
+                chosen: backup::every_choice() as i32,
+                ..item(
+                    backup::EVERY_KEY,
+                    MENU,
+                    "Back up",
+                    &format!(
+                        "Your collection (cues, tags, crates, playlists) and settings. The newest \
+                         {} backups are kept. Sign-ins stay out.",
+                        backup::KEEP
+                    ),
+                )
+            },
+            folder_list(
+                backup::FOLDER_KEY,
+                "Backup folder",
+                "Pick a cloud folder to keep backups off this computer.",
+                &dir.into_iter().collect::<Vec<_>>(),
+                true,
+                false,
+            ),
+            PrefItem {
+                action: if self.backup_running {
+                    ""
+                } else {
+                    "Back Up Now"
+                }
+                .into(),
+                ..item("backup_now", BUTTON, "Back up now", &now_note)
+            },
+            PrefItem {
+                action: if pending { "Cancel" } else { "Restore…" }.into(),
+                ..item(
+                    "backup_restore",
+                    BUTTON,
+                    "Restore a backup",
+                    &if pending && !self.backup_note.is_empty() {
+                        self.backup_note.clone()
+                    } else if pending {
+                        "A backup is restored when openDJ next starts.".to_string()
+                    } else {
+                        "Replaces the collection and settings. How things are now is backed up \
+                         first."
+                            .into()
+                    },
+                )
+            },
+        ]
+    }
+
+    fn backup_pressed(&mut self, id: &str) -> bool {
+        match id {
+            "backup_now" if !self.backup_running => {
+                self.backup_running = true;
+                let tx = self.backup_tx.clone();
+                std::thread::spawn(move || {
+                    let _ = tx.send(match backup::back_up_now() {
+                        Ok(path) => format!(
+                            "Saved {}",
+                            path.file_name().unwrap_or_default().to_string_lossy()
+                        ),
+                        Err(e) => format!("Couldn't back up: {e}"),
+                    });
+                });
+            }
+            "backup_now" => {}
+            "backup_restore" => {
+                let config = settings::config_dir();
+                if let Some(d) = config.as_deref().filter(|d| backup::restore_pending(d)) {
+                    backup::cancel_restore(d);
+                    self.backup_note.clear();
+                } else {
+                    choose(
+                        "backup_restore",
+                        "Choose an openDJ backup (.opendjbackup)",
+                        false,
+                        self.chosen_tx.clone(),
+                    );
+                    return true;
+                }
+            }
+            _ => return false,
+        }
+        self.refresh();
+        true
     }
 
     /// Settings › Collection › General › Storage: fills StorageUi with the
@@ -3059,6 +3227,12 @@ impl Prefs {
     }
 
     fn picked(&mut self, id: &str, index: usize) {
+        if id == backup::EVERY_KEY {
+            settings::set(id, json!(index));
+            backup::run_if_due();
+            self.refresh();
+            return;
+        }
         if let Some(t) = id.strip_prefix("tag:").and_then(|x| x.parse::<i64>().ok()) {
             let color = index
                 .checked_sub(1)
@@ -3932,7 +4106,7 @@ impl Prefs {
     }
 
     fn pressed(&mut self, id: &str) {
-        if self.broadcast_pressed(id) {
+        if self.broadcast_pressed(id) || self.backup_pressed(id) {
             return;
         }
         if self.tag_pressed(id) || self.tag_group_pressed(id) {
