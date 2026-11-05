@@ -1,24 +1,44 @@
 # Collection Health
 
 **Collection Health**, the cross under Collection in the rail, checks the
-whole collection for what needs fixing. Its page has one line per check,
-with how many tracks it finds; **Review** lists them, and the bar above the list
-fixes them all at once. To fix only some, pick them (shift-click for a
-range, ⌘-click or Ctrl-click for single tracks) and right-click.
+whole collection for what needs fixing. **Overview** shows how much of your
+collection is clean, with Inbox, In Prep and Play Ready on their own bars, and
+the checks grouped into five areas in the order they're best fixed: **Files**,
+**Out of place**, **Duplicates**, **Info** and **Prep**. The first area with
+work is marked Start here.
+
+An area lists its tracks with a **Problem** and a **Fix** column and a progress
+bar. Its bar has:
+
+- **Auto-fix**, for the fixes with one clear answer: relinking a missing file
+  to the only file that matches it, merging easy duplicates, and taking the
+  junk the clean-up rules know out of names. Undo takes the whole run back.
+  On Prep the button reads **Analyze** and queues every track not analysed
+  yet.
+- **Review**, which goes through the area one track at a time on a card.
+  **Return** applies the fix shown, **→** skips, **I** ignores the track for
+  that check, **E** opens its Info tab, **Space** plays it in the headphones,
+  **⌘Z** (Ctrl+Z) undoes and **Esc** goes back to the list. When the area is
+  done, **Next** carries on in the next one with work.
+
+To fix only some tracks from the list, pick them (shift-click for a range,
+⌘-click or Ctrl-click for single tracks) and right-click. Tracks a check was
+told to leave alone are under **Ignored**, below the areas; **Bring back**
+lets every check see them again.
 
 | Check | Finds | Fixes |
 |---|---|---|
 | Not music | Audiobooks, podcasts and spoken word: Apple Books and Podcasts folders, `.m4b` files, genres such as Audiobook, "(Unabridged)" albums, and chapters (several tracks in one folder sharing a title) | Remove from library, It's music |
 | Strays | Files outside your Inbox, In Prep and Play Ready folders | Move to In Prep, Remove from collection |
 | Outside folders | Files outside your music folders and stage folders, such as ones that came in with a VirtualDJ import | Move to In Prep, Remove from collection |
-| Duplicates | The same track more than once: same artist, title and remix | Fix all easy, Keep this copy, Link as versions (see [Duplicates](#duplicates)) |
+| Duplicates | The same track more than once: same artist, title and remix | Auto-fix, Keep this copy, Link as versions (see [Duplicates](#duplicates)) |
 | Not analyzed | No tempo or key | Analyze, in the background |
 | Missing or poor metadata | No artist, title, album, year or genre, or one that says nothing, like "Unknown Artist", "Untitled" or "Track 01" | Look up online (see [Online lookup](#online-lookup)); Fill from file name… (`Artist - Title.mp3`, shown in the review table before anything is written). The page says what the flagged tracks lack, such as "80 no genre, 12 no artist or title" |
 | Low bitrate | Compressed files under 192 kb/s, which can sound dull on a big system | None yet: replace them with a better copy |
 | Junk in names | Track numbers, web sites, "(Official Video)", underscores, or a remix or guest in the title | Clean up… (see [Clean-up](#clean-up)), Look up online |
 | No cover | No picture in the file's tags or its folder | Find covers online, or one by one from the track's info panel |
 | No rating | No stars | Rate them in the list |
-| Missing files | The file isn't where your collection expects it | Find files (looks for the same file name in your stage folders and music folders), Remove from collection |
+| Missing files | The file isn't where your collection expects it | Auto-fix relinks a file found under the same name in your stage folders and music folders, when there is only one; Remove from collection |
 | Long tracks | Over 20 minutes: recorded sets and long pieces | Tag as #mix |
 
 **Lists** at the bottom of the page shows up when crates are empty or lists
@@ -141,7 +161,7 @@ then the most played. To keep another one, right-click it and choose
 **Keep this copy**. The **Location** column (right-click a heading) shows
 which folder each copy is in.
 
-**Fix all easy** merges every group but Different lengths at once. Merging
+**Auto-fix** on Duplicates merges every group but Different lengths at once. Merging
 loses nothing: the kept copy takes the others' lists and history, cues and
 grid (when it has none), links, the highest rating, all their plays, the
 earliest date added, and any tags it lacks. The other copies leave your
