@@ -167,6 +167,9 @@ export global TrackDrag {
     pure callback deck-payload(deck: int) -> data-transfer;
     pure callback accepts(data: data-transfer) -> bool;
     callback drop(deck: int, data: data-transfer);
+    // Dropped on the Player bar: the first track plays now, the rest
+    // straight after it.
+    callback drop-player(data: data-transfer);
     // Dropped on the side panel's list, to go in before `index`.
     callback drop-side(index: int, data: data-transfer);
     // Files dragged in from Finder or a file manager. The system tells the
