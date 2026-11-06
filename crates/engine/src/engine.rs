@@ -95,6 +95,10 @@ impl EngineInput {
 const JOG_SECONDS: f64 = 0.01;
 /// Seconds over which a jog movement is spread, so a turning wheel bends smoothly.
 const JOG_SPREAD: f64 = 0.05;
+/// The SLICER's section, in beats: one beat on each of the 8 pads.
+const SLICER_BEATS: f64 = 8.0;
+/// FREEZE cuts the beat into this many slices, one on each pad.
+const FREEZE_SLICES: f64 = 8.0;
 /// Jog speeds above this many times normal speed are a fast search (SHIFT +
 /// jog on Pioneer controllers): the deck goes quiet, as in rekordbox.
 const JOG_SEARCH_SPEED: f64 = 8.0;
@@ -186,6 +190,8 @@ struct Deck {
     /// The engine clock this buffer, in seconds, and the deck's `bpm_tap`
     /// taps against it.
     clock: f64,
+    /// `clock` at the last buffer's controls.
+    last_clock: f64,
     taps: TapTempo,
     /// The `bpmlock` version last seen, so the DJ turning it is told apart
     /// from the engine showing a loaded track's lock.
@@ -213,6 +219,13 @@ struct Deck {
     /// the track carries on from the silent playhead when it is let go.
     slip_cue: Option<usize>,
     rolling: bool,
+    /// SLICER: the grid beat its 8-beat section starts on, while it is on.
+    slicer: Option<f64>,
+    /// The slicer pad held: the pad, and where in the section (in beats) the
+    /// deck would be by now without it, to go back there when it is let go.
+    slice_held: Option<(usize, f64)>,
+    /// FREEZE: the grid beat frozen while a freeze pad is held.
+    freeze: Option<f64>,
     /// Whether play was on last buffer: starting and stopping are instant,
     /// other speed changes ramp.
     was_playing: bool,
@@ -432,6 +445,8 @@ impl Deck {
         self.slip_cue = None;
         self.c.slip_position.set(-1.0);
         self.rolling = false;
+        self.stop_slicer();
+        self.freeze = None;
         self.c.track_loaded.set_bool(false);
         self.c.duration.set(0.0);
         self.c.bpm.set(0.0);
@@ -499,6 +514,12 @@ impl Deck {
         // Where the track is before this buffer's jumps: a slip that starts
         // now runs on from here.
         let unslipped = self.pos;
+        // Beats played since the last buffer, at the speed reached then.
+        let beats_dt = (self.clock - self.last_clock).max(0.0)
+            * self.velocity.max(0.0)
+            * track.bpm_at(self.seconds())
+            / 60.0;
+        self.last_clock = self.clock;
 
         if self.c.bpmlock.version() != self.bpmlock_seen {
             self.bpmlock_seen = self.c.bpmlock.version();
@@ -833,7 +854,12 @@ impl Deck {
             self.rolling = false;
             self.c.loop_enabled.set_bool(false);
         }
-        let slipping = self.c.reverseroll.get_bool() || self.rolling || self.slip_trick(unslipped);
+        self.freeze_pads(&track);
+        self.slicer_pads(&track, beats_dt);
+        let slipping = self.c.reverseroll.get_bool()
+            || self.rolling
+            || self.freeze.is_some()
+            || self.slip_trick(unslipped);
         match (self.slip, slipping) {
             (None, true) => {
                 self.slip = Some(unslipped);
@@ -880,6 +906,123 @@ impl Deck {
             .file_key
             .set(self.file_key.map_or(0.0, Key::mixxx_number));
         self.c.key.set(key.map_or(0.0, Key::mixxx_number));
+    }
+
+    /// Loops the slicer's whole section.
+    fn loop_section(&mut self, track: &Track, start: f64) {
+        self.loop_start = track.seconds_at(start);
+        self.loop_end = track.seconds_at(start + SLICER_BEATS);
+        self.c.loop_enabled.set_bool(true);
+    }
+
+    /// Switches the slicer off, leaving the track playing where it is.
+    fn stop_slicer(&mut self) {
+        if self.slicer.take().is_some() {
+            self.c.loop_enabled.set_bool(false);
+        }
+        self.slice_held = None;
+        self.c.slicer_enabled.set_bool(false);
+        for light in &self.c.slicer_status {
+            light.set_bool(false);
+        }
+    }
+
+    /// SLICER: `slicer_enabled` loops the 8 beats from the beat playing, one
+    /// on each pad. Holding a pad plays its beat in time, looped; letting go
+    /// goes back to where the section would be by now. A pad turns the
+    /// slicer on too. `beats_dt` is the beats played since the last buffer.
+    fn slicer_pads(&mut self, track: &Track, beats_dt: f64) {
+        let mut press = None;
+        for (n, (c, edge)) in self.c.slicer_pads.iter_mut().enumerate() {
+            if edge.pressed(c) {
+                press = Some(n);
+            }
+        }
+        if track.bpm <= 0.0 {
+            self.stop_slicer();
+            return;
+        }
+        let beat = track.beat_at(self.seconds());
+        let on = self.c.slicer_enabled.get_bool() || press.is_some();
+        match self.slicer {
+            None if on => {
+                let start = (beat + 1e-6).floor();
+                self.slicer = Some(start);
+                self.c.slicer_enabled.set_bool(true);
+                self.loop_section(track, start);
+            }
+            // Switched off, or its loop ended some other way.
+            Some(_) if !on || !self.c.loop_enabled.get_bool() => self.stop_slicer(),
+            _ => {}
+        }
+        let Some(start) = self.slicer else { return };
+        if let Some((pad, ghost)) = self.slice_held.as_mut() {
+            *ghost += beats_dt;
+            let (pad, ghost) = (*pad, *ghost);
+            if !self.c.slicer_pads[pad].0.get_bool() && press.is_none() {
+                // Back in the section where it would be: the same place in
+                // the beat as now (the held beat kept time), on the beat
+                // the section has reached.
+                let phase = beat - (beat + 1e-6).floor();
+                let whole = (ghost - phase).round();
+                let at = (whole + phase).rem_euclid(SLICER_BEATS);
+                self.slice_held = None;
+                self.loop_section(track, start);
+                self.set_seconds(track.seconds_at(start + at));
+            }
+        }
+        if let Some(pad) = press {
+            let slice = start + pad as f64;
+            if self.c.play.get_bool() {
+                let phase = (beat - (beat + 1e-6).floor()).max(0.0);
+                let ghost = match self.slice_held {
+                    Some((_, ghost)) => ghost,
+                    None => beat - start,
+                };
+                self.slice_held = Some((pad, ghost));
+                self.loop_start = track.seconds_at(slice);
+                self.loop_end = track.seconds_at(slice + 1.0);
+                self.set_seconds(track.seconds_at(slice + phase));
+            } else {
+                self.set_seconds(track.seconds_at(slice));
+            }
+        }
+        let playing = (track.beat_at(self.seconds()) - start + 1e-6).floor();
+        for (n, light) in self.c.slicer_status.iter().enumerate() {
+            light.set_bool(playing == n as f64);
+        }
+    }
+
+    /// FREEZE: while a pad is held the beat playing when the first went
+    /// down is frozen into eight slices, and the pad's slice repeats. Let go
+    /// of all of them and the track carries on from where it would have
+    /// been (slip).
+    fn freeze_pads(&mut self, track: &Track) {
+        let mut press = None;
+        for (n, (c, edge)) in self.c.freeze_pads.iter_mut().enumerate() {
+            if edge.pressed(c) {
+                press = Some(n);
+            }
+        }
+        let held = self.c.freeze_pads.iter().any(|(c, _)| c.get_bool());
+        if let Some(pad) = press.filter(|_| track.bpm > 0.0) {
+            let beat = match self.freeze {
+                Some(b) => b,
+                None => (track.beat_at(self.seconds()) + 1e-6).floor(),
+            };
+            let slice = beat + pad as f64 / FREEZE_SLICES;
+            self.loop_start = track.seconds_at(slice);
+            self.loop_end = track.seconds_at(slice + 1.0 / FREEZE_SLICES);
+            self.c.loop_enabled.set_bool(true);
+            self.set_seconds(self.loop_start);
+            self.freeze = Some(beat);
+        } else if self.freeze.is_some() && !held {
+            self.freeze = None;
+            match self.slicer {
+                Some(start) => self.loop_section(track, start),
+                None => self.c.loop_enabled.set_bool(false),
+            }
+        }
     }
 
     /// In slip mode, whether a trick is taking the track away from where it
@@ -1471,6 +1614,7 @@ impl Engine {
             loop_in_pending: false,
             grid_edit: None,
             clock: 0.0,
+            last_clock: 0.0,
             taps: TapTempo::default(),
             bpmlock_seen: 0,
             metronome_beat: f64::NAN,
@@ -1483,6 +1627,9 @@ impl Engine {
             slip_moving: false,
             slip_cue: None,
             rolling: false,
+            slicer: None,
+            slice_held: None,
+            freeze: None,
             was_playing: false,
             cue_edge: Edge::default(),
             cup_edge: Edge::default(),
@@ -4873,6 +5020,123 @@ mod tests {
         run(&mut engine, 0.01);
         assert!(!ctl("loop_enabled").get_bool());
         assert!((seconds() - (start + 1.01)).abs() < 0.03, "{}", seconds());
+    }
+
+    #[test]
+    fn slicer_loops_its_section_and_plays_each_beat_in_time() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 20.0));
+        run(&mut engine, 0.01);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let seconds = || ctl("playposition").get() * 20.0;
+        // Beats are 0.5 s from 0.1 s.
+        let phase = |s: f64| (s - 0.1).rem_euclid(0.5);
+        ctl("play").set_bool(true);
+        run(&mut engine, 1.35);
+        // In beat 2 (1.1 s): the section is beats 2 to 10.
+        ctl("slicer_enabled").set_bool(true);
+        run(&mut engine, 0.01);
+        assert!(ctl("loop_enabled").get_bool());
+        assert!((ctl("loop_start_position").get() - 1.1).abs() < 1e-6);
+        assert!((ctl("loop_end_position").get() - 5.1).abs() < 1e-6);
+        assert!(ctl("slicer_1_status").get_bool());
+
+        // Pad 5 is beat 6 (3.1 s), at the same place in the beat.
+        let before = seconds();
+        ctl("slicer_5_activate").set_bool(true);
+        run(&mut engine, 0.01);
+        let s = seconds();
+        assert!((3.1..3.6).contains(&s), "{s}");
+        assert!(
+            (phase(s) - phase(before + 0.01)).abs() < 0.03,
+            "{s} vs {before}"
+        );
+        assert!(ctl("slicer_5_status").get_bool());
+        assert!(!ctl("slicer_1_status").get_bool());
+        // Held, the beat repeats.
+        run(&mut engine, 1.0);
+        let s = seconds();
+        assert!((3.1..3.6).contains(&s), "{s}");
+
+        // Let go: where the section would be by now.
+        ctl("slicer_5_activate").set_bool(false);
+        run(&mut engine, 0.01);
+        let expected = 1.1 + (before + 1.03 - 1.1).rem_euclid(4.0);
+        assert!(
+            (seconds() - expected).abs() < 0.03,
+            "{} vs {expected}",
+            seconds()
+        );
+        assert!((ctl("loop_end_position").get() - 5.1).abs() < 1e-6);
+
+        // The section loops.
+        run(&mut engine, 4.5);
+        assert!((1.1..5.1).contains(&seconds()), "{}", seconds());
+
+        // Off: the loop ends and the track plays on.
+        ctl("slicer_enabled").set_bool(false);
+        run(&mut engine, 0.01);
+        assert!(!ctl("loop_enabled").get_bool());
+        assert!(!ctl("slicer_1_status").get_bool() && !ctl("slicer_5_status").get_bool());
+    }
+
+    #[test]
+    fn a_slicer_pad_switches_the_slicer_on() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 20.0));
+        run(&mut engine, 0.01);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let seconds = || ctl("playposition").get() * 20.0;
+        ctl("play").set_bool(true);
+        run(&mut engine, 1.9);
+        // Beat 3 (1.6 s): pad 2 is beat 4 (2.1 s).
+        ctl("slicer_2_activate").set_bool(true);
+        run(&mut engine, 0.01);
+        assert!(ctl("slicer_enabled").get_bool());
+        assert!((2.1..2.6).contains(&seconds()), "{}", seconds());
+        ctl("slicer_2_activate").set_bool(false);
+        run(&mut engine, 0.01);
+        assert!((ctl("loop_start_position").get() - 1.6).abs() < 1e-6);
+        assert!((ctl("loop_end_position").get() - 5.6).abs() < 1e-6);
+    }
+
+    #[test]
+    fn freeze_repeats_a_slice_of_the_beat_and_slips_back() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 20.0));
+        run(&mut engine, 0.01);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let seconds = || ctl("playposition").get() * 20.0;
+        ctl("play").set_bool(true);
+        run(&mut engine, 1.35);
+        let start = seconds();
+        // Beat 2 is 1.1 s to 1.6 s; its third eighth starts 0.125 s in.
+        ctl("freeze_3_activate").set_bool(true);
+        run(&mut engine, 0.01);
+        let (a, b) = (
+            ctl("loop_start_position").get(),
+            ctl("loop_end_position").get(),
+        );
+        assert!(
+            (a - 1.225).abs() < 1e-6 && (b - 1.2875).abs() < 1e-6,
+            "{a} {b}"
+        );
+        run(&mut engine, 0.5);
+        assert!((a..b).contains(&seconds()), "{}", seconds());
+        // Another pad: another slice of the same beat.
+        ctl("freeze_8_activate").set_bool(true);
+        run(&mut engine, 0.2);
+        assert!((1.5375..1.6).contains(&seconds()), "{}", seconds());
+        ctl("freeze_3_activate").set_bool(false);
+        ctl("freeze_8_activate").set_bool(false);
+        run(&mut engine, 0.01);
+        assert!(!ctl("loop_enabled").get_bool());
+        let expected = start + 0.72;
+        assert!(
+            (seconds() - expected).abs() < 0.04,
+            "{} vs {expected}",
+            seconds()
+        );
     }
 
     #[test]
