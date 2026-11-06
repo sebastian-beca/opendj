@@ -79,9 +79,10 @@ impl Library {
         let tx = self.db.transaction()?;
         let sources: Vec<String> = tx
             .prepare(
-                "SELECT DISTINCT source FROM playlists WHERE source IS NOT NULL AND source != ?1",
+                "SELECT DISTINCT source FROM playlists
+                  WHERE source IS NOT NULL AND source NOT IN (?1, ?2)",
             )?
-            .query_map([TOP_PLAYLIST], |r| r.get(0))?
+            .query_map([TOP_PLAYLIST, CRATE_FOLDER], |r| r.get(0))?
             .collect::<Result<_, _>>()?;
         let mut moved = 0;
         for s in &sources {
@@ -292,6 +293,19 @@ mod tests {
         let moods = lib.playlists().unwrap();
         let moods = moods.iter().find(|p| p.id == folder).unwrap();
         assert!(!is_imported(moods));
+    }
+
+    #[test]
+    fn crates_stay_in_crate_folders() {
+        let (mut lib, _) = library();
+        let moods = lib.create_crate_folder("Moods").unwrap();
+        let calm = lib.create_crate("Calm", Some(moods)).unwrap();
+        assert_eq!(lib.rescue_own_lists().unwrap(), 0);
+        let lists = lib.playlists().unwrap();
+        assert_eq!(
+            lists.iter().find(|p| p.id == calm).unwrap().parent,
+            Some(moods)
+        );
     }
 
     #[test]
