@@ -2,12 +2,14 @@
 
 The open OpenSpec changes in `openspec/changes/`, in the order they are planned (within a release, in build order). Each change's `proposal.md` says why, and its `specs/` say what will be true when it's done. When a change ships, archive it (`openspec archive <name>`) so `openspec/specs/` takes its requirements.
 
+This file only says which release each change is planned for, and in what order. How far a change has got is not written here: tick its steps in `changes/<name>/tasks.md` and run `scripts/roadmap.py` (or `scripts/roadmap.py v0.6`) to see every change as not started, in progress or built. The notes after a link say what the change is and why it sits in that release, not its progress, so a PR that moves a change forward doesn't edit this file. `scripts/roadmap.py --check` (run in CI) makes sure every change folder is listed, and listed once per release.
+
 Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared 2026-10-21: four decks, mic and aux inputs, stages, Collection Health, in-app updates, signed macOS app) and v0.3.5 (prepared 2026-10-28: sampler with sample packs, phrases, mini waveforms, key lock and fuzzy keymixing, FLX4 pad modes, Controller Editor; from the v0.4 list below, add-analyze-track, add-key-lock-and-fuzzy-keymixing and add-controller-viewer shipped early, the rest stay for v0.4) and v0.4.0 (prepared 2026-10-28: duplicate merging and quarantine, name clean-up and genre merging, online tag lookup, sets and crates, sync deck controls, FX bar, compact 2-Deck layout, Windows preview, experimental Pioneer USB export; add-cloud-storage-care, add-browser-preview-player and add-more-audio-decoders move on) and v0.4.5 (prepared 2026-10-30, early from the v0.5 list: rekordbox and Mixxx library imports, controller mapping import/export, own mappings, Map mode and Quick map, DDJ-FLX6 mapping, first-run guided tour, Beat This! beatgrids with grid lock, streaming browse for Spotify, TIDAL, Apple Music, SoundCloud and Mixcloud, Albums and Mixed Sets folders, "collection" naming) and v0.4.6 (prepared 2026-10-31: headphone cue follows the loaded deck, smaller screens, metronome and Bar 1 here for grids, Automix crossfader lock, kept streaming playlists, Spotify Download Track) and v0.4.7 (prepared 2026-11-02: plugin effects and instruments (CLAP, VST3, AU), phone remote for Automix, FX engine upgrade with six new effects, Traktor Kontrol HID controllers, XDJ-RX3 and Numark V7 mappings, beat counter, slip per trick, Automix Order menu, audio health meter, .deb and .rpm packages, and from add-live-broadcast the loudness meter, true-peak limiter and Icecast/Shoutcast streaming) and v0.5.0 (prepared 2026-11-04: Traktor import, tag groups, batch editing, Plex, Navidrome and Jellyfin sources, Settings › Sources, Collection Health dashboard with five areas, Player layout, Groove Box, Instruments rail, advanced tutorials, Mixcloud export, Xone K2 mapping, Settings › Plugins with plugin windows, one accent colour, M3U8 export and M3U/PLS/XSPF import, the now-playing feed and OBS overlay; add-prep-layout ships hidden for v0.6, and the v0.5 changes not started move to v0.6). `openspec/specs/` describes the app as of v0.3.0 plus PR #56.
 
 ## v0.4 · Your collection, cleaned up
 
 - [add-analyze-track](changes/add-analyze-track/proposal.md) (Analyze Track in the browser menu, Seba 2026-10-28)
-- [add-key-lock-and-fuzzy-keymixing](changes/add-key-lock-and-fuzzy-keymixing/proposal.md) (in progress: opendj PR #57)
+- [add-key-lock-and-fuzzy-keymixing](changes/add-key-lock-and-fuzzy-keymixing/proposal.md)
 - [add-duplicate-resolution](changes/add-duplicate-resolution/proposal.md) (collection maintenance PR 3)
 - [add-metadata-cleanup](changes/add-metadata-cleanup/proposal.md) (collection maintenance PR 4)
 - [add-online-metadata-lookup](changes/add-online-metadata-lookup/proposal.md) (collection maintenance PR 5)
@@ -18,6 +20,8 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-more-audio-decoders](changes/add-more-audio-decoders/proposal.md)
 - [add-controller-viewer](changes/add-controller-viewer/proposal.md) (view-only Controller Editor, pulled forward by Seba 2026-10-27)
 - [add-pioneer-usb-export](changes/add-pioneer-usb-export/proposal.md) (built on rbox, experimental until tried on a player; Seba 2026-10-28)
+- [add-opendjscript](changes/add-opendjscript/proposal.md) (one-line actions for keys and buttons, ⌘1 to ⌘5 rate tracks)
+- [add-keyboard-shortcuts-editor](changes/add-keyboard-shortcuts-editor/proposal.md) (change keyboard shortcuts in Settings)
 
 ## v0.5 · Stems, performance and switching over
 
@@ -46,6 +50,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-live-broadcast](changes/add-live-broadcast/proposal.md) (steps 1-2: a loudness meter with stream targets and a true-peak limiter, then Icecast/Shoutcast radio with now-playing; moved from v1.x by Seba 2026-11-02 after the radio and livestream research)
 - [add-now-playing-feed](changes/add-now-playing-feed/proposal.md) (now-playing text/JSON files and an OBS overlay page; Seba 2026-11-02)
 - [add-playlist-files](changes/add-playlist-files/proposal.md) (export any list as M3U8; import M3U, PLS and XSPF; Seba 2026-11-02)
+- [add-controller-scripting](changes/add-controller-scripting/proposal.md) (actions on controller rows: press, release, long press, modes; with the controller mapper, issue #133)
 
 ## v0.6 · Buy it from the artist
 
@@ -58,8 +63,8 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-prep-layout](changes/add-prep-layout/proposal.md) (a Prep layout on Deck 1 for getting In Prep tracks ready: grid tools, hot cues with suggestions from phrases, a checklist and quick review keys; issue #292, 2026-11-03; built behind a switch in v0.5, shown from v0.6 to leave time to test it, 2026-11-04)
 - [add-live-broadcast](changes/add-live-broadcast/proposal.md) (steps 3-5: Go live to Twitch, YouTube and Mixcloud Live over RTMP with a now-playing picture, WebRTC (WHIP), radio show tools)
 - [add-dvs](changes/add-dvs/proposal.md) (timecode vinyl and CDs; moved from after 1.0, issue #317)
-- [add-stem-fx-and-acapella](changes/add-stem-fx-and-acapella/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
-- [improve-scratching](changes/improve-scratching/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
+- [add-stem-fx-and-acapella](changes/add-stem-fx-and-acapella/proposal.md) (moved from v0.5 at the 0.5.0 release)
+- [improve-scratching](changes/improve-scratching/proposal.md) (moved from v0.5 at the 0.5.0 release)
 - [add-slicer-and-freeze](changes/add-slicer-and-freeze/proposal.md) (moved from v0.5 at the 0.5.0 release; SLICER and FREEZE pad pages built, issue #386)
 - [add-cue-sequence-recording](changes/add-cue-sequence-recording/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
 - [add-fx-pre-post-and-headphone](changes/add-fx-pre-post-and-headphone/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
@@ -67,6 +72,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-settings-deck-choices](changes/add-settings-deck-choices/proposal.md) (second step: Decks sections, Hot cue on a playing deck, Track end warning and Back up the collection rows; issue #365, split 2026-11-05)
 - [add-deck-outputs](changes/add-deck-outputs/proposal.md) (each deck on its own outputs for a DAW such as Ableton, and an external mixer mode; no cost when unused; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
 - [add-midi-clock](changes/add-midi-clock/proposal.md) (MIDI clock out to drum machines and other gear, clock in, decks can follow Link; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
+- [improve-list-model](changes/improve-list-model/proposal.md) (imports read-only with Make These Lists Mine, crates as their own kind in folders, drag to move lists; from a review of folders, playlists and crates, 2026-11-05)
 - [add-osc-control](changes/add-osc-control/proposal.md) (every control over Open Sound Control, plus beat, phrase and track events for visuals and lights; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release; built, issue #383)
 - [add-rekordbox-xml-export](changes/add-rekordbox-xml-export/proposal.md) (collection and lists out as rekordbox XML for rekordbox and library tools; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
 

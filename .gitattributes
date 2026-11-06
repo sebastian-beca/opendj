@@ -1,3 +1,9 @@
 # Mixxx controller scripts, bundled unchanged: keep them out of the
 # language statistics so GitHub shows the project as Rust.
 res/controllers/** linguist-vendored
+
+# The roadmap is a list where open pull requests often add or move lines
+# next to each other. The union driver keeps both sides' lines instead of
+# stopping on a conflict; scripts/roadmap.py --check (CI) then catches a
+# change that ended up listed twice.
+openspec/roadmap.md merge=union
