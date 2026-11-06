@@ -5389,7 +5389,7 @@ component SidePanel inherits Rectangle {
                         horizontal-stretch: 1;
                         label: "LENGTH";
                         tour-id: "ui,automix_length";
-                        text: ["0 s", "12 s", "15 s", "30 s", "16 bars", "32 bars"][automix-length];
+                        text: ["0 s", "12 s", "15 s", "30 s", "16 bars", "32 bars", "Phrases"][automix-length];
                         current: automix-length;
                         choices: [
                             { text: "TIME", header: true, value: -1 },
@@ -5401,6 +5401,9 @@ component SidePanel inherits Rectangle {
                             { text: "BARS", header: true, value: -1 },
                             { text: "16 bars", value: 4 },
                             { text: "32 bars", value: 5 },
+                            { text: "PHRASES", header: true, value: -1 },
+                            // Intro over outro: from the outgoing outro, as long as the incoming intro.
+                            { text: "Intro over outro", value: 6 },
                         ];
                         picked(i) => { automix-set-length(i); }
                     }

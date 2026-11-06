@@ -66,12 +66,15 @@ pub fn set_key_notation(n: Notation) {
 /// The Automix mix length and style picked last time, as indices into
 /// [`crate::automix::LENGTHS`] and [`crate::automix::STYLES`]. The length
 /// is saved under a new name since 0 s went in first; an older
-/// `automix_length` is moved up one to match.
+/// `automix_length` is moved up one to match. Without either, Phrases.
 pub fn automix_length() -> usize {
     let v = load();
     match v["automix_mix_length"].as_u64() {
         Some(i) => i as usize,
-        None => v["automix_length"].as_u64().map_or(2, |i| i as usize + 1),
+        // New installs mix on phrases.
+        None => v["automix_length"]
+            .as_u64()
+            .map_or(crate::automix::PHRASES, |i| i as usize + 1),
     }
 }
 

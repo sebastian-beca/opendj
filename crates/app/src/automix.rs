@@ -17,6 +17,7 @@ use std::sync::Arc;
 use opendj_control::{ControlHandle, ControlRegistry};
 use opendj_engine::{deck_group, eq_group, quick_effect_group, Track, NUM_DECKS};
 
+use crate::automix_phrases::{self, Plan, Start};
 use crate::AppWindow;
 
 /// What Automix needs from the rest of the app: the Automix list and a way
@@ -49,19 +50,30 @@ const NEEDS_MIXER: &str = "Automix needs openDJ's mixer: set Mixer to openDJ in 
 pub enum Length {
     Seconds(f64),
     Bars(f64),
+    /// From a phrase change of the outgoing track (its outro), as long as
+    /// the incoming intro (see [`crate::automix_phrases`]).
+    Phrases,
 }
 
 /// The first, 0 s, is no mix at all: the next track starts from its very
 /// beginning the moment the playing one ends, for albums that play through
 /// gaplessly.
-pub const LENGTHS: [Length; 6] = [
+/// Phrases comes last, so lengths saved before it keep their meaning.
+pub const LENGTHS: [Length; 7] = [
     Length::Seconds(0.0),
     Length::Seconds(12.0),
     Length::Seconds(15.0),
     Length::Seconds(30.0),
     Length::Bars(16.0),
     Length::Bars(32.0),
+    Length::Phrases,
 ];
+/// The Phrases length's index in [`LENGTHS`], the default for new installs.
+pub const PHRASES: usize = 6;
+/// What Phrases mixes with when a track has no phrases to go by, and when
+/// the tempos are too far apart to beatmatch.
+const NO_PHRASES: Length = Length::Bars(16.0);
+const NO_MATCH: Length = Length::Seconds(15.0);
 
 /// How the crossfade moves, in the order the panel shows them.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -79,7 +91,9 @@ pub enum Style {
 pub const STYLES: [Style; 4] = [Style::Smooth, Style::BassSwap, Style::Filter, Style::Cut];
 
 /// The lengths' and styles' names, as the panel shows them.
-pub const LENGTH_NAMES: [&str; 6] = ["0 s", "12 s", "15 s", "30 s", "16 bars", "32 bars"];
+pub const LENGTH_NAMES: [&str; 7] = [
+    "0 s", "12 s", "15 s", "30 s", "16 bars", "32 bars", "Phrases",
+];
 pub const STYLE_NAMES: [&str; 4] = ["Smooth", "Bass swap", "Filter", "Cut"];
 
 /// Waveform level under which a slice counts as silence: about -60 dB
@@ -203,6 +217,9 @@ struct Mix {
     beat_match: bool,
     /// How far through the mix it has got, from 0 to 1.
     progress: f64,
+    /// Where through the mix Bass swap swaps, from 0 to 1: halfway, or on
+    /// a phrase change of the outgoing track.
+    swap: f64,
 }
 
 enum Phase {
@@ -251,6 +268,9 @@ pub struct AutoMix {
     left: usize,
     /// Played tracks go back to the end of the list instead of coming off.
     repeat: bool,
+    /// The Phrases length's plan for the playing track and the one
+    /// waiting, by the tracks' addresses, so phrases are found once.
+    plan: Option<((usize, usize), Option<Plan>)>,
 }
 
 /// Automix mixes between decks 1 and 2, whatever the layout.
@@ -320,6 +340,7 @@ impl AutoMix {
             album: false,
             note: String::new(),
             played: None,
+            plan: None,
             left: 0,
             repeat: crate::settings::automix_repeat(),
         }
@@ -397,7 +418,10 @@ impl AutoMix {
                 self.stop("");
                 self.glide_to(0.0);
             }
-            _ => self.step(host, tracks),
+            _ => {
+                self.refresh_plan(tracks);
+                self.step(host, tracks)
+            }
         }
         self.slide(dt);
         self.count_played(host, tracks, dt);
@@ -551,6 +575,7 @@ impl AutoMix {
                 gapless: false,
                 beat_match: false,
                 progress: 0.0,
+                swap: 0.5,
             });
         } else {
             self.glide_to(self.side(live));
@@ -716,14 +741,16 @@ impl AutoMix {
             let beat = tracks[live].as_deref().map_or(0.5, Track::beat_length);
             end = start + beat;
         }
-        let beat_match = matches!(self.mix_length(), Length::Bars(_))
-            && match (tracks[live].as_deref(), tracks[other].as_deref()) {
-                (Some(a), Some(b)) if a.bpm > 0.0 && b.bpm > 0.0 => {
-                    let target = a.bpm * self.decks[live].speed();
-                    (target / b.bpm - 1.0).abs() <= self.decks[other].rate_range.get()
-                }
-                _ => false,
-            };
+        let beat_match = matches!(
+            self.length_for(live, tracks),
+            Length::Bars(_) | Length::Phrases
+        ) && self.matchable(live, tracks);
+        let swap = match (self.length_for(live, tracks), self.current_plan()) {
+            (Length::Phrases, Some(p)) => p.swap.map_or(0.5, |s| {
+                ((s - start) / (end - start).max(1e-3)).clamp(0.1, 0.9)
+            }),
+            _ => 0.5,
+        };
         self.glide = None;
         // A loop would keep the outgoing track from ever reaching the mix's
         // end, and each jump back would pull the crossfader back with it.
@@ -743,6 +770,7 @@ impl AutoMix {
             gapless: gapless && !now,
             beat_match,
             progress: 0.0,
+            swap,
         };
         self.apply(&mut m, tracks);
         self.started(host, other, n.id);
@@ -758,7 +786,10 @@ impl AutoMix {
         tracks: &[Option<Arc<Track>>; NUM_DECKS],
     ) -> f64 {
         let start = start.max(0.0);
-        match (self.mix_length(), tracks[live].as_deref()) {
+        match (self.length_for(live, tracks), tracks[live].as_deref()) {
+            (Length::Phrases, _) if self.current_plan().is_some() => {
+                self.current_plan().map_or(start, |p| p.start)
+            }
             (Length::Bars(_), Some(t)) if t.bpm > 0.0 => {
                 let bar = 4.0 * t.beat_length();
                 (t.first_beat + ((start - t.first_beat) / bar).floor() * bar).max(0.0)
@@ -791,12 +822,13 @@ impl AutoMix {
                     return spans;
                 };
                 let end = self.end_of(t);
-                let start = self.planned_start(*live, end - self.length_on(*live, tracks), tracks);
+                let len = self.length_on(*live, tracks);
+                let start = self.planned_start(*live, end - len, tracks);
                 let start = start.max(self.position(*live, tracks).min(end));
                 let end = if STYLES[self.style] == Style::Cut {
                     (start + t.beat_length()).min(end)
                 } else {
-                    end
+                    (start + len).min(end)
                 };
                 (*live, start, end, other, self.position(other, tracks))
             }
@@ -843,6 +875,9 @@ impl AutoMix {
             if let Some(t) = tracks[deck].as_deref().filter(|t| t.id == next.id) {
                 let start = if self.gapless() {
                     Some(0.0)
+                } else if self.mix_length() == Length::Phrases {
+                    // On the first bar of the incoming phrase.
+                    sound_start(t).map(|s| automix_phrases::in_point(t, &automix_phrases::of(t), s))
                 } else {
                     sound_start(t)
                 };
@@ -889,8 +924,9 @@ impl AutoMix {
         self.crossfader.force(x);
         match m.style {
             Style::BassSwap => {
-                // Swapped over the middle tenth of the mix.
-                let k = ((p - 0.45) / 0.1).clamp(0.0, 1.0);
+                // Swapped over a tenth of the mix, around its middle or a
+                // phrase change.
+                let k = ((p - (m.swap - 0.05)) / 0.1).clamp(0.0, 1.0);
                 from.eq_low.set(m.saved_low[m.from] * (1.0 - k));
                 to.eq_low.set(m.saved_low[m.to] * k);
             }
@@ -957,13 +993,81 @@ impl AutoMix {
 
     /// The chosen mix length, in seconds of `deck`'s track.
     fn length_on(&self, deck: usize, tracks: &[Option<Arc<Track>>; NUM_DECKS]) -> f64 {
-        match self.mix_length() {
+        match self.length_for(deck, tracks) {
             Length::Seconds(s) => s * self.decks[deck].speed().max(0.1),
             Length::Bars(n) => {
                 let beat = tracks[deck].as_deref().map_or(0.5, Track::beat_length);
                 n * 4.0 * beat
             }
+            Length::Phrases => self.current_plan().map_or(0.0, |p| p.end - p.start),
         }
+    }
+
+    /// The length a mix out of `live` takes: the one chosen, except that
+    /// Phrases falls back to 16 bars without phrases to go by, and to 15 s
+    /// when the tempos are too far apart to beatmatch.
+    fn length_for(&self, live: usize, tracks: &[Option<Arc<Track>>; NUM_DECKS]) -> Length {
+        match self.mix_length() {
+            Length::Phrases if !self.matchable(live, tracks) => NO_MATCH,
+            Length::Phrases if self.current_plan().is_none() => NO_PHRASES,
+            l => l,
+        }
+    }
+
+    /// Whether the track on the other deck can be beatmatched to `live`'s
+    /// within its tempo fader's range.
+    fn matchable(&self, live: usize, tracks: &[Option<Arc<Track>>; NUM_DECKS]) -> bool {
+        let other = 1 - live;
+        match (tracks[live].as_deref(), tracks[other].as_deref()) {
+            (Some(a), Some(b)) if a.bpm > 0.0 && b.bpm > 0.0 => {
+                let target = a.bpm * self.decks[live].speed();
+                (target / b.bpm - 1.0).abs() <= self.decks[other].rate_range.get()
+            }
+            _ => false,
+        }
+    }
+
+    /// The phrase plan for the tracks now on the decks, once worked out.
+    fn current_plan(&self) -> Option<&Plan> {
+        self.plan.as_ref().and_then(|(_, p)| p.as_ref())
+    }
+
+    /// Works out the Phrases plan when a new track waits cued on the other
+    /// deck (or either track changes, a grid edit say), and keeps it until
+    /// the mix starts.
+    fn refresh_plan(&mut self, tracks: &[Option<Arc<Track>>; NUM_DECKS]) {
+        let Phase::Playing {
+            live,
+            next: Some(Next { cued: true, .. }),
+        } = self.phase
+        else {
+            if !matches!(self.phase, Phase::Mixing(_)) {
+                self.plan = None;
+            }
+            return;
+        };
+        if self.mix_length() != Length::Phrases {
+            self.plan = None;
+            return;
+        }
+        let (Some(out), Some(inc)) = (&tracks[live], &tracks[1 - live]) else {
+            self.plan = None;
+            return;
+        };
+        let key = (Arc::as_ptr(out) as usize, Arc::as_ptr(inc) as usize);
+        if self.plan.as_ref().is_some_and(|(k, _)| *k == key) {
+            return;
+        }
+        let cue = self.position(1 - live, tracks);
+        let plan = automix_phrases::plan(
+            out,
+            &automix_phrases::of(out),
+            self.end_of(out),
+            inc,
+            &automix_phrases::of(inc),
+            cue,
+        );
+        self.plan = Some((key, plan));
     }
 
     /// What Automix is doing, in a line for the panel and the phone remote.
@@ -980,12 +1084,12 @@ impl AutoMix {
             Phase::Opening { .. } => "Starting…".to_string(),
             Phase::Playing { live, next } => match next {
                 Some(Next { cued: true, .. }) => {
-                    let left = self.remaining(*live, tracks) - self.length_on(*live, tracks);
-                    let speed = self.decks[*live].speed().max(0.1);
+                    let left = self.seconds_to_mix(tracks).unwrap_or(0.0);
                     format!(
-                        "Mixing into {} in {}",
+                        "Mixing into {}{} in {}",
                         title(1 - live),
-                        fmt_countdown(left / speed)
+                        self.how(*live, tracks),
+                        fmt_countdown(left)
                     )
                 }
                 Some(_) => "Loading the next track…".to_string(),
@@ -1008,10 +1112,29 @@ impl AutoMix {
                 live,
                 next: Some(Next { cued: true, .. }),
             } => {
-                let left = self.remaining(*live, tracks) - self.length_on(*live, tracks);
+                let end = tracks[*live].as_deref().map_or(0.0, |t| self.end_of(t));
+                let start = self.planned_start(*live, end - self.length_on(*live, tracks), tracks);
+                let left = start - self.position(*live, tracks);
                 Some((left / self.decks[*live].speed().max(0.1)).max(0.0))
             }
             _ => None,
+        }
+    }
+
+    /// How the next mix goes, for the status line, when Phrases is chosen:
+    /// where it starts, or why it falls back to bars or seconds.
+    fn how(&self, live: usize, tracks: &[Option<Arc<Track>>; NUM_DECKS]) -> &'static str {
+        if self.mix_length() != Length::Phrases {
+            return "";
+        }
+        match (self.length_for(live, tracks), self.current_plan()) {
+            (Length::Phrases, Some(p)) => match p.from {
+                Start::Outro => " at the outro",
+                Start::Phrase => " on a phrase",
+                Start::Imported => " at its mix point",
+            },
+            (Length::Seconds(_), _) => " (15 s: tempos too far apart)",
+            _ => " (16 bars: no phrases)",
         }
     }
 
@@ -1516,6 +1639,51 @@ mod tests {
         assert!(((b1 - b0) * 40.0 - 12.0).abs() < 0.1, "12 s from its cue");
         assert!(b0 < 0.1, "from its cue near the start: {b0}");
         assert!(spans[2..].iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn phrases_mixes_where_the_plan_says() {
+        let mut r = Rig::new(vec![track(0, 96.0), track(1, 96.0)]);
+        r.automix.length = PHRASES;
+        r.ctl("[AutoDJ]", "enabled").set(1.0);
+        r.run(3.0);
+        let tracks = r.host.tracks.clone();
+        let status = r.automix.status(&tracks);
+        assert!(status.starts_with("Mixing into"), "{status}");
+        let plan = r.automix.current_plan().copied();
+        match plan {
+            Some(p) => {
+                assert!(p.end > p.start, "{p:?}");
+                let spans = r.automix.spans(&tracks);
+                let (a0, a1) = spans[0].expect("shaded");
+                assert!((a0 * 96.0 - p.start).abs() < 0.05 && (a1 * 96.0 - p.end).abs() < 0.05);
+                assert!(!status.contains("16 bars"), "{status}");
+            }
+            None => assert!(status.contains("16 bars: no phrases"), "{status}"),
+        }
+        // The mix starts where planned.
+        let start = plan.map_or(96.0 - 32.0, |p| p.start);
+        r.run(start - 3.0 + 0.5);
+        assert!(r.automix.mixing_into() == Some(1), "mixing by {start}");
+        if let Phase::Mixing(m) = &r.automix.phase {
+            assert!((m.start - start).abs() < 0.6, "{} vs {start}", m.start);
+            assert!(m.beat_match);
+        }
+    }
+
+    #[test]
+    fn phrases_without_a_tempo_match_mixes_15_seconds() {
+        let mut r = Rig::new(vec![track(0, 60.0), track(1, 60.0)]);
+        r.automix.length = PHRASES;
+        r.ctl("[AutoDJ]", "enabled").set(1.0);
+        r.run(2.0);
+        // The waiting track far faster than the fader reaches.
+        let mut fast = (**r.host.tracks[1].as_ref().unwrap()).clone();
+        fast.bpm = 190.0;
+        r.host.tracks[1] = Some(Arc::new(fast));
+        r.run(0.1);
+        let status = r.automix.status(&r.host.tracks.clone());
+        assert!(status.contains("15 s: tempos too far apart"), "{status}");
     }
 
     #[test]

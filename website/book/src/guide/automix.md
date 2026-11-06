@@ -26,13 +26,14 @@ track plays to its end and Automix stops.
 | **0 s (gapless)** | No mix: each track plays to its very end and the next starts at once, with the crossfader in the middle. For albums and live recordings. |
 | **12 s**, **15 s**, **30 s** | The mix takes that long, ending where the outgoing track's sound ends. |
 | **16 bars**, **32 bars** | The mix takes that many bars, starting on a bar. The incoming track is synced to the outgoing one when its tempo is within reach of the tempo fader. |
+| **Intro over outro** (Phrases) | The mix starts where the outgoing track's outro starts and brings the next track in from the first bar of its intro, synced, for as long as that intro lasts (8 to 32 bars). The next track's first big change then lands just as the mix ends. A mix point from VirtualDJ or Traktor wins over the phrases openDJ found. Without phrases the mix is 16 bars, and when the tempos are too far apart to sync, 15 seconds; the status line says so. This is the length new installs start with. |
 
 ## Mix style
 
 | Style | What happens |
 |---|---|
 | **Smooth** | The crossfader moves evenly across the whole mix. |
-| **Bass swap** | As Smooth, with the bass of the two tracks swapped halfway, so they never fight. |
+| **Bass swap** | As Smooth, with the bass of the two tracks swapped halfway, so they never fight. With Intro over outro, the swap lands on a phrase change of the outgoing track when there is one in the mix. |
 | **Filter** | As Smooth, while the outgoing track is filtered away. |
 | **Cut** | Switches over in one beat, where the mix would start. |
 

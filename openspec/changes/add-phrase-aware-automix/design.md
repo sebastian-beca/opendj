@@ -19,7 +19,7 @@ Worked out when the next track is cued, and again if the outgoing deck's grid ch
    - an imported `realStart` point;
    - the bar nearest `sound_start` (Automix's current cue point), moved back to bar 1 of the phrase it falls in when that is within 2 bars;
    - none: the current cue point.
-3. **Length** in bars: the bars from the out point to the sound end, capped by the bars of the incoming intro (from the in point to its first phrase change), rounded down to a multiple of 4, clamped to 8-32. The incoming track's first phrase change then lands on a bar of 4 of the outgoing track, and on its end when the outro is no longer than the intro.
+3. **Length** in bars: the bars from the out point to the sound end, capped by the bars of the incoming intro (from the in point to its first phrase change), rounded down to a multiple of 4, clamped to 8-32. The mix runs from the out point for that many bars, so the incoming track's first phrase change lands as it ends; the rest of a longer outro is no longer heard. An imported fade-out point mixes from there to the sound end. Built in `app/src/automix_phrases.rs`; the plan is worked out once per pair of tracks (by address) while the next track waits cued.
 4. **Beatmatch**: as the 16/32-bar lengths do today (`beat_match`, within the tempo fader range). Without it, the Phrases length falls back to 15 s from the sound end, which is today's behaviour.
 
 The mix still starts on a bar (`planned_start`). `Mix` gains nothing new beyond the chosen start and end; `spans()` keeps showing it.
