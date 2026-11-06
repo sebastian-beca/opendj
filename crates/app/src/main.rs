@@ -15,7 +15,6 @@ use std::time::{Duration, Instant};
 use opendj_control::{ControlHandle, ControlRegistry};
 use opendj_engine::cover::Cover;
 use opendj_engine::key::Key;
-use opendj_engine::phrases;
 use opendj_engine::scan::scan;
 use opendj_engine::stems;
 use opendj_engine::synth::SAMPLE_LIBRARY_SIZE;
@@ -66,6 +65,7 @@ mod mixcloud;
 mod mixcloud_upload;
 mod now_playing;
 mod osc;
+mod osc_events;
 mod prefs;
 mod quick_search;
 mod remote;
@@ -814,7 +814,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     // OSC for tablets, visuals and show software: Settings › Controllers.
-    osc::install(&registry);
+    osc::install(&registry, engine.loaded_tracks(), engine.visual_positions());
     let _osc_timer = {
         let timer = slint::Timer::default();
         timer.start(
@@ -2204,25 +2204,7 @@ impl Gpu {
         match &self.phrases[d] {
             Some((cached, p)) if Arc::ptr_eq(cached, t) => p.clone(),
             _ => {
-                let found = if phrases::waveform_ready(t) {
-                    phrases::detect(t)
-                } else {
-                    phrases::stored(t)
-                };
-                let p: Vec<_> = found
-                    .into_iter()
-                    .map(|p| {
-                        let kind = match p.kind {
-                            phrases::PhraseKind::Intro => PhraseKind::Intro,
-                            phrases::PhraseKind::Build => PhraseKind::Build,
-                            phrases::PhraseKind::Drop => PhraseKind::Drop,
-                            phrases::PhraseKind::Breakdown => PhraseKind::Breakdown,
-                            phrases::PhraseKind::Outro => PhraseKind::Outro,
-                            phrases::PhraseKind::Chorus => PhraseKind::Chorus,
-                        };
-                        (p.start, kind)
-                    })
-                    .collect();
+                let p = beat_counter::track_phrases(t);
                 self.phrases[d] = Some((t.clone(), p.clone()));
                 p
             }
