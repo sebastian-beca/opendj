@@ -73,6 +73,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [improve-list-model](changes/improve-list-model/proposal.md) (imports read-only with Make These Lists Mine, crates as their own kind in folders, drag to move lists; from a review of folders, playlists and crates, 2026-11-05)
 - [add-osc-control](changes/add-osc-control/proposal.md) (every control over Open Sound Control, plus beat, phrase and track events for visuals and lights; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release; built, issue #383)
 - [add-rekordbox-xml-export](changes/add-rekordbox-xml-export/proposal.md) (collection and lists out as rekordbox XML for rekordbox and library tools; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
+- [add-groove-pads](changes/add-groove-pads/proposal.md) (the Groove Box on pad controllers: one pad surface for steps, live play with recording, grooves and kits; Maschine Mikro MK3 first, then Launchpad and Akai; issue #420, 2026-11-06)
 
 ## v0.7 · Your library, everywhere
 
