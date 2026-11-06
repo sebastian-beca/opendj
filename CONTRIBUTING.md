@@ -12,6 +12,8 @@ Thanks for helping. A few rules keep the issue tracker and the releases in step.
 - **Technical details only.** Issues, PR bodies, commit messages and comments describe the change, not who asked for it. Don't name people or write "X asked for this"; say "a user request" if the origin matters.
 - Keep a PR to one change. Pull requests are squash-merged.
 - Once a PR is approved, **Enable auto-merge** merges it as soon as its checks pass. Keep an open PR current by merging `main` into it when `main` moves, and avoid stacking PRs on each other unless one really needs the other. (CI also runs on `merge_group`, ready for a merge queue if the repository moves to an organization, where GitHub offers one.)
+- **A PR built on another PR** (only when it really needs it): once the first one is squash-merged, its commits are no longer in `main`, so merging `main` into the second branch conflicts on every line the first one touched. Replay only your own commits instead: `git rebase --onto origin/main <last commit of the first PR's branch> && git push --force-with-lease`.
+- **Lists everyone appends to** (`openspec/roadmap.md`, the guide's `SUMMARY.in.md`, `supported-controls.txt`) merge with git's union driver (see `.gitattributes`), so a local `git merge origin/main` keeps both sides. Settings code goes in its section's file under `crates/app/src/prefs/`.
 - Before pushing, run `cargo fmt --check`, `cargo clippy --workspace --all-targets` and the tests for the crates you changed.
 - If the change alters what a DJ sees, update the matching page in `website/book/src/guide`. If it adds controls, regenerate `website/book/supported-controls.txt`.
 
