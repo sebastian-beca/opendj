@@ -277,11 +277,14 @@ yourself from the cover dialog in **Info**.
 ## Phrases
 
 Once a track has a beat grid, openDJ splits it into phrases of whole
-bars: intro, build (up), drop (peak), chorus (main groove), break and
-outro. Each deck's overview shows them as a bar under the minute dots:
+bars: intro, build (up), drop (peak), chorus (main groove), verse, break
+and outro. Each deck's overview shows them as a bar under the minute dots:
 deep blue for the intro and outro, violet for a build, rose for a drop,
-green for a chorus and tangerine for a break. Phrases are 8 to 32 bars
-long, so a short fill never gets one of its own. They are saved in your
+green for a chorus, gold for a verse and tangerine for a break. Phrases
+are 8 to 32 bars long, so a short fill never gets one of its own.
+openDJ listens for changes in the bass, the level and the chords, so a
+new part starts where the music changes even when it doesn't get louder,
+and it matches parts that come back: a second verse is a verse too. They are saved in your
 collection with the track, and move with the grid when you edit it.
 
 Rest the pointer on a deck's overview to see the phrase under it: its

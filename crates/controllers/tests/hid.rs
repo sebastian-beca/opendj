@@ -219,7 +219,7 @@ fn maschine_mikro_mk3_knows_the_kits() {
         .join("Native-Instruments-Maschine-Mikro-MK3.js");
     let script = std::fs::read_to_string(path).unwrap();
     for kit in opendj_engine::kits::KITS.iter() {
-        let sounds: Vec<String> = kit.sounds.iter().map(|s| format!("\"{s}\"")).collect();
+        let sounds: Vec<String> = kit.sounds().map(|s| format!("\"{s}\"")).collect();
         let line = format!(
             "{{name: \"{}\", sounds: [{}]}}",
             kit.name,

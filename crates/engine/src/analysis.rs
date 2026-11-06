@@ -236,7 +236,8 @@ impl Analyser {
             let d_all = level(energy[i][1]) - level(energy[i - 1][1]);
             onset[i] = d_lo.max(0.0) + 0.5 * d_all.max(0.0);
         }
-        let waveform = summarise(&self.slices);
+        let mut waveform = summarise(&self.slices);
+        waveform.chroma = self.key.timeline();
         let seconds = self.frames as f64 / bin_len / ONSET_RATE;
         let mut pick = match tag_tempo(bpm_hint) {
             // A tempo from tags is taken as steady.

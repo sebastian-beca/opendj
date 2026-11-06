@@ -85,7 +85,7 @@ that subscribed to them (`/subscribe "/beat"`, `/subscribe "/deck/*/track"`):
 The master deck is the one playing; with several playing, the one that started
 first, as for [Ableton Link](link.md). Beats and phrases come from the beatgrid
 and the [phrase analysis](decks.md), the same ones the beat counter in the deck
-header shows. Phrase names are Intro, Build, Drop, Breakdown, Chorus and Outro;
+header shows. Phrase names are Intro, Build, Drop, Breakdown, Chorus, Verse and Outro;
 a track without phrase analysis counts phrases of eight bars, named Phrase.
 Nothing is sent for a jump or a scratch backwards, only for beats as they play.
 

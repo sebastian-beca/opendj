@@ -206,6 +206,7 @@ pub fn phrase_name(kind: PhraseKind) -> &'static str {
         PhraseKind::Breakdown => "Breakdown",
         PhraseKind::Outro => "Outro",
         PhraseKind::Chorus => "Chorus",
+        PhraseKind::Verse => "Verse",
     }
 }
 

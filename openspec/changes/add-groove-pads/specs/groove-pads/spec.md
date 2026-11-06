@@ -19,14 +19,14 @@ With `pad_mode` 0, pad K SHALL add or remove step K of the selected row (`row_se
 - **THEN** step 3 of row 3 plays from the next time round, and pad 3 lights in row 3's colour
 
 ### Requirement: Play mode with recording
-With `pad_mode` 1, pads 1-8 (and again 9-16) SHALL play rows 1-8 at once, louder the harder it is hit. With `record` on while the Groove Box plays, the hit SHALL also be written into the nearest step of the groove playing, and that step SHALL NOT play the sound again on this pass.
+With `pad_mode` 1, pads 1-8 (and again 9-16) SHALL play rows 1-8 at once (row 9, Ride, is edited in Steps mode), louder the harder it is hit. With `record` on while the Groove Box plays, the hit SHALL also be written into the nearest step of the groove playing, and that step SHALL NOT play the sound again on this pass.
 
 #### Scenario: Record a kick
 - **WHEN** REC is on and pad 1 is hit just before step 3
 - **THEN** the kick sounds once now and from then on plays on step 3
 
 ### Requirement: Grooves mode
-With `pad_mode` 2, pads 1-4 SHALL pick groove A-D (switching on the next bar), pads 5-8 the kit, and pads 9 on SHALL load the kit's named grooves into the groove playing. The groove playing, the one waiting and the kit SHALL be lit.
+With `pad_mode` 2, pads 1-4 SHALL pick groove A-D (switching on the next bar), pads 5-8 the kit, and pads 9-16 SHALL load the first eight grooves of the genre picked into the groove playing. The groove playing, the one waiting and the kit SHALL be lit.
 
 #### Scenario: Switch groove
 - **WHEN** pad 2 is pressed mid-bar
