@@ -3,10 +3,13 @@
 ## 1. Phrases
 
 - [x] 1.1 Per-bar band levels from the analysis waveform (dynamic grids included)
-- [ ] 1.1b Chroma novelty, for changes at the same loudness
+- [x] 1.1b Chroma novelty, for changes at the same loudness (12-class chroma kept with each analysis; analyses from before have none until analysed again)
+- [x] 1.1c Repeated sections: a chorus coming back, and Verse for song verses (new kind, gold #C9A94E)
 - [x] 1.2 Dynamic-programming segmentation with an 8/16-bar length prior (8-32 bars); labels; cuts snap to bass entries; outro only after the last strong section
-- [ ] 1.2b Energy 1-10 per phrase
-- [ ] 1.3 Unit test on `synth.rs` tracks; benchmark against rekordbox phrases and VDJ automix points on the owner's Mac
+- [x] 1.2b Energy 1-10 per phrase
+- [x] 1.3a Unit tests on `synth.rs` tracks and made-up bar levels and chords
+- [x] 1.3b `phrase-bench`: scores detection against phrases imported from rekordbox (boundaries, intro end, outro start, labels, with and without chroma)
+- [ ] 1.3c Run `phrase-bench` on the owner's Mac and tune the weights from it
 - [x] 1.4 Store in `markers` (done in add-analyze-track) (kind `phrase`) and keep imported phrases (detected phrases are found again from the grid and waveform whenever a track loads or its grid changes)
 - [x] 1.5 Phrase bar under the minute dots on the deck overviews, with a right-click Show/Hide phrases; screenshot
 - [x] 1.5a Hover tooltip on the overview names the phrase, its bars and times

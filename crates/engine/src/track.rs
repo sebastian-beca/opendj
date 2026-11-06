@@ -29,6 +29,17 @@ pub struct Waveform {
     /// single slice (see [`Waveform::from_finest`]). Zoomed-out views read a coarser level instead of
     /// scanning thousands of slices per pixel.
     pub levels: Vec<Vec<WaveformBin>>,
+    /// The track's harmony over time, for finding where its chords change
+    /// (see [`crate::phrases`]); empty for analyses from before it was kept.
+    pub chroma: Chroma,
+}
+
+/// How strongly each of the 12 pitch classes (C first) sounds, in steps of
+/// `1 / per_second` seconds, each step scaled so its strongest class is 255.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Chroma {
+    pub per_second: f64,
+    pub steps: Vec<[u8; 12]>,
 }
 
 impl Waveform {
@@ -60,6 +71,7 @@ impl Waveform {
         Waveform {
             bins_per_second,
             levels,
+            chroma: Chroma::default(),
         }
     }
 

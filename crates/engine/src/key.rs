@@ -384,6 +384,10 @@ pub struct KeyDetector {
     bin_map: Vec<(usize, [(usize, f32); 2])>,
     chroma: [f64; BINS_PER_OCTAVE],
     frames: usize,
+    /// Each spectrum's 12 pitch classes, for [`KeyDetector::timeline`].
+    steps: Vec<[u8; 12]>,
+    /// Spectra per second.
+    rate: f64,
 }
 
 impl KeyDetector {
@@ -418,6 +422,8 @@ impl KeyDetector {
             bin_map,
             chroma: [0.0; BINS_PER_OCTAVE],
             frames: 0,
+            steps: Vec::new(),
+            rate: rate as f64 / FRAME as f64,
         }
     }
 
@@ -455,11 +461,31 @@ impl KeyDetector {
         }
         // Each frame counts the same however loud it is, as in qm-dsp.
         let max = chroma.iter().copied().fold(0.0, f64::max);
+        // The three bins of each semitone together (C's are 0..3).
+        let mut classes = [0.0f64; 12];
+        for (b, c) in chroma.iter().enumerate() {
+            classes[b / 3] += c;
+        }
+        let top = classes.iter().copied().fold(0.0, f64::max);
+        self.steps.push(if top > 1e-9 {
+            classes.map(|c| (c / top * 255.0).round() as u8)
+        } else {
+            [0; 12]
+        });
         if max > 1e-9 {
             for (sum, c) in self.chroma.iter_mut().zip(chroma) {
                 *sum += c / max;
             }
             self.frames += 1;
+        }
+    }
+
+    /// The pitch classes of everything pushed, one step per spectrum
+    /// (about 0.74 s).
+    pub fn timeline(&self) -> crate::track::Chroma {
+        crate::track::Chroma {
+            per_second: self.rate,
+            steps: self.steps.clone(),
         }
     }
 

@@ -19,7 +19,7 @@ use crate::analysis::Analysis;
 use crate::beats::{BeatGrid, GridMarker};
 use crate::key::{Detector, Key};
 use crate::loudness::Loudness;
-use crate::track::{OverviewSlice, Waveform, WaveformBin};
+use crate::track::{Chroma, OverviewSlice, Waveform, WaveformBin};
 
 /// Changes whenever the analysis or this format changes, so old entries are ignored.
 const MAGIC: &[u8; 8] = b"MXRSAN07";
@@ -377,6 +377,14 @@ fn encode(a: &Analysis) -> Vec<u8> {
     for b in finest {
         out.extend_from_slice(b);
     }
+    // The chroma comes last, so entries from before it was kept still load
+    // (without one).
+    let chroma = &a.waveform.chroma;
+    out.extend_from_slice(&chroma.per_second.to_le_bytes());
+    out.extend_from_slice(&(chroma.steps.len() as u64).to_le_bytes());
+    for s in &chroma.steps {
+        out.extend_from_slice(s);
+    }
     out
 }
 
@@ -417,9 +425,13 @@ fn decode(data: &[u8]) -> Option<Analysis> {
     }
     let flags = u64::from_le_bytes(num()?);
     let len = u64::from_le_bytes(num()?) as usize;
-    let finest: Vec<WaveformBin> = rest.as_chunks::<8>().0.to_vec();
-    (finest.len() == len && len > 0).then(|| Analysis {
-        waveform: Waveform::from_finest(bins_per_second, finest),
+    let bytes = len.checked_mul(8).filter(|&b| b > 0 && b <= rest.len())?;
+    let (bins, after) = rest.split_at(bytes);
+    let finest: Vec<WaveformBin> = bins.as_chunks::<8>().0.to_vec();
+    let mut waveform = Waveform::from_finest(bins_per_second, finest);
+    waveform.chroma = decode_chroma(after).unwrap_or_default();
+    Some(Analysis {
+        waveform,
         key,
         key_detector,
         bpm,
@@ -428,6 +440,18 @@ fn decode(data: &[u8]) -> Option<Analysis> {
         grid_unsure: flags & 1 != 0,
         neural_beats: flags & 2 != 0,
         loudness,
+    })
+}
+
+/// The chroma stored after the waveform; None for entries from before.
+fn decode_chroma(data: &[u8]) -> Option<Chroma> {
+    let (rate, rest) = data.split_first_chunk::<8>()?;
+    let (len, rest) = rest.split_first_chunk::<8>()?;
+    let len = u64::from_le_bytes(*len) as usize;
+    let (steps, _) = rest.as_chunks::<12>();
+    (steps.len() == len).then(|| Chroma {
+        per_second: f64::from_le_bytes(*rate),
+        steps: steps.to_vec(),
     })
 }
 
@@ -483,7 +507,15 @@ mod tests {
         assert_eq!(b.loudness, a.loudness);
         assert_eq!(b.waveform.levels, a.waveform.levels);
         assert_eq!(b.grid, a.grid);
-        assert!(decode(&data[..data.len() - 3]).is_none());
+        assert!(!a.waveform.chroma.steps.is_empty());
+        assert_eq!(b.waveform.chroma, a.waveform.chroma);
+        // Cut short inside the waveform: nothing; without the chroma (an
+        // entry from before it was kept): the rest, without one.
+        let chroma_bytes = 16 + 12 * a.waveform.chroma.steps.len();
+        assert!(decode(&data[..data.len() - chroma_bytes - 3]).is_none());
+        let old = decode(&data[..data.len() - chroma_bytes]).unwrap();
+        assert_eq!(old.waveform.levels, a.waveform.levels);
+        assert!(old.waveform.chroma.steps.is_empty());
 
         // Which detector found the key, and keys from before there was a choice.
         a.key_detector = Detector::Neural;

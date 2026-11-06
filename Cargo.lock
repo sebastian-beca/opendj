@@ -7060,6 +7060,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "phrase-bench"
+version = "0.5.0"
+dependencies = [
+ "opendj-engine",
+ "opendj-library",
+]
+
+[[package]]
 name = "pico-args"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
