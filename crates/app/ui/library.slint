@@ -1898,6 +1898,41 @@ component Switch inherits Rectangle {
     TouchArea { mouse-cursor: pointer; clicked => { toggled(); } }
 }
 
+// A section title in the rail's "..." menu.
+component SourceMenuTitle inherits Rectangle {
+    in property <string> text;
+    height: 28px;
+    Text {
+        x: 6px;
+        y: parent.height - self.height - 4px;
+        text: root.text;
+        color: Theme.text-dim;
+        font-size: 11px;
+        font-weight: 600;
+    }
+}
+
+// One source in the rail's "..." menu, with its switch.
+component SourceMenuRow inherits HorizontalLayout {
+    in property <int> kind;
+    in property <string> name;
+    in property <bool> on;
+    callback toggled();
+    height: 40px;
+    padding-left: 6px;
+    padding-right: 6px;
+    spacing: 10px;
+    VerticalLayout { alignment: center; SourceIcon { kind: root.kind; } }
+    Text { text: root.name; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
+    VerticalLayout {
+        alignment: center;
+        Switch {
+            on: root.on;
+            toggled => { root.toggled(); }
+        }
+    }
+}
+
 // The column of music sources down the left edge. The "..."
 // under them picks which sources are shown; the collection always is.
 component SourceRail inherits Rectangle {
@@ -1906,12 +1941,16 @@ component SourceRail inherits Rectangle {
     callback picked(source: int);
     callback health-picked();
     callback shown-changed(source: int, on: bool);
-    property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud", "Instruments"];
-    // The order the rail shows them in: Albums, Mixed Sets and Instruments
-    // after Files. OneLibrary (7) isn't a source: openDJ writes it when
+    property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Recordings", "Mixcloud", "Instruments"];
+    // The order the rail shows them in: the built-in sources (Albums,
+    // Recordings and Instruments after Files), then the external ones. OneLibrary (7) isn't a source: openDJ writes it when
     // exporting to a USB stick. Bandcamp (5) and Beatport (6) wait for the
     // stores, later.
     property <[int]> order: [0, 1, 9, 10, 12, 2, 3, 4, 8, 11];
+    // The "..." menu splits them the same way, under a title each: openDJ's
+    // own sources, then the services, servers and add-ons outside it.
+    property <[int]> built-in: [1, 9, 10, 12];
+    property <[int]> external: [2, 3, 4, 8, 11];
     // What each source is, for its tooltip.
     property <[string]> tips: [
         "Every track in your library.",
@@ -1924,7 +1963,7 @@ component SourceRail inherits Rectangle {
         "Browse a OneLibrary collection.",
         "Search and browse SoundCloud.",
         "The albums in your Albums folder.",
-        "The long mixes in your Mixed Sets folder.",
+        "Your own recordings and the long mixes in your Recordings folder.",
         "Search and browse Mixcloud.",
         "The Groove Box, instrument plugins and inputs, to drag onto a deck."
     ];
@@ -2008,6 +2047,7 @@ component SourceRail inherits Rectangle {
         list := VerticalLayout {
             padding: 8px;
             spacing: 2px;
+            SourceMenuTitle { text: "Built-in"; }
             // Collection Health, which sits under the collection.
             HorizontalLayout {
                 height: 40px;
@@ -2027,23 +2067,23 @@ component SourceRail inherits Rectangle {
                     }
                 }
             }
-            for i in order: HorizontalLayout {
-                visible: i > 0;
-                height: i > 0 ? 40px : 0px;
-                padding-left: 6px;
-                padding-right: 6px;
-                spacing: 10px;
-                VerticalLayout { alignment: center; SourceIcon { kind: i; } }
-                Text { text: names[i]; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
-                VerticalLayout {
-                    alignment: center;
-                    Switch {
-                        on: shown[i];
-                        toggled => {
-                            shown[i] = !shown[i];
-                            shown-changed(i, shown[i]);
-                        }
-                    }
+            for i in built-in: SourceMenuRow {
+                kind: i;
+                name: names[i];
+                on: shown[i];
+                toggled => {
+                    shown[i] = !shown[i];
+                    shown-changed(i, shown[i]);
+                }
+            }
+            SourceMenuTitle { text: "External"; }
+            for i in external: SourceMenuRow {
+                kind: i;
+                name: names[i];
+                on: shown[i];
+                toggled => {
+                    shown[i] = !shown[i];
+                    shown-changed(i, shown[i]);
                 }
             }
             for p[j] in SourceUi.sources: HorizontalLayout {
@@ -2646,7 +2686,7 @@ component FolderTree inherits Rectangle {
         }
         if tab == 0 && source >= 2 && source != 9 && source != 10 && source < 12 && !(StoreUi.streaming && StoreUi.stream(source)) && !(StoreUi.stores && source == 5): Placeholder {
             vertical-stretch: 1;
-            title: ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud"][source];
+            title: ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Recordings", "Mixcloud"][source];
             text: "Coming soon.";
         }
         if (tab == 0 && (source == 0 || source == 1 || source == 9 || source == 10 || (StoreUi.stores && source == 5) || (StoreUi.streaming && StoreUi.stream(source) && spotify-connected))) || (tab == 1 && folders.length > 0): VerticalLayout {
@@ -2654,7 +2694,7 @@ component FolderTree inherits Rectangle {
             HorizontalLayout {
                 padding-left: 8px;
                 height: 26px;
-                Text { text: tab == 1 ? "Sessions" : source == 1 ? "Folders" : source == 0 ? (HealthUi.view ? "Collection Health" : "Library") : ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud"][source]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                Text { text: tab == 1 ? "Sessions" : source == 1 ? "Folders" : source == 0 ? (HealthUi.view ? "Collection Health" : "Library") : ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Recordings", "Mixcloud"][source]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
                 if tab == 0 && source == 0 && !HealthUi.view: VerticalLayout {
                     alignment: center;
                     UpdateCollectionButton { }
@@ -5323,7 +5363,7 @@ export component Browser inherits HorizontalLayout {
     // "Go to" lines).
     property <bool> history-tab: LibraryEdit.history-tab;
     changed history-tab => { library-tab = history-tab ? 1 : 0; }
-    property <[string]> source-names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud", "Instruments"];
+    property <[string]> source-names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Recordings", "Mixcloud", "Instruments"];
     // Which sources the rail shows, by index; picked under its "...".
     in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true, true, true, true, true];
     callback source-shown-changed(source: int, on: bool);

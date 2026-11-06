@@ -289,7 +289,7 @@ impl Browser {
                 .iter()
                 .filter(|t| !is_browsed(t) && !t.info.missing)
                 .filter_map(|t| file_path(t));
-            folder_tree("All Mixed Sets", &root, files, KIND_MIX)
+            folder_tree("All Recordings", &root, files, KIND_MIX)
         };
         for n in &mut nodes {
             if n.depth > 0 && node_key(n).is_some_and(|k| open.contains(&k)) {
