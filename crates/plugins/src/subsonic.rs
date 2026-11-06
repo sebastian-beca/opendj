@@ -374,6 +374,7 @@ fn text(v: &Value) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::path::Path;
 
     fn server() -> Subsonic {
         Subsonic {
@@ -526,7 +527,11 @@ mod tests {
         assert_eq!(snap.items.len(), 2);
         let album = snap.items.iter().find(|f| f.folder).unwrap().clone();
         let song = snap.items.iter().find(|f| !f.folder).unwrap().clone();
-        assert_eq!(song.file, "Bonobo/Migration/03 Kerala.flac");
+        // A path in the album's folder, with the system's separators.
+        assert_eq!(
+            Path::new(&song.file),
+            Path::new("Bonobo/Migration/03 Kerala.flac")
+        );
         let tracks = source.open_folder(&id, &album).unwrap();
         assert_eq!(tracks.len(), 1);
 

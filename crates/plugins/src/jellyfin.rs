@@ -416,6 +416,7 @@ fn text(v: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     fn server() -> JellyfinServer {
         JellyfinServer {
@@ -466,9 +467,10 @@ mod tests {
             song.thumb_url,
             "http://jf.lan:8096/Items/al9/Images/Primary?maxHeight=96&api_key=tok"
         );
+        // A path in the album's folder, with the system's separators.
         assert_eq!(
-            song.found("Jellyfin").file,
-            "Bonobo/Migration/03 Kerala.flac"
+            Path::new(&song.found("Jellyfin").file),
+            Path::new("Bonobo/Migration/03 Kerala.flac")
         );
         assert!(s
             .song(&json!({ "Type": "Movie", "Id": "m" }), "tok")
