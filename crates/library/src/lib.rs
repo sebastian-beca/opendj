@@ -567,6 +567,9 @@ impl Library {
             }
             db.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
         }
+        // Tracks once hidden from the Inbox (a stage since retired) go back
+        // to it; quarantine is the way to put a track aside now.
+        db.execute_batch("UPDATE tracks SET stage = 'inbox' WHERE stage = 'dismissed'")?;
         // A list's colour and icon, which the DJ picks in the sidebar.
         for (name, definition) in [("color", "color INTEGER"), ("icon", "icon TEXT")] {
             let has = db

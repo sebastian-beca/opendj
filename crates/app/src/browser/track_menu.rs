@@ -103,6 +103,7 @@ impl Browser {
         });
         let w = with.clone();
         edit.on_show_info(move |row| w(&|b| b.show_info(row)));
+        edit.on_key_for(|script| crate::shortcuts::key_for(&script).into());
         let w = with.clone();
         edit.on_go_to_text(move |row| {
             let text = std::cell::RefCell::new((SharedString::new(), SharedString::new()));
@@ -291,7 +292,7 @@ impl Browser {
     }
 
     /// "Show Info": the side panel's Info tab, on the track picked.
-    pub(super) fn show_info(&mut self, row: i32) {
+    pub(crate) fn show_info(&mut self, row: i32) {
         let Some(app) = self.app.upgrade() else {
             return;
         };
