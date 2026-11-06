@@ -316,10 +316,10 @@ pub fn run(app: &AppWindow, action: Action) {
         Action::ExportSpotify => app
             .global::<LibraryEdit>()
             .invoke_export_spotify(app.get_current_folder()),
-        // The mixed set picked in Recordings.
         Action::ExportRekordboxXml => app
             .global::<LibraryEdit>()
             .invoke_export_rekordbox(app.get_current_folder()),
+        // The mixed set picked in Recordings.
         Action::ExportMixcloud => crate::export_mixcloud(app),
     }
 }
