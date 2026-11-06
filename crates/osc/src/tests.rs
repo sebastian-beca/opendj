@@ -286,7 +286,7 @@ fn a_target_on_the_same_computer_gets_the_replies() {
     assert!(recv(&sender).is_none());
     assert_eq!(osc.clients(), 0);
     // Events go to every target.
-    osc.send_to_targets(OscMessage {
+    osc.send_event(OscMessage {
         addr: "/deck/1/track".into(),
         args: vec![OscType::String("Title".into())],
     });
@@ -312,4 +312,35 @@ fn the_port_closes_when_dropped() {
     let port = osc.port();
     drop(osc);
     UdpSocket::bind(("127.0.0.1", port)).expect("port free again");
+}
+
+#[test]
+fn events_reach_targets_and_matching_subscribers() {
+    let reg = registry();
+    let osc = start(&reg, Config::default());
+    let follower = client();
+    let other = client();
+    send(
+        &follower,
+        &osc,
+        "/subscribe",
+        vec![OscType::String("/beat".into())],
+    );
+    send(
+        &other,
+        &osc,
+        "/subscribe",
+        vec![OscType::String("/channel2/play".into())],
+    );
+    // Subscribing to a control sends its value first.
+    assert_eq!(recv(&other).expect("value").addr, "/channel2/play");
+    std::thread::sleep(Duration::from_millis(50));
+    osc.send_event(OscMessage {
+        addr: "/beat".into(),
+        args: vec![OscType::Int(1), OscType::Int(1), OscType::Float(128.0)],
+    });
+    let m = recv(&follower).expect("the beat");
+    assert_eq!(m.addr, "/beat");
+    assert_eq!(m.args.len(), 3);
+    assert!(recv(&other).is_none());
 }
