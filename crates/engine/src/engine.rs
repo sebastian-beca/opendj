@@ -1517,6 +1517,38 @@ const MASTER_VU_FALL: f32 = 0.5;
 /// -1 dBTP, as streaming services and EBU R128 ask.
 pub const DEFAULT_AIR_CEILING_DB: f64 = -1.0;
 
+/// Channels of the mixes in the buffer [`Engine::process`] renders: master,
+/// headphones and booth, in pairs.
+pub const MIX_CHANNELS: usize = 6;
+/// Sources with their own output pair after the mixes: each deck (its
+/// Groove Box included), then the sampler.
+pub const TAP_SOURCES: usize = NUM_DECKS + 1;
+/// The widest buffer [`Engine::process`] renders: the mixes, then a pair
+/// for each deck and the sampler (see [`DeckTap`]).
+pub const OUTPUT_CHANNELS: usize = MIX_CHANNELS + 2 * TAP_SOURCES;
+
+/// What the deck and sampler outputs carry, as `[Master],deck_tap`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeckTap {
+    /// After tempo, key lock, stems and gain; before EQ, filter and deck FX.
+    Clean,
+    /// After EQ, filter and deck FX; before the channel fader and crossfader.
+    PreFader,
+    /// What the deck adds to the master mix: these outputs add up to the
+    /// master before its effects and the limiter.
+    PostFader,
+}
+
+impl DeckTap {
+    pub fn from_value(v: f64) -> DeckTap {
+        match v.round() as i32 {
+            0 => DeckTap::Clean,
+            2 => DeckTap::PostFader,
+            _ => DeckTap::PreFader,
+        }
+    }
+}
+
 /// Left and right gains for `[Master],balance` (-1 = left only, 1 = right only).
 fn balance_gains(b: f32) -> [f32; 2] {
     [(1.0 - b).min(1.0), (1.0 + b).min(1.0)]
@@ -1534,6 +1566,13 @@ pub struct Engine {
     click_buf: Vec<Vec<f32>>,
     main_buf: Vec<[f32; 2]>,
     cue_buf: Vec<[f32; 2]>,
+    /// Each deck's and the sampler's own output for this buffer, filled
+    /// only when the buffer has room for them (see [`OUTPUT_CHANNELS`]).
+    tap_buf: Vec<Vec<[f32; 2]>>,
+    /// The deck and sampler outputs wait as long as the master does in the
+    /// limiter, so they stay sample-aligned with it: the last of each
+    /// source's audio, the limiter's latency long.
+    tap_delay: Vec<Vec<[f32; 2]>>,
     samplers: Samplers,
     /// Each deck's Groove Box (playing only while `[GrooveN],enabled`),
     /// its sound for this buffer, and the gain each deck is ducked by.
@@ -1759,6 +1798,14 @@ impl Engine {
                 click_buf: vec![vec![0.0; BLOCK]; NUM_DECKS],
                 main_buf: vec![[0.0; 2]; BLOCK],
                 cue_buf: vec![[0.0; 2]; BLOCK],
+                tap_buf: vec![vec![[0.0; 2]; BLOCK]; TAP_SOURCES],
+                tap_delay: vec![
+                    vec![
+                        [0.0; 2];
+                        Limiter::new(sample_rate, LIMIT_CEILING).latency().max(1)
+                    ];
+                    TAP_SOURCES
+                ],
                 samplers,
                 grooves,
                 groove_buf: vec![vec![[0.0; 2]; BLOCK]; NUM_DECKS],
@@ -2483,6 +2530,52 @@ impl Engine {
         true
     }
 
+    /// Copies each deck's and the sampler's output for this buffer into its
+    /// pair of `out` (after the mixes), as late as the limiter makes the
+    /// master when `delayed` (else at once, for an external mixer, where
+    /// there is no master to keep in step with); channels past the last
+    /// pair are cleared.
+    fn write_taps(
+        &mut self,
+        taps: &[Vec<[f32; 2]>],
+        out: &mut [f32],
+        channels: usize,
+        frames: usize,
+        delayed: bool,
+    ) {
+        let pairs = ((channels - MIX_CHANNELS) / 2).min(TAP_SOURCES);
+        for (k, (line, tap)) in self.tap_delay.iter_mut().zip(taps).take(pairs).enumerate() {
+            let tap = &tap[..frames];
+            let at = MIX_CHANNELS + 2 * k;
+            if !delayed {
+                for (o, v) in out.chunks_exact_mut(channels).zip(tap) {
+                    o[at] = v[0];
+                    o[at + 1] = v[1];
+                }
+                continue;
+            }
+            let late = line.len();
+            for (f, o) in out.chunks_exact_mut(channels).enumerate() {
+                let v = if f < late { line[f] } else { tap[f - late] };
+                o[at] = v[0];
+                o[at + 1] = v[1];
+            }
+            // Keep the last `late` frames of what was waiting and this buffer.
+            if frames >= late {
+                line.copy_from_slice(&tap[frames - late..]);
+            } else {
+                line.rotate_left(frames);
+                line[late - frames..].copy_from_slice(tap);
+            }
+        }
+        let end = MIX_CHANNELS + 2 * pairs;
+        if end < channels {
+            for o in out.chunks_exact_mut(channels) {
+                o[end..].fill(0.0);
+            }
+        }
+    }
+
     pub fn process(&mut self, out: &mut [f32], channels: usize) {
         let channels = channels.max(1);
         let frames = out.len() / channels;
@@ -2620,9 +2713,13 @@ impl Engine {
         // crossfader, and so does every deck while it is switched off.
         let xfader_on =
             self.master.xfader_enabled.get_bool() || self.master.autodj_enabled.get_bool();
+        // A hardware mixer does the mixing: each deck goes out on its own at
+        // full level, and openDJ's mixer (EQ, filter, faders, crossfader,
+        // cue, master effects and limiter) stands aside.
+        let external = self.master.external_mixer.get_bool();
         let xfade_target: [f32; NUM_DECKS] =
             std::array::from_fn(|i| match self.decks[i].c.orientation.get().round() as i32 {
-                _ if !xfader_on => 1.0,
+                _ if !xfader_on || external => 1.0,
                 0 => sides[0],
                 2 => sides[1],
                 _ => 1.0,
@@ -2652,6 +2749,15 @@ impl Engine {
         let booth_gain = self.master.booth_gain.get() as f32;
         let head_split = self.master.head_split.get_bool();
         let tone = self.master.test_tone.get().round() as u8;
+        // Deck and sampler outputs, only when the buffer has their channels:
+        // otherwise none of the tap work below runs.
+        let tap = (channels > MIX_CHANNELS).then(|| {
+            if external {
+                DeckTap::PreFader
+            } else {
+                DeckTap::from_value(self.master.deck_tap.get())
+            }
+        });
         if tone == 0 {
             self.tone_frame = 0;
         }
@@ -2696,7 +2802,9 @@ impl Engine {
             let d = &mut self.decks[i];
             let sr = d.source_rate();
             let eq_to = std::array::from_fn(|k| {
-                if d.c.eq_kill[k].get_bool() {
+                if external {
+                    1.0
+                } else if d.c.eq_kill[k].get_bool() {
                     0.0
                 } else {
                     d.c.eq[k].get() as f32
@@ -2725,9 +2833,16 @@ impl Engine {
             };
             d.auto_gain = auto_gain;
             d.c.replaygain.set(auto_gain as f64);
-            let pregain = d.c.pregain.get() as f32;
+            // The hardware mixer has its own trim; auto gain still levels.
+            let pregain = if external {
+                1.0
+            } else {
+                d.c.pregain.get() as f32
+            };
             // Mute silences the deck in the main mix; it can still be cued.
-            let volume = if d.c.mute.get_bool() {
+            let volume = if external {
+                1.0
+            } else if d.c.mute.get_bool() {
                 0.0
             } else {
                 d.c.volume.get() as f32
@@ -2950,7 +3065,7 @@ impl Engine {
                 ),
                 quick: (
                     d.quick,
-                    if d.c.quick_enabled.get_bool() {
+                    if d.c.quick_enabled.get_bool() && !external {
                         1.0
                     } else {
                         0.0
@@ -2958,7 +3073,7 @@ impl Engine {
                 ),
                 vol: (d.volume, volume),
                 xf: (self.xfade[i], xfade_target[i]),
-                pfl: d.c.pfl.get_bool(),
+                pfl: d.c.pfl.get_bool() && !external,
                 metronome: (d.c.metronome.get_bool()
                     && d.track.as_ref().is_some_and(|t| !t.grid.is_empty()))
                 .then_some(sr),
@@ -2980,6 +3095,7 @@ impl Engine {
         let mut click_buf = std::mem::take(&mut self.click_buf);
         let mut main_buf = std::mem::take(&mut self.main_buf);
         let mut cue_buf = std::mem::take(&mut self.cue_buf);
+        let mut tap_buf = std::mem::take(&mut self.tap_buf);
         // Groove Boxes render their buffer first, on the beat of the
         // leading deck (the one SYNC follows, else the first playing), else
         // Link's, else their own tempo.
@@ -3136,13 +3252,19 @@ impl Engine {
                 }
                 let gains = std::array::from_fn(|k| p.eq_from[k] + (p.eq_to[k] - p.eq_from[k]) * r);
                 let pre = lerp(p.pre);
-                s = d.eq.process([s[0] * pre, s[1] * pre], gains);
+                s = [s[0] * pre, s[1] * pre];
+                if tap == Some(DeckTap::Clean) {
+                    tap_buf[i][f] = s;
+                }
+                s = d.eq.process(s, gains);
                 let filtered = d.filter.process(s);
                 let q = lerp(p.quick);
                 for c in 0..2 {
                     s[c] += (filtered[c] - s[c]) * q;
                 }
-                s = d.sculpt.process(s);
+                if !external {
+                    s = d.sculpt.process(s);
+                }
                 deck_buf[i][f] = s;
                 click_buf[i][f] = 0.0;
                 if let Some(sr) = p.metronome {
@@ -3170,24 +3292,44 @@ impl Engine {
                     cue[0] += s[0];
                     cue[1] += s[1];
                 }
+                if external {
+                    continue;
+                }
                 let g = lerp(p.vol) * lerp(p.xf) * duck_buf[i][f];
                 main[0] += s[0] * g;
                 main[1] += s[1] * g;
+                // Pre-fader outputs are this deck's `deck_buf` and click,
+                // copied in `write_taps`.
+                if tap == Some(DeckTap::PostFader) {
+                    tap_buf[i][f] = [s[0] * g, s[1] * g];
+                }
             }
             // The preview player is for the headphones only.
             let preview = self.preview.next();
             cue[0] += preview[0];
             cue[1] += preview[1];
             let samples = self.samplers.next();
-            main[0] += samples[0];
-            main[1] += samples[1];
+            if !external {
+                main[0] += samples[0];
+                main[1] += samples[1];
+            }
+            if tap.is_some() {
+                tap_buf[NUM_DECKS][f] = samples;
+            }
             // The auxiliary input joins the music; the microphone is added
             // after the main mix's effects, which leave the voice alone, and
             // the music ducks under it.
             let mic = &self.inputs[MICROPHONE];
             let m = mic.buf[f];
             let gm = lerp(mic.level_ramp);
-            let ducked = self.ducker.next(duck, mic.live && gm > 0.0, m);
+            // With an external mixer, the main mix holds only the inputs
+            // (the mixer's record out on Aux), for recording and going on
+            // air; the mic is the mixer's.
+            let ducked = if external {
+                1.0
+            } else {
+                self.ducker.next(duck, mic.live && gm > 0.0, m)
+            };
             // The auxiliary inputs and the instrument play with the music.
             for input in [AUXILIARY, INSTRUMENT, AUXILIARY_2, AUXILIARY_3] {
                 let inp = &self.inputs[input];
@@ -3204,15 +3346,48 @@ impl Engine {
             for v in &mut main {
                 *v *= ducked;
             }
+            // Post-fader, the outputs duck with the music, so they still add
+            // up to the main mix.
+            if tap == Some(DeckTap::PostFader) {
+                for t in tap_buf.iter_mut() {
+                    t[f] = t[f].map(|v| v * ducked);
+                }
+            }
             main_buf[f] = main;
             cue_buf[f] = cue;
         }
-        self.fx.process_block(MAIN, &mut main_buf[..frames]);
+        if !external {
+            self.fx.process_block(MAIN, &mut main_buf[..frames]);
+        }
         for f in 0..frames {
             let r = (f + 1) as f32 / frames as f32;
             let lerp = |(a, b): (f32, f32)| a + (b - a) * r;
             let mut main = main_buf[f];
             let mut cue = cue_buf[f];
+            if external {
+                // Nothing on master and booth; the headphones keep the
+                // preview player and the test tone.
+                if tone == 2 {
+                    let t = test_tone(self.tone_frame, out_rate);
+                    self.tone_frame += 1;
+                    cue = [cue[0] + t, cue[1] + t];
+                }
+                for c in 0..2 {
+                    master_peak[c] = master_peak[c].max(main[c].abs());
+                }
+                let o = &mut out[f * channels..(f + 1) * channels];
+                let mixes = channels.min(MIX_CHANNELS);
+                o[..mixes].fill(0.0);
+                if channels >= 4 {
+                    for c in 0..2 {
+                        o[2 + c] = (cue[c] * head_gain).clamp(-1.0, 1.0);
+                    }
+                }
+                if tap.is_none() {
+                    o[mixes..].fill(0.0);
+                }
+                continue;
+            }
             let mic = &self.inputs[MICROPHONE];
             let m = mic.buf[f];
             let gm = lerp(mic.level_ramp);
@@ -3266,14 +3441,36 @@ impl Engine {
                 o[4] = booth[0];
                 o[5] = booth[1];
             }
-            let used = match channels {
+            let mut used = match channels {
                 0..=3 => 2,
                 4 | 5 => 4,
-                _ => 6,
+                _ => MIX_CHANNELS,
             };
+            if tap.is_some() {
+                // Written below, source by source.
+                used = channels;
+            }
             for v in o.iter_mut().skip(used) {
                 *v = 0.0;
             }
+        }
+        if let Some(tap) = tap {
+            if tap == DeckTap::PreFader {
+                for (t, (d, c)) in tap_buf.iter_mut().zip(deck_buf.iter().zip(&click_buf)) {
+                    for (t, (d, c)) in t[..frames].iter_mut().zip(d.iter().zip(c)) {
+                        *t = [d[0] + c, d[1] + c];
+                    }
+                }
+            }
+            // With an external mixer, a sampler without its own output
+            // plays on Deck 1's.
+            if external && channels < OUTPUT_CHANNELS {
+                let (decks, sampler) = tap_buf.split_at_mut(NUM_DECKS);
+                for (d, s) in decks[0][..frames].iter_mut().zip(&sampler[0][..frames]) {
+                    *d = [d[0] + s[0], d[1] + s[1]];
+                }
+            }
+            self.write_taps(&tap_buf, out, channels, frames, !external);
         }
         self.deck_buf = deck_buf;
         self.click_buf = click_buf;
@@ -3281,6 +3478,7 @@ impl Engine {
         self.duck_buf = duck_buf;
         self.main_buf = main_buf;
         self.cue_buf = cue_buf;
+        self.tap_buf = tap_buf;
         self.fx.finish();
 
         // Remember where the ramps ended, and publish positions and meters.
@@ -3371,9 +3569,30 @@ impl Engine {
         self.master
             .vu
             .set(self.master_vu[0].max(self.master_vu[1]) as f64);
-        self.record.push(out, channels);
-        self.meter.push(out, channels);
-        self.broadcast.push(out, channels);
+        // What is recorded and sent on air: one Auxiliary input as it comes
+        // in (a hardware mixer's record out), or else the main mix, which
+        // with an external mixer is only the inputs (see above).
+        let source = match self.master.record_source.get().round() as i32 {
+            1 => Some(AUXILIARY),
+            2 => Some(AUXILIARY_2),
+            3 => Some(AUXILIARY_3),
+            _ => None,
+        };
+        if let Some(input) = source {
+            let rec = self.inputs[input].raw[..frames].as_flattened();
+            self.record.push(rec, 2);
+            self.meter.push(rec, 2);
+            self.broadcast.push(rec, 2);
+        } else if external {
+            let rec = self.main_buf[..frames].as_flattened();
+            self.record.push(rec, 2);
+            self.meter.push(rec, 2);
+            self.broadcast.push(rec, 2);
+        } else {
+            self.record.push(out, channels);
+            self.meter.push(out, channels);
+            self.broadcast.push(out, channels);
+        }
     }
 }
 
@@ -3853,6 +4072,184 @@ mod tests {
             .0
             .iter()
             .all(|f| f[4] == 0.0 && f[5] == 0.0));
+    }
+
+    /// Renders `buffers` of 512 frames at the full output width and returns
+    /// each channel's peak over the last half of them.
+    fn tap_peaks(engine: &mut Engine, buffers: usize) -> [f32; OUTPUT_CHANNELS] {
+        let mut buf = vec![0.0f32; 512 * OUTPUT_CHANNELS];
+        let mut peak = [0.0f32; OUTPUT_CHANNELS];
+        for n in 0..buffers {
+            engine.process(&mut buf, OUTPUT_CHANNELS);
+            if n >= buffers / 2 {
+                for f in buf.as_chunks::<OUTPUT_CHANNELS>().0 {
+                    for (p, v) in peak.iter_mut().zip(f) {
+                        *p = p.max(v.abs());
+                    }
+                }
+            }
+        }
+        peak
+    }
+
+    #[test]
+    fn deck_outputs_stay_silent_in_a_six_channel_buffer() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, tone_track(440.0, "A"));
+        run(&mut engine, 0.05);
+        reg.get("[Channel1]", "play").unwrap().set(1.0);
+        // A buffer wider than the mixes but given as six channels: nothing
+        // past the booth pair is touched.
+        let mut buf = vec![7.0f32; 512 * 8];
+        engine.process(&mut buf[..512 * 6], 6);
+        assert!(buf[512 * 6..].iter().all(|&v| v == 7.0));
+        let peak = tap_peaks(&mut engine, 20);
+        assert!(peak[0] > 0.1, "main {peak:?}");
+        assert!(peak[6] > 0.1, "deck 1 {peak:?}");
+        assert!(
+            peak[8] == 0.0 && peak[14] == 0.0,
+            "only deck 1 plays {peak:?}"
+        );
+    }
+
+    #[test]
+    fn clean_deck_outputs_keep_what_the_eq_takes_out() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, tone_track(60.0, "A"));
+        run(&mut engine, 0.05);
+        reg.get("[Channel1]", "play").unwrap().set(1.0);
+        reg.get("[EqualizerRack1_[Channel1]_Effect1]", "button_parameter1")
+            .unwrap()
+            .set(1.0);
+        reg.get("[Master]", "deck_tap").unwrap().set(0.0);
+        let clean = tap_peaks(&mut engine, 40);
+        assert!(clean[6] > 0.3, "the clean output keeps the bass {clean:?}");
+        assert!(clean[0] < 0.1, "the master loses it {clean:?}");
+        reg.get("[Master]", "deck_tap").unwrap().set(1.0);
+        let pre = tap_peaks(&mut engine, 40);
+        assert!(pre[6] < 0.1, "pre-fader is after the EQ {pre:?}");
+    }
+
+    #[test]
+    fn post_fader_deck_outputs_follow_the_crossfader_and_add_up_to_master() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, tone_track(440.0, "A"));
+        load(&mut input, 1, tone_track(330.0, "E"));
+        run(&mut engine, 0.05);
+        for (deck, side) in [("[Channel1]", 0.0), ("[Channel2]", 2.0)] {
+            reg.get(deck, "orientation").unwrap().set(side);
+            reg.get(deck, "volume").unwrap().set(0.5);
+            reg.get(deck, "play").unwrap().set(1.0);
+        }
+        reg.get("[Master]", "deck_tap").unwrap().set(2.0);
+        reg.get("[Master]", "crossfader").unwrap().set(-1.0);
+        let left = tap_peaks(&mut engine, 40);
+        assert!(left[6] > 0.1, "deck 1 {left:?}");
+        assert!(left[8] < 1e-4, "deck 2 is faded out {left:?}");
+        // Pre-fader, deck 2 is there whatever the crossfader does.
+        reg.get("[Master]", "deck_tap").unwrap().set(1.0);
+        let pre = tap_peaks(&mut engine, 40);
+        assert!(pre[8] > 0.3, "deck 2 pre-fader {pre:?}");
+        // In the middle, the post-fader outputs sum to the master, sample
+        // for sample.
+        reg.get("[Master]", "deck_tap").unwrap().set(2.0);
+        reg.get("[Master]", "crossfader").unwrap().set(0.0);
+        tap_peaks(&mut engine, 20);
+        let mut buf = vec![0.0f32; 512 * OUTPUT_CHANNELS];
+        let mut worst = 0.0f32;
+        let mut loud = 0.0f32;
+        for _ in 0..10 {
+            engine.process(&mut buf, OUTPUT_CHANNELS);
+            for f in buf.as_chunks::<OUTPUT_CHANNELS>().0 {
+                for c in 0..2 {
+                    let sum = f[6 + c] + f[8 + c] + f[10 + c] + f[12 + c] + f[14 + c];
+                    worst = worst.max((f[c] - sum).abs());
+                    loud = loud.max(f[c].abs());
+                }
+            }
+        }
+        assert!(loud > 0.1, "the master plays {loud}");
+        assert!(
+            worst < 1e-4,
+            "post-fader outputs miss the master by {worst}"
+        );
+    }
+
+    #[test]
+    fn an_external_mixer_gets_each_deck_at_full_level_and_no_master() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, tone_track(60.0, "A"));
+        load(&mut input, 1, tone_track(440.0, "A"));
+        run(&mut engine, 0.05);
+        let deck1 = |key: &str| reg.get("[Channel1]", key).unwrap();
+        deck1("play").set(1.0);
+        reg.get("[Channel2]", "play").unwrap().set(1.0);
+        // openDJ's mixer would silence deck 1 several times over.
+        deck1("volume").set(0.0);
+        deck1("orientation").set(2.0);
+        reg.get("[Master]", "crossfader").unwrap().set(-1.0);
+        reg.get("[EqualizerRack1_[Channel1]_Effect1]", "button_parameter1")
+            .unwrap()
+            .set(1.0);
+        // Clean, which the external mixer overrides with Pre-fader.
+        reg.get("[Master]", "deck_tap").unwrap().set(0.0);
+        let inside = tap_peaks(&mut engine, 40);
+        assert!(inside[6] > 0.3, "the clean output keeps it {inside:?}");
+        reg.get("[Master]", "external_mixer").unwrap().set(1.0);
+        let peak = tap_peaks(&mut engine, 40);
+        assert!(peak[6] > 0.45, "deck 1 at full level {peak:?}");
+        assert!(peak[8] > 0.45, "deck 2 at full level {peak:?}");
+        for c in [0, 1, 4, 5] {
+            assert_eq!(peak[c], 0.0, "master and booth stay silent {peak:?}");
+        }
+    }
+
+    /// What deck outputs cost: four playing decks rendered with no deck
+    /// outputs and with all of them. Run with
+    /// `cargo test --release -p opendj-engine deck_output_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn deck_output_cost() {
+        let (reg, mut engine, mut input) = setup();
+        for deck in 0..NUM_DECKS {
+            load(
+                &mut input,
+                deck,
+                long_tone_track(110.0 * (deck + 1) as f64, "A", 60.0),
+            );
+        }
+        run(&mut engine, 0.05);
+        for deck in 1..=NUM_DECKS {
+            reg.get(&format!("[Channel{deck}]"), "play")
+                .unwrap()
+                .set(1.0);
+        }
+        let mut time = |channels: usize| {
+            let mut buf = vec![0.0f32; 256 * channels];
+            let start = Instant::now();
+            for _ in 0..50 {
+                engine.process(&mut buf, channels);
+            }
+            start.elapsed().as_secs_f64()
+        };
+        // The best of many short runs, taking turns, as the machine's own
+        // noise is bigger than the difference: no deck outputs, four decks,
+        // four decks and the sampler.
+        let widths = [MIX_CHANNELS, OUTPUT_CHANNELS - 2, OUTPUT_CHANNELS];
+        let mut best = [f64::MAX; 3];
+        for n in 0..70 {
+            for k in 0..3 {
+                let k = (k + n) % 3;
+                best[k] = best[k].min(time(widths[k]));
+            }
+        }
+        println!(
+            "50 buffers of 256, best of 100: no deck outputs {:.2} ms, four decks {:+.2}%, \
+             four decks and the sampler {:+.2}%",
+            best[0] * 1e3,
+            (best[1] / best[0] - 1.0) * 100.0,
+            (best[2] / best[0] - 1.0) * 100.0
+        );
     }
 
     #[test]

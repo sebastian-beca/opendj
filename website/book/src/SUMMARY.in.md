@@ -25,6 +25,8 @@
 <!-- controllers -->
 - [OSC](guide/osc.md)
 - [Ableton Link](guide/link.md)
+- [Send decks to a DAW](guide/deck-outputs.md)
+- [External mixer](guide/external-mixer.md)
 - [Keyboard shortcuts](guide/shortcuts.md)
 - [Feedback and logs](guide/feedback.md)
 
