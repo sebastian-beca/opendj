@@ -3161,6 +3161,8 @@ impl Prefs {
         }
         settings::set(&settings::import_theirs_key(id), json!(w.theirs_win));
         settings::set(&settings::import_remove_key(id), json!(false));
+        // Turned on afresh, its lists come in again.
+        settings::set(&settings::import_lists_mine_key(id), json!(false));
         settings::set(&settings::import_enabled_key(id), json!(true));
         // Its settings open up on the Import tab, shown now.
         self.show_tab(IMPORT_TAB);
