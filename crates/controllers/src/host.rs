@@ -283,6 +283,20 @@ struct AlphaBeta {
     beta: f64,
 }
 
+impl Scratch {
+    /// Pulls the smooth filter to its quick twin when they disagree by
+    /// more than the twin's wobble: all the way at twice `trust`, not at
+    /// all within it.
+    fn follow_quick(&mut self) {
+        let gap = self.quick.v - self.filter.v;
+        let w = ((gap.abs() - self.trust) / self.trust).clamp(0.0, 1.0);
+        if w > 0.0 {
+            self.filter.v += gap * w;
+            self.filter.x += (self.quick.x - self.filter.x) * w;
+        }
+    }
+}
+
 impl AlphaBeta {
     fn init(&mut self, dt: f64, v: f64, alpha: f64, beta: f64) {
         *self = Self {
@@ -304,6 +318,21 @@ impl AlphaBeta {
 }
 
 const SCRATCH_DT: f64 = 0.001;
+/// openDJ: how much faster the scratch filter's quick twin follows the
+/// wheel than the mapping's own filter (alpha times this, beta times its
+/// square). With Mixxx's usual 1/8 and 1/256 the deck heard a hand's
+/// change of speed about 26 ms late and a fast baby scratch at two thirds
+/// of its speed; the twin halves that lag.
+const SCRATCH_QUICK: f64 = 3.0;
+/// The quick twin's own wobble at normal speed, in multiples of normal
+/// speed, times the wheel's ticks per second at normal speed (it wobbles
+/// less the finer the wheel). Measured with the latency probe: 4% on the
+/// DDJ-FLX4's 400 ticks a second.
+const SCRATCH_QUICK_NOISE: f64 = 16.0;
+/// The twins have to disagree by this many times that wobble before the
+/// smooth filter is pulled to the quick one, so a steady hand still plays
+/// as smoothly as before.
+const SCRATCH_TRUST: f64 = 2.0;
 const BRAKE_RAMP_TO: f64 = 0.01;
 const MAX_DECKS: usize = 8;
 
@@ -320,6 +349,13 @@ struct Scratch {
     soft_start: bool,
     last_movement: Option<Instant>,
     filter: AlphaBeta,
+    /// openDJ: a quicker filter on the same ticks. While the hand changes
+    /// speed faster than the smooth filter follows, the smooth one is
+    /// pulled to it (see [`SCRATCH_QUICK`]).
+    quick: AlphaBeta,
+    /// How far apart the twins may drift (speed, multiples of normal)
+    /// before the quick one leads: [`SCRATCH_TRUST`] times its wobble.
+    trust: f64,
 }
 
 struct Watch {
@@ -882,11 +918,19 @@ impl Host {
         s.accumulator = 0.0;
         s.ramp = false;
         s.brake = false;
-        if alpha != 0.0 && beta != 0.0 {
-            s.filter.init(SCRATCH_DT, v0, alpha, beta);
+        let (alpha, beta) = if alpha != 0.0 && beta != 0.0 {
+            (alpha, beta)
         } else {
-            s.filter.init(SCRATCH_DT, v0, 1.0 / 8.0, (1.0 / 8.0) / 32.0);
-        }
+            (1.0 / 8.0, (1.0 / 8.0) / 32.0)
+        };
+        s.filter.init(SCRATCH_DT, v0, alpha, beta);
+        s.quick.init(
+            SCRATCH_DT,
+            v0,
+            (alpha * SCRATCH_QUICK).min(1.0),
+            (beta * SCRATCH_QUICK * SCRATCH_QUICK).min(0.5),
+        );
+        s.trust = SCRATCH_TRUST * SCRATCH_QUICK_NOISE / per_second;
         self.start_scratch_timer(d);
         enable.set_bool(true);
     }
@@ -950,6 +994,7 @@ impl Host {
             }
             s.ramp_to = ramp_to;
             s.filter.init(SCRATCH_DT, v0, alpha, beta);
+            s.trust = 0.0;
             s.ramp = true;
             self.control(d, "play").set_bool(true);
             self.control(d, "scratch2").set(v0);
@@ -997,6 +1042,7 @@ impl Host {
         self.control(d, "scratch2").set(v0);
         let s = &mut self.scratch[d];
         s.filter.init(SCRATCH_DT, v0, alpha, beta);
+        s.trust = 0.0;
         s.ramp = true;
         self.start_scratch_timer(d);
     }
@@ -1045,8 +1091,16 @@ impl Host {
         // the target speed; otherwise follow the wheel.
         if s.soft_start || (s.ramp && idle) {
             s.filter.observation(s.ramp_to * SCRATCH_DT);
+            // The quick twin waits where the smooth filter is, for the hand.
+            s.quick.x = s.filter.x;
+            s.quick.v = s.filter.v;
         } else {
-            s.filter.observation(s.dx * s.accumulator);
+            let dx = s.dx * s.accumulator;
+            s.filter.observation(dx);
+            if s.trust > 0.0 {
+                s.quick.observation(dx);
+                s.follow_quick();
+            }
         }
         let rate = s.filter.v;
         s.accumulator = 0.0;
@@ -1215,6 +1269,71 @@ mod tests {
         assert!(h.resolve("[Channel1]", "pregain").get() < 1.0);
         h.set_parameter("[Channel1]", "pregain", 0.7);
         assert!(h.resolve("[Channel1]", "pregain").get() > 1.0);
+    }
+
+    /// The latency probe: a hand on a DDJ-FLX4-like wheel (720 ticks a
+    /// turn, a MIDI message every 2 ms), fed through the 1 kHz filter.
+    /// Returns the speed heard each millisecond.
+    fn probe(hand: impl Fn(f64) -> f64, ms: u64) -> (Vec<f64>, Vec<f64>) {
+        let (ipr, rpm) = (720.0, 100.0 / 3.0);
+        let per_second = ipr * rpm / 60.0;
+        let mut h = host();
+        h.scratch_enable(1.0, ipr, rpm, 1.0 / 8.0, 1.0 / 256.0, false);
+        let start = Instant::now();
+        let (mut at, mut sent) = (0.0f64, 0.0f64);
+        let (mut heard, mut wanted) = (Vec::new(), Vec::new());
+        for ms in 0..ms {
+            let t = ms as f64 / 1000.0;
+            at += hand(t) * per_second / 1000.0;
+            if ms % 2 == 0 {
+                let ticks = at.trunc() - sent;
+                sent += ticks;
+                if ticks != 0.0 {
+                    h.scratch_tick(1.0, ticks);
+                }
+            }
+            h.process_scratch(start + Duration::from_millis(ms + 1));
+            heard.push(h.resolve("[Channel1]", "scratch2").get());
+            wanted.push(hand(t));
+        }
+        (heard, wanted)
+    }
+
+    #[test]
+    fn scratch_latency_probe() {
+        // Grabbing the record and pushing it at normal speed.
+        let (heard, _) = probe(|_| 1.0, 1500);
+        let reach = |f: f64| heard.iter().position(|&v| v >= f).unwrap() + 1;
+        let (half, most) = (reach(0.5), reach(0.9));
+        // A steady hand: the wobble left in the speed.
+        let tail = &heard[500..];
+        let mean = tail.iter().sum::<f64>() / tail.len() as f64;
+        let wobble =
+            (tail.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / tail.len() as f64).sqrt();
+        // Baby scratches: back and forth eight times a second, up to 3x speed.
+        let (fast, hand) = probe(|t| 3.0 * (std::f64::consts::TAU * 8.0 * t).sin(), 1500);
+        let peak = fast[300..].iter().cloned().fold(0.0, f64::max);
+        let lag = (0..80)
+            .min_by(|&a, &b| {
+                let err = |l: usize| {
+                    (300..1500)
+                        .map(|i| (fast[i] - hand[i - l]).powi(2))
+                        .sum::<f64>()
+                };
+                err(a).total_cmp(&err(b))
+            })
+            .unwrap();
+        eprintln!(
+            "scratch probe: 50% in {half} ms, 90% in {most} ms, wobble {:.2}%, \
+             8 Hz scratch lag {lag} ms, peak {peak:.2} of 3",
+            wobble * 100.0
+        );
+        // Mixxx's filter alone: 26 ms, 63 ms, 0.46%, 26 ms and 1.8.
+        assert!(half <= 16, "{half} ms to half speed");
+        assert!(most <= 40, "{most} ms to 90%");
+        assert!(wobble < 0.01, "wobble {wobble}");
+        assert!(lag <= 14, "8 Hz lag {lag} ms");
+        assert!(peak > 2.5, "8 Hz peak {peak}");
     }
 
     #[test]
