@@ -16,4 +16,4 @@
 
 ## 3. Drag to move
 
-- [ ] 3.1 Drag lists and folders onto a folder or a heading
+- [x] 3.1 Drag lists and folders onto a folder or a heading
