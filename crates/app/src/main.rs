@@ -1265,6 +1265,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let weak = weak.clone();
                 let undo_weak = weak.clone();
                 let find_weak = weak.clone();
+                let export_weak = weak.clone();
                 added.set(mac_menu::add_settings_item(move || {
                     if let Some(app) = weak.upgrade() {
                         let prefs = app.global::<Preferences>();
@@ -1281,6 +1282,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mac_menu::on_find(move || {
                     if let Some(app) = find_weak.upgrade() {
                         app.invoke_focus_search();
+                    }
+                });
+                // The mixed set picked in the list.
+                mac_menu::on_export_mixcloud(move || {
+                    if let Some(app) = export_weak.upgrade() {
+                        export_mixcloud(&app);
                     }
                 });
             },
@@ -2286,4 +2293,13 @@ fn loop_label(beats: f64) -> SharedString {
         format!("1/{}", (1.0 / beats).round())
     }
     .into()
+}
+
+/// File › Export › Mixcloud…: makes the mixed set picked in the list into a
+/// Mixcloud MP3 with its tracklist (see `browser::mix_export`). Says so if
+/// no mixed set is picked. For any menu that offers it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn export_mixcloud(app: &AppWindow) {
+    app.global::<FilesUi>()
+        .invoke_export_mixcloud(app.get_current_track());
 }
