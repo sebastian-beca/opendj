@@ -19,6 +19,7 @@ opendj-library = { version = "0.5.0", path = "../library" }
 opendj-export = { path = "../export" }
 opendj-plugins = { path = "../plugins" }
 opendj-remote = { path = "../remote" }
+opendj-osc = { path = "../osc" }
 opendj-waveform = { path = "../waveform" }
 serde_json = "1"
 sha2 = "0.11"
