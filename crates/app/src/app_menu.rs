@@ -25,11 +25,12 @@ pub enum Action {
     ExportM3u,
     ExportUsb,
     ExportSpotify,
+    ExportRekordboxXml,
     ExportMixcloud,
 }
 
 impl Action {
-    const ALL: [Action; 8] = [
+    const ALL: [Action; 9] = [
         Action::Settings,
         Action::Quit,
         Action::Undo,
@@ -38,6 +39,7 @@ impl Action {
         Action::ExportUsb,
         Action::ExportSpotify,
         Action::ExportMixcloud,
+        Action::ExportRekordboxXml,
     ];
 
     /// Its number, as the ☰ menu and the macOS menu items carry it.
@@ -97,6 +99,11 @@ pub const MENUS: &[Menu] = &[
                 Entry::Item {
                     action: Action::ExportSpotify,
                     title: "Spotify Playlist",
+                    key: None,
+                },
+                Entry::Item {
+                    action: Action::ExportRekordboxXml,
+                    title: "rekordbox XML…",
                     key: None,
                 },
                 Entry::Separator,
@@ -310,6 +317,9 @@ pub fn run(app: &AppWindow, action: Action) {
             .global::<LibraryEdit>()
             .invoke_export_spotify(app.get_current_folder()),
         // The mixed set picked in Recordings.
+        Action::ExportRekordboxXml => app
+            .global::<LibraryEdit>()
+            .invoke_export_rekordbox(app.get_current_folder()),
         Action::ExportMixcloud => crate::export_mixcloud(app),
     }
 }
@@ -358,14 +368,15 @@ pub struct Exports {
     pub usb: bool,
     pub spotify: bool,
     pub mixcloud: bool,
+    pub rekordbox: bool,
 }
 
 /// Greys File › Export's items out or back in.
 pub fn set_exports(e: Exports) {
     thread_local! {
-        static LAST: std::cell::Cell<Option<[bool; 4]>> = const { std::cell::Cell::new(None) };
+        static LAST: std::cell::Cell<Option<[bool; 5]>> = const { std::cell::Cell::new(None) };
     }
-    let now = [e.m3u, e.usb, e.spotify, e.mixcloud];
+    let now = [e.m3u, e.usb, e.spotify, e.mixcloud, e.rekordbox];
     if LAST.with(|l| l.replace(Some(now))) == Some(now) {
         return;
     }
@@ -373,6 +384,7 @@ pub fn set_exports(e: Exports) {
     set_item(Action::ExportUsb, None, e.usb);
     set_item(Action::ExportSpotify, None, e.spotify);
     set_item(Action::ExportMixcloud, None, e.mixcloud);
+    set_item(Action::ExportRekordboxXml, None, e.rekordbox);
 }
 
 fn default_title(action: Action) -> String {

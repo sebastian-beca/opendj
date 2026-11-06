@@ -141,7 +141,10 @@ fn track(x: &mut String, id: usize, t: &Track, path: &Path) {
         ("Grouping", i.grouping.clone()),
         ("Genre", t.genre.clone()),
         ("Kind", kind(path)),
-        ("TotalTime", format!("{}", t.duration.max(0.0).round() as u64)),
+        (
+            "TotalTime",
+            format!("{}", t.duration.max(0.0).round() as u64),
+        ),
         ("DiscNumber", i.disc_number.to_string()),
         ("TrackNumber", i.track_number.to_string()),
         ("Year", year(&i.year)),
@@ -245,7 +248,13 @@ fn track_colour(c: u32) -> u32 {
     const COLOURS: [u32; 8] = [
         0xFF007F, 0xFF0000, 0xFFA500, 0xFFFF00, 0x00FF00, 0x25FDE9, 0x0000FF, 0x660099,
     ];
-    let rgb = |c: u32| [(c >> 16 & 0xFF) as i32, (c >> 8 & 0xFF) as i32, (c & 0xFF) as i32];
+    let rgb = |c: u32| {
+        [
+            (c >> 16 & 0xFF) as i32,
+            (c >> 8 & 0xFF) as i32,
+            (c & 0xFF) as i32,
+        ]
+    };
     let a = rgb(c);
     *COLOURS
         .iter()
@@ -302,7 +311,11 @@ fn kind(path: &Path) -> String {
 /// drive goes in as `/C:/…`).
 pub fn location(path: &Path) -> String {
     let p = path.to_string_lossy().replace('\\', "/");
-    let p = if p.starts_with('/') { p } else { format!("/{p}") };
+    let p = if p.starts_with('/') {
+        p
+    } else {
+        format!("/{p}")
+    };
     let mut out = String::from("file://localhost");
     for (i, b) in p.bytes().enumerate() {
         let drive_colon = i == 2 && b == b':';
@@ -469,7 +482,9 @@ mod tests {
         let text = write(&tracks, &lists, "0.6.0");
         assert!(roxmltree::Document::parse(&text).is_ok(), "{text}");
         assert!(text.contains("<COLLECTION Entries=\"2\">"));
-        assert!(text.contains("Location=\"file://localhost/Users/dj/Music/Bicep%20-%20Glue%20%26%20Co.mp3\""));
+        assert!(text.contains(
+            "Location=\"file://localhost/Users/dj/Music/Bicep%20-%20Glue%20%26%20Co.mp3\""
+        ));
         assert!(text.contains("Location=\"file://localhost/C:/Music/%C3%9Cn%C3%AFcode.flac\""));
         assert!(text.contains("Tonality=\"Fm\""));
         assert!(text.contains("Rating=\"204\""));
@@ -515,7 +530,9 @@ mod tests {
         assert_eq!((cues[0].number, cues[0].color), (0, Some(0xE62828)));
         assert_eq!(cues[1].end, Some(72.025));
         assert!(cues[2].is_memory() && cues[3].is_memory());
-        assert!(matches!(&lib.tracks[1].source, Source::File(p) if p == Path::new("C:/Music/Ünïcode.flac")));
+        assert!(
+            matches!(&lib.tracks[1].source, Source::File(p) if p == Path::new("C:/Music/Ünïcode.flac"))
+        );
 
         let names: Vec<(Vec<String>, String, usize)> = lib
             .lists
@@ -543,7 +560,10 @@ mod tests {
         let mut x = String::new();
         tempo(&mut x, &t);
         // Beat 0 at -0.2 s; beat 1 at 0.3 s is the second of the bar.
-        assert!(x.contains("Inizio=\"0.300\" Bpm=\"120.00\" Metro=\"4/4\" Battito=\"2\""), "{x}");
+        assert!(
+            x.contains("Inizio=\"0.300\" Bpm=\"120.00\" Metro=\"4/4\" Battito=\"2\""),
+            "{x}"
+        );
     }
 
     #[test]

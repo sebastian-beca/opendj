@@ -35,6 +35,9 @@ export struct Folder {
     count: int,
     // Holds library tracks, so its menu offers Analyze All.
     analysable: bool,
+    // The Collection node or one of the DJ's lists or folders in it: its
+    // menu offers Export as rekordbox XML.
+    rekordbox: bool,
     // A crate's color, an index into LibraryEdit.list-colors; -1 for none.
     color: int,
     // A crate's icon: 0 = crate, then star, heart, flame, bolt, moon, sun,
@@ -298,6 +301,9 @@ export global LibraryEdit {
     // Saves the list, folder, history session, album or mixed set at a
     // sidebar row as M3U8 files; asks where first.
     callback export-m3u(row: int);
+    // Saves the Collection (every track and list) or a list or folder at a
+    // sidebar row as a rekordbox XML file; asks where first.
+    callback export-rekordbox(row: int);
     // Makes a playlist from an M3U, M3U8, PLS or XSPF file the DJ picks.
     callback import-playlist-file();
     // Prepares high-quality stems for the rows `first` to `last`, one
@@ -2351,6 +2357,7 @@ component FolderTree inherits Rectangle {
     property <int> menu-kind;
     property <bool> menu-editable;
     property <bool> menu-analysable;
+    property <bool> menu-rekordbox;
     property <int> menu-color;
     property <int> menu-icon;
     property <length> menu-y;
@@ -2487,6 +2494,13 @@ component FolderTree inherits Rectangle {
                 text: "Export to USB…";
                 clicked => {
                     LibraryEdit.export-usb(menu-index);
+                    folder-menu.close();
+                }
+            }
+            if menu-rekordbox: MenuLine {
+                text: "Export as rekordbox XML…";
+                clicked => {
+                    LibraryEdit.export-rekordbox(menu-index);
                     folder-menu.close();
                 }
             }
@@ -2791,6 +2805,7 @@ component FolderTree inherits Rectangle {
                                 menu-color = f.color;
                                 menu-icon = f.icon;
                                 menu-analysable = f.analysable && (source == 0 || source == 9 || source == 10);
+                                menu-rekordbox = f.rekordbox && source == 0;
                                 menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
                                 if source == 1 { files-menu.show(); } else { folder-menu.show(); }
                             }

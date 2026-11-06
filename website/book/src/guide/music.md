@@ -520,6 +520,30 @@ path from the file's folder, then by its file name. Files on disk that
 aren't in your collection yet join it. The list's header names any tracks
 it couldn't find.
 
+### Taking your library to another app
+
+**File › Export › rekordbox XML…** (or right-click **Collection** and pick
+**Export as rekordbox XML…**) saves your whole collection as one
+`rekordbox.xml` file: every track with its tags, rating, color, comment,
+date added and play count, its beat grid (one marker per tempo change, so
+a grid that changes tempo comes across), hot cues with their numbers and
+colors, memory cues and saved loops, and every crate, playlist and folder
+in its tree. Right-click a single list or folder to save just that one.
+
+To open it in rekordbox, pick the file under **Preferences › Advanced ›
+Database › rekordbox xml**, turn on **rekordbox xml** under **Preferences ›
+View › Layout**, and it shows as a node in rekordbox's tree. Library
+tools such as Lexicon and Rekord Buddy read it too and convert it to
+Serato, Traktor, Engine DJ and VirtualDJ. A few things don't fit the
+format:
+
+- Your tags go into the comment as `/* Tag / Tag */`, the way rekordbox
+  writes its own My Tags there.
+- rekordbox has eight hot cues (A to H) and eight track colors: pads 9
+  and up come across as memory cues, and a track's color as the nearest
+  of the eight.
+- Phrases, stems, stages and online tracks with no file are left out.
+
 ## Collection Health
 
 [Collection Health](collection-health.md), the cross under Collection in the

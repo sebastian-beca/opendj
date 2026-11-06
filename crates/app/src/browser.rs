@@ -44,6 +44,7 @@ mod mix_export;
 mod picks;
 mod playlist_files;
 mod prep;
+mod rekordbox_xml;
 mod sets;
 mod spotify_export;
 mod staging;
@@ -652,6 +653,7 @@ pub struct Browser {
     /// Export to USB's dialog and export.
     usb: usb::State,
     playlist_files: playlist_files::State,
+    rekordbox_xml: rekordbox_xml::State,
     phrases_seen: analysis::SeenDecks,
     /// The last stage change or merge of copies, which the track menu can
     /// take back.
@@ -1263,6 +1265,7 @@ impl Browser {
             analysis_shown: Default::default(),
             usb: Default::default(),
             playlist_files: Default::default(),
+            rekordbox_xml: Default::default(),
             phrases_seen: Default::default(),
             undo: None,
             pending_moves: HashMap::new(),
@@ -1835,6 +1838,7 @@ impl Browser {
         Self::install_usb_export(app, &edit, &with);
         Self::install_spotify_export(&edit, &with);
         Self::install_playlist_files(&edit, &with);
+        Self::install_rekordbox_xml(&edit, &with);
     }
 
     /// Saves a search as a smart list at the top level (under "Smart
@@ -4283,6 +4287,7 @@ impl Browser {
                     kind: n.kind,
                     editable: n.playlist.is_some() && !n.history,
                     analysable: !n.history && Self::analysable(&n.contents),
+                    rekordbox: self.rekordbox_exportable(i),
                     stage: matches!(n.contents, Contents::Stage(..)),
                     separator: n.separator,
                     color: n.color.map_or(-1, |c| c as i32),
@@ -4372,6 +4377,7 @@ impl Browser {
                     && STREAMING_ENABLED
                     && matches!(kind, KIND_LIST | KIND_HISTORY | KIND_CRATE),
                 mixcloud: self.tree == MIXED_SETS,
+                rekordbox: node.is_some() && self.rekordbox_exportable(self.current_node),
             });
             let name = match self.nodes.get(self.current_node) {
                 Some(n) => n.title.clone().unwrap_or_else(|| n.name.clone()),
