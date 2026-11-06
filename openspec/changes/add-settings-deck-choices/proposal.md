@@ -15,8 +15,8 @@ track ends, and a backup of the collection.
 - **Hot cue on a playing deck**: Jump and keep playing (default) / Stutter. Also on a hot cue pad's right-click menu.
 - **Track end warning**: 30 s (default) / 20 / 60 / Off, under Playing. The warning itself is built in its own change;
   this step adds and wires the row.
-- **Back up the collection**: Off / Daily (default) / Weekly and a folder, on Settings › Collection › General. The
-  backup itself is built in its own change; this step adds and wires the rows.
+- **Back up the collection**: Off / Daily (default) / Weekly and a folder, on Settings › Collection › General. Shipped
+  with the backup feature itself (#375).
 - Each new row goes into the option table from `add-settings-table`.
 
 ## Capabilities

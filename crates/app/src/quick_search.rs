@@ -17,7 +17,7 @@ use crate::automix::AutoMix;
 use crate::browser::Browser;
 use crate::remote::held_count;
 use crate::settings::show_key;
-use crate::{AppWindow, QuickRow, QuickSearch, StoreUi};
+use crate::{AppWindow, QuickRow, QuickSearch, StoreUi, TrackDrag};
 
 /// How many matches the dropdown shows.
 const SHOWN: usize = 8;
@@ -91,6 +91,23 @@ impl Quick {
             if id >= 0 {
                 j.borrow_mut().push((id as usize, Action::from_mode(mode)));
             }
+        });
+        // Tracks dropped on the Player bar: the first plays now and the
+        // rest follow it, in order. Each Play next goes in at the same place,
+        // so the rest go in last first, ahead of the one playing now.
+        let j = jobs.clone();
+        let b = browser.clone();
+        app.global::<TrackDrag>().on_drop_player(move |data| {
+            let Ok(mut b) = b.try_borrow_mut() else {
+                return;
+            };
+            let ids = b.dropped_tracks(&data);
+            let Some((&first, rest)) = ids.split_first() else {
+                return;
+            };
+            let mut j = j.borrow_mut();
+            j.extend(rest.iter().rev().map(|&id| (id, Action::PlayNext)));
+            j.push((first, Action::PlayNow));
         });
         Quick {
             jobs,
