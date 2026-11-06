@@ -18,7 +18,9 @@ Full notes: project notes `notes/groove-box-2-research.md`.
 
 What none of them do, and openDJ can: follow a DJ mix. The timeline lines up with the other decks' waveforms, FILL can fire on the leading deck's phrases, and the melodic row follows the leading deck's key.
 
-### Deluge and mpump code
+### Deluge, mpump and AudioKit code
+
+AudioKit (MIT, Swift for Apple platforms only) is a toolkit, not a groove box. Its Swift layers and sequencers don't carry over, but the C DSP under SoundpipeAudioKit and DunneAudioKit does: Moog ladder, Korg low-pass and TB-303 style filters, FM and phase distortion oscillators, metal bar and plucked string models, transient shaper. MIT code can go into openDJ (GPL-2.0-or-later) with its notice kept. That is the first place to look when the synth voices and the melodic row need filters, checking each file's licence first, since some Soundpipe modules came from Csound under the LGPL.
 
 mpump is AGPL-3.0 JavaScript for the browser: nothing to port into a Rust engine, ideas only.
 
