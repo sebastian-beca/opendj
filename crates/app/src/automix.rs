@@ -90,9 +90,13 @@ const TAKEOVER: f64 = 0.02;
 /// How fast Automix slides the crossfader outside a mix, in crossfader
 /// units per second: from the centre to one side in a second and a half.
 const GLIDE_SPEED: f64 = 1.0 / 1.5;
+/// Seconds before a track's end that Automix, playing gaplessly, hands the
+/// next deck to the engine, which starts it on the sample after the last.
+const GAPLESS_AHEAD: f64 = 1.0;
 
 struct DeckHandles {
     play: ControlHandle,
+    play_next: ControlHandle,
     playposition: ControlHandle,
     volume: ControlHandle,
     rate: ControlHandle,
@@ -113,6 +117,7 @@ impl DeckHandles {
         };
         Self {
             play: get(&g, "play"),
+            play_next: get(&g, "play_next"),
             playposition: get(&g, "playposition"),
             volume: get(&g, "volume"),
             rate: get(&g, "rate"),
@@ -189,6 +194,9 @@ struct Mix {
     /// Whether the incoming deck still needs starting (a takeover mixes
     /// into a deck that is already playing).
     start_incoming: bool,
+    /// No mix: the engine starts the incoming deck on the sample after the
+    /// outgoing track's last.
+    gapless: bool,
     beat_match: bool,
     /// How far through the mix it has got, from 0 to 1.
     progress: f64,
@@ -229,9 +237,6 @@ pub struct AutoMix {
     style: usize,
     /// Playing an album (Play Album): gapless until Automix stops.
     album: bool,
-    /// How long the last UI frame took, in seconds, for timing gapless
-    /// changeovers.
-    frame: f64,
     /// A note for the panel when Automix stops by itself or can't start.
     note: String,
     /// The track Automix last started, until it comes off the list.
@@ -306,7 +311,6 @@ impl AutoMix {
             length,
             style,
             album: false,
-            frame: 1.0 / 60.0,
             note: String::new(),
             played: None,
             left: 0,
@@ -369,9 +373,6 @@ impl AutoMix {
 
     /// Runs Automix for one UI frame, `dt` seconds after the last one.
     pub fn tick(&mut self, host: &mut dyn Host, tracks: &[Option<Arc<Track>>; NUM_DECKS], dt: f64) {
-        if dt > 0.0 {
-            self.frame = dt.min(0.1);
-        }
         let on = self.enabled.get_bool();
         match (&self.phase, on) {
             (Phase::Off, true) => self.start(host, tracks),
@@ -473,6 +474,9 @@ impl AutoMix {
         if let Phase::Mixing(m) = &self.phase {
             self.restore(m);
         }
+        for d in &self.decks {
+            d.play_next.set(0.0);
+        }
         self.glide = None;
         self.phase = Phase::Off;
         self.album = false;
@@ -529,6 +533,7 @@ impl AutoMix {
                 saved_low: self.decks.each_ref().map(|d| d.eq_low.get()),
                 saved_filter: self.decks.each_ref().map(|d| d.filter.get()),
                 start_incoming: false,
+                gapless: false,
                 beat_match: false,
                 progress: 0.0,
             });
@@ -598,6 +603,14 @@ impl AutoMix {
                 let done =
                     !self.decks[m.from].play.get_bool() || self.position(m.from, tracks) >= m.end;
                 if done {
+                    if m.gapless && !self.decks[m.to].play.get_bool() {
+                        // The engine didn't start it (the outgoing deck
+                        // was stopped first, say): start it now if the
+                        // track did play out.
+                        if self.remaining(m.from, tracks) < 1e-3 {
+                            self.decks[m.to].play.set_bool(true);
+                        }
+                    }
                     self.finish(&m);
                     self.decks[m.from].play.set_bool(false);
                     self.phase = Phase::Playing {
@@ -663,9 +676,9 @@ impl AutoMix {
         } else {
             STYLES[self.style]
         };
-        // Gapless, the next track starts within half a frame of the end.
+        // Gapless, the engine is told a little ahead which deck follows.
         let lead = if gapless {
-            0.5 * self.frame * self.decks[live].speed().max(0.1)
+            GAPLESS_AHEAD * self.decks[live].speed().max(0.1)
         } else {
             0.0
         };
@@ -712,6 +725,7 @@ impl AutoMix {
             saved_low: self.decks.each_ref().map(|d| d.eq_low.get()),
             saved_filter: self.decks.each_ref().map(|d| d.filter.get()),
             start_incoming: true,
+            gapless: gapless && !now,
             beat_match,
             progress: 0.0,
         };
@@ -844,7 +858,11 @@ impl AutoMix {
             if m.style == Style::BassSwap {
                 to.eq_low.set(0.0);
             }
-            to.play.set_bool(true);
+            if m.gapless {
+                from.play_next.set((m.to + 1) as f64);
+            } else {
+                to.play.set_bool(true);
+            }
             if m.beat_match {
                 to.beatsync.set(1.0);
             }
@@ -875,6 +893,7 @@ impl AutoMix {
     }
 
     fn restore(&self, m: &Mix) {
+        self.decks[m.from].play_next.set(0.0);
         for d in [m.from, m.to] {
             self.decks[d].eq_low.set(m.saved_low[d]);
             self.decks[d].filter.set(m.saved_filter[d]);
@@ -1250,6 +1269,106 @@ mod tests {
         assert!(r.deck(1, "play").get_bool());
         assert_eq!(r.xfade(), 0.0, "no crossfade");
         assert_eq!(r.loaded_id(0), Some(1002), "the next track waits on deck A");
+    }
+
+    /// Writes `seconds` of a continuous `hz` sine from `from` seconds into
+    /// it, as a 16-bit stereo WAV at `rate`: two such files written back to
+    /// back join without a seam.
+    fn sine_wav(path: &std::path::Path, rate: u32, hz: f64, from: f64, seconds: f64) {
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut w = hound::WavWriter::create(path, spec).unwrap();
+        for i in 0..(seconds * rate as f64) as usize {
+            let t = from + i as f64 / rate as f64;
+            let v = ((std::f64::consts::TAU * hz * t).sin() * 16_000.0) as i16;
+            w.write_sample(v).unwrap();
+            w.write_sample(v).unwrap();
+        }
+        w.finalize().unwrap();
+    }
+
+    fn file_track(n: usize, path: std::path::PathBuf) -> Arc<Track> {
+        let mut t = (*track(n, 0.0)).clone();
+        t.source = opendj_engine::track::Source::File(path);
+        t.duration = 0.0;
+        t.bpm = 0.0;
+        Arc::new(t)
+    }
+
+    #[test]
+    fn gapless_tracks_join_without_a_click() {
+        // One steady 150 Hz tone cut in two mid-wave, so any gap, overlap or
+        // step at the join shows up as a bend a sine never makes. Away from
+        // 48 kHz the deck reads between samples, across the join; with key
+        // lock or a key shift the time-stretcher plays across it.
+        let cases = [
+            (48_000u32, 48_000u32, false, 0.0),
+            (44_100, 44_100, false, 0.0),
+            (44_100, 48_000, false, 0.0),
+            (48_000, 48_000, true, 0.0),
+            (44_100, 44_100, true, 0.0),
+            (48_000, 48_000, false, 1.0),
+        ];
+        for (rate_a, rate_b, keylock, semitones) in cases {
+            let case = format!("{rate_a}/{rate_b} Hz, key lock {keylock}, key {semitones:+}");
+            let dir = std::env::temp_dir().join(format!(
+                "opendj-gapless-{}-{rate_a}-{rate_b}-{keylock}-{semitones}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            // Cut mid-wave, not at a zero crossing, on a sample.
+            let split = (3.0137 * rate_a as f64).round() / rate_a as f64;
+            sine_wav(&dir.join("a.wav"), rate_a, 150.0, 0.0, split);
+            sine_wav(&dir.join("b.wav"), rate_b, 150.0, split, 3.0);
+            let mut r = Rig::new(vec![
+                file_track(0, dir.join("a.wav")),
+                file_track(1, dir.join("b.wav")),
+            ]);
+            for d in 0..2 {
+                r.deck(d, "keylock").set_bool(keylock);
+                r.deck(d, "pitch").set(semitones);
+            }
+            r.automix.length = 0;
+            r.ctl("[AutoDJ]", "enabled").set(1.0);
+            // Engine and Automix a UI frame at a time, keeping the output.
+            let frames = (SR / FPS) as usize;
+            let mut buf = vec![0.0f32; frames * 2];
+            let mut out = Vec::new();
+            for _ in 0..(5.0 * FPS) as usize {
+                r.engine.process(&mut buf, 2);
+                out.extend(buf.iter().step_by(2).copied());
+                let tracks = r.host.tracks.clone();
+                r.automix.tick(&mut r.host, &tracks, 1.0 / FPS);
+            }
+            std::fs::remove_dir_all(&dir).ok();
+            assert!(
+                r.deck(1, "play").get_bool(),
+                "{case}: the second track plays"
+            );
+            // From a second in, past the first track starting from silence.
+            let out = &out[SR as usize..];
+            let peak = out.iter().fold(0.0f32, |p, v| p.max(v.abs()));
+            let (at, bend) = out
+                .windows(3)
+                .map(|w| (w[2] - 2.0 * w[1] + w[0]).abs())
+                .enumerate()
+                .fold((0, 0.0f32), |m, (i, v)| if v > m.1 { (i, v) } else { m });
+            // A clean sine bends at most peak * (2 pi f / SR)^2 a sample.
+            let hz = 150.0 * 2f32.powf(semitones as f32 / 12.0);
+            let smooth = peak * (std::f32::consts::TAU * hz / SR as f32).powi(2);
+            assert!(
+                bend < 2.0 * smooth,
+                "{case}: a click {:.3} s in ({bend} against {smooth})",
+                1.0 + at as f64 / SR
+            );
+            // Nor a gap: the tone never stops.
+            let quiet = out.windows(8).any(|w| w.iter().all(|v| v.abs() < 1e-4));
+            assert!(!quiet, "{case}: a gap");
+        }
     }
 
     #[test]
