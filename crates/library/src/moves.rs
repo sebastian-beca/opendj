@@ -66,6 +66,16 @@ impl Library {
         Ok(count)
     }
 
+    /// Puts a track that has no stage yet in the Inbox: a download, which
+    /// lands outside the stage folders.
+    pub fn put_in_inbox(&mut self, track: usize) -> Result<(), Error> {
+        self.db.execute(
+            "UPDATE tracks SET stage = ?2 WHERE id = ?1 AND stage = ''",
+            params![row_id(track), Stage::Inbox.name()],
+        )?;
+        Ok(())
+    }
+
     /// Moves tracks to `stage`, as one batch that [`Library::undo_batch`]
     /// can take back. Their files' moves are queued; a move still queued
     /// from an earlier change of the same track is replaced. Returns the
@@ -133,14 +143,30 @@ impl Library {
     /// A file already at its new place (moved by hand) just has its move
     /// marked done; one that can't move keeps its move queued.
     pub fn apply_moves(&mut self) -> Result<MoveReport, Error> {
+        self.apply(None)
+    }
+
+    /// [`Library::apply_moves`] for one batch only, whether or not the DJ
+    /// has file moves on: for a move asked for there and then (Move to
+    /// Albums), leaving other queued moves waiting.
+    pub fn apply_batch(&mut self, batch: i64) -> Result<MoveReport, Error> {
+        self.apply(Some(batch))
+    }
+
+    fn apply(&mut self, batch: Option<i64>) -> Result<MoveReport, Error> {
         let mut report = MoveReport::default();
         // Stage changes whose files stay need nothing more.
         self.db.execute(
             "UPDATE file_moves SET done = ?1
-             WHERE done IS NULL AND undone IS NULL AND from_path = to_path",
-            [now()],
+             WHERE done IS NULL AND undone IS NULL AND from_path = to_path
+             AND (?2 IS NULL OR batch = ?2)",
+            params![now(), batch],
         )?;
-        for m in self.pending_moves()? {
+        let pending = self.pending_moves()?;
+        for m in pending
+            .into_iter()
+            .filter(|m| batch.is_none_or(|b| m.batch == b))
+        {
             match self.move_track_file(m.track, &m.from, &m.to) {
                 Ok(()) => {
                     self.db.execute(
@@ -229,6 +255,51 @@ impl Library {
         }
         Ok(report)
     }
+}
+
+/// What an album's folder keeps beside its tracks: cover pictures, a cue
+/// sheet, notes from the ripper.
+const ALBUM_EXTRAS: [&str; 13] = [
+    "jpg", "jpeg", "png", "gif", "webp", "bmp", "cue", "nfo", "log", "m3u", "m3u8", "txt", "sfv",
+];
+
+/// Moves what is left in `from` once its tracks have gone (cover
+/// pictures, a .cue or .nfo, a log) into `to`, then removes `from` if
+/// that empties it. Other files, files `to` already has, and subfolders
+/// stay. Returns the files moved.
+pub fn move_leftovers(from: &Path, to: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut moved = Vec::new();
+    for e in std::fs::read_dir(from)?.flatten() {
+        let path = e.path();
+        let name = e.file_name();
+        let hidden = name.to_string_lossy().starts_with('.');
+        let extra = path
+            .extension()
+            .is_some_and(|x| ALBUM_EXTRAS.contains(&x.to_string_lossy().to_lowercase().as_str()));
+        if hidden || !extra || !e.file_type().is_ok_and(|t| t.is_file()) {
+            continue;
+        }
+        let dest = to.join(&name);
+        if dest.exists() {
+            continue;
+        }
+        std::fs::create_dir_all(to)?;
+        if std::fs::rename(&path, &dest).is_err() {
+            std::fs::copy(&path, &dest)?;
+            std::fs::remove_file(&path)?;
+        }
+        moved.push(dest);
+    }
+    // Only an empty folder goes, so nothing the DJ kept there is lost;
+    // a .DS_Store left behind is no reason to keep it.
+    let left: Vec<_> = std::fs::read_dir(from)?.flatten().collect();
+    if left.iter().all(|e| e.file_name() == ".DS_Store") {
+        for e in left {
+            let _ = std::fs::remove_file(e.path());
+        }
+        let _ = std::fs::remove_dir(from);
+    }
+    Ok(moved)
 }
 
 /// Moves a file, into a new folder if needed, and its cached analysis and
@@ -342,6 +413,57 @@ mod tests {
         assert!(a.exists() && !to.exists());
         assert_eq!(stages(&lib), [(String::new(), a.clone())]);
         assert_eq!(lib.last_batch().unwrap(), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_batch_applies_alone_and_takes_the_folder_along() {
+        let dir = std::env::temp_dir().join(format!("opendj-album-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let album = dir.join("Downloaded/Soulseek/Air/Moon Safari");
+        std::fs::create_dir_all(&album).unwrap();
+        let a = album.join("01 La femme d'argent.mp3");
+        let b = album.join("02 Sexy boy.mp3");
+        let other = dir.join("Downloads/c.mp3");
+        std::fs::create_dir_all(other.parent().unwrap()).unwrap();
+        for f in [&a, &b, &other] {
+            std::fs::write(f, b"audio").unwrap();
+        }
+        std::fs::write(album.join("cover.jpg"), b"jpeg").unwrap();
+        std::fs::write(album.join(".DS_Store"), b"").unwrap();
+        let (mut lib, ids) = library_with(&[&a, &b, &other]);
+        lib.put_in_inbox(ids[0]).unwrap();
+        assert_eq!(stages(&lib)[0].0, "inbox");
+        // A move queued earlier, waiting for file moves to be turned on.
+        lib.change_stage(
+            &[Change {
+                track: ids[2],
+                to: Some(dir.join("T/c.mp3")),
+            }],
+            Stage::Triage,
+        )
+        .unwrap();
+        let to = dir.join("Albums/Air/Moon Safari");
+        let changes: Vec<Change> = [(ids[0], &a), (ids[1], &b)]
+            .into_iter()
+            .map(|(id, p)| Change {
+                track: id,
+                to: Some(to.join(p.file_name().unwrap())),
+            })
+            .collect();
+        let batch = lib.change_stage(&changes, Stage::Collection).unwrap();
+        let report = lib.apply_batch(batch).unwrap();
+        assert_eq!((report.moved, report.failed.len()), (2, 0));
+        assert!(other.exists(), "the other queued move still waits");
+        assert_eq!(lib.pending_moves().unwrap().len(), 1);
+        let left = move_leftovers(&album, &to).unwrap();
+        assert_eq!(left, [to.join("cover.jpg")]);
+        assert!(!album.exists());
+        assert!(to.join("02 Sexy boy.mp3").exists());
+        // Undo brings the tracks back to the Inbox.
+        lib.undo_batch(batch).unwrap();
+        assert!(a.exists() && b.exists());
+        assert_eq!(stages(&lib)[0], ("inbox".to_string(), a.clone()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

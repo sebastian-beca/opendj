@@ -50,6 +50,8 @@ export struct Folder {
     locked: bool,
     // The top folder of an import: its menu offers Make These Lists Mine.
     adoptable: bool,
+    // An album downloaded into the Inbox: its menu offers Move to Albums.
+    bundle: bool,
 }
 
 export struct TrackRow {
@@ -266,6 +268,12 @@ export global LibraryEdit {
     callback delete(index: int);
     // Makes the import whose top folder is at tree row `index` the DJ's own.
     callback adopt-import(index: int);
+    // Moves the Inbox album at tree row `index` into the Albums folder.
+    callback move-node-album(index: int);
+    // Whether the track at a row of the list is in an album downloaded
+    // into the Inbox, and moving that album into the Albums folder.
+    pure callback in-inbox-album(row: int) -> bool;
+    callback move-row-album(row: int);
     // Turns the list at tree row `index` into a crate (true) or a playlist.
     callback set-crate(index: int, crate: bool);
     pure callback accepts-drop(index: int, data: data-transfer) -> bool;
@@ -1526,6 +1534,16 @@ component TrackMenu inherits PopupWindow {
                     root.close();
                 }
             }
+            // A track of an album downloaded whole: the album moves as one.
+            if LibraryEdit.in-inbox-album(track-row): MenuLine {
+                icon: "forward";
+                text: "Move Album to Albums";
+                entered => { panel = 0; }
+                clicked => {
+                    LibraryEdit.move-row-album(track-row);
+                    root.close();
+                }
+            }
             MenuSeparator {}
             // Analysis, and the stores.
             MenuLine {
@@ -2423,6 +2441,7 @@ component FolderTree inherits Rectangle {
     property <bool> menu-analysable;
     property <bool> menu-locked;
     property <bool> menu-adoptable;
+    property <bool> menu-bundle;
     property <bool> menu-rekordbox;
     property <int> menu-color;
     property <int> menu-icon;
@@ -2576,6 +2595,13 @@ component FolderTree inherits Rectangle {
                 color: Theme.text-dim;
                 font-size: 12px;
                 vertical-alignment: center;
+            }
+            if source == 0 && menu-bundle: MenuLine {
+                text: "Move to Albums";
+                clicked => {
+                    LibraryEdit.move-node-album(menu-index);
+                    folder-menu.close();
+                }
             }
             if source == 0 && menu-adoptable: MenuLine {
                 text: "Make These Lists Mine";
@@ -2928,13 +2954,14 @@ component FolderTree inherits Rectangle {
                             clicked => { select(i); }
                             double-clicked => { toggle(i); }
                             pointer-event(e) => {
-                                if (((f.editable || f.analysable || f.adoptable || source == 1 || StoreUi.stream(source)) && tab == 0) || (tab == 1 && f.kind == 5)) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                                if (((f.editable || f.analysable || f.adoptable || f.bundle || source == 1 || StoreUi.stream(source)) && tab == 0) || (tab == 1 && f.kind == 5)) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                                     menu-index = i;
                                     menu-name = f.name;
                                     menu-kind = f.kind;
                                     menu-editable = f.editable;
                                     menu-locked = f.locked;
                                     menu-adoptable = f.adoptable;
+                                    menu-bundle = f.bundle;
                                     menu-color = f.color;
                                     menu-icon = f.icon;
                                     menu-analysable = f.analysable && (source == 0 || source == 9 || source == 10);

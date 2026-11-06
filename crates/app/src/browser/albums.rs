@@ -28,7 +28,7 @@ const ALBUMS_COVERS: &str = "albums_covers";
 
 /// What most of `values` are, ignoring empty ones and case; `None` when
 /// none is shared by more than half of them.
-fn most(values: &[&str]) -> Option<String> {
+pub(super) fn most(values: &[&str]) -> Option<String> {
     let mut counts: HashMap<String, (usize, &str)> = HashMap::new();
     for v in values.iter().map(|v| v.trim()).filter(|v| !v.is_empty()) {
         counts.entry(v.to_lowercase()).or_insert((0, v)).0 += 1;
@@ -65,7 +65,12 @@ fn folder_names(dir: &Path, root: &Path) -> (Option<String>, String) {
 /// An album's name and artist, from its tracks' album and artist tags:
 /// the album most have (else the folder's name), and the main artist most
 /// have (else the folder's artist, else "Various Artists").
-fn album_title(dir: &Path, root: &Path, albums: &[&str], artists: &[&str]) -> (String, String) {
+pub(super) fn album_title(
+    dir: &Path,
+    root: &Path,
+    albums: &[&str],
+    artists: &[&str],
+) -> (String, String) {
     let (folder_artist, folder_album) = folder_names(dir, root);
     let name = most(albums).unwrap_or(folder_album);
     let mains: Vec<&str> = artists.iter().map(|a| main_artist(a)).collect();

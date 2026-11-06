@@ -34,7 +34,7 @@ pub mod sets;
 pub mod stages;
 pub mod tags;
 
-pub use moves::{Change, FileMove, MoveReport};
+pub use moves::{move_leftovers, Change, FileMove, MoveReport};
 
 /// Library track ids start here, clear of the built-in sample tracks.
 pub const ID_BASE: usize = 1_000_000;

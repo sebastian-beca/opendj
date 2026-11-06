@@ -248,6 +248,26 @@ pub fn destination(
         .find(|p| p == path || !taken(p))
 }
 
+/// Where an album moves to in the albums folder: `Artist/Album`, with
+/// " (2)" and so on after the album when a folder of that name is
+/// `taken`. None without an album name.
+pub fn album_destination(
+    albums: &Path,
+    artist: &str,
+    album: &str,
+    taken: impl Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    let album = safe(album);
+    if album.is_empty() {
+        return None;
+    }
+    let artist = Some(safe(artist)).filter(|a| !a.is_empty());
+    let dir = artist.map_or_else(|| albums.to_path_buf(), |a| albums.join(a));
+    std::iter::once(dir.join(&album))
+        .chain((2..1000).map(|n| dir.join(format!("{album} ({n})"))))
+        .find(|p| !taken(p))
+}
+
 /// What basic preparation a track has, as Triage shows it. A track with
 /// all of these can go into the collection.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -277,6 +297,26 @@ impl Prep {
 mod tests {
     use super::*;
     use opendj_engine::Source;
+
+    #[test]
+    fn albums_go_under_their_artist() {
+        let root = Path::new("/u/Albums");
+        let none = |_: &Path| false;
+        assert_eq!(
+            album_destination(root, "Air", "Moon Safari", none),
+            Some(PathBuf::from("/u/Albums/Air/Moon Safari"))
+        );
+        assert_eq!(
+            album_destination(root, "AC/DC", "Back in Black", none),
+            Some(PathBuf::from("/u/Albums/AC-DC/Back in Black"))
+        );
+        let first = |p: &Path| p == Path::new("/u/Albums/Air/Moon Safari");
+        assert_eq!(
+            album_destination(root, "Air", "Moon Safari", first),
+            Some(PathBuf::from("/u/Albums/Air/Moon Safari (2)"))
+        );
+        assert_eq!(album_destination(root, "Air", " ", none), None);
+    }
 
     #[test]
     fn searches_take_old_and_new_names() {
