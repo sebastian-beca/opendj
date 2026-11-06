@@ -84,8 +84,8 @@ openDJ keeps your playlists and the tracks of those you opened, so after a
 restart they show straight away. A playlist you open is checked again in
 the background and updated if it changed (Spotify, TIDAL, SoundCloud and
 Apple Music say when a playlist changed, so unchanged ones aren't fetched
-again at all). The refresh button at the top right of the track list
-fetches the list of playlists again. Signing out forgets what was kept.
+again at all). The refresh button at the top right of the side panel,
+beside the service's name, fetches the list of playlists again. Signing out forgets what was kept.
 
 ### Your own music server
 

@@ -2801,6 +2801,120 @@ fn beats_parameter(wanted: f32, lo: i32, hi: i32) -> f32 {
     (wanted.log2() - lo as f32) / (hi - lo) as f32
 }
 
+/// The effects a deck's stems can be sent into, as `[ChannelN],stem_fx`
+/// values 1 and up. One per deck: the stems with their quick effect on
+/// (`[QuickEffectRack1_[ChannelN_StemM]],enabled`) share it, which sounds
+/// the same as one each since both effects are linear.
+pub const STEM_FX: [&str; 2] = ["Echo", "Reverb"];
+
+/// How long a stem effect rings on once nothing is sent into it, in
+/// seconds, before the deck stops running it.
+const STEM_TAIL_SECONDS: f32 = 8.0;
+
+/// The echo's time, in beats.
+const STEM_ECHO_BEATS: f32 = 0.5;
+
+/// A deck's stem effect: the stems sent to it (each at its level, with
+/// the dry stems still playing in the deck) come back as the effect alone,
+/// added to the deck. Muting a sent stem leaves its echo or reverb ringing
+/// on: the echo out of a vocal.
+pub(crate) struct StemFx {
+    preset: usize,
+    inst: Instance,
+    /// Samples the tail rings on once nothing is sent, and its full length.
+    tail: f32,
+    tail_len: f32,
+    sample_rate: f32,
+}
+
+impl StemFx {
+    pub(crate) fn new(sample_rate: f64) -> Self {
+        let mut fx = Self {
+            preset: 0,
+            inst: Instance::with_memory(sample_rate as f32),
+            tail: 0.0,
+            tail_len: STEM_TAIL_SECONDS * sample_rate as f32,
+            sample_rate: sample_rate as f32,
+        };
+        fx.load(1);
+        fx
+    }
+
+    fn load(&mut self, preset: usize) {
+        self.preset = preset;
+        self.inst.kind = Some(if preset == 2 {
+            Kind::Reverb
+        } else {
+            Kind::Echo
+        });
+        self.clear();
+    }
+
+    /// Silences the effect at once, tail and all (a new track).
+    pub(crate) fn clear(&mut self) {
+        self.inst.reset();
+        self.tail = 0.0;
+    }
+
+    /// Once per buffer: the chosen effect (`stem_fx`) and the deck's beat
+    /// length in seconds.
+    pub(crate) fn prepare(&mut self, preset: f64, beat_seconds: f64) {
+        let preset = (preset.round() as usize).clamp(1, STEM_FX.len());
+        if preset != self.preset {
+            self.load(preset);
+        }
+        let ctx = Ctx {
+            sample_rate: self.sample_rate,
+            beat_seconds: beat_seconds as f32,
+            beat: None,
+        };
+        let p = match preset {
+            // Decay, bandwidth, damping, send: a big, slightly dark hall.
+            2 => [0.8, 0.7, 0.35, 1.0],
+            // Half a beat, repeats fading over a couple of bars, a little
+            // ping-pong, full send.
+            _ => [beats_parameter(STEM_ECHO_BEATS, -4, 2), 0.72, 0.25, 1.0],
+        };
+        self.inst.prepare(&p, ctx);
+    }
+
+    /// How long a stem must have been sent before muting it is heard, in
+    /// seconds: one echo, so the echo holds what was just played rather
+    /// than starting empty when the effect and the mute come together.
+    pub(crate) fn capture_seconds(&self, beat_seconds: f64) -> f64 {
+        match self.preset {
+            2 => 0.25,
+            _ => STEM_ECHO_BEATS as f64 * beat_seconds,
+        }
+    }
+
+    /// Whether the effect still has something to play.
+    pub(crate) fn ringing(&self) -> bool {
+        self.tail > 0.0
+    }
+
+    /// The effect alone for `x` sent in; `sending` while any stem is sent.
+    #[inline]
+    pub(crate) fn process(&mut self, x: [f32; 2], sending: bool) -> [f32; 2] {
+        if sending {
+            self.tail = self.tail_len;
+        } else if self.tail <= 0.0 {
+            return [0.0; 2];
+        } else {
+            self.tail -= 1.0;
+            if self.tail <= 0.0 {
+                // Rung out: start clean next time.
+                self.clear();
+                return [0.0; 2];
+            }
+        }
+        let y = self.inst.process(x);
+        // Fades over the last quarter of the tail, so cutting it is silent.
+        let fade = (self.tail / (0.25 * self.tail_len)).min(1.0);
+        [(y[0] - x[0]) * fade, (y[1] - x[1]) * fade]
+    }
+}
+
 mod extra;
 
 #[cfg(test)]

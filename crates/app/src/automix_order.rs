@@ -50,18 +50,6 @@ pub struct Item {
     pub key: Option<Key>,
 }
 
-/// How well one track mixes into the next, for the marks between rows.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Fit {
-    /// The keys mix (by the Harmonic or Fuzzy rule in the settings).
-    Mixes,
-    /// One semitone of key shift away from mixing.
-    Near,
-    Clash,
-    /// A key is missing.
-    Unknown,
-}
-
 /// The Camelot number (1..=12) and whether the key is minor (A).
 fn camelot(k: Key) -> (i32, bool) {
     let s = k.camelot();
@@ -83,19 +71,6 @@ pub fn key_steps(a: Key, b: Key, mixing: Mixing) -> u32 {
     let d = (na - nb).rem_euclid(12);
     let dn = d.min(12 - d) as u32;
     dn + u32::from(ma != mb)
-}
-
-pub fn fit(a: &Item, b: &Item, mixing: Mixing) -> Fit {
-    let (Some(ka), Some(kb)) = (a.key, b.key) else {
-        return Fit::Unknown;
-    };
-    if ka.mixes(kb, mixing) {
-        Fit::Mixes
-    } else if kb.shift_to_mix(ka, 1, mixing).is_some() {
-        Fit::Near
-    } else {
-        Fit::Clash
-    }
 }
 
 /// The tempo change from `a` to `b` in percent, counting half and double
@@ -360,15 +335,5 @@ mod tests {
             order(&items, 2, Order::Reverse, Mixing::Harmonic, &mut r),
             [0, 1, 5, 4, 3, 2]
         );
-    }
-
-    #[test]
-    fn fit_marks() {
-        let h = Mixing::Harmonic;
-        assert_eq!(fit(&item(0.0, "8A"), &item(0.0, "9A"), h), Fit::Mixes);
-        assert_eq!(fit(&item(0.0, "8A"), &item(0.0, ""), h), Fit::Unknown);
-        assert_eq!(fit(&item(0.0, "8A"), &item(0.0, "11A"), h), Fit::Clash);
-        // A semitone up from 8A (Am) is Bbm, 3A: shifted down it mixes.
-        assert_eq!(fit(&item(0.0, "8A"), &item(0.0, "3A"), h), Fit::Near);
     }
 }
