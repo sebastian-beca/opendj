@@ -48,3 +48,5 @@ multiple-versions = "allow"
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# mi-plaits-dsp (MIT) is only published on GitHub; Cargo.lock pins the commit.
+allow-git = ["https://github.com/sourcebox/mi-plaits-dsp-rs"]

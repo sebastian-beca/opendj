@@ -37,7 +37,8 @@
 - [ ] 5.2 Record what you play on the sampler pads into the groove
 - [ ] 5.3 Classic Machines kit pack in Get more Packs (CC0 recordings checked file by file, see design.md)
 - [ ] 5.4 A melodic row
-- [ ] 5.5 Accent per step and more rows per kit, in the style of rhythm composers with one lane per instrument
+- [x] 5.5 Accent per step and more rows per kit, in the style of rhythm composers with one lane per instrument (soft and accented steps, nine rows: Kick, Snare, Hat, Open hat, Clap, Rim, Cowbell, Crash, Ride)
+- [x] 5.7 Plaits drum models for the Analog and Synthetic kits; a groove library by genre read from text files in crates/engine/data/grooves, with a chain of two grooves that take turns a bar each
 - [ ] 5.6 Replace drums: a Groove Box over a track deck with that track's drum stem muted, plus drum roll and stutter on the groove
 
 ## Workflow follow-up

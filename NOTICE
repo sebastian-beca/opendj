@@ -66,3 +66,8 @@ and the cubic interpolation, oversampling, chorus, crunch and
 feedback-delay-network reverb designs of Signalsmith Audio's DSP and Basics
 libraries and "Let's write a reverb" (Geraint Luff, MIT licence). No code
 was copied from those libraries.
+
+The Analog and Synthetic Groove Box kits are rendered with
+mi-plaits-dsp (https://github.com/sourcebox/mi-plaits-dsp-rs), Oliver
+Rockstedt's Rust port of the drum models in Mutable Instruments Plaits,
+Copyright (c) Emilie Gillet, under the MIT licence.

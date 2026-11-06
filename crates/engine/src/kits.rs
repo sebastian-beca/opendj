@@ -1,21 +1,40 @@
-//! The Groove Box's built-in kits and named grooves.
+//! The Groove Box's built-in kits.
 //!
-//! Every sound is synthesised here when the engine starts, in the style of
-//! the classic analogue drum machines: a kick is a sine wave swept down in
+//! Every sound is synthesised here when the engine starts, so the kits need
+//! no sample files. The Analog and Synthetic kits play the drum models of
+//! Mutable Instruments' Plaits (Emilie Gillet's, MIT, through the
+//! `mi-plaits-dsp` port): a kick that is a resonant filter struck by a
+//! pulse, a snare of tuned modes and noise, hats of square-wave metal or
+//! ring-modulated noise. The other kits are drawn here in the style of the
+//! classic analogue drum machines: a kick is a sine wave swept down in
 //! pitch with a click on top, a snare two tones and filtered noise, a clap
 //! a few quick bursts of noise, the hats six square waves at clashing
 //! pitches through a high-pass filter (the way the 808 makes its cymbals),
 //! the cowbell two square waves through a band-pass. Nothing is sampled
-//! from another machine, so the kits need no sample files and carry no
-//! licence beyond openDJ's own. Kits are named by their character, never
-//! after a manufacturer's model.
+//! from another machine. Kits are named by their character, never after a
+//! manufacturer's model.
+//!
+//! Every kit has the same nine sounds first, in [`ROLES`] order, so row N
+//! of a groove plays the same kind of sound in any kit; some kits add
+//! sounds of their own after them, for a row to switch to.
 
 use std::f32::consts::TAU;
 use std::sync::Arc;
 
+use mi_plaits_dsp::drums::{
+    analog_bass_drum::AnalogBassDrum, analog_snare_drum::AnalogSnareDrum, hihat,
+    synthetic_bass_drum::SyntheticBassDrum, synthetic_snare_drum::SyntheticSnareDrum,
+};
+
 use crate::sampler::Sample;
 
-pub const SOUNDS_PER_KIT: usize = 8;
+/// The sounds every kit has, in the Groove Box's row order.
+pub const ROLES: [&str; 9] = [
+    "Kick", "Snare", "Hat", "Open hat", "Clap", "Rim", "Cowbell", "Crash", "Ride",
+];
+
+/// The most sounds a kit has (the nine roles and its own).
+pub const MAX_SOUNDS: usize = 12;
 
 pub struct KitSound {
     pub name: &'static str,
@@ -27,110 +46,55 @@ pub struct Kit {
     pub sounds: Vec<KitSound>,
 }
 
-/// A kit as the app lists it: its name, a line about it, and its sounds'
-/// names in order (rows 1-4 start on the first four).
 pub struct KitInfo {
     pub name: &'static str,
     pub about: &'static str,
-    pub sounds: [&'static str; SOUNDS_PER_KIT],
+    /// Sounds after the nine [`ROLES`].
+    pub extras: &'static [&'static str],
 }
 
-pub const KITS: [KitInfo; 4] = [
+impl KitInfo {
+    /// The kit's sounds' names, in order.
+    pub fn sounds(&self) -> impl Iterator<Item = &'static str> + '_ {
+        ROLES.iter().copied().chain(self.extras.iter().copied())
+    }
+}
+
+pub const KITS: [KitInfo; 6] = [
+    KitInfo {
+        name: "Analog",
+        about: "Round, warm analogue drums (Plaits drum models)",
+        extras: &["Low tom", "High tom"],
+    },
+    KitInfo {
+        name: "Synthetic",
+        about: "Tight digital kick and snare, crisp hats (Plaits drum models)",
+        extras: &["Low tom", "High tom"],
+    },
     KitInfo {
         name: "Boom",
         about: "Deep, long kick and soft analogue drums, 808-style",
-        sounds: [
-            "Kick", "Snare", "Hat", "Open hat", "Clap", "Cowbell", "Rim", "Tom",
-        ],
+        extras: &["Tom"],
     },
     KitInfo {
         name: "Punch",
         about: "Short, punchy kick and bright hats for house and techno, 909-style",
-        sounds: [
-            "Kick", "Clap", "Hat", "Open hat", "Snare", "Ride", "Rim", "Tom",
-        ],
+        extras: &["Tom"],
     },
     KitInfo {
         name: "Tin",
         about: "Small, ticking rhythm-box drums, 606-style",
-        sounds: [
-            "Kick", "Snare", "Hat", "Shaker", "Open hat", "Cowbell", "Rim", "Tom",
-        ],
+        extras: &["Shaker", "Tom"],
     },
     KitInfo {
         name: "Dub",
         about: "Soft kick, rimshot and a chord stab for dub techno",
-        sounds: [
-            "Kick", "Rim", "Hat", "Chord", "Clap", "Open hat", "Shaker", "Tom",
-        ],
+        extras: &["Chord", "Shaker", "Tom"],
     },
 ];
 
-/// A named groove: four rows of 16 steps, `x` a hit and `.` a rest. Rows
-/// are kick, snare (or clap), hat and percussion.
-pub struct NamedGroove {
-    pub name: &'static str,
-    pub rows: [&'static str; 4],
-}
-
-pub const GROOVES: [NamedGroove; 6] = [
-    NamedGroove {
-        name: "Four to the floor",
-        rows: [
-            "x...x...x...x...",
-            "....x.......x...",
-            "x.x.x.x.x.x.x.x.",
-            "................",
-        ],
-    },
-    NamedGroove {
-        name: "Off-beat hats",
-        rows: [
-            "x...x...x...x...",
-            "....x.......x...",
-            "xx.xxx.xxx.xxx.x",
-            "..x...x...x...x.",
-        ],
-    },
-    NamedGroove {
-        name: "Breakbeat",
-        rows: [
-            "x.x.......x.....",
-            "....x..x.x..x...",
-            "x.x.x.x.x.x.x.x.",
-            "..............x.",
-        ],
-    },
-    NamedGroove {
-        name: "Half time",
-        rows: [
-            "x.........x.....",
-            "........x.......",
-            "x.x.x.x.x.x.x.x.",
-            "...x.......x....",
-        ],
-    },
-    NamedGroove {
-        name: "Electro",
-        rows: [
-            "x.....x...x.....",
-            "....x.......x...",
-            "x.x.x.x.x.x.x.xx",
-            ".......x......x.",
-        ],
-    },
-    NamedGroove {
-        name: "Minimal",
-        rows: [
-            "x...x...x...x...",
-            "................",
-            "..x...x...x...x.",
-            ".x.....x.x......",
-        ],
-    },
-];
-
-/// A row's steps as bits: bit s set when step s+1 is `x` (or `X`, `o`).
+/// Turns a row of steps written as text into a 16-bit pattern: `x`, `X`
+/// or `o` is a hit, anything else a rest.
 pub fn parse_steps(steps: &str) -> u32 {
     steps
         .chars()
@@ -140,7 +104,6 @@ pub fn parse_steps(steps: &str) -> u32 {
         .fold(0, |bits, (i, _)| bits | 1 << i)
 }
 
-/// Synthesises every kit for an engine running at `rate`.
 pub fn build(rate: f64) -> Vec<Kit> {
     let sr = rate as f32;
     KITS.iter()
@@ -148,48 +111,151 @@ pub fn build(rate: f64) -> Vec<Kit> {
         .map(|(k, info)| Kit {
             name: info.name,
             sounds: info
-                .sounds
-                .iter()
+                .sounds()
                 .enumerate()
-                .map(|(n, &name)| KitSound {
+                .map(|(n, name)| KitSound {
                     name,
-                    sample: Arc::new(Sample::from_mono(&sound(k, n, sr), rate)),
+                    sample: Arc::new(Sample::from_mono(&sound(k, n, name, sr), rate)),
                 })
                 .collect(),
         })
         .collect()
 }
 
-/// Kit `k`'s sound `n`.
-fn sound(k: usize, n: usize, sr: f32) -> Vec<f32> {
-    let name = KITS[k].sounds[n];
+/// Kit `k`'s sound `n`, called `name`.
+fn sound(k: usize, n: usize, name: &str, sr: f32) -> Vec<f32> {
     let seed = (k * 16 + n) as u32 + 1;
-    match (k, name) {
-        (0, "Kick") => kick(sr, 150.0, 48.0, 0.035, 0.9, 0.25, 1.0),
-        (1, "Kick") => kick(sr, 260.0, 52.0, 0.022, 0.34, 0.6, 2.2),
-        (2, "Kick") => kick(sr, 200.0, 70.0, 0.015, 0.2, 0.4, 1.4),
+    match (KITS[k].name, name) {
+        ("Analog", "Kick") => plaits_kick(sr, 52.0, 0.45, 0.5, 0.25, 0.2),
+        ("Analog", "Snare") => plaits_snare(sr, 190.0, 0.5, 0.45, 0.6),
+        ("Analog", "Clap") => plaits_snare(sr, 330.0, 0.8, 0.35, 0.95),
+        ("Analog", "Hat") => plaits_hat(sr, false, 0.25, 0.3),
+        ("Analog", "Open hat") => plaits_hat(sr, false, 0.6, 0.3),
+        ("Analog", "Low tom") => plaits_kick(sr, 95.0, 0.5, 0.45, 0.1, 0.0),
+        ("Analog", "High tom") => plaits_kick(sr, 150.0, 0.55, 0.4, 0.1, 0.0),
+        ("Synthetic", "Kick") => plaits_synth_kick(sr, 50.0),
+        ("Synthetic", "Snare") => plaits_synth_snare(sr),
+        ("Synthetic", "Hat") => plaits_hat(sr, true, 0.2, 0.6),
+        ("Synthetic", "Open hat") => plaits_hat(sr, true, 0.6, 0.6),
+        ("Synthetic", "Low tom") => plaits_kick(sr, 100.0, 0.6, 0.4, 0.3, 0.1),
+        ("Synthetic", "High tom") => plaits_kick(sr, 160.0, 0.65, 0.35, 0.3, 0.1),
+        ("Boom", "Kick") => kick(sr, 150.0, 48.0, 0.035, 0.9, 0.25, 1.0),
+        ("Punch", "Kick") => kick(sr, 260.0, 52.0, 0.022, 0.34, 0.6, 2.2),
+        ("Tin", "Kick") => kick(sr, 200.0, 70.0, 0.015, 0.2, 0.4, 1.4),
         (_, "Kick") => kick(sr, 110.0, 44.0, 0.04, 0.55, 0.1, 1.0),
-        (0, "Snare") => snare(sr, [180.0, 330.0], 0.12, 0.16, 0.5, seed),
-        (1, "Snare") => snare(sr, [200.0, 360.0], 0.08, 0.2, 0.75, seed),
+        ("Boom", "Snare") => snare(sr, [180.0, 330.0], 0.12, 0.16, 0.5, seed),
+        ("Punch", "Snare") => snare(sr, [200.0, 360.0], 0.08, 0.2, 0.75, seed),
         (_, "Snare") => snare(sr, [240.0, 420.0], 0.05, 0.1, 0.65, seed),
-        (_, "Clap") => clap(sr, if k == 1 { 0.22 } else { 0.16 }, seed),
-        (1, "Hat") => hat(sr, 0.05, 8000.0, seed),
-        (2, "Hat") => hat(sr, 0.03, 9000.0, seed),
-        (3, "Hat") => hat(sr, 0.035, 7000.0, seed),
+        ("Punch", "Clap") => clap(sr, 0.22, seed),
+        (_, "Clap") => clap(sr, 0.16, seed),
+        ("Punch", "Hat") => hat(sr, 0.05, 8000.0, seed),
+        ("Tin", "Hat") => hat(sr, 0.03, 9000.0, seed),
+        ("Dub", "Hat") => hat(sr, 0.035, 7000.0, seed),
         (_, "Hat") => hat(sr, 0.045, 7500.0, seed),
-        (1, "Open hat") => hat(sr, 0.35, 7500.0, seed),
+        ("Punch", "Open hat") => hat(sr, 0.35, 7500.0, seed),
         (_, "Open hat") => hat(sr, 0.28, 7000.0, seed),
         (_, "Ride") => ride(sr, seed),
-        (2, "Cowbell") => cowbell(sr, [800.0, 1180.0], 0.12),
+        (_, "Crash") => crash(sr, seed),
+        ("Tin", "Cowbell") => cowbell(sr, [800.0, 1180.0], 0.12),
         (_, "Cowbell") => cowbell(sr, [540.0, 800.0], 0.2),
-        (3, "Rim") => rim(sr, 0.05, seed),
+        ("Dub", "Rim") => rim(sr, 0.05, seed),
         (_, "Rim") => rim(sr, 0.03, seed),
-        (0, "Tom") => tom(sr, 110.0, 0.45),
+        ("Boom", "Tom") => tom(sr, 110.0, 0.45),
         (_, "Tom") => tom(sr, 140.0, 0.3),
         (_, "Shaker") => shaker(sr, seed),
         (_, "Chord") => chord(sr),
         _ => Vec::new(),
     }
+}
+
+// The Plaits drum models, struck once and rendered until they die away.
+
+/// Frames per render call, as on the module.
+const PLAITS_BLOCK: usize = 24;
+
+/// Renders `seconds` of a model struck at the start, trimmed of its silent
+/// tail and scaled to a peak of `peak`.
+fn plaits(sr: f32, seconds: f32, peak: f32, mut render: impl FnMut(bool, &mut [f32])) -> Vec<f32> {
+    let blocks = frames(sr, seconds).div_ceil(PLAITS_BLOCK);
+    let mut out = Vec::with_capacity(blocks * PLAITS_BLOCK);
+    let mut block = [0.0f32; PLAITS_BLOCK];
+    for b in 0..blocks {
+        render(b == 0, &mut block);
+        out.extend_from_slice(&block);
+    }
+    let max = out.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    let quiet = max * 1e-3;
+    let end = out
+        .iter()
+        .rposition(|s| s.abs() > quiet)
+        .map_or(0, |i| i + 1);
+    out.truncate(end.max(1));
+    finish(out, peak, sr)
+}
+
+/// The analogue kick: a resonant filter struck by a pulse.
+fn plaits_kick(sr: f32, hz: f32, tone: f32, decay: f32, attack_fm: f32, self_fm: f32) -> Vec<f32> {
+    let mut d = AnalogBassDrum::new();
+    d.init(sr);
+    plaits(sr, 1.2, 0.95, |t, o| {
+        d.render(false, t, 0.8, hz / sr, tone, decay, attack_fm, self_fm, o)
+    })
+}
+
+/// The analogue snare; bright and snappy, it stands in for a clap.
+fn plaits_snare(sr: f32, hz: f32, tone: f32, decay: f32, snappy: f32) -> Vec<f32> {
+    let mut d = AnalogSnareDrum::new();
+    d.init(sr);
+    plaits(sr, 0.8, 0.8, |t, o| {
+        d.render(false, t, 0.8, hz / sr, tone, decay, snappy, o)
+    })
+}
+
+/// Ring-modulated noise (`square` false) or six square waves, with a
+/// closed (short `decay`) or open envelope.
+fn plaits_hat(sr: f32, square: bool, decay: f32, noisiness: f32) -> Vec<f32> {
+    let mut d = hihat::Hihat::new();
+    d.init(sr);
+    let (mut a, mut b) = ([0.0f32; PLAITS_BLOCK], [0.0f32; PLAITS_BLOCK]);
+    let (noise, vca) = if square {
+        (hihat::NoiseType::Square, hihat::VcaType::Linear)
+    } else {
+        (hihat::NoiseType::RingMod, hihat::VcaType::Swing)
+    };
+    plaits(sr, 1.0, 0.6, |t, o| {
+        d.render(
+            false,
+            t,
+            0.8,
+            3000.0 / sr,
+            0.5,
+            decay,
+            noisiness,
+            &mut a,
+            &mut b,
+            o,
+            noise,
+            vca,
+            !square,
+            square,
+        )
+    })
+}
+
+fn plaits_synth_kick(sr: f32, hz: f32) -> Vec<f32> {
+    let mut d = SyntheticBassDrum::new();
+    d.init(sr);
+    plaits(sr, 1.2, 0.95, |t, o| {
+        d.render(false, t, 0.8, hz / sr, 0.5, 0.5, 0.4, 0.5, 0.3, o)
+    })
+}
+
+fn plaits_synth_snare(sr: f32) -> Vec<f32> {
+    let mut d = SyntheticSnareDrum::new();
+    d.init(sr);
+    plaits(sr, 0.8, 0.8, |t, o| {
+        d.render(false, t, 0.8, 200.0 / sr, 0.5, 0.45, 0.6, o)
+    })
 }
 
 /// A small, repeatable noise source.
@@ -383,6 +449,17 @@ fn ride(sr: f32, seed: u32) -> Vec<f32> {
     finish(v, 0.5, sr)
 }
 
+fn crash(sr: f32, seed: u32) -> Vec<f32> {
+    let n = frames(sr, 2.2);
+    let mut v = metal(sr, n, 3500.0, seed);
+    let mut noise = Noise(seed ^ 0x5a5a);
+    for (i, s) in v.iter_mut().enumerate() {
+        let t = i as f32 / sr;
+        *s = (*s * 0.7 + noise.next() * 0.3) * (0.5 * (-t / 0.05).exp() + 0.5 * (-t / 0.7).exp());
+    }
+    finish(v, 0.5, sr)
+}
+
 /// Two square waves through a band-pass.
 fn cowbell(sr: f32, pitches: [f32; 2], decay: f32) -> Vec<f32> {
     let n = frames(sr, decay * 4.0);
@@ -474,7 +551,10 @@ mod tests {
         let kits = build(48_000.0);
         assert_eq!(kits.len(), KITS.len());
         for kit in &kits {
-            assert_eq!(kit.sounds.len(), SOUNDS_PER_KIT);
+            assert!(kit.sounds.len() <= MAX_SOUNDS, "{}", kit.name);
+            for (role, s) in ROLES.iter().zip(&kit.sounds) {
+                assert_eq!(*role, s.name, "{} plays the roles in order", kit.name);
+            }
             for s in &kit.sounds {
                 assert!(!s.sample.is_empty(), "{} {}", kit.name, s.name);
                 assert!(s.sample.seconds() < 5.0, "{} {}", kit.name, s.name);
@@ -492,13 +572,8 @@ mod tests {
     }
 
     #[test]
-    fn grooves_parse_to_sixteen_steps() {
+    fn steps_parse_to_sixteen_bits() {
         assert_eq!(parse_steps("x...x...x...x..."), 0b0001_0001_0001_0001);
-        for g in &GROOVES {
-            for r in g.rows {
-                assert_eq!(r.len(), 16, "{}", g.name);
-            }
-            assert!(parse_steps(g.rows[0]) != 0, "{} has a kick", g.name);
-        }
+        assert_eq!(parse_steps("o.X."), 0b0101);
     }
 }

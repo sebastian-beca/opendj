@@ -33,6 +33,7 @@ pub mod loudness;
 pub mod meter;
 mod output;
 pub mod paths;
+pub mod patterns;
 pub mod phrases;
 pub mod plugins;
 pub mod preview;
