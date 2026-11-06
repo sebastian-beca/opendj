@@ -364,6 +364,35 @@ box narrows it. A track leaves the list once your collection has it; to
 take tracks off by hand, pick them (⌘A picks all) and right-click for
 **Remove from Wanted**.
 
+### Buying Wanted tracks
+
+Pick tracks on the Wanted list, right-click and choose **Buy…** (or **Buy
+N Tracks…**). openDJ looks for each track in the stores it knows: the
+artist's own site and Bandcamp, Mirlo, the iTunes Store, Qobuz, Bleep,
+Boomkat, Beatport, Juno Download, Traxsource and Amazon Music. It finds
+tracks by their ISRC on MusicBrainz, by Bandcamp's and the iTunes Store's
+search, and opens a search on the stores it can't ask.
+
+For each track it chooses a store that has it, preferring the artist's
+own site, Bandcamp and Mirlo, where most of the money goes to the artist,
+then the store whose files reach your library fastest, then lossless
+files. A store that doesn't have the track only shows up as **Try**, to
+search there. Click a track's store to choose another one it's sold on.
+
+The tracks are grouped by store. **Open** opens a store's pages, ten at a
+time: add each one to the store's cart and check out once on that store.
+openDJ never sees your payment, and its links carry no referral codes.
+Tracks you opened show **Buying on …** for a week.
+
+Turn on **Bring purchases into Inbox** and what you download into
+Downloads afterwards is filed into your music folder, goes to the
+**Inbox** stage and comes off the Wanted list, matched by ISRC or by
+artist, title and length. Zips are unpacked. It takes only files that
+arrive after you turn it on. On a Mac, **Also take purchases from the
+Music app** does the same for iTunes Store purchases the Music app
+downloads, taking only tracks you are buying and leaving them where the
+Music app keeps them.
+
 ## Bringing in a rekordbox library
 
 **Import from rekordbox** works the same way. openDJ reads rekordbox 6 and
@@ -611,3 +640,22 @@ each fill a group (each word a tag, the `#` dropped), and each rekordbox My
 Tag category becomes a group of the same name. A group you already have
 with that name takes them. Rename a group made this way and later imports
 still go into it.
+
+## Backups
+
+openDJ backs up your collection (cues, tags, crates, playlists and
+history) and your settings once a day, under **Backups** in
+**Settings › Collection › General**. **Back up** sets how often: **Off**,
+**Daily** (the default) or **Weekly**. The newest 10 backups are kept.
+Each is one `.opendjbackup` file, which also holds your own controller
+mappings. Sign-ins to streaming services stay out of it.
+
+**Backup folder** is a `Backups` folder next to openDJ's settings until
+you pick another; a cloud folder (iCloud Drive, Dropbox) keeps your
+backups off the computer. **Back Up Now** makes one straight away.
+
+**Restore…** picks a backup. It goes in when openDJ next starts, so quit
+and open it again. How things were before is saved first, as a
+"Before restore" backup in the backup folder, and you stay signed in to
+your services. **Cancel** drops a restore that hasn't happened yet.
+Music and sample files are not part of a backup.

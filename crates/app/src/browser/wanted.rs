@@ -5,8 +5,8 @@
 //! track leaves it when the collection gets it, or with Remove from Wanted.
 //!
 //! The same menus offer Add to Downloads when an add-on source downloads
-//! (see `StoreUi.downloads-to`); a store's cart can join them later, beside
-//! these two.
+//! (see `StoreUi.downloads-to`). Buy on Wanted rows opens them on stores
+//! (see `buy`).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -24,6 +24,9 @@ pub(super) struct Want {
     pub artist: String,
     pub title: String,
     pub page: String,
+    /// What matches it to the file bought for it, when the service knew.
+    pub isrc: String,
+    pub duration: f64,
 }
 
 impl Want {
@@ -144,13 +147,15 @@ impl Browser {
                     artist: t.artist(),
                     title: t.title.clone(),
                     page: t.page.clone(),
+                    isrc: t.isrc.clone(),
+                    duration: t.duration,
                 })
             })
             .collect()
     }
 
     /// The wanted tracks in rows `first` to `last` of the Wanted list.
-    fn wanted_at(&self, first: usize, last: usize) -> Vec<&opendj_library::Wanted> {
+    pub(super) fn wanted_at(&self, first: usize, last: usize) -> Vec<&opendj_library::Wanted> {
         if !self.shows_wanted() {
             return Vec::new();
         }
@@ -189,7 +194,9 @@ impl Browser {
         let Some(db) = &self.db else { return 0 };
         let mut added = 0;
         for w in wants.iter().filter(|w| !w.page.is_empty()) {
-            match db.add_wanted(&w.store, &w.artist, &w.title, &w.page) {
+            let result = db.add_wanted(&w.store, &w.artist, &w.title, &w.page);
+            let _ = db.set_wanted_details(&w.page, &w.isrc, w.duration);
+            match result {
                 Ok(true) => added += 1,
                 Ok(false) => {}
                 Err(e) => {
@@ -261,6 +268,8 @@ impl Browser {
                             artist: t.artist(),
                             title: t.title.clone(),
                             page: t.page.clone(),
+                            isrc: t.isrc.clone(),
+                            duration: t.duration,
                         })
                         .collect(),
                 ))
@@ -276,6 +285,8 @@ impl Browser {
                                 artist: s.artist.clone(),
                                 title: s.title.clone(),
                                 page: s.page_url()?,
+                                isrc: s.isrc.clone(),
+                                duration: s.duration,
                             }),
                             ListEntry::Track(_) => None,
                         })
@@ -368,6 +379,8 @@ impl Browser {
                     artist: t.artist(),
                     title: t.title.clone(),
                     page: t.page.clone(),
+                    isrc: t.isrc.clone(),
+                    duration: t.duration,
                 })
                 .collect(),
         )
@@ -390,7 +403,11 @@ impl Browser {
         let Some(db) = &self.db else { return 0 };
         let mut added = 0;
         for w in wants.iter().filter(|w| !w.page.is_empty()) {
-            match db.add_wanted_unless_dismissed(&w.store, &w.artist, &w.title, &w.page) {
+            let result = db.add_wanted_unless_dismissed(&w.store, &w.artist, &w.title, &w.page);
+            if matches!(result, Ok(true)) {
+                let _ = db.set_wanted_details(&w.page, &w.isrc, w.duration);
+            }
+            match result {
                 Ok(true) => added += 1,
                 Ok(false) => {}
                 Err(e) => {
@@ -530,6 +547,8 @@ mod tests {
             artist: "Satorio".into(),
             title: "Crystal Bowls".into(),
             page: String::new(),
+            isrc: String::new(),
+            duration: 0.0,
         };
         assert_eq!(w.search_text(), "Satorio - Crystal Bowls");
     }

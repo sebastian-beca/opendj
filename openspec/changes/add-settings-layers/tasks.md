@@ -20,7 +20,7 @@
 
 - [ ] 3.1 Tempo on load, Load at, Match tempo on load
 - [ ] 3.2 Hot cue on a playing deck (Jump / Stutter), Jog touch, Track end warning
-- [ ] 3.3 Preview starts at, Write changes to tags, Back up the collection
+- [ ] 3.3 Preview starts at, Write changes to tags, Back up the collection (Back up the collection done in #363)
 - [ ] 3.4 Recording file name, Get beta versions, Knobs that don't match the screen
 - [ ] 3.5 Right-click menus on deck controls for the deck choices
 - [ ] 3.6 Regenerate website/book/supported-controls.txt if any control is added
