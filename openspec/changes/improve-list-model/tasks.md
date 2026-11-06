@@ -8,11 +8,11 @@
 
 ## 2. Crates as their own kind
 
-- [ ] 2.1 Crate stored as its own kind; existing top-level lists stay crates, playlists stay playlists
-- [ ] 2.2 Crates unordered, each track once, sorted like the Collection
-- [ ] 2.3 Crates in folders; New Crate on any folder
-- [ ] 2.4 Make It a Crate / Make It a Playlist
-- [ ] 2.5 Fixed playlist icon, distinct from folders; crates keep their icon or the picked one
+- [x] 2.1 Crate stored as its own kind; existing top-level lists stay crates, playlists stay playlists
+- [x] 2.2 Crates unordered, each track once, sorted like the Collection
+- [x] 2.3 Crates in folders; New Crate on any folder
+- [x] 2.4 Make It a Crate / Make It a Playlist
+- [x] 2.5 Fixed playlist icon, distinct from folders; crates keep their icon or the picked one
 
 ## 3. Drag to move
 

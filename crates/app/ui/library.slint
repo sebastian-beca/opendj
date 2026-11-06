@@ -260,14 +260,17 @@ export global LibraryEdit {
     in-out property <bool> history-tab;
     // The selected node is one of the DJ's lists, so a track can be taken out.
     in property <bool> in-list;
-    // Makes a crate (0), a folder (1) or a playlist (2) and returns its row
-    // in the tree. Folders and playlists go in the folder at tree row `at`,
-    // or (-1) at the top of Playlists.
+    // Makes a crate (0), a folder (1), a playlist (2) or a folder at the top
+    // of Crates (3) and returns its row in the tree. Crates, folders and
+    // playlists go in the folder at tree row `at`, or (-1) at the top of
+    // Crates (a crate) or Playlists.
     callback create(kind: int, at: int) -> int;
     callback rename(index: int, name: string);
     callback delete(index: int);
     // Makes the import whose top folder is at tree row `index` the DJ's own.
     callback adopt-import(index: int);
+    // Turns the list at tree row `index` into a crate (true) or a playlist.
+    callback set-crate(index: int, crate: bool);
     pure callback accepts-drop(index: int, data: data-transfer) -> bool;
     callback drop(index: int, data: data-transfer);
     // Tracks from the side panel or a deck dropped on the open list (empty
@@ -1703,6 +1706,29 @@ component FolderIcon inherits Rectangle {
             : icon == 7 ? "M 3 15 C 3 8 7 3 15.5 2.5 C 15.5 10 11 15 3 15 Z M 3 15 L 10 8"
             : "M 2 5 L 16 5 L 16 15 L 2 15 Z M 2 8.5 L 16 8.5 M 2 11.8 L 16 11.8";
     }
+    // Playlist: lines of a running order with a note, so it reads apart
+    // from a folder and from a crate's slatted box. Always this icon.
+    if kind == 2: Rectangle {
+        Path {
+            width: 18px;
+            height: 18px;
+            viewbox-width: 18;
+            viewbox-height: 18;
+            stroke: Theme.text;
+            stroke-width: 1.6px;
+            stroke-line-cap: round;
+            fill: transparent;
+            commands: "M 2 4 L 11 4 M 2 8.5 L 11 8.5 M 2 13 L 7.5 13 M 14.5 13.5 L 14.5 3.5 L 17 5";
+        }
+        Rectangle {
+            x: 10.6px;
+            y: 11.7px;
+            width: 4.6px;
+            height: 4.2px;
+            border-radius: 2.1px;
+            background: Theme.text;
+        }
+    }
     // Collection Health's Overview: the rail's Health icon.
     if kind == 12: Image {
         width: 18px;
@@ -1750,7 +1776,7 @@ component FolderIcon inherits Rectangle {
             commands: "M 9 3 A 6 6 0 1 1 8.99 3 Z";
         }
     }
-    if kind != 1 && kind != 6 && kind != 7 && kind != 9 && kind != 11 && kind != 12 && kind != 21 && kind != 14 && kind != 15 && kind != 16 && kind != 17 && kind != 18 && kind != 20: Text {
+    if kind != 1 && kind != 2 && kind != 6 && kind != 7 && kind != 9 && kind != 11 && kind != 12 && kind != 21 && kind != 14 && kind != 15 && kind != 16 && kind != 17 && kind != 18 && kind != 20: Text {
         text: kind == 0 || kind == 19 ? "♫" : kind == 3 ? "✦" : kind == 4 ? "♥" : kind == 5 ? "◷" : kind == 8 ? "★" : kind == 10 ? "↓" : kind == 12 ? "✚" : kind == 13 ? "◦" : "≡";
         // The collection's stages in their own colors.
         color: Theme.stage-tint(kind);
@@ -2410,6 +2436,31 @@ component FolderTree inherits Rectangle {
             }
         }
     }
+    // + on Crates: a crate or a folder for crates.
+    crate-menu := PopupWindow {
+        x: 130px;
+        y: add-y;
+        width: 180px;
+        close-policy: close-on-click-outside;
+        MenuBackground {}
+        VerticalLayout {
+            padding: 6px;
+            MenuLine {
+                text: "Crate";
+                clicked => {
+                    name-in-place(LibraryEdit.create(0, -1));
+                    crate-menu.close();
+                }
+            }
+            MenuLine {
+                text: "Crate Folder";
+                clicked => {
+                    name-in-place(LibraryEdit.create(3, -1));
+                    crate-menu.close();
+                }
+            }
+        }
+    }
     add-menu := PopupWindow {
         x: 130px;
         y: add-y;
@@ -2548,6 +2599,13 @@ component FolderTree inherits Rectangle {
                 }
             }
             if menu-editable && menu-kind == 1: MenuLine {
+                text: "New Crate";
+                clicked => {
+                    name-in-place(LibraryEdit.create(0, menu-index));
+                    folder-menu.close();
+                }
+            }
+            if menu-editable && menu-kind == 1: MenuLine {
                 text: "New Playlist";
                 clicked => {
                     folder-menu.close();
@@ -2633,6 +2691,15 @@ component FolderTree inherits Rectangle {
                 Rectangle { horizontal-stretch: 1; }
             }
             if menu-editable && menu-kind == 17: MenuSeparator {}
+            // A crate keeps no order and each track once; a playlist keeps
+            // an order.
+            if menu-editable && (menu-kind == 2 || menu-kind == 17): MenuLine {
+                text: menu-kind == 2 ? "Make It a Crate" : "Make It a Playlist";
+                clicked => {
+                    LibraryEdit.set-crate(menu-index, menu-kind == 2);
+                    folder-menu.close();
+                }
+            }
             if menu-editable: MenuLine {
                 text: "Rename…";
                 clicked => {
@@ -2935,11 +3002,11 @@ component FolderTree inherits Rectangle {
                                 mouse-cursor: pointer;
                                 clicked => {
                                     // Playlists asks what to make.
+                                    add-y = self.absolute-position.y - root.absolute-position.y + self.height;
                                     if f.name != "Crates" {
-                                        add-y = self.absolute-position.y - root.absolute-position.y + self.height;
                                         add-menu.show();
                                     } else {
-                                        name-in-place(LibraryEdit.create(0, -1));
+                                        crate-menu.show();
                                     }
                                 }
                             }
