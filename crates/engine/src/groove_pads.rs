@@ -12,21 +12,25 @@
 //! The rest is here, so every controller behaves alike. `[GrooveN],pad_mode`
 //! picks what the pads do:
 //!
-//! - **Steps** (0): the 16 steps of the selected row (`row_selected`, 1-8)
+//! - **Steps** (0): the 16 steps of the selected row (`row_selected`, 1-9)
 //!   of the groove on screen. A press adds or removes a hit; while stopped
 //!   it also plays the sound once.
 //! - **Play** (1): pads 1-8 (and again 9-16) play rows 1-8, now, as loud
 //!   as the pad is hit. With `record` on while playing, the hit is also written
 //!   into the nearest step of the groove playing.
 //! - **Grooves** (2): pads 1-4 pick groove A-D (on the next bar, as the
-//!   screen's buttons do), 5-8 the kit, 9 on load the kit's named grooves
-//!   into the groove playing.
+//!   screen's buttons do), 5-8 the kit, 9-16 load the first eight grooves
+//!   of the genre picked into the groove playing.
 //!
 //! `row_clear` empties the selected row of the groove on screen.
 
 use opendj_control::{Behavior, ControlHandle, ControlRegistry};
 
 use crate::groove::{groove_group, GROOVES, ROWS, STEPS};
+
+/// The rows the pads play in Play mode, twice over (the ninth, Ride, only
+/// in Steps mode for now).
+pub const PLAY_ROWS: usize = 8;
 use crate::kits;
 
 pub const PADS: usize = 16;
@@ -41,7 +45,7 @@ pub mod mode {
 /// The colours a pad shows, as `[GrooveN],padK_color` holds them.
 pub mod light {
     pub const OFF: u8 = 0;
-    /// Rows in their own colour: `ROW + row` (row 0-7).
+    /// Rows in their own colour: `ROW + row` (row 0-7); row 8 is `ROW_9`.
     pub const ROW: u8 = 1;
     /// The step playing.
     pub const PLAYHEAD: u8 = 9;
@@ -51,9 +55,30 @@ pub mod light {
     pub const DIM: u8 = 11;
     /// The groove waiting for the bar.
     pub const QUEUED: u8 = 12;
-    /// Rows dimmed: `ROW_DIM + row`.
+    /// Rows dimmed: `ROW_DIM + row` (row 0-7); row 8 is `ROW_9_DIM`.
     pub const ROW_DIM: u8 = 13;
-    pub const MAX: u8 = 20;
+    /// The ninth row, bright and dimmed.
+    pub const ROW_9: u8 = 21;
+    pub const ROW_9_DIM: u8 = 22;
+    pub const MAX: u8 = 22;
+
+    /// Row `row`'s own colour.
+    pub fn row(row: usize) -> u8 {
+        if row < 8 {
+            ROW + row as u8
+        } else {
+            ROW_9
+        }
+    }
+
+    /// Row `row`'s colour, dimmed.
+    pub fn row_dim(row: usize) -> u8 {
+        if row < 8 {
+            ROW_DIM + row as u8
+        } else {
+            ROW_9_DIM
+        }
+    }
 }
 
 /// A press seen this buffer: the pad (0-15) and how hard (0-1).
@@ -168,7 +193,7 @@ impl PadSurface {
 
 /// The row pad `k` plays in Play mode: pads 1-8 rows 1-8, then again.
 pub fn play_row(k: usize) -> usize {
-    k % ROWS
+    k % PLAY_ROWS
 }
 
 /// What the pads show, worked out from the Groove Box's state.
@@ -184,6 +209,8 @@ pub struct View<'a> {
     pub playing: usize,
     pub queued: Option<usize>,
     pub kit: usize,
+    /// How many library grooves pads 9-16 load (the genre's first eight).
+    pub grooves: usize,
 }
 
 pub fn colors(v: &View) -> [u8; PADS] {
@@ -195,7 +222,7 @@ pub fn colors(v: &View) -> [u8; PADS] {
             } else if (v.muted)(row) {
                 light::DIM
             } else {
-                light::ROW_DIM + row as u8
+                light::row_dim(row)
             }
         }
         mode::GROOVES => {
@@ -213,11 +240,11 @@ pub fn colors(v: &View) -> [u8; PADS] {
                 } else {
                     light::DIM
                 }
-            } else if (8..8 + kits::GROOVES.len().min(8)).contains(&k) {
+            } else if (8..8 + v.grooves.min(8)).contains(&k) {
                 if (v.held)(k) {
                     light::SELECTED
                 } else {
-                    light::ROW_DIM + ((k - 8) % ROWS) as u8
+                    light::row_dim(k - 8)
                 }
             } else {
                 light::OFF
@@ -227,7 +254,7 @@ pub fn colors(v: &View) -> [u8; PADS] {
             if v.playhead == Some(k) {
                 light::PLAYHEAD
             } else if v.steps & (1 << k) != 0 {
-                light::ROW + v.row as u8
+                light::row(v.row)
             } else if k % 4 == 0 {
                 light::DIM
             } else {
@@ -287,6 +314,7 @@ mod tests {
             playing: 1,
             queued: Some(2),
             kit: 0,
+            grooves: 6,
         })
     }
 
@@ -319,8 +347,15 @@ mod tests {
         assert_eq!(c[0], light::DIM);
         assert_eq!(c[4], light::SELECTED, "kit 1");
         assert_eq!(c[5], light::DIM);
-        assert_eq!(c[9], light::SELECTED, "preset held");
-        assert_eq!(c[14], light::OFF, "no seventh preset");
+        assert_eq!(c[9], light::SELECTED, "groove held");
+        assert_eq!(c[14], light::OFF, "no seventh groove");
+    }
+
+    #[test]
+    fn the_ninth_row_has_its_own_colour() {
+        assert_eq!(light::row(7), light::ROW + 7);
+        assert_eq!(light::row(8), light::ROW_9);
+        assert_eq!(light::row_dim(8), light::ROW_9_DIM);
     }
 
     #[test]

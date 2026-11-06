@@ -36,6 +36,7 @@ pub mod meter;
 pub mod midi_clock;
 mod output;
 pub mod paths;
+pub mod patterns;
 pub mod phrases;
 pub mod plugins;
 pub mod preview;

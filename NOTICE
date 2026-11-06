@@ -66,3 +66,19 @@ and the cubic interpolation, oversampling, chorus, crunch and
 feedback-delay-network reverb designs of Signalsmith Audio's DSP and Basics
 libraries and "Let's write a reverb" (Geraint Luff, MIT licence). No code
 was copied from those libraries.
+
+The Analog and Synthetic Groove Box kits are rendered with
+mi-plaits-dsp (https://github.com/sourcebox/mi-plaits-dsp-rs), Oliver
+Rockstedt's Rust port of the drum models in Mutable Instruments Plaits,
+Copyright (c) Emilie Gillet, under the MIT licence.
+
+The Groove Box's genre grooves in crates/engine/data/grooves/mpump.txt
+are drum patterns from mpump (https://github.com/gdamdam/mpump),
+Copyright gdamdam, converted to openDJ's grooves format. They are licensed
+under the GNU Affero General Public License, version 3, so built copies of
+openDJ that include them are distributed under AGPL-3.0. Its full text is
+at https://www.gnu.org/licenses/agpl-3.0.txt. Under section 13 of that
+licence, anyone who uses openDJ over a network (such as its phone remote or
+now-playing overlay) can get the source at
+https://github.com/sebastian-beca/opendj. "mpump" is its author's name for
+their project; openDJ is not affiliated with or endorsed by it.

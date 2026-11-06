@@ -27,6 +27,9 @@ midir = "0.11"
 flacenc = { version = "0.5", default-features = false }
 # Beat and downbeat tracking (Beat This!, MIT) on the pure-Rust rten runtime.
 beat-this = { version = "1.1", default-features = false }
+# The Groove Box's Analog and Synthetic kits: Mutable Instruments Plaits'
+# drum models (MIT). Not on crates.io, so pinned to a commit.
+mi-plaits-dsp = { git = "https://github.com/sourcebox/mi-plaits-dsp-rs", rev = "effe9864bb67d23aaf5724722ac1ce165d4e7c9f" }
 
 # Real-time priority for the audio thread, which cpal only asks for with
 # this feature (Core Audio's callbacks on macOS already run real-time).
