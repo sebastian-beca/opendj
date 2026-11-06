@@ -89,16 +89,27 @@ pub(crate) struct StemControls {
     pub(crate) mute: ControlHandle,
     /// 0xRRGGBB, or -1 with no stem.
     pub(crate) color: ControlHandle,
+    /// The stem is sent into the deck's stem effect (`stem_fx`), as
+    /// Mixxx 2.6's `[QuickEffectRack1_[ChannelN_StemM]],enabled`.
+    pub(crate) fx: ControlHandle,
 }
 
 pub fn stem_group(deck: usize, stem: usize) -> String {
     format!("[Channel{}_Stem{}]", deck + 1, stem + 1)
 }
 
+/// A stem's quick effect group, as in Mixxx 2.6.
+pub fn stem_fx_group(deck: usize, stem: usize) -> String {
+    format!("[QuickEffectRack1_[Channel{}_Stem{}]]", deck + 1, stem + 1)
+}
+
 pub(crate) struct DeckControls {
     /// Stems in the loaded track (0 without stems).
     pub(crate) stem_count: ControlHandle,
     pub(crate) stems: [StemControls; crate::stems::MAX_STEMS],
+    /// The effect sent stems go into: 1 Echo, 2 Reverb (see
+    /// [`crate::effects::STEM_FX`]).
+    pub(crate) stem_fx: ControlHandle,
     pub(crate) play: ControlHandle,
     /// Gapless playback: the deck (1 to 4) that starts on the very sample
     /// this deck's track ends, or 0. Cleared once it has started.
@@ -331,6 +342,9 @@ impl DeckControls {
             })
             .collect();
         rolls.push((0.0, reg.push(g, "beatlooproll_activate"), Edge::default()));
+        // The STEMS pads' Stems FX layer, where a stem's pad echoes it out
+        // instead of muting it; the screen and controllers share it.
+        reg.toggle(g, "stem_fx_mode");
         Self {
             stem_count: reg.indicator(g, "stem_count", crate::stems::MAX_STEMS as f64),
             stems: std::array::from_fn(|s| {
@@ -341,8 +355,17 @@ impl DeckControls {
                     volume: reg.create(&sg, "volume", 1.0, 0.0, 2.0, Behavior::CenteredOnDefault),
                     mute: reg.toggle(&sg, "mute"),
                     color,
+                    fx: reg.toggle(&stem_fx_group(deck, s), "enabled"),
                 }
             }),
+            stem_fx: reg.create(
+                g,
+                "stem_fx",
+                1.0,
+                1.0,
+                crate::effects::STEM_FX.len() as f64,
+                Behavior::Free,
+            ),
             play: reg.toggle(g, "play"),
             play_next: reg.create(g, "play_next", 0.0, 0.0, 4.0, Behavior::Free),
             pfl: reg.toggle(g, "pfl"),
