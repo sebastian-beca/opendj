@@ -234,6 +234,100 @@ fn proposals(t: &Track, f: &Found, hand: &HashSet<(usize, Field)>) -> Vec<(Chang
     .collect()
 }
 
+/// A track's look-up, and what else it needs to know.
+pub(super) struct QueryFor {
+    pub(super) query: Query,
+    /// The artist and title its file name gives, for what the tags lack.
+    pub(super) name: Option<(String, String)>,
+    /// Its file is in iCloud only, so it isn't fingerprinted.
+    pub(super) in_icloud: bool,
+}
+
+/// What to look `t` up by: its tags, with its file name for an artist or
+/// title they lack, and its sound when there's an AcoustID key and the
+/// file is here. Nothing when there is nothing to look it up by.
+pub(super) fn query_for(t: &Track, key: &str, token: &str) -> Option<QueryFor> {
+    // Only a file that's here is fingerprinted; one in iCloud
+    // would be downloaded for it.
+    let here = writable(t).map(|p| p.to_path_buf());
+    let path = here.clone().filter(|p| !cover_scan::offloaded(p));
+    let in_icloud = here.is_some() && path.is_none();
+    // "Unknown Artist" is no name to search by; the file's name may have
+    // a better one.
+    let mut q = Query {
+        path,
+        artist: if blank(&t.artist) {
+            String::new()
+        } else {
+            t.artist.clone()
+        },
+        title: if blank(&t.title) {
+            String::new()
+        } else {
+            t.title.clone()
+        },
+        duration: t.duration,
+        acoustid_key: key.to_string(),
+        discogs_token: token.to_string(),
+        ..Default::default()
+    };
+    let mut name = None;
+    if let Some((artist, title)) = name_from_file(t) {
+        if q.artist.is_empty() {
+            q.artist = artist.clone();
+            q.by_file_name = true;
+        }
+        let stem = here
+            .as_deref()
+            .and_then(|p| p.file_stem())
+            .map(|s| s.to_string_lossy().trim().to_string());
+        if q.title.is_empty() || stem.as_deref() == Some(q.title.trim()) {
+            q.title = title.clone();
+            q.by_file_name = true;
+        }
+        name = Some((artist, title));
+    }
+    let by_sound = q.path.is_some() && !key.is_empty();
+    let by_name = !(q.artist.trim().is_empty() || q.title.trim().is_empty());
+    (by_sound || by_name).then_some(QueryFor {
+        query: q,
+        name,
+        in_icloud,
+    })
+}
+
+/// What one track's look-up, asked for from its Info tab, would change:
+/// a sure match's values (an empty field's, or one the DJ didn't type),
+/// never a guessed genre, then the file name's artist and title for what
+/// the match didn't give. Fields typed by hand are left alone.
+pub(super) fn info_proposals(
+    t: &Track,
+    found: Option<&Found>,
+    name: Option<&(String, String)>,
+    hand: &HashSet<(usize, Field)>,
+) -> Vec<Change> {
+    let mut out: Vec<Change> = found
+        .map(|f| {
+            proposals(t, f, hand)
+                .into_iter()
+                .filter(|(c, on)| {
+                    *on || (f.score >= SURE && !(c.field == Field::Genre && f.genre_guessed))
+                })
+                .map(|(c, _)| c)
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Some((a, b)) = name {
+        let from_name: Vec<Change> = name_proposals(t, a, b)
+            .into_iter()
+            .filter(|c| !out.iter().any(|o| o.field == c.field))
+            .filter(|c| !hand.contains(&(t.id, c.field)))
+            .collect();
+        out.extend(from_name);
+    }
+    out
+}
+
 fn genre_key(g: &str) -> String {
     g.chars()
         .filter(|c| c.is_alphanumeric())
@@ -804,54 +898,21 @@ impl Browser {
             if is_browsed(t) {
                 continue;
             }
-            // Only a file that's here is fingerprinted; one in iCloud
-            // would be downloaded for it.
-            let here = writable(t).map(|p| p.to_path_buf());
-            let path = here.clone().filter(|p| !cover_scan::offloaded(p));
-            let in_icloud = here.is_some() && path.is_none();
-            // "Unknown Artist" is no name to search by; the file's name
-            // may have a better one.
-            let mut q = Query {
-                path,
-                artist: if blank(&t.artist) {
-                    String::new()
-                } else {
-                    t.artist.clone()
-                },
-                title: if blank(&t.title) {
-                    String::new()
-                } else {
-                    t.title.clone()
-                },
-                duration: t.duration,
-                acoustid_key: key.clone(),
-                discogs_token: token.clone(),
-                ..Default::default()
-            };
-            if let Some((artist, title)) = name_from_file(t) {
-                if q.artist.is_empty() {
-                    q.artist = artist.clone();
-                    q.by_file_name = true;
-                }
-                let stem = here
-                    .as_deref()
-                    .and_then(|p| p.file_stem())
-                    .map(|s| s.to_string_lossy().trim().to_string());
-                if q.title.is_empty() || stem.as_deref() == Some(q.title.trim()) {
-                    q.title = title.clone();
-                    q.by_file_name = true;
-                }
-                names.insert(t.id, (artist, title));
-            }
-            let by_sound = q.path.is_some() && !key.is_empty();
-            let by_name = !(q.artist.trim().is_empty() || q.title.trim().is_empty());
-            if !(by_sound || by_name) {
+            let Some(QueryFor {
+                query,
+                name,
+                in_icloud,
+            }) = query_for(t, &key, &token)
+            else {
                 continue;
+            };
+            if let Some(name) = name {
+                names.insert(t.id, name);
             }
             if in_icloud && !key.is_empty() {
                 offloaded += 1;
             }
-            jobs.push((t.id, q));
+            jobs.push((t.id, query));
         }
         if jobs.is_empty() {
             return if key.is_empty() {
@@ -1233,5 +1294,38 @@ mod tests {
             .map(|(c, on)| (c.field, on))
             .collect();
         assert_eq!(got, [(Field::Artist, true), (Field::Genre, false)]);
+    }
+
+    #[test]
+    fn info_lookup_offers_sure_replacements_but_not_guesses_or_typed_fields() {
+        let mut t = file_track("/m/05 Dope.mp3", "", "05 Dope");
+        t.album = "Old Album".into();
+        let f = Found {
+            artist: "Some Artist".into(),
+            title: "Dope".into(),
+            album: "New Album".into(),
+            genre: "Hip-Hop".into(),
+            genre_guessed: true,
+            score: 0.9,
+            source: "MusicBrainz",
+            ..Default::default()
+        };
+        let hand: HashSet<(usize, Field)> = [(t.id, Field::Album)].into();
+        let got: Vec<Field> = info_proposals(&t, Some(&f), None, &hand)
+            .iter()
+            .map(|c| c.field)
+            .collect();
+        assert_eq!(got, [Field::Artist, Field::Title]);
+        // Not sure enough: only empty fields would be filled, and none are ticked.
+        let unsure = Found { score: 0.6, ..f };
+        assert!(info_proposals(&t, Some(&unsure), None, &HashSet::new()).is_empty());
+        // Nothing found: the file name fills what the tags lack.
+        let t = file_track("/m/Bonobo - Kerala.mp3", "", "Bonobo - Kerala");
+        let name = name_from_file(&t);
+        let got: Vec<Field> = info_proposals(&t, None, name.as_ref(), &HashSet::new())
+            .iter()
+            .map(|c| c.field)
+            .collect();
+        assert_eq!(got, [Field::Artist, Field::Title]);
     }
 }
