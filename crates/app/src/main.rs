@@ -41,6 +41,7 @@ mod art;
 mod audio_plugins;
 mod automix;
 mod automix_order;
+mod automix_phrases;
 mod backup;
 mod beat_counter;
 mod broadcast;

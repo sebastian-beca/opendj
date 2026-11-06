@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Phrases length
-Automix SHALL offer a Phrases length after 32 bars. With it, the mix SHALL start on a phrase change of the outgoing track (an imported fade-out point, else the start of its outro at least 8 bars before its sound end, else the last phrase start 8 to 32 bars before its sound end) and bring the incoming track in from its in point (an imported start point, else bar 1 of the phrase its sound starts in), beatmatched. The mix SHALL last the bars from the out point to the sound end, capped by the incoming intro, rounded down to a multiple of 4 and kept within 8 to 32 bars.
+Automix SHALL offer a Phrases length after 32 bars, shown as "Intro over outro", the default for new installs. With it, the mix SHALL start on a phrase change of the outgoing track (an imported fade-out point, else the start of its outro at least 8 bars before its sound end, else the last phrase start 8 to 32 bars before its sound end) and bring the incoming track in from its in point (an imported start point, else bar 1 of the phrase its sound starts in), beatmatched. The mix SHALL start at the out point and last the bars from there to the sound end, capped by the incoming intro (from the in point to its next phrase change), rounded down to a multiple of 4 and kept within 8 to 32 bars; an imported fade-out point mixes from there to the sound end.
 
 #### Scenario: Intro over outro
 - **WHEN** the length is Phrases, the outgoing track has a 16-bar outro and the incoming track a 16-bar intro
@@ -9,7 +9,7 @@ Automix SHALL offer a Phrases length after 32 bars. With it, the mix SHALL start
 
 #### Scenario: Short intro
 - **WHEN** the outgoing outro is 32 bars and the incoming intro 8 bars
-- **THEN** the mix lasts 8 bars and starts 8 bars before the outgoing sound end, on a phrase boundary of the outgoing track when one is there
+- **THEN** the mix starts on the outro's first bar and lasts 8 bars, so the incoming track's first phrase change lands as the mix ends
 
 #### Scenario: Imported automix point wins
 - **WHEN** the outgoing track has a VirtualDJ fadeStart point and detected phrases
