@@ -27,10 +27,11 @@ pub enum Action {
     ExportSpotify,
     ExportRekordboxXml,
     ExportMixcloud,
+    RecordMix,
 }
 
 impl Action {
-    const ALL: [Action; 9] = [
+    const ALL: [Action; 10] = [
         Action::Settings,
         Action::Quit,
         Action::Undo,
@@ -40,6 +41,7 @@ impl Action {
         Action::ExportSpotify,
         Action::ExportMixcloud,
         Action::ExportRekordboxXml,
+        Action::RecordMix,
     ];
 
     /// Its number, as the ☰ menu and the macOS menu items carry it.
@@ -56,7 +58,10 @@ impl Action {
     /// Off until there is something for it to do: Undo until a change,
     /// the exports until the library picks a list they work on.
     pub fn starts_enabled(self) -> bool {
-        matches!(self, Action::Settings | Action::Quit | Action::Find)
+        matches!(
+            self,
+            Action::Settings | Action::Quit | Action::Find | Action::RecordMix
+        )
     }
 }
 
@@ -83,37 +88,47 @@ pub struct Menu {
 pub const MENUS: &[Menu] = &[
     Menu {
         title: "File",
-        entries: &[Entry::Submenu {
-            title: "Export",
-            entries: &[
-                Entry::Item {
-                    action: Action::ExportM3u,
-                    title: "M3U8…",
-                    key: None,
-                },
-                Entry::Item {
-                    action: Action::ExportUsb,
-                    title: "USB…",
-                    key: None,
-                },
-                Entry::Item {
-                    action: Action::ExportSpotify,
-                    title: "Spotify Playlist",
-                    key: None,
-                },
-                Entry::Item {
-                    action: Action::ExportRekordboxXml,
-                    title: "rekordbox XML…",
-                    key: None,
-                },
-                Entry::Separator,
-                Entry::Item {
-                    action: Action::ExportMixcloud,
-                    title: "Mixcloud…",
-                    key: None,
-                },
-            ],
-        }],
+        entries: &[
+            // Starts or stops recording, as the REC button does (Player
+            // shows that button only while recording).
+            Entry::Item {
+                action: Action::RecordMix,
+                title: "Record Mix",
+                key: None,
+            },
+            Entry::Separator,
+            Entry::Submenu {
+                title: "Export",
+                entries: &[
+                    Entry::Item {
+                        action: Action::ExportM3u,
+                        title: "M3U8…",
+                        key: None,
+                    },
+                    Entry::Item {
+                        action: Action::ExportUsb,
+                        title: "USB…",
+                        key: None,
+                    },
+                    Entry::Item {
+                        action: Action::ExportSpotify,
+                        title: "Spotify Playlist",
+                        key: None,
+                    },
+                    Entry::Item {
+                        action: Action::ExportRekordboxXml,
+                        title: "rekordbox XML…",
+                        key: None,
+                    },
+                    Entry::Separator,
+                    Entry::Item {
+                        action: Action::ExportMixcloud,
+                        title: "Mixcloud…",
+                        key: None,
+                    },
+                ],
+            },
+        ],
     },
     Menu {
         title: "Edit",
@@ -321,6 +336,12 @@ pub fn run(app: &AppWindow, action: Action) {
             .invoke_export_rekordbox(app.get_current_folder()),
         // The mixed set picked in Recordings.
         Action::ExportMixcloud => crate::export_mixcloud(app),
+        // [Recording],toggle_recording, as the REC button and controllers.
+        Action::RecordMix => {
+            let controls = app.global::<crate::Controls>();
+            let index = controls.invoke_resolve("[Recording]".into(), "toggle_recording".into());
+            controls.invoke_set_value(index, 1.0);
+        }
     }
 }
 

@@ -4767,13 +4767,17 @@ component SmallButton inherits Rectangle {
     in property <string> text;
     // Names it for the guided tour (see TourMark).
     in property <string> tour-id;
+    // Switched on (Repeat): drawn in the accent.
+    in property <bool> lit;
     callback clicked();
     width: label.preferred-width + 16px;
     height: 22px;
     y: 1px;
     border-radius: 4px;
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.panel-raised;
-    label := Text { text: root.text; color: Theme.text; font-size: 12px; font-weight: 500; }
+    background: lit ? Theme.accent.with-alpha(0.18) : ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.panel-raised;
+    border-width: lit ? 1px : 0px;
+    border-color: Theme.accent;
+    label := Text { text: root.text; color: lit ? Theme.accent : Theme.text; font-size: 12px; font-weight: 500; }
     ta := TouchArea { clicked => { root.clicked(); } }
     TourMark { id: root.tour-id; }
 }
@@ -5234,6 +5238,9 @@ component SidePanel inherits Rectangle {
     in-out property <string> automix-order-note;
     in property <int> automix-length;
     in property <int> automix-style;
+    // Played tracks go back to the end of the list instead of leaving it.
+    in property <bool> automix-repeat;
+    callback automix-set-repeat(bool);
     callback automix-toggle();
     callback automix-mix-now();
     callback automix-skip();
@@ -5445,6 +5452,12 @@ component SidePanel inherits Rectangle {
                     if rows.length > 2: SmallButton {
                         text: "Order ▾";
                         clicked => { order-menu.show(); }
+                    }
+                    // The list keeps going round: played tracks go back to its end.
+                    SmallButton {
+                        text: "Repeat";
+                        lit: automix-repeat;
+                        clicked => { automix-set-repeat(!automix-repeat); }
                     }
                     if automix-on: SmallButton { text: "Mix now"; tour-id: "ui,automix_mix_now"; clicked => { automix-mix-now(); } }
                     if automix-on: SmallButton { text: "Skip"; clicked => { automix-skip(); } }
@@ -5706,6 +5719,9 @@ export component Browser inherits HorizontalLayout {
     in-out property <string> automix-order-note;
     in property <int> automix-length;
     in property <int> automix-style;
+    // Played tracks go back to the end of the list instead of leaving it.
+    in property <bool> automix-repeat;
+    callback automix-set-repeat(bool);
     callback automix-toggle();
     callback automix-mix-now();
     callback automix-skip();
@@ -5873,5 +5889,7 @@ export component Browser inherits HorizontalLayout {
         automix-order-note <=> automix-order-note;
         automix-set-length(i) => { automix-set-length(i); }
         automix-set-style(i) => { automix-set-style(i); }
+        automix-repeat: automix-repeat;
+        automix-set-repeat(on) => { automix-set-repeat(on); }
     }
 }

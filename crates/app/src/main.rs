@@ -2249,15 +2249,26 @@ impl Gpu {
         // The Player bar shows the waveform alone, without the phrase bar.
         let show_phrases =
             app.global::<PhraseView>().get_visible() && app.get_layout() != PLAYER_LAYOUT;
-        let overview_background = if app.get_layout() == PLAYER_LAYOUT {
+        let player = app.get_layout() == PLAYER_LAYOUT;
+        let overview_background = if player {
             PLAYER_OVERVIEW_BACKGROUND
         } else {
             Palette::default().background
         };
+        // The Player bar's scrubber: one lilac and grey shape, with
+        // Automix's next mix in a dim lilac.
+        let overview_style = if player { Style::Mono } else { Style::Rgb };
+        let deck_rows = app.get_decks();
         for (d, track) in tracks.iter().enumerate() {
             changed |= self.scrolling[d].resize(&self.device, ww, wh);
             changed |= self.overview[d].resize(&self.device, ow, oh);
             self.overview[d].set_background(overview_background);
+            self.overview[d].set_style(overview_style);
+            let mix = deck_rows
+                .row_data(d)
+                .filter(|i| player && i.automix_to > i.automix_from)
+                .map(|i| (i.automix_from, i.automix_to));
+            self.overview[d].set_mix(mix);
             let track = track.as_ref().filter(|t| !t.waveform.is_empty());
             let gpu_track = match (track, &self.tracks[d]) {
                 (None, _) => None,

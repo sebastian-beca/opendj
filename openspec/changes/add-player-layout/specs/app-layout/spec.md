@@ -31,8 +31,16 @@ The layout menu at the top left SHALL offer Player (one bar that plays music lik
 - **WHEN** Player is chosen and the DJ types in the search box in the top bar
 - **THEN** the track list is filtered by the same text, and the list's own search box is hidden
 
+#### Scenario: Bar at the bottom
+- **WHEN** Player is chosen
+- **THEN** the Player bar runs along the bottom of the window under the library, 80 px tall, with Previous, Play/Pause and Next over a scrubber that shows the played part in lilac, the rest in grey and the next mix in a dim lilac
+
+#### Scenario: Search-first top bar
+- **WHEN** Player is chosen
+- **THEN** the top bar shows the layout menu, the search box and the remote button; the MASTER button is hidden, REC shows only while recording and MIC only while the mic is on or Show MIC is ticked in the layout menu
+
 #### Scenario: Repeat
-- **WHEN** Repeat is on in the Player bar and Automix has played a track for long enough to count as played
+- **WHEN** Repeat is on in Up Next's header and Automix has played a track for long enough to count as played
 - **THEN** the track moves to the end of the Automix list instead of leaving it
 
 #### Scenario: Key colour
