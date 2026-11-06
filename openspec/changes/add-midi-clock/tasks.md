@@ -12,10 +12,10 @@
 
 ## 2. Clock in and Link follow
 
-- [ ] 2.1 controllers: clock input port reader (stop dropping `0xF8`-`0xFC` there), Song Position, smoothing filter with tests
-- [ ] 2.2 engine: `[Master],sync_leader_source` Deck / Link / Clock; SYNC follows Link's or the clock's tempo and phase through the existing lock-free path; Link stops leading while it is followed
-- [ ] 2.3 app: leader choice in the MASTER panel; regenerate supported-controls.txt
-- [ ] 2.4 Update the user guide (Sync page: following Link or a drum machine)
+- [x] 2.1 Clock input reader (its own connection on the picked input, opened by the clock thread; controllers still drop `0xF8`-`0xFC`), Song Position, smoothing filter with tests
+- [x] 2.2 engine: `[Master],sync_leader_source` Deck / Link / Clock; SYNC follows Link's or the clock's tempo and phase through the existing lock-free path; Link stops leading while it is followed
+- [x] 2.3 app: leader choice in the MASTER panel; regenerate supported-controls.txt
+- [x] 2.4 Update the user guide (Sync page: following Link or a drum machine)
 
 ## Workflow follow-up
 

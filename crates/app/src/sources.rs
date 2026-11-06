@@ -539,6 +539,7 @@ impl Sources {
                     prefer: Prefer::from_name(&prefer),
                     skip: Vec::new(),
                     songs,
+                    restored: true,
                 };
                 me.start(s, query, added, false);
             }
@@ -1025,6 +1026,8 @@ impl Sources {
         search.items = search.kept.clone();
         (search.done, search.note, search.error) = (false, String::new(), None);
         search.settling.clear();
+        // The DJ asked for this one, so a source may ask them to sign in.
+        search.query.restored = false;
         let query = SourceQuery {
             skip: skip.into_iter().collect(),
             ..search.query.clone()

@@ -183,9 +183,8 @@ lit; click another stage to move it there, or use the lines below it, whose
 arrows say whether a track goes back or forward:
 
 1. **Send to In Prep** (or **Send to In Prep › a crate**) for inbox
-   tracks worth keeping. **Hide from Inbox** takes the rest out of the
-   Inbox for good, without touching the file (search `stage:dismissed` to
-   see them again).
+   tracks worth keeping. Tracks you don't want go to
+   [Quarantine](collection-health.md#quarantine).
 2. In In Prep, prepare each track: tags, cover, rating, tempo and key. Show
    the **Prep** column (right-click a column heading) for a dot each for
    tags, rating, and tempo and key; tracks in In Prep are analysed in the

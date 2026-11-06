@@ -74,7 +74,6 @@ pub(super) fn stage_number(stage: &str) -> i32 {
         Some(Stage::Inbox) => 1,
         Some(Stage::Triage) => 2,
         Some(Stage::Collection) => 3,
-        Some(Stage::Dismissed) => 4,
     }
 }
 
@@ -83,7 +82,6 @@ fn stage_from_number(n: i32) -> Option<Stage> {
         1 => Some(Stage::Inbox),
         2 => Some(Stage::Triage),
         3 => Some(Stage::Collection),
-        4 => Some(Stage::Dismissed),
         _ => None,
     }
 }
@@ -95,7 +93,6 @@ fn change_label(stage: Stage, crate_name: Option<&str>) -> String {
         (Stage::Triage, None) => "Send to In Prep".into(),
         (Stage::Collection, _) => "Send to Play Ready".into(),
         (Stage::Inbox, _) => "Back to Inbox".into(),
-        (Stage::Dismissed, _) => "Hide from Inbox".into(),
     }
 }
 
@@ -199,10 +196,10 @@ impl Browser {
                 && crate_name
                     .as_deref()
                     .is_none_or(|c| self.folders.crate_of(stage, path).as_deref() == Some(c));
-            let to = if stage == Stage::Dismissed || here {
+            let to = if here {
                 None
             } else {
-                let from_inbox = matches!(t.info.stage.as_str(), "" | "inbox" | "dismissed");
+                let from_inbox = matches!(t.info.stage.as_str(), "" | "inbox");
                 let name = (rename && from_inbox)
                     .then(|| stages::clean_name(t, path))
                     .flatten();

@@ -378,6 +378,26 @@ mod tests {
     }
 
     #[test]
+    fn tracks_once_hidden_from_the_inbox_come_back_to_it() {
+        let dir = std::env::temp_dir().join(format!("opendj-hidden-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("library.db");
+        {
+            let mut lib = Library::open(&path).unwrap();
+            lib.sync(&[file_track("/u/Downloads/a.mp3", "A")]).unwrap();
+            lib.db
+                .execute_batch("UPDATE tracks SET stage = 'dismissed'")
+                .unwrap();
+        }
+        let lib = Library::open(&path).unwrap();
+        let s: Vec<String> = stages(&lib).into_iter().map(|(s, _)| s).collect();
+        assert_eq!(s, ["inbox"]);
+        drop(lib);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn moves_wait_until_applied_and_can_be_undone() {
         let dir = std::env::temp_dir().join(format!("opendj-moves-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
