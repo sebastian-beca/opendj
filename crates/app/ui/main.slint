@@ -3,7 +3,7 @@ import { Theme, KeyNotation, CloseIcon } from "theme.slint";
 import { TourMark } from "tourmark.slint";
 import { Controls, VuMeter, ControlKnob, HoverTipView, HoverTip } from "controls.slint";
 import { Deck, DeckInfo, KeyItem, EffectList, FxRow, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit } from "deck.slint";
-import { Mixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } from "mixer.slint";
+import { Mixer, ExternalMixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } from "mixer.slint";
 import { MasterPanel, MicPanel, OnAirPanel, BroadcastState, BroadcastStation, AirTime } from "toppanels.slint";
 import { PlayerBar, PlayerDeck, PlayerMixer, TopSearch, QuickResults, QuickSearch, QuickRow } from "player.slint";
 export { QuickSearch, QuickRow } from "player.slint";
@@ -725,6 +725,9 @@ export component AppWindow inherits Window {
     out property <length> overview-width: player ? player-bar.overview-width : four ? strip-1.overview-width : compact ? player-a.overview-width : prep ? prep-deck.overview-width : deck-a.overview-width;
     out property <length> overview-height: player ? player-bar.overview-height : four ? strip-1.overview-height : compact ? player-a.overview-height : prep ? prep-deck.overview-height : deck-a.overview-height;
     property <bool> four: layout == 2 && !library-expanded;
+    // A hardware mixer does the mixing (`[Master],external_mixer`): no
+    // on-screen mixer, only each deck's level.
+    property <bool> external-mixer: Controls.value(Controls.resolve("[Master]", "external_mixer"), Controls.tick) > 0;
     property <bool> prep: layout == 3 && !library-expanded;
     // The Player layout: one bar, no waveforms or FX bar.
     property <bool> player: layout == 1;
@@ -1175,7 +1178,8 @@ export component AppWindow inherits Window {
                 // their contents, a changing time or title would nudge the
                 // mixer sideways every frame.
                 deck-a := Deck { deck: 0; info: decks[0]; spin: spin-1; overview: overview-1; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
-                Mixer { }
+                if !external-mixer: Mixer { }
+                if external-mixer: ExternalMixer { }
                 Deck { deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
             }
 

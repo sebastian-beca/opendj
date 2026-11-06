@@ -2507,7 +2507,9 @@
 [Master],balance
 [Master],booth_gain
 [Master],crossfader
+[Master],deck_tap
 [Master],duckStrength
+[Master],external_mixer
 [Master],gain
 [Master],headGain
 [Master],headMix
@@ -2525,6 +2527,7 @@
 [Master],peak_indicator
 [Master],peak_indicator_left
 [Master],peak_indicator_right
+[Master],record_source
 [Master],talkover_ducking
 [Master],test_tone
 [Master],true_peak

@@ -5,7 +5,7 @@
 // once: there is no OK or Apply.
 import { Theme, CloseIcon } from "theme.slint";
 import { ControlKnob } from "controls.slint";
-import { MenuField, OutputsTable, InputsTable } from "mixer.slint";
+import { AudioSettings, MenuField, OutputsTable, ExternalOutputsTable, InputsTable } from "mixer.slint";
 
 // One row of a settings page. The app builds the rows for the page shown,
 // or for a search.
@@ -1318,7 +1318,8 @@ export component PrefRow inherits Rectangle {
             }
             if item.action != "": Button { text: item.action; clicked => { Preferences.pressed(item.id); } }
         }
-        if item.kind == 4: OutputsTable { roomy: true; bright: bright; }
+        if item.kind == 4 && !AudioSettings.external: OutputsTable { roomy: true; bright: bright; }
+        if item.kind == 4 && AudioSettings.external: ExternalOutputsTable { bright: bright; }
         if item.kind == 13: InputsTable { }
         if item.kind == 5: HorizontalLayout {
             alignment: start;

@@ -99,6 +99,8 @@ export component DeckStrip inherits Rectangle {
     property <int> layer-index: Controls.resolve("[Controller]", Math.mod(deck, 2) == 0 ? "deck3" : "deck4");
     property <bool> layer-on: Controls.value(layer-index, Controls.tick) > 0;
     property <bool> controller-here: AudioSettings.controllers != "None" && (deck >= 2) == layer-on;
+    // A hardware mixer does the mixing: the channel shows only its meter.
+    property <bool> external: Controls.value(Controls.resolve("[Master]", "external_mixer"), Controls.tick) > 0;
     // Files dragged in from Finder or a file manager (see TrackDrag.files-over).
     property <bool> under-files: TrackDrag.files-x >= self.absolute-position.x && TrackDrag.files-x < self.absolute-position.x + self.width
         && TrackDrag.files-y >= self.absolute-position.y && TrackDrag.files-y < self.absolute-position.y + self.height;
@@ -147,7 +149,15 @@ export component DeckStrip inherits Rectangle {
                 HorizontalLayout {
                     height: 74px;
                     spacing: 4px;
-                    VerticalLayout {
+                    if external: Text {
+                        horizontal-stretch: 1;
+                        text: "On the external mixer";
+                        color: Theme.text-dim;
+                        font-size: 11px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    if !external: VerticalLayout {
                         width: 44px;
                         alignment: space-around;
                         Rectangle {
@@ -158,11 +168,11 @@ export component DeckStrip inherits Rectangle {
                         }
                         HorizontalLayout { alignment: center; CueHeadphones { group: group; tint: tint; width: 30px; } }
                     }
-                    for place in 4: SideKnob { deck: deck; place: [2, 1, 0, 3][place]; size: 32px; cfx-arrow-left: false; horizontal-stretch: 1; min-width: 40px; }
-                    ControlFader { group: group; key: "volume"; tint: tint; ticks: 5; width: 40px; }
+                    for place in external ? 0 : 4: SideKnob { deck: deck; place: [2, 1, 0, 3][place]; size: 32px; cfx-arrow-left: false; horizontal-stretch: 1; min-width: 40px; }
+                    if !external: ControlFader { group: group; key: "volume"; tint: tint; ticks: 5; width: 40px; }
                     VerticalLayout {
                         spacing: 4px;
-                        Knob { group: group; key: "pregain"; size: 20px; }
+                        if !external: Knob { group: group; key: "pregain"; size: 20px; }
                         HorizontalLayout { alignment: center; vertical-stretch: 1; StereoMeter { group: group; } }
                     }
                 }
@@ -258,6 +268,7 @@ component DeckBarSection inherits Rectangle {
     property <string> group: "[Channel" + (deck + 1) + "]";
     property <color> tint: Theme.deck-color(deck);
     property <bool> right: Math.mod(deck, 2) == 1;
+    property <bool> external: Controls.value(Controls.resolve("[Master]", "external_mixer"), Controls.tick) > 0;
     background: Theme.panel;
     horizontal-stretch: 1;
     min-width: 0px;
@@ -267,7 +278,7 @@ component DeckBarSection inherits Rectangle {
         padding-right: 12px;
         spacing: 22px;
         alignment: start;
-        if !right: CrossfaderAssign { deck: deck; }
+        if !right && !external: CrossfaderAssign { deck: deck; }
         SyncButton { group: group; tint: tint; menu-right-aligned: right; font-size: 12px; width: 60px; height: 28px; y: (parent.height - self.height) / 2; }
         VerticalLayout {
             width: 52px;
@@ -280,7 +291,7 @@ component DeckBarSection inherits Rectangle {
             TempoStep { group: group; key: "rate_perm_up_small"; text: "+"; tint: tint; height: 18px; }
             TempoStep { group: group; key: "rate_perm_down_small"; text: "−"; tint: tint; height: 18px; }
         }
-        if right: CrossfaderAssign { deck: deck; }
+        if right && !external: CrossfaderAssign { deck: deck; }
     }
 }
 
@@ -291,6 +302,7 @@ export component FourDeckBar inherits Rectangle {
     in property <[DeckInfo]> decks;
     property <int> enabled-index: Controls.resolve("[Mixer]", "crossfader_enabled");
     property <bool> on: Controls.value(enabled-index, Controls.tick) > 0;
+    property <bool> external: Controls.value(Controls.resolve("[Master]", "external_mixer"), Controls.tick) > 0;
     background: #000000;
     height: 48px;
     HorizontalLayout {
@@ -300,7 +312,8 @@ export component FourDeckBar inherits Rectangle {
         Rectangle {
             background: Theme.panel;
             width: 254px;
-            HorizontalLayout {
+            if external: Text { text: "EXTERNAL MIXER"; color: Theme.text-dim; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; }
+            if !external: HorizontalLayout {
                 padding-left: 14px;
                 padding-right: 10px;
                 spacing: 10px;
