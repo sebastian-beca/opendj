@@ -558,6 +558,7 @@ fn query_json(q: &SourceQuery) -> Value {
         "prefer": q.prefer.name(),
         "skip": q.skip,
         "songs": q.songs,
+        "restored": q.restored,
     })
 }
 
@@ -568,6 +569,7 @@ fn query_from(v: &Value) -> SourceQuery {
         prefer: Prefer::from_name(str_of(&v["prefer"])),
         skip: list(&v["skip"]).iter().map(string).collect(),
         songs: list(&v["songs"]).iter().map(string).collect(),
+        restored: v["restored"].as_bool().unwrap_or_default(),
     }
 }
 
@@ -699,11 +701,12 @@ mod tests {
             prefer: Prefer::Mp3,
             skip: vec!["3. Bonobo – Kerala".into()],
             songs: vec!["Bonobo - Kerala".into(), "Bonobo - Kong".into()],
+            restored: true,
         };
         assert_eq!(query_from(&query_json(&q)), q);
         // An older app sends no skip.
         let old = query_from(&json!({ "text": "Kerala", "kind": "track", "prefer": "any" }));
-        assert!(old.skip.is_empty() && old.songs.is_empty());
+        assert!(old.skip.is_empty() && old.songs.is_empty() && !old.restored);
     }
 
     #[test]
