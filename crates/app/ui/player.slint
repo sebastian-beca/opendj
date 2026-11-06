@@ -554,6 +554,33 @@ export component PlayerBar inherits Rectangle {
         }
     }
 
+    // Tracks dragged from the list or Up Next onto any part of the bar: the
+    // first plays now (mixed in by Automix), the rest straight after it.
+    bar-drop := DropArea {
+        can-drop(e) => { TrackDrag.accepts(e.data) ? DragAction.copy : DragAction.none }
+        dropped(e) => {
+            TrackDrag.drop-player(e.data);
+            TrackDrag.active = false;
+            DragAction.copy
+        }
+    }
+    if TrackDrag.active || bar-drop.has-drag: Rectangle {
+        border-radius: Theme.radius + 2px;
+        border-width: bar-drop.has-drag ? 3px : 2px;
+        border-color: bar-drop.has-drag ? Theme.accent : Theme.accent.transparentize(0.55);
+        background: bar-drop.has-drag ? Theme.accent.transparentize(0.9) : transparent;
+        if bar-drop.has-drag: Rectangle {
+            // In the top right corner, clear of the transport.
+            x: parent.width - self.width - 12px;
+            y: 12px;
+            height: 26px;
+            width: drop-text.preferred-width + 24px;
+            border-radius: 13px;
+            background: Theme.accent;
+            drop-text := Text { text: "Play now"; color: #ffffff; font-size: 12px; font-weight: 700; }
+        }
+    }
+
     order-menu := PopupWindow {
         // Just under the Order button.
         x: order.absolute-position.x - root.absolute-position.x - 8px;

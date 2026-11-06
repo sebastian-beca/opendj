@@ -24,7 +24,7 @@ export global Controls {
     callback set-value(index: int, value: float);
     callback toggle(index: int);
     callback reset(index: int);
-    // True on the half-seconds a paused deck's PLAY and CUE outlines show:
+    // True on the half-seconds a paused deck's PLAY outline shows:
     // only with a track loaded, all decks in step. blink and tick are
     // passed in so callers redraw when either changes.
     pure function paused-blink(group: string, blink: bool, tick: int) -> bool {
@@ -260,8 +260,7 @@ export component ControlButton inherits Rectangle {
     // Or just outline it in the tint when lit, label tinted too (SYNC,
     // CUE): a thicker edge, no fill.
     in property <bool> outline-when-lit: false;
-    // Show that outline without lighting the label, e.g. CUE blinking in
-    // step with PLAY on a paused deck.
+    // Show that outline without lighting the label.
     in property <bool> outline: false;
     // Draw a headphone icon instead of the text, for headphone cue (PFL).
     in property <bool> headphones: false;
