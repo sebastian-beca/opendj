@@ -1,0 +1,18 @@
+name: OpenSpec
+
+# Every change folder in openspec/changes is listed in openspec/roadmap.md,
+# once per release, and every link there points at a change that exists.
+on:
+  push:
+    branches: [main]
+    paths: ["openspec/**", "scripts/roadmap.py"]
+  pull_request:
+    paths: ["openspec/**", "scripts/roadmap.py", ".github/workflows/openspec.yml"]
+
+jobs:
+  roadmap:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 scripts/roadmap.py --check
+      - run: python3 scripts/roadmap.py
