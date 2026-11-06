@@ -24,6 +24,7 @@
   - [Pioneer DDJ-FLX4](guide/controllers/ddj-flx4.md)
 <!-- controllers -->
 - [Ableton Link](guide/link.md)
+- [MIDI clock](guide/midi-clock.md)
 - [Keyboard shortcuts](guide/shortcuts.md)
 - [Feedback and logs](guide/feedback.md)
 

@@ -6641,6 +6641,7 @@ dependencies = [
  "image",
  "lofty",
  "matrixmultiply",
+ "midir",
  "opendj-control",
  "opendj-plugin-host",
  "opendj-separation",

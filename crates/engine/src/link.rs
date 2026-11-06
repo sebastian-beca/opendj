@@ -92,14 +92,15 @@ impl Link {
         let now = self.link.clock_micros();
         let start = self.filter.sample_time_to_host_time(now, self.frames);
         self.frames += frames as u64;
+        // The buffer being rendered plays after the one now playing. Kept
+        // with Link off too: MIDI clock out times its pulses from it.
+        self.heard_at = start + (frames as f64 / sample_rate * 1e6) as i64;
         let enabled = self.link.is_enabled();
         let just_enabled = enabled && !self.was_enabled;
         self.was_enabled = enabled;
         if !enabled {
             return None;
         }
-        // The buffer being rendered plays after the one now playing.
-        self.heard_at = start + (frames as f64 / sample_rate * 1e6) as i64;
         self.link.capture_audio_session_state(&mut self.state);
         let tempo = self.state.tempo();
         self.c.bpm.set(tempo);

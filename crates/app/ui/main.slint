@@ -585,10 +585,12 @@ component FxButton inherits Rectangle {
 }
 
 // MASTER: the main meters and the clock. A click opens the MASTER panel
-// with the output levels and Ableton Link, lit while Link is on.
+// with the output levels, Ableton Link and MIDI clock; LINK and CLOCK
+// show while they are on.
 component MasterPill inherits Rectangle {
     in property <string> clock;
     property <bool> link: Controls.value(Controls.resolve("[Link]", "enabled"), Controls.tick) > 0;
+    property <bool> midi-clock: Controls.value(Controls.resolve("[MidiClock]", "enabled"), Controls.tick) > 0;
     background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2e2e32 : Theme.panel-raised;
     border-radius: 10px;
     height: 36px;
@@ -606,6 +608,7 @@ component MasterPill inherits Rectangle {
             VuMeter { group: "[Master]"; key: "VuMeterR"; width: 120px; height: 4px; vertical: false; segments: 24; }
         }
         if link: Text { text: "LINK"; color: Theme.accent; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+        if midi-clock: Text { text: "CLOCK"; color: Theme.accent; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
         Text { text: clock; color: Theme.text; font-size: 14px; font-weight: 500; vertical-alignment: center; }
         Path {
             width: 8px;
