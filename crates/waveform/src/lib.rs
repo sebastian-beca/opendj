@@ -75,6 +75,7 @@ pub enum PhraseKind {
     Breakdown,
     Outro,
     Chorus,
+    Verse,
 }
 
 /// Tempo sections the shader draws at once: enough for any view, since a

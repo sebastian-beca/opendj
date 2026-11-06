@@ -2419,6 +2419,7 @@ fn phrase_tip(phrases: &Phrases, duration: f64, bpm: f64, seconds: f64) -> Optio
         PhraseKind::Breakdown => "BREAKDOWN",
         PhraseKind::Outro => "OUTRO",
         PhraseKind::Chorus => "CHORUS",
+        PhraseKind::Verse => "VERSE",
     };
     let mmss = |s: f64| {
         let s = s.max(0.0).round() as u64;
