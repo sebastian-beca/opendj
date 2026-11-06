@@ -4,7 +4,6 @@
 //! deck and the Info tab.
 
 use opendj_library::query::{keyword, quoted};
-use opendj_library::PlaylistKind;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::{Browser, Contents, COLLECTION};
@@ -180,11 +179,7 @@ impl Browser {
         }
         let typed = name.trim();
         let Some(db) = &self.db else { return };
-        let id = match db.create_playlist(
-            if typed.is_empty() { "New crate" } else { typed },
-            None,
-            PlaylistKind::List,
-        ) {
+        let id = match db.create_crate(if typed.is_empty() { "New crate" } else { typed }, None) {
             Ok(id) => id,
             Err(e) => {
                 eprintln!("can't make a crate: {e}");
