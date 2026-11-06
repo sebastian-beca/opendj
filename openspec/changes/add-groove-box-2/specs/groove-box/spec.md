@@ -15,14 +15,18 @@ A Groove Box SHALL hold eight grooves (A to H) and a chain of up to 64 bars buil
 - **THEN** A plays for four bars, B for four, then A again
 
 ### Requirement: Step detail
-Each step SHALL have an accent (soft, medium, hard), a chance (100, 75, 50, 25 %), a nudge (−50 % to +50 % of a step) and a roll (1 to 4 hits within the step), set from the step's right-click menu or by holding the step and turning a knob. The face SHALL show accent as brightness and rolls as a split cell, and nothing else.
+Each step SHALL have an accent (soft, medium, hard), a nudge (−50 % to +50 % of a step), a roll (1 to 4 hits within the step) and a condition: a chance (100, 75, 50, 25 %), *X of Y* bars, Fill or Not fill. These SHALL be set from the step's right-click menu or by holding the step and turning a knob. Steps at the same position whose chances add up to 100 % SHALL play exactly one of them. The face SHALL show accent as brightness, rolls as a split cell and a condition as a corner mark, and nothing else.
+
+#### Scenario: Every fourth bar
+- **WHEN** step 15 of the Snare row has the condition 4 of 4
+- **THEN** it plays only in the fourth bar of every four
 
 #### Scenario: Roll at the end of the bar
 - **WHEN** step 16 of the Snare row is set to a roll of 4
 - **THEN** four evenly spaced snares play within that 16th, each on its exact sample
 
 ### Requirement: Rows and lengths
-A kit SHALL hold up to 16 sounds and show up to 8 rows. Each row SHALL have its own length (1 to 64 steps) and step size (1/16, 1/8, 1/16 triplet). Rows of different lengths SHALL run independently and restart together when the groove restarts or changes.
+A kit SHALL hold up to 16 sounds and show up to 8 rows. Each row SHALL have its own length (1 to 64 steps) and step size (1/16, 1/8, 1/16 triplet). Each row SHALL also have a direction (forward, reverse, ping-pong) and offer Euclid (N hits spread evenly over its length) and Rotate. Rows of different lengths SHALL run independently and restart together when the groove restarts or changes.
 
 #### Scenario: Three-step hats
 - **WHEN** the Hat row's length is set to 3 while the Kick row is 16 steps
@@ -35,12 +39,19 @@ Every row SHALL have LEVEL, PITCH, DECAY and a fourth knob named by the kit. For
 - **WHEN** the Snare row of a built-in kit is selected and SNAPPY is turned right
 - **THEN** the snare's noise part is louder on the next hit
 
-### Requirement: Fills and variation
-A groove MAY have a fill and a variation. FILL SHALL play the fill once on the last bar before the leading deck's next phrase, or on the next bar when there are no phrases; holding FILL SHALL play it until released. The Variation switch SHALL alternate the groove and its variation every bar or every two bars. Every built-in groove SHALL have a fill.
+### Requirement: Generate grooves
+A dice button SHALL make a new groove from the kit's rules for each row, leaving locked rows as they are, with a Busy control for how many hits. Remix SHALL change a few hits of the current groove. A new or remixed groove SHALL start on the next bar while playing. Back to the kit's groove SHALL undo both. A groove-wide Slop control SHALL spread hit timing randomly by up to ±10 ms, off by default.
 
-#### Scenario: Fill into the drop
-- **WHEN** FILL is pressed 3 bars before the leading deck's next phrase
-- **THEN** the groove plays normally for 2 bars, the fill on the third, and the groove again from the phrase
+#### Scenario: Keep the kick
+- **WHEN** the Kick row is locked and the dice is pressed while playing
+- **THEN** the other rows change on the next bar and the kick plays as before
+
+### Requirement: Fills and variation
+While FILL is on, steps marked Fill SHALL play and steps marked Not fill SHALL be silent. FILL SHALL be on while held, or, set to Auto, during the last bar before the leading deck's next phrase (every 8 bars when the leader has no phrases). The Variation switch SHALL alternate the groove and its variation every bar or every two bars. Every built-in groove SHALL have Fill steps.
+
+#### Scenario: Auto fill into the drop
+- **WHEN** FILL is set to Auto 3 bars before the leading deck's next phrase
+- **THEN** the groove plays normally for 2 bars, with its Fill steps on the third, and normally again from the phrase
 
 ### Requirement: Melodic row
 A kit MAY have one melodic row whose steps hold a scale degree, octave, length and slide. Notes SHALL be played in the key of the leading deck, following key changes on the bar, unless a fixed key is set. The row SHALL play through a built-in mono synth or a hosted instrument plugin.
@@ -69,3 +80,10 @@ A track deck with stems SHALL offer Replace drums: a Groove Box over the deck th
 #### Scenario: Swap the drums
 - **WHEN** Replace drums is turned on during a track's chorus
 - **THEN** the track's drum stem fades out and the groove's drums play on the track's beats until it is turned off
+
+### Requirement: MIDI file export
+A groove or chain SHALL be draggable out of openDJ as a standard MIDI file, each drum row on its General MIDI drum note and the melodic row on its notes, at the groove's tempo.
+
+#### Scenario: Into a DAW
+- **WHEN** groove A is dragged from the Groove Box onto a DAW track
+- **THEN** the DAW gets one bar of notes with the kick on note 36 and accents as velocity

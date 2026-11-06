@@ -10,10 +10,13 @@
 
 ## 2. Steps
 
-- [ ] 2.1 Packed step format (on, accent, chance, nudge, roll); groove stays a fixed-size value, nothing allocated on the audio thread
-- [ ] 2.2 Accent, chance, nudge and rolls in the engine, with tests at buffer sizes 64, 333 and 2048
+- [ ] 2.1 Packed step format (on, accent, condition, nudge, roll); groove stays a fixed-size value, nothing allocated on the audio thread
+- [ ] 2.2 Accent, nudge, rolls and conditions (chance, X of Y, Fill, Not fill, probability groups) in the engine, with tests at buffer sizes 64, 333 and 2048
 - [ ] 2.3 Step right-click menu and hold-a-step editing
-- [ ] 2.4 Per-row length (1-64) with an end handle, per-row step size, 4 pages of 16
+- [ ] 2.4 Per-row length (1-64) with an end handle, per-row step size and direction, rotate, 4 pages of 16
+- [ ] 2.5 Euclid in the row menu
+- [ ] 2.6 Dice with row locks and Busy, using per-kit row rules; Remix; both start on the next bar
+- [ ] 2.7 Slop
 
 ## 3. Rows and sounds
 
@@ -23,7 +26,7 @@
 
 ## 4. Fills and variation
 
-- [ ] 4.1 FILL on the last bar before the leading deck's next phrase, hold for a manual fill
+- [ ] 4.1 FILL (hold) and Auto fill on the last bar before the leading deck's next phrase, driving the Fill and Not fill conditions
 - [ ] 4.2 Variation A/B alternating every 1 or 2 bars
 - [ ] 4.3 Fills for every built-in groove
 
@@ -46,7 +49,7 @@
 
 ## 8. Items, controllers, docs
 
-- [ ] 8.1 Grooves and chains as items in the Instruments source; export with the kit
+- [ ] 8.1 Grooves and chains as items in the Instruments source; export with the kit; drag out as a MIDI file
 - [ ] 8.2 `[GrooveN]` additions; regenerate website/book/supported-controls.txt
 - [ ] 8.3 Steps page: accents by velocity, rows 1-8 on Shift, two-row mode on 16-pad controllers
 - [ ] 8.4 User guide: update website/book/src/guide/groove-box.md
