@@ -74,6 +74,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 
 - [add-phrase-analysis](changes/add-phrase-analysis/proposal.md)
 - [add-prepare-list](changes/add-prepare-list/proposal.md)
+- [add-pipewire-audio](changes/add-pipewire-audio/proposal.md) (native PipeWire outputs by name, shared devices, one clock for every device; parked from v0.6 2026-11-06, issue #402)
 
 ## v1.0 · Ready for any DJ switching over
 
