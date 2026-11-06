@@ -468,6 +468,19 @@ pub fn default_path(dir: &Path) -> PathBuf {
     dir.join("library.sqlite")
 }
 
+/// Writes a consistent copy of the library at `from` to `to` (which must
+/// not exist yet), while other connections may be using it: WAL mode lets
+/// this read a snapshot. The copy is a single file, without a WAL.
+pub fn snapshot(from: &Path, to: &Path) -> Result<(), Error> {
+    let db = Connection::open_with_flags(
+        from,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    db.busy_timeout(std::time::Duration::from_secs(5))?;
+    db.execute("VACUUM INTO ?1", [to.to_string_lossy()])?;
+    Ok(())
+}
+
 impl Library {
     /// Opens (creating if needed) the library at `path`.
     pub fn open(path: &Path) -> Result<Self, Error> {
