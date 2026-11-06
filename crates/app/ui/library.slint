@@ -244,6 +244,8 @@ export global LibraryEdit {
     callback load-on-deck(row: int, deck: int);
     // Opens the side panel's Info tab on the row's track.
     callback show-info(row: int);
+    // The key that runs this openDJscript line (⌘I), for a menu line's hint.
+    pure callback key-for(script: string) -> string;
     // How many decks are shown, for "Load on Deck".
     in property <int> decks: 2;
     // The window's height, so the track menu can fit in it.
@@ -918,14 +920,13 @@ component StageStrip inherits HorizontalLayout {
     StageStep { y: 3px; text: "Play Ready"; tint: Theme.stage-ready; here: stage == 3; clicked => { picked(3); } }
 }
 
-// What the stage strip can't say: which prep crate to send a track into,
-// and passing over an Inbox track.
+// What the stage strip can't say: which prep crate to send a track into.
 component StageLines inherits VerticalLayout {
     in property <int> stage;
     callback picked(stage: int, crate: int);
     callback entered();
     spacing: 2px;
-    if stage == 1 || (stage != 2 && stage != 3 && LibraryEdit.triage-crates.length > 0): MenuSeparator {}
+    if stage != 2 && stage != 3 && LibraryEdit.triage-crates.length > 0: MenuSeparator {}
     if stage != 2 && stage != 3: VerticalLayout {
         spacing: 2px;
         for c[i] in LibraryEdit.triage-crates: MenuLine {
@@ -934,13 +935,6 @@ component StageLines inherits VerticalLayout {
             entered => { root.entered(); }
             clicked => { picked(2, i); }
         }
-    }
-    // Passed over: out of the Inbox for good, the file left where it is.
-    if stage == 1: MenuLine {
-        icon: "hide";
-        text: "Hide from Inbox";
-        entered => { root.entered(); }
-        clicked => { picked(4, -1); }
     }
 }
 
@@ -1512,6 +1506,7 @@ component TrackMenu inherits PopupWindow {
             if one: MenuLine {
                 icon: "info";
                 text: "Show Info";
+                hint: LibraryEdit.key-for("show_info");
                 entered => { panel = 0; }
                 clicked => {
                     LibraryEdit.show-info(track-row);

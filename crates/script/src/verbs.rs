@@ -370,6 +370,13 @@ pub static VERBS: &[Verb] = &[
         "Rate the tracks picked in the browser, or the deck's track; 0 clears",
     ),
     def(
+        "show_info",
+        App,
+        TakesDeck::No,
+        &[],
+        "Open the side panel's Info tab on the track picked in the browser",
+    ),
+    def(
         "expand_browser",
         Toggle("[Skin],show_maximized_library"),
         TakesDeck::No,

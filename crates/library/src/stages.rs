@@ -24,17 +24,10 @@ pub enum Stage {
     Inbox,
     Triage,
     Collection,
-    /// Passed over in the inbox: hidden, and not offered again.
-    Dismissed,
 }
 
 impl Stage {
-    pub const ALL: [Stage; 4] = [
-        Stage::Inbox,
-        Stage::Triage,
-        Stage::Collection,
-        Stage::Dismissed,
-    ];
+    pub const ALL: [Stage; 3] = [Stage::Inbox, Stage::Triage, Stage::Collection];
 
     /// The name kept in the library and used in searches (`stage:triage`).
     /// The titles changed since (Triage is In Prep, Collection is Play
@@ -44,7 +37,6 @@ impl Stage {
             Stage::Inbox => "inbox",
             Stage::Triage => "triage",
             Stage::Collection => "collection",
-            Stage::Dismissed => "dismissed",
         }
     }
 
@@ -68,7 +60,6 @@ impl Stage {
             Stage::Inbox => "Inbox",
             Stage::Triage => "In Prep",
             Stage::Collection => "Play Ready",
-            Stage::Dismissed => "Hidden from Inbox",
         }
     }
 }
@@ -107,7 +98,7 @@ impl Folders {
         match stage {
             Stage::Triage => self.triage.as_deref(),
             Stage::Collection => self.collection.as_deref(),
-            Stage::Inbox | Stage::Dismissed => self.inbox.first().map(PathBuf::as_path),
+            Stage::Inbox => self.inbox.first().map(PathBuf::as_path),
         }
     }
 

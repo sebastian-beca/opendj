@@ -5,6 +5,7 @@
 | <kbd>Space</kbd> | Play or pause the master deck |
 | <kbd>←</kbd> <kbd>→</kbd> | Bend the deck you started last slower or faster while held, 2% (4% with <kbd>Shift</kbd>); see [pitch bend](decks.md#slip-bend-and-censor) |
 | <kbd>⌘</kbd> <kbd>1</kbd> to <kbd>⌘</kbd> <kbd>5</kbd> (Linux and Windows: <kbd>Ctrl</kbd>) | Rate the tracks picked in the browser 1 to 5 stars |
+| <kbd>⌘</kbd> <kbd>I</kbd> (Linux and Windows: <kbd>Ctrl</kbd> <kbd>I</kbd>) | Show the picked track in the side panel's Info tab, as **Show Info** on the track menu does |
 | <kbd>⌘</kbd> <kbd>A</kbd> (Linux and Windows: <kbd>Ctrl</kbd> <kbd>A</kbd>) | Pick every track in the track list or side list you last clicked, to drag or analyze them together |
 | <kbd>⌘</kbd> <kbd>,</kbd> (Linux and Windows: <kbd>Ctrl</kbd> <kbd>,</kbd>) | Open or close Settings |
 | <kbd>Esc</kbd> | Close Settings |
@@ -38,6 +39,7 @@ set '[Master],gain' 1             a control of another group
 | `volume 80%` | Set the channel fader |
 | `crossfader` | Turn the crossfader on or off |
 | `rating 0` to `rating 5` | Rate tracks; 0 clears the rating |
+| `show_info` | Open the side panel's Info tab on the track picked in the browser |
 | `set`, `toggle`, `press`, `get` | Any control; `get` only asks, in a condition |
 | `adjust 'rate' 50%` | Any control by its 0 to 1 position; a controller's knob gives the level when none is written |
 | `jump 4`, `loop_move` | Jump beats, move the loop by its length; on an encoder, each click (back when turned left) |
