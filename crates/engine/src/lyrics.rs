@@ -258,13 +258,14 @@ pub fn decode_text(bytes: &[u8]) -> Cow<'_, str> {
         return String::from_utf8_lossy(rest);
     }
     let utf16 = |rest: &[u8], le: bool| -> String {
-        let units: Vec<u16> = rest
-            .chunks_exact(2)
-            .map(|c| {
+        let (pairs, _) = rest.as_chunks::<2>();
+        let units: Vec<u16> = pairs
+            .iter()
+            .map(|&c| {
                 if le {
-                    u16::from_le_bytes([c[0], c[1]])
+                    u16::from_le_bytes(c)
                 } else {
-                    u16::from_be_bytes([c[0], c[1]])
+                    u16::from_be_bytes(c)
                 }
             })
             .collect();
