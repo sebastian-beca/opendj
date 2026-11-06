@@ -37,7 +37,7 @@ Pulses SHALL be scheduled ahead and sent at their time (a clock thread that slee
 - **THEN** a drum machine showing tempo to one decimal stays at 124.0
 
 ### Requirement: Clock in
-An input chosen under Settings › Controllers › MIDI Clock SHALL be read for clock, Start, Stop and Song Position. Its tempo SHALL be smoothed over the last two beats and shown to two decimals.
+An input chosen under Settings › Controllers › MIDI Clock SHALL be read for clock, Start, Stop and Song Position. Its tempo SHALL be smoothed (a line fitted through up to four bars of pulses, starting over from the last two beats when they show a tempo change) and shown to two decimals.
 
 #### Scenario: Jittery source
 - **WHEN** a hardware clock at 120 BPM arrives with pulses up to 2 ms early or late

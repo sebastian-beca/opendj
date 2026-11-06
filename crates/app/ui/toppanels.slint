@@ -150,6 +150,72 @@ component PanelLink inherits Text {
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
+// What synced decks follow, in the MASTER panel under MIDI Clock: the
+// master deck (as always), the Ableton Link session or the MIDI clock
+// coming in. Picking Link turns Link on.
+component LeaderRow inherits VerticalLayout {
+    property <int> source-index: Controls.resolve("[Master]", "sync_leader_source");
+    property <int> source: Controls.value(source-index, Controls.tick);
+    property <int> link-index: Controls.resolve("[Link]", "enabled");
+    property <bool> link-on: Controls.value(link-index, Controls.tick) > 0;
+    property <float> in-bpm: Controls.value(Controls.resolve("[MidiClock]", "in_bpm"), Controls.tick);
+    property <bool> in-running: Controls.value(Controls.resolve("[MidiClock]", "in_running"), Controls.tick) > 0;
+    spacing: 4px;
+    HorizontalLayout {
+        spacing: 8px;
+        Text {
+            text: "SYNC follows";
+            color: Theme.text;
+            font-size: 12px;
+            font-weight: 600;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        Rectangle {
+            height: 22px;
+            border-radius: Theme.radius;
+            background: Theme.control;
+            border-width: 1px;
+            border-color: Theme.border;
+            HorizontalLayout {
+                padding: 2px;
+                spacing: 2px;
+                for name[i] in ["Deck", "Link", "Clock"]: Rectangle {
+                    border-radius: Theme.radius - 2px;
+                    background: i == source ? #3a3a3d : seg-ta.has-hover ? #222225 : transparent;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        Text {
+                            text: name;
+                            color: i == source ? Theme.text : Theme.text-dim;
+                            font-size: 11px;
+                            font-weight: i == source ? 600 : 400;
+                            vertical-alignment: center;
+                        }
+                    }
+                    seg-ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            Controls.set-value(source-index, i);
+                            if i == 1 && !link-on {
+                                Controls.set-value(link-index, 1);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if source == 2: Text {
+        text: in-bpm <= 0 ? "No clock coming in: pick an input in Settings › Controllers"
+            : (round(in-bpm * 100) / 100) + " BPM in" + (in-running ? "" : ", stopped");
+        color: in-bpm > 0 ? Theme.accent : Theme.text-dim;
+        font-size: 11px;
+        overflow: elide;
+    }
+}
+
 // An on/off switch for a toggle control, in a panel row.
 component PanelSwitch inherits VerticalLayout {
     in property <int> index;
@@ -402,6 +468,7 @@ export component MasterPanel inherits PopupWindow {
         EdgeLine { line-color: Theme.border; }
         LinkRow { }
         ClockRow { }
+        LeaderRow { }
         PanelLink {
             text: "Audio Settings…";
             clicked => {
