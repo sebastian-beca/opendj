@@ -101,6 +101,11 @@ pub struct SourceQuery {
     /// A playlist's songs, as "Artist - Title", when the app has them (it
     /// read the playlist itself); `text` is then the playlist's name.
     pub songs: Vec<String>,
+    /// A saved search the app runs again by itself when it starts, not one
+    /// the DJ just asked for. A source shouldn't start anything the DJ has
+    /// to answer for it, such as signing in in the browser: it says what's
+    /// needed instead, and the DJ's "Search again" does it.
+    pub restored: bool,
 }
 
 /// One result: a file, or a folder of them (an album).
