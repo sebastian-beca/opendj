@@ -9,8 +9,11 @@
 //!
 //! A logger thread writes `<name>.controls.jsonl`: one line per control
 //! change (`[Channel1],volume` and so on), stamped with the time in the
-//! recording, plus a line for each track loaded on a deck. That is enough to
-//! rebuild the set later, e.g. as an Ableton Live set. When the recording
+//! recording, plus a line for each track loaded on a deck, and `pos` lines
+//! with each loaded deck's place in its track: one a second, and one
+//! whenever the deck jumps (a hot cue, a seek on the waveform, a loop going
+//! round). That is enough to rebuild the set later, e.g. as an Ableton Live
+//! set. When the recording
 //! stops it also writes `<name>.cue`, listing each track from the moment it
 //! became audible, and `<name>.tracklist.txt`, the same as `0:00 Artist -
 //! Title` lines.
@@ -49,6 +52,21 @@ const WAV_LIMIT: u64 = 4_000_000_000;
 /// Controls the engine rewrites every buffer; logging them would only add
 /// noise, and they follow from play, rate and seeks anyway.
 const NOT_LOGGED: [&str; 1] = ["playposition"];
+
+/// Read-only values that are still logged, because a rebuilt set needs
+/// them: where loops, the cue point and hot cues sit. The rest (meters,
+/// beat flashes and so on) only follow from what was played.
+const LOGGED_INDICATORS: [&str; 3] = ["loop_start_position", "loop_end_position", "cue_point"];
+
+/// How often each loaded deck's place in its track is logged.
+const POS_EVERY: f64 = 1.0;
+
+/// A deck that moves further than this between two looks, beyond what
+/// playing at up to `MAX_SPEED` explains, has jumped.
+const JUMP_SECONDS: f64 = 0.1;
+
+/// Faster than any pitch fader or scratch moves through a track.
+const MAX_SPEED: f64 = 4.0;
 
 /// A deck counts as audible from this channel fader position up.
 const AUDIBLE_VOLUME: f64 = 0.05;
@@ -846,7 +864,7 @@ fn watched(registry: &ControlRegistry, known: &mut Vec<Watched>) -> Vec<usize> {
         let Some(handle) = registry.get(&key.group, &key.item) else {
             continue;
         };
-        if handle.behavior() == Behavior::Indicator {
+        if handle.behavior() == Behavior::Indicator && !logged_indicator(&key.item) {
             continue;
         }
         added.push(known.len());
@@ -857,6 +875,20 @@ fn watched(registry: &ControlRegistry, known: &mut Vec<Watched>) -> Vec<usize> {
         });
     }
     added
+}
+
+fn logged_indicator(item: &str) -> bool {
+    LOGGED_INDICATORS.contains(&item)
+        || item
+            .strip_prefix("hotcue_")
+            .and_then(|r| r.strip_suffix("_position"))
+            .is_some_and(|n| n.parse::<u32>().is_ok())
+}
+
+/// Whether a deck that went from `from` to `to` seconds into its track
+/// while `dt` seconds were recorded skipped rather than played there.
+fn jumped(from: f64, to: f64, dt: f64) -> bool {
+    (to - from).abs() > dt * MAX_SPEED + JUMP_SECONDS
 }
 
 /// A track on the cue sheet: when it became audible.
@@ -908,6 +940,17 @@ fn log_controls(
             registry.create(&g, "volume", 1.0, 0.0, 1.0, Behavior::Linear),
         )
     });
+    let places: [(ControlHandle, ControlHandle, ControlHandle); NUM_DECKS] =
+        std::array::from_fn(|d| {
+            let g = deck_group(d);
+            (
+                registry.create(&g, "playposition", 0.0, 0.0, 1.0, Behavior::Linear),
+                registry.indicator(&g, "duration", 3600.0),
+                registry.indicator(&g, "track_loaded", 1.0),
+            )
+        });
+    // Per deck: the place last looked at, when, and when it was last logged.
+    let mut place: [Option<(f64, f64, f64)>; NUM_DECKS] = [None; NUM_DECKS];
     let mut on_deck: [Option<(Loaded, bool)>; NUM_DECKS] = Default::default();
     let mut cues: Vec<CueEntry> = Vec::new();
     let mut last_rescan = Instant::now();
@@ -955,6 +998,28 @@ fn log_controls(
                     json!({ "t": t, "c": w.name, "v": w.handle.get() }),
                 );
             }
+        }
+        for (d, (position, duration, loaded)) in places.iter().enumerate() {
+            if !loaded.get_bool() || duration.get() <= 0.0 {
+                place[d] = None;
+                continue;
+            }
+            let s = position.get() * duration.get();
+            let log = match place[d] {
+                None => true,
+                Some((from, seen, logged)) => jumped(from, s, t - seen) || t - logged >= POS_EVERY,
+            };
+            let logged = if log {
+                let s = (s * 1000.0).round() / 1000.0;
+                line(
+                    &mut out,
+                    json!({ "t": t, "pos": { "deck": d + 1, "s": s } }),
+                );
+                t
+            } else {
+                place[d].map_or(t, |p| p.2)
+            };
+            place[d] = Some((s, t, logged));
         }
         for (d, (play, volume)) in decks.iter().enumerate() {
             if let Some((track, cued)) = &mut on_deck[d] {
@@ -1143,7 +1208,10 @@ mod tests {
             reg.get("[Channel1]", "play").unwrap().set_bool(true);
             run(&mut engine, 0.9);
             reg.get("[Channel1]", "volume").unwrap().set(0.5);
-            run(&mut engine, 1.0);
+            run(&mut engine, 0.5);
+            // A seek on the waveform: the engine only sees playposition move.
+            reg.get("[Channel1]", "playposition").unwrap().set(0.5);
+            run(&mut engine, 0.5);
             rec.stop();
             assert_eq!(reg.get("[Recording]", "status").unwrap().get(), 0.0);
             let seconds = reg.get("[Recording]", "duration").unwrap().get();
@@ -1177,6 +1245,18 @@ mod tests {
             let at = volume["t"].as_f64().unwrap();
             assert!((at - 1.5).abs() < 0.25, "{at}");
             assert!(!log.contains("playposition\""));
+            // The deck's place is logged, including right after the seek.
+            let places: Vec<f64> = lines
+                .iter()
+                .filter(|l| l["pos"]["deck"] == 1)
+                .map(|l| l["pos"]["s"].as_f64().unwrap())
+                .collect();
+            assert!(places.len() >= 2, "{places:?}");
+            let half = track.duration / 2.0;
+            assert!(
+                places.iter().any(|&s| (s - half).abs() < 1.0),
+                "{places:?} {half}"
+            );
 
             let cue = std::fs::read_to_string(sibling(&base, ".cue")).unwrap();
             assert!(cue.contains("TITLE \"Test 'Tone'\""), "{cue}");
@@ -1188,6 +1268,20 @@ mod tests {
             assert_eq!(files, vec![file.clone()]);
             let _ = std::fs::remove_dir_all(&dir);
         }
+    }
+
+    #[test]
+    fn jumps_and_kept_indicators() {
+        // 10 ms recorded: playing at normal or scratch speed isn't a jump.
+        assert!(!jumped(10.0, 10.01, 0.01));
+        assert!(!jumped(10.0, 9.97, 0.01));
+        // A hot cue or a loop going back a beat is.
+        assert!(jumped(10.0, 9.5, 0.01));
+        assert!(jumped(10.0, 60.0, 0.01));
+        assert!(logged_indicator("loop_start_position"));
+        assert!(logged_indicator("hotcue_12_position"));
+        assert!(!logged_indicator("hotcue_x_position"));
+        assert!(!logged_indicator("VuMeter"));
     }
 
     #[test]
