@@ -36,6 +36,7 @@ use smooth::SmoothClock;
 slint::include_modules!();
 
 mod analysis_queue;
+mod app_menu;
 mod apple_music;
 mod art;
 mod audio_plugins;
@@ -1145,6 +1146,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 browser.borrow_mut().poll_analysis();
                 browser.borrow_mut().poll_usb_export();
                 browser.borrow_mut().poll_playlist_files();
+                browser.borrow_mut().poll_rekordbox_xml();
                 browser.borrow_mut().poll_covers();
                 browser.borrow_mut().poll_cleanup();
                 browser.borrow_mut().poll_files();
@@ -1260,10 +1262,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // Settings… (⌘,) in the macOS app menu, which only exists once the
-    // event loop runs, so keep trying until it's there.
+    // File and Edit: the ☰ menu on Windows and Linux, and the native menu
+    // bar on macOS, which only exists once the event loop runs, so keep
+    // trying until it's there.
+    app_menu::install(&app);
     #[cfg(target_os = "macos")]
-    let _settings_menu = {
+    let _mac_menu = {
         let weak = app.as_weak();
         let timer = slint::Timer::default();
         let added = std::rc::Rc::new(std::cell::Cell::new(false));
@@ -1275,33 +1279,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return;
                 }
                 let weak = weak.clone();
-                let undo_weak = weak.clone();
-                let find_weak = weak.clone();
-                let export_weak = weak.clone();
-                added.set(mac_menu::add_settings_item(move || {
+                added.set(mac_menu::install(move |action| {
                     if let Some(app) = weak.upgrade() {
-                        let prefs = app.global::<Preferences>();
-                        if !prefs.get_open() {
-                            prefs.invoke_show(prefs.get_page());
-                        }
+                        app_menu::run(&app, action);
                     }
                 }));
-                mac_menu::on_undo(move || {
-                    if let Some(app) = undo_weak.upgrade() {
-                        app.global::<LibraryEdit>().invoke_undo_stage();
-                    }
-                });
-                mac_menu::on_find(move || {
-                    if let Some(app) = find_weak.upgrade() {
-                        app.invoke_focus_search();
-                    }
-                });
-                // The mixed set picked in the list.
-                mac_menu::on_export_mixcloud(move || {
-                    if let Some(app) = export_weak.upgrade() {
-                        export_mixcloud(&app);
-                    }
-                });
             },
         );
         timer
@@ -2310,7 +2292,6 @@ fn loop_label(beats: f64) -> SharedString {
 /// File › Export › Mixcloud…: makes the mixed set picked in the list into a
 /// Mixcloud MP3 with its tracklist (see `browser::mix_export`). Says so if
 /// no mixed set is picked. For any menu that offers it.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn export_mixcloud(app: &AppWindow) {
     app.global::<FilesUi>()
         .invoke_export_mixcloud(app.get_current_track());
