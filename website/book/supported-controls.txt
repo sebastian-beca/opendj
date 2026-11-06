@@ -2547,6 +2547,7 @@
 [Microphone],vu_meter
 [Microphone],vu_meter_left
 [Microphone],vu_meter_right
+[Mixer Profile],xFaderCutIn
 [Mixer Profile],xFaderReverse
 [Mixer Profile],xFaderShape
 [Mixer],crossfader_enabled
