@@ -31,6 +31,7 @@ use opendj_plugins::{ItemKind, StoreItem, StoreQuery};
 
 mod albums;
 mod analysis;
+mod buy;
 mod checklist;
 mod cleanup;
 pub(crate) mod columns;
@@ -519,6 +520,8 @@ pub struct Browser {
     streams: Vec<Stream>,
     store: StoreState,
     inbox: Inbox,
+    /// The Buy sheet, while open.
+    buy: Option<buy::BuyState>,
     /// Tracks arrived from the inbox while another source was shown, so
     /// the collection's tree (its Inbox list) needs reading again.
     collection_stale: bool,
@@ -1163,6 +1166,7 @@ impl Browser {
                 opendj_engine::scan::default_music_dir(),
                 stores::configured(),
             ),
+            buy: None,
             collection_stale: false,
             tree: COLLECTION,
             parked: HashMap::new(),
@@ -1496,15 +1500,7 @@ impl Browser {
         let w = with.clone();
         ui.on_find(move |row| w(Box::new(move |b| b.find_in_stores(row as usize))));
         let w = with.clone();
-        ui.on_set_inbox(move |on| {
-            w(Box::new(move |b| {
-                crate::settings::set_inbox_on(on);
-                b.inbox.send(crate::inbox::Request::SetOn(on));
-                if let Some(app) = b.app.upgrade() {
-                    app.global::<StoreUi>().set_inbox_on(on);
-                }
-            }))
-        });
+        ui.on_set_inbox(move |on| w(Box::new(move |b| b.set_inbox_on(on))));
         let w = with.clone();
         ui.on_set_inbox_mode(move |m| {
             w(Box::new(move |b| {
@@ -1584,6 +1580,7 @@ impl Browser {
         Self::install_info(app, &b);
         Self::install_picks(app, &b);
         Self::install_wanted(app, &b);
+        Self::install_buy(app, &b);
         Self::install_filters(app, &b);
         Self::install_columns(app, &b);
         b
@@ -2118,6 +2115,7 @@ impl Browser {
                 }
             }
         }
+        self.poll_buy();
         for event in self.inbox.poll() {
             match event {
                 crate::inbox::Event::Status(s) => {
@@ -2319,8 +2317,11 @@ impl Browser {
                     StoreRow::Wanted(w) => (
                         w.title.clone(),
                         w.artist.clone(),
-                        w.store.clone(),
-                        0.0,
+                        match opendj_plugins::buy::store_traits(&w.pending_store) {
+                            Some(t) => format!("Buying on {}…", t.name),
+                            None => w.store.clone(),
+                        },
+                        w.duration,
                         "Buy",
                     ),
                 };
