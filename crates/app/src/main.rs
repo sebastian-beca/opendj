@@ -15,7 +15,6 @@ use std::time::{Duration, Instant};
 use opendj_control::{ControlHandle, ControlRegistry};
 use opendj_engine::cover::Cover;
 use opendj_engine::key::Key;
-use opendj_engine::phrases;
 use opendj_engine::scan::scan;
 use opendj_engine::stems;
 use opendj_engine::synth::SAMPLE_LIBRARY_SIZE;
@@ -36,6 +35,7 @@ use smooth::SmoothClock;
 slint::include_modules!();
 
 mod analysis_queue;
+mod app_menu;
 mod apple_music;
 mod art;
 mod audio_plugins;
@@ -64,6 +64,8 @@ mod map_mode;
 mod mixcloud;
 mod mixcloud_upload;
 mod now_playing;
+mod osc;
+mod osc_events;
 mod prefs;
 mod quick_search;
 mod remote;
@@ -79,6 +81,7 @@ mod stores;
 mod stream_cache;
 mod tidal;
 mod tour;
+mod track_end;
 mod tutorials;
 mod ui_font;
 mod update;
@@ -337,6 +340,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     diagnostics::install();
+    // Windows wakes sleeping threads only every 15.6 ms unless asked for
+    // 1 ms: the controller threads' 1 kHz scratch filter and their timers
+    // need it, or a jog is heard in 16 ms steps.
+    #[cfg(windows)]
+    // SAFETY: a plain system call; it lasts until the process ends.
+    unsafe {
+        windows_sys::Win32::Media::timeBeginPeriod(1);
+    }
     // A restore picked in Settings goes in before anything reads the
     // settings or opens the library.
     let restored =
@@ -482,6 +493,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let counter = app.global::<BeatCounter>();
         counter.set_mode(beat_counter_mode());
+        track_end::load();
         counter.set_decks(ModelRc::new(VecModel::from(vec![
             BeatCount::default();
             NUM_DECKS
@@ -809,6 +821,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    // OSC for tablets, visuals and show software: Settings › Controllers.
+    osc::install(&registry, engine.loaded_tracks(), engine.visual_positions());
+    let _osc_timer = {
+        let timer = slint::Timer::default();
+        timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(500),
+            osc::tick,
+        );
+        timer
+    };
     // The now-playing files and overlay follow the mix a few times a second.
     let _now_playing_timer = {
         let mut feed = now_playing::NowPlaying::new(registry.clone(), engine.loaded_tracks());
@@ -1131,6 +1154,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 browser.borrow_mut().poll_analysis();
                 browser.borrow_mut().poll_usb_export();
                 browser.borrow_mut().poll_playlist_files();
+                browser.borrow_mut().poll_rekordbox_xml();
                 browser.borrow_mut().poll_covers();
                 browser.borrow_mut().poll_cleanup();
                 browser.borrow_mut().poll_files();
@@ -1246,10 +1270,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // Settings… (⌘,) in the macOS app menu, which only exists once the
-    // event loop runs, so keep trying until it's there.
+    // File and Edit: the ☰ menu on Windows and Linux, and the native menu
+    // bar on macOS, which only exists once the event loop runs, so keep
+    // trying until it's there.
+    app_menu::install(&app);
     #[cfg(target_os = "macos")]
-    let _settings_menu = {
+    let _mac_menu = {
         let weak = app.as_weak();
         let timer = slint::Timer::default();
         let added = std::rc::Rc::new(std::cell::Cell::new(false));
@@ -1261,26 +1287,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return;
                 }
                 let weak = weak.clone();
-                let undo_weak = weak.clone();
-                let find_weak = weak.clone();
-                added.set(mac_menu::add_settings_item(move || {
+                added.set(mac_menu::install(move |action| {
                     if let Some(app) = weak.upgrade() {
-                        let prefs = app.global::<Preferences>();
-                        if !prefs.get_open() {
-                            prefs.invoke_show(prefs.get_page());
-                        }
+                        app_menu::run(&app, action);
                     }
                 }));
-                mac_menu::on_undo(move || {
-                    if let Some(app) = undo_weak.upgrade() {
-                        app.global::<LibraryEdit>().invoke_undo_stage();
-                    }
-                });
-                mac_menu::on_find(move || {
-                    if let Some(app) = find_weak.upgrade() {
-                        app.invoke_focus_search();
-                    }
-                });
             },
         );
         timer
@@ -1400,6 +1411,13 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                         report.added, report.updated
                     );
                 }
+                // Own lists made inside an import's folder before those were
+                // read-only move out, so the next import can't take them.
+                match db.rescue_own_lists() {
+                    Ok(0) => {}
+                    Ok(n) => eprintln!("library: {n} own lists moved out of imported folders"),
+                    Err(e) => eprintln!("can't move own lists out of imports: {e}"),
+                }
                 for importer in &importers {
                     let Some(database) = settings::import_database(importer.as_ref()) else {
                         continue;
@@ -1408,6 +1426,9 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                     let theirs = settings::import_theirs_win(importer.id());
                     let want_streamed = settings::import_wants_streamed(importer.id());
                     let choices = settings::import_list_choices(importer.id());
+                    // Made the DJ's own: no lists come in to replace them.
+                    let lists_mine =
+                        settings::flag(&settings::import_lists_mine_key(importer.id()), false);
                     let mut picked: Vec<_> = choices.iter().collect();
                     picked.sort();
                     // Changing what comes in, or whose tags win, brings it in again.
@@ -1424,9 +1445,9 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                         want_streamed,
                         || {
                             let mut library = importer.read(&database, &groups)?;
-                            library
-                                .lists
-                                .retain(|l| settings::import_list_wanted(&choices, l));
+                            library.lists.retain(|l| {
+                                !lists_mine && settings::import_list_wanted(&choices, l)
+                            });
                             Ok(library)
                         },
                     ) {
@@ -1645,6 +1666,7 @@ fn fmt_seconds(seconds: f64, round_up: bool) -> String {
 
 /// Handles to the controls the deck displays and waveforms read every frame.
 struct DeckHandles {
+    play: ControlHandle,
     playposition: ControlHandle,
     rate: ControlHandle,
     rate_range: ControlHandle,
@@ -1694,6 +1716,7 @@ impl Decks {
                     .unwrap_or_else(|| panic!("missing control {g},{k}"))
             };
             DeckHandles {
+                play: c("play"),
                 playposition: c("playposition"),
                 rate: c("rate"),
                 rate_range: c("rateRange"),
@@ -1783,6 +1806,12 @@ impl Decks {
             };
         };
         let pos = h.playposition.get() * t.duration;
+        let end_flash = track_end::flash(
+            t.duration - pos,
+            h.play.get_bool(),
+            h.loop_enabled.get_bool(),
+            track_end::seconds(),
+        );
         let size = h.beatloop_size.get();
         // A loop made with IN and OUT shows its own length while it plays;
         // the box goes back to the beat loop size when it ends.
@@ -1887,6 +1916,8 @@ impl Decks {
                 None => size,
             }),
             progress: (pos / t.duration) as f32,
+            end_flash_time: end_flash && track_end::style().time(),
+            end_flash_ring: end_flash && track_end::style().ring(),
             // Filled in by the caller, from Automix.
             automix_from: 0.0,
             automix_to: 0.0,
@@ -2191,25 +2222,7 @@ impl Gpu {
         match &self.phrases[d] {
             Some((cached, p)) if Arc::ptr_eq(cached, t) => p.clone(),
             _ => {
-                let found = if phrases::waveform_ready(t) {
-                    phrases::detect(t)
-                } else {
-                    phrases::stored(t)
-                };
-                let p: Vec<_> = found
-                    .into_iter()
-                    .map(|p| {
-                        let kind = match p.kind {
-                            phrases::PhraseKind::Intro => PhraseKind::Intro,
-                            phrases::PhraseKind::Build => PhraseKind::Build,
-                            phrases::PhraseKind::Drop => PhraseKind::Drop,
-                            phrases::PhraseKind::Breakdown => PhraseKind::Breakdown,
-                            phrases::PhraseKind::Outro => PhraseKind::Outro,
-                            phrases::PhraseKind::Chorus => PhraseKind::Chorus,
-                        };
-                        (p.start, kind)
-                    })
-                    .collect();
+                let p = beat_counter::track_phrases(t);
                 self.phrases[d] = Some((t.clone(), p.clone()));
                 p
             }
@@ -2274,4 +2287,12 @@ fn loop_label(beats: f64) -> SharedString {
         format!("1/{}", (1.0 / beats).round())
     }
     .into()
+}
+
+/// File › Export › Mixcloud…: makes the mixed set picked in the list into a
+/// Mixcloud MP3 with its tracklist (see `browser::mix_export`). Says so if
+/// no mixed set is picked. For any menu that offers it.
+pub(crate) fn export_mixcloud(app: &AppWindow) {
+    app.global::<FilesUi>()
+        .invoke_export_mixcloud(app.get_current_track());
 }

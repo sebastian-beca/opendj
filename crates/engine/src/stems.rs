@@ -291,6 +291,40 @@ impl Stems {
         }
     }
 
+    /// Frame `i` of only the stems with a weight, each scaled by it, with
+    /// no original under them: what a deck sends into its stem effect (see
+    /// `StemFx`). Blended into `up`'s by `w`, as [`Stems::mix_blend`].
+    /// Frames not separated yet are silence.
+    #[inline]
+    pub(crate) fn solo_blend(
+        &self,
+        up: Option<&Stems>,
+        w: f32,
+        i: usize,
+        weights: &[f32; MAX_STEMS],
+    ) -> [f32; 2] {
+        let sum = |f: Option<&StemFrame>| {
+            let mut out = [0.0; 2];
+            if let Some(f) = f {
+                for (s, g) in f.iter().zip(weights) {
+                    if *g != 0.0 {
+                        out[0] += s[0] as f32 * g;
+                        out[1] += s[1] as f32 * g;
+                    }
+                }
+            }
+            [out[0] / 32_768.0, out[1] / 32_768.0]
+        };
+        match up {
+            Some(u) if w >= 1.0 => sum(u.frame_at(i)),
+            Some(u) if w > 0.0 => {
+                let (a, b) = (sum(self.frame_at(i)), sum(u.frame_at(i)));
+                [a[0] + (b[0] - a[0]) * w, a[1] + (b[1] - a[1]) * w]
+            }
+            _ => sum(self.frame_at(i)),
+        }
+    }
+
     /// How the stems that play now were made.
     pub fn playing_quality(&self) -> Quality {
         self.current().quality

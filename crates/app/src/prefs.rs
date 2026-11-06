@@ -12,13 +12,14 @@ use crate::audio_plugins::{AudioPlugins, Found};
 use crate::backup;
 use crate::broadcast::{self, Broadcast};
 use crate::list_picker::{Picker, Ticked};
+use crate::osc;
 use opendj_control::ControlRegistry;
 use opendj_controllers::{is_system_port, own, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
     analysis, beatthis, cache, channel_names, deck_group, engine, input_devices, key, meter,
     separation, AudioSetup, InputRole, InputRoute, RecordFormat, Recorder, BUFFER_SIZES,
-    DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES,
+    DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES, XFADER_CUT_IN,
 };
 use opendj_library::query;
 use opendj_plugins::source::DOWNLOAD_FOLDER;
@@ -142,6 +143,14 @@ const RECORD_FORMATS: [(RecordFormat, u16, &str); 4] = [
     (RecordFormat::Flac, 16, "FLAC · 16-bit"),
 ];
 
+/// Scratch crossfader cut-ins on offer, as shares of the travel.
+const XFADER_CUT_INS: [f64; 4] = [0.005, 0.01, 0.02, 0.05];
+
+/// The Scratch crossfader curve's cut-in, from the settings.
+fn xfader_cut_in() -> f64 {
+    settings::number("xfader_cut_in", XFADER_CUT_IN)
+}
+
 const AUTO_GAIN_TARGETS: [f64; 7] = [-8.0, -10.0, -12.0, -14.0, -16.0, -18.0, -23.0];
 
 /// Loudness meter targets offered, in LUFS, with what each is for.
@@ -181,7 +190,7 @@ pub fn apply_saved(registry: &ControlRegistry) {
         set(&g, "rate_dir", rate_dir());
         set(&g, "quantize", f(settings::flag("quantize", true)));
         set(&g, "vinyl_mode", f(settings::flag("vinyl_mode", true)));
-        if settings::flag("keylock_default", false) {
+        if settings::flag("keylock_default", true) {
             set(&g, "keylock", 1.0);
         }
     }
@@ -195,6 +204,7 @@ pub fn apply_saved(registry: &ControlRegistry) {
         "xFaderShape",
         settings::number("xfader_shape", 0.0),
     );
+    set("[Mixer Profile]", "xFaderCutIn", xfader_cut_in());
     set(
         "[Mixer Profile]",
         "xFaderReverse",
@@ -1194,7 +1204,11 @@ impl Prefs {
                     false,
                 ),
             ],
-            CONTROLLERS => self.controllers_page(),
+            CONTROLLERS => {
+                let mut items = self.controllers_page();
+                items.extend(osc_items());
+                items
+            }
             LIBRARY => self.library_page(tab),
             ANALYSIS => {
                 let (lo, hi) = bpm_range();
@@ -1314,8 +1328,8 @@ impl Prefs {
                     switch(
                         "keylock_default",
                         "Key lock on at start",
-                        "Tempo changes keep the key; each deck's lock button still switches it.",
-                        settings::flag("keylock_default", false),
+                        "Tempo changes keep the key. Right-click a deck's tempo fader to switch it; its line turns lilac while on.",
+                        settings::flag("keylock_default", true),
                     ),
                     PrefItem {
                         choices: strings(&["Harmonic · 4 keys", "Fuzzy · 6 keys"]),
@@ -1353,6 +1367,28 @@ impl Prefs {
                              the bar brighter, with the bars of the phrase under them. With \
                              phrases, the header also counts down the bars to the next phrase \
                              and names it.",
+                        )
+                    },
+                    PrefItem {
+                        choices: strings(&crate::track_end::LABELS),
+                        chosen: crate::track_end::chosen() as i32,
+                        ..item(
+                            crate::track_end::KEY,
+                            MENU,
+                            "Track end warning",
+                            "A playing deck's remaining time blinks red this long before the \
+                             track ends. Not while a loop plays.",
+                        )
+                    },
+                    PrefItem {
+                        choices: strings(&crate::track_end::STYLE_LABELS),
+                        chosen: crate::track_end::style() as i32,
+                        ..item(
+                            crate::track_end::STYLE_KEY,
+                            SEGMENTED,
+                            "Warning type",
+                            "What blinks near the track's end: the remaining time in red, the \
+                             ring round the deck's jog in its color, or both.",
                         )
                     },
                     switch(
@@ -1517,7 +1553,7 @@ impl Prefs {
                 format!("{t} LUFS{note}")
             })
             .collect();
-        vec![
+        let mut items = vec![
             switch(
                 "auto_gain",
                 "Auto gain",
@@ -1547,6 +1583,26 @@ impl Prefs {
                     "Smooth for blends; Scratch cuts in sharply at the ends.",
                 )
             },
+        ];
+        // Only the Scratch curve has a cut-in.
+        if settings::number("xfader_shape", 0.0) as i32 == 2 {
+            let cut_in = xfader_cut_in();
+            items.push(PrefItem {
+                choices: strings(&["0.5%", "1%", "2%", "5%"]),
+                chosen: XFADER_CUT_INS
+                    .iter()
+                    .position(|&c| (c - cut_in).abs() < 1e-6)
+                    .unwrap_or(2) as i32,
+                ..item(
+                    "xfader_cut_in",
+                    SEGMENTED,
+                    "Cut-in",
+                    "How far from the end the crossfader opens a side fully, as a share of \
+                     its travel. 2% is under a millimetre on most controllers.",
+                )
+            });
+        }
+        items.extend([
             switch(
                 "xfader_enabled",
                 "Crossfader",
@@ -1565,7 +1621,8 @@ impl Prefs {
                 "Cue in the left ear and master in the right, both in mono.",
                 settings::flag("head_split", false),
             ),
-            ]
+        ]);
+        items
     }
 
     /// Settings › Plugins. Effects and Instruments: Scan, then the plugins
@@ -3104,6 +3161,8 @@ impl Prefs {
         }
         settings::set(&settings::import_theirs_key(id), json!(w.theirs_win));
         settings::set(&settings::import_remove_key(id), json!(false));
+        // Turned on afresh, its lists come in again.
+        settings::set(&settings::import_lists_mine_key(id), json!(false));
         settings::set(&settings::import_enabled_key(id), json!(true));
         // Its settings open up on the Import tab, shown now.
         self.show_tab(IMPORT_TAB);
@@ -3193,6 +3252,9 @@ impl Prefs {
             return;
         }
         settings::set(id, json!(on));
+        if [osc::ENABLED, osc::LOCAL_ONLY, osc::SEND_ONLY].contains(&id) {
+            osc::apply();
+        }
         if id == crate::now_playing::ENABLED || id == crate::now_playing::NETWORK {
             crate::now_playing::settings_changed();
         }
@@ -3419,6 +3481,8 @@ impl Prefs {
                 settings::set("key_mixing", json!(m.id()));
                 key::set_mixing(m);
             }
+            crate::track_end::KEY => crate::track_end::choose(index),
+            crate::track_end::STYLE_KEY => crate::track_end::choose_style(index),
             "beat_counter" => {
                 settings::set("beat_counter", json!(index.min(2)));
                 if let Some(app) = self.app.upgrade() {
@@ -3493,6 +3557,13 @@ impl Prefs {
             "xfader_shape" => {
                 settings::set("xfader_shape", json!(index));
                 self.set("[Mixer Profile]", "xFaderShape", index as f64);
+            }
+            "xfader_cut_in" => {
+                let Some(&cut_in) = XFADER_CUT_INS.get(index) else {
+                    return;
+                };
+                settings::set("xfader_cut_in", json!(cut_in));
+                self.set("[Mixer Profile]", "xFaderCutIn", cut_in);
             }
             "talkover_ducking" => {
                 settings::set("talkover_ducking", json!(index));
@@ -4025,6 +4096,18 @@ impl Prefs {
                 "description" => s.description = text,
                 _ => {}
             });
+            return;
+        }
+        if id == osc::PORT {
+            if let Ok(port) = text.trim().parse::<u16>() {
+                settings::set(id, json!(port));
+                osc::settings_changed();
+            }
+            return;
+        }
+        if id == osc::TARGETS {
+            settings::set(id, json!(text));
+            osc::settings_changed();
             return;
         }
         if id == crate::now_playing::TEMPLATE {
@@ -4856,6 +4939,70 @@ const CLEANUP_FOLD: &str = "cleanup#fold";
 const MUSIC_FOLDERS_LIST: &str = "music_folders";
 /// The plugin folders' list on Settings › Plugins › Folders.
 const PLUGIN_FOLDERS_LIST: &str = "audio_plugin_folders";
+
+/// Settings › Controllers › OSC: tablets, visuals and show software
+/// controlling openDJ and following it over Open Sound Control.
+fn osc_items() -> Vec<PrefItem> {
+    let on = settings::flag(osc::ENABLED, false);
+    let mut items = vec![
+        item("", HEADING, "OSC", ""),
+        switch(
+            osc::ENABLED,
+            "OSC",
+            "Lets TouchOSC, Open Stage Control, Resolume, TouchDesigner, QLab and other \
+             Open Sound Control apps press any button and move any fader, and follow \
+             what changes. /channel1/play 1 plays deck 1. See the user guide for every address.",
+            on,
+        ),
+    ];
+    if !on {
+        return items;
+    }
+    let status = osc::status();
+    if !status.is_empty() {
+        items.push(item("osc_status", NOTE, "", &status));
+    }
+    items.push(PrefItem {
+        value: osc::port().to_string().into(),
+        ..item(
+            osc::PORT,
+            TEXT,
+            "Port",
+            "The UDP port openDJ listens on. 9000 at first.",
+        )
+    });
+    let (_, bad) = osc::targets();
+    items.push(PrefItem {
+        value: settings::string(osc::TARGETS).into(),
+        ..item(
+            osc::TARGETS,
+            TEXT,
+            "Send to",
+            &if bad.is_empty() {
+                "Apps to send changes and events (beats, phrases, tracks, hot cues) to, as address:port, separated by commas, \
+                 for example 192.168.1.20:8000. An app that sends from the same computer gets \
+                 its answers here too."
+                    .to_string()
+            } else {
+                format!("Not understood: {}", bad.join(", "))
+            },
+        )
+    });
+    items.push(switch(
+        osc::LOCAL_ONLY,
+        "Only this computer",
+        "Off, tablets and other computers on your network can control openDJ too.",
+        settings::flag(osc::LOCAL_ONLY, true),
+    ));
+    items.push(switch(
+        osc::SEND_ONLY,
+        "Send only",
+        "Ignores incoming controls, so other apps can follow openDJ but not change it. \
+         /subscribe still works.",
+        settings::flag(osc::SEND_ONLY, false),
+    ));
+    items
+}
 
 /// Settings › Broadcast › NOW PLAYING FEED: the track the audience hears,
 /// for OBS and other streaming software.

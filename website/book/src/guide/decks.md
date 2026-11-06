@@ -12,8 +12,8 @@ In 2-Deck each deck runs, from the outer edge in:
 
 - **The tempo column**: **SYNC** on top, the tempo fader, and **−** and **+**
   under it for small steps. The triangle beside the fader puts the tempo
-  back to the track's own, and the padlock above it is
-  [key lock](#keys).
+  back to the track's own. A lilac line down the fader means
+  [key lock](#keys) is on; right-click the fader to switch it.
 - **The pads**, with their tabs on top (see [Pads](pads.md)).
 - **The LOOP column** (see [Looping](looping.md)).
 - **The jog wheel**, with **CUE** and **PLAY** under it, next to the mixer.
@@ -91,6 +91,14 @@ switching it off then also brings the track back. Slip only works on a deck
 that's playing: on a paused deck, scratching and hot cues find a spot as
 usual.
 
+**Scratching** follows your hand closely. openDJ smooths a controller's jog
+the way Mixxx does when you hold the record or push it at a steady speed,
+so the sound doesn't wobble. When your hand changes speed quickly, as in a
+baby scratch, a quicker filter takes over, so the record keeps up: about
+10 ms behind your hand, where Mixxx's smoothing alone is about 26 ms behind.
+The audio buffer (Settings › Audio) comes on top of that, so a smaller
+buffer feels tighter still.
+
 **Vinyl mode** (Settings › Decks) decides what touching the top of a
 controller's jog does. On (the default), it grabs the record so you can
 scratch. Off, the top bends the tempo like the rim does, so brushing the jog
@@ -130,8 +138,10 @@ quantize starts on for every deck.
 
 ## Keys
 
-The padlock over the triangle beside the tempo fader is **key lock**: while
-it's lit, moving the tempo fader keeps the track's key. The **+** and **−**
+**Key lock** shows on the tempo fader: while its line is lilac, moving
+the fader keeps the track's key. It's on from the start; right-click the
+tempo fader to switch it off and on (**Settings › Decks › Key lock on at
+start** sets how decks start). The **+** and **−**
 beside the deck's key shift it a semitone at a time, and clicking the key
 lists every shift with the key it gives.
 
@@ -177,6 +187,12 @@ The menu over the meters picks what the four knobs do:
   and a high-pass, after PlayDifferently's Model 1.
 
 A controller's EQ knobs follow the same choice.
+
+**Crossfader curve** (Settings › Mixer): **Smooth** for blends, **Linear**,
+or **Scratch**, where both sides play at full level until the very end. With
+Scratch, **Cut-in** sets how close to the end a side opens fully: 0.5%, 1%,
+2% (the default, under a millimetre on most controllers) or 5% of the
+crossfader's travel.
 
 **The crossfader** can be switched off, so it no longer fades either side:
 right-click it, or use **Settings › Mixer**.
