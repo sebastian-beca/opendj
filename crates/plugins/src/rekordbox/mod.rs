@@ -12,6 +12,7 @@ use crate::{ImportedLibrary, ImportedList, LibraryImport, ListGroup};
 pub mod common;
 pub mod masterdb;
 pub mod xml;
+pub mod xml_export;
 
 pub const PLAYLISTS: &str = "playlists";
 pub const SMART: &str = "smart";

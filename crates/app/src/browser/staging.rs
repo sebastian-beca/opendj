@@ -267,14 +267,17 @@ impl Browser {
             let existing = db.playlists().ok().and_then(|lists| {
                 lists
                     .into_iter()
-                    .find(|p| p.kind == PlaylistKind::List && p.name.eq_ignore_ascii_case(name))
+                    .find(|p| {
+                        matches!(p.kind, PlaylistKind::List | PlaylistKind::Crate)
+                            && p.name.eq_ignore_ascii_case(name)
+                    })
                     .map(|p| p.id)
             });
             let list = match existing {
                 Some(id) => Ok(id),
                 None => {
                     lists_changed = true;
-                    db.create_playlist(name, None, PlaylistKind::List)
+                    db.create_crate(name, None)
                 }
             };
             if let Err(e) = list.and_then(|id| db.add_to_playlist(id, &ids)) {
@@ -412,8 +415,7 @@ impl Browser {
         edit.set_triage_crates(ModelRc::new(VecModel::from(crates)));
         let undo = self.undo.as_ref().map_or("", |u| u.text.as_str());
         edit.set_undo_text(undo.into());
-        #[cfg(target_os = "macos")]
-        crate::mac_menu::set_undo_text(undo);
+        crate::app_menu::set_undo_text(undo);
     }
 
     /// Queues the tracks in triage that still need their tempo or key.

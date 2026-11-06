@@ -7,6 +7,8 @@ import { Mixer, ExternalMixer, AudioSettings, OutputRow, MixerMode, InputSetting
 import { MasterPanel, MicPanel, OnAirPanel, BroadcastState, BroadcastStation, AirTime } from "toppanels.slint";
 import { PlayerBar, PlayerDeck, PlayerMixer, TopSearch, QuickResults, QuickSearch, QuickRow } from "player.slint";
 export { QuickSearch, QuickRow } from "player.slint";
+import { AppMenu, AppMenuButton } from "appmenu.slint";
+export { AppMenu, MenuEntry } from "appmenu.slint";
 import { PrepDeck, PrepUi } from "prep.slint";
 import { CueList } from "cues.slint";
 import { ChecklistUi } from "checklist.slint";
@@ -766,9 +768,18 @@ export component AppWindow inherits Window {
     callback automix-set-length(index: int);
     callback automix-set-style(index: int);
 
-    // Edit › Find (⌘F) on macOS, and the key everywhere.
     public function focus-search() {
         browser.focus-search();
+    }
+
+    // Edit › Find, and ⌘F (Ctrl+F on Linux and Windows): the library
+    // search, or the top bar's in Player.
+    public function find() {
+        if player {
+            QuickSearch.focus-box();
+        } else {
+            focus-search();
+        }
     }
 
     init => {
@@ -947,6 +958,12 @@ export component AppWindow inherits Window {
                 }
                 return accept;
             }
+            // Ctrl+Q quits on Linux and Windows, as File › Quit says
+            // (macOS's own app menu has ⌘Q).
+            if AppMenu.shown && (e.text == "q" || e.text == "Q") && e.modifiers.control && !e.modifiers.alt && !e.modifiers.shift {
+                AppMenu.activated(AppMenu.quit-action);
+                return accept;
+            }
             if MapMode.active && e.text == Key.Escape {
                 MapMode.done();
                 return accept;
@@ -991,11 +1008,7 @@ export component AppWindow inherits Window {
             }
             // ⌘F (Ctrl+F on Linux and Windows) goes to the library search.
             if (e.text == "f" || e.text == "F") && e.modifiers.control && !e.modifiers.alt && !e.modifiers.shift && !Preferences.open {
-                if player {
-                    QuickSearch.focus-box();
-                    return accept;
-                }
-                focus-search();
+                find();
                 return accept;
             }
             // ⌘A (Ctrl+A on Linux and Windows) picks every track in the
@@ -1061,6 +1074,9 @@ export component AppWindow inherits Window {
                     padding-left: 4px + traffic-light-inset;
                     padding-right: 4px;
                     spacing: 10px;
+                    // File and Edit, on Windows and Linux (macOS has its
+                    // menu bar).
+                    if AppMenu.shown: AppMenuButton { }
                     LayoutPill { layout <=> root.layout; changed-to(l) => { layout-changed(l); } }
                     if !player: WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
                     if !player: FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }

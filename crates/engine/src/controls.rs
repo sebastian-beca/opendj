@@ -62,6 +62,10 @@ pub fn effect_group(unit: usize, effect: usize) -> String {
 }
 
 /// hotcue_N_type values, as in Mixxx.
+/// The Scratch crossfader curve's cut-in out of the box: a side opens
+/// fully within the last 2% of travel, under a millimetre on most
+/// controllers.
+pub const XFADER_CUT_IN: f64 = 0.02;
 pub(crate) const HOTCUE_CUE: f64 = 1.0;
 pub(crate) const HOTCUE_LOOP: f64 = 4.0;
 
@@ -234,6 +238,16 @@ pub(crate) struct DeckControls {
     /// beatlooproll_N_activate by size, plus beatlooproll_activate as size 0
     /// (meaning beatloop_size). Each loops while held.
     pub(crate) rolls: Vec<(f64, ControlHandle, Edge)>,
+    /// SLICER (openDJ's own): while on, the 8 beats from where it was
+    /// switched on loop, one beat on each pad.
+    pub(crate) slicer_enabled: ControlHandle,
+    /// `slicer_N_activate`: plays beat N of the section, in time, while held.
+    pub(crate) slicer_pads: [(ControlHandle, Edge); 8],
+    /// `slicer_N_status`: beat N of the section is playing (the pad's light).
+    pub(crate) slicer_status: [ControlHandle; 8],
+    /// `freeze_N_activate` (openDJ's own): repeats the Nth eighth of the
+    /// beat playing when the first pad went down, while held (slip).
+    pub(crate) freeze_pads: [(ControlHandle, Edge); 8],
     pub(crate) keylock: ControlHandle,
     /// The loaded track's beat grid is locked (Mixxx's `bpmlock`): turning
     /// it on or off locks or unlocks the grid.
@@ -268,8 +282,8 @@ impl DeckControls {
         reg.indicator(g, "playposition_seconds", 3600.0);
         // A pad panel a controller's pad mode buttons ask the deck to show
         // (0 hot cues, 1 pad FX 1, 2 beat jump, 3 sampler, 4 stems, 5 beat
-        // loop, 6 pad FX 2, 7 keyboard, 8 key shift, 9 loop roll); the skin
-        // shows it and sets this back to -1.
+        // loop, 6 pad FX 2, 7 keyboard, 8 key shift, 9 loop roll, 10 slicer,
+        // 11 freeze); the skin shows it and sets this back to -1.
         reg.create(g, "pad_panel", -1.0, -1.0, 16.0, Behavior::Free);
         // Touching the jog's top scratches (on, as on vinyl) or only bends
         // like the rim (off, CDJ mode). Only controller mappings read it;
@@ -492,6 +506,22 @@ impl DeckControls {
             eject: reg.push(g, "eject"),
             beatsync: reg.push(g, "beatsync"),
             rolls,
+            slicer_enabled: reg.toggle(g, "slicer_enabled"),
+            slicer_pads: std::array::from_fn(|n| {
+                (
+                    reg.push(g, &format!("slicer_{}_activate", n + 1)),
+                    Edge::default(),
+                )
+            }),
+            slicer_status: std::array::from_fn(|n| {
+                reg.indicator(g, &format!("slicer_{}_status", n + 1), 1.0)
+            }),
+            freeze_pads: std::array::from_fn(|n| {
+                (
+                    reg.push(g, &format!("freeze_{}_activate", n + 1)),
+                    Edge::default(),
+                )
+            }),
             keylock: reg.toggle(g, "keylock"),
             bpmlock: reg.toggle(g, "bpmlock"),
             metronome: reg.toggle(g, "metronome"),
@@ -693,6 +723,9 @@ pub(crate) struct MasterControls {
     /// The crossfader's curve: 0 smooth (constant power), 1 linear, 2 a
     /// sharp cut at the ends for scratching.
     pub(crate) xfader_shape: ControlHandle,
+    /// openDJ: on the Scratch curve, how far from its end a side opens
+    /// fully, as a share of the crossfader's travel (0.02 is 2%).
+    pub(crate) xfader_cut_in: ControlHandle,
     pub(crate) xfader_reverse: ControlHandle,
     /// `[Mixer] crossfader_enabled`: off, every deck plays as if set to
     /// thru and the crossfader does nothing, unless Automix is mixing.
@@ -784,6 +817,14 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
             0.0,
             0.0,
             2.0,
+            Behavior::Free,
+        ),
+        xfader_cut_in: reg.create(
+            "[Mixer Profile]",
+            "xFaderCutIn",
+            XFADER_CUT_IN,
+            0.001,
+            0.5,
             Behavior::Free,
         ),
         xfader_reverse: reg.toggle("[Mixer Profile]", "xFaderReverse"),

@@ -35,6 +35,9 @@ export struct Folder {
     count: int,
     // Holds library tracks, so its menu offers Analyze All.
     analysable: bool,
+    // The Collection node or one of the DJ's lists or folders in it: its
+    // menu offers Export as rekordbox XML.
+    rekordbox: bool,
     // A crate's color, an index into LibraryEdit.list-colors; -1 for none.
     color: int,
     // A crate's icon: 0 = crate, then star, heart, flame, bolt, moon, sun,
@@ -42,6 +45,11 @@ export struct Folder {
     icon: int,
     // Shown dimmed: a history set of a single song.
     dim: bool,
+    // Another app's imported list or folder (or the Imported heading):
+    // read-only, since its next import makes it again.
+    locked: bool,
+    // The top folder of an import: its menu offers Make These Lists Mine.
+    adoptable: bool,
 }
 
 export struct TrackRow {
@@ -249,13 +257,22 @@ export global LibraryEdit {
     in-out property <bool> history-tab;
     // The selected node is one of the DJ's lists, so a track can be taken out.
     in property <bool> in-list;
-    // Makes a crate (0), a folder (1) or a playlist (2) and returns its row
-    // in the tree. Folders and playlists go in the folder at tree row `at`,
-    // or (-1) at the top of Playlists.
+    // Makes a crate (0), a folder (1), a playlist (2) or a folder at the top
+    // of Crates (3) and returns its row in the tree. Crates, folders and
+    // playlists go in the folder at tree row `at`, or (-1) at the top of
+    // Crates (a crate) or Playlists.
     callback create(kind: int, at: int) -> int;
     callback rename(index: int, name: string);
     callback delete(index: int);
+    // Makes the import whose top folder is at tree row `index` the DJ's own.
+    callback adopt-import(index: int);
+    // Turns the list at tree row `index` into a crate (true) or a playlist.
+    callback set-crate(index: int, crate: bool);
     pure callback accepts-drop(index: int, data: data-transfer) -> bool;
+    // A list or folder picked up at tree row `index`, and whether one
+    // dragged can go on (into) tree row `index`.
+    pure callback list-payload(index: int) -> data-transfer;
+    pure callback accepts-list-move(index: int, data: data-transfer) -> bool;
     callback drop(index: int, data: data-transfer);
     // Tracks from the side panel or a deck dropped on the open list (empty
     // or not) in the track list join it.
@@ -298,6 +315,9 @@ export global LibraryEdit {
     // Saves the list, folder, history session, album or mixed set at a
     // sidebar row as M3U8 files; asks where first.
     callback export-m3u(row: int);
+    // Saves the Collection (every track and list) or a list or folder at a
+    // sidebar row as a rekordbox XML file; asks where first.
+    callback export-rekordbox(row: int);
     // Makes a playlist from an M3U, M3U8, PLS or XSPF file the DJ picks.
     callback import-playlist-file();
     // Prepares high-quality stems for the rows `first` to `last`, one
@@ -776,9 +796,11 @@ component MenuIcon inherits Path {
 
 // A line of a popup menu, with an icon (or the room for one) when `icon`
 // is set, a dim `hint` on the right, and a › when it opens a side panel.
-component MenuLine inherits Rectangle {
+export component MenuLine inherits Rectangle {
     in property <string> text;
-    in property <color> text-color: Theme.text;
+    // Greyed out, and does nothing when clicked.
+    in property <bool> enabled: true;
+    in property <color> text-color: enabled ? Theme.text : Theme.text-dim;
     in property <string> icon;
     in property <string> hint;
     in property <bool> submenu;
@@ -795,7 +817,7 @@ component MenuLine inherits Rectangle {
     }
     height: 26px;
     border-radius: 4px;
-    background: ta.has-hover || open ? #3a3a3d : transparent;
+    background: (ta.has-hover && enabled) || open ? #3a3a3d : transparent;
     property <length> text-x: icon != "" ? 34px : 10px;
     if icon != "": MenuIcon {
         x: 10px;
@@ -825,10 +847,16 @@ component MenuLine inherits Rectangle {
         icon: "chevron";
         color: Theme.text-dim;
     }
-    ta := TouchArea { clicked => { root.clicked(); } }
+    ta := TouchArea {
+        clicked => {
+            if root.enabled {
+                root.clicked();
+            }
+        }
+    }
 }
 
-component MenuBackground inherits Rectangle {
+export component MenuBackground inherits Rectangle {
     background: Theme.panel-raised;
     border-radius: Theme.radius;
     border-width: 1px;
@@ -837,7 +865,7 @@ component MenuBackground inherits Rectangle {
     drop-shadow-color: #000000a0;
 }
 
-component MenuSeparator inherits Rectangle {
+export component MenuSeparator inherits Rectangle {
     height: 9px;
     Rectangle { height: 1px; background: Theme.border; }
 }
@@ -1681,6 +1709,29 @@ component FolderIcon inherits Rectangle {
             : icon == 7 ? "M 3 15 C 3 8 7 3 15.5 2.5 C 15.5 10 11 15 3 15 Z M 3 15 L 10 8"
             : "M 2 5 L 16 5 L 16 15 L 2 15 Z M 2 8.5 L 16 8.5 M 2 11.8 L 16 11.8";
     }
+    // Playlist: lines of a running order with a note, so it reads apart
+    // from a folder and from a crate's slatted box. Always this icon.
+    if kind == 2: Rectangle {
+        Path {
+            width: 18px;
+            height: 18px;
+            viewbox-width: 18;
+            viewbox-height: 18;
+            stroke: Theme.text;
+            stroke-width: 1.6px;
+            stroke-line-cap: round;
+            fill: transparent;
+            commands: "M 2 4 L 11 4 M 2 8.5 L 11 8.5 M 2 13 L 7.5 13 M 14.5 13.5 L 14.5 3.5 L 17 5";
+        }
+        Rectangle {
+            x: 10.6px;
+            y: 11.7px;
+            width: 4.6px;
+            height: 4.2px;
+            border-radius: 2.1px;
+            background: Theme.text;
+        }
+    }
     // Collection Health's Overview: the rail's Health icon.
     if kind == 12: Image {
         width: 18px;
@@ -1728,7 +1779,7 @@ component FolderIcon inherits Rectangle {
             commands: "M 9 3 A 6 6 0 1 1 8.99 3 Z";
         }
     }
-    if kind != 1 && kind != 6 && kind != 7 && kind != 9 && kind != 11 && kind != 12 && kind != 21 && kind != 14 && kind != 15 && kind != 16 && kind != 17 && kind != 18 && kind != 20: Text {
+    if kind != 1 && kind != 2 && kind != 6 && kind != 7 && kind != 9 && kind != 11 && kind != 12 && kind != 21 && kind != 14 && kind != 15 && kind != 16 && kind != 17 && kind != 18 && kind != 20: Text {
         text: kind == 0 || kind == 19 ? "♫" : kind == 3 ? "✦" : kind == 4 ? "♥" : kind == 5 ? "◷" : kind == 8 ? "★" : kind == 10 ? "↓" : kind == 12 ? "✚" : kind == 13 ? "◦" : "≡";
         // The collection's stages in their own colors.
         color: Theme.stage-tint(kind);
@@ -2287,6 +2338,31 @@ component FilesOptions inherits VerticalLayout {
     if FilesUi.status != "": Text { text: FilesUi.status; color: Theme.text-dim; font-size: 12px; wrap: word-wrap; }
 }
 
+// A small closed padlock, for read-only rows.
+component Padlock inherits Rectangle {
+    in property <color> tint;
+    width: 10px;
+    height: 12px;
+    Path {
+        x: 1.5px;
+        y: 0px;
+        width: 7px;
+        height: 6px;
+        viewbox-width: 7;
+        viewbox-height: 6;
+        stroke: tint;
+        stroke-width: 1.4px;
+        fill: transparent;
+        commands: "M 0.7 6 L 0.7 3.5 A 2.8 2.8 0 0 1 6.3 3.5 L 6.3 6";
+    }
+    Rectangle {
+        y: 5px;
+        height: 7px;
+        border-radius: 1.5px;
+        background: tint;
+    }
+}
+
 component FolderTree inherits Rectangle {
     in property <[Folder]> folders;
     in property <int> current;
@@ -2343,6 +2419,9 @@ component FolderTree inherits Rectangle {
     property <int> menu-kind;
     property <bool> menu-editable;
     property <bool> menu-analysable;
+    property <bool> menu-locked;
+    property <bool> menu-adoptable;
+    property <bool> menu-rekordbox;
     property <int> menu-color;
     property <int> menu-icon;
     property <length> menu-y;
@@ -2363,6 +2442,31 @@ component FolderTree inherits Rectangle {
                 clicked => {
                     account-menu.close();
                     spotify-disconnect();
+                }
+            }
+        }
+    }
+    // + on Crates: a crate or a folder for crates.
+    crate-menu := PopupWindow {
+        x: 130px;
+        y: add-y;
+        width: 180px;
+        close-policy: close-on-click-outside;
+        MenuBackground {}
+        VerticalLayout {
+            padding: 6px;
+            MenuLine {
+                text: "Crate";
+                clicked => {
+                    name-in-place(LibraryEdit.create(0, -1));
+                    crate-menu.close();
+                }
+            }
+            MenuLine {
+                text: "Crate Folder";
+                clicked => {
+                    name-in-place(LibraryEdit.create(3, -1));
+                    crate-menu.close();
                 }
             }
         }
@@ -2416,7 +2520,7 @@ component FolderTree inherits Rectangle {
         x: 40px;
         y: menu-y;
         // Wider for a crate's color and icon rows.
-        width: menu-editable && menu-kind == 17 ? 252px : 170px;
+        width: (menu-editable && menu-kind == 17) || (source == 0 && menu-locked) ? 230px : 170px;
         close-policy: close-on-click-outside;
         MenuBackground {}
         VerticalLayout {
@@ -2461,6 +2565,24 @@ component FolderTree inherits Rectangle {
                     folder-menu.close();
                 }
             }
+            // Another app's lists: say why they can't be changed, and offer
+            // to keep them as the DJ's own.
+            if source == 0 && menu-locked: Text {
+                x: 10px;
+                height: 24px;
+                text: "Read-only: the import updates it";
+                color: Theme.text-dim;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+            if source == 0 && menu-adoptable: MenuLine {
+                text: "Make These Lists Mine";
+                clicked => {
+                    LibraryEdit.adopt-import(menu-index);
+                    folder-menu.close();
+                }
+            }
+            if source == 0 && menu-locked: MenuSeparator {}
             if menu-analysable: MenuLine {
                 text: "Analyze All";
                 clicked => {
@@ -2482,11 +2604,25 @@ component FolderTree inherits Rectangle {
                     folder-menu.close();
                 }
             }
+            if menu-rekordbox: MenuLine {
+                text: "Export as rekordbox XML…";
+                clicked => {
+                    LibraryEdit.export-rekordbox(menu-index);
+                    folder-menu.close();
+                }
+            }
             // One of the DJ's lists, a crate or a history session.
             if source == 0 && StoreUi.streaming && (menu-kind == 2 || menu-kind == 5 || menu-kind == 17): MenuLine {
                 text: "Export to Spotify Playlist";
                 clicked => {
                     LibraryEdit.export-spotify(menu-index);
+                    folder-menu.close();
+                }
+            }
+            if menu-editable && menu-kind == 1: MenuLine {
+                text: "New Crate";
+                clicked => {
+                    name-in-place(LibraryEdit.create(0, menu-index));
                     folder-menu.close();
                 }
             }
@@ -2576,6 +2712,15 @@ component FolderTree inherits Rectangle {
                 Rectangle { horizontal-stretch: 1; }
             }
             if menu-editable && menu-kind == 17: MenuSeparator {}
+            // A crate keeps no order and each track once; a playlist keeps
+            // an order.
+            if menu-editable && (menu-kind == 2 || menu-kind == 17): MenuLine {
+                text: menu-kind == 2 ? "Make It a Crate" : "Make It a Playlist";
+                clicked => {
+                    LibraryEdit.set-crate(menu-index, menu-kind == 2);
+                    folder-menu.close();
+                }
+            }
             if menu-editable: MenuLine {
                 text: "Rename…";
                 clicked => {
@@ -2771,27 +2916,37 @@ component FolderTree inherits Rectangle {
                     height: 34px;
                     border-radius: Theme.radius;
                     background: drop.has-drag ? Theme.selection.transparentize(0.4) : i == current ? (focused ? Theme.selection : Theme.selection-idle) : (ta.has-hover ? #232326 : transparent);
-                    ta := TouchArea {
-                        clicked => { select(i); }
-                        double-clicked => { toggle(i); }
-                        pointer-event(e) => {
-                            if (((f.editable || f.analysable || source == 1 || StoreUi.stream(source)) && tab == 0) || (tab == 1 && f.kind == 5)) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
-                                menu-index = i;
-                                menu-name = f.name;
-                                menu-kind = f.kind;
-                                menu-editable = f.editable;
-                                menu-color = f.color;
-                                menu-icon = f.icon;
-                                menu-analysable = f.analysable && (source == 0 || source == 9 || source == 10);
-                                menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
-                                if source == 1 { files-menu.show(); } else { folder-menu.show(); }
+                    // The DJ's own lists and folders drag onto a folder, or a
+                    // heading, to move there.
+                    DragArea {
+                        enabled: f.editable && tab == 0 && source == 0;
+                        data: LibraryEdit.list-payload(i);
+                        allow-copy: true;
+                        ta := TouchArea {
+                            clicked => { select(i); }
+                            double-clicked => { toggle(i); }
+                            pointer-event(e) => {
+                                if (((f.editable || f.analysable || f.adoptable || source == 1 || StoreUi.stream(source)) && tab == 0) || (tab == 1 && f.kind == 5)) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                                    menu-index = i;
+                                    menu-name = f.name;
+                                    menu-kind = f.kind;
+                                    menu-editable = f.editable;
+                                    menu-locked = f.locked;
+                                    menu-adoptable = f.adoptable;
+                                    menu-color = f.color;
+                                    menu-icon = f.icon;
+                                    menu-analysable = f.analysable && (source == 0 || source == 9 || source == 10);
+                                    menu-rekordbox = f.rekordbox && source == 0;
+                                    menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
+                                    if source == 1 { files-menu.show(); } else { folder-menu.show(); }
+                                }
                             }
                         }
                     }
                     // Tracks dragged from the list onto one of the DJ's lists or
                     // crates join it; dropped on a stage, they move there.
                     drop := DropArea {
-                        can-drop(e) => { ((f.editable && (f.kind == 2 || f.kind == 17)) || f.stage) && LibraryEdit.accepts-drop(i, e.data) ? DragAction.copy : DragAction.none }
+                        can-drop(e) => { (((f.editable && (f.kind == 2 || f.kind == 17)) || f.stage) && LibraryEdit.accepts-drop(i, e.data)) || ((f.kind == 1 || f.kind == 18) && LibraryEdit.accepts-list-move(i, e.data)) ? DragAction.copy : DragAction.none }
                         dropped(e) => {
                             LibraryEdit.drop(i, e.data);
                             TrackDrag.active = false;
@@ -2874,19 +3029,25 @@ component FolderTree inherits Rectangle {
                             vertical-alignment: center;
                         }
                         if f.count >= 0: Rectangle { width: 2px; }
+                        // An import's top folder: read-only until made the DJ's own.
+                        if f.adoptable && i != naming-row: VerticalLayout {
+                            alignment: center;
+                            Padlock { tint: i == current ? Theme.on-row-selection : Theme.text-dim; }
+                        }
+                        if f.adoptable: Rectangle { width: 4px; }
                         // New crate, or a new folder in Playlists.
-                        if f.kind == 18 && tab == 0: Rectangle {
+                        if f.kind == 18 && tab == 0 && !f.locked: Rectangle {
                             width: 26px;
                             Text { text: "+"; color: pta.has-hover ? Theme.accent : (i == current ? Theme.on-row-selection : Theme.text); font-size: 20px; vertical-alignment: center; }
                             pta := TouchArea {
                                 mouse-cursor: pointer;
                                 clicked => {
                                     // Playlists asks what to make.
+                                    add-y = self.absolute-position.y - root.absolute-position.y + self.height;
                                     if f.name != "Crates" {
-                                        add-y = self.absolute-position.y - root.absolute-position.y + self.height;
                                         add-menu.show();
                                     } else {
-                                        name-in-place(LibraryEdit.create(0, -1));
+                                        crate-menu.show();
                                     }
                                 }
                             }

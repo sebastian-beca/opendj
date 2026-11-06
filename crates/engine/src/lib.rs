@@ -59,7 +59,7 @@ pub use controls::{
     deck_group, default_orientation, effect_group, effect_unit_group, eq_group, pad_fx_unit,
     quick_effect_group, size_name, stem_group, BEATJUMP_SIZES, BEATLOOP_SIZES, BEAT_FX_UNIT,
     DEFAULT_AUTO_GAIN_TARGET, EFFECTS_PER_UNIT, KEYBOARD_SEMITONES, MIC_FX_UNIT, NUM_DECKS,
-    NUM_EFFECT_UNITS, NUM_HOTCUES,
+    NUM_EFFECT_UNITS, NUM_HOTCUES, XFADER_CUT_IN,
 };
 pub use effects::{
     color_fx_name, effect_name, parameter_names, plugin_index, NoteInput, PluginLink,

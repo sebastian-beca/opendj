@@ -54,7 +54,7 @@ pub const ID_BASE: usize = 1_000_000;
 /// locked.
 /// 12 takes off the wanted list the streamed tracks imports used to put
 /// there: only the DJ puts tracks on it now.
-const VERSION: i32 = 12;
+const VERSION: i32 = 13;
 
 /// The `source` of grids, keys and markers found by this app's analysis.
 const ANALYSIS: &str = "analysis";
@@ -375,6 +375,9 @@ pub enum PlaylistKind {
     Smart,
     /// A folder made for one gig, holding its lists (see [`sets`]).
     Set,
+    /// A list kept for sorting music (Yoga, Peak time): no order of its
+    /// own, each track once (see [`sets`]).
+    Crate,
 }
 
 impl PlaylistKind {
@@ -384,6 +387,7 @@ impl PlaylistKind {
             2 => Self::History,
             3 => Self::Smart,
             4 => Self::Set,
+            5 => Self::Crate,
             _ => Self::List,
         }
     }
@@ -395,6 +399,7 @@ impl PlaylistKind {
             Self::History => 2,
             Self::Smart => 3,
             Self::Set => 4,
+            Self::Crate => 5,
         }
     }
 }
@@ -604,6 +609,16 @@ impl Library {
             if !has {
                 db.execute_batch(&format!("ALTER TABLE wanted ADD COLUMN {definition}"))?;
             }
+        }
+        if version < 13 {
+            // Crates were lists at the top with no folder or source (other
+            // than the Inbox list); now they're a kind of their own.
+            db.execute(
+                "UPDATE playlists SET kind = 5
+                  WHERE kind = 0 AND parent IS NULL AND source IS NULL
+                    AND id IS NOT (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'inbox_list')",
+                [],
+            )?;
         }
         if version < 12 {
             // Imports put every streamed track of every list (history
@@ -941,6 +956,7 @@ impl Library {
         keep: impl Fn(&Path) -> bool,
     ) -> Result<RemovedImport, Error> {
         let tx = self.db.transaction()?;
+        sets::rescue_own_lists(&tx, source)?;
         let mut out = RemovedImport {
             lists: tx.execute(
                 "DELETE FROM playlists WHERE source = ?1 AND kind != 1",
@@ -1480,7 +1496,19 @@ impl Library {
             [id],
             |r| r.get(0),
         )?;
-        for (position, row) in (start..).zip(tracks.iter().filter_map(|&t| row_id(t))) {
+        // A crate holds each track once.
+        let is_crate: bool = tx
+            .prepare("SELECT 1 FROM playlists WHERE id = ?1 AND kind = 5")?
+            .exists([id])?;
+        let mut rows: Vec<i64> = tracks.iter().filter_map(|&t| row_id(t)).collect();
+        if is_crate {
+            let mut seen: HashSet<i64> = tx
+                .prepare("SELECT track_id FROM playlist_tracks WHERE playlist_id = ?1")?
+                .query_map([id], |r| r.get(0))?
+                .collect::<Result<_, _>>()?;
+            rows.retain(|r| seen.insert(*r));
+        }
+        for (position, row) in (start..).zip(rows) {
             tx.execute(
                 "INSERT INTO playlist_tracks (playlist_id, position, track_id, played_at)
                  VALUES (?1, ?2, ?3, ?4)",
@@ -1826,7 +1854,7 @@ impl Library {
         if let Some(id) = self.meta("inbox_list").and_then(|v| v.parse::<i64>().ok()) {
             let exists = self
                 .db
-                .prepare("SELECT 1 FROM playlists WHERE id = ?1 AND kind = 0")?
+                .prepare("SELECT 1 FROM playlists WHERE id = ?1 AND kind IN (0, 5)")?
                 .exists([id])?;
             if exists {
                 return Ok(id);
@@ -2366,7 +2394,9 @@ fn import_lists(
     want_streamed: bool,
     report: &mut SyncReport,
 ) -> Result<(), Error> {
-    // Deleting the folder takes everything in it along.
+    // Deleting the folder takes everything in it along, so the DJ's own
+    // lists in it move out first.
+    sets::rescue_own_lists(tx, source)?;
     tx.execute("DELETE FROM playlists WHERE source = ?1", [source])?;
     if lists.is_empty() {
         return Ok(());
@@ -2800,6 +2830,74 @@ mod tests {
         assert!(tracks.iter().all(|t| t.info.hotcues.is_empty()));
         // The import can come back in.
         assert!(lib.import("vdj", "VirtualDJ", "1", read).unwrap().is_some());
+    }
+
+    #[test]
+    fn own_lists_in_an_imported_folder_survive_the_next_import() {
+        let mut lib = Library::in_memory().unwrap();
+        let read = || {
+            Ok(ImportedLibrary {
+                tracks: Vec::new(),
+                lists: vec![ImportedList {
+                    folders: vec!["Sets".into()],
+                    name: "Friday".into(),
+                    kind: ImportedListKind::List,
+                    entries: Vec::new(),
+                }],
+            })
+        };
+        lib.import("vdj", "VirtualDJ", "1", read).unwrap().unwrap();
+        let find = |lib: &Library, name: &str| {
+            lib.playlists()
+                .unwrap()
+                .into_iter()
+                .find(|p| p.name == name)
+        };
+        let sets = find(&lib, "Sets").unwrap();
+        assert!(sets::is_imported(&sets));
+        let mine = lib
+            .create_playlist("Mine", Some(sets.id), PlaylistKind::List)
+            .unwrap();
+        lib.create_playlist("Inside", Some(mine), PlaylistKind::List)
+            .ok();
+        lib.import("vdj", "VirtualDJ", "2", read).unwrap().unwrap();
+        // Out at the top of Playlists, not taken for a crate, with what's in it.
+        let mine = find(&lib, "Mine").unwrap();
+        assert_eq!(mine.parent, None);
+        assert!(!sets::is_crate(&mine) && !sets::is_imported(&mine));
+        assert!(find(&lib, "Friday").is_some());
+    }
+
+    #[test]
+    fn adopted_imports_are_the_djs_own() {
+        let mut lib = Library::in_memory().unwrap();
+        let read = || {
+            Ok(ImportedLibrary {
+                tracks: Vec::new(),
+                lists: vec![ImportedList {
+                    folders: Vec::new(),
+                    name: "Friday".into(),
+                    kind: ImportedListKind::List,
+                    entries: Vec::new(),
+                }],
+            })
+        };
+        lib.import("vdj", "VirtualDJ", "1", read).unwrap().unwrap();
+        assert_eq!(lib.adopt_import("vdj").unwrap(), 2);
+        let lists = lib.playlists().unwrap();
+        assert!(lists.iter().all(|p| !sets::is_imported(p)));
+        // An import with no lists (as for an adopted app) leaves them.
+        lib.import("vdj", "VirtualDJ", "2", || {
+            Ok(ImportedLibrary {
+                tracks: Vec::new(),
+                lists: Vec::new(),
+            })
+        })
+        .unwrap();
+        let kept = lib.playlists().unwrap();
+        assert!(["VirtualDJ", "Friday"]
+            .iter()
+            .all(|n| kept.iter().any(|p| p.name == *n)));
     }
 
     #[test]
