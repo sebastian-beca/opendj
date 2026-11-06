@@ -24,17 +24,3 @@ Loading a track that is playing on another deck SHALL start the new deck at the 
 #### Scenario: Double a playing track
 - **WHEN** deck 1 plays a track and the same track is loaded on paused deck 2
 - **THEN** deck 2 plays from deck 1's position at deck 1's tempo
-
-### Requirement: Hot cue on a playing deck
-Pressing a hot cue on a playing deck SHALL jump and keep playing, or, with "Hot cue on a playing deck" set to Stutter, restart from the cue each time it is pressed.
-
-#### Scenario: Stutter
-- **WHEN** Stutter is chosen and hot cue 1 is pressed three times in a row on a playing deck
-- **THEN** the deck restarts from hot cue 1 on each press
-
-### Requirement: Track end warning
-A playing deck SHALL warn when its track has less time left than "Track end warning" (30 seconds by default, or off): the waveform's end and the deck's time flash.
-
-#### Scenario: Warning
-- **WHEN** a playing track has 29 seconds left with the default setting
-- **THEN** the deck's time and the end of its overview flash until the track ends or is stopped
