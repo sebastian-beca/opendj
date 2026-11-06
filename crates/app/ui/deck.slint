@@ -1356,6 +1356,9 @@ export global StemPads {
 // A STEMS pad, laid out as VirtualDJ's (see Pads.stem-pads). A stem's pad
 // mutes it and is lit while it plays; ACAPELLA plays the vocals alone and
 // INSTRUMENTAL everything but, a second press bringing every stem back.
+// STEMS FX switches the pads to echo out instead: a stem's pad sends it
+// into the deck's stem effect (Echo or Reverb, picked on right-click) and
+// mutes it, so its tail rings on; a second press brings it back dry.
 // The levels are on the mixer's knobs in stems mode. Right-click for
 // high-quality stems.
 component StemPad inherits Rectangle {
@@ -1380,10 +1383,28 @@ component StemPad inherits Rectangle {
     property <bool> on3: Controls.value(m3, Controls.tick) == 0;
     property <bool> on4: Controls.value(m4, Controls.tick) == 0;
     property <bool> on5: Controls.value(m5, Controls.tick) == 0 || count < 5;
+    property <string> fxbase: "[QuickEffectRack1_[Channel" + (deck + 1) + "_Stem";
+    property <int> f1: Controls.resolve(fxbase + "1]]", "enabled");
+    property <int> f2: Controls.resolve(fxbase + "2]]", "enabled");
+    property <int> f3: Controls.resolve(fxbase + "3]]", "enabled");
+    property <int> f4: Controls.resolve(fxbase + "4]]", "enabled");
+    property <int> f5: Controls.resolve(fxbase + "5]]", "enabled");
+    property <int> mode-index: Controls.resolve("[Channel" + (deck + 1) + "]", "stem_fx_mode");
+    property <bool> fx-mode: Controls.value(mode-index, Controls.tick) > 0;
+    property <int> effect-index: Controls.resolve("[Channel" + (deck + 1) + "]", "stem_fx");
+    property <int> effect: Controls.value(effect-index, Controls.tick);
+    property <string> effect-name: effect == 2 ? "REVERB" : "ECHO";
+    // This pad's stem has its effect on.
+    property <bool> sent: stem == 1 ? Controls.value(f1, Controls.tick) > 0
+        : stem == 2 ? Controls.value(f2, Controls.tick) > 0
+        : stem == 3 ? Controls.value(f3, Controls.tick) > 0
+        : stem == 4 ? Controls.value(f4, Controls.tick) > 0
+        : stem == 5 ? Controls.value(f5, Controls.tick) > 0 : false;
     property <bool> others-on: on1 && on2 && on3 && on5;
     property <bool> others-off: !on1 && !on2 && !on3 && (!on5 || count < 5);
-    property <bool> available: stem > 0 ? count >= stem : stem != StemPads.fx && count >= 4;
+    property <bool> available: stem > 0 ? count >= stem : count >= 4;
     property <bool> lit: !available ? false
+        : stem == StemPads.fx ? fx-mode
         : stem == 1 ? on1 : stem == 2 ? on2 : stem == 3 ? on3 : stem == 4 ? on4 : stem == 5 ? on5
         : stem == StemPads.acapella ? on4 && others-off
         : stem == StemPads.instrumental ? !on4 && others-on : false;
@@ -1393,6 +1414,37 @@ component StemPad inherits Rectangle {
         Controls.set-value(m2, rest ? 0 : 1);
         Controls.set-value(m3, rest ? 0 : 1);
         Controls.set-value(m5, rest ? 0 : 1);
+        clear-fx();
+    }
+    // Outside the Stems FX layer the pads cut and bring back stems dry
+    // (whatever still rings from an echo out rings on).
+    function clear-fx() {
+        Controls.set-value(f1, 0);
+        Controls.set-value(f2, 0);
+        Controls.set-value(f3, 0);
+        Controls.set-value(f4, 0);
+        Controls.set-value(f5, 0);
+    }
+    // Echoes a stem out (into the stem effect and muted) or brings it back
+    // dry. A stem already silent stays as it is when going out.
+    function echo(mute: int, fx: int, on: bool, out: bool) {
+        if out {
+            if on {
+                Controls.set-value(fx, 1);
+                Controls.set-value(mute, 1);
+            }
+        } else {
+            Controls.set-value(mute, 0);
+            Controls.set-value(fx, 0);
+        }
+    }
+    // As set-all, echoing out what goes instead of cutting it.
+    function echo-all(vocals: bool, rest: bool) {
+        echo(m4, f4, on4, !vocals);
+        echo(m1, f1, on1, !rest);
+        echo(m2, f2, on2, !rest);
+        echo(m3, f3, on3, !rest);
+        echo(m5, f5, on5 && count >= 5, !rest);
     }
     background: !available ? Theme.control : ta.pressed ? Theme.control-pressed : lit ? tint.with-alpha(0.2) : ta.has-hover ? #1d1d20 : Theme.control;
     Text {
@@ -1404,6 +1456,25 @@ component StemPad inherits Rectangle {
         color: !available ? Theme.text-dim.with-alpha(0.5) : lit ? Theme.text : Theme.text-dim;
         horizontal-alignment: center;
         overflow: elide;
+    }
+    // In the Stems FX layer, the effect a stem's pad echoes out into.
+    if fx-mode && stem > 0 && available: Text {
+        x: 4px;
+        y: 2px;
+        text: root.effect-name;
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        color: sent ? Theme.accent : Theme.text-dim.with-alpha(0.7);
+    }
+    if stem == StemPads.fx && available: Text {
+        x: 4px;
+        y: 2px;
+        text: root.effect-name;
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        color: fx-mode ? Theme.accent : Theme.text-dim.with-alpha(0.7);
     }
     if show-quality && count > 0: Text {
         x: parent.width - self.width - 4px;
@@ -1429,12 +1500,22 @@ component StemPad inherits Rectangle {
             }
             if e.button == PointerEventButton.right {
                 menu.show();
+            } else if e.button == PointerEventButton.left && available && stem == StemPads.fx {
+                Controls.toggle(mode-index);
+            } else if e.button == PointerEventButton.left && available && fx-mode {
+                if stem == 1 { echo(m1, f1, on1, on1); }
+                else if stem == 2 { echo(m2, f2, on2, on2); }
+                else if stem == 3 { echo(m3, f3, on3, on3); }
+                else if stem == 4 { echo(m4, f4, on4, on4); }
+                else if stem == 5 { echo(m5, f5, on5, on5); }
+                else if stem == StemPads.acapella { echo-all(true, lit); }
+                else if stem == StemPads.instrumental { echo-all(lit, true); }
             } else if e.button == PointerEventButton.left && available {
-                if stem == 1 { Controls.toggle(m1); }
-                else if stem == 2 { Controls.toggle(m2); }
-                else if stem == 3 { Controls.toggle(m3); }
-                else if stem == 4 { Controls.toggle(m4); }
-                else if stem == 5 { Controls.toggle(m5); }
+                if stem == 1 { Controls.toggle(m1); Controls.set-value(f1, 0); }
+                else if stem == 2 { Controls.toggle(m2); Controls.set-value(f2, 0); }
+                else if stem == 3 { Controls.toggle(m3); Controls.set-value(f3, 0); }
+                else if stem == 4 { Controls.toggle(m4); Controls.set-value(f4, 0); }
+                else if stem == 5 { Controls.toggle(m5); Controls.set-value(f5, 0); }
                 else if stem == StemPads.acapella { set-all(true, lit); }
                 else if stem == StemPads.instrumental { set-all(lit, true); }
             }
@@ -1454,6 +1535,16 @@ component StemPad inherits Rectangle {
         }
         VerticalLayout {
             padding: 4px;
+            if stem == StemPads.fx: PanelMenuItem {
+                text: "Echo";
+                current: root.effect != 2;
+                picked => { Controls.set-value(root.effect-index, 1); }
+            }
+            if stem == StemPads.fx: PanelMenuItem {
+                text: "Reverb";
+                current: root.effect == 2;
+                picked => { Controls.set-value(root.effect-index, 2); }
+            }
             PanelMenuItem {
                 text: info.stem-hq ? "High Quality Stems ✓"
                     : info.stem-preparing ? "Preparing HQ Stems…"
