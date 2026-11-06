@@ -10,7 +10,7 @@
 
 ## 2. Buy from Wanted
 
-- [x] 2.1 Buy… action and Buy sheet on Wanted rows, grouped by store, batches of 10
+- [x] 2.1 Buy… action and Buy sheet on Wanted rows, grouped by store, one page per click with Next
 - [x] 2.2 Pending purchase columns on `wanted` with expiry test
 
 ## 3. Arrival

@@ -1,5 +1,5 @@
 //! Buying Wanted tracks: where each track is sold, which store to offer
-//! first, and the pages to open, a few at a time, so each store's own cart
+//! first, and the pages to open, one at a time, so each store's own cart
 //! collects them for one checkout.
 //!
 //! No fixed store order. A store that has the track comes before one that
@@ -10,9 +10,9 @@
 use crate::musicbrainz::MusicBrainz;
 use crate::{ItemKind, Plugin, PluginError, StoreItem, StoreQuery};
 
-/// How many pages one click opens, so a store's bot checks aren't tripped
-/// and the browser isn't flooded.
-pub const BATCH: usize = 10;
+/// How many pages one click opens: one, so the DJ buys a track, then asks
+/// for the next, instead of facing a pile of tabs.
+pub const BATCH: usize = 1;
 
 /// How a store's files reach the library once bought.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -458,10 +458,10 @@ mod tests {
     }
 
     #[test]
-    fn opens_ten_at_a_time() {
+    fn opens_one_at_a_time() {
         let urls: Vec<String> = (0..23).map(|i| i.to_string()).collect();
-        assert_eq!(next_batch(&urls, 0).len(), 10);
-        assert_eq!(next_batch(&urls, 20), ["20", "21", "22"]);
+        assert_eq!(next_batch(&urls, 0), ["0"]);
+        assert_eq!(next_batch(&urls, 22), ["22"]);
         assert!(next_batch(&urls, 23).is_empty());
         assert!(next_batch(&urls, 40).is_empty());
     }
