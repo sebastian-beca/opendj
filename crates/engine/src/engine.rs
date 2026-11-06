@@ -18,7 +18,7 @@ use crate::controls::{
 };
 use crate::dsp::{Isolator, Limiter, Sculpt};
 use crate::effects::{
-    input_target, ColorFx, EffectRack, BLOCK, COLOR_FX, MAIN, TAPS, TAP_GAP, TARGETS,
+    input_target, ColorFx, EffectRack, StemFx, BLOCK, COLOR_FX, MAIN, TAPS, TAP_GAP, TARGETS,
 };
 use crate::groove::{pick_source, GrooveBox};
 use crate::inputs::{
@@ -282,6 +282,21 @@ struct Deck {
     stem_upgrade: f32,
     /// The stems reported in `stem_count` and the stem colours (by address).
     stems_shown: usize,
+    /// The effect the stems with their quick effect on are sent into.
+    stem_fx: StemFx,
+    /// Each stem's send into `stem_fx` (its gain while its effect is on,
+    /// else 0) at the end of the last buffer.
+    stem_send: [f32; MAX_STEMS],
+    /// Seconds each stem has been sent since its effect went on, and
+    /// whether it was muted last buffer: a mute that comes with the effect
+    /// waits until the effect holds what was just played (see
+    /// [`StemFx::capture_seconds`]).
+    stem_fed: [f64; MAX_STEMS],
+    stem_muted: [bool; MAX_STEMS],
+    /// The send through its own time-stretcher while the deck is key-locked
+    /// or shifted, and this buffer's audio from it.
+    stem_shifter: KeyShifter,
+    stem_shifted: Vec<[f32; 2]>,
     /// Gapless playback: this deck's track ends during this buffer and the
     /// deck plays on past its end into the next track (see `join_after`),
     /// which carries on from there at the start of the next buffer.
@@ -1097,6 +1112,9 @@ pub(crate) struct StemMix<'a> {
     /// Separated stems all at full gain play the track itself, so no stem
     /// frames are read at all.
     unity: bool,
+    /// Only the stems, each at its gain, without the original: a deck's
+    /// stem effect send (see [`StemFx`]).
+    solo: bool,
     span: f64,
     start: std::cell::Cell<f64>,
 }
@@ -1123,8 +1141,26 @@ impl<'a> StemMix<'a> {
             from,
             to,
             unity: separated && from.iter().chain(&to).all(|&g| g == 1.0),
+            solo: false,
             span: span.max(1.0),
             start: std::cell::Cell::new(0.0),
+        }
+    }
+
+    /// Only the stems with a weight, at that weight (gliding from `from`
+    /// to `to` over the span), without the original under them.
+    fn solo(
+        stems: &'a Stems,
+        audio: &'a Audio,
+        from: [f32; MAX_STEMS],
+        to: [f32; MAX_STEMS],
+        up: (f32, f32),
+        span: f64,
+    ) -> Self {
+        Self {
+            unity: false,
+            solo: true,
+            ..Self::blending(stems, audio, from, to, up, span)
         }
     }
 }
@@ -1138,6 +1174,9 @@ impl Frames for StemMix<'_> {
         let t = ((i as f64 - self.start.get()).abs() / self.span).min(1.0) as f32;
         let gains = std::array::from_fn(|k| self.from[k] + (self.to[k] - self.from[k]) * t);
         let w = self.up_from + (self.up_to - self.up_from) * t;
+        if self.solo {
+            return self.stems.solo_blend(self.up, w, i, &gains);
+        }
         self.stems
             .mix_blend(self.up, w, i, &gains, || self.audio.frame(i))
     }
@@ -1521,6 +1560,12 @@ impl Engine {
             stem_gains: [1.0; MAX_STEMS],
             stem_upgrade: 0.0,
             stems_shown: 0,
+            stem_fx: StemFx::new(sample_rate),
+            stem_send: [0.0; MAX_STEMS],
+            stem_fed: [0.0; MAX_STEMS],
+            stem_muted: [false; MAX_STEMS],
+            stem_shifter: KeyShifter::new(sample_rate),
+            stem_shifted: vec![[0.0; 2]; 4096],
             hand_over: None,
             join_after: None,
             join_before: None,
@@ -1693,12 +1738,20 @@ impl Engine {
                     // lit to say why until its stems are ready. So every
                     // stem plays again; their levels, on the EQ knobs in
                     // stems mode, reset with the EQ.
+                    // Their effects too, and whatever still rings from the
+                    // last track.
                     for s in &d.c.stems {
                         s.mute.set_bool(false);
+                        s.fx.set_bool(false);
                         if reset_eq {
                             s.volume.set(1.0);
                         }
                     }
+                    d.stem_fx.clear();
+                    d.stem_send = [0.0; MAX_STEMS];
+                    d.stem_fed = [0.0; MAX_STEMS];
+                    d.stem_muted = [false; MAX_STEMS];
+                    d.stem_shifter.stop();
                     if reset_fx {
                         let playing = std::array::from_fn(|k| self.decks[k].c.play.get_bool());
                         self.fx.reset_deck(deck, playing);
@@ -2510,6 +2563,11 @@ impl Engine {
             stems: Option<([f32; MAX_STEMS], [f32; MAX_STEMS])>,
             /// The crossfade to high-quality stems at the start and end.
             stem_upgrade: (f32, f32),
+            /// What each stem sends into the stem effect at the start and
+            /// end, while any does.
+            stem_send: Option<([f32; MAX_STEMS], [f32; MAX_STEMS])>,
+            /// The stem effect plays this buffer (sent to, or ringing on).
+            stem_fx: bool,
         }
         let plans: [Plan; NUM_DECKS] = std::array::from_fn(|i| {
             let d = &mut self.decks[i];
@@ -2606,17 +2664,38 @@ impl Engine {
                 None => (0.0, 0.0),
             };
             d.stem_upgrade = upgrade.1;
+            d.stem_fx.prepare(d.c.stem_fx.get(), beat);
+            let capture = d.stem_fx.capture_seconds(beat);
+            let mut send_to = [0.0f32; MAX_STEMS];
             let stem_gains = stems.map(|_| {
                 let to = std::array::from_fn(|k| {
                     let c = &d.c.stems[k];
-                    if c.mute.get_bool() {
-                        0.0
-                    } else {
-                        c.volume.get() as f32
+                    let fx = c.fx.get_bool();
+                    if !fx {
+                        d.stem_fed[k] = 0.0;
                     }
+                    // Muted with its effect just switched on (an echo out
+                    // in one press): it plays on until the echo holds it.
+                    let held =
+                        c.mute.get_bool() && fx && !d.stem_muted[k] && d.stem_fed[k] < capture;
+                    let muted = c.mute.get_bool() && !held;
+                    d.stem_muted[k] = muted;
+                    let gain = if muted { 0.0 } else { c.volume.get() as f32 };
+                    if fx && gain > 0.0 {
+                        d.stem_fed[k] += dt;
+                        send_to[k] = gain;
+                    }
+                    gain
                 });
                 (d.stem_gains, to)
             });
+            // The stems sent into the stem effect, gliding like the gains.
+            let send_from = d.stem_send;
+            d.stem_send = send_to;
+            let sending = stem_gains.is_some()
+                && d.audio.is_some()
+                && send_from.iter().chain(&send_to).any(|&g| g > 0.0);
+            let stem_send = sending.then_some((send_from, send_to));
             match &d.audio {
                 Some(audio) if shifting => {
                     // The average of the speed ramp the frame loop below takes.
@@ -2650,6 +2729,27 @@ impl Engine {
                             out,
                         ),
                     }
+                    // The stems sent into the stem effect, through their own
+                    // stretcher, while there are any.
+                    match (stems, stem_send) {
+                        (Some(s), Some((from, to))) => {
+                            if d.stem_shifted.len() < frames {
+                                d.stem_shifted.resize(frames, [0.0; 2]);
+                            }
+                            let span = speed * ratio * frames as f64;
+                            let mix = StemMix::solo(s, audio, from, to, upgrade, span);
+                            d.stem_shifter.render(
+                                &mix,
+                                d.pos,
+                                speed,
+                                ratio,
+                                transpose,
+                                loop_frames,
+                                &mut d.stem_shifted[..frames],
+                            );
+                        }
+                        _ => d.stem_shifter.stop(),
+                    }
                     // Coming into the stretcher from playing as a record
                     // (after a scratch, say): fade over from the record.
                     if !was_shifting && was_moving {
@@ -2676,9 +2776,13 @@ impl Engine {
                         }
                     }
                     d.shifter.stop();
+                    d.stem_shifter.stop();
                     shift_fade = Some(ShiftFade::Out(n));
                 }
-                _ => d.shifter.stop(),
+                _ => {
+                    d.shifter.stop();
+                    d.stem_shifter.stop();
+                }
             }
             if let Some((_, to)) = stem_gains {
                 d.stem_gains = to;
@@ -2696,6 +2800,8 @@ impl Engine {
             Plan {
                 stems: stem_gains,
                 stem_upgrade: upgrade,
+                stem_send,
+                stem_fx: stem_send.is_some() || d.stem_fx.ringing(),
                 shifted: shifting && d.audio.is_some(),
                 shift_fade,
                 scrub: d.c.scrub_enable.get_bool(),
@@ -2816,6 +2922,7 @@ impl Engine {
             for (i, d) in self.decks.iter_mut().enumerate() {
                 let p = &plans[i];
                 let mut s = [0.0f32; 2];
+                let mut send = [0.0f32; 2];
                 if p.moving && !ended[i] {
                     let audio = d.audio.as_ref().unwrap();
                     let (v0, v1) = p.velocity;
@@ -2838,6 +2945,16 @@ impl Engine {
                     } else {
                         source(d.pos)
                     };
+                    if let (Some((from, to)), Some(stems)) = (p.stem_send, audio.stems()) {
+                        send = if p.shifted {
+                            d.stem_shifted[f]
+                        } else {
+                            let w = std::array::from_fn(|k| from[k] + (to[k] - from[k]) * r);
+                            let (u0, u1) = p.stem_upgrade;
+                            let u = u0 + (u1 - u0) * r;
+                            read(&StemMix::solo(stems, audio, w, w, (u, u), 1.0), d.pos)
+                        };
+                    }
                     match p.shift_fade {
                         Some(ShiftFade::In(n)) if f < n => {
                             s = crossfade(source(d.pos), s, (f + 1) as f32 / n as f32);
@@ -2882,6 +2999,11 @@ impl Engine {
                     } else if d.pos < 0.0 {
                         d.pos = 0.0;
                     }
+                }
+                if p.stem_fx {
+                    let wet = d.stem_fx.process(send, p.stem_send.is_some() && p.moving);
+                    s[0] += wet[0];
+                    s[1] += wet[1];
                 }
                 if groove_on[i] {
                     s = groove_buf[i][f];
@@ -3410,6 +3532,115 @@ mod tests {
         // Not separated yet: the original plays.
         let ratio = rms(second) / rms(full_second);
         assert!((ratio - 1.0).abs() < 0.02, "the original: {ratio}");
+    }
+
+    /// A track whose only sound is a 440 Hz tone in the vocal stem (stem
+    /// 4), as an NI stem file (the stems play as their sum).
+    fn vocal_tone_track(seconds: f64) -> Arc<Track> {
+        let mut t = (*short_track(120.0, seconds)).clone();
+        let n = (SR * seconds) as usize;
+        let audio = Audio::from_frames(SR as u32, vec![[0.0; 2]; n]);
+        let frames: Vec<_> = (0..n)
+            .map(|i| {
+                let v = (std::f64::consts::TAU * 440.0 * i as f64 / SR).sin() as f32 * 0.3;
+                [[0.0; 2], [0.0; 2], [0.0; 2], [v, v], [0.0; 2]]
+            })
+            .collect();
+        let stems =
+            crate::stems::Stems::from_frames(crate::stems::default_info(), SR as u32, &frames);
+        assert!(audio.set_stems(stems));
+        t.audio = Some(Arc::new(audio));
+        Arc::new(t)
+    }
+
+    /// Echoes the vocals out in one press (effect on and mute together)
+    /// after half a second of play; returns the left channel from the press.
+    fn echo_out_vocals(configure: impl Fn(&ControlRegistry), fx: bool) -> Vec<f32> {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, vocal_tone_track(12.0));
+        run(&mut engine, 0.01);
+        configure(&reg);
+        run(&mut engine, 0.01);
+        reg.get("[Channel1]", "play").unwrap().set_bool(true);
+        record(&mut engine, 0.5);
+        if fx {
+            reg.get("[QuickEffectRack1_[Channel1_Stem4]]", "enabled")
+                .unwrap()
+                .set_bool(true);
+        }
+        reg.get("[Channel1_Stem4]", "mute").unwrap().set_bool(true);
+        record(&mut engine, 3.0).into_iter().step_by(2).collect()
+    }
+
+    #[test]
+    fn a_stem_echoes_out_when_muted_with_its_effect_on() {
+        let rms = |x: &[f32]| (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt();
+        let at = |s: f64| (s * SR) as usize;
+        // Without the effect a mute is a mute.
+        let dry = echo_out_vocals(|_| {}, false);
+        assert!(rms(&dry[at(0.1)..at(0.5)]) < 1e-4, "muted");
+        let wet = echo_out_vocals(|_| {}, true);
+        // The vocal plays on for one echo (half a beat at 120 BPM) so the
+        // echo has something to hold, then rings on and fades.
+        assert!(rms(&wet[..at(0.2)]) > 0.15, "held until the echo has it");
+        let tail = rms(&wet[at(0.4)..at(0.9)]);
+        assert!(tail > 0.08, "the echo rings on: {tail}");
+        let later = rms(&wet[at(2.5)..at(3.0)]);
+        assert!(later < tail / 4.0, "and fades: {later} after {tail}");
+        // Sample to sample: no step bigger than the tone's own.
+        let step = wet.windows(2).fold(0f32, |m, w| m.max((w[1] - w[0]).abs()));
+        assert!(step < 0.05, "a click: {step}");
+        // Through the time-stretcher too.
+        let locked = echo_out_vocals(
+            |reg| {
+                reg.get("[Channel1]", "keylock").unwrap().set_bool(true);
+                reg.get("[Channel1]", "rate").unwrap().set(0.3);
+            },
+            true,
+        );
+        let tail = rms(&locked[at(0.4)..at(0.9)]);
+        assert!(tail > 0.03, "key-locked echo: {tail}");
+    }
+
+    #[test]
+    fn a_stem_effect_adds_to_the_stem_and_stops_when_rung_out() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, vocal_tone_track(14.0));
+        run(&mut engine, 0.01);
+        reg.get("[Channel1]", "play").unwrap().set_bool(true);
+        let before = record(&mut engine, 0.5);
+        let fx = reg
+            .get("[QuickEffectRack1_[Channel1_Stem4]]", "enabled")
+            .unwrap();
+        fx.set_bool(true);
+        // The first echo comes half a beat later: until then nothing changes.
+        let on = record(&mut engine, 0.2);
+        let reference = {
+            let (reg, mut engine, mut input) = setup();
+            load(&mut input, 0, vocal_tone_track(14.0));
+            run(&mut engine, 0.01);
+            reg.get("[Channel1]", "play").unwrap().set_bool(true);
+            record(&mut engine, 0.5);
+            record(&mut engine, 0.2)
+        };
+        assert_eq!(before.len() + on.len(), before.len() + reference.len());
+        let diff = on
+            .iter()
+            .zip(&reference)
+            .fold(0f32, |m, (a, b)| m.max((a - b).abs()));
+        assert!(diff < 1e-4, "the dry stem is untouched: {diff}");
+        record(&mut engine, 1.0);
+        assert!(engine.decks[0].stem_fx.ringing());
+        // Switched off, it rings out and the deck stops running it.
+        fx.set_bool(false);
+        record(&mut engine, 9.0);
+        assert!(!engine.decks[0].stem_fx.ringing());
+        assert!(!engine.decks[0].stem_shifter.is_active());
+        // A load switches every stem's effect off.
+        fx.set_bool(true);
+        load(&mut input, 0, vocal_tone_track(2.0));
+        run(&mut engine, 0.05);
+        assert!(!fx.get_bool());
     }
 
     #[test]

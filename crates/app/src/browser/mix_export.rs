@@ -1,5 +1,5 @@
 //! Mixed sets: recordings join the Mixed Sets source as soon as they stop;
-//! "Export for Mixcloud" turns one into a 320 kbps MP3 whose ID3 tag
+//! File › Export › Mixcloud… turns one into a 320 kbps MP3 whose ID3 tag
 //! carries the tracklist as chapters, with a `.tracklist.txt` beside it;
 //! "Upload to Mixcloud" signs in to the DJ's Mixcloud account (see
 //! [`crate::mixcloud_upload`]) and sends that MP3 with its tracklist.
@@ -108,6 +108,12 @@ impl Browser {
         if self.mix_export.is_some() {
             return;
         }
+        if self.tree != MIXED_SETS || self.rows.get(row).copied().flatten().is_none() {
+            if let Some(app) = self.app.upgrade() {
+                app.set_alert("Pick a mixed set in Mixed Sets first.".into());
+            }
+            return;
+        }
         let Some((path, title, artist)) = self.rows.get(row).copied().flatten().and_then(|i| {
             let t = &self.library[i];
             Some((
@@ -169,10 +175,7 @@ impl Browser {
                 Progress::SignedIn(on) => ui.set_mixcloud_signed_in(on),
                 Progress::Made(mp3) => {
                     let name = mp3.file_name().unwrap_or_default().to_string_lossy();
-                    ui.set_mix_status(
-                        format!("Made {name}, with its tracklist. Upload to Mixcloud sends it.")
-                            .into(),
-                    );
+                    ui.set_mix_status(format!("Made {name}, with its tracklist.").into());
                     files::reveal(&mp3);
                     self.add_recordings(&[mp3]);
                 }
