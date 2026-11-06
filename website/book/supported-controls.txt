@@ -2401,6 +2401,7 @@
 [Master],crossfader
 [Master],deck_tap
 [Master],duckStrength
+[Master],external_mixer
 [Master],gain
 [Master],headGain
 [Master],headMix

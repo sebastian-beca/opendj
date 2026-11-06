@@ -213,6 +213,11 @@ pub fn apply_saved(registry: &ControlRegistry) {
     set("[Master]", "deck_tap", settings::number("deck_tap", 1.0));
     set(
         "[Master]",
+        "external_mixer",
+        f(settings::flag("external_mixer", false)),
+    );
+    set(
+        "[Master]",
         "talkover_ducking",
         settings::number("talkover_ducking", DUCK_AUTO),
     );
@@ -3500,6 +3505,11 @@ impl Prefs {
                 settings::set("xfader_shape", json!(index));
                 self.set("[Mixer Profile]", "xFaderShape", index as f64);
             }
+            "external_mixer" => {
+                let on = index == 1;
+                settings::set("external_mixer", json!(on));
+                self.set("[Master]", "external_mixer", f(on));
+            }
             "deck_tap" => {
                 settings::set("deck_tap", json!(index));
                 self.set("[Master]", "deck_tap", index as f64);
@@ -4810,26 +4820,56 @@ fn patch_rows(model: &ModelRc<PrefItem>, items: &[PrefItem]) -> bool {
     true
 }
 
-/// Under the outputs, once a deck or the sampler has an output of its own:
-/// what those outputs carry, and a warning when they are on another device
-/// than the master.
+/// Under the outputs: where the mixing happens and, once a deck or the
+/// sampler has an output of its own, what those outputs carry and a warning
+/// when they are on another device than the master.
 fn deck_output_items() -> Vec<PrefItem> {
     let setup = settings::audio_setup();
-    if !setup.routes.iter().any(|r| r.role.is_tap()) {
-        return Vec::new();
-    }
+    let external = settings::flag("external_mixer", false);
+    let tapped = setup.routes.iter().any(|r| r.role.is_tap());
     let mut items = vec![PrefItem {
-        choices: strings(&["Clean", "Pre-fader", "Post-fader"]),
-        chosen: settings::number("deck_tap", 1.0) as i32,
+        choices: strings(&["openDJ", "External mixer"]),
+        chosen: i32::from(external),
         ..item(
-            "deck_tap",
+            "external_mixer",
             SEGMENTED,
-            "Deck outputs",
-            "Clean: before EQ, filter and deck FX, for your own effects in a DAW. \
-             Pre-fader: after them, before the channel fader and crossfader. \
-             Post-fader: what each deck adds to the master mix; together they add up to it.",
+            "Mixing",
+            "External mixer: a hardware mixer (DJM, Xone, Rane) does the EQ, faders, \
+             crossfader and headphone cue. Each deck plays on its own output at full \
+             level, and openDJ's mixer, Automix and limiter are off.",
         )
     }];
+    if external {
+        items.push(item(
+            "",
+            NOTE,
+            "",
+            if tapped {
+                "Recording and going on air take the Auxiliary input: plug the mixer's \
+                 record out into it. A sampler without its own output plays on Deck 1's."
+            } else {
+                "Add an output for each deck above (+, then Deck 1, Deck 2…) and wire \
+                 them to the mixer's channels."
+            },
+        ));
+    }
+    if !tapped {
+        return items;
+    }
+    if !external {
+        items.push(PrefItem {
+            choices: strings(&["Clean", "Pre-fader", "Post-fader"]),
+            chosen: settings::number("deck_tap", 1.0) as i32,
+            ..item(
+                "deck_tap",
+                SEGMENTED,
+                "Deck outputs",
+                "Clean: before EQ, filter and deck FX, for your own effects in a DAW. \
+             Pre-fader: after them, before the channel fader and crossfader. \
+             Post-fader: what each deck adds to the master mix; together they add up to it.",
+            )
+        });
+    }
     if deck_outputs_split(&setup) {
         items.push(item(
             "",

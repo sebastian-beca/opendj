@@ -2329,19 +2329,29 @@ impl Engine {
 
     /// Copies each deck's and the sampler's output for this buffer into its
     /// pair of `out` (after the mixes), as late as the limiter makes the
-    /// master; channels past the last pair are cleared.
+    /// master when `delayed` (else at once, for an external mixer, where
+    /// there is no master to keep in step with); channels past the last
+    /// pair are cleared.
     fn write_taps(
         &mut self,
         taps: &[Vec<[f32; 2]>],
         out: &mut [f32],
         channels: usize,
         frames: usize,
+        delayed: bool,
     ) {
         let pairs = ((channels - MIX_CHANNELS) / 2).min(TAP_SOURCES);
         for (k, (line, tap)) in self.tap_delay.iter_mut().zip(taps).take(pairs).enumerate() {
             let tap = &tap[..frames];
-            let late = line.len();
             let at = MIX_CHANNELS + 2 * k;
+            if !delayed {
+                for (o, v) in out.chunks_exact_mut(channels).zip(tap) {
+                    o[at] = v[0];
+                    o[at + 1] = v[1];
+                }
+                continue;
+            }
+            let late = line.len();
             for (f, o) in out.chunks_exact_mut(channels).enumerate() {
                 let v = if f < late { line[f] } else { tap[f - late] };
                 o[at] = v[0];
@@ -2496,9 +2506,13 @@ impl Engine {
         // crossfader, and so does every deck while it is switched off.
         let xfader_on =
             self.master.xfader_enabled.get_bool() || self.master.autodj_enabled.get_bool();
+        // A hardware mixer does the mixing: each deck goes out on its own at
+        // full level, and openDJ's mixer (EQ, filter, faders, crossfader,
+        // cue, master effects and limiter) stands aside.
+        let external = self.master.external_mixer.get_bool();
         let xfade_target: [f32; NUM_DECKS] =
             std::array::from_fn(|i| match self.decks[i].c.orientation.get().round() as i32 {
-                _ if !xfader_on => 1.0,
+                _ if !xfader_on || external => 1.0,
                 0 => sides[0],
                 2 => sides[1],
                 _ => 1.0,
@@ -2530,8 +2544,13 @@ impl Engine {
         let tone = self.master.test_tone.get().round() as u8;
         // Deck and sampler outputs, only when the buffer has their channels:
         // otherwise none of the tap work below runs.
-        let tap =
-            (channels > MIX_CHANNELS).then(|| DeckTap::from_value(self.master.deck_tap.get()));
+        let tap = (channels > MIX_CHANNELS).then(|| {
+            if external {
+                DeckTap::PreFader
+            } else {
+                DeckTap::from_value(self.master.deck_tap.get())
+            }
+        });
         if tone == 0 {
             self.tone_frame = 0;
         }
@@ -2571,7 +2590,9 @@ impl Engine {
             let d = &mut self.decks[i];
             let sr = d.source_rate();
             let eq_to = std::array::from_fn(|k| {
-                if d.c.eq_kill[k].get_bool() {
+                if external {
+                    1.0
+                } else if d.c.eq_kill[k].get_bool() {
                     0.0
                 } else {
                     d.c.eq[k].get() as f32
@@ -2600,9 +2621,16 @@ impl Engine {
             };
             d.auto_gain = auto_gain;
             d.c.replaygain.set(auto_gain as f64);
-            let pregain = d.c.pregain.get() as f32;
+            // The hardware mixer has its own trim; auto gain still levels.
+            let pregain = if external {
+                1.0
+            } else {
+                d.c.pregain.get() as f32
+            };
             // Mute silences the deck in the main mix; it can still be cued.
-            let volume = if d.c.mute.get_bool() {
+            let volume = if external {
+                1.0
+            } else if d.c.mute.get_bool() {
                 0.0
             } else {
                 d.c.volume.get() as f32
@@ -2777,7 +2805,7 @@ impl Engine {
                 ),
                 quick: (
                     d.quick,
-                    if d.c.quick_enabled.get_bool() {
+                    if d.c.quick_enabled.get_bool() && !external {
                         1.0
                     } else {
                         0.0
@@ -2785,7 +2813,7 @@ impl Engine {
                 ),
                 vol: (d.volume, volume),
                 xf: (self.xfade[i], xfade_target[i]),
-                pfl: d.c.pfl.get_bool(),
+                pfl: d.c.pfl.get_bool() && !external,
                 metronome: (d.c.metronome.get_bool()
                     && d.track.as_ref().is_some_and(|t| !t.grid.is_empty()))
                 .then_some(sr),
@@ -2958,7 +2986,9 @@ impl Engine {
                 for c in 0..2 {
                     s[c] += (filtered[c] - s[c]) * q;
                 }
-                s = d.sculpt.process(s);
+                if !external {
+                    s = d.sculpt.process(s);
+                }
                 deck_buf[i][f] = s;
                 click_buf[i][f] = 0.0;
                 if let Some(sr) = p.metronome {
@@ -2986,6 +3016,9 @@ impl Engine {
                     cue[0] += s[0];
                     cue[1] += s[1];
                 }
+                if external {
+                    continue;
+                }
                 let g = lerp(p.vol) * lerp(p.xf) * duck_buf[i][f];
                 main[0] += s[0] * g;
                 main[1] += s[1] * g;
@@ -3000,8 +3033,10 @@ impl Engine {
             cue[0] += preview[0];
             cue[1] += preview[1];
             let samples = self.samplers.next();
-            main[0] += samples[0];
-            main[1] += samples[1];
+            if !external {
+                main[0] += samples[0];
+                main[1] += samples[1];
+            }
             if tap.is_some() {
                 tap_buf[NUM_DECKS][f] = samples;
             }
@@ -3011,7 +3046,14 @@ impl Engine {
             let mic = &self.inputs[MICROPHONE];
             let m = mic.buf[f];
             let gm = lerp(mic.level_ramp);
-            let ducked = self.ducker.next(duck, mic.live && gm > 0.0, m);
+            // With an external mixer, the main mix holds only the inputs
+            // (the mixer's record out on Aux), for recording and going on
+            // air; the mic is the mixer's.
+            let ducked = if external {
+                1.0
+            } else {
+                self.ducker.next(duck, mic.live && gm > 0.0, m)
+            };
             // The auxiliary inputs and the instrument play with the music.
             for input in [AUXILIARY, INSTRUMENT, AUXILIARY_2, AUXILIARY_3] {
                 let inp = &self.inputs[input];
@@ -3038,12 +3080,38 @@ impl Engine {
             main_buf[f] = main;
             cue_buf[f] = cue;
         }
-        self.fx.process_block(MAIN, &mut main_buf[..frames]);
+        if !external {
+            self.fx.process_block(MAIN, &mut main_buf[..frames]);
+        }
         for f in 0..frames {
             let r = (f + 1) as f32 / frames as f32;
             let lerp = |(a, b): (f32, f32)| a + (b - a) * r;
             let mut main = main_buf[f];
             let mut cue = cue_buf[f];
+            if external {
+                // Nothing on master and booth; the headphones keep the
+                // preview player and the test tone.
+                if tone == 2 {
+                    let t = test_tone(self.tone_frame, out_rate);
+                    self.tone_frame += 1;
+                    cue = [cue[0] + t, cue[1] + t];
+                }
+                for c in 0..2 {
+                    master_peak[c] = master_peak[c].max(main[c].abs());
+                }
+                let o = &mut out[f * channels..(f + 1) * channels];
+                let mixes = channels.min(MIX_CHANNELS);
+                o[..mixes].fill(0.0);
+                if channels >= 4 {
+                    for c in 0..2 {
+                        o[2 + c] = (cue[c] * head_gain).clamp(-1.0, 1.0);
+                    }
+                }
+                if tap.is_none() {
+                    o[mixes..].fill(0.0);
+                }
+                continue;
+            }
             let mic = &self.inputs[MICROPHONE];
             let m = mic.buf[f];
             let gm = lerp(mic.level_ramp);
@@ -3118,7 +3186,15 @@ impl Engine {
                     }
                 }
             }
-            self.write_taps(&tap_buf, out, channels, frames);
+            // With an external mixer, a sampler without its own output
+            // plays on Deck 1's.
+            if external && channels < OUTPUT_CHANNELS {
+                let (decks, sampler) = tap_buf.split_at_mut(NUM_DECKS);
+                for (d, s) in decks[0][..frames].iter_mut().zip(&sampler[0][..frames]) {
+                    *d = [d[0] + s[0], d[1] + s[1]];
+                }
+            }
+            self.write_taps(&tap_buf, out, channels, frames, !external);
         }
         self.deck_buf = deck_buf;
         self.click_buf = click_buf;
@@ -3217,9 +3293,17 @@ impl Engine {
         self.master
             .vu
             .set(self.master_vu[0].max(self.master_vu[1]) as f64);
-        self.record.push(out, channels);
-        self.meter.push(out, channels);
-        self.broadcast.push(out, channels);
+        if external {
+            // Recording and going on air take the inputs (see above).
+            let rec = self.main_buf[..frames].as_flattened();
+            self.record.push(rec, 2);
+            self.meter.push(rec, 2);
+            self.broadcast.push(rec, 2);
+        } else {
+            self.record.push(out, channels);
+            self.meter.push(out, channels);
+            self.broadcast.push(out, channels);
+        }
     }
 }
 
@@ -3691,6 +3775,35 @@ mod tests {
             worst < 1e-4,
             "post-fader outputs miss the master by {worst}"
         );
+    }
+
+    #[test]
+    fn an_external_mixer_gets_each_deck_at_full_level_and_no_master() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, tone_track(60.0, "A"));
+        load(&mut input, 1, tone_track(440.0, "A"));
+        run(&mut engine, 0.05);
+        let deck1 = |key: &str| reg.get("[Channel1]", key).unwrap();
+        deck1("play").set(1.0);
+        reg.get("[Channel2]", "play").unwrap().set(1.0);
+        // openDJ's mixer would silence deck 1 several times over.
+        deck1("volume").set(0.0);
+        deck1("orientation").set(2.0);
+        reg.get("[Master]", "crossfader").unwrap().set(-1.0);
+        reg.get("[EqualizerRack1_[Channel1]_Effect1]", "button_parameter1")
+            .unwrap()
+            .set(1.0);
+        // Clean, which the external mixer overrides with Pre-fader.
+        reg.get("[Master]", "deck_tap").unwrap().set(0.0);
+        let inside = tap_peaks(&mut engine, 40);
+        assert!(inside[6] > 0.3, "the clean output keeps it {inside:?}");
+        reg.get("[Master]", "external_mixer").unwrap().set(1.0);
+        let peak = tap_peaks(&mut engine, 40);
+        assert!(peak[6] > 0.45, "deck 1 at full level {peak:?}");
+        assert!(peak[8] > 0.45, "deck 2 at full level {peak:?}");
+        for c in [0, 1, 4, 5] {
+            assert_eq!(peak[c], 0.0, "master and booth stay silent {peak:?}");
+        }
     }
 
     /// What deck outputs cost: four playing decks rendered with no deck

@@ -4,7 +4,7 @@
 // Dark knobs with white pointers, ticked faders.
 import { Theme, EdgeLine, CloseIcon } from "theme.slint";
 import { TourMark } from "tourmark.slint";
-import { Caption, Controls, ControlButton, ControlFader, ControlKnob, Crossfader, CueHeadphones, StereoMeter } from "controls.slint";
+import { Caption, Controls, ControlButton, ControlFader, ControlKnob, Crossfader, CueHeadphones, StereoMeter, VuMeter } from "controls.slint";
 import { EffectList } from "deck.slint";
 
 // One output route in the settings table.
@@ -552,6 +552,45 @@ component ChannelGrid inherits HorizontalLayout {
         Channel { group: "[Channel2]"; tint: Theme.deck2; }
     }
     SideColumn { deck: 1; }
+}
+
+// Where Mixer goes while a hardware mixer does the mixing
+// (`[Master],external_mixer`): a level meter for each deck, as it leaves
+// for its mixer channel. Kept as wide as the mixer, so the FX bar under it
+// still lines up.
+export component ExternalMixer inherits Rectangle {
+    // The decks shown, left to right: 0 and 1 in 2-Deck.
+    in property <[int]> decks: [0, 1];
+    background: Theme.panel;
+    width: 254px;
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        Text { text: "EXTERNAL MIXER"; color: Theme.text-dim; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; horizontal-alignment: center; }
+        HorizontalLayout {
+            vertical-stretch: 1;
+            alignment: center;
+            spacing: 36px;
+            for deck in decks: VerticalLayout {
+                spacing: 6px;
+                HorizontalLayout {
+                    alignment: center;
+                    vertical-stretch: 1;
+                    spacing: 2px;
+                    VuMeter { group: "[Channel" + (deck + 1) + "]"; key: "VuMeterL"; width: 10px; }
+                    VuMeter { group: "[Channel" + (deck + 1) + "]"; key: "VuMeterR"; width: 10px; }
+                }
+                Text { text: deck + 1; color: Theme.deck-color(deck); font-size: 13px; font-weight: 700; horizontal-alignment: center; }
+            }
+        }
+        Text {
+            text: "Each deck plays on its own output";
+            color: Theme.text-dim;
+            font-size: 10px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+    }
 }
 
 export component Mixer inherits Rectangle {

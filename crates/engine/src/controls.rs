@@ -706,6 +706,10 @@ pub(crate) struct MasterControls {
     /// Clean, 1 Pre-fader (to start), 2 Post-fader (see
     /// [`crate::engine::DeckTap`]).
     pub(crate) deck_tap: ControlHandle,
+    /// `[Master] external_mixer`: a hardware mixer does the mixing. Each
+    /// deck goes out Pre-fader at full level, with openDJ's EQ, filter,
+    /// faders, crossfader, cue, master effects and limiter left out.
+    pub(crate) external_mixer: ControlHandle,
 }
 
 pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
@@ -775,6 +779,7 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
             Behavior::Free,
         ),
         deck_tap: reg.create("[Master]", "deck_tap", 1.0, 0.0, 2.0, Behavior::Free),
+        external_mixer: reg.toggle("[Master]", "external_mixer"),
         vu_l: reg.indicator("[Master]", "VuMeterL", 1.0),
         vu_r: reg.indicator("[Master]", "VuMeterR", 1.0),
         // Mixxx keeps its ReplayGain switch in the [ReplayGain] group too.
