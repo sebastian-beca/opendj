@@ -19,7 +19,7 @@ export struct Folder {
     children: int,
     // 0 = collection, 1 = list folder, 2 = playlist, 3 = smart list, 4 = liked songs
     // or Wanted, 5 = history session, 6 = Bandcamp (in the stores list),
-    // 17 = crate, 18 = the Crates or Playlists heading, and in Files
+    // 17 = crate, 18 = the Crates or Playlists heading, 19 = a history day, and in Files
     // 1 = folder, 7 = drive, 8 = pinned folder, 9 = cloud drive
     kind: int,
     // Drawn with a line above it.
@@ -40,6 +40,8 @@ export struct Folder {
     // A crate's icon: 0 = crate, then star, heart, flame, bolt, moon, sun,
     // leaf (LIST_ICONS in the library).
     icon: int,
+    // Shown dimmed: a history set of a single song.
+    dim: bool,
 }
 
 export struct TrackRow {
@@ -84,6 +86,8 @@ export struct TrackRow {
     // A streaming service's track (in a streaming playlist, or standing in
     // an imported list): which collection track it is can be changed.
     streamed: bool,
+    // Where a new set starts in a day of history: a line above it.
+    set-start: bool,
 }
 
 // One of the track list's columns. kind: 0 text, 1 the title (takes the
@@ -2808,7 +2812,8 @@ component FolderTree inherits Rectangle {
                             TouchArea { clicked => { toggle(i); } }
                         }
                         // The Crates and Playlists headings have no icon.
-                        if f.kind != 18: VerticalLayout { alignment: center; FolderIcon { kind: f.kind; tint: f.color; icon: f.icon; } }
+                        // Nor do the history tab's days.
+                        if f.kind != 18 && f.kind != 19: VerticalLayout { alignment: center; FolderIcon { kind: f.kind; tint: f.color; icon: f.icon; } }
                         // A new or renamed list is named right here.
                         if i == naming-row: VerticalLayout {
                             alignment: center;
@@ -2848,9 +2853,9 @@ component FolderTree inherits Rectangle {
                         }
                         if i != naming-row: Text {
                             text: f.name;
-                            color: i == current ? Theme.on-row-selection : f.kind == 18 ? Theme.text-dim : Theme.stage-labels ? Theme.stage-tint(f.kind) : Theme.text;
+                            color: i == current ? Theme.on-row-selection : f.kind == 18 || f.dim ? Theme.text-dim : Theme.stage-labels ? Theme.stage-tint(f.kind) : Theme.text;
                             font-size: f.kind == 18 ? 13px : 15px;
-                            font-weight: f.kind == 18 ? 700 : 400;
+                            font-weight: f.kind == 18 ? 700 : f.kind == 19 ? 600 : 400;
                             vertical-alignment: center;
                             overflow: elide;
                             horizontal-stretch: 1;
@@ -4373,6 +4378,11 @@ component TrackList inherits Rectangle {
                             }
                         }
                     }
+                }
+                if r.set-start: Rectangle {
+                    y: 0px;
+                    height: 1px;
+                    background: Theme.lilac.transparentize(0.5);
                 }
                 if r.has-color && ColumnUi.color-mode == 1: Rectangle {
                     x: 0px;

@@ -82,6 +82,7 @@ impl Browser {
             let list = InList {
                 order: n + 1,
                 played_at: times.get(n).copied().flatten(),
+                set_start: false,
             };
             match e {
                 ListEntry::Track(t) => {
