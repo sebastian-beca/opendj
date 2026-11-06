@@ -758,10 +758,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })));
     }
 
-    // Start with two sample tracks loaded so the screen is not empty.
+    // Start with two sample tracks loaded so the screen is not empty, but
+    // leave a deck kept as a Groove Box as it is.
     if samples {
-        engine.load_track(0, library[0].clone());
-        engine.load_track(1, library[4].clone());
+        for (deck, track) in [(0, 0), (1, 4)] {
+            let groove = registry
+                .get(&opendj_engine::groove::groove_group(deck), "enabled")
+                .is_some_and(|c| c.get_bool());
+            if !groove {
+                engine.load_track(deck, library[track].clone());
+            }
+        }
     }
 
     // Bring the library up to date in the background with new and changed
