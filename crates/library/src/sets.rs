@@ -144,6 +144,28 @@ impl Library {
         tx.commit()
     }
 
+    /// Moves a list or folder to the end of `folder`, or to the top of
+    /// Crates (`crates`) or Playlists. What's inside a folder moves along.
+    pub fn move_playlist(&self, id: i64, folder: Option<i64>, crates: bool) -> Result<(), Error> {
+        let position: i64 = self.db.query_row(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM playlists WHERE parent IS ?1",
+            [folder],
+            |r| r.get(0),
+        )?;
+        // Only a folder at the top needs marking to sit under Crates.
+        let source = match folder {
+            None if crates => Some(CRATE_FOLDER),
+            _ => None,
+        };
+        self.db.execute(
+            "UPDATE playlists SET parent = ?2, position = ?3,
+                    source = CASE WHEN kind = ?5 THEN ?4 ELSE NULL END
+              WHERE id = ?1",
+            rusqlite::params![id, folder, position, source, PlaylistKind::Folder.to_i64()],
+        )?;
+        Ok(())
+    }
+
     /// Makes an empty playlist at the top of Playlists, out of any folder.
     pub fn create_top_playlist(&self, name: &str) -> Result<i64, Error> {
         let id = self.create_playlist(name, None, PlaylistKind::List)?;
@@ -306,6 +328,33 @@ mod tests {
             lists.iter().find(|p| p.id == calm).unwrap().parent,
             Some(moods)
         );
+    }
+
+    #[test]
+    fn folders_move_between_crates_and_playlists() {
+        let (lib, _) = library();
+        let gigs = lib
+            .create_playlist("Gigs", None, PlaylistKind::Folder)
+            .unwrap();
+        let friday = lib
+            .create_playlist("Friday", Some(gigs), PlaylistKind::List)
+            .unwrap();
+        lib.move_playlist(gigs, None, true).unwrap();
+        let get = |lib: &Library, id| {
+            lib.playlists()
+                .unwrap()
+                .into_iter()
+                .find(|p| p.id == id)
+                .unwrap()
+        };
+        assert_eq!(get(&lib, gigs).source.as_deref(), Some(CRATE_FOLDER));
+        assert_eq!(get(&lib, friday).parent, Some(gigs));
+        let moods = lib.create_crate_folder("Moods").unwrap();
+        lib.move_playlist(gigs, Some(moods), false).unwrap();
+        let g = get(&lib, gigs);
+        assert_eq!((g.parent, g.source), (Some(moods), None));
+        lib.move_playlist(friday, None, false).unwrap();
+        assert_eq!(get(&lib, friday).parent, None);
     }
 
     #[test]

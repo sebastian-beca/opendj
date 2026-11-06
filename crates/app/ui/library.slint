@@ -269,6 +269,10 @@ export global LibraryEdit {
     // Turns the list at tree row `index` into a crate (true) or a playlist.
     callback set-crate(index: int, crate: bool);
     pure callback accepts-drop(index: int, data: data-transfer) -> bool;
+    // A list or folder picked up at tree row `index`, and whether one
+    // dragged can go on (into) tree row `index`.
+    pure callback list-payload(index: int) -> data-transfer;
+    pure callback accepts-list-move(index: int, data: data-transfer) -> bool;
     callback drop(index: int, data: data-transfer);
     // Tracks from the side panel or a deck dropped on the open list (empty
     // or not) in the track list join it.
@@ -2912,30 +2916,37 @@ component FolderTree inherits Rectangle {
                     height: 34px;
                     border-radius: Theme.radius;
                     background: drop.has-drag ? Theme.selection.transparentize(0.4) : i == current ? (focused ? Theme.selection : Theme.selection-idle) : (ta.has-hover ? #232326 : transparent);
-                    ta := TouchArea {
-                        clicked => { select(i); }
-                        double-clicked => { toggle(i); }
-                        pointer-event(e) => {
-                            if (((f.editable || f.analysable || f.adoptable || source == 1 || StoreUi.stream(source)) && tab == 0) || (tab == 1 && f.kind == 5)) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
-                                menu-index = i;
-                                menu-name = f.name;
-                                menu-kind = f.kind;
-                                menu-editable = f.editable;
-                                menu-locked = f.locked;
-                                menu-adoptable = f.adoptable;
-                                menu-color = f.color;
-                                menu-icon = f.icon;
-                                menu-analysable = f.analysable && (source == 0 || source == 9 || source == 10);
-                                menu-rekordbox = f.rekordbox && source == 0;
-                                menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
-                                if source == 1 { files-menu.show(); } else { folder-menu.show(); }
+                    // The DJ's own lists and folders drag onto a folder, or a
+                    // heading, to move there.
+                    DragArea {
+                        enabled: f.editable && tab == 0 && source == 0;
+                        data: LibraryEdit.list-payload(i);
+                        allow-copy: true;
+                        ta := TouchArea {
+                            clicked => { select(i); }
+                            double-clicked => { toggle(i); }
+                            pointer-event(e) => {
+                                if (((f.editable || f.analysable || f.adoptable || source == 1 || StoreUi.stream(source)) && tab == 0) || (tab == 1 && f.kind == 5)) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                                    menu-index = i;
+                                    menu-name = f.name;
+                                    menu-kind = f.kind;
+                                    menu-editable = f.editable;
+                                    menu-locked = f.locked;
+                                    menu-adoptable = f.adoptable;
+                                    menu-color = f.color;
+                                    menu-icon = f.icon;
+                                    menu-analysable = f.analysable && (source == 0 || source == 9 || source == 10);
+                                    menu-rekordbox = f.rekordbox && source == 0;
+                                    menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
+                                    if source == 1 { files-menu.show(); } else { folder-menu.show(); }
+                                }
                             }
                         }
                     }
                     // Tracks dragged from the list onto one of the DJ's lists or
                     // crates join it; dropped on a stage, they move there.
                     drop := DropArea {
-                        can-drop(e) => { ((f.editable && (f.kind == 2 || f.kind == 17)) || f.stage) && LibraryEdit.accepts-drop(i, e.data) ? DragAction.copy : DragAction.none }
+                        can-drop(e) => { (((f.editable && (f.kind == 2 || f.kind == 17)) || f.stage) && LibraryEdit.accepts-drop(i, e.data)) || ((f.kind == 1 || f.kind == 18) && LibraryEdit.accepts-list-move(i, e.data)) ? DragAction.copy : DragAction.none }
                         dropped(e) => {
                             LibraryEdit.drop(i, e.data);
                             TrackDrag.active = false;
