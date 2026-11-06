@@ -304,6 +304,11 @@ PioneerDDJFLX4.init = function() {
     engine.makeConnection("[Channel1]", "stem_count", PioneerDDJFLX4.stemCountChanged);
     engine.makeConnection("[Channel2]", "stem_count", PioneerDDJFLX4.stemCountChanged);
 
+    // openDJ: and when the pads switch to and from the Stems FX layer.
+    for (const deck of [1, 2]) {
+        engine.makeConnection(`[Channel${deck}]`, "stem_fx_mode", PioneerDDJFLX4.stemCountChanged);
+    }
+
     // Register callbacks for each stems of each decks, to change pad lights when muted/unmuted
     for (let stem=1; stem<=5; stem++) {
         for (let deck=1; deck<=2; deck++) {
@@ -1036,7 +1041,9 @@ PioneerDDJFLX4.quickJumpBack = function(_channel, _control, value, _status, grou
 // Instru, Bass, Acapella on top; Kick, HiHat, Stems FX, Instrumental below.
 // A number from 1 is the stem ([ChannelN_StemM]: 1 kick, 2 bass, 3
 // instruments, 4 vocals, 5 hi-hats); 0 is Acapella, -1 Instrumental and -2
-// Stems FX, which does nothing yet.
+// Stems FX, which switches the pads to echo out ([ChannelN],stem_fx_mode):
+// a stem's pad then sends it into the deck's stem effect and mutes it, and
+// brings it back dry on a second press.
 PioneerDDJFLX4.stemPads = [4, 3, 2, 0, 1, 5, -2, -1];
 
 PioneerDDJFLX4.stemGroup = function(group, stem) {
@@ -1068,15 +1075,53 @@ PioneerDDJFLX4.stemPadLit = function(group, kind) {
         return on[4] && others.every(function(s) { return !on[s]; });
     } else if (kind === -1) {
         return !on[4] && others.every(function(s) { return on[s]; });
+    } else if (kind === -2) {
+        return engine.getValue(group, "stem_fx_mode") > 0;
     }
     return false;
 };
 
+PioneerDDJFLX4.stemFxGroup = function(group, stem) {
+    return `[QuickEffectRack1_[${group.substring(1, group.length-1)}_Stem${stem}]]`;
+};
+
+// Echoes a stem out (sent into the stem effect and muted) or, with `out`
+// false, brings it back dry. A stem already silent stays as it is.
+PioneerDDJFLX4.echoStem = function(group, stem, out) {
+    const stemGroup = PioneerDDJFLX4.stemGroup(group, stem);
+    const fxGroup = PioneerDDJFLX4.stemFxGroup(group, stem);
+    if (!out) {
+        engine.setValue(stemGroup, "mute", 0);
+        engine.setValue(fxGroup, "enabled", 0);
+    } else if (engine.getValue(stemGroup, "mute") <= 0.5) {
+        engine.setValue(fxGroup, "enabled", 1);
+        engine.setValue(stemGroup, "mute", 1);
+    }
+};
+
+// Outside the Stems FX layer the pads cut and bring back stems dry.
+PioneerDDJFLX4.clearStemFx = function(group) {
+    for (let stem = 1; stem <= 5; stem++) {
+        engine.setValue(PioneerDDJFLX4.stemFxGroup(group, stem), "enabled", 0);
+    }
+};
+
 // Mutes or unmutes the vocals and the rest.
 PioneerDDJFLX4.setStems = function(group, vocals, rest) {
+    const echo = engine.getValue(group, "stem_fx_mode") > 0;
+    const count = engine.getValue(group, "stem_count");
     for (let stem = 1; stem <= 5; stem++) {
         const on = stem === 4 ? vocals : rest;
-        engine.setValue(PioneerDDJFLX4.stemGroup(group, stem), "mute", on ? 0 : 1);
+        if (echo) {
+            if (stem <= count) {
+                PioneerDDJFLX4.echoStem(group, stem, !on);
+            }
+        } else {
+            engine.setValue(PioneerDDJFLX4.stemGroup(group, stem), "mute", on ? 0 : 1);
+        }
+    }
+    if (!echo) {
+        PioneerDDJFLX4.clearStemFx(group);
     }
 };
 
@@ -1091,7 +1136,15 @@ PioneerDDJFLX4.stemMutePadPressed = function(_channel, control, value, _status, 
     }
     if (kind > 0) {
         const stemGroup = PioneerDDJFLX4.stemGroup(group, kind);
-        engine.setValue(stemGroup, "mute", engine.getValue(stemGroup, "mute") ? 0 : 1);
+        const playing = engine.getValue(stemGroup, "mute") <= 0.5;
+        if (engine.getValue(group, "stem_fx_mode") > 0) {
+            PioneerDDJFLX4.echoStem(group, kind, playing);
+        } else {
+            engine.setValue(stemGroup, "mute", playing ? 1 : 0);
+            engine.setValue(PioneerDDJFLX4.stemFxGroup(group, kind), "enabled", 0);
+        }
+    } else if (kind === -2) {
+        engine.setValue(group, "stem_fx_mode", engine.getValue(group, "stem_fx_mode") > 0 ? 0 : 1);
     } else if (kind === 0) {
         PioneerDDJFLX4.setStems(group, true, PioneerDDJFLX4.stemPadLit(group, 0));
     } else if (kind === -1) {

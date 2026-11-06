@@ -23,13 +23,37 @@ are laid out as in VirtualDJ:
 - **Acapella** plays the vocals alone; press it again for every stem.
 - **Instrumental** plays everything but the vocals; press it again for every
   stem.
-- **Stems FX** isn't used yet.
+- **Stems FX** switches the pads to echo out (the pad is lit while it's on).
+  See below.
 
 Set how loud each stem is with the mixer's knobs in stems mode (the **EQ**
 menu above the mixer).
 
 On the DDJ-FLX4, press **KEYBOARD** twice for the stems pads, in the same
-layout. **SHIFT** + a stem's pad plays that stem alone.
+layout. **SHIFT** + a stem's pad plays that stem alone. On the Xone K2 and the
+FLX4, the EQ knobs turn the stems while the mixer is in stems mode.
+
+## Echo out a stem
+
+Press **Stems FX** and the stem pads echo out instead of cutting:
+
+- A stem's pad sends that stem into an echo and mutes it, so its echo rings
+  on and fades while the rest plays dry. Press it again to bring the stem
+  back (any echo still ringing fades out by itself).
+- **Instrumental** echoes out the vocals; **Acapella** echoes out everything
+  but the vocals. Press again to bring them back.
+- The echo is half a beat, at the track's tempo. Right-click **Stems FX** to
+  pick **Reverb** instead.
+- The stem keeps playing for half a beat after the press, so the echo has
+  something to repeat.
+
+The pads' corners show the effect, lit on the stems that are in it. Press
+**Stems FX** again for the normal pads. On the DDJ-FLX4, **Stems FX** is pad 7
+of the stems pads, as on screen.
+
+Controllers can also use Mixxx's
+`[QuickEffectRack1_[ChannelN_StemM]],enabled` to send a stem into the echo,
+`[ChannelN],stem_fx` (1 Echo, 2 Reverb) and `[ChannelN],stem_fx_mode`.
 
 ## High quality stems
 
