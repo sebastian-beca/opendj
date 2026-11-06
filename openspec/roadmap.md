@@ -98,6 +98,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 
 - [add-audio-plugin-hosting](changes/add-audio-plugin-hosting/proposal.md)
 - [add-instrument-plugins](changes/add-instrument-plugins/proposal.md)
+- [add-groove-box-2](changes/add-groove-box-2/proposal.md) (Groove Box 2.0: a bar timeline in the waveform strip with chains, step accents, chance, nudge and rolls, per-row length, 8 rows with a knob per sound, fills, a melodic row in the leading deck's key, recording from pads, sounds from the mix and Replace drums; takes over the Later tasks of add-groove-box)
 - [add-windows-support](changes/add-windows-support/proposal.md) (a Windows preview shipped in v0.4.0; code signing waits: SignPath Foundation turned the application down, 2026-10-29, see docs/windows.md)
 
 ## Much later (no change yet)

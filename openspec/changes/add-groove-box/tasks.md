@@ -33,6 +33,8 @@
 
 ## 5. Later
 
+Planned in detail for v2.0 in [add-groove-box-2](../add-groove-box-2/proposal.md) (5.1 as per-row length up to 64 steps, 5.2 as record from pads, 5.4 as the melodic row, 5.5 as rows and sound knobs, 5.6 as Replace drums); 5.3 stays here.
+
 - [ ] 5.1 32 steps (two pages of 16)
 - [ ] 5.2 Record what you play on the sampler pads into the groove
 - [ ] 5.3 Classic Machines kit pack in Get more Packs (CC0 recordings checked file by file, see design.md)
