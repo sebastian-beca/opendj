@@ -10,7 +10,7 @@ OSC is off at first. Turn it on in **Settings › Controllers › OSC**.
 | Setting | What it does |
 | --- | --- |
 | **Port** | The UDP port openDJ listens on. 9000 at first. |
-| **Send to** | Apps to send changes to, as `address:port`, separated by commas, for example `192.168.1.20:8000`. |
+| **Send to** | Apps to send changes and events to, as `address:port`, separated by commas, for example `192.168.1.20:8000`. |
 | **Only this computer** | On at first: only apps on this computer can reach openDJ. Turn it off for a tablet. |
 | **Send only** | Ignores incoming controls, so other apps can follow openDJ but not change it. |
 
@@ -69,6 +69,55 @@ it), openDJ answers with where it stayed.
 Many apps, TouchOSC among them, send from one port and listen on another. Put
 the app's address and listening port in **Send to**: openDJ then answers
 messages from that computer there.
+
+## Events for visuals and lights
+
+While OSC is on, openDJ sends these to every app in **Send to**, and to any app
+that subscribed to them (`/subscribe "/beat"`, `/subscribe "/deck/*/track"`):
+
+| Address | Arguments | When |
+| --- | --- | --- |
+| `/beat` | beat in the bar (1–4), bar in the phrase (from 1), BPM | each beat of the master deck |
+| `/phrase` | phrase name, length in bars | the master deck starts a new phrase |
+| `/deck/N/track` | title, artist, BPM, key | a track loads on deck N |
+| `/deck/N/cue` | hot cue number | a hot cue is pressed on deck N |
+
+The master deck is the one playing; with several playing, the one that started
+first, as for [Ableton Link](link.md). Beats and phrases come from the beatgrid
+and the [phrase analysis](decks.md), the same ones the beat counter in the deck
+header shows. Phrase names are Intro, Build, Drop, Breakdown, Chorus and Outro;
+a track without phrase analysis counts phrases of eight bars, named Phrase.
+Nothing is sent for a jump or a scratch backwards, only for beats as they play.
+
+In Resolume, for example, map `/phrase` to a clip trigger to change the visuals
+on each drop, and `/beat` to a flash on the downbeat.
+
+## Finding openDJ on the network
+
+With **Only this computer** off, openDJ announces itself over Bonjour as an OSC
+service named openDJ. In TouchOSC's connection settings, openDJ is listed under
+the browse button, so you don't have to type the address.
+
+## A two-deck layout
+
+To build a TouchOSC layout for two decks, add these controls and set each one's
+OSC address and value range. Then send `/subscribe "/channel*/*"` and
+`/subscribe "/master/crossfader"` when the layout starts (TouchOSC's
+**On Start** script, or a button) so its faders follow openDJ.
+
+| Control | Type | Address | Range |
+| --- | --- | --- | --- |
+| Play | toggle button | `/channel1/play` | 0 to 1 |
+| Cue | momentary button | `/channel1/cue_default` | 0 to 1 |
+| Sync | toggle button | `/channel1/sync_enabled` | 0 to 1 |
+| Volume | vertical fader | `/channel1/volume` | 0 to 1 |
+| Filter | knob | `/quickeffectrack1_channel1/super1` | 0 to 1 |
+| High, Mid, Low | knobs | `/equalizerrack1_channel1_effect1/parameter3`, `parameter2`, `parameter1` | 0 to 4 |
+| Hot cues 1–8 | momentary buttons | `/channel1/hotcue_1_activate` … `hotcue_8_activate` | 0 to 1 |
+| Headphones | toggle button | `/channel1/pfl` | 0 to 1 |
+| Crossfader | horizontal fader | `/master/crossfader` | −1 to 1 |
+
+Use `channel2` for deck 2.
 
 ## Performance
 
