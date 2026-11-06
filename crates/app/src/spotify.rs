@@ -210,6 +210,7 @@ impl Service {
             .ok()
             .filter(|s| !s.is_empty())
             .or_else(|| saved.as_ref().map(|s| s.client_id.clone()))
+            .filter(|id| is_client_id(id))
             .unwrap_or_default();
         std::thread::Builder::new()
             .name("spotify".into())
@@ -521,6 +522,13 @@ impl Worker {
     fn login(&mut self, client_id: &str) -> Result<Session, String> {
         if client_id.is_empty() {
             return Err("Enter your Spotify app's client ID first.".into());
+        }
+        if !is_client_id(client_id) {
+            return Err(
+                "That isn't a Spotify client ID: copy the 32 letters and digits \
+                        under Client ID on your app's page at developer.spotify.com."
+                    .into(),
+            );
         }
         let listener = TcpListener::bind(("127.0.0.1", PORT))
             .map_err(|e| format!("Couldn't listen on port {PORT} for Spotify's reply: {e}"))?;
@@ -897,6 +905,13 @@ pub(crate) fn decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Whether `id` looks like a Spotify app's client ID: 32 hex digits. Anything
+/// else (a user name typed in the wrong box, say) only gets "client_id:
+/// Invalid" from Spotify's sign-in page, so it isn't sent there.
+pub fn is_client_id(id: &str) -> bool {
+    id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 fn authorize_url(client_id: &str, challenge: &str, state: &str) -> String {
     let params = [
         ("client_id", client_id),
@@ -1067,6 +1082,14 @@ mod tests {
         assert!(t
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+    }
+
+    #[test]
+    fn checks_client_ids() {
+        assert!(is_client_id("0123456789abcdef0123456789ABCDEF"));
+        assert!(!is_client_id("dj_someone"));
+        assert!(!is_client_id(""));
+        assert!(!is_client_id("0123456789abcdef0123456789abcdeg"));
     }
 
     #[test]

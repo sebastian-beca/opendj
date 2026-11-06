@@ -35,6 +35,10 @@ pub const DEFAULTS: &[Shortcut] = &[
         key: "cmd+5",
         script: "rating 5",
     },
+    Shortcut {
+        key: "cmd+i",
+        script: "show_info",
+    },
 ];
 
 /// Modifiers in the order keys are written.
@@ -183,6 +187,20 @@ fn script_for_in(own: &[(String, String)], key: &str) -> Option<String> {
             .find(|s| s.key == key)
             .map(|s| s.script.to_string()),
     }
+}
+
+/// The key that runs exactly `script`, as the DJ reads it, for a menu line's
+/// hint; "" when no key does.
+pub fn key_for(script: &str) -> String {
+    key_for_in(&settings::keyboard_shortcuts(), script)
+}
+
+fn key_for_in(own: &[(String, String)], script: &str) -> String {
+    rows(own)
+        .iter()
+        .find(|r| r.script.trim() == script)
+        .map(|r| display(&r.key))
+        .unwrap_or_default()
 }
 
 /// Keys main.slint keeps for itself; a shortcut on them would never run.
@@ -464,6 +482,14 @@ impl Host for AppHost<'_> {
                 }
                 Ok(())
             }
+            "show_info" => {
+                let (first, _) = self.picked;
+                if first < 0 {
+                    return Err(Error::new("Pick a track in the browser first"));
+                }
+                self.browser.show_info(first);
+                Ok(())
+            }
             other => Err(Error::new(format!("'{other}' isn't available here"))),
         }
     }
@@ -575,6 +601,14 @@ mod tests {
         for v in opendj_script::VERBS {
             opendj_script::parse(&sample(v)).unwrap_or_else(|e| panic!("{}: {e}", sample(v)));
         }
+    }
+
+    #[test]
+    fn menu_hints_name_the_key_that_runs_the_line() {
+        assert_eq!(key_for_in(&[], "show_info"), display("cmd+i"));
+        let moved = own(&[("cmd+i", ""), ("f2", "show_info")]);
+        assert_eq!(key_for_in(&moved, "show_info"), display("f2"));
+        assert_eq!(key_for_in(&own(&[("cmd+i", "")]), "show_info"), "");
     }
 
     #[test]

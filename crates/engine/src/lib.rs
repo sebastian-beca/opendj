@@ -13,6 +13,7 @@ pub mod analysis;
 pub mod beats;
 pub mod beatthis;
 pub mod cache;
+pub mod clock_in;
 mod controls;
 pub mod cover;
 pub mod decode;
@@ -200,7 +201,12 @@ impl AudioEngine {
             )
         });
         link::watch(engine.link_handle(), Arc::downgrade(&registry));
-        let midi_clock = midi_clock::start(engine.beat_clock(), engine.link_handle(), &registry);
+        let midi_clock = midi_clock::start(
+            engine.beat_clock(),
+            engine.clock_in(),
+            engine.link_handle(),
+            &registry,
+        );
         let output = output::Outputs::new(engine, setup, output::Health::new(&registry));
 
         let loaded: LoadedTracks = Arc::new(RwLock::new(Default::default()));

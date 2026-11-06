@@ -1,7 +1,12 @@
 //! VirtualDJ's playlists, folders and history, kept next to `database.xml`:
 //!
-//! - `Playlists/`: one `.m3u` per playlist, in folders. An `order` file in
-//!   each folder lists its entries in the order VirtualDJ shows them.
+//! - `MyLists/`: the playlists of VirtualDJ 2024 and later, one
+//!   `.vdjfolder` per list, in folders (plain folders or `<name>.subfolders/`).
+//! - `Playlists/`: one `.m3u` per playlist, in folders, from before 2024.
+//!   VirtualDJ copies these into `MyLists/` when it updates and leaves the
+//!   old files behind, so they're read only when there is no `MyLists/`.
+//!   An `order` file in each folder lists its entries in the order
+//!   VirtualDJ shows them.
 //! - `Folders/`: `.vdjfolder` files, each either a virtual folder (a fixed
 //!   list of songs) or a filter folder (a search in VirtualDJ's filter
 //!   language), with a `<name>.subfolders/` folder for what sits inside.
@@ -28,7 +33,7 @@ pub fn groups() -> Vec<ListGroup> {
         ListGroup {
             id: PLAYLISTS,
             title: "Playlists",
-            detail: "Your VirtualDJ playlists, in their folders.",
+            detail: "Your VirtualDJ lists (My Lists), in their folders.",
             on_by_default: true,
         },
         ListGroup {
@@ -63,10 +68,25 @@ pub struct Skipped {
 /// Reads the lists in `groups` from VirtualDJ's folder `home`.
 pub fn read(home: &Path, groups: &[&str], skipped: &mut Skipped) -> Vec<ImportedList> {
     let mut out = Vec::new();
-    if groups.contains(&PLAYLISTS) {
-        playlists(&home.join("Playlists"), &["Playlists".into()], &mut out);
-    }
     let (virtual_folders, filters) = (groups.contains(&FOLDERS), groups.contains(&FILTERS));
+    let my_lists = home.join("MyLists");
+    let modern = my_lists.is_dir();
+    if groups.contains(&PLAYLISTS) {
+        let top = ["Playlists".to_string()];
+        if modern {
+            // A filter folder kept among the lists is a smart list, when
+            // the DJ brings those in.
+            vdj_folders(&my_lists, &top, true, filters, &mut out, skipped);
+            for l in &mut out {
+                if l.name == "sidelist" {
+                    l.name = "Sidelist".into();
+                }
+            }
+        } else {
+            playlists(&home.join("Playlists"), &top, &mut out);
+        }
+    }
+    let from_my_lists = out.len();
     if virtual_folders || filters {
         let dir = home.join("Folders");
         for name in ordered(&dir, |p| p.is_dir()) {
@@ -84,6 +104,23 @@ pub fn read(home: &Path, groups: &[&str], skipped: &mut Skipped) -> Vec<Imported
                 skipped,
             );
         }
+    }
+    if modern {
+        // VirtualDJ 2024 moves virtual folders into `MyLists/` too: a list
+        // read there isn't brought in a second time from `Folders/`.
+        let (lists, rest) = out.split_at(from_my_lists);
+        let rest: Vec<ImportedList> = rest
+            .iter()
+            .filter(|l| {
+                !(l.kind == ImportedListKind::List
+                    && lists
+                        .iter()
+                        .any(|m| m.name == l.name && m.entries == l.entries))
+            })
+            .cloned()
+            .collect();
+        out.truncate(from_my_lists);
+        out.extend(rest);
     }
     if groups.contains(&HISTORY) {
         history(&home.join("History"), &mut out);
@@ -716,6 +753,62 @@ mod tests {
         // Only the kinds the DJ chose.
         let some = read(&home, &[HISTORY], &mut Skipped::default());
         assert_eq!(some.len(), 1);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+    #[test]
+    fn reads_my_lists_instead_of_old_playlists() {
+        let home = std::env::temp_dir().join(format!("opendj-vdj-mylists-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        // The pre-2024 copy VirtualDJ leaves behind.
+        std::fs::create_dir_all(home.join("Playlists")).unwrap();
+        std::fs::write(home.join("Playlists/Old.m3u"), "/m/a.mp3\n").unwrap();
+        let ml = home.join("MyLists");
+        std::fs::create_dir_all(ml.join("Gigs/2024")).unwrap();
+        std::fs::create_dir_all(ml.join("Moods.subfolders")).unwrap();
+        std::fs::write(ml.join("order"), "Moods\nGigs\nWarm up\n").unwrap();
+        let songs =
+            |p: &str| format!(r#"<VirtualFolder><song path="{p}" idx="0" /></VirtualFolder>"#);
+        std::fs::write(ml.join("Warm up.vdjfolder"), songs("/m/a.mp3")).unwrap();
+        std::fs::write(ml.join("Gigs/2024/Friday.vdjfolder"), songs("/m/b.mp3")).unwrap();
+        std::fs::write(ml.join("Moods.vdjfolder"), songs("/m/c.mp3")).unwrap();
+        std::fs::write(
+            ml.join("Moods.subfolders/Old hits.vdjfolder"),
+            r#"<FilterFolder filter="year &lt; 2000" />"#,
+        )
+        .unwrap();
+        // A virtual folder VirtualDJ also moved into MyLists, and one it didn't.
+        let lm = home.join("Folders/LocalMusic");
+        std::fs::create_dir_all(&lm).unwrap();
+        std::fs::write(lm.join("Warm up.vdjfolder"), songs("/m/a.mp3")).unwrap();
+        std::fs::write(lm.join("Picks.vdjfolder"), songs("/m/d.mp3")).unwrap();
+
+        let names = |groups: &[&str]| -> Vec<String> {
+            read(&home, groups, &mut Skipped::default())
+                .iter()
+                .map(|l| format!("{}/{}", l.folders.join("/"), l.name))
+                .collect()
+        };
+        assert_eq!(
+            names(&[PLAYLISTS, FOLDERS]),
+            [
+                "Playlists/Moods",
+                "Playlists/Gigs/2024/Friday",
+                "Playlists/Warm up",
+                "Folders/LocalMusic/Picks",
+            ]
+        );
+        assert_eq!(
+            names(&[PLAYLISTS, FILTERS]),
+            [
+                "Playlists/Moods",
+                "Playlists/Moods/Old hits",
+                "Playlists/Gigs/2024/Friday",
+                "Playlists/Warm up",
+            ]
+        );
+        // Without MyLists (VirtualDJ before 2024) the .m3u playlists count.
+        std::fs::remove_dir_all(&ml).unwrap();
+        assert_eq!(names(&[PLAYLISTS]), ["Playlists/Old"]);
         let _ = std::fs::remove_dir_all(&home);
     }
 }
