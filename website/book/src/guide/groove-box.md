@@ -18,18 +18,28 @@ track.
 To go back to a normal deck, load a track onto the deck, or press EJECT
 on the stopped Groove Box.
 
-## Change the steps
+## Sequencer, Synth and Mixer
 
-Each row is one sound, with 16 squares for the 16 steps of a bar. A lit
-square plays the sound on that step. Click a square to add or remove a hit;
-when the Groove Box is stopped, the click also plays the sound so you can
-hear it. The outlined column is the step that's playing.
+The Groove Box fills the whole deck. Along the top are PLAY, the kit menu,
+**Grooves ▾**, **A** to **D**, **SWING** and three tabs.
 
-- Click a row's name to select it; click it again to choose another sound
-  for that row from the kit.
-- **M** mutes a row, **S** solos it.
-- **LEVEL**, **PITCH** and **DECAY** change the selected row's sound.
-  **SWING** delays every other step for a looser feel.
+**SEQUENCER** shows eight tracks, each in its own color, with 16 squares
+for the 16 steps of a bar. The icon on the left shows the track's sound
+(kick, snare, closed hat, open hat, clap, tom, rim and one more); click it
+to hear the sound, and hover over it to see its name. A lit square plays the
+sound on that step. Click a square to add or remove a hit; when the Groove
+Box is stopped, the click also plays the sound. A track with no hits stays
+dimmed, and a track's icon lights up as it plays. The brighter column is the
+step that's playing. **M** mutes a track, **S** solos it. **SWING** delays
+every other step for a looser feel.
+
+**SYNTH** shows each track's sound. Click the sound's name to pick another
+from the kit. **PITCH** tunes it up or down by up to an octave, **DECAY**
+makes it shorter, and **TONE** darkens it (turned left) or thins it (turned
+right).
+
+**MIXER** has a strip for each track: **PAN** places it left or right, the
+fader sets its level beside a meter, and **M** and **S** mute and solo it.
 
 ## Kits and grooves
 
@@ -46,7 +56,7 @@ generator, so they are free to use anywhere:
 one starts at the next bar, so the switch is always in time. Picking from
 **Grooves ▾** loads that groove into the one that's playing.
 
-Your grooves, kit and knob settings are kept when you quit.
+Your grooves, kit, sounds and mixer settings are kept when you quit.
 
 ## Timing
 
@@ -56,7 +66,7 @@ The Groove Box follows, in this order:
 2. Ableton Link, when it is on (see [Ableton Link](link.md)).
 3. Its own tempo, 120 BPM, when nothing else is playing.
 
-The header says **in time with the mix** while it follows a deck or Link. If
+When the deck is wide enough, the tempo shown before SWING reads **in time** while it follows a deck or Link. If
 the leading deck jumps (a hot cue or beat jump), the Groove Box moves to the
 new beat at its next bar rather than mid-bar.
 
