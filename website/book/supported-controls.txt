@@ -279,6 +279,7 @@
 [Channel1],pitch_up_small
 [Channel1],play
 [Channel1],play_indicator
+[Channel1],play_next
 [Channel1],playposition
 [Channel1],playposition_seconds
 [Channel1],pregain
@@ -560,6 +561,7 @@
 [Channel2],pitch_up_small
 [Channel2],play
 [Channel2],play_indicator
+[Channel2],play_next
 [Channel2],playposition
 [Channel2],playposition_seconds
 [Channel2],pregain
@@ -841,6 +843,7 @@
 [Channel3],pitch_up_small
 [Channel3],play
 [Channel3],play_indicator
+[Channel3],play_next
 [Channel3],playposition
 [Channel3],playposition_seconds
 [Channel3],pregain
@@ -1122,6 +1125,7 @@
 [Channel4],pitch_up_small
 [Channel4],play
 [Channel4],play_indicator
+[Channel4],play_next
 [Channel4],playposition
 [Channel4],playposition_seconds
 [Channel4],pregain
