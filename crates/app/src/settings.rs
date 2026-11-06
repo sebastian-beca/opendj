@@ -365,6 +365,12 @@ pub fn import_theirs_key(importer: &str) -> String {
 
 /// Set when the DJ removes an import; the next library update takes it
 /// out and clears it.
+/// The setting that says the DJ made an importer's lists their own: the
+/// import keeps bringing in tracks, cues and grids, but no lists.
+pub fn import_lists_mine_key(importer: &str) -> String {
+    format!("import_lists_mine:{importer}")
+}
+
 pub fn import_remove_key(importer: &str) -> String {
     format!("import_remove:{importer}")
 }
