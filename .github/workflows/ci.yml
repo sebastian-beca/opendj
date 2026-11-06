@@ -4,12 +4,16 @@ name: CI
 # check, and the macOS app build so each pull request can be tried on a Mac.
 # The Windows checks and the Windows app build run after a merge to main, or
 # for any branch from the Actions tab (Run workflow).
+# The merge queue (merge_group) runs the same Linux checks and the dependency
+# check on the pull request rebased on the latest main, then merges it; it
+# skips the app builds, which run again after the merge.
 # Releases build every platform in release.yml.
 on:
   push:
     branches: [main]
     paths-ignore: ["website/**", "docs/**", "openspec/**", "**/*.md"]
   pull_request:
+  merge_group:
   workflow_dispatch:
 
 # A new push to a pull request cancels the run for the push before it.
@@ -24,12 +28,19 @@ jobs:
     # docs-only pull request isn't left waiting on required checks.
     runs-on: ubuntu-24.04
     outputs:
-      code: ${{ github.event_name != 'pull_request' || steps.filter.outputs.code == 'true' }}
+      code: ${{ (github.event_name != 'pull_request' && github.event_name != 'merge_group') || steps.filter.outputs.code == 'true' }}
     steps:
+      # The merge queue has no pull request to ask for its files, so it
+      # compares the queued commit with the main it was rebased on.
+      - uses: actions/checkout@v7
+        if: github.event_name == 'merge_group'
+        with:
+          fetch-depth: 0
       - uses: dorny/paths-filter@v4
         id: filter
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         with:
+          base: ${{ github.event.merge_group.base_sha }}
           predicate-quantifier: every
           filters: |
             code:
@@ -69,7 +80,7 @@ jobs:
           diff -u website/book/supported-controls.txt /tmp/controls.txt
 
   windows:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
     # Windows ships as a preview: the app must build and its tests pass there
     # too. windows-latest already has the cmake and LLVM that Ableton Link needs.
     runs-on: windows-latest
@@ -100,7 +111,7 @@ jobs:
     # Builds an unsigned openDJ.app for Apple Silicon and attaches it to the run,
     # so the app can be tried without installing Rust.
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'merge_group'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
@@ -118,7 +129,7 @@ jobs:
           path: dist/opendj-macos.zip
 
   windows-app:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
     # The Windows setup and portable zip, attached to the run so the app can
     # be tried in a Windows VM without installing Rust.
     runs-on: windows-latest
