@@ -18,7 +18,7 @@ use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
     analysis, beatthis, cache, channel_names, deck_group, engine, input_devices, key, meter,
     separation, AudioSetup, InputRole, InputRoute, RecordFormat, Recorder, BUFFER_SIZES,
-    DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES,
+    DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES, XFADER_CUT_IN,
 };
 use opendj_library::query;
 use opendj_plugins::source::DOWNLOAD_FOLDER;
@@ -142,6 +142,14 @@ const RECORD_FORMATS: [(RecordFormat, u16, &str); 4] = [
     (RecordFormat::Flac, 16, "FLAC · 16-bit"),
 ];
 
+/// Scratch crossfader cut-ins on offer, as shares of the travel.
+const XFADER_CUT_INS: [f64; 4] = [0.005, 0.01, 0.02, 0.05];
+
+/// The Scratch crossfader curve's cut-in, from the settings.
+fn xfader_cut_in() -> f64 {
+    settings::number("xfader_cut_in", XFADER_CUT_IN)
+}
+
 const AUTO_GAIN_TARGETS: [f64; 7] = [-8.0, -10.0, -12.0, -14.0, -16.0, -18.0, -23.0];
 
 /// Loudness meter targets offered, in LUFS, with what each is for.
@@ -195,6 +203,7 @@ pub fn apply_saved(registry: &ControlRegistry) {
         "xFaderShape",
         settings::number("xfader_shape", 0.0),
     );
+    set("[Mixer Profile]", "xFaderCutIn", xfader_cut_in());
     set(
         "[Mixer Profile]",
         "xFaderReverse",
@@ -1517,7 +1526,7 @@ impl Prefs {
                 format!("{t} LUFS{note}")
             })
             .collect();
-        vec![
+        let mut items = vec![
             switch(
                 "auto_gain",
                 "Auto gain",
@@ -1547,6 +1556,26 @@ impl Prefs {
                     "Smooth for blends; Scratch cuts in sharply at the ends.",
                 )
             },
+        ];
+        // Only the Scratch curve has a cut-in.
+        if settings::number("xfader_shape", 0.0) as i32 == 2 {
+            let cut_in = xfader_cut_in();
+            items.push(PrefItem {
+                choices: strings(&["0.5%", "1%", "2%", "5%"]),
+                chosen: XFADER_CUT_INS
+                    .iter()
+                    .position(|&c| (c - cut_in).abs() < 1e-6)
+                    .unwrap_or(2) as i32,
+                ..item(
+                    "xfader_cut_in",
+                    SEGMENTED,
+                    "Cut-in",
+                    "How far from the end the crossfader opens a side fully, as a share of \
+                     its travel. 2% is under a millimetre on most controllers.",
+                )
+            });
+        }
+        items.extend([
             switch(
                 "xfader_enabled",
                 "Crossfader",
@@ -1565,7 +1594,8 @@ impl Prefs {
                 "Cue in the left ear and master in the right, both in mono.",
                 settings::flag("head_split", false),
             ),
-            ]
+        ]);
+        items
     }
 
     /// Settings › Plugins. Effects and Instruments: Scan, then the plugins
@@ -3493,6 +3523,13 @@ impl Prefs {
             "xfader_shape" => {
                 settings::set("xfader_shape", json!(index));
                 self.set("[Mixer Profile]", "xFaderShape", index as f64);
+            }
+            "xfader_cut_in" => {
+                let Some(&cut_in) = XFADER_CUT_INS.get(index) else {
+                    return;
+                };
+                settings::set("xfader_cut_in", json!(cut_in));
+                self.set("[Mixer Profile]", "xFaderCutIn", cut_in);
             }
             "talkover_ducking" => {
                 settings::set("talkover_ducking", json!(index));

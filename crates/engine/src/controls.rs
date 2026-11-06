@@ -62,6 +62,10 @@ pub fn effect_group(unit: usize, effect: usize) -> String {
 }
 
 /// hotcue_N_type values, as in Mixxx.
+/// The Scratch crossfader curve's cut-in out of the box: a side opens
+/// fully within the last 2% of travel, under a millimetre on most
+/// controllers.
+pub const XFADER_CUT_IN: f64 = 0.02;
 pub(crate) const HOTCUE_CUE: f64 = 1.0;
 pub(crate) const HOTCUE_LOOP: f64 = 4.0;
 
@@ -670,6 +674,9 @@ pub(crate) struct MasterControls {
     /// The crossfader's curve: 0 smooth (constant power), 1 linear, 2 a
     /// sharp cut at the ends for scratching.
     pub(crate) xfader_shape: ControlHandle,
+    /// openDJ: on the Scratch curve, how far from its end a side opens
+    /// fully, as a share of the crossfader's travel (0.02 is 2%).
+    pub(crate) xfader_cut_in: ControlHandle,
     pub(crate) xfader_reverse: ControlHandle,
     /// `[Mixer] crossfader_enabled`: off, every deck plays as if set to
     /// thru and the crossfader does nothing, unless Automix is mixing.
@@ -749,6 +756,14 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
             0.0,
             0.0,
             2.0,
+            Behavior::Free,
+        ),
+        xfader_cut_in: reg.create(
+            "[Mixer Profile]",
+            "xFaderCutIn",
+            XFADER_CUT_IN,
+            0.001,
+            0.5,
             Behavior::Free,
         ),
         xfader_reverse: reg.toggle("[Mixer Profile]", "xFaderReverse"),

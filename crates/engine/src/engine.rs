@@ -131,13 +131,16 @@ const RATE_RESET_SPEED: f64 = 0.005;
 
 /// Left and right deck gains for crossfader position `x` (-1 left, +1
 /// right). Shapes: 0 smooth, constant power as in Mixxx's default curve; 1
-/// linear, dipping in the middle; 2 scratch, both full until the last 5%
-/// of travel.
-pub(crate) fn xfader_gains(x: f32, shape: u8) -> [f32; 2] {
+/// linear, dipping in the middle; 2 scratch, both full until the last
+/// `cut_in` of travel (a share of it: 0.02 is 2%), where a side cuts out.
+pub(crate) fn xfader_gains(x: f32, shape: u8, cut_in: f32) -> [f32; 2] {
     let t = (x.clamp(-1.0, 1.0) + 1.0) * 0.5;
     match shape {
         1 => [1.0 - t, t],
-        2 => [((1.0 - t) / 0.05).min(1.0), (t / 0.05).min(1.0)],
+        2 => {
+            let cut = cut_in.clamp(0.001, 0.5);
+            [((1.0 - t) / cut).min(1.0), (t / cut).min(1.0)]
+        }
         _ => {
             let a = t * std::f32::consts::FRAC_PI_2;
             [a.cos(), a.sin()].map(|g| (g * std::f32::consts::SQRT_2).min(1.0))
@@ -2408,7 +2411,11 @@ impl Engine {
         if self.master.xfader_reverse.get_bool() {
             x = -x;
         }
-        let sides = xfader_gains(x, self.master.xfader_shape.get() as u8);
+        let sides = xfader_gains(
+            x,
+            self.master.xfader_shape.get() as u8,
+            self.master.xfader_cut_in.get() as f32,
+        );
         // Each deck follows the side it is assigned to; thru decks skip the
         // crossfader, and so does every deck while it is switched off.
         let xfader_on =
@@ -5184,15 +5191,48 @@ mod tests {
     fn crossfader_curves() {
         let close =
             |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3;
+        let cut = crate::controls::XFADER_CUT_IN as f32;
         for shape in 0..3 {
-            assert!(close(xfader_gains(-1.0, shape), [1.0, 0.0]), "{shape}");
-            assert!(close(xfader_gains(1.0, shape), [0.0, 1.0]), "{shape}");
+            assert!(close(xfader_gains(-1.0, shape, cut), [1.0, 0.0]), "{shape}");
+            assert!(close(xfader_gains(1.0, shape, cut), [0.0, 1.0]), "{shape}");
         }
-        assert!(close(xfader_gains(0.0, 0), [1.0, 1.0]));
-        assert!(close(xfader_gains(0.0, 1), [0.5, 0.5]));
+        assert!(close(xfader_gains(0.0, 0, cut), [1.0, 1.0]));
+        assert!(close(xfader_gains(0.0, 1, cut), [0.5, 0.5]));
         // Scratch: both full until the last few percent of travel.
-        assert!(close(xfader_gains(0.85, 2), [1.0, 1.0]));
-        assert!(xfader_gains(0.97, 2)[0] < 0.7);
+        assert!(close(xfader_gains(0.95, 2, cut), [1.0, 1.0]));
+        assert!(xfader_gains(0.99, 2, cut)[0] < 0.7);
+        // The shortest cut-in opens the incoming side within the first 1%
+        // of travel (2 units of -1..1 make 100%), and a longer one later.
+        let shortest = 0.005;
+        assert_eq!(xfader_gains(-1.0 + 0.02, 2, shortest)[1], 1.0);
+        assert!(xfader_gains(-1.0 + 0.002, 2, shortest)[1] > 0.0);
+        assert!(xfader_gains(-1.0 + 0.02, 2, 0.05)[1] < 1.0);
+        assert_eq!(xfader_gains(-1.0 + 0.1, 2, 0.05)[1], 1.0);
+    }
+
+    #[test]
+    fn crossfader_cut_in_control() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 1, tone_track(440.0, "A"));
+        run(&mut engine, 0.01);
+        reg.get("[Mixer Profile]", "xFaderShape").unwrap().set(2.0);
+        reg.get("[Channel2]", "play").unwrap().set_bool(true);
+        // Crossfader 1.5% of the way over from the left: closed at 2%,
+        // fully open at 0.5%.
+        reg.get("[Master]", "crossfader").unwrap().set(-1.0 + 0.03);
+        let heard = |engine: &mut Engine| {
+            let out = record(engine, 0.2);
+            out[out.len() / 2..]
+                .iter()
+                .map(|s| s.abs())
+                .fold(0.0f32, f32::max)
+        };
+        let partly = heard(&mut engine);
+        reg.get("[Mixer Profile]", "xFaderCutIn")
+            .unwrap()
+            .set(0.005);
+        let open = heard(&mut engine);
+        assert!(partly > 0.0 && open > partly * 1.2, "{partly} {open}");
     }
 
     #[test]

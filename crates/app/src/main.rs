@@ -337,6 +337,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     diagnostics::install();
+    // Windows wakes sleeping threads only every 15.6 ms unless asked for
+    // 1 ms: the controller threads' 1 kHz scratch filter and their timers
+    // need it, or a jog is heard in 16 ms steps.
+    #[cfg(windows)]
+    // SAFETY: a plain system call; it lasts until the process ends.
+    unsafe {
+        windows_sys::Win32::Media::timeBeginPeriod(1);
+    }
     // A restore picked in Settings goes in before anything reads the
     // settings or opens the library.
     let restored =
