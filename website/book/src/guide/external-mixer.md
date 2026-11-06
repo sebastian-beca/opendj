@@ -11,16 +11,17 @@ interface.
 
 ## Set it up
 
-1. Open **Settings › Audio**.
-2. Under the outputs, press **+** and pick **Deck 1**, then **+** again for
-   **Deck 2** (and Deck 3 and 4 for a four-channel mixer). Give each its own
-   channels on the interface, for example Deck 1 on **1 & 2** and Deck 2 on
-   **3 & 4**.
-3. Remove the Master output if it would land on the same channels, or move it
-   to the computer's own output.
-4. Set **Mixing** to **External mixer**.
-5. Wire each output pair to a line input of the mixer: Deck 1 to channel 1,
+1. Open **Settings › Audio** and set **Mixer** to **External**.
+2. The outputs change to a row for each deck, the headphones and the sampler.
+   Pick the interface for **Deck 1** and **Deck 2** (and Deck 3 and 4 for a
+   four-channel mixer), each on its own channels, for example Deck 1 on
+   **ch 1-2** and Deck 2 on **ch 3-4**. Leave a row on **None** to turn it
+   off. The channel menu only shows on devices with more than two channels.
+3. Wire each output pair to a line input of the mixer: Deck 1 to channel 1,
    Deck 2 to channel 2.
+4. To record or go on air, plug the mixer's record (or booth) out into an
+   input of the interface, set it up as an Auxiliary input under the inputs,
+   and pick it as the **Recording input** under Recording.
 
 ## What changes
 
@@ -36,8 +37,7 @@ interface.
 - Automix and the master limiter are off: they need openDJ's mixer.
 - The mic and Auxiliary inputs aren't mixed into anything (the mixer has its
   own). The sampler plays on its own output if it has one, else on Deck 1's.
-- Recording and going on air take the **Auxiliary** input: plug the mixer's
-  record (or booth) out into the interface's input and pick it as Auxiliary
-  under the inputs.
+- Master and booth are not used, so their channels are free for the decks.
+- Recording and going on air take the **Recording input** (see step 4).
 
-Set **Mixing** back to **openDJ** to mix on screen again.
+Set **Mixer** back to **openDJ** to mix on screen again.

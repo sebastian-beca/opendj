@@ -188,6 +188,18 @@ pub struct AudioSetup {
     /// Frames per audio callback, within what each device allows; else the
     /// device's default. Smaller is less delay but more risk of dropouts.
     pub buffer_frames: Option<u32>,
+    /// A hardware mixer does the mixing (`[Master],external_mixer`): the
+    /// master and booth routes are left out, as they would be silent, so
+    /// their channels are free for decks.
+    pub external_mixer: bool,
+}
+
+impl AudioSetup {
+    /// The routes that play: all of them, or without master and booth for
+    /// an external mixer.
+    pub fn in_use(&self, route: &Route) -> bool {
+        !(self.external_mixer && matches!(route.role, Role::Master | Role::Booth))
+    }
 }
 
 impl Default for AudioSetup {
@@ -202,6 +214,7 @@ impl Default for AudioSetup {
             inputs: Vec::new(),
             sample_rate: None,
             buffer_frames: None,
+            external_mixer: false,
         }
     }
 }
@@ -452,11 +465,10 @@ fn find(name: &str) -> Option<cpal::Device> {
 /// The device whose callback runs the engine: the first master route's,
 /// else the first route's, else the system default.
 fn clock_device(setup: &AudioSetup) -> &str {
-    setup
-        .routes
-        .iter()
-        .find(|r| r.role == Role::Master)
-        .or(setup.routes.first())
+    let mut used = setup.routes.iter().filter(|r| setup.in_use(r));
+    let first = used.clone().next();
+    used.find(|r| r.role == Role::Master)
+        .or(first)
         .map_or("", |r| r.device.as_str())
 }
 
@@ -795,6 +807,10 @@ impl Outputs {
             routes: Vec::new(),
         }];
         for (i, r) in setup.routes.iter().enumerate() {
+            if !setup.in_use(r) {
+                self.route_status[i] = "Not used with an external mixer".into();
+                continue;
+            }
             let name = if r.device.is_empty() {
                 find("").map(|d| device_name(&d)).unwrap_or_default()
             } else {
@@ -1250,6 +1266,24 @@ mod tests {
         assert!(!deck_outputs_split(&setup));
         setup.routes.push(route(Role::Deck2, "DDJ-FLX4", 0));
         assert!(deck_outputs_split(&setup));
+    }
+
+    #[test]
+    fn an_external_mixer_frees_the_master_device() {
+        let mut setup = AudioSetup {
+            routes: vec![
+                route(Role::Master, "Mac speakers", 0),
+                route(Role::Deck1, "DJM-A9", 0),
+                route(Role::Deck2, "DJM-A9", 1),
+            ],
+            ..AudioSetup::default()
+        };
+        assert_eq!(clock_device(&setup), "Mac speakers");
+        setup.external_mixer = true;
+        assert!(!setup.in_use(&setup.routes[0]));
+        assert!(setup.in_use(&setup.routes[1]));
+        assert_eq!(clock_device(&setup), "DJM-A9");
+        assert!(!deck_outputs_split(&setup));
     }
 
     #[test]

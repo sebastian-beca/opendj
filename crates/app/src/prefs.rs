@@ -212,6 +212,17 @@ pub fn apply_saved(registry: &ControlRegistry) {
         f(settings::flag("head_split", false)),
     );
     set("[Master]", "deck_tap", settings::number("deck_tap", 1.0));
+    // An Auxiliary input taken away since falls back to the mix.
+    let source = settings::number("record_source", 0.0) as u8;
+    let source = if record_sources(&settings::audio_setup())
+        .iter()
+        .any(|(v, _)| *v == source)
+    {
+        source
+    } else {
+        0
+    };
+    set("[Master]", "record_source", source as f64);
     set(
         "[Master]",
         "external_mixer",
@@ -1121,6 +1132,7 @@ impl Prefs {
     fn page(&mut self, app: &AppWindow, page: i32, tab: Option<usize>) -> Vec<PrefItem> {
         match page {
             AUDIO => vec![
+                mixer_mode_item(),
                 {
                     // Sample rate and buffer show as columns of the outputs
                     // table; their notes go under it.
@@ -1173,6 +1185,7 @@ impl Prefs {
                     }
                 },
                 item("recording", HEADING, "RECORDING", ""),
+                record_source_item(),
                 {
                     let r = settings::recording();
                     PrefItem {
@@ -3541,6 +3554,17 @@ impl Prefs {
                 let on = index == 1;
                 settings::set("external_mixer", json!(on));
                 self.set("[Master]", "external_mixer", f(on));
+                // Master and booth go silent, so their channels free up.
+                (self.audio_changed)();
+                if let Some(app) = self.app.upgrade() {
+                    app.global::<AudioSettings>().invoke_refresh();
+                }
+            }
+            "record_source" => {
+                let list = record_sources(&settings::audio_setup());
+                let value = list.get(index).map_or(0, |(v, _)| *v);
+                settings::set("record_source", json!(value));
+                self.set("[Master]", "record_source", value as f64);
             }
             "deck_tap" => {
                 settings::set("deck_tap", json!(index));
@@ -4864,56 +4888,58 @@ fn patch_rows(model: &ModelRc<PrefItem>, items: &[PrefItem]) -> bool {
     true
 }
 
-/// Under the outputs: where the mixing happens and, once a deck or the
-/// sampler has an output of its own, what those outputs carry and a warning
-/// when they are on another device than the master.
-fn deck_output_items() -> Vec<PrefItem> {
-    let setup = settings::audio_setup();
-    let external = settings::flag("external_mixer", false);
-    let tapped = setup.routes.iter().any(|r| r.role.is_tap());
-    let mut items = vec![PrefItem {
-        choices: strings(&["openDJ", "External mixer"]),
-        chosen: i32::from(external),
+/// Over the outputs: where the mixing happens. The outputs table under it
+/// follows the choice.
+fn mixer_mode_item() -> PrefItem {
+    PrefItem {
+        choices: strings(&["openDJ", "External"]),
+        chosen: i32::from(settings::flag("external_mixer", false)),
         ..item(
             "external_mixer",
             SEGMENTED,
-            "Mixing",
-            "External mixer: a hardware mixer (DJM, Xone, Rane) does the EQ, faders, \
+            "Mixer",
+            "External: a hardware mixer (DJM, Xone, Rane) does the EQ, faders, \
              crossfader and headphone cue. Each deck plays on its own output at full \
              level, and openDJ's mixer, Automix and limiter are off.",
         )
-    }];
-    if external {
-        items.push(item(
+    }
+}
+
+/// Under the outputs, once a deck or the sampler has an output of its own:
+/// what those outputs carry and a warning when they are on another device
+/// than the master. With an external mixer, a line on wiring it.
+fn deck_output_items() -> Vec<PrefItem> {
+    let setup = settings::audio_setup();
+    let tapped = setup.routes.iter().any(|r| r.role.is_tap());
+    if setup.external_mixer {
+        return vec![item(
             "",
             NOTE,
             "",
             if tapped {
-                "Recording and going on air take the Auxiliary input: plug the mixer's \
-                 record out into it. A sampler without its own output plays on Deck 1's."
+                "Wire each deck's channels to a mixer channel. A sampler without its own \
+                 output plays on Deck 1's."
             } else {
-                "Add an output for each deck above (+, then Deck 1, Deck 2…) and wire \
-                 them to the mixer's channels."
+                "Pick a device for each deck and wire its channels to a mixer channel."
             },
-        ));
+        )];
     }
+    let mut items = Vec::new();
     if !tapped {
         return items;
     }
-    if !external {
-        items.push(PrefItem {
-            choices: strings(&["Clean", "Pre-fader", "Post-fader"]),
-            chosen: settings::number("deck_tap", 1.0) as i32,
-            ..item(
-                "deck_tap",
-                SEGMENTED,
-                "Deck outputs",
-                "Clean: before EQ, filter and deck FX, for your own effects in a DAW. \
+    items.push(PrefItem {
+        choices: strings(&["Clean", "Pre-fader", "Post-fader"]),
+        chosen: settings::number("deck_tap", 1.0) as i32,
+        ..item(
+            "deck_tap",
+            SEGMENTED,
+            "Deck outputs",
+            "Clean: before EQ, filter and deck FX, for your own effects in a DAW. \
              Pre-fader: after them, before the channel fader and crossfader. \
              Post-fader: what each deck adds to the master mix; together they add up to it.",
-            )
-        });
-    }
+        )
+    });
     if deck_outputs_split(&setup) {
         items.push(item(
             "",
@@ -4925,6 +4951,56 @@ fn deck_output_items() -> Vec<PrefItem> {
         ));
     }
     items
+}
+
+/// What recording and going on air take: the master mix, or one of the
+/// Auxiliary inputs set up (a hardware mixer's record out). Each choice
+/// with its `[Master],record_source` value.
+fn record_sources(setup: &AudioSetup) -> Vec<(u8, String)> {
+    let first = if setup.external_mixer {
+        "Auxiliary inputs, as mixed"
+    } else {
+        "Master mix"
+    };
+    let mut list = vec![(0, first.to_string())];
+    for (n, role) in [
+        (1, InputRole::Auxiliary),
+        (2, InputRole::Auxiliary2),
+        (3, InputRole::Auxiliary3),
+    ] {
+        if let Some(r) = setup.inputs.iter().find(|r| r.role == role) {
+            let device = if r.device.is_empty() {
+                "System default"
+            } else {
+                &r.device
+            };
+            let name = if n == 1 {
+                "Auxiliary".to_string()
+            } else {
+                format!("Auxiliary {n}")
+            };
+            list.push((n, format!("{name} · {device}")));
+        }
+    }
+    list
+}
+
+fn record_source_item() -> PrefItem {
+    let setup = settings::audio_setup();
+    let list = record_sources(&setup);
+    let chosen = settings::number("record_source", 0.0) as u8;
+    let names: Vec<String> = list.iter().map(|(_, n)| n.clone()).collect();
+    PrefItem {
+        choices: strings(&names),
+        chosen: list.iter().position(|(v, _)| *v == chosen).unwrap_or(0) as i32,
+        ..item(
+            "record_source",
+            MENU,
+            "Recording input",
+            "What recordings and broadcasts take. With an external mixer, pick the input \
+             its record out comes in on.",
+        )
+    }
 }
 
 fn item(id: &str, kind: i32, title: &str, detail: &str) -> PrefItem {

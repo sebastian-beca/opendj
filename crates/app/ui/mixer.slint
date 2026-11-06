@@ -19,6 +19,10 @@ export struct OutputRow {
     // Channel pair: 0 is ch 1 & 2.
     pair: int,
     pairs: [string],
+    // The device has one pair: no channel menu.
+    single: bool,
+    // The row's title in the external mixer table ("Deck 1").
+    name: string,
     status: string,
     ok: bool,
 }
@@ -58,6 +62,14 @@ export global AudioSettings {
     in property <string> controllers: "None";
     // A booth output is set up: the MASTER panel shows its level.
     in property <bool> booth;
+    // A hardware mixer does the mixing: Settings shows a fixed row for each
+    // deck, the headphones and the sampler instead of the outputs table.
+    in property <bool> external;
+    in property <[OutputRow]> fixed-rows;
+    // "None", "System default", then the devices.
+    in property <[string]> fixed-devices;
+    callback set-fixed-device(row: int, device: int);
+    callback set-fixed-pair(row: int, pair: int);
     callback refresh();
     callback set-role(row: int, role: int);
     callback set-device(row: int, device: int);
@@ -201,7 +213,7 @@ export component OutputsTable inherits VerticalLayout {
                 opening => { AudioSettings.refresh(); }
                 picked(i) => { AudioSettings.set-device(r, i); }
             }
-            MenuField {
+            if !row.single: MenuField {
                 width: roomy ? 90px : 62px;
                 text: row.pairs[row.pair];
                 choices: row.pairs;
@@ -209,6 +221,7 @@ export component OutputsTable inherits VerticalLayout {
                 menu-width: 110px;
                 picked(i) => { AudioSettings.set-pair(r, i); }
             }
+            if row.single: Rectangle { width: roomy ? 90px : 62px; }
             // The whole setup's sample rate and buffer, on the first row.
             if roomy && r == 0: MenuField {
                 width: 110px;
@@ -247,6 +260,59 @@ export component OutputsTable inherits VerticalLayout {
             Text { text: "+"; color: Theme.text; font-size: 15px; }
             ata := TouchArea { mouse-cursor: pointer; clicked => { AudioSettings.add(); } }
         }
+    }
+}
+
+// With an external mixer: a row for each deck, the headphones and the
+// sampler, each on a device (None leaves it out) and its channels.
+export component ExternalOutputsTable inherits VerticalLayout {
+    in property <bool> bright;
+    spacing: 8px;
+    ColumnTitles { first: "Output"; first-width: 120px; last-width: 90px; bright: bright; timing: true; }
+    for row[r] in AudioSettings.fixed-rows: VerticalLayout {
+        spacing: 2px;
+        HorizontalLayout {
+            spacing: 3px;
+            Text { text: row.name; width: 120px; color: Theme.text; font-size: 12px; vertical-alignment: center; }
+            MenuField {
+                horizontal-stretch: 1;
+                text: row.device-name;
+                choices: AudioSettings.fixed-devices;
+                chosen: row.device;
+                menu-width: 260px;
+                opening => { AudioSettings.refresh(); }
+                picked(i) => { AudioSettings.set-fixed-device(r, i); }
+            }
+            if !row.single: MenuField {
+                width: 90px;
+                text: row.pairs[row.pair];
+                choices: row.pairs;
+                chosen: row.pair;
+                menu-width: 110px;
+                picked(i) => { AudioSettings.set-fixed-pair(r, i); }
+            }
+            if row.single: Rectangle { width: 90px; }
+            // The whole setup's sample rate and buffer, on the first row.
+            if r == 0: MenuField {
+                width: 110px;
+                text: AudioSettings.rates[AudioSettings.rate];
+                choices: AudioSettings.rates;
+                chosen: AudioSettings.rate;
+                menu-width: 140px;
+                picked(i) => { AudioSettings.set-rate(i); }
+            }
+            if r == 0: MenuField {
+                width: 150px;
+                text: AudioSettings.buffers[AudioSettings.buffer];
+                choices: AudioSettings.buffers;
+                chosen: AudioSettings.buffer;
+                menu-width: 220px;
+                picked(i) => { AudioSettings.set-buffer(i); }
+            }
+            if r != 0: Rectangle { width: 263px; }
+            Rectangle { width: 20px; }
+        }
+        if row.device != 0: Text { text: row.status; color: !row.ok ? #ff9f0a : bright ? #c8c8cd : Theme.text-dim; font-size: bright ? 12px : 10px; overflow: elide; x: 4px; }
     }
 }
 

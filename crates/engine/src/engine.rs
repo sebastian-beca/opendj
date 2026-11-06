@@ -3415,8 +3415,21 @@ impl Engine {
         self.master
             .vu
             .set(self.master_vu[0].max(self.master_vu[1]) as f64);
-        if external {
-            // Recording and going on air take the inputs (see above).
+        // What is recorded and sent on air: one Auxiliary input as it comes
+        // in (a hardware mixer's record out), or else the main mix, which
+        // with an external mixer is only the inputs (see above).
+        let source = match self.master.record_source.get().round() as i32 {
+            1 => Some(AUXILIARY),
+            2 => Some(AUXILIARY_2),
+            3 => Some(AUXILIARY_3),
+            _ => None,
+        };
+        if let Some(input) = source {
+            let rec = self.inputs[input].raw[..frames].as_flattened();
+            self.record.push(rec, 2);
+            self.meter.push(rec, 2);
+            self.broadcast.push(rec, 2);
+        } else if external {
             let rec = self.main_buf[..frames].as_flattened();
             self.record.push(rec, 2);
             self.meter.push(rec, 2);

@@ -97,10 +97,16 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
     // rebuild its rows and close a menu that is opening.
     let rows_model: Rc<VecModel<OutputRow>> = Default::default();
     let names_model: Rc<VecModel<SharedString>> = Default::default();
+    // With an external mixer: a fixed row for each of EXTERNAL_ROLES, and
+    // their device list, which starts with None.
+    let fixed_model: Rc<VecModel<OutputRow>> = Default::default();
+    let fixed_names_model: Rc<VecModel<SharedString>> = Default::default();
     {
         let g = app.global::<AudioSettings>();
         g.set_rows(ModelRc::from(rows_model.clone()));
         g.set_devices(ModelRc::from(names_model.clone()));
+        g.set_fixed_rows(ModelRc::from(fixed_model.clone()));
+        g.set_fixed_devices(ModelRc::from(fixed_names_model.clone()));
     }
     let show = {
         let app = app.as_weak();
@@ -117,8 +123,80 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
                 .map_or(2, |d| d.channels);
             let status = engine.route_status();
             if let Some(app) = app.upgrade() {
-                app.global::<AudioSettings>()
-                    .set_booth(setup.routes.iter().any(|r| r.role == Role::Booth));
+                let g = app.global::<AudioSettings>();
+                g.set_booth(setup.routes.iter().any(|r| r.role == Role::Booth));
+                g.set_external(setup.external_mixer);
+            }
+            let channels_of = |device: &str| {
+                if device.is_empty() {
+                    default_channels
+                } else {
+                    devices
+                        .iter()
+                        .find(|d| d.name == device)
+                        .map_or(2, |d| d.channels)
+                }
+            };
+            let pair_names = |pairs: u16| {
+                ModelRc::new(VecModel::from(
+                    (0..pairs)
+                        .map(|p| SharedString::from(format!("ch {}-{}", 2 * p + 1, 2 * p + 2)))
+                        .collect::<Vec<_>>(),
+                ))
+            };
+            let fixed: Vec<OutputRow> = EXTERNAL_ROLES
+                .iter()
+                .map(|&(role, name)| {
+                    let at = setup.routes.iter().position(|r| r.role == role);
+                    let Some(at) = at else {
+                        return OutputRow {
+                            role: Role::ALL.iter().position(|&x| x == role).unwrap_or(0) as i32,
+                            name: name.into(),
+                            device: 0,
+                            device_name: "None".into(),
+                            pair: 0,
+                            pairs: pair_names(1),
+                            single: true,
+                            status: SharedString::new(),
+                            ok: true,
+                        };
+                    };
+                    let r = &setup.routes[at];
+                    let found = devices.iter().position(|d| d.name == r.device);
+                    let pairs = (channels_of(&r.device) / 2).max(1).max(r.pair + 1);
+                    let status = status.get(at).cloned().unwrap_or_default();
+                    OutputRow {
+                        role: Role::ALL.iter().position(|&x| x == role).unwrap_or(0) as i32,
+                        name: name.into(),
+                        device: if r.device.is_empty() {
+                            1
+                        } else {
+                            found.map_or(-1, |k| k as i32 + 2)
+                        },
+                        device_name: if r.device.is_empty() {
+                            "System default".into()
+                        } else if found.is_some() {
+                            r.device.as_str().into()
+                        } else {
+                            format!("{} (not connected)", r.device).into()
+                        },
+                        pair: r.pair as i32,
+                        pairs: pair_names(pairs),
+                        single: pairs <= 1,
+                        ok: status.starts_with(|c: char| c.is_ascii_digit()),
+                        status: status.into(),
+                    }
+                })
+                .collect();
+            update_rows(&fixed_model, fixed);
+            let fixed_names: Vec<SharedString> = ["None", "System default"]
+                .into_iter()
+                .map(String::from)
+                .chain(devices.iter().map(|d| d.name.clone()))
+                .map(Into::into)
+                .collect();
+            if fixed_names_model.iter().ne(fixed_names.iter().cloned()) {
+                fixed_names_model.set_vec(fixed_names);
             }
             let rows: Vec<OutputRow> = setup
                 .routes
@@ -135,6 +213,8 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
                     let status = status.get(i).cloned().unwrap_or_default();
                     OutputRow {
                         role: Role::ALL.iter().position(|&x| x == r.role).unwrap_or(0) as i32,
+                        name: SharedString::new(),
+                        single: pairs <= 1 && r.pair == 0,
                         device: if r.device.is_empty() {
                             0
                         } else {
@@ -167,23 +247,7 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
             if names_model.iter().ne(names.iter().cloned()) {
                 names_model.set_vec(names);
             }
-            if rows_model.row_count() != rows.len() {
-                rows_model.set_vec(rows);
-            } else {
-                for (i, row) in rows.into_iter().enumerate() {
-                    let old = rows_model.row_data(i).unwrap();
-                    let same = old.role == row.role
-                        && old.device == row.device
-                        && old.device_name == row.device_name
-                        && old.pair == row.pair
-                        && old.status == row.status
-                        && old.ok == row.ok
-                        && old.pairs.iter().eq(row.pairs.iter());
-                    if !same {
-                        rows_model.set_row_data(i, row);
-                    }
-                }
-            }
+            update_rows(&rows_model, rows);
         }
     };
     show();
@@ -276,6 +340,57 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
             })
         }
     });
+    g.on_set_fixed_device({
+        let change = change.clone();
+        let devices = devices.clone();
+        move |row, device| {
+            let Some(&(role, _)) = EXTERNAL_ROLES.get(row as usize) else {
+                return;
+            };
+            let name = match device {
+                0 => None,
+                1 => Some(String::new()),
+                d => devices.borrow().get(d as usize - 2).map(|d| d.name.clone()),
+            };
+            change(&|s| {
+                let Some(name) = &name else {
+                    s.routes.retain(|r| r.role != role);
+                    return;
+                };
+                // The first pair no other output on the device plays on.
+                let taken = |p: u16| {
+                    s.routes
+                        .iter()
+                        .any(|r| r.role != role && s.in_use(r) && r.device == *name && r.pair == p)
+                };
+                let pair = (0..32).find(|&p| !taken(p)).unwrap_or(0);
+                match s.routes.iter_mut().find(|r| r.role == role) {
+                    Some(r) => {
+                        r.device = name.clone();
+                        r.pair = pair;
+                    }
+                    None => s.routes.push(Route {
+                        role,
+                        device: name.clone(),
+                        pair,
+                    }),
+                }
+            })
+        }
+    });
+    g.on_set_fixed_pair({
+        let change = change.clone();
+        move |row, pair| {
+            let Some(&(role, _)) = EXTERNAL_ROLES.get(row as usize) else {
+                return;
+            };
+            change(&|s| {
+                if let Some(r) = s.routes.iter_mut().find(|r| r.role == role) {
+                    r.pair = pair.max(0) as u16;
+                }
+            })
+        }
+    });
     g.on_add(move || {
         let devices = devices.clone();
         change(&|s| {
@@ -301,6 +416,40 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
             s.routes.push(Route { role, device, pair });
         })
     });
+}
+
+/// The rows Settings › Audio shows with an external mixer, in order.
+const EXTERNAL_ROLES: [(Role, &str); 6] = [
+    (Role::Deck1, "Deck 1"),
+    (Role::Deck2, "Deck 2"),
+    (Role::Deck3, "Deck 3"),
+    (Role::Deck4, "Deck 4"),
+    (Role::Headphones, "Headphones"),
+    (Role::Sampler, "Sampler"),
+];
+
+/// Puts `rows` in `model`, changing only the rows that differ: replacing
+/// the list would rebuild its rows and close a menu that is opening.
+fn update_rows(model: &VecModel<OutputRow>, rows: Vec<OutputRow>) {
+    if model.row_count() != rows.len() {
+        model.set_vec(rows);
+        return;
+    }
+    for (i, row) in rows.into_iter().enumerate() {
+        let old = model.row_data(i).unwrap();
+        let same = old.role == row.role
+            && old.name == row.name
+            && old.device == row.device
+            && old.device_name == row.device_name
+            && old.pair == row.pair
+            && old.single == row.single
+            && old.status == row.status
+            && old.ok == row.ok
+            && old.pairs.iter().eq(row.pairs.iter());
+        if !same {
+            model.set_row_data(i, row);
+        }
+    }
 }
 
 /// The top bar's height in points, as in main.slint; the macOS title bar

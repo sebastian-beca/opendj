@@ -42,8 +42,7 @@ pub trait Host {
 pub const PLAYED_AFTER: f64 = 5.0;
 
 /// Automix's line while a hardware mixer does the mixing.
-const NEEDS_MIXER: &str =
-    "Automix needs openDJ's mixer: switch Mixing to openDJ in Settings › Audio.";
+const NEEDS_MIXER: &str = "Automix needs openDJ's mixer: set Mixer to openDJ in Settings › Audio.";
 
 /// Mix lengths offered, in the order the panel shows them.
 #[derive(Clone, Copy, PartialEq, Debug)]

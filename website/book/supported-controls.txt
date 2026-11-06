@@ -2427,6 +2427,7 @@
 [Master],peak_indicator
 [Master],peak_indicator_left
 [Master],peak_indicator_right
+[Master],record_source
 [Master],talkover_ducking
 [Master],test_tone
 [Master],true_peak
