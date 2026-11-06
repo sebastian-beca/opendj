@@ -4,6 +4,8 @@ openDJ shows the lyrics of the track playing in the **Lyrics** tab of the
 side panel (next to Info). When the lyrics are timed, the line being sung
 is lit and kept in view, and clicking a line plays the deck from there.
 
+![The Lyrics tab following deck A](../images/lyrics-tab.png)
+
 ## Where lyrics come from
 
 openDJ reads lyrics you already have. It looks for them in this order:
