@@ -379,9 +379,11 @@ then the store whose files reach your library fastest, then lossless
 files. A store that doesn't have the track only shows up as **Try**, to
 search there. Click a track's store to choose another one it's sold on.
 
-The tracks are grouped by store. **Open** opens a store's pages, ten at a
-time: add each one to the store's cart and check out once on that store.
-openDJ never sees your payment, and its links carry no referral codes.
+The tracks are grouped by store. **Open** opens the first track's page:
+add it to the store's cart, then press **Next** for the next one. Click a
+track to open just its page. Check out once on that store when they're all
+in the cart. openDJ never sees your payment, and its links carry no
+referral codes.
 Tracks you opened show **Buying on …** for a week.
 
 Turn on **Bring purchases into Inbox** and what you download into

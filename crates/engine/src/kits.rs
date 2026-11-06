@@ -28,7 +28,10 @@ pub struct Kit {
 }
 
 /// A kit as the app lists it: its name, a line about it, and its sounds'
-/// names in order (rows 1-4 start on the first four).
+/// names in order. Row N starts on sound N, and every kit keeps the same
+/// order so a groove sounds right on any of them: kick, the backbeat
+/// (snare, clap or rim), closed hat, open hat, a second backbeat sound,
+/// tom, rim (or shaker) and one more percussion sound.
 pub struct KitInfo {
     pub name: &'static str,
     pub about: &'static str,
@@ -40,37 +43,66 @@ pub const KITS: [KitInfo; 4] = [
         name: "Boom",
         about: "Deep, long kick and soft analogue drums, 808-style",
         sounds: [
-            "Kick", "Snare", "Hat", "Open hat", "Clap", "Cowbell", "Rim", "Tom",
+            "Kick",
+            "Snare",
+            "Closed hat",
+            "Open hat",
+            "Clap",
+            "Tom",
+            "Rim",
+            "Cowbell",
         ],
     },
     KitInfo {
         name: "Punch",
         about: "Short, punchy kick and bright hats for house and techno, 909-style",
         sounds: [
-            "Kick", "Clap", "Hat", "Open hat", "Snare", "Ride", "Rim", "Tom",
+            "Kick",
+            "Clap",
+            "Closed hat",
+            "Open hat",
+            "Snare",
+            "Tom",
+            "Rim",
+            "Ride",
         ],
     },
     KitInfo {
         name: "Tin",
         about: "Small, ticking rhythm-box drums, 606-style",
         sounds: [
-            "Kick", "Snare", "Hat", "Shaker", "Open hat", "Cowbell", "Rim", "Tom",
+            "Kick",
+            "Snare",
+            "Closed hat",
+            "Open hat",
+            "Shaker",
+            "Tom",
+            "Rim",
+            "Cowbell",
         ],
     },
     KitInfo {
         name: "Dub",
         about: "Soft kick, rimshot and a chord stab for dub techno",
         sounds: [
-            "Kick", "Rim", "Hat", "Chord", "Clap", "Open hat", "Shaker", "Tom",
+            "Kick",
+            "Rim",
+            "Closed hat",
+            "Open hat",
+            "Clap",
+            "Tom",
+            "Shaker",
+            "Chord",
         ],
     },
 ];
 
-/// A named groove: four rows of 16 steps, `x` a hit and `.` a rest. Rows
-/// are kick, snare (or clap), hat and percussion.
+/// A named groove: one row of 16 steps per track, `x` a hit and `.` a
+/// rest, in the kits' sound order (kick, backbeat, hat, open hat, second
+/// backbeat, tom, rim, percussion).
 pub struct NamedGroove {
     pub name: &'static str,
-    pub rows: [&'static str; 4],
+    pub rows: [&'static str; 8],
 }
 
 pub const GROOVES: [NamedGroove; 6] = [
@@ -81,6 +113,10 @@ pub const GROOVES: [NamedGroove; 6] = [
             "....x.......x...",
             "x.x.x.x.x.x.x.x.",
             "................",
+            "................",
+            "................",
+            "......x.......x.",
+            "................",
         ],
     },
     NamedGroove {
@@ -89,6 +125,10 @@ pub const GROOVES: [NamedGroove; 6] = [
             "x...x...x...x...",
             "....x.......x...",
             "xx.xxx.xxx.xxx.x",
+            "..x...x...x...x.",
+            "............x...",
+            "................",
+            "...x......x.....",
             "..x...x...x...x.",
         ],
     },
@@ -99,6 +139,10 @@ pub const GROOVES: [NamedGroove; 6] = [
             "....x..x.x..x...",
             "x.x.x.x.x.x.x.x.",
             "..............x.",
+            "................",
+            ".............x.x",
+            "...x............",
+            "................",
         ],
     },
     NamedGroove {
@@ -108,6 +152,10 @@ pub const GROOVES: [NamedGroove; 6] = [
             "........x.......",
             "x.x.x.x.x.x.x.x.",
             "...x.......x....",
+            "........x.......",
+            "..............x.",
+            "................",
+            "x.......x.......",
         ],
     },
     NamedGroove {
@@ -117,6 +165,10 @@ pub const GROOVES: [NamedGroove; 6] = [
             "....x.......x...",
             "x.x.x.x.x.x.x.xx",
             ".......x......x.",
+            "....x.......x...",
+            "................",
+            "..x.....x.....x.",
+            "...x....x.......",
         ],
     },
     NamedGroove {
@@ -125,6 +177,10 @@ pub const GROOVES: [NamedGroove; 6] = [
             "x...x...x...x...",
             "................",
             "..x...x...x...x.",
+            "..............x.",
+            "................",
+            "................",
+            "...x...x...x..x.",
             ".x.....x.x......",
         ],
     },
@@ -173,10 +229,10 @@ fn sound(k: usize, n: usize, sr: f32) -> Vec<f32> {
         (1, "Snare") => snare(sr, [200.0, 360.0], 0.08, 0.2, 0.75, seed),
         (_, "Snare") => snare(sr, [240.0, 420.0], 0.05, 0.1, 0.65, seed),
         (_, "Clap") => clap(sr, if k == 1 { 0.22 } else { 0.16 }, seed),
-        (1, "Hat") => hat(sr, 0.05, 8000.0, seed),
-        (2, "Hat") => hat(sr, 0.03, 9000.0, seed),
-        (3, "Hat") => hat(sr, 0.035, 7000.0, seed),
-        (_, "Hat") => hat(sr, 0.045, 7500.0, seed),
+        (1, "Closed hat") => hat(sr, 0.05, 8000.0, seed),
+        (2, "Closed hat") => hat(sr, 0.03, 9000.0, seed),
+        (3, "Closed hat") => hat(sr, 0.035, 7000.0, seed),
+        (_, "Closed hat") => hat(sr, 0.045, 7500.0, seed),
         (1, "Open hat") => hat(sr, 0.35, 7500.0, seed),
         (_, "Open hat") => hat(sr, 0.28, 7000.0, seed),
         (_, "Ride") => ride(sr, seed),

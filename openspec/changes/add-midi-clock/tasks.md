@@ -2,12 +2,13 @@
 
 ## 1. Clock out
 
-- [ ] 1.1 engine: beat clock snapshot (heard-at host time, beat, tempo, playing) published per buffer through atomics after `sync`; shared reader for MIDI clock, OSC and the Groove Box
-- [ ] 1.2 Clock sender thread: schedule pulses ahead from the snapshot; back ends Core MIDI with timestamps (macOS), ALSA sequencer queue (Linux), high-resolution timer + spin (Windows); virtual "openDJ Clock" port on macOS and Linux
-- [ ] 1.3 Start / Stop / Song Position on the downbeat, RESTART ON BAR, keep-running setting, per-output offset
-- [ ] 1.4 Jitter test harness (loopback port, measure pulse spacing), target < 0.5 ms spread idle
-- [ ] 1.5 app: CLOCK OUT and RESTART ON BAR in the MASTER panel, Settings › Controllers › MIDI Clock (outputs, offsets, keep running); `[MidiClock]` controls; regenerate supported-controls.txt
-- [ ] 1.6 Update the user guide (Sync page: MIDI clock out)
+- [x] 1.1 engine: beat clock snapshot (heard-at host time, beat, tempo, playing) published per buffer through atomics after `sync`; shared reader for MIDI clock, OSC and the Groove Box
+- [x] 1.2 Clock sender thread: schedule pulses ahead from the snapshot, sleep then spin to each pulse on every platform (through midir); virtual "openDJ Clock" port on macOS and Linux
+- [ ] 1.2b Only if hardware shows wobble: OS-timestamped back ends, Core MIDI with timestamps (macOS) and the ALSA sequencer queue (Linux)
+- [x] 1.3 Start / Stop / Song Position on the downbeat, RESTART ON BAR, keep-running setting, per-output offset
+- [x] 1.4 Jitter test harness (`cargo test -p opendj-engine midi_clock -- --ignored --nocapture`: send time against due time in the clock thread), target < 0.5 ms spread idle; still to check with a drum machine's tempo display
+- [x] 1.5 app: CLOCK OUT and RESTART ON BAR in the MASTER panel, Settings › Controllers › MIDI Clock (outputs, offsets, keep running); `[MidiClock]` controls; regenerate supported-controls.txt
+- [x] 1.6 Update the user guide (Sync page: MIDI clock out)
 
 ## 2. Clock in and Link follow
 

@@ -12,11 +12,11 @@
 //! The rest is here, so every controller behaves alike. `[GrooveN],pad_mode`
 //! picks what the pads do:
 //!
-//! - **Steps** (0): the 16 steps of the selected row (`row_selected`, 1-4)
+//! - **Steps** (0): the 16 steps of the selected row (`row_selected`, 1-8)
 //!   of the groove on screen. A press adds or removes a hit; while stopped
 //!   it also plays the sound once.
-//! - **Play** (1): each column plays one row's sound, now, as loud as the
-//!   pad is hit. With `record` on while playing, the hit is also written
+//! - **Play** (1): pads 1-8 (and again 9-16) play rows 1-8, now, as loud
+//!   as the pad is hit. With `record` on while playing, the hit is also written
 //!   into the nearest step of the groove playing.
 //! - **Grooves** (2): pads 1-4 pick groove A-D (on the next bar, as the
 //!   screen's buttons do), 5-8 the kit, 9 on load the kit's named grooves
@@ -41,19 +41,19 @@ pub mod mode {
 /// The colours a pad shows, as `[GrooveN],padK_color` holds them.
 pub mod light {
     pub const OFF: u8 = 0;
-    /// Rows 1-4 in their own colour: `ROW + row` (row 0-3).
+    /// Rows in their own colour: `ROW + row` (row 0-7).
     pub const ROW: u8 = 1;
     /// The step playing.
-    pub const PLAYHEAD: u8 = 5;
+    pub const PLAYHEAD: u8 = 9;
     /// What is picked: the groove playing, the kit.
-    pub const SELECTED: u8 = 6;
+    pub const SELECTED: u8 = 10;
     /// Something a press would pick, or a beat mark in an empty row.
-    pub const DIM: u8 = 7;
+    pub const DIM: u8 = 11;
     /// The groove waiting for the bar.
-    pub const QUEUED: u8 = 8;
-    /// Rows 1-4 dimmed: `ROW_DIM + row`.
-    pub const ROW_DIM: u8 = 9;
-    pub const MAX: u8 = 12;
+    pub const QUEUED: u8 = 12;
+    /// Rows dimmed: `ROW_DIM + row`.
+    pub const ROW_DIM: u8 = 13;
+    pub const MAX: u8 = 20;
 }
 
 /// A press seen this buffer: the pad (0-15) and how hard (0-1).
@@ -166,7 +166,7 @@ impl PadSurface {
     }
 }
 
-/// The row pad `k` plays in Play mode: one row per column.
+/// The row pad `k` plays in Play mode: pads 1-8 rows 1-8, then again.
 pub fn play_row(k: usize) -> usize {
     k % ROWS
 }
@@ -302,10 +302,11 @@ mod tests {
     }
 
     #[test]
-    fn play_shows_a_column_per_row() {
+    fn play_shows_a_pad_per_row() {
         let c = view(mode::PLAY);
         assert_eq!(c[0], light::ROW_DIM);
-        assert_eq!(c[4], light::ROW_DIM, "same column, same row");
+        assert_eq!(c[8], light::ROW_DIM, "pad 9 plays row 1 again");
+        assert_eq!(c[4], light::ROW_DIM + 4);
         assert_eq!(c[9], light::PLAYHEAD, "held");
         assert_eq!(c[3], light::DIM, "muted row");
     }

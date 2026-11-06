@@ -32,9 +32,9 @@ use opendj_control::ControlRegistry;
 use opendj_controllers::{is_system_port, own, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
-    analysis, beatthis, cache, channel_names, deck_group, engine, input_devices, key, meter,
-    separation, AudioSetup, InputRole, InputRoute, RecordFormat, Recorder, BUFFER_SIZES,
-    DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES, XFADER_CUT_IN,
+    analysis, beatthis, cache, channel_names, deck_group, deck_outputs_split, engine,
+    input_devices, key, meter, separation, AudioSetup, InputRole, InputRoute, RecordFormat,
+    Recorder, BUFFER_SIZES, DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES, XFADER_CUT_IN,
 };
 use opendj_library::query;
 use opendj_plugins::source::DOWNLOAD_FOLDER;
@@ -234,6 +234,23 @@ pub fn apply_saved(registry: &ControlRegistry) {
         "[Master]",
         "headSplit",
         f(settings::flag("head_split", false)),
+    );
+    set("[Master]", "deck_tap", settings::number("deck_tap", 1.0));
+    // An Auxiliary input taken away since falls back to the mix.
+    let source = settings::number("record_source", 0.0) as u8;
+    let source = if record_sources(&settings::audio_setup())
+        .iter()
+        .any(|(v, _)| *v == source)
+    {
+        source
+    } else {
+        0
+    };
+    set("[Master]", "record_source", source as f64);
+    set(
+        "[Master]",
+        "external_mixer",
+        f(settings::flag("external_mixer", false)),
     );
     set(
         "[Master]",
@@ -1139,6 +1156,7 @@ impl Prefs {
     fn page(&mut self, app: &AppWindow, page: i32, tab: Option<usize>) -> Vec<PrefItem> {
         match page {
             AUDIO => vec![
+                mixer_mode_item(),
                 {
                     // Sample rate and buffer show as columns of the outputs
                     // table; their notes go under it.
@@ -1156,6 +1174,10 @@ impl Prefs {
                         &format!("{} {}", rate.detail, self.audio_health()),
                     )
                 },
+            ]
+            .into_iter()
+            .chain(deck_output_items())
+            .chain([
                 item("inputs", HEADING, "INPUTS", ""),
                 self.inputs_item(),
                 PrefItem {
@@ -1187,6 +1209,7 @@ impl Prefs {
                     }
                 },
                 item("recording", HEADING, "RECORDING", ""),
+                record_source_item(),
                 {
                     let r = settings::recording();
                     PrefItem {
@@ -1218,7 +1241,8 @@ impl Prefs {
                     true,
                     false,
                 ),
-            ],
+            ])
+            .collect(),
             CONTROLLERS => {
                 let mut items = self.controllers_page();
                 items.extend(osc_items());
@@ -1905,7 +1929,14 @@ impl Prefs {
 
     /// Settings › Controllers: the controllers openDJ has a mapping for,
     /// and any others added; the rest wait under Add a controller.
+    /// Settings › Controllers: each controller, then MIDI Clock.
     fn controllers_page(&mut self) -> Vec<PrefItem> {
+        let mut items = self.controller_items();
+        items.extend(crate::midi_clock::items());
+        items
+    }
+
+    fn controller_items(&mut self) -> Vec<PrefItem> {
         let Some(c) = &self.controllers else {
             return vec![item(
                 "",
@@ -2546,6 +2577,10 @@ impl Prefs {
     }
 
     fn toggled(&mut self, id: &str, on: bool) {
+        if crate::midi_clock::toggled(&self.registry, id, on) {
+            self.refresh();
+            return;
+        }
         // A controller's switch: off stops it, on runs its automatic
         // mapping again (or the one picked in its menu after).
         if let Some(port) = id.strip_prefix("controller:") {
@@ -2660,6 +2695,10 @@ impl Prefs {
     }
 
     fn picked(&mut self, id: &str, index: usize) {
+        if crate::midi_clock::picked(id, index) {
+            self.refresh();
+            return;
+        }
         if id == backup::EVERY_KEY {
             settings::set(id, json!(index));
             backup::run_if_due();
@@ -2929,6 +2968,26 @@ impl Prefs {
                 settings::set("xfader_shape", json!(index));
                 self.set("[Mixer Profile]", "xFaderShape", index as f64);
             }
+            "external_mixer" => {
+                let on = index == 1;
+                settings::set("external_mixer", json!(on));
+                self.set("[Master]", "external_mixer", f(on));
+                // Master and booth go silent, so their channels free up.
+                (self.audio_changed)();
+                if let Some(app) = self.app.upgrade() {
+                    app.global::<AudioSettings>().invoke_refresh();
+                }
+            }
+            "record_source" => {
+                let list = record_sources(&settings::audio_setup());
+                let value = list.get(index).map_or(0, |(v, _)| *v);
+                settings::set("record_source", json!(value));
+                self.set("[Master]", "record_source", value as f64);
+            }
+            "deck_tap" => {
+                settings::set("deck_tap", json!(index));
+                self.set("[Master]", "deck_tap", index as f64);
+            }
             "xfader_cut_in" => {
                 let Some(&cut_in) = XFADER_CUT_INS.get(index) else {
                     return;
@@ -3075,6 +3134,10 @@ impl Prefs {
     }
 
     fn pressed(&mut self, id: &str) {
+        if crate::midi_clock::pressed(id) {
+            self.refresh();
+            return;
+        }
         if self.broadcast_pressed(id) || self.backup_pressed(id) {
             return;
         }
@@ -3405,6 +3468,121 @@ fn patch_rows(model: &ModelRc<PrefItem>, items: &[PrefItem]) -> bool {
         rows.remove(rows.row_count() - 1);
     }
     true
+}
+
+/// Over the outputs: where the mixing happens. The outputs table under it
+/// follows the choice.
+fn mixer_mode_item() -> PrefItem {
+    PrefItem {
+        choices: strings(&["openDJ", "External"]),
+        chosen: i32::from(settings::flag("external_mixer", false)),
+        ..item(
+            "external_mixer",
+            SEGMENTED,
+            "Mixer",
+            "External: a hardware mixer (DJM, Xone, Rane) does the EQ, faders, \
+             crossfader and headphone cue. Each deck plays on its own output at full \
+             level, and openDJ's mixer, Automix and limiter are off.",
+        )
+    }
+}
+
+/// Under the outputs, once a deck or the sampler has an output of its own:
+/// what those outputs carry and a warning when they are on another device
+/// than the master. With an external mixer, a line on wiring it.
+fn deck_output_items() -> Vec<PrefItem> {
+    let setup = settings::audio_setup();
+    let tapped = setup.routes.iter().any(|r| r.role.is_tap());
+    if setup.external_mixer {
+        return vec![item(
+            "",
+            NOTE,
+            "",
+            if tapped {
+                "Wire each deck's channels to a mixer channel. A sampler without its own \
+                 output plays on Deck 1's."
+            } else {
+                "Pick a device for each deck and wire its channels to a mixer channel."
+            },
+        )];
+    }
+    let mut items = Vec::new();
+    if !tapped {
+        return items;
+    }
+    items.push(PrefItem {
+        choices: strings(&["Clean", "Pre-fader", "Post-fader"]),
+        chosen: settings::number("deck_tap", 1.0) as i32,
+        ..item(
+            "deck_tap",
+            SEGMENTED,
+            "Deck outputs",
+            "Clean: before EQ, filter and deck FX, for your own effects in a DAW. \
+             Pre-fader: after them, before the channel fader and crossfader. \
+             Post-fader: what each deck adds to the master mix; together they add up to it.",
+        )
+    });
+    if deck_outputs_split(&setup) {
+        items.push(item(
+            "",
+            NOTE,
+            "",
+            "Some deck outputs are on another device than the master, so they can drift \
+             apart by a few samples. Put them all on one device (or a macOS aggregate \
+             device) to record them in step.",
+        ));
+    }
+    items
+}
+
+/// What recording and going on air take: the master mix, or one of the
+/// Auxiliary inputs set up (a hardware mixer's record out). Each choice
+/// with its `[Master],record_source` value.
+fn record_sources(setup: &AudioSetup) -> Vec<(u8, String)> {
+    let first = if setup.external_mixer {
+        "Auxiliary inputs, as mixed"
+    } else {
+        "Master mix"
+    };
+    let mut list = vec![(0, first.to_string())];
+    for (n, role) in [
+        (1, InputRole::Auxiliary),
+        (2, InputRole::Auxiliary2),
+        (3, InputRole::Auxiliary3),
+    ] {
+        if let Some(r) = setup.inputs.iter().find(|r| r.role == role) {
+            let device = if r.device.is_empty() {
+                "System default"
+            } else {
+                &r.device
+            };
+            let name = if n == 1 {
+                "Auxiliary".to_string()
+            } else {
+                format!("Auxiliary {n}")
+            };
+            list.push((n, format!("{name} · {device}")));
+        }
+    }
+    list
+}
+
+fn record_source_item() -> PrefItem {
+    let setup = settings::audio_setup();
+    let list = record_sources(&setup);
+    let chosen = settings::number("record_source", 0.0) as u8;
+    let names: Vec<String> = list.iter().map(|(_, n)| n.clone()).collect();
+    PrefItem {
+        choices: strings(&names),
+        chosen: list.iter().position(|(v, _)| *v == chosen).unwrap_or(0) as i32,
+        ..item(
+            "record_source",
+            MENU,
+            "Recording input",
+            "What recordings and broadcasts take. With an external mixer, pick the input \
+             its record out comes in on.",
+        )
+    }
 }
 
 fn item(id: &str, kind: i32, title: &str, detail: &str) -> PrefItem {

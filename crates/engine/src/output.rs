@@ -1,6 +1,7 @@
 //! Sends the engine's mixes to output devices with cpal, as a list of
 //! routes: each route takes the master,
-//! headphone (cue) or booth mix to a pair of channels on a device. Without
+//! headphone (cue) or booth mix, or one deck or the sampler on its own, to a
+//! pair of channels on a device. Without
 //! a usable device (a headless machine, CI) the engine runs on a timer
 //! instead, so everything except the sound itself keeps working.
 //!
@@ -25,25 +26,46 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, ErrorKind, FromSample, SampleFormat, SizedSample, SupportedBufferSize};
 use opendj_control::{ControlHandle, ControlRegistry};
 
-use crate::engine::Engine;
+use crate::engine::{Engine, MIX_CHANNELS, OUTPUT_CHANNELS};
 use crate::inputs::{InputFeed, AUXILIARY, AUXILIARY_2, AUXILIARY_3, MICROPHONE, NUM_INPUTS};
 
-/// The engine's mixes, each a stereo pair of the buffer it renders.
+/// What an output plays, each a stereo pair of the buffer the engine
+/// renders: the mixes, or one deck or the sampler on its own (for a DAW or
+/// an external mixer; what they carry is `[Master],deck_tap`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
     Master,
     Headphones,
     Booth,
+    Deck1,
+    Deck2,
+    Deck3,
+    Deck4,
+    Sampler,
 }
 
 impl Role {
-    pub const ALL: [Role; 3] = [Role::Master, Role::Headphones, Role::Booth];
+    pub const ALL: [Role; 8] = [
+        Role::Master,
+        Role::Headphones,
+        Role::Booth,
+        Role::Deck1,
+        Role::Deck2,
+        Role::Deck3,
+        Role::Deck4,
+        Role::Sampler,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Role::Master => "master",
             Role::Headphones => "headphones",
             Role::Booth => "booth",
+            Role::Deck1 => "deck1",
+            Role::Deck2 => "deck2",
+            Role::Deck3 => "deck3",
+            Role::Deck4 => "deck4",
+            Role::Sampler => "sampler",
         }
     }
 
@@ -51,14 +73,27 @@ impl Role {
         Role::ALL.into_iter().find(|r| r.name() == name)
     }
 
-    /// The mix's pair in the engine's six-channel buffer.
+    /// One deck or the sampler on its own, not a mix.
+    pub fn is_tap(self) -> bool {
+        self.source() * 2 >= MIX_CHANNELS
+    }
+
+    /// Its pair in the engine's buffer.
     fn source(self) -> usize {
         self as usize
     }
 }
 
-/// Channels the engine renders: master, headphones and booth, in pairs.
-const MIX_CHANNELS: usize = 6;
+/// Channels the engine renders for `setup`: the mixes, and the deck and
+/// sampler pairs up to the last one routed. Without deck outputs it is the
+/// six of the mixes, so the engine does no tap work at all.
+fn render_width(setup: &AudioSetup) -> usize {
+    setup
+        .routes
+        .iter()
+        .map(|r| 2 * r.role.source() + 2)
+        .fold(MIX_CHANNELS, usize::max)
+}
 
 /// One output: a mix to channels `2 * pair + 1` and `2 * pair + 2` of the
 /// device called `device` (empty for the system default).
@@ -153,6 +188,18 @@ pub struct AudioSetup {
     /// Frames per audio callback, within what each device allows; else the
     /// device's default. Smaller is less delay but more risk of dropouts.
     pub buffer_frames: Option<u32>,
+    /// A hardware mixer does the mixing (`[Master],external_mixer`): the
+    /// master and booth routes are left out, as they would be silent, so
+    /// their channels are free for decks.
+    pub external_mixer: bool,
+}
+
+impl AudioSetup {
+    /// The routes that play: all of them, or without master and booth for
+    /// an external mixer.
+    pub fn in_use(&self, route: &Route) -> bool {
+        !(self.external_mixer && matches!(route.role, Role::Master | Role::Booth))
+    }
 }
 
 impl Default for AudioSetup {
@@ -167,6 +214,7 @@ impl Default for AudioSetup {
             inputs: Vec::new(),
             sample_rate: None,
             buffer_frames: None,
+            external_mixer: false,
         }
     }
 }
@@ -417,12 +465,22 @@ fn find(name: &str) -> Option<cpal::Device> {
 /// The device whose callback runs the engine: the first master route's,
 /// else the first route's, else the system default.
 fn clock_device(setup: &AudioSetup) -> &str {
+    let mut used = setup.routes.iter().filter(|r| setup.in_use(r));
+    let first = used.clone().next();
+    used.find(|r| r.role == Role::Master)
+        .or(first)
+        .map_or("", |r| r.device.as_str())
+}
+
+/// Whether a deck or sampler output goes to another device than the
+/// master's: each device keeps its own clock, so those outputs can drift
+/// apart from the master and from each other by a few samples.
+pub fn deck_outputs_split(setup: &AudioSetup) -> bool {
+    let clock = clock_device(setup);
     setup
         .routes
         .iter()
-        .find(|r| r.role == Role::Master)
-        .or(setup.routes.first())
-        .map_or("", |r| r.device.as_str())
+        .any(|r| r.role.is_tap() && r.device != clock)
 }
 
 /// The sample rate the engine runs at: the one chosen if the clock device
@@ -749,6 +807,10 @@ impl Outputs {
             routes: Vec::new(),
         }];
         for (i, r) in setup.routes.iter().enumerate() {
+            if !setup.in_use(r) {
+                self.route_status[i] = "Not used with an external mixer".into();
+                continue;
+            }
             let name = if r.device.is_empty() {
                 find("").map(|d| device_name(&d)).unwrap_or_default()
             } else {
@@ -809,7 +871,7 @@ impl Outputs {
             let (tx, mut rx) = rtrb::RingBuffer::<f32>::new((self.rate * 0.5) as usize * width);
             let pairs: Vec<(usize, usize)> =
                 d.routes.iter().enumerate().map(|(k, r)| (k, r.1)).collect();
-            let mut frame = [0.0f32; MIX_CHANNELS];
+            let mut frame = [0.0f32; OUTPUT_CHANNELS];
             match stream(
                 &d.device,
                 &config,
@@ -871,7 +933,8 @@ impl Outputs {
             };
         }
         let engine = self.engine.clone();
-        let mut mix = vec![0.0f32; 16_384 * MIX_CHANNELS];
+        let width = render_width(setup);
+        let mut mix = vec![0.0f32; 16_384 * width];
         let mut feeds = feeds;
         let mut meter = Meter::new(self.health.clone());
         let rate = self.rate;
@@ -883,18 +946,15 @@ impl Outputs {
             move |data: &mut [f32]| {
                 let start = Instant::now();
                 let frames = data.len() / channels;
-                if mix.len() < frames * MIX_CHANNELS {
-                    mix.resize(frames * MIX_CHANNELS, 0.0);
+                if mix.len() < frames * width {
+                    mix.resize(frames * width, 0.0);
                 }
-                let mix = &mut mix[..frames * MIX_CHANNELS];
+                let mix = &mut mix[..frames * width];
                 match engine.try_lock() {
-                    Ok(mut e) => e.process(mix, MIX_CHANNELS),
+                    Ok(mut e) => e.process(mix, width),
                     Err(_) => mix.fill(0.0),
                 }
-                for (out, m) in data
-                    .chunks_exact_mut(channels)
-                    .zip(mix.as_chunks::<MIX_CHANNELS>().0)
-                {
+                for (out, m) in data.chunks_exact_mut(channels).zip(mix.chunks_exact(width)) {
                     write_pairs(out, m, &pairs);
                     for (tx, sources) in &mut feeds {
                         if tx.slots() >= sources.len() * 2 {
@@ -1169,6 +1229,61 @@ mod tests {
         meter.measure(Instant::now() - Duration::from_millis(15), 0.01);
         assert_eq!(app(&reg, "audio_latency_overload_count"), 0.0);
         assert_eq!(app(&reg, "audio_latency_usage"), 0.0);
+    }
+
+    fn route(role: Role, device: &str, pair: u16) -> Route {
+        Route {
+            role,
+            device: device.into(),
+            pair,
+        }
+    }
+
+    #[test]
+    fn renders_deck_pairs_only_up_to_the_last_one_routed() {
+        let mut setup = AudioSetup::default();
+        setup.routes.push(route(Role::Headphones, "", 1));
+        assert_eq!(render_width(&setup), MIX_CHANNELS);
+        setup.routes.push(route(Role::Deck2, "", 2));
+        assert_eq!(render_width(&setup), 10);
+        setup.routes.push(route(Role::Sampler, "", 3));
+        assert_eq!(render_width(&setup), OUTPUT_CHANNELS);
+        assert!(Role::Deck1.is_tap() && Role::Sampler.is_tap());
+        assert!(!Role::Booth.is_tap());
+        assert!(Role::ALL
+            .iter()
+            .all(|r| Role::from_name(r.name()) == Some(*r)));
+    }
+
+    #[test]
+    fn warns_when_deck_outputs_leave_the_master_device() {
+        let mut setup = AudioSetup {
+            routes: vec![route(Role::Master, "BlackHole 16ch", 0)],
+            ..AudioSetup::default()
+        };
+        setup.routes.push(route(Role::Deck1, "BlackHole 16ch", 1));
+        setup.routes.push(route(Role::Headphones, "DDJ-FLX4", 1));
+        assert!(!deck_outputs_split(&setup));
+        setup.routes.push(route(Role::Deck2, "DDJ-FLX4", 0));
+        assert!(deck_outputs_split(&setup));
+    }
+
+    #[test]
+    fn an_external_mixer_frees_the_master_device() {
+        let mut setup = AudioSetup {
+            routes: vec![
+                route(Role::Master, "Mac speakers", 0),
+                route(Role::Deck1, "DJM-A9", 0),
+                route(Role::Deck2, "DJM-A9", 1),
+            ],
+            ..AudioSetup::default()
+        };
+        assert_eq!(clock_device(&setup), "Mac speakers");
+        setup.external_mixer = true;
+        assert!(!setup.in_use(&setup.routes[0]));
+        assert!(setup.in_use(&setup.routes[1]));
+        assert_eq!(clock_device(&setup), "DJM-A9");
+        assert!(!deck_outputs_split(&setup));
     }
 
     #[test]

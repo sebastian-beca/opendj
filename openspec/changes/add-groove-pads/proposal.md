@@ -10,7 +10,7 @@ The Groove Box is played and edited only on screen. Pad controllers (Maschine, L
 
 - **Pad surface in the engine** (`crates/engine/src/groove_pads.rs`), per Groove Box: `[GrooveN],pad1`..`pad16` (pressure 0-1 in), `pad1_color`..`pad16_color` (a small palette out), `pad_mode` (Steps, Play, Grooves), `row_selected`, `record`, `row_clear`.
   - Steps: the selected row's 16 steps, lit with the playhead.
-  - Play: one row per column, velocity-sensitive; with `record` the hit goes into the nearest step of the groove playing and isn't heard twice.
+  - Play: pads 1-8 (and again 9-16) play rows 1-8, velocity-sensitive; with `record` the hit goes into the nearest step of the groove playing and isn't heard twice.
   - Grooves: pads 1-4 grooves A-D (on the next bar), 5-8 kits, 9 on the named grooves.
 - **Native Instruments Maschine Mikro MK3** HID mapping (`17cc:1700`): pads, mode/transport/row buttons, MUTE/SOLO, encoder and touch strip for level, pitch, decay, swing and tempo, all lights, and its 128 x 32 screen (deck, kit, groove, tempo, row, mode). No NI software or MIDI mode.
 

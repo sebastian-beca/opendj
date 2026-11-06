@@ -19,7 +19,7 @@
 //
 //   STEP / PAD MODE / PATTERN   pads edit steps / play the sounds / pick
 //                               grooves, kits and named grooves
-//   LEFT / RIGHT                row before / after (SELECT + pad 1-4 too)
+//   LEFT / RIGHT                row before / after (SELECT + pad 1-8 too)
 //   SHIFT + LEFT / RIGHT        the Groove Box on another deck
 //   PLAY / STOP / RESTART       start / stop / start again from the bar
 //   REC                         record what the pads play (Play mode)
@@ -44,32 +44,33 @@ MikroMK3.BUTTON_LIGHTS = 39;
 
 // The Groove Box's kits, as crates/engine/src/kits.rs lists them.
 MikroMK3.KITS = [
-    {name: "Boom", sounds: ["Kick", "Snare", "Hat", "Open hat", "Clap", "Cowbell", "Rim", "Tom"]},
-    {name: "Punch", sounds: ["Kick", "Clap", "Hat", "Open hat", "Snare", "Ride", "Rim", "Tom"]},
-    {name: "Tin", sounds: ["Kick", "Snare", "Hat", "Shaker", "Open hat", "Cowbell", "Rim", "Tom"]},
-    {name: "Dub", sounds: ["Kick", "Rim", "Hat", "Chord", "Clap", "Open hat", "Shaker", "Tom"]},
+    {name: "Boom", sounds: ["Kick", "Snare", "Closed hat", "Open hat", "Clap", "Tom", "Rim", "Cowbell"]},
+    {name: "Punch", sounds: ["Kick", "Clap", "Closed hat", "Open hat", "Snare", "Tom", "Rim", "Ride"]},
+    {name: "Tin", sounds: ["Kick", "Snare", "Closed hat", "Open hat", "Shaker", "Tom", "Rim", "Cowbell"]},
+    {name: "Dub", sounds: ["Kick", "Rim", "Closed hat", "Open hat", "Clap", "Tom", "Shaker", "Chord"]},
 ];
-MikroMK3.ROWS = 4;
+MikroMK3.ROWS = 8;
 MikroMK3.DECKS = 4;
 
 // Mikro pad colours (0 off, then red ... white).
 MikroMK3.C = {OFF: 0, RED: 1, ORANGE: 2, YELLOW: 5, GREEN: 7, CYAN: 9, BLUE: 11,
     VIOLET: 13, PURPLE: 14, MAGENTA: 15, WHITE: 17};
 // [GrooveN],padK_color (groove_pads::light) -> [colour, brightness 1-3].
-MikroMK3.ROW_COLORS = [MikroMK3.C.ORANGE, MikroMK3.C.YELLOW, MikroMK3.C.CYAN, MikroMK3.C.MAGENTA];
+MikroMK3.ROW_COLORS = [MikroMK3.C.RED, MikroMK3.C.ORANGE, MikroMK3.C.YELLOW, MikroMK3.C.GREEN,
+    MikroMK3.C.CYAN, MikroMK3.C.BLUE, MikroMK3.C.PURPLE, MikroMK3.C.MAGENTA];
 MikroMK3.padLight = function(v) {
     const C = MikroMK3.C;
-    if (v >= 1 && v <= 4) {
+    if (v >= 1 && v <= 8) {
         return [MikroMK3.ROW_COLORS[v - 1], 3];
     }
-    if (v >= 9 && v <= 12) {
-        return [MikroMK3.ROW_COLORS[v - 9], 1];
+    if (v >= 13 && v <= 20) {
+        return [MikroMK3.ROW_COLORS[v - 13], 1];
     }
     switch (v) {
-    case 5: return [C.WHITE, 3];
-    case 6: return [C.VIOLET, 3];
-    case 7: return [C.WHITE, 1];
-    case 8: return [C.VIOLET, 1];
+    case 9: return [C.WHITE, 3];
+    case 10: return [C.VIOLET, 3];
+    case 11: return [C.WHITE, 1];
+    case 12: return [C.VIOLET, 1];
     default: return [C.OFF, 0];
     }
 };

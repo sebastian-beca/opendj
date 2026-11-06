@@ -207,7 +207,7 @@ fn maschine_mikro_mk3_drives_the_groove_box() {
         .rev()
         .find(|r| r[0] == 0x80)
         .expect("lights again");
-    assert_eq!(lights[1 + 39], 2 * 4 + 3, "orange, bright");
+    assert_eq!(lights[1 + 39], 4 + 3, "red, bright");
     assert!(c.errors().is_empty(), "{:#?}", c.errors());
 }
 

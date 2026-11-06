@@ -21,7 +21,7 @@ No store offers a public link or API that fills a cart with several tracks. Open
 
 ## Decisions
 
-- **Batches of up to 10 pages** per click, so stores' bot checks are not tripped and the browser isn't flooded.
+- **One page per click** (Open, then Next: 2 of N), so the DJ buys a track at a time instead of facing a pile of tabs; clicking a track opens just that one. (Was batches of 10; changed 2026-11-06 after use: too many tabs.)
 - **Pending purchase** = `wanted.pending_store` + `wanted.pending_since`; cleared on match or after 7 days.
 - **Matching order**: store plugins recognise the store (Bandcamp's comment tag); the Wanted row is found by ISRC, then artist + title (normalised) + length within 2 s, rows being bought first.
 - **The Music app's folder** (macOS, `~/Music/Music/Media.localized/Music`) is watched two folders deep, looking only into folders changed since the watch began; only files that match a Wanted track being bought are taken, and they're added where they are (no copy: disk space), since that folder is the Music app's library. A general "add a folder" setting for other store apps (Qobuz, Amazon) is a follow-up.

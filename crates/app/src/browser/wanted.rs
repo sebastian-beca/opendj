@@ -318,6 +318,12 @@ impl Browser {
     /// "Add to Downloads" on a list in the tree that has no link a download
     /// source takes: "Artist - Title" for each track the collection hasn't
     /// got.
+    /// The name of the list at `row` in the tree.
+    pub fn list_name(&self, row: usize) -> Option<String> {
+        let node = self.tree_node(row as i32)?;
+        Some(self.nodes[node].name.clone())
+    }
+
     pub fn list_download_names(&mut self, row: usize) -> Vec<String> {
         let Some(node) = self.tree_node(row as i32) else {
             return Vec::new();
