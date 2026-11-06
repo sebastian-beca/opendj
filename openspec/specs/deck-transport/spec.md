@@ -58,11 +58,15 @@ PLAY SHALL toggle playback. CUE SHALL follow the "CUE button" setting: "Hold to 
 - **THEN** the deck stops and returns to the cue point
 
 ### Requirement: Paused indicators blink
-The PLAY and CUE indicators SHALL blink in step on a paused deck with a track loaded, on screen and on controller LEDs. On screen only the deck-colour outline blinks (the same outline PLAY shows while playing); the button background stays plain.
+The PLAY and CUE indicators SHALL blink in step on a paused deck with a track loaded on controller LEDs. On screen only PLAY blinks: its deck-colour outline (the same outline PLAY shows while playing), with the background plain; CUE, SLIP and every other deck button stay steady while paused.
 
 #### Scenario: Blink while paused
 - **WHEN** a track is loaded and paused
-- **THEN** PLAY and CUE blink together until the deck plays
+- **THEN** on screen only PLAY blinks until the deck plays, and on a controller PLAY and CUE blink together
+
+#### Scenario: Nothing blinks without a track
+- **WHEN** a deck has no track loaded
+- **THEN** PLAY does not blink
 
 ### Requirement: Hot cues
 Each deck SHALL have 8 hot cues with a position, colour and optional name, saved with the track in the library. Pressing an empty hot cue sets it at the playhead (snapped to the beat grid); pressing a set one jumps to it; Shift with the pad, or `hotcue_N_clear`, deletes it.
