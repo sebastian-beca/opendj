@@ -1126,14 +1126,14 @@ impl Prefs {
                         )
                     }
                 },
-                // The same folder as Recordings and Mixed Sets in Settings ›
-                // Collection: recordings go in a folder inside it.
+                // The same folder as Recordings in Settings › Collection:
+                // recordings go in a folder inside it.
                 folder_list(
                     settings::MIXED_SETS_FOLDER,
                     "Recordings",
                     &format!(
-                        "Saved in the \"{}\" folder inside your Recordings and Mixed Sets \
-                         folder, the same one as in Settings › Collection. Each mix comes with \
+                        "Saved in the \"{}\" folder inside your Recordings folder, the \
+                         same one as in Settings › Collection. Each mix comes with \
                          a .cue tracklist.",
                         settings::RECORDINGS_SUBFOLDER
                     ),
@@ -2384,10 +2384,10 @@ impl Prefs {
             ),
             folder_list(
                 settings::MIXED_SETS_FOLDER,
-                "Recordings and Mixed Sets",
+                "Recordings",
                 &format!(
                     "Whole DJ mixes, yours and others'. They stay out of your collection and show \
-                     under Mixed Sets in the rail. Your recordings are saved in its \
+                     under Recordings in the rail. Your recordings are saved in its \
                      \"{}\" folder.",
                     settings::RECORDINGS_SUBFOLDER
                 ),
@@ -3630,15 +3630,17 @@ impl Prefs {
         };
 
         let mut items = Vec::new();
-        items.push(item("", HEADING, "BUILT IN", ""));
-        for name in ["Collection", "Files", "Albums", "Mixed Sets", "Instruments"] {
+        // openDJ's own sources, then everything outside it, as in the
+        // rail's "..." menu.
+        items.push(item("", HEADING, "BUILT-IN", ""));
+        for name in ["Collection", "Files", "Albums", "Recordings", "Instruments"] {
             if let Some(i) = place(name) {
                 items.push(row(i, name, 0, "", ""));
             }
         }
-        // Everything online in one section: the streaming services, the
-        // DJ's own servers and free music (the stores come later). Add-ons after.
-        items.push(item("", HEADING, "STREAMING", ""));
+        // Everything else in one section: the streaming services, the DJ's
+        // own servers, free music (the stores come later) and add-ons.
+        items.push(item("", HEADING, "EXTERNAL", ""));
         if crate::browser::STREAMING_ENABLED {
             for &(source, name, id) in crate::browser::STREAMS.iter() {
                 let signed_in = crate::spotify::Saved::load(&format!("{id}.json"))
@@ -3696,14 +3698,9 @@ impl Prefs {
             if members.is_empty() {
                 continue;
             }
-            // Servers and free music join the streaming section; add-ons
-            // get their own, last.
-            let items = if k == 2 {
-                addons.push(item("", HEADING, "ADD-ONS", ""));
-                &mut addons
-            } else {
-                &mut items
-            };
+            // Servers and free music follow the streaming services; add-ons
+            // come last.
+            let items = if k == 2 { &mut addons } else { &mut items };
             for n in members {
                 let plugin = &self.plugins[n];
                 let name = plugin.manifest().name;
@@ -3753,8 +3750,8 @@ impl Prefs {
             }
         }
 
-        items.extend(cache_rows);
         items.extend(addons);
+        items.extend(cache_rows);
         items
     }
 
@@ -4105,7 +4102,7 @@ impl Prefs {
             ),
             settings::MIXED_SETS_FOLDER => choose(
                 id,
-                "Choose your mixed sets folder",
+                "Choose your Recordings folder",
                 true,
                 self.chosen_tx.clone(),
             ),
