@@ -65,6 +65,7 @@ mod map_mode;
 mod mixcloud;
 mod mixcloud_upload;
 mod now_playing;
+mod osc;
 mod prefs;
 mod quick_search;
 mod remote;
@@ -80,6 +81,7 @@ mod stores;
 mod stream_cache;
 mod tidal;
 mod tour;
+mod track_end;
 mod tutorials;
 mod ui_font;
 mod update;
@@ -483,6 +485,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let counter = app.global::<BeatCounter>();
         counter.set_mode(beat_counter_mode());
+        track_end::load();
         counter.set_decks(ModelRc::new(VecModel::from(vec![
             BeatCount::default();
             NUM_DECKS
@@ -810,6 +813,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    // OSC for tablets, visuals and show software: Settings › Controllers.
+    osc::install(&registry);
+    let _osc_timer = {
+        let timer = slint::Timer::default();
+        timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(500),
+            osc::tick,
+        );
+        timer
+    };
     // The now-playing files and overlay follow the mix a few times a second.
     let _now_playing_timer = {
         let mut feed = now_playing::NowPlaying::new(registry.clone(), engine.loaded_tracks());
@@ -1633,6 +1647,7 @@ fn fmt_seconds(seconds: f64, round_up: bool) -> String {
 
 /// Handles to the controls the deck displays and waveforms read every frame.
 struct DeckHandles {
+    play: ControlHandle,
     playposition: ControlHandle,
     rate: ControlHandle,
     rate_range: ControlHandle,
@@ -1682,6 +1697,7 @@ impl Decks {
                     .unwrap_or_else(|| panic!("missing control {g},{k}"))
             };
             DeckHandles {
+                play: c("play"),
                 playposition: c("playposition"),
                 rate: c("rate"),
                 rate_range: c("rateRange"),
@@ -1771,6 +1787,12 @@ impl Decks {
             };
         };
         let pos = h.playposition.get() * t.duration;
+        let end_flash = track_end::flash(
+            t.duration - pos,
+            h.play.get_bool(),
+            h.loop_enabled.get_bool(),
+            track_end::seconds(),
+        );
         let size = h.beatloop_size.get();
         // A loop made with IN and OUT shows its own length while it plays;
         // the box goes back to the beat loop size when it ends.
@@ -1875,6 +1897,8 @@ impl Decks {
                 None => size,
             }),
             progress: (pos / t.duration) as f32,
+            end_flash_time: end_flash && track_end::style().time(),
+            end_flash_ring: end_flash && track_end::style().ring(),
             // Filled in by the caller, from Automix.
             automix_from: 0.0,
             automix_to: 0.0,
@@ -2262,4 +2286,12 @@ fn loop_label(beats: f64) -> SharedString {
         format!("1/{}", (1.0 / beats).round())
     }
     .into()
+}
+
+/// File › Export › Mixcloud…: makes the mixed set picked in the list into a
+/// Mixcloud MP3 with its tracklist (see `browser::mix_export`). Says so if
+/// no mixed set is picked. For any menu that offers it.
+pub(crate) fn export_mixcloud(app: &AppWindow) {
+    app.global::<FilesUi>()
+        .invoke_export_mixcloud(app.get_current_track());
 }

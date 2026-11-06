@@ -148,12 +148,6 @@ export struct SideRow {
     key-match: bool,
     // Or would, shifted by this many semitones (0: no shift within reach).
     key-shift: int,
-    // Automix list: how the track before mixes into this one, for the mark
-    // between them. 0 nothing to show, 1 the keys mix, 2 a semitone away,
-    // 3 they clash.
-    fit: int,
-    // And the tempo jump when it is large, e.g. "+9%".
-    jump: string,
 }
 
 // Dragging tracks between the list, the side panel, the decks and the
@@ -399,7 +393,7 @@ export global FilesUi {
     // The track at a row of the list is a file on disk.
     pure callback has-file(row: int) -> bool;
     // Makes the mixed set at a row of the list into an MP3 for Mixcloud,
-    // its tracklist as chapters.
+    // its tracklist as chapters (File › Export › Mixcloud…).
     callback export-mixcloud(row: int);
     // Signs in to Mixcloud if need be and uploads the mixed set at a row,
     // with its tracklist, as a private show.
@@ -1428,15 +1422,6 @@ component TrackMenu inherits PopupWindow {
                 }
             }
             if StoreUi.source == 10 && one: MenuLine {
-                icon: "download";
-                text: "Export for Mixcloud";
-                entered => { panel = 0; }
-                clicked => {
-                    FilesUi.export-mixcloud(track-row);
-                    root.close();
-                }
-            }
-            if StoreUi.source == 10 && one: MenuLine {
                 icon: "link";
                 text: "Upload to Mixcloud";
                 entered => { panel = 0; }
@@ -1888,7 +1873,12 @@ component RailButton inherits Rectangle {
 
 // Circling arrows at the top right of the Collection sidebar: looks for
 // new and changed tracks in the music folders now. Turns once when clicked.
-component UpdateCollectionButton inherits Rectangle {
+// The round-arrow refresh button at the top right of the side panel: Update
+// collection under Library, reload playlists under a streaming service.
+component RefreshButton inherits Rectangle {
+    in property <string> tip-title;
+    in property <string> tip-body;
+    callback activated();
     property <int> turns;
     property <bool> tip-mine;
     width: 22px;
@@ -1911,7 +1901,7 @@ component UpdateCollectionButton inherits Rectangle {
         mouse-cursor: pointer;
         clicked => {
             turns += 1;
-            LibraryEdit.update-collection();
+            activated();
         }
         changed has-hover => {
             if !self.has-hover && tip-mine {
@@ -1925,8 +1915,8 @@ component UpdateCollectionButton inherits Rectangle {
         running: uta.has-hover && !tip-mine;
         triggered => {
             tip-mine = true;
-            HoverTip.title = "Update collection";
-            HoverTip.body = "Looks for new and changed tracks in your music folders.";
+            HoverTip.title = tip-title;
+            HoverTip.body = tip-body;
             HoverTip.right-aligned = true;
             HoverTip.x = root.absolute-position.x + root.width;
             HoverTip.y = root.absolute-position.y + root.height + 6px;
@@ -2321,6 +2311,7 @@ component FolderTree inherits Rectangle {
     callback toggle(index: int);
     callback spotify-connect(client-id: string);
     callback spotify-disconnect();
+    callback spotify-refresh();
     // The smart list whose search the popup is editing, and the search.
     property <int> rename-index: -1;
     property <string> rename-text;
@@ -2425,6 +2416,10 @@ component FolderTree inherits Rectangle {
             }
         }
     }
+    // A line shown with `if` lives in its own part of the popup, which
+    // close() frees at once: anything after close() in its handler that
+    // reaches outside the popup (menu-index, name-in-place, another popup)
+    // silently does nothing. So each line acts first and closes last.
     folder-menu := PopupWindow {
         x: 40px;
         y: menu-y;
@@ -2506,15 +2501,15 @@ component FolderTree inherits Rectangle {
             if menu-editable && menu-kind == 1: MenuLine {
                 text: "New Playlist";
                 clicked => {
-                    folder-menu.close();
                     name-in-place(LibraryEdit.create(2, menu-index));
+                    folder-menu.close();
                 }
             }
             if menu-editable && menu-kind == 1: MenuLine {
                 text: "New Folder";
                 clicked => {
-                    folder-menu.close();
                     name-in-place(LibraryEdit.create(1, menu-index));
+                    folder-menu.close();
                 }
             }
             if (menu-analysable || menu-kind == 1) && menu-editable: MenuSeparator {}
@@ -2592,8 +2587,8 @@ component FolderTree inherits Rectangle {
             if menu-editable: MenuLine {
                 text: "Rename…";
                 clicked => {
-                    folder-menu.close();
                     name-in-place(menu-index);
+                    folder-menu.close();
                 }
             }
             if menu-editable && menu-kind == 3: MenuLine {
@@ -2601,8 +2596,8 @@ component FolderTree inherits Rectangle {
                 clicked => {
                     rename-index = menu-index;
                     rename-text = LibraryEdit.rule-at(menu-index);
-                    folder-menu.close();
                     rename-popup.show();
+                    folder-menu.close();
                 }
             }
             if menu-editable: MenuLine {
@@ -2752,7 +2747,19 @@ component FolderTree inherits Rectangle {
                 Text { text: tab == 1 ? "Sessions" : source == 1 ? "Folders" : source == 0 ? (HealthUi.view ? "Collection Health" : "Library") : ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Recordings", "Mixcloud"][source]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
                 if tab == 0 && source == 0 && !HealthUi.view: VerticalLayout {
                     alignment: center;
-                    UpdateCollectionButton { }
+                    RefreshButton {
+                        tip-title: "Update collection";
+                        tip-body: "Looks for new and changed tracks in your music folders.";
+                        activated => { LibraryEdit.update-collection(); }
+                    }
+                }
+                if tab == 0 && StoreUi.streaming && StoreUi.stream(source) && spotify-connected: VerticalLayout {
+                    alignment: center;
+                    RefreshButton {
+                        tip-title: "Refresh";
+                        tip-body: "Reloads your playlists from the service.";
+                        activated => { spotify-refresh(); }
+                    }
                 }
             }
             ListView {
@@ -3869,8 +3876,6 @@ component TrackList inherits Rectangle {
     in property <string> duration;
     // A signed-in streaming service: the refresh button fetches its
     // playlists again.
-    in property <bool> refreshable;
-    callback refresh();
     // Shown instead of the list when a source has nothing to list yet.
     in property <string> empty-title;
     // The list is store results, not songs.
@@ -4193,32 +4198,6 @@ component TrackList inherits Rectangle {
                             LibraryEdit.name-row = LibraryEdit.save-search(search-text);
                             search-text = "";
                             search("");
-                        }
-                    }
-                }
-                if refreshable: VerticalLayout {
-                    alignment: center;
-                    Rectangle {
-                        width: 28px;
-                        height: 28px;
-                        border-radius: 14px;
-                        border-width: 1.5px;
-                        border-color: refresh-ta.has-hover ? Theme.text-dim : Theme.border;
-                        Path {
-                            width: 16px;
-                            height: 16px;
-                            viewbox-width: 20;
-                            viewbox-height: 20;
-                            stroke: refresh-ta.has-hover ? Theme.text : Theme.text-dim;
-                            stroke-width: 2px;
-                            stroke-line-cap: round;
-                            stroke-line-join: round;
-                            fill: transparent;
-                            commands: "M 15.5 7 A 6 6 0 1 0 16 10 M 16 3.5 L 16 7.5 L 12 7.5";
-                        }
-                        refresh-ta := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => { refresh(); }
                         }
                     }
                 }
@@ -5376,27 +5355,6 @@ component SidePanel inherits Rectangle {
                                 }
                             }
                         }
-                        // How the track above mixes into this one: a short line
-                        // across the top of the row, green when the keys mix,
-                        // dim lilac a semitone away, gray when they clash, with
-                        // a large tempo jump named beside it.
-                        if tab == 0 && r.fit > 0: Rectangle {
-                            x: 4px;
-                            y: -1px;
-                            width: row-height - 8px;
-                            height: 2px;
-                            border-radius: 1px;
-                            background: r.fit == 1 ? Theme.automix : r.fit == 2 ? Theme.lilac-dim : Theme.key-far;
-                        }
-                        if tab == 0 && r.jump != "": Text {
-                            x: row-height;
-                            y: -6px;
-                            height: 12px;
-                            text: r.jump;
-                            color: Theme.text-dim;
-                            font-size: 9px;
-                            font-weight: 600;
-                        }
                         // Cover, then two lines: title and tempo; artist, key and length.
                         if r.heading == "": HorizontalLayout {
                             padding: 4px;
@@ -5624,6 +5582,7 @@ export component Browser inherits HorizontalLayout {
         toggle(i) => { toggle-folder(i); }
         spotify-connect(id) => { spotify-connect(id); }
         spotify-disconnect => { spotify-disconnect(); }
+        spotify-refresh => { spotify-refresh(); }
     }
     // The Collection Health page, or the bar over one check's tracks.
     property <bool> cleanup-page: source == 0 && (CleanupUi.open || CleanupUi.genres-open);
@@ -5648,8 +5607,6 @@ export component Browser inherits HorizontalLayout {
             ascending: ascending;
             folder-name: listing ? folder-name : source-names[source];
             duration: listing ? folder-duration : "";
-            refreshable: StoreUi.streaming && StoreUi.stream(source) && spotify-connected;
-            refresh => { spotify-refresh(); }
             empty-title: source == 0 ? "" : listing ? (list-notice != "" ? " " : "") : source-names[source];
             empty-text: source >= 2 && source != 9 && source != 10 && source < 12 && !(StoreUi.streaming && StoreUi.stream(source)) && !(StoreUi.stores && source == 5) ? "Coming soon."
                 : StoreUi.stream(source) && !spotify-connected ? "Sign in on the left to see your playlists here."

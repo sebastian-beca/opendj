@@ -42,6 +42,10 @@ Taken together, for openDJ:
 5. **One home per option.** A layer-2 choice also appears in Advanced (same row, same reset), so "Show modified" is
    the complete picture of how your openDJ differs from the defaults. That list is also exactly what a profile saves.
 
+Timecode (add-dvs, v0.6) and Broadcast (its own Settings page since add-live-broadcast) are no longer "not in
+openDJ". The map predates the Sources, Plugins, Broadcast and Keyboard pages; their rows join the option table in
+`add-settings-table`.
+
 ## The map
 
 Layer: **1** = no setting, **2** = Settings page, **3** = Advanced, **–** = not in openDJ. **Has** = openDJ already has it (v0.4.5).
@@ -130,13 +134,13 @@ Layer: **1** = no setting, **2** = Settings page, **3** = Advanced, **–** = no
 | skinFPS | **3**, follows the display | |
 | touchScreenMode, skin, skinPanels, customButtons… | **–** or state | |
 
-### Browser and library (Settings › Library)
+### Browser and library (Settings › Collection)
 
 | VDJ option | openDJ layer and default | Notes |
 |---|---|---|
 | searchInFolder, searchInDB, searchInOnlineCatalogs, OnlineCatalogs | **1**: search shows this list, then the collection, then streaming (if signed in) | |
 | quickFilters, colorRules | **1**: filter chips and saved searches. **Has** | |
-| user1FieldName, user2FieldName | **2**. **Has** (Library › Fields) | |
+| user1FieldName, user2FieldName | **2**. **Has** (Collection › Tags, tag groups) | Fields became tag groups (add-tag-groups) |
 | favoriteGenres, favoriteTags | **1**: most used come first | |
 | prelistenStartPos | **2**, "Preview starts at": 1/3 of the track (default) / middle / start |  |
 | prelistenStopOnChange | **3**, off | With add-browser-preview-player |
@@ -163,7 +167,7 @@ Layer: **1** = no setting, **2** = Settings page, **3** = Advanced, **–** = no
 
 | VDJ option | openDJ layer and default | Notes |
 |---|---|---|
-| recordFile | **2**, folder **Has**; add "File name" with date and time | |
+| recordFile | **1**, the Mixed Sets folder; **2** "File name" with date and time | Folder settled in the 2026-11-04 Settings clean-up |
 | recordFormat, recordQuality | **2**. **Has** WAV/FLAC | MP3 would need an encoder: separate change |
 | recordWriteCueFile, recordAutoSplit | **3** | Tracklist file is useful for mixes |
 | earlyAccessUpdates | **2**, "Get beta versions" | With the in-app updater |
@@ -180,11 +184,19 @@ Layer: **1** = no setting, **2** = Settings page, **3** = Advanced, **–** = no
 
 ### Not in openDJ
 
-Video, karaoke, timecode (until add-dvs), broadcast (until add-live-broadcast), VDJ login and DRM, iRemote, OS2L/OSC
+Video, karaoke, VDJ login and DRM, iRemote, OS2L/OSC
 (belong to a lights add-on), AI prompt, skins.
 
 ## Decisions (Seba, 2026-10-31)
 
 - Match key on load stays at ±1 by default.
 - Effect tails default to post-fader: they ring out after the fader closes.
-- Planned for v0.5.
+- Planned for v0.5 at first; moved to v0.6 at the 0.5.0 release, then split (below).
+
+## Decisions (Seba, 2026-11-05)
+
+- Grey help lines under row names move into the ⓘ popover where the name is clear enough.
+- Show modified and the option table come first; Advanced later.
+- New choices for v0.6: Hot cue on a playing deck, Track end warning, Back up the collection.
+- Split into small changes: `add-settings-table`, `add-settings-deck-choices`, then the rest here.
+- Vinyl mode stays one on/off switch (it only matters for touch-sensing jogs).

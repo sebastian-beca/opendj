@@ -13,7 +13,7 @@ use std::rc::Rc;
 
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
-use crate::{AppMenu, AppWindow, FilesUi, LibraryEdit, MenuEntry, Preferences};
+use crate::{AppMenu, AppWindow, LibraryEdit, MenuEntry, Preferences};
 
 /// What a menu item does.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -310,9 +310,7 @@ pub fn run(app: &AppWindow, action: Action) {
             .global::<LibraryEdit>()
             .invoke_export_spotify(app.get_current_folder()),
         // The mixed set picked in Recordings.
-        Action::ExportMixcloud => app
-            .global::<FilesUi>()
-            .invoke_export_mixcloud(app.get_current_track()),
+        Action::ExportMixcloud => crate::export_mixcloud(app),
     }
 }
 

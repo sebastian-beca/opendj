@@ -41,4 +41,4 @@ Nothing runs on the audio thread. Incoming messages set controls the same way MI
 
 ## Impact
 
-controllers (new `osc.rs` thread with `rosc`), engine (beat clock snapshot shared with add-midi-clock; phrase change event), app (Settings › Controllers › OSC), `mdns-sd` advert shared with the phone remote's planned Bonjour step, user guide (new OSC page with an address list generated from supported-controls.txt and a TouchOSC layout).
+new `crates/osc` (an OSC thread with `rosc`, depending only on the control registry), engine (beat clock snapshot shared with add-midi-clock; phrase change event), app (Settings › Controllers › OSC), `mdns-sd` advert shared with the phone remote's planned Bonjour step, user guide (new OSC page with an address list generated from supported-controls.txt and a TouchOSC layout).

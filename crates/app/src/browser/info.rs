@@ -4,7 +4,7 @@
 //! 2, the gain) only in the library. It also has a preview player for the
 //! headphones, and finds and saves album art.
 
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{self, Receiver, Sender};
 
 use super::cleanup::{info_proposals, query_for, QueryFor};
 use crate::lookup::{Found, Miss};
@@ -54,6 +54,9 @@ pub(super) struct InfoState {
     /// The cover dialog's search and what it has found.
     search: Option<Receiver<CoverEvent>>,
     found: Vec<FoundCover>,
+    /// Pictures picked with Load File…, read on the dialog's thread.
+    picked_tx: Sender<Result<FoundCover, String>>,
+    picked_rx: Receiver<Result<FoundCover, String>>,
     /// The preview player's controls, and the track (an index into
     /// `library`) it has.
     play: ControlHandle,
@@ -85,6 +88,7 @@ pub(super) struct InfoState {
 impl InfoState {
     pub(super) fn new(registry: &ControlRegistry) -> Self {
         let c = |k: &str| registry.get(PREVIEW_GROUP, k).expect("preview control");
+        let (picked_tx, picked_rx) = mpsc::channel();
         Self {
             subject: 0,
             shown: None,
@@ -93,6 +97,8 @@ impl InfoState {
             generation: 0,
             search: None,
             found: Vec::new(),
+            picked_tx,
+            picked_rx,
             play: c("play"),
             position: c("playposition"),
             duration: c("duration"),
@@ -679,6 +685,8 @@ impl Browser {
         let w = with.clone();
         ui.on_find_covers(move || w(&|b| b.find_covers()));
         let w = with.clone();
+        ui.on_load_cover_file(move || w(&|b| b.load_cover_file()));
+        let w = with.clone();
         ui.on_look_up(move || w(&|b| b.info_look_up()));
         let w = with.clone();
         ui.on_save_cover(move |i| w(&|b| b.save_cover(i.max(0) as usize)));
@@ -754,6 +762,7 @@ impl Browser {
             }
         }
         self.poll_cover_search(app);
+        self.poll_cover_file(app);
         self.poll_info_lookup(app);
         self.poll_preview(app);
     }
@@ -1193,6 +1202,8 @@ impl Browser {
         if let Some(app) = self.app.upgrade() {
             let ui = app.global::<TrackInfo>();
             ui.set_cover_searching(true);
+            ui.set_cover_note(SharedString::new());
+            ui.set_cover_picked(-1);
             ui.set_covers(ModelRc::new(VecModel::from(Vec::<CoverChoice>::new())));
         }
     }
@@ -1217,21 +1228,56 @@ impl Browser {
         }
         let ui = app.global::<TrackInfo>();
         if changed {
-            let choices: Vec<CoverChoice> = self
-                .info
-                .found
-                .iter()
-                .map(|f| CoverChoice {
-                    image: image(&f.thumb),
-                    source: f.source.clone().into(),
-                    size: format!("{}x{}", f.width, f.height).into(),
-                })
-                .collect();
-            ui.set_covers(ModelRc::new(VecModel::from(choices)));
+            self.show_covers(app);
         }
         if done {
             self.info.search = None;
             ui.set_cover_searching(false);
+        }
+    }
+
+    /// Puts what the cover dialog has found on show.
+    fn show_covers(&self, app: &AppWindow) {
+        let choices: Vec<CoverChoice> = self
+            .info
+            .found
+            .iter()
+            .map(|f| CoverChoice {
+                image: image(&f.thumb),
+                source: f.source.clone().into(),
+                size: format!("{}x{}", f.width, f.height).into(),
+            })
+            .collect();
+        app.global::<TrackInfo>()
+            .set_covers(ModelRc::new(VecModel::from(choices)));
+    }
+
+    /// Asks for a picture file to use as the track's cover (Load File… in
+    /// the cover dialog); it is read on the dialog's thread.
+    fn load_cover_file(&mut self) {
+        let tx = self.info.picked_tx.clone();
+        crate::prefs::choose_file("Choose a cover picture (JPEG or PNG)", move |path| {
+            let _ = tx.send(coverart::from_file(&path));
+        });
+    }
+
+    /// Puts a picture picked with Load File… first in the cover dialog,
+    /// picked, so Save to Tag takes it.
+    fn poll_cover_file(&mut self, app: &AppWindow) {
+        while let Ok(picked) = self.info.picked_rx.try_recv() {
+            let ui = app.global::<TrackInfo>();
+            match picked {
+                Ok(f) => {
+                    // A second file replaces the first.
+                    self.info.found.retain(|o| o.source != f.source);
+                    self.info.found.retain(|o| o.data != f.data);
+                    self.info.found.insert(0, f);
+                    self.show_covers(app);
+                    ui.set_cover_picked(0);
+                    ui.set_cover_note(SharedString::new());
+                }
+                Err(e) => ui.set_cover_note(e.into()),
+            }
         }
     }
 
