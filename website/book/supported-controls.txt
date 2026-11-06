@@ -2800,6 +2800,7 @@
 [Master],peak_indicator_left
 [Master],peak_indicator_right
 [Master],record_source
+[Master],sync_leader_source
 [Master],talkover_ducking
 [Master],test_tone
 [Master],true_peak
@@ -2824,6 +2825,8 @@
 [Microphone],vu_meter_right
 [MidiClock],bpm
 [MidiClock],enabled
+[MidiClock],in_bpm
+[MidiClock],in_running
 [MidiClock],keep_running
 [MidiClock],outputs
 [MidiClock],restart
