@@ -1,5 +1,6 @@
 //! Settings › Controllers › MIDI Clock: the outputs clock goes to, each with
-//! an offset, and whether the clock keeps running when the decks stop. They
+//! an offset, the input clock comes in from, and whether the clock keeps
+//! running when the decks stop. They
 //! are kept in settings.json and handed to the engine's clock thread (see
 //! `opendj_engine::midi_clock`). CLOCK OUT itself is in the MASTER panel.
 
@@ -14,12 +15,14 @@ use crate::{settings, short_port_name, PrefItem};
 
 const OUTPUTS_KEY: &str = "midi_clock_outputs";
 const KEEP_RUNNING_KEY: &str = "midi_clock_keep_running";
+const INPUT_KEY: &str = "midi_clock_input";
 
 /// Row ids on the settings page.
 const PORT: &str = "midi_clock_port:";
 const OFFSET: &str = "midi_clock_offset:";
 const ADD: &str = "midi_clock_add";
 const KEEP_RUNNING: &str = "midi_clock_keep_running";
+const INPUT: &str = "midi_clock_input";
 
 /// Offsets offered, in milliseconds.
 const OFFSET_STEP: f64 = 5.0;
@@ -29,6 +32,7 @@ static CLOCK: OnceLock<MidiClock> = OnceLock::new();
 /// Hands the saved outputs and Keep running to the engine; once, at start.
 pub fn install(clock: MidiClock, registry: &ControlRegistry) {
     clock.set_outputs(saved());
+    clock.set_input(saved_input());
     if let Some(c) = registry.get(GROUP, "keep_running") {
         c.set_bool(settings::flag(KEEP_RUNNING_KEY, false));
     }
@@ -49,6 +53,11 @@ fn saved() -> Vec<OutputConfig> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// The input clock is read from; None for none.
+fn saved_input() -> Option<String> {
+    Some(settings::string(INPUT_KEY)).filter(|p| !p.is_empty())
 }
 
 fn save(outputs: Vec<OutputConfig>) {
@@ -155,6 +164,32 @@ pub fn items() -> Vec<PrefItem> {
             ""
         },
     ));
+    // Clock in: a drum machine or another app leading the decks.
+    let input = saved_input();
+    let mut inputs = MidiClock::input_ports();
+    if let Some(p) = input.as_ref().filter(|p| !inputs.contains(p)) {
+        inputs.push(p.clone());
+    }
+    let mut choices = vec!["None".to_string()];
+    choices.extend(inputs.iter().map(|p| short_port_name(p).to_string()));
+    let not_open = input.is_some() && !CLOCK.get().is_some_and(MidiClock::input_open);
+    items.push(PrefItem {
+        choices: strings(&choices),
+        chosen: input
+            .as_ref()
+            .and_then(|p| inputs.iter().position(|q| q == p))
+            .map_or(0, |i| i + 1) as i32,
+        ..row(
+            INPUT,
+            1,
+            "Clock input",
+            if not_open {
+                "Not connected"
+            } else {
+                "Decks follow it with SYNC follows: Clock in the MASTER panel."
+            },
+        )
+    });
     items.push(PrefItem {
         on: settings::flag(KEEP_RUNNING_KEY, false),
         ..row(
@@ -185,6 +220,19 @@ pub fn toggled(registry: &ControlRegistry, id: &str, on: bool) -> bool {
 
 /// A menu on the section: an output's port or offset.
 pub fn picked(id: &str, choice: usize) -> bool {
+    if id == INPUT {
+        let inputs = MidiClock::input_ports();
+        let mut all = inputs.clone();
+        if let Some(p) = saved_input().filter(|p| !inputs.contains(p)) {
+            all.push(p);
+        }
+        let port = choice.checked_sub(1).and_then(|i| all.get(i).cloned());
+        settings::set(INPUT_KEY, json!(port.clone().unwrap_or_default()));
+        if let Some(c) = CLOCK.get() {
+            c.set_input(port);
+        }
+        return true;
+    }
     let mut outputs = saved();
     if let Some(i) = index(id, PORT) {
         let mut ports = MidiClock::output_ports();

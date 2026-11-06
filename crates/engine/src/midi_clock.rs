@@ -21,7 +21,7 @@
 //! `[MidiClock],bpm` and `[MidiClock],outputs` (outputs open).
 
 use std::collections::VecDeque;
-use std::sync::atomic::{fence, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{fence, AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -421,6 +421,10 @@ struct Shared {
     outputs: Mutex<Vec<OutputConfig>>,
     generation: AtomicU64,
     status: Mutex<Vec<OutputStatus>>,
+    /// The input clock is read from, by name.
+    input: Mutex<Option<String>>,
+    input_generation: AtomicU64,
+    input_open: AtomicBool,
 }
 
 /// Picks the outputs the clock thread sends to.
@@ -434,6 +438,22 @@ impl MidiClock {
     pub fn set_outputs(&self, outputs: Vec<OutputConfig>) {
         *self.shared.outputs.lock().unwrap() = outputs;
         self.shared.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Reads clock in from `port` from now on; None for no input.
+    pub fn set_input(&self, port: Option<String>) {
+        *self.shared.input.lock().unwrap() = port;
+        self.shared.input_generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Whether the clock input is open.
+    pub fn input_open(&self) -> bool {
+        self.shared.input_open.load(Ordering::Relaxed)
+    }
+
+    /// The MIDI inputs clock can be read from.
+    pub fn input_ports() -> Vec<String> {
+        crate::clock_in::input_ports()
     }
 
     /// Which outputs are open.
@@ -468,6 +488,41 @@ pub(crate) fn create_controls(reg: &ControlRegistry) {
     reg.indicator(GROUP, "running", 1.0);
     reg.indicator(GROUP, "bpm", 999.0);
     reg.indicator(GROUP, "outputs", 64.0);
+    // Clock in: the tempo it reads and whether it has started.
+    reg.indicator(GROUP, "in_bpm", 999.0);
+    reg.indicator(GROUP, "in_running", 1.0);
+    reg.create(
+        LEADER_GROUP,
+        "sync_leader_source",
+        0.0,
+        0.0,
+        2.0,
+        opendj_control::Behavior::Free,
+    );
+}
+
+/// Where `[Master],sync_leader_source` lives.
+pub const LEADER_GROUP: &str = "[Master]";
+
+/// What synced decks follow (`[Master],sync_leader_source`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LeaderSource {
+    /// The master deck, as decks always have.
+    Deck,
+    /// The Ableton Link session.
+    Link,
+    /// The MIDI clock input.
+    Clock,
+}
+
+impl LeaderSource {
+    pub fn from_value(v: f64) -> Self {
+        match v.round() as i32 {
+            1 => LeaderSource::Link,
+            2 => LeaderSource::Clock,
+            _ => LeaderSource::Deck,
+        }
+    }
 }
 
 /// Where messages go; a MIDI connection, or a recorder in tests.
@@ -604,6 +659,7 @@ impl Sender {
 /// Starts the clock thread, which runs until the registry is dropped.
 pub(crate) fn start(
     beat_clock: Arc<BeatClock>,
+    clock_in: Arc<crate::clock_in::ClockIn>,
     link: Arc<AblLink>,
     reg: &Arc<ControlRegistry>,
 ) -> MidiClock {
@@ -618,10 +674,12 @@ pub(crate) fn start(
         handle("running"),
         handle("bpm"),
         handle("outputs"),
+        handle("in_bpm"),
+        handle("in_running"),
     ];
     let spawned = std::thread::Builder::new()
         .name("midi-clock".into())
-        .spawn(move || run(beat_clock, link, weak, shared, c));
+        .spawn(move || run(beat_clock, clock_in, link, weak, shared, c));
     if let Err(e) = spawned {
         eprintln!("could not start MIDI clock: {e}");
     }
@@ -630,12 +688,18 @@ pub(crate) fn start(
 
 fn run(
     beat_clock: Arc<BeatClock>,
+    clock_in: Arc<crate::clock_in::ClockIn>,
     link: Arc<AblLink>,
     reg: Weak<ControlRegistry>,
     shared: Arc<Shared>,
-    [enabled, restart, keep_running, running, bpm, open_count]: [ControlHandle; 6],
+    [enabled, restart, keep_running, running, bpm, open_count, in_bpm, in_running]: [ControlHandle;
+        8],
 ) {
+    let link_for_input = link.clone();
     let clock = move || link.clock_micros() as f64;
+    let mut input: Option<midir::MidiInputConnection<()>> = None;
+    let mut input_generation = u64::MAX;
+    let mut input_try = f64::MIN;
     let mut sender = Sender {
         generator: Generator::default(),
         outputs: Vec::new(),
@@ -687,6 +751,41 @@ fn run(
             open_count.set(sender.outputs.iter().filter(|o| o.sink.is_some()).count() as f64);
             generation = g;
             last_try = now;
+        }
+        // The clock input changed in Settings, or isn't open yet.
+        let g = shared.input_generation.load(Ordering::Relaxed);
+        let wanted = shared.input.lock().unwrap().clone();
+        if g != input_generation || (input.is_none() && wanted.is_some() && now - input_try > RETRY)
+        {
+            if g != input_generation {
+                drop(input.take());
+            }
+            if input.is_none() {
+                clock_in.clear();
+                in_bpm.set(0.0);
+                in_running.set_bool(false);
+                input = wanted.as_deref().and_then(|port| {
+                    crate::clock_in::open(
+                        port,
+                        clock_in.clone(),
+                        link_for_input.clone(),
+                        in_bpm.clone(),
+                        in_running.clone(),
+                    )
+                });
+            }
+            shared.input_open.store(input.is_some(), Ordering::Relaxed);
+            input_generation = g;
+            input_try = now;
+        }
+        // A clock that stopped coming isn't shown as running.
+        if clock_in
+            .read()
+            .is_some_and(|r| now - r.at.heard_at > crate::clock_in::STALE)
+        {
+            clock_in.clear();
+            in_bpm.set(0.0);
+            in_running.set_bool(false);
         }
         if restart.get_bool() {
             restart.set(0.0);

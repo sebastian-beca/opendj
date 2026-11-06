@@ -28,6 +28,7 @@ use crate::inputs::{
 use crate::key::{self, Key};
 use crate::keyshift::{transpose_factor, KeyShifter, MAX_RATE};
 use crate::link::{phase_error, Link, Moment};
+use crate::midi_clock::LeaderSource;
 use crate::preview::{Preview, PreviewInput};
 use crate::recorder::{self, Feed, RecordTap};
 use crate::sampler::{SamplerInput, Samplers};
@@ -1600,6 +1601,11 @@ pub struct Engine {
     link_master: Option<usize>,
     /// The master deck's beat and tempo as heard, for MIDI clock out.
     beat_clock: Arc<crate::midi_clock::BeatClock>,
+    /// The MIDI clock coming in, which decks follow with the leader source
+    /// on Clock.
+    clock_in: Arc<crate::clock_in::ClockIn>,
+    /// `[Master],sync_leader_source`: the master deck, Link or the clock in.
+    leader_source: ControlHandle,
     /// The deck synced decks follow.
     sync_leader: Option<usize>,
     /// The leader picked by hand (its MASTER badge clicked), kept while it
@@ -1629,6 +1635,35 @@ pub struct Engine {
 /// How far (in beats) Link's beat may drift from the master deck's before
 /// it is pulled back.
 const LINK_PHASE_TOLERANCE: f64 = 0.01;
+
+/// What a synced deck follows this buffer: another deck, the Link
+/// session or the clock coming in.
+#[derive(Clone, Copy, Debug)]
+struct Leader {
+    bpm: f64,
+    /// Its beat as this buffer is heard.
+    beat: f64,
+    /// Playing: its beat moves, so followers bend to stay on it.
+    moving: bool,
+    nudged: bool,
+    /// Tells leaders apart, so a new one lines the beats up again.
+    id: usize,
+    /// The deck leading, if a deck leads.
+    deck: Option<usize>,
+    /// Its beats count bars (beat 0 is bar 1), so followers land on the
+    /// same beat of the bar.
+    bars: bool,
+}
+
+/// How far `target` is ahead of `beat` within a bar of four: -2..2.
+fn bar_error(target: f64, beat: f64) -> f64 {
+    let e = (target - beat).rem_euclid(4.0);
+    if e >= 2.0 {
+        e - 4.0
+    } else {
+        e
+    }
+}
 
 /// The most a synced deck bends its speed, as a fraction, to catch up with
 /// its leader's beat.
@@ -1783,6 +1818,10 @@ impl Engine {
                 link: Link::new(registry),
                 link_master: None,
                 beat_clock: Arc::default(),
+                clock_in: Arc::default(),
+                leader_source: registry
+                    .get(crate::midi_clock::LEADER_GROUP, "sync_leader_source")
+                    .expect("sync leader source"),
                 sync_leader: None,
                 sync_pinned: None,
                 record,
@@ -2119,13 +2158,21 @@ impl Engine {
     /// the master deck also leads the Link session (see [`Engine::lead_link`]).
     fn sync(&mut self, link: Option<Moment>) {
         let changed = self.pick_master_deck();
-        if let Some(m) = link {
+        let source = LeaderSource::from_value(self.leader_source.get());
+        let external = self.external_leader(source, link);
+        // Link follows the master deck, unless the decks follow Link.
+        if let Some(m) = link.filter(|_| source != LeaderSource::Link) {
             self.lead_link(m, changed);
         }
-        self.publish_beat_clock();
+        self.publish_beat_clock(external);
         let synced: [bool; NUM_DECKS] =
             std::array::from_fn(|i| self.decks[i].c.sync_enabled.get_bool());
         self.pick_sync_leader(synced);
+        if external.is_some() {
+            // Every synced deck follows the outside leader.
+            self.sync_leader = None;
+            self.show_sync_leader(synced);
+        }
         for i in 0..NUM_DECKS {
             let other = self.sync_target(i);
             // sync_key: shift the key to the other deck's, or its relative.
@@ -2147,22 +2194,38 @@ impl Engine {
             // Set again below while following.
             d.sync_speed = None;
             d.sync_bend = 0.0;
-            let Some(other) = other else {
+            // What this deck follows: the outside leader, or a deck.
+            let leader = match external {
+                Some(e) => Some(e),
+                None => other.and_then(|o| {
+                    let theirs = self.decks[o].track.clone().filter(|t| t.bpm > 0.0)?;
+                    let l = &self.decks[o];
+                    Some(Leader {
+                        bpm: l.effective_bpm(),
+                        beat: theirs.beat_at(l.seconds()),
+                        moving: l.c.play.get_bool(),
+                        nudged: l.nudging(),
+                        id: Arc::as_ptr(&theirs) as usize,
+                        deck: Some(o),
+                        bars: false,
+                    })
+                }),
+            };
+            let Some(leader) = leader else {
                 continue;
             };
-            let (Some(mine), Some(theirs)) =
-                (self.decks[i].track.clone(), self.decks[other].track.clone())
-            else {
+            let Some(mine) = self.decks[i].track.clone() else {
                 continue;
             };
-            if !(following || once) || mine.bpm <= 0.0 || theirs.bpm <= 0.0 {
+            if !(following || once) || mine.bpm <= 0.0 || leader.bpm <= 0.0 {
                 continue;
             }
-            let pair = (Arc::as_ptr(&mine) as usize, Arc::as_ptr(&theirs) as usize);
+            let pair = (Arc::as_ptr(&mine) as usize, leader.id);
             let fresh = just_synced || once || !was_following || self.decks[i].sync_pair != pair;
             // With both decks synced, a move of the follower's fader moves
             // the leader, so either fader sets the tempo.
-            if following && synced[other] && !fresh {
+            if let Some(other) = leader.deck.filter(|&o| following && synced[o] && !fresh) {
+                let theirs = self.decks[other].track.clone().expect("leader's track");
                 let d = &self.decks[i];
                 let rate = d.c.rate.get();
                 if (rate - d.rate_written).abs() > 1e-9 {
@@ -2175,17 +2238,14 @@ impl Engine {
                 }
             }
             // Tempos where each deck is, so a deck whose tempo drifts keeps
-            // the other in step all the way through.
+            // the other in step all the way through. A leading deck's tempo
+            // is read again: the fader above may have moved it.
             let here = mine.bpm_at(self.decks[i].seconds());
-            let leader_bpm = self.decks[other].effective_bpm();
-            let (leader_beat, leader_moving, leader_nudged) = {
-                let l = &self.decks[other];
-                (
-                    theirs.beat_at(l.seconds()),
-                    l.c.play.get_bool(),
-                    l.nudging(),
-                )
-            };
+            let leader_bpm = leader
+                .deck
+                .map_or(leader.bpm, |o| self.decks[o].effective_bpm());
+            let (leader_beat, leader_moving, leader_nudged) =
+                (leader.beat, leader.moving, leader.nudged);
             let d = &mut self.decks[i];
             if fresh {
                 d.sync_pair = pair;
@@ -2205,10 +2265,23 @@ impl Engine {
             let playing = d.c.play.get_bool();
             if once || (just_synced && playing) {
                 // Lands on the nearest beat in phase, half a beat at most
-                // away (a beat on, at the very start of the track).
+                // away (a beat on, at the very start of the track). With a
+                // leader that counts bars (Link, a started clock), on the
+                // same beat of the bar: two beats at most away.
+                let behind = if leader.bars && d.sync_ratio == 1.0 {
+                    bar_error(target + d.phase_offset, beat)
+                } else {
+                    behind
+                };
                 let to = mine.seconds_at(beat + behind);
+                // Before the track's start: a beat (or a bar) on.
+                let step = if leader.bars && d.sync_ratio == 1.0 {
+                    4.0
+                } else {
+                    1.0
+                };
                 let to = if to < 0.0 {
-                    mine.seconds_at(beat + behind + 1.0)
+                    mine.seconds_at(beat + behind + step)
                 } else {
                     to
                 };
@@ -2443,8 +2516,14 @@ impl Engine {
 
     /// Publishes the master deck's beat and tempo as this buffer is heard,
     /// for MIDI clock out (see [`crate::midi_clock`]).
-    fn publish_beat_clock(&mut self) {
+    fn publish_beat_clock(&mut self, external: Option<Leader>) {
         let heard_at = self.link.heard_at;
+        // Following Link or a clock, the clock out passes that on.
+        if let Some(e) = external {
+            let tempo = if e.moving { e.bpm } else { 0.0 };
+            self.beat_clock.publish(heard_at, e.beat, tempo);
+            return;
+        }
         let now = self.link_master.and_then(|k| {
             let d = &self.decks[k];
             let track = d.track.as_ref()?;
@@ -2454,6 +2533,46 @@ impl Engine {
             Some((beat, tempo)) if tempo > 0.0 => self.beat_clock.publish(heard_at, beat, tempo),
             _ => self.beat_clock.publish(heard_at, 0.0, 0.0),
         }
+    }
+
+    /// The leader from outside the decks the source names, as this buffer
+    /// is heard: the Link session (while Link is on) or the clock coming
+    /// in (while it comes). None for Deck, or when there is none, and the
+    /// decks follow each other as usual.
+    fn external_leader(&self, source: LeaderSource, link: Option<Moment>) -> Option<Leader> {
+        match source {
+            LeaderSource::Deck => None,
+            LeaderSource::Link => link.map(|m| Leader {
+                bpm: m.tempo,
+                beat: m.beat,
+                moving: true,
+                nudged: false,
+                id: usize::MAX,
+                deck: None,
+                bars: true,
+            }),
+            LeaderSource::Clock => {
+                let r = self.clock_in.read()?;
+                let heard_at = self.link.heard_at as f64;
+                if heard_at - r.at.heard_at > crate::clock_in::STALE {
+                    return None;
+                }
+                Some(Leader {
+                    bpm: r.at.tempo,
+                    beat: r.at.beat_at(heard_at),
+                    moving: r.running,
+                    nudged: false,
+                    id: usize::MAX - 1,
+                    deck: None,
+                    bars: r.running,
+                })
+            }
+        }
+    }
+
+    /// The clock coming in, for [`crate::midi_clock::start`].
+    pub(crate) fn clock_in(&self) -> Arc<crate::clock_in::ClockIn> {
+        self.clock_in.clone()
     }
 
     /// The master deck's beat clock, for [`crate::midi_clock::start`].
@@ -4764,6 +4883,70 @@ mod tests {
         };
         let diff = (phase(0) - phase(1)).rem_euclid(1.0);
         assert!(diff.min(1.0 - diff) < 0.01, "{} vs {}", phase(0), phase(1));
+    }
+
+    #[test]
+    fn synced_decks_follow_the_midi_clock_in_on_its_bars() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(128.0, 30.0));
+        run(&mut engine, 0.02);
+        reg.get("[Master]", "sync_leader_source").unwrap().set(2.0);
+        reg.get("[Channel1]", "play").unwrap().set_bool(true);
+        // A drum machine at 132 BPM, started at time 0, one buffer at a
+        // time: its beat as the last buffer was heard.
+        let clock = engine.clock_in();
+        let mut t = 0.0;
+        let tick = |engine: &mut Engine, t: f64| {
+            clock.publish(crate::clock_in::Reading {
+                at: crate::midi_clock::Snapshot {
+                    heard_at: engine.link.heard_at as f64,
+                    beat: 2.7 + t * 132.0 / 60.0,
+                    tempo: 132.0,
+                },
+                running: true,
+            });
+            run(engine, 512.0 / SR);
+        };
+        for _ in 0..20 {
+            tick(&mut engine, t);
+            t += 512.0 / SR;
+        }
+        reg.get("[Channel1]", "sync_enabled")
+            .unwrap()
+            .set_bool(true);
+        for _ in 0..(3.0 * SR / 512.0) as usize {
+            tick(&mut engine, t);
+            t += 512.0 / SR;
+        }
+        let bpm = reg.get("[Channel1]", "bpm").unwrap().get();
+        assert!((bpm - 132.0).abs() < 0.01, "{bpm}");
+        // On the drum machine's beat of the bar, not just its beat.
+        let d = &engine.decks[0];
+        let beat = d.track.as_ref().unwrap().beat_at(d.seconds());
+        let theirs = 2.7 + t * 132.0 / 60.0;
+        let off = bar_error(theirs, beat).abs();
+        assert!(off < 0.06, "deck {beat}, clock {theirs}");
+        // No deck leads: the MASTER badges are off.
+        assert_eq!(reg.get("[Channel1]", "sync_leader").unwrap().get(), 0.0);
+    }
+
+    #[test]
+    fn link_stops_leading_while_the_decks_follow_it() {
+        let (reg, mut engine, _input) = setup();
+        reg.get("[Master]", "sync_leader_source").unwrap().set(1.0);
+        // Link off: nothing outside to follow, so the decks lead as usual.
+        assert!(engine.external_leader(LeaderSource::Link, None).is_none());
+        let m = Moment {
+            tempo: 140.0,
+            beat: 9.5,
+            just_enabled: false,
+        };
+        let l = engine.external_leader(LeaderSource::Link, Some(m)).unwrap();
+        assert_eq!((l.bpm, l.beat, l.bars, l.deck), (140.0, 9.5, true, None));
+        assert!(engine
+            .external_leader(LeaderSource::Deck, Some(m))
+            .is_none());
+        run(&mut engine, 0.01);
     }
 
     #[test]
