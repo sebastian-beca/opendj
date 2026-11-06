@@ -12,6 +12,7 @@ use crate::audio_plugins::{AudioPlugins, Found};
 use crate::backup;
 use crate::broadcast::{self, Broadcast};
 use crate::list_picker::{Picker, Ticked};
+use crate::osc;
 use opendj_control::ControlRegistry;
 use opendj_controllers::{is_system_port, own, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
@@ -181,7 +182,7 @@ pub fn apply_saved(registry: &ControlRegistry) {
         set(&g, "rate_dir", rate_dir());
         set(&g, "quantize", f(settings::flag("quantize", true)));
         set(&g, "vinyl_mode", f(settings::flag("vinyl_mode", true)));
-        if settings::flag("keylock_default", false) {
+        if settings::flag("keylock_default", true) {
             set(&g, "keylock", 1.0);
         }
     }
@@ -1205,7 +1206,11 @@ impl Prefs {
                 ),
             ])
             .collect(),
-            CONTROLLERS => self.controllers_page(),
+            CONTROLLERS => {
+                let mut items = self.controllers_page();
+                items.extend(osc_items());
+                items
+            }
             LIBRARY => self.library_page(tab),
             ANALYSIS => {
                 let (lo, hi) = bpm_range();
@@ -1325,8 +1330,8 @@ impl Prefs {
                     switch(
                         "keylock_default",
                         "Key lock on at start",
-                        "Tempo changes keep the key; each deck's lock button still switches it.",
-                        settings::flag("keylock_default", false),
+                        "Tempo changes keep the key. Right-click a deck's tempo fader to switch it; its line turns lilac while on.",
+                        settings::flag("keylock_default", true),
                     ),
                     PrefItem {
                         choices: strings(&["Harmonic · 4 keys", "Fuzzy · 6 keys"]),
@@ -1364,6 +1369,28 @@ impl Prefs {
                              the bar brighter, with the bars of the phrase under them. With \
                              phrases, the header also counts down the bars to the next phrase \
                              and names it.",
+                        )
+                    },
+                    PrefItem {
+                        choices: strings(&crate::track_end::LABELS),
+                        chosen: crate::track_end::chosen() as i32,
+                        ..item(
+                            crate::track_end::KEY,
+                            MENU,
+                            "Track end warning",
+                            "A playing deck's remaining time blinks red this long before the \
+                             track ends. Not while a loop plays.",
+                        )
+                    },
+                    PrefItem {
+                        choices: strings(&crate::track_end::STYLE_LABELS),
+                        chosen: crate::track_end::style() as i32,
+                        ..item(
+                            crate::track_end::STYLE_KEY,
+                            SEGMENTED,
+                            "Warning type",
+                            "What blinks near the track's end: the remaining time in red, the \
+                             ring round the deck's jog in its color, or both.",
                         )
                     },
                     switch(
@@ -3204,6 +3231,9 @@ impl Prefs {
             return;
         }
         settings::set(id, json!(on));
+        if [osc::ENABLED, osc::LOCAL_ONLY, osc::SEND_ONLY].contains(&id) {
+            osc::apply();
+        }
         if id == crate::now_playing::ENABLED || id == crate::now_playing::NETWORK {
             crate::now_playing::settings_changed();
         }
@@ -3430,6 +3460,8 @@ impl Prefs {
                 settings::set("key_mixing", json!(m.id()));
                 key::set_mixing(m);
             }
+            crate::track_end::KEY => crate::track_end::choose(index),
+            crate::track_end::STYLE_KEY => crate::track_end::choose_style(index),
             "beat_counter" => {
                 settings::set("beat_counter", json!(index.min(2)));
                 if let Some(app) = self.app.upgrade() {
@@ -4045,6 +4077,18 @@ impl Prefs {
                 "description" => s.description = text,
                 _ => {}
             });
+            return;
+        }
+        if id == osc::PORT {
+            if let Ok(port) = text.trim().parse::<u16>() {
+                settings::set(id, json!(port));
+                osc::settings_changed();
+            }
+            return;
+        }
+        if id == osc::TARGETS {
+            settings::set(id, json!(text));
+            osc::settings_changed();
             return;
         }
         if id == crate::now_playing::TEMPLATE {
@@ -4939,6 +4983,70 @@ const CLEANUP_FOLD: &str = "cleanup#fold";
 const MUSIC_FOLDERS_LIST: &str = "music_folders";
 /// The plugin folders' list on Settings › Plugins › Folders.
 const PLUGIN_FOLDERS_LIST: &str = "audio_plugin_folders";
+
+/// Settings › Controllers › OSC: tablets, visuals and show software
+/// controlling openDJ and following it over Open Sound Control.
+fn osc_items() -> Vec<PrefItem> {
+    let on = settings::flag(osc::ENABLED, false);
+    let mut items = vec![
+        item("", HEADING, "OSC", ""),
+        switch(
+            osc::ENABLED,
+            "OSC",
+            "Lets TouchOSC, Open Stage Control, Resolume, TouchDesigner, QLab and other \
+             Open Sound Control apps press any button and move any fader, and follow \
+             what changes. /channel1/play 1 plays deck 1. See the user guide for every address.",
+            on,
+        ),
+    ];
+    if !on {
+        return items;
+    }
+    let status = osc::status();
+    if !status.is_empty() {
+        items.push(item("osc_status", NOTE, "", &status));
+    }
+    items.push(PrefItem {
+        value: osc::port().to_string().into(),
+        ..item(
+            osc::PORT,
+            TEXT,
+            "Port",
+            "The UDP port openDJ listens on. 9000 at first.",
+        )
+    });
+    let (_, bad) = osc::targets();
+    items.push(PrefItem {
+        value: settings::string(osc::TARGETS).into(),
+        ..item(
+            osc::TARGETS,
+            TEXT,
+            "Send to",
+            &if bad.is_empty() {
+                "Apps to send changes to, as address:port, separated by commas, \
+                 for example 192.168.1.20:8000. An app that sends from the same computer gets \
+                 its answers here too."
+                    .to_string()
+            } else {
+                format!("Not understood: {}", bad.join(", "))
+            },
+        )
+    });
+    items.push(switch(
+        osc::LOCAL_ONLY,
+        "Only this computer",
+        "Off, tablets and other computers on your network can control openDJ too.",
+        settings::flag(osc::LOCAL_ONLY, true),
+    ));
+    items.push(switch(
+        osc::SEND_ONLY,
+        "Send only",
+        "Ignores incoming controls, so other apps can follow openDJ but not change it. \
+         /subscribe still works.",
+        settings::flag(osc::SEND_ONLY, false),
+    ));
+    items
+}
 
 /// Settings › Broadcast › NOW PLAYING FEED: the track the audience hears,
 /// for OBS and other streaming software.
