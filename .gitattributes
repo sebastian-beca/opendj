@@ -7,3 +7,10 @@ res/controllers/** linguist-vendored
 # stopping on a conflict; scripts/roadmap.py --check (CI) then catches a
 # change that ended up listed twice.
 openspec/roadmap.md merge=union
+
+# Lists that pull requests append to: the user guide's contents and the
+# generated list of supported controls. Two PRs adding lines at the same
+# place keep both instead of conflicting. If the controls list ends up out
+# of order, CI's diff against `opendj --list-controls` says so; regenerate it.
+website/book/src/SUMMARY.in.md merge=union
+website/book/supported-controls.txt merge=union
