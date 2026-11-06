@@ -552,7 +552,13 @@ fn config_from(v: &Value) -> PluginConfig {
 }
 
 fn query_json(q: &SourceQuery) -> Value {
-    json!({ "text": q.text, "kind": q.kind.name(), "prefer": q.prefer.name(), "skip": q.skip })
+    json!({
+        "text": q.text,
+        "kind": q.kind.name(),
+        "prefer": q.prefer.name(),
+        "skip": q.skip,
+        "songs": q.songs,
+    })
 }
 
 fn query_from(v: &Value) -> SourceQuery {
@@ -561,6 +567,7 @@ fn query_from(v: &Value) -> SourceQuery {
         kind: QueryKind::from_name(str_of(&v["kind"])),
         prefer: Prefer::from_name(str_of(&v["prefer"])),
         skip: list(&v["skip"]).iter().map(string).collect(),
+        songs: list(&v["songs"]).iter().map(string).collect(),
     }
 }
 
@@ -691,11 +698,12 @@ mod tests {
             kind: QueryKind::Playlist,
             prefer: Prefer::Mp3,
             skip: vec!["3. Bonobo – Kerala".into()],
+            songs: vec!["Bonobo - Kerala".into(), "Bonobo - Kong".into()],
         };
         assert_eq!(query_from(&query_json(&q)), q);
         // An older app sends no skip.
         let old = query_from(&json!({ "text": "Kerala", "kind": "track", "prefer": "any" }));
-        assert!(old.skip.is_empty());
+        assert!(old.skip.is_empty() && old.songs.is_empty());
     }
 
     #[test]

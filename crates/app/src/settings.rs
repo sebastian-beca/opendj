@@ -235,7 +235,9 @@ pub fn set_hidden_sources(names: Vec<String>) {
 /// what was typed, how it was read and which copies to prefer.
 /// A saved search: its text, kind, preference, and when it was added (Unix
 /// milliseconds).
-pub type SavedSearch = (String, String, String, u64);
+/// A saved search: text, kind, prefer, when it was added, and a playlist's
+/// songs when the app read them (see `SourceQuery::songs`).
+pub type SavedSearch = (String, String, String, u64, Vec<String>);
 
 /// A source's saved searches. Ones saved before searches had a time get
 /// their place in the list instead, oldest first as they were kept then.
@@ -249,7 +251,15 @@ pub fn source_searches(source: &str) -> Vec<SavedSearch> {
                     let text = s["text"].as_str()?.to_string();
                     let field = |k: &str| s[k].as_str().unwrap_or_default().to_string();
                     let added = s["added"].as_u64().unwrap_or(i as u64);
-                    Some((text, field("kind"), field("prefer"), added))
+                    let songs = s["songs"]
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    Some((text, field("kind"), field("prefer"), added, songs))
                 })
                 .collect()
         })
@@ -259,8 +269,12 @@ pub fn source_searches(source: &str) -> Vec<SavedSearch> {
 pub fn set_source_searches(source: &str, searches: &[SavedSearch]) {
     let list: Vec<Value> = searches
         .iter()
-        .map(|(text, kind, prefer, added)| {
-            json!({ "text": text, "kind": kind, "prefer": prefer, "added": added })
+        .map(|(text, kind, prefer, added, songs)| {
+            let mut v = json!({ "text": text, "kind": kind, "prefer": prefer, "added": added });
+            if !songs.is_empty() {
+                v["songs"] = json!(songs);
+            }
+            v
         })
         .collect();
     save(|v| {
