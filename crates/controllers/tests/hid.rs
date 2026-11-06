@@ -142,3 +142,89 @@ fn traktor_kontrol_s2_mk3() {
     assert!(v > 0.3, "deck 1's channel fader moved the volume: {v}");
     assert_eq!(c.errors(), Vec::<String>::new());
 }
+
+/// The Maschine Mikro MK3 drives the Groove Box: pads reach
+/// `[GrooveN],padK`, buttons pick the pad mode, and the lights and screen
+/// go out as reports 0x80 and 0xe0.
+#[test]
+fn maschine_mikro_mk3_drives_the_groove_box() {
+    let (reg, mut c, _device) = load("Native Instruments Maschine Mikro MK3.hid.xml");
+    reg.get("[Groove2]", "enabled").unwrap().set(1.0);
+    settle(&mut c, 60);
+    let reports = c.take_reports();
+    let screen: Vec<&Vec<u8>> = reports.iter().filter(|r| r[0] == 0xe0).collect();
+    // "No Groove Box" from init, then deck 2's: two halves each.
+    assert_eq!(screen.len(), 4, "{}", reports.len());
+    assert!(screen.iter().all(|r| r.len() == 1 + 8 + 256));
+    let lights = reports.iter().find(|r| r[0] == 0x80).expect("lights");
+    assert_eq!(lights.len(), 81);
+
+    // Pad 4 (index 3) pressed fairly hard, then let go: the deck 2 Groove Box.
+    c.receive_report(&[0x02, 3, 0x10 | 0x0b, 0xb8, 0, 0, 0]);
+    c.poll(Instant::now());
+    let v = get(&reg, "[Groove2]", "pad4");
+    assert!((v - 1.0).abs() < 1e-9, "3000 of 4095 is full: {v}");
+    c.receive_report(&[0x02, 3, 0x30, 0x00, 0, 0, 0]);
+    c.poll(Instant::now());
+    assert_eq!(get(&reg, "[Groove2]", "pad4"), 0.0);
+
+    // PAD MODE (button 27: byte 4, bit 3) plays the pads; PATTERN (32)
+    // picks grooves.
+    let mut buttons = vec![0u8; 16];
+    buttons[0] = 0x01;
+    let idle = buttons.clone();
+    c.receive_report(&idle);
+    buttons[4] |= 1 << 3;
+    c.receive_report(&buttons);
+    c.receive_report(&idle);
+    assert_eq!(get(&reg, "[Groove2]", "pad_mode"), 1.0);
+    let mut pattern = idle.clone();
+    pattern[5] |= 1;
+    c.receive_report(&pattern);
+    c.receive_report(&idle);
+    assert_eq!(get(&reg, "[Groove2]", "pad_mode"), 2.0);
+
+    // RIGHT (9: byte 2, bit 1) moves to row 2; MUTE (38: byte 5, bit 6)
+    // tapped mutes it.
+    let mut right = idle.clone();
+    right[2] |= 1 << 1;
+    c.receive_report(&right);
+    c.receive_report(&idle);
+    assert_eq!(get(&reg, "[Groove2]", "row_selected"), 2.0);
+    let mut mute = idle.clone();
+    mute[5] |= 1 << 6;
+    c.receive_report(&mute);
+    c.receive_report(&idle);
+    assert_eq!(get(&reg, "[Groove2]", "row2_mute"), 1.0);
+
+    // A pad colour from the engine lights that pad: row 1's colour.
+    reg.get("[Groove2]", "pad1_color").unwrap().set(1.0);
+    // The first settle ran its clock 60 ms ahead; the timer is due after.
+    settle(&mut c, 200);
+    let reports = c.take_reports();
+    let lights = reports
+        .iter()
+        .rev()
+        .find(|r| r[0] == 0x80)
+        .expect("lights again");
+    assert_eq!(lights[1 + 39], 4 + 3, "red, bright");
+    assert!(c.errors().is_empty(), "{:#?}", c.errors());
+}
+
+/// The kit and sound names the Mikro's screen shows are the engine's.
+#[test]
+fn maschine_mikro_mk3_knows_the_kits() {
+    let path = default_mappings_dir()
+        .unwrap()
+        .join("Native-Instruments-Maschine-Mikro-MK3.js");
+    let script = std::fs::read_to_string(path).unwrap();
+    for kit in opendj_engine::kits::KITS.iter() {
+        let sounds: Vec<String> = kit.sounds.iter().map(|s| format!("\"{s}\"")).collect();
+        let line = format!(
+            "{{name: \"{}\", sounds: [{}]}}",
+            kit.name,
+            sounds.join(", ")
+        );
+        assert!(script.contains(&line), "missing {line}");
+    }
+}
