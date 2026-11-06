@@ -76,6 +76,11 @@ export struct DeckInfo {
     can-prepare-hq: bool,
     // 0..1 through the track
     progress: float,
+    // The track is about to end while it plays (Settings › Decks › Track end
+    // warning) and its blink is lit this instant: the header's remaining time
+    // in red, and the jog's ring in the deck color, as the warning type picks.
+    end-flash-time: bool,
+    end-flash-ring: bool,
     // The stretch of the track Automix's next (or current) mix covers, from
     // 0 to 1 through the track; equal (both 0) when there is none.
     automix-from: float,
@@ -276,11 +281,12 @@ export component Jog inherits Rectangle {
         border-color: #000000;
     }
     Arc { width: parent.width; height: parent.height; from: 0deg; to: 359.9deg; stroke: #232326; stroke-width: 3px; }
-    if info.progress > 0.002: Arc {
+    if info.progress > 0.002 || info.end-flash-ring: Arc {
         width: parent.width;
         height: parent.height;
         from: 0deg;
-        to: info.progress * 359.9deg;
+        // The track end warning lights the whole ring.
+        to: info.end-flash-ring ? 359.9deg : info.progress * 359.9deg;
         stroke: tint;
         stroke-width: 3px;
     }
@@ -641,7 +647,7 @@ component TimeKey inherits HorizontalLayout {
     spacing: 12px;
     if show-time: VerticalLayout {
         alignment: center;
-        Text { text: info.loaded ? "-" + info.remaining-seconds : "-0:00"; color: Theme.text; font-size: 23px; font-weight: 500; horizontal-alignment: right; }
+        Text { text: info.loaded ? "-" + info.remaining-seconds : "-0:00"; color: info.end-flash-time ? Theme.danger : Theme.text; font-size: 23px; font-weight: 500; horizontal-alignment: right; }
         Text { text: info.loaded ? info.total : ""; color: Theme.text-dim; font-size: 11px; horizontal-alignment: right; }
     }
     if show-time: EdgeVLine { top: 6px; bottom: 6px; line-color: #2c2c2f; }
@@ -980,7 +986,7 @@ export component Header inherits Rectangle {
             }
             if compact: Text {
                 text: info.loaded ? "-" + info.remaining-seconds : "-0:00";
-                color: Theme.text;
+                color: info.end-flash-time ? Theme.danger : Theme.text;
                 font-size: 20px;
                 font-weight: 500;
                 vertical-alignment: center;
