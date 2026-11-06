@@ -4272,54 +4272,79 @@ component TrackList inherits Rectangle {
             property <length> search-w: clamp(self.width * 0.4, 240px, 520px);
             property <length> centred: LibraryEdit.window-width / 2 - self.absolute-position.x - search-w / 2;
             property <length> search-x: max(0px, min(centred, self.width - buttons.preferred-width - 10px - search-w));
-            HorizontalLayout {
+            // Clipped, so on a narrow panel nothing runs in under the
+            // search box.
+            Rectangle {
                 x: 0;
                 width: max(0px, search-x - 10px);
-                spacing: 10px;
-                padding-left: 6px;
-                // Back from an album opened in the covers view.
-                if AlbumsUi.opened: Rectangle {
-                    width: min(back-label.preferred-width, 220px);
-                    back-label := Text {
-                        width: parent.width;
-                        text: "‹ " + AlbumsUi.back-to;
-                        overflow: elide;
-                        color: bta.has-hover ? Theme.text : Theme.accent;
-                        font-size: 14px;
+                height: parent.height;
+                clip: true;
+                HorizontalLayout {
+                    width: parent.width;
+                    height: parent.height;
+                    spacing: 10px;
+                    padding-left: 6px;
+                    // Back from an album opened in the covers view. It and the
+                    // name give up room first (they elide), the count after.
+                    if AlbumsUi.opened: Rectangle {
+                        property <length> full: min(back-label.preferred-width, 220px);
+                        preferred-width: full;
+                        max-width: full;
+                        min-width: min(full, 70px);
+                        horizontal-stretch: 1;
+                        back-label := Text {
+                            width: parent.width;
+                            text: "‹ " + AlbumsUi.back-to;
+                            overflow: elide;
+                            color: bta.has-hover ? Theme.text : Theme.accent;
+                            font-size: 14px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                        bta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { AlbumsUi.back(); }
+                        }
+                    }
+                    Text {
+                        text: folder-name;
+                        color: Theme.text;
+                        font-size: 15px;
                         font-weight: 600;
                         vertical-alignment: center;
+                        overflow: elide;
+                        // Never wider than the name, so spare room goes past the
+                        // count; shrinks before the count does.
+                        min-width: min(self.preferred-width, 80px);
+                        max-width: self.preferred-width;
+                        horizontal-stretch: 1;
                     }
-                    bta := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => { AlbumsUi.back(); }
+                    if empty-title == "" && AlbumsUi.grid: Text { text: AlbumsUi.tiles.length + (AlbumsUi.tiles.length == 1 ? " Album" : " Albums"); color: Theme.text-dim; font-size: 14px; vertical-alignment: center; }
+                    if empty-title == "" && !AlbumsUi.grid: Text { text: rows.length + (results ? (rows.length == 1 ? " Result" : " Results") : LibraryEdit.close-matches ? (rows.length == 1 ? " Close Match" : " Close Matches") : (rows.length == 1 ? " Song" : " Songs")); color: Theme.text-dim; font-size: 14px; vertical-alignment: center; }
+                    // The list's time, or how many are picked and their time.
+                    if LibraryEdit.picked-count < 2: Text { text: duration; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
+                    if LibraryEdit.picked-count > 1 && empty-title == "" && !AlbumsUi.grid: Text {
+                        text: LibraryEdit.picked-count + " selected · " + LibraryEdit.picked-time;
+                        color: Theme.accent;
+                        font-size: 14px;
+                        vertical-alignment: center;
                     }
-                }
-                Text { text: folder-name; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; overflow: elide; min-width: min(self.preferred-width, 160px); }
-                if empty-title == "" && AlbumsUi.grid: Text { text: AlbumsUi.tiles.length + (AlbumsUi.tiles.length == 1 ? " Album" : " Albums"); color: Theme.text-dim; font-size: 14px; vertical-alignment: center; }
-                if empty-title == "" && !AlbumsUi.grid: Text { text: rows.length + (results ? (rows.length == 1 ? " Result" : " Results") : LibraryEdit.close-matches ? (rows.length == 1 ? " Close Match" : " Close Matches") : (rows.length == 1 ? " Song" : " Songs")); color: Theme.text-dim; font-size: 14px; vertical-alignment: center; }
-                // The list's time, or how many are picked and their time.
-                if LibraryEdit.picked-count < 2: Text { text: duration; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
-                if LibraryEdit.picked-count > 1 && empty-title == "" && !AlbumsUi.grid: Text {
-                    text: LibraryEdit.picked-count + " selected · " + LibraryEdit.picked-time;
-                    color: Theme.accent;
-                    font-size: 14px;
-                    vertical-alignment: center;
-                }
-                // A smart list's search, so it's clear why these tracks are here.
-                Text {
-                    text: LibraryEdit.rule != "" && empty-title == "" ? "· " + LibraryEdit.rule : "";
-                    color: Theme.accent;
-                    font-size: 13px;
-                    vertical-alignment: center;
-                    horizontal-stretch: 1;
-                    overflow: elide;
-                }
-                if LibraryEdit.making-smart && search-text == "" && !FilterUi.any-active: Text {
-                    text: "Add filters for the smart playlist, then Save";
-                    color: Theme.accent;
-                    font-size: 13px;
-                    vertical-alignment: center;
-                    overflow: elide;
+                    // A smart list's search, so it's clear why these tracks are here.
+                    Text {
+                        text: LibraryEdit.rule != "" && empty-title == "" ? "· " + LibraryEdit.rule : "";
+                        color: Theme.accent;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        overflow: elide;
+                    }
+                    if LibraryEdit.making-smart && search-text == "" && !FilterUi.any-active: Text {
+                        text: "Add filters for the smart playlist, then Save";
+                        color: Theme.accent;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
                 }
             }
             TourMark { id: "ui,search"; x: search-x; width: search-w; height: parent.height; }
@@ -4328,7 +4353,8 @@ component TrackList inherits Rectangle {
                 x: search-x;
                 width: search-w;
                 height: parent.height;
-                placeholder-text: "Search " + folder-name;
+                // Short: the list's name is already on the left.
+                placeholder-text: AlbumsUi.opened ? "Search album" : folder-name != "" && folder-name.character-count <= 20 ? "Search " + folder-name : "Search";
                 text <=> search-text;
                 edited(t) => { search(t); }
                 // Esc clears the search, or with nothing typed hands the
