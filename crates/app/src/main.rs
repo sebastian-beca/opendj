@@ -41,6 +41,7 @@ mod art;
 mod audio_plugins;
 mod automix;
 mod automix_order;
+mod backup;
 mod beat_counter;
 mod broadcast;
 mod browser;
@@ -337,6 +338,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     diagnostics::install();
+    // A restore picked in Settings goes in before anything reads the
+    // settings or opens the library.
+    let restored =
+        settings::config_dir().and_then(|d| backup::apply_pending(&d, backup::folder().as_deref()));
     // Before anything is saved: no settings yet means a first start, which
     // gets the guided tour.
     let first_run = settings::load().as_object().is_none_or(|m| m.is_empty());
@@ -758,6 +763,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let map_mode = map_mode::Mapper::install(&app, controllers.clone());
     prefs::apply_saved(&registry);
     let _levels = prefs::remember_levels(registry.clone());
+    if let Some(note) = restored {
+        engine.alert(note);
+    }
+    // Automatic backups: at start, then checked every hour.
+    backup::run_if_due();
+    let backup_timer = slint::Timer::default();
+    backup_timer.start(
+        slint::TimerMode::Repeated,
+        Duration::from_secs(3600),
+        backup::run_if_due,
+    );
     let prefs = prefs::Prefs::install(
         &app,
         registry.clone(),

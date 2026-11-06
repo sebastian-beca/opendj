@@ -2234,7 +2234,7 @@ component Transport inherits HorizontalLayout {
     spacing: 6px;
     height: 32px;
     PlayButton { group: group; tint: tint; width: 63px; tour-id: group + ",play"; }
-    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; outline: Controls.paused-blink(group, Controls.blink, Controls.tick); font-size: 13px; width: 63px; tour-id: group + ",cue_default"; }
+    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; font-size: 13px; width: 63px; tour-id: group + ",cue_default"; }
 }
 
 // A thin line between sections of a deck.
@@ -2305,15 +2305,17 @@ component BendButton inherits Rectangle {
 }
 
 // SLIP as a word, no button around it, as in djay Pro: light grey when
-// off, lilac when on. While a trick holds the track elsewhere it blinks and
-// the waveforms show where it will carry on from.
+// off, lilac when on. While a trick holds a playing track elsewhere it
+// blinks and the waveforms show where it will carry on from. A paused deck
+// keeps it steady: only PLAY blinks there.
 export component SlipToggle inherits Rectangle {
     in property <string> group;
     // Deck B: the tip opens towards the middle.
     in property <bool> tip-right-aligned;
     property <int> index: Controls.resolve(group, "slip_enabled");
     property <bool> on: Controls.value(index, Controls.tick) > 0;
-    property <bool> slipping: Controls.value(Controls.resolve(group, "slip_position"), Controls.tick) >= 0;
+    property <bool> slipping: Controls.value(Controls.resolve(group, "slip_position"), Controls.tick) >= 0
+        && Controls.value(Controls.resolve(group, "play"), Controls.tick) > 0;
     property <bool> tip-mine;
     width: 24px;
     height: 12px;

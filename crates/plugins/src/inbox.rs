@@ -74,9 +74,12 @@ pub fn wanted(path: &Path) -> bool {
     ext == "zip" || is_audio(path)
 }
 
-/// Watches the top level of a folder for finished downloads.
+/// Watches the top level of a folder for finished downloads (or, with
+/// [`Watcher::deep`], its subfolders too, as a store app files them).
 pub struct Watcher {
     pub dir: PathBuf,
+    /// How many folders down files are looked for; 0 for the top only.
+    depth: usize,
     /// Files older than this were there before the inbox was switched on,
     /// and are left alone.
     since: SystemTime,
@@ -89,26 +92,53 @@ impl Watcher {
     pub fn new(dir: PathBuf, since: SystemTime) -> Self {
         Self {
             dir,
+            depth: 0,
             since,
             pending: HashMap::new(),
             done: HashSet::new(),
         }
     }
 
+    /// Also looks `depth` folders down, as in a store app's
+    /// `Artist/Album/` folders. Only folders changed since the watch began
+    /// are looked into for files.
+    pub fn deep(mut self, depth: usize) -> Self {
+        self.depth = depth;
+        self
+    }
+
+    /// The files to look at: the top level's, and those of changed
+    /// subfolders down to `depth`.
+    fn candidates(&self) -> Vec<(PathBuf, std::fs::Metadata)> {
+        let mut out = Vec::new();
+        let mut dirs = vec![(self.dir.clone(), 0, true)];
+        while let Some((dir, level, changed)) = dirs.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for e in entries.flatten() {
+                let Ok(meta) = e.metadata() else { continue };
+                let path = e.path();
+                if meta.is_dir() {
+                    let hidden = e.file_name().to_string_lossy().starts_with('.');
+                    if level < self.depth && !hidden {
+                        let sub_changed = meta.modified().is_ok_and(|m| m >= self.since);
+                        dirs.push((path, level + 1, sub_changed));
+                    }
+                } else if meta.is_file() && changed {
+                    out.push((path, meta));
+                }
+            }
+        }
+        out
+    }
+
     /// Files that have finished arriving since the last call.
     pub fn poll(&mut self, now: Instant) -> Vec<PathBuf> {
-        let Ok(entries) = std::fs::read_dir(&self.dir) else {
-            return Vec::new();
-        };
         let mut ready = Vec::new();
         let mut seen = HashSet::new();
-        for e in entries.flatten() {
-            let path = e.path();
+        for (path, meta) in self.candidates() {
             if self.done.contains(&path) || !wanted(&path) {
-                continue;
-            }
-            let Ok(meta) = e.metadata() else { continue };
-            if !meta.is_file() {
                 continue;
             }
             let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
@@ -306,6 +336,30 @@ mod tests {
         );
         // Only once.
         assert!(w.poll(t0 + SETTLE * 3).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn deep_watch_finds_new_files_in_album_folders() {
+        let dir = temp("deep");
+        let album = dir.join("Artist").join("Album");
+        std::fs::create_dir_all(&album).unwrap();
+        let since = SystemTime::now() - Duration::from_secs(60);
+        let f = album.join("01 Track.m4a");
+        std::fs::write(&f, b"abc").unwrap();
+        let mut top = Watcher::new(dir.clone(), since);
+        let mut deep = Watcher::new(dir.clone(), since).deep(2);
+        let t0 = Instant::now();
+        assert!(deep.poll(t0).is_empty());
+        let later = t0 + SETTLE + Duration::from_secs(1);
+        assert_eq!(deep.poll(later), vec![f]);
+        top.poll(t0);
+        assert!(top.poll(later).is_empty());
+        // Folders not changed since the watch began aren't looked into.
+        let mut after =
+            Watcher::new(dir.clone(), SystemTime::now() + Duration::from_secs(60)).deep(2);
+        after.poll(t0);
+        assert!(after.poll(later).is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

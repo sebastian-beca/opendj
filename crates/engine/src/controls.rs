@@ -100,6 +100,9 @@ pub(crate) struct DeckControls {
     pub(crate) stem_count: ControlHandle,
     pub(crate) stems: [StemControls; crate::stems::MAX_STEMS],
     pub(crate) play: ControlHandle,
+    /// Gapless playback: the deck (1 to 4) that starts on the very sample
+    /// this deck's track ends, or 0. Cleared once it has started.
+    pub(crate) play_next: ControlHandle,
     pub(crate) pfl: ControlHandle,
     /// Mixxx's crossfader assignment: 0 left, 1 thru (not faded), 2 right.
     /// Decks 1 and 3 start on the left, 2 and 4 on the right.
@@ -341,6 +344,7 @@ impl DeckControls {
                 }
             }),
             play: reg.toggle(g, "play"),
+            play_next: reg.create(g, "play_next", 0.0, 0.0, 4.0, Behavior::Free),
             pfl: reg.toggle(g, "pfl"),
             orientation: reg.create(
                 g,
