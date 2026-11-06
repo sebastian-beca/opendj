@@ -53,6 +53,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [enable-stores-and-purchase-inbox](changes/enable-stores-and-purchase-inbox/proposal.md)
 - [add-bandcamp-collection-sync](changes/add-bandcamp-collection-sync/proposal.md)
 - [add-find-and-buy](changes/add-find-and-buy/proposal.md)
+- [add-buy-from-wanted](changes/add-buy-from-wanted/proposal.md) (Buy… on Wanted tracks: every store checked, ranked by coverage, artist-direct and speed to the library, no affiliate links; Beatport cart if partner access is granted; purchases matched back into Inbox; issue #358, 2026-11-05)
 - [add-artist-direct-stores](changes/add-artist-direct-stores/proposal.md)
 - [add-prep-layout](changes/add-prep-layout/proposal.md) (a Prep layout on Deck 1 for getting In Prep tracks ready: grid tools, hot cues with suggestions from phrases, a checklist and quick review keys; issue #292, 2026-11-03; built behind a switch in v0.5, shown from v0.6 to leave time to test it, 2026-11-04)
 - [add-live-broadcast](changes/add-live-broadcast/proposal.md) (steps 3-5: Go live to Twitch, YouTube and Mixcloud Live over RTMP with a now-playing picture, WebRTC (WHIP), radio show tools)

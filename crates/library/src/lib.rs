@@ -344,7 +344,18 @@ pub struct Wanted {
     pub artist: String,
     pub title: String,
     pub page_url: String,
+    /// The recording's ISRC, when the service it came from knew it.
+    pub isrc: String,
+    /// Seconds; 0 when unknown.
+    pub duration: f64,
+    /// The store the DJ opened it on with Buy, while a file is awaited
+    /// (see [`PENDING_DAYS`]); empty when not.
+    pub pending_store: String,
 }
+
+/// How long a Wanted track opened with Buy waits for its file before it's
+/// no longer counted as being bought.
+pub const PENDING_DAYS: i64 = 7;
 
 /// Lowercase letters and digits only, for comparing names loosely.
 fn simplify(s: &str) -> String {
@@ -578,6 +589,21 @@ impl Library {
             .exists([])?;
         if !has_wanted_source {
             db.execute_batch("ALTER TABLE wanted ADD COLUMN source TEXT")?;
+        }
+        // What matches a wanted track to the file that arrives for it, and
+        // the store it's being bought on (Buy).
+        for (name, definition) in [
+            ("isrc", "isrc TEXT NOT NULL DEFAULT ''"),
+            ("duration", "duration REAL NOT NULL DEFAULT 0"),
+            ("pending_store", "pending_store TEXT"),
+            ("pending_since", "pending_since INTEGER"),
+        ] {
+            let has = db
+                .prepare("SELECT 1 FROM pragma_table_info('wanted') WHERE name = ?1")?
+                .exists([name])?;
+            if !has {
+                db.execute_batch(&format!("ALTER TABLE wanted ADD COLUMN {definition}"))?;
+            }
         }
         if version < 12 {
             // Imports put every streamed track of every list (history
@@ -1748,23 +1774,21 @@ impl Library {
             .db
             .query_row("SELECT id FROM tracks WHERE path = ?1", [&p], |r| r.get(0))?;
         self.db.execute(TAG_EXTRAS, tag_extras(row, track))?;
-        let (artist, title) = (simplify(&track.artist), simplify(&track.title));
-        let wanted: Vec<(i64, String, String, String)> = self
-            .db
-            .prepare("SELECT id, artist, title, page_url FROM wanted WHERE track_id IS NULL")?
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
-            .collect::<Result<_, _>>()?;
-        if let Some((id, _, _, url)) = wanted
-            .iter()
-            .find(|(_, a, t, _)| simplify(t) == title && (a.is_empty() || simplify(a) == artist))
-        {
+        if let Some(w) = self.wanted_for(
+            &track.artist,
+            &track.title,
+            track.duration,
+            &track.info.isrc,
+            false,
+        )? {
             self.db.execute(
-                "UPDATE wanted SET track_id = ?2 WHERE id = ?1",
-                params![id, row],
+                "UPDATE wanted SET track_id = ?2, pending_store = NULL, pending_since = NULL
+                 WHERE id = ?1",
+                params![w.id, row],
             )?;
             self.db.execute(
                 "UPDATE tracks SET store_url = ?2 WHERE id = ?1",
-                params![row, url],
+                params![row, w.page_url],
             )?;
         }
         Ok(Track {
@@ -1843,10 +1867,18 @@ impl Library {
     }
 
     /// Tracks the DJ went to buy that haven't arrived yet, newest first.
+    /// Ones opened with Buy more than [`PENDING_DAYS`] ago stop counting
+    /// as being bought.
     pub fn wanted(&self) -> Result<Vec<Wanted>, Error> {
+        self.db.execute(
+            "UPDATE wanted SET pending_store = NULL, pending_since = NULL
+             WHERE pending_since IS NOT NULL AND pending_since < ?1",
+            [now() - PENDING_DAYS * 86_400],
+        )?;
         let mut q = self.db.prepare(
-            "SELECT id, store, artist, title, page_url FROM wanted
-             WHERE track_id IS NULL ORDER BY added DESC, id DESC",
+            "SELECT id, store, artist, title, page_url, isrc, duration,
+                    COALESCE(pending_store, '')
+             FROM wanted WHERE track_id IS NULL ORDER BY added DESC, id DESC",
         )?;
         let rows = q.query_map([], |r| {
             Ok(Wanted {
@@ -1855,9 +1887,90 @@ impl Library {
                 artist: r.get(2)?,
                 title: r.get(3)?,
                 page_url: r.get(4)?,
+                isrc: r.get(5)?,
+                duration: r.get(6)?,
+                pending_store: r.get(7)?,
             })
         })?;
         rows.collect()
+    }
+
+    /// Keeps what the service said of a wanted track: its ISRC and length,
+    /// which match it to the file that comes. Known values aren't wiped.
+    pub fn set_wanted_details(
+        &self,
+        page_url: &str,
+        isrc: &str,
+        duration: f64,
+    ) -> Result<(), Error> {
+        self.db.execute(
+            "UPDATE wanted SET
+                isrc = CASE WHEN ?2 != '' THEN ?2 ELSE isrc END,
+                duration = CASE WHEN ?3 > 0 THEN ?3 ELSE duration END
+             WHERE page_url = ?1",
+            params![page_url, isrc, duration],
+        )?;
+        Ok(())
+    }
+
+    /// Marks wanted tracks as being bought on `store` (Buy opened them
+    /// there), from now.
+    pub fn mark_pending(&self, ids: &[i64], store: &str) -> Result<(), Error> {
+        let mut q = self.db.prepare(
+            "UPDATE wanted SET pending_store = ?2, pending_since = ?3
+             WHERE id = ?1 AND track_id IS NULL",
+        )?;
+        let at = now();
+        for id in ids {
+            q.execute(params![id, store, at])?;
+        }
+        Ok(())
+    }
+
+    /// The wanted track a file is: by ISRC, else by title, artist and
+    /// length (within 2 seconds when both are known), tracks being bought
+    /// first. With `pending_only`, only tracks being bought count.
+    pub fn wanted_for(
+        &self,
+        artist: &str,
+        title: &str,
+        duration: f64,
+        isrc: &str,
+        pending_only: bool,
+    ) -> Result<Option<Wanted>, Error> {
+        let mut all = self.wanted()?;
+        if pending_only {
+            all.retain(|w| !w.pending_store.is_empty());
+        }
+        // Being bought first, then the rest, newest first within each.
+        all.sort_by_key(|w| w.pending_store.is_empty());
+        let key = isrc_key(isrc);
+        if !key.is_empty() {
+            if let Some(w) = all.iter().find(|w| isrc_key(&w.isrc) == key) {
+                return Ok(Some(w.clone()));
+            }
+        }
+        // An untagged file's name, "Artist - Title" (or "01 Artist - Title"),
+        // stands in for its tags.
+        let mut names = vec![(simplify(artist), simplify(title))];
+        if artist.trim().is_empty() {
+            if let Some((a, t)) = title.split_once(" - ") {
+                let a = a.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ' ');
+                names.push((simplify(a), simplify(t)));
+            }
+        }
+        Ok(all.into_iter().find(|w| {
+            let same_length =
+                w.duration <= 0.0 || duration <= 0.0 || (w.duration - duration).abs() <= 2.0;
+            same_length
+                && names.iter().any(|(artist, title)| {
+                    !title.is_empty()
+                        && simplify(&w.title) == *title
+                        && (w.artist.is_empty()
+                            || simplify(&w.artist) == *artist
+                            || (!artist.is_empty() && simplify(&w.artist).contains(artist)))
+                })
+        }))
     }
 
     pub fn remove_wanted(&self, id: i64) -> Result<(), Error> {
@@ -3554,6 +3667,97 @@ mod tests {
         assert_eq!(left, ["Bought"]);
         drop(lib);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn purchases_match_by_isrc_and_tracks_being_bought_first() {
+        let mut lib = Library::in_memory().unwrap();
+        lib.add_wanted(
+            "Spotify",
+            "Satorio",
+            "Crystal Bowls",
+            "https://open.spotify.com/track/1",
+        )
+        .unwrap();
+        lib.set_wanted_details("https://open.spotify.com/track/1", "GB-ABC-25-00001", 412.0)
+            .unwrap();
+        lib.add_wanted(
+            "TIDAL",
+            "Satorio",
+            "Crystal Bowls",
+            "https://tidal.com/browse/track/2",
+        )
+        .unwrap();
+        let ids: Vec<i64> = lib.wanted().unwrap().iter().map(|w| w.id).collect();
+        // The TIDAL one is newest; mark the Spotify one as being bought.
+        let spotify = *ids.last().unwrap();
+        lib.mark_pending(&[spotify], "bandcamp").unwrap();
+        let w = lib.wanted().unwrap();
+        assert_eq!(
+            w.iter().find(|w| w.id == spotify).unwrap().pending_store,
+            "bandcamp"
+        );
+        assert_eq!(
+            w.iter().find(|w| w.id == spotify).unwrap().isrc,
+            "GB-ABC-25-00001"
+        );
+
+        // A file of another length doesn't match by name…
+        let found = lib
+            .wanted_for("Satorio", "Crystal Bowls", 300.0, "", true)
+            .unwrap();
+        assert!(found.is_none());
+        // …but its ISRC does, whatever its name says.
+        let found = lib
+            .wanted_for(
+                "Satorio",
+                "Crystal Bowls (Original Mix)",
+                300.0,
+                "GBABC2500001",
+                true,
+            )
+            .unwrap();
+        assert_eq!(found.map(|w| w.id), Some(spotify));
+        // An untagged file named "Artist - Title".
+        let found = lib
+            .wanted_for("", "01 Satorio - Crystal Bowls", 412.5, "", true)
+            .unwrap();
+        assert_eq!(found.map(|w| w.id), Some(spotify));
+        // By name, the track being bought comes first.
+        let found = lib
+            .wanted_for("SATORIO", "Crystal Bowls", 0.0, "", false)
+            .unwrap();
+        assert_eq!(found.map(|w| w.id), Some(spotify));
+
+        let mut t = file_track(
+            "/m/Purchased/Bandcamp/Satorio/Crystal Bowls.flac",
+            "Crystal Bowls",
+        );
+        t.artist = "Satorio".into();
+        t.duration = 411.0;
+        lib.add_purchase(&t, "Bandcamp").unwrap();
+        let left = lib.wanted().unwrap();
+        assert_eq!(left.len(), 1);
+        assert_ne!(left[0].id, spotify);
+        assert!(left[0].pending_store.is_empty());
+    }
+
+    #[test]
+    fn being_bought_runs_out() {
+        let lib = Library::in_memory().unwrap();
+        lib.add_wanted("Spotify", "A", "B", "https://open.spotify.com/track/1")
+            .unwrap();
+        let id = lib.wanted().unwrap()[0].id;
+        lib.mark_pending(&[id], "juno").unwrap();
+        lib.db
+            .execute(
+                "UPDATE wanted SET pending_since = ?1",
+                [now() - (PENDING_DAYS + 1) * 86_400],
+            )
+            .unwrap();
+        let w = lib.wanted().unwrap();
+        assert_eq!(w.len(), 1);
+        assert!(w[0].pending_store.is_empty());
     }
 
     #[test]

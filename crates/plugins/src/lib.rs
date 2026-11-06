@@ -23,10 +23,13 @@ pub use opendj_engine::import::{ImportedLibrary, ImportedList, ListGroup};
 
 pub mod archive;
 pub mod bandcamp;
+pub mod buy;
 pub mod inbox;
+pub mod itunes;
 pub mod jellyfin;
 pub mod links;
 pub mod mixxx;
+pub mod musicbrainz;
 pub mod plex;
 pub mod rekordbox;
 pub mod remote;
@@ -248,6 +251,9 @@ pub struct InboxFile {
     pub comment: String,
     /// The name of the zip it came out of, if any.
     pub archive: Option<String>,
+    /// Seconds; 0 when unknown.
+    pub duration: f64,
+    pub isrc: String,
 }
 
 impl InboxFile {
@@ -309,7 +315,8 @@ pub trait LibraryImport: Send {
 }
 
 /// The plugins that come with the app: Bandcamp, the Internet Archive, the
-/// DJ's own music servers (Plex, Navidrome, Jellyfin), then the stores we link to.
+/// DJ's own music servers (Plex, Navidrome, Jellyfin), the iTunes Store, then
+/// the stores we link to.
 pub fn builtin() -> Vec<Box<dyn Plugin>> {
     let mut out: Vec<Box<dyn Plugin>> = vec![
         Box::new(bandcamp::Bandcamp::new()),
@@ -317,6 +324,7 @@ pub fn builtin() -> Vec<Box<dyn Plugin>> {
         Box::new(plex::Plex::new()),
         Box::new(subsonic::Navidrome::new()),
         Box::new(jellyfin::Jellyfin::new()),
+        Box::new(itunes::Itunes::new()),
     ];
     out.extend(
         links::STORES
