@@ -41,6 +41,9 @@ pub trait Host {
 /// How long a track plays before it comes off the Automix list.
 pub const PLAYED_AFTER: f64 = 5.0;
 
+/// Automix's line while a hardware mixer does the mixing.
+const NEEDS_MIXER: &str = "Automix needs openDJ's mixer: set Mixer to openDJ in Settings › Audio.";
+
 /// Mix lengths offered, in the order the panel shows them.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Length {
@@ -229,6 +232,9 @@ pub struct AutoMix {
     decks: [DeckHandles; NUM_DECKS],
     crossfader: ControlHandle,
     enabled: ControlHandle,
+    /// `[Master] external_mixer`: a hardware mixer does the mixing, so
+    /// Automix, which needs openDJ's crossfader, stays off.
+    external: ControlHandle,
     fade_now: Press,
     skip_next: Press,
     phase: Phase,
@@ -304,6 +310,7 @@ impl AutoMix {
             decks: std::array::from_fn(|d| DeckHandles::new(reg, d)),
             crossfader: reg.get("[Master]", "crossfader").expect("crossfader"),
             enabled: reg.toggle("[AutoDJ]", "enabled"),
+            external: reg.toggle("[Master]", "external_mixer"),
             fade_now: Press::new(reg.push("[AutoDJ]", "fade_now")),
             skip_next: Press::new(reg.push("[AutoDJ]", "skip_next")),
             phase: Phase::Off,
@@ -373,6 +380,14 @@ impl AutoMix {
 
     /// Runs Automix for one UI frame, `dt` seconds after the last one.
     pub fn tick(&mut self, host: &mut dyn Host, tracks: &[Option<Arc<Track>>; NUM_DECKS], dt: f64) {
+        if self.external.get_bool() {
+            if self.enabled.get_bool() || !matches!(self.phase, Phase::Off) {
+                self.stop(NEEDS_MIXER);
+            }
+            self.note = NEEDS_MIXER.into();
+        } else if self.note == NEEDS_MIXER {
+            self.note.clear();
+        }
         let on = self.enabled.get_bool();
         match (&self.phase, on) {
             (Phase::Off, true) => self.start(host, tracks),
