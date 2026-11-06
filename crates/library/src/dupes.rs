@@ -394,7 +394,7 @@ impl Library {
         tx.execute(
             "DELETE FROM playlist_tracks
              WHERE track_id = ?1
-               AND playlist_id IN (SELECT id FROM playlists WHERE kind = 0)
+               AND playlist_id IN (SELECT id FROM playlists WHERE kind IN (0, 5))
                AND EXISTS (SELECT 1 FROM playlist_tracks p
                            WHERE p.playlist_id = playlist_tracks.playlist_id
                              AND p.track_id = ?1 AND p.position < playlist_tracks.position)",

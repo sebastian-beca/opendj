@@ -29,8 +29,23 @@ pub enum Event {
 }
 
 pub enum Request {
-    SetOn(bool),
+    /// On (taking files that arrive from the given time, in seconds since
+    /// 1970) or off.
+    SetOn(bool, u64),
     SetMode(Mode),
+    /// Watch the Music app's folder from the given time, or stop.
+    WatchMusicApp(Option<(PathBuf, u64)>),
+}
+
+/// How many folders down the Music app files its tracks: Artist/Album/.
+const MUSIC_APP_DEPTH: usize = 2;
+
+fn since(secs: u64) -> std::time::SystemTime {
+    UNIX_EPOCH + Duration::from_secs(secs)
+}
+
+fn music_app_watcher(dir: PathBuf, from: u64) -> Watcher {
+    Watcher::new(dir, since(from)).deep(MUSIC_APP_DEPTH)
 }
 
 pub struct Inbox {
@@ -55,10 +70,10 @@ impl Inbox {
                 .name("inbox".into())
                 .spawn(move || {
                     let worker = Worker {
-                        watcher: Watcher::new(
-                            dir,
-                            UNIX_EPOCH + Duration::from_secs(settings.since),
-                        ),
+                        watcher: Watcher::new(dir, since(settings.since)),
+                        music_app: settings
+                            .music_app
+                            .map(|(dir, from)| music_app_watcher(dir, from)),
                         on: settings.on,
                         mode: settings.mode,
                         library,
@@ -89,6 +104,9 @@ impl Inbox {
 
 struct Worker {
     watcher: Watcher,
+    /// The Music app's folder: only files that are Wanted tracks being
+    /// bought are taken from it, and left where they are.
+    music_app: Option<Watcher>,
     on: bool,
     mode: Mode,
     library: PathBuf,
@@ -103,19 +121,31 @@ impl Worker {
         self.status();
         loop {
             match rx.recv_timeout(POLL) {
-                Ok(Request::SetOn(on)) => {
+                Ok(Request::SetOn(on, from)) => {
+                    if on && !self.on {
+                        self.watcher = Watcher::new(self.watcher.dir.clone(), since(from));
+                    }
                     self.on = on;
                     self.status();
                 }
                 Ok(Request::SetMode(mode)) => self.mode = mode,
+                Ok(Request::WatchMusicApp(folder)) => {
+                    self.music_app = folder.map(|(dir, from)| music_app_watcher(dir, from));
+                }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 Err(_) => return,
             }
             if !self.on {
                 continue;
             }
-            let ready = self.watcher.poll(Instant::now());
-            if ready.is_empty() {
+            let now = Instant::now();
+            let ready = self.watcher.poll(now);
+            let from_app = self
+                .music_app
+                .as_mut()
+                .map(|w| w.poll(now))
+                .unwrap_or_default();
+            if ready.is_empty() && from_app.is_empty() {
                 continue;
             }
             let mut db = match Library::open(&self.library) {
@@ -131,6 +161,18 @@ impl Worker {
                 }
                 let outcome = match self.take(&mut db, &path) {
                     Ok(o) => o,
+                    Err(e) => format!("failed: {e}"),
+                };
+                let _ = db.log_inbox(&path, &outcome, None);
+            }
+            for path in from_app {
+                if db.inbox_seen(&path).unwrap_or(false) {
+                    continue;
+                }
+                let outcome = match self.take_bought(&mut db, &path) {
+                    Ok(Some(o)) => o,
+                    // Not a track being bought: the Music app's own music.
+                    Ok(None) => continue,
                     Err(e) => format!("failed: {e}"),
                 };
                 let _ = db.log_inbox(&path, &outcome, None);
@@ -209,18 +251,41 @@ impl Worker {
         Ok(outcomes.join("; "))
     }
 
+    /// A file in the Music app's folder: added where it is when it's a
+    /// Wanted track being bought, else left alone (None).
+    fn take_bought(&mut self, db: &mut Library, path: &Path) -> Result<Option<String>, String> {
+        let (_, track) = describe(path, None);
+        let pending = db
+            .wanted_for(
+                &track.artist,
+                &track.title,
+                track.duration,
+                &track.info.isrc,
+                true,
+            )
+            .map_err(|e| e.to_string())?;
+        if pending.is_none() {
+            return Ok(None);
+        }
+        self.take_file(db, path, None, Mode::Leave).map(Some)
+    }
+
     /// The store a file came from: the surest plugin, or the store of a
     /// track the DJ went to buy. `Some("")` when only the wanted list knows.
     fn recognised(&self, db: &Library, f: &InboxFile) -> Option<(String, bool)> {
         if let Some(m) = inbox::recognise(f, &self.plugins) {
             return Some((m.name.to_string(), m.downloads));
         }
-        let wanted = db.wanted().ok()?;
-        let w = wanted.iter().find(|w| {
-            simplify(&w.title) == simplify(&f.title)
-                && (w.artist.is_empty() || simplify(&w.artist) == simplify(&f.artist))
-        })?;
-        Some((w.store.clone(), false))
+        // A Wanted track: the store it's being bought on. One that went to
+        // the Wanted list from a streaming service and wasn't opened with
+        // Buy came from a store openDJ doesn't know.
+        let w = db
+            .wanted_for(&f.artist, &f.title, f.duration, &f.isrc, false)
+            .ok()??;
+        let store = opendj_plugins::buy::store_traits(&w.pending_store)
+            .or_else(|| opendj_plugins::buy::store_traits(&w.store.to_lowercase()))
+            .map_or("Other", |t| t.name);
+        Some((store.to_string(), false))
     }
 
     fn take_file(
@@ -230,7 +295,19 @@ impl Worker {
         archive: Option<String>,
         mode: Mode,
     ) -> Result<String, String> {
-        let (file, mut track) = describe(path, archive);
+        let (mut file, mut track) = describe(path, archive);
+        // An untagged file of a Wanted track takes its artist and title
+        // from the Wanted list, for its folder and the library.
+        if track.artist.trim().is_empty() {
+            if let Ok(Some(w)) =
+                db.wanted_for("", &track.title, track.duration, &track.info.isrc, false)
+            {
+                track.artist = w.artist.clone();
+                track.title = w.title.clone();
+                file.artist = w.artist;
+                file.title = w.title;
+            }
+        }
         if let Ok(Some(_)) = db.find_same(&track.artist, &track.title, track.duration) {
             if file.archive.is_some() {
                 let _ = std::fs::remove_file(path);
@@ -296,13 +373,8 @@ fn describe(path: &Path, archive: Option<String>) -> (InboxFile, Track) {
         album: t.album.clone(),
         comment: read_comment(path),
         archive,
+        duration: t.duration,
+        isrc: t.info.isrc.clone(),
     };
     (file, t)
-}
-
-fn simplify(s: &str) -> String {
-    s.chars()
-        .filter(|c| c.is_alphanumeric())
-        .flat_map(char::to_lowercase)
-        .collect()
 }

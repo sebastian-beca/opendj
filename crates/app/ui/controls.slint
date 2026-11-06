@@ -24,7 +24,7 @@ export global Controls {
     callback set-value(index: int, value: float);
     callback toggle(index: int);
     callback reset(index: int);
-    // True on the half-seconds a paused deck's PLAY and CUE outlines show:
+    // True on the half-seconds a paused deck's PLAY outline shows:
     // only with a track loaded, all decks in step. blink and tick are
     // passed in so callers redraw when either changes.
     pure function paused-blink(group: string, blink: bool, tick: int) -> bool {
@@ -260,8 +260,7 @@ export component ControlButton inherits Rectangle {
     // Or just outline it in the tint when lit, label tinted too (SYNC,
     // CUE): a thicker edge, no fill.
     in property <bool> outline-when-lit: false;
-    // Show that outline without lighting the label, e.g. CUE blinking in
-    // step with PLAY on a paused deck.
+    // Show that outline without lighting the label.
     in property <bool> outline: false;
     // Draw a headphone icon instead of the text, for headphone cue (PFL).
     in property <bool> headphones: false;
@@ -415,6 +414,10 @@ export component ControlFader inherits Rectangle {
     // outlined in Automix green (the green glow says who holds it), but can't be
     // dragged or scrolled.
     in property <bool> locked: false;
+    // The slot's dark line lit solid in `glow` (key lock on the tempo
+    // fader); unlike `locked` it still moves by hand.
+    in property <bool> glowing: false;
+    in property <color> glow: Theme.lilac;
     // A right-click, at that point along the fader.
     callback context-menu(length, length);
     property <int> index: Controls.resolve(group, key);
@@ -451,9 +454,9 @@ export component ControlFader inherits Rectangle {
         width: vertical ? 4px : travel;
         height: vertical ? travel : 4px;
         border-radius: 2px;
-        background: #050506;
+        background: glowing && !locked ? glow : #050506;
         border-width: 1px;
-        border-color: locked ? Theme.automix.with-alpha(0.6) : #2a2a2d;
+        border-color: locked ? Theme.automix.with-alpha(0.6) : glowing ? glow : #2a2a2d;
     }
     // Locked: the slot lights green from the centre (or the bottom) to the
     // handle.
@@ -787,61 +790,6 @@ export component PitchReset inherits Rectangle {
             HoverTip.body = "Slowly bring the pitch back to 0%. Click again to stop.\nDouble-click to bring it back immediately";
             HoverTip.right-aligned = points-left;
             HoverTip.x = root.absolute-position.x + (points-left ? root.width : 0px);
-            HoverTip.y = root.absolute-position.y + root.height + 6px;
-            HoverTip.shown = true;
-        }
-    }
-}
-
-// Key lock, a padlock over the pitch reset triangle: tempo changes keep the
-// key. Lit lilac and shut when on, open when off.
-export component KeyLock inherits Rectangle {
-    in property <string> group;
-    in property <bool> right-aligned: false;
-    property <int> index: Controls.resolve(group, "keylock");
-    property <bool> lit: Controls.value(index, Controls.tick) > 0;
-    property <bool> tip-mine;
-    property <color> ink: lit ? Theme.accent : touch.has-hover ? Theme.text : Theme.text-dim;
-    width: 12px;
-    height: 13px;
-    Path {
-        width: 10px;
-        height: 12px;
-        viewbox-width: 10;
-        viewbox-height: 12;
-        fill: transparent;
-        stroke: ink;
-        stroke-width: 1.4px;
-        commands: lit ? "M 2.6 5.5 L 2.6 3.6 A 2.4 2.4 0 0 1 7.4 3.6 L 7.4 5.5"
-            : "M 2.6 5.5 L 2.6 2.6 A 2.4 2.4 0 0 1 7.4 2.6 L 7.4 3.6";
-    }
-    Path {
-        width: 10px;
-        height: 12px;
-        viewbox-width: 10;
-        viewbox-height: 12;
-        fill: ink;
-        commands: "M 1 5.5 L 9 5.5 L 9 11.5 L 1 11.5 Z";
-    }
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { Controls.toggle(index); }
-        changed has-hover => {
-            if !self.has-hover && tip-mine {
-                tip-mine = false;
-                HoverTip.shown = false;
-            }
-        }
-    }
-    Timer {
-        interval: 600ms;
-        running: touch.has-hover && !tip-mine;
-        triggered => {
-            tip-mine = true;
-            HoverTip.title = "KEY LOCK";
-            HoverTip.body = "Keep the key when the tempo changes.";
-            HoverTip.right-aligned = right-aligned;
-            HoverTip.x = root.absolute-position.x + (right-aligned ? root.width : 0px);
             HoverTip.y = root.absolute-position.y + root.height + 6px;
             HoverTip.shown = true;
         }

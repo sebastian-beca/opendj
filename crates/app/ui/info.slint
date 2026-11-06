@@ -2,6 +2,7 @@
 // deck), its tags and the library's own fields, editable in place, with a
 // preview player for the headphones and a cover art search.
 import { Theme, EdgeLine, CloseIcon } from "theme.slint";
+import { HoverTip } from "controls.slint";
 
 // A tag in a tag field, and how many of the tracks shown have it.
 export struct TagChip {
@@ -119,6 +120,16 @@ export global TrackInfo {
     in property <[CoverChoice]> covers;
     in property <bool> cover-searching;
     callback find-covers();
+    // The cover picked in the dialog (an index into covers), -1 none.
+    in-out property <int> cover-picked: -1;
+    // Why a picked file can't be a cover; empty when it can.
+    in property <string> cover-note;
+    // Asks for a picture file, which joins the covers first, picked.
+    callback load-cover-file();
+    // Look up online: the track shown, its finds waiting for Apply; or
+    // the tracks shown, in the review table.
+    callback look-up();
+    in property <bool> looking-up;
     // Saves cover `index` into the track's tags.
     callback save-cover(index: int);
 }
@@ -430,6 +441,14 @@ component InfoCell inherits Rectangle {
             enabled: editable;
             commit(text) => { TrackInfo.edit(field.id, text); }
         }
+        // One track: a value a look-up found goes back to the track's own.
+        if field.kind == 0 && TrackInfo.many == 0 && field.edited: Rectangle {
+            width: 22px;
+            border-radius: 4px;
+            background: kta.has-hover ? #ffffff14 : transparent;
+            Text { text: "×"; color: kta.has-hover ? Theme.text : Theme.text-dim; font-size: 13px; }
+            kta := TouchArea { clicked => { TrackInfo.keep(field.id); } }
+        }
         // With several tracks: the values they have, to pick one for all,
         // keep each track's own or clear it in all.
         if field.kind == 0 && TrackInfo.many > 0: Rectangle {
@@ -502,6 +521,59 @@ component InfoCell inherits Rectangle {
             rating: field.value.to-float();
             enabled: editable;
             rate(n) => { TrackInfo.edit(field.id, n); }
+        }
+    }
+}
+
+// The header's Look up online: a magnifier, lilac on hover and while
+// looking, with a tooltip.
+component LookUpButton inherits Rectangle {
+    in property <bool> busy;
+    callback clicked();
+    property <bool> tip-mine;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    background: ta.has-hover && !busy ? Theme.accent.with-alpha(0.14) : transparent;
+    Path {
+        width: 15px;
+        height: 15px;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        stroke: busy || ta.has-hover ? Theme.accent : Theme.text-dim;
+        stroke-width: 1.5px;
+        stroke-line-cap: round;
+        fill: transparent;
+        commands: "M 7 2.5 A 4.5 4.5 0 1 1 6.99 2.5 Z M 10.3 10.3 L 14 14";
+    }
+    ta := TouchArea {
+        enabled: !root.busy;
+        mouse-cursor: pointer;
+        clicked => {
+            if root.tip-mine {
+                root.tip-mine = false;
+                HoverTip.shown = false;
+            }
+            root.clicked();
+        }
+        changed has-hover => {
+            if !self.has-hover && root.tip-mine {
+                root.tip-mine = false;
+                HoverTip.shown = false;
+            }
+        }
+    }
+    Timer {
+        interval: 600ms;
+        running: ta.has-hover && !root.tip-mine;
+        triggered => {
+            root.tip-mine = true;
+            HoverTip.title = "Look up online";
+            HoverTip.body = "Fills artist, album, year and genre.\nNothing changes until Apply.";
+            HoverTip.right-aligned = true;
+            HoverTip.x = root.absolute-position.x + root.width;
+            HoverTip.y = root.absolute-position.y + root.height + 6px;
+            HoverTip.shown = true;
         }
     }
 }
@@ -617,7 +689,7 @@ component PreviewBar inherits HorizontalLayout {
 
 // Covers found for the track, to pick one and save it to the tags.
 component CoverDialog inherits Rectangle {
-    property <int> picked: -1;
+    property <int> picked: TrackInfo.cover-picked;
     background: Theme.panel-raised;
     border-radius: 8px;
     border-width: 1px;
@@ -671,7 +743,7 @@ component CoverDialog inherits Rectangle {
                         Text { text: c.size; color: Theme.text-dim; font-size: 11px; horizontal-alignment: center; }
                     }
                     pick := TouchArea {
-                        clicked => { picked = i; }
+                        clicked => { TrackInfo.cover-picked = i; }
                         double-clicked => {
                             TrackInfo.save-cover(i);
                         }
@@ -679,7 +751,7 @@ component CoverDialog inherits Rectangle {
                 }
                 if TrackInfo.covers.length == 0: Text {
                     width: 400px;
-                    text: TrackInfo.cover-searching ? "Looking for covers…" : "No covers found. Check the artist and album, then search again.";
+                    text: TrackInfo.cover-searching ? "Looking for covers…" : "No covers found. Check the artist and album, then search again, or load a picture from a file.";
                     color: Theme.text-dim;
                     font-size: 13px;
                     vertical-alignment: center;
@@ -691,7 +763,7 @@ component CoverDialog inherits Rectangle {
             spacing: 8px;
             Text {
                 horizontal-stretch: 1;
-                text: TrackInfo.cover-searching && TrackInfo.covers.length > 0 ? "Still looking…" : "";
+                text: TrackInfo.cover-note != "" ? TrackInfo.cover-note : TrackInfo.cover-searching && TrackInfo.covers.length > 0 ? "Still looking…" : "";
                 color: Theme.text-dim;
                 font-size: 12px;
                 vertical-alignment: center;
@@ -700,9 +772,12 @@ component CoverDialog inherits Rectangle {
                 text: "Search again";
                 enabled: !TrackInfo.cover-searching;
                 clicked => {
-                    picked = -1;
                     TrackInfo.find-covers();
                 }
+            }
+            TextButton {
+                text: "Load File…";
+                clicked => { TrackInfo.load-cover-file(); }
             }
             TextButton {
                 text: "Save to Tag";
@@ -781,6 +856,13 @@ export component InfoPanel inherits Rectangle {
                 }
             }
             Rectangle { horizontal-stretch: 1; }
+            if TrackInfo.has-track && TrackInfo.editable: VerticalLayout {
+                alignment: center;
+                LookUpButton {
+                    busy: TrackInfo.looking-up;
+                    clicked => { TrackInfo.look-up(); }
+                }
+            }
         }
         if TrackInfo.has-track: HorizontalLayout {
             spacing: 12px;
@@ -884,14 +966,16 @@ export component InfoPanel inherits Rectangle {
                 background: #ffffff40;
             }
         }
-        // Several tracks: what waits, and Apply or Discard.
-        if TrackInfo.has-track && TrackInfo.many > 0: HorizontalLayout {
+        // Several tracks, or what a look-up found: what waits, and Apply
+        // or Discard.
+        if TrackInfo.has-track && (TrackInfo.many > 0 || TrackInfo.pending > 0): HorizontalLayout {
             height: 30px;
             spacing: 8px;
             Text {
                 horizontal-stretch: 1;
                 text: TrackInfo.pending == 0 ? "Type in a field to change all " + TrackInfo.many
-                    : (TrackInfo.pending == 1 ? "1 change" : TrackInfo.pending + " changes") + " · " + TrackInfo.many + " tracks";
+                    : (TrackInfo.pending == 1 ? "1 change" : TrackInfo.pending + " changes")
+                        + (TrackInfo.many > 0 ? " · " + TrackInfo.many + " tracks" : " found online");
                 color: Theme.text-dim;
                 font-size: 12px;
                 vertical-alignment: center;

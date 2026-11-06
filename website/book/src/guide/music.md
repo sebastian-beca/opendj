@@ -84,8 +84,8 @@ openDJ keeps your playlists and the tracks of those you opened, so after a
 restart they show straight away. A playlist you open is checked again in
 the background and updated if it changed (Spotify, TIDAL, SoundCloud and
 Apple Music say when a playlist changed, so unchanged ones aren't fetched
-again at all). The refresh button at the top right of the track list
-fetches the list of playlists again. Signing out forgets what was kept.
+again at all). The refresh button at the top right of the side panel,
+beside the service's name, fetches the list of playlists again. Signing out forgets what was kept.
 
 ### Your own music server
 
@@ -364,6 +364,35 @@ box narrows it. A track leaves the list once your collection has it; to
 take tracks off by hand, pick them (⌘A picks all) and right-click for
 **Remove from Wanted**.
 
+### Buying Wanted tracks
+
+Pick tracks on the Wanted list, right-click and choose **Buy…** (or **Buy
+N Tracks…**). openDJ looks for each track in the stores it knows: the
+artist's own site and Bandcamp, Mirlo, the iTunes Store, Qobuz, Bleep,
+Boomkat, Beatport, Juno Download, Traxsource and Amazon Music. It finds
+tracks by their ISRC on MusicBrainz, by Bandcamp's and the iTunes Store's
+search, and opens a search on the stores it can't ask.
+
+For each track it chooses a store that has it, preferring the artist's
+own site, Bandcamp and Mirlo, where most of the money goes to the artist,
+then the store whose files reach your library fastest, then lossless
+files. A store that doesn't have the track only shows up as **Try**, to
+search there. Click a track's store to choose another one it's sold on.
+
+The tracks are grouped by store. **Open** opens a store's pages, ten at a
+time: add each one to the store's cart and check out once on that store.
+openDJ never sees your payment, and its links carry no referral codes.
+Tracks you opened show **Buying on …** for a week.
+
+Turn on **Bring purchases into Inbox** and what you download into
+Downloads afterwards is filed into your music folder, goes to the
+**Inbox** stage and comes off the Wanted list, matched by ISRC or by
+artist, title and length. Zips are unpacked. It takes only files that
+arrive after you turn it on. On a Mac, **Also take purchases from the
+Music app** does the same for iTunes Store purchases the Music app
+downloads, taking only tracks you are buying and leaving them where the
+Music app keeps them.
+
 ## Bringing in a rekordbox library
 
 **Import from rekordbox** works the same way. openDJ reads rekordbox 6 and
@@ -424,17 +453,37 @@ it added and leaves the track as it was.
 
 ## The tree
 
-The collection's tree has three parts:
+The collection's tree has these parts:
 
 - **Collection**, with how many tracks you have. Select it for all of
   them; open it for **Wanted** (tracks you went to buy or added with **Add to
   Wanted**) and the stages.
-- **Crates**: lists you keep, such as Yoga, Journeys, Dance or a style.
-  The **+** beside the heading adds one.
-- **Playlists**: folders of lists, for gigs or anything else. The **+**
-  beside the heading adds a folder; right-click a folder for **New
-  Playlist** or **New Folder**, so folders can hold folders. Lists brought
-  in from other apps and your smart lists are here too.
+- **Crates**: lists for sorting your music, such as Yoga, Journeys, Dance
+  or a style. A crate has no order of its own (it sorts like the
+  Collection) and holds each track once. The **+** beside the heading adds
+  a crate or a **Crate Folder**; crates have a box icon, or the one you
+  pick.
+- **Playlists**: running orders, for gigs or anything else. A playlist
+  keeps the order you add tracks in, and a track can be in it twice. Its
+  icon is always lines with a note. The **+** beside the heading adds a
+  playlist, a smart playlist or a folder. Your smart lists are here too.
+
+Right-click any folder for **New Crate**, **New Playlist** or **New
+Folder**, so folders can hold folders and a folder can hold both. Right-click
+a list for **Make It a Crate** or **Make It a Playlist** (a playlist that
+becomes a crate keeps each track once).
+
+Drag a crate, playlist or folder onto a folder to move it there, or onto
+the **Crates** or **Playlists** heading to take it back to the top (a
+crate's top is Crates, a playlist's is Playlists; a folder can go under
+either).
+- **Imported**: other apps' lists (a folder per app, with a padlock) and
+  **Groupings and Tags**. They are read-only, because the app's next
+  import makes them again. To keep an app's lists as your own (say, once
+  you stop using that app), right-click its folder and pick **Make These
+  Lists Mine**: they move to Playlists and can be changed, and that
+  import keeps bringing in tracks, cues and grids but no more lists.
+  Turning the import off and on again brings its lists back.
 
 Everything starts closed, and the tree remembers which folders you left
 open. Drag tracks onto a crate or playlist to add them, or onto a stage to
@@ -490,6 +539,30 @@ file's name and finds each track in your collection: by its path, by its
 path from the file's folder, then by its file name. Files on disk that
 aren't in your collection yet join it. The list's header names any tracks
 it couldn't find.
+
+### Taking your library to another app
+
+**File › Export › rekordbox XML…** (or right-click **Collection** and pick
+**Export as rekordbox XML…**) saves your whole collection as one
+`rekordbox.xml` file: every track with its tags, rating, color, comment,
+date added and play count, its beat grid (one marker per tempo change, so
+a grid that changes tempo comes across), hot cues with their numbers and
+colors, memory cues and saved loops, and every crate, playlist and folder
+in its tree. Right-click a single list or folder to save just that one.
+
+To open it in rekordbox, pick the file under **Preferences › Advanced ›
+Database › rekordbox xml**, turn on **rekordbox xml** under **Preferences ›
+View › Layout**, and it shows as a node in rekordbox's tree. Library
+tools such as Lexicon and Rekord Buddy read it too and convert it to
+Serato, Traktor, Engine DJ and VirtualDJ. A few things don't fit the
+format:
+
+- Your tags go into the comment as `/* Tag / Tag */`, the way rekordbox
+  writes its own My Tags there.
+- rekordbox has eight hot cues (A to H) and eight track colors: pads 9
+  and up come across as memory cues, and a track's color as the nearest
+  of the eight.
+- Phrases, stems, stages and online tracks with no file are left out.
 
 ## Collection Health
 
@@ -611,3 +684,22 @@ each fill a group (each word a tag, the `#` dropped), and each rekordbox My
 Tag category becomes a group of the same name. A group you already have
 with that name takes them. Rename a group made this way and later imports
 still go into it.
+
+## Backups
+
+openDJ backs up your collection (cues, tags, crates, playlists and
+history) and your settings once a day, under **Backups** in
+**Settings › Collection › General**. **Back up** sets how often: **Off**,
+**Daily** (the default) or **Weekly**. The newest 10 backups are kept.
+Each is one `.opendjbackup` file, which also holds your own controller
+mappings. Sign-ins to streaming services stay out of it.
+
+**Backup folder** is a `Backups` folder next to openDJ's settings until
+you pick another; a cloud folder (iCloud Drive, Dropbox) keeps your
+backups off the computer. **Back Up Now** makes one straight away.
+
+**Restore…** picks a backup. It goes in when openDJ next starts, so quit
+and open it again. How things were before is saved first, as a
+"Before restore" backup in the backup folder, and you stay signed in to
+your services. **Cancel** drops a restore that hasn't happened yet.
+Music and sample files are not part of a backup.

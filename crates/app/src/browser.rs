@@ -20,7 +20,7 @@ use opendj_engine::{deck_group, AudioEngine, Hotcue, Track, NUM_DECKS, NUM_HOTCU
 use opendj_library::dupes::{Case, Group};
 use opendj_library::health::{Area, Check, Facts};
 use opendj_library::query::{self, Context, Indexed, Query};
-use opendj_library::sets::is_crate;
+use opendj_library::sets::{is_crate, is_imported, CRATE_FOLDER};
 use opendj_library::stages::{Folders, Stage};
 use opendj_library::{Library, PlaylistKind};
 use slint::{ComponentHandle, DataTransfer, Model, ModelRc, SharedString, VecModel};
@@ -31,17 +31,20 @@ use opendj_plugins::{ItemKind, StoreItem, StoreQuery};
 
 mod albums;
 mod analysis;
+mod buy;
 mod checklist;
 mod cleanup;
 pub(crate) mod columns;
 mod cues;
 mod filters;
 mod health;
+mod history;
 mod info;
 mod mix_export;
 mod picks;
 mod playlist_files;
 mod prep;
+mod rekordbox_xml;
 mod sets;
 mod spotify_export;
 mod staging;
@@ -111,6 +114,9 @@ enum Contents {
     Stream(String),
     /// One of the DJ's lists (or a history session) in the library database.
     Playlist(i64),
+    /// A day of history: its sessions' tracks one after another, the
+    /// sessions oldest first.
+    HistoryDay(Vec<i64>),
     /// Search results from every store but Bandcamp.
     OtherStores,
     /// Search results from one store, by its index in `Stores`, or all.
@@ -166,7 +172,7 @@ pub const SOURCE_NAMES: [&str; 13] = [
     "OneLibrary",
     "SoundCloud",
     "Albums",
-    "Mixed Sets",
+    "Recordings",
     "Mixcloud",
     "Instruments",
 ];
@@ -283,6 +289,19 @@ struct Node {
     /// index into `LIST_ICONS` (0 the crate's own).
     color: Option<usize>,
     icon: usize,
+    /// What the list's header calls it, when not its name (a history day
+    /// or set in full).
+    title: Option<String>,
+    /// How many tracks it holds, shown after its name.
+    count: Option<usize>,
+    /// Shown dimmed: a history set of a single song.
+    dim: bool,
+    /// Brought in by another app's import, or inside such a folder: shown
+    /// under Imported and read-only, since the next import replaces it.
+    locked: bool,
+    /// The top folder of an import, with the importer's id: its menu
+    /// offers to make its lists the DJ's own.
+    import_root: Option<String>,
 }
 
 impl Node {
@@ -299,6 +318,11 @@ impl Node {
             separator: false,
             color: None,
             icon: 0,
+            title: None,
+            count: None,
+            dim: false,
+            locked: false,
+            import_root: None,
         }
     }
 
@@ -401,6 +425,23 @@ fn file_path(t: &Track) -> Option<&Path> {
 }
 
 /// A tree node for one of the DJ's smart lists.
+/// A crate's row, in its color and with its icon.
+fn crate_node(p: &opendj_library::Playlist, depth: i32) -> Node {
+    let mut n = Node::new(p.name.clone(), depth, KIND_CRATE, Contents::Playlist(p.id));
+    n.playlist = Some(p.id);
+    n.color = p.color.and_then(|rgb| {
+        opendj_library::query::COLOR_NAMES
+            .iter()
+            .position(|&(_, c)| c == rgb)
+    });
+    n.icon = p
+        .icon
+        .as_deref()
+        .and_then(|name| opendj_library::LIST_ICONS.iter().position(|&i| i == name))
+        .unwrap_or(0);
+    n
+}
+
 fn smart_node(p: &opendj_library::Playlist, depth: i32) -> Node {
     let mut n = Node::new(
         p.name.clone(),
@@ -418,6 +459,8 @@ const KIND_LIST: i32 = 2;
 const KIND_SMART: i32 = 3;
 const KIND_WANTED: i32 = 4;
 const KIND_HISTORY: i32 = 5;
+/// A day on the history tab, its sets under it.
+const KIND_HISTORY_DAY: i32 = 19;
 /// Bandcamp in the stores list, shown with its logo.
 const KIND_BANDCAMP: i32 = 6;
 /// A drive, and a folder pinned to the top, in Files.
@@ -519,6 +562,8 @@ pub struct Browser {
     streams: Vec<Stream>,
     store: StoreState,
     inbox: Inbox,
+    /// The Buy sheet, while open.
+    buy: Option<buy::BuyState>,
     /// Tracks arrived from the inbox while another source was shown, so
     /// the collection's tree (its Inbox list) needs reading again.
     collection_stale: bool,
@@ -586,6 +631,9 @@ pub struct Browser {
     export_status: Option<(i64, String)>,
     /// This run's history session, made when the first track is played.
     session: Option<i64>,
+    /// When the last track counted as played (Unix seconds): an hour
+    /// later, or on a new day, the next play starts a new set.
+    last_play: Option<i64>,
     /// Lists tracks can be added to, as offered in the track menu.
     menu_lists: Vec<track_menu::MenuList>,
     /// The crates each track is in, by track id.
@@ -630,6 +678,7 @@ pub struct Browser {
     /// Export to USB's dialog and export.
     usb: usb::State,
     playlist_files: playlist_files::State,
+    rekordbox_xml: rekordbox_xml::State,
     phrases_seen: analysis::SeenDecks,
     /// The last stage change or merge of copies, which the track menu can
     /// take back.
@@ -899,6 +948,17 @@ const ROW_PAYLOAD: &str = "opendj-row:";
 const SIDE_PAYLOAD: &str = "opendj-side:";
 /// The track on a deck, picked up by its cover: `opendj-deck:<deck>`.
 const DECK_PAYLOAD: &str = "opendj-deck:";
+/// One of the DJ's lists or folders dragged in the tree: `opendj-list:<id>`.
+const LIST_PAYLOAD: &str = "opendj-list:";
+
+/// The list or folder a tree drag carries.
+fn dragged_list(data: &DataTransfer) -> Option<i64> {
+    data.plain_text()
+        .ok()?
+        .strip_prefix(LIST_PAYLOAD)?
+        .parse()
+        .ok()
+}
 
 /// Where a drag from inside the app comes from.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -1163,6 +1223,7 @@ impl Browser {
                 opendj_engine::scan::default_music_dir(),
                 stores::configured(),
             ),
+            buy: None,
             collection_stale: false,
             tree: COLLECTION,
             parked: HashMap::new(),
@@ -1204,6 +1265,7 @@ impl Browser {
             view_sort: (1, true),
             export_status: None,
             session: None,
+            last_play: None,
             menu_lists: Vec::new(),
             crates: HashMap::new(),
             list_health: Default::default(),
@@ -1239,6 +1301,7 @@ impl Browser {
             analysis_shown: Default::default(),
             usb: Default::default(),
             playlist_files: Default::default(),
+            rekordbox_xml: Default::default(),
             phrases_seen: Default::default(),
             undo: None,
             pending_moves: HashMap::new(),
@@ -1496,15 +1559,7 @@ impl Browser {
         let w = with.clone();
         ui.on_find(move |row| w(Box::new(move |b| b.find_in_stores(row as usize))));
         let w = with.clone();
-        ui.on_set_inbox(move |on| {
-            w(Box::new(move |b| {
-                crate::settings::set_inbox_on(on);
-                b.inbox.send(crate::inbox::Request::SetOn(on));
-                if let Some(app) = b.app.upgrade() {
-                    app.global::<StoreUi>().set_inbox_on(on);
-                }
-            }))
-        });
+        ui.on_set_inbox(move |on| w(Box::new(move |b| b.set_inbox_on(on))));
         let w = with.clone();
         ui.on_set_inbox_mode(move |m| {
             w(Box::new(move |b| {
@@ -1584,6 +1639,7 @@ impl Browser {
         Self::install_info(app, &b);
         Self::install_picks(app, &b);
         Self::install_wanted(app, &b);
+        Self::install_buy(app, &b);
         Self::install_filters(app, &b);
         Self::install_columns(app, &b);
         b
@@ -1703,6 +1759,10 @@ impl Browser {
         let w = with.clone();
         edit.on_rename(move |i, name| w(&|b| b.rename_node(i as usize, &name)));
         let w = with.clone();
+        edit.on_adopt_import(move |i| w(&|b| b.adopt_import_at(i.max(0) as usize)));
+        let w = with.clone();
+        edit.on_set_crate(move |i, krate| w(&|b| b.set_crate_at(i.max(0) as usize, krate)));
+        let w = with.clone();
         edit.on_delete(move |i| w(&|b| b.delete_node(i as usize)));
         let w = with.clone();
         edit.on_set_list_color(move |i, c| {
@@ -1726,7 +1786,7 @@ impl Browser {
                 let Some(n) = b.nodes.get(b.current_node) else {
                     return;
                 };
-                if !(n.kind == KIND_LIST || n.kind == KIND_CRATE) {
+                if !(n.kind == KIND_LIST || n.kind == KIND_CRATE) || n.locked {
                     return;
                 }
                 if let Some(list) = n.playlist {
@@ -1736,12 +1796,40 @@ impl Browser {
             })
         });
         edit.on_accepts_drop(|_, data| dragged(&data).is_some());
+        // Asked while dragging, so it never waits on a busy browser.
+        let weak = Rc::downgrade(b);
+        let w = weak.clone();
+        edit.on_list_payload(move |row| {
+            let id = w
+                .upgrade()
+                .and_then(|b| {
+                    b.try_borrow()
+                        .ok()
+                        .and_then(|b| b.own_list_at(row.max(0) as usize))
+                })
+                .unwrap_or(-1);
+            DataTransfer::from(SharedString::from(format!("{LIST_PAYLOAD}{id}")))
+        });
+        edit.on_accepts_list_move(move |i, data| {
+            let Some(list) = dragged_list(&data) else {
+                return false;
+            };
+            weak.upgrade()
+                .and_then(|b| {
+                    b.try_borrow()
+                        .ok()
+                        .map(|b| b.list_move(list, i as usize).is_some())
+                })
+                .unwrap_or(false)
+        });
         let w = with.clone();
         edit.on_drop(move |i, data| {
             w(&|b| {
-                if dragged(&data).is_some() {
+                if let Some(list) = dragged_list(&data) {
+                    b.move_list(list, i as usize);
+                } else if dragged(&data).is_some() {
                     let ids = b.dropped_tracks(&data);
-                    if let Some(list) = b.playlist_at(i as usize) {
+                    if let Some(list) = b.own_list_at(i as usize) {
                         b.add_to_playlist(&ids, list);
                     } else if let Some((stage, dir)) = b.stage_at(i as usize) {
                         b.change_stage(&ids, stage, dir.as_deref());
@@ -1818,6 +1906,7 @@ impl Browser {
         Self::install_usb_export(app, &edit, &with);
         Self::install_spotify_export(&edit, &with);
         Self::install_playlist_files(&edit, &with);
+        Self::install_rekordbox_xml(&edit, &with);
     }
 
     /// Saves a search as a smart list at the top level (under "Smart
@@ -2118,6 +2207,7 @@ impl Browser {
                 }
             }
         }
+        self.poll_buy();
         for event in self.inbox.poll() {
             match event {
                 crate::inbox::Event::Status(s) => {
@@ -2319,8 +2409,11 @@ impl Browser {
                     StoreRow::Wanted(w) => (
                         w.title.clone(),
                         w.artist.clone(),
-                        w.store.clone(),
-                        0.0,
+                        match opendj_plugins::buy::store_traits(&w.pending_store) {
+                            Some(t) => format!("Buying on {}…", t.name),
+                            None => w.store.clone(),
+                        },
+                        w.duration,
                         "Buy",
                     ),
                 };
@@ -3188,7 +3281,7 @@ impl Browser {
         let mut nodes = self.collection_nodes();
         if self.saved() {
             let open: HashSet<String> = crate::settings::open_folders().into_iter().collect();
-            for n in &mut nodes {
+            for n in nodes.iter_mut().filter(|n| !n.history) {
                 n.expanded = open.contains(&Self::node_key(n));
             }
         }
@@ -3244,40 +3337,47 @@ impl Browser {
         let mut crates = Node::new("Crates", 0, KIND_SECTION, Contents::Folder);
         crates.separator = true;
         sections.push(crates);
-        for p in playlists
-            .iter()
-            .filter(|p| is_crate(p) && Some(p.id) != inbox)
-        {
-            let mut n = Node::new(p.name.clone(), 1, KIND_CRATE, Contents::Playlist(p.id));
-            n.playlist = Some(p.id);
-            n.color = p.color.and_then(|rgb| {
-                opendj_library::query::COLOR_NAMES
-                    .iter()
-                    .position(|&(_, c)| c == rgb)
-            });
-            n.icon = p
-                .icon
-                .as_deref()
-                .and_then(|name| opendj_library::LIST_ICONS.iter().position(|&i| i == name))
-                .unwrap_or(0);
-            sections.push(n);
-        }
-        sections.push(Node::new("Playlists", 0, KIND_SECTION, Contents::Folder));
         let mut depth: HashMap<i64, i32> = HashMap::new();
+        let mut locked: HashSet<i64> = HashSet::new();
+        let mut in_crates: HashSet<i64> = HashSet::new();
         let mut sessions = Vec::new();
         let mut smart = Vec::new();
+        // The DJ's crates and crate folders, their playlists and folders,
+        // and other apps' lists (with the DJ's own made inside them before
+        // they were read-only), each under its heading.
+        let mut crate_rows = Vec::new();
+        let mut playlist_rows = Vec::new();
+        let mut imported = Vec::new();
         for p in &playlists {
             let d = p.parent.and_then(|id| depth.get(&id)).map_or(1, |d| d + 1);
             depth.insert(p.id, d);
-            if is_crate(p) || Some(p.id) == inbox {
+            if Some(p.id) == inbox {
                 continue;
             }
-            match p.kind {
+            let lock = is_imported(p) || p.parent.is_some_and(|id| locked.contains(&id));
+            if lock {
+                locked.insert(p.id);
+            }
+            let crate_side = match p.parent {
+                None => is_crate(p) || p.source.as_deref() == Some(CRATE_FOLDER),
+                Some(id) => in_crates.contains(&id),
+            };
+            if crate_side && !lock {
+                in_crates.insert(p.id);
+            }
+            let node = match p.kind {
                 // Smart lists at the top level go under "Smart Lists".
-                PlaylistKind::Smart if p.parent.is_none() => smart.push(p),
-                PlaylistKind::Smart => sections.push(smart_node(p, d)),
-                PlaylistKind::History if p.parent.is_some() => sessions.push(p),
-                PlaylistKind::History => {}
+                PlaylistKind::Smart if p.parent.is_none() && !lock => {
+                    smart.push(p);
+                    continue;
+                }
+                PlaylistKind::Smart => smart_node(p, d),
+                PlaylistKind::History if p.parent.is_some() => {
+                    sessions.push(p);
+                    continue;
+                }
+                PlaylistKind::History => continue,
+                PlaylistKind::Crate => crate_node(p, d),
                 // Sets made for a gig are folders like any other now.
                 PlaylistKind::Folder | PlaylistKind::Set | PlaylistKind::List => {
                     let folder = p.kind != PlaylistKind::List;
@@ -3292,28 +3392,109 @@ impl Browser {
                         },
                     );
                     n.playlist = Some(p.id);
-                    sections.push(n);
+                    n
                 }
+            };
+            let node = Node {
+                locked: lock,
+                import_root: (lock && p.parent.is_none())
+                    .then(|| p.source.clone())
+                    .flatten(),
+                ..node
+            };
+            if lock {
+                imported.push(node);
+            } else if crate_side {
+                crate_rows.push(node);
+            } else {
+                playlist_rows.push(node);
             }
         }
-        sections.extend(imported_tree(&self.library).into_iter().map(|mut n| {
-            n.depth += 1;
-            n
-        }));
+        sections.extend(crate_rows);
+        sections.push(Node::new("Playlists", 0, KIND_SECTION, Contents::Folder));
+        sections.extend(playlist_rows);
         if !smart.is_empty() {
             sections.push(Node::new("Smart Lists", 1, KIND_FOLDER, Contents::Folder));
             sections.extend(smart.into_iter().map(|p| smart_node(p, 2)));
         }
-        tree.extend(sections);
-        // Newest session first, sessions brought in from other apps among
-        // the DJ's own.
-        sessions.sort_by_key(|p| (p.created, p.id));
-        for p in sessions.iter().rev() {
-            let mut n = Node::new(p.name.clone(), 0, KIND_HISTORY, Contents::Playlist(p.id));
-            n.history = true;
-            tree.push(n);
+        // What other apps and the files' own tags bring, kept apart from the
+        // DJ's lists: read-only, as the next import makes it again.
+        let generated = imported_tree(&self.library);
+        if !imported.is_empty() || !generated.is_empty() {
+            sections.push(Node {
+                locked: true,
+                ..Node::new("Imported", 0, KIND_SECTION, Contents::Folder)
+            });
+            sections.extend(imported);
+            sections.extend(generated.into_iter().map(|mut n| {
+                n.depth += 1;
+                n
+            }));
         }
+        tree.extend(sections);
+        tree.extend(self.history_nodes(&playlists, &sessions));
         tree
+    }
+
+    /// The history tab: a row per day, newest first, holding the day's
+    /// sets, newest first. Sessions brought in from other apps go among
+    /// the DJ's own. The newest day starts open.
+    fn history_nodes(
+        &self,
+        playlists: &[opendj_library::Playlist],
+        sessions: &[&opendj_library::Playlist],
+    ) -> Vec<Node> {
+        let sizes = self
+            .db
+            .as_ref()
+            .and_then(|db| db.list_sizes().ok())
+            .unwrap_or_default();
+        let names: HashMap<i64, &str> = playlists.iter().map(|p| (p.id, p.name.as_str())).collect();
+        let found: Vec<history::Session> = sessions
+            .iter()
+            .map(|p| history::Session {
+                id: p.id,
+                name: &p.name,
+                started: p.created,
+                from: p
+                    .source
+                    .as_ref()
+                    .and(p.parent)
+                    .and_then(|parent| names.get(&parent).copied()),
+                songs: sizes.get(&p.id).copied().unwrap_or(0),
+            })
+            .collect();
+        let full: HashMap<i64, &str> = sessions.iter().map(|p| (p.id, p.name.as_str())).collect();
+        let today = history::day_of(history::now());
+        let mut nodes = Vec::new();
+        for (d, day) in history::by_day(&found).into_iter().enumerate() {
+            let ids = day.sets.iter().map(|s| s.id).collect();
+            let mut n = Node::new(
+                history::day_label(day.date, today),
+                0,
+                KIND_HISTORY_DAY,
+                Contents::HistoryDay(ids),
+            );
+            n.history = true;
+            n.expanded = d == 0;
+            n.title = Some(history::day_title(day.date));
+            n.count = Some(day.songs());
+            nodes.push(n);
+            for set in day.sets.iter().rev() {
+                let mut n = Node::new(
+                    set.label.clone(),
+                    1,
+                    KIND_HISTORY,
+                    Contents::Playlist(set.id),
+                );
+                n.history = true;
+                n.title = full.get(&set.id).map(|s| s.to_string());
+                n.count = Some(set.songs);
+                n.dim = set.songs <= 1;
+                nodes.push(n);
+            }
+        }
+        nodes
     }
 
     /// The first node shown on the library tab (or the history tab).
@@ -3386,10 +3567,10 @@ impl Browser {
         self.refresh_rows();
     }
 
-    /// Makes a new crate (`what` 0), folder (1) or playlist (2), and
-    /// selects it. A folder or playlist goes in the DJ's folder at tree row
-    /// `at`, or (-1) at the top of Playlists; a playlist needs a folder.
-    /// Returns its row in the tree.
+    /// Makes a new crate (`what` 0), folder (1), playlist (2) or folder at
+    /// the top of Crates (3), and selects it. A crate, folder or playlist
+    /// goes in the DJ's folder at tree row `at`, or (-1) at the top of
+    /// Crates (a crate) or Playlists. Returns its row in the tree.
     fn create_list(&mut self, what: i32, at: i32) -> i32 {
         let Some(db) = &self.db else { return -1 };
         if !self.saved() || self.tree != COLLECTION || self.history_tab || self.health_view {
@@ -3399,7 +3580,7 @@ impl Browser {
             .ok()
             .and_then(|row| self.visible_nodes.get(row))
             .map(|&n| &self.nodes[n])
-            .filter(|n| n.kind == KIND_FOLDER)
+            .filter(|n| n.kind == KIND_FOLDER && !n.locked)
             .and_then(|n| n.playlist);
         // Numbered past the DJ's other lists, so each new one can be told
         // apart even when it keeps the name it was given.
@@ -3411,12 +3592,12 @@ impl Browser {
             .collect();
         let name = |base: &str| untaken_name(base, &taken);
         let made = match (what, parent) {
-            (0, _) => db.create_playlist(&name("New crate"), None, PlaylistKind::List),
+            (0, parent) => db.create_crate(&name("New crate"), parent),
             (1, parent) => db.create_playlist(&name("New folder"), parent, PlaylistKind::Folder),
+            (3, _) => db.create_crate_folder(&name("New folder")),
             (_, Some(parent)) => {
                 db.create_playlist(&name("New playlist"), Some(parent), PlaylistKind::List)
             }
-            // At the top of Playlists, marked so it isn't taken for a crate.
             (_, None) => db.create_top_playlist(&name("New playlist")),
         };
         match made {
@@ -3434,14 +3615,111 @@ impl Browser {
         }
     }
 
+    /// Where the DJ's list or folder `id` would go, dropped on tree row
+    /// `row`: into the folder there, or to the top of the Crates or
+    /// Playlists heading there. None when it can't: imported, the list
+    /// itself or a folder inside it, a crate's top-level place in
+    /// Playlists or a playlist's in Crates.
+    fn list_move(&self, id: i64, row: usize) -> Option<(Option<i64>, bool)> {
+        if self.tree != COLLECTION || self.history_tab {
+            return None;
+        }
+        let moved = self
+            .nodes
+            .iter()
+            .find(|n| n.playlist == Some(id) && !n.history && !n.locked)?;
+        let target = self.nodes.get(*self.visible_nodes.get(row)?)?;
+        if target.locked {
+            return None;
+        }
+        if target.kind == KIND_SECTION {
+            let crates = target.name == "Crates";
+            let fits = match moved.kind {
+                KIND_FOLDER => true,
+                KIND_CRATE => crates,
+                _ => !crates,
+            };
+            return fits.then_some((None, crates));
+        }
+        if target.kind != KIND_FOLDER {
+            return None;
+        }
+        let folder = target.playlist?;
+        // Not into itself or a folder inside it.
+        let lists = self.db.as_ref()?.playlists().ok()?;
+        let mut at = Some(folder);
+        while let Some(f) = at {
+            if f == id {
+                return None;
+            }
+            at = lists.iter().find(|p| p.id == f).and_then(|p| p.parent);
+        }
+        Some((Some(folder), false))
+    }
+
+    /// Moves the DJ's list or folder `id` to where dropping it on tree row
+    /// `row` puts it.
+    fn move_list(&mut self, id: i64, row: usize) {
+        let Some((folder, crates)) = self.list_move(id, row) else {
+            return;
+        };
+        let Some(db) = &self.db else { return };
+        if let Err(e) = db.move_playlist(id, folder, crates) {
+            eprintln!("can't move the list: {e}");
+        }
+        self.reload_tree(Some(id));
+    }
+
+    /// Turns the list at `row` into a crate, or a crate into a playlist.
+    fn set_crate_at(&mut self, row: usize, krate: bool) {
+        let Some(id) = self.own_list_at(row) else {
+            return;
+        };
+        let Some(db) = &mut self.db else { return };
+        if let Err(e) = db.set_crate(id, krate) {
+            eprintln!("can't change the list's kind: {e}");
+        }
+        self.refresh_crates();
+        self.reload_tree(Some(id));
+    }
+
     /// The DJ's list or folder shown at `row` of the tree.
     fn playlist_at(&self, row: usize) -> Option<i64> {
         self.nodes.get(*self.visible_nodes.get(row)?)?.playlist
     }
 
+    /// Like [`Browser::playlist_at`], leaving out imported (read-only) lists.
+    fn own_list_at(&self, row: usize) -> Option<i64> {
+        let n = self.nodes.get(*self.visible_nodes.get(row)?)?;
+        n.playlist.filter(|_| !n.locked)
+    }
+
+    /// Makes the import whose top folder is at `row` the DJ's own: its
+    /// lists stay, become editable, and its next import leaves them be.
+    fn adopt_import_at(&mut self, row: usize) {
+        let Some(source) = self
+            .visible_nodes
+            .get(row)
+            .and_then(|&i| self.nodes[i].import_root.clone())
+        else {
+            return;
+        };
+        let Some(db) = &self.db else { return };
+        match db.adopt_import(&source) {
+            Ok(_) => {
+                crate::settings::set(
+                    &crate::settings::import_lists_mine_key(&source),
+                    serde_json::json!(true),
+                );
+            }
+            Err(e) => eprintln!("can't make the {source} lists your own: {e}"),
+        }
+        self.reload_tree(None);
+    }
+
     fn rename_node(&mut self, row: usize, name: &str) {
         let name = name.trim();
-        let (Some(id), Some(db), false) = (self.playlist_at(row), &self.db, name.is_empty()) else {
+        let (Some(id), Some(db), false) = (self.own_list_at(row), &self.db, name.is_empty()) else {
             return;
         };
         if let Err(e) = db.rename_playlist(id, name) {
@@ -3453,7 +3731,7 @@ impl Browser {
     /// Gives the crate at a sidebar row a color (an index into
     /// `COLOR_NAMES`, None for none).
     fn color_node(&mut self, row: usize, color: Option<usize>) {
-        let (Some(id), Some(db)) = (self.playlist_at(row), &self.db) else {
+        let (Some(id), Some(db)) = (self.own_list_at(row), &self.db) else {
             return;
         };
         let rgb = color
@@ -3468,7 +3746,7 @@ impl Browser {
     /// Gives the crate at a sidebar row one of `LIST_ICONS` (0, the crate,
     /// is kept as none).
     fn icon_node(&mut self, row: usize, icon: usize) {
-        let (Some(id), Some(db)) = (self.playlist_at(row), &self.db) else {
+        let (Some(id), Some(db)) = (self.own_list_at(row), &self.db) else {
             return;
         };
         let name = opendj_library::LIST_ICONS
@@ -3482,7 +3760,7 @@ impl Browser {
     }
 
     fn delete_node(&mut self, row: usize) {
-        let (Some(id), Some(db)) = (self.playlist_at(row), &self.db) else {
+        let (Some(id), Some(db)) = (self.own_list_at(row), &self.db) else {
             return;
         };
         if let Err(e) = db.delete_playlist(id) {
@@ -3726,6 +4004,14 @@ impl Browser {
     /// Adds a played track to this session's history.
     fn record_play(&mut self, id: usize) {
         let Some(db) = &mut self.db else { return };
+        let now = history::now();
+        if self
+            .last_play
+            .is_some_and(|last| history::new_set(last, now))
+        {
+            self.session = None;
+        }
+        self.last_play = Some(now);
         if self.session.is_none() {
             let name = chrono::Local::now()
                 .format("%a %e %b %Y, %H:%M")
@@ -3746,14 +4032,14 @@ impl Browser {
             e.info.play_count += 1;
             self.library[i] = Arc::new(e);
         }
-        let showing_session = self
-            .nodes
-            .get(self.current_node)
-            .and_then(|n| match n.contents {
-                Contents::Playlist(p) => Some(p),
-                _ => None,
-            })
-            == self.session;
+        let showing_session =
+            self.nodes
+                .get(self.current_node)
+                .is_some_and(|n| match (&n.contents, self.session) {
+                    (Contents::Playlist(p), Some(s)) => *p == s,
+                    (Contents::HistoryDay(sets), Some(s)) => sets.contains(&s),
+                    _ => false,
+                });
         if showing_session {
             self.refresh_rows();
         }
@@ -3795,7 +4081,7 @@ impl Browser {
 
     /// The library tracks a drop carries: the rows of the list it names, or
     /// an audio file from outside.
-    fn dropped_tracks(&mut self, data: &DataTransfer) -> Vec<usize> {
+    pub(crate) fn dropped_tracks(&mut self, data: &DataTransfer) -> Vec<usize> {
         match dragged(data) {
             Some(Dragged::Rows(first, last)) => self.playable_rows(first, last),
             Some(Dragged::Side(tab, first, last)) => {
@@ -4198,8 +4484,11 @@ impl Browser {
                         1
                     },
                     kind: n.kind,
-                    editable: n.playlist.is_some() && !n.history,
+                    editable: n.playlist.is_some() && !n.history && !n.locked,
+                    locked: n.locked,
+                    adoptable: n.import_root.is_some(),
                     analysable: !n.history && Self::analysable(&n.contents),
+                    rekordbox: self.rekordbox_exportable(i),
                     stage: matches!(n.contents, Contents::Stage(..)),
                     separator: n.separator,
                     color: n.color.map_or(-1, |c| c as i32),
@@ -4226,8 +4515,9 @@ impl Browser {
                         Contents::Dupes(case) => self.dupe_tracks(Some(*case)).len() as i32,
                         Contents::Area(a) => self.area_count(*a) as i32,
                         Contents::Ignored => self.ignored_tracks().len() as i32,
-                        _ => -1,
+                        _ => n.count.map_or(-1, |c| c as i32),
                     },
+                    dim: n.dim,
                 }
             })
             .collect();
@@ -4240,7 +4530,7 @@ impl Browser {
             .filter(|n| n.playlist.is_some() && !n.history)
         {
             path.truncate(n.depth as usize);
-            if n.kind == KIND_LIST || n.kind == KIND_CRATE {
+            if (n.kind == KIND_LIST || n.kind == KIND_CRATE) && !n.locked {
                 // Without the Playlists heading.
                 lists.push(track_menu::MenuList {
                     id: n.playlist.unwrap(),
@@ -4252,10 +4542,9 @@ impl Browser {
             path.push(&n.name);
         }
         self.menu_lists = lists;
-        let in_list = self
-            .nodes
-            .get(self.current_node)
-            .is_some_and(|n| (n.kind == KIND_LIST || n.kind == KIND_CRATE) && n.playlist.is_some());
+        let in_list = self.nodes.get(self.current_node).is_some_and(|n| {
+            (n.kind == KIND_LIST || n.kind == KIND_CRATE) && n.playlist.is_some() && !n.locked
+        });
         if let Some(app) = self.app.upgrade() {
             let edit = app.global::<LibraryEdit>();
             edit.set_has_lists(!self.menu_lists.is_empty());
@@ -4276,11 +4565,25 @@ impl Browser {
                 .map(|p| p as i32)
                 .unwrap_or(-1);
             app.set_current_folder(current);
+            // File › Export works on the list picked here, as its menu does.
+            let node = self.nodes.get(self.current_node).filter(|_| current >= 0);
+            let kind = node.map_or(-1, |n| n.kind);
+            let analysable = node.is_some_and(|n| !n.history && Self::analysable(&n.contents))
+                && matches!(self.tree, COLLECTION | ALBUMS | MIXED_SETS);
+            crate::app_menu::set_exports(crate::app_menu::Exports {
+                m3u: analysable || (self.tree == COLLECTION && kind == KIND_HISTORY),
+                usb: analysable,
+                spotify: self.tree == COLLECTION
+                    && STREAMING_ENABLED
+                    && matches!(kind, KIND_LIST | KIND_HISTORY | KIND_CRATE),
+                mixcloud: self.tree == MIXED_SETS,
+                rekordbox: node.is_some() && self.rekordbox_exportable(self.current_node),
+            });
             let name = match self.nodes.get(self.current_node) {
-                Some(n) => n.name.clone(),
+                Some(n) => n.title.clone().unwrap_or_else(|| n.name.clone()),
                 None if self.tree == FILES => "Files".into(),
                 None if self.tree == ALBUMS => "Albums".into(),
-                None if self.tree == MIXED_SETS => "Mixed Sets".into(),
+                None if self.tree == MIXED_SETS => "Recordings".into(),
                 None if self.shown_stream().is_some() => {
                     self.shown_stream().map_or("", |st| st.name).into()
                 }
@@ -4289,6 +4592,13 @@ impl Browser {
             };
             app.set_folder_name(name.into());
         }
+    }
+
+    /// What a node is called in full: a history set's own name ("Mon  2
+    /// Nov 2026, 21:20") rather than its time on the tree.
+    fn node_title(&self, i: usize) -> String {
+        let n = &self.nodes[i];
+        n.title.clone().unwrap_or_else(|| n.name.clone())
     }
 
     fn has_children(&self, i: usize) -> bool {
@@ -4417,6 +4727,16 @@ impl Browser {
                 .and_then(|db| db.playlist_tracks(*id).ok())
                 .unwrap_or_default()
                 .into_iter()
+                .filter_map(|t| self.index_of.get(&t).copied())
+                .collect(),
+            Contents::HistoryDay(sets) => sets
+                .iter()
+                .flat_map(|id| {
+                    self.db
+                        .as_ref()
+                        .and_then(|db| db.playlist_tracks(*id).ok())
+                        .unwrap_or_default()
+                })
                 .filter_map(|t| self.index_of.get(&t).copied())
                 .collect(),
             Contents::All => all(),
@@ -4551,11 +4871,43 @@ impl Browser {
                         list: columns::InList {
                             order: n + 1,
                             played_at: times.get(n).copied().flatten(),
+                            set_start: false,
                         },
                         ..local(i)
                     })
                 })
                 .collect();
+        }
+        // A day of history: its sets one after another, numbered through,
+        // each set after the first marked where it starts.
+        if let (Some(Contents::HistoryDay(sets)), Some(db)) = (
+            self.nodes.get(self.current_node).map(|n| &n.contents),
+            &self.db,
+        ) {
+            let mut rows = Vec::new();
+            for (s, id) in sets.iter().enumerate() {
+                let tracks = db.playlist_tracks(*id).unwrap_or_default();
+                let times = db
+                    .playlist_times(*id)
+                    .ok()
+                    .filter(|t| t.len() == tracks.len())
+                    .unwrap_or_default();
+                let mut first = s > 0;
+                for (n, t) in tracks.into_iter().enumerate() {
+                    let Some(&i) = self.index_of.get(&t) else {
+                        continue;
+                    };
+                    rows.push(RowData {
+                        list: columns::InList {
+                            order: rows.len() + 1,
+                            played_at: times.get(n).copied().flatten(),
+                            set_start: std::mem::take(&mut first),
+                        },
+                        ..local(i)
+                    });
+                }
+            }
+            return rows;
         }
         let Some(key) = self.current_playlist() else {
             return self
@@ -4831,7 +5183,7 @@ impl Browser {
         let mut have: Vec<usize> = Vec::new();
         let mut missing = 0;
         let Some(db) = &self.db else { return };
-        let list = match db.create_playlist(&name, None, PlaylistKind::List) {
+        let list = match db.create_top_playlist(&name) {
             Ok(id) => id,
             Err(e) => return status(self, &format!("Couldn't make the list: {e}")),
         };
@@ -4869,7 +5221,7 @@ impl Browser {
             return if self.tree == ALBUMS {
                 "Choose your albums folder in Settings › Collection."
             } else {
-                "Choose your mixed sets folder in Settings › Collection. Recordings are saved there too."
+                "Choose your Recordings folder in Settings › Collection. It holds your own recordings and other DJ mixes."
             }
             .into();
         }
@@ -5059,6 +5411,8 @@ impl Browser {
                     analysing: 0,
                     fade: r.local.is_some_and(|id| fade.contains(&library[id].id)),
                     streamed: r.stream.is_some(),
+                    // Only while the day is in play order.
+                    set_start: r.list.set_start && self.sort_column == columns::ORDER,
                 };
                 let crates = r.local.and_then(|id| self.crates.get(&library[id].id));
                 TrackRow {
@@ -5130,8 +5484,12 @@ impl Browser {
     fn follow_list_sort(&mut self) {
         let node = self.nodes.get(self.current_node);
         let list = node
-            .and_then(|n| match n.contents {
-                Contents::Playlist(id) => Some(id),
+            .and_then(|n| match &n.contents {
+                // A crate has no order of its own: it keeps the collection's sort.
+                Contents::Playlist(_) if n.kind == KIND_CRATE => None,
+                Contents::Playlist(id) => Some(*id),
+                // Keyed apart from the lists by its first set.
+                Contents::HistoryDay(sets) => sets.first().map(|id| -id),
                 _ => None,
             })
             .filter(|_| self.tree == COLLECTION);
@@ -5207,35 +5565,11 @@ impl Browser {
             return;
         }
         let ids = &self.side[tab];
-        let mixing = self.key_rules.0;
         let rows: Vec<SideRow> = ids
             .iter()
-            .enumerate()
-            .map(|(n, &id)| {
+            .map(|&id| {
                 let t = &self.library[id];
                 let cover = self.art.get(t);
-                // How the track before mixes into this one (Automix only).
-                let (fit, jump) = match (tab, n.checked_sub(1).map(|p| &self.library[ids[p]])) {
-                    (0, Some(prev)) => {
-                        use crate::automix_order::{self as o, Fit, Item};
-                        let item = |t: &Track| Item {
-                            bpm: t.bpm,
-                            key: Key::parse(&t.key),
-                        };
-                        let fit = match o::fit(&item(prev), &item(t), mixing) {
-                            Fit::Unknown => 0,
-                            Fit::Mixes => 1,
-                            Fit::Near => 2,
-                            Fit::Clash => 3,
-                        };
-                        let jump = o::bpm_jump(prev.bpm, t.bpm)
-                            .filter(|j| j.abs() >= 6.0)
-                            .map(|j| format!("{j:+.0}%"))
-                            .unwrap_or_default();
-                        (fit, jump.into())
-                    }
-                    _ => (0, SharedString::new()),
-                };
                 SideRow {
                     heading: SharedString::new(),
                     title: t.title.clone().into(),
@@ -5251,8 +5585,6 @@ impl Browser {
                     length: short_time(t.duration),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
-                    fit,
-                    jump,
                 }
             })
             .collect();
@@ -5335,7 +5667,6 @@ impl Browser {
                     length: short_time(t.duration),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
-                    ..Default::default()
                 });
             }
         }

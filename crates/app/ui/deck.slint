@@ -6,7 +6,7 @@
 import { TrackDrag } from "library.slint";
 import { SamplerPanel } from "sampler.slint";
 import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
-import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, KeyLock, MasterBadge, PitchReset, SyncButton } from "controls.slint";
+import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, MasterBadge, PitchReset, SyncButton } from "controls.slint";
 import { TourMark } from "tourmark.slint";
 import { MapMark } from "mapmark.slint";
 import { InstrumentsUi, LiveIcon } from "instruments.slint";
@@ -76,6 +76,11 @@ export struct DeckInfo {
     can-prepare-hq: bool,
     // 0..1 through the track
     progress: float,
+    // The track is about to end while it plays (Settings › Decks › Track end
+    // warning) and its blink is lit this instant: the header's remaining time
+    // in red, and the jog's ring in the deck color, as the warning type picks.
+    end-flash-time: bool,
+    end-flash-ring: bool,
     // The stretch of the track Automix's next (or current) mix covers, from
     // 0 to 1 through the track; equal (both 0) when there is none.
     automix-from: float,
@@ -276,11 +281,12 @@ export component Jog inherits Rectangle {
         border-color: #000000;
     }
     Arc { width: parent.width; height: parent.height; from: 0deg; to: 359.9deg; stroke: #232326; stroke-width: 3px; }
-    if info.progress > 0.002: Arc {
+    if info.progress > 0.002 || info.end-flash-ring: Arc {
         width: parent.width;
         height: parent.height;
         from: 0deg;
-        to: info.progress * 359.9deg;
+        // The track end warning lights the whole ring.
+        to: info.end-flash-ring ? 359.9deg : info.progress * 359.9deg;
         stroke: tint;
         stroke-width: 3px;
     }
@@ -641,7 +647,7 @@ component TimeKey inherits HorizontalLayout {
     spacing: 12px;
     if show-time: VerticalLayout {
         alignment: center;
-        Text { text: info.loaded ? "-" + info.remaining-seconds : "-0:00"; color: Theme.text; font-size: 23px; font-weight: 500; horizontal-alignment: right; }
+        Text { text: info.loaded ? "-" + info.remaining-seconds : "-0:00"; color: info.end-flash-time ? Theme.danger : Theme.text; font-size: 23px; font-weight: 500; horizontal-alignment: right; }
         Text { text: info.loaded ? info.total : ""; color: Theme.text-dim; font-size: 11px; horizontal-alignment: right; }
     }
     if show-time: EdgeVLine { top: 6px; bottom: 6px; line-color: #2c2c2f; }
@@ -980,7 +986,7 @@ export component Header inherits Rectangle {
             }
             if compact: Text {
                 text: info.loaded ? "-" + info.remaining-seconds : "-0:00";
-                color: Theme.text;
+                color: info.end-flash-time ? Theme.danger : Theme.text;
                 font-size: 20px;
                 font-weight: 500;
                 vertical-alignment: center;
@@ -1350,6 +1356,9 @@ export global StemPads {
 // A STEMS pad, laid out as VirtualDJ's (see Pads.stem-pads). A stem's pad
 // mutes it and is lit while it plays; ACAPELLA plays the vocals alone and
 // INSTRUMENTAL everything but, a second press bringing every stem back.
+// STEMS FX switches the pads to echo out instead: a stem's pad sends it
+// into the deck's stem effect (Echo or Reverb, picked on right-click) and
+// mutes it, so its tail rings on; a second press brings it back dry.
 // The levels are on the mixer's knobs in stems mode. Right-click for
 // high-quality stems.
 component StemPad inherits Rectangle {
@@ -1374,10 +1383,28 @@ component StemPad inherits Rectangle {
     property <bool> on3: Controls.value(m3, Controls.tick) == 0;
     property <bool> on4: Controls.value(m4, Controls.tick) == 0;
     property <bool> on5: Controls.value(m5, Controls.tick) == 0 || count < 5;
+    property <string> fxbase: "[QuickEffectRack1_[Channel" + (deck + 1) + "_Stem";
+    property <int> f1: Controls.resolve(fxbase + "1]]", "enabled");
+    property <int> f2: Controls.resolve(fxbase + "2]]", "enabled");
+    property <int> f3: Controls.resolve(fxbase + "3]]", "enabled");
+    property <int> f4: Controls.resolve(fxbase + "4]]", "enabled");
+    property <int> f5: Controls.resolve(fxbase + "5]]", "enabled");
+    property <int> mode-index: Controls.resolve("[Channel" + (deck + 1) + "]", "stem_fx_mode");
+    property <bool> fx-mode: Controls.value(mode-index, Controls.tick) > 0;
+    property <int> effect-index: Controls.resolve("[Channel" + (deck + 1) + "]", "stem_fx");
+    property <int> effect: Controls.value(effect-index, Controls.tick);
+    property <string> effect-name: effect == 2 ? "REVERB" : "ECHO";
+    // This pad's stem has its effect on.
+    property <bool> sent: stem == 1 ? Controls.value(f1, Controls.tick) > 0
+        : stem == 2 ? Controls.value(f2, Controls.tick) > 0
+        : stem == 3 ? Controls.value(f3, Controls.tick) > 0
+        : stem == 4 ? Controls.value(f4, Controls.tick) > 0
+        : stem == 5 ? Controls.value(f5, Controls.tick) > 0 : false;
     property <bool> others-on: on1 && on2 && on3 && on5;
     property <bool> others-off: !on1 && !on2 && !on3 && (!on5 || count < 5);
-    property <bool> available: stem > 0 ? count >= stem : stem != StemPads.fx && count >= 4;
+    property <bool> available: stem > 0 ? count >= stem : count >= 4;
     property <bool> lit: !available ? false
+        : stem == StemPads.fx ? fx-mode
         : stem == 1 ? on1 : stem == 2 ? on2 : stem == 3 ? on3 : stem == 4 ? on4 : stem == 5 ? on5
         : stem == StemPads.acapella ? on4 && others-off
         : stem == StemPads.instrumental ? !on4 && others-on : false;
@@ -1387,6 +1414,37 @@ component StemPad inherits Rectangle {
         Controls.set-value(m2, rest ? 0 : 1);
         Controls.set-value(m3, rest ? 0 : 1);
         Controls.set-value(m5, rest ? 0 : 1);
+        clear-fx();
+    }
+    // Outside the Stems FX layer the pads cut and bring back stems dry
+    // (whatever still rings from an echo out rings on).
+    function clear-fx() {
+        Controls.set-value(f1, 0);
+        Controls.set-value(f2, 0);
+        Controls.set-value(f3, 0);
+        Controls.set-value(f4, 0);
+        Controls.set-value(f5, 0);
+    }
+    // Echoes a stem out (into the stem effect and muted) or brings it back
+    // dry. A stem already silent stays as it is when going out.
+    function echo(mute: int, fx: int, on: bool, out: bool) {
+        if out {
+            if on {
+                Controls.set-value(fx, 1);
+                Controls.set-value(mute, 1);
+            }
+        } else {
+            Controls.set-value(mute, 0);
+            Controls.set-value(fx, 0);
+        }
+    }
+    // As set-all, echoing out what goes instead of cutting it.
+    function echo-all(vocals: bool, rest: bool) {
+        echo(m4, f4, on4, !vocals);
+        echo(m1, f1, on1, !rest);
+        echo(m2, f2, on2, !rest);
+        echo(m3, f3, on3, !rest);
+        echo(m5, f5, on5 && count >= 5, !rest);
     }
     background: !available ? Theme.control : ta.pressed ? Theme.control-pressed : lit ? tint.with-alpha(0.2) : ta.has-hover ? #1d1d20 : Theme.control;
     Text {
@@ -1398,6 +1456,25 @@ component StemPad inherits Rectangle {
         color: !available ? Theme.text-dim.with-alpha(0.5) : lit ? Theme.text : Theme.text-dim;
         horizontal-alignment: center;
         overflow: elide;
+    }
+    // In the Stems FX layer, the effect a stem's pad echoes out into.
+    if fx-mode && stem > 0 && available: Text {
+        x: 4px;
+        y: 2px;
+        text: root.effect-name;
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        color: sent ? Theme.accent : Theme.text-dim.with-alpha(0.7);
+    }
+    if stem == StemPads.fx && available: Text {
+        x: 4px;
+        y: 2px;
+        text: root.effect-name;
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        color: fx-mode ? Theme.accent : Theme.text-dim.with-alpha(0.7);
     }
     if show-quality && count > 0: Text {
         x: parent.width - self.width - 4px;
@@ -1423,12 +1500,22 @@ component StemPad inherits Rectangle {
             }
             if e.button == PointerEventButton.right {
                 menu.show();
+            } else if e.button == PointerEventButton.left && available && stem == StemPads.fx {
+                Controls.toggle(mode-index);
+            } else if e.button == PointerEventButton.left && available && fx-mode {
+                if stem == 1 { echo(m1, f1, on1, on1); }
+                else if stem == 2 { echo(m2, f2, on2, on2); }
+                else if stem == 3 { echo(m3, f3, on3, on3); }
+                else if stem == 4 { echo(m4, f4, on4, on4); }
+                else if stem == 5 { echo(m5, f5, on5, on5); }
+                else if stem == StemPads.acapella { echo-all(true, lit); }
+                else if stem == StemPads.instrumental { echo-all(lit, true); }
             } else if e.button == PointerEventButton.left && available {
-                if stem == 1 { Controls.toggle(m1); }
-                else if stem == 2 { Controls.toggle(m2); }
-                else if stem == 3 { Controls.toggle(m3); }
-                else if stem == 4 { Controls.toggle(m4); }
-                else if stem == 5 { Controls.toggle(m5); }
+                if stem == 1 { Controls.toggle(m1); Controls.set-value(f1, 0); }
+                else if stem == 2 { Controls.toggle(m2); Controls.set-value(f2, 0); }
+                else if stem == 3 { Controls.toggle(m3); Controls.set-value(f3, 0); }
+                else if stem == 4 { Controls.toggle(m4); Controls.set-value(f4, 0); }
+                else if stem == 5 { Controls.toggle(m5); Controls.set-value(f5, 0); }
                 else if stem == StemPads.acapella { set-all(true, lit); }
                 else if stem == StemPads.instrumental { set-all(lit, true); }
             }
@@ -1448,6 +1535,16 @@ component StemPad inherits Rectangle {
         }
         VerticalLayout {
             padding: 4px;
+            if stem == StemPads.fx: PanelMenuItem {
+                text: "Echo";
+                current: root.effect != 2;
+                picked => { Controls.set-value(root.effect-index, 1); }
+            }
+            if stem == StemPads.fx: PanelMenuItem {
+                text: "Reverb";
+                current: root.effect == 2;
+                picked => { Controls.set-value(root.effect-index, 2); }
+            }
             PanelMenuItem {
                 text: info.stem-hq ? "High Quality Stems ✓"
                     : info.stem-preparing ? "Preparing HQ Stems…"
@@ -1757,6 +1854,19 @@ export component Pads inherits HorizontalLayout {
         Controls.value(slot-index[6], Controls.tick), Controls.value(slot-index[7], Controls.tick),
     ];
     property <int> page: slots[tab];
+    // Opening SLICER starts it on the beat playing; leaving it ends it, as
+    // Serato's slicer does.
+    property <int> slicer-index: Controls.resolve(group, "slicer_enabled");
+    property <int> loaded-index: Controls.resolve(group, "track_loaded");
+    changed page => {
+        if page == 10 {
+            if Controls.value(loaded-index, Controls.tick) > 0 {
+                Controls.set-value(slicer-index, 1);
+            }
+        } else if Controls.value(slicer-index, Controls.tick) > 0 {
+            Controls.set-value(slicer-index, 0);
+        }
+    }
     property <color> tint: Theme.deck-color(deck);
     // Back and forward in pairs, as on the DDJ-FLX4's BEAT JUMP pads.
     property <[Pad]> jumps: [
@@ -1850,7 +1960,7 @@ export component Pads inherits HorizontalLayout {
     property <int> panel-index: Controls.resolve(group, "pad_panel");
     property <int> requested: Controls.value(panel-index, Controls.tick);
     changed requested => {
-        if requested < 0 || requested >= 10 {
+        if requested < 0 || requested >= 12 {
             return;
         }
         let wanted = requested;
@@ -1894,7 +2004,7 @@ export component Pads inherits HorizontalLayout {
         horizontal-stretch: 1;
         // The tabs sit right on the grid.
         spacing: 0px;
-        PadTabs { deck-number: deck + 1; names: ["HOT CUES", "PAD FX 1", "BEAT JUMP", "SAMPLER", "STEMS", "BEAT LOOP", "PAD FX 2", "KEYBOARD", "KEY SHIFT", "LOOP ROLL"]; slots: slots; selected <=> tab; pick(t, p) => { Controls.set-value(slot-index[t], p); } first: tab >= 4 ? 4 : 0; }
+        PadTabs { deck-number: deck + 1; names: ["HOT CUES", "PAD FX 1", "BEAT JUMP", "SAMPLER", "STEMS", "BEAT LOOP", "PAD FX 2", "KEYBOARD", "KEY SHIFT", "LOOP ROLL", "SLICER", "FREEZE"]; slots: slots; selected <=> tab; pick(t, p) => { Controls.set-value(slot-index[t], p); } first: tab >= 4 ? 4 : 0; }
         if page == 3: SamplerPanel { bank: sampler-page; vertical-stretch: 1; }
         // The black background shows through the 1px gaps as the grid lines.
         if page != 3: Rectangle {
@@ -1944,6 +2054,20 @@ export component Pads inherits HorizontalLayout {
                             key: page == 5 ? loops[row * 4 + i].key : rolls[row * 4 + i].key;
                             light-key: page == 5 ? loops[row * 4 + i].light : rolls[row * 4 + i].light;
                             text: page == 5 ? loops[row * 4 + i].text : rolls[row * 4 + i].text;
+                            tint: tint;
+                            horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                        }
+                    }
+                    // SLICER: the section's 8 beats, lit while each plays.
+                    // FREEZE: eighths of the beat, repeating while held.
+                    if page == 10 || page == 11: HorizontalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        for i in 4: PadCell {
+                            group: group;
+                            key: (page == 10 ? "slicer_" : "freeze_") + (row * 4 + i + 1) + "_activate";
+                            light-key: page == 10 ? "slicer_" + (row * 4 + i + 1) + "_status" : "freeze_" + (row * 4 + i + 1) + "_activate";
+                            text: page == 10 ? "" + (row * 4 + i + 1) : (row * 4 + i + 1) + "/8";
                             tint: tint;
                             horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
                         }
@@ -2064,8 +2188,8 @@ export component LoopSection inherits VerticalLayout {
     }
 }
 
-// The column beside the tempo fader: pitch reset always at its middle,
-// level with 0%, and key lock under it.
+// The column beside the tempo fader: pitch reset at its middle, level
+// with 0%.
 component PitchSide inherits Rectangle {
     in property <string> group;
     in property <color> tint;
@@ -2076,11 +2200,6 @@ component PitchSide inherits Rectangle {
         group: group;
         tint: tint;
         points-left: mirrored;
-    }
-    KeyLock {
-        y: reset.y + reset.height + 6px;
-        group: group;
-        right-aligned: mirrored;
     }
 }
 
@@ -2120,13 +2239,15 @@ export component TempoStep inherits Rectangle {
 // The tempo column, everything on its centre line: SYNC (Shift-click to
 // sync once, right-click for quantize) over the fader, and the tempo with
 // the fine − and + either side under it.
-// Pitch reset and key lock sit in the margin on the fader's outer side.
+// Pitch reset sits in the margin on the fader's outer side. Key lock shows
+// as the fader's line lit lilac, and a right-click on it switches it.
 component Pitch inherits VerticalLayout {
     in property <string> group;
     in property <DeckInfo> info;
     in property <color> tint;
     // Deck B: pitch reset goes on the fader's right, its outer side.
     in property <bool> mirrored;
+    property <int> keylock-index: Controls.resolve(group, "keylock");
     width: 64px;
     spacing: 5px;
     SyncButton { group: group; tint: tint; font-size: 13px; height: 30px; menu-right-aligned: mirrored; tour-id: group + ",sync_enabled"; }
@@ -2141,6 +2262,8 @@ component Pitch inherits VerticalLayout {
             center-mark: true;
             ticks: 9;
             tint: tint;
+            glowing: Controls.value(keylock-index, Controls.tick) > 0;
+            context-menu(x, y) => { Controls.toggle(keylock-index); }
         }
         PitchSide {
             x: mirrored ? parent.width - self.width : 0px;
@@ -2224,7 +2347,7 @@ component Transport inherits HorizontalLayout {
     spacing: 6px;
     height: 32px;
     PlayButton { group: group; tint: tint; width: 63px; tour-id: group + ",play"; }
-    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; outline: Controls.paused-blink(group, Controls.blink, Controls.tick); font-size: 13px; width: 63px; tour-id: group + ",cue_default"; }
+    ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; font-size: 13px; width: 63px; tour-id: group + ",cue_default"; }
 }
 
 // A thin line between sections of a deck.
@@ -2295,15 +2418,17 @@ component BendButton inherits Rectangle {
 }
 
 // SLIP as a word, no button around it, as in djay Pro: light grey when
-// off, lilac when on. While a trick holds the track elsewhere it blinks and
-// the waveforms show where it will carry on from.
+// off, lilac when on. While a trick holds a playing track elsewhere it
+// blinks and the waveforms show where it will carry on from. A paused deck
+// keeps it steady: only PLAY blinks there.
 export component SlipToggle inherits Rectangle {
     in property <string> group;
     // Deck B: the tip opens towards the middle.
     in property <bool> tip-right-aligned;
     property <int> index: Controls.resolve(group, "slip_enabled");
     property <bool> on: Controls.value(index, Controls.tick) > 0;
-    property <bool> slipping: Controls.value(Controls.resolve(group, "slip_position"), Controls.tick) >= 0;
+    property <bool> slipping: Controls.value(Controls.resolve(group, "slip_position"), Controls.tick) >= 0
+        && Controls.value(Controls.resolve(group, "play"), Controls.tick) > 0;
     property <bool> tip-mine;
     width: 24px;
     height: 12px;

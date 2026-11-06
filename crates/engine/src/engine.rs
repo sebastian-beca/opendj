@@ -18,7 +18,7 @@ use crate::controls::{
 };
 use crate::dsp::{Isolator, Limiter, Sculpt};
 use crate::effects::{
-    input_target, ColorFx, EffectRack, BLOCK, COLOR_FX, MAIN, TAPS, TAP_GAP, TARGETS,
+    input_target, ColorFx, EffectRack, StemFx, BLOCK, COLOR_FX, MAIN, TAPS, TAP_GAP, TARGETS,
 };
 use crate::groove::{pick_source, GrooveBox};
 use crate::inputs::{
@@ -95,6 +95,10 @@ impl EngineInput {
 const JOG_SECONDS: f64 = 0.01;
 /// Seconds over which a jog movement is spread, so a turning wheel bends smoothly.
 const JOG_SPREAD: f64 = 0.05;
+/// The SLICER's section, in beats: one beat on each of the 8 pads.
+const SLICER_BEATS: f64 = 8.0;
+/// FREEZE cuts the beat into this many slices, one on each pad.
+const FREEZE_SLICES: f64 = 8.0;
 /// Jog speeds above this many times normal speed are a fast search (SHIFT +
 /// jog on Pioneer controllers): the deck goes quiet, as in rekordbox.
 const JOG_SEARCH_SPEED: f64 = 8.0;
@@ -131,13 +135,16 @@ const RATE_RESET_SPEED: f64 = 0.005;
 
 /// Left and right deck gains for crossfader position `x` (-1 left, +1
 /// right). Shapes: 0 smooth, constant power as in Mixxx's default curve; 1
-/// linear, dipping in the middle; 2 scratch, both full until the last 5%
-/// of travel.
-pub(crate) fn xfader_gains(x: f32, shape: u8) -> [f32; 2] {
+/// linear, dipping in the middle; 2 scratch, both full until the last
+/// `cut_in` of travel (a share of it: 0.02 is 2%), where a side cuts out.
+pub(crate) fn xfader_gains(x: f32, shape: u8, cut_in: f32) -> [f32; 2] {
     let t = (x.clamp(-1.0, 1.0) + 1.0) * 0.5;
     match shape {
         1 => [1.0 - t, t],
-        2 => [((1.0 - t) / 0.05).min(1.0), (t / 0.05).min(1.0)],
+        2 => {
+            let cut = cut_in.clamp(0.001, 0.5);
+            [((1.0 - t) / cut).min(1.0), (t / cut).min(1.0)]
+        }
         _ => {
             let a = t * std::f32::consts::FRAC_PI_2;
             [a.cos(), a.sin()].map(|g| (g * std::f32::consts::SQRT_2).min(1.0))
@@ -186,6 +193,8 @@ struct Deck {
     /// The engine clock this buffer, in seconds, and the deck's `bpm_tap`
     /// taps against it.
     clock: f64,
+    /// `clock` at the last buffer's controls.
+    last_clock: f64,
     taps: TapTempo,
     /// The `bpmlock` version last seen, so the DJ turning it is told apart
     /// from the engine showing a loaded track's lock.
@@ -213,6 +222,13 @@ struct Deck {
     /// the track carries on from the silent playhead when it is let go.
     slip_cue: Option<usize>,
     rolling: bool,
+    /// SLICER: the grid beat its 8-beat section starts on, while it is on.
+    slicer: Option<f64>,
+    /// The slicer pad held: the pad, and where in the section (in beats) the
+    /// deck would be by now without it, to go back there when it is let go.
+    slice_held: Option<(usize, f64)>,
+    /// FREEZE: the grid beat frozen while a freeze pad is held.
+    freeze: Option<f64>,
     /// Whether play was on last buffer: starting and stopping are instant,
     /// other speed changes ramp.
     was_playing: bool,
@@ -282,7 +298,37 @@ struct Deck {
     stem_upgrade: f32,
     /// The stems reported in `stem_count` and the stem colours (by address).
     stems_shown: usize,
+    /// The effect the stems with their quick effect on are sent into.
+    stem_fx: StemFx,
+    /// Each stem's send into `stem_fx` (its gain while its effect is on,
+    /// else 0) at the end of the last buffer.
+    stem_send: [f32; MAX_STEMS],
+    /// Seconds each stem has been sent since its effect went on, and
+    /// whether it was muted last buffer: a mute that comes with the effect
+    /// waits until the effect holds what was just played (see
+    /// [`StemFx::capture_seconds`]).
+    stem_fed: [f64; MAX_STEMS],
+    stem_muted: [bool; MAX_STEMS],
+    /// The send through its own time-stretcher while the deck is key-locked
+    /// or shifted, and this buffer's audio from it.
+    stem_shifter: KeyShifter,
+    stem_shifted: Vec<[f32; 2]>,
+    /// Gapless playback: this deck's track ends during this buffer and the
+    /// deck plays on past its end into the next track (see `join_after`),
+    /// which carries on from there at the start of the next buffer.
+    hand_over: Option<usize>,
+    /// Gapless playback, the deck whose track carries on from this one's
+    /// end; reads past the end (the interpolation, the time-stretcher's
+    /// look-ahead) hear its start rather than silence.
+    join_after: Option<usize>,
+    /// The deck whose track this one carried on from, and that track's
+    /// audio (by address), while reads before this one's start hear its end.
+    join_before: Option<(usize, usize)>,
 }
+
+/// How long after a gapless start reads before the track's start still
+/// hear the track before it, in seconds: past the time-stretcher's seed.
+const JOIN_SECONDS: f64 = 1.0;
 
 impl Deck {
     fn source_rate(&self) -> f64 {
@@ -417,6 +463,8 @@ impl Deck {
         self.slip_cue = None;
         self.c.slip_position.set(-1.0);
         self.rolling = false;
+        self.stop_slicer();
+        self.freeze = None;
         self.c.track_loaded.set_bool(false);
         self.c.duration.set(0.0);
         self.c.bpm.set(0.0);
@@ -484,6 +532,12 @@ impl Deck {
         // Where the track is before this buffer's jumps: a slip that starts
         // now runs on from here.
         let unslipped = self.pos;
+        // Beats played since the last buffer, at the speed reached then.
+        let beats_dt = (self.clock - self.last_clock).max(0.0)
+            * self.velocity.max(0.0)
+            * track.bpm_at(self.seconds())
+            / 60.0;
+        self.last_clock = self.clock;
 
         if self.c.bpmlock.version() != self.bpmlock_seen {
             self.bpmlock_seen = self.c.bpmlock.version();
@@ -818,7 +872,12 @@ impl Deck {
             self.rolling = false;
             self.c.loop_enabled.set_bool(false);
         }
-        let slipping = self.c.reverseroll.get_bool() || self.rolling || self.slip_trick(unslipped);
+        self.freeze_pads(&track);
+        self.slicer_pads(&track, beats_dt);
+        let slipping = self.c.reverseroll.get_bool()
+            || self.rolling
+            || self.freeze.is_some()
+            || self.slip_trick(unslipped);
         match (self.slip, slipping) {
             (None, true) => {
                 self.slip = Some(unslipped);
@@ -865,6 +924,123 @@ impl Deck {
             .file_key
             .set(self.file_key.map_or(0.0, Key::mixxx_number));
         self.c.key.set(key.map_or(0.0, Key::mixxx_number));
+    }
+
+    /// Loops the slicer's whole section.
+    fn loop_section(&mut self, track: &Track, start: f64) {
+        self.loop_start = track.seconds_at(start);
+        self.loop_end = track.seconds_at(start + SLICER_BEATS);
+        self.c.loop_enabled.set_bool(true);
+    }
+
+    /// Switches the slicer off, leaving the track playing where it is.
+    fn stop_slicer(&mut self) {
+        if self.slicer.take().is_some() {
+            self.c.loop_enabled.set_bool(false);
+        }
+        self.slice_held = None;
+        self.c.slicer_enabled.set_bool(false);
+        for light in &self.c.slicer_status {
+            light.set_bool(false);
+        }
+    }
+
+    /// SLICER: `slicer_enabled` loops the 8 beats from the beat playing, one
+    /// on each pad. Holding a pad plays its beat in time, looped; letting go
+    /// goes back to where the section would be by now. A pad turns the
+    /// slicer on too. `beats_dt` is the beats played since the last buffer.
+    fn slicer_pads(&mut self, track: &Track, beats_dt: f64) {
+        let mut press = None;
+        for (n, (c, edge)) in self.c.slicer_pads.iter_mut().enumerate() {
+            if edge.pressed(c) {
+                press = Some(n);
+            }
+        }
+        if track.bpm <= 0.0 {
+            self.stop_slicer();
+            return;
+        }
+        let beat = track.beat_at(self.seconds());
+        let on = self.c.slicer_enabled.get_bool() || press.is_some();
+        match self.slicer {
+            None if on => {
+                let start = (beat + 1e-6).floor();
+                self.slicer = Some(start);
+                self.c.slicer_enabled.set_bool(true);
+                self.loop_section(track, start);
+            }
+            // Switched off, or its loop ended some other way.
+            Some(_) if !on || !self.c.loop_enabled.get_bool() => self.stop_slicer(),
+            _ => {}
+        }
+        let Some(start) = self.slicer else { return };
+        if let Some((pad, ghost)) = self.slice_held.as_mut() {
+            *ghost += beats_dt;
+            let (pad, ghost) = (*pad, *ghost);
+            if !self.c.slicer_pads[pad].0.get_bool() && press.is_none() {
+                // Back in the section where it would be: the same place in
+                // the beat as now (the held beat kept time), on the beat
+                // the section has reached.
+                let phase = beat - (beat + 1e-6).floor();
+                let whole = (ghost - phase).round();
+                let at = (whole + phase).rem_euclid(SLICER_BEATS);
+                self.slice_held = None;
+                self.loop_section(track, start);
+                self.set_seconds(track.seconds_at(start + at));
+            }
+        }
+        if let Some(pad) = press {
+            let slice = start + pad as f64;
+            if self.c.play.get_bool() {
+                let phase = (beat - (beat + 1e-6).floor()).max(0.0);
+                let ghost = match self.slice_held {
+                    Some((_, ghost)) => ghost,
+                    None => beat - start,
+                };
+                self.slice_held = Some((pad, ghost));
+                self.loop_start = track.seconds_at(slice);
+                self.loop_end = track.seconds_at(slice + 1.0);
+                self.set_seconds(track.seconds_at(slice + phase));
+            } else {
+                self.set_seconds(track.seconds_at(slice));
+            }
+        }
+        let playing = (track.beat_at(self.seconds()) - start + 1e-6).floor();
+        for (n, light) in self.c.slicer_status.iter().enumerate() {
+            light.set_bool(playing == n as f64);
+        }
+    }
+
+    /// FREEZE: while a pad is held the beat playing when the first went
+    /// down is frozen into eight slices, and the pad's slice repeats. Let go
+    /// of all of them and the track carries on from where it would have
+    /// been (slip).
+    fn freeze_pads(&mut self, track: &Track) {
+        let mut press = None;
+        for (n, (c, edge)) in self.c.freeze_pads.iter_mut().enumerate() {
+            if edge.pressed(c) {
+                press = Some(n);
+            }
+        }
+        let held = self.c.freeze_pads.iter().any(|(c, _)| c.get_bool());
+        if let Some(pad) = press.filter(|_| track.bpm > 0.0) {
+            let beat = match self.freeze {
+                Some(b) => b,
+                None => (track.beat_at(self.seconds()) + 1e-6).floor(),
+            };
+            let slice = beat + pad as f64 / FREEZE_SLICES;
+            self.loop_start = track.seconds_at(slice);
+            self.loop_end = track.seconds_at(slice + 1.0 / FREEZE_SLICES);
+            self.c.loop_enabled.set_bool(true);
+            self.set_seconds(self.loop_start);
+            self.freeze = Some(beat);
+        } else if self.freeze.is_some() && !held {
+            self.freeze = None;
+            match self.slicer {
+                Some(start) => self.loop_section(track, start),
+                None => self.c.loop_enabled.set_bool(false),
+            }
+        }
     }
 
     /// In slip mode, whether a trick is taking the track away from where it
@@ -991,8 +1167,69 @@ impl Deck {
 pub(crate) trait Frames {
     /// Frame `i`, or silence where there is none.
     fn frame(&self, i: usize) -> [f32; 2];
+    /// Frame `k`, which may be before the start.
+    fn frame_at(&self, k: isize) -> [f32; 2] {
+        if k >= 0 {
+            self.frame(k as usize)
+        } else {
+            [0.0; 2]
+        }
+    }
     /// The next frames read run on from `start` (see [`StemMix`]).
     fn begin(&self, _start: f64) {}
+}
+
+/// The audio played gaplessly before and after a deck's own.
+type Joins = (Option<Arc<Audio>>, Option<Arc<Audio>>);
+
+fn joined<'a>(audio: &'a Audio, joins: &'a Joins) -> Joined<'a> {
+    Joined {
+        audio,
+        before: joins.0.as_deref(),
+        after: joins.1.as_deref(),
+    }
+}
+
+/// A track's audio joined to the tracks played gaplessly before and after
+/// it, so reads across either end hear the other track instead of silence.
+pub(crate) struct Joined<'a> {
+    audio: &'a Audio,
+    before: Option<&'a Audio>,
+    after: Option<&'a Audio>,
+}
+
+impl Joined<'_> {
+    /// Reads `other` at `k` frames of `self.audio` from its start.
+    fn other(&self, other: &Audio, k: f64) -> [f32; 2] {
+        let k = k * other.sample_rate as f64 / self.audio.sample_rate.max(1) as f64;
+        if other.sample_rate == self.audio.sample_rate {
+            Frames::frame_at(other, k.round() as isize)
+        } else {
+            read(other, k)
+        }
+    }
+}
+
+impl Frames for Joined<'_> {
+    #[inline]
+    fn frame(&self, i: usize) -> [f32; 2] {
+        self.frame_at(i as isize)
+    }
+
+    fn frame_at(&self, k: isize) -> [f32; 2] {
+        let len = self.audio.len() as isize;
+        match (self.before, self.after) {
+            (Some(b), _) if k < 0 => {
+                let at = b.len() as f64 * self.audio.sample_rate as f64
+                    / b.sample_rate.max(1) as f64
+                    + k as f64;
+                self.other(b, at)
+            }
+            (_, Some(a)) if k >= len => self.other(a, (k - len) as f64),
+            _ if k >= 0 => self.audio.frame(k as usize),
+            _ => [0.0; 2],
+        }
+    }
 }
 
 impl Frames for Audio {
@@ -1021,6 +1258,9 @@ pub(crate) struct StemMix<'a> {
     /// Separated stems all at full gain play the track itself, so no stem
     /// frames are read at all.
     unity: bool,
+    /// Only the stems, each at its gain, without the original: a deck's
+    /// stem effect send (see [`StemFx`]).
+    solo: bool,
     span: f64,
     start: std::cell::Cell<f64>,
 }
@@ -1047,8 +1287,26 @@ impl<'a> StemMix<'a> {
             from,
             to,
             unity: separated && from.iter().chain(&to).all(|&g| g == 1.0),
+            solo: false,
             span: span.max(1.0),
             start: std::cell::Cell::new(0.0),
+        }
+    }
+
+    /// Only the stems with a weight, at that weight (gliding from `from`
+    /// to `to` over the span), without the original under them.
+    fn solo(
+        stems: &'a Stems,
+        audio: &'a Audio,
+        from: [f32; MAX_STEMS],
+        to: [f32; MAX_STEMS],
+        up: (f32, f32),
+        span: f64,
+    ) -> Self {
+        Self {
+            unity: false,
+            solo: true,
+            ..Self::blending(stems, audio, from, to, up, span)
         }
     }
 }
@@ -1062,6 +1320,9 @@ impl Frames for StemMix<'_> {
         let t = ((i as f64 - self.start.get()).abs() / self.span).min(1.0) as f32;
         let gains = std::array::from_fn(|k| self.from[k] + (self.to[k] - self.from[k]) * t);
         let w = self.up_from + (self.up_to - self.up_from) * t;
+        if self.solo {
+            return self.stems.solo_blend(self.up, w, i, &gains);
+        }
         self.stems
             .mix_blend(self.up, w, i, &gains, || self.audio.frame(i))
     }
@@ -1184,13 +1445,7 @@ pub(crate) fn crossfade(old: [f32; 2], new: [f32; 2], t: f32) -> [f32; 2] {
 pub(crate) fn read<F: Frames + ?Sized>(audio: &F, pos: f64) -> [f32; 2] {
     let i = pos.floor() as isize;
     let t = (pos - i as f64) as f32;
-    let at = |k: isize| {
-        if k >= 0 {
-            audio.frame(k as usize)
-        } else {
-            [0.0; 2]
-        }
-    };
+    let at = |k: isize| audio.frame_at(k);
     let (xm1, x0, x1, x2) = (at(i - 1), at(i), at(i + 1), at(i + 2));
     let mut y = [0.0; 2];
     for c in 0..2 {
@@ -1401,6 +1656,7 @@ impl Engine {
             loop_in_pending: false,
             grid_edit: None,
             clock: 0.0,
+            last_clock: 0.0,
             taps: TapTempo::default(),
             bpmlock_seen: 0,
             metronome_beat: f64::NAN,
@@ -1413,6 +1669,9 @@ impl Engine {
             slip_moving: false,
             slip_cue: None,
             rolling: false,
+            slicer: None,
+            slice_held: None,
+            freeze: None,
             was_playing: false,
             cue_edge: Edge::default(),
             cup_edge: Edge::default(),
@@ -1449,6 +1708,15 @@ impl Engine {
             stem_gains: [1.0; MAX_STEMS],
             stem_upgrade: 0.0,
             stems_shown: 0,
+            stem_fx: StemFx::new(sample_rate),
+            stem_send: [0.0; MAX_STEMS],
+            stem_fed: [0.0; MAX_STEMS],
+            stem_muted: [false; MAX_STEMS],
+            stem_shifter: KeyShifter::new(sample_rate),
+            stem_shifted: vec![[0.0; 2]; 4096],
+            hand_over: None,
+            join_after: None,
+            join_before: None,
         });
         let fx = EffectRack::new(registry, sample_rate);
         let (samplers, sampler_input) = Samplers::new(registry, sample_rate);
@@ -1616,12 +1884,20 @@ impl Engine {
                     // lit to say why until its stems are ready. So every
                     // stem plays again; their levels, on the EQ knobs in
                     // stems mode, reset with the EQ.
+                    // Their effects too, and whatever still rings from the
+                    // last track.
                     for s in &d.c.stems {
                         s.mute.set_bool(false);
+                        s.fx.set_bool(false);
                         if reset_eq {
                             s.volume.set(1.0);
                         }
                     }
+                    d.stem_fx.clear();
+                    d.stem_send = [0.0; MAX_STEMS];
+                    d.stem_fed = [0.0; MAX_STEMS];
+                    d.stem_muted = [false; MAX_STEMS];
+                    d.stem_shifter.stop();
                     if reset_fx {
                         let playing = std::array::from_fn(|k| self.decks[k].c.play.get_bool());
                         self.fx.reset_deck(deck, playing);
@@ -2125,6 +2401,88 @@ impl Engine {
 
     /// Renders one buffer of interleaved audio with `channels` channels. With
     /// four or more channels, channels 3 and 4 carry the headphone mix.
+    /// Gapless playback: a deck with a `play_next` deck reads on past its
+    /// track's end into that deck's track. In the buffer where its track
+    /// ends it plays on into the next track to the end of the buffer, and
+    /// the next deck takes over from there (see [`Self::hand_over`]), so
+    /// the two join with neither a gap nor an overlap. (A UI timer can only
+    /// start the next deck to within a screen frame.)
+    fn start_gapless(&mut self, frames: usize) {
+        let out_rate = self.sample_rate;
+        for d in &mut self.decks {
+            d.join_after = None;
+            // Reads before the start hear the track before only just after
+            // it ended.
+            if !(d.c.play.get_bool() && d.pos < JOIN_SECONDS * d.source_rate()) {
+                d.join_before = None;
+            }
+        }
+        for i in 0..NUM_DECKS {
+            let next = self.decks[i].c.play_next.get().round() as usize;
+            let Some(j) = next.checked_sub(1).filter(|&j| j < NUM_DECKS && j != i) else {
+                continue;
+            };
+            if self.decks[j].audio.is_none() || self.decks[j].c.play.get_bool() {
+                continue;
+            }
+            let a = &mut self.decks[i];
+            let Some(len) = a.audio.as_ref().map(|x| x.len() as f64) else {
+                continue;
+            };
+            let looping = a.c.loop_enabled.get_bool() && a.loop_end > a.loop_start;
+            if !a.c.play.get_bool() || looping || a.velocity <= 0.0 {
+                continue;
+            }
+            a.join_after = Some(j);
+            let step = a.velocity * a.source_rate() / out_rate;
+            if a.pos + step * frames as f64 >= len {
+                a.c.play_next.set(0.0);
+                a.hand_over = Some(j);
+            }
+        }
+    }
+
+    /// The other half of [`Self::start_gapless`]: deck `i` has played past
+    /// its track's end into deck `j`'s, which starts where it got to, with
+    /// the time-stretcher's state if it was in use, so even a key-locked
+    /// deck carries on without a seam.
+    /// Returns whether deck `i`'s track has ended.
+    fn hand_over(&mut self, i: usize, j: usize) -> bool {
+        let (a_len, a_rate, at) = {
+            let a = &self.decks[i];
+            let Some(audio) = a.audio.as_ref() else {
+                return true;
+            };
+            (
+                audio.len() as f64,
+                a.source_rate(),
+                Arc::as_ptr(audio) as usize,
+            )
+        };
+        let [a, b] = self.decks.get_disjoint_mut([i, j]).expect("two decks");
+        a.hand_over = None;
+        let past = a.pos - a_len;
+        if past < 0.0 {
+            // It slowed down and didn't get there after all.
+            a.c.play_next.set((j + 1) as f64);
+            return false;
+        }
+        a.pos = a_len;
+        if b.audio.is_none() || b.c.play.get_bool() {
+            return true;
+        }
+        let scale = b.source_rate() / a_rate;
+        b.pos = (past * scale).max(0.0);
+        if a.shifter.is_active() {
+            std::mem::swap(&mut a.shifter, &mut b.shifter);
+            b.shifter.carry_over(a_len, scale);
+            a.shifter.stop();
+        }
+        b.join_before = Some((i, at));
+        b.c.play.set_bool(true);
+        true
+    }
+
     pub fn process(&mut self, out: &mut [f32], channels: usize) {
         let channels = channels.max(1);
         let frames = out.len() / channels;
@@ -2172,6 +2530,21 @@ impl Engine {
             }
         }
         self.land_in_phase(moved);
+        self.start_gapless(frames);
+        // The audio each deck's own joins on to, for this buffer.
+        let joins: [Joins; NUM_DECKS] = std::array::from_fn(|i| {
+            let d = &self.decks[i];
+            let before = d.join_before.and_then(|(k, at)| {
+                self.decks[k]
+                    .audio
+                    .clone()
+                    .filter(|a| Arc::as_ptr(a) as usize == at)
+            });
+            (
+                before,
+                d.join_after.and_then(|k| self.decks[k].audio.clone()),
+            )
+        });
         self.update_color_fx();
         self.samplers.update();
         self.preview.update();
@@ -2238,7 +2611,11 @@ impl Engine {
         if self.master.xfader_reverse.get_bool() {
             x = -x;
         }
-        let sides = xfader_gains(x, self.master.xfader_shape.get() as u8);
+        let sides = xfader_gains(
+            x,
+            self.master.xfader_shape.get() as u8,
+            self.master.xfader_cut_in.get() as f32,
+        );
         // Each deck follows the side it is assigned to; thru decks skip the
         // crossfader, and so does every deck while it is switched off.
         let xfader_on =
@@ -2309,6 +2686,11 @@ impl Engine {
             stems: Option<([f32; MAX_STEMS], [f32; MAX_STEMS])>,
             /// The crossfade to high-quality stems at the start and end.
             stem_upgrade: (f32, f32),
+            /// What each stem sends into the stem effect at the start and
+            /// end, while any does.
+            stem_send: Option<([f32; MAX_STEMS], [f32; MAX_STEMS])>,
+            /// The stem effect plays this buffer (sent to, or ringing on).
+            stem_fx: bool,
         }
         let plans: [Plan; NUM_DECKS] = std::array::from_fn(|i| {
             let d = &mut self.decks[i];
@@ -2405,17 +2787,38 @@ impl Engine {
                 None => (0.0, 0.0),
             };
             d.stem_upgrade = upgrade.1;
+            d.stem_fx.prepare(d.c.stem_fx.get(), beat);
+            let capture = d.stem_fx.capture_seconds(beat);
+            let mut send_to = [0.0f32; MAX_STEMS];
             let stem_gains = stems.map(|_| {
                 let to = std::array::from_fn(|k| {
                     let c = &d.c.stems[k];
-                    if c.mute.get_bool() {
-                        0.0
-                    } else {
-                        c.volume.get() as f32
+                    let fx = c.fx.get_bool();
+                    if !fx {
+                        d.stem_fed[k] = 0.0;
                     }
+                    // Muted with its effect just switched on (an echo out
+                    // in one press): it plays on until the echo holds it.
+                    let held =
+                        c.mute.get_bool() && fx && !d.stem_muted[k] && d.stem_fed[k] < capture;
+                    let muted = c.mute.get_bool() && !held;
+                    d.stem_muted[k] = muted;
+                    let gain = if muted { 0.0 } else { c.volume.get() as f32 };
+                    if fx && gain > 0.0 {
+                        d.stem_fed[k] += dt;
+                        send_to[k] = gain;
+                    }
+                    gain
                 });
                 (d.stem_gains, to)
             });
+            // The stems sent into the stem effect, gliding like the gains.
+            let send_from = d.stem_send;
+            d.stem_send = send_to;
+            let sending = stem_gains.is_some()
+                && d.audio.is_some()
+                && send_from.iter().chain(&send_to).any(|&g| g > 0.0);
+            let stem_send = sending.then_some((send_from, send_to));
             match &d.audio {
                 Some(audio) if shifting => {
                     // The average of the speed ramp the frame loop below takes.
@@ -2440,7 +2843,7 @@ impl Engine {
                             );
                         }
                         _ => d.shifter.render(
-                            &**audio,
+                            &joined(audio, &joins[i]),
                             d.pos,
                             speed,
                             ratio,
@@ -2448,6 +2851,27 @@ impl Engine {
                             loop_frames,
                             out,
                         ),
+                    }
+                    // The stems sent into the stem effect, through their own
+                    // stretcher, while there are any.
+                    match (stems, stem_send) {
+                        (Some(s), Some((from, to))) => {
+                            if d.stem_shifted.len() < frames {
+                                d.stem_shifted.resize(frames, [0.0; 2]);
+                            }
+                            let span = speed * ratio * frames as f64;
+                            let mix = StemMix::solo(s, audio, from, to, upgrade, span);
+                            d.stem_shifter.render(
+                                &mix,
+                                d.pos,
+                                speed,
+                                ratio,
+                                transpose,
+                                loop_frames,
+                                &mut d.stem_shifted[..frames],
+                            );
+                        }
+                        _ => d.stem_shifter.stop(),
                     }
                     // Coming into the stretcher from playing as a record
                     // (after a scratch, say): fade over from the record.
@@ -2469,12 +2893,19 @@ impl Engine {
                             let mix = StemMix::blending(s, audio, from, to, upgrade, span);
                             d.shifter.render_on(&mix, d.pos, loop_frames, out);
                         }
-                        _ => d.shifter.render_on(&**audio, d.pos, loop_frames, out),
+                        _ => {
+                            d.shifter
+                                .render_on(&joined(audio, &joins[i]), d.pos, loop_frames, out)
+                        }
                     }
                     d.shifter.stop();
+                    d.stem_shifter.stop();
                     shift_fade = Some(ShiftFade::Out(n));
                 }
-                _ => d.shifter.stop(),
+                _ => {
+                    d.shifter.stop();
+                    d.stem_shifter.stop();
+                }
             }
             if let Some((_, to)) = stem_gains {
                 d.stem_gains = to;
@@ -2492,6 +2923,8 @@ impl Engine {
             Plan {
                 stems: stem_gains,
                 stem_upgrade: upgrade,
+                stem_send,
+                stem_fx: stem_send.is_some() || d.stem_fx.ringing(),
                 shifted: shifting && d.audio.is_some(),
                 shift_fade,
                 scrub: d.c.scrub_enable.get_bool(),
@@ -2612,6 +3045,7 @@ impl Engine {
             for (i, d) in self.decks.iter_mut().enumerate() {
                 let p = &plans[i];
                 let mut s = [0.0f32; 2];
+                let mut send = [0.0f32; 2];
                 if p.moving && !ended[i] {
                     let audio = d.audio.as_ref().unwrap();
                     let (v0, v1) = p.velocity;
@@ -2627,13 +3061,23 @@ impl Engine {
                                 pos,
                             )
                         }
-                        _ => read(&**audio, pos),
+                        _ => read(&joined(audio, &joins[i]), pos),
                     };
                     s = if p.shifted {
                         d.shifted[f]
                     } else {
                         source(d.pos)
                     };
+                    if let (Some((from, to)), Some(stems)) = (p.stem_send, audio.stems()) {
+                        send = if p.shifted {
+                            d.stem_shifted[f]
+                        } else {
+                            let w = std::array::from_fn(|k| from[k] + (to[k] - from[k]) * r);
+                            let (u0, u1) = p.stem_upgrade;
+                            let u = u0 + (u1 - u0) * r;
+                            read(&StemMix::solo(stems, audio, w, w, (u, u), 1.0), d.pos)
+                        };
+                    }
                     match p.shift_fade {
                         Some(ShiftFade::In(n)) if f < n => {
                             s = crossfade(source(d.pos), s, (f + 1) as f32 / n as f32);
@@ -2671,12 +3115,18 @@ impl Engine {
                         }
                     }
                     let len = audio.len() as f64;
-                    if d.pos >= len {
+                    // Handing over, it plays on into the next track.
+                    if d.pos >= len && d.hand_over.is_none() {
                         d.pos = len;
                         ended[i] = true;
                     } else if d.pos < 0.0 {
                         d.pos = 0.0;
                     }
+                }
+                if p.stem_fx {
+                    let wet = d.stem_fx.process(send, p.stem_send.is_some() && p.moving);
+                    s[0] += wet[0];
+                    s[1] += wet[1];
                 }
                 if groove_on[i] {
                     s = groove_buf[i][f];
@@ -2837,6 +3287,11 @@ impl Engine {
         self.clock += dt;
         // On for half a second, off for half a second, as Mixxx blinks
         // play and cue on controllers.
+        for (i, ended) in ended.iter_mut().enumerate() {
+            if let Some(j) = self.decks[i].hand_over {
+                *ended |= self.hand_over(i, j);
+            }
+        }
         let blink = self.clock.rem_euclid(1.0) < 0.5;
         for (i, d) in self.decks.iter_mut().enumerate() {
             let p = &plans[i];
@@ -3200,6 +3655,115 @@ mod tests {
         // Not separated yet: the original plays.
         let ratio = rms(second) / rms(full_second);
         assert!((ratio - 1.0).abs() < 0.02, "the original: {ratio}");
+    }
+
+    /// A track whose only sound is a 440 Hz tone in the vocal stem (stem
+    /// 4), as an NI stem file (the stems play as their sum).
+    fn vocal_tone_track(seconds: f64) -> Arc<Track> {
+        let mut t = (*short_track(120.0, seconds)).clone();
+        let n = (SR * seconds) as usize;
+        let audio = Audio::from_frames(SR as u32, vec![[0.0; 2]; n]);
+        let frames: Vec<_> = (0..n)
+            .map(|i| {
+                let v = (std::f64::consts::TAU * 440.0 * i as f64 / SR).sin() as f32 * 0.3;
+                [[0.0; 2], [0.0; 2], [0.0; 2], [v, v], [0.0; 2]]
+            })
+            .collect();
+        let stems =
+            crate::stems::Stems::from_frames(crate::stems::default_info(), SR as u32, &frames);
+        assert!(audio.set_stems(stems));
+        t.audio = Some(Arc::new(audio));
+        Arc::new(t)
+    }
+
+    /// Echoes the vocals out in one press (effect on and mute together)
+    /// after half a second of play; returns the left channel from the press.
+    fn echo_out_vocals(configure: impl Fn(&ControlRegistry), fx: bool) -> Vec<f32> {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, vocal_tone_track(12.0));
+        run(&mut engine, 0.01);
+        configure(&reg);
+        run(&mut engine, 0.01);
+        reg.get("[Channel1]", "play").unwrap().set_bool(true);
+        record(&mut engine, 0.5);
+        if fx {
+            reg.get("[QuickEffectRack1_[Channel1_Stem4]]", "enabled")
+                .unwrap()
+                .set_bool(true);
+        }
+        reg.get("[Channel1_Stem4]", "mute").unwrap().set_bool(true);
+        record(&mut engine, 3.0).into_iter().step_by(2).collect()
+    }
+
+    #[test]
+    fn a_stem_echoes_out_when_muted_with_its_effect_on() {
+        let rms = |x: &[f32]| (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt();
+        let at = |s: f64| (s * SR) as usize;
+        // Without the effect a mute is a mute.
+        let dry = echo_out_vocals(|_| {}, false);
+        assert!(rms(&dry[at(0.1)..at(0.5)]) < 1e-4, "muted");
+        let wet = echo_out_vocals(|_| {}, true);
+        // The vocal plays on for one echo (half a beat at 120 BPM) so the
+        // echo has something to hold, then rings on and fades.
+        assert!(rms(&wet[..at(0.2)]) > 0.15, "held until the echo has it");
+        let tail = rms(&wet[at(0.4)..at(0.9)]);
+        assert!(tail > 0.08, "the echo rings on: {tail}");
+        let later = rms(&wet[at(2.5)..at(3.0)]);
+        assert!(later < tail / 4.0, "and fades: {later} after {tail}");
+        // Sample to sample: no step bigger than the tone's own.
+        let step = wet.windows(2).fold(0f32, |m, w| m.max((w[1] - w[0]).abs()));
+        assert!(step < 0.05, "a click: {step}");
+        // Through the time-stretcher too.
+        let locked = echo_out_vocals(
+            |reg| {
+                reg.get("[Channel1]", "keylock").unwrap().set_bool(true);
+                reg.get("[Channel1]", "rate").unwrap().set(0.3);
+            },
+            true,
+        );
+        let tail = rms(&locked[at(0.4)..at(0.9)]);
+        assert!(tail > 0.03, "key-locked echo: {tail}");
+    }
+
+    #[test]
+    fn a_stem_effect_adds_to_the_stem_and_stops_when_rung_out() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, vocal_tone_track(14.0));
+        run(&mut engine, 0.01);
+        reg.get("[Channel1]", "play").unwrap().set_bool(true);
+        let before = record(&mut engine, 0.5);
+        let fx = reg
+            .get("[QuickEffectRack1_[Channel1_Stem4]]", "enabled")
+            .unwrap();
+        fx.set_bool(true);
+        // The first echo comes half a beat later: until then nothing changes.
+        let on = record(&mut engine, 0.2);
+        let reference = {
+            let (reg, mut engine, mut input) = setup();
+            load(&mut input, 0, vocal_tone_track(14.0));
+            run(&mut engine, 0.01);
+            reg.get("[Channel1]", "play").unwrap().set_bool(true);
+            record(&mut engine, 0.5);
+            record(&mut engine, 0.2)
+        };
+        assert_eq!(before.len() + on.len(), before.len() + reference.len());
+        let diff = on
+            .iter()
+            .zip(&reference)
+            .fold(0f32, |m, (a, b)| m.max((a - b).abs()));
+        assert!(diff < 1e-4, "the dry stem is untouched: {diff}");
+        record(&mut engine, 1.0);
+        assert!(engine.decks[0].stem_fx.ringing());
+        // Switched off, it rings out and the deck stops running it.
+        fx.set_bool(false);
+        record(&mut engine, 9.0);
+        assert!(!engine.decks[0].stem_fx.ringing());
+        assert!(!engine.decks[0].stem_shifter.is_active());
+        // A load switches every stem's effect off.
+        fx.set_bool(true);
+        load(&mut input, 0, vocal_tone_track(2.0));
+        run(&mut engine, 0.05);
+        assert!(!fx.get_bool());
     }
 
     #[test]
@@ -4697,6 +5261,123 @@ mod tests {
     }
 
     #[test]
+    fn slicer_loops_its_section_and_plays_each_beat_in_time() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 20.0));
+        run(&mut engine, 0.01);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let seconds = || ctl("playposition").get() * 20.0;
+        // Beats are 0.5 s from 0.1 s.
+        let phase = |s: f64| (s - 0.1).rem_euclid(0.5);
+        ctl("play").set_bool(true);
+        run(&mut engine, 1.35);
+        // In beat 2 (1.1 s): the section is beats 2 to 10.
+        ctl("slicer_enabled").set_bool(true);
+        run(&mut engine, 0.01);
+        assert!(ctl("loop_enabled").get_bool());
+        assert!((ctl("loop_start_position").get() - 1.1).abs() < 1e-6);
+        assert!((ctl("loop_end_position").get() - 5.1).abs() < 1e-6);
+        assert!(ctl("slicer_1_status").get_bool());
+
+        // Pad 5 is beat 6 (3.1 s), at the same place in the beat.
+        let before = seconds();
+        ctl("slicer_5_activate").set_bool(true);
+        run(&mut engine, 0.01);
+        let s = seconds();
+        assert!((3.1..3.6).contains(&s), "{s}");
+        assert!(
+            (phase(s) - phase(before + 0.01)).abs() < 0.03,
+            "{s} vs {before}"
+        );
+        assert!(ctl("slicer_5_status").get_bool());
+        assert!(!ctl("slicer_1_status").get_bool());
+        // Held, the beat repeats.
+        run(&mut engine, 1.0);
+        let s = seconds();
+        assert!((3.1..3.6).contains(&s), "{s}");
+
+        // Let go: where the section would be by now.
+        ctl("slicer_5_activate").set_bool(false);
+        run(&mut engine, 0.01);
+        let expected = 1.1 + (before + 1.03 - 1.1).rem_euclid(4.0);
+        assert!(
+            (seconds() - expected).abs() < 0.03,
+            "{} vs {expected}",
+            seconds()
+        );
+        assert!((ctl("loop_end_position").get() - 5.1).abs() < 1e-6);
+
+        // The section loops.
+        run(&mut engine, 4.5);
+        assert!((1.1..5.1).contains(&seconds()), "{}", seconds());
+
+        // Off: the loop ends and the track plays on.
+        ctl("slicer_enabled").set_bool(false);
+        run(&mut engine, 0.01);
+        assert!(!ctl("loop_enabled").get_bool());
+        assert!(!ctl("slicer_1_status").get_bool() && !ctl("slicer_5_status").get_bool());
+    }
+
+    #[test]
+    fn a_slicer_pad_switches_the_slicer_on() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 20.0));
+        run(&mut engine, 0.01);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let seconds = || ctl("playposition").get() * 20.0;
+        ctl("play").set_bool(true);
+        run(&mut engine, 1.9);
+        // Beat 3 (1.6 s): pad 2 is beat 4 (2.1 s).
+        ctl("slicer_2_activate").set_bool(true);
+        run(&mut engine, 0.01);
+        assert!(ctl("slicer_enabled").get_bool());
+        assert!((2.1..2.6).contains(&seconds()), "{}", seconds());
+        ctl("slicer_2_activate").set_bool(false);
+        run(&mut engine, 0.01);
+        assert!((ctl("loop_start_position").get() - 1.6).abs() < 1e-6);
+        assert!((ctl("loop_end_position").get() - 5.6).abs() < 1e-6);
+    }
+
+    #[test]
+    fn freeze_repeats_a_slice_of_the_beat_and_slips_back() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(120.0, 20.0));
+        run(&mut engine, 0.01);
+        let ctl = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let seconds = || ctl("playposition").get() * 20.0;
+        ctl("play").set_bool(true);
+        run(&mut engine, 1.35);
+        let start = seconds();
+        // Beat 2 is 1.1 s to 1.6 s; its third eighth starts 0.125 s in.
+        ctl("freeze_3_activate").set_bool(true);
+        run(&mut engine, 0.01);
+        let (a, b) = (
+            ctl("loop_start_position").get(),
+            ctl("loop_end_position").get(),
+        );
+        assert!(
+            (a - 1.225).abs() < 1e-6 && (b - 1.2875).abs() < 1e-6,
+            "{a} {b}"
+        );
+        run(&mut engine, 0.5);
+        assert!((a..b).contains(&seconds()), "{}", seconds());
+        // Another pad: another slice of the same beat.
+        ctl("freeze_8_activate").set_bool(true);
+        run(&mut engine, 0.2);
+        assert!((1.5375..1.6).contains(&seconds()), "{}", seconds());
+        ctl("freeze_3_activate").set_bool(false);
+        ctl("freeze_8_activate").set_bool(false);
+        run(&mut engine, 0.01);
+        assert!(!ctl("loop_enabled").get_bool());
+        let expected = start + 0.72;
+        assert!(
+            (seconds() - expected).abs() < 0.04,
+            "{} vs {expected}",
+            seconds()
+        );
+    }
+
+    #[test]
     fn slip_mode_returns_when_each_trick_ends() {
         let (reg, mut engine, mut input) = setup();
         load(&mut input, 0, short_track(120.0, 30.0));
@@ -5005,15 +5686,48 @@ mod tests {
     fn crossfader_curves() {
         let close =
             |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3;
+        let cut = crate::controls::XFADER_CUT_IN as f32;
         for shape in 0..3 {
-            assert!(close(xfader_gains(-1.0, shape), [1.0, 0.0]), "{shape}");
-            assert!(close(xfader_gains(1.0, shape), [0.0, 1.0]), "{shape}");
+            assert!(close(xfader_gains(-1.0, shape, cut), [1.0, 0.0]), "{shape}");
+            assert!(close(xfader_gains(1.0, shape, cut), [0.0, 1.0]), "{shape}");
         }
-        assert!(close(xfader_gains(0.0, 0), [1.0, 1.0]));
-        assert!(close(xfader_gains(0.0, 1), [0.5, 0.5]));
+        assert!(close(xfader_gains(0.0, 0, cut), [1.0, 1.0]));
+        assert!(close(xfader_gains(0.0, 1, cut), [0.5, 0.5]));
         // Scratch: both full until the last few percent of travel.
-        assert!(close(xfader_gains(0.85, 2), [1.0, 1.0]));
-        assert!(xfader_gains(0.97, 2)[0] < 0.7);
+        assert!(close(xfader_gains(0.95, 2, cut), [1.0, 1.0]));
+        assert!(xfader_gains(0.99, 2, cut)[0] < 0.7);
+        // The shortest cut-in opens the incoming side within the first 1%
+        // of travel (2 units of -1..1 make 100%), and a longer one later.
+        let shortest = 0.005;
+        assert_eq!(xfader_gains(-1.0 + 0.02, 2, shortest)[1], 1.0);
+        assert!(xfader_gains(-1.0 + 0.002, 2, shortest)[1] > 0.0);
+        assert!(xfader_gains(-1.0 + 0.02, 2, 0.05)[1] < 1.0);
+        assert_eq!(xfader_gains(-1.0 + 0.1, 2, 0.05)[1], 1.0);
+    }
+
+    #[test]
+    fn crossfader_cut_in_control() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 1, tone_track(440.0, "A"));
+        run(&mut engine, 0.01);
+        reg.get("[Mixer Profile]", "xFaderShape").unwrap().set(2.0);
+        reg.get("[Channel2]", "play").unwrap().set_bool(true);
+        // Crossfader 1.5% of the way over from the left: closed at 2%,
+        // fully open at 0.5%.
+        reg.get("[Master]", "crossfader").unwrap().set(-1.0 + 0.03);
+        let heard = |engine: &mut Engine| {
+            let out = record(engine, 0.2);
+            out[out.len() / 2..]
+                .iter()
+                .map(|s| s.abs())
+                .fold(0.0f32, f32::max)
+        };
+        let partly = heard(&mut engine);
+        reg.get("[Mixer Profile]", "xFaderCutIn")
+            .unwrap()
+            .set(0.005);
+        let open = heard(&mut engine);
+        assert!(partly > 0.0 && open > partly * 1.2, "{partly} {open}");
     }
 
     #[test]

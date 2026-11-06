@@ -54,7 +54,7 @@ pub const ID_BASE: usize = 1_000_000;
 /// locked.
 /// 12 takes off the wanted list the streamed tracks imports used to put
 /// there: only the DJ puts tracks on it now.
-const VERSION: i32 = 12;
+const VERSION: i32 = 13;
 
 /// The `source` of grids, keys and markers found by this app's analysis.
 const ANALYSIS: &str = "analysis";
@@ -344,7 +344,18 @@ pub struct Wanted {
     pub artist: String,
     pub title: String,
     pub page_url: String,
+    /// The recording's ISRC, when the service it came from knew it.
+    pub isrc: String,
+    /// Seconds; 0 when unknown.
+    pub duration: f64,
+    /// The store the DJ opened it on with Buy, while a file is awaited
+    /// (see [`PENDING_DAYS`]); empty when not.
+    pub pending_store: String,
 }
+
+/// How long a Wanted track opened with Buy waits for its file before it's
+/// no longer counted as being bought.
+pub const PENDING_DAYS: i64 = 7;
 
 /// Lowercase letters and digits only, for comparing names loosely.
 fn simplify(s: &str) -> String {
@@ -364,6 +375,9 @@ pub enum PlaylistKind {
     Smart,
     /// A folder made for one gig, holding its lists (see [`sets`]).
     Set,
+    /// A list kept for sorting music (Yoga, Peak time): no order of its
+    /// own, each track once (see [`sets`]).
+    Crate,
 }
 
 impl PlaylistKind {
@@ -373,6 +387,7 @@ impl PlaylistKind {
             2 => Self::History,
             3 => Self::Smart,
             4 => Self::Set,
+            5 => Self::Crate,
             _ => Self::List,
         }
     }
@@ -384,6 +399,7 @@ impl PlaylistKind {
             Self::History => 2,
             Self::Smart => 3,
             Self::Set => 4,
+            Self::Crate => 5,
         }
     }
 }
@@ -466,6 +482,19 @@ fn track_id(row: i64) -> usize {
 /// Where the library lives by default: `library.sqlite` in `dir`.
 pub fn default_path(dir: &Path) -> PathBuf {
     dir.join("library.sqlite")
+}
+
+/// Writes a consistent copy of the library at `from` to `to` (which must
+/// not exist yet), while other connections may be using it: WAL mode lets
+/// this read a snapshot. The copy is a single file, without a WAL.
+pub fn snapshot(from: &Path, to: &Path) -> Result<(), Error> {
+    let db = Connection::open_with_flags(
+        from,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    db.busy_timeout(std::time::Duration::from_secs(5))?;
+    db.execute("VACUUM INTO ?1", [to.to_string_lossy()])?;
+    Ok(())
 }
 
 impl Library {
@@ -565,6 +594,31 @@ impl Library {
             .exists([])?;
         if !has_wanted_source {
             db.execute_batch("ALTER TABLE wanted ADD COLUMN source TEXT")?;
+        }
+        // What matches a wanted track to the file that arrives for it, and
+        // the store it's being bought on (Buy).
+        for (name, definition) in [
+            ("isrc", "isrc TEXT NOT NULL DEFAULT ''"),
+            ("duration", "duration REAL NOT NULL DEFAULT 0"),
+            ("pending_store", "pending_store TEXT"),
+            ("pending_since", "pending_since INTEGER"),
+        ] {
+            let has = db
+                .prepare("SELECT 1 FROM pragma_table_info('wanted') WHERE name = ?1")?
+                .exists([name])?;
+            if !has {
+                db.execute_batch(&format!("ALTER TABLE wanted ADD COLUMN {definition}"))?;
+            }
+        }
+        if version < 13 {
+            // Crates were lists at the top with no folder or source (other
+            // than the Inbox list); now they're a kind of their own.
+            db.execute(
+                "UPDATE playlists SET kind = 5
+                  WHERE kind = 0 AND parent IS NULL AND source IS NULL
+                    AND id IS NOT (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'inbox_list')",
+                [],
+            )?;
         }
         if version < 12 {
             // Imports put every streamed track of every list (history
@@ -902,6 +956,7 @@ impl Library {
         keep: impl Fn(&Path) -> bool,
     ) -> Result<RemovedImport, Error> {
         let tx = self.db.transaction()?;
+        sets::rescue_own_lists(&tx, source)?;
         let mut out = RemovedImport {
             lists: tx.execute(
                 "DELETE FROM playlists WHERE source = ?1 AND kind != 1",
@@ -1333,6 +1388,23 @@ impl Library {
         ids
     }
 
+    /// How many entries each list holds, streamed ones included, by list
+    /// id; empty lists are left out.
+    pub fn list_sizes(&self) -> Result<HashMap<i64, usize>, Error> {
+        let mut q = self.db.prepare(
+            "SELECT playlist_id, COUNT(*) FROM (
+                 SELECT playlist_id FROM playlist_tracks
+                 UNION ALL SELECT playlist_id FROM list_streams)
+             GROUP BY playlist_id",
+        )?;
+        let sizes = q
+            .query_map([], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)? as usize))
+            })?
+            .collect();
+        sizes
+    }
+
     /// A list in order, streamed tracks that stand in it included.
     pub fn playlist_entries(&self, id: i64) -> Result<Vec<ListEntry>, Error> {
         let mut q = self.db.prepare(
@@ -1424,7 +1496,19 @@ impl Library {
             [id],
             |r| r.get(0),
         )?;
-        for (position, row) in (start..).zip(tracks.iter().filter_map(|&t| row_id(t))) {
+        // A crate holds each track once.
+        let is_crate: bool = tx
+            .prepare("SELECT 1 FROM playlists WHERE id = ?1 AND kind = 5")?
+            .exists([id])?;
+        let mut rows: Vec<i64> = tracks.iter().filter_map(|&t| row_id(t)).collect();
+        if is_crate {
+            let mut seen: HashSet<i64> = tx
+                .prepare("SELECT track_id FROM playlist_tracks WHERE playlist_id = ?1")?
+                .query_map([id], |r| r.get(0))?
+                .collect::<Result<_, _>>()?;
+            rows.retain(|r| seen.insert(*r));
+        }
+        for (position, row) in (start..).zip(rows) {
             tx.execute(
                 "INSERT INTO playlist_tracks (playlist_id, position, track_id, played_at)
                  VALUES (?1, ?2, ?3, ?4)",
@@ -1735,23 +1819,21 @@ impl Library {
             .db
             .query_row("SELECT id FROM tracks WHERE path = ?1", [&p], |r| r.get(0))?;
         self.db.execute(TAG_EXTRAS, tag_extras(row, track))?;
-        let (artist, title) = (simplify(&track.artist), simplify(&track.title));
-        let wanted: Vec<(i64, String, String, String)> = self
-            .db
-            .prepare("SELECT id, artist, title, page_url FROM wanted WHERE track_id IS NULL")?
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
-            .collect::<Result<_, _>>()?;
-        if let Some((id, _, _, url)) = wanted
-            .iter()
-            .find(|(_, a, t, _)| simplify(t) == title && (a.is_empty() || simplify(a) == artist))
-        {
+        if let Some(w) = self.wanted_for(
+            &track.artist,
+            &track.title,
+            track.duration,
+            &track.info.isrc,
+            false,
+        )? {
             self.db.execute(
-                "UPDATE wanted SET track_id = ?2 WHERE id = ?1",
-                params![id, row],
+                "UPDATE wanted SET track_id = ?2, pending_store = NULL, pending_since = NULL
+                 WHERE id = ?1",
+                params![w.id, row],
             )?;
             self.db.execute(
                 "UPDATE tracks SET store_url = ?2 WHERE id = ?1",
-                params![row, url],
+                params![row, w.page_url],
             )?;
         }
         Ok(Track {
@@ -1772,7 +1854,7 @@ impl Library {
         if let Some(id) = self.meta("inbox_list").and_then(|v| v.parse::<i64>().ok()) {
             let exists = self
                 .db
-                .prepare("SELECT 1 FROM playlists WHERE id = ?1 AND kind = 0")?
+                .prepare("SELECT 1 FROM playlists WHERE id = ?1 AND kind IN (0, 5)")?
                 .exists([id])?;
             if exists {
                 return Ok(id);
@@ -1830,10 +1912,18 @@ impl Library {
     }
 
     /// Tracks the DJ went to buy that haven't arrived yet, newest first.
+    /// Ones opened with Buy more than [`PENDING_DAYS`] ago stop counting
+    /// as being bought.
     pub fn wanted(&self) -> Result<Vec<Wanted>, Error> {
+        self.db.execute(
+            "UPDATE wanted SET pending_store = NULL, pending_since = NULL
+             WHERE pending_since IS NOT NULL AND pending_since < ?1",
+            [now() - PENDING_DAYS * 86_400],
+        )?;
         let mut q = self.db.prepare(
-            "SELECT id, store, artist, title, page_url FROM wanted
-             WHERE track_id IS NULL ORDER BY added DESC, id DESC",
+            "SELECT id, store, artist, title, page_url, isrc, duration,
+                    COALESCE(pending_store, '')
+             FROM wanted WHERE track_id IS NULL ORDER BY added DESC, id DESC",
         )?;
         let rows = q.query_map([], |r| {
             Ok(Wanted {
@@ -1842,9 +1932,90 @@ impl Library {
                 artist: r.get(2)?,
                 title: r.get(3)?,
                 page_url: r.get(4)?,
+                isrc: r.get(5)?,
+                duration: r.get(6)?,
+                pending_store: r.get(7)?,
             })
         })?;
         rows.collect()
+    }
+
+    /// Keeps what the service said of a wanted track: its ISRC and length,
+    /// which match it to the file that comes. Known values aren't wiped.
+    pub fn set_wanted_details(
+        &self,
+        page_url: &str,
+        isrc: &str,
+        duration: f64,
+    ) -> Result<(), Error> {
+        self.db.execute(
+            "UPDATE wanted SET
+                isrc = CASE WHEN ?2 != '' THEN ?2 ELSE isrc END,
+                duration = CASE WHEN ?3 > 0 THEN ?3 ELSE duration END
+             WHERE page_url = ?1",
+            params![page_url, isrc, duration],
+        )?;
+        Ok(())
+    }
+
+    /// Marks wanted tracks as being bought on `store` (Buy opened them
+    /// there), from now.
+    pub fn mark_pending(&self, ids: &[i64], store: &str) -> Result<(), Error> {
+        let mut q = self.db.prepare(
+            "UPDATE wanted SET pending_store = ?2, pending_since = ?3
+             WHERE id = ?1 AND track_id IS NULL",
+        )?;
+        let at = now();
+        for id in ids {
+            q.execute(params![id, store, at])?;
+        }
+        Ok(())
+    }
+
+    /// The wanted track a file is: by ISRC, else by title, artist and
+    /// length (within 2 seconds when both are known), tracks being bought
+    /// first. With `pending_only`, only tracks being bought count.
+    pub fn wanted_for(
+        &self,
+        artist: &str,
+        title: &str,
+        duration: f64,
+        isrc: &str,
+        pending_only: bool,
+    ) -> Result<Option<Wanted>, Error> {
+        let mut all = self.wanted()?;
+        if pending_only {
+            all.retain(|w| !w.pending_store.is_empty());
+        }
+        // Being bought first, then the rest, newest first within each.
+        all.sort_by_key(|w| w.pending_store.is_empty());
+        let key = isrc_key(isrc);
+        if !key.is_empty() {
+            if let Some(w) = all.iter().find(|w| isrc_key(&w.isrc) == key) {
+                return Ok(Some(w.clone()));
+            }
+        }
+        // An untagged file's name, "Artist - Title" (or "01 Artist - Title"),
+        // stands in for its tags.
+        let mut names = vec![(simplify(artist), simplify(title))];
+        if artist.trim().is_empty() {
+            if let Some((a, t)) = title.split_once(" - ") {
+                let a = a.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ' ');
+                names.push((simplify(a), simplify(t)));
+            }
+        }
+        Ok(all.into_iter().find(|w| {
+            let same_length =
+                w.duration <= 0.0 || duration <= 0.0 || (w.duration - duration).abs() <= 2.0;
+            same_length
+                && names.iter().any(|(artist, title)| {
+                    !title.is_empty()
+                        && simplify(&w.title) == *title
+                        && (w.artist.is_empty()
+                            || simplify(&w.artist) == *artist
+                            || (!artist.is_empty() && simplify(&w.artist).contains(artist)))
+                })
+        }))
     }
 
     pub fn remove_wanted(&self, id: i64) -> Result<(), Error> {
@@ -2223,7 +2394,9 @@ fn import_lists(
     want_streamed: bool,
     report: &mut SyncReport,
 ) -> Result<(), Error> {
-    // Deleting the folder takes everything in it along.
+    // Deleting the folder takes everything in it along, so the DJ's own
+    // lists in it move out first.
+    sets::rescue_own_lists(tx, source)?;
     tx.execute("DELETE FROM playlists WHERE source = ?1", [source])?;
     if lists.is_empty() {
         return Ok(());
@@ -2657,6 +2830,74 @@ mod tests {
         assert!(tracks.iter().all(|t| t.info.hotcues.is_empty()));
         // The import can come back in.
         assert!(lib.import("vdj", "VirtualDJ", "1", read).unwrap().is_some());
+    }
+
+    #[test]
+    fn own_lists_in_an_imported_folder_survive_the_next_import() {
+        let mut lib = Library::in_memory().unwrap();
+        let read = || {
+            Ok(ImportedLibrary {
+                tracks: Vec::new(),
+                lists: vec![ImportedList {
+                    folders: vec!["Sets".into()],
+                    name: "Friday".into(),
+                    kind: ImportedListKind::List,
+                    entries: Vec::new(),
+                }],
+            })
+        };
+        lib.import("vdj", "VirtualDJ", "1", read).unwrap().unwrap();
+        let find = |lib: &Library, name: &str| {
+            lib.playlists()
+                .unwrap()
+                .into_iter()
+                .find(|p| p.name == name)
+        };
+        let sets = find(&lib, "Sets").unwrap();
+        assert!(sets::is_imported(&sets));
+        let mine = lib
+            .create_playlist("Mine", Some(sets.id), PlaylistKind::List)
+            .unwrap();
+        lib.create_playlist("Inside", Some(mine), PlaylistKind::List)
+            .ok();
+        lib.import("vdj", "VirtualDJ", "2", read).unwrap().unwrap();
+        // Out at the top of Playlists, not taken for a crate, with what's in it.
+        let mine = find(&lib, "Mine").unwrap();
+        assert_eq!(mine.parent, None);
+        assert!(!sets::is_crate(&mine) && !sets::is_imported(&mine));
+        assert!(find(&lib, "Friday").is_some());
+    }
+
+    #[test]
+    fn adopted_imports_are_the_djs_own() {
+        let mut lib = Library::in_memory().unwrap();
+        let read = || {
+            Ok(ImportedLibrary {
+                tracks: Vec::new(),
+                lists: vec![ImportedList {
+                    folders: Vec::new(),
+                    name: "Friday".into(),
+                    kind: ImportedListKind::List,
+                    entries: Vec::new(),
+                }],
+            })
+        };
+        lib.import("vdj", "VirtualDJ", "1", read).unwrap().unwrap();
+        assert_eq!(lib.adopt_import("vdj").unwrap(), 2);
+        let lists = lib.playlists().unwrap();
+        assert!(lists.iter().all(|p| !sets::is_imported(p)));
+        // An import with no lists (as for an adopted app) leaves them.
+        lib.import("vdj", "VirtualDJ", "2", || {
+            Ok(ImportedLibrary {
+                tracks: Vec::new(),
+                lists: Vec::new(),
+            })
+        })
+        .unwrap();
+        let kept = lib.playlists().unwrap();
+        assert!(["VirtualDJ", "Friday"]
+            .iter()
+            .all(|n| kept.iter().any(|p| p.name == *n)));
     }
 
     #[test]
@@ -3541,6 +3782,97 @@ mod tests {
         assert_eq!(left, ["Bought"]);
         drop(lib);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn purchases_match_by_isrc_and_tracks_being_bought_first() {
+        let mut lib = Library::in_memory().unwrap();
+        lib.add_wanted(
+            "Spotify",
+            "Satorio",
+            "Crystal Bowls",
+            "https://open.spotify.com/track/1",
+        )
+        .unwrap();
+        lib.set_wanted_details("https://open.spotify.com/track/1", "GB-ABC-25-00001", 412.0)
+            .unwrap();
+        lib.add_wanted(
+            "TIDAL",
+            "Satorio",
+            "Crystal Bowls",
+            "https://tidal.com/browse/track/2",
+        )
+        .unwrap();
+        let ids: Vec<i64> = lib.wanted().unwrap().iter().map(|w| w.id).collect();
+        // The TIDAL one is newest; mark the Spotify one as being bought.
+        let spotify = *ids.last().unwrap();
+        lib.mark_pending(&[spotify], "bandcamp").unwrap();
+        let w = lib.wanted().unwrap();
+        assert_eq!(
+            w.iter().find(|w| w.id == spotify).unwrap().pending_store,
+            "bandcamp"
+        );
+        assert_eq!(
+            w.iter().find(|w| w.id == spotify).unwrap().isrc,
+            "GB-ABC-25-00001"
+        );
+
+        // A file of another length doesn't match by name…
+        let found = lib
+            .wanted_for("Satorio", "Crystal Bowls", 300.0, "", true)
+            .unwrap();
+        assert!(found.is_none());
+        // …but its ISRC does, whatever its name says.
+        let found = lib
+            .wanted_for(
+                "Satorio",
+                "Crystal Bowls (Original Mix)",
+                300.0,
+                "GBABC2500001",
+                true,
+            )
+            .unwrap();
+        assert_eq!(found.map(|w| w.id), Some(spotify));
+        // An untagged file named "Artist - Title".
+        let found = lib
+            .wanted_for("", "01 Satorio - Crystal Bowls", 412.5, "", true)
+            .unwrap();
+        assert_eq!(found.map(|w| w.id), Some(spotify));
+        // By name, the track being bought comes first.
+        let found = lib
+            .wanted_for("SATORIO", "Crystal Bowls", 0.0, "", false)
+            .unwrap();
+        assert_eq!(found.map(|w| w.id), Some(spotify));
+
+        let mut t = file_track(
+            "/m/Purchased/Bandcamp/Satorio/Crystal Bowls.flac",
+            "Crystal Bowls",
+        );
+        t.artist = "Satorio".into();
+        t.duration = 411.0;
+        lib.add_purchase(&t, "Bandcamp").unwrap();
+        let left = lib.wanted().unwrap();
+        assert_eq!(left.len(), 1);
+        assert_ne!(left[0].id, spotify);
+        assert!(left[0].pending_store.is_empty());
+    }
+
+    #[test]
+    fn being_bought_runs_out() {
+        let lib = Library::in_memory().unwrap();
+        lib.add_wanted("Spotify", "A", "B", "https://open.spotify.com/track/1")
+            .unwrap();
+        let id = lib.wanted().unwrap()[0].id;
+        lib.mark_pending(&[id], "juno").unwrap();
+        lib.db
+            .execute(
+                "UPDATE wanted SET pending_since = ?1",
+                [now() - (PENDING_DAYS + 1) * 86_400],
+            )
+            .unwrap();
+        let w = lib.wanted().unwrap();
+        assert_eq!(w.len(), 1);
+        assert!(w[0].pending_store.is_empty());
     }
 
     #[test]

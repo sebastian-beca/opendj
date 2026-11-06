@@ -19,7 +19,7 @@ export struct Folder {
     children: int,
     // 0 = collection, 1 = list folder, 2 = playlist, 3 = smart list, 4 = liked songs
     // or Wanted, 5 = history session, 6 = Bandcamp (in the stores list),
-    // 17 = crate, 18 = the Crates or Playlists heading, and in Files
+    // 17 = crate, 18 = the Crates or Playlists heading, 19 = a history day, and in Files
     // 1 = folder, 7 = drive, 8 = pinned folder, 9 = cloud drive
     kind: int,
     // Drawn with a line above it.
@@ -35,11 +35,21 @@ export struct Folder {
     count: int,
     // Holds library tracks, so its menu offers Analyze All.
     analysable: bool,
+    // The Collection node or one of the DJ's lists or folders in it: its
+    // menu offers Export as rekordbox XML.
+    rekordbox: bool,
     // A crate's color, an index into LibraryEdit.list-colors; -1 for none.
     color: int,
     // A crate's icon: 0 = crate, then star, heart, flame, bolt, moon, sun,
     // leaf (LIST_ICONS in the library).
     icon: int,
+    // Shown dimmed: a history set of a single song.
+    dim: bool,
+    // Another app's imported list or folder (or the Imported heading):
+    // read-only, since its next import makes it again.
+    locked: bool,
+    // The top folder of an import: its menu offers Make These Lists Mine.
+    adoptable: bool,
 }
 
 export struct TrackRow {
@@ -84,6 +94,8 @@ export struct TrackRow {
     // A streaming service's track (in a streaming playlist, or standing in
     // an imported list): which collection track it is can be changed.
     streamed: bool,
+    // Where a new set starts in a day of history: a line above it.
+    set-start: bool,
 }
 
 // One of the track list's columns. kind: 0 text, 1 the title (takes the
@@ -144,12 +156,6 @@ export struct SideRow {
     key-match: bool,
     // Or would, shifted by this many semitones (0: no shift within reach).
     key-shift: int,
-    // Automix list: how the track before mixes into this one, for the mark
-    // between them. 0 nothing to show, 1 the keys mix, 2 a semitone away,
-    // 3 they clash.
-    fit: int,
-    // And the tempo jump when it is large, e.g. "+9%".
-    jump: string,
 }
 
 // Dragging tracks between the list, the side panel, the decks and the
@@ -167,6 +173,9 @@ export global TrackDrag {
     pure callback deck-payload(deck: int) -> data-transfer;
     pure callback accepts(data: data-transfer) -> bool;
     callback drop(deck: int, data: data-transfer);
+    // Dropped on the Player bar: the first track plays now, the rest
+    // straight after it.
+    callback drop-player(data: data-transfer);
     // Dropped on the side panel's list, to go in before `index`.
     callback drop-side(index: int, data: data-transfer);
     // Files dragged in from Finder or a file manager. The system tells the
@@ -248,13 +257,22 @@ export global LibraryEdit {
     in-out property <bool> history-tab;
     // The selected node is one of the DJ's lists, so a track can be taken out.
     in property <bool> in-list;
-    // Makes a crate (0), a folder (1) or a playlist (2) and returns its row
-    // in the tree. Folders and playlists go in the folder at tree row `at`,
-    // or (-1) at the top of Playlists.
+    // Makes a crate (0), a folder (1), a playlist (2) or a folder at the top
+    // of Crates (3) and returns its row in the tree. Crates, folders and
+    // playlists go in the folder at tree row `at`, or (-1) at the top of
+    // Crates (a crate) or Playlists.
     callback create(kind: int, at: int) -> int;
     callback rename(index: int, name: string);
     callback delete(index: int);
+    // Makes the import whose top folder is at tree row `index` the DJ's own.
+    callback adopt-import(index: int);
+    // Turns the list at tree row `index` into a crate (true) or a playlist.
+    callback set-crate(index: int, crate: bool);
     pure callback accepts-drop(index: int, data: data-transfer) -> bool;
+    // A list or folder picked up at tree row `index`, and whether one
+    // dragged can go on (into) tree row `index`.
+    pure callback list-payload(index: int) -> data-transfer;
+    pure callback accepts-list-move(index: int, data: data-transfer) -> bool;
     callback drop(index: int, data: data-transfer);
     // Tracks from the side panel or a deck dropped on the open list (empty
     // or not) in the track list join it.
@@ -297,6 +315,9 @@ export global LibraryEdit {
     // Saves the list, folder, history session, album or mixed set at a
     // sidebar row as M3U8 files; asks where first.
     callback export-m3u(row: int);
+    // Saves the Collection (every track and list) or a list or folder at a
+    // sidebar row as a rekordbox XML file; asks where first.
+    callback export-rekordbox(row: int);
     // Makes a playlist from an M3U, M3U8, PLS or XSPF file the DJ picks.
     callback import-playlist-file();
     // Prepares high-quality stems for the rows `first` to `last`, one
@@ -392,7 +413,7 @@ export global FilesUi {
     // The track at a row of the list is a file on disk.
     pure callback has-file(row: int) -> bool;
     // Makes the mixed set at a row of the list into an MP3 for Mixcloud,
-    // its tracklist as chapters.
+    // its tracklist as chapters (File › Export › Mixcloud…).
     callback export-mixcloud(row: int);
     // Signs in to Mixcloud if need be and uploads the mixed set at a row,
     // with its tracklist, as a private show.
@@ -643,6 +664,49 @@ export global WantedUi {
     callback open(row: int);
 }
 
+// A store on the Buy sheet, with the tracks chosen to buy there.
+export struct BuyGroup {
+    store: string,
+    count: int,
+    // The store has these tracks; false when it's only a search to try.
+    found: bool,
+    // How many of its pages were opened.
+    opened: int,
+}
+
+// A track on the Buy sheet: the store chosen for it, and how many other
+// stores it could be bought on.
+export struct BuyRow {
+    name: string,
+    store: string,
+    found: bool,
+    others: int,
+}
+
+// Buy on Wanted rows: each track's best store, artist-direct first,
+// grouped so each store's own cart collects them for one checkout. openDJ
+// never takes payment.
+export global BuyUi {
+    in property <bool> open;
+    in property <int> count;
+    // Tracks looked up so far, of count.
+    in property <int> looked;
+    in property <[BuyGroup]> groups;
+    in property <[BuyRow]> rows;
+    // The purchase inbox: what arrives in Downloads goes to Inbox.
+    in property <bool> inbox-on;
+    in property <string> inbox-note;
+    // The Music app's folder is there to watch (macOS).
+    in property <bool> music-app-offered;
+    in property <bool> music-app-on;
+    callback start(first: int, last: int);
+    callback open-group(index: int);
+    callback switch-store(row: int);
+    callback set-inbox(on: bool);
+    callback set-music-app(on: bool);
+    callback close();
+}
+
 // Fixing which collection track a streaming track is, by hand.
 export global StreamMatch {
     // What the DJ typed to find the track, and what it found.
@@ -732,9 +796,11 @@ component MenuIcon inherits Path {
 
 // A line of a popup menu, with an icon (or the room for one) when `icon`
 // is set, a dim `hint` on the right, and a › when it opens a side panel.
-component MenuLine inherits Rectangle {
+export component MenuLine inherits Rectangle {
     in property <string> text;
-    in property <color> text-color: Theme.text;
+    // Greyed out, and does nothing when clicked.
+    in property <bool> enabled: true;
+    in property <color> text-color: enabled ? Theme.text : Theme.text-dim;
     in property <string> icon;
     in property <string> hint;
     in property <bool> submenu;
@@ -751,7 +817,7 @@ component MenuLine inherits Rectangle {
     }
     height: 26px;
     border-radius: 4px;
-    background: ta.has-hover || open ? #3a3a3d : transparent;
+    background: (ta.has-hover && enabled) || open ? #3a3a3d : transparent;
     property <length> text-x: icon != "" ? 34px : 10px;
     if icon != "": MenuIcon {
         x: 10px;
@@ -781,10 +847,16 @@ component MenuLine inherits Rectangle {
         icon: "chevron";
         color: Theme.text-dim;
     }
-    ta := TouchArea { clicked => { root.clicked(); } }
+    ta := TouchArea {
+        clicked => {
+            if root.enabled {
+                root.clicked();
+            }
+        }
+    }
 }
 
-component MenuBackground inherits Rectangle {
+export component MenuBackground inherits Rectangle {
     background: Theme.panel-raised;
     border-radius: Theme.radius;
     border-width: 1px;
@@ -793,7 +865,7 @@ component MenuBackground inherits Rectangle {
     drop-shadow-color: #000000a0;
 }
 
-component MenuSeparator inherits Rectangle {
+export component MenuSeparator inherits Rectangle {
     height: 9px;
     Rectangle { height: 1px; background: Theme.border; }
 }
@@ -1370,15 +1442,6 @@ component TrackMenu inherits PopupWindow {
                 }
             }
             if StoreUi.source == 10 && one: MenuLine {
-                icon: "download";
-                text: "Export for Mixcloud";
-                entered => { panel = 0; }
-                clicked => {
-                    FilesUi.export-mixcloud(track-row);
-                    root.close();
-                }
-            }
-            if StoreUi.source == 10 && one: MenuLine {
                 icon: "link";
                 text: "Upload to Mixcloud";
                 entered => { panel = 0; }
@@ -1646,6 +1709,29 @@ component FolderIcon inherits Rectangle {
             : icon == 7 ? "M 3 15 C 3 8 7 3 15.5 2.5 C 15.5 10 11 15 3 15 Z M 3 15 L 10 8"
             : "M 2 5 L 16 5 L 16 15 L 2 15 Z M 2 8.5 L 16 8.5 M 2 11.8 L 16 11.8";
     }
+    // Playlist: lines of a running order with a note, so it reads apart
+    // from a folder and from a crate's slatted box. Always this icon.
+    if kind == 2: Rectangle {
+        Path {
+            width: 18px;
+            height: 18px;
+            viewbox-width: 18;
+            viewbox-height: 18;
+            stroke: Theme.text;
+            stroke-width: 1.6px;
+            stroke-line-cap: round;
+            fill: transparent;
+            commands: "M 2 4 L 11 4 M 2 8.5 L 11 8.5 M 2 13 L 7.5 13 M 14.5 13.5 L 14.5 3.5 L 17 5";
+        }
+        Rectangle {
+            x: 10.6px;
+            y: 11.7px;
+            width: 4.6px;
+            height: 4.2px;
+            border-radius: 2.1px;
+            background: Theme.text;
+        }
+    }
     // Collection Health's Overview: the rail's Health icon.
     if kind == 12: Image {
         width: 18px;
@@ -1693,7 +1779,7 @@ component FolderIcon inherits Rectangle {
             commands: "M 9 3 A 6 6 0 1 1 8.99 3 Z";
         }
     }
-    if kind != 1 && kind != 6 && kind != 7 && kind != 9 && kind != 11 && kind != 12 && kind != 21 && kind != 14 && kind != 15 && kind != 16 && kind != 17 && kind != 18 && kind != 20: Text {
+    if kind != 1 && kind != 2 && kind != 6 && kind != 7 && kind != 9 && kind != 11 && kind != 12 && kind != 21 && kind != 14 && kind != 15 && kind != 16 && kind != 17 && kind != 18 && kind != 20: Text {
         text: kind == 0 || kind == 19 ? "♫" : kind == 3 ? "✦" : kind == 4 ? "♥" : kind == 5 ? "◷" : kind == 8 ? "★" : kind == 10 ? "↓" : kind == 12 ? "✚" : kind == 13 ? "◦" : "≡";
         // The collection's stages in their own colors.
         color: Theme.stage-tint(kind);
@@ -1830,7 +1916,12 @@ component RailButton inherits Rectangle {
 
 // Circling arrows at the top right of the Collection sidebar: looks for
 // new and changed tracks in the music folders now. Turns once when clicked.
-component UpdateCollectionButton inherits Rectangle {
+// The round-arrow refresh button at the top right of the side panel: Update
+// collection under Library, reload playlists under a streaming service.
+component RefreshButton inherits Rectangle {
+    in property <string> tip-title;
+    in property <string> tip-body;
+    callback activated();
     property <int> turns;
     property <bool> tip-mine;
     width: 22px;
@@ -1853,7 +1944,7 @@ component UpdateCollectionButton inherits Rectangle {
         mouse-cursor: pointer;
         clicked => {
             turns += 1;
-            LibraryEdit.update-collection();
+            activated();
         }
         changed has-hover => {
             if !self.has-hover && tip-mine {
@@ -1867,8 +1958,8 @@ component UpdateCollectionButton inherits Rectangle {
         running: uta.has-hover && !tip-mine;
         triggered => {
             tip-mine = true;
-            HoverTip.title = "Update collection";
-            HoverTip.body = "Looks for new and changed tracks in your music folders.";
+            HoverTip.title = tip-title;
+            HoverTip.body = tip-body;
             HoverTip.right-aligned = true;
             HoverTip.x = root.absolute-position.x + root.width;
             HoverTip.y = root.absolute-position.y + root.height + 6px;
@@ -1895,6 +1986,41 @@ component Switch inherits Rectangle {
     TouchArea { mouse-cursor: pointer; clicked => { toggled(); } }
 }
 
+// A section title in the rail's "..." menu.
+component SourceMenuTitle inherits Rectangle {
+    in property <string> text;
+    height: 28px;
+    Text {
+        x: 6px;
+        y: parent.height - self.height - 4px;
+        text: root.text;
+        color: Theme.text-dim;
+        font-size: 11px;
+        font-weight: 600;
+    }
+}
+
+// One source in the rail's "..." menu, with its switch.
+component SourceMenuRow inherits HorizontalLayout {
+    in property <int> kind;
+    in property <string> name;
+    in property <bool> on;
+    callback toggled();
+    height: 40px;
+    padding-left: 6px;
+    padding-right: 6px;
+    spacing: 10px;
+    VerticalLayout { alignment: center; SourceIcon { kind: root.kind; } }
+    Text { text: root.name; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
+    VerticalLayout {
+        alignment: center;
+        Switch {
+            on: root.on;
+            toggled => { root.toggled(); }
+        }
+    }
+}
+
 // The column of music sources down the left edge. The "..."
 // under them picks which sources are shown; the collection always is.
 component SourceRail inherits Rectangle {
@@ -1903,12 +2029,16 @@ component SourceRail inherits Rectangle {
     callback picked(source: int);
     callback health-picked();
     callback shown-changed(source: int, on: bool);
-    property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud", "Instruments"];
-    // The order the rail shows them in: Albums, Mixed Sets and Instruments
-    // after Files. OneLibrary (7) isn't a source: openDJ writes it when
+    property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Recordings", "Mixcloud", "Instruments"];
+    // The order the rail shows them in: the built-in sources (Albums,
+    // Recordings and Instruments after Files), then the external ones. OneLibrary (7) isn't a source: openDJ writes it when
     // exporting to a USB stick. Bandcamp (5) and Beatport (6) wait for the
     // stores, later.
     property <[int]> order: [0, 1, 9, 10, 12, 2, 3, 4, 8, 11];
+    // The "..." menu splits them the same way, under a title each: openDJ's
+    // own sources, then the services, servers and add-ons outside it.
+    property <[int]> built-in: [1, 9, 10, 12];
+    property <[int]> external: [2, 3, 4, 8, 11];
     // What each source is, for its tooltip.
     property <[string]> tips: [
         "Every track in your library.",
@@ -1921,7 +2051,7 @@ component SourceRail inherits Rectangle {
         "Browse a OneLibrary collection.",
         "Search and browse SoundCloud.",
         "The albums in your Albums folder.",
-        "The long mixes in your Mixed Sets folder.",
+        "Your own recordings and the long mixes in your Recordings folder.",
         "Search and browse Mixcloud.",
         "The Groove Box, instrument plugins and inputs, to drag onto a deck."
     ];
@@ -2005,6 +2135,7 @@ component SourceRail inherits Rectangle {
         list := VerticalLayout {
             padding: 8px;
             spacing: 2px;
+            SourceMenuTitle { text: "Built-in"; }
             // Collection Health, which sits under the collection.
             HorizontalLayout {
                 height: 40px;
@@ -2024,23 +2155,23 @@ component SourceRail inherits Rectangle {
                     }
                 }
             }
-            for i in order: HorizontalLayout {
-                visible: i > 0;
-                height: i > 0 ? 40px : 0px;
-                padding-left: 6px;
-                padding-right: 6px;
-                spacing: 10px;
-                VerticalLayout { alignment: center; SourceIcon { kind: i; } }
-                Text { text: names[i]; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
-                VerticalLayout {
-                    alignment: center;
-                    Switch {
-                        on: shown[i];
-                        toggled => {
-                            shown[i] = !shown[i];
-                            shown-changed(i, shown[i]);
-                        }
-                    }
+            for i in built-in: SourceMenuRow {
+                kind: i;
+                name: names[i];
+                on: shown[i];
+                toggled => {
+                    shown[i] = !shown[i];
+                    shown-changed(i, shown[i]);
+                }
+            }
+            SourceMenuTitle { text: "External"; }
+            for i in external: SourceMenuRow {
+                kind: i;
+                name: names[i];
+                on: shown[i];
+                toggled => {
+                    shown[i] = !shown[i];
+                    shown-changed(i, shown[i]);
                 }
             }
             for p[j] in SourceUi.sources: HorizontalLayout {
@@ -2207,6 +2338,31 @@ component FilesOptions inherits VerticalLayout {
     if FilesUi.status != "": Text { text: FilesUi.status; color: Theme.text-dim; font-size: 12px; wrap: word-wrap; }
 }
 
+// A small closed padlock, for read-only rows.
+component Padlock inherits Rectangle {
+    in property <color> tint;
+    width: 10px;
+    height: 12px;
+    Path {
+        x: 1.5px;
+        y: 0px;
+        width: 7px;
+        height: 6px;
+        viewbox-width: 7;
+        viewbox-height: 6;
+        stroke: tint;
+        stroke-width: 1.4px;
+        fill: transparent;
+        commands: "M 0.7 6 L 0.7 3.5 A 2.8 2.8 0 0 1 6.3 3.5 L 6.3 6";
+    }
+    Rectangle {
+        y: 5px;
+        height: 7px;
+        border-radius: 1.5px;
+        background: tint;
+    }
+}
+
 component FolderTree inherits Rectangle {
     in property <[Folder]> folders;
     in property <int> current;
@@ -2223,6 +2379,7 @@ component FolderTree inherits Rectangle {
     callback toggle(index: int);
     callback spotify-connect(client-id: string);
     callback spotify-disconnect();
+    callback spotify-refresh();
     // The smart list whose search the popup is editing, and the search.
     property <int> rename-index: -1;
     property <string> rename-text;
@@ -2262,6 +2419,9 @@ component FolderTree inherits Rectangle {
     property <int> menu-kind;
     property <bool> menu-editable;
     property <bool> menu-analysable;
+    property <bool> menu-locked;
+    property <bool> menu-adoptable;
+    property <bool> menu-rekordbox;
     property <int> menu-color;
     property <int> menu-icon;
     property <length> menu-y;
@@ -2282,6 +2442,31 @@ component FolderTree inherits Rectangle {
                 clicked => {
                     account-menu.close();
                     spotify-disconnect();
+                }
+            }
+        }
+    }
+    // + on Crates: a crate or a folder for crates.
+    crate-menu := PopupWindow {
+        x: 130px;
+        y: add-y;
+        width: 180px;
+        close-policy: close-on-click-outside;
+        MenuBackground {}
+        VerticalLayout {
+            padding: 6px;
+            MenuLine {
+                text: "Crate";
+                clicked => {
+                    name-in-place(LibraryEdit.create(0, -1));
+                    crate-menu.close();
+                }
+            }
+            MenuLine {
+                text: "Crate Folder";
+                clicked => {
+                    name-in-place(LibraryEdit.create(3, -1));
+                    crate-menu.close();
                 }
             }
         }
@@ -2327,11 +2512,15 @@ component FolderTree inherits Rectangle {
             }
         }
     }
+    // A line shown with `if` lives in its own part of the popup, which
+    // close() frees at once: anything after close() in its handler that
+    // reaches outside the popup (menu-index, name-in-place, another popup)
+    // silently does nothing. So each line acts first and closes last.
     folder-menu := PopupWindow {
         x: 40px;
         y: menu-y;
         // Wider for a crate's color and icon rows.
-        width: menu-editable && menu-kind == 17 ? 252px : 170px;
+        width: (menu-editable && menu-kind == 17) || (source == 0 && menu-locked) ? 230px : 170px;
         close-policy: close-on-click-outside;
         MenuBackground {}
         VerticalLayout {
@@ -2376,6 +2565,24 @@ component FolderTree inherits Rectangle {
                     folder-menu.close();
                 }
             }
+            // Another app's lists: say why they can't be changed, and offer
+            // to keep them as the DJ's own.
+            if source == 0 && menu-locked: Text {
+                x: 10px;
+                height: 24px;
+                text: "Read-only: the import updates it";
+                color: Theme.text-dim;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+            if source == 0 && menu-adoptable: MenuLine {
+                text: "Make These Lists Mine";
+                clicked => {
+                    LibraryEdit.adopt-import(menu-index);
+                    folder-menu.close();
+                }
+            }
+            if source == 0 && menu-locked: MenuSeparator {}
             if menu-analysable: MenuLine {
                 text: "Analyze All";
                 clicked => {
@@ -2397,6 +2604,13 @@ component FolderTree inherits Rectangle {
                     folder-menu.close();
                 }
             }
+            if menu-rekordbox: MenuLine {
+                text: "Export as rekordbox XML…";
+                clicked => {
+                    LibraryEdit.export-rekordbox(menu-index);
+                    folder-menu.close();
+                }
+            }
             // One of the DJ's lists, a crate or a history session.
             if source == 0 && StoreUi.streaming && (menu-kind == 2 || menu-kind == 5 || menu-kind == 17): MenuLine {
                 text: "Export to Spotify Playlist";
@@ -2406,17 +2620,24 @@ component FolderTree inherits Rectangle {
                 }
             }
             if menu-editable && menu-kind == 1: MenuLine {
+                text: "New Crate";
+                clicked => {
+                    name-in-place(LibraryEdit.create(0, menu-index));
+                    folder-menu.close();
+                }
+            }
+            if menu-editable && menu-kind == 1: MenuLine {
                 text: "New Playlist";
                 clicked => {
-                    folder-menu.close();
                     name-in-place(LibraryEdit.create(2, menu-index));
+                    folder-menu.close();
                 }
             }
             if menu-editable && menu-kind == 1: MenuLine {
                 text: "New Folder";
                 clicked => {
-                    folder-menu.close();
                     name-in-place(LibraryEdit.create(1, menu-index));
+                    folder-menu.close();
                 }
             }
             if (menu-analysable || menu-kind == 1) && menu-editable: MenuSeparator {}
@@ -2491,11 +2712,20 @@ component FolderTree inherits Rectangle {
                 Rectangle { horizontal-stretch: 1; }
             }
             if menu-editable && menu-kind == 17: MenuSeparator {}
+            // A crate keeps no order and each track once; a playlist keeps
+            // an order.
+            if menu-editable && (menu-kind == 2 || menu-kind == 17): MenuLine {
+                text: menu-kind == 2 ? "Make It a Crate" : "Make It a Playlist";
+                clicked => {
+                    LibraryEdit.set-crate(menu-index, menu-kind == 2);
+                    folder-menu.close();
+                }
+            }
             if menu-editable: MenuLine {
                 text: "Rename…";
                 clicked => {
-                    folder-menu.close();
                     name-in-place(menu-index);
+                    folder-menu.close();
                 }
             }
             if menu-editable && menu-kind == 3: MenuLine {
@@ -2503,8 +2733,8 @@ component FolderTree inherits Rectangle {
                 clicked => {
                     rename-index = menu-index;
                     rename-text = LibraryEdit.rule-at(menu-index);
-                    folder-menu.close();
                     rename-popup.show();
+                    folder-menu.close();
                 }
             }
             if menu-editable: MenuLine {
@@ -2643,7 +2873,7 @@ component FolderTree inherits Rectangle {
         }
         if tab == 0 && source >= 2 && source != 9 && source != 10 && source < 12 && !(StoreUi.streaming && StoreUi.stream(source)) && !(StoreUi.stores && source == 5): Placeholder {
             vertical-stretch: 1;
-            title: ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud"][source];
+            title: ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Recordings", "Mixcloud"][source];
             text: "Coming soon.";
         }
         if (tab == 0 && (source == 0 || source == 1 || source == 9 || source == 10 || (StoreUi.stores && source == 5) || (StoreUi.streaming && StoreUi.stream(source) && spotify-connected))) || (tab == 1 && folders.length > 0): VerticalLayout {
@@ -2651,10 +2881,22 @@ component FolderTree inherits Rectangle {
             HorizontalLayout {
                 padding-left: 8px;
                 height: 26px;
-                Text { text: tab == 1 ? "Sessions" : source == 1 ? "Folders" : source == 0 ? (HealthUi.view ? "Collection Health" : "Library") : ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud"][source]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                Text { text: tab == 1 ? "Sessions" : source == 1 ? "Folders" : source == 0 ? (HealthUi.view ? "Collection Health" : "Library") : ["", "", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Recordings", "Mixcloud"][source]; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
                 if tab == 0 && source == 0 && !HealthUi.view: VerticalLayout {
                     alignment: center;
-                    UpdateCollectionButton { }
+                    RefreshButton {
+                        tip-title: "Update collection";
+                        tip-body: "Looks for new and changed tracks in your music folders.";
+                        activated => { LibraryEdit.update-collection(); }
+                    }
+                }
+                if tab == 0 && StoreUi.streaming && StoreUi.stream(source) && spotify-connected: VerticalLayout {
+                    alignment: center;
+                    RefreshButton {
+                        tip-title: "Refresh";
+                        tip-body: "Reloads your playlists from the service.";
+                        activated => { spotify-refresh(); }
+                    }
                 }
             }
             ListView {
@@ -2674,27 +2916,37 @@ component FolderTree inherits Rectangle {
                     height: 34px;
                     border-radius: Theme.radius;
                     background: drop.has-drag ? Theme.selection.transparentize(0.4) : i == current ? (focused ? Theme.selection : Theme.selection-idle) : (ta.has-hover ? #232326 : transparent);
-                    ta := TouchArea {
-                        clicked => { select(i); }
-                        double-clicked => { toggle(i); }
-                        pointer-event(e) => {
-                            if (((f.editable || f.analysable || source == 1 || StoreUi.stream(source)) && tab == 0) || (tab == 1 && f.kind == 5)) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
-                                menu-index = i;
-                                menu-name = f.name;
-                                menu-kind = f.kind;
-                                menu-editable = f.editable;
-                                menu-color = f.color;
-                                menu-icon = f.icon;
-                                menu-analysable = f.analysable && (source == 0 || source == 9 || source == 10);
-                                menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
-                                if source == 1 { files-menu.show(); } else { folder-menu.show(); }
+                    // The DJ's own lists and folders drag onto a folder, or a
+                    // heading, to move there.
+                    DragArea {
+                        enabled: f.editable && tab == 0 && source == 0;
+                        data: LibraryEdit.list-payload(i);
+                        allow-copy: true;
+                        ta := TouchArea {
+                            clicked => { select(i); }
+                            double-clicked => { toggle(i); }
+                            pointer-event(e) => {
+                                if (((f.editable || f.analysable || f.adoptable || source == 1 || StoreUi.stream(source)) && tab == 0) || (tab == 1 && f.kind == 5)) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                                    menu-index = i;
+                                    menu-name = f.name;
+                                    menu-kind = f.kind;
+                                    menu-editable = f.editable;
+                                    menu-locked = f.locked;
+                                    menu-adoptable = f.adoptable;
+                                    menu-color = f.color;
+                                    menu-icon = f.icon;
+                                    menu-analysable = f.analysable && (source == 0 || source == 9 || source == 10);
+                                    menu-rekordbox = f.rekordbox && source == 0;
+                                    menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
+                                    if source == 1 { files-menu.show(); } else { folder-menu.show(); }
+                                }
                             }
                         }
                     }
                     // Tracks dragged from the list onto one of the DJ's lists or
                     // crates join it; dropped on a stage, they move there.
                     drop := DropArea {
-                        can-drop(e) => { ((f.editable && (f.kind == 2 || f.kind == 17)) || f.stage) && LibraryEdit.accepts-drop(i, e.data) ? DragAction.copy : DragAction.none }
+                        can-drop(e) => { (((f.editable && (f.kind == 2 || f.kind == 17)) || f.stage) && LibraryEdit.accepts-drop(i, e.data)) || ((f.kind == 1 || f.kind == 18) && LibraryEdit.accepts-list-move(i, e.data)) ? DragAction.copy : DragAction.none }
                         dropped(e) => {
                             LibraryEdit.drop(i, e.data);
                             TrackDrag.active = false;
@@ -2722,7 +2974,8 @@ component FolderTree inherits Rectangle {
                             TouchArea { clicked => { toggle(i); } }
                         }
                         // The Crates and Playlists headings have no icon.
-                        if f.kind != 18: VerticalLayout { alignment: center; FolderIcon { kind: f.kind; tint: f.color; icon: f.icon; } }
+                        // Nor do the history tab's days.
+                        if f.kind != 18 && f.kind != 19: VerticalLayout { alignment: center; FolderIcon { kind: f.kind; tint: f.color; icon: f.icon; } }
                         // A new or renamed list is named right here.
                         if i == naming-row: VerticalLayout {
                             alignment: center;
@@ -2762,9 +3015,9 @@ component FolderTree inherits Rectangle {
                         }
                         if i != naming-row: Text {
                             text: f.name;
-                            color: i == current ? Theme.on-row-selection : f.kind == 18 ? Theme.text-dim : Theme.stage-labels ? Theme.stage-tint(f.kind) : Theme.text;
+                            color: i == current ? Theme.on-row-selection : f.kind == 18 || f.dim ? Theme.text-dim : Theme.stage-labels ? Theme.stage-tint(f.kind) : Theme.text;
                             font-size: f.kind == 18 ? 13px : 15px;
-                            font-weight: f.kind == 18 ? 700 : 400;
+                            font-weight: f.kind == 18 ? 700 : f.kind == 19 ? 600 : 400;
                             vertical-alignment: center;
                             overflow: elide;
                             horizontal-stretch: 1;
@@ -2776,19 +3029,25 @@ component FolderTree inherits Rectangle {
                             vertical-alignment: center;
                         }
                         if f.count >= 0: Rectangle { width: 2px; }
+                        // An import's top folder: read-only until made the DJ's own.
+                        if f.adoptable && i != naming-row: VerticalLayout {
+                            alignment: center;
+                            Padlock { tint: i == current ? Theme.on-row-selection : Theme.text-dim; }
+                        }
+                        if f.adoptable: Rectangle { width: 4px; }
                         // New crate, or a new folder in Playlists.
-                        if f.kind == 18 && tab == 0: Rectangle {
+                        if f.kind == 18 && tab == 0 && !f.locked: Rectangle {
                             width: 26px;
                             Text { text: "+"; color: pta.has-hover ? Theme.accent : (i == current ? Theme.on-row-selection : Theme.text); font-size: 20px; vertical-alignment: center; }
                             pta := TouchArea {
                                 mouse-cursor: pointer;
                                 clicked => {
                                     // Playlists asks what to make.
+                                    add-y = self.absolute-position.y - root.absolute-position.y + self.height;
                                     if f.name != "Crates" {
-                                        add-y = self.absolute-position.y - root.absolute-position.y + self.height;
                                         add-menu.show();
                                     } else {
-                                        name-in-place(LibraryEdit.create(0, -1));
+                                        crate-menu.show();
                                     }
                                 }
                             }
@@ -3770,8 +4029,6 @@ component TrackList inherits Rectangle {
     in property <string> duration;
     // A signed-in streaming service: the refresh button fetches its
     // playlists again.
-    in property <bool> refreshable;
-    callback refresh();
     // Shown instead of the list when a source has nothing to list yet.
     in property <string> empty-title;
     // The list is store results, not songs.
@@ -3824,12 +4081,19 @@ component TrackList inherits Rectangle {
     // picked tracks off the list.
     wanted-menu := PopupWindow {
         x: min(menu-x, root.width - 230px);
-        y: min(menu-y, root.height - 110px);
+        y: min(menu-y, root.height - 140px);
         width: 220px;
         close-policy: close-on-click-outside;
         MenuBackground {}
         VerticalLayout {
             padding: 6px;
+            MenuLine {
+                text: menu-count > 1 ? "Buy " + menu-count + " Tracks…" : "Buy…";
+                clicked => {
+                    BuyUi.start(menu-row, menu-row);
+                    wanted-menu.close();
+                }
+            }
             if menu-count == 1: MenuLine {
                 text: "Open Page";
                 clicked => {
@@ -4090,32 +4354,6 @@ component TrackList inherits Rectangle {
                         }
                     }
                 }
-                if refreshable: VerticalLayout {
-                    alignment: center;
-                    Rectangle {
-                        width: 28px;
-                        height: 28px;
-                        border-radius: 14px;
-                        border-width: 1.5px;
-                        border-color: refresh-ta.has-hover ? Theme.text-dim : Theme.border;
-                        Path {
-                            width: 16px;
-                            height: 16px;
-                            viewbox-width: 20;
-                            viewbox-height: 20;
-                            stroke: refresh-ta.has-hover ? Theme.text : Theme.text-dim;
-                            stroke-width: 2px;
-                            stroke-line-cap: round;
-                            stroke-line-join: round;
-                            fill: transparent;
-                            commands: "M 15.5 7 A 6 6 0 1 0 16 10 M 16 3.5 L 16 7.5 L 12 7.5";
-                        }
-                        refresh-ta := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => { refresh(); }
-                        }
-                    }
-                }
                 // Filter: shows or hides the filter bar; lit while the list
                 // is narrowed by a search or a filter.
                 VerticalLayout {
@@ -4280,6 +4518,11 @@ component TrackList inherits Rectangle {
                             }
                         }
                     }
+                }
+                if r.set-start: Rectangle {
+                    y: 0px;
+                    height: 1px;
+                    background: Theme.lilac.transparentize(0.5);
                 }
                 if r.has-color && ColumnUi.color-mode == 1: Rectangle {
                     x: 0px;
@@ -4801,6 +5044,142 @@ component FixNamesDialog inherits Rectangle {
     }
 }
 
+// A switch line on the Buy sheet: the whole line is clickable.
+component BuyTick inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback toggled();
+    height: 20px;
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: start;
+        VerticalLayout {
+            alignment: center;
+            Tick { on: root.on; }
+        }
+        Text { text: root.text; color: Theme.text; font-size: 12px; vertical-alignment: center; }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+    }
+}
+
+// Buy: the Wanted tracks picked, grouped by the store chosen for each.
+// Opening a store opens its pages ten at a time; the DJ adds each to the
+// store's cart and checks out there.
+component BuyDialog inherits Rectangle {
+    background: #000000a0;
+    TouchArea { }
+    Rectangle {
+        width: min(parent.width - 32px, 600px);
+        height: min(parent.height - 32px, col.preferred-height);
+        background: Theme.browser;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #000000c0;
+        col := VerticalLayout {
+            padding: 18px;
+            spacing: 12px;
+            VerticalLayout {
+                spacing: 2px;
+                Text { text: BuyUi.count == 1 ? "Buy 1 track" : "Buy " + BuyUi.count + " tracks"; color: Theme.text; font-size: 18px; font-weight: 700; }
+                Text {
+                    text: BuyUi.looked < BuyUi.count
+                        ? "Looking in the stores… " + BuyUi.looked + " of " + BuyUi.count
+                        : "Add each page to the store's cart, then check out once on that store. Payment happens on the store, never in openDJ.";
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+            // The stores, best first.
+            for g[i] in BuyUi.groups: Rectangle {
+                height: 40px;
+                border-radius: 6px;
+                background: Theme.panel-raised;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 8px;
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        Text { text: g.store; color: Theme.text; font-size: 13px; font-weight: 600; overflow: elide; }
+                        Text {
+                            text: (g.count == 1 ? "1 track" : g.count + " tracks") + (g.found ? "" : " · not found, opens a search");
+                            color: Theme.text-dim;
+                            font-size: 11px;
+                            overflow: elide;
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    VerticalLayout {
+                        alignment: center;
+                        HealthButton {
+                            text: !g.found ? (g.opened >= g.count && g.opened > 0 ? "Search Again" : g.count == 1 ? "Search" : "Search " + min(10, g.count - g.opened))
+                                : g.opened >= g.count ? "Open Again"
+                                : g.opened > 0 ? "Open Next " + min(10, g.count - g.opened)
+                                : g.count > 10 ? "Open First 10"
+                                : g.count == 1 ? "Open" : "Open " + g.count;
+                            primary: g.opened < g.count && g.found;
+                            clicked => { BuyUi.open-group(i); }
+                        }
+                    }
+                }
+            }
+            // The tracks: click the store to pick another.
+            Flickable {
+                height: min(BuyUi.rows.length * 28px, 196px);
+                content-height: BuyUi.rows.length * 28px;
+                for r[i] in BuyUi.rows: Rectangle {
+                    y: i * 28px;
+                    height: 28px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text { text: r.name; color: Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                        Rectangle {
+                            width: store-text.preferred-width + 18px;
+                            height: 22px;
+                            y: 3px;
+                            border-radius: 11px;
+                            background: store-ta.has-hover && r.others > 0 ? Theme.panel-raised.brighter(0.3) : Theme.control;
+                            store-text := Text {
+                                text: r.store == "" ? "…" : (r.found ? "" : "Try ") + r.store + (r.others > 0 ? "  ⇄" : "");
+                                color: r.found ? Theme.text : Theme.text-dim;
+                                font-size: 11px;
+                            }
+                            store-ta := TouchArea {
+                                mouse-cursor: r.others > 0 ? pointer : default;
+                                clicked => { BuyUi.switch-store(i); }
+                            }
+                        }
+                    }
+                }
+            }
+            VerticalLayout {
+                spacing: 6px;
+                BuyTick {
+                    text: "Bring purchases into Inbox";
+                    on: BuyUi.inbox-on;
+                    toggled => { BuyUi.set-inbox(!BuyUi.inbox-on); }
+                }
+                if BuyUi.music-app-offered: BuyTick {
+                    text: "Also take purchases from the Music app";
+                    on: BuyUi.music-app-on;
+                    toggled => { BuyUi.set-music-app(!BuyUi.music-app-on); }
+                }
+                Text { text: BuyUi.inbox-note; color: Theme.text-dim; font-size: 11px; wrap: word-wrap; }
+            }
+            HorizontalLayout {
+                alignment: end;
+                HealthButton { text: "Done"; clicked => { BuyUi.close(); } }
+            }
+        }
+    }
+}
+
 component SidePanel inherits Rectangle {
     in property <[SideRow]> rows;
     in property <string> total;
@@ -5129,27 +5508,6 @@ component SidePanel inherits Rectangle {
                                 }
                             }
                         }
-                        // How the track above mixes into this one: a short line
-                        // across the top of the row, green when the keys mix,
-                        // dim lilac a semitone away, gray when they clash, with
-                        // a large tempo jump named beside it.
-                        if tab == 0 && r.fit > 0: Rectangle {
-                            x: 4px;
-                            y: -1px;
-                            width: row-height - 8px;
-                            height: 2px;
-                            border-radius: 1px;
-                            background: r.fit == 1 ? Theme.automix : r.fit == 2 ? Theme.lilac-dim : Theme.key-far;
-                        }
-                        if tab == 0 && r.jump != "": Text {
-                            x: row-height;
-                            y: -6px;
-                            height: 12px;
-                            text: r.jump;
-                            color: Theme.text-dim;
-                            font-size: 9px;
-                            font-weight: 600;
-                        }
                         // Cover, then two lines: title and tempo; artist, key and length.
                         if r.heading == "": HorizontalLayout {
                             padding: 4px;
@@ -5320,7 +5678,7 @@ export component Browser inherits HorizontalLayout {
     // "Go to" lines).
     property <bool> history-tab: LibraryEdit.history-tab;
     changed history-tab => { library-tab = history-tab ? 1 : 0; }
-    property <[string]> source-names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Mixed Sets", "Mixcloud", "Instruments"];
+    property <[string]> source-names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Recordings", "Mixcloud", "Instruments"];
     // Which sources the rail shows, by index; picked under its "...".
     in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true, true, true, true, true];
     callback source-shown-changed(source: int, on: bool);
@@ -5377,6 +5735,7 @@ export component Browser inherits HorizontalLayout {
         toggle(i) => { toggle-folder(i); }
         spotify-connect(id) => { spotify-connect(id); }
         spotify-disconnect => { spotify-disconnect(); }
+        spotify-refresh => { spotify-refresh(); }
     }
     // The Collection Health page, or the bar over one check's tracks.
     property <bool> cleanup-page: source == 0 && (CleanupUi.open || CleanupUi.genres-open);
@@ -5401,8 +5760,6 @@ export component Browser inherits HorizontalLayout {
             ascending: ascending;
             folder-name: listing ? folder-name : source-names[source];
             duration: listing ? folder-duration : "";
-            refreshable: StoreUi.streaming && StoreUi.stream(source) && spotify-connected;
-            refresh => { spotify-refresh(); }
             empty-title: source == 0 ? "" : listing ? (list-notice != "" ? " " : "") : source-names[source];
             empty-text: source >= 2 && source != 9 && source != 10 && source < 12 && !(StoreUi.streaming && StoreUi.stream(source)) && !(StoreUi.stores && source == 5) ? "Coming soon."
                 : StoreUi.stream(source) && !spotify-connected ? "Sign in on the left to see your playlists here."
@@ -5434,6 +5791,10 @@ export component Browser inherits HorizontalLayout {
             height: 100%;
         }
         if FixNamesUi.open: FixNamesDialog {
+            width: 100%;
+            height: 100%;
+        }
+        if BuyUi.open: BuyDialog {
             width: 100%;
             height: 100%;
         }

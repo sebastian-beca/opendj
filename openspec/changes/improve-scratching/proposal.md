@@ -8,9 +8,9 @@ Pads and scratching must feel right for 1.0. Jog latency, platter feel and a fas
 
 ## What Changes
 
-- Measure and lower jog-to-sound latency.
+- Measure and lower jog-to-sound latency: a latency probe test, a quicker twin of Mixxx's scratch filter that leads while the hand changes speed fast, and 1 ms timers on Windows.
 - Tune platter inertia and back-spin per controller.
-- Crossfader cut-in under 1 mm on the Scratch curve, with a cut-in setting.
+- Crossfader cut-in under 1 mm on the Scratch curve, with a cut-in setting (`[Mixer Profile],xFaderCutIn`).
 
 ## Capabilities
 
@@ -21,6 +21,7 @@ None.
 ### Modified Capabilities
 
 - `deck-transport`: scratch feel tuned and measured
+- `mixer`: Scratch curve cut-in setting
 
 ## Out of Scope
 

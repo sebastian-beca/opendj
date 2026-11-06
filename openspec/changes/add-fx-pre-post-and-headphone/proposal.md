@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.6 · Buy it from the artist** (moved from v0.5 at the 0.5.0 release)
+Planned for: **v2.0** (moved from v0.5 at the 0.5.0 release, then from v0.6 on 2026-11-06)
 
 ## Why
 
