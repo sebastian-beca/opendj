@@ -20,13 +20,13 @@
 //! every step inside it starts its sounds on the frame it falls on, so the
 //! timing is exact to the sample whatever the buffer size.
 //!
-//! **Patterns.** Four grooves (A to D), each nine rows of 16 steps, kept in
+//! **Patterns.** Four grooves (A to D), each nine rows (tracks) of 16 steps, kept in
 //! `[GrooveN],patternG_rowR` as 16-bit numbers (bit s on = step s+1 plays)
 //! with `patternG_rowR_soft` and `patternG_rowR_accent` marking the steps
 //! that play softly (half as loud) or accented (a quarter louder).
 //! `[GrooveN],groove` picks the one playing (0-3); a change while playing
 //! waits for the next bar. Row N plays the kits' Nth sound
-//! ([`kits::ROLES`]: kick, snare, hat, open hat, clap, rim, cowbell, crash,
+//! ([`kits::ROLES`]: kick, snare, closed hat, open hat, clap, rim, cowbell, crash,
 //! ride) unless `rowR_sound` picks another.
 //!
 //! **Library.** `genre` and `pattern` (1-based, 0 none) name a groove of
@@ -36,9 +36,11 @@
 //! is B, C's is D), and while `chain` is on the two take turns, a bar
 //! each. `groove_playing` is the one sounding now. Each row has `rowR_mute`,
 //! `rowR_solo`, `rowR_level` (0-1.5), `rowR_pitch` (−12 to +12 semitones)
-//! and `rowR_decay` (0-1, 1 = the sound's own length), and `rowR_sound`
-//! picks which of the kit's sounds the row plays; `rowR_preview` plays it
-//! once, now. `[GrooveN],kit` picks the
+//! and `rowR_decay` (0-1, 1 = the sound's own length), `rowR_tone` (−1 to
+//! 1: left a low-pass, right a high-pass, centre off) and `rowR_pan` (−1
+//! left to 1 right), and `rowR_sound` picks which of the kit's sounds the
+//! row plays; `rowR_preview` plays it once, now, and `rowR_meter` (0-1)
+//! shows how loud the row sounds, for the screen. `[GrooveN],kit` picks the
 //! kit. `[GrooveN],position` is the step playing (0-15), −1 when stopped.
 //!
 //! **Duck.** With `[GrooveN],duck_deck` set to another deck (1-4), that
@@ -98,7 +100,11 @@ pub struct GrooveControls {
     pub level: [ControlHandle; ROWS],
     pub pitch: [ControlHandle; ROWS],
     pub decay: [ControlHandle; ROWS],
+    pub tone: [ControlHandle; ROWS],
+    pub pan: [ControlHandle; ROWS],
     pub sound: [ControlHandle; ROWS],
+    /// How loud the row sounds now (0-1), for the screen.
+    pub meter: [ControlHandle; ROWS],
     /// Plays the row's sound once, now (a step clicked while stopped).
     pub preview: [ControlHandle; ROWS],
 }
@@ -206,6 +212,36 @@ impl GrooveControls {
                     0.0,
                     1.0,
                     Behavior::Linear,
+                )
+            }),
+            tone: rows(&|r| {
+                reg.create(
+                    g,
+                    &format!("row{}_tone", r + 1),
+                    0.0,
+                    -1.0,
+                    1.0,
+                    Behavior::Linear,
+                )
+            }),
+            pan: rows(&|r| {
+                reg.create(
+                    g,
+                    &format!("row{}_pan", r + 1),
+                    0.0,
+                    -1.0,
+                    1.0,
+                    Behavior::Linear,
+                )
+            }),
+            meter: rows(&|r| {
+                reg.create(
+                    g,
+                    &format!("row{}_meter", r + 1),
+                    0.0,
+                    0.0,
+                    1.0,
+                    Behavior::Indicator,
                 )
             }),
             sound: rows(&|r| {
@@ -402,7 +438,14 @@ struct Voice {
     sample: Option<Arc<Sample>>,
     pos: f64,
     rate: f64,
-    gain: f32,
+    /// Left and right gain (level and pan).
+    gain: [f32; 2],
+    /// The tone filter: a one-pole low-pass's coefficient (0 = off), its
+    /// state per side, and whether the output is what it lets through
+    /// (low-pass) or what it takes away (high-pass).
+    tone: f32,
+    high: bool,
+    z: [f32; 2],
     /// The decay envelope and how fast it falls each frame.
     env: f32,
     fall: f32,
@@ -422,7 +465,7 @@ impl Voice {
         }
         let t = (self.pos - i as f64) as f32;
         let (a, b) = (s.frame(i), s.frame(i + 1));
-        let mut g = self.gain * self.env;
+        let mut g = self.env;
         if self.fade > 0 {
             g *= self.fade as f32 / CHOKE_FRAMES as f32;
             self.fade -= 1;
@@ -432,10 +475,14 @@ impl Voice {
         }
         self.env *= self.fall;
         self.pos += self.rate;
-        [
-            (a[0] + (b[0] - a[0]) * t) * g,
-            (a[1] + (b[1] - a[1]) * t) * g,
-        ]
+        let mut x = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+        if self.tone > 0.0 {
+            for (x, z) in x.iter_mut().zip(self.z.iter_mut()) {
+                *z += self.tone * (*x - *z);
+                *x = if self.high { *x - *z } else { *z };
+            }
+        }
+        [x[0] * g * self.gain[0], x[1] * g * self.gain[1]]
     }
 }
 
@@ -605,6 +652,7 @@ impl GrooveBox {
             }
         }
         let mut next_hit = 0;
+        let mut peak = [0f32; ROWS];
         for (f, frame) in out.iter_mut().enumerate() {
             while next_hit < n && self.hits[next_hit].frame == f {
                 let Hit { row, gain, .. } = self.hits[next_hit];
@@ -617,15 +665,22 @@ impl GrooveBox {
             if !self.sounding_fast() {
                 continue;
             }
-            for voices in &mut self.voices {
+            for (row, voices) in self.voices.iter_mut().enumerate() {
                 for v in voices.iter_mut() {
                     if v.sample.is_some() {
                         let s = v.next();
                         frame[0] += s[0];
                         frame[1] += s[1];
+                        peak[row] = peak[row].max(s[0].abs()).max(s[1].abs());
                     }
                 }
             }
+        }
+        // Meters rise at once and fall over about a tenth of a second.
+        let fall = (-(frames as f64) / (0.1 * self.rate)).exp();
+        for (m, p) in self.c.meter.iter().zip(peak) {
+            let v = (p as f64).min(1.0).max(m.get() * fall);
+            m.set(if v < 1e-3 { 0.0 } else { v });
         }
     }
 
@@ -654,16 +709,44 @@ impl GrooveBox {
             std::mem::swap(now, tail);
             tail.fade = CHOKE_FRAMES;
         }
+        let level = self.c.level[row].get() as f32 * gain;
+        let pan = self.c.pan[row].get().clamp(-1.0, 1.0) as f32;
+        // Equal power, so a sound panned to one side is as loud as centred.
+        let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
+        let (tone, high) = tone_filter(self.c.tone[row].get(), self.rate);
         *now = Voice {
             sample: Some(sample),
             pos: 0.0,
             rate: 2f64.powf(self.c.pitch[row].get() / 12.0),
-            gain: self.c.level[row].get() as f32 * gain,
+            gain: [
+                level * angle.cos() * std::f32::consts::SQRT_2,
+                level * angle.sin() * std::f32::consts::SQRT_2,
+            ],
+            tone,
+            high,
+            z: [0.0; 2],
             env: 1.0,
             fall,
             fade: 0,
         };
     }
+}
+
+/// The tone knob's filter: centre off, left a low-pass from 20 kHz down to
+/// 200 Hz, right a high-pass from 20 Hz up to 4 kHz. Returns the one-pole
+/// coefficient (0 = off) and whether it is a high-pass.
+fn tone_filter(tone: f64, rate: f64) -> (f32, bool) {
+    let t = tone.clamp(-1.0, 1.0);
+    if t.abs() < 0.02 {
+        return (0.0, false);
+    }
+    let cutoff = if t < 0.0 {
+        20_000.0 * (0.01f64).powf(-t)
+    } else {
+        20.0 * 200f64.powf(t)
+    };
+    let a = 1.0 - (-std::f64::consts::TAU * cutoff.min(rate * 0.45) / rate).exp();
+    (a as f32, t > 0.0)
 }
 
 /// The groove's source: the leading deck's tempo and beat while it plays,
@@ -849,6 +932,65 @@ mod tests {
         g.render(true, own(120.0), &mut out, |f| kicks.push(f));
         assert!(kicks.is_empty());
         assert!(out[out.len() - 100..].iter().all(|s| s[0].abs() < 1e-3));
+    }
+
+    /// Renders one bar of only `row`'s first step and returns the output.
+    fn one_hit(g: &mut GrooveBox, row: usize) -> Vec<[f32; 2]> {
+        for p in 0..GROOVES {
+            for r in 0..ROWS {
+                g.c.patterns[p][r].set(if r == row { 1.0 } else { 0.0 });
+            }
+        }
+        let mut out = vec![[0.0; 2]; 6000];
+        g.render(true, own(120.0), &mut out, |_| {});
+        out
+    }
+
+    fn energy(out: &[[f32; 2]], side: usize) -> f32 {
+        out.iter().map(|s| s[side] * s[side]).sum()
+    }
+
+    #[test]
+    fn eight_tracks_each_play_their_sound() {
+        for row in 0..ROWS {
+            let (_reg, mut g) = groove_box();
+            let out = one_hit(&mut g, row);
+            assert!(energy(&out, 0) > 1e-3, "track {} is silent", row + 1);
+            assert!(g.c.meter[row].get() > 0.0, "track {} meter", row + 1);
+            for other in (0..ROWS).filter(|&r| r != row) {
+                assert_eq!(g.c.meter[other].get(), 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn pan_moves_a_track_to_one_side() {
+        let (_reg, mut g) = groove_box();
+        g.c.pan[1].set(-1.0);
+        let out = one_hit(&mut g, 1);
+        assert!(energy(&out, 0) > 1e-3);
+        assert!(
+            energy(&out, 1) < energy(&out, 0) * 1e-6,
+            "right side silent"
+        );
+    }
+
+    #[test]
+    fn tone_darkens_or_thins_a_sound() {
+        // The hat through the low-pass loses most of its energy; through a
+        // full high-pass the kick does.
+        let (_reg, mut g) = groove_box();
+        let open = energy(&one_hit(&mut g, 2), 0);
+        let (_reg, mut g) = groove_box();
+        g.c.tone[2].set(-1.0);
+        let dark = energy(&one_hit(&mut g, 2), 0);
+        assert!(dark < open * 0.5, "{dark} vs {open}");
+        let (_reg, mut g) = groove_box();
+        let kick = energy(&one_hit(&mut g, 0), 0);
+        let (_reg, mut g) = groove_box();
+        g.c.tone[0].set(1.0);
+        let thin = energy(&one_hit(&mut g, 0), 0);
+        assert!(thin < kick * 0.5, "{thin} vs {kick}");
     }
 
     #[test]

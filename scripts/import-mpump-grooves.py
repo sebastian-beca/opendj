@@ -17,7 +17,7 @@ from pathlib import Path
 ROWS = {
     36: "kick",
     38: "snare",
-    42: "hat",
+    42: "closed-hat",
     46: "open-hat",
     50: "clap",
     37: "rim",
@@ -26,7 +26,7 @@ ROWS = {
     49: "crash",
     51: "ride",
 }
-ORDER = ["kick", "snare", "hat", "open-hat", "clap", "rim", "cowbell", "crash", "ride"]
+ORDER = ["kick", "snare", "closed-hat", "open-hat", "clap", "rim", "cowbell", "crash", "ride"]
 
 GENRE_NAMES = {
     "idm": "IDM",
@@ -53,8 +53,11 @@ def main():
     patterns = json.loads((src / "patterns-t8-drums.json").read_text())
     catalog = json.loads((src / "catalog.json").read_text())["t8"]["drum_genres"]
     out = [
-        "# Drum patterns from mpump by gdamdam (https://github.com/gdamdam/mpump),",
-        "# converted by scripts/import-mpump-grooves.py. See NOTICE for their licence.",
+        "# SPDX-License-Identifier: AGPL-3.0-only",
+        "# Drum patterns from mpump, Copyright gdamdam (https://github.com/gdamdam/mpump),",
+        "# under the GNU Affero General Public License, version 3. Converted from its",
+        "# server/public/data/patterns-t8-drums.json and catalog.json by",
+        "# scripts/import-mpump-grooves.py. See NOTICE.",
         "",
     ]
     for genre in catalog:
@@ -75,7 +78,7 @@ def main():
             out.append(f"groove {info['name']} | {about}")
             for name in ORDER:
                 if any(c != "." for c in rows[name]):
-                    out.append(f"{name:<9} {''.join(rows[name])}")
+                    out.append(f"{name:<10} {''.join(rows[name])}")
             out.append("")
     Path(sys.argv[2]).write_text("\n".join(out))
 

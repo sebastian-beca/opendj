@@ -30,7 +30,15 @@ use crate::sampler::Sample;
 
 /// The sounds every kit has, in the Groove Box's row order.
 pub const ROLES: [&str; 9] = [
-    "Kick", "Snare", "Hat", "Open hat", "Clap", "Rim", "Cowbell", "Crash", "Ride",
+    "Kick",
+    "Snare",
+    "Closed hat",
+    "Open hat",
+    "Clap",
+    "Rim",
+    "Cowbell",
+    "Crash",
+    "Ride",
 ];
 
 /// The most sounds a kit has (the nine roles and its own).
@@ -129,13 +137,13 @@ fn sound(k: usize, n: usize, name: &str, sr: f32) -> Vec<f32> {
         ("Analog", "Kick") => plaits_kick(sr, 52.0, 0.45, 0.5, 0.25, 0.2),
         ("Analog", "Snare") => plaits_snare(sr, 190.0, 0.5, 0.45, 0.6),
         ("Analog", "Clap") => plaits_snare(sr, 330.0, 0.8, 0.35, 0.95),
-        ("Analog", "Hat") => plaits_hat(sr, false, 0.25, 0.3),
+        ("Analog", "Closed hat") => plaits_hat(sr, false, 0.25, 0.3),
         ("Analog", "Open hat") => plaits_hat(sr, false, 0.6, 0.3),
         ("Analog", "Low tom") => plaits_kick(sr, 95.0, 0.5, 0.45, 0.1, 0.0),
         ("Analog", "High tom") => plaits_kick(sr, 150.0, 0.55, 0.4, 0.1, 0.0),
         ("Synthetic", "Kick") => plaits_synth_kick(sr, 50.0),
         ("Synthetic", "Snare") => plaits_synth_snare(sr),
-        ("Synthetic", "Hat") => plaits_hat(sr, true, 0.2, 0.6),
+        ("Synthetic", "Closed hat") => plaits_hat(sr, true, 0.2, 0.6),
         ("Synthetic", "Open hat") => plaits_hat(sr, true, 0.6, 0.6),
         ("Synthetic", "Low tom") => plaits_kick(sr, 100.0, 0.6, 0.4, 0.3, 0.1),
         ("Synthetic", "High tom") => plaits_kick(sr, 160.0, 0.65, 0.35, 0.3, 0.1),
@@ -148,10 +156,10 @@ fn sound(k: usize, n: usize, name: &str, sr: f32) -> Vec<f32> {
         (_, "Snare") => snare(sr, [240.0, 420.0], 0.05, 0.1, 0.65, seed),
         ("Punch", "Clap") => clap(sr, 0.22, seed),
         (_, "Clap") => clap(sr, 0.16, seed),
-        ("Punch", "Hat") => hat(sr, 0.05, 8000.0, seed),
-        ("Tin", "Hat") => hat(sr, 0.03, 9000.0, seed),
-        ("Dub", "Hat") => hat(sr, 0.035, 7000.0, seed),
-        (_, "Hat") => hat(sr, 0.045, 7500.0, seed),
+        ("Punch", "Closed hat") => hat(sr, 0.05, 8000.0, seed),
+        ("Tin", "Closed hat") => hat(sr, 0.03, 9000.0, seed),
+        ("Dub", "Closed hat") => hat(sr, 0.035, 7000.0, seed),
+        (_, "Closed hat") => hat(sr, 0.045, 7500.0, seed),
         ("Punch", "Open hat") => hat(sr, 0.35, 7500.0, seed),
         (_, "Open hat") => hat(sr, 0.28, 7000.0, seed),
         (_, "Ride") => ride(sr, seed),

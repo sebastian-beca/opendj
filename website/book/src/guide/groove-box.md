@@ -12,41 +12,69 @@ track.
    stopped and ejected first.
 2. Press **PLAY** in the Groove Box. It starts on the next downbeat of the
    playing deck, so it is in time from the first hit.
-3. Pick a groove from **Grooves ▾**: Four to the floor, Off-beat hats,
-   Breakbeat, Half time, Electro or Minimal.
+3. Pick a genre (Basics, Techno, House, Drum & Bass and more) and then a
+   groove from the menu beside it. Each groove has a line saying what it is.
 
 To go back to a normal deck, load a track onto the deck, or press EJECT
 on the stopped Groove Box.
 
-## Change the steps
+## Sequencer, Synth and Mixer
 
-Each row is one sound, with 16 squares for the 16 steps of a bar. A lit
-square plays the sound on that step. Click a square to add or remove a hit;
-when the Groove Box is stopped, the click also plays the sound so you can
-hear it. The outlined column is the step that's playing.
+The Groove Box fills the whole deck. Along the top are PLAY, the kit menu,
+the genre, the groove, **Chain ▾**, **A** to **D**, **SWING** and three
+tabs.
 
-- Click a row's name to select it; click it again to choose another sound
-  for that row from the kit.
-- **M** mutes a row, **S** solos it.
-- **LEVEL**, **PITCH** and **DECAY** change the selected row's sound.
-  **SWING** delays every other step for a looser feel.
+**SEQUENCER** shows nine tracks, each in its own color, with 16 squares
+for the 16 steps of a bar: kick, snare, closed hat, open hat, clap, rim,
+cowbell, crash and ride. The icon on the left shows the track's sound; click it
+to hear the sound, and hover over it to see its name. A lit square plays the
+sound on that step. Click a square to add or remove a hit; when the Groove
+Box is stopped, the click also plays the sound. Right-click a lit square to
+make the hit accented (brighter, a little louder), then soft (paler, half as
+loud), then normal again. A track with no hits stays
+dimmed, and a track's icon lights up as it plays. The brighter column is the
+step that's playing. **M** mutes a track, **S** solos it. **SWING** delays
+every other step for a looser feel.
+
+**SYNTH** shows each track's sound. Click the sound's name to pick another
+from the kit. **PITCH** tunes it up or down by up to an octave, **DECAY**
+makes it shorter, and **TONE** darkens it (turned left) or thins it (turned
+right).
+
+**MIXER** has a strip for each track: **PAN** places it left or right, the
+fader sets its level beside a meter, and **M** and **S** mute and solo it.
 
 ## Kits and grooves
 
-The kit menu at the top left has four kits, all made by openDJ's own sound
-generator, so they are free to use anywhere:
+The kit menu at the top left has six kits, all synthesised, so they are
+free to use anywhere:
 
+- **Analog** and **Synthetic**: kick, snare, clap and hats from the drum
+  models of Mutable Instruments Plaits, with two toms each.
 - **Boom**: a deep, long kick and soft analogue drums, 808-style.
 - **Punch**: a short, punchy kick and bright hats, 909-style, for house and
   techno.
 - **Tin**: small, ticking rhythm-box drums, 606-style.
 - **Dub**: a soft kick, a rimshot and a chord stab, for dub techno.
 
-**A**, **B**, **C** and **D** are four grooves you can switch between. A new
-one starts at the next bar, so the switch is always in time. Picking from
-**Grooves ▾** loads that groove into the one that's playing.
+Every kit plays the same nine tracks, so any groove sounds right on any kit.
+Kits with more sounds (toms, shaker, chord) offer them in each track's sound
+menu in **SYNTH**.
 
-Your grooves, kit and knob settings are kept when you quit.
+**A**, **B**, **C** and **D** are four grooves you can switch between. A new
+one starts at the next bar, so the switch is always in time. Picking a
+groove loads it into the one you picked.
+
+The grooves come in genres. **Basics** has openDJ's own six; the other
+genres (techno, house, drum & bass, breakbeat, ambient, dubstep and more, 400
+grooves in all) are drum patterns from
+[mpump](https://github.com/gdamdam/mpump), used under its licence (AGPL-3.0).
+
+**Chain ▾** picks a second groove from the same genre. It goes into the
+groove after the one you picked (A's partner is B, C's is D), and the two
+take turns, a bar each, until you set Chain to Off.
+
+Your grooves, kit, sounds and mixer settings are kept when you quit.
 
 ## Timing
 
@@ -56,7 +84,7 @@ The Groove Box follows, in this order:
 2. Ableton Link, when it is on (see [Ableton Link](link.md)).
 3. Its own tempo, 120 BPM, when nothing else is playing.
 
-The header says **in time with the mix** while it follows a deck or Link. If
+The deck header shows the tempo, with **in time with the mix** while it follows a deck or Link. If
 the leading deck jumps (a hot cue or beat jump), the Groove Box moves to the
 new beat at its next bar rather than mid-bar.
 

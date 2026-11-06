@@ -91,10 +91,13 @@ pub struct Genre {
     pub grooves: Vec<Groove>,
 }
 
-/// The files the library is read from, in order. More genres come as more
-/// files (`scripts/import-mpump-grooves.py` writes one from mpump's
-/// patterns).
-const FILES: [&str; 1] = [include_str!("../data/grooves/basics.txt")];
+/// The files the library is read from, in order: openDJ's own grooves,
+/// then mpump's (AGPL-3.0, see NOTICE; written by
+/// `scripts/import-mpump-grooves.py`).
+const FILES: [&str; 2] = [
+    include_str!("../data/grooves/basics.txt"),
+    include_str!("../data/grooves/mpump.txt"),
+];
 
 /// Every genre, Basics first.
 pub fn library() -> &'static [Genre] {
