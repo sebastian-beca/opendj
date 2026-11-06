@@ -55,7 +55,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/sebastian-beca/opendj.git
-        tag: v0.5.0
+        tag: v0.5.1
         # Filled in on submission; Flathub's bot updates tag and commit for
         # each new GitHub release.
         commit: 0000000000000000000000000000000000000000
