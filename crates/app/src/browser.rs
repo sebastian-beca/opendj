@@ -4360,6 +4360,19 @@ impl Browser {
                 .map(|p| p as i32)
                 .unwrap_or(-1);
             app.set_current_folder(current);
+            // File › Export works on the list picked here, as its menu does.
+            let node = self.nodes.get(self.current_node).filter(|_| current >= 0);
+            let kind = node.map_or(-1, |n| n.kind);
+            let analysable = node.is_some_and(|n| !n.history && Self::analysable(&n.contents))
+                && matches!(self.tree, COLLECTION | ALBUMS | MIXED_SETS);
+            crate::app_menu::set_exports(crate::app_menu::Exports {
+                m3u: analysable || (self.tree == COLLECTION && kind == KIND_HISTORY),
+                usb: analysable,
+                spotify: self.tree == COLLECTION
+                    && STREAMING_ENABLED
+                    && matches!(kind, KIND_LIST | KIND_HISTORY | KIND_CRATE),
+                mixcloud: self.tree == MIXED_SETS,
+            });
             let name = match self.nodes.get(self.current_node) {
                 Some(n) => n.title.clone().unwrap_or_else(|| n.name.clone()),
                 None if self.tree == FILES => "Files".into(),

@@ -782,9 +782,11 @@ component MenuIcon inherits Path {
 
 // A line of a popup menu, with an icon (or the room for one) when `icon`
 // is set, a dim `hint` on the right, and a › when it opens a side panel.
-component MenuLine inherits Rectangle {
+export component MenuLine inherits Rectangle {
     in property <string> text;
-    in property <color> text-color: Theme.text;
+    // Greyed out, and does nothing when clicked.
+    in property <bool> enabled: true;
+    in property <color> text-color: enabled ? Theme.text : Theme.text-dim;
     in property <string> icon;
     in property <string> hint;
     in property <bool> submenu;
@@ -801,7 +803,7 @@ component MenuLine inherits Rectangle {
     }
     height: 26px;
     border-radius: 4px;
-    background: ta.has-hover || open ? #3a3a3d : transparent;
+    background: (ta.has-hover && enabled) || open ? #3a3a3d : transparent;
     property <length> text-x: icon != "" ? 34px : 10px;
     if icon != "": MenuIcon {
         x: 10px;
@@ -831,10 +833,16 @@ component MenuLine inherits Rectangle {
         icon: "chevron";
         color: Theme.text-dim;
     }
-    ta := TouchArea { clicked => { root.clicked(); } }
+    ta := TouchArea {
+        clicked => {
+            if root.enabled {
+                root.clicked();
+            }
+        }
+    }
 }
 
-component MenuBackground inherits Rectangle {
+export component MenuBackground inherits Rectangle {
     background: Theme.panel-raised;
     border-radius: Theme.radius;
     border-width: 1px;
@@ -843,7 +851,7 @@ component MenuBackground inherits Rectangle {
     drop-shadow-color: #000000a0;
 }
 
-component MenuSeparator inherits Rectangle {
+export component MenuSeparator inherits Rectangle {
     height: 9px;
     Rectangle { height: 1px; background: Theme.border; }
 }

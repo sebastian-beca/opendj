@@ -1,5 +1,5 @@
-//! Settings… (⌘,) in the macOS app menu, and an Edit menu with Undo (⌘Z)
-//! and Find (⌘F).
+//! The app's menus ([`crate::app_menu::MENUS`]) in the macOS menu bar:
+//! Settings… (⌘,) in the app menu, then File, Edit… after it.
 //! Slint builds the app menu itself (About, Services, Hide, Quit) with no
 //! way to add to it, so the items are added to the native menu once it
 //! exists.
@@ -12,15 +12,14 @@ use objc2::{define_class, msg_send, sel, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{NSApplication, NSEventType, NSMenu, NSMenuItem};
 use objc2_foundation::{NSObject, NSString};
 
+use crate::app_menu::{shown, state, Action, Entry, MENUS};
+
 thread_local! {
-    /// What Settings… does, and the object the menu item calls.
-    static OPEN: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
-    static TARGET: RefCell<Option<Retained<SettingsTarget>>> = const { RefCell::new(None) };
-    /// What Undo does, and its menu item, renamed for what it takes back.
-    static UNDO: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
-    static UNDO_ITEM: RefCell<Option<Retained<NSMenuItem>>> = const { RefCell::new(None) };
-    /// What Find does: into the library search.
-    static FIND: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
+    /// What a picked item does, and the object the items call.
+    static RUN: RefCell<Option<Box<dyn Fn(Action)>>> = RefCell::new(None);
+    static TARGET: RefCell<Option<Retained<MenuTarget>>> = const { RefCell::new(None) };
+    /// Every item, by what it does, to rename or grey out.
+    static ITEMS: RefCell<Vec<(Action, Retained<NSMenuItem>)>> = const { RefCell::new(Vec::new()) };
 }
 
 define_class!(
@@ -28,23 +27,15 @@ define_class!(
     // doesn't implement Drop.
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
-    #[name = "OpenDJSettingsTarget"]
-    struct SettingsTarget;
+    #[name = "OpenDJMenuTarget"]
+    struct MenuTarget;
 
-    impl SettingsTarget {
-        #[unsafe(method(openSettings:))]
-        fn open_settings(&self, _sender: Option<&AnyObject>) {
-            OPEN.with(|o| {
-                if let Some(open) = o.borrow().as_ref() {
-                    open();
-                }
-            });
-        }
-
-        #[unsafe(method(undoLastChange:))]
-        fn undo_last_change(&self, _sender: Option<&AnyObject>) {
-            // ⌘Z also reaches the window, which undoes there (or lets a text
-            // field undo its typing), so only a click on the item counts.
+    impl MenuTarget {
+        #[unsafe(method(runMenuAction:))]
+        fn run_menu_action(&self, sender: Option<&AnyObject>) {
+            // The shortcut also reaches the window, which does the work
+            // there (or lets a text field take ⌘Z for its typing), so only
+            // a click on the item counts.
             if let Some(mtm) = MainThreadMarker::new() {
                 let key = NSApplication::sharedApplication(mtm)
                     .currentEvent()
@@ -53,116 +44,120 @@ define_class!(
                     return;
                 }
             }
-            UNDO.with(|u| {
-                if let Some(undo) = u.borrow().as_ref() {
-                    undo();
-                }
-            });
-        }
-
-        #[unsafe(method(findInLibrary:))]
-        fn find_in_library(&self, _sender: Option<&AnyObject>) {
-            // Going to the search twice (the item and the window both see
-            // ⌘F) does no harm.
-            FIND.with(|f| {
-                if let Some(find) = f.borrow().as_ref() {
-                    find();
+            let Some(item) = sender.and_then(|s| s.downcast_ref::<NSMenuItem>()) else {
+                return;
+            };
+            let Some(action) = Action::from_id(item.tag() as i32) else {
+                return;
+            };
+            RUN.with(|r| {
+                if let Some(run) = r.borrow().as_ref() {
+                    run(action);
                 }
             });
         }
     }
 );
 
-/// Adds Settings… under About in the app menu, calling `open` when picked.
-/// Returns false if the menu isn't there yet, to try again later.
-pub fn add_settings_item(open: impl Fn() + 'static) -> bool {
+fn new_item(
+    mtm: MainThreadMarker,
+    target: &MenuTarget,
+    action: Action,
+    title: &str,
+    key: &str,
+) -> Retained<NSMenuItem> {
+    // SAFETY: the selector is one MenuTarget implements, and the target is
+    // kept alive in TARGET for as long as the menu exists.
+    let item = unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(
+            NSMenuItem::alloc(mtm),
+            &NSString::from_str(title),
+            Some(sel!(runMenuAction:)),
+            &NSString::from_str(key),
+        )
+    };
+    unsafe { item.setTarget(Some(target)) };
+    item.setTag(action.id() as isize);
+    ITEMS.with(|i| i.borrow_mut().push((action, item.clone())));
+    item
+}
+
+fn fill(mtm: MainThreadMarker, target: &MenuTarget, menu: &NSMenu, entries: &'static [Entry]) {
+    for e in shown(entries) {
+        match e {
+            Entry::Item { action, key, .. } => {
+                // As things stand: Undo named for what it takes back, the
+                // exports greyed out without a list to work on.
+                let (title, enabled) = state(*action);
+                let item = new_item(mtm, target, *action, &title, key.unwrap_or(""));
+                item.setEnabled(enabled);
+                menu.addItem(&item);
+            }
+            Entry::Separator => menu.addItem(&NSMenuItem::separatorItem(mtm)),
+            Entry::Submenu { title, entries } => {
+                let sub = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str(title));
+                sub.setAutoenablesItems(false);
+                fill(mtm, target, &sub, entries);
+                let holder = NSMenuItem::new(mtm);
+                holder.setTitle(&NSString::from_str(title));
+                holder.setSubmenu(Some(&sub));
+                menu.addItem(&holder);
+            }
+        }
+    }
+}
+
+/// Adds Settings… under About in the app menu and the File, Edit… menus
+/// after it, each item calling `run`. Returns false if the menu bar isn't
+/// there yet, to try again later.
+pub fn install(run: impl Fn(Action) + 'static) -> bool {
     let Some(mtm) = MainThreadMarker::new() else {
         return false;
     };
     let app = NSApplication::sharedApplication(mtm);
-    let Some(app_menu) = app
-        .mainMenu()
-        .and_then(|m| m.itemAtIndex(0))
-        .and_then(|i| i.submenu())
-    else {
+    let Some(main) = app.mainMenu() else {
         return false;
     };
-    OPEN.with(|o| *o.borrow_mut() = Some(Box::new(open)));
-    let target: Retained<SettingsTarget> = {
-        let this = SettingsTarget::alloc(mtm).set_ivars(());
+    let Some(app_menu) = main.itemAtIndex(0).and_then(|i| i.submenu()) else {
+        return false;
+    };
+    RUN.with(|r| *r.borrow_mut() = Some(Box::new(run)));
+    let target: Retained<MenuTarget> = {
+        let this = MenuTarget::alloc(mtm).set_ivars(());
         // SAFETY: NSObject's init, on a freshly allocated object.
         unsafe { msg_send![super(this), init] }
     };
-    // SAFETY: the selector is one SettingsTarget implements, and the
-    // target is kept alive in TARGET for as long as the menu exists.
-    let item = unsafe {
-        NSMenuItem::initWithTitle_action_keyEquivalent(
-            NSMenuItem::alloc(mtm),
-            &NSString::from_str("Settings…"),
-            Some(sel!(openSettings:)),
-            &NSString::from_str(","),
-        )
-    };
-    unsafe { item.setTarget(Some(&target)) };
     // About, then a line, then Settings… and a line, as in other Mac apps.
+    let settings = new_item(mtm, &target, Action::Settings, "Settings…", ",");
     let at = 2.min(app_menu.numberOfItems());
-    app_menu.insertItem_atIndex(&item, at);
+    app_menu.insertItem_atIndex(&settings, at);
     app_menu.insertItem_atIndex(&NSMenuItem::separatorItem(mtm), at + 1);
-    // An Edit menu after the app menu, with Undo.
-    let edit = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("Edit"));
-    edit.setAutoenablesItems(false);
-    // SAFETY: as for Settings… above.
-    let undo = unsafe {
-        NSMenuItem::initWithTitle_action_keyEquivalent(
-            NSMenuItem::alloc(mtm),
-            &NSString::from_str("Undo"),
-            Some(sel!(undoLastChange:)),
-            &NSString::from_str("z"),
-        )
-    };
-    unsafe { undo.setTarget(Some(&target)) };
-    undo.setEnabled(false);
-    edit.addItem(&undo);
-    // SAFETY: as for Settings… above.
-    let find = unsafe {
-        NSMenuItem::initWithTitle_action_keyEquivalent(
-            NSMenuItem::alloc(mtm),
-            &NSString::from_str("Find"),
-            Some(sel!(findInLibrary:)),
-            &NSString::from_str("f"),
-        )
-    };
-    unsafe { find.setTarget(Some(&target)) };
-    edit.addItem(&NSMenuItem::separatorItem(mtm));
-    edit.addItem(&find);
-    let holder = NSMenuItem::new(mtm);
-    holder.setSubmenu(Some(&edit));
-    if let Some(main) = app.mainMenu() {
-        main.insertItem_atIndex(&holder, 1.min(main.numberOfItems()));
+    // File, Edit… after the app menu, in order.
+    let mut at = 1.min(main.numberOfItems());
+    for m in MENUS {
+        if shown(m.entries).is_empty() {
+            continue;
+        }
+        let menu = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str(m.title));
+        menu.setAutoenablesItems(false);
+        fill(mtm, &target, &menu, m.entries);
+        let holder = NSMenuItem::new(mtm);
+        holder.setSubmenu(Some(&menu));
+        main.insertItem_atIndex(&holder, at);
+        at += 1;
     }
-    UNDO_ITEM.with(|u| *u.borrow_mut() = Some(undo));
     TARGET.with(|t| *t.borrow_mut() = Some(target));
     true
 }
 
-/// What Edit › Undo does when picked.
-pub fn on_undo(undo: impl Fn() + 'static) {
-    UNDO.with(|u| *u.borrow_mut() = Some(Box::new(undo)));
-}
-
-/// What Edit › Find does when picked.
-pub fn on_find(find: impl Fn() + 'static) {
-    FIND.with(|f| *f.borrow_mut() = Some(Box::new(find)));
-}
-
-/// Names Edit › Undo for what it would take back ("Undo Send to In Prep
-/// (3 tracks)"), or greys it out when `text` is empty.
-pub fn set_undo_text(text: &str) {
-    UNDO_ITEM.with(|u| {
-        if let Some(item) = u.borrow().as_ref() {
-            let title = if text.is_empty() { "Undo" } else { text };
-            item.setTitle(&NSString::from_str(title));
-            item.setEnabled(!text.is_empty());
+/// Renames an item and greys it out or back in.
+pub fn set_item(action: Action, title: &str, enabled: bool) {
+    ITEMS.with(|items| {
+        for (a, item) in items.borrow().iter() {
+            if *a == action {
+                item.setTitle(&NSString::from_str(title));
+                item.setEnabled(enabled);
+            }
         }
     });
 }

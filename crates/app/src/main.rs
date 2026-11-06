@@ -36,6 +36,7 @@ use smooth::SmoothClock;
 slint::include_modules!();
 
 mod analysis_queue;
+mod app_menu;
 mod apple_music;
 mod art;
 mod audio_plugins;
@@ -1246,10 +1247,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // Settings… (⌘,) in the macOS app menu, which only exists once the
-    // event loop runs, so keep trying until it's there.
+    // File and Edit: the ☰ menu on Windows and Linux, and the native menu
+    // bar on macOS, which only exists once the event loop runs, so keep
+    // trying until it's there.
+    app_menu::install(&app);
     #[cfg(target_os = "macos")]
-    let _settings_menu = {
+    let _mac_menu = {
         let weak = app.as_weak();
         let timer = slint::Timer::default();
         let added = std::rc::Rc::new(std::cell::Cell::new(false));
@@ -1261,26 +1264,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return;
                 }
                 let weak = weak.clone();
-                let undo_weak = weak.clone();
-                let find_weak = weak.clone();
-                added.set(mac_menu::add_settings_item(move || {
+                added.set(mac_menu::install(move |action| {
                     if let Some(app) = weak.upgrade() {
-                        let prefs = app.global::<Preferences>();
-                        if !prefs.get_open() {
-                            prefs.invoke_show(prefs.get_page());
-                        }
+                        app_menu::run(&app, action);
                     }
                 }));
-                mac_menu::on_undo(move || {
-                    if let Some(app) = undo_weak.upgrade() {
-                        app.global::<LibraryEdit>().invoke_undo_stage();
-                    }
-                });
-                mac_menu::on_find(move || {
-                    if let Some(app) = find_weak.upgrade() {
-                        app.invoke_focus_search();
-                    }
-                });
             },
         );
         timer
