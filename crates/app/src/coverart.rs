@@ -5,7 +5,7 @@
 //! runs on its own thread and reports covers as it finds them. Analyze
 //! Track also takes the first online cover on its own, see [`first_online`].
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
@@ -161,9 +161,25 @@ fn big_enough(data: &[u8], min: u32) -> bool {
 }
 
 fn send(tx: &Sender<Event>, source: &str, data: Vec<u8>) {
-    let Ok(image) = image::load_from_memory(&data) else {
-        return;
-    };
+    if let Some(f) = found(source, data) {
+        let _ = tx.send(Event::Found(f));
+    }
+}
+
+/// The picture in the file at `path` as a cover the DJ picked, scaled
+/// down to [`BATCH_SIZE`] when bigger, so it doesn't bloat every track it
+/// goes into; Err says why it can't be one.
+pub fn from_file(path: &Path) -> Result<Found, String> {
+    let data = std::fs::read(path).map_err(|e| format!("Couldn't read the file: {e}"))?;
+    largest(vec![data])
+        .and_then(|data| found("File", data))
+        .ok_or_else(|| "That file isn't a JPEG or PNG picture.".to_string())
+}
+
+/// `data` (an image file's bytes) as a cover found at `source`, with its
+/// size and a thumbnail; `None` if it isn't a picture.
+pub fn found(source: &str, data: Vec<u8>) -> Option<Found> {
+    let image = image::load_from_memory(&data).ok()?;
     let (width, height) = (image.width(), image.height());
     let small = if width.max(height) > THUMB {
         image.thumbnail(THUMB, THUMB)
@@ -171,7 +187,7 @@ fn send(tx: &Sender<Event>, source: &str, data: Vec<u8>) {
         image
     };
     let rgba = small.to_rgba8();
-    let _ = tx.send(Event::Found(Found {
+    Some(Found {
         source: source.into(),
         data,
         width,
@@ -181,7 +197,7 @@ fn send(tx: &Sender<Event>, source: &str, data: Vec<u8>) {
             height: rgba.height(),
             rgba: rgba.into_raw(),
         },
-    }));
+    })
 }
 
 /// A small square picture from `url` (a result's cover in a source's
@@ -476,6 +492,29 @@ mod tests {
             }
         }
         assert_eq!(found, [("Folder".to_string(), 600, 500, 240)]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn reads_a_picked_picture_file() {
+        let dir = std::env::temp_dir().join(format!("opendj-coverfile-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let big = dir.join("big.png");
+        image::RgbaImage::from_pixel(2048, 1024, image::Rgba([1, 2, 3, 255]))
+            .save(&big)
+            .unwrap();
+        let f = from_file(&big).unwrap();
+        assert_eq!((f.source.as_str(), f.width, f.height), ("File", 1024, 512));
+        let small = dir.join("small.png");
+        image::RgbaImage::from_pixel(500, 500, image::Rgba([1, 2, 3, 255]))
+            .save(&small)
+            .unwrap();
+        let f = from_file(&small).unwrap();
+        assert_eq!(f.data, std::fs::read(&small).unwrap());
+        let text = dir.join("notes.txt");
+        std::fs::write(&text, b"not a picture").unwrap();
+        assert!(from_file(&text).is_err());
+        assert!(from_file(&dir.join("gone.jpg")).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

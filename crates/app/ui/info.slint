@@ -120,6 +120,12 @@ export global TrackInfo {
     in property <[CoverChoice]> covers;
     in property <bool> cover-searching;
     callback find-covers();
+    // The cover picked in the dialog (an index into covers), -1 none.
+    in-out property <int> cover-picked: -1;
+    // Why a picked file can't be a cover; empty when it can.
+    in property <string> cover-note;
+    // Asks for a picture file, which joins the covers first, picked.
+    callback load-cover-file();
     // Look up online: the track shown, its finds waiting for Apply; or
     // the tracks shown, in the review table.
     callback look-up();
@@ -683,7 +689,7 @@ component PreviewBar inherits HorizontalLayout {
 
 // Covers found for the track, to pick one and save it to the tags.
 component CoverDialog inherits Rectangle {
-    property <int> picked: -1;
+    property <int> picked: TrackInfo.cover-picked;
     background: Theme.panel-raised;
     border-radius: 8px;
     border-width: 1px;
@@ -737,7 +743,7 @@ component CoverDialog inherits Rectangle {
                         Text { text: c.size; color: Theme.text-dim; font-size: 11px; horizontal-alignment: center; }
                     }
                     pick := TouchArea {
-                        clicked => { picked = i; }
+                        clicked => { TrackInfo.cover-picked = i; }
                         double-clicked => {
                             TrackInfo.save-cover(i);
                         }
@@ -745,7 +751,7 @@ component CoverDialog inherits Rectangle {
                 }
                 if TrackInfo.covers.length == 0: Text {
                     width: 400px;
-                    text: TrackInfo.cover-searching ? "Looking for covers…" : "No covers found. Check the artist and album, then search again.";
+                    text: TrackInfo.cover-searching ? "Looking for covers…" : "No covers found. Check the artist and album, then search again, or load a picture from a file.";
                     color: Theme.text-dim;
                     font-size: 13px;
                     vertical-alignment: center;
@@ -757,7 +763,7 @@ component CoverDialog inherits Rectangle {
             spacing: 8px;
             Text {
                 horizontal-stretch: 1;
-                text: TrackInfo.cover-searching && TrackInfo.covers.length > 0 ? "Still looking…" : "";
+                text: TrackInfo.cover-note != "" ? TrackInfo.cover-note : TrackInfo.cover-searching && TrackInfo.covers.length > 0 ? "Still looking…" : "";
                 color: Theme.text-dim;
                 font-size: 12px;
                 vertical-alignment: center;
@@ -766,9 +772,12 @@ component CoverDialog inherits Rectangle {
                 text: "Search again";
                 enabled: !TrackInfo.cover-searching;
                 clicked => {
-                    picked = -1;
                     TrackInfo.find-covers();
                 }
+            }
+            TextButton {
+                text: "Load File…";
+                clicked => { TrackInfo.load-cover-file(); }
             }
             TextButton {
                 text: "Save to Tag";
