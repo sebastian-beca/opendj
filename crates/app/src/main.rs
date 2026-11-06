@@ -64,6 +64,7 @@ mod map_mode;
 mod mixcloud;
 mod mixcloud_upload;
 mod now_playing;
+mod osc;
 mod prefs;
 mod quick_search;
 mod remote;
@@ -809,6 +810,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    // OSC for tablets, visuals and show software: Settings › Controllers.
+    osc::install(&registry);
+    let _osc_timer = {
+        let timer = slint::Timer::default();
+        timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(500),
+            osc::tick,
+        );
+        timer
+    };
     // The now-playing files and overlay follow the mix a few times a second.
     let _now_playing_timer = {
         let mut feed = now_playing::NowPlaying::new(registry.clone(), engine.loaded_tracks());
