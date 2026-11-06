@@ -15,7 +15,6 @@ use std::time::{Duration, Instant};
 use opendj_control::{ControlHandle, ControlRegistry};
 use opendj_engine::cover::Cover;
 use opendj_engine::key::Key;
-use opendj_engine::phrases;
 use opendj_engine::scan::scan;
 use opendj_engine::stems;
 use opendj_engine::synth::SAMPLE_LIBRARY_SIZE;
@@ -36,6 +35,7 @@ use smooth::SmoothClock;
 slint::include_modules!();
 
 mod analysis_queue;
+mod app_menu;
 mod apple_music;
 mod art;
 mod audio_plugins;
@@ -65,6 +65,7 @@ mod mixcloud;
 mod mixcloud_upload;
 mod now_playing;
 mod osc;
+mod osc_events;
 mod prefs;
 mod quick_search;
 mod remote;
@@ -813,7 +814,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     // OSC for tablets, visuals and show software: Settings › Controllers.
-    osc::install(&registry);
+    osc::install(&registry, engine.loaded_tracks(), engine.visual_positions());
     let _osc_timer = {
         let timer = slint::Timer::default();
         timer.start(
@@ -1145,6 +1146,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 browser.borrow_mut().poll_analysis();
                 browser.borrow_mut().poll_usb_export();
                 browser.borrow_mut().poll_playlist_files();
+                browser.borrow_mut().poll_rekordbox_xml();
                 browser.borrow_mut().poll_covers();
                 browser.borrow_mut().poll_cleanup();
                 browser.borrow_mut().poll_files();
@@ -1260,10 +1262,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // Settings… (⌘,) in the macOS app menu, which only exists once the
-    // event loop runs, so keep trying until it's there.
+    // File and Edit: the ☰ menu on Windows and Linux, and the native menu
+    // bar on macOS, which only exists once the event loop runs, so keep
+    // trying until it's there.
+    app_menu::install(&app);
     #[cfg(target_os = "macos")]
-    let _settings_menu = {
+    let _mac_menu = {
         let weak = app.as_weak();
         let timer = slint::Timer::default();
         let added = std::rc::Rc::new(std::cell::Cell::new(false));
@@ -1275,33 +1279,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return;
                 }
                 let weak = weak.clone();
-                let undo_weak = weak.clone();
-                let find_weak = weak.clone();
-                let export_weak = weak.clone();
-                added.set(mac_menu::add_settings_item(move || {
+                added.set(mac_menu::install(move |action| {
                     if let Some(app) = weak.upgrade() {
-                        let prefs = app.global::<Preferences>();
-                        if !prefs.get_open() {
-                            prefs.invoke_show(prefs.get_page());
-                        }
+                        app_menu::run(&app, action);
                     }
                 }));
-                mac_menu::on_undo(move || {
-                    if let Some(app) = undo_weak.upgrade() {
-                        app.global::<LibraryEdit>().invoke_undo_stage();
-                    }
-                });
-                mac_menu::on_find(move || {
-                    if let Some(app) = find_weak.upgrade() {
-                        app.invoke_focus_search();
-                    }
-                });
-                // The mixed set picked in the list.
-                mac_menu::on_export_mixcloud(move || {
-                    if let Some(app) = export_weak.upgrade() {
-                        export_mixcloud(&app);
-                    }
-                });
             },
         );
         timer
@@ -2232,25 +2214,7 @@ impl Gpu {
         match &self.phrases[d] {
             Some((cached, p)) if Arc::ptr_eq(cached, t) => p.clone(),
             _ => {
-                let found = if phrases::waveform_ready(t) {
-                    phrases::detect(t)
-                } else {
-                    phrases::stored(t)
-                };
-                let p: Vec<_> = found
-                    .into_iter()
-                    .map(|p| {
-                        let kind = match p.kind {
-                            phrases::PhraseKind::Intro => PhraseKind::Intro,
-                            phrases::PhraseKind::Build => PhraseKind::Build,
-                            phrases::PhraseKind::Drop => PhraseKind::Drop,
-                            phrases::PhraseKind::Breakdown => PhraseKind::Breakdown,
-                            phrases::PhraseKind::Outro => PhraseKind::Outro,
-                            phrases::PhraseKind::Chorus => PhraseKind::Chorus,
-                        };
-                        (p.start, kind)
-                    })
-                    .collect();
+                let p = beat_counter::track_phrases(t);
                 self.phrases[d] = Some((t.clone(), p.clone()));
                 p
             }
@@ -2320,7 +2284,6 @@ fn loop_label(beats: f64) -> SharedString {
 /// File › Export › Mixcloud…: makes the mixed set picked in the list into a
 /// Mixcloud MP3 with its tracklist (see `browser::mix_export`). Says so if
 /// no mixed set is picked. For any menu that offers it.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn export_mixcloud(app: &AppWindow) {
     app.global::<FilesUi>()
         .invoke_export_mixcloud(app.get_current_track());

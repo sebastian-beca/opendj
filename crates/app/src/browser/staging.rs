@@ -415,8 +415,7 @@ impl Browser {
         edit.set_triage_crates(ModelRc::new(VecModel::from(crates)));
         let undo = self.undo.as_ref().map_or("", |u| u.text.as_str());
         edit.set_undo_text(undo.into());
-        #[cfg(target_os = "macos")]
-        crate::mac_menu::set_undo_text(undo);
+        crate::app_menu::set_undo_text(undo);
     }
 
     /// Queues the tracks in triage that still need their tempo or key.

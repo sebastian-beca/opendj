@@ -60,7 +60,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-dvs](changes/add-dvs/proposal.md) (timecode vinyl and CDs; moved from after 1.0, issue #317)
 - [add-stem-fx-and-acapella](changes/add-stem-fx-and-acapella/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
 - [improve-scratching](changes/improve-scratching/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
-- [add-slicer-and-freeze](changes/add-slicer-and-freeze/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
+- [add-slicer-and-freeze](changes/add-slicer-and-freeze/proposal.md) (moved from v0.5 at the 0.5.0 release; SLICER and FREEZE pad pages built, issue #386)
 - [add-cue-sequence-recording](changes/add-cue-sequence-recording/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
 - [add-fx-pre-post-and-headphone](changes/add-fx-pre-post-and-headphone/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
 - [add-settings-table](changes/add-settings-table/proposal.md) (first step of add-settings-layers: one option table, Show modified, reset on each row, search words, help in ⓘ; issue #364, split 2026-11-05)
@@ -68,13 +68,14 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-deck-outputs](changes/add-deck-outputs/proposal.md) (each deck on its own outputs for a DAW such as Ableton, and an external mixer mode; no cost when unused; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
 - [add-midi-clock](changes/add-midi-clock/proposal.md) (MIDI clock out to drum machines and other gear, clock in, decks can follow Link; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
 - [improve-list-model](changes/improve-list-model/proposal.md) (imports read-only with Make These Lists Mine, crates as their own kind in folders, drag to move lists; from a review of folders, playlists and crates, 2026-11-05)
-- [add-osc-control](changes/add-osc-control/proposal.md) (every control over Open Sound Control, plus beat, phrase and track events for visuals and lights; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release; in progress, issue #383)
+- [add-osc-control](changes/add-osc-control/proposal.md) (every control over Open Sound Control, plus beat, phrase and track events for visuals and lights; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release; built, issue #383)
 - [add-rekordbox-xml-export](changes/add-rekordbox-xml-export/proposal.md) (collection and lists out as rekordbox XML for rekordbox and library tools; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
 
 ## v0.7 · Your library, everywhere
 
 - [add-phrase-analysis](changes/add-phrase-analysis/proposal.md)
 - [add-prepare-list](changes/add-prepare-list/proposal.md)
+- [add-pipewire-audio](changes/add-pipewire-audio/proposal.md) (native PipeWire outputs by name, shared devices, one clock for every device; parked from v0.6 2026-11-06, issue #402)
 
 ## v1.0 · Ready for any DJ switching over
 

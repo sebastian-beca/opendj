@@ -44,6 +44,7 @@ mod mix_export;
 mod picks;
 mod playlist_files;
 mod prep;
+mod rekordbox_xml;
 mod sets;
 mod spotify_export;
 mod staging;
@@ -677,6 +678,7 @@ pub struct Browser {
     /// Export to USB's dialog and export.
     usb: usb::State,
     playlist_files: playlist_files::State,
+    rekordbox_xml: rekordbox_xml::State,
     phrases_seen: analysis::SeenDecks,
     /// The last stage change or merge of copies, which the track menu can
     /// take back.
@@ -1299,6 +1301,7 @@ impl Browser {
             analysis_shown: Default::default(),
             usb: Default::default(),
             playlist_files: Default::default(),
+            rekordbox_xml: Default::default(),
             phrases_seen: Default::default(),
             undo: None,
             pending_moves: HashMap::new(),
@@ -1903,6 +1906,7 @@ impl Browser {
         Self::install_usb_export(app, &edit, &with);
         Self::install_spotify_export(&edit, &with);
         Self::install_playlist_files(&edit, &with);
+        Self::install_rekordbox_xml(&edit, &with);
     }
 
     /// Saves a search as a smart list at the top level (under "Smart
@@ -4484,6 +4488,7 @@ impl Browser {
                     locked: n.locked,
                     adoptable: n.import_root.is_some(),
                     analysable: !n.history && Self::analysable(&n.contents),
+                    rekordbox: self.rekordbox_exportable(i),
                     stage: matches!(n.contents, Contents::Stage(..)),
                     separator: n.separator,
                     color: n.color.map_or(-1, |c| c as i32),
@@ -4560,6 +4565,20 @@ impl Browser {
                 .map(|p| p as i32)
                 .unwrap_or(-1);
             app.set_current_folder(current);
+            // File › Export works on the list picked here, as its menu does.
+            let node = self.nodes.get(self.current_node).filter(|_| current >= 0);
+            let kind = node.map_or(-1, |n| n.kind);
+            let analysable = node.is_some_and(|n| !n.history && Self::analysable(&n.contents))
+                && matches!(self.tree, COLLECTION | ALBUMS | MIXED_SETS);
+            crate::app_menu::set_exports(crate::app_menu::Exports {
+                m3u: analysable || (self.tree == COLLECTION && kind == KIND_HISTORY),
+                usb: analysable,
+                spotify: self.tree == COLLECTION
+                    && STREAMING_ENABLED
+                    && matches!(kind, KIND_LIST | KIND_HISTORY | KIND_CRATE),
+                mixcloud: self.tree == MIXED_SETS,
+                rekordbox: node.is_some() && self.rekordbox_exportable(self.current_node),
+            });
             let name = match self.nodes.get(self.current_node) {
                 Some(n) => n.title.clone().unwrap_or_else(|| n.name.clone()),
                 None if self.tree == FILES => "Files".into(),

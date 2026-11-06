@@ -4942,7 +4942,7 @@ fn osc_items() -> Vec<PrefItem> {
             TEXT,
             "Send to",
             &if bad.is_empty() {
-                "Apps to send changes to, as address:port, separated by commas, \
+                "Apps to send changes and events (beats, phrases, tracks, hot cues) to, as address:port, separated by commas, \
                  for example 192.168.1.20:8000. An app that sends from the same computer gets \
                  its answers here too."
                     .to_string()
