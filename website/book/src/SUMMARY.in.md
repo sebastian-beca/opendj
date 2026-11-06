@@ -17,6 +17,7 @@
 - [Groove Box](guide/groove-box.md)
 - [Stems](guide/stems.md)
 - [Layouts](guide/layouts.md)
+- [Lyrics](guide/lyrics.md)
 - [Automix](guide/automix.md)
 - [Phone remote](guide/remote.md)
 - [Loudness and broadcasting](guide/broadcasting.md)
