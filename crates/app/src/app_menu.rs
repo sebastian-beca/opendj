@@ -51,17 +51,6 @@ impl Action {
             .and_then(|i| Self::ALL.get(i).copied())
     }
 
-    /// Settings… and Quit live in macOS's own app menu (openDJ), so the
-    /// File menu leaves them out there.
-    pub fn in_mac_app_menu(self) -> bool {
-        matches!(self, Action::Settings | Action::Quit)
-    }
-
-    /// Whether this platform's File, Edit… menus show the item.
-    fn shown_here(self) -> bool {
-        !(cfg!(target_os = "macos") && self.in_mac_app_menu())
-    }
-
     /// Off until there is something for it to do: Undo until a change,
     /// the exports until the library picks a list they work on.
     pub fn starts_enabled(self) -> bool {
@@ -92,46 +81,32 @@ pub struct Menu {
 pub const MENUS: &[Menu] = &[
     Menu {
         title: "File",
-        entries: &[
-            Entry::Submenu {
-                title: "Export",
-                entries: &[
-                    Entry::Item {
-                        action: Action::ExportM3u,
-                        title: "M3U8…",
-                        key: None,
-                    },
-                    Entry::Item {
-                        action: Action::ExportUsb,
-                        title: "USB…",
-                        key: None,
-                    },
-                    Entry::Item {
-                        action: Action::ExportSpotify,
-                        title: "Spotify Playlist",
-                        key: None,
-                    },
-                    Entry::Separator,
-                    Entry::Item {
-                        action: Action::ExportMixcloud,
-                        title: "Mixcloud…",
-                        key: None,
-                    },
-                ],
-            },
-            Entry::Separator,
-            Entry::Item {
-                action: Action::Settings,
-                title: "Settings…",
-                key: Some(","),
-            },
-            Entry::Separator,
-            Entry::Item {
-                action: Action::Quit,
-                title: "Quit",
-                key: Some("q"),
-            },
-        ],
+        entries: &[Entry::Submenu {
+            title: "Export",
+            entries: &[
+                Entry::Item {
+                    action: Action::ExportM3u,
+                    title: "M3U8…",
+                    key: None,
+                },
+                Entry::Item {
+                    action: Action::ExportUsb,
+                    title: "USB…",
+                    key: None,
+                },
+                Entry::Item {
+                    action: Action::ExportSpotify,
+                    title: "Spotify Playlist",
+                    key: None,
+                },
+                Entry::Separator,
+                Entry::Item {
+                    action: Action::ExportMixcloud,
+                    title: "Mixcloud…",
+                    key: None,
+                },
+            ],
+        }],
     },
     Menu {
         title: "Edit",
@@ -151,13 +126,28 @@ pub const MENUS: &[Menu] = &[
     },
 ];
 
+/// The app's own items, outside File and Edit: in macOS's app menu
+/// (openDJ, whose Quit Slint adds), and on Windows and Linux at the foot
+/// of the ☰ list, under the menus' names.
+pub const APP_ITEMS: &[Entry] = &[
+    Entry::Item {
+        action: Action::Settings,
+        title: "Settings…",
+        key: Some(","),
+    },
+    Entry::Item {
+        action: Action::Quit,
+        title: "Quit",
+        key: Some("q"),
+    },
+];
+
 /// The entries this platform shows, without separators left at either end
 /// or doubled where items were left out.
 pub fn shown(entries: &'static [Entry]) -> Vec<&'static Entry> {
     let mut out: Vec<&Entry> = Vec::new();
     for e in entries {
         match e {
-            Entry::Item { action, .. } if !action.shown_here() => {}
             Entry::Submenu { entries, .. } if shown(entries).is_empty() => {}
             Entry::Separator if out.last().is_none_or(|l| matches!(l, Entry::Separator)) => {}
             _ => out.push(e),
@@ -180,7 +170,8 @@ pub fn shortcut_text(key: &str) -> String {
 }
 
 /// The ☰ menu's lines, in the order they show: each menu's items, then the
-/// items of its submenus, each pointing at the line that opens it.
+/// items of its submenus, each pointing at the line that opens it; then
+/// the app's own items (menu -1), listed under the menus' names.
 pub fn entries() -> Vec<MenuEntry> {
     fn add(out: &mut Vec<MenuEntry>, menu: i32, parent: i32, entries: &'static [Entry]) {
         let mut top = 0.0;
@@ -224,6 +215,7 @@ pub fn entries() -> Vec<MenuEntry> {
     for (m, menu) in MENUS.iter().enumerate() {
         add(&mut out, m as i32, -1, menu.entries);
     }
+    add(&mut out, -1, -1, APP_ITEMS);
     out
 }
 
@@ -270,7 +262,9 @@ pub fn install(app: &AppWindow) {
         .collect();
     for i in 0..lines.row_count() {
         if let Some(mut line) = lines.row_data(i) {
-            line.menu = numbers.iter().position(|m| *m == line.menu).unwrap_or(0) as i32;
+            if line.menu >= 0 {
+                line.menu = numbers.iter().position(|m| *m == line.menu).unwrap_or(0) as i32;
+            }
             lines.set_row_data(i, line);
         }
     }
@@ -396,6 +390,7 @@ fn default_title(action: Action) -> String {
     MENUS
         .iter()
         .find_map(|m| find(m.entries, action))
+        .or_else(|| find(APP_ITEMS, action))
         .unwrap_or_default()
         .to_owned()
 }
@@ -422,8 +417,8 @@ mod tests {
 
     #[test]
     fn no_separator_at_the_ends_or_twice() {
-        for menu in MENUS {
-            let s = shown(menu.entries);
+        for entries in MENUS.iter().map(|m| m.entries).chain([APP_ITEMS]) {
+            let s = shown(entries);
             assert!(!matches!(s.first(), Some(Entry::Separator)));
             assert!(!matches!(s.last(), Some(Entry::Separator)));
             for pair in s.windows(2) {
@@ -459,5 +454,10 @@ mod tests {
             .filter(|l| l.parent == export as i32 && l.kind == 0)
             .collect();
         assert_eq!(inside.len(), 4);
+        // Settings… and Quit sit in the ☰ list itself, under the menus.
+        for a in [Action::Settings, Action::Quit] {
+            let line = lines.iter().find(|l| l.action == a.id()).unwrap();
+            assert_eq!((line.menu, line.parent), (-1, -1));
+        }
     }
 }

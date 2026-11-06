@@ -7,7 +7,7 @@ import { MenuLine, MenuBackground, MenuSeparator } from "library.slint";
 
 // A line of a menu.
 export struct MenuEntry {
-    // Which of AppMenu.menus it is in.
+    // Which of AppMenu.menus it is in; -1 for the ☰ list itself.
     menu: int,
     // The submenu line (an index into AppMenu.entries) it is in; -1 for
     // the menu itself.
@@ -91,6 +91,21 @@ component AppMenuPanel inherits PopupWindow {
                 clicked => {
                     open-menu = m;
                     open-sub = -1;
+                }
+            }
+            // The app's own items: Settings… and Quit.
+            MenuSeparator { }
+            for e in AppMenu.entries: EntryLine {
+                entry: e;
+                here: e.menu == -1 && e.parent == -1;
+                entered => {
+                    open-menu = -1;
+                    open-sub = -1;
+                }
+                clicked => {
+                    if e.kind == 0 {
+                        pick(e);
+                    }
                 }
             }
         }
