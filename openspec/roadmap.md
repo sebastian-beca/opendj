@@ -66,8 +66,6 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-stem-fx-and-acapella](changes/add-stem-fx-and-acapella/proposal.md) (moved from v0.5 at the 0.5.0 release)
 - [improve-scratching](changes/improve-scratching/proposal.md) (moved from v0.5 at the 0.5.0 release)
 - [add-slicer-and-freeze](changes/add-slicer-and-freeze/proposal.md) (moved from v0.5 at the 0.5.0 release; SLICER and FREEZE pad pages built, issue #386)
-- [add-cue-sequence-recording](changes/add-cue-sequence-recording/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
-- [add-fx-pre-post-and-headphone](changes/add-fx-pre-post-and-headphone/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
 - [add-settings-table](changes/add-settings-table/proposal.md) (first step of add-settings-layers: one option table, Show modified, reset on each row, search words, help in ⓘ; issue #364, split 2026-11-05)
 - [add-settings-deck-choices](changes/add-settings-deck-choices/proposal.md) (second step: Decks sections, Hot cue on a playing deck, Track end warning and Back up the collection rows; issue #365, split 2026-11-05)
 - [add-deck-outputs](changes/add-deck-outputs/proposal.md) (each deck on its own outputs for a DAW such as Ableton, and an external mixer mode; no cost when unused; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
@@ -104,6 +102,8 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 
 - [add-audio-plugin-hosting](changes/add-audio-plugin-hosting/proposal.md)
 - [add-instrument-plugins](changes/add-instrument-plugins/proposal.md)
+- [add-cue-sequence-recording](changes/add-cue-sequence-recording/proposal.md) (moved from v0.6 on 2026-11-06)
+- [add-fx-pre-post-and-headphone](changes/add-fx-pre-post-and-headphone/proposal.md) (moved from v0.6 on 2026-11-06)
 - [add-windows-support](changes/add-windows-support/proposal.md) (a Windows preview shipped in v0.4.0; code signing waits: SignPath Foundation turned the application down, 2026-10-29, see docs/windows.md)
 
 ## Much later (no change yet)
