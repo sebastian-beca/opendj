@@ -76,6 +76,7 @@ pub fn track_phrases(t: &Track) -> Vec<(f64, PhraseKind)> {
                 phrases::PhraseKind::Breakdown => PhraseKind::Breakdown,
                 phrases::PhraseKind::Outro => PhraseKind::Outro,
                 phrases::PhraseKind::Chorus => PhraseKind::Chorus,
+                phrases::PhraseKind::Verse => PhraseKind::Verse,
             };
             (p.start, kind)
         })
@@ -91,6 +92,7 @@ pub fn kind_name(kind: PhraseKind) -> &'static str {
         PhraseKind::Breakdown => "BREAK",
         PhraseKind::Outro => "OUTRO",
         PhraseKind::Chorus => "CHORUS",
+        PhraseKind::Verse => "VERSE",
     }
 }
 
@@ -103,6 +105,7 @@ pub fn kind_color(kind: PhraseKind) -> u32 {
         PhraseKind::Drop => 0xe0607d,
         PhraseKind::Breakdown => 0xe99b68,
         PhraseKind::Chorus => 0x48c5a1,
+        PhraseKind::Verse => 0xd8bc62,
     }
 }
 

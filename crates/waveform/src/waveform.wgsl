@@ -35,7 +35,7 @@ struct Params {
     level_offset: array<vec4<u32>, 4>, // first texel of each level
     level_len: array<vec4<u32>, 4>,    // slices in each level
     phrase_start: array<vec4<f32>, 8>, // where each phrase starts, in slices
-    phrase_kind: array<vec4<u32>, 8>,  // its kind: intro, build, drop, breakdown, outro, chorus
+    phrase_kind: array<vec4<u32>, 8>,  // its kind: intro, build, drop, breakdown, outro, chorus, verse
     phrase_count: u32,
     minute_bins: f32,                  // slices per minute, for the overview's minute dots (0 = none)
     slip_bin: f32,                     // the silent playhead while slipping, in slices (< 0 = none)
@@ -66,14 +66,15 @@ const LOOP_LILAC = vec3<f32>(0.714, 0.612, 1.0);
 const LOOP_MARKING = vec3<f32>(0.82, 0.82, 0.84);
 const CUE_ORANGE = vec3<f32>(1.0, 0.6, 0.1);
 // Phrase colours, in PhraseKind order: intro, build (up), drop (peak),
-// breakdown (break or bridge), outro, chorus (main).
-const PHRASE_COLORS = array<vec3<f32>, 6>(
+// breakdown (break or bridge), outro, chorus (main), verse.
+const PHRASE_COLORS = array<vec3<f32>, 7>(
     vec3<f32>(0.141, 0.353, 0.471), // #245A78
     vec3<f32>(0.580, 0.447, 0.835), // #9472D5
     vec3<f32>(0.792, 0.294, 0.408), // #CA4B68
     vec3<f32>(0.914, 0.608, 0.408), // #E99B68
     vec3<f32>(0.141, 0.353, 0.471), // #245A78
     vec3<f32>(0.282, 0.773, 0.631), // #48C5A1
+    vec3<f32>(0.788, 0.663, 0.306), // #C9A94E
 );
 
 struct Slice {
