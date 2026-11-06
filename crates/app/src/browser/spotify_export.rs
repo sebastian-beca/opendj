@@ -25,7 +25,7 @@ impl Browser {
         let Contents::Playlist(list) = self.nodes[node].contents else {
             return;
         };
-        let name = self.nodes[node].name.clone();
+        let name = self.node_title(node);
         let history = self.nodes[node].history;
         let Some(st) = self.streams.iter().find(|s| s.id == "spotify") else {
             return;

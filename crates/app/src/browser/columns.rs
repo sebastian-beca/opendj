@@ -536,6 +536,8 @@ pub fn row_cells(
 pub struct InList {
     pub order: usize,
     pub played_at: Option<i64>,
+    /// The first track of a set, after the first, in a day of history.
+    pub set_start: bool,
 }
 
 /// A play's time as the DJ's clock showed it, e.g. "23:41".
