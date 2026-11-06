@@ -75,6 +75,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-rekordbox-xml-export](changes/add-rekordbox-xml-export/proposal.md) (collection and lists out as rekordbox XML for rekordbox and library tools; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
 - [add-phrase-analysis](changes/add-phrase-analysis/proposal.md) (moved from v0.7 2026-11-06: chroma novelty, repeated sections with Verse, energy, rekordbox benchmark; issue #431)
 - [add-phrase-aware-automix](changes/add-phrase-aware-automix/proposal.md) (Automix mixes intro over outro on phrase changes, imported automix points win, bass swap on a phrase, deck phrase countdown, start on the leader's next phrase; moved from v1.x 2026-11-06 after the gap review; issue #425)
+- [add-groove-pads](changes/add-groove-pads/proposal.md) (the Groove Box on pad controllers: one pad surface for steps, live play with recording, grooves and kits; Maschine Mikro MK3 first, then Launchpad and Akai; issue #420, 2026-11-06)
 
 ## v0.7 · Your library, everywhere
 
