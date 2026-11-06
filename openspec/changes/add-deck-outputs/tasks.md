@@ -2,11 +2,11 @@
 
 ## 1. Deck outputs (send decks to a DAW)
 
-- [ ] 1.1 engine: output roles Deck 1-4, Sampler, Groove Box; render buffer sized once for the widest layout; only routed pairs written
-- [ ] 1.2 engine: Clean / Pre-fader / Post-fader taps in `Engine::process`, resolved per configuration, not per frame; `[Master],deck_tap`
-- [ ] 1.3 Tests: tap contents (EQ kill, crossfader), Post-fader taps sum to master; benchmark no routes vs four routes (< 1%, no-route case unchanged)
-- [ ] 1.4 app: Settings › Audio › Outputs rows for the new roles, tap choice, split-device warning; regenerate supported-controls.txt
-- [ ] 1.5 User guide: "Send decks to a DAW" (Ableton with BlackHole/Loopback, VB-Cable/ASIO, PipeWire/JACK)
+- [x] 1.1 engine: output roles Deck 1-4, Sampler, Groove Box; render buffer sized once for the widest layout; only routed pairs written (each Groove Box plays on its deck, so it comes out of that deck's output; no separate role)
+- [x] 1.2 engine: Clean / Pre-fader / Post-fader taps in `Engine::process`, resolved per configuration, not per frame; `[Master],deck_tap`
+- [x] 1.3 Tests: tap contents (EQ kill, crossfader), Post-fader taps sum to master; benchmark no routes vs four routes (< 1%, no-route case unchanged)
+- [x] 1.4 app: Settings › Audio › Outputs rows for the new roles, tap choice, split-device warning; regenerate supported-controls.txt
+- [x] 1.5 User guide: "Send decks to a DAW" (Ableton with BlackHole/Loopback, VB-Cable/ASIO, PipeWire/JACK)
 
 ## 2. External mixer mode
 

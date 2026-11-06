@@ -2399,6 +2399,7 @@
 [Master],balance
 [Master],booth_gain
 [Master],crossfader
+[Master],deck_tap
 [Master],duckStrength
 [Master],gain
 [Master],headGain

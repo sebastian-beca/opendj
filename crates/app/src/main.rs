@@ -20,9 +20,9 @@ use opendj_engine::scan::scan;
 use opendj_engine::stems;
 use opendj_engine::synth::SAMPLE_LIBRARY_SIZE;
 use opendj_engine::{
-    deck_group, default_output_device, effect_group, output_devices, sample_library, AudioEngine,
-    AudioSetup, Role, Route, Source, Track, VisualPositions, Waveform, AVAILABLE_EFFECTS, COLOR_FX,
-    EFFECTS_PER_UNIT, NUM_DECKS,
+    deck_group, deck_outputs_split, default_output_device, effect_group, output_devices,
+    sample_library, AudioEngine, AudioSetup, Role, Route, Source, Track, VisualPositions, Waveform,
+    AVAILABLE_EFFECTS, COLOR_FX, EFFECTS_PER_UNIT, NUM_DECKS,
 };
 use opendj_library::Library;
 use opendj_plugins::source::{QueryKind, SourceQuery};
@@ -199,12 +199,26 @@ fn install_audio_settings(app: &AppWindow, engine: Rc<AudioEngine>) {
     });
     let change = {
         let show = show.clone();
+        let app = app.as_weak();
         move |edit: &dyn Fn(&mut AudioSetup)| {
             let mut setup = settings::audio_setup();
+            // The deck output rows under the table come and go with them.
+            let taps = |s: &AudioSetup| {
+                (
+                    s.routes.iter().any(|r| r.role.is_tap()),
+                    deck_outputs_split(s),
+                )
+            };
+            let before = taps(&setup);
             edit(&mut setup);
             settings::set_audio_setup(&setup);
             engine.set_outputs(&setup);
             show();
+            if taps(&setup) != before {
+                if let Some(app) = app.upgrade() {
+                    app.global::<Preferences>().invoke_changed();
+                }
+            }
         }
     };
     let change = Rc::new(change);

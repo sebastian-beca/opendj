@@ -702,6 +702,10 @@ pub(crate) struct MasterControls {
     /// `[Master] air_ceiling`: the limiter's ceiling in dBTP while recording
     /// or on air (-1 or -2).
     pub(crate) air_ceiling: ControlHandle,
+    /// `[Master] deck_tap`: what the deck and sampler outputs carry, 0
+    /// Clean, 1 Pre-fader (to start), 2 Post-fader (see
+    /// [`crate::engine::DeckTap`]).
+    pub(crate) deck_tap: ControlHandle,
 }
 
 pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
@@ -770,6 +774,7 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
             0.0,
             Behavior::Free,
         ),
+        deck_tap: reg.create("[Master]", "deck_tap", 1.0, 0.0, 2.0, Behavior::Free),
         vu_l: reg.indicator("[Master]", "VuMeterL", 1.0),
         vu_r: reg.indicator("[Master]", "VuMeterR", 1.0),
         // Mixxx keeps its ReplayGain switch in the [ReplayGain] group too.

@@ -16,9 +16,9 @@ use opendj_control::ControlRegistry;
 use opendj_controllers::{is_system_port, own, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
-    analysis, beatthis, cache, channel_names, deck_group, engine, input_devices, key, meter,
-    separation, AudioSetup, InputRole, InputRoute, RecordFormat, Recorder, BUFFER_SIZES,
-    DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES,
+    analysis, beatthis, cache, channel_names, deck_group, deck_outputs_split, engine,
+    input_devices, key, meter, separation, AudioSetup, InputRole, InputRoute, RecordFormat,
+    Recorder, BUFFER_SIZES, DEFAULT_AUTO_GAIN_TARGET, NUM_DECKS, SAMPLE_RATES,
 };
 use opendj_library::query;
 use opendj_plugins::source::DOWNLOAD_FOLDER;
@@ -210,6 +210,7 @@ pub fn apply_saved(registry: &ControlRegistry) {
         "headSplit",
         f(settings::flag("head_split", false)),
     );
+    set("[Master]", "deck_tap", settings::number("deck_tap", 1.0));
     set(
         "[Master]",
         "talkover_ducking",
@@ -1131,6 +1132,10 @@ impl Prefs {
                         &format!("{} {}", rate.detail, self.audio_health()),
                     )
                 },
+            ]
+            .into_iter()
+            .chain(deck_output_items())
+            .chain([
                 item("inputs", HEADING, "INPUTS", ""),
                 self.inputs_item(),
                 PrefItem {
@@ -1193,7 +1198,8 @@ impl Prefs {
                     true,
                     false,
                 ),
-            ],
+            ])
+            .collect(),
             CONTROLLERS => self.controllers_page(),
             LIBRARY => self.library_page(tab),
             ANALYSIS => {
@@ -3494,6 +3500,10 @@ impl Prefs {
                 settings::set("xfader_shape", json!(index));
                 self.set("[Mixer Profile]", "xFaderShape", index as f64);
             }
+            "deck_tap" => {
+                settings::set("deck_tap", json!(index));
+                self.set("[Master]", "deck_tap", index as f64);
+            }
             "talkover_ducking" => {
                 settings::set("talkover_ducking", json!(index));
                 self.set("[Master]", "talkover_ducking", index as f64);
@@ -4798,6 +4808,39 @@ fn patch_rows(model: &ModelRc<PrefItem>, items: &[PrefItem]) -> bool {
         rows.remove(rows.row_count() - 1);
     }
     true
+}
+
+/// Under the outputs, once a deck or the sampler has an output of its own:
+/// what those outputs carry, and a warning when they are on another device
+/// than the master.
+fn deck_output_items() -> Vec<PrefItem> {
+    let setup = settings::audio_setup();
+    if !setup.routes.iter().any(|r| r.role.is_tap()) {
+        return Vec::new();
+    }
+    let mut items = vec![PrefItem {
+        choices: strings(&["Clean", "Pre-fader", "Post-fader"]),
+        chosen: settings::number("deck_tap", 1.0) as i32,
+        ..item(
+            "deck_tap",
+            SEGMENTED,
+            "Deck outputs",
+            "Clean: before EQ, filter and deck FX, for your own effects in a DAW. \
+             Pre-fader: after them, before the channel fader and crossfader. \
+             Post-fader: what each deck adds to the master mix; together they add up to it.",
+        )
+    }];
+    if deck_outputs_split(&setup) {
+        items.push(item(
+            "",
+            NOTE,
+            "",
+            "Some deck outputs are on another device than the master, so they can drift \
+             apart by a few samples. Put them all on one device (or a macOS aggregate \
+             device) to record them in step.",
+        ));
+    }
+    items
 }
 
 fn item(id: &str, kind: i32, title: &str, detail: &str) -> PrefItem {

@@ -9,7 +9,8 @@ import { EffectList } from "deck.slint";
 
 // One output route in the settings table.
 export struct OutputRow {
-    // 0 master, 1 headphones, 2 booth
+    // 0 master, 1 headphones, 2 booth, 3-6 decks 1-4 on their own,
+    // 7 the sampler on its own (Role::ALL)
     role: int,
     // Index into AudioSettings.devices (0 is the system default), or -1
     // for a device that isn't connected now.
@@ -185,8 +186,8 @@ export component OutputsTable inherits VerticalLayout {
             spacing: 3px;
             MenuField {
                 width: roomy ? 120px : 78px;
-                text: ["Master", "Phones", "Booth"][row.role];
-                choices: ["Master", "Headphones", "Booth"];
+                text: ["Master", "Phones", "Booth", "Deck 1", "Deck 2", "Deck 3", "Deck 4", "Sampler"][row.role];
+                choices: ["Master", "Headphones", "Booth", "Deck 1", "Deck 2", "Deck 3", "Deck 4", "Sampler"];
                 chosen: row.role;
                 menu-width: 140px;
                 picked(i) => { AudioSettings.set-role(r, i); }
