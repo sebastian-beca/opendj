@@ -6687,6 +6687,7 @@ dependencies = [
  "lofty",
  "matrixmultiply",
  "mi-plaits-dsp",
+ "midir",
  "opendj-control",
  "opendj-plugin-host",
  "opendj-separation",

@@ -7,3 +7,6 @@ Open the **MASTER** button in the top bar and turn on **Ableton Link**.
 
 Link follows the master deck: the deck that's playing, or the one started first
 while both play (see [Sync and quantize](decks.md#sync-and-quantize)).
+
+For drum machines and other gear that follow MIDI clock instead, see
+[MIDI clock](midi-clock.md).

@@ -98,6 +98,9 @@ pub struct SourceQuery {
     /// A playlist searched again: the entries (each a [`Found::group`])
     /// the DJ already has, so they aren't searched for again.
     pub skip: Vec<String>,
+    /// A playlist's songs, as "Artist - Title", when the app has them (it
+    /// read the playlist itself); `text` is then the playlist's name.
+    pub songs: Vec<String>,
 }
 
 /// One result: a file, or a folder of them (an album).

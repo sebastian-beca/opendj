@@ -150,6 +150,28 @@ component PanelLink inherits Text {
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
+// An on/off switch for a toggle control, in a panel row.
+component PanelSwitch inherits VerticalLayout {
+    in property <int> index;
+    in property <bool> on;
+    alignment: center;
+    Rectangle {
+        width: 34px;
+        height: 20px;
+        border-radius: 10px;
+        background: on ? Theme.accent : #48484c;
+        Rectangle {
+            x: on ? parent.width - self.width - 2px : 2px;
+            width: 16px;
+            height: 16px;
+            border-radius: 8px;
+            background: #ffffff;
+            animate x { duration: 120ms; }
+        }
+        TouchArea { mouse-cursor: pointer; clicked => { Controls.toggle(index); } }
+    }
+}
+
 // Ableton Link, in the MASTER panel: a switch, and while on the session's
 // tempo, the deck it follows and how many other apps are in it.
 component LinkRow inherits HorizontalLayout {
@@ -173,25 +195,60 @@ component LinkRow inherits HorizontalLayout {
             overflow: elide;
         }
     }
-    // A switch.
+    PanelSwitch { index: enabled-index; on: on; }
+}
+
+// MIDI clock out, in the MASTER panel under Link: a switch, Restart on
+// bar, and while on the tempo it sends and how many outputs are open. The
+// outputs are picked in Settings › Controllers.
+component ClockRow inherits HorizontalLayout {
+    property <int> enabled-index: Controls.resolve("[MidiClock]", "enabled");
+    property <int> restart-index: Controls.resolve("[MidiClock]", "restart");
+    property <bool> on: Controls.value(enabled-index, Controls.tick) > 0;
+    property <bool> running: Controls.value(Controls.resolve("[MidiClock]", "running"), Controls.tick) > 0;
+    property <float> bpm: Controls.value(Controls.resolve("[MidiClock]", "bpm"), Controls.tick);
+    property <int> outputs: Controls.value(Controls.resolve("[MidiClock]", "outputs"), Controls.tick);
+    spacing: 8px;
     VerticalLayout {
+        horizontal-stretch: 1;
         alignment: center;
-        Rectangle {
-            width: 34px;
-            height: 20px;
-            border-radius: 10px;
-            background: on ? Theme.accent : #48484c;
-            Rectangle {
-                x: on ? parent.width - self.width - 2px : 2px;
-                width: 16px;
-                height: 16px;
-                border-radius: 8px;
-                background: #ffffff;
-                animate x { duration: 120ms; }
-            }
-            TouchArea { mouse-cursor: pointer; clicked => { Controls.toggle(enabled-index); } }
+        spacing: 2px;
+        Text { text: "MIDI Clock"; color: Theme.text; font-size: 12px; font-weight: 600; }
+        Text {
+            text: !on ? "Off" : outputs == 0 ? "No outputs: see Settings › Controllers"
+                : (bpm > 0 ? (round(bpm * 10) / 10) + " BPM" + (running ? "" : ", stopped") : "Starts with a deck")
+                + "  ·  " + (outputs == 1 ? "1 output" : outputs + " outputs");
+            color: on ? Theme.accent : Theme.text-dim;
+            font-size: 11px;
+            overflow: elide;
         }
     }
+    // Start again on the master deck's next downbeat, for gear that lost
+    // the bar.
+    if on: VerticalLayout {
+        alignment: center;
+        Rectangle {
+            height: 20px;
+            width: restart-text.preferred-width + 14px;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: restart-ta.has-hover ? Theme.text-dim : Theme.border;
+            background: restart-ta.pressed ? Theme.control-pressed : transparent;
+            restart-text := Text {
+                text: "RESTART ON BAR";
+                color: Theme.text;
+                font-size: 9px;
+                font-weight: 600;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            restart-ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { Controls.set-value(restart-index, 1); }
+            }
+        }
+    }
+    PanelSwitch { index: enabled-index; on: on; }
 }
 
 // Loudness readings: text and colors for the [Master],loudness_* controls,
@@ -344,6 +401,7 @@ export component MasterPanel inherits PopupWindow {
         }
         EdgeLine { line-color: Theme.border; }
         LinkRow { }
+        ClockRow { }
         PanelLink {
             text: "Audio Settings…";
             clicked => {

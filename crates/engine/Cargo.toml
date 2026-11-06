@@ -22,6 +22,8 @@ signalsmith-stretch = "0.1"
 serde_json = "1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 rusty_link = "0.4"
+# MIDI clock out to drum machines and other apps.
+midir = "0.11"
 flacenc = { version = "0.5", default-features = false }
 # Beat and downbeat tracking (Beat This!, MIT) on the pure-Rust rten runtime.
 beat-this = { version = "1.1", default-features = false }

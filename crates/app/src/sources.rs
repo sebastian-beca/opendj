@@ -401,6 +401,7 @@ impl Source {
                     s.query.kind.name().to_string(),
                     s.query.prefer.name().to_string(),
                     s.added,
+                    s.query.songs.clone(),
                 )
             })
             .collect();
@@ -531,12 +532,13 @@ impl Sources {
         // Saved searches run again when the app starts.
         for s in 0..me.sources.len() {
             let saved = crate::settings::source_searches(me.sources[s].info.name);
-            for (text, kind, prefer, added) in saved {
+            for (text, kind, prefer, added, songs) in saved {
                 let query = SourceQuery {
                     text,
                     kind: QueryKind::from_name(&kind),
                     prefer: Prefer::from_name(&prefer),
                     skip: Vec::new(),
+                    songs,
                 };
                 me.start(s, query, added, false);
             }
@@ -1912,7 +1914,7 @@ fn query(text: &str, kind: i32, prefer: i32) -> SourceQuery {
             .get(prefer as usize)
             .copied()
             .unwrap_or_default(),
-        skip: Vec::new(),
+        ..Default::default()
     }
 }
 

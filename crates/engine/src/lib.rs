@@ -21,6 +21,7 @@ mod effects;
 pub mod engine;
 mod gridfit;
 pub mod groove;
+pub mod groove_pads;
 pub mod import;
 pub mod inputs;
 pub mod key;
@@ -31,6 +32,7 @@ pub mod link;
 pub mod loader;
 pub mod loudness;
 pub mod meter;
+pub mod midi_clock;
 mod output;
 pub mod paths;
 pub mod patterns;
@@ -127,6 +129,8 @@ pub struct AudioEngine {
     notes: Arc<Mutex<NoteInput>>,
     /// The master for broadcasting, until the broadcaster takes it.
     broadcast_feed: Mutex<Option<recorder::Feed>>,
+    /// Picks the outputs MIDI clock goes to.
+    midi_clock: midi_clock::MidiClock,
 }
 
 /// The master output, for broadcasting: a copy of what the speakers get,
@@ -196,6 +200,7 @@ impl AudioEngine {
             )
         });
         link::watch(engine.link_handle(), Arc::downgrade(&registry));
+        let midi_clock = midi_clock::start(engine.beat_clock(), engine.link_handle(), &registry);
         let output = output::Outputs::new(engine, setup, output::Health::new(&registry));
 
         let loaded: LoadedTracks = Arc::new(RwLock::new(Default::default()));
@@ -225,7 +230,13 @@ impl AudioEngine {
             plugins,
             notes,
             broadcast_feed: Mutex::new(broadcast_feed),
+            midi_clock,
         }
+    }
+
+    /// MIDI clock out: which outputs it sends to.
+    pub fn midi_clock(&self) -> midi_clock::MidiClock {
+        self.midi_clock.clone()
     }
 
     /// The master output for broadcasting; there is only one, so later

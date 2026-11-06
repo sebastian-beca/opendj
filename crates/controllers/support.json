@@ -18,6 +18,7 @@
   {"name": "Pioneer DDJ-FLX10", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list."},
   {"name": "Native Instruments Traktor Kontrol S2 MK3", "file": "Traktor Kontrol S2 MK3.hid.xml", "status": "beta", "note": "A USB HID controller, running Mixxx's HID mapping. No picture in the Controller Editor, and it can't be remapped there."},
   {"name": "Native Instruments Traktor Kontrol S3", "file": "Traktor Kontrol S3.hid.xml", "status": "beta", "note": "A USB HID controller, running Mixxx's HID mapping. No picture in the Controller Editor, and it can't be remapped there."},
-  {"name": "Native Instruments Traktor Kontrol S4 MK3", "file": "Traktor Kontrol S4 MK3.hid.xml", "status": "beta", "note": "A USB HID controller, running Mixxx's HID mapping. Its two screens stay dark. No picture in the Controller Editor."}
+  {"name": "Native Instruments Traktor Kontrol S4 MK3", "file": "Traktor Kontrol S4 MK3.hid.xml", "status": "beta", "note": "A USB HID controller, running Mixxx's HID mapping. Its two screens stay dark. No picture in the Controller Editor."},
+  {"name": "Native Instruments Maschine Mikro MK3", "file": "Native Instruments Maschine Mikro MK3.hid.xml", "status": "beta", "note": "openDJ's own HID mapping for the Groove Box: steps, live play and recording, grooves and kits on the pads, with its screen. No NI software needed; quit Maschine first. No picture in the Controller Editor."}
  ]
 }

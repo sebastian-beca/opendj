@@ -30,7 +30,7 @@ On macOS and Linux, openDJ SHALL offer a virtual MIDI output named "openDJ Clock
 - **THEN** the app plays in time with the master deck
 
 ### Requirement: Steady timing
-Pulses SHALL be scheduled ahead and sent with the operating system's timestamps where it has them (Core MIDI on macOS, the ALSA sequencer on Linux), so their spacing varies by less than 0.5 ms on an idle computer.
+Pulses SHALL be scheduled ahead and sent at their time (a clock thread that sleeps until just before each pulse and spins the rest, or the operating system's timestamps where it has them: Core MIDI on macOS, the ALSA sequencer on Linux), so their spacing varies by less than 0.5 ms on an idle computer.
 
 #### Scenario: Clock display stays still
 - **WHEN** clock is sent at a steady 124 BPM for five minutes
