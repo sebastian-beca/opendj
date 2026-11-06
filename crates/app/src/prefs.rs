@@ -12,6 +12,7 @@ use crate::audio_plugins::{AudioPlugins, Found};
 use crate::backup;
 use crate::broadcast::{self, Broadcast};
 use crate::list_picker::{Picker, Ticked};
+use crate::osc;
 use opendj_control::ControlRegistry;
 use opendj_controllers::{is_system_port, own, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
@@ -1194,7 +1195,11 @@ impl Prefs {
                     false,
                 ),
             ],
-            CONTROLLERS => self.controllers_page(),
+            CONTROLLERS => {
+                let mut items = self.controllers_page();
+                items.extend(osc_items());
+                items
+            }
             LIBRARY => self.library_page(tab),
             ANALYSIS => {
                 let (lo, hi) = bpm_range();
@@ -3215,6 +3220,9 @@ impl Prefs {
             return;
         }
         settings::set(id, json!(on));
+        if [osc::ENABLED, osc::LOCAL_ONLY, osc::SEND_ONLY].contains(&id) {
+            osc::apply();
+        }
         if id == crate::now_playing::ENABLED || id == crate::now_playing::NETWORK {
             crate::now_playing::settings_changed();
         }
@@ -4051,6 +4059,18 @@ impl Prefs {
             });
             return;
         }
+        if id == osc::PORT {
+            if let Ok(port) = text.trim().parse::<u16>() {
+                settings::set(id, json!(port));
+                osc::settings_changed();
+            }
+            return;
+        }
+        if id == osc::TARGETS {
+            settings::set(id, json!(text));
+            osc::settings_changed();
+            return;
+        }
         if id == crate::now_playing::TEMPLATE {
             settings::set(id, json!(text));
             crate::now_playing::settings_changed();
@@ -4880,6 +4900,70 @@ const CLEANUP_FOLD: &str = "cleanup#fold";
 const MUSIC_FOLDERS_LIST: &str = "music_folders";
 /// The plugin folders' list on Settings › Plugins › Folders.
 const PLUGIN_FOLDERS_LIST: &str = "audio_plugin_folders";
+
+/// Settings › Controllers › OSC: tablets, visuals and show software
+/// controlling openDJ and following it over Open Sound Control.
+fn osc_items() -> Vec<PrefItem> {
+    let on = settings::flag(osc::ENABLED, false);
+    let mut items = vec![
+        item("", HEADING, "OSC", ""),
+        switch(
+            osc::ENABLED,
+            "OSC",
+            "Lets TouchOSC, Open Stage Control, Resolume, TouchDesigner, QLab and other \
+             Open Sound Control apps press any button and move any fader, and follow \
+             what changes. /channel1/play 1 plays deck 1. See the user guide for every address.",
+            on,
+        ),
+    ];
+    if !on {
+        return items;
+    }
+    let status = osc::status();
+    if !status.is_empty() {
+        items.push(item("osc_status", NOTE, "", &status));
+    }
+    items.push(PrefItem {
+        value: osc::port().to_string().into(),
+        ..item(
+            osc::PORT,
+            TEXT,
+            "Port",
+            "The UDP port openDJ listens on. 9000 at first.",
+        )
+    });
+    let (_, bad) = osc::targets();
+    items.push(PrefItem {
+        value: settings::string(osc::TARGETS).into(),
+        ..item(
+            osc::TARGETS,
+            TEXT,
+            "Send to",
+            &if bad.is_empty() {
+                "Apps to send changes to, as address:port, separated by commas, \
+                 for example 192.168.1.20:8000. An app that sends from the same computer gets \
+                 its answers here too."
+                    .to_string()
+            } else {
+                format!("Not understood: {}", bad.join(", "))
+            },
+        )
+    });
+    items.push(switch(
+        osc::LOCAL_ONLY,
+        "Only this computer",
+        "Off, tablets and other computers on your network can control openDJ too.",
+        settings::flag(osc::LOCAL_ONLY, true),
+    ));
+    items.push(switch(
+        osc::SEND_ONLY,
+        "Send only",
+        "Ignores incoming controls, so other apps can follow openDJ but not change it. \
+         /subscribe still works.",
+        settings::flag(osc::SEND_ONLY, false),
+    ));
+    items
+}
 
 /// Settings › Broadcast › NOW PLAYING FEED: the track the audience hears,
 /// for OBS and other streaming software.

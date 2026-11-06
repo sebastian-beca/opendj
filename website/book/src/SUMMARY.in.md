@@ -23,6 +23,7 @@
 - [Controllers](guide/controllers.md)
   - [Pioneer DDJ-FLX4](guide/controllers/ddj-flx4.md)
 <!-- controllers -->
+- [OSC](guide/osc.md)
 - [Ableton Link](guide/link.md)
 - [Keyboard shortcuts](guide/shortcuts.md)
 - [Feedback and logs](guide/feedback.md)
