@@ -11,8 +11,8 @@ Four tabs show at a time. The first four are **HOT CUES**, **PAD FX 1**,
 SHIFT + a pad mode button does on the controller: **KEYBOARD**, **PAD FX
 2**, **BEAT LOOP** and **KEY SHIFT**.
 
-**Right-click** a tab to put another page in it. There are ten pages in all;
-**STEMS** and **LOOP ROLL** are only there this way. For example, put STEMS
+**Right-click** a tab to put another page in it. There are twelve pages in all;
+**STEMS**, **LOOP ROLL**, **SLICER** and **FREEZE** are only there this way. For example, put STEMS
 in place of the sampler. A controller's pad mode button then opens whatever
 page is in its tab.
 
@@ -31,6 +31,8 @@ the sampler's **1** and **2**.
 | **KEYBOARD** | Play from a hot cue at another key |
 | **KEY SHIFT** | Shift the track's key |
 | **LOOP ROLL** | Loops while held, from 1/16 to 8 beats (see [Looping](looping.md#loop-rolls)) |
+| **SLICER** | Eight beats of the track, one on each pad (see [Slicer](#slicer)) |
+| **FREEZE** | Eighths of the playing beat, repeating while held (see [Freeze](#freeze)) |
 
 ## Hot cues
 
@@ -46,6 +48,30 @@ teal, and show in the same color on the waveform. A saved loop shows a loop
 sign instead of a play mark. Hot cues from VirtualDJ come in with their names
 and colors, and are written to the stick in a
 [USB export](usb-export.md).
+
+## Slicer
+
+Open **SLICER** and the eight beats from the beat playing loop, one beat on
+each pad. The pad of the beat playing is lit, so you can watch the section go
+round.
+
+- **Hold a pad** to play its beat. It keeps time: it starts at the same place
+  in the beat as the track was, and repeats while you hold it.
+- **Let go** and the section carries on from where it would have been, so you
+  never lose the phrase.
+- **Open another page** to leave the slicer. The track plays on from where it
+  is.
+
+A slicer pad also works from a controller or in Map mode without opening the
+page: the first press starts the section.
+
+## Freeze
+
+**FREEZE** stutters the beat playing. Hold a pad and the beat is cut into
+eight short slices: pad 1 repeats the first eighth, pad 8 the last. Press
+other pads while holding to play other slices of the same beat. Let go of
+them all and the track carries on from where it would have been, as with a
+loop roll.
 
 ## Keyboard and key shift
 

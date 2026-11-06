@@ -245,6 +245,15 @@ fn deck_function(key: &str, target: &str) -> Function {
     if let Some(n) = middle(key, "hotcue_", "_goto") {
         return f("Hot cues", &format!("Go to hot cue {n}"));
     }
+    if let Some(n) = middle(key, "slicer_", "_activate") {
+        return f("Pads", &format!("Slicer beat {n}"));
+    }
+    if let Some(n) = middle(key, "slicer_", "_status") {
+        return f("Pads", &format!("Slicer beat {n} playing"));
+    }
+    if let Some(n) = middle(key, "freeze_", "_activate") {
+        return f("Pads", &format!("Freeze slice {n}"));
+    }
     if let Some(n) = middle(key, "beatlooproll_", "_activate") {
         return f("Loops", &format!("Loop roll {}", plural(n)));
     }
@@ -375,6 +384,7 @@ fn deck_function(key: &str, target: &str) -> Function {
         "talkover" => ("Mic & aux", "Talk over"),
         "pad_panel" => ("Pads", "Pad mode"),
         "pad_tab" => ("Pads", "Pad tab"),
+        "slicer_enabled" => ("Pads", "Slicer on"),
         k if k.starts_with("pad_slot_") => ("Pads", "Pad tab page"),
         "waveform_zoom" => ("View", "Waveform zoom"),
         "waveform_zoom_up" => ("View", "Zoom waveform in"),
