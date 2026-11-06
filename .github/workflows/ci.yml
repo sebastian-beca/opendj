@@ -4,9 +4,11 @@ name: CI
 # check, and the macOS app build so each pull request can be tried on a Mac.
 # The Windows checks and the Windows app build run after a merge to main, or
 # for any branch from the Actions tab (Run workflow).
-# The merge queue (merge_group) runs the same Linux checks and the dependency
-# check on the pull request rebased on the latest main, then merges it; it
-# skips the app builds, which run again after the merge.
+# A merge queue (merge_group) would run the same Linux checks and the
+# dependency check on the pull request rebased on the latest main, skipping
+# the app builds, which run again after the merge. GitHub offers merge
+# queues only to repositories owned by an organization, so this waits for
+# that.
 # Releases build every platform in release.yml.
 on:
   push:
