@@ -8,7 +8,8 @@ rekordbox XML is the exchange format of the DJ library world. rekordbox imports 
 
 ## What Changes
 
-- **Export Collection as rekordbox XML…** in the Collection node's menu, and **Export as rekordbox XML…** on any list or folder (that list's tracks and the list tree only).
+- **File › Export › rekordbox XML…** beside the other exports (the list or folder picked in the sidebar, or the whole collection when Collection is picked), and **Export as rekordbox XML…** in the Collection node's menu and on any list or folder (that list's tracks and the list tree only).
+- The DJ's tags go into the comment as `/* Tag / Tag */`, as rekordbox's "Add My Tag to comments" writes them; pads past H go out as memory cues; track colours as the nearest of rekordbox's eight.
 - Each track carries its tags, rating, colour, comment, date added, play count, beat grid (every grid marker, so variable tempo survives), hot cues with numbers and colours, memory cues, and saved loops. Playlists, crates, sets and folders keep their tree.
 - Optional **Keep rekordbox.xml up to date** in Settings › Collection › General: openDJ rewrites the file in the background a minute after the collection changes, so a library tool or rekordbox can be pointed at it once.
 

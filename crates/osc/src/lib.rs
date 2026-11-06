@@ -23,7 +23,8 @@ use std::time::{Duration, Instant};
 
 use opendj_control::{ConfigKey, ControlHandle, ControlRegistry};
 use rosc::address::{Matcher, OscAddress};
-use rosc::{OscMessage, OscPacket, OscType};
+use rosc::OscPacket;
+pub use rosc::{OscMessage, OscType};
 
 /// The port openDJ listens on unless the DJ picks another.
 pub const DEFAULT_PORT: u16 = 9000;
@@ -155,9 +156,10 @@ impl Osc {
         self.clients.load(Ordering::Relaxed)
     }
 
-    /// Sends a message to every send target on the next pass, for events
-    /// such as a track loading.
-    pub fn send_to_targets(&self, message: OscMessage) {
+    /// Sends an event, such as a track loading, to every send target and
+    /// to each client subscribed to a pattern that matches its address,
+    /// within a few milliseconds.
+    pub fn send_event(&self, message: OscMessage) {
         if let Ok(mut out) = self.outbox.lock() {
             out.push(message);
         }
@@ -342,6 +344,7 @@ impl Server {
                 // earlier send as an error on the next receive.
                 Err(_) => {}
             }
+            self.events();
             let now = Instant::now();
             if now.duration_since(last_check) >= TABLE_CHECK {
                 last_check = now;
@@ -480,18 +483,31 @@ impl Server {
         }
     }
 
-    /// Sends what changed since the last pass, and any events waiting.
+    /// Sends the events waiting to every send target, and to each client
+    /// that subscribed to a pattern matching them (`/subscribe "/beat"`).
+    fn events(&mut self) {
+        let events = match self.outbox.lock() {
+            Ok(mut o) if !o.is_empty() => std::mem::take(&mut *o),
+            _ => return,
+        };
+        for e in &events {
+            let address = OscAddress::new(e.addr.clone()).ok();
+            for c in &self.clients {
+                let wanted = c.target
+                    || address
+                        .as_ref()
+                        .is_some_and(|a| c.patterns.iter().any(|p| p.match_address(a)));
+                if wanted {
+                    self.send(e, c.to);
+                }
+            }
+        }
+    }
+
+    /// Sends the controls that changed since the last pass.
     fn feedback(&mut self) {
-        let events = self
-            .outbox
-            .lock()
-            .map(|mut o| std::mem::take(&mut *o))
-            .unwrap_or_default();
         let mut out: Vec<(OscMessage, SocketAddr)> = Vec::new();
         for c in &mut self.clients {
-            if c.target {
-                out.extend(events.iter().map(|e| (e.clone(), c.to)));
-            }
             for (lower, w) in &mut c.watching {
                 let Some(e) = self.table.entries.get(lower) else {
                     continue;
