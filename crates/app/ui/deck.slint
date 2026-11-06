@@ -6,7 +6,7 @@
 import { TrackDrag } from "library.slint";
 import { SamplerPanel } from "sampler.slint";
 import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
-import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, KeyLock, MasterBadge, PitchReset, SyncButton } from "controls.slint";
+import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, MasterBadge, PitchReset, SyncButton } from "controls.slint";
 import { TourMark } from "tourmark.slint";
 import { MapMark } from "mapmark.slint";
 import { InstrumentsUi, LiveIcon } from "instruments.slint";
@@ -2064,8 +2064,8 @@ export component LoopSection inherits VerticalLayout {
     }
 }
 
-// The column beside the tempo fader: pitch reset always at its middle,
-// level with 0%, and key lock under it.
+// The column beside the tempo fader: pitch reset at its middle, level
+// with 0%.
 component PitchSide inherits Rectangle {
     in property <string> group;
     in property <color> tint;
@@ -2076,11 +2076,6 @@ component PitchSide inherits Rectangle {
         group: group;
         tint: tint;
         points-left: mirrored;
-    }
-    KeyLock {
-        y: reset.y + reset.height + 6px;
-        group: group;
-        right-aligned: mirrored;
     }
 }
 
@@ -2120,13 +2115,15 @@ export component TempoStep inherits Rectangle {
 // The tempo column, everything on its centre line: SYNC (Shift-click to
 // sync once, right-click for quantize) over the fader, and the tempo with
 // the fine − and + either side under it.
-// Pitch reset and key lock sit in the margin on the fader's outer side.
+// Pitch reset sits in the margin on the fader's outer side. Key lock shows
+// as the fader's line lit lilac, and a right-click on it switches it.
 component Pitch inherits VerticalLayout {
     in property <string> group;
     in property <DeckInfo> info;
     in property <color> tint;
     // Deck B: pitch reset goes on the fader's right, its outer side.
     in property <bool> mirrored;
+    property <int> keylock-index: Controls.resolve(group, "keylock");
     width: 64px;
     spacing: 5px;
     SyncButton { group: group; tint: tint; font-size: 13px; height: 30px; menu-right-aligned: mirrored; tour-id: group + ",sync_enabled"; }
@@ -2141,6 +2138,8 @@ component Pitch inherits VerticalLayout {
             center-mark: true;
             ticks: 9;
             tint: tint;
+            glowing: Controls.value(keylock-index, Controls.tick) > 0;
+            context-menu(x, y) => { Controls.toggle(keylock-index); }
         }
         PitchSide {
             x: mirrored ? parent.width - self.width : 0px;

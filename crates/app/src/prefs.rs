@@ -180,7 +180,7 @@ pub fn apply_saved(registry: &ControlRegistry) {
         set(&g, "rate_dir", rate_dir());
         set(&g, "quantize", f(settings::flag("quantize", true)));
         set(&g, "vinyl_mode", f(settings::flag("vinyl_mode", true)));
-        if settings::flag("keylock_default", false) {
+        if settings::flag("keylock_default", true) {
             set(&g, "keylock", 1.0);
         }
     }
@@ -1262,8 +1262,8 @@ impl Prefs {
                     switch(
                         "keylock_default",
                         "Key lock on at start",
-                        "Tempo changes keep the key; each deck's lock button still switches it.",
-                        settings::flag("keylock_default", false),
+                        "Tempo changes keep the key. Right-click a deck's tempo fader to switch it; its line turns lilac while on.",
+                        settings::flag("keylock_default", true),
                     ),
                     PrefItem {
                         choices: strings(&["Harmonic · 4 keys", "Fuzzy · 6 keys"]),
