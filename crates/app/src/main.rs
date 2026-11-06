@@ -61,6 +61,7 @@ mod mac_menu;
 #[cfg(target_os = "macos")]
 mod mac_titlebar;
 mod map_mode;
+mod midi_clock;
 mod mixcloud;
 mod mixcloud_upload;
 mod now_playing;
@@ -543,6 +544,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &settings::audio_setup(),
     ));
     engine.recorder().configure(settings::recording());
+    midi_clock::install(engine.midi_clock(), &registry);
     let recorder = engine.recorder().clone();
     let broadcast = broadcast::Broadcast::start(&registry, &engine);
     // The saved library, with the tracks it had last time; the built-in

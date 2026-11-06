@@ -1596,8 +1596,10 @@ pub struct Engine {
     limiter: Limiter,
     visual: Arc<VisualPositions>,
     link: Link,
-    /// The deck Link follows, while Link is on.
+    /// The master deck: the one Link and MIDI clock follow.
     link_master: Option<usize>,
+    /// The master deck's beat and tempo as heard, for MIDI clock out.
+    beat_clock: Arc<crate::midi_clock::BeatClock>,
     /// The deck synced decks follow.
     sync_leader: Option<usize>,
     /// The leader picked by hand (its MASTER badge clicked), kept while it
@@ -1772,6 +1774,7 @@ impl Engine {
         let (broadcast, broadcast_feed) = recorder::tap(sample_rate);
         let inputs = std::array::from_fn(|i| Input::new(registry, i, sample_rate));
         let ducker = Ducker::new(registry, sample_rate);
+        crate::midi_clock::create_controls(registry);
         (
             Self {
                 inputs,
@@ -1779,6 +1782,7 @@ impl Engine {
                 visual: Arc::default(),
                 link: Link::new(registry),
                 link_master: None,
+                beat_clock: Arc::default(),
                 sync_leader: None,
                 sync_pinned: None,
                 record,
@@ -2114,9 +2118,11 @@ impl Engine {
     /// while playing, or beatsync, lines the beats up at once. With Link on,
     /// the master deck also leads the Link session (see [`Engine::lead_link`]).
     fn sync(&mut self, link: Option<Moment>) {
+        let changed = self.pick_master_deck();
         if let Some(m) = link {
-            self.lead_link(m);
+            self.lead_link(m, changed);
         }
+        self.publish_beat_clock();
         let synced: [bool; NUM_DECKS] =
             std::array::from_fn(|i| self.decks[i].c.sync_enabled.get_bool());
         self.pick_sync_leader(synced);
@@ -2400,12 +2406,10 @@ impl Engine {
         }
     }
 
-    /// Makes Link follow the master deck: the
-    /// session takes its tempo and beat, and other apps follow. The master
-    /// is the deck playing; with both playing it stays the one that started
-    /// first, and when it stops the other takes over. With no deck playing,
-    /// the session keeps its last tempo.
-    fn lead_link(&mut self, m: Moment) {
+    /// Picks the master deck, which Link and MIDI clock follow: the deck
+    /// playing; with both playing it stays the one that started first, and
+    /// when it stops the other takes over. True when it changed.
+    fn pick_master_deck(&mut self) -> bool {
         let playing =
             |d: &Deck| d.c.play.get_bool() && d.track.as_ref().is_some_and(|t| t.bpm > 0.0);
         let master = self
@@ -2418,7 +2422,14 @@ impl Engine {
             .c
             .master_deck
             .set(master.map_or(0.0, |k| k as f64 + 1.0));
-        let Some(k) = master else { return };
+        changed
+    }
+
+    /// Makes Link follow the master deck: the session takes its tempo and
+    /// beat, and other apps follow. With no deck playing, the session keeps
+    /// its last tempo.
+    fn lead_link(&mut self, m: Moment, changed: bool) {
+        let Some(k) = self.link_master else { return };
         let d = &self.decks[k];
         let Some(track) = &d.track else { return };
         let tempo = d.effective_bpm();
@@ -2428,6 +2439,26 @@ impl Engine {
         if align || (tempo - m.tempo).abs() > 1e-6 {
             self.link.lead(tempo, align.then_some(beat));
         }
+    }
+
+    /// Publishes the master deck's beat and tempo as this buffer is heard,
+    /// for MIDI clock out (see [`crate::midi_clock`]).
+    fn publish_beat_clock(&mut self) {
+        let heard_at = self.link.heard_at;
+        let now = self.link_master.and_then(|k| {
+            let d = &self.decks[k];
+            let track = d.track.as_ref()?;
+            Some((track.beat_at(d.seconds()), d.effective_bpm()))
+        });
+        match now {
+            Some((beat, tempo)) if tempo > 0.0 => self.beat_clock.publish(heard_at, beat, tempo),
+            _ => self.beat_clock.publish(heard_at, 0.0, 0.0),
+        }
+    }
+
+    /// The master deck's beat clock, for [`crate::midi_clock::start`].
+    pub(crate) fn beat_clock(&self) -> Arc<crate::midi_clock::BeatClock> {
+        self.beat_clock.clone()
     }
 
     /// Where each deck is, for smooth drawing; updated every buffer.

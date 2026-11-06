@@ -1929,7 +1929,14 @@ impl Prefs {
 
     /// Settings › Controllers: the controllers openDJ has a mapping for,
     /// and any others added; the rest wait under Add a controller.
+    /// Settings › Controllers: each controller, then MIDI Clock.
     fn controllers_page(&mut self) -> Vec<PrefItem> {
+        let mut items = self.controller_items();
+        items.extend(crate::midi_clock::items());
+        items
+    }
+
+    fn controller_items(&mut self) -> Vec<PrefItem> {
         let Some(c) = &self.controllers else {
             return vec![item(
                 "",
@@ -2570,6 +2577,10 @@ impl Prefs {
     }
 
     fn toggled(&mut self, id: &str, on: bool) {
+        if crate::midi_clock::toggled(&self.registry, id, on) {
+            self.refresh();
+            return;
+        }
         // A controller's switch: off stops it, on runs its automatic
         // mapping again (or the one picked in its menu after).
         if let Some(port) = id.strip_prefix("controller:") {
@@ -2684,6 +2695,10 @@ impl Prefs {
     }
 
     fn picked(&mut self, id: &str, index: usize) {
+        if crate::midi_clock::picked(id, index) {
+            self.refresh();
+            return;
+        }
         if id == backup::EVERY_KEY {
             settings::set(id, json!(index));
             backup::run_if_due();
@@ -3119,6 +3134,10 @@ impl Prefs {
     }
 
     fn pressed(&mut self, id: &str) {
+        if crate::midi_clock::pressed(id) {
+            self.refresh();
+            return;
+        }
         if self.broadcast_pressed(id) || self.backup_pressed(id) {
             return;
         }
