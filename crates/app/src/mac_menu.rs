@@ -1,5 +1,5 @@
-//! Settings… (⌘,) in the macOS app menu, and an Edit menu with Undo (⌘Z)
-//! and Find (⌘F).
+//! Settings… (⌘,) in the macOS app menu, a File menu with Export ›
+//! Mixcloud…, and an Edit menu with Undo (⌘Z) and Find (⌘F).
 //! Slint builds the app menu itself (About, Services, Hide, Quit) with no
 //! way to add to it, so the items are added to the native menu once it
 //! exists.
@@ -21,6 +21,8 @@ thread_local! {
     static UNDO_ITEM: RefCell<Option<Retained<NSMenuItem>>> = const { RefCell::new(None) };
     /// What Find does: into the library search.
     static FIND: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
+    /// What File › Export › Mixcloud… does.
+    static EXPORT_MIXCLOUD: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
 }
 
 define_class!(
@@ -56,6 +58,15 @@ define_class!(
             UNDO.with(|u| {
                 if let Some(undo) = u.borrow().as_ref() {
                     undo();
+                }
+            });
+        }
+
+        #[unsafe(method(exportMixcloud:))]
+        fn export_mixcloud(&self, _sender: Option<&AnyObject>) {
+            EXPORT_MIXCLOUD.with(|f| {
+                if let Some(export) = f.borrow().as_ref() {
+                    export();
                 }
             });
         }
@@ -137,8 +148,29 @@ pub fn add_settings_item(open: impl Fn() + 'static) -> bool {
     edit.addItem(&find);
     let holder = NSMenuItem::new(mtm);
     holder.setSubmenu(Some(&edit));
+    // A File menu before Edit: Export › Mixcloud… for the mixed set picked.
+    let file = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("File"));
+    let export = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("Export"));
+    // SAFETY: as for Settings… above.
+    let mixcloud = unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(
+            NSMenuItem::alloc(mtm),
+            &NSString::from_str("Mixcloud…"),
+            Some(sel!(exportMixcloud:)),
+            &NSString::from_str(""),
+        )
+    };
+    unsafe { mixcloud.setTarget(Some(&target)) };
+    export.addItem(&mixcloud);
+    let export_holder = NSMenuItem::new(mtm);
+    export_holder.setTitle(&NSString::from_str("Export"));
+    export_holder.setSubmenu(Some(&export));
+    file.addItem(&export_holder);
+    let file_holder = NSMenuItem::new(mtm);
+    file_holder.setSubmenu(Some(&file));
     if let Some(main) = app.mainMenu() {
         main.insertItem_atIndex(&holder, 1.min(main.numberOfItems()));
+        main.insertItem_atIndex(&file_holder, 1.min(main.numberOfItems()));
     }
     UNDO_ITEM.with(|u| *u.borrow_mut() = Some(undo));
     TARGET.with(|t| *t.borrow_mut() = Some(target));
@@ -148,6 +180,11 @@ pub fn add_settings_item(open: impl Fn() + 'static) -> bool {
 /// What Edit › Undo does when picked.
 pub fn on_undo(undo: impl Fn() + 'static) {
     UNDO.with(|u| *u.borrow_mut() = Some(Box::new(undo)));
+}
+
+/// What File › Export › Mixcloud… does when picked.
+pub fn on_export_mixcloud(export: impl Fn() + 'static) {
+    EXPORT_MIXCLOUD.with(|f| *f.borrow_mut() = Some(Box::new(export)));
 }
 
 /// What Edit › Find does when picked.
