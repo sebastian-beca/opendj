@@ -1166,9 +1166,6 @@ impl Browser {
         let (mut total, mut clean) = (0, 0);
         let mut areas = [0usize; 5];
         for t in self.library.iter().filter(|t| self.in_collection(t)) {
-            if t.info.stage == Stage::Dismissed.name() {
-                continue;
-            }
             let found: Vec<bool> = Check::ALL
                 .iter()
                 .map(|&c| self.health.finds(c, t, &self.duplicates))
