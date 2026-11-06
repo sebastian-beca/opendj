@@ -1,0 +1,182 @@
+// The app's menus (File, Edit) on Windows and Linux: a ☰ button at the left
+// of the top bar opens them, each menu sliding out beside its name, as a
+// menu bar would but without its strip across the window. macOS shows the
+// same menus in its own menu bar instead (app_menu.rs fills both).
+import { Theme } from "theme.slint";
+import { MenuLine, MenuBackground, MenuSeparator } from "library.slint";
+
+// A line of a menu.
+export struct MenuEntry {
+    // Which of AppMenu.menus it is in; -1 for the ☰ list itself.
+    menu: int,
+    // The submenu line (an index into AppMenu.entries) it is in; -1 for
+    // the menu itself.
+    parent: int,
+    // 0 an item, 1 a separator, 2 a submenu.
+    kind: int,
+    text: string,
+    // The shortcut, "Ctrl+Z".
+    hint: string,
+    // What it does, for AppMenu.activated.
+    action: int,
+    enabled: bool,
+    // How far down its menu the line is, to open a submenu beside it.
+    top: length,
+}
+
+export global AppMenu {
+    // Whether the ☰ button shows (not on macOS).
+    in property <bool> shown;
+    in property <[string]> menus;
+    in property <[MenuEntry]> entries;
+    // File › Quit's action, for Ctrl+Q.
+    in property <int> quit-action;
+    callback activated(action: int);
+}
+
+// A line of the menu or of a submenu, or nothing when it is in another.
+component EntryLine inherits Rectangle {
+    in property <MenuEntry> entry;
+    in property <bool> here;
+    in property <bool> open;
+    callback entered();
+    callback clicked();
+    height: !here ? 0px : entry.kind == 1 ? 9px : 26px;
+    if here && entry.kind == 1: MenuSeparator { }
+    if here && entry.kind != 1: MenuLine {
+        text: entry.text;
+        hint: entry.hint;
+        enabled: entry.enabled;
+        submenu: entry.kind == 2;
+        open: root.open;
+        entered => { root.entered(); }
+        clicked => { root.clicked(); }
+    }
+}
+
+component AppMenuPanel inherits PopupWindow {
+    property <length> column: 220px;
+    property <length> gap: 4px;
+    // The menu slid out (an index into AppMenu.menus), and its submenu (an
+    // index into AppMenu.entries); -1 for none.
+    property <int> open-menu: -1;
+    property <int> open-sub: -1;
+    width: 3 * column + 2 * gap;
+    height: 360px;
+    close-policy: close-on-click-outside;
+    function pick(e: MenuEntry) {
+        root.close();
+        AppMenu.activated(e.action);
+    }
+    // The room around the menus closes it, as outside would.
+    TouchArea { clicked => { root.close(); } }
+    titles := Rectangle {
+        x: 0px;
+        y: 0px;
+        width: column;
+        height: titles-col.preferred-height;
+        MenuBackground { }
+        titles-col := VerticalLayout {
+            padding: 6px;
+            for name[m] in AppMenu.menus: MenuLine {
+                text: name;
+                submenu: true;
+                open: open-menu == m;
+                entered => {
+                    if open-menu != m {
+                        open-menu = m;
+                        open-sub = -1;
+                    }
+                }
+                clicked => {
+                    open-menu = m;
+                    open-sub = -1;
+                }
+            }
+            // The app's own items: Settings… and Quit.
+            MenuSeparator { }
+            for e in AppMenu.entries: EntryLine {
+                entry: e;
+                here: e.menu == -1 && e.parent == -1;
+                entered => {
+                    open-menu = -1;
+                    open-sub = -1;
+                }
+                clicked => {
+                    if e.kind == 0 {
+                        pick(e);
+                    }
+                }
+            }
+        }
+    }
+    if open-menu >= 0: items := Rectangle {
+        x: column + gap;
+        y: open-menu * 26px;
+        width: column;
+        height: items-col.preferred-height;
+        MenuBackground { }
+        items-col := VerticalLayout {
+            padding: 6px;
+            for e[i] in AppMenu.entries: EntryLine {
+                entry: e;
+                here: e.menu == open-menu && e.parent == -1;
+                open: open-sub == i;
+                entered => { open-sub = e.kind == 2 ? i : -1; }
+                clicked => {
+                    if e.kind == 2 {
+                        open-sub = i;
+                    } else if e.kind == 0 {
+                        pick(e);
+                    }
+                }
+            }
+        }
+        if open-sub >= 0: Rectangle {
+            x: column + gap;
+            y: AppMenu.entries[open-sub].top;
+            width: column;
+            height: sub-col.preferred-height;
+            MenuBackground { }
+            sub-col := VerticalLayout {
+                padding: 6px;
+                for e in AppMenu.entries: EntryLine {
+                    entry: e;
+                    here: e.parent == open-sub;
+                    clicked => {
+                        if e.kind == 0 {
+                            pick(e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ☰, at the left of the top bar.
+export component AppMenuButton inherits Rectangle {
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    border-radius: 10px;
+    height: 36px;
+    width: 40px;
+    y: 8px;
+    horizontal-stretch: 0;
+    Path {
+        width: 16px;
+        height: 12px;
+        viewbox-width: 16;
+        viewbox-height: 12;
+        stroke: ta.has-hover ? Theme.text : Theme.text-dim;
+        stroke-width: 1.5px;
+        commands: "M 1 1 L 15 1 M 1 6 L 15 6 M 1 11 L 15 11";
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { panel.show(); }
+    }
+    panel := AppMenuPanel {
+        x: 0px;
+        y: root.height + 6px;
+    }
+}

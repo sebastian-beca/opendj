@@ -8,7 +8,7 @@
 //! from the phrase analysis; a track without phrases counts in phrases of
 //! eight bars from its first bar.
 
-use opendj_engine::Track;
+use opendj_engine::{phrases, Track};
 use opendj_waveform::PhraseKind;
 
 /// Bars in a phrase when the track has no phrase analysis.
@@ -56,6 +56,30 @@ impl Count {
             (n, None) => format!("↓ {n}"),
         }
     }
+}
+
+/// A track's phrases, earliest first, as the overview draws them: found
+/// from its waveform when it has one, otherwise those stored with it.
+pub fn track_phrases(t: &Track) -> Vec<(f64, PhraseKind)> {
+    let found = if phrases::waveform_ready(t) {
+        phrases::detect(t)
+    } else {
+        phrases::stored(t)
+    };
+    found
+        .into_iter()
+        .map(|p| {
+            let kind = match p.kind {
+                phrases::PhraseKind::Intro => PhraseKind::Intro,
+                phrases::PhraseKind::Build => PhraseKind::Build,
+                phrases::PhraseKind::Drop => PhraseKind::Drop,
+                phrases::PhraseKind::Breakdown => PhraseKind::Breakdown,
+                phrases::PhraseKind::Outro => PhraseKind::Outro,
+                phrases::PhraseKind::Chorus => PhraseKind::Chorus,
+            };
+            (p.start, kind)
+        })
+        .collect()
 }
 
 /// The phrase kind as the counter names it, short enough for the header.

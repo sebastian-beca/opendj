@@ -35,6 +35,9 @@ export struct Folder {
     count: int,
     // Holds library tracks, so its menu offers Analyze All.
     analysable: bool,
+    // The Collection node or one of the DJ's lists or folders in it: its
+    // menu offers Export as rekordbox XML.
+    rekordbox: bool,
     // A crate's color, an index into LibraryEdit.list-colors; -1 for none.
     color: int,
     // A crate's icon: 0 = crate, then star, heart, flame, bolt, moon, sun,
@@ -308,6 +311,9 @@ export global LibraryEdit {
     // Saves the list, folder, history session, album or mixed set at a
     // sidebar row as M3U8 files; asks where first.
     callback export-m3u(row: int);
+    // Saves the Collection (every track and list) or a list or folder at a
+    // sidebar row as a rekordbox XML file; asks where first.
+    callback export-rekordbox(row: int);
     // Makes a playlist from an M3U, M3U8, PLS or XSPF file the DJ picks.
     callback import-playlist-file();
     // Prepares high-quality stems for the rows `first` to `last`, one
@@ -786,9 +792,11 @@ component MenuIcon inherits Path {
 
 // A line of a popup menu, with an icon (or the room for one) when `icon`
 // is set, a dim `hint` on the right, and a › when it opens a side panel.
-component MenuLine inherits Rectangle {
+export component MenuLine inherits Rectangle {
     in property <string> text;
-    in property <color> text-color: Theme.text;
+    // Greyed out, and does nothing when clicked.
+    in property <bool> enabled: true;
+    in property <color> text-color: enabled ? Theme.text : Theme.text-dim;
     in property <string> icon;
     in property <string> hint;
     in property <bool> submenu;
@@ -805,7 +813,7 @@ component MenuLine inherits Rectangle {
     }
     height: 26px;
     border-radius: 4px;
-    background: ta.has-hover || open ? #3a3a3d : transparent;
+    background: (ta.has-hover && enabled) || open ? #3a3a3d : transparent;
     property <length> text-x: icon != "" ? 34px : 10px;
     if icon != "": MenuIcon {
         x: 10px;
@@ -835,10 +843,16 @@ component MenuLine inherits Rectangle {
         icon: "chevron";
         color: Theme.text-dim;
     }
-    ta := TouchArea { clicked => { root.clicked(); } }
+    ta := TouchArea {
+        clicked => {
+            if root.enabled {
+                root.clicked();
+            }
+        }
+    }
 }
 
-component MenuBackground inherits Rectangle {
+export component MenuBackground inherits Rectangle {
     background: Theme.panel-raised;
     border-radius: Theme.radius;
     border-width: 1px;
@@ -847,7 +861,7 @@ component MenuBackground inherits Rectangle {
     drop-shadow-color: #000000a0;
 }
 
-component MenuSeparator inherits Rectangle {
+export component MenuSeparator inherits Rectangle {
     height: 9px;
     Rectangle { height: 1px; background: Theme.border; }
 }
@@ -2403,6 +2417,7 @@ component FolderTree inherits Rectangle {
     property <bool> menu-analysable;
     property <bool> menu-locked;
     property <bool> menu-adoptable;
+    property <bool> menu-rekordbox;
     property <int> menu-color;
     property <int> menu-icon;
     property <length> menu-y;
@@ -2582,6 +2597,13 @@ component FolderTree inherits Rectangle {
                 text: "Export to USB…";
                 clicked => {
                     LibraryEdit.export-usb(menu-index);
+                    folder-menu.close();
+                }
+            }
+            if menu-rekordbox: MenuLine {
+                text: "Export as rekordbox XML…";
+                clicked => {
+                    LibraryEdit.export-rekordbox(menu-index);
                     folder-menu.close();
                 }
             }
@@ -2904,6 +2926,7 @@ component FolderTree inherits Rectangle {
                                 menu-color = f.color;
                                 menu-icon = f.icon;
                                 menu-analysable = f.analysable && (source == 0 || source == 9 || source == 10);
+                                menu-rekordbox = f.rekordbox && source == 0;
                                 menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
                                 if source == 1 { files-menu.show(); } else { folder-menu.show(); }
                             }

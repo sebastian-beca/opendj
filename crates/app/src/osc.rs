@@ -5,11 +5,17 @@
 //! again when a setting changes. Switches apply at once; typed settings
 //! (the port, the send targets) once typing pauses, so a half-typed
 //! port number isn't opened for every key.
+//!
+//! While it runs, [`osc_events`](crate::osc_events) sends beats, phrases,
+//! loads and hot cues, and when it's open to the network it's advertised
+//! over Bonjour as `_osc._udp`, so TouchOSC and others list it.
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use mdns_sd::{ServiceDaemon, ServiceInfo};
 use opendj_control::ControlRegistry;
+use opendj_engine::{LoadedTracks, VisualPositions};
 use opendj_osc::{Config, Osc, DEFAULT_PORT};
 
 use crate::settings;
@@ -26,7 +32,67 @@ pub const SEND_ONLY: &str = "osc_send_only";
 pub const TARGETS: &str = "osc_targets";
 
 static REGISTRY: OnceLock<Arc<ControlRegistry>> = OnceLock::new();
-static RUNNING: Mutex<Option<(Config, Osc)>> = Mutex::new(None);
+static RUNNING: Mutex<Option<Running>> = Mutex::new(None);
+
+struct Running {
+    config: Config,
+    osc: Osc,
+    /// The Bonjour advert, while open to the network.
+    _advert: Option<Advert>,
+}
+
+/// `openDJ._osc._udp.local.`, withdrawn when dropped.
+struct Advert {
+    daemon: ServiceDaemon,
+    name: String,
+}
+
+impl Advert {
+    fn start(port: u16) -> Option<Self> {
+        let daemon = ServiceDaemon::new().ok()?;
+        let host = format!("{}.local.", hostname().unwrap_or_else(|| "opendj".into()));
+        let info = ServiceInfo::new(
+            "_osc._udp.local.",
+            "openDJ",
+            &host,
+            "",
+            port,
+            None::<std::collections::HashMap<String, String>>,
+        )
+        .ok()?
+        .enable_addr_auto();
+        let name = info.get_fullname().to_string();
+        daemon.register(info).ok()?;
+        Some(Self { daemon, name })
+    }
+}
+
+impl Drop for Advert {
+    fn drop(&mut self) {
+        let _ = self.daemon.unregister(&self.name);
+        let _ = self.daemon.shutdown();
+    }
+}
+
+/// This computer's name for its `.local` address, letters, digits and
+/// dashes only.
+fn hostname() -> Option<String> {
+    let name = std::env::var("HOSTNAME")
+        .ok()
+        .or_else(|| std::env::var("COMPUTERNAME").ok())
+        .or_else(|| {
+            std::process::Command::new("hostname")
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+        })?;
+    let name = name.trim().trim_end_matches(".local");
+    let clean: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    (!clean.is_empty()).then_some(clean)
+}
 /// Why the port couldn't open, if it couldn't.
 static PROBLEM: Mutex<String> = Mutex::new(String::new());
 /// When a typed setting last changed, until it's applied.
@@ -35,9 +101,28 @@ static CHANGED: Mutex<Option<Instant>> = Mutex::new(None);
 const SETTLE: Duration = Duration::from_millis(800);
 
 /// Starts OSC if it's switched on. Call once at startup.
-pub fn install(registry: &Arc<ControlRegistry>) {
+pub fn install(
+    registry: &Arc<ControlRegistry>,
+    loaded: LoadedTracks,
+    visual: Arc<VisualPositions>,
+) {
     let _ = REGISTRY.set(registry.clone());
     apply();
+    crate::osc_events::spawn(
+        registry.clone(),
+        loaded,
+        visual,
+        || RUNNING.lock().is_ok_and(|r| r.is_some()),
+        |events| {
+            if let Ok(r) = RUNNING.lock() {
+                if let Some(r) = r.as_ref() {
+                    for e in events {
+                        r.osc.send_event(e);
+                    }
+                }
+            }
+        },
+    );
 }
 
 /// Marks a typed setting changed; [`tick`] applies it.
@@ -108,7 +193,7 @@ pub fn apply() {
     let Ok(mut running) = RUNNING.lock() else {
         return;
     };
-    if running.as_ref().map(|(c, _)| c) == wanted.as_ref() {
+    if running.as_ref().map(|r| &r.config) == wanted.as_ref() {
         return;
     }
     // Close the old port first, so the same port number can open again.
@@ -116,7 +201,16 @@ pub fn apply() {
     let mut problem = String::new();
     if let Some(config) = wanted {
         match Osc::start(registry.clone(), config.clone()) {
-            Ok(osc) => *running = Some((config, osc)),
+            Ok(osc) => {
+                let advert = (!config.local_only)
+                    .then(|| Advert::start(osc.port()))
+                    .flatten();
+                *running = Some(Running {
+                    config,
+                    osc,
+                    _advert: advert,
+                })
+            }
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
                 problem = format!(
                     "Port {} is used by another app. Pick another port.",
@@ -141,7 +235,7 @@ pub fn status() -> String {
     let Ok(running) = RUNNING.lock() else {
         return String::new();
     };
-    let Some((config, osc)) = running.as_ref() else {
+    let Some(Running { config, osc, .. }) = running.as_ref() else {
         return String::new();
     };
     let whom = if config.local_only {
