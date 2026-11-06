@@ -472,6 +472,11 @@ Right-click any folder for **New Crate**, **New Playlist** or **New
 Folder**, so folders can hold folders and a folder can hold both. Right-click
 a list for **Make It a Crate** or **Make It a Playlist** (a playlist that
 becomes a crate keeps each track once).
+
+Drag a crate, playlist or folder onto a folder to move it there, or onto
+the **Crates** or **Playlists** heading to take it back to the top (a
+crate's top is Crates, a playlist's is Playlists; a folder can go under
+either).
 - **Imported**: other apps' lists (a folder per app, with a padlock) and
   **Groupings and Tags**. They are read-only, because the app's next
   import makes them again. To keep an app's lists as your own (say, once

@@ -946,6 +946,17 @@ const ROW_PAYLOAD: &str = "opendj-row:";
 const SIDE_PAYLOAD: &str = "opendj-side:";
 /// The track on a deck, picked up by its cover: `opendj-deck:<deck>`.
 const DECK_PAYLOAD: &str = "opendj-deck:";
+/// One of the DJ's lists or folders dragged in the tree: `opendj-list:<id>`.
+const LIST_PAYLOAD: &str = "opendj-list:";
+
+/// The list or folder a tree drag carries.
+fn dragged_list(data: &DataTransfer) -> Option<i64> {
+    data.plain_text()
+        .ok()?
+        .strip_prefix(LIST_PAYLOAD)?
+        .parse()
+        .ok()
+}
 
 /// Where a drag from inside the app comes from.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -1782,10 +1793,38 @@ impl Browser {
             })
         });
         edit.on_accepts_drop(|_, data| dragged(&data).is_some());
+        // Asked while dragging, so it never waits on a busy browser.
+        let weak = Rc::downgrade(b);
+        let w = weak.clone();
+        edit.on_list_payload(move |row| {
+            let id = w
+                .upgrade()
+                .and_then(|b| {
+                    b.try_borrow()
+                        .ok()
+                        .and_then(|b| b.own_list_at(row.max(0) as usize))
+                })
+                .unwrap_or(-1);
+            DataTransfer::from(SharedString::from(format!("{LIST_PAYLOAD}{id}")))
+        });
+        edit.on_accepts_list_move(move |i, data| {
+            let Some(list) = dragged_list(&data) else {
+                return false;
+            };
+            weak.upgrade()
+                .and_then(|b| {
+                    b.try_borrow()
+                        .ok()
+                        .map(|b| b.list_move(list, i as usize).is_some())
+                })
+                .unwrap_or(false)
+        });
         let w = with.clone();
         edit.on_drop(move |i, data| {
             w(&|b| {
-                if dragged(&data).is_some() {
+                if let Some(list) = dragged_list(&data) {
+                    b.move_list(list, i as usize);
+                } else if dragged(&data).is_some() {
                     let ids = b.dropped_tracks(&data);
                     if let Some(list) = b.own_list_at(i as usize) {
                         b.add_to_playlist(&ids, list);
@@ -3570,6 +3609,61 @@ impl Browser {
                 -1
             }
         }
+    }
+
+    /// Where the DJ's list or folder `id` would go, dropped on tree row
+    /// `row`: into the folder there, or to the top of the Crates or
+    /// Playlists heading there. None when it can't: imported, the list
+    /// itself or a folder inside it, a crate's top-level place in
+    /// Playlists or a playlist's in Crates.
+    fn list_move(&self, id: i64, row: usize) -> Option<(Option<i64>, bool)> {
+        if self.tree != COLLECTION || self.history_tab {
+            return None;
+        }
+        let moved = self
+            .nodes
+            .iter()
+            .find(|n| n.playlist == Some(id) && !n.history && !n.locked)?;
+        let target = self.nodes.get(*self.visible_nodes.get(row)?)?;
+        if target.locked {
+            return None;
+        }
+        if target.kind == KIND_SECTION {
+            let crates = target.name == "Crates";
+            let fits = match moved.kind {
+                KIND_FOLDER => true,
+                KIND_CRATE => crates,
+                _ => !crates,
+            };
+            return fits.then_some((None, crates));
+        }
+        if target.kind != KIND_FOLDER {
+            return None;
+        }
+        let folder = target.playlist?;
+        // Not into itself or a folder inside it.
+        let lists = self.db.as_ref()?.playlists().ok()?;
+        let mut at = Some(folder);
+        while let Some(f) = at {
+            if f == id {
+                return None;
+            }
+            at = lists.iter().find(|p| p.id == f).and_then(|p| p.parent);
+        }
+        Some((Some(folder), false))
+    }
+
+    /// Moves the DJ's list or folder `id` to where dropping it on tree row
+    /// `row` puts it.
+    fn move_list(&mut self, id: i64, row: usize) {
+        let Some((folder, crates)) = self.list_move(id, row) else {
+            return;
+        };
+        let Some(db) = &self.db else { return };
+        if let Err(e) = db.move_playlist(id, folder, crates) {
+            eprintln!("can't move the list: {e}");
+        }
+        self.reload_tree(Some(id));
     }
 
     /// Turns the list at `row` into a crate, or a crate into a playlist.
