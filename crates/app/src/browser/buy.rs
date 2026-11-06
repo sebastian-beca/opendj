@@ -1,7 +1,8 @@
 //! Buy on Wanted rows: each track is looked up in every store Buy knows
 //! (on a thread, so the UI never waits), the best store is chosen for it
 //! (see [`opendj_plugins::buy`]), and the Buy sheet groups the tracks by
-//! store. Opening a store opens its pages ten at a time, marks the tracks
+//! store. Opening a store opens its pages one at a time (Next for the
+//! next), marks the tracks
 //! as being bought there, and the purchase inbox matches the files that
 //! arrive back to them. openDJ never takes payment.
 
@@ -51,6 +52,12 @@ impl Browser {
         ui.on_open_group(move |i| {
             if let Some(b) = w.upgrade() {
                 b.borrow_mut().open_buy_group(i.max(0) as usize);
+            }
+        });
+        let w = Rc::downgrade(b);
+        ui.on_open_track(move |row| {
+            if let Some(b) = w.upgrade() {
+                b.borrow_mut().open_buy_track(row.max(0) as usize);
             }
         });
         let w = Rc::downgrade(b);
@@ -215,7 +222,7 @@ impl Browser {
             .collect()
     }
 
-    /// "Open" on a store of the Buy sheet: its next ten pages.
+    /// "Open" or "Next" on a store of the Buy sheet: its next page.
     fn open_buy_group(&mut self, index: usize) {
         let Some(state) = &mut self.buy else { return };
         let groups = buy::groups(&state.offers, &state.choices);
@@ -244,6 +251,25 @@ impl Browser {
             }
         }
         self.show_buy();
+    }
+
+    /// A click on a track's name: its page on the store chosen for it.
+    fn open_buy_track(&mut self, row: usize) {
+        let Some(state) = &self.buy else { return };
+        let Some(offer) = state
+            .offers
+            .get(row)
+            .and_then(|o| o.get(state.choices[row]))
+        else {
+            return;
+        };
+        crate::spotify::open_in_browser(&offer.url);
+        let (id, store) = (state.ids[row], offer.store);
+        if let Some(db) = &self.db {
+            if let Err(e) = db.mark_pending(&[id], store) {
+                eprintln!("can't mark a track as being bought: {e}");
+            }
+        }
     }
 
     /// A click on a track's store: the next store it can be bought on.

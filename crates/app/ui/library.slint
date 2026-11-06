@@ -269,6 +269,10 @@ export global LibraryEdit {
     // Turns the list at tree row `index` into a crate (true) or a playlist.
     callback set-crate(index: int, crate: bool);
     pure callback accepts-drop(index: int, data: data-transfer) -> bool;
+    // A list or folder picked up at tree row `index`, and whether one
+    // dragged can go on (into) tree row `index`.
+    pure callback list-payload(index: int) -> data-transfer;
+    pure callback accepts-list-move(index: int, data: data-transfer) -> bool;
     callback drop(index: int, data: data-transfer);
     // Tracks from the side panel or a deck dropped on the open list (empty
     // or not) in the track list join it.
@@ -697,6 +701,8 @@ export global BuyUi {
     in property <bool> music-app-on;
     callback start(first: int, last: int);
     callback open-group(index: int);
+    // A track's page on the store chosen for it.
+    callback open-track(row: int);
     callback switch-store(row: int);
     callback set-inbox(on: bool);
     callback set-music-app(on: bool);
@@ -2912,30 +2918,37 @@ component FolderTree inherits Rectangle {
                     height: 34px;
                     border-radius: Theme.radius;
                     background: drop.has-drag ? Theme.selection.transparentize(0.4) : i == current ? (focused ? Theme.selection : Theme.selection-idle) : (ta.has-hover ? #232326 : transparent);
-                    ta := TouchArea {
-                        clicked => { select(i); }
-                        double-clicked => { toggle(i); }
-                        pointer-event(e) => {
-                            if (((f.editable || f.analysable || f.adoptable || source == 1 || StoreUi.stream(source)) && tab == 0) || (tab == 1 && f.kind == 5)) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
-                                menu-index = i;
-                                menu-name = f.name;
-                                menu-kind = f.kind;
-                                menu-editable = f.editable;
-                                menu-locked = f.locked;
-                                menu-adoptable = f.adoptable;
-                                menu-color = f.color;
-                                menu-icon = f.icon;
-                                menu-analysable = f.analysable && (source == 0 || source == 9 || source == 10);
-                                menu-rekordbox = f.rekordbox && source == 0;
-                                menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
-                                if source == 1 { files-menu.show(); } else { folder-menu.show(); }
+                    // The DJ's own lists and folders drag onto a folder, or a
+                    // heading, to move there.
+                    DragArea {
+                        enabled: f.editable && tab == 0 && source == 0;
+                        data: LibraryEdit.list-payload(i);
+                        allow-copy: true;
+                        ta := TouchArea {
+                            clicked => { select(i); }
+                            double-clicked => { toggle(i); }
+                            pointer-event(e) => {
+                                if (((f.editable || f.analysable || f.adoptable || source == 1 || StoreUi.stream(source)) && tab == 0) || (tab == 1 && f.kind == 5)) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                                    menu-index = i;
+                                    menu-name = f.name;
+                                    menu-kind = f.kind;
+                                    menu-editable = f.editable;
+                                    menu-locked = f.locked;
+                                    menu-adoptable = f.adoptable;
+                                    menu-color = f.color;
+                                    menu-icon = f.icon;
+                                    menu-analysable = f.analysable && (source == 0 || source == 9 || source == 10);
+                                    menu-rekordbox = f.rekordbox && source == 0;
+                                    menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
+                                    if source == 1 { files-menu.show(); } else { folder-menu.show(); }
+                                }
                             }
                         }
                     }
                     // Tracks dragged from the list onto one of the DJ's lists or
                     // crates join it; dropped on a stage, they move there.
                     drop := DropArea {
-                        can-drop(e) => { ((f.editable && (f.kind == 2 || f.kind == 17)) || f.stage) && LibraryEdit.accepts-drop(i, e.data) ? DragAction.copy : DragAction.none }
+                        can-drop(e) => { (((f.editable && (f.kind == 2 || f.kind == 17)) || f.stage) && LibraryEdit.accepts-drop(i, e.data)) || ((f.kind == 1 || f.kind == 18) && LibraryEdit.accepts-list-move(i, e.data)) ? DragAction.copy : DragAction.none }
                         dropped(e) => {
                             LibraryEdit.drop(i, e.data);
                             TrackDrag.active = false;
@@ -5055,7 +5068,7 @@ component BuyTick inherits Rectangle {
 }
 
 // Buy: the Wanted tracks picked, grouped by the store chosen for each.
-// Opening a store opens its pages ten at a time; the DJ adds each to the
+// Opening a store opens its pages one at a time; the DJ adds each to the
 // store's cart and checks out there.
 component BuyDialog inherits Rectangle {
     background: #000000a0;
@@ -5078,7 +5091,7 @@ component BuyDialog inherits Rectangle {
                 Text {
                     text: BuyUi.looked < BuyUi.count
                         ? "Looking in the stores… " + BuyUi.looked + " of " + BuyUi.count
-                        : "Add each page to the store's cart, then check out once on that store. Payment happens on the store, never in openDJ.";
+                        : "Open a store's tracks one by one: add each to the store's cart, then Next. Check out once on that store; payment never goes through openDJ. Click a track to open just that one.";
                     color: Theme.text-dim;
                     font-size: 12px;
                     wrap: word-wrap;
@@ -5107,11 +5120,11 @@ component BuyDialog inherits Rectangle {
                     VerticalLayout {
                         alignment: center;
                         HealthButton {
-                            text: !g.found ? (g.opened >= g.count && g.opened > 0 ? "Search Again" : g.count == 1 ? "Search" : "Search " + min(10, g.count - g.opened))
-                                : g.opened >= g.count ? "Open Again"
-                                : g.opened > 0 ? "Open Next " + min(10, g.count - g.opened)
-                                : g.count > 10 ? "Open First 10"
-                                : g.count == 1 ? "Open" : "Open " + g.count;
+                            // One page at a time: Open, then Next for the next track.
+                            text: g.count == 1 ? (g.found ? "Open" : "Search") + (g.opened > 0 ? " Again" : "")
+                                : g.opened >= g.count ? "Start Again"
+                                : g.opened == 0 ? (g.found ? "Open" : "Search") + " 1 of " + g.count
+                                : "Next: " + (g.opened + 1) + " of " + g.count;
                             primary: g.opened < g.count && g.found;
                             clicked => { BuyUi.open-group(i); }
                         }
@@ -5127,7 +5140,21 @@ component BuyDialog inherits Rectangle {
                     height: 28px;
                     HorizontalLayout {
                         spacing: 8px;
-                        Text { text: r.name; color: Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            Text {
+                                width: 100%;
+                                text: r.name;
+                                color: name-ta.has-hover ? Theme.accent : Theme.text;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            name-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { BuyUi.open-track(i); }
+                            }
+                        }
                         Rectangle {
                             width: store-text.preferred-width + 18px;
                             height: 22px;

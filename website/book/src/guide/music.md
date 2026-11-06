@@ -379,9 +379,11 @@ then the store whose files reach your library fastest, then lossless
 files. A store that doesn't have the track only shows up as **Try**, to
 search there. Click a track's store to choose another one it's sold on.
 
-The tracks are grouped by store. **Open** opens a store's pages, ten at a
-time: add each one to the store's cart and check out once on that store.
-openDJ never sees your payment, and its links carry no referral codes.
+The tracks are grouped by store. **Open** opens the first track's page:
+add it to the store's cart, then press **Next** for the next one. Click a
+track to open just its page. Check out once on that store when they're all
+in the cart. openDJ never sees your payment, and its links carry no
+referral codes.
 Tracks you opened show **Buying on …** for a week.
 
 Turn on **Bring purchases into Inbox** and what you download into
@@ -472,6 +474,11 @@ Right-click any folder for **New Crate**, **New Playlist** or **New
 Folder**, so folders can hold folders and a folder can hold both. Right-click
 a list for **Make It a Crate** or **Make It a Playlist** (a playlist that
 becomes a crate keeps each track once).
+
+Drag a crate, playlist or folder onto a folder to move it there, or onto
+the **Crates** or **Playlists** heading to take it back to the top (a
+crate's top is Crates, a playlist's is Playlists; a folder can go under
+either).
 - **Imported**: other apps' lists (a folder per app, with a padlock) and
   **Groupings and Tags**. They are read-only, because the app's next
   import makes them again. To keep an app's lists as your own (say, once

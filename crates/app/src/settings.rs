@@ -149,6 +149,7 @@ pub fn audio_setup() -> AudioSetup {
             inputs,
             sample_rate,
             buffer_frames,
+            external_mixer: v["external_mixer"].as_bool().unwrap_or(false),
             routes: list
                 .iter()
                 .filter_map(|r| {
@@ -185,6 +186,7 @@ pub fn audio_setup() -> AudioSetup {
         inputs,
         sample_rate,
         buffer_frames,
+        external_mixer: v["external_mixer"].as_bool().unwrap_or(false),
     }
 }
 
