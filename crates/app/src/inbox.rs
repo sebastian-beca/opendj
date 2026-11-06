@@ -348,9 +348,13 @@ pub fn add_download(library: &Path, path: &Path, store: &str) -> Result<Track, S
         return Err(format!("already in your collection as track {same}"));
     }
     track.source = Source::File(path.to_path_buf());
-    let track = db.add_purchase(&track, store).map_err(|e| e.to_string())?;
+    let mut track = db.add_purchase(&track, store).map_err(|e| e.to_string())?;
     if let Ok(list) = db.inbox_list() {
         let _ = db.add_to_playlist(list, &[track.id]);
+    }
+    // Downloads land outside the stage folders, so say where they are.
+    if track.info.stage.is_empty() && db.put_in_inbox(track.id).is_ok() {
+        track.info.stage = opendj_library::stages::Stage::Inbox.name().into();
     }
     let _ = db.log_inbox(path, "imported", Some(track.id));
     Ok(track)

@@ -39,6 +39,7 @@ mod cues;
 mod filters;
 mod health;
 mod history;
+mod inbox_albums;
 mod info;
 mod mix_export;
 mod picks;
@@ -131,6 +132,9 @@ enum Contents {
     /// An artist's albums in the Albums source: the tracks right in each
     /// of these album folders, album after album.
     Albums(Vec<PathBuf>),
+    /// An album downloaded into the Inbox, by its folder (see
+    /// `inbox_albums`).
+    InboxAlbum(PathBuf),
     /// The tracks at a stage (see [`opendj_library::stages`]), or only those
     /// in one subfolder of its folder (a triage crate).
     Stage(Stage, Option<PathBuf>),
@@ -678,6 +682,7 @@ pub struct Browser {
     /// Export to USB's dialog and export.
     usb: usb::State,
     playlist_files: playlist_files::State,
+    inbox_albums: inbox_albums::InboxAlbums,
     rekordbox_xml: rekordbox_xml::State,
     phrases_seen: analysis::SeenDecks,
     /// The last stage change or merge of copies, which the track menu can
@@ -1301,6 +1306,7 @@ impl Browser {
             analysis_shown: Default::default(),
             usb: Default::default(),
             playlist_files: Default::default(),
+            inbox_albums: inbox_albums::InboxAlbums::new(),
             rekordbox_xml: Default::default(),
             phrases_seen: Default::default(),
             undo: None,
@@ -1892,6 +1898,7 @@ impl Browser {
         let w = with.clone();
         edit.on_set_rule(move |i, text| w(&|b| b.set_rule(i as usize, &text)));
         Self::install_staging(&edit, &with);
+        Self::install_inbox_albums(&edit, &with);
         Self::install_prep(app, &with);
         Self::install_cues(app, &with);
         Self::install_checklist(app, &with);
@@ -3316,14 +3323,15 @@ impl Browser {
             Node::new("Wanted", 1, KIND_WANTED, Contents::Wanted),
         ];
         if stages {
-            tree.extend(
-                staging::stage_nodes(&self.folders)
-                    .into_iter()
-                    .map(|mut n| {
-                        n.depth += 1;
-                        n
-                    }),
-            );
+            for mut n in staging::stage_nodes(&self.folders) {
+                n.depth += 1;
+                let inbox = matches!(n.contents, Contents::Stage(Stage::Inbox, None));
+                tree.push(n);
+                // Albums downloaded whole, under the Inbox.
+                if inbox {
+                    tree.extend(self.inbox_album_nodes(2));
+                }
+            }
         }
         // Without stages, the Inbox list downloads go into stands in for one.
         let mut sections = Vec::new();
@@ -3332,6 +3340,7 @@ impl Browser {
                 let mut n = Node::new(p.name.clone(), 1, KIND_INBOX, Contents::Playlist(p.id));
                 n.playlist = Some(p.id);
                 tree.push(n);
+                tree.extend(self.inbox_album_nodes(2));
             }
         }
         let mut crates = Node::new("Crates", 0, KIND_SECTION, Contents::Folder);
@@ -4490,6 +4499,7 @@ impl Browser {
                     analysable: !n.history && Self::analysable(&n.contents),
                     rekordbox: self.rekordbox_exportable(i),
                     stage: matches!(n.contents, Contents::Stage(..)),
+                    bundle: matches!(n.contents, Contents::InboxAlbum(_)),
                     separator: n.separator,
                     color: n.color.map_or(-1, |c| c as i32),
                     icon: match n.contents {
@@ -4748,6 +4758,7 @@ impl Browser {
                 .collect(),
             Contents::Dir(_) => Vec::new(),
             Contents::Under(dir) => self.tracks_under(dir),
+            Contents::InboxAlbum(dir) => self.inbox_album_tracks(dir),
             Contents::Albums(dirs) => dirs.iter().flat_map(|d| self.album_tracks(d)).collect(),
             Contents::List(ids) => ids.clone(),
             Contents::Stage(stage, dir) => all()
