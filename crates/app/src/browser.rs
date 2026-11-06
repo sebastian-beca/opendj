@@ -5546,35 +5546,11 @@ impl Browser {
             return;
         }
         let ids = &self.side[tab];
-        let mixing = self.key_rules.0;
         let rows: Vec<SideRow> = ids
             .iter()
-            .enumerate()
-            .map(|(n, &id)| {
+            .map(|&id| {
                 let t = &self.library[id];
                 let cover = self.art.get(t);
-                // How the track before mixes into this one (Automix only).
-                let (fit, jump) = match (tab, n.checked_sub(1).map(|p| &self.library[ids[p]])) {
-                    (0, Some(prev)) => {
-                        use crate::automix_order::{self as o, Fit, Item};
-                        let item = |t: &Track| Item {
-                            bpm: t.bpm,
-                            key: Key::parse(&t.key),
-                        };
-                        let fit = match o::fit(&item(prev), &item(t), mixing) {
-                            Fit::Unknown => 0,
-                            Fit::Mixes => 1,
-                            Fit::Near => 2,
-                            Fit::Clash => 3,
-                        };
-                        let jump = o::bpm_jump(prev.bpm, t.bpm)
-                            .filter(|j| j.abs() >= 6.0)
-                            .map(|j| format!("{j:+.0}%"))
-                            .unwrap_or_default();
-                        (fit, jump.into())
-                    }
-                    _ => (0, SharedString::new()),
-                };
                 SideRow {
                     heading: SharedString::new(),
                     title: t.title.clone().into(),
@@ -5590,8 +5566,6 @@ impl Browser {
                     length: short_time(t.duration),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
-                    fit,
-                    jump,
                 }
             })
             .collect();
@@ -5674,7 +5648,6 @@ impl Browser {
                     length: short_time(t.duration),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
-                    ..Default::default()
                 });
             }
         }
