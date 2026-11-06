@@ -63,10 +63,11 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-slicer-and-freeze](changes/add-slicer-and-freeze/proposal.md) (moved from v0.5 at the 0.5.0 release; SLICER and FREEZE pad pages built, issue #386)
 - [add-cue-sequence-recording](changes/add-cue-sequence-recording/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
 - [add-fx-pre-post-and-headphone](changes/add-fx-pre-post-and-headphone/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
-- [add-settings-layers](changes/add-settings-layers/proposal.md) (settings in three layers: good defaults, task-grouped choices, a searchable Advanced list with Show modified; from a review of VirtualDJ's Options & Tweaks; Seba 2026-10-31; moved from v0.5 at the 0.5.0 release, not started)
+- [add-settings-table](changes/add-settings-table/proposal.md) (first step of add-settings-layers: one option table, Show modified, reset on each row, search words, help in ⓘ; issue #364, split 2026-11-05)
+- [add-settings-deck-choices](changes/add-settings-deck-choices/proposal.md) (second step: Decks sections, Hot cue on a playing deck, Track end warning and Back up the collection rows; issue #365, split 2026-11-05)
 - [add-deck-outputs](changes/add-deck-outputs/proposal.md) (each deck on its own outputs for a DAW such as Ableton, and an external mixer mode; no cost when unused; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
 - [add-midi-clock](changes/add-midi-clock/proposal.md) (MIDI clock out to drum machines and other gear, clock in, decks can follow Link; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
-- [add-osc-control](changes/add-osc-control/proposal.md) (every control over Open Sound Control, plus beat, phrase and track events for visuals and lights; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
+- [add-osc-control](changes/add-osc-control/proposal.md) (every control over Open Sound Control, plus beat, phrase and track events for visuals and lights; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release; in progress, issue #383)
 - [add-rekordbox-xml-export](changes/add-rekordbox-xml-export/proposal.md) (collection and lists out as rekordbox XML for rekordbox and library tools; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
 
 ## v0.7 · Your library, everywhere
@@ -79,6 +80,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-ableton-set-export](changes/add-ableton-set-export/proposal.md)
 - [add-layout-customization](changes/add-layout-customization/proposal.md)
 - [add-mcp-server](changes/add-mcp-server/proposal.md)
+- [add-settings-layers](changes/add-settings-layers/proposal.md) (the rest of settings in three layers: Advanced with the layer-3 rows, remaining load choices, Reset layout; first steps split out into add-settings-table and add-settings-deck-choices for v0.6, 2026-11-05)
 - [add-slip-everywhere](changes/add-slip-everywhere/proposal.md) (slip for scratch, loops, hot cues, reverse and pause and the ghost playhead came early in add-slip-vinyl-and-bend; beat jumps, pad FX and slicer remain)
 - [add-super-library](changes/add-super-library/proposal.md)
 - [add-user-manual](changes/add-user-manual/proposal.md)

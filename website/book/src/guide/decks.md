@@ -12,8 +12,8 @@ In 2-Deck each deck runs, from the outer edge in:
 
 - **The tempo column**: **SYNC** on top, the tempo fader, and **−** and **+**
   under it for small steps. The triangle beside the fader puts the tempo
-  back to the track's own, and the padlock above it is
-  [key lock](#keys).
+  back to the track's own. A lilac line down the fader means
+  [key lock](#keys) is on; right-click the fader to switch it.
 - **The pads**, with their tabs on top (see [Pads](pads.md)).
 - **The LOOP column** (see [Looping](looping.md)).
 - **The jog wheel**, with **CUE** and **PLAY** under it, next to the mixer.
@@ -130,8 +130,10 @@ quantize starts on for every deck.
 
 ## Keys
 
-The padlock over the triangle beside the tempo fader is **key lock**: while
-it's lit, moving the tempo fader keeps the track's key. The **+** and **−**
+**Key lock** shows on the tempo fader: while its line is lilac, moving
+the fader keeps the track's key. It's on from the start; right-click the
+tempo fader to switch it off and on (**Settings › Decks › Key lock on at
+start** sets how decks start). The **+** and **−**
 beside the deck's key shift it a semitone at a time, and clicking the key
 lists every shift with the key it gives.
 

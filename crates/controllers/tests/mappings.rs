@@ -303,6 +303,20 @@ fn xone_k2_two_decks() {
     }
     assert!(seen.iter().any(|o| o.as_slice() == [0x9E, 0x19 + 72, 0x7F]));
     assert!(seen.iter().any(|o| o.as_slice() == [0x9E, 0x19, 0x00]));
+
+    // In stems mode the EQ knobs turn the stems: TREBLE the hi-hats.
+    reg.get("[Mixer]", "knob_mode").unwrap().set(1.0);
+    for v in (0x10..=0x40).rev() {
+        c.receive(&[0xBE, 0x05, v]);
+    }
+    let hihat = reg
+        .get("[Channel1_Stem5]", "volume")
+        .unwrap()
+        .get_parameter();
+    assert!(
+        (hihat - 0x10 as f64 / 127.0).abs() < 0.01,
+        "hi-hats {hihat}"
+    );
     assert_eq!(c.errors(), Vec::<String>::new());
 }
 
@@ -565,6 +579,26 @@ fn ddj_flx4_pad_modes() {
     c.receive(&[0x97, 0x47, 0x7F]);
     assert_eq!(get(&reg, "[Channel1_Stem4]", "mute"), 1.0);
     assert_eq!(get(&reg, "[Channel1_Stem2]", "mute"), 0.0);
+    // Instrumental again; then Stems FX (pad 7) switches the pads to echo
+    // out: the vocals' pad sends them into the stem effect and mutes them,
+    // and a second press brings them back dry.
+    c.receive(&[0x97, 0x47, 0x7F]);
+    let fx = "[QuickEffectRack1_[Channel1_Stem4]]";
+    c.receive(&[0x97, 0x46, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "stem_fx_mode"), 1.0);
+    c.receive(&[0x97, 0x40, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1_Stem4]", "mute"), 1.0);
+    assert_eq!(get(&reg, fx, "enabled"), 1.0);
+    c.receive(&[0x97, 0x40, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1_Stem4]", "mute"), 0.0);
+    assert_eq!(get(&reg, fx, "enabled"), 0.0);
+    // Instrumental echoes the vocals out too.
+    c.receive(&[0x97, 0x47, 0x7F]);
+    assert_eq!(get(&reg, fx, "enabled"), 1.0);
+    assert_eq!(get(&reg, "[Channel1_Stem4]", "mute"), 1.0);
+    c.receive(&[0x97, 0x47, 0x7F]);
+    c.receive(&[0x97, 0x46, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "stem_fx_mode"), 0.0);
     // And once more, back to the keyboard.
     c.receive(&[0x90, 0x69, 0x7F]);
     assert_eq!(get(&reg, "[Channel1]", "pad_slot_5"), 7.0);

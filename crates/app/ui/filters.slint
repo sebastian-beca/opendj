@@ -296,8 +296,8 @@ export component FilterBar inherits Rectangle {
                                     ata := TouchArea {
                                         mouse-cursor: pointer;
                                         clicked => {
-                                            add-menu.close();
                                             open(FilterUi.add(FilterUi.addable-ids[i]), plus.absolute-position.x - root.absolute-position.x);
+                                            add-menu.close();
                                         }
                                     }
                                 }
