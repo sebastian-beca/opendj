@@ -453,7 +453,7 @@ it added and leaves the track as it was.
 
 ## The tree
 
-The collection's tree has three parts:
+The collection's tree has these parts:
 
 - **Collection**, with how many tracks you have. Select it for all of
   them; open it for **Wanted** (tracks you went to buy or added with **Add to
@@ -462,8 +462,15 @@ The collection's tree has three parts:
   The **+** beside the heading adds one.
 - **Playlists**: folders of lists, for gigs or anything else. The **+**
   beside the heading adds a folder; right-click a folder for **New
-  Playlist** or **New Folder**, so folders can hold folders. Lists brought
-  in from other apps and your smart lists are here too.
+  Playlist** or **New Folder**, so folders can hold folders. Your smart
+  lists are here too.
+- **Imported**: other apps' lists (a folder per app, with a padlock) and
+  **Groupings and Tags**. They are read-only, because the app's next
+  import makes them again. To keep an app's lists as your own (say, once
+  you stop using that app), right-click its folder and pick **Make These
+  Lists Mine**: they move to Playlists and can be changed, and that
+  import keeps bringing in tracks, cues and grids but no more lists.
+  Turning the import off and on again brings its lists back.
 
 Everything starts closed, and the tree remembers which folders you left
 open. Drag tracks onto a crate or playlist to add them, or onto a stage to

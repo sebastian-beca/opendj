@@ -33,7 +33,75 @@ pub fn is_crate(p: &crate::Playlist) -> bool {
     p.kind == PlaylistKind::List && p.parent.is_none() && p.source.is_none()
 }
 
+/// Whether a list or folder came in with another app's import (its source
+/// names the app), as against one the DJ made.
+pub fn is_imported(p: &crate::Playlist) -> bool {
+    p.source.as_deref().is_some_and(|s| s != TOP_PLAYLIST)
+}
+
+/// Moves the lists and folders the DJ made inside `source`'s imported
+/// folders out to the top of Playlists (what's in them moves along), so
+/// taking that import's lists away leaves them be. Returns how many moved.
+pub(crate) fn rescue_own_lists(tx: &rusqlite::Transaction, source: &str) -> Result<usize, Error> {
+    let own: Vec<(i64, i64)> = tx
+        .prepare(
+            "SELECT c.id, c.kind FROM playlists c JOIN playlists p ON c.parent = p.id
+              WHERE p.source = ?1 AND (c.source IS NULL OR c.source = ?2)
+              ORDER BY c.position, c.id",
+        )?
+        .query_map(rusqlite::params![source, TOP_PLAYLIST], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?
+        .collect::<Result<_, _>>()?;
+    for &(id, kind) in &own {
+        let position: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM playlists WHERE parent IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        // A list at the very top is marked so it isn't taken for a crate.
+        let list = kind == PlaylistKind::List.to_i64();
+        tx.execute(
+            "UPDATE playlists SET parent = NULL, position = ?2,
+                    source = CASE WHEN ?3 THEN ?4 ELSE source END
+              WHERE id = ?1",
+            rusqlite::params![id, position, list, TOP_PLAYLIST],
+        )?;
+    }
+    Ok(own.len())
+}
+
 impl Library {
+    /// Moves the DJ's own lists out of every import's folders (see
+    /// [`rescue_own_lists`]); made before imports were read-only.
+    pub fn rescue_own_lists(&mut self) -> Result<usize, Error> {
+        let tx = self.db.transaction()?;
+        let sources: Vec<String> = tx
+            .prepare(
+                "SELECT DISTINCT source FROM playlists WHERE source IS NOT NULL AND source != ?1",
+            )?
+            .query_map([TOP_PLAYLIST], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        let mut moved = 0;
+        for s in &sources {
+            moved += rescue_own_lists(&tx, s)?;
+        }
+        tx.commit()?;
+        Ok(moved)
+    }
+
+    /// Makes another app's imported lists and folders the DJ's own: they
+    /// stay where they are and can be edited, and that app's next import
+    /// no longer replaces them. Returns how many changed hands.
+    pub fn adopt_import(&self, source: &str) -> Result<usize, Error> {
+        self.db.execute(
+            "UPDATE playlists
+                SET source = CASE WHEN parent IS NULL AND kind = ?3 THEN ?2 ELSE NULL END
+              WHERE source = ?1",
+            rusqlite::params![source, TOP_PLAYLIST, PlaylistKind::List.to_i64()],
+        )
+    }
+
     /// Makes an empty playlist at the top of Playlists, out of any folder.
     pub fn create_top_playlist(&self, name: &str) -> Result<i64, Error> {
         let id = self.create_playlist(name, None, PlaylistKind::List)?;

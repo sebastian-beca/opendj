@@ -42,6 +42,11 @@ export struct Folder {
     icon: int,
     // Shown dimmed: a history set of a single song.
     dim: bool,
+    // Another app's imported list or folder (or the Imported heading):
+    // read-only, since its next import makes it again.
+    locked: bool,
+    // The top folder of an import: its menu offers Make These Lists Mine.
+    adoptable: bool,
 }
 
 export struct TrackRow {
@@ -261,6 +266,8 @@ export global LibraryEdit {
     callback create(kind: int, at: int) -> int;
     callback rename(index: int, name: string);
     callback delete(index: int);
+    // Makes the import whose top folder is at tree row `index` the DJ's own.
+    callback adopt-import(index: int);
     pure callback accepts-drop(index: int, data: data-transfer) -> bool;
     callback drop(index: int, data: data-transfer);
     // Tracks from the side panel or a deck dropped on the open list (empty
@@ -2297,6 +2304,31 @@ component FilesOptions inherits VerticalLayout {
     if FilesUi.status != "": Text { text: FilesUi.status; color: Theme.text-dim; font-size: 12px; wrap: word-wrap; }
 }
 
+// A small closed padlock, for read-only rows.
+component Padlock inherits Rectangle {
+    in property <color> tint;
+    width: 10px;
+    height: 12px;
+    Path {
+        x: 1.5px;
+        y: 0px;
+        width: 7px;
+        height: 6px;
+        viewbox-width: 7;
+        viewbox-height: 6;
+        stroke: tint;
+        stroke-width: 1.4px;
+        fill: transparent;
+        commands: "M 0.7 6 L 0.7 3.5 A 2.8 2.8 0 0 1 6.3 3.5 L 6.3 6";
+    }
+    Rectangle {
+        y: 5px;
+        height: 7px;
+        border-radius: 1.5px;
+        background: tint;
+    }
+}
+
 component FolderTree inherits Rectangle {
     in property <[Folder]> folders;
     in property <int> current;
@@ -2352,6 +2384,8 @@ component FolderTree inherits Rectangle {
     property <int> menu-kind;
     property <bool> menu-editable;
     property <bool> menu-analysable;
+    property <bool> menu-locked;
+    property <bool> menu-adoptable;
     property <int> menu-color;
     property <int> menu-icon;
     property <length> menu-y;
@@ -2421,7 +2455,7 @@ component FolderTree inherits Rectangle {
         x: 40px;
         y: menu-y;
         // Wider for a crate's color and icon rows.
-        width: menu-editable && menu-kind == 17 ? 252px : 170px;
+        width: (menu-editable && menu-kind == 17) || (source == 0 && menu-locked) ? 230px : 170px;
         close-policy: close-on-click-outside;
         MenuBackground {}
         VerticalLayout {
@@ -2466,6 +2500,24 @@ component FolderTree inherits Rectangle {
                     folder-menu.close();
                 }
             }
+            // Another app's lists: say why they can't be changed, and offer
+            // to keep them as the DJ's own.
+            if source == 0 && menu-locked: Text {
+                x: 10px;
+                height: 24px;
+                text: "Read-only: the import updates it";
+                color: Theme.text-dim;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+            if source == 0 && menu-adoptable: MenuLine {
+                text: "Make These Lists Mine";
+                clicked => {
+                    LibraryEdit.adopt-import(menu-index);
+                    folder-menu.close();
+                }
+            }
+            if source == 0 && menu-locked: MenuSeparator {}
             if menu-analysable: MenuLine {
                 text: "Analyze All";
                 clicked => {
@@ -2768,11 +2820,13 @@ component FolderTree inherits Rectangle {
                         clicked => { select(i); }
                         double-clicked => { toggle(i); }
                         pointer-event(e) => {
-                            if (((f.editable || f.analysable || source == 1 || StoreUi.stream(source)) && tab == 0) || (tab == 1 && f.kind == 5)) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                            if (((f.editable || f.analysable || f.adoptable || source == 1 || StoreUi.stream(source)) && tab == 0) || (tab == 1 && f.kind == 5)) && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                                 menu-index = i;
                                 menu-name = f.name;
                                 menu-kind = f.kind;
                                 menu-editable = f.editable;
+                                menu-locked = f.locked;
+                                menu-adoptable = f.adoptable;
                                 menu-color = f.color;
                                 menu-icon = f.icon;
                                 menu-analysable = f.analysable && (source == 0 || source == 9 || source == 10);
@@ -2867,8 +2921,14 @@ component FolderTree inherits Rectangle {
                             vertical-alignment: center;
                         }
                         if f.count >= 0: Rectangle { width: 2px; }
+                        // An import's top folder: read-only until made the DJ's own.
+                        if f.adoptable && i != naming-row: VerticalLayout {
+                            alignment: center;
+                            Padlock { tint: i == current ? Theme.on-row-selection : Theme.text-dim; }
+                        }
+                        if f.adoptable: Rectangle { width: 4px; }
                         // New crate, or a new folder in Playlists.
-                        if f.kind == 18 && tab == 0: Rectangle {
+                        if f.kind == 18 && tab == 0 && !f.locked: Rectangle {
                             width: 26px;
                             Text { text: "+"; color: pta.has-hover ? Theme.accent : (i == current ? Theme.on-row-selection : Theme.text); font-size: 20px; vertical-alignment: center; }
                             pta := TouchArea {

@@ -20,7 +20,7 @@ use opendj_engine::{deck_group, AudioEngine, Hotcue, Track, NUM_DECKS, NUM_HOTCU
 use opendj_library::dupes::{Case, Group};
 use opendj_library::health::{Area, Check, Facts};
 use opendj_library::query::{self, Context, Indexed, Query};
-use opendj_library::sets::is_crate;
+use opendj_library::sets::{is_crate, is_imported};
 use opendj_library::stages::{Folders, Stage};
 use opendj_library::{Library, PlaylistKind};
 use slint::{ComponentHandle, DataTransfer, Model, ModelRc, SharedString, VecModel};
@@ -295,6 +295,12 @@ struct Node {
     count: Option<usize>,
     /// Shown dimmed: a history set of a single song.
     dim: bool,
+    /// Brought in by another app's import, or inside such a folder: shown
+    /// under Imported and read-only, since the next import replaces it.
+    locked: bool,
+    /// The top folder of an import, with the importer's id: its menu
+    /// offers to make its lists the DJ's own.
+    import_root: Option<String>,
 }
 
 impl Node {
@@ -314,6 +320,8 @@ impl Node {
             title: None,
             count: None,
             dim: false,
+            locked: false,
+            import_root: None,
         }
     }
 
@@ -1720,6 +1728,8 @@ impl Browser {
         let w = with.clone();
         edit.on_rename(move |i, name| w(&|b| b.rename_node(i as usize, &name)));
         let w = with.clone();
+        edit.on_adopt_import(move |i| w(&|b| b.adopt_import_at(i.max(0) as usize)));
+        let w = with.clone();
         edit.on_delete(move |i| w(&|b| b.delete_node(i as usize)));
         let w = with.clone();
         edit.on_set_list_color(move |i, c| {
@@ -1743,7 +1753,7 @@ impl Browser {
                 let Some(n) = b.nodes.get(b.current_node) else {
                     return;
                 };
-                if !(n.kind == KIND_LIST || n.kind == KIND_CRATE) {
+                if !(n.kind == KIND_LIST || n.kind == KIND_CRATE) || n.locked {
                     return;
                 }
                 if let Some(list) = n.playlist {
@@ -1758,7 +1768,7 @@ impl Browser {
             w(&|b| {
                 if dragged(&data).is_some() {
                     let ids = b.dropped_tracks(&data);
-                    if let Some(list) = b.playlist_at(i as usize) {
+                    if let Some(list) = b.own_list_at(i as usize) {
                         b.add_to_playlist(&ids, list);
                     } else if let Some((stage, dir)) = b.stage_at(i as usize) {
                         b.change_stage(&ids, stage, dir.as_deref());
@@ -3285,18 +3295,40 @@ impl Browser {
         }
         sections.push(Node::new("Playlists", 0, KIND_SECTION, Contents::Folder));
         let mut depth: HashMap<i64, i32> = HashMap::new();
+        let mut locked: HashSet<i64> = HashSet::new();
         let mut sessions = Vec::new();
         let mut smart = Vec::new();
+        // Other apps' lists, and the DJ's own made inside them before they
+        // were read-only, go under Imported.
+        let mut imported = Vec::new();
         for p in &playlists {
             let d = p.parent.and_then(|id| depth.get(&id)).map_or(1, |d| d + 1);
             depth.insert(p.id, d);
             if is_crate(p) || Some(p.id) == inbox {
                 continue;
             }
+            let lock = is_imported(p) || p.parent.is_some_and(|id| locked.contains(&id));
+            if lock {
+                locked.insert(p.id);
+            }
+            let place = |n: Node, sections: &mut Vec<Node>, imported: &mut Vec<Node>| {
+                let n = Node {
+                    locked: lock,
+                    import_root: (lock && p.parent.is_none())
+                        .then(|| p.source.clone())
+                        .flatten(),
+                    ..n
+                };
+                if lock {
+                    imported.push(n);
+                } else {
+                    sections.push(n);
+                }
+            };
             match p.kind {
                 // Smart lists at the top level go under "Smart Lists".
-                PlaylistKind::Smart if p.parent.is_none() => smart.push(p),
-                PlaylistKind::Smart => sections.push(smart_node(p, d)),
+                PlaylistKind::Smart if p.parent.is_none() && !lock => smart.push(p),
+                PlaylistKind::Smart => place(smart_node(p, d), &mut sections, &mut imported),
                 PlaylistKind::History if p.parent.is_some() => sessions.push(p),
                 PlaylistKind::History => {}
                 // Sets made for a gig are folders like any other now.
@@ -3313,17 +3345,27 @@ impl Browser {
                         },
                     );
                     n.playlist = Some(p.id);
-                    sections.push(n);
+                    place(n, &mut sections, &mut imported);
                 }
             }
         }
-        sections.extend(imported_tree(&self.library).into_iter().map(|mut n| {
-            n.depth += 1;
-            n
-        }));
         if !smart.is_empty() {
             sections.push(Node::new("Smart Lists", 1, KIND_FOLDER, Contents::Folder));
             sections.extend(smart.into_iter().map(|p| smart_node(p, 2)));
+        }
+        // What other apps and the files' own tags bring, kept apart from the
+        // DJ's lists: read-only, as the next import makes it again.
+        let generated = imported_tree(&self.library);
+        if !imported.is_empty() || !generated.is_empty() {
+            sections.push(Node {
+                locked: true,
+                ..Node::new("Imported", 0, KIND_SECTION, Contents::Folder)
+            });
+            sections.extend(imported);
+            sections.extend(generated.into_iter().map(|mut n| {
+                n.depth += 1;
+                n
+            }));
         }
         tree.extend(sections);
         tree.extend(self.history_nodes(&playlists, &sessions));
@@ -3474,7 +3516,7 @@ impl Browser {
             .ok()
             .and_then(|row| self.visible_nodes.get(row))
             .map(|&n| &self.nodes[n])
-            .filter(|n| n.kind == KIND_FOLDER)
+            .filter(|n| n.kind == KIND_FOLDER && !n.locked)
             .and_then(|n| n.playlist);
         // Numbered past the DJ's other lists, so each new one can be told
         // apart even when it keeps the name it was given.
@@ -3514,9 +3556,38 @@ impl Browser {
         self.nodes.get(*self.visible_nodes.get(row)?)?.playlist
     }
 
+    /// Like [`Browser::playlist_at`], leaving out imported (read-only) lists.
+    fn own_list_at(&self, row: usize) -> Option<i64> {
+        let n = self.nodes.get(*self.visible_nodes.get(row)?)?;
+        n.playlist.filter(|_| !n.locked)
+    }
+
+    /// Makes the import whose top folder is at `row` the DJ's own: its
+    /// lists stay, become editable, and its next import leaves them be.
+    fn adopt_import_at(&mut self, row: usize) {
+        let Some(source) = self
+            .visible_nodes
+            .get(row)
+            .and_then(|&i| self.nodes[i].import_root.clone())
+        else {
+            return;
+        };
+        let Some(db) = &self.db else { return };
+        match db.adopt_import(&source) {
+            Ok(_) => {
+                crate::settings::set(
+                    &crate::settings::import_lists_mine_key(&source),
+                    serde_json::json!(true),
+                );
+            }
+            Err(e) => eprintln!("can't make the {source} lists your own: {e}"),
+        }
+        self.reload_tree(None);
+    }
+
     fn rename_node(&mut self, row: usize, name: &str) {
         let name = name.trim();
-        let (Some(id), Some(db), false) = (self.playlist_at(row), &self.db, name.is_empty()) else {
+        let (Some(id), Some(db), false) = (self.own_list_at(row), &self.db, name.is_empty()) else {
             return;
         };
         if let Err(e) = db.rename_playlist(id, name) {
@@ -3528,7 +3599,7 @@ impl Browser {
     /// Gives the crate at a sidebar row a color (an index into
     /// `COLOR_NAMES`, None for none).
     fn color_node(&mut self, row: usize, color: Option<usize>) {
-        let (Some(id), Some(db)) = (self.playlist_at(row), &self.db) else {
+        let (Some(id), Some(db)) = (self.own_list_at(row), &self.db) else {
             return;
         };
         let rgb = color
@@ -3543,7 +3614,7 @@ impl Browser {
     /// Gives the crate at a sidebar row one of `LIST_ICONS` (0, the crate,
     /// is kept as none).
     fn icon_node(&mut self, row: usize, icon: usize) {
-        let (Some(id), Some(db)) = (self.playlist_at(row), &self.db) else {
+        let (Some(id), Some(db)) = (self.own_list_at(row), &self.db) else {
             return;
         };
         let name = opendj_library::LIST_ICONS
@@ -3557,7 +3628,7 @@ impl Browser {
     }
 
     fn delete_node(&mut self, row: usize) {
-        let (Some(id), Some(db)) = (self.playlist_at(row), &self.db) else {
+        let (Some(id), Some(db)) = (self.own_list_at(row), &self.db) else {
             return;
         };
         if let Err(e) = db.delete_playlist(id) {
@@ -4281,7 +4352,9 @@ impl Browser {
                         1
                     },
                     kind: n.kind,
-                    editable: n.playlist.is_some() && !n.history,
+                    editable: n.playlist.is_some() && !n.history && !n.locked,
+                    locked: n.locked,
+                    adoptable: n.import_root.is_some(),
                     analysable: !n.history && Self::analysable(&n.contents),
                     stage: matches!(n.contents, Contents::Stage(..)),
                     separator: n.separator,
@@ -4324,7 +4397,7 @@ impl Browser {
             .filter(|n| n.playlist.is_some() && !n.history)
         {
             path.truncate(n.depth as usize);
-            if n.kind == KIND_LIST || n.kind == KIND_CRATE {
+            if (n.kind == KIND_LIST || n.kind == KIND_CRATE) && !n.locked {
                 // Without the Playlists heading.
                 lists.push(track_menu::MenuList {
                     id: n.playlist.unwrap(),
@@ -4336,10 +4409,9 @@ impl Browser {
             path.push(&n.name);
         }
         self.menu_lists = lists;
-        let in_list = self
-            .nodes
-            .get(self.current_node)
-            .is_some_and(|n| (n.kind == KIND_LIST || n.kind == KIND_CRATE) && n.playlist.is_some());
+        let in_list = self.nodes.get(self.current_node).is_some_and(|n| {
+            (n.kind == KIND_LIST || n.kind == KIND_CRATE) && n.playlist.is_some() && !n.locked
+        });
         if let Some(app) = self.app.upgrade() {
             let edit = app.global::<LibraryEdit>();
             edit.set_has_lists(!self.menu_lists.is_empty());

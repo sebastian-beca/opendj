@@ -1400,6 +1400,13 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                         report.added, report.updated
                     );
                 }
+                // Own lists made inside an import's folder before those were
+                // read-only move out, so the next import can't take them.
+                match db.rescue_own_lists() {
+                    Ok(0) => {}
+                    Ok(n) => eprintln!("library: {n} own lists moved out of imported folders"),
+                    Err(e) => eprintln!("can't move own lists out of imports: {e}"),
+                }
                 for importer in &importers {
                     let Some(database) = settings::import_database(importer.as_ref()) else {
                         continue;
@@ -1408,6 +1415,9 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                     let theirs = settings::import_theirs_win(importer.id());
                     let want_streamed = settings::import_wants_streamed(importer.id());
                     let choices = settings::import_list_choices(importer.id());
+                    // Made the DJ's own: no lists come in to replace them.
+                    let lists_mine =
+                        settings::flag(&settings::import_lists_mine_key(importer.id()), false);
                     let mut picked: Vec<_> = choices.iter().collect();
                     picked.sort();
                     // Changing what comes in, or whose tags win, brings it in again.
@@ -1424,9 +1434,9 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
                         want_streamed,
                         || {
                             let mut library = importer.read(&database, &groups)?;
-                            library
-                                .lists
-                                .retain(|l| settings::import_list_wanted(&choices, l));
+                            library.lists.retain(|l| {
+                                !lists_mine && settings::import_list_wanted(&choices, l)
+                            });
                             Ok(library)
                         },
                     ) {

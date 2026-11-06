@@ -941,6 +941,7 @@ impl Library {
         keep: impl Fn(&Path) -> bool,
     ) -> Result<RemovedImport, Error> {
         let tx = self.db.transaction()?;
+        sets::rescue_own_lists(&tx, source)?;
         let mut out = RemovedImport {
             lists: tx.execute(
                 "DELETE FROM playlists WHERE source = ?1 AND kind != 1",
@@ -2366,7 +2367,9 @@ fn import_lists(
     want_streamed: bool,
     report: &mut SyncReport,
 ) -> Result<(), Error> {
-    // Deleting the folder takes everything in it along.
+    // Deleting the folder takes everything in it along, so the DJ's own
+    // lists in it move out first.
+    sets::rescue_own_lists(tx, source)?;
     tx.execute("DELETE FROM playlists WHERE source = ?1", [source])?;
     if lists.is_empty() {
         return Ok(());
@@ -2800,6 +2803,74 @@ mod tests {
         assert!(tracks.iter().all(|t| t.info.hotcues.is_empty()));
         // The import can come back in.
         assert!(lib.import("vdj", "VirtualDJ", "1", read).unwrap().is_some());
+    }
+
+    #[test]
+    fn own_lists_in_an_imported_folder_survive_the_next_import() {
+        let mut lib = Library::in_memory().unwrap();
+        let read = || {
+            Ok(ImportedLibrary {
+                tracks: Vec::new(),
+                lists: vec![ImportedList {
+                    folders: vec!["Sets".into()],
+                    name: "Friday".into(),
+                    kind: ImportedListKind::List,
+                    entries: Vec::new(),
+                }],
+            })
+        };
+        lib.import("vdj", "VirtualDJ", "1", read).unwrap().unwrap();
+        let find = |lib: &Library, name: &str| {
+            lib.playlists()
+                .unwrap()
+                .into_iter()
+                .find(|p| p.name == name)
+        };
+        let sets = find(&lib, "Sets").unwrap();
+        assert!(sets::is_imported(&sets));
+        let mine = lib
+            .create_playlist("Mine", Some(sets.id), PlaylistKind::List)
+            .unwrap();
+        lib.create_playlist("Inside", Some(mine), PlaylistKind::List)
+            .ok();
+        lib.import("vdj", "VirtualDJ", "2", read).unwrap().unwrap();
+        // Out at the top of Playlists, not taken for a crate, with what's in it.
+        let mine = find(&lib, "Mine").unwrap();
+        assert_eq!(mine.parent, None);
+        assert!(!sets::is_crate(&mine) && !sets::is_imported(&mine));
+        assert!(find(&lib, "Friday").is_some());
+    }
+
+    #[test]
+    fn adopted_imports_are_the_djs_own() {
+        let mut lib = Library::in_memory().unwrap();
+        let read = || {
+            Ok(ImportedLibrary {
+                tracks: Vec::new(),
+                lists: vec![ImportedList {
+                    folders: Vec::new(),
+                    name: "Friday".into(),
+                    kind: ImportedListKind::List,
+                    entries: Vec::new(),
+                }],
+            })
+        };
+        lib.import("vdj", "VirtualDJ", "1", read).unwrap().unwrap();
+        assert_eq!(lib.adopt_import("vdj").unwrap(), 2);
+        let lists = lib.playlists().unwrap();
+        assert!(lists.iter().all(|p| !sets::is_imported(p)));
+        // An import with no lists (as for an adopted app) leaves them.
+        lib.import("vdj", "VirtualDJ", "2", || {
+            Ok(ImportedLibrary {
+                tracks: Vec::new(),
+                lists: Vec::new(),
+            })
+        })
+        .unwrap();
+        let kept = lib.playlists().unwrap();
+        assert!(["VirtualDJ", "Friday"]
+            .iter()
+            .all(|n| kept.iter().any(|p| p.name == *n)));
     }
 
     #[test]
