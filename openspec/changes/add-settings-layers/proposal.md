@@ -1,6 +1,21 @@
 # Proposal
 
-Planned for: **v0.6 · Buy it from the artist** (moved from v0.5 at the 0.5.0 release) (Seba agreed the three layers, 2026-10-31)
+Planned for: **v1.0 · Ready for any DJ switching over** (agreed 2026-10-31; split on 2026-11-05: the first steps are
+`add-settings-table` and `add-settings-deck-choices` in v0.6, and this change keeps the rest)
+
+## Split (2026-11-05)
+
+This change holds the full map in `design.md`. Its first steps became their own changes, so each can ship and be ticked
+off on its own:
+
+- `add-settings-table` (v0.6): one option table, Show modified, reset on each row, Reset all, search words, help in ⓘ.
+- `add-settings-deck-choices` (v0.6): Decks sections Loading / Playing / Tempo and key, Hot cue on a playing deck,
+  Track end warning and Back up the collection rows.
+- The track end warning and the collection backup are features of their own.
+
+What stays here, for later: Settings › Advanced with the layer-3 rows, the remaining layer-1 behaviours and layer-2
+choices, View › Reset layout and Show all hints again. Profiles stay out of scope; the VirtualDJ profile and
+`settings.xml` import are dropped now that VirtualDJ is no longer the starting point.
 
 ## Why
 
