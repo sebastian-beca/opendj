@@ -399,7 +399,7 @@ export global FilesUi {
     // The track at a row of the list is a file on disk.
     pure callback has-file(row: int) -> bool;
     // Makes the mixed set at a row of the list into an MP3 for Mixcloud,
-    // its tracklist as chapters.
+    // its tracklist as chapters (File › Export › Mixcloud…).
     callback export-mixcloud(row: int);
     // Signs in to Mixcloud if need be and uploads the mixed set at a row,
     // with its tracklist, as a private show.
@@ -1416,15 +1416,6 @@ component TrackMenu inherits PopupWindow {
                 entered => { panel = 0; }
                 clicked => {
                     FilesUi.add-track(track-row);
-                    root.close();
-                }
-            }
-            if StoreUi.source == 10 && one: MenuLine {
-                icon: "download";
-                text: "Export for Mixcloud";
-                entered => { panel = 0; }
-                clicked => {
-                    FilesUi.export-mixcloud(track-row);
                     root.close();
                 }
             }
