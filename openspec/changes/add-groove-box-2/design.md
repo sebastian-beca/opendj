@@ -53,6 +53,15 @@ A track deck draws its scrolling waveform across the deck. A Groove Box has no f
 
 Alternatives considered for the strip: more rows (the grid area grows instead, see below) and the per-sound knobs (they fit in the right column). The timeline is the one thing the strip's width and its alignment with the other waveforms is uniquely good for.
 
+## Drum sounds and patterns (decided 2026-11-06)
+
+After a listening comparison in the mpump porting thread:
+
+- **Sounds:** the built-in kits move to the Plaits drum models (analog and synthetic kick and snare, hi-hat) through the Rust crate `mi-plaits-dsp` (MIT, a port of Mutable Instruments Plaits). Plaits has no clap or cymbals, so those stay openDJ's own synthesis. mpump's drum synth and sound machines are not used (its highs sound tinny).
+- **Patterns:** mpump's 20 genres, about 400 named drum patterns (names kept as they are, artist nods included) and its A/B chain (alternate two grooves every bar) are kept and played on openDJ's kits. They are AGPL-3.0 data, so the relicence ask to their author narrows to the pattern files.
+- **Rows:** nine drum rows in mpump's order (kick, rim, snare, closed hat, open hat, cowbell, cymbal, clap, ride) so its patterns map one to one; the Steps pad page gets a shift page for the ninth. Kit names change only slightly ("808", "909", "Linn-style", never a full model name).
+- **Now:** eight tracks with the SEQUENCER, SYNTH and MIXER tabs are built (task 3.0); going to nine rows comes with the patterns.
+
 ## Grid and rows
 
 - 8 rows on screen in 2-Deck when the window is tall enough, else two 4-row views with a 1-4 / 5-8 switch (the same shifter idea as the pads).
