@@ -20,7 +20,7 @@ use opendj_engine::{deck_group, AudioEngine, Hotcue, Track, NUM_DECKS, NUM_HOTCU
 use opendj_library::dupes::{Case, Group};
 use opendj_library::health::{Area, Check, Facts};
 use opendj_library::query::{self, Context, Indexed, Query};
-use opendj_library::sets::{is_crate, is_imported};
+use opendj_library::sets::{is_crate, is_imported, CRATE_FOLDER};
 use opendj_library::stages::{Folders, Stage};
 use opendj_library::{Library, PlaylistKind};
 use slint::{ComponentHandle, DataTransfer, Model, ModelRc, SharedString, VecModel};
@@ -424,6 +424,23 @@ fn file_path(t: &Track) -> Option<&Path> {
 }
 
 /// A tree node for one of the DJ's smart lists.
+/// A crate's row, in its color and with its icon.
+fn crate_node(p: &opendj_library::Playlist, depth: i32) -> Node {
+    let mut n = Node::new(p.name.clone(), depth, KIND_CRATE, Contents::Playlist(p.id));
+    n.playlist = Some(p.id);
+    n.color = p.color.and_then(|rgb| {
+        opendj_library::query::COLOR_NAMES
+            .iter()
+            .position(|&(_, c)| c == rgb)
+    });
+    n.icon = p
+        .icon
+        .as_deref()
+        .and_then(|name| opendj_library::LIST_ICONS.iter().position(|&i| i == name))
+        .unwrap_or(0);
+    n
+}
+
 fn smart_node(p: &opendj_library::Playlist, depth: i32) -> Node {
     let mut n = Node::new(
         p.name.clone(),
@@ -1729,6 +1746,8 @@ impl Browser {
         edit.on_rename(move |i, name| w(&|b| b.rename_node(i as usize, &name)));
         let w = with.clone();
         edit.on_adopt_import(move |i| w(&|b| b.adopt_import_at(i.max(0) as usize)));
+        let w = with.clone();
+        edit.on_set_crate(move |i, krate| w(&|b| b.set_crate_at(i.max(0) as usize, krate)));
         let w = with.clone();
         edit.on_delete(move |i| w(&|b| b.delete_node(i as usize)));
         let w = with.clone();
@@ -3275,62 +3294,47 @@ impl Browser {
         let mut crates = Node::new("Crates", 0, KIND_SECTION, Contents::Folder);
         crates.separator = true;
         sections.push(crates);
-        for p in playlists
-            .iter()
-            .filter(|p| is_crate(p) && Some(p.id) != inbox)
-        {
-            let mut n = Node::new(p.name.clone(), 1, KIND_CRATE, Contents::Playlist(p.id));
-            n.playlist = Some(p.id);
-            n.color = p.color.and_then(|rgb| {
-                opendj_library::query::COLOR_NAMES
-                    .iter()
-                    .position(|&(_, c)| c == rgb)
-            });
-            n.icon = p
-                .icon
-                .as_deref()
-                .and_then(|name| opendj_library::LIST_ICONS.iter().position(|&i| i == name))
-                .unwrap_or(0);
-            sections.push(n);
-        }
-        sections.push(Node::new("Playlists", 0, KIND_SECTION, Contents::Folder));
         let mut depth: HashMap<i64, i32> = HashMap::new();
         let mut locked: HashSet<i64> = HashSet::new();
+        let mut in_crates: HashSet<i64> = HashSet::new();
         let mut sessions = Vec::new();
         let mut smart = Vec::new();
-        // Other apps' lists, and the DJ's own made inside them before they
-        // were read-only, go under Imported.
+        // The DJ's crates and crate folders, their playlists and folders,
+        // and other apps' lists (with the DJ's own made inside them before
+        // they were read-only), each under its heading.
+        let mut crate_rows = Vec::new();
+        let mut playlist_rows = Vec::new();
         let mut imported = Vec::new();
         for p in &playlists {
             let d = p.parent.and_then(|id| depth.get(&id)).map_or(1, |d| d + 1);
             depth.insert(p.id, d);
-            if is_crate(p) || Some(p.id) == inbox {
+            if Some(p.id) == inbox {
                 continue;
             }
             let lock = is_imported(p) || p.parent.is_some_and(|id| locked.contains(&id));
             if lock {
                 locked.insert(p.id);
             }
-            let place = |n: Node, sections: &mut Vec<Node>, imported: &mut Vec<Node>| {
-                let n = Node {
-                    locked: lock,
-                    import_root: (lock && p.parent.is_none())
-                        .then(|| p.source.clone())
-                        .flatten(),
-                    ..n
-                };
-                if lock {
-                    imported.push(n);
-                } else {
-                    sections.push(n);
-                }
+            let crate_side = match p.parent {
+                None => is_crate(p) || p.source.as_deref() == Some(CRATE_FOLDER),
+                Some(id) => in_crates.contains(&id),
             };
-            match p.kind {
+            if crate_side && !lock {
+                in_crates.insert(p.id);
+            }
+            let node = match p.kind {
                 // Smart lists at the top level go under "Smart Lists".
-                PlaylistKind::Smart if p.parent.is_none() && !lock => smart.push(p),
-                PlaylistKind::Smart => place(smart_node(p, d), &mut sections, &mut imported),
-                PlaylistKind::History if p.parent.is_some() => sessions.push(p),
-                PlaylistKind::History => {}
+                PlaylistKind::Smart if p.parent.is_none() && !lock => {
+                    smart.push(p);
+                    continue;
+                }
+                PlaylistKind::Smart => smart_node(p, d),
+                PlaylistKind::History if p.parent.is_some() => {
+                    sessions.push(p);
+                    continue;
+                }
+                PlaylistKind::History => continue,
+                PlaylistKind::Crate => crate_node(p, d),
                 // Sets made for a gig are folders like any other now.
                 PlaylistKind::Folder | PlaylistKind::Set | PlaylistKind::List => {
                     let folder = p.kind != PlaylistKind::List;
@@ -3345,10 +3349,27 @@ impl Browser {
                         },
                     );
                     n.playlist = Some(p.id);
-                    place(n, &mut sections, &mut imported);
+                    n
                 }
+            };
+            let node = Node {
+                locked: lock,
+                import_root: (lock && p.parent.is_none())
+                    .then(|| p.source.clone())
+                    .flatten(),
+                ..node
+            };
+            if lock {
+                imported.push(node);
+            } else if crate_side {
+                crate_rows.push(node);
+            } else {
+                playlist_rows.push(node);
             }
         }
+        sections.extend(crate_rows);
+        sections.push(Node::new("Playlists", 0, KIND_SECTION, Contents::Folder));
+        sections.extend(playlist_rows);
         if !smart.is_empty() {
             sections.push(Node::new("Smart Lists", 1, KIND_FOLDER, Contents::Folder));
             sections.extend(smart.into_iter().map(|p| smart_node(p, 2)));
@@ -3503,10 +3524,10 @@ impl Browser {
         self.refresh_rows();
     }
 
-    /// Makes a new crate (`what` 0), folder (1) or playlist (2), and
-    /// selects it. A folder or playlist goes in the DJ's folder at tree row
-    /// `at`, or (-1) at the top of Playlists; a playlist needs a folder.
-    /// Returns its row in the tree.
+    /// Makes a new crate (`what` 0), folder (1), playlist (2) or folder at
+    /// the top of Crates (3), and selects it. A crate, folder or playlist
+    /// goes in the DJ's folder at tree row `at`, or (-1) at the top of
+    /// Crates (a crate) or Playlists. Returns its row in the tree.
     fn create_list(&mut self, what: i32, at: i32) -> i32 {
         let Some(db) = &self.db else { return -1 };
         if !self.saved() || self.tree != COLLECTION || self.history_tab || self.health_view {
@@ -3528,12 +3549,12 @@ impl Browser {
             .collect();
         let name = |base: &str| untaken_name(base, &taken);
         let made = match (what, parent) {
-            (0, _) => db.create_playlist(&name("New crate"), None, PlaylistKind::List),
+            (0, parent) => db.create_crate(&name("New crate"), parent),
             (1, parent) => db.create_playlist(&name("New folder"), parent, PlaylistKind::Folder),
+            (3, _) => db.create_crate_folder(&name("New folder")),
             (_, Some(parent)) => {
                 db.create_playlist(&name("New playlist"), Some(parent), PlaylistKind::List)
             }
-            // At the top of Playlists, marked so it isn't taken for a crate.
             (_, None) => db.create_top_playlist(&name("New playlist")),
         };
         match made {
@@ -3549,6 +3570,19 @@ impl Browser {
                 -1
             }
         }
+    }
+
+    /// Turns the list at `row` into a crate, or a crate into a playlist.
+    fn set_crate_at(&mut self, row: usize, krate: bool) {
+        let Some(id) = self.own_list_at(row) else {
+            return;
+        };
+        let Some(db) = &mut self.db else { return };
+        if let Err(e) = db.set_crate(id, krate) {
+            eprintln!("can't change the list's kind: {e}");
+        }
+        self.refresh_crates();
+        self.reload_tree(Some(id));
     }
 
     /// The DJ's list or folder shown at `row` of the tree.
@@ -5036,7 +5070,7 @@ impl Browser {
         let mut have: Vec<usize> = Vec::new();
         let mut missing = 0;
         let Some(db) = &self.db else { return };
-        let list = match db.create_playlist(&name, None, PlaylistKind::List) {
+        let list = match db.create_top_playlist(&name) {
             Ok(id) => id,
             Err(e) => return status(self, &format!("Couldn't make the list: {e}")),
         };
@@ -5338,6 +5372,8 @@ impl Browser {
         let node = self.nodes.get(self.current_node);
         let list = node
             .and_then(|n| match &n.contents {
+                // A crate has no order of its own: it keeps the collection's sort.
+                Contents::Playlist(_) if n.kind == KIND_CRATE => None,
                 Contents::Playlist(id) => Some(*id),
                 // Keyed apart from the lists by its first set.
                 Contents::HistoryDay(sets) => sets.first().map(|id| -id),
