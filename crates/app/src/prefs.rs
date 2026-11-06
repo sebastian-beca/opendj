@@ -1362,9 +1362,19 @@ impl Prefs {
                             crate::track_end::KEY,
                             MENU,
                             "Track end warning",
-                            "A playing deck's overview flashes red and its time turns red this \
-                             long before the track ends, faster in the last 10 seconds. Not \
-                             while a loop plays.",
+                            "A playing deck's remaining time blinks red this long before the \
+                             track ends. Not while a loop plays.",
+                        )
+                    },
+                    PrefItem {
+                        choices: strings(&crate::track_end::STYLE_LABELS),
+                        chosen: crate::track_end::style() as i32,
+                        ..item(
+                            crate::track_end::STYLE_KEY,
+                            SEGMENTED,
+                            "Warning type",
+                            "What blinks near the track's end: the remaining time in red, the \
+                             ring round the deck's jog in its color, or both.",
                         )
                     },
                     switch(
@@ -3432,6 +3442,7 @@ impl Prefs {
                 key::set_mixing(m);
             }
             crate::track_end::KEY => crate::track_end::choose(index),
+            crate::track_end::STYLE_KEY => crate::track_end::choose_style(index),
             "beat_counter" => {
                 settings::set("beat_counter", json!(index.min(2)));
                 if let Some(app) = self.app.upgrade() {

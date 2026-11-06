@@ -1,5 +1,6 @@
-//! The track end warning: a playing deck's overview flashes and its remaining
-//! time turns red when its track is about to end, as Mixxx's does.
+//! The track end warning: when a playing deck's track is about to end, its
+//! remaining time in the header blinks red, its jog's ring blinks in the
+//! deck color, or both.
 //!
 //! The warning time is picked in Settings › Decks and kept here, so the
 //! decks can read it every frame without reading the settings file.
@@ -12,19 +13,60 @@ use crate::settings;
 pub const CHOICES: [u32; 6] = [0, 10, 20, 30, 45, 60];
 /// The labels for [`CHOICES`].
 pub const LABELS: [&str; 6] = ["Off", "10 s", "20 s", "30 s", "45 s", "60 s"];
-/// Mixxx's default.
 const DEFAULT: u32 = 30;
-/// The last stretch, where the flash speeds up.
-const HURRY: f64 = 10.0;
 
 pub const KEY: &str = "track_end_warning";
 
 static SECONDS: AtomicU32 = AtomicU32::new(DEFAULT);
 
+/// What blinks, as Settings › Decks › Warning type picks it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Style {
+    Time = 0,
+    Deck = 1,
+    Both = 2,
+}
+
+/// The labels for [`Style`], in order.
+pub const STYLE_LABELS: [&str; 3] = ["Time", "Deck", "Both"];
+pub const STYLE_KEY: &str = "track_end_style";
+
+static STYLE: AtomicU32 = AtomicU32::new(Style::Time as u32);
+
+impl Style {
+    fn from_index(i: usize) -> Self {
+        match i {
+            1 => Style::Deck,
+            2 => Style::Both,
+            _ => Style::Time,
+        }
+    }
+    /// The remaining time blinks.
+    pub fn time(self) -> bool {
+        self != Style::Deck
+    }
+    /// The jog's ring blinks.
+    pub fn ring(self) -> bool {
+        self != Style::Time
+    }
+}
+
+pub fn style() -> Style {
+    Style::from_index(STYLE.load(Ordering::Relaxed) as usize)
+}
+
+pub fn choose_style(index: usize) {
+    let s = Style::from_index(index);
+    STYLE.store(s as u32, Ordering::Relaxed);
+    settings::set(STYLE_KEY, serde_json::json!(s as u32));
+}
+
 /// Reads the saved warning time; called once at start.
 pub fn load() {
     let s = settings::number(KEY, DEFAULT as f64);
     SECONDS.store(nearest(s), Ordering::Relaxed);
+    let style = Style::from_index(settings::number(STYLE_KEY, 0.0).max(0.0) as usize);
+    STYLE.store(style as u32, Ordering::Relaxed);
 }
 
 /// The warning time in seconds, 0 when off.
@@ -53,22 +95,16 @@ fn nearest(s: f64) -> u32 {
         .unwrap_or(DEFAULT)
 }
 
-/// Whether a deck warns (`.0`) and whether its flash is lit this instant
-/// (`.1`), `remaining` seconds from the end. A deck warns only while it
-/// plays outside a loop: a paused or looping track won't run out.
-pub fn warning(remaining: f64, playing: bool, looping: bool, warn_seconds: u32) -> (bool, bool) {
+/// Whether a deck's remaining time is lit red this instant, `remaining`
+/// seconds from the end. It blinks once a second through the last
+/// `warn_seconds`, following the track's clock so it keeps step with the
+/// time shown. Only while the deck plays outside a loop: a paused or looping
+/// track won't run out.
+pub fn flash(remaining: f64, playing: bool, looping: bool, warn_seconds: u32) -> bool {
     if warn_seconds == 0 || !playing || looping || remaining <= 0.0 {
-        return (false, false);
+        return false;
     }
-    if remaining > warn_seconds as f64 {
-        return (false, false);
-    }
-    // Lit for the first half of each second counting down; twice as fast
-    // in the last stretch. Following the track's time keeps it in step with
-    // the clock shown beside it.
-    let rate = if remaining <= HURRY { 2.0 } else { 1.0 };
-    let phase = (remaining * rate).fract();
-    (true, phase >= 0.5)
+    remaining <= warn_seconds as f64 && remaining.fract() >= 0.5
 }
 
 #[cfg(test)]
@@ -77,29 +113,33 @@ mod tests {
 
     #[test]
     fn quiet_before_the_warning_time() {
-        assert_eq!(warning(31.0, true, false, 30), (false, false));
-        assert!(warning(30.0, true, false, 30).0);
-        assert!(warning(0.2, true, false, 30).0);
+        assert!(!flash(31.7, true, false, 30));
+        assert!(flash(29.7, true, false, 30));
+        assert!(flash(0.6, true, false, 30));
     }
 
     #[test]
     fn quiet_when_off_paused_looping_or_ended() {
-        assert_eq!(warning(5.0, true, false, 0), (false, false));
-        assert_eq!(warning(5.0, false, false, 30), (false, false));
-        assert_eq!(warning(5.0, true, true, 30), (false, false));
-        assert_eq!(warning(0.0, true, false, 30), (false, false));
+        assert!(!flash(5.7, true, false, 0));
+        assert!(!flash(5.7, false, false, 30));
+        assert!(!flash(5.7, true, true, 30));
+        assert!(!flash(0.0, true, false, 30));
     }
 
     #[test]
-    fn flashes_once_a_second_then_faster() {
-        // 20.9 s to go: lit; 20.4 s: dark.
-        assert!(warning(20.9, true, false, 30).1);
-        assert!(!warning(20.4, true, false, 30).1);
-        // In the last ten seconds, twice a second: lit at 5.3 (10.6) and
-        // 5.8 (11.6), dark at 5.1 (10.2).
-        assert!(warning(5.3, true, false, 30).1);
-        assert!(warning(5.8, true, false, 30).1);
-        assert!(!warning(5.1, true, false, 30).1);
+    fn blinks_once_a_second() {
+        assert!(flash(20.9, true, false, 30));
+        assert!(!flash(20.4, true, false, 30));
+        assert!(flash(5.5, true, false, 30));
+        assert!(!flash(5.1, true, false, 30));
+    }
+
+    #[test]
+    fn styles_pick_what_blinks() {
+        assert!(Style::Time.time() && !Style::Time.ring());
+        assert!(!Style::Deck.time() && Style::Deck.ring());
+        assert!(Style::Both.time() && Style::Both.ring());
+        assert_eq!(Style::from_index(7), Style::Time);
     }
 
     #[test]

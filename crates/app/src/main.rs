@@ -1787,7 +1787,7 @@ impl Decks {
             };
         };
         let pos = h.playposition.get() * t.duration;
-        let (end_warning, end_flash) = track_end::warning(
+        let end_flash = track_end::flash(
             t.duration - pos,
             h.play.get_bool(),
             h.loop_enabled.get_bool(),
@@ -1897,8 +1897,8 @@ impl Decks {
                 None => size,
             }),
             progress: (pos / t.duration) as f32,
-            end_warning,
-            end_flash,
+            end_flash_time: end_flash && track_end::style().time(),
+            end_flash_ring: end_flash && track_end::style().ring(),
             // Filled in by the caller, from Automix.
             automix_from: 0.0,
             automix_to: 0.0,
