@@ -61,7 +61,6 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-stem-fx-and-acapella](changes/add-stem-fx-and-acapella/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
 - [improve-scratching](changes/improve-scratching/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
 - [add-slicer-and-freeze](changes/add-slicer-and-freeze/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
-- [add-fx-pre-post-and-headphone](changes/add-fx-pre-post-and-headphone/proposal.md) (moved from v0.5 at the 0.5.0 release, not started)
 - [add-settings-layers](changes/add-settings-layers/proposal.md) (settings in three layers: good defaults, task-grouped choices, a searchable Advanced list with Show modified; from a review of VirtualDJ's Options & Tweaks; Seba 2026-10-31; moved from v0.5 at the 0.5.0 release, not started)
 - [add-deck-outputs](changes/add-deck-outputs/proposal.md) (each deck on its own outputs for a DAW such as Ableton, and an external mixer mode; no cost when unused; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
 - [add-midi-clock](changes/add-midi-clock/proposal.md) (MIDI clock out to drum machines and other gear, clock in, decks can follow Link; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
@@ -95,6 +94,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-audio-plugin-hosting](changes/add-audio-plugin-hosting/proposal.md)
 - [add-instrument-plugins](changes/add-instrument-plugins/proposal.md)
 - [add-cue-sequence-recording](changes/add-cue-sequence-recording/proposal.md) (moved from v0.6 on 2026-11-06, not started)
+- [add-fx-pre-post-and-headphone](changes/add-fx-pre-post-and-headphone/proposal.md) (moved from v0.6 on 2026-11-06, not started)
 - [add-windows-support](changes/add-windows-support/proposal.md) (a Windows preview shipped in v0.4.0; code signing waits: SignPath Foundation turned the application down, 2026-10-29, see docs/windows.md)
 
 ## Much later (no change yet)
