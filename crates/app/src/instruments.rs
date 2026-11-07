@@ -11,6 +11,7 @@ use std::collections::HashSet;
 use slint::{ComponentHandle, DataTransfer, ModelRc, SharedString, VecModel};
 
 use crate::audio_plugins::Found;
+use crate::presets::{self, Preset, GROOVE};
 use crate::{AppWindow, InstrumentNode, InstrumentsUi, LiveItem, Preferences};
 
 /// What dragging an item carries: `opendj-live:<kind>:<index>`.
@@ -21,7 +22,9 @@ const KIT: i32 = 1;
 const PLUGIN: i32 = 2;
 const MIC: i32 = 3;
 const AUX: i32 = 4;
-const LAST_KIND: i32 = 4;
+/// A preset, by its place in `crate::presets::all`.
+const PRESET: i32 = 5;
+const LAST_KIND: i32 = 5;
 
 fn payload(kind: i32, index: i32) -> String {
     format!("{LIVE_PAYLOAD}{kind}:{index}")
@@ -49,9 +52,12 @@ struct State {
     search: String,
     /// The keys of the nodes as last shown, by row.
     keys: Vec<String>,
+    /// The presets, as `crate::presets::all` lists them.
+    presets: Vec<Preset>,
 }
 
 struct Plugin {
+    key: String,
     name: String,
     maker: String,
     format: &'static str,
@@ -127,6 +133,7 @@ pub fn show_plugins(app: &AppWindow, instruments: &[Found], names: &[String]) {
             .iter()
             .zip(names)
             .map(|(f, name)| Plugin {
+                key: f.key.clone(),
                 name: name.clone(),
                 maker: f.vendor.clone(),
                 format: f.format,
@@ -134,6 +141,18 @@ pub fn show_plugins(app: &AppWindow, instruments: &[Found], names: &[String]) {
             })
             .collect();
     });
+    presets::set_plugins(
+        instruments
+            .iter()
+            .zip(names)
+            .map(|(f, name)| (f.key.clone(), name.clone()))
+            .collect(),
+    );
+    refresh(app);
+}
+
+/// Lists the presets again, after one was saved or renamed.
+pub fn presets_changed(app: &AppWindow) {
     refresh(app);
 }
 
@@ -190,6 +209,10 @@ fn nodes(s: &State) -> Vec<(String, InstrumentNode)> {
     let total = 1 + s.plugins.len() as i32 + inputs;
     let mut out = vec![
         ("all".to_string(), node("All instruments", 0, 0, 6, total)),
+        (
+            "presets".to_string(),
+            node("My presets", 0, 0, 7, s.presets.len() as i32),
+        ),
         ("groove".to_string(), node("Groove Box", 0, 0, 1, -1)),
         (
             "plugins".to_string(),
@@ -269,6 +292,24 @@ fn rows(s: &State) -> Vec<LiveItem> {
             format: "".into(),
         }
     };
+    let preset = |i: usize, p: &Preset| LiveItem {
+        kind: PRESET,
+        index: i as i32,
+        name: p.name.as_str().into(),
+        r#type: "Preset".into(),
+        maker: p.instrument_name.as_str().into(),
+        format: "".into(),
+        problem: "".into(),
+    };
+    // An instrument's presets, after it (its default sound).
+    let presets_of = |key: &str| -> Vec<LiveItem> {
+        s.presets
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.instrument == key)
+            .map(|(i, p)| preset(i, p))
+            .collect()
+    };
     let plugins = |only: &dyn Fn(&Plugin) -> bool| -> Vec<LiveItem> {
         s.plugins
             .iter()
@@ -278,7 +319,17 @@ fn rows(s: &State) -> Vec<LiveItem> {
             .collect()
     };
     let mut rows: Vec<LiveItem> = match s.current.as_str() {
-        "groove" => vec![groove()],
+        "groove" => {
+            let mut rows = vec![groove()];
+            rows.extend(presets_of(GROOVE));
+            rows
+        }
+        "presets" => s
+            .presets
+            .iter()
+            .enumerate()
+            .map(|(i, p)| preset(i, p))
+            .collect(),
         "plugins" => plugins(&|_| true),
         "inputs" => inputs(&s.routes).into_iter().map(input).collect(),
         key => {
@@ -288,7 +339,12 @@ fn rows(s: &State) -> Vec<LiveItem> {
                 .strip_prefix("plugin:")
                 .and_then(|i| i.parse::<usize>().ok())
             {
-                s.plugins.get(i).map(|p| plugin(i, p)).into_iter().collect()
+                let mut rows: Vec<LiveItem> =
+                    s.plugins.get(i).map(|p| plugin(i, p)).into_iter().collect();
+                if let Some(p) = s.plugins.get(i) {
+                    rows.extend(presets_of(&p.key));
+                }
+                rows
             } else {
                 let mut all = vec![groove()];
                 all.extend(plugins(&|_| true));
@@ -310,7 +366,9 @@ fn rows(s: &State) -> Vec<LiveItem> {
 /// Shows the tree and the list again from the state.
 fn refresh(app: &AppWindow) {
     let ui = app.global::<InstrumentsUi>();
+    let found = presets::all();
     STATE.with_borrow_mut(|s| {
+        s.presets = found;
         let nodes = nodes(s);
         // A node gone (a plugin unticked, a maker folded away) selects its parent.
         if !nodes.iter().any(|(k, _)| *k == s.current) {
@@ -380,6 +438,7 @@ mod tests {
 
     fn state(current: &str) -> State {
         let plugin = |name: &str, maker: &str| Plugin {
+            key: format!("clap:{name}"),
             name: name.into(),
             maker: maker.into(),
             format: "CLAP",
@@ -411,6 +470,7 @@ mod tests {
             keys,
             [
                 "all",
+                "presets",
                 "groove",
                 "plugins",
                 "maker:Arturia",
@@ -433,6 +493,45 @@ mod tests {
         let mut s = state("all");
         s.search = "vital".into();
         assert_eq!(names(&s), ["Vital"]);
+    }
+
+    #[test]
+    fn presets_list_under_their_instrument_and_in_my_presets() {
+        let preset = |name: &str, instrument: &str, instrument_name: &str| Preset {
+            name: name.into(),
+            instrument: instrument.into(),
+            instrument_name: instrument_name.into(),
+            path: format!("/p/{name}.json").into(),
+        };
+        let mut s = state("groove");
+        s.presets = vec![
+            preset("Four Floor", GROOVE, "Groove Box"),
+            preset("Ambient Ebow", "clap:Jun-6 V", "Jun-6 V"),
+        ];
+        let names = |s: &State| {
+            rows(s)
+                .iter()
+                .map(|r| (r.kind, r.index, r.name.to_string()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names(&s),
+            [
+                (KIT, 0, "Groove Box".into()),
+                (PRESET, 0, "Four Floor".into())
+            ]
+        );
+        s.current = "plugin:2".into();
+        assert_eq!(
+            names(&s),
+            [
+                (PLUGIN, 2, "Jun-6 V".into()),
+                (PRESET, 1, "Ambient Ebow".into())
+            ]
+        );
+        s.current = "presets".into();
+        assert_eq!(names(&s).len(), 2);
+        assert_eq!(parse(&payload(PRESET, 1)), Some(5001));
     }
 
     #[test]

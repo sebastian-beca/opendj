@@ -9,7 +9,8 @@ import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
 import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, MasterBadge, PitchReset, SyncButton } from "controls.slint";
 import { TourMark } from "tourmark.slint";
 import { MapMark } from "mapmark.slint";
-import { InstrumentsUi, LiveIcon } from "instruments.slint";
+import { InstrumentsUi, LiveIcon, PresetUi } from "instruments.slint";
+import { LineEdit } from "std-widgets.slint";
 import { ListView, ScrollView } from "scroll.slint";
 
 // A line of the key menu: a key shift and the key it gives.
@@ -711,6 +712,132 @@ component GrooveMenuBackground inherits Rectangle {
     drop-shadow-color: #000000b0;
 }
 
+// Asks a name for a new preset (`asking` 0) or a new name for preset
+// `name` (1), then saves or renames.
+component PresetNamer inherits PopupWindow {
+    in property <int> deck;
+    in property <int> asking;
+    in property <string> name;
+    width: 280px;
+    close-policy: close-on-click-outside;
+    GrooveMenuBackground { }
+    VerticalLayout {
+        padding: 10px;
+        spacing: 8px;
+        Text { text: asking == 0 ? "Name the new preset" : "Rename “" + name + "”"; color: Theme.text; font-size: 12px; }
+        HorizontalLayout {
+            spacing: 6px;
+            field := LineEdit {
+                text: asking == 1 ? name : "";
+                placeholder-text: "Preset name";
+                init => { self.focus(); }
+                accepted => { done(); }
+            }
+            Rectangle {
+                width: 60px;
+                border-radius: 4px;
+                background: ota.pressed ? Theme.control-pressed : Theme.accent;
+                Text { text: "Save"; color: #000000; font-size: 12px; font-weight: 600; }
+                ota := TouchArea { mouse-cursor: pointer; clicked => { done(); } }
+            }
+        }
+    }
+    function done() {
+        if asking == 0 {
+            PresetUi.save-as(deck, field.text);
+        } else {
+            PresetUi.rename(deck, field.text);
+        }
+        root.close();
+    }
+}
+
+// ‹ and › beside a deck's preset name.
+component PresetStep inherits Rectangle {
+    in property <string> text;
+    callback clicked;
+    width: 24px;
+    border-radius: 4px;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2b2e : Theme.control;
+    Text { text: root.text; color: Theme.text; font-size: 16px; }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// The preset of a deck playing the Groove Box or an instrument plugin:
+// its name with ‹ › to step through the instrument's presets, and SAVE
+// (Save, Save as new…, Rename…).
+component PresetBar inherits Rectangle {
+    in property <int> deck;
+    in property <bool> compact;
+    in property <color> tint;
+    // Shown while the deck plays no preset.
+    in property <string> hint;
+    property <string> name: PresetUi.name(deck);
+    // What the name box is for: 0 a new preset, 1 a new name.
+    property <int> asking;
+    HorizontalLayout {
+        padding: compact ? 3px : 5px;
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 6px;
+        PresetStep { text: "‹"; clicked => { PresetUi.step(deck, -1); } }
+        Text {
+            horizontal-stretch: 1;
+            text: name != "" ? name : hint;
+            color: name != "" ? Theme.text : Theme.text-dim;
+            font-size: name != "" ? (compact ? 13px : 15px) : 12px;
+            font-weight: name != "" ? 500 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        PresetStep { text: "›"; clicked => { PresetUi.step(deck, 1); } }
+        save := Rectangle {
+            width: 52px;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: tint;
+            background: sta.pressed ? Theme.control-pressed : sta.has-hover ? #2a2b2e : Theme.control;
+            Text { text: "SAVE"; color: Theme.text; font-size: 11px; font-weight: 600; }
+            sta := TouchArea { mouse-cursor: pointer; clicked => { menu.show(); } }
+        }
+    }
+    menu := PopupWindow {
+        x: root.width - 210px;
+        y: root.height + 2px;
+        width: 210px;
+        GrooveMenuBackground { }
+        VerticalLayout {
+            padding: 4px;
+            if name != "": GrooveMenuItem {
+                text: "Save";
+                detail: "Over “" + name + "”";
+                clicked => { PresetUi.save(deck); }
+            }
+            GrooveMenuItem {
+                text: "Save as new…";
+                clicked => {
+                    asking = 0;
+                    namer.show();
+                }
+            }
+            if name != "": GrooveMenuItem {
+                text: "Rename…";
+                clicked => {
+                    asking = 1;
+                    namer.show();
+                }
+            }
+        }
+    }
+    namer := PresetNamer {
+        x: root.width - 280px;
+        y: root.height + 2px;
+        deck: deck;
+        asking: asking;
+        name: name;
+    }
+}
+
 // A small button with a label and an optional ▾.
 component GrooveButton inherits Rectangle {
     in property <string> text;
@@ -736,6 +863,67 @@ component GrooveButton inherits Rectangle {
     }
     gbta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
+
+// The Groove Box's preset, in its top bar: the name, with a menu to step
+// through its presets, pick one, and save.
+component GroovePreset inherits GrooveButton {
+    in property <int> deck;
+    property <string> name: PresetUi.name(deck);
+    property <int> asking;
+    text: (name != "" ? name : "Preset") + " ▾";
+    clicked => { menu.show(); }
+    menu := PopupWindow {
+        y: root.height + 2px;
+        width: 230px;
+        // Previous, Next, the presets, then Save as new (and Save and
+        // Rename with a preset playing), with their lines between.
+        height: min((PresetUi.groove.length + (name != "" ? 5 : 3)) * 24px + (PresetUi.groove.length > 0 ? 18px : 16px), 420px);
+        GrooveMenuBackground { }
+        ScrollView {
+            x: 4px;
+            y: 4px;
+            width: parent.width - 8px;
+            height: parent.height - 8px;
+            VerticalLayout {
+                GrooveMenuItem { text: "‹ Previous preset"; clicked => { PresetUi.step(deck, -1); } }
+                GrooveMenuItem { text: "› Next preset"; clicked => { PresetUi.step(deck, 1); } }
+                Rectangle { height: 1px; background: Theme.border; }
+                for p in PresetUi.groove: GrooveMenuItem {
+                    text: p.name;
+                    checked: p.name == name;
+                    clicked => { PresetUi.load(deck, p.index); }
+                }
+                if PresetUi.groove.length > 0: Rectangle { height: 1px; background: Theme.border; }
+                if name != "": GrooveMenuItem {
+                    text: "Save";
+                    detail: "Over “" + name + "”";
+                    clicked => { PresetUi.save(deck); }
+                }
+                GrooveMenuItem {
+                    text: "Save as new…";
+                    clicked => {
+                        asking = 0;
+                        namer.show();
+                    }
+                }
+                if name != "": GrooveMenuItem {
+                    text: "Rename…";
+                    clicked => {
+                        asking = 1;
+                        namer.show();
+                    }
+                }
+            }
+        }
+    }
+    namer := PresetNamer {
+        y: root.height + 2px;
+        deck: deck;
+        asking: asking;
+        name: name;
+    }
+}
+
 
 // Deck header: big artwork on the outer edge, title and artist, the remaining
 // time and key, and the overview waveform underneath.
@@ -766,6 +954,7 @@ export component Header inherits Rectangle {
     // inputs 2 and 3.
     property <int> live: info.loaded || groove ? 0 : InstrumentsUi.live(deck);
     property <int> instrument: InstrumentsUi.instrument();
+    property <bool> instrument-ready: Controls.value(Controls.resolve("[Instrument1]", "input_configured"), Controls.tick) > 0;
     property <string> live-name: InstrumentsUi.live-name(live,
         instrument > 0 && instrument <= EffectList.instruments.length ? EffectList.instruments[instrument - 1] : "Instrument");
     property <int> hold-index: Controls.resolve(group, "seek_hold");
@@ -883,8 +1072,15 @@ export component Header inherits Rectangle {
                 // layer, which would freeze the GPU-updated image.
                 clip: true;
                 Image { width: parent.width; height: parent.height; source: overview; image-fit: fill; }
+                // An instrument plugin, ready: its presets.
+                if live == 3 && instrument-ready: PresetBar {
+                    deck: deck;
+                    compact: compact;
+                    tint: tint;
+                    hint: compact ? "No preset" : "No preset: SAVE keeps this sound, ‹ › step through presets";
+                }
                 // A live input has no waveform either.
-                if live > 0: Text {
+                if live > 0 && !(live == 3 && instrument-ready): Text {
                     x: 10px;
                     width: parent.width - 20px;
                     text: compact ? "Live through this channel" : "Playing live through this deck's channel: EQ, filter, effects and fader. Drop a track here to go back.";
@@ -893,15 +1089,13 @@ export component Header inherits Rectangle {
                     vertical-alignment: center;
                     overflow: elide;
                 }
-                // A Groove Box has no waveform: a hint for the first steps.
-                if groove: Text {
-                    x: 10px;
-                    width: parent.width - 20px;
-                    text: compact ? "Press PLAY" : "Press PLAY, then click a square to add or remove a hit. A to D switch grooves on the next bar. Drop a track here to go back.";
-                    color: Theme.text-dim;
-                    font-size: 12px;
-                    vertical-alignment: center;
-                    overflow: elide;
+                // A Groove Box has no waveform: its presets, with a hint
+                // for the first steps.
+                if groove: PresetBar {
+                    deck: deck;
+                    compact: compact;
+                    tint: tint;
+                    hint: compact ? "Press PLAY" : "Press PLAY, then click a square to add or remove a hit. SAVE keeps the groove.";
                 }
                 // Automix's mix, shaded green: on the playing deck from where
                 // the mix starts to the end, on the waiting deck from its cue
@@ -3326,7 +3520,7 @@ component GrooveBox inherits Rectangle {
                 }
             }
             GrooveButton {
-                width: 80px;
+                width: 60px;
                 height: 30px;
                 text: GrooveUi.genres[genre].name + " ▾";
                 clicked => { genre-menu.show(); }
@@ -3356,7 +3550,7 @@ component GrooveBox inherits Rectangle {
             }
             // The groove's name takes the room left over.
             GrooveButton {
-                min-width: 48px;
+                min-width: 34px;
                 horizontal-stretch: 1;
                 height: 30px;
                 text: (pattern > 0 && pattern <= grooves.length ? grooves[pattern - 1].name : "Groove") + " ▾";
@@ -3384,7 +3578,7 @@ component GrooveBox inherits Rectangle {
                 }
             }
             GrooveButton {
-                width: 56px;
+                width: 52px;
                 height: 30px;
                 text: "Chain ▾";
                 lit: chain > 0;
@@ -3419,6 +3613,8 @@ component GrooveBox inherits Rectangle {
                     }
                 }
             }
+            // The preset shares the room left over with the groove's name.
+            GroovePreset { deck: deck; min-width: 34px; horizontal-stretch: 1; height: 30px; tint: tint; }
             for letter[i] in ["A", "B", "C", "D"]: GrooveButton {
                 width: 22px;
                 height: 30px;
@@ -3433,7 +3629,7 @@ component GrooveBox inherits Rectangle {
             GrooveTempo { g: g; width: 60px; height: 30px; tint: tint; }
             Rectangle { width: 2px; }
             Rectangle {
-                width: 172px;
+                width: 148px;
                 border-radius: 6px;
                 background: Theme.well;
                 HorizontalLayout {

@@ -17,10 +17,10 @@ use crate::{settings, AppWindow, GrooveGenre, GrooveKit, GrooveName, GrooveUi};
 /// The layout of the saved Groove Boxes. Before 2 there were four kits
 /// (now from index 2) and four rows, whose sounds were numbered in each
 /// kit's own order; before 3, nine rows (8 crash, 9 ride), now eight.
-const LAYOUT: f64 = 3.0;
+pub(crate) const LAYOUT: f64 = 3.0;
 
 /// The controls a Groove Box keeps, by name.
-fn kept_keys() -> Vec<String> {
+pub(crate) fn kept_keys() -> Vec<String> {
     let mut keys: Vec<String> = [
         "enabled",
         "kit",
@@ -94,7 +94,7 @@ pub fn install(app: &AppWindow) {
 /// Brings a Groove Box saved by an older openDJ up to [`LAYOUT`]: the kit
 /// it picked moves to its new place, and its rows' sounds go back to the
 /// rows' own (rows 1-4 were already kick, snare, hat and open hat).
-fn upgrade(values: &mut Map<String, Value>) {
+pub(crate) fn upgrade(values: &mut Map<String, Value>) {
     let layout = values.get("layout").and_then(Value::as_f64).unwrap_or(1.0);
     if layout < 2.0 {
         if let Some(kit) = values.get("kit").and_then(Value::as_f64) {

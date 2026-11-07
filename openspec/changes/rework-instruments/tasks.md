@@ -4,15 +4,15 @@
 
 - [x] 1.1 Instruments tree (All instruments, Groove Box, Plugins by maker, Inputs) and a track-style list with search; rows drag to a deck, double-click loads on a free deck
 - [x] 1.2 One Groove Box entry; kit picked on the deck
-- [ ] 1.3 Type and Character tag chips over the list
+- [ ] 1.3 Type and Character tag chips over the list; tags on presets (SAVE › Tags)
 
 ## 2. Presets
 
 - [x] 2.1 Plugin state save and restore (CLAP state, VST3 component and controller state, AU full state) in the plugin host; kept across restarts
-- [ ] 2.2 openDJ preset files (`Instruments/Presets/<instrument>/`) for plugins and the Groove Box; SAVE menu on the deck (Save, Save as new, Rename, Tags)
+- [x] 2.2 openDJ preset files (`Instruments/Presets/<instrument>/`) for plugins and the Groove Box; SAVE menu on the deck (Save, Save as new, Rename)
 - [ ] 2.3 Plugin presets listed from the formats: CLAP preset discovery, `.vstpreset`, AU factory presets and `.aupreset`
-- [ ] 2.5 Recently played and My presets in the tree; an instrument's presets listed under it, default sound first; column sort
-- [ ] 2.4 ‹ › on the deck steps through the instrument's presets in the browser's order
+- [ ] 2.5 Recently played in the tree; column sort (My presets and presets under their instrument, default sound first, are in)
+- [x] 2.4 ‹ › on the deck steps through the instrument's presets in the browser's order
 
 ## 3. Instrument deck
 
