@@ -108,6 +108,106 @@ impl Line {
     }
 }
 
+/// A line split for karaoke at one moment: the words sung, the word being
+/// sung and how far into it, and the rest.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Fill {
+    pub sung: String,
+    pub word: String,
+    /// 0 to 1 through `word`.
+    pub part: f64,
+    pub rest: String,
+}
+
+/// Seconds a word of `chars` letters is reckoned to last when nothing says.
+fn word_length(chars: usize) -> f64 {
+    0.35 + chars as f64 * 0.08
+}
+
+impl Line {
+    /// Each word with when it starts and ends. Lyrics timed only by line
+    /// have their words spread over the line by length, from its start to
+    /// `until` (the next line's start), or as long as they'd take to sing
+    /// when that is far off.
+    pub fn word_times(&self, until: Option<f64>) -> Vec<(f64, f64, String)> {
+        let Some(start) = self.start else {
+            return Vec::new();
+        };
+        if !self.words.is_empty() {
+            return self
+                .words
+                .iter()
+                .enumerate()
+                .map(|(i, w)| {
+                    let end = match self.words.get(i + 1) {
+                        Some(next) => next.start,
+                        None => {
+                            let sung = w.start + word_length(w.text.trim().chars().count());
+                            self.end
+                                .unwrap_or_else(|| until.map_or(sung, |u| u.min(sung)))
+                        }
+                    };
+                    (w.start, end.max(w.start), w.text.clone())
+                })
+                .collect();
+        }
+        let words: Vec<&str> = self
+            .text
+            .split_inclusive(char::is_whitespace)
+            .filter(|w| !w.trim().is_empty())
+            .collect();
+        let weight = |w: &str| w.trim().chars().count() as f64 + 1.0;
+        let total: f64 = words.iter().map(|w| weight(w)).sum();
+        let sung: f64 = words
+            .iter()
+            .map(|w| word_length(w.trim().chars().count()))
+            .sum();
+        let end = until.map_or(start + sung, |u| u.min(start + sung).max(start));
+        let mut at = start;
+        words
+            .into_iter()
+            .map(|w| {
+                let length = (end - start) * weight(w) / total.max(1.0);
+                let word = (at, at + length, w.to_string());
+                at += length;
+                word
+            })
+            .collect()
+    }
+
+    /// The line split at `seconds` for a karaoke screen, the word being sung
+    /// filling as it goes (see [`Line::word_times`]).
+    pub fn fill_at(&self, seconds: f64, until: Option<f64>) -> Fill {
+        let words = self.word_times(until);
+        let Some(k) = words.iter().rposition(|w| w.0 <= seconds) else {
+            return Fill {
+                rest: self.text.trim().to_string(),
+                ..Default::default()
+            };
+        };
+        let join = |ws: &[(f64, f64, String)]| ws.iter().map(|w| w.2.as_str()).collect::<String>();
+        let (start, end, text) = &words[k];
+        if k == words.len() - 1 && seconds >= *end {
+            return Fill {
+                sung: join(&words).trim().to_string(),
+                ..Default::default()
+            };
+        }
+        let word = text.trim_end();
+        let rest = format!("{}{}", &text[word.len()..], join(&words[k + 1..]));
+        Fill {
+            sung: join(&words[..k]).trim_start().to_string(),
+            word: word.trim_start().to_string(),
+            part: if end > start {
+                ((seconds - start) / (end - start)).clamp(0.0, 1.0)
+            } else {
+                1.0
+            },
+            rest: rest.trim_end().to_string(),
+        }
+    }
+}
+
 fn timing_of(lines: &[Line]) -> Timing {
     if lines.iter().any(|l| !l.words.is_empty()) {
         Timing::Words
@@ -745,6 +845,47 @@ mod tests {
             plain[0].sung_at(5.0),
             (String::new(), "No words".to_string())
         );
+    }
+
+    #[test]
+    fn fills_a_word_as_it_is_sung() {
+        let lines =
+            parse("[00:10.00]<00:10.00>Hold <00:10.40>the <00:10.70>line<00:11.50>").unwrap();
+        let l = &lines[0];
+        assert_eq!(l.fill_at(9.0, None).rest, "Hold the line");
+        let f = l.fill_at(10.5, None);
+        assert_eq!((f.sung.as_str(), f.word.as_str()), ("Hold ", "the"));
+        assert_eq!(f.rest, " line");
+        assert!((f.part - 1.0 / 3.0).abs() < 1e-9, "{}", f.part);
+        let f = l.fill_at(11.1, None);
+        assert_eq!(
+            (f.sung.as_str(), f.word.as_str(), f.rest.as_str()),
+            ("Hold the ", "line", "")
+        );
+        assert!((f.part - 0.5).abs() < 1e-9);
+        assert_eq!(l.fill_at(12.0, None).sung, "Hold the line");
+    }
+
+    #[test]
+    fn spreads_words_over_a_line_timed_by_line() {
+        let lines = parse("[00:10.00]Hi there\n[00:12.00]Next").unwrap();
+        let words = lines[0].word_times(Some(12.0));
+        assert_eq!(words.len(), 2);
+        assert_eq!(words[0].2, "Hi ");
+        // "Hi" weighs 3, "there" 6, over as long as they take to sing.
+        let sung = word_length(2) + word_length(5);
+        assert!((words[1].0 - (10.0 + sung / 3.0)).abs() < 1e-9);
+        assert!((words[1].1 - (10.0 + sung)).abs() < 1e-9);
+        // The next line close: the words end by then.
+        let words = lines[0].word_times(Some(10.5));
+        assert!((words[1].1 - 10.5).abs() < 1e-9);
+        let f = lines[0].fill_at(10.1, Some(12.0));
+        assert_eq!(
+            (f.sung.as_str(), f.word.as_str(), f.rest.as_str()),
+            ("", "Hi", " there")
+        );
+        assert!(lines[0].fill_at(13.0, Some(12.0)).rest.is_empty());
+        assert!(parse("Plain").unwrap()[0].word_times(None).is_empty());
     }
 
     #[test]

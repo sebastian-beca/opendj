@@ -55,6 +55,13 @@ export global LyricsUi {
     callback find();
     callback use-found(row: int);
     callback close-found();
+    // The karaoke screen, a window of its own; it follows the track playing.
+    in-out property <bool> karaoke;
+    callback set-karaoke(on: bool);
+    // The guide vocal: the vocal stem's level on the deck the karaoke screen
+    // follows, 0 gone to 1 full; -1 with nothing playing.
+    in property <float> vocals: -1;
+    callback set-vocals(level: float);
 }
 
 component SmallButton inherits Rectangle {
@@ -69,6 +76,40 @@ component SmallButton inherits Rectangle {
     border-color: Theme.border;
     label := Text { text: root.text; color: primary ? Theme.on-selection : Theme.text; font-size: 12px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// The guide vocal slider: a thin track filled to a round thumb. A click
+// jumps there, a drag moves it, a double click puts the voice back.
+component VocalSlider inherits Rectangle {
+    property <length> thumb: 16px;
+    property <length> travel: self.width - thumb;
+    height: 20px;
+    min-width: 60px;
+    Rectangle { x: thumb / 2; width: travel; height: 4px; border-radius: 2px; background: #3a3a3e; }
+    Rectangle { x: thumb / 2; width: LyricsUi.vocals * travel; height: 4px; border-radius: 2px; background: Theme.accent; }
+    Rectangle {
+        x: LyricsUi.vocals * travel;
+        width: thumb;
+        height: 14px;
+        border-radius: 7px;
+        background: ta.pressed ? #d4d4d8 : #f2f2f4;
+        drop-shadow-blur: 3px;
+        drop-shadow-color: #00000080;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                LyricsUi.set-vocals(clamp((self.mouse-x - thumb / 2) / travel, 0, 1));
+            }
+        }
+        moved => {
+            if self.pressed {
+                LyricsUi.set-vocals(clamp((self.mouse-x - thumb / 2) / travel, 0, 1));
+            }
+        }
+        double-clicked => { LyricsUi.set-vocals(1); }
+    }
 }
 
 // LRCLIB's records for the track, best first; Use saves one.
@@ -201,6 +242,33 @@ export component LyricsPanel inherits Rectangle {
             if LyricsUi.has-track && LyricsUi.can-find && !LyricsUi.finding: VerticalLayout {
                 alignment: center;
                 SmallButton { text: "Find…"; clicked => { LyricsUi.find(); } }
+            }
+            VerticalLayout {
+                alignment: center;
+                SmallButton { text: "Karaoke"; primary: LyricsUi.karaoke; clicked => { LyricsUi.set-karaoke(!LyricsUi.karaoke); } }
+            }
+        }
+        // While the karaoke screen is open: how loud the singer's voice
+        // stays in the mix, from gone (left) to full (right).
+        if LyricsUi.karaoke: HorizontalLayout {
+            height: 26px;
+            spacing: 8px;
+            Text { text: "Vocals"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+            if LyricsUi.vocals >= 0: VocalSlider { horizontal-stretch: 1; }
+            if LyricsUi.vocals >= 0: Text {
+                width: 36px;
+                text: round(LyricsUi.vocals * 100) + "%";
+                color: Theme.text-dim;
+                font-size: 12px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+            }
+            if LyricsUi.vocals < 0: Text {
+                horizontal-stretch: 1;
+                text: "Nothing playing";
+                color: Theme.label;
+                font-size: 12px;
+                vertical-alignment: center;
             }
         }
         if LyricsUi.has-track: VerticalLayout {
@@ -357,5 +425,13 @@ export component PlayerLyrics inherits Rectangle {
                 }
             }
         }
+    }
+    // Opens the karaoke screen for a second display.
+    SmallButton {
+        x: parent.width - self.width - 16px;
+        y: 12px;
+        text: LyricsUi.karaoke ? "Close Karaoke" : "Karaoke Screen";
+        primary: LyricsUi.karaoke;
+        clicked => { LyricsUi.set-karaoke(!LyricsUi.karaoke); }
     }
 }
