@@ -1,16 +1,20 @@
-//! The mini player (ui/mini.slint): a small window, on top of the others
-//! by default, showing the track the Player bar shows with Previous,
-//! Play/Pause and Next. Opening it hides the main window; its expand
-//! button, or closing it, brings the main window back.
+//! The mini player (ui/mini.slint): a small square window of album art,
+//! on top of the others, showing the track the Player bar shows with
+//! Previous, Play/Pause and Next under the pointer. Opening it hides the
+//! main window; its ✕, or closing it, brings the main window back. It has
+//! no title bar, so it moves and resizes through winit, and stays square.
 //!
 //! The two windows share no globals, so a timer copies what is playing
 //! from the main window into the mini player while it shows, and its
 //! buttons act through the main window's controls.
 
+use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use slint::{ComponentHandle, Model, Timer, TimerMode};
+use slint::winit_030::winit::window::ResizeDirection;
+use slint::winit_030::WinitWindowAccessor;
+use slint::{ComponentHandle, LogicalSize, Model, Timer, TimerMode};
 
 use crate::{AppWindow, Controls, MiniPlayer, Theme};
 
@@ -27,10 +31,12 @@ pub fn install(app: &AppWindow) {
                     wire(&app, &m);
                     let timer = Timer::default();
                     let (a, w) = (app.as_weak(), m.as_weak());
+                    let last = Cell::new((0.0, 0.0));
                     timer.start(TimerMode::Repeated, Duration::from_millis(100), move || {
                         if let (Some(app), Some(m)) = (a.upgrade(), w.upgrade()) {
                             if m.window().is_visible() {
                                 update(&app, &m);
+                                keep_square(&m, &last);
                             }
                         }
                     });
@@ -113,6 +119,22 @@ fn wire(app: &AppWindow, m: &MiniPlayer) {
         }
     };
     m.on_expand(back.clone());
+    let w = m.as_weak();
+    m.on_start_move(move || {
+        if let Some(m) = w.upgrade() {
+            m.window().with_winit_window(|win| {
+                let _ = win.drag_window();
+            });
+        }
+    });
+    let w = m.as_weak();
+    m.on_start_resize(move || {
+        if let Some(m) = w.upgrade() {
+            m.window().with_winit_window(|win| {
+                let _ = win.drag_resize_window(ResizeDirection::SouthEast);
+            });
+        }
+    });
     m.window().on_close_requested(move || {
         back();
         slint::CloseRequestResponse::HideWindow
@@ -150,6 +172,25 @@ fn update(app: &AppWindow, m: &MiniPlayer) {
     } else {
         format!("NEXT IN {next_in}").into()
     });
-    m.set_next_title(app.get_automix_next());
     m.set_can_next(app.get_automix_on() && app.get_automix_queued() > 0);
+}
+
+/// Brings the window back to a square after a resize: the side the DJ
+/// changed sets both. `last` is the size seen the time before.
+fn keep_square(m: &MiniPlayer, last: &Cell<(f32, f32)>) {
+    let window = m.window();
+    let size = window.size().to_logical(window.scale_factor());
+    let (w, h) = (size.width, size.height);
+    if (w - h).abs() < 1.0 {
+        last.set((w, h));
+        return;
+    }
+    let (lw, lh) = last.get();
+    let side = if (w - lw).abs() >= (h - lh).abs() {
+        w
+    } else {
+        h
+    };
+    window.set_size(LogicalSize::new(side, side));
+    last.set((side, side));
 }

@@ -15,6 +15,7 @@
 - [x] 2.2 Play next, Add to queue and Play now on each result, with keys
 - [x] 2.3 Update the user guide
 - [x] 2.4 The top-bar box also filters the track list; the list's own search box is hidden in Player
+- [x] 2.5 Artists and albums before tracks in the dropdown (tracks first when a title is the better match); an album's buttons take the whole album in order, an artist's Show tracks searches for them
 
 ## 3. Bar along the bottom
 
@@ -32,6 +33,7 @@
 - [x] 4.1 A small always-on-top window, one window in two shapes (a 300 × 300 square of art by default, which dims and shows the controls only under the pointer, or a strip when dragged low and wide): art, title, artist, Previous, Play/Pause, Next, progress with the mix zone
 - [x] 4.2 Opens from the bar, ⌘⇧M and the app menu; the main window hides while it shows (dropping tracks on it later: drags don't cross windows)
 - [x] 4.3 Update the user guide
+- [x] 4.4 Square only: no title bar (drag the art to move, a corner grip to resize, the window snaps back to square), a larger ✕, no pin (always on top); the overlay stays while the pointer is on a button
 
 ## 5. Now Playing
 
