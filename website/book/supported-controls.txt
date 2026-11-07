@@ -2226,6 +2226,7 @@
 [Flanger],lfoDepth
 [Flanger],lfoPeriod
 [Groove1],auto_fill
+[Groove1],beat
 [Groove1],bpm
 [Groove1],can_undo
 [Groove1],chain
@@ -2508,6 +2509,7 @@
 [Groove1],tempo_scale
 [Groove1],vary
 [Groove2],auto_fill
+[Groove2],beat
 [Groove2],bpm
 [Groove2],can_undo
 [Groove2],chain
@@ -2790,6 +2792,7 @@
 [Groove2],tempo_scale
 [Groove2],vary
 [Groove3],auto_fill
+[Groove3],beat
 [Groove3],bpm
 [Groove3],can_undo
 [Groove3],chain
@@ -3072,6 +3075,7 @@
 [Groove3],tempo_scale
 [Groove3],vary
 [Groove4],auto_fill
+[Groove4],beat
 [Groove4],bpm
 [Groove4],can_undo
 [Groove4],chain

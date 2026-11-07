@@ -13,7 +13,7 @@
 
 ## 3. Step lanes
 
-- [ ] 3.1 Groove Box decks: eight lanes, hits behind and ahead of the play line, fills marked, next groove's bar marked; names in 2-Deck only
+- [x] 3.1 Groove Box decks: eight lanes, hits behind and ahead of the play line, fills marked, the queued groove's hits from the next bar (no lane names: a lane's sound can change with the kit)
 
 ## 4. Macro lanes
 

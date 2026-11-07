@@ -83,6 +83,12 @@ On a deck playing an instrument plugin, the notes you play show as bars on
 a note roll over a faint copy of the sound: one row per note, fitted to the
 notes played in view, with the notes still held lit up to the play line.
 
+On a Groove Box deck, the scrolling waveform shows eight step lanes, kick
+on top, over a faint copy of the sound. The hits it played scroll away to
+the left, and the hits still to come are drawn ahead of the play line as
+outlines, so you can see the next bars before they play. Fills are drawn in
+lilac, and a groove you queue shows from the next bar on.
+
 To go back to a track deck, load a track onto it, or press EJECT while it is
 stopped. openDJ remembers what each deck plays for next time.
 

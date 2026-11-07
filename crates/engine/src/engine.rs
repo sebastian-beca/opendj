@@ -1575,6 +1575,9 @@ fn balance_gains(b: f32) -> [f32; 2] {
     [(1.0 - b).min(1.0), (1.0 + b).min(1.0)]
 }
 
+/// Groove Box hits queued per deck for the app: a few seconds' worth.
+const GROOVE_HITS_QUEUED: usize = 1024;
+
 pub struct Engine {
     sample_rate: f64,
     decks: [Deck; NUM_DECKS],
@@ -1640,6 +1643,8 @@ pub struct Engine {
     /// Each deck's live sound for its waveform (see [`crate::live_wave`]).
     live_waves: [crate::live_wave::LiveWave; NUM_DECKS],
     live_wave_rx: Option<[rtrb::Consumer<crate::live_wave::LiveSlice>; NUM_DECKS]>,
+    /// Each Groove Box's hits as played, for its deck's waveform.
+    groove_hit_rx: Option<[rtrb::Consumer<crate::groove::GrooveHit>; NUM_DECKS]>,
     /// Copies the master out for broadcasting, while on air.
     broadcast: RecordTap,
     broadcast_feed: Option<Feed>,
@@ -1824,9 +1829,17 @@ impl Engine {
         let fx = EffectRack::new(registry, sample_rate);
         let (samplers, sampler_input) = Samplers::new(registry, sample_rate);
         let kits: Arc<[crate::kits::Kit]> = crate::kits::build(sample_rate).into();
+        let mut groove_hit_rx = Vec::with_capacity(NUM_DECKS);
         let grooves = (0..NUM_DECKS)
-            .map(|d| GrooveBox::new(registry, d, kits.clone(), sample_rate))
+            .map(|d| {
+                let mut g = GrooveBox::new(registry, d, kits.clone(), sample_rate);
+                let (tx, rx) = rtrb::RingBuffer::new(GROOVE_HITS_QUEUED);
+                g.hit_tx = Some(tx);
+                groove_hit_rx.push(rx);
+                g
+            })
             .collect();
+        let groove_hit_rx = groove_hit_rx.try_into().ok();
         let (preview, preview_input) = Preview::new(registry, sample_rate);
         let (commands_tx, commands) = rtrb::RingBuffer::new(QUEUE);
         let (returned, returned_rx) = rtrb::RingBuffer::new(QUEUE * 2);
@@ -1864,6 +1877,7 @@ impl Engine {
                 meter_feed: Some(meter_feed),
                 live_waves,
                 live_wave_rx,
+                groove_hit_rx,
                 broadcast,
                 broadcast_feed: Some(broadcast_feed),
                 preview,
@@ -1929,6 +1943,13 @@ impl Engine {
         &mut self,
     ) -> Option<[rtrb::Consumer<crate::live_wave::LiveSlice>; NUM_DECKS]> {
         self.live_wave_rx.take()
+    }
+
+    /// The app's ends of the Groove Boxes' hit queues; there is one set.
+    pub(crate) fn take_groove_hits(
+        &mut self,
+    ) -> Option<[rtrb::Consumer<crate::groove::GrooveHit>; NUM_DECKS]> {
+        self.groove_hit_rx.take()
     }
 
     /// The other end of the broadcast's tap; there is only one.
