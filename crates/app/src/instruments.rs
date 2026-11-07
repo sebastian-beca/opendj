@@ -110,7 +110,10 @@ mod tests {
     #[test]
     fn routes_keep_the_device_and_channels() {
         assert_eq!(route("M4 · In 3 · 44.1 kHz"), "M4 · In 3");
-        assert_eq!(route("M4 · In 1 & 2 · 48 kHz · silent so far"), "M4 · In 1 & 2");
+        assert_eq!(
+            route("M4 · In 1 & 2 · 48 kHz · silent so far"),
+            "M4 · In 1 & 2"
+        );
         assert_eq!(route(""), "");
         assert_eq!(route("M4 unavailable"), "");
         assert_eq!(route("M4 can't record In 3 at 44.1 kHz"), "");
