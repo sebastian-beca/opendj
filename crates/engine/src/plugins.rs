@@ -1459,6 +1459,15 @@ mod tests {
         assert_eq!(mask as u16, crate::scale::mask(0, 0));
         assert!(rig.notes.send([0x80, 61, 0]));
         assert!(rig.instrument_buffer().abs() < 1e-3);
+        // In chord mode Triad, D plays D minor (D F A) in C major.
+        rig.reg.get(group, "chord_mode").unwrap().set(1.0);
+        assert!(rig.notes.send([0x90, 62, 100]));
+        rig.instrument_buffer();
+        assert_eq!(view.held(), 1 << 62 | 1 << 65 | 1 << 69);
+        assert!(rig.notes.send([0x80, 62, 0]));
+        rig.instrument_buffer();
+        assert_eq!(view.held(), 0);
+        rig.reg.get(group, "chord_mode").unwrap().set(0.0);
         rig.reg.get(group, "scale_mode").unwrap().set(0.0);
         // The pads play from middle C; a pad let go after the octave moved
         // still stops its note.

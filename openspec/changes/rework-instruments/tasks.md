@@ -29,7 +29,7 @@
 ## 4. Scale, chord and arpeggiator
 
 - [x] 4.1 Scale mode: Off, Auto (master deck's key), or a picked root and scale (Major, Minor, Major pentatonic, Minor pentatonic); notes move to the nearest scale note; keyboard lights playable notes and dims the rest
-- [ ] 4.2 Chord mode: one key plays a chord built on the scale
+- [x] 4.2 Chord mode: one key plays a chord built on the scale (Triad, Seventh, Power, or a chord learned by holding it)
 - [ ] 4.3 Arpeggiator synced to the mix's beat (Up, Down, Up-down, Random, Order; rate, gate, octaves, hold)
 
 ## 5. Artwork

@@ -3894,6 +3894,52 @@ component ScaleButton inherits GrooveButton {
     }
 }
 
+// Chord mode: each key plays a chord built on the scale. Learn takes
+// the next chord held, and Mine plays it from any key.
+component ChordButton inherits GrooveButton {
+    property <int> mode-index: Controls.resolve("[Instrument1]", "chord_mode");
+    property <int> learn-index: Controls.resolve("[Instrument1]", "chord_learn");
+    property <int> mode: Controls.value(mode-index, Controls.tick);
+    property <bool> learning: Controls.value(learn-index, Controls.tick) > 0;
+    property <[string]> names: ["Off", "Triad", "7th", "Power", "Mine"];
+    text: "CHORD: " + (learning ? "play one" : names[mode]) + " ▾";
+    lit: mode != 0 || learning;
+    clicked => { menu.show(); }
+    menu := PopupWindow {
+        y: - self.height - 2px;
+        width: 220px;
+        height: 4 * 24px + 2 * 36px + 1px + 8px;
+        GrooveMenuBackground { }
+        VerticalLayout {
+            padding: 4px;
+            for name[i] in ["Off", "Triad", "Seventh", "Power: root, fifth, octave"]: GrooveMenuItem {
+                text: name;
+                checked: mode == i && !learning;
+                clicked => {
+                    Controls.set-value(learn-index, 0);
+                    Controls.set-value(mode-index, i);
+                }
+            }
+            GrooveMenuItem {
+                text: "Mine";
+                detail: "The chord you learned";
+                checked: mode == 4 && !learning;
+                clicked => {
+                    Controls.set-value(learn-index, 0);
+                    Controls.set-value(mode-index, 4);
+                }
+            }
+            Rectangle { height: 1px; background: Theme.border; }
+            GrooveMenuItem {
+                text: "Learn a chord";
+                detail: "Hold its keys, then let go";
+                checked: learning;
+                clicked => { Controls.set-value(learn-index, learning ? 0 : 1); }
+            }
+        }
+    }
+}
+
 // One channel to pick in MidiFrom's menu; 0 is Any.
 component MidiChannel inherits Rectangle {
     in property <int> channel;
@@ -4069,13 +4115,17 @@ component LivePanel inherits Rectangle {
         }
       }
       // The notes it plays, on 2-Deck (4-Deck strips leave it out), beside
-      // its scale and the octave the KEYBOARD pads play in.
+      // its scale, chord mode and the octave the KEYBOARD pads play in.
       if live == 3: HorizontalLayout {
         spacing: 8px;
         height: 26px;
         VerticalLayout {
             alignment: center;
             ScaleButton { width: 150px; height: 22px; }
+        }
+        VerticalLayout {
+            alignment: center;
+            ChordButton { width: 118px; height: 22px; }
         }
         HorizontalLayout {
             alignment: center;
