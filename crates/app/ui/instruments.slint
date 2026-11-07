@@ -61,6 +61,9 @@ export global InstrumentsUi {
     pure callback item(data: data-transfer) -> int;
     // Opens Settings on page `page`, tab `tab` (Plugins or Audio).
     callback open-settings(page: int, tab: int);
+    // The MIDI keyboard that played the instrument last, set by the app;
+    // empty before any has.
+    in property <string> playing-from;
 
     // Each input's device and channels as Settings › Audio shows them, in
     // the engine's input order (microphone, aux, instrument, aux 2, aux 3);
