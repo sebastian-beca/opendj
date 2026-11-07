@@ -5,7 +5,9 @@
 //! API: <https://performance-partners.apple.com/search-api>. Answers are
 //! `{"resultCount": n, "results": [...]}`, each song with `artistName`,
 //! `trackName`, `collectionName`, `trackTimeMillis`, `trackViewUrl` and
-//! `artworkUrl100`. Links carry no referral tags.
+//! `artworkUrl100`, and `trackPrice` with `currency` (the price is -1 or
+//! missing when the track is sold only with its album). Links carry no
+//! referral tags.
 
 use std::time::Duration;
 
@@ -143,9 +145,74 @@ pub fn parse(answer: &Value) -> Result<Vec<StoreItem>, PluginError> {
                     .map(str::to_string),
                 page_url: Some(strip_tracking(page)),
                 download: None,
+                price: price(r["trackPrice"].as_f64(), r["currency"].as_str()),
             })
         })
         .collect())
+}
+
+/// A price to show: "$1.29", "€0.99", "150 JPY"; empty when there's no
+/// price (the track is sold only with its album, or it's free to stream).
+pub fn price(amount: Option<f64>, currency: Option<&str>) -> String {
+    let Some(amount) = amount.filter(|a| *a > 0.0) else {
+        return String::new();
+    };
+    let currency = currency.unwrap_or("").trim().to_ascii_uppercase();
+    let symbol = match currency.as_str() {
+        "USD" => "$",
+        "EUR" => "€",
+        "GBP" => "£",
+        _ => "",
+    };
+    // Yen and won have no cents.
+    let number = if amount.fract() == 0.0 && matches!(currency.as_str(), "JPY" | "KRW") {
+        format!("{amount:.0}")
+    } else {
+        format!("{amount:.2}")
+    };
+    match (symbol, currency.as_str()) {
+        ("", "") => number,
+        ("", c) => format!("{number} {c}"),
+        (s, _) => format!("{s}{number}"),
+    }
+}
+
+/// The page as a link the Music app opens in its iTunes Store (macOS),
+/// where the track can be bought; the web page shows Apple Music and needs
+/// another click to get there. None for a link that isn't an iTunes Store
+/// album or track page.
+///
+/// `https://music.apple.com/us/album/kerala/1170458452?i=1170458454` →
+/// `itms://itunes.apple.com/us/album/id1170458452?i=1170458454`
+pub fn store_app_link(url: &str) -> Option<String> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let (host, rest) = rest.split_once('/')?;
+    if !matches!(host, "music.apple.com" | "itunes.apple.com") {
+        return None;
+    }
+    let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    let country = parts
+        .first()
+        .filter(|c| c.len() == 2 && c.chars().all(|c| c.is_ascii_alphabetic()))?;
+    if parts.get(1) != Some(&"album") {
+        return None;
+    }
+    let album = parts.last()?;
+    let album = album.strip_prefix("id").unwrap_or(album);
+    if album.is_empty() || !album.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let track = query
+        .split('&')
+        .find_map(|p| p.strip_prefix("i="))
+        .filter(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_digit()));
+    Some(match track {
+        Some(t) => format!("itms://itunes.apple.com/{country}/album/id{album}?i={t}"),
+        None => format!("itms://itunes.apple.com/{country}/album/id{album}"),
+    })
 }
 
 /// The page without the `uo` and `at`/`ct` tracking or referral fields
@@ -177,7 +244,7 @@ mod tests {
         json!({"resultCount": 3, "results": [
             {"wrapperType": "track", "kind": "song", "artistName": "Bonobo",
              "trackName": "Kerala", "collectionName": "Migration",
-             "trackTimeMillis": 245_000,
+             "trackTimeMillis": 245_000, "trackPrice": 1.29, "currency": "USD",
              "trackViewUrl": "https://music.apple.com/us/album/kerala/1170458452?i=1170458454&uo=4",
              "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/a/100x100bb.jpg"},
             {"wrapperType": "track", "kind": "music-video", "artistName": "Bonobo",
@@ -195,6 +262,7 @@ mod tests {
         assert_eq!((k.artist.as_str(), k.title.as_str()), ("Bonobo", "Kerala"));
         assert_eq!(k.release, "Migration");
         assert_eq!(k.duration, 245.0);
+        assert_eq!(k.price, "$1.29");
         assert_eq!(
             k.page_url.as_deref(),
             Some("https://music.apple.com/us/album/kerala/1170458452?i=1170458454")
@@ -204,6 +272,35 @@ mod tests {
     #[test]
     fn a_changed_answer_is_a_format_error() {
         assert!(matches!(parse(&json!({})), Err(PluginError::Format(_))));
+    }
+
+    #[test]
+    fn opens_in_the_itunes_store_app() {
+        assert_eq!(
+            store_app_link("https://music.apple.com/us/album/kerala/1170458452?i=1170458454")
+                .as_deref(),
+            Some("itms://itunes.apple.com/us/album/id1170458452?i=1170458454")
+        );
+        assert_eq!(
+            store_app_link("https://itunes.apple.com/gb/album/id42").as_deref(),
+            Some("itms://itunes.apple.com/gb/album/id42")
+        );
+        assert_eq!(
+            store_app_link("https://music.apple.com/us/artist/bonobo/1"),
+            None
+        );
+        assert_eq!(store_app_link("https://satorio.bandcamp.com/track/x"), None);
+    }
+
+    #[test]
+    fn prices_read_well() {
+        assert_eq!(price(Some(0.99), Some("EUR")), "€0.99");
+        assert_eq!(price(Some(1.29), Some("gbp")), "£1.29");
+        assert_eq!(price(Some(250.0), Some("JPY")), "250 JPY");
+        assert_eq!(price(Some(1.69), Some("CAD")), "1.69 CAD");
+        // Album only, or nothing said.
+        assert_eq!(price(Some(-1.0), Some("USD")), "");
+        assert_eq!(price(None, Some("USD")), "");
     }
 
     #[test]

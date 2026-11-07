@@ -423,8 +423,13 @@ pub(crate) struct Host {
     /// The deck 3 and 4 switches, for a mapping written for two decks; a
     /// mapping that names decks 3 or 4 itself has none.
     layers: Option<[ControlHandle; 2]>,
-    /// The switches as the watches last resolved them.
-    layers_seen: [bool; 2],
+    /// The switches and deck shift as the watches last resolved them.
+    layers_seen: RouteState,
+    /// The deck this device plays (see [`crate::routing`]): its choice,
+    /// shared with Settings, and the decks it can follow.
+    route: Option<(Arc<std::sync::atomic::AtomicU8>, crate::routing::DeckWatch)>,
+    /// How many decks along this device's decks are moved now.
+    pub(crate) shift: usize,
     /// While set, every control a script writes and the value, by the name
     /// it acts on (`[Channel1],pregain_set_default` stays as written; layers
     /// and `[Main]` are resolved). Writes soft takeover drops still count.
@@ -448,6 +453,9 @@ pub(crate) struct HidLink {
     pub(crate) io: std::rc::Rc<dyn crate::hid::Io>,
     pub(crate) out: crate::hid::Outputs,
 }
+
+/// The deck 3 and 4 switches and the deck shift (see [`Host::route_state`]).
+pub(crate) type RouteState = ([bool; 2], usize);
 
 pub(crate) fn deck_group(deck: usize) -> String {
     format!("[Channel{deck}]")
@@ -477,7 +485,9 @@ impl Host {
             scratch: (0..=MAX_DECKS).map(|_| Scratch::default()).collect(),
             scratch_tick: Instant::now(),
             layers: None,
-            layers_seen: [false; 2],
+            layers_seen: ([false; 2], 0),
+            route: None,
+            shift: 0,
             trace: None,
         }
     }
@@ -495,9 +505,45 @@ impl Host {
         }
     }
 
+    /// Lets the device's deck choice (Follow, a deck) move its decks.
+    pub(crate) fn set_route(&mut self, route: Arc<std::sync::atomic::AtomicU8>) {
+        let watch = crate::routing::DeckWatch::new(&self.registry);
+        self.route = Some((route, watch));
+        self.refresh_shift();
+    }
+
+    /// Works out again how far this device's decks move: the instrument it
+    /// follows may have moved to another deck.
+    pub(crate) fn refresh_shift(&mut self) {
+        self.shift = match &self.route {
+            Some((route, watch)) => {
+                let choice = crate::routing::DeckChoice::from_u8(
+                    route.load(std::sync::atomic::Ordering::Relaxed),
+                );
+                watch.shift(choice, false)
+            }
+            None => 0,
+        };
+    }
+
+    /// The deck 3 and 4 switches and the deck shift: what moves this
+    /// device's controls to other decks.
+    pub(crate) fn route_state(&self) -> RouteState {
+        (self.layer_state(), self.shift)
+    }
+
     /// `group` with deck 1 or 2 swapped for 3 or 4 when that side is
-    /// switched over: `[Channel1]`, its EQ and filter racks and its stems.
+    /// switched over (`[Channel1]`, its EQ and filter racks and its stems),
+    /// then moved along to the deck the device follows.
     fn layered<'a>(&self, group: &'a str) -> std::borrow::Cow<'a, str> {
+        let out = self.switched(group);
+        if let std::borrow::Cow::Owned(s) = crate::routing::shift_group(&out, self.shift) {
+            return std::borrow::Cow::Owned(s);
+        }
+        out
+    }
+
+    fn switched<'a>(&self, group: &'a str) -> std::borrow::Cow<'a, str> {
         let mut out = std::borrow::Cow::Borrowed(group);
         for (side, on) in self.layer_state().into_iter().enumerate() {
             if !on {
@@ -783,7 +829,7 @@ impl Host {
         let triggered = std::mem::take(&mut self.triggered);
         // A side switched decks: every connection now follows the other
         // deck, and fires so the LEDs show it.
-        let layers = self.layer_state();
+        let layers = self.route_state();
         let switched = layers != self.layers_seen;
         if switched {
             self.layers_seen = layers;

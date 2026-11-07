@@ -633,6 +633,8 @@ pub struct Browser {
     /// sort (kept here) comes back after.
     sorted_list: Option<i64>,
     view_sort: (i32, bool),
+    /// The Wanted list's sort column and direction; -1 is newest first.
+    wanted_sort: (i32, bool),
     /// What exporting a list to Spotify did last, for that list.
     export_status: Option<(i64, String)>,
     /// This run's history session, made when the first track is played.
@@ -1272,6 +1274,7 @@ impl Browser {
             other_tab_node: 0,
             sorted_list: None,
             view_sort: (1, true),
+            wanted_sort: (-1, true),
             export_status: None,
             session: None,
             last_play: None,
@@ -1392,6 +1395,16 @@ impl Browser {
         let w = with.clone();
         app.on_sort(move |c| {
             w(Box::new(move |b| {
+                if b.shows_wanted() {
+                    if wanted::sorts_by(c) {
+                        b.wanted_sort = match b.wanted_sort {
+                            (col, up) if col == c => (c, !up),
+                            _ => (c, true),
+                        };
+                        b.refresh_rows_keeping_current();
+                    }
+                    return;
+                }
                 if b.sort_column == c {
                     b.ascending = !b.ascending;
                 } else {
@@ -2170,7 +2183,7 @@ impl Browser {
         match r {
             StoreRow::Item(store, item) => {
                 if let Some(url) = &item.page_url {
-                    open_in_browser(url);
+                    buy::open_page(url);
                     if item.kind == ItemKind::Track {
                         if let Some(db) = &self.db {
                             let _ = db.add_wanted(&item.store, &item.artist, &item.title, url);
@@ -2295,26 +2308,28 @@ impl Browser {
                     .filter(|t| !is_browsed(t))
                     .map(|t| (spotify::normalize(&t.artist), spotify::normalize(&t.title)))
                     .collect();
-                rows.extend(
-                    self.store
-                        .wanted
-                        .iter()
-                        .filter(|w| {
-                            let (artist, title) =
-                                (spotify::normalize(&w.artist), spotify::normalize(&w.title));
-                            // Untagged files named "Artist - Title" count too.
-                            !have.contains(&(artist.clone(), title.clone()))
-                                && !have.contains(&(String::new(), artist + &title))
-                        })
-                        .filter(|w| {
-                            needle.is_empty()
-                                || [&w.artist, &w.title, &w.store]
-                                    .iter()
-                                    .any(|t| query::fold(t).contains(&needle))
-                        })
-                        .cloned()
-                        .map(StoreRow::Wanted),
-                );
+                let mut shown: Vec<_> = self
+                    .store
+                    .wanted
+                    .iter()
+                    .filter(|w| {
+                        let (artist, title) =
+                            (spotify::normalize(&w.artist), spotify::normalize(&w.title));
+                        // Untagged files named "Artist - Title" count too.
+                        !have.contains(&(artist.clone(), title.clone()))
+                            && !have.contains(&(String::new(), artist + &title))
+                    })
+                    .filter(|w| {
+                        needle.is_empty()
+                            || [&w.artist, &w.title, &w.store]
+                                .iter()
+                                .any(|t| query::fold(t).contains(&needle))
+                    })
+                    .cloned()
+                    .collect();
+                let (column, ascending) = self.wanted_sort;
+                wanted::sort(&mut shown, column, ascending);
+                rows.extend(shown.into_iter().map(StoreRow::Wanted));
                 if rows.is_empty() && !needle.is_empty() {
                     notice = "Nothing on the Wanted list matches.".into();
                 } else if rows.is_empty() {
@@ -2398,11 +2413,11 @@ impl Browser {
                     StoreRow::Item(i, it) => (
                         it.title.clone(),
                         it.artist.clone(),
-                        if it.release.is_empty() {
-                            names[*i].clone()
-                        } else {
-                            format!("{} · {}", names[*i], it.release)
-                        },
+                        [names[*i].as_str(), &it.release, &it.price]
+                            .into_iter()
+                            .filter(|s| !s.is_empty())
+                            .collect::<Vec<_>>()
+                            .join(" · "),
                         it.duration,
                         if it.download.is_some() {
                             "Get"
@@ -2422,10 +2437,7 @@ impl Browser {
                     StoreRow::Wanted(w) => (
                         w.title.clone(),
                         w.artist.clone(),
-                        match opendj_plugins::buy::store_traits(&w.pending_store) {
-                            Some(t) => format!("Buying on {}…", t.name),
-                            None => w.store.clone(),
-                        },
+                        wanted::detail(w),
                         w.duration,
                         "Buy",
                     ),
@@ -2466,7 +2478,12 @@ impl Browser {
             app.set_list_notice(notice.into());
             self.list.set_vec(list);
             app.set_tracks(ModelRc::from(self.list.clone()));
-            app.set_sort_column(-1);
+            if self.shows_wanted() {
+                app.set_sort_column(self.wanted_sort.0);
+                app.set_sort_ascending(self.wanted_sort.1);
+            } else {
+                app.set_sort_column(-1);
+            }
             if current >= self.rows.len() as i32 {
                 app.set_current_track(-1);
             }
@@ -5546,6 +5563,7 @@ impl Browser {
     /// selected at its new place (the list then scrolls to it).
     fn refresh_rows_keeping_current(&mut self) {
         let app = match self.app.upgrade() {
+            Some(app) if self.shows_wanted() => return self.resort_wanted(&app),
             Some(app) if !self.shows_store_rows() => app,
             _ => return self.refresh_rows(),
         };

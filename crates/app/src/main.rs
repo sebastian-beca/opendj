@@ -909,6 +909,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for key in settings::controllers_scaled() {
         opendj_controllers::pickup::set_scale(&key, true);
     }
+    opendj_controllers::routing::load_deck_choices(settings::controller_decks());
     let controllers = match opendj_controllers::default_mappings_dir() {
         Some(dir) => Some(Rc::new(opendj_controllers::Controllers::start(
             registry.clone(),
@@ -955,6 +956,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _levels = prefs::remember_levels(registry.clone());
     if let Some(note) = restored {
         engine.alert(note);
+    }
+    // Which MIDI keyboard plays the instrument: shown on the instrument
+    // deck, and said once when a keyboard plays it for the first time, so a
+    // device that shouldn't is easy to spot (Settings › Controllers turns it
+    // off or gives it a deck).
+    let players_timer = slint::Timer::default();
+    {
+        let (weak, engine) = (app.as_weak(), engine.clone());
+        players_timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(500),
+            move || {
+                for port in opendj_controllers::routing::take_new_players() {
+                    engine.alert(format!(
+                        "{} plays the instrument. Settings › Controllers changes that.",
+                        short_port_name(&port)
+                    ));
+                }
+                let Some(app) = weak.upgrade() else {
+                    return;
+                };
+                let name = opendj_controllers::routing::last_player()
+                    .map(|(p, _)| short_port_name(&p).to_string())
+                    .unwrap_or_default();
+                let ui = app.global::<InstrumentsUi>();
+                if ui.get_playing_from().as_str() != name {
+                    ui.set_playing_from(name.into());
+                }
+            },
+        );
     }
     // Automatic backups: at start, then checked every hour.
     backup::run_if_due();
@@ -1212,6 +1243,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Recordings finished so far, to add the next one's files to Mixed Sets.
     let recordings_seen = Cell::new(recorder.finished().0);
     let finished_recorder = recorder.clone();
+    let quitting_engine = engine.clone();
     {
         let app_weak = app.as_weak();
         timer.start(
@@ -1493,6 +1525,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.show()?;
     fit_to_screen(&app);
     app.run()?;
+    // Keeps each plugin's sound (tweaks made in its window) for next time:
+    // the engine isn't always dropped on the way out.
+    quitting_engine.shut_down_plugins();
     // Finishes the files, with the cue sheet, if the DJ quits mid-recording.
     recorder.stop();
     if let Some(b) = &broadcast {

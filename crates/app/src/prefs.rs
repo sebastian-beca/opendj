@@ -29,6 +29,7 @@ use crate::broadcast::{self, Broadcast};
 use crate::list_picker::{Picker, Ticked};
 use crate::osc;
 use opendj_control::ControlRegistry;
+use opendj_controllers::routing::{self, DeckChoice};
 use opendj_controllers::{is_system_port, own, Controllers, MappingChoice, Port};
 use opendj_engine::inputs::{DEFAULT_DUCK_STRENGTH, DUCK_AUTO};
 use opendj_engine::{
@@ -1964,20 +1965,23 @@ impl Prefs {
                 // An HID controller runs its HID mapping or nothing: MIDI
                 // mappings and Quick map don't apply to it.
                 if !port.hid {
+                    // No mapping: it plays instruments.
+                    choices.push("Play instruments".to_string());
                     choices.extend(mappings.iter().map(|(n, _)| n.clone()));
                     // Then the ones made with Quick map.
                     choices.extend(quick.iter().map(|m| m.name.clone()));
                 }
                 let chosen = match &choice {
                     MappingChoice::Auto | MappingChoice::Off => 0,
+                    MappingChoice::Instrument => 1,
                     MappingChoice::File(f) => mappings
                         .iter()
                         .position(|(_, m)| m == f)
-                        .map_or(0, |i| i + 1),
+                        .map_or(0, |i| i + 2),
                     MappingChoice::Own(p) => quick
                         .iter()
                         .position(|m| p.file_stem().is_some_and(|s| *s == *m.id))
-                        .map_or(0, |i| i + 1 + mappings.len()),
+                        .map_or(0, |i| i + 2 + mappings.len()),
                 };
                 let on = choice != MappingChoice::Off;
                 // Only what needs the DJ: a problem, or no mapping.
@@ -1985,8 +1989,34 @@ impl Prefs {
                     _ if !on => String::new(),
                     (Some(_), _) => String::new(),
                     _ if port.problem.is_some() => port.problem.clone().unwrap_or_default(),
+                    _ if port.keys => "Plays instruments".to_string(),
+                    (None, None) if routing::is_daw_port(&port.name) => {
+                        "DAW port: not used".to_string()
+                    }
                     (None, None) => "No mapping found".to_string(),
                     (None, Some(_)) => String::new(),
+                };
+                // Which deck it plays: Auto follows the instrument for
+                // devices that play instruments, as mapped for the rest.
+                let deck = routing::deck_choice(&port.name);
+                let deck_choices = vec![
+                    if port.keys {
+                        "Auto · Follow".to_string()
+                    } else {
+                        "Auto · Mapped".to_string()
+                    },
+                    "As mapped".to_string(),
+                    "Follow instrument".to_string(),
+                    "Deck 1".to_string(),
+                    "Deck 2".to_string(),
+                    "Deck 3".to_string(),
+                    "Deck 4".to_string(),
+                ];
+                let deck_chosen = match deck {
+                    DeckChoice::Auto => 0,
+                    DeckChoice::Mapped => 1,
+                    DeckChoice::Follow => 2,
+                    DeckChoice::Deck(d) => 2 + d as i32,
                 };
                 // The cog opens the Controller Editor on the mapping it
                 // uses, or without one, the mapping wizard.
@@ -2005,6 +2035,8 @@ impl Prefs {
                 PrefItem {
                     choices: strings(&choices),
                     chosen: chosen as i32,
+                    choices2: strings(&deck_choices),
+                    chosen2: deck_chosen,
                     on,
                     action: action.into(),
                     value: controller_outline(file.as_deref()).into(),
@@ -2846,16 +2878,33 @@ impl Prefs {
             self.refresh();
             return;
         }
+        // A controller's Deck menu.
+        if let Some(port) = id
+            .strip_prefix("controller:")
+            .and_then(|p| p.strip_suffix("#deck"))
+        {
+            let choice = match index {
+                1 => DeckChoice::Mapped,
+                2 => DeckChoice::Follow,
+                d @ 3..=6 => DeckChoice::Deck(d as u8 - 2),
+                _ => DeckChoice::Auto,
+            };
+            routing::set_deck_choice(port, choice);
+            settings::set_controller_decks(&routing::deck_choices());
+            self.refresh();
+            return;
+        }
         if let Some(port) = id.strip_prefix("controller:") {
             if let Some(c) = &self.controllers {
                 let choice = match index {
                     0 => MappingChoice::Auto,
+                    1 => MappingChoice::Instrument,
                     i => {
                         let mappings = c.mappings();
-                        match mappings.get(i - 1) {
+                        match mappings.get(i - 2) {
                             Some((_, file)) => MappingChoice::File(file.clone()),
                             None => match (
-                                quick_maps().get(i - 1 - mappings.len()),
+                                quick_maps().get(i - 2 - mappings.len()),
                                 settings::own_mappings_dir(),
                             ) {
                                 (Some(m), Some(d)) => MappingChoice::Own(own::path(&d, &m.id)),

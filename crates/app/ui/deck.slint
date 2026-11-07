@@ -3293,7 +3293,7 @@ component LivePanel inherits Rectangle {
         }
         Text {
             text: !ready ? (live == 3 ? "Pick an instrument plugin to hear it." : "No input picked for it yet.")
-                : live == 3 ? "Play it with a MIDI keyboard or the KEYBOARD pads."
+                : live == 3 ? (InstrumentsUi.playing-from != "" ? "Playing from " + InstrumentsUi.playing-from + "." : "Play it with a MIDI keyboard or the KEYBOARD pads.")
                 : "Live through this deck's EQ, filter, effects and fader.";
             color: ready ? Theme.text-dim : #ff9f0a;
             font-size: 13px;

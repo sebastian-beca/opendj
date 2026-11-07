@@ -692,6 +692,13 @@ export struct BuyRow {
     store: string,
     found: bool,
     others: int,
+    // What the chosen store asks for the track ("$1.29"); empty when it
+    // doesn't say.
+    price: string,
+    // Every store it can be bought on, best first ("Bandcamp · €1.00",
+    // "Try Beatport" for a search), and which one is chosen.
+    stores: [string],
+    chosen: int,
 }
 
 // Buy on Wanted rows: each track's best store, artist-direct first,
@@ -714,7 +721,8 @@ export global BuyUi {
     callback open-group(index: int);
     // A track's page on the store chosen for it.
     callback open-track(row: int);
-    callback switch-store(row: int);
+    // Buys a track on another of its stores (an index into its stores).
+    callback pick-store(row: int, store: int);
     callback set-inbox(on: bool);
     callback set-music-app(on: bool);
     callback close();
@@ -5190,20 +5198,48 @@ component BuyDialog inherits Rectangle {
                                 clicked => { BuyUi.open-track(i); }
                             }
                         }
-                        Rectangle {
+                        if r.price != "": Text {
+                            text: r.price;
+                            color: Theme.text-dim;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+                        // The store chosen; a click lists the others to pick from.
+                        chip := Rectangle {
                             width: store-text.preferred-width + 18px;
                             height: 22px;
                             y: 3px;
                             border-radius: 11px;
                             background: store-ta.has-hover && r.others > 0 ? Theme.panel-raised.brighter(0.3) : Theme.control;
                             store-text := Text {
-                                text: r.store == "" ? "…" : (r.found ? "" : "Try ") + r.store + (r.others > 0 ? "  ⇄" : "");
+                                text: r.store == "" ? "…" : (r.found ? "" : "Try ") + r.store + (r.others > 0 ? "  ▾" : "");
                                 color: r.found ? Theme.text : Theme.text-dim;
                                 font-size: 11px;
                             }
                             store-ta := TouchArea {
                                 mouse-cursor: r.others > 0 ? pointer : default;
-                                clicked => { BuyUi.switch-store(i); }
+                                clicked => {
+                                    if r.others > 0 {
+                                        store-menu.show();
+                                    }
+                                }
+                            }
+                            store-menu := PopupWindow {
+                                x: chip.width - 220px;
+                                y: chip.height + 2px;
+                                width: 220px;
+                                close-policy: close-on-click-outside;
+                                MenuBackground {}
+                                VerticalLayout {
+                                    padding: 6px;
+                                    for label[k] in r.stores: MenuLine {
+                                        text: (k == r.chosen ? "✓  " : "    ") + label;
+                                        clicked => {
+                                            store-menu.close();
+                                            BuyUi.pick-store(i, k);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

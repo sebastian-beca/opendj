@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use opendj_control::{ControlHandle, ControlRegistry};
 pub use opendj_plugin_host::{scan, scan_audio_units, Descriptor, Limits, Plugin, ScanError};
@@ -114,7 +114,7 @@ pub struct PluginHost {
     num_plugins: ControlHandle,
     events: Receiver<PluginEvent>,
     stop: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
+    thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl PluginHost {
@@ -141,7 +141,7 @@ impl PluginHost {
             num_plugins: reg.indicator("[Master]", "num_plugins", MAX_PLUGINS as f64),
             events,
             stop,
-            thread: Some(thread),
+            thread: Mutex::new(Some(thread)),
         }
     }
 
@@ -181,12 +181,20 @@ impl PluginHost {
     }
 }
 
-impl Drop for PluginHost {
-    fn drop(&mut self) {
+impl PluginHost {
+    /// Keeps every running plugin's sound and stops them all, waiting until
+    /// done. For quitting: the app may exit without dropping the engine.
+    pub fn shut_down(&self) {
         self.stop.store(true, Ordering::Relaxed);
-        if let Some(t) = self.thread.take() {
+        if let Some(t) = self.thread.lock().unwrap().take() {
             let _ = t.join();
         }
+    }
+}
+
+impl Drop for PluginHost {
+    fn drop(&mut self) {
+        self.shut_down();
     }
 }
 
@@ -272,6 +280,9 @@ struct Supervisor {
     policies: HashMap<u16, Policy>,
     disabled: HashSet<u16>,
     instrument: InstrumentState,
+    /// When open windows' sounds are next kept (see
+    /// [`Supervisor::keep_open_sounds`]).
+    next_keep: Instant,
 }
 
 /// The Instrument input's plugin.
@@ -291,6 +302,9 @@ struct InstrumentState {
     disabled: HashSet<u16>,
 }
 
+/// How often an open window's plugin has its sound kept.
+const KEEP_EVERY: Duration = Duration::from_secs(20);
+
 /// The file plugin `key`'s last sound is kept in: the key's hash, since
 /// keys hold paths.
 fn sound_file(folder: &Path, key: &str) -> PathBuf {
@@ -304,7 +318,12 @@ fn sound_file(folder: &Path, key: &str) -> PathBuf {
 /// The sound plugin `key` last had, if one was kept.
 fn kept_sound(list: &Mutex<List>, key: &str) -> Option<Vec<u8>> {
     let folder = list.lock().unwrap().sounds.clone()?;
-    std::fs::read(sound_file(&folder, key)).ok()
+    let data = std::fs::read(sound_file(&folder, key)).ok()?;
+    eprintln!(
+        "plugin {key}: starting from its kept sound ({} bytes)",
+        data.len()
+    );
+    Some(data)
 }
 
 /// Keeps a running plugin's sound for next time. A helper that crashed or
@@ -313,17 +332,27 @@ fn keep_sound(list: &Mutex<List>, key: &str, helper: &Helper) {
     let Some(folder) = list.lock().unwrap().sounds.clone() else {
         return;
     };
-    if key.is_empty() || helper.is_gone() || helper.missed_in_row() > 0 {
+    if key.is_empty() {
         return;
     }
-    let Ok(data) = helper.save_state() else {
+    if helper.is_gone() || helper.missed_in_row() > 0 {
+        eprintln!("plugin {key}: crashed or stuck, so its last kept sound stays");
         return;
+    }
+    let data = match helper.save_state() {
+        Ok(data) => data,
+        Err(e) => {
+            eprintln!("plugin {key}: its sound wasn't kept: {e}");
+            return;
+        }
     };
     let file = sound_file(&folder, key);
     let tmp = file.with_extension("tmp");
     let _ = std::fs::create_dir_all(&folder);
-    if std::fs::write(&tmp, data).is_ok() {
-        let _ = std::fs::rename(&tmp, &file);
+    let kept = std::fs::write(&tmp, &data).and_then(|()| std::fs::rename(&tmp, &file));
+    match kept {
+        Ok(()) => eprintln!("plugin {key}: sound kept ({} bytes)", data.len()),
+        Err(e) => eprintln!("plugin {key}: its sound wasn't kept: {e}"),
     }
 }
 
@@ -388,6 +417,23 @@ impl Supervisor {
                 policies: HashMap::new(),
                 disabled: HashSet::new(),
             },
+            next_keep: Instant::now() + KEEP_EVERY,
+        }
+    }
+
+    /// While a plugin's window is open its sound is kept now and then, not
+    /// only when the window closes, so a crash or a forced quit loses little.
+    fn keep_open_sounds(&mut self) {
+        if Instant::now() < self.next_keep {
+            return;
+        }
+        self.next_keep = Instant::now() + KEEP_EVERY;
+        for r in self.running.iter().flatten().filter(|r| r.editor) {
+            keep_sound(&self.list, &r.key, &r.helper);
+        }
+        let ins = &self.instrument;
+        if let (true, Some((_, helper))) = (ins.editor, &ins.running) {
+            keep_sound(&self.list, &ins.running_key, helper);
         }
     }
 
@@ -399,6 +445,7 @@ impl Supervisor {
         self.follow_slots();
         self.follow_instrument();
         self.follow_editors();
+        self.keep_open_sounds();
     }
 
     /// Opens and closes plugin windows as the `show_editor` controls ask.

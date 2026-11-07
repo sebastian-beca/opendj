@@ -68,6 +68,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-slicer-and-freeze](changes/add-slicer-and-freeze/proposal.md) (moved from v0.5 at the 0.5.0 release; SLICER and FREEZE pad pages built, issue #386)
 - [add-settings-table](changes/add-settings-table/proposal.md) (first step of add-settings-layers: one option table, Show modified, reset on each row, search words, help in ⓘ; issue #364, split 2026-11-05)
 - [add-settings-deck-choices](changes/add-settings-deck-choices/proposal.md) (second step: Decks sections, Hot cue on a playing deck, Track end warning and Back up the collection rows; issue #365, split 2026-11-05)
+- [improve-filter-bar](changes/improve-filter-bar/proposal.md) (filter chips that narrow each other, values ordered by tracks, reorder and remove chips, per-chip Key and BPM options, Core and More fields, a finder in the search bar; issue #468, 2026-11-07)
 - [add-deck-outputs](changes/add-deck-outputs/proposal.md) (each deck on its own outputs for a DAW such as Ableton, and an external mixer mode; no cost when unused; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
 - [add-midi-clock](changes/add-midi-clock/proposal.md) (MIDI clock out to drum machines and other gear, clock in, decks can follow Link; Seba 2026-11-02; moved from v0.5 at the 0.5.0 release, not started)
 - [improve-list-model](changes/improve-list-model/proposal.md) (imports read-only with Make These Lists Mine, crates as their own kind in folders, drag to move lists; from a review of folders, playlists and crates, 2026-11-05)
@@ -77,6 +78,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-phrase-aware-automix](changes/add-phrase-aware-automix/proposal.md) (Automix mixes intro over outro on phrase changes, imported automix points win, bass swap on a phrase, deck phrase countdown, start on the leader's next phrase; moved from v1.x 2026-11-06 after the gap review; issue #425)
 - [add-groove-pads](changes/add-groove-pads/proposal.md) (the Groove Box on pad controllers: one pad surface for steps, live play with recording, grooves and kits; Maschine Mikro MK3 first, then Launchpad and Akai; issue #420, 2026-11-06)
 - [improve-groove-box-play](changes/improve-groove-box-play/proposal.md) (Groove Box own tempo, kick in key, eight tracks, musical randomize, living grooves, Auto fills and Remix, 4x4 view; a user request 2026-11-07)
+- [add-midi-device-routing](changes/add-midi-device-routing/proposal.md) (DJ controllers never play instruments, Play instruments per device, a Deck menu with Follow instrument; from a user report, issue #470, 2026-11-07)
 - [rework-instruments](changes/rework-instruments/proposal.md) (Instruments as a browser like Collection with presets, an instrument deck with knobs, trim, pan, safety limiter, scale, chord and arp, and artwork; clips assessed and left out; 2026-11-07)
 
 ## v0.7 · Your library, everywhere
