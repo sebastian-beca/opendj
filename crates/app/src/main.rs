@@ -71,6 +71,7 @@ mod now_playing;
 mod osc;
 mod osc_events;
 mod prefs;
+mod presets;
 mod quality;
 mod quick_search;
 mod remote;
@@ -650,13 +651,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // saved again as it changes.
     groove_box::install(&app);
     instruments::install(&app);
+    presets::install(&app, engine.clone(), registry.clone());
     let groove_keeper = RefCell::new(groove_box::Keeper::new(&registry));
     let groove_timer = slint::Timer::default();
-    groove_timer.start(
-        slint::TimerMode::Repeated,
-        Duration::from_millis(500),
-        move || groove_keeper.borrow_mut().tick(),
-    );
+    {
+        let app = app.as_weak();
+        groove_timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(500),
+            move || {
+                groove_keeper.borrow_mut().tick();
+                // Each deck's preset name, as decks change what they play.
+                if let Some(app) = app.upgrade() {
+                    presets::show(&app);
+                }
+            },
+        );
+    }
     // The beat counter in the deck headers: off, beats, or beats and
     // phrases, picked in Settings › Decks.
     {
