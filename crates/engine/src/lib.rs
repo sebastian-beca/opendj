@@ -32,6 +32,7 @@ pub mod keynet;
 mod keyshift;
 pub mod kits;
 pub mod link;
+pub mod live_wave;
 pub mod loader;
 pub mod loudness;
 pub mod lyrics;
@@ -133,6 +134,8 @@ pub struct AudioEngine {
     notes: Arc<Mutex<NoteInput>>,
     /// What the Instrument input plays: notes held and a scope.
     instrument_view: Arc<InstrumentView>,
+    /// Each deck's live sound as waveform slices, until the app takes them.
+    live_waves: Mutex<Option<[rtrb::Consumer<live_wave::LiveSlice>; NUM_DECKS]>>,
     /// The master for broadcasting, until the broadcaster takes it.
     broadcast_feed: Mutex<Option<recorder::Feed>>,
     /// Picks the outputs MIDI clock goes to.
@@ -199,6 +202,7 @@ impl AudioEngine {
         let plugin_link = engine.take_plugin_link().expect("plugin link");
         let notes = Arc::new(Mutex::new(engine.take_note_input().expect("note input")));
         let instrument_view = engine.instrument_view();
+        let live_waves = engine.take_live_waves().expect("live waves");
         let plugins = plugin_helper().map(|helper| {
             plugins::PluginHost::start(
                 &registry,
@@ -242,6 +246,7 @@ impl AudioEngine {
             plugins,
             notes,
             instrument_view,
+            live_waves: Mutex::new(Some(live_waves)),
             broadcast_feed: Mutex::new(broadcast_feed),
             midi_clock,
         }
@@ -322,6 +327,13 @@ impl AudioEngine {
     /// sound, for the deck playing it to show.
     pub fn instrument_view(&self) -> Arc<InstrumentView> {
         self.instrument_view.clone()
+    }
+
+    /// Each deck's sound while it plays a live source (an input, an
+    /// instrument or the Groove Box), a slice every millisecond, for its
+    /// scrolling waveform. There is one set; later calls get `None`.
+    pub fn take_live_waves(&self) -> Option<[rtrb::Consumer<live_wave::LiveSlice>; NUM_DECKS]> {
+        self.live_waves.lock().ok()?.take()
     }
 
     /// Whether audio plugins can run: the helper is installed.

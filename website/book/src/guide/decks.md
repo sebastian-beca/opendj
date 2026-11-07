@@ -73,6 +73,12 @@ first. An input plays on one deck at a time: dropping it on another deck
 moves it there, and while a deck has it, its own channel in the MIC panel
 stays quiet. The Instruments page shows which deck each one is on.
 
+The deck's scrolling waveform draws what it plays as it plays: the sound
+comes in at the play line and scrolls away to the left, with nothing ahead
+of it. The beat lines and bar numbers are those of the track leading the mix
+(the sync leader, or else the first deck playing a track), so you can see
+your part land on its beats.
+
 To go back to a track deck, load a track onto it, or press EJECT while it is
 stopped. openDJ remembers what each deck plays for next time.
 

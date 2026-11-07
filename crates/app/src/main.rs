@@ -21,7 +21,7 @@ use opendj_engine::synth::SAMPLE_LIBRARY_SIZE;
 use opendj_engine::{
     deck_group, deck_outputs_split, default_output_device, effect_group, output_devices,
     sample_library, AudioEngine, AudioSetup, Role, Route, Source, Track, VisualPositions, Waveform,
-    AVAILABLE_EFFECTS, COLOR_FX, EFFECTS_PER_UNIT, NUM_DECKS,
+    AVAILABLE_EFFECTS, COLOR_FX, EFFECTS_PER_UNIT, NUM_DECKS, WAVEFORM_RATE,
 };
 use opendj_library::Library;
 use opendj_plugins::source::{QueryKind, SourceQuery};
@@ -57,6 +57,7 @@ mod inbox;
 mod instrument_midi;
 mod instruments;
 mod list_picker;
+mod live_trace;
 mod lookup;
 mod lrclib;
 #[cfg(target_os = "macos")]
@@ -1150,6 +1151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let app_weak = app.as_weak();
         let decks = decks.clone();
         let loaded = loaded.clone();
+        let mut live = engine.take_live_waves().map(live_trace::LiveTraces::new);
         let style = match std::env::var("OPENDJ_WAVEFORM").as_deref() {
             Ok("bands") => Style::Bands,
             _ => Style::Rgb,
@@ -1175,6 +1177,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         tracks: Default::default(),
                         phrases: Default::default(),
                         clocks: Default::default(),
+                        live: live.take(),
+                        live_tracks: Default::default(),
                         moving: false,
                         images_set: false,
                     });
@@ -1971,6 +1975,12 @@ fn fmt_seconds(seconds: f64, round_up: bool) -> String {
 /// Handles to the controls the deck displays and waveforms read every frame.
 struct DeckHandles {
     play: ControlHandle,
+    /// The input played instead of a track (0 for none), and whether the
+    /// deck is a Groove Box: either way it plays live.
+    live_input: ControlHandle,
+    groove: ControlHandle,
+    /// Non-zero on the sync leader.
+    sync_leader: ControlHandle,
     playposition: ControlHandle,
     rate: ControlHandle,
     rate_range: ControlHandle,
@@ -2021,6 +2031,11 @@ impl Decks {
             };
             DeckHandles {
                 play: c("play"),
+                live_input: c("live_input"),
+                groove: reg
+                    .get(&format!("[Groove{}]", d + 1), "enabled")
+                    .expect("groove box control"),
+                sync_leader: c("sync_leader"),
                 playposition: c("playposition"),
                 rate: c("rate"),
                 rate_range: c("rateRange"),
@@ -2351,12 +2366,74 @@ struct Gpu {
     phrases: [Option<(Arc<Track>, Phrases)>; NUM_DECKS],
     /// Each deck's drawn position, steadier than the engine's as read.
     clocks: [SmoothClock; NUM_DECKS],
+    /// The sound of decks playing live, and each one's waveform on the GPU.
+    live: Option<live_trace::LiveTraces>,
+    live_tracks: [Option<Arc<GpuTrack>>; NUM_DECKS],
     /// Whether a deck was moving in the last frame drawn.
     moving: bool,
     images_set: bool,
 }
 
 impl Gpu {
+    /// Draws live deck `d`'s sound up to its play line on its scrolling
+    /// waveform, on the beats of `leader` (a deck and its drawn position).
+    fn draw_live(
+        &mut self,
+        d: usize,
+        w: live_trace::Window,
+        leader: Option<(usize, f64)>,
+        tracks: &[Option<Arc<Track>>; NUM_DECKS],
+        decks: &Decks,
+        scale: f32,
+    ) {
+        let gpu = match &self.live_tracks[d] {
+            Some(g) if g.rewrite(&self.queue, &w.levels) => g.clone(),
+            _ => {
+                let g = Arc::new(GpuTrack::new(
+                    &self.device,
+                    &self.queue,
+                    &self.renderer,
+                    usize::MAX - d,
+                    &w.levels,
+                    WAVEFORM_RATE,
+                ));
+                self.live_tracks[d] = Some(g.clone());
+                g
+            }
+        };
+        let lead = leader.and_then(|(l, seconds)| Some((tracks[l].as_ref()?, l, seconds)));
+        let grid = lead.map_or([None; GRID_SECTIONS], |(t, l, seconds)| {
+            let h = &decks.0[l];
+            let speed = speed(&h.rate, &h.rate_range, &h.rate_dir);
+            live_trace::track_grid(t, seconds, speed, w.play_seconds)
+        });
+        let frame = Frame {
+            play_seconds: w.play_seconds,
+            visible_seconds: VISIBLE_SECONDS,
+            duration: w.play_seconds,
+            first_bar_beat: lead.map_or(0.0, |(t, _, _)| first_bar_beat(t)),
+            grid,
+            cue: None,
+            loop_range: None,
+            loop_marking: None,
+            hotcues: [None; 8],
+            slip: None,
+            gain: 1.0,
+            phrases: Vec::new(),
+        };
+        self.scrolling[d].set_track(&self.device, &self.renderer, Some(&gpu));
+        self.scrolling[d].render(
+            &self.device,
+            &self.queue,
+            &self.renderer,
+            Some(&frame),
+            scale,
+        );
+        self.overview[d].set_track(&self.device, &self.renderer, None);
+        self.overview[d].render(&self.device, &self.queue, &self.renderer, None, scale);
+        self.moving = true;
+    }
+
     fn render(
         &mut self,
         app: &AppWindow,
@@ -2383,6 +2460,29 @@ impl Gpu {
         } else {
             Palette::default().background
         };
+        // Every deck's drawn position first: a live deck draws the leading
+        // deck's beats.
+        let clocks: [(f64, f64); NUM_DECKS] = std::array::from_fn(|d| {
+            let (position, speed) = visual.position(d, now);
+            (self.clocks[d].next(position, speed, now), speed)
+        });
+        // Decks playing an input, an instrument or the Groove Box.
+        let live: [bool; NUM_DECKS] = std::array::from_fn(|d| {
+            let h = &decks.0[d];
+            tracks[d].is_none() && (h.live_input.get() > 0.0 || h.groove.get_bool())
+        });
+        if let Some(traces) = self.live.as_mut() {
+            traces.poll(live);
+        }
+        // The leading deck: the sync leader if it plays, else the first
+        // playing deck with a tempo.
+        let playing = (0..NUM_DECKS).filter(|&d| {
+            decks.0[d].play.get_bool() && tracks[d].as_ref().is_some_and(|t| t.bpm > 0.0)
+        });
+        let leader = playing
+            .clone()
+            .find(|&d| decks.0[d].sync_leader.get() > 0.0)
+            .or_else(|| playing.clone().next());
         for (d, track) in tracks.iter().enumerate() {
             changed |= self.scrolling[d].resize(&self.device, ww, wh);
             changed |= self.overview[d].resize(&self.device, ow, oh);
@@ -2408,8 +2508,7 @@ impl Gpu {
             };
             self.tracks[d] = gpu_track.clone();
             let gpu_track = gpu_track.map(|(g, _)| g);
-            let (position, speed) = visual.position(d, now);
-            let play_seconds = self.clocks[d].next(position, speed, now);
+            let (play_seconds, speed) = clocks[d];
             self.moving |= track.is_some() && speed != 0.0;
             // A slip's silent playhead runs on even while the deck is paused.
             self.moving |= track.is_some() && decks.0[d].slip_position.get() >= 0.0;
@@ -2439,6 +2538,14 @@ impl Gpu {
             }
             // Decks 3 and 4 show only in 4-Deck.
             if d >= 2 && !four {
+                continue;
+            }
+            let window = live[d]
+                .then(|| self.live.as_mut().and_then(|t| t.window(d, now)))
+                .flatten();
+            self.scrolling[d].set_live(window.is_some());
+            if let Some(w) = window {
+                self.draw_live(d, w, leader.map(|l| (l, clocks[l].0)), tracks, decks, scale);
                 continue;
             }
             // Phrases show only on the deck's overview.

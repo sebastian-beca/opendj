@@ -41,7 +41,7 @@ struct Params {
     slip_bin: f32,                     // the silent playhead while slipping, in slices (< 0 = none)
     mix_start_bin: f32,                // the next mix, in slices (Mono style; none unless end > start)
     mix_end_bin: f32,
-    pad0: u32,
+    live: u32,                         // 1: a live deck; the grid runs on past the last slice
     pad1: u32,
     pad2: u32,
 };
@@ -259,7 +259,7 @@ fn bar_number(x: f32, y: f32, k: f32, sec: u32) -> f32 {
     let at = start + m * beat_len;
     // The first section's bars run back to the start of the track; later
     // ones begin at their section.
-    if (at < 0.0 || at >= f32(p.num_bins) || (sec > 0u && at < start - 0.001 * beat_len)) {
+    if (at < 0.0 || (at >= f32(p.num_bins) && p.live == 0u) || (sec > 0u && at < start - 0.001 * beat_len)) {
         return 0.0;
     }
     let bar = i32(p.grid_bar[sec]) + (i32(m) + index) / 4;
@@ -319,6 +319,9 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     }
 
     let has_track = p.num_bins > 0u && bin >= 0.0 && bin < f32(p.num_bins);
+    // Where the beat grid shows: over the track, and on a live deck on past
+    // the play line too.
+    let in_grid = has_track || (p.live == 1u && p.num_bins > 0u && bin >= 0.0);
     // The tempo section this pixel is in: the last one starting before it.
     var sec = 0u;
     for (var i = 1u; i < p.grid_count; i = i + 1u) {
@@ -330,7 +333,7 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     // Beat grid behind the waveform: faint beats, amber bars.
     var beat_a = 0.0;
     var bar_a = 0.0;
-    if (beats_visible && has_track) {
+    if (beats_visible && in_grid) {
         let n = round((bin - p.grid_start[sec]) / beat_len);
         let bx = bin_x(p.grid_start[sec] + n * beat_len);
         let in_bar = ((i32(n) + i32(p.grid_index[sec])) % 4 + 4) % 4;
@@ -393,7 +396,7 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     }
 
     // Beat ticks along the top and bottom edges, over the waveform.
-    if (beats_visible && has_track) {
+    if (beats_visible && in_grid) {
         let edge = half_h - d;                // pixels from the nearer edge
         let tick = clamp(6.0 * k - edge + 0.5, 0.0, 1.0);
         color = over(color, vec3<f32>(0.85), beat_a * tick * 0.8);

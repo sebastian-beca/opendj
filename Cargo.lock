@@ -6624,6 +6624,7 @@ dependencies = [
  "read-fonts",
  "rfd",
  "ring",
+ "rtrb",
  "rusty-chromaprint",
  "serde_json",
  "sha2 0.11.1",
