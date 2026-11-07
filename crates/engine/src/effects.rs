@@ -1032,9 +1032,9 @@ pub(crate) struct EffectRack {
     notes: rtrb::Consumer<Midi>,
     notes_waiting: Vec<Midi>,
     note_input: Option<NoteInput>,
-    /// The scale notes move to on their way to the instrument (see
-    /// [`crate::scale`]), and the scale now.
-    scale: Box<crate::scale::ScaleMapper>,
+    /// The scale notes move to, and the chords they play, on their way to
+    /// the instrument (see [`crate::scale`]), and the scale now.
+    scale: Box<crate::scale::NoteMapper>,
     scale_mask: u16,
     /// What the instrument plays, for its deck to show.
     view: Arc<InstrumentView>,
@@ -1368,17 +1368,28 @@ impl EffectRack {
     /// Queues a note for the instrument from the audio thread itself (the
     /// Instrument input's pads).
     pub(crate) fn queue_note(&mut self, data: [u8; 3]) {
-        if self.notes_waiting.len() < self.notes_waiting.capacity() {
-            if let Some(m) = self.scale.map(Midi { frame: 0, data }, self.scale_mask) {
-                self.notes_waiting.push(m);
-            }
-        }
+        self.scale.map(
+            Midi { frame: 0, data },
+            self.scale_mask,
+            &mut self.notes_waiting,
+        );
     }
 
     /// The scale notes for the instrument move to from now on: a bit per
     /// pitch class from C, 0 for none (see [`crate::scale`]).
     pub(crate) fn set_scale(&mut self, mask: u16) {
         self.scale_mask = mask;
+    }
+
+    /// The chord each note plays from now on (see [`crate::scale::chord`]),
+    /// and whether the next chord held is learned as `shape`.
+    pub(crate) fn set_chord(&mut self, mode: u8, shape: u32, learn: bool) {
+        self.scale.set_chord(mode, shape, learn);
+    }
+
+    /// The chord just learned, once.
+    pub(crate) fn take_learned_chord(&mut self) -> Option<u32> {
+        self.scale.take_learned()
     }
 
     pub(crate) fn has_instrument(&self) -> bool {
@@ -1398,9 +1409,7 @@ impl EffectRack {
         let cap = self.notes_waiting.capacity();
         while let Ok(n) = self.notes.pop() {
             if self.notes_waiting.len() < cap {
-                if let Some(n) = self.scale.map(n, self.scale_mask) {
-                    self.notes_waiting.push(n);
-                }
+                self.scale.map(n, self.scale_mask, &mut self.notes_waiting);
             }
         }
         let Some(a) = self.instrument.as_deref_mut() else {
