@@ -3732,6 +3732,15 @@ component LivePanel inherits Rectangle {
             horizontal-alignment: center;
             wrap: word-wrap;
         }
+        // TRIM brings quiet gear up before the channel, watched on the
+        // meter below; PAN places it. A safety limiter keeps it from
+        // clipping whatever the trim.
+        if ready: HorizontalLayout {
+            alignment: center;
+            spacing: 18px;
+            ControlKnob { group: group; key: "live_trim"; label: "TRIM"; tint: tint; size: 34px; }
+            ControlKnob { group: group; key: "live_pan"; label: "PAN"; tint: tint; size: 34px; bipolar: true; }
+        }
         // The deck's level.
         HorizontalLayout {
             alignment: center;
