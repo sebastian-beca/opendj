@@ -1,8 +1,9 @@
 // The mini player: a small window, on top of the others by default, for
 // when openDJ plays in the background. One window in two shapes, as in
-// other music players: drag it wide for a strip (art, title, artist, the
-// transport and a progress line), or tall for a square of album art with
-// the title and transport over it while the pointer is on it.
+// other music players: a square of album art by default, with nothing
+// over it until the pointer comes in, when the art dims and the title,
+// progress and transport show over it; or drag it low and wide for a strip
+// (art, title, artist, the transport and a progress line).
 //
 // It is its own window, so it shares no globals with the main one:
 // mini_player.rs copies what is playing into its properties and runs its
@@ -101,8 +102,8 @@ export component MiniPlayer inherits Window {
     background: #161819;
     min-width: 240px;
     min-height: 76px;
-    preferred-width: 380px;
-    preferred-height: 76px;
+    preferred-width: 300px;
+    preferred-height: 300px;
     // Tall enough for the art to lead: the square shape.
     property <bool> square: root.height >= 160px;
     property <string> prev-icon: "M 2 3 L 4 3 L 4 15 L 2 15 Z M 15 3 L 6 9 L 15 15 Z";
@@ -110,6 +111,8 @@ export component MiniPlayer inherits Window {
     // A pin, and four arrows out of a box (back to the full window).
     property <string> pin-icon: "M 6 2 L 12 2 L 11 8 L 14 11 L 4 11 L 7 8 Z M 9 11 L 9 16";
     property <string> expand-icon: "M 3 7 L 3 3 L 7 3 M 11 3 L 15 3 L 15 7 M 15 11 L 15 15 L 11 15 M 7 15 L 3 15 L 3 11";
+    property <string> close-icon: "M 4 4 L 14 14 M 14 4 L 4 14";
+    property <bool> show-controls: hover.has-hover;
 
     hover := TouchArea { }
 
@@ -180,20 +183,22 @@ export component MiniPlayer inherits Window {
         }
     }
 
-    // Square: a shade and the title, transport and buttons over the art
-    // while the pointer is on the window.
-    if square && hover.has-hover: Rectangle {
-        background: @linear-gradient(180deg, #00000000 30%, #000000d8 100%);
-        Rectangle { y: 0; height: 40px; background: @linear-gradient(180deg, #00000080 0%, #00000000 100%); }
+    // Square: only the art until the pointer comes in; then the art dims
+    // and, as in other players' mini players, ✕ (back to the main window)
+    // and the pin show at the top, and the title, artist, progress and
+    // transport at the bottom.
+    if square && show-controls: Rectangle {
+        background: #0000008c;
         HorizontalLayout {
             y: 8px;
-            height: 26px;
+            height: 28px;
             padding-left: 8px;
             padding-right: 8px;
             alignment: space-between;
+            MiniButton { width: 28px; height: 28px; icon: close-icon; filled: false; glyph: 13px; clicked => { expand(); } }
             MiniButton {
-                width: 26px;
-                height: 26px;
+                width: 28px;
+                height: 28px;
                 icon: pin-icon;
                 filled: pinned;
                 glyph: 13px;
@@ -202,32 +207,49 @@ export component MiniPlayer inherits Window {
                     pin-changed(pinned);
                 }
             }
-            MiniButton { width: 26px; height: 26px; icon: expand-icon; filled: false; glyph: 13px; clicked => { expand(); } }
         }
         VerticalLayout {
-            y: root.height - self.height - 10px;
+            y: root.height - self.height - 12px;
             height: self.preferred-height;
-            padding-left: 14px;
-            padding-right: 14px;
+            padding-left: 16px;
+            padding-right: 16px;
             spacing: 2px;
-            Text { text: root.track-title; color: #ffffff; font-size: 15px; font-weight: 700; overflow: elide; }
-            Text { text: root.artist; color: #d7d5e0; font-size: 13px; overflow: elide; }
-            if next-in != "": Text { text: next-in; color: Theme.accent; font-size: 10px; font-weight: 600; }
+            Text { text: root.track-title; color: #ffffff; font-size: max(16px, root.width / 15); font-weight: 700; overflow: elide; }
+            Text { text: root.artist; color: #e2e0ea; font-size: max(13px, root.width / 21); overflow: elide; }
+            if next-in != "": Text { text: next-in; color: Theme.accent; font-size: 11px; font-weight: 600; }
+            // The progress line: white, lilac under the pointer; a click
+            // jumps there.
+            Rectangle {
+                height: 18px;
+                Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    height: 4px;
+                    border-radius: 2px;
+                    background: #ffffff40;
+                    clip: true;
+                    if mix-to > mix-from: Rectangle { x: parent.width * mix-from; width: parent.width * (mix-to - mix-from); background: #8a78c8; }
+                    Rectangle { x: 0; width: parent.width * clamp(progress, 0, 1); background: line-ta.has-hover ? Theme.accent : #ffffff; }
+                }
+                line-ta := TouchArea {
+                    enabled: loaded;
+                    mouse-cursor: pointer;
+                    clicked => { seek(clamp(self.mouse-x / self.width, 0, 1)); }
+                }
+            }
             HorizontalLayout {
-                padding-top: 8px;
                 alignment: center;
-                spacing: 18px;
+                spacing: 22px;
                 VerticalLayout { alignment: center; MiniButton { icon: prev-icon; enabled: loaded; clicked => { previous(); } } }
-                MiniPlay { size: 40px; playing: playing; clicked => { play-pause(); } }
+                MiniPlay { size: 44px; playing: playing; clicked => { play-pause(); } }
                 VerticalLayout { alignment: center; MiniButton { icon: next-icon; enabled: can-next; clicked => { next(); } } }
             }
         }
     }
 
-    // Progress along the bottom: played lilac, the next mix dim lilac;
-    // a click jumps there.
-    Rectangle {
-        x: square ? 0px : art.width;
+    // The strip's progress along the bottom: played lilac, the next mix dim
+    // lilac; a click jumps there.
+    if !square: Rectangle {
+        x: art.width;
         y: root.height - 3px;
         width: root.width - self.x;
         height: 3px;
@@ -235,8 +257,8 @@ export component MiniPlayer inherits Window {
         if mix-to > mix-from: Rectangle { x: parent.width * mix-from; width: parent.width * (mix-to - mix-from); background: #5b4c8a; }
         Rectangle { x: 0; width: parent.width * clamp(progress, 0, 1); background: Theme.accent; }
     }
-    Rectangle {
-        x: square ? 0px : art.width;
+    if !square: Rectangle {
+        x: art.width;
         y: root.height - 10px;
         width: root.width - self.x;
         height: 10px;

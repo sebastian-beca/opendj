@@ -24,10 +24,12 @@
 - [x] 3.4 Top bar in Player: wider search; no MASTER; REC only while recording (File › Record Mix); MIC only while on or with Show MIC in the layout menu; the footer only while analysis runs
 - [x] 3.5 Update the user guide
 - [x] 3.6 ＋ on the bar adds the playing track to a crate or playlist
+- [x] 3.7 The scrubber gives way to a thin progress line under Previous, Play/Pause and Next, as in music players: played in white, lilac under the pointer with a knob and the time there, the next mix dim lilac; the time played and the track's length either side; the bar 104 px; Automix's next step under the artist
+- [x] 3.8 The file's quality at the bottom right: "FLAC 16-BIT 44.1 KHZ" in lilac for lossless, "MP3 320 KBPS" in grey otherwise
 
 ## 4. Mini player
 
-- [x] 4.1 A small always-on-top window, one window in two shapes (a 380 × 76 strip and a square of art, controls on hover): art, title, artist, Previous, Play/Pause, Next, progress with the mix zone
+- [x] 4.1 A small always-on-top window, one window in two shapes (a 300 × 300 square of art by default, which dims and shows the controls only under the pointer, or a strip when dragged low and wide): art, title, artist, Previous, Play/Pause, Next, progress with the mix zone
 - [x] 4.2 Opens from the bar, ⌘⇧M and the app menu; the main window hides while it shows (dropping tracks on it later: drags don't cross windows)
 - [x] 4.3 Update the user guide
 

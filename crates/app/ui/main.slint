@@ -749,8 +749,8 @@ export component AppWindow inherits Window {
     out property <length> waveform-height: max(1px, (waveforms.height - (wave-rows + 1) * 1px - (prep ? 24px : 0px)) / wave-rows);
     property <int> wave-rows: four ? 4 : prep ? 1 : 2;
     // From whichever layout's deck A is showing.
-    out property <length> overview-width: player ? player-bar.overview-width : four ? strip-1.overview-width : compact ? player-a.overview-width : prep ? prep-deck.overview-width : deck-a.overview-width;
-    out property <length> overview-height: player ? player-bar.overview-height : four ? strip-1.overview-height : compact ? player-a.overview-height : prep ? prep-deck.overview-height : deck-a.overview-height;
+    out property <length> overview-width: player ? 1px : four ? strip-1.overview-width : compact ? player-a.overview-width : prep ? prep-deck.overview-width : deck-a.overview-width;
+    out property <length> overview-height: player ? 1px : four ? strip-1.overview-height : compact ? player-a.overview-height : prep ? prep-deck.overview-height : deck-a.overview-height;
     property <bool> four: layout == 2 && !library-expanded;
     // A hardware mixer does the mixing (`[Master],external_mixer`): no
     // on-screen mixer, only each deck's level.
@@ -1373,11 +1373,9 @@ export component AppWindow inherits Window {
             // Player: one bar along the bottom, as in music players: what is
             // playing, the transport and the queue button.
             player-bar := PlayerBar {
-                height: player ? 120px : 0px;
+                height: player ? 104px : 0px;
                 visible: player;
                 decks: decks;
-                overview-1: overview-1;
-                overview-2: overview-2;
                 live: player-deck;
                 mini-player => { mini-player(); }
                 mixing-into: automix-into;

@@ -87,6 +87,10 @@ export struct DeckInfo {
     automix-from: float,
     automix-to: float,
     effects: [string],
+    // The file's format and quality, "FLAC 16-BIT 44.1 KHZ" or "MP3 320
+    // KBPS", and whether it is lossless; empty when not a file.
+    quality: string,
+    lossless: bool,
 }
 
 component Arc inherits Path {

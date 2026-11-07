@@ -5,23 +5,25 @@ The menu at the top left of the window switches layouts:
 - **Player** works like a music player and mixes for you. One bar along the
   bottom of the window shows the track you hear: its album art, title,
   artist, BPM and key (colored by its place on the key wheel, so keys that
-  mix have neighboring colors). In the middle is the track as one shape,
-  with **Play/Pause** on its left: lilac for what has played, grey for what
-  is to come, and a dim lilac where the next mix happens. Click or drag it
-  to move through the track. Under it are the time played, **Previous** and
-  **Next**, and the time left. On the right are what
-  Automix does next, the master volume, the mini player button and the queue
-  button, which shows or hides **Up Next** (the Automix list). The **＋**
-  beside the title adds the track playing to a crate or playlist, or to a
-  new crate.
+  mix have neighboring colors), and what Automix plays next. In the middle
+  are **Previous**, **Play/Pause** and **Next** over a thin line through
+  the track: white for what has played, and a dim lilac where the next mix
+  happens. Point at the line and it turns lilac and shows the time there;
+  click or drag to move through the track. The time played and the track's
+  length are either side. On the right are the master volume, the mini
+  player button and the queue button, which shows or hides **Up Next**
+  (the Automix list), and under them the file's quality: format, bit depth
+  and sample rate in lilac for lossless files (**FLAC 16-BIT 44.1 KHZ**),
+  or the bitrate in grey (**MP3 320 KBPS**). The **＋** beside the title
+  adds the track playing to a crate or playlist, or to a new crate.
   The **mini player** (**⇧⌘M**, **View › Mini Player**, or its button on
-  the bar) is a small window that stays on top of the others: album art,
-  title, artist, **Previous**, **Play/Pause**, **Next** and a progress line
-  with the next mix in a dim lilac; click the line to move through the
-  track. Drag it wide for a strip, or tall for a square of album art with
-  the title and buttons over it while the pointer is on it. The pin keeps
-  it on top or lets other windows cover it; the arrows (or closing it)
-  bring back the main window, which hides while the mini player shows. **Order** and **Repeat** are at the
+  the bar) is a small square window of album art that stays on top of the
+  others. Point at it and the art dims and shows the title, artist, a
+  progress line (click it to move through the track), **Previous**,
+  **Play/Pause** and **Next**; **✕** brings back the main window, which
+  hides while the mini player shows, and the pin keeps it on top or lets
+  other windows cover it. Drag it low and wide for a strip with the art,
+  title and buttons always showing. **Order** and **Repeat** are at the
   top of Up Next. With Repeat on, a played track goes back to the end of Up
   Next instead of leaving it, so the list keeps going round.
   The top bar keeps to search. The search box (**⌘F**) is Player's only
