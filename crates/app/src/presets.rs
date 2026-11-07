@@ -35,6 +35,20 @@ const GROOVE_SKIPPED: [&str; 6] = [
     "duck_amount",
 ];
 
+/// Tags a preset can have: what kind of sound it is, then what it sounds
+/// like. The browser's chips narrow the list to presets with them.
+pub const TYPES: [&str; 10] = [
+    "Bass", "Lead", "Pad", "Keys", "Pluck", "Brass", "Strings", "Arp", "Drums", "FX",
+];
+pub const CHARACTERS: [&str; 10] = [
+    "Warm", "Bright", "Dark", "Soft", "Hard", "Clean", "Dirty", "Evolving", "Vintage", "Wide",
+];
+
+/// Every tag, types first, as the screens number them.
+pub fn tags() -> impl Iterator<Item = &'static str> {
+    TYPES.into_iter().chain(CHARACTERS)
+}
+
 /// A preset as listed: what the browser and ‹ › need, without its sound.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Preset {
@@ -44,6 +58,8 @@ pub struct Preset {
     /// The instrument's name when saved ("Jun-6 V", "Groove Box").
     pub instrument_name: String,
     pub path: PathBuf,
+    /// Its tags, from [`TYPES`] and [`CHARACTERS`] (others kept as written).
+    pub tags: Vec<String>,
 }
 
 fn root() -> Option<PathBuf> {
@@ -101,6 +117,14 @@ fn list_in(root: &Path) -> Vec<Preset> {
                 instrument: text("instrument"),
                 instrument_name: text("instrument_name"),
                 path,
+                tags: v["tags"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|t| t.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             });
         }
     }
@@ -155,6 +179,24 @@ fn read(path: &Path) -> Result<Map<String, Value>, String> {
 }
 
 /// Renames the preset at `path`; returns its new path.
+/// Gives the preset at `path` tag `tag`, or takes it away if it has it.
+fn toggle_tag(path: &Path, tag: &str) -> Result<(), String> {
+    let mut body = read(path)?;
+    let mut tags: Vec<Value> = body
+        .get("tags")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    match tags.iter().position(|t| t.as_str() == Some(tag)) {
+        Some(i) => {
+            tags.remove(i);
+        }
+        None => tags.push(json!(tag)),
+    }
+    body.insert("tags".into(), Value::Array(tags));
+    write(path, &body)
+}
+
 fn rename_file(path: &Path, name: &str) -> Result<PathBuf, String> {
     let mut body = read(path)?;
     let name = name.trim();
@@ -210,8 +252,10 @@ struct State {
     groove: Vec<Option<PathBuf>>,
     /// The Instrument input's preset.
     instrument: Option<PathBuf>,
-    /// The names shown, by deck, to skip setting them when unchanged.
+    /// The names shown, by deck, to skip setting them when unchanged, and
+    /// their tags (see [`show`]).
     shown: Vec<String>,
+    shown_tags: Vec<bool>,
 }
 
 thread_local! {
@@ -420,6 +464,9 @@ pub fn install(
     CTX.with_borrow_mut(|c| *c = Some(Rc::new(Ctx { engine, registry })));
     rescan();
     let ui = app.global::<PresetUi>();
+    let names: Vec<SharedString> = tags().map(SharedString::from).collect();
+    ui.set_tag_names(ModelRc::new(VecModel::from(names)));
+    ui.set_type_count(TYPES.len() as i32);
     let weak = app.as_weak();
     let act = move |what: &dyn Fn(&Ctx) -> Result<(), String>| {
         let Some(ctx) = ctx() else {
@@ -448,6 +495,16 @@ pub fn install(
             let path = rename_file(&preset.path, &name)?;
             c.set_current(deck as usize, &preset.instrument, Some(path));
             Ok(())
+        })
+    });
+    let a = act.clone();
+    ui.on_toggle_tag(move |deck, tag| {
+        a(&|c| {
+            let preset = c
+                .current(deck as usize)
+                .ok_or("save a preset first, then tag it")?;
+            let tag = tags().nth(tag as usize).ok_or("no such tag")?;
+            toggle_tag(&preset.path, tag)
         })
     });
     let a = act;
@@ -482,18 +539,31 @@ pub fn show(app: &AppWindow) {
     let Some(ctx) = ctx() else {
         return;
     };
-    let names: Vec<String> = (0..opendj_engine::NUM_DECKS)
-        .map(|d| ctx.current(d).map(|p| p.name).unwrap_or_default())
+    let current: Vec<Option<Preset>> = (0..opendj_engine::NUM_DECKS)
+        .map(|d| ctx.current(d))
+        .collect();
+    let names: Vec<String> = current
+        .iter()
+        .map(|p| p.as_ref().map(|p| p.name.clone()).unwrap_or_default())
+        .collect();
+    // Each deck's preset's tags, a flag per tag, deck after deck.
+    let flags: Vec<bool> = current
+        .iter()
+        .flat_map(|p| {
+            tags().map(move |t| p.as_ref().is_some_and(|p| p.tags.iter().any(|x| x == t)))
+        })
         .collect();
     let changed = STATE.with_borrow_mut(|s| {
-        let changed = s.shown != names;
+        let changed = s.shown != names || s.shown_tags != flags;
         s.shown = names.clone();
+        s.shown_tags = flags.clone();
         changed
     });
     if changed {
         let names: Vec<SharedString> = names.iter().map(|n| n.as_str().into()).collect();
-        app.global::<PresetUi>()
-            .set_current(ModelRc::new(VecModel::from(names)));
+        let ui = app.global::<PresetUi>();
+        ui.set_current(ModelRc::new(VecModel::from(names)));
+        ui.set_deck_tags(ModelRc::new(VecModel::from(flags)));
     }
 }
 
@@ -538,6 +608,20 @@ mod tests {
         let renamed = rename_file(&second, "Dark Strings").unwrap();
         assert!(!second.exists());
         assert_eq!(read(&renamed).unwrap()["name"], json!("Dark Strings"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn tags_are_given_and_taken_away() {
+        let root = temp("preset-tags");
+        let path = write_new(&root, body(GROOVE, "Groove Box"), "Tight").unwrap();
+        assert!(list_in(&root)[0].tags.is_empty());
+        toggle_tag(&path, "Drums").unwrap();
+        toggle_tag(&path, "Dirty").unwrap();
+        assert_eq!(list_in(&root)[0].tags, ["Drums", "Dirty"]);
+        toggle_tag(&path, "Drums").unwrap();
+        assert_eq!(list_in(&root)[0].tags, ["Dirty"]);
+        assert_eq!(tags().count(), TYPES.len() + CHARACTERS.len());
         let _ = std::fs::remove_dir_all(&root);
     }
 
