@@ -57,6 +57,40 @@ struct State {
     /// The tag chips on, as `crate::presets::tags` numbers them: the list
     /// then shows only presets with every one.
     chips: Vec<bool>,
+    /// What went onto a deck lately, newest first (see [`recent_key`]).
+    recent: Vec<String>,
+    /// The column the list is sorted by (0 name, 1 type, 2 maker,
+    /// 3 format) and whether it is the other way round; none as listed.
+    sort: Option<(i32, bool)>,
+}
+
+/// How many items Recently played keeps.
+const RECENT: usize = 20;
+
+/// What an item is, kept across restarts for Recently played: `groove`,
+/// `plugin:<key>`, `preset:<path>` or `input:<engine input>`.
+fn recent_key(s: &State, kind: i32, index: i32) -> Option<String> {
+    let i = usize::try_from(index).ok()?;
+    match kind {
+        KIT => Some("groove".into()),
+        PLUGIN => s.plugins.get(i).map(|p| format!("plugin:{}", p.key)),
+        PRESET => s
+            .presets
+            .get(i)
+            .map(|p| format!("preset:{}", p.path.display())),
+        MIC | AUX => INPUTS
+            .iter()
+            .find(|(k, x, _, _)| *k == kind && *x == index)
+            .map(|(_, _, input, _)| format!("input:{input}")),
+        _ => None,
+    }
+}
+
+/// Puts `key` first in Recently played.
+fn remember(recent: &mut Vec<String>, key: String) {
+    recent.retain(|k| *k != key);
+    recent.insert(0, key);
+    recent.truncate(RECENT);
 }
 
 struct Plugin {
@@ -71,6 +105,10 @@ thread_local! {
     static STATE: RefCell<State> = RefCell::new(State {
         open: HashSet::from(["plugins".to_string()]),
         current: "all".to_string(),
+        recent: crate::settings::load()["instruments_recent"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect())
+            .unwrap_or_default(),
         ..State::default()
     });
 }
@@ -113,6 +151,30 @@ pub fn install(app: &AppWindow) {
                     s.open.insert(key);
                 }
             }
+        });
+        if let Some(app) = weak.upgrade() {
+            refresh(&app);
+        }
+    });
+    let weak = app.as_weak();
+    ui.on_played(move |item| {
+        STATE.with_borrow_mut(|s| {
+            if let Some(key) = recent_key(s, item / 1000, item % 1000) {
+                remember(&mut s.recent, key);
+                crate::settings::set("instruments_recent", serde_json::json!(s.recent));
+            }
+        });
+        if let Some(app) = weak.upgrade() {
+            refresh(&app);
+        }
+    });
+    let weak = app.as_weak();
+    ui.on_sort_by(move |column| {
+        STATE.with_borrow_mut(|s| {
+            s.sort = match s.sort {
+                Some((c, down)) if c == column => Some((column, !down)),
+                _ => Some((column, false)),
+            };
         });
         if let Some(app) = weak.upgrade() {
             refresh(&app);
@@ -225,6 +287,10 @@ fn nodes(s: &State) -> Vec<(String, InstrumentNode)> {
     let inputs = inputs(&s.routes).len() as i32;
     let total = 1 + s.plugins.len() as i32 + inputs;
     let mut out = vec![
+        (
+            "recent".to_string(),
+            node("Recently played", 0, 0, 8, recent_items(s).len() as i32),
+        ),
         ("all".to_string(), node("All instruments", 0, 0, 6, total)),
         (
             "presets".to_string(),
@@ -349,6 +415,21 @@ fn rows(s: &State) -> Vec<LiveItem> {
             .collect(),
         "plugins" => plugins(&|_| true),
         "inputs" => inputs(&s.routes).into_iter().map(input).collect(),
+        "recent" => recent_items(s)
+            .into_iter()
+            .filter_map(|(kind, index)| {
+                let i = index as usize;
+                match kind {
+                    KIT => Some(groove()),
+                    PLUGIN => s.plugins.get(i).map(|p| plugin(i, p)),
+                    PRESET => s.presets.get(i).map(|p| preset(i, p)),
+                    _ => INPUTS
+                        .iter()
+                        .find(|(k, x, _, _)| *k == kind && *x == index)
+                        .map(input),
+                }
+            })
+            .collect(),
         key => {
             if let Some(m) = key.strip_prefix("maker:") {
                 plugins(&|p| maker(p).eq_ignore_ascii_case(m))
@@ -406,7 +487,41 @@ fn rows(s: &State) -> Vec<LiveItem> {
             words.iter().all(|w| text.contains(w.as_str()))
         });
     }
+    if let Some((column, descending)) = s.sort {
+        let text = |r: &LiveItem| {
+            match column {
+                0 => &r.name,
+                1 => &r.r#type,
+                2 if r.maker.is_empty() => &r.problem,
+                2 => &r.maker,
+                _ => &r.format,
+            }
+            .to_lowercase()
+        };
+        rows.sort_by_cached_key(|r| (text(r), r.name.to_lowercase()));
+        if descending {
+            rows.reverse();
+        }
+    }
     rows
+}
+
+/// Recently played, newest first, as (kind, index): what is still there
+/// of it.
+fn recent_items(s: &State) -> Vec<(i32, i32)> {
+    let all: Vec<(i32, i32)> = std::iter::once((KIT, 0))
+        .chain((0..s.plugins.len()).map(|i| (PLUGIN, i as i32)))
+        .chain((0..s.presets.len()).map(|i| (PRESET, i as i32)))
+        .chain(INPUTS.iter().map(|(k, i, _, _)| (*k, *i)))
+        .collect();
+    s.recent
+        .iter()
+        .filter_map(|key| {
+            all.iter()
+                .find(|(k, i)| recent_key(s, *k, *i).as_deref() == Some(key.as_str()))
+                .copied()
+        })
+        .collect()
 }
 
 /// Shows the tree and the list again from the state.
@@ -452,6 +567,8 @@ fn refresh(app: &AppWindow) {
         let mut chips = s.chips.clone();
         chips.resize(presets::tags().count(), false);
         ui.set_chips(ModelRc::new(VecModel::from(chips)));
+        ui.set_sort_column(s.sort.map_or(-1, |(c, _)| c));
+        ui.set_sort_descending(s.sort.is_some_and(|(_, down)| down));
     });
 }
 
@@ -524,6 +641,7 @@ mod tests {
         assert_eq!(
             keys,
             [
+                "recent",
                 "all",
                 "presets",
                 "groove",
@@ -548,6 +666,29 @@ mod tests {
         let mut s = state("all");
         s.search = "vital".into();
         assert_eq!(names(&s), ["Vital"]);
+        // Sorted by maker, then the other way.
+        s.search.clear();
+        s.current = "plugins".into();
+        s.sort = Some((2, false));
+        assert_eq!(names(&s), ["Acid V", "Jun-6 V", "Vital"]);
+        s.sort = Some((0, true));
+        assert_eq!(names(&s), ["Vital", "Jun-6 V", "Acid V"]);
+    }
+
+    #[test]
+    fn recently_played_lists_what_went_on_a_deck_newest_first() {
+        let mut s = state("recent");
+        for (kind, index) in [(PLUGIN, 1), (KIT, 0), (MIC, 0), (PLUGIN, 1)] {
+            let key = recent_key(&s, kind, index).unwrap();
+            remember(&mut s.recent, key);
+        }
+        assert_eq!(s.recent, ["plugin:clap:Vital", "input:0", "groove"]);
+        let names: Vec<String> = rows(&s).iter().map(|r| r.name.to_string()).collect();
+        assert_eq!(names, ["Vital", "Microphone", "Groove Box"]);
+        // A plugin unticked drops out of the list, not out of the memory.
+        s.plugins.remove(1);
+        assert_eq!(rows(&s).len(), 2);
+        assert_eq!(s.recent.len(), 3);
     }
 
     #[test]

@@ -34,7 +34,7 @@ export struct InstrumentNode {
     // 0 no children, 1 closed, 2 open.
     children: int,
     // The icon: 0 a folder, 1 the Groove Box, 2 a plugin, 3 the microphone,
-    // 4 the inputs, 5 a maker, 6 everything.
+    // 4 the inputs, 5 a maker, 6 everything, 7 presets, 8 recently played.
     kind: int,
     // How many instruments it holds; -1 to show none.
     count: int,
@@ -96,6 +96,14 @@ export global InstrumentsUi {
     // with any on, the list shows the presets with all of them.
     in property <[bool]> chips;
     callback toggle-chip(tag: int);
+    // The column the list is sorted by: -1 as listed, 0 name, 1 type,
+    // 2 maker or input, 3 format; and which way. Set by the app.
+    in property <int> sort-column: -1;
+    in property <bool> sort-descending;
+    // Sorts by `column`, or the other way if it already is.
+    callback sort-by(column: int);
+    // Item `item` (see `drop`) went onto a deck: Recently played lists it.
+    callback played(item: int);
     // True while an item is being dragged, so every deck shows it takes drops.
     in-out property <bool> dragging;
     // What dragging `kind`/`index` carries.
@@ -239,6 +247,7 @@ export global InstrumentsUi {
             // (see the engine's inputs); live_input is 1 + the input.
             Controls.set-value(Controls.resolve("[Channel" + (deck + 1) + "]", "live_input"), item < 4000 ? 1 : (Math.mod(item, 1000) == 0 ? 2 : Math.mod(item, 1000) + 3));
         }
+        played(item);
     }
 }
 
@@ -328,7 +337,7 @@ component NodeIcon inherits Rectangle {
         tint: tint;
         size: 18px;
     }
-    if kind == 0 || kind == 5 || kind == 6 || kind == 7: Path {
+    if kind == 0 || kind == 5 || kind == 6 || kind == 7 || kind == 8: Path {
         width: parent.width;
         height: parent.height;
         viewbox-width: 18;
@@ -340,6 +349,8 @@ component NodeIcon inherits Rectangle {
         commands: kind == 6 ? "M 3 4 L 15 4 L 15 14 L 3 14 Z M 6 4 L 6 10 M 9 4 L 9 10 M 12 4 L 12 10"
             // A preset: three sliders.
             : kind == 7 ? "M 4 3 L 4 15 M 9 3 L 9 15 M 14 3 L 14 15 M 2.5 11 L 5.5 11 M 7.5 6 L 10.5 6 M 12.5 9 L 15.5 9"
+            // Recently played: a clock.
+            : kind == 8 ? "M 9 2.5 A 6.5 6.5 0 1 1 8.99 2.5 Z M 9 5 L 9 9 L 12 11"
             : "M 2.5 5 L 7 5 L 8.5 6.5 L 15.5 6.5 L 15.5 14 L 2.5 14 Z";
     }
 }
@@ -415,6 +426,20 @@ component Heading inherits Text {
     font-weight: 600;
     vertical-alignment: center;
     overflow: elide;
+}
+
+// A column heading to sort by: a click sorts, another the other way.
+component SortHeading inherits Rectangle {
+    in property <string> text;
+    in property <int> column;
+    property <bool> on: InstrumentsUi.sort-column == column;
+    HorizontalLayout {
+        spacing: 4px;
+        Heading { text: root.text; color: on ? Theme.text : Theme.text-dim; }
+        if on: Heading { text: InstrumentsUi.sort-descending ? "▼" : "▲"; color: Theme.accent; font-size: 9px; }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    TouchArea { mouse-cursor: pointer; clicked => { InstrumentsUi.sort-by(column); } }
 }
 
 // One row of the list, laid out like a track row.
@@ -570,10 +595,10 @@ component InstrumentList inherits Rectangle {
                 padding-right: 10px;
                 spacing: 10px;
                 Rectangle { width: 24px; }
-                Heading { text: "NAME"; horizontal-stretch: 1; }
-                Heading { width: type-width; text: "TYPE"; }
-                Heading { width: maker-width; text: "MAKER / INPUT"; }
-                Heading { width: format-width; text: "FORMAT"; }
+                SortHeading { text: "NAME"; column: 0; horizontal-stretch: 1; }
+                SortHeading { width: type-width; text: "TYPE"; column: 1; }
+                SortHeading { width: maker-width; text: "MAKER / INPUT"; column: 2; }
+                SortHeading { width: format-width; text: "FORMAT"; column: 3; }
                 Heading { width: 64px; text: "DECK"; }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.separator; }
