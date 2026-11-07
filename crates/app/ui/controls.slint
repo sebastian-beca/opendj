@@ -348,7 +348,7 @@ export component ControlButton inherits Rectangle {
                 root.right-clicked();
                 return;
             }
-            if e.button != PointerEventButton.left {
+            if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
                 return;
             }
             if shift-index >= 0 && (shift-held || (e.kind == PointerEventKind.down && e.modifiers.shift)) {

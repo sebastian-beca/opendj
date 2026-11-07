@@ -211,3 +211,8 @@ Auxiliary inputs play on a deck from the **Instruments** source. Choose
 the inputs in **Settings › Audio**: **+** under the inputs adds a second
 and third auxiliary input, and each auxiliary input takes a pair of
 channels (stereo) or one (mono).
+
+**If the sound device goes away** (an audio interface unplugged, or a dock
+disconnected), the decks stop where they are and stay usable: you can load,
+cue and seek, and a message says what happened. openDJ plays on that device
+again as soon as it's back, or pick another one in **Settings › Audio**.
