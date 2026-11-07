@@ -45,6 +45,9 @@ pub(crate) struct ScriptRows {
     lights_due: Instant,
     start: Instant,
     pub(crate) errors: Vec<String>,
+    /// How many decks along the device's decks are moved (see
+    /// [`crate::routing`]): a row's `deck 1` plays the deck it follows.
+    pub(crate) shift: usize,
 }
 
 /// Runs a line for a controller: control verbs on the registry, variables
@@ -57,6 +60,22 @@ struct RowHost<'a> {
     steps: bool,
     shown: Option<Shown>,
     colors: &'a [(String, u8)],
+    /// See [`ScriptRows::shift`].
+    shift: usize,
+}
+
+/// `call` with its deck moved `shift` decks along, wrapping after deck 4.
+fn shifted<'c>(call: &Call<'c>, shift: usize) -> Call<'c> {
+    let decks = crate::routing::DECKS;
+    Call {
+        verb: call.verb,
+        deck: call
+            .deck
+            .map(|d| ((d as usize - 1 + shift) % decks + 1) as u8),
+        args: call.args,
+        input: call.input,
+        steps: call.steps,
+    }
 }
 
 impl RowHost<'_> {
@@ -72,13 +91,16 @@ impl RowHost<'_> {
 
 impl Host for RowHost<'_> {
     fn master_deck(&self) -> u8 {
-        (1..=4u8)
+        let master = (1..=4u8)
             .find(|d| {
                 self.registry
                     .get(&format!("[Channel{d}]"), "sync_leader")
                     .is_some_and(|c| c.get() > 0.0)
             })
-            .unwrap_or(1)
+            .unwrap_or(1);
+        // Verbs move along by `shift` after this: the master stays put.
+        let decks = crate::routing::DECKS;
+        ((master as usize - 1 + decks - self.shift % decks) % decks + 1) as u8
     }
 
     fn run(&mut self, call: &Call) -> Result<(), Error> {
@@ -117,7 +139,7 @@ impl Host for RowHost<'_> {
                     },
                 });
             }
-            _ => run_control(self.registry, call)?,
+            _ => run_control(self.registry, &shifted(call, self.shift))?,
         }
         Ok(())
     }
@@ -131,7 +153,7 @@ impl Host for RowHost<'_> {
                 _ => now > 0.0,
             });
         }
-        query_control(self.registry, call)
+        query_control(self.registry, &shifted(call, self.shift))
     }
 
     fn level(&mut self, call: &Call) -> Result<f64, Error> {
@@ -139,7 +161,7 @@ impl Host for RowHost<'_> {
             let name = call.args.first().map(|a| a.text()).unwrap_or("");
             return Ok(self.vars.get(name).copied().unwrap_or(0.0));
         }
-        level_control(self.registry, call)
+        level_control(self.registry, &shifted(call, self.shift))
     }
 
     fn input(&self) -> Option<f64> {
@@ -180,6 +202,7 @@ impl ScriptRows {
             lights_due: now,
             start: now,
             errors: Vec::new(),
+            shift: 0,
         }
     }
 
@@ -233,6 +256,7 @@ impl ScriptRows {
             steps,
             shown: None,
             colors: &[],
+            shift: self.shift,
         };
         if let Err(e) = script.run(&mut host) {
             self.error(format!("'{line}': {e}"));
@@ -349,6 +373,7 @@ impl ScriptRows {
                 steps: false,
                 shown: None,
                 colors: &light.output.colors,
+                shift: self.shift,
             };
             let o = &light.output;
             let (number, byte) = if light.level {

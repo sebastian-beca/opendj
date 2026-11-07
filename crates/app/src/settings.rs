@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::browser::columns::{Hidden, Layout};
+use opendj_controllers::routing::DeckChoice;
 use opendj_controllers::MappingChoice;
 use opendj_engine::key::{Key, Notation};
 use opendj_engine::scan::default_music_dir;
@@ -542,6 +543,7 @@ pub fn controller_mappings() -> HashMap<String, MappingChoice> {
                 .filter_map(|(k, v)| {
                     let choice = match v.as_str()? {
                         "off" => MappingChoice::Off,
+                        "instrument" => MappingChoice::Instrument,
                         own if own.starts_with("own:") => MappingChoice::Own(
                             own_mappings_dir()?.join(format!("{}.json", &own[4..])),
                         ),
@@ -561,12 +563,37 @@ pub fn set_controller_mappings(choices: &HashMap<String, MappingChoice>) {
             .filter_map(|(k, c)| match c {
                 MappingChoice::Auto => None,
                 MappingChoice::Off => Some((k.clone(), json!("off"))),
+                MappingChoice::Instrument => Some((k.clone(), json!("instrument"))),
                 MappingChoice::File(f) => Some((k.clone(), json!(f))),
                 MappingChoice::Own(p) => {
                     let id = p.file_stem()?.to_string_lossy();
                     Some((k.clone(), json!(format!("own:{id}"))))
                 }
             })
+            .collect::<serde_json::Map<_, _>>()
+            .into();
+    });
+}
+
+/// The deck each controller plays (As mapped, Follow, a deck), by its
+/// device key; Auto isn't kept.
+pub fn controller_decks() -> HashMap<String, DeckChoice> {
+    load()["controller_decks"]
+        .as_object()
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, v)| Some((k.clone(), DeckChoice::from_setting(v.as_str()?))))
+                .filter(|(_, c)| *c != DeckChoice::Auto)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn set_controller_decks(choices: &HashMap<String, DeckChoice>) {
+    save(|v| {
+        v["controller_decks"] = choices
+            .iter()
+            .filter_map(|(k, c)| Some((k.clone(), json!(c.to_setting()?))))
             .collect::<serde_json::Map<_, _>>()
             .into();
     });

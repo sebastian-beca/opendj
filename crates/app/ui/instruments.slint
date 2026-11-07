@@ -32,6 +32,9 @@ export global InstrumentsUi {
     pure callback item(data: data-transfer) -> int;
     // Opens Settings on page `page`, tab `tab` (Plugins or Audio).
     callback open-settings(page: int, tab: int);
+    // The MIDI keyboard that played the instrument last, set by the app;
+    // empty before any has.
+    in property <string> playing-from;
 
     // The input deck `deck` plays: 0 none, 1 microphone, 2 aux, 3 instrument.
     public pure function live(deck: int) -> int {
