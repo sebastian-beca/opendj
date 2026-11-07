@@ -65,6 +65,9 @@ export global FilterUi {
     callback set-follow(on: bool);
     callback set-bpm(low: string, high: string);
     callback set-tolerance(i: int);
+    // Key: by the app's setting, the same key, Harmonic or Fuzzy.
+    in property <int> key-match;
+    callback set-key-match(i: int);
     // Takes a chip off the bar.
     callback remove(chip: int);
     // Where each chip sits along the bar, so a dragged one knows where
@@ -453,6 +456,11 @@ export component FilterBar inherits Rectangle {
                 items: FilterUi.tolerances;
                 chosen: FilterUi.tolerance;
                 picked(i) => { FilterUi.set-tolerance(i); }
+            }
+            if chip.kind == 3 && FilterUi.follow: Segments {
+                items: ["Setting", "Exact", "Harmonic", "Fuzzy"];
+                chosen: FilterUi.key-match;
+                picked(i) => { FilterUi.set-key-match(i); }
             }
             if (chip.kind == 2 || chip.kind == 3) && FilterUi.follow: Text {
                 text: FilterUi.follow-note;
