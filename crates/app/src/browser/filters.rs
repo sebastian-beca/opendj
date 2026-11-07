@@ -91,7 +91,20 @@ pub const SHORT_LIST: usize = 8;
 const RECENT: usize = 64;
 
 /// The chips on the bar when the DJ hasn't chosen.
-pub const DEFAULT_PINNED: [&str; 6] = ["grouping", "genre", "tag1", "tag2", "bpm", "key"];
+/// Genre, the DJ's tag groups (as many as there are), BPM and Key;
+/// Grouping and the rest wait under "+" › More.
+pub const DEFAULT_PINNED: [&str; 10] = [
+    "genre", "tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "bpm", "key",
+];
+
+/// Where "+" lists a field: 0 core, 1 the DJ's tag groups, 2 more.
+pub fn section(field: &Field) -> i32 {
+    match (field.kind, field.id.as_str()) {
+        (Kind::Tags(_), _) => 1,
+        (_, "genre" | "bpm" | "key" | "rating" | "color") => 0,
+        _ => 2,
+    }
+}
 
 /// One value a chip offers: what it says, the search it stands for, how
 /// many tracks of the list have it, and a color swatch for colors.
@@ -857,8 +870,21 @@ impl Browser {
                 v.into_iter().map(SharedString::from).collect::<Vec<_>>(),
             ))
         };
+        // Core fields first in their own order, then the DJ's tag groups
+        // in theirs, then the rest A–Z.
         let mut sorted = addable.clone();
-        sorted.sort_by_key(|x| x.label.to_lowercase());
+        sorted.sort_by_key(|x| {
+            let s = section(x);
+            let name = if s == 2 {
+                x.label.to_lowercase()
+            } else {
+                String::new()
+            };
+            (s, name)
+        });
+        ui.set_addable_sections(ModelRc::new(VecModel::from(
+            sorted.iter().map(|x| section(x)).collect::<Vec<_>>(),
+        )));
         ui.set_addable(strings(sorted.iter().map(|x| x.label.clone()).collect()));
         ui.set_addable_ids(strings(sorted.iter().map(|x| x.id.clone()).collect()));
         ui.set_editing(
@@ -1251,6 +1277,23 @@ mod tests {
         assert_eq!(find(&lib, &text(&f)), [1]);
         f.key_match = 2;
         assert!(find(&lib, &text(&f)).is_empty());
+    }
+
+    #[test]
+    fn core_fields_then_tags_then_the_rest() {
+        let names = FieldNames {
+            tags: vec![opendj_library::tags::TagGroup::new(7, "Mood")],
+            ..FieldNames::default()
+        };
+        let fields = fields(&names);
+        let sec = |id: &str| section(field(&fields, id));
+        assert_eq!((sec("genre"), sec("key"), sec("bpm")), (0, 0, 0));
+        assert_eq!(sec("tag1"), 1);
+        assert_eq!((sec("grouping"), sec("album"), sec("year")), (2, 2, 2));
+        // The default bar skips Grouping and tag groups the DJ hasn't got.
+        let f = Filters::new(DEFAULT_PINNED.iter().map(|s| s.to_string()).collect(), 4);
+        let shown: Vec<_> = f.shown(&fields).iter().map(|x| x.id.as_str()).collect();
+        assert_eq!(shown, ["genre", "tag1", "bpm", "key"]);
     }
 
     #[test]
