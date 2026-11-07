@@ -1637,6 +1637,9 @@ pub struct Engine {
     /// Copies the master out for the loudness meter, all the time.
     meter: RecordTap,
     meter_feed: Option<Feed>,
+    /// Each deck's live sound for its waveform (see [`crate::live_wave`]).
+    live_waves: [crate::live_wave::LiveWave; NUM_DECKS],
+    live_wave_rx: Option<[rtrb::Consumer<crate::live_wave::LiveSlice>; NUM_DECKS]>,
     /// Copies the master out for broadcasting, while on air.
     broadcast: RecordTap,
     broadcast_feed: Option<Feed>,
@@ -1831,6 +1834,13 @@ impl Engine {
         let (meter, meter_feed) = recorder::tap(sample_rate);
         meter_feed.set_active(true);
         let (broadcast, broadcast_feed) = recorder::tap(sample_rate);
+        let mut live_wave_rx = Vec::with_capacity(NUM_DECKS);
+        let live_waves = std::array::from_fn(|_| {
+            let (wave, rx) = crate::live_wave::channel(sample_rate);
+            live_wave_rx.push(rx);
+            wave
+        });
+        let live_wave_rx = live_wave_rx.try_into().ok();
         let inputs = std::array::from_fn(|i| Input::new(registry, i, sample_rate));
         let ducker = Ducker::new(registry, sample_rate);
         crate::midi_clock::create_controls(registry);
@@ -1852,6 +1862,8 @@ impl Engine {
                 record_feed: Some(record_feed),
                 meter,
                 meter_feed: Some(meter_feed),
+                live_waves,
+                live_wave_rx,
                 broadcast,
                 broadcast_feed: Some(broadcast_feed),
                 preview,
@@ -1910,6 +1922,13 @@ impl Engine {
     /// The other end of the loudness meter's tap; there is only one.
     pub(crate) fn take_meter_feed(&mut self) -> Option<Feed> {
         self.meter_feed.take()
+    }
+
+    /// The app's ends of the decks' live sound queues; there is one set.
+    pub(crate) fn take_live_waves(
+        &mut self,
+    ) -> Option<[rtrb::Consumer<crate::live_wave::LiveSlice>; NUM_DECKS]> {
+        self.live_wave_rx.take()
     }
 
     /// The other end of the broadcast's tap; there is only one.
@@ -3372,6 +3391,11 @@ impl Engine {
                 }
             }
         }
+        for (i, wave) in self.live_waves.iter_mut().enumerate() {
+            if live_on[i] == 0 && !groove_on[i] {
+                wave.idle();
+            }
+        }
         for f in 0..frames {
             let r = (f + 1) as f32 / frames as f32;
             let lerp = |(a, b): (f32, f32)| a + (b - a) * r;
@@ -3473,6 +3497,11 @@ impl Engine {
                 let gains = std::array::from_fn(|k| p.eq_from[k] + (p.eq_to[k] - p.eq_from[k]) * r);
                 let pre = lerp(p.pre);
                 s = [s[0] * pre, s[1] * pre];
+                // A live deck's sound for its waveform, after the trim and
+                // before the EQ, as a track's waveform shows the track.
+                if live_on[i] > 0 || groove_on[i] {
+                    self.live_waves[i].push(s);
+                }
                 if tap == Some(DeckTap::Clean) {
                     tap_buf[i][f] = s;
                 }
