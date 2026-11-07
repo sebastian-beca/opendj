@@ -240,6 +240,9 @@ export global LibraryEdit {
     // Makes a crate named `name` (or "New crate", named in the tree) with
     // the rows `first` to `last` in it.
     callback new-list-with(first: int, last: int, name: string);
+    // The same for the track on deck `deck` (the Player bar's ＋).
+    callback add-deck-to-list(deck: int, list: int);
+    callback new-list-with-deck(deck: int, name: string);
     // The collection narrowed to the row's artist (or album) with the filter bar.
     callback go-to(row: int, album: bool);
     // The row's main artist and its album, for the menu's "Go to" lines.
@@ -1030,11 +1033,20 @@ component MatchMenu inherits PopupWindow {
 // The track menu's side panel: the lists to add the tracks to (found by
 // typing, most recently added to first, with a new crate at the top), or
 // the lists the track is in.
-component ListPanel inherits Rectangle {
+export component ListPanel inherits Rectangle {
     // 1 = add to a list, 2 = the lists the track is in.
     in property <int> mode;
     in property <int> track-row;
     in property <int> track-last;
+    // Adds the track on this deck instead of the rows (mode 1 only).
+    in property <int> deck: -1;
+    function add(index: int) {
+        if deck >= 0 {
+            LibraryEdit.add-deck-to-list(deck, index);
+        } else {
+            LibraryEdit.add-to-list(track-row, track-last, index);
+        }
+    }
     in-out property <string> find;
     callback done();
     // Typing finds a list straight away, as in Spotify.
@@ -1065,7 +1077,7 @@ component ListPanel inherits Rectangle {
                 edited => { LibraryEdit.find-lists(self.text); }
                 accepted => {
                     if LibraryEdit.list-picks.length > 0 {
-                        LibraryEdit.add-to-list(track-row, track-last, LibraryEdit.list-picks[0].index);
+                        root.add(LibraryEdit.list-picks[0].index);
                         root.done();
                     }
                 }
@@ -1082,7 +1094,11 @@ component ListPanel inherits Rectangle {
             icon: "plus";
             text: root.find.is-empty ? "New crate" : "New crate “" + root.find + "”";
             clicked => {
-                LibraryEdit.new-list-with(track-row, track-last, root.find);
+                if deck >= 0 {
+                    LibraryEdit.new-list-with-deck(deck, root.find);
+                } else {
+                    LibraryEdit.new-list-with(track-row, track-last, root.find);
+                }
                 root.done();
             }
         }
@@ -1113,7 +1129,7 @@ component ListPanel inherits Rectangle {
                     hint: l.folder;
                     clicked => {
                         if mode == 1 {
-                            LibraryEdit.add-to-list(track-row, track-last, l.index);
+                            root.add(l.index);
                         } else {
                             LibraryEdit.show-list(l.index);
                         }

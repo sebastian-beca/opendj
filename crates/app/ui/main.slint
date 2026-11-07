@@ -7,6 +7,7 @@ import { Mixer, ExternalMixer, AudioSettings, OutputRow, MixerMode, InputSetting
 import { MasterPanel, MicPanel, OnAirPanel, BroadcastState, BroadcastStation, AirTime } from "toppanels.slint";
 import { PlayerBar, PlayerDeck, PlayerMixer, TopSearch, QuickResults, QuickSearch, QuickRow } from "player.slint";
 export { QuickSearch, QuickRow } from "player.slint";
+export { MiniPlayer } from "mini.slint";
 import { AppMenu, AppMenuButton } from "appmenu.slint";
 export { AppMenu, MenuEntry } from "appmenu.slint";
 import { PrepDeck, PrepUi } from "prep.slint";
@@ -790,6 +791,10 @@ export component AppWindow inherits Window {
     callback shortcut(text: string, cmd: bool, alt: bool, shift: bool, master: int, first: int, last: int) -> bool;
     callback automix-toggle();
     callback automix-mix-now();
+    // Opens the mini player window and hides this one (mini_player.rs).
+    callback mini-player();
+    // The deck the Player bar and the mini player show.
+    out property <int> player-deck: automix-live >= 0 ? automix-live : master-deck;
     callback automix-set-repeat(bool);
     callback automix-skip();
     callback automix-order(int);
@@ -1034,6 +1039,11 @@ export component AppWindow inherits Window {
                 QuickSearch.text = "";
                 QuickSearch.open = false;
                 search("");
+                return accept;
+            }
+            // ⇧⌘M (Ctrl+Shift+M on Linux and Windows): the mini player.
+            if (e.text == "m" || e.text == "M") && e.modifiers.control && e.modifiers.shift && !e.modifiers.alt && !Preferences.open {
+                mini-player();
                 return accept;
             }
             // ⌘F (Ctrl+F on Linux and Windows) goes to the library search.
@@ -1368,7 +1378,8 @@ export component AppWindow inherits Window {
                 decks: decks;
                 overview-1: overview-1;
                 overview-2: overview-2;
-                live: automix-live >= 0 ? automix-live : master-deck;
+                live: player-deck;
+                mini-player => { mini-player(); }
                 mixing-into: automix-into;
                 automix-on: automix-on;
                 automix-status: automix-status;

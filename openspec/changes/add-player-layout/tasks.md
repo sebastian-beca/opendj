@@ -23,13 +23,13 @@
 - [x] 3.3 Order and Repeat move to the Up Next header
 - [x] 3.4 Top bar in Player: wider search; no MASTER; REC only while recording (File › Record Mix); MIC only while on or with Show MIC in the layout menu; the footer only while analysis runs
 - [x] 3.5 Update the user guide
-- [ ] 3.6 ＋ on the bar adds the playing track to a crate or playlist
+- [x] 3.6 ＋ on the bar adds the playing track to a crate or playlist
 
 ## 4. Mini player
 
-- [ ] 4.1 A small always-on-top window, one window in two shapes (a 380 × 76 strip and a square of art, controls on hover): art, title, artist, Previous, Play/Pause, Next, progress with the mix zone
-- [ ] 4.2 Opens from the bar, ⌘⇧M and the app menu; the main window hides while it shows; dropping tracks on it plays them now
-- [ ] 4.3 Update the user guide
+- [x] 4.1 A small always-on-top window, one window in two shapes (a 380 × 76 strip and a square of art, controls on hover): art, title, artist, Previous, Play/Pause, Next, progress with the mix zone
+- [x] 4.2 Opens from the bar, ⌘⇧M and the app menu; the main window hides while it shows (dropping tracks on it later: drags don't cross windows)
+- [x] 4.3 Update the user guide
 
 ## 5. Now Playing
 

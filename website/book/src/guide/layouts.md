@@ -10,8 +10,18 @@ The menu at the top left of the window switches layouts:
   is to come, and a dim lilac where the next mix happens. Click or drag it
   to move through the track. Under it are the time played, **Previous** and
   **Next**, and the time left. On the right are what
-  Automix does next, the master volume, and the queue button, which shows or
-  hides **Up Next** (the Automix list). **Order** and **Repeat** are at the
+  Automix does next, the master volume, the mini player button and the queue
+  button, which shows or hides **Up Next** (the Automix list). The **＋**
+  beside the title adds the track playing to a crate or playlist, or to a
+  new crate.
+  The **mini player** (**⇧⌘M**, **View › Mini Player**, or its button on
+  the bar) is a small window that stays on top of the others: album art,
+  title, artist, **Previous**, **Play/Pause**, **Next** and a progress line
+  with the next mix in a dim lilac; click the line to move through the
+  track. Drag it wide for a strip, or tall for a square of album art with
+  the title and buttons over it while the pointer is on it. The pin keeps
+  it on top or lets other windows cover it; the arrows (or closing it)
+  bring back the main window, which hides while the mini player shows. **Order** and **Repeat** are at the
   top of Up Next. With Repeat on, a played track goes back to the end of Up
   Next instead of leaving it, so the list keeps going round.
   The top bar keeps to search. The search box (**⌘F**) is Player's only

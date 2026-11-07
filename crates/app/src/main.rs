@@ -63,6 +63,7 @@ mod mac_menu;
 mod mac_titlebar;
 mod map_mode;
 mod midi_clock;
+mod mini_player;
 mod mixcloud;
 mod mixcloud_upload;
 mod now_playing;
@@ -1452,6 +1453,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // bar on macOS, which only exists once the event loop runs, so keep
     // trying until it's there.
     app_menu::install(&app);
+    mini_player::install(&app);
     #[cfg(target_os = "macos")]
     let _mac_menu = {
         let weak = app.as_weak();

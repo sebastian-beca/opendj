@@ -7,7 +7,7 @@
 // crossfader.
 //
 // PlayerBar, further down, is the Player layout itself.
-import { TrackDrag } from "library.slint";
+import { LibraryEdit, ListPanel, TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
 import { LineEdit } from "std-widgets.slint";
 import { ControlButton, ControlFader, Controls, StereoMeter, SyncButton } from "controls.slint";
@@ -159,8 +159,9 @@ component BarButton inherits Rectangle {
     out property <color> ink: !enabled ? Theme.text-dim.with-alpha(0.5) : lit ? Theme.accent : ta.has-hover ? Theme.text : Theme.text.with-alpha(0.85);
     @children
     if tip != "" && ta.has-hover: Rectangle {
+        // Above: the bar sits at the bottom of the window.
         x: (parent.width - self.width) / 2;
-        y: parent.height + 4px;
+        y: -self.height - 4px;
         width: tip-text.preferred-width + 16px;
         height: 22px;
         border-radius: 5px;
@@ -206,6 +207,7 @@ export component PlayerBar inherits Rectangle {
     callback automix-toggle();
     callback automix-mix-now();
     callback toggle-queue();
+    callback mini-player();
     out property <length> overview-width: ov.width;
     out property <length> overview-height: ov.height;
     property <int> d: live == 1 ? 1 : 0;
@@ -265,6 +267,28 @@ export component PlayerBar inherits Rectangle {
                     if info.loaded && bpm != "": Text { text: " · " + bpm; color: Theme.text-dim; font-size: 15px; }
                     if info.loaded && info.key != "": Text { text: " · "; color: Theme.text-dim; font-size: 15px; }
                     if info.loaded && info.key != "": Text { text: info.key; color: Theme.key-wheel-color(info.key-wheel); font-size: 15px; font-weight: 700; }
+                }
+            }
+            // ＋: the track playing goes into a crate or playlist, as the
+            // heart or ＋ of other music players.
+            if info.loaded && LibraryEdit.has-lists: VerticalLayout {
+                alignment: center;
+                add := BarButton {
+                    tip: "Add to a crate or playlist";
+                    clicked => {
+                        list-find = "";
+                        LibraryEdit.find-lists("");
+                        list-popup.show();
+                    }
+                    Path {
+                        width: 22px;
+                        height: 22px;
+                        viewbox-width: 20;
+                        viewbox-height: 20;
+                        stroke: add.ink;
+                        stroke-width: 1.6px;
+                        commands: "M 10 1.5 A 8.5 8.5 0 1 1 9.99 1.5 Z M 10 6 L 10 14 M 6 10 L 14 10";
+                    }
                 }
             }
         }
@@ -461,6 +485,23 @@ export component PlayerBar inherits Rectangle {
                     LevelSlider { group: "[Master]"; key: "gain"; width: 120px; horizontal-stretch: 0; tint: Theme.text; }
                 }
             }
+            // The mini player: a small window on top of the others.
+            VerticalLayout {
+                alignment: center;
+                mini := BarButton {
+                    tip: "Mini player  (⇧⌘M)";
+                    clicked => { mini-player(); }
+                    Path {
+                        width: 22px;
+                        height: 22px;
+                        viewbox-width: 20;
+                        viewbox-height: 20;
+                        stroke: mini.ink;
+                        stroke-width: 1.6px;
+                        commands: "M 2 4 L 18 4 L 18 16 L 2 16 Z M 10 10 L 16 10 L 16 14 L 10 14 Z";
+                    }
+                }
+            }
             // Shows or hides Up Next (the Automix list) on the right.
             VerticalLayout {
                 alignment: center;
@@ -494,6 +535,23 @@ export component PlayerBar inherits Rectangle {
                     }
                 }
             }
+        }
+    }
+
+    property <string> list-find;
+    // The lists to add the playing track to, opening upwards from the bar.
+    list-popup := PopupWindow {
+        x: min(root.width - 296px, side - 280px);
+        y: -self.height - 6px;
+        width: 290px;
+        height: panel.preferred-height;
+        close-policy: close-on-click-outside;
+        panel := ListPanel {
+            width: parent.width;
+            mode: 1;
+            deck: d;
+            find <=> list-find;
+            done => { list-popup.close(); }
         }
     }
 
