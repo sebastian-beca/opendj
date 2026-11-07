@@ -60,6 +60,19 @@ export global PresetUi {
     callback rename(deck: int, name: string);
     // Plays preset `index` (a browser row's) on deck `deck`.
     callback load(deck: int, index: int);
+    // The tags a preset can have, types then characters, and how many are
+    // types. Set by the app.
+    in property <[string]> tag-names;
+    in property <int> type-count;
+    // Whether each deck's preset has each tag: deck after deck, a flag per
+    // tag in `tag-names`. Set by the app.
+    in property <[bool]> deck-tags;
+    // Gives deck `deck`'s preset tag `tag`, or takes it away.
+    callback toggle-tag(deck: int, tag: int);
+
+    public pure function has-tag(deck: int, tag: int) -> bool {
+        deck * tag-names.length + tag < deck-tags.length && deck-tags[deck * tag-names.length + tag]
+    }
 
     public pure function name(deck: int) -> string {
         deck < current.length ? current[deck] : ""
@@ -79,6 +92,10 @@ export global InstrumentsUi {
     callback select-node(index: int);
     callback toggle-node(index: int);
     callback search(text: string);
+    // The tag chips over the list, on or off, in PresetUi.tag-names' order:
+    // with any on, the list shows the presets with all of them.
+    in property <[bool]> chips;
+    callback toggle-chip(tag: int);
     // True while an item is being dragged, so every deck shows it takes drops.
     in-out property <bool> dragging;
     // What dragging `kind`/`index` carries.
@@ -462,6 +479,41 @@ component InstrumentRow inherits Rectangle {
 }
 
 // The list on the right: the selected node's instruments, like tracks.
+// A tag to switch on or off: a chip over the list, or in a preset's tags.
+export component TagChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked();
+    height: 22px;
+    min-width: label.preferred-width + 16px;
+    border-radius: 11px;
+    background: on ? Theme.accent.with-alpha(0.25) : tcta.has-hover ? #3a3a3d : Theme.control;
+    border-width: 1px;
+    border-color: on ? Theme.accent : Theme.border;
+    label := Text { text: root.text; color: on ? Theme.text : Theme.text-dim; font-size: 11px; }
+    tcta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// A row of tag chips: tags `from` to `to` (not included) of PresetUi.tag-names.
+component TagRow inherits HorizontalLayout {
+    in property <string> title;
+    in property <int> from;
+    in property <int> to;
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    spacing: 4px;
+    height: 26px;
+    alignment: start;
+    Text { text: title; width: 74px; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+    for k in max(0, to - from): TagChip {
+        text: PresetUi.tag-names[from + k];
+        on: from + k < InstrumentsUi.chips.length && InstrumentsUi.chips[from + k];
+        clicked => { InstrumentsUi.toggle-chip(from + k); }
+    }
+}
+
 component InstrumentList inherits Rectangle {
     // How many decks are shown, for double-click.
     in property <int> decks;
@@ -507,6 +559,9 @@ component InstrumentList inherits Rectangle {
                 Rectangle { horizontal-stretch: 1; }
             }
         }
+        // Tag chips: narrow the list to presets with every tag picked.
+        TagRow { title: "TYPE"; from: 0; to: PresetUi.type-count; }
+        TagRow { title: "CHARACTER"; from: PresetUi.type-count; to: PresetUi.tag-names.length; }
         // Column headings.
         Rectangle {
             height: 28px;
