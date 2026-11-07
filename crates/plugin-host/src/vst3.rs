@@ -715,8 +715,11 @@ mod run_loop {
 /// Keeps the module, component and controller alive on the main thread,
 /// and runs the editor.
 struct Vst3Main {
-    _component: ComPtr<IComponent>,
+    component: ComPtr<IComponent>,
     controller: Option<ComPtr<IEditController>>,
+    /// The controller is its own object, so it is told the component's
+    /// state when that changes.
+    separate: bool,
     _host: ComWrapper<HostApp>,
     _handler: ComWrapper<Handler>,
     frame: ComWrapper<Frame>,
@@ -725,7 +728,83 @@ struct Vst3Main {
     _module: Module,
 }
 
+impl Vst3Main {
+    fn stream(data: Vec<u8>) -> ComWrapper<Stream> {
+        ComWrapper::new(Stream {
+            data: RefCell::new(data),
+            pos: Cell::new(0),
+        })
+    }
+}
+
+/// A VST3 sound as saved: the component's state, then the controller's,
+/// each after its length (little-endian `u32`).
+fn pack_states(component: &[u8], controller: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(8 + component.len() + controller.len());
+    for part in [component, controller] {
+        out.extend_from_slice(&(part.len() as u32).to_le_bytes());
+        out.extend_from_slice(part);
+    }
+    out
+}
+
+fn unpack_states(data: &[u8]) -> Option<(&[u8], &[u8])> {
+    let part = |d: &[u8]| -> Option<(usize, usize)> {
+        let n = u32::from_le_bytes(d.get(..4)?.try_into().ok()?) as usize;
+        (d.len() >= 4 + n).then_some((4, 4 + n))
+    };
+    let (a, b) = part(data)?;
+    let component = &data[a..b];
+    let rest = &data[b..];
+    let (c, d) = part(rest)?;
+    Some((component, &rest[c..d]))
+}
+
 impl MainThread for Vst3Main {
+    fn save_state(&mut self) -> Result<Vec<u8>, String> {
+        let component = Self::stream(Vec::new());
+        // SAFETY: COM calls on live objects, on the main thread.
+        unsafe {
+            let s = component.as_com_ref::<IBStream>().unwrap().as_ptr();
+            if !ok(self.component.getState(s)) {
+                return Err("it can't save its sound".into());
+            }
+        }
+        let controller = Self::stream(Vec::new());
+        if let Some(c) = &self.controller {
+            // SAFETY: as above.
+            unsafe {
+                let s = controller.as_com_ref::<IBStream>().unwrap().as_ptr();
+                c.getState(s);
+            }
+        }
+        let component = component.data.borrow();
+        let controller = controller.data.borrow();
+        Ok(pack_states(&component, &controller))
+    }
+
+    fn load_state(&mut self, data: &[u8]) -> Result<(), String> {
+        let (component, controller) = unpack_states(data).ok_or("the saved sound is damaged")?;
+        let stream = Self::stream(component.to_vec());
+        // SAFETY: COM calls on live objects, on the main thread.
+        unsafe {
+            let s = stream.as_com_ref::<IBStream>().unwrap().as_ptr();
+            if !ok(self.component.setState(s)) {
+                return Err("it didn't take the saved sound".into());
+            }
+            if let Some(c) = &self.controller {
+                if self.separate {
+                    stream.pos.set(0);
+                    c.setComponentState(s);
+                }
+                let stream = Self::stream(controller.to_vec());
+                let s = stream.as_com_ref::<IBStream>().unwrap().as_ptr();
+                c.setState(s);
+            }
+        }
+        Ok(())
+    }
+
     fn idle(&mut self) {
         #[cfg(all(unix, not(target_os = "macos")))]
         self.frame.run_loop.run();
@@ -1043,8 +1122,9 @@ pub fn load(
         Ok(Loaded {
             effect: Box::new(effect),
             main: Some(Box::new(Vst3Main {
-                _component: component,
+                component,
                 controller,
+                separate,
                 _host: host,
                 _handler: handler,
                 frame: ComWrapper::new(Frame {
@@ -1203,6 +1283,13 @@ impl Effect for Vst3Effect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn states_pack_and_unpack() {
+        let data = pack_states(b"abc", b"");
+        assert_eq!(unpack_states(&data), Some((&b"abc"[..], &b""[..])));
+        assert_eq!(unpack_states(&data[..5]), None);
+    }
 
     #[test]
     fn class_ids_round_trip() {

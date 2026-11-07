@@ -22,6 +22,18 @@ pub trait Effect: Send {
 pub trait MainThread {
     fn idle(&mut self);
 
+    /// The plugin's whole state (its sound and settings), as bytes only it
+    /// reads, for `load_state` to bring back later.
+    fn save_state(&mut self) -> Result<Vec<u8>, String> {
+        Err("it can't save its sound".into())
+    }
+
+    /// Brings the plugin back to a state `save_state` gave.
+    fn load_state(&mut self, data: &[u8]) -> Result<(), String> {
+        let _ = data;
+        Err("it can't load a saved sound".into())
+    }
+
     /// Puts the plugin's own window (its editor) inside `parent` and returns
     /// its size, in the units `parent` uses (points on macOS, pixels
     /// elsewhere). Errors when the plugin has none.
@@ -132,11 +144,24 @@ pub enum Plugin {
 }
 
 /// The test gain's "editor": an empty window of a set size, so the editor
-/// window can be tested without third-party plugins.
-struct TestEditor;
+/// window can be tested without third-party plugins. Its "sound" is
+/// whatever bytes it was last given.
+#[derive(Default)]
+struct TestEditor {
+    state: Vec<u8>,
+}
 
 impl MainThread for TestEditor {
     fn idle(&mut self) {}
+
+    fn save_state(&mut self) -> Result<Vec<u8>, String> {
+        Ok(self.state.clone())
+    }
+
+    fn load_state(&mut self, data: &[u8]) -> Result<(), String> {
+        self.state = data.to_vec();
+        Ok(())
+    }
 
     fn open_editor(&mut self, _parent: ParentWindow, _scale: f64) -> Result<EditorSize, String> {
         Ok(EditorSize {
@@ -176,7 +201,7 @@ pub fn load(plugin: &Plugin, sample_rate: u32, max_frames: usize) -> Result<Load
     match plugin {
         Plugin::Test(id) => match id.as_str() {
             "test-gain" => Ok(Loaded {
-                main: Some(Box::new(TestEditor)),
+                main: Some(Box::<TestEditor>::default()),
                 ..test(Box::new(Gain), id, "Gain", 2.0, 1.0)
             }),
             "test-crash" => Ok(test(
