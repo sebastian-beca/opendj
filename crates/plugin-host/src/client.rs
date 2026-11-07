@@ -644,6 +644,16 @@ impl Helper {
         }
     }
 
+    /// The parameters' values as the plugin has them now, in their own
+    /// ranges, and a number that changes each time they are read back
+    /// (none read yet: 0). They follow the plugin's window and loaded sounds.
+    pub fn param_values(&self) -> (u32, Vec<f32>) {
+        let h = self.shm.header();
+        let seq = h.values_seq.load(Ordering::Acquire);
+        let n = self.info.params.len().min(MAX_PARAMS);
+        (seq, (0..n).map(|i| shm::load_f32(&h.values[i])).collect())
+    }
+
     /// The plugin's name, parameters and latency, as it reported them.
     pub fn info(&self) -> &Info {
         &self.info

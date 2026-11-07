@@ -293,6 +293,14 @@ impl AudioEngine {
         }
     }
 
+    /// The playing instrument's parameter names, for its knobs
+    /// (`[Instrument1],parameterN` is the N-th); empty while none plays.
+    pub fn instrument_parameters(&self) -> Vec<String> {
+        self.plugins
+            .as_ref()
+            .map_or_else(Vec::new, |p| p.instrument_parameters())
+    }
+
     /// Keeps every running plugin's sound and stops the plugins, waiting
     /// until done. Call when quitting.
     pub fn shut_down_plugins(&self) {

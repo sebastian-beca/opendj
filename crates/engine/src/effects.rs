@@ -1147,8 +1147,8 @@ pub(crate) struct Attached {
     pub(crate) plugin: u16,
     /// The plugin's range for each knob the slot shows.
     pub(crate) ranges: Vec<(f32, f32)>,
-    /// The knob values last sent.
-    pub(crate) sent: [f32; MAX_PARAMETERS],
+    /// The knob values last sent, one per range.
+    pub(crate) sent: Vec<f32>,
 }
 
 /// From the plugin host to the audio thread.
@@ -1261,7 +1261,13 @@ impl EffectRack {
 
     /// Plays the instrument into `buf` with the notes that came in, at the
     /// tempo of `target`; silence without one. True when it is attached.
-    pub(crate) fn play_instrument(&mut self, buf: &mut [[f32; 2]], target: usize) -> bool {
+    /// `params` are its knobs (see [`crate::inputs::INSTRUMENT_PARAMETERS`]).
+    pub(crate) fn play_instrument(
+        &mut self,
+        buf: &mut [[f32; 2]],
+        target: usize,
+        params: &[f32],
+    ) -> bool {
         let frames = buf.len();
         let cap = self.notes_waiting.capacity();
         while let Ok(n) = self.notes.pop() {
@@ -1274,6 +1280,7 @@ impl EffectRack {
             buf.fill([0.0; 2]);
             return false;
         };
+        a.send_params(params);
         let [silent, _, out_l, out_r] = &mut self.planar;
         silent[..frames].fill(0.0);
         let Some(deadline) = plugin_deadline(self.block_start, frames, self.sample_rate) else {
@@ -1643,11 +1650,11 @@ fn cubic(y0: f32, y1: f32, y2: f32, y3: f32, t: f32) -> f32 {
 
 impl Attached {
     /// Sends the knobs that moved, scaled to the plugin's own ranges.
-    fn send_params(&mut self, params: &[f32; MAX_PARAMETERS]) {
-        for (k, &(lo, hi)) in self.ranges.iter().enumerate().take(MAX_PARAMETERS) {
-            if params[k] != self.sent[k] {
-                self.sent[k] = params[k];
-                self.conn.set_param(k, lo + params[k] * (hi - lo));
+    fn send_params(&mut self, params: &[f32]) {
+        for (k, (&(lo, hi), &v)) in self.ranges.iter().zip(params).enumerate() {
+            if v != self.sent[k] {
+                self.sent[k] = v;
+                self.conn.set_param(k, lo + v * (hi - lo));
             }
         }
     }

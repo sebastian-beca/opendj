@@ -38,6 +38,11 @@ pub const AUXILIARY_3: usize = 4;
 /// The auxiliary inputs, in order.
 pub const AUXILIARIES: [usize; 3] = [AUXILIARY, AUXILIARY_2, AUXILIARY_3];
 
+/// Knobs the instrument's plugin parameters show on:
+/// `[Instrument1],parameter1` to `parameter32`, 0 to 1 across each one's
+/// own range. As many as the plugin host shares with a helper.
+pub const INSTRUMENT_PARAMETERS: usize = opendj_plugin_host::shm::MAX_PARAMS;
+
 /// The input's control group.
 pub const fn input_group(input: usize) -> &'static str {
     [
@@ -197,6 +202,12 @@ impl InputControls {
             );
             // The instrument's own window, as an effect slot's `show_editor`.
             reg.toggle(g, "show_editor");
+            // Its first parameters (see `INSTRUMENT_PARAMETERS`), and how
+            // many it has, as an effect slot's.
+            for k in 1..=INSTRUMENT_PARAMETERS {
+                reg.create(g, &format!("parameter{k}"), 0.0, 0.0, 1.0, Behavior::Linear);
+            }
+            reg.indicator(g, "num_parameters", INSTRUMENT_PARAMETERS as f64);
         }
         let configured = reg.indicator(g, "input_configured", 1.0);
         alias(reg, g, "enabled", g, "input_configured");
@@ -231,6 +242,8 @@ pub(crate) struct Input {
     index: usize,
     /// The instrument's pads; none for the device inputs.
     pads: Option<Pads>,
+    /// The instrument's `parameterN` knobs; empty for the device inputs.
+    params: Vec<ControlHandle>,
     feed: Option<InputFeed>,
     /// Waiting for the queue to fill before playing from it.
     filling: bool,
@@ -259,6 +272,13 @@ impl Input {
             c: InputControls::create(reg, input),
             index: input,
             pads: (input == INSTRUMENT).then(|| Pads::create(reg, input_group(input))),
+            params: if input == INSTRUMENT {
+                (1..=INSTRUMENT_PARAMETERS)
+                    .filter_map(|k| reg.get(input_group(input), &format!("parameter{k}")))
+                    .collect()
+            } else {
+                Vec::new()
+            },
             feed: None,
             filling: true,
             eq: Isolator::new(sample_rate),
@@ -306,7 +326,11 @@ impl Input {
             if let Some(pads) = &mut self.pads {
                 pads.play(fx);
             }
-            let playing = fx.play_instrument(buf, target);
+            let mut params = [0.0f32; INSTRUMENT_PARAMETERS];
+            for (p, c) in params.iter_mut().zip(&self.params) {
+                *p = c.get() as f32;
+            }
+            let playing = fx.play_instrument(buf, target, &params);
             self.c.configured.set_bool(fx.has_instrument());
             playing
         } else {

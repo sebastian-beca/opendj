@@ -3702,6 +3702,63 @@ component OctaveStep inherits Rectangle {
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
+// One of the instrument's knobs: its parameter `index` (from 0), named
+// under it; an empty cell past its last one.
+component ParamKnob inherits Rectangle {
+    in property <int> index;
+    in property <int> count;
+    in property <color> tint;
+    width: 62px;
+    height: 46px;
+    if index < count: ControlKnob {
+        x: (parent.width - self.width) / 2;
+        y: 0;
+        group: "[Instrument1]";
+        key: "parameter" + (index + 1);
+        tint: root.tint;
+        size: 26px;
+    }
+    if index < count: Text {
+        y: 33px;
+        width: parent.width;
+        text: InstrumentsUi.param-names[index];
+        color: Theme.text-dim;
+        font-size: 10px;
+        horizontal-alignment: center;
+        overflow: elide;
+    }
+}
+
+// The instrument's knobs, eight to a page: its first parameters, in the
+// order it lists them. Page buttons show when it has more than eight.
+component InstrumentKnobs inherits VerticalLayout {
+    in property <color> tint;
+    in-out property <int> page;
+    property <int> count: Controls.value(Controls.resolve("[Instrument1]", "num_parameters"), Controls.tick);
+    property <int> pages: max(1, ceil(count / 8));
+    property <int> shown: min(page, pages - 1);
+    spacing: 4px;
+    if pages > 1: HorizontalLayout {
+        alignment: center;
+        spacing: 4px;
+        for p in pages: Rectangle {
+            width: 26px;
+            height: 16px;
+            border-radius: 3px;
+            background: p == shown ? root.tint.with-alpha(0.25) : pta.has-hover ? #2a2b2e : Theme.control;
+            border-width: 1px;
+            border-color: p == shown ? root.tint : transparent;
+            Text { text: p + 1; color: p == shown ? Theme.text : Theme.text-dim; font-size: 10px; }
+            pta := TouchArea { mouse-cursor: pointer; clicked => { root.page = p; } }
+        }
+    }
+    for row in 2: HorizontalLayout {
+        alignment: center;
+        spacing: 2px;
+        for k in 4: ParamKnob { index: shown * 8 + row * 4 + k; count: root.count; tint: root.tint; }
+    }
+}
+
 // A deck playing a live input: what it plays, its level, and for an
 // instrument plugin its window, the KEYBOARD pads switch and their octave.
 component LivePanel inherits Rectangle {
@@ -3715,7 +3772,8 @@ component LivePanel inherits Rectangle {
     property <int> octave: Controls.value(octave-index, Controls.tick);
     border-radius: 10px;
     background: Theme.well;
-    VerticalLayout {
+    // Not set up yet: what it needs, and where to set it up.
+    if !ready: VerticalLayout {
         alignment: center;
         spacing: 8px;
         padding: 10px;
@@ -3724,56 +3782,13 @@ component LivePanel inherits Rectangle {
             LiveIcon { kind: InstrumentsUi.live-icon(live); tint: tint; size: 40px; }
         }
         Text {
-            text: !ready ? (live == 3 ? "Pick an instrument plugin to hear it." : "No input picked for it yet.")
-                : live == 3 ? (InstrumentsUi.playing-from != "" ? "Playing from " + InstrumentsUi.playing-from + "." : "Play it with a MIDI keyboard or the KEYBOARD pads.")
-                : "Live through this deck's EQ, filter, effects and fader.";
-            color: ready ? Theme.text-dim : #ff9f0a;
+            text: live == 3 ? "Pick an instrument plugin to hear it." : "No input picked for it yet.";
+            color: #ff9f0a;
             font-size: 13px;
             horizontal-alignment: center;
             wrap: word-wrap;
         }
-        // TRIM brings quiet gear up before the channel, watched on the
-        // meter below; PAN places it. A safety limiter keeps it from
-        // clipping whatever the trim.
-        if ready: HorizontalLayout {
-            alignment: center;
-            spacing: 18px;
-            ControlKnob { group: group; key: "live_trim"; label: "TRIM"; tint: tint; size: 34px; }
-            ControlKnob { group: group; key: "live_pan"; label: "PAN"; tint: tint; size: 34px; bipolar: true; }
-        }
-        // The deck's level.
         HorizontalLayout {
-            alignment: center;
-            Rectangle {
-                width: 180px;
-                height: 6px;
-                border-radius: 3px;
-                background: #2a2a2d;
-                Rectangle {
-                    x: 0;
-                    width: parent.width * clamp(level, 0, 1);
-                    height: parent.height;
-                    border-radius: 3px;
-                    background: tint;
-                }
-            }
-        }
-        if live == 3 && ready: HorizontalLayout {
-            alignment: center;
-            spacing: 8px;
-            ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "EDIT"; tint: Theme.accent; width: 60px; height: 26px; font-size: 11px; outline-when-lit: true; }
-            ControlButton { group: "[Instrument1]"; key: "keyboard_pads"; text: "KEYBOARD PADS"; tint: Theme.accent; width: 120px; height: 26px; font-size: 11px; }
-        }
-        // The octave the KEYBOARD pads play the instrument in.
-        if live == 3 && ready: HorizontalLayout {
-            alignment: center;
-            spacing: 6px;
-            Caption { text: "OCTAVE"; vertical-alignment: center; }
-            OctaveStep { text: "−"; clicked => { Controls.set-value(octave-index, max(-3, octave - 1)); } }
-            Text { text: octave > 0 ? "+" + octave : "" + octave; color: Theme.text; font-size: 11px; vertical-alignment: center; horizontal-alignment: center; width: 18px; }
-            OctaveStep { text: "+"; clicked => { Controls.set-value(octave-index, min(3, octave + 1)); } }
-        }
-        if !ready: HorizontalLayout {
             alignment: center;
             GrooveButton {
                 text: live == 3 ? "Settings › Plugins" : "Settings › Audio";
@@ -3785,6 +3800,71 @@ component LivePanel inherits Rectangle {
                         InstrumentsUi.open-settings(0, 0);
                     }
                 }
+            }
+        }
+    }
+    // Playing, side by side: what it is and its level; TRIM brings quiet
+    // gear up before the channel and PAN places it (a safety limiter keeps
+    // it from clipping whatever the trim); then for an instrument its own
+    // knobs, its window, the KEYBOARD pads switch and their octave.
+    if ready: HorizontalLayout {
+        alignment: center;
+        spacing: 18px;
+        padding: 8px;
+        VerticalLayout {
+            alignment: center;
+            spacing: 6px;
+            width: 170px;
+            HorizontalLayout {
+                alignment: center;
+                LiveIcon { kind: InstrumentsUi.live-icon(live); tint: tint; size: 28px; }
+            }
+            Text {
+                text: live == 3 ? (InstrumentsUi.playing-from != "" ? "Playing from " + InstrumentsUi.playing-from + "." : "Play it with a MIDI keyboard or the KEYBOARD pads.")
+                    : "Live through this deck's EQ, filter, effects and fader.";
+                color: Theme.text-dim;
+                font-size: 11px;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+            // The deck's level.
+            HorizontalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 150px;
+                    height: 6px;
+                    border-radius: 3px;
+                    background: #2a2a2d;
+                    Rectangle {
+                        x: 0;
+                        width: parent.width * clamp(level, 0, 1);
+                        height: parent.height;
+                        border-radius: 3px;
+                        background: tint;
+                    }
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 4px;
+            ControlKnob { group: group; key: "live_trim"; label: "TRIM"; tint: tint; size: 30px; }
+            ControlKnob { group: group; key: "live_pan"; label: "PAN"; tint: tint; size: 30px; bipolar: true; }
+        }
+        if live == 3: InstrumentKnobs { tint: tint; }
+        if live == 3: VerticalLayout {
+            alignment: center;
+            spacing: 6px;
+            ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "EDIT"; tint: Theme.accent; width: 110px; height: 24px; font-size: 11px; outline-when-lit: true; }
+            ControlButton { group: "[Instrument1]"; key: "keyboard_pads"; text: "KEYBOARD PADS"; tint: Theme.accent; width: 110px; height: 24px; font-size: 11px; }
+            // The octave the KEYBOARD pads play the instrument in.
+            HorizontalLayout {
+                alignment: center;
+                spacing: 6px;
+                Caption { text: "OCTAVE"; vertical-alignment: center; }
+                OctaveStep { text: "−"; clicked => { Controls.set-value(octave-index, max(-3, octave - 1)); } }
+                Text { text: octave > 0 ? "+" + octave : "" + octave; color: Theme.text; font-size: 11px; vertical-alignment: center; horizontal-alignment: center; width: 18px; }
+                OctaveStep { text: "+"; clicked => { Controls.set-value(octave-index, min(3, octave + 1)); } }
             }
         }
     }

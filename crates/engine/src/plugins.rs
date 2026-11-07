@@ -27,7 +27,7 @@ use crate::effects::{
     instance_indices, plugin_index, route_name, Attached, PluginLink, PluginMsg, BLOCK, MAIN,
     MAX_PARAMETERS, MAX_PLUGINS, PLUGIN_BASE, TARGETS,
 };
-use crate::inputs::{input_group, INSTRUMENT, NUM_INPUTS};
+use crate::inputs::{input_group, INSTRUMENT, INSTRUMENT_PARAMETERS, NUM_INPUTS};
 
 const INSTRUMENT_GROUP: &str = input_group(INSTRUMENT);
 
@@ -108,6 +108,8 @@ struct List {
     sounds: Option<PathBuf>,
     /// Asked of the instrument, served on the plugin host thread.
     requests: Vec<SoundRequest>,
+    /// The playing instrument's parameter names, as its knobs show them.
+    instrument_params: Vec<String>,
 }
 
 /// What the app asks of the instrument's sound (see
@@ -212,6 +214,12 @@ impl PluginHost {
             .push(SoundRequest::Load(key.into(), data, tx));
         rx.recv_timeout(SOUND_WAIT)
             .unwrap_or_else(|_| Err("the instrument didn't answer".into()))
+    }
+
+    /// The playing instrument's parameter names: `[Instrument1],parameterN`
+    /// is the N-th. Empty while none plays.
+    pub fn instrument_parameters(&self) -> Vec<String> {
+        self.list.lock().unwrap().instrument_params.clone()
     }
 
     /// What happened since the last call.
@@ -337,8 +345,86 @@ struct InstrumentState {
     /// `[Instrument1],show_editor`, and whether its editor was asked for.
     show_editor: ControlHandle,
     editor: bool,
+    /// `[Instrument1],parameterN` and `num_parameters`.
+    params: Vec<ControlHandle>,
+    num_parameters: ControlHandle,
+    /// Following the plugin's own changes to its parameters.
+    follow: ParamFollow,
     policies: HashMap<u16, Policy>,
     disabled: HashSet<u16>,
+}
+
+/// Where `value` sits in `min..max`, 0 to 1.
+fn normalized(value: f64, min: f64, max: f64) -> f64 {
+    let span = max - min;
+    if span > 0.0 {
+        ((value - min) / span).clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+/// How long after the DJ moves a knob the plugin's own value for it is
+/// left alone, so a value read back late doesn't pull the knob back.
+const HANDS_OFF: Duration = Duration::from_millis(400);
+
+/// Moves the instrument's knobs when the plugin changes its own values
+/// (in its window, or with a loaded sound), except one the DJ is turning.
+#[derive(Default)]
+struct ParamFollow {
+    /// Each parameter's range.
+    ranges: Vec<(f64, f64)>,
+    /// The read-back the values below are from.
+    seq: u32,
+    /// The plugin's values last read back, 0 to 1.
+    seen: Vec<f64>,
+    /// Each knob's value at the last step, and when the DJ last moved it.
+    knob: Vec<f64>,
+    touched: Vec<Option<Instant>>,
+}
+
+impl ParamFollow {
+    fn new(knobs: &[ControlHandle], ranges: Vec<(f64, f64)>) -> Self {
+        let now: Vec<f64> = knobs.iter().map(|k| k.get()).collect();
+        Self {
+            ranges,
+            seq: 0,
+            seen: now.clone(),
+            touched: vec![None; now.len()],
+            knob: now,
+        }
+    }
+
+    /// Takes read-back `seq`'s `values` (in the plugin's own ranges).
+    fn step(&mut self, knobs: &[ControlHandle], seq: u32, values: &[f32]) {
+        let now = Instant::now();
+        for (k, knob) in self.knob.iter_mut().enumerate() {
+            let v = knobs[k].get();
+            if v != *knob {
+                *knob = v;
+                self.touched[k] = Some(now);
+            }
+        }
+        if seq == self.seq {
+            return;
+        }
+        self.seq = seq;
+        for (k, &raw) in values.iter().enumerate().take(self.seen.len()) {
+            let (min, max) = self.ranges[k];
+            let v = normalized(raw as f64, min, max);
+            // Left for later while the DJ turns it, so a change the plugin
+            // made meanwhile still lands.
+            let busy = self.touched[k].is_some_and(|t| now - t < HANDS_OFF);
+            if busy || (v - self.seen[k]).abs() < 1e-4 {
+                continue;
+            }
+            self.seen[k] = v;
+            if (v - self.knob[k]).abs() >= 1e-4 {
+                knobs[k].set(v);
+                self.knob[k] = v;
+            }
+        }
+    }
 }
 
 /// How often an open window's plugin has its sound kept.
@@ -453,6 +539,11 @@ impl Supervisor {
                 running_key: String::new(),
                 show_editor: get(reg, INSTRUMENT_GROUP, "show_editor"),
                 editor: false,
+                params: (1..=INSTRUMENT_PARAMETERS)
+                    .map(|k| get(reg, INSTRUMENT_GROUP, &format!("parameter{k}")))
+                    .collect(),
+                num_parameters: get(reg, INSTRUMENT_GROUP, "num_parameters"),
+                follow: ParamFollow::default(),
                 policies: HashMap::new(),
                 disabled: HashSet::new(),
             },
@@ -483,6 +574,7 @@ impl Supervisor {
         self.watch();
         self.follow_slots();
         self.follow_instrument();
+        self.follow_instrument_params();
         self.follow_editors();
         self.keep_open_sounds();
         self.serve_sound_requests();
@@ -751,7 +843,7 @@ impl Supervisor {
                 let shown = info.params.len().min(MAX_PARAMETERS);
                 let fresh = self.knobs[unit][slot] != Some(plugin);
                 let mut ranges = Vec::with_capacity(shown);
-                let mut sent = [0.5; MAX_PARAMETERS];
+                let mut sent = vec![0.5; shown];
                 for (k, p) in info.params.iter().take(shown).enumerate() {
                     let span = p.max - p.min;
                     let v = if span > 0.0 {
@@ -838,6 +930,25 @@ impl Supervisor {
             .map_or_else(String::new, |e| e.name.clone())
     }
 
+    /// Keeps the instrument's knobs on the plugin's own values, and empties
+    /// them once it stops.
+    fn follow_instrument_params(&mut self) {
+        let ins = &mut self.instrument;
+        match &ins.running {
+            Some((_, helper)) => {
+                let (seq, values) = helper.param_values();
+                let n = ins.follow.seen.len();
+                ins.follow.step(&ins.params[..n], seq, &values);
+            }
+            None if ins.num_parameters.get() != 0.0 => {
+                ins.num_parameters.set(0.0);
+                ins.follow = ParamFollow::default();
+                self.list.lock().unwrap().instrument_params.clear();
+            }
+            None => {}
+        }
+    }
+
     /// Starts, stops and watches the Instrument input's helper.
     fn follow_instrument(&mut self) {
         let ins = &mut self.instrument;
@@ -915,11 +1026,30 @@ impl Supervisor {
         };
         match spawn(&opts) {
             Ok((conn, helper)) => {
+                // Its knobs start where the plugin is (its kept sound's
+                // values), so nothing changes until the DJ turns one.
+                let params = &helper.info().params;
+                let shown = params.len().min(INSTRUMENT_PARAMETERS);
+                let mut ranges = Vec::with_capacity(shown);
+                let mut sent = Vec::with_capacity(shown);
+                for (k, p) in params.iter().take(shown).enumerate() {
+                    let v = normalized(p.value, p.min, p.max);
+                    ins.params[k].set(v);
+                    ranges.push((p.min as f32, p.max as f32));
+                    sent.push(v as f32);
+                }
+                ins.num_parameters.set(shown as f64);
+                ins.follow = ParamFollow::new(
+                    &ins.params[..shown],
+                    params.iter().take(shown).map(|p| (p.min, p.max)).collect(),
+                );
+                self.list.lock().unwrap().instrument_params =
+                    params.iter().take(shown).map(|p| p.name.clone()).collect();
                 let attached = Box::new(Attached {
                     conn,
                     plugin,
-                    ranges: Vec::new(),
-                    sent: [0.0; MAX_PARAMETERS],
+                    ranges,
+                    sent,
                 });
                 if self
                     .link
@@ -1241,6 +1371,53 @@ mod tests {
             self.now += FRAMES as f64 / SR as f64;
             self.instrument.buf[FRAMES - 1][0]
         }
+    }
+
+    #[test]
+    fn the_instruments_knobs_turn_it_and_follow_its_own_changes() {
+        let mut rig = Rig::new("test-gain");
+        rig.host.set_instruments(vec![PluginEntry {
+            key: "test-synth".into(),
+            name: "Test Synth".into(),
+            plugin: Plugin::Test("test-synth".into()),
+        }]);
+        let group = input_group(INSTRUMENT);
+        let count = rig.reg.get(group, "num_parameters").unwrap();
+        let volume = rig.reg.get(group, "parameter1").unwrap();
+        rig.reg.get(group, "instrument").unwrap().set(1.0);
+        let end = Instant::now() + Duration::from_secs(10);
+        while count.get() != 1.0 || !rig.reg.get(group, "input_configured").unwrap().get_bool() {
+            rig.instrument_buffer();
+            assert!(Instant::now() < end, "the instrument starts");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(rig.host.instrument_parameters(), ["Volume"]);
+        assert_eq!(volume.get(), 1.0, "the knob starts at the plugin's value");
+        assert!(rig.notes.send([0x90, 127, 100]));
+        assert!((rig.instrument_buffer() - 1.0).abs() < 1e-3);
+        volume.set(0.5);
+        assert!((rig.instrument_buffer() - 0.5).abs() < 1e-3);
+        // A sound that sets the volume (the test synth takes 4 bytes as
+        // its value) moves the knob to it, once the DJ's hands are off.
+        rig.host
+            .load_instrument_sound("test-synth", 0.25f32.to_le_bytes().to_vec())
+            .unwrap();
+        let end = Instant::now() + Duration::from_secs(5);
+        while (volume.get() - 0.25).abs() > 1e-6 {
+            rig.instrument_buffer();
+            assert!(Instant::now() < end, "the knob follows the plugin");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!((rig.instrument_buffer() - 0.25).abs() < 1e-3);
+        // Taken off, it has no knobs.
+        rig.reg.get(group, "instrument").unwrap().set(0.0);
+        let end = Instant::now() + Duration::from_secs(5);
+        while count.get() != 0.0 {
+            rig.instrument_buffer();
+            assert!(Instant::now() < end, "the knobs go");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(rig.host.instrument_parameters().is_empty());
     }
 
     #[test]

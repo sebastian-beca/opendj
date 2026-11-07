@@ -362,9 +362,25 @@ pub fn scan() -> Vec<Descriptor> {
 struct AuMain {
     unit: AudioUnit,
     view: Option<editor::View>,
+    /// The shared parameters' ids, for reading their values back.
+    param_ids: Vec<u32>,
 }
 
 impl MainThread for AuMain {
+    fn param_values(&mut self, out: &mut [f64]) -> bool {
+        for (o, id) in out.iter_mut().zip(&self.param_ids) {
+            let mut v = 0.0f32;
+            // SAFETY: the unit lives as long as the helper; reading a
+            // parameter is allowed from any thread.
+            if unsafe { AudioUnitGetParameter(self.unit, *id, kAudioUnitScope_Global, 0, &mut v) }
+                == 0
+            {
+                *o = v as f64;
+            }
+        }
+        true
+    }
+
     fn save_state(&mut self) -> Result<Vec<u8>, String> {
         // SAFETY: the unit lives as long as the helper; every object made
         // here is released before returning.
@@ -975,7 +991,11 @@ pub fn load(id: &str, sample_rate: u32, max_frames: usize) -> Result<Loaded, Str
         };
         Ok(Loaded {
             effect: Box::new(effect),
-            main: Some(Box::new(AuMain { unit, view: None })),
+            main: Some(Box::new(AuMain {
+                unit,
+                view: None,
+                param_ids: params.iter().map(|(id, _)| *id).collect(),
+            })),
             info: Info {
                 name,
                 params: params.into_iter().map(|(_, p)| p).collect(),
