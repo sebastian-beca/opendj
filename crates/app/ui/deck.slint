@@ -3066,6 +3066,99 @@ component GrooveTab inherits Rectangle {
     gtba := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
+// The Groove Box's bottom bar: Auto fill (Off, Auto 1, Auto 2), FILL
+// (hold for a fill now) and the REMIX strip (hold and slide: hats, then
+// rolls, then swapped tracks, then everything; let go to go back).
+component GrooveFillBar inherits HorizontalLayout {
+    in property <string> g;
+    in property <color> tint;
+    property <int> auto-index: Controls.resolve(g, "auto_fill");
+    property <int> auto: Controls.value(auto-index, Controls.tick);
+    property <int> fill-index: Controls.resolve(g, "fill");
+    property <int> remix-index: Controls.resolve(g, "remix");
+    property <float> remix: Controls.value(remix-index, Controls.tick);
+    property <bool> filling: Controls.value(Controls.resolve(g, "fill_playing"), Controls.tick) > 0;
+    property <int> level: remix <= 0 ? 0 : floor(min(1, remix) * 15.999) + 1;
+    height: 26px;
+    spacing: 4px;
+    Rectangle {
+        width: 168px;
+        border-radius: 6px;
+        background: Theme.well;
+        HorizontalLayout {
+            padding: 2px;
+            spacing: 2px;
+            for name[i] in ["NO FILLS", "AUTO 1", "AUTO 2"]: GrooveTab {
+                height: 22px;
+                text: name;
+                on: auto == i;
+                tint: tint;
+                clicked => { Controls.set-value(auto-index, i); }
+            }
+        }
+    }
+    Rectangle {
+        width: 52px;
+        border-radius: Theme.radius;
+        border-width: filling ? 2px : 1px;
+        border-color: filling ? tint : Theme.border;
+        background: fta.pressed ? tint.with-alpha(0.4) : Theme.control;
+        Text { text: "FILL"; color: filling ? tint : Theme.text; font-size: 10px; font-weight: 700; }
+        fta := TouchArea {
+            mouse-cursor: pointer;
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                    Controls.set-value(fill-index, 1);
+                } else if e.kind == PointerEventKind.up {
+                    Controls.set-value(fill-index, 0);
+                }
+            }
+        }
+    }
+    Rectangle {
+        horizontal-stretch: 1;
+        border-radius: Theme.radius;
+        border-width: 1px;
+        border-color: level > 0 ? tint : Theme.border;
+        background: #00000040;
+        HorizontalLayout {
+            padding: 3px;
+            spacing: 2px;
+            for i in 16: Rectangle {
+                border-radius: 2px;
+                background: i < level ? tint.with-alpha(0.35 + 0.6 * (i + 1) / 16) : #ffffff10;
+            }
+        }
+        Text {
+            text: level > 0 ? "REMIX " + level : "REMIX   hold and slide: hats · rolls · swap · all";
+            color: level > 0 ? Theme.text : Theme.text-dim;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+        }
+        rta := TouchArea {
+            mouse-cursor: pointer;
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.up {
+                    Controls.set-value(remix-index, 0);
+                }
+            }
+            moved => {
+                if self.pressed {
+                    Controls.set-value(remix-index, max(0.001, min(1, self.mouse-x / self.width)));
+                }
+            }
+            changed pressed => {
+                if self.pressed {
+                    Controls.set-value(remix-index, max(0.001, min(1, self.mouse-x / self.width)));
+                } else {
+                    Controls.set-value(remix-index, 0);
+                }
+            }
+        }
+    }
+}
+
 // The Groove Box, over the whole deck: a top bar with PLAY, the kit, the
 // library's genre, groove and chain, A to D, the tempo (with SWING) and the three tabs,
 // then the tab: SEQUENCER (eight tracks of 16 steps), SYNTH (each track's sound, PITCH,
@@ -3277,6 +3370,7 @@ component GrooveBox inherits Rectangle {
                 }
             }
         }
+        GrooveFillBar { g: g; tint: tint; }
     }
 }
 

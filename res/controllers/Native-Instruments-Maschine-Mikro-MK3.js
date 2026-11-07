@@ -29,6 +29,10 @@
 //   MUTE / SOLO                 the row; held + pad: that pad's row
 //   VOLUME / PITCH / MOD        the encoder and strip set the row's level /
 //   SWING / TEMPO               pitch / decay, the swing / own tempo
+//   PERFORM                     the strip plays REMIX while touched (16
+//                               figures along it); again: back to the knob
+//   NOTE REPEAT (held)          FILL: a fill now
+//   AUTO                        Auto fill: off, Auto 1, Auto 2
 
 var MikroMK3 = {};
 
@@ -111,6 +115,8 @@ MikroMK3.init = function(_id) {
     this.modifierUsed = false;
     this.encoder = null;
     this.target = "level";
+    this.stripRemix = false;
+    this.lastStrip = 0;
     this.message = "";
     this.messageUntil = 0;
     this.lastLights = "";
@@ -216,9 +222,17 @@ MikroMK3.onButtons = function(data) {
     }
     this.encoder = enc;
     const strip = data[10];
-    if (strip > 0) {
+    if (this.stripRemix) {
+        // Remix while touched; let go and the groove goes back.
+        if (strip > 0) {
+            engine.setValue(this.group(), "remix", Math.max(0.001, Math.min(1, (strip - 1) / 199)));
+        } else if (this.lastStrip > 0) {
+            engine.setValue(this.group(), "remix", 0);
+        }
+    } else if (strip > 0) {
         this.slide(Math.min(1, (strip - 1) / 199));
     }
+    this.lastStrip = strip;
 };
 
 MikroMK3.press = function(b) {
@@ -275,6 +289,21 @@ MikroMK3.press = function(b) {
         this.say(on ? "RECORDING THE PADS" : "RECORD OFF");
         break;
     }
+    case B.PERFORM:
+        this.stripRemix = !this.stripRemix;
+        engine.setValue(g, "remix", 0);
+        this.say(this.stripRemix ? "STRIP: REMIX" : "STRIP: " + this.TARGETS[this.target].label);
+        break;
+    case B.NOTE_REPEAT:
+        engine.setValue(g, "fill", 1);
+        this.say("FILL");
+        break;
+    case B.AUTO: {
+        const auto = (Math.round(engine.getValue(g, "auto_fill")) + 1) % 3;
+        engine.setValue(g, "auto_fill", auto);
+        this.say(auto === 0 ? "NO FILLS" : "AUTO " + auto);
+        break;
+    }
     case B.ERASE:
         engine.setValue(g, "row_clear", 1);
         this.say("ROW " + this.row() + " EMPTY");
@@ -295,6 +324,9 @@ MikroMK3.press = function(b) {
 
 MikroMK3.release = function(b) {
     const B = this.B;
+    if (b === B.NOTE_REPEAT) {
+        engine.setValue(this.group(), "fill", 0);
+    }
     if ((b === B.MUTE || b === B.SOLO) && !this.modifierUsed) {
         const key = "row" + this.row() + (b === B.MUTE ? "_mute" : "_solo");
         engine.setValue(this.group(), key, engine.getValue(this.group(), key) > 0 ? 0 : 1);
@@ -424,8 +456,11 @@ MikroMK3.sendLights = function() {
         out[B.SELECT] = this.held(B.SELECT) ? this.ON : this.DIM;
         out[B.FIXED_VEL] = this.held(B.FIXED_VEL) ? this.ON : this.OFF;
         out[B.SHIFT] = this.held(B.SHIFT) ? this.ON : this.DIM;
-        // The strip shows the encoder's value.
-        const [group, key] = this.targetGroupKey();
+        lit(B.PERFORM, this.stripRemix);
+        lit(B.AUTO, engine.getValue(g, "auto_fill") > 0);
+        out[B.NOTE_REPEAT] = engine.getValue(g, "fill_playing") > 0 ? this.BRIGHT : this.DIM;
+        // The strip shows the encoder's value, or the Remix figure.
+        const [group, key] = this.stripRemix ? [g, "remix"] : this.targetGroupKey();
         const n = Math.round(engine.getParameter(group, key) * 25);
         for (let i = 0; i < 25; i++) {
             out[55 + i] = i < n ? this.C.VIOLET * 4 + (i === n - 1 ? 3 : 1) : 0;

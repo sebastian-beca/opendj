@@ -16,8 +16,8 @@
 
 ## 4. Fills
 
-- [ ] 4.1 Auto 1 and Auto 2 on the leading deck's phrases
-- [ ] 4.2 Remix strip: levels from position, mouse and touch strip (Maschine Mikro MK3), back on the next step
+- [x] 4.1 Auto 1 and Auto 2 on the leading deck's beat, FILL held, crash after a fill
+- [x] 4.2 Remix strip: 16 figures from position, mouse and touch strip (Maschine Mikro MK3 PERFORM), back on the next step
 
 ## 5. 4x4
 

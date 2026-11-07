@@ -73,6 +73,25 @@ kicks most (Boom, Analog); a short, punchy kick has little pitch to tune.
 **MIXER** has a strip for each track: **PAN** places it left or right, the
 fader sets its level beside a meter, and **M** and **S** mute and solo it.
 
+### Fills and Remix
+
+The bar under the tracks plays fills:
+
+- **AUTO 1** plays a fill in the last beat of every 4th bar, the last two beats of every
+  8th bar and the whole of every 16th bar. **AUTO 2** does the same twice as often (every
+  2nd, 4th and 8th bar). The bars count with the leading track's beat, so the fills land at
+  the end of its phrases. After a fill of two beats or more, the cymbal crashes on the
+  next downbeat. **NO FILLS** turns them off.
+- Hold **FILL** to play a fill now, for as long as you hold it.
+- Hold the **REMIX** strip and slide along it: the groove plays one of 16 figures while you
+  hold it, and goes straight back when you let go. From the left: hat rolls, rolls over
+  two or three sounds, the tracks' patterns swapped between sounds, and at the far right
+  16th rolls over everything.
+
+On a Maschine Mikro MK3, **PERFORM** turns the touch strip into the REMIX strip (press it
+again for the knob's setting), hold **NOTE REPEAT** for FILL, and **AUTO** steps through
+NO FILLS, AUTO 1 and AUTO 2.
+
 ## Kits and grooves
 
 The kit menu at the top left has six kits, all synthesised, so they are
