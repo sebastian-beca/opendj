@@ -17,7 +17,7 @@ use opendj_engine::stems::MAX_STEMS;
 use opendj_engine::{stem_group, NUM_DECKS};
 use slint::winit_030::winit::window::Fullscreen;
 use slint::winit_030::WinitWindowAccessor;
-use slint::{CloseRequestResponse, ComponentHandle};
+use slint::{CloseRequestResponse, ComponentHandle, SharedString};
 
 use super::super::Browser;
 use super::PLAYING;
@@ -41,6 +41,36 @@ pub(super) struct Karaoke {
     /// The deck and track followed, and until when the guide is held there.
     followed: Option<(usize, usize)>,
     hold_until: Option<Instant>,
+    /// The karaoke page on the network (see [`crate::now_playing`]): served
+    /// while the screen is open and the DJ turned it on; when it was last
+    /// sent, and the lyrics it has.
+    page: bool,
+    page_sent: Option<Instant>,
+    page_lines: Option<u64>,
+}
+
+/// The setting: the karaoke page, off at first.
+const PAGE: &str = "karaoke_page";
+/// How often the karaoke page is told where the track is; it keeps time
+/// itself in between.
+const PAGE_EVERY: Duration = Duration::from_millis(100);
+
+/// Lyrics for the karaoke page: each line with its words' times.
+fn page_lines(id: u64, lines: &[Line]) -> String {
+    let lines: Vec<serde_json::Value> = lines
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let until = lines.get(i + 1).and_then(|n| n.start);
+            let words: Vec<serde_json::Value> = l
+                .word_times(until)
+                .into_iter()
+                .map(|(s, e, t)| serde_json::json!([s, e, t]))
+                .collect();
+            serde_json::json!({ "text": l.text, "start": l.start, "words": words })
+        })
+        .collect();
+    serde_json::json!({ "id": id, "lines": lines }).to_string()
 }
 
 impl Karaoke {
@@ -70,6 +100,9 @@ impl Karaoke {
             guide: None,
             followed: None,
             hold_until: None,
+            page: false,
+            page_sent: None,
+            page_lines: None,
         }
     }
 }
@@ -181,6 +214,11 @@ impl Browser {
         ui.on_set_karaoke(move |on| w(&|b| b.set_karaoke(on)));
         let w = with.clone();
         ui.on_set_vocals(move |level| w(&|b| b.set_vocals(level as f64)));
+        let w = with.clone();
+        ui.on_set_page(move |on| {
+            crate::settings::set(PAGE, serde_json::json!(on));
+            w(&|b| b.serve_page(on))
+        });
         // Closing openDJ closes the karaoke screen too, or the app would run
         // on behind it.
         let w = with.clone();
@@ -204,6 +242,7 @@ impl Browser {
             k.guide = None;
             k.followed = None;
             ui.set_vocals(-1.0);
+            self.serve_page(false);
             return;
         }
         if k.window.is_some() {
@@ -249,10 +288,76 @@ impl Browser {
         }
         k.window = Some(window);
         k.followed = None;
+        self.serve_page(crate::settings::flag(PAGE, false));
         // The screen follows the track playing; so does the tab meanwhile.
         self.lyrics.subject = PLAYING;
         ui.set_subject(PLAYING);
         self.poll_lyrics(&app, super::LYRICS_TAB);
+    }
+
+    /// Serves the karaoke page, or stops.
+    fn serve_page(&mut self, on: bool) {
+        let k = &mut self.lyrics.karaoke;
+        k.page = on;
+        k.page_sent = None;
+        k.page_lines = None;
+        crate::now_playing::set_karaoke_page(on);
+        if let Some(app) = self.app.upgrade() {
+            let ui = app.global::<LyricsUi>();
+            ui.set_page(on);
+            ui.set_page_url(SharedString::new());
+        }
+    }
+
+    /// Tells the karaoke page the track, where it is, and its lyrics when
+    /// they change.
+    fn publish_page(&mut self, state: i32, deck: Option<usize>) {
+        if let Some(app) = self.app.upgrade() {
+            // The address comes once the server has started.
+            let url = crate::now_playing::karaoke_url();
+            let ui = app.global::<LyricsUi>();
+            if ui.get_page_url() != url.as_str() {
+                ui.set_page_url(url.into());
+            }
+        }
+        let k = &mut self.lyrics.karaoke;
+        if k.page_sent.is_some_and(|at| at.elapsed() < PAGE_EVERY) {
+            return;
+        }
+        k.page_sent = Some(Instant::now());
+        let generation = self.lyrics.generation;
+        let lines = match &self.lyrics.lyrics {
+            Some(l) if state == 3 && k.page_lines != Some(generation) => {
+                k.page_lines = Some(generation);
+                Some(page_lines(generation, &l.lines))
+            }
+            _ => None,
+        };
+        let (title, artist) = self
+            .lyrics
+            .shown
+            .as_ref()
+            .map(|(_, t)| (t.title.clone(), t.artist.clone()))
+            .unwrap_or_default();
+        let (seconds, playing, bpm) = deck.map_or((0.0, false, 0.0), |d| {
+            let p = &self.lyrics.decks[d];
+            (
+                p.playposition.get() * p.duration.get(),
+                p.play.get_bool(),
+                k.bpm[d].get(),
+            )
+        });
+        let now = serde_json::json!({
+            // The lyrics the page should have; none until they are sent.
+            "id": k.page_lines.filter(|&g| g == generation && state == 3),
+            "state": state,
+            "title": title,
+            "artist": artist,
+            "t": seconds,
+            "playing": playing,
+            "bpm": bpm,
+        });
+        opendj_remote::overlay::set_karaoke(now.to_string(), lines);
     }
 
     /// The vocal stem of `deck`'s track: the one named so, or the fourth,
@@ -315,14 +420,18 @@ impl Browser {
         } else {
             app.global::<LyricsUi>().set_vocals(-1.0);
         }
-        let Some(window) = &k.window else {
-            return;
-        };
         let state = match (&self.lyrics.shown, &self.lyrics.lyrics) {
             (None, _) => 0,
             (Some(_), None) => 1,
             (Some(_), Some(l)) if l.timing() == Timing::Plain => 2,
             _ => 3,
+        };
+        if self.lyrics.karaoke.page {
+            self.publish_page(state, deck);
+        }
+        let k = &self.lyrics.karaoke;
+        let Some(window) = &k.window else {
+            return;
         };
         if let Some((_, t)) = &self.lyrics.shown {
             window.set_song(t.title.as_str().into());
@@ -353,6 +462,20 @@ impl Browser {
 mod tests {
     use super::*;
     use opendj_engine::lyrics::parse;
+
+    #[test]
+    fn page_lines_carry_word_times() {
+        let lines = parse("[00:10.00]Hi there\n[00:12.00]<00:12.00>Next <00:12.50>one").unwrap();
+        let v: serde_json::Value = serde_json::from_str(&page_lines(7, &lines)).unwrap();
+        assert_eq!(v["id"], 7);
+        assert_eq!(v["lines"][0]["text"], "Hi there");
+        assert_eq!(v["lines"][0]["start"], 10.0);
+        assert_eq!(v["lines"][0]["words"][0][2], "Hi ");
+        assert_eq!(v["lines"][1]["words"][1][0], 12.5);
+        let plain = parse("Just words").unwrap();
+        let v: serde_json::Value = serde_json::from_str(&page_lines(1, &plain)).unwrap();
+        assert!(v["lines"][0]["start"].is_null());
+    }
 
     #[test]
     fn counts_in_then_sings() {
