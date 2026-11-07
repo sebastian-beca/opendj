@@ -273,6 +273,14 @@ impl AudioEngine {
         }
     }
 
+    /// Keeps every running plugin's sound and stops the plugins, waiting
+    /// until done. Call when quitting.
+    pub fn shut_down_plugins(&self) {
+        if let Some(p) = &self.plugins {
+            p.shut_down();
+        }
+    }
+
     /// Where notes for the Instrument input go in, from any thread.
     pub fn note_input(&self) -> Arc<Mutex<NoteInput>> {
         self.notes.clone()
