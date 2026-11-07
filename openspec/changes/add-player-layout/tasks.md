@@ -18,7 +18,7 @@
 
 ## 3. Bar along the bottom
 
-- [x] 3.1 The bar moves to the bottom of the window at 80 px: art, title, artist with BPM and key, Previous, Play/Pause, Next, the scrubber with time played and time left, Automix's next step, master volume, queue button
+- [x] 3.1 The bar moves to the bottom of the window at 120 px: art, title, artist with BPM and key, Play/Pause on the scrubber's left, Previous and Next under it between the time played and time left, Automix's next step, master volume, queue button
 - [x] 3.2 The scrubber is the overview in a Mono style: played lilac, the rest grey, the next mix dim lilac; no cues or minute dots
 - [x] 3.3 Order and Repeat move to the Up Next header
 - [x] 3.4 Top bar in Player: wider search; no MASTER; REC only while recording (File › Record Mix); MIC only while on or with Show MIC in the layout menu; the footer only while analysis runs

@@ -33,7 +33,7 @@ The layout menu at the top left SHALL offer Player (one bar that plays music lik
 
 #### Scenario: Bar at the bottom
 - **WHEN** Player is chosen
-- **THEN** the Player bar runs along the bottom of the window under the library, 80 px tall, with Previous, Play/Pause and Next over a scrubber that shows the played part in lilac, the rest in grey and the next mix in a dim lilac
+- **THEN** the Player bar runs along the bottom of the window under the library, 120 px tall, with Play/Pause on the left of a scrubber and Previous and Next under it; the scrubber shows the played part in lilac, the rest in grey and the next mix in a dim lilac
 
 #### Scenario: Search-first top bar
 - **WHEN** Player is chosen

@@ -5,11 +5,11 @@ The menu at the top left of the window switches layouts:
 - **Player** works like a music player and mixes for you. One bar along the
   bottom of the window shows the track you hear: its album art, title,
   artist, BPM and key (colored by its place on the key wheel, so keys that
-  mix have neighboring colors). In the middle are **Previous**,
-  **Play/Pause** and **Next**, and under them the track as one shape: lilac
-  for what has played, grey for what is to come, and a dim lilac where the
-  next mix happens. The time played is on its left and the time left on its
-  right; click or drag it to move through the track. On the right are what
+  mix have neighboring colors). In the middle is the track as one shape,
+  with **Play/Pause** on its left: lilac for what has played, grey for what
+  is to come, and a dim lilac where the next mix happens. Click or drag it
+  to move through the track. Under it are the time played, **Previous** and
+  **Next**, and the time left. On the right are what
   Automix does next, the master volume, and the queue button, which shows or
   hides **Up Next** (the Automix list). **Order** and **Repeat** are at the
   top of Up Next. With Repeat on, a played track goes back to the end of Up
