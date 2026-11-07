@@ -9,6 +9,7 @@
 // PlayerBar, further down, is the Player layout itself.
 import { TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
+import { LyricsUi } from "lyrics.slint";
 import { LineEdit } from "std-widgets.slint";
 import { ControlButton, ControlFader, Controls, StereoMeter, SyncButton } from "controls.slint";
 import { Cover, DeckInfo, Header, Jog, PlayButton } from "deck.slint";
@@ -459,6 +460,32 @@ export component PlayerBar inherits Rectangle {
                         commands: "M 1 5 L 4 5 L 8 2 L 8 12 L 4 9 L 1 9 Z";
                     }
                     LevelSlider { group: "[Master]"; key: "gain"; width: 120px; horizontal-stretch: 0; tint: Theme.text; }
+                }
+            }
+            // Shows the lyrics large, in place of the track list.
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 44px;
+                    height: 40px;
+                    border-radius: 9px;
+                    background: LyricsUi.big ? Theme.accent.with-alpha(0.18) : lyta.has-hover ? #3a3a3d : transparent;
+                    border-width: LyricsUi.big ? 1px : 0px;
+                    border-color: Theme.accent;
+                    // A speech bubble with lines of words.
+                    Path {
+                        width: 24px;
+                        height: 21px;
+                        viewbox-width: 18;
+                        viewbox-height: 16;
+                        stroke: LyricsUi.big ? Theme.accent : Theme.text;
+                        stroke-width: 1.6px;
+                        commands: "M 2 1.5 L 16 1.5 L 16 11 L 7 11 L 3.5 14.5 L 3.5 11 L 2 11 Z M 5 5 L 13 5 M 5 8 L 10.5 8";
+                    }
+                    lyta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { LyricsUi.big = !LyricsUi.big; }
+                    }
                 }
             }
             // Shows or hides Up Next (the Automix list) on the right.

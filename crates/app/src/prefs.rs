@@ -2187,6 +2187,13 @@ impl Prefs {
                      My applications.",
                 )
             },
+            switch(
+                crate::lrclib::ENABLED,
+                "Find lyrics online",
+                "Find in the Lyrics tab looks the track up on LRCLIB, a free lyrics \
+                 database, and saves what you pick as an .lrc file beside it.",
+                crate::lrclib::enabled(),
+            ),
         ];
         items.push(PrefItem {
             action: if self.cleanup_open { "open" } else { "closed" }.into(),
