@@ -21,7 +21,7 @@
 ## 3. Rows and sounds
 
 - [x] 3.0 Eight tracks in a rainbow of colors with sound icons, M and S; the Groove Box fills the whole deck with SEQUENCER, SYNTH (sound, PITCH, DECAY, TONE) and MIXER (PAN, level, meter, M, S) tabs; `rowR_tone`, `rowR_pan`, `rowR_meter`; kits in one sound order (kick, backbeat, closed hat, open hat, second backbeat, tom, rim, percussion)
-- [ ] 3.1 Nine drum rows in mpump's order (kick, rim, snare, closed hat, open hat, cowbell, cymbal, clap, ride), up to 16 sounds per kit
+- [ ] 3.1 Up to 16 sounds per kit (the eight tracks, crash and ride sharing track 8, came with improve-groove-box-play)
 - [ ] 3.2 Named fourth knob per row; synth voice parameters for the built-in kits; low-pass for sample rows
 - [ ] 3.3 `pack.json`: rows, knobs, kinds, fills, variations, chains; built-in kits updated
 

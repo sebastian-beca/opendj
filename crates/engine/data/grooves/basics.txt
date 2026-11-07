@@ -3,7 +3,7 @@
 # Format: `genre <name>` starts a genre; `groove <name> | <about>` starts a
 # groove; each row after it is a sound (kick, snare, closed-hat, open-hat, clap,
 # rim, cowbell, crash, ride) and 16 steps: `.` rest, `o` soft, `x` hit,
-# `X` accent. Rows left out are empty.
+# `X` accent, `?` a hit half the time. Rows left out are empty.
 
 genre Basics
 
@@ -52,3 +52,18 @@ closed-hat ..x...x...x...x.
 open-hat   ..............x.
 rim        ...x...x...x..x.
 cowbell    .x.....x.x......
+
+groove Living house | Ghost hats and claps that come and go, bar to bar
+kick       X...x...X...x...
+snare      ....x.......x...
+closed-hat .o?o.o?o.o?o.o?x
+open-hat   ..x...x...x...x.
+clap       ....x..?....x.?.
+rim        ...?.....?....o.
+
+groove Rolling breaks | A break that never plays quite the same twice
+kick       X.?.......x..?..
+snare      ....X..o.o?.X..o
+closed-hat x?x.x?x.x?x.x?x?
+open-hat   ......?.......x.
+ride       ..?...?...?...?.

@@ -16,8 +16,8 @@ use crate::{settings, AppWindow, GrooveGenre, GrooveKit, GrooveName, GrooveUi};
 
 /// The layout of the saved Groove Boxes. Before 2 there were four kits
 /// (now from index 2) and four rows, whose sounds were numbered in each
-/// kit's own order.
-const LAYOUT: f64 = 2.0;
+/// kit's own order; before 3, nine rows (8 crash, 9 ride), now eight.
+const LAYOUT: f64 = 3.0;
 
 /// The controls a Groove Box keeps, by name.
 fn kept_keys() -> Vec<String> {
@@ -29,6 +29,10 @@ fn kept_keys() -> Vec<String> {
         "pattern",
         "chain",
         "bpm",
+        "follow",
+        "tempo_scale",
+        "kick_key",
+        "vary",
         "swing",
         "duck_deck",
         "duck_amount",
@@ -41,11 +45,12 @@ fn kept_keys() -> Vec<String> {
             keys.push(format!("pattern{g}_row{r}"));
             keys.push(format!("pattern{g}_row{r}_soft"));
             keys.push(format!("pattern{g}_row{r}_accent"));
+            keys.push(format!("pattern{g}_row{r}_maybe"));
         }
     }
     for r in 1..=ROWS {
         for k in [
-            "mute", "solo", "level", "pitch", "decay", "tone", "pan", "sound",
+            "mute", "solo", "level", "pitch", "decay", "tone", "pan", "sound", "lock",
         ] {
             keys.push(format!("row{r}_{k}"));
         }
@@ -89,14 +94,45 @@ pub fn install(app: &AppWindow) {
 /// it picked moves to its new place, and its rows' sounds go back to the
 /// rows' own (rows 1-4 were already kick, snare, hat and open hat).
 fn upgrade(values: &mut Map<String, Value>) {
-    if values.get("layout").and_then(Value::as_f64).unwrap_or(1.0) >= LAYOUT {
-        return;
+    let layout = values.get("layout").and_then(Value::as_f64).unwrap_or(1.0);
+    if layout < 2.0 {
+        if let Some(kit) = values.get("kit").and_then(Value::as_f64) {
+            values.insert("kit".into(), json!(kit + 2.0));
+        }
+        for r in 1..=4 {
+            values.remove(&format!("row{r}_sound"));
+        }
     }
-    if let Some(kit) = values.get("kit").and_then(Value::as_f64) {
-        values.insert("kit".into(), json!(kit + 2.0));
+    if layout < 3.0 {
+        merge_ninth_row(values);
     }
-    for r in 1..=4 {
-        values.remove(&format!("row{r}_sound"));
+}
+
+/// Moves the old ninth row (ride) into row 8 (Cymbal) wherever row 8 (the
+/// crash) has no hits, and has row 8 play the ride if it took any.
+fn merge_ninth_row(values: &mut Map<String, Value>) {
+    let num = |v: &Map<String, Value>, k: &str| v.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+    let mut took_ride = false;
+    for g in 1..=GROOVES {
+        let (crash, ride) = (format!("pattern{g}_row8"), format!("pattern{g}_row9"));
+        if num(values, &crash) == 0.0 && num(values, &ride) != 0.0 {
+            took_ride = true;
+            for part in ["", "_soft", "_accent"] {
+                let v = num(values, &format!("{ride}{part}"));
+                values.insert(format!("{crash}{part}"), json!(v));
+            }
+        }
+        for part in ["", "_soft", "_accent", "_maybe"] {
+            values.remove(&format!("{ride}{part}"));
+        }
+    }
+    if took_ride && num(values, "row8_sound") <= 7.0 {
+        values.insert("row8_sound".into(), json!(8.0));
+    }
+    for k in [
+        "mute", "solo", "level", "pitch", "decay", "tone", "pan", "sound",
+    ] {
+        values.remove(&format!("row9_{k}"));
     }
 }
 
@@ -188,6 +224,23 @@ mod tests {
         for key in kept_keys() {
             assert!(reg.get("[Groove1]", &key).is_some(), "{key}");
         }
+    }
+
+    #[test]
+    fn the_old_ninth_row_moves_into_the_cymbal_track() {
+        let mut old = json!({
+            "layout": 2.0,
+            "pattern1_row9": 4369.0, "pattern1_row9_accent": 1.0,
+            "pattern2_row8": 1.0, "pattern2_row9": 2.0,
+            "row9_level": 0.5,
+        });
+        let v = old.as_object_mut().unwrap();
+        upgrade(v);
+        assert_eq!(v["pattern1_row8"], json!(4369.0), "the ride moves over");
+        assert_eq!(v["pattern1_row8_accent"], json!(1.0));
+        assert_eq!(v["pattern2_row8"], json!(1.0), "a crash stays");
+        assert_eq!(v["row8_sound"], json!(8.0), "and plays the ride");
+        assert!(v.keys().all(|k| !k.contains("row9")));
     }
 
     #[test]

@@ -51,6 +51,8 @@ pub struct Steps {
     pub hits: u32,
     pub soft: u32,
     pub accent: u32,
+    /// Steps that play only half the time.
+    pub maybe: u32,
 }
 
 impl Steps {
@@ -63,6 +65,10 @@ impl Steps {
                 'x' => Level::Normal,
                 'o' => Level::Soft,
                 'X' => Level::Accent,
+                '?' => {
+                    s.maybe |= 1 << i;
+                    Level::Normal
+                }
                 _ => continue,
             };
             s.hits |= 1 << i;

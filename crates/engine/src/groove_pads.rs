@@ -12,7 +12,7 @@
 //! The rest is here, so every controller behaves alike. `[GrooveN],pad_mode`
 //! picks what the pads do:
 //!
-//! - **Steps** (0): the 16 steps of the selected row (`row_selected`, 1-9)
+//! - **Steps** (0): the 16 steps of the selected row (`row_selected`, 1-8)
 //!   of the groove on screen. A press adds or removes a hit; while stopped
 //!   it also plays the sound once.
 //! - **Play** (1): pads 1-8 (and again 9-16) play rows 1-8, now, as loud
@@ -28,9 +28,8 @@ use opendj_control::{Behavior, ControlHandle, ControlRegistry};
 
 use crate::groove::{groove_group, GROOVES, ROWS, STEPS};
 
-/// The rows the pads play in Play mode, twice over (the ninth, Ride, only
-/// in Steps mode for now).
-pub const PLAY_ROWS: usize = 8;
+/// The rows the pads play in Play mode, twice over.
+pub const PLAY_ROWS: usize = ROWS;
 use crate::kits;
 
 pub const PADS: usize = 16;
@@ -45,7 +44,7 @@ pub mod mode {
 /// The colours a pad shows, as `[GrooveN],padK_color` holds them.
 pub mod light {
     pub const OFF: u8 = 0;
-    /// Rows in their own colour: `ROW + row` (row 0-7); row 8 is `ROW_9`.
+    /// Rows in their own colour: `ROW + row` (row 0-7).
     pub const ROW: u8 = 1;
     /// The step playing.
     pub const PLAYHEAD: u8 = 9;
@@ -55,29 +54,18 @@ pub mod light {
     pub const DIM: u8 = 11;
     /// The groove waiting for the bar.
     pub const QUEUED: u8 = 12;
-    /// Rows dimmed: `ROW_DIM + row` (row 0-7); row 8 is `ROW_9_DIM`.
+    /// Rows dimmed: `ROW_DIM + row` (row 0-7).
     pub const ROW_DIM: u8 = 13;
-    /// The ninth row, bright and dimmed.
-    pub const ROW_9: u8 = 21;
-    pub const ROW_9_DIM: u8 = 22;
-    pub const MAX: u8 = 22;
+    pub const MAX: u8 = 20;
 
     /// Row `row`'s own colour.
     pub fn row(row: usize) -> u8 {
-        if row < 8 {
-            ROW + row as u8
-        } else {
-            ROW_9
-        }
+        ROW + row.min(7) as u8
     }
 
     /// Row `row`'s colour, dimmed.
     pub fn row_dim(row: usize) -> u8 {
-        if row < 8 {
-            ROW_DIM + row as u8
-        } else {
-            ROW_9_DIM
-        }
+        ROW_DIM + row.min(7) as u8
     }
 }
 
@@ -352,10 +340,10 @@ mod tests {
     }
 
     #[test]
-    fn the_ninth_row_has_its_own_colour() {
+    fn every_row_has_its_own_colour() {
         assert_eq!(light::row(7), light::ROW + 7);
-        assert_eq!(light::row(8), light::ROW_9);
-        assert_eq!(light::row_dim(8), light::ROW_9_DIM);
+        assert_eq!(light::row_dim(7), light::ROW_DIM + 7);
+        assert_eq!(ROWS, 8);
     }
 
     #[test]

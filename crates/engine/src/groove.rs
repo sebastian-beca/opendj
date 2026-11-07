@@ -20,14 +20,19 @@
 //! every step inside it starts its sounds on the frame it falls on, so the
 //! timing is exact to the sample whatever the buffer size.
 //!
-//! **Patterns.** Four grooves (A to D), each nine rows (tracks) of 16 steps, kept in
+//! **Patterns.** Four grooves (A to D), each eight rows (tracks) of 16 steps, kept in
 //! `[GrooveN],patternG_rowR` as 16-bit numbers (bit s on = step s+1 plays)
 //! with `patternG_rowR_soft` and `patternG_rowR_accent` marking the steps
-//! that play softly (half as loud) or accented (a quarter louder).
+//! that play softly (half as loud) or accented (a quarter louder), and
+//! `patternG_rowR_maybe` the ones that play only half the time. `vary`
+//! (0-1) lets the groove change by itself as it plays: weak hits drop out,
+//! soft ghost notes come in where the genre puts them, and hits waver in
+//! loudness (see [`crate::groove_dice`]).
 //! `[GrooveN],groove` picks the one playing (0-3); a change while playing
 //! waits for the next bar. Row N plays the kits' Nth sound
-//! ([`kits::ROLES`]: kick, snare, closed hat, open hat, clap, rim, cowbell, crash,
-//! ride) unless `rowR_sound` picks another.
+//! ([`kits::ROLES`]: kick, snare, closed hat, open hat, clap, rim, cowbell)
+//! unless `rowR_sound` picks another; row 8, Cymbal, plays the crash or the
+//! ride, whichever the groove loaded last uses (no library groove has both).
 //!
 //! **Library.** `genre` and `pattern` (1-based, 0 none) name a groove of
 //! the library ([`crate::patterns`]); `load` puts it into the groove picked.
@@ -54,13 +59,19 @@ use std::sync::Arc;
 
 use opendj_control::{Behavior, ControlHandle, ControlRegistry};
 
+use crate::groove_dice::{self, Dice, Habits, Move, Track};
 use crate::groove_pads::{self, mode, PadSurface};
 use crate::kits::{self, Kit};
 use crate::patterns::{self, Level};
 use crate::sampler::Sample;
 use crate::NUM_DECKS;
 
-pub const ROWS: usize = kits::ROLES.len();
+/// Tracks: the first seven of [`kits::ROLES`], then Cymbal, which plays the
+/// kit's crash or ride (its sound picked when a groove loads).
+pub const ROWS: usize = 8;
+/// The kit sounds track 8 switches between.
+const CRASH: usize = 7;
+const RIDE: usize = 8;
 pub const STEPS: usize = 16;
 pub const GROOVES: usize = 4;
 
@@ -91,11 +102,37 @@ pub struct GrooveControls {
     pub position: ControlHandle,
     /// On while the groove follows a playing deck or Link.
     pub following: ControlHandle,
+    /// 1 (the default): follow the mix's tempo; 0: keep `bpm`.
+    pub follow: ControlHandle,
+    /// While following: 0.5 half time, 1, or 2 double time.
+    pub tempo_scale: ControlHandle,
+    /// The kick in the leading deck's key: 0 off, 1 its root, 2 its fifth.
+    pub kick_key: ControlHandle,
+    /// The note the kick is tuned to, 1-12 from C (0 untuned), to show.
+    pub kick_note: ControlHandle,
+    /// A variation to make on the next bar ([`groove_dice::Move`] by
+    /// number, 1-7); back to 0 once it is waiting.
+    pub dice: ControlHandle,
+    /// Which track `dice` changes: 1-8, or 0 for every unlocked track.
+    pub dice_row: ControlHandle,
+    /// A variation is waiting for the bar (1) or not (0).
+    pub dice_pending: ControlHandle,
+    /// Puts back the groove as it was before the last variation.
+    pub dice_undo: ControlHandle,
+    /// 1 while there is a variation to undo.
+    pub can_undo: ControlHandle,
+    /// A locked track keeps its steps when every track is varied.
+    pub lock: [ControlHandle; ROWS],
     pub duck_deck: ControlHandle,
     pub duck_amount: ControlHandle,
     pub patterns: [[ControlHandle; ROWS]; GROOVES],
     pub soft: [[ControlHandle; ROWS]; GROOVES],
     pub accent: [[ControlHandle; ROWS]; GROOVES],
+    /// `patternG_rowR_maybe`: steps that play only half the time.
+    pub maybe: [[ControlHandle; ROWS]; GROOVES],
+    /// 0-1: how much the groove varies by itself as it plays (weak hits
+    /// drop out, ghost notes come in, loudness wavers).
+    pub vary: ControlHandle,
     pub mute: [ControlHandle; ROWS],
     pub solo: [ControlHandle; ROWS],
     pub level: [ControlHandle; ROWS],
@@ -145,6 +182,16 @@ impl GrooveControls {
                 Behavior::Indicator,
             ),
             following: reg.indicator(g, "following", 1.0),
+            follow: reg.create(g, "follow", 1.0, 0.0, 1.0, Behavior::Free),
+            tempo_scale: reg.create(g, "tempo_scale", 1.0, 0.5, 2.0, Behavior::Free),
+            kick_key: reg.create(g, "kick_key", 0.0, 0.0, 2.0, Behavior::Free),
+            kick_note: reg.indicator(g, "kick_note", 12.0),
+            dice: reg.create(g, "dice", 0.0, 0.0, 7.0, Behavior::Free),
+            dice_row: reg.create(g, "dice_row", 0.0, 0.0, ROWS as f64, Behavior::Free),
+            dice_pending: reg.indicator(g, "dice_pending", 1.0),
+            dice_undo: reg.push(g, "dice_undo"),
+            can_undo: reg.indicator(g, "can_undo", 1.0),
+            lock: rows(&|r| reg.toggle(g, &format!("row{}_lock", r + 1))),
             duck_deck: reg.create(g, "duck_deck", 0.0, 0.0, NUM_DECKS as f64, Behavior::Free),
             duck_amount: reg.create(g, "duck_amount", 6.0, 0.0, 24.0, Behavior::Linear),
             patterns: std::array::from_fn(|p| {
@@ -183,6 +230,19 @@ impl GrooveControls {
                     )
                 })
             }),
+            maybe: std::array::from_fn(|p| {
+                rows(&|r| {
+                    reg.create(
+                        g,
+                        &format!("pattern{}_row{}_maybe", p + 1, r + 1),
+                        0.0,
+                        0.0,
+                        65535.0,
+                        Behavior::Free,
+                    )
+                })
+            }),
+            vary: reg.create(g, "vary", 0.0, 0.0, 1.0, Behavior::Linear),
             mute: rows(&|r| reg.toggle(g, &format!("row{}_mute", r + 1))),
             solo: rows(&|r| reg.toggle(g, &format!("row{}_solo", r + 1))),
             level: rows(&|r| {
@@ -271,10 +331,50 @@ impl GrooveControls {
             return;
         };
         let slot = slot.min(GROOVES - 1);
-        for (row, steps) in p.rows.iter().enumerate() {
+        // Cymbal plays the ride when the groove has one, else the crash.
+        let ride = p.rows[RIDE].hits != 0;
+        let cymbal = if ride { RIDE } else { CRASH };
+        if ride || p.rows[CRASH].hits != 0 {
+            self.sound[ROWS - 1].set(cymbal as f64);
+        }
+        for row in 0..ROWS {
+            let steps = p.rows[if row == ROWS - 1 { cymbal } else { row }];
             self.patterns[slot][row].set(steps.hits as f64);
             self.soft[slot][row].set(steps.soft as f64);
             self.accent[slot][row].set(steps.accent as f64);
+            self.maybe[slot][row].set(steps.maybe as f64);
+        }
+    }
+
+    /// Groove `slot`'s tracks as they are now.
+    pub fn tracks(&self, slot: usize) -> [Track; ROWS] {
+        std::array::from_fn(|r| Track {
+            hits: self.patterns[slot][r].get() as u32,
+            soft: self.soft[slot][r].get() as u32,
+            accent: self.accent[slot][r].get() as u32,
+            maybe: self.maybe[slot][r].get() as u32,
+        })
+    }
+
+    /// Writes track `row` of groove `slot`.
+    pub fn set_track(&self, slot: usize, row: usize, t: Track) {
+        self.patterns[slot][row].set((t.hits & 0xffff) as f64);
+        self.soft[slot][row].set((t.soft & t.hits & 0xffff) as f64);
+        self.accent[slot][row].set((t.accent & t.hits & 0xffff) as f64);
+        self.maybe[slot][row].set((t.maybe & t.hits & 0xffff) as f64);
+    }
+
+    /// The kit sound (one of [`kits::ROLES`]) track `row` plays, for
+    /// variations in its style.
+    fn role(&self, row: usize) -> usize {
+        if row == ROWS - 1 {
+            if self.sound[row].get().round() as usize == RIDE {
+                RIDE
+            } else {
+                CRASH
+            }
+        } else {
+            row
         }
     }
 
@@ -519,6 +619,10 @@ pub struct GrooveBox {
     /// A live hit recorded into a step still to come: that step skips the
     /// row once, so the hit isn't heard twice.
     skip: [Option<usize>; ROWS],
+    /// The leading deck's key's tonic (0-11 from C), for the kick's KEY.
+    pub key: Option<u8>,
+    /// Variations waiting for the bar, and their undo steps.
+    pub dice: Dice,
 }
 
 impl GrooveBox {
@@ -539,6 +643,67 @@ impl GrooveBox {
             hits: [Hit::default(); MAX_HITS],
             pads,
             skip: [None; ROWS],
+            key: None,
+            dice: Dice::new(Habits::shared(), 0x9e37_79b9 ^ ((deck as u32 + 1) * 7919)),
+        }
+    }
+
+    /// Makes the variation waiting, on groove `slot`, keeping an undo step.
+    fn roll(&mut self, slot: usize) {
+        let Some((mv, row)) = self.dice.pending.take() else {
+            return;
+        };
+        self.c.dice_pending.set(0.0);
+        let before = self.c.tracks(slot);
+        self.dice.remember(slot, before);
+        let genre = self.c.genre.get().round() as usize;
+        for (r, &was) in before.iter().enumerate() {
+            let chosen = match row {
+                Some(only) => only == r,
+                None => !self.c.lock[r].get_bool(),
+            };
+            if !chosen {
+                continue;
+            }
+            let mut t = was;
+            groove_dice::apply(
+                mv,
+                &mut t,
+                self.c.role(r),
+                genre,
+                &self.dice.habits,
+                &mut self.dice.rng,
+            );
+            self.c.set_track(slot, r, t);
+        }
+        self.c.can_undo.set(1.0);
+    }
+
+    /// Takes a new variation or an undo from the controls. A variation
+    /// waits for the next bar while playing; stopped, it happens now.
+    fn take_dice(&mut self, chosen: usize) {
+        let n = self.c.dice.get().round() as u8;
+        if n > 0 {
+            self.c.dice.set(0.0);
+            if let Some(mv) = Move::from_number(n) {
+                let row = (self.c.dice_row.get().round() as usize).min(ROWS);
+                self.dice.pending = Some((mv, row.checked_sub(1)));
+                self.c.dice_pending.set(1.0);
+            }
+        }
+        if self.c.dice_undo.get_bool() {
+            self.c.dice_undo.set(0.0);
+            self.dice.pending = None;
+            self.c.dice_pending.set(0.0);
+            if let Some((slot, tracks)) = self.dice.take_undo() {
+                for (r, t) in tracks.into_iter().enumerate() {
+                    self.c.set_track(slot, r, t);
+                }
+            }
+            self.c.can_undo.set(self.dice.can_undo() as u8 as f64);
+        }
+        if !self.clock.running {
+            self.roll(chosen);
         }
     }
 
@@ -596,8 +761,20 @@ impl GrooveBox {
             .set(self.queued.unwrap_or(self.playing) as f64);
         self.last_bpm = source.bpm;
         let mut n = self.take_pads(chosen);
+        self.take_dice(chosen);
         if self.clock.running {
             let span = self.clock.advance(frames, self.rate, source);
+            // A variation waiting is made just before the bar line that
+            // falls in this buffer, so the new bar plays it.
+            if self.dice.pending.is_some() {
+                let mut bar = false;
+                span.steps(frames, 0.0, |_, step, beat| {
+                    bar |= step == 0 && self.clock.plays(beat);
+                });
+                if bar {
+                    self.roll(chosen);
+                }
+            }
             let swing = self.c.swing.get();
             let any_solo = self.c.solo.iter().any(|s| s.get_bool());
             let mut queued = self.queued;
@@ -608,6 +785,9 @@ impl GrooveBox {
             let c = &self.c;
             let hits = &mut self.hits;
             let skip = &mut self.skip;
+            let rng = &mut self.dice.rng;
+            let habits = &*self.dice.habits;
+            let vary = c.vary.get() as f32;
             span.steps(frames, swing, |frame, step, beat| {
                 if step == 0 {
                     if let Some(q) = queued.take() {
@@ -624,16 +804,32 @@ impl GrooveBox {
                 last_step = Some(step);
                 for (row, skip) in skip.iter_mut().enumerate() {
                     let bits = c.patterns[playing][row].get() as u32;
-                    if bits & (1 << step) == 0 {
-                        continue;
+                    let role = c.role(row);
+                    let mut velocity = if bits & (1 << step) == 0 {
+                        // Vary brings in ghost notes on the steps the genre likes.
+                        if bits == 0 || !groove_dice::ghost(vary, role, step, genre, habits, rng) {
+                            continue;
+                        }
+                        Level::Soft.gain() * 0.7
+                    } else {
+                        if *skip == Some(step) {
+                            *skip = None;
+                            continue;
+                        }
+                        let maybe = c.maybe[playing][row].get() as u32;
+                        if maybe & (1 << step) != 0 && rng.unit() >= 0.5 {
+                            continue;
+                        }
+                        if !groove_dice::keeps(vary, role, step, genre, habits, rng) {
+                            continue;
+                        }
+                        let soft = c.soft[playing][row].get() as u32;
+                        let accent = c.accent[playing][row].get() as u32;
+                        Level::of(step, soft, accent).gain()
+                    };
+                    if vary > 0.0 {
+                        velocity = groove_dice::humanize(velocity, vary, rng);
                     }
-                    if *skip == Some(step) {
-                        *skip = None;
-                        continue;
-                    }
-                    let soft = c.soft[playing][row].get() as u32;
-                    let accent = c.accent[playing][row].get() as u32;
-                    let velocity = Level::of(step, soft, accent).gain();
                     let audible = if any_solo {
                         c.solo[row].get_bool()
                     } else {
@@ -718,6 +914,7 @@ impl GrooveBox {
         if self.pads.take_clear() {
             self.c.patterns[chosen][row].set(0.0);
             self.c.soft[chosen][row].set(0.0);
+            self.c.maybe[chosen][row].set(0.0);
             self.c.accent[chosen][row].set(0.0);
         }
         let mode = self.pads.mode();
@@ -836,6 +1033,18 @@ impl GrooveBox {
             std::mem::swap(now, tail);
             tail.fade = CHOKE_FRAMES;
         }
+        let mut semitones = self.c.pitch[row].get();
+        if row == 0 {
+            let shift = kick_shift(
+                kit.sounds[sound].pitch,
+                self.key,
+                self.c.kick_key.get().round() as u8,
+            );
+            self.c
+                .kick_note
+                .set(shift.map_or(0.0, |(_, note)| note as f64 + 1.0));
+            semitones += shift.map_or(0.0, |(s, _)| s as f64);
+        }
         let level = self.c.level[row].get() as f32;
         let pan = self.c.pan[row].get().clamp(-1.0, 1.0) as f32;
         // Equal power, so a sound panned to one side is as loud as centred.
@@ -844,7 +1053,7 @@ impl GrooveBox {
         *now = Voice {
             sample: Some(sample),
             pos: 0.0,
-            rate: 2f64.powf(self.c.pitch[row].get() / 12.0),
+            rate: 2f64.powf(semitones / 12.0),
             gain: [
                 level * velocity * angle.cos() * std::f32::consts::SQRT_2,
                 level * velocity * angle.sin() * std::f32::consts::SQRT_2,
@@ -857,6 +1066,23 @@ impl GrooveBox {
             fade: 0,
         };
     }
+}
+
+/// How far to tune a kick that rings at `hz` so it plays the root
+/// (`choice` 1) or fifth (2) of the key whose tonic is `key`: the nearest
+/// such note, never more than half an octave away, as (semitones, note
+/// 0-11 from C). None when off, keyless or the kick has no clear pitch.
+pub fn kick_shift(hz: f32, key: Option<u8>, choice: u8) -> Option<(i32, u8)> {
+    let key = key?;
+    if hz <= 0.0 || !(1..=2).contains(&choice) {
+        return None;
+    }
+    let target = (key as i32 + if choice == 2 { 7 } else { 0 }).rem_euclid(12);
+    let midi = 69.0 + 12.0 * (hz as f64 / 440.0).log2();
+    let natural = midi.round() as i32;
+    // -6..=5 semitones to the target's pitch class.
+    let shift = (target - natural + 6).rem_euclid(12) - 6;
+    Some((shift, target as u8))
 }
 
 /// The tone knob's filter: centre off, left a low-pass from 20 kHz down to
@@ -1138,6 +1364,67 @@ mod tests {
     }
 
     #[test]
+    fn a_variation_waits_for_the_bar_and_undoes() {
+        let (_reg, mut g) = groove_box();
+        let before = g.c.tracks(0);
+        let mut out = vec![[0.0; 2]; 6000];
+        g.render(true, own(120.0), &mut out, |_| {});
+        g.render(true, own(120.0), &mut out, |_| {});
+        g.c.dice.set(1.0);
+        g.render(true, own(120.0), &mut out, |_| {});
+        assert_eq!(g.c.dice_pending.get(), 1.0);
+        assert_eq!(g.c.tracks(0), before, "nothing changes mid-bar");
+        for _ in 0..14 {
+            g.render(true, own(120.0), &mut out, |_| {});
+        }
+        assert_eq!(g.c.dice_pending.get(), 0.0);
+        assert_ne!(g.c.tracks(0), before, "a new groove from the bar");
+        assert_eq!(g.c.can_undo.get(), 1.0);
+        g.c.dice_undo.set(1.0);
+        g.render(true, own(120.0), &mut out, |_| {});
+        assert_eq!(g.c.tracks(0), before);
+        assert_eq!(g.c.can_undo.get(), 0.0);
+    }
+
+    #[test]
+    fn a_maybe_step_plays_about_half_the_bars() {
+        let (_reg, mut g) = groove_box();
+        for r in 0..ROWS {
+            g.c.patterns[0][r].set(0.0);
+        }
+        g.c.patterns[0][0].set(1.0);
+        g.c.maybe[0][0].set(1.0);
+        let mut kicks = 0;
+        let mut out = vec![[0.0; 2]; 6000];
+        for _ in 0..16 * 40 {
+            g.render(true, own(120.0), &mut out, |_| kicks += 1);
+        }
+        assert!((10..=30).contains(&kicks), "{kicks} kicks in 40 bars");
+    }
+
+    #[test]
+    fn a_locked_track_keeps_its_steps_and_one_track_can_change_alone() {
+        let (_reg, mut g) = groove_box();
+        let before = g.c.tracks(0);
+        let mut out = vec![[0.0; 2]; 64];
+        g.c.lock[0].set_bool(true);
+        g.c.dice.set(4.0);
+        g.render(false, own(120.0), &mut out, |_| {});
+        let after = g.c.tracks(0);
+        assert_eq!(after[0], before[0], "the locked kick");
+        assert!(
+            after[2].hits.count_ones() < before[2].hits.count_ones(),
+            "calmer hats"
+        );
+        g.c.dice_row.set(1.0);
+        g.c.dice.set(3.0);
+        g.render(false, own(120.0), &mut out, |_| {});
+        let only = g.c.tracks(0);
+        assert_eq!(only[0].hits.count_ones(), before[0].hits.count_ones() + 1);
+        assert_eq!(only[2], after[2]);
+    }
+
+    #[test]
     fn pads_add_steps_to_the_selected_row() {
         let (_reg, mut g) = groove_box();
         g.c.patterns[0][1].set(0.0);
@@ -1240,6 +1527,69 @@ mod tests {
         assert!(heard[17..31].iter().all(|&p| p == 1), "then B: {heard:?}");
         assert!(heard[33..47].iter().all(|&p| p == 0), "then A again");
         assert_ne!(g.c.patterns[1][0].get(), 0.0, "B holds the chained groove");
+    }
+
+    #[test]
+    fn the_kick_tunes_to_the_nearest_root_or_fifth() {
+        // 55 Hz is A1: in A it stays, in C it goes up 3, in F down 4.
+        assert_eq!(kick_shift(55.0, Some(9), 1), Some((0, 9)));
+        assert_eq!(kick_shift(55.0, Some(0), 1), Some((3, 0)));
+        assert_eq!(kick_shift(55.0, Some(5), 1), Some((-4, 5)));
+        // The fifth of D is A.
+        assert_eq!(kick_shift(55.0, Some(2), 2), Some((0, 9)));
+        assert_eq!(kick_shift(55.0, None, 1), None);
+        assert_eq!(kick_shift(55.0, Some(0), 0), None);
+        assert_eq!(kick_shift(0.0, Some(0), 1), None);
+    }
+
+    #[test]
+    fn the_kick_plays_in_the_leaders_key() {
+        let (_reg, mut g) = groove_box();
+        g.c.kick_key.set(1.0);
+        g.key = Some(0);
+        g.trigger(0, 0, 1.0);
+        let hz = g.kits[0].sounds[0].pitch as f64;
+        let midi = 69.0 + 12.0 * (hz / 440.0).log2();
+        let heard = midi + 12.0 * g.voices[0][0].rate.log2();
+        assert!((heard - heard.round()).abs() < 0.5);
+        assert_eq!((heard.round() as i32).rem_euclid(12), 0, "a C");
+        assert_eq!(g.c.kick_note.get(), 1.0);
+    }
+
+    #[test]
+    fn the_cymbal_track_plays_the_grooves_ride_or_crash() {
+        let (_reg, g) = groove_box();
+        let lib = patterns::library();
+        let find = |role: usize| {
+            lib.iter().enumerate().find_map(|(gi, genre)| {
+                genre
+                    .grooves
+                    .iter()
+                    .position(|p| p.rows[role].hits != 0)
+                    .map(|i| (gi, i + 1, genre.grooves[i].rows[role].hits))
+            })
+        };
+        let (genre, index, hits) = find(RIDE).expect("a groove with a ride");
+        g.c.load_groove(0, genre, index);
+        assert_eq!(g.c.sound[7].get(), RIDE as f64);
+        assert_eq!(g.c.patterns[0][7].get(), hits as f64);
+        let (genre, index, hits) = find(CRASH).expect("a groove with a crash");
+        g.c.load_groove(0, genre, index);
+        assert_eq!(g.c.sound[7].get(), CRASH as f64);
+        assert_eq!(g.c.patterns[0][7].get(), hits as f64);
+    }
+
+    #[test]
+    fn no_library_groove_needs_more_than_eight_tracks() {
+        for genre in patterns::library() {
+            for p in &genre.grooves {
+                assert!(
+                    p.rows[CRASH].hits == 0 || p.rows[RIDE].hits == 0,
+                    "{} has both a crash and a ride",
+                    p.name
+                );
+            }
+        }
     }
 
     #[test]

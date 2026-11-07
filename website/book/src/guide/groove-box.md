@@ -21,25 +21,54 @@ on the stopped Groove Box.
 ## Sequencer, Synth and Mixer
 
 The Groove Box fills the whole deck. Along the top are PLAY, the kit menu,
-the genre, the groove, **Chain ▾**, **A** to **D**, **SWING** and three
+the genre, the groove, **Chain ▾**, **A** to **D**, the tempo and three
 tabs.
 
-**SEQUENCER** shows nine tracks, each in its own color, with 16 squares
+**SEQUENCER** shows eight tracks, each in its own color, with 16 squares
 for the 16 steps of a bar: kick, snare, closed hat, open hat, clap, rim,
-cowbell, crash and ride. The icon on the left shows the track's sound; click it
+cowbell and cymbal. The cymbal track plays the crash or the ride, whichever
+the groove you load uses. The icon on the left shows the track's sound; click it
 to hear the sound, and hover over it to see its name. A lit square plays the
 sound on that step. Click a square to add or remove a hit; when the Groove
 Box is stopped, the click also plays the sound. Right-click a lit square to
 make the hit accented (brighter, a little louder), then soft (paler, half as
-loud), then normal again. A track with no hits stays
+loud), then **50%** (it plays about every other time round), then normal again. A track with no hits stays
 dimmed, and a track's icon lights up as it plays. The brighter column is the
-step that's playing. **M** mutes a track, **S** solos it. **SWING** delays
-every other step for a looser feel.
+step that's playing. **M** mutes a track, **S** solos it.
+
+### Dice: new ideas from the groove
+
+The **⚄** button in the top bar varies every track that isn't locked; right-click a
+track's icon to vary only that track, or to lock it. Each change waits for the next bar
+while the Groove Box plays, so it always lands in time:
+
+- **New groove** (or **New track**): fresh hits in the style of the genre picked, learnt
+  from how that genre's grooves use each sound step by step.
+- **Mutate**: moves a hit or two to a nearby step, and now and then adds or drops one.
+  The kick's downbeat and the snare's backbeat stay put.
+- **Busier** and **Calmer**: one hit more on the strongest free step, or one fewer, the
+  weakest first.
+- **Even out**: the same number of hits spread as evenly as they go (a Euclidean rhythm).
+- **Shift later** and **Shift earlier**: every hit a step later or earlier.
+
+**VARY**, at the top of the ⚄ menu, lets the groove change by itself as it plays: turned
+up, weak hits sometimes drop out, soft ghost notes come in where the genre puts them, and
+every hit wavers a little in loudness. The kick's downbeat and the snare's backbeat always
+play. The ⚄ button is outlined while VARY is up. **Basics** has two grooves made to breathe
+this way: **Living house** and **Rolling breaks**.
+
+**Undo** in the ⚄ menu puts back the groove as it was, one change at a time.
 
 **SYNTH** shows each track's sound. Click the sound's name to pick another
 from the kit. **PITCH** tunes it up or down by up to an octave, **DECAY**
 makes it shorter, and **TONE** darkens it (turned left) or thins it (turned
 right).
+
+Under the kick, **KEY** tunes the kick to the playing track's key. Click it
+to go from **OFF** to **ROOT** (the key's root note) to **5TH** (its fifth)
+and back. The kick moves to the nearest such note, never more than half an
+octave, and the button shows the note it plays. This suits long, boomy
+kicks most (Boom, Analog); a short, punchy kick has little pitch to tune.
 
 **MIXER** has a strip for each track: **PAN** places it left or right, the
 fader sets its level beside a meter, and **M** and **S** mute and solo it.
@@ -57,7 +86,7 @@ free to use anywhere:
 - **Tin**: small, ticking rhythm-box drums, 606-style.
 - **Dub**: a soft kick, a rimshot and a chord stab, for dub techno.
 
-Every kit plays the same nine tracks, so any groove sounds right on any kit.
+Every kit plays the same eight tracks, so any groove sounds right on any kit.
 Kits with more sounds (toms, shaker, chord) offer them in each track's sound
 menu in **SYNTH**.
 
@@ -84,7 +113,18 @@ The Groove Box follows, in this order:
 2. Ableton Link, when it is on (see [Ableton Link](link.md)).
 3. Its own tempo, 120 BPM, when nothing else is playing.
 
-The deck header shows the tempo, with **in time with the mix** while it follows a deck or Link. If
+The tempo button in the top bar shows the BPM, outlined while it follows the
+mix. Click it for:
+
+- **Follow the mix**: on by default. Turn it off to keep the Groove Box at
+  its own tempo whatever plays.
+- **−1**, **−.1**, **+.1** and **+1**: change the BPM. This turns following
+  off, so the tempo stays where you put it.
+- **Half time**, **Normal** and **Double**: follow the mix at half or twice
+  its tempo (and turn following back on).
+- **SWING**: delays every other step for a looser feel.
+
+If
 the leading deck jumps (a hot cue or beat jump), the Groove Box moves to the
 new beat at its next bar rather than mid-bar.
 
