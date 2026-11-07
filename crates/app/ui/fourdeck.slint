@@ -9,7 +9,7 @@ import { TrackDrag } from "library.slint";
 import { InstrumentsUi } from "instruments.slint";
 import { Theme } from "theme.slint";
 import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, StereoMeter, SyncButton } from "controls.slint";
-import { DeckInfo, Header, LoopStepper, Pads, PlayButton, TempoStep } from "deck.slint";
+import { DeckInfo, Header, LiveStrip, LoopStepper, Pads, PlayButton, TempoStep } from "deck.slint";
 import { AudioSettings, Knob, ModeMenu, SideKnob } from "mixer.slint";
 
 // Which side of the crossfader a deck is on, as Mixxx's `orientation`:
@@ -107,10 +107,16 @@ export component DeckStrip inherits Rectangle {
     property <bool> files-here: TrackDrag.files-over && under-files;
     property <int> files-dropped: TrackDrag.files-dropped;
     changed files-dropped => {
-        if under-files {
+        if under-files && live > 0 {
+            // An image becomes its art; anything else loads as a track.
+            InstrumentsUi.drop-art(deck, live, InstrumentsUi.instrument());
+        } else if under-files {
             TrackDrag.drop-files(deck);
         }
     }
+    // A live input played through the deck (see Header.live).
+    property <bool> groove: Controls.value(Controls.resolve("[Groove" + (deck + 1) + "]", "enabled"), Controls.tick) > 0;
+    property <int> live: info.loaded || groove ? 0 : InstrumentsUi.live(deck);
 
     // Tracks dragged from the browser load here, as on the other layouts.
     // First, so the sampler pads' own drop areas sit above it.
@@ -176,8 +182,9 @@ export component DeckStrip inherits Rectangle {
                         HorizontalLayout { alignment: center; vertical-stretch: 1; StereoMeter { group: group; } }
                     }
                 }
+                if live > 0: LiveStrip { live: live; group: group; tint: tint; vertical-stretch: 1; min-height: 115px; }
                 // PLAY, CUE and the loop.
-                HorizontalLayout {
+                if live == 0: HorizontalLayout {
                     spacing: 6px;
                     PlayButton { group: group; tint: tint; width: 52px; height: 32px; }
                     ControlButton { group: group; key: "cue_default"; text: "CUE"; momentary: true; tint: tint; outline-when-lit: true; font-size: 13px; horizontal-stretch: 1; height: 32px; }
@@ -188,7 +195,7 @@ export component DeckStrip inherits Rectangle {
                         Text { text: "LOOP"; color: Theme.text-dim; font-size: 9px; font-weight: 600; letter-spacing: 0.5px; horizontal-alignment: center; }
                     }
                 }
-                Pads { deck: deck; group: group; info: info; vertical-stretch: 1; min-height: 77px; }
+                if live == 0: Pads { deck: deck; group: group; info: info; vertical-stretch: 1; min-height: 77px; }
             }
         }
     }

@@ -4338,6 +4338,86 @@ component LivePanel inherits Rectangle {
     }
 }
 
+// A 4-Deck strip's live input, in place of PLAY, the loop and the pads
+// (`DeckStrip` in fourdeck.slint): what it needs if it is not set up yet;
+// otherwise for an instrument a small scope, EDIT, its first four knobs and
+// TRIM, and for an input where it comes in, TRIM and PAN. The strip's header carries its
+// image and presets, and its channel the meter. No keyboard here.
+export component LiveStrip inherits Rectangle {
+    in property <int> live;
+    in property <string> group;
+    in property <color> tint;
+    property <string> input-group: ["[Microphone]", "[Auxiliary1]", "[Instrument1]", "[Auxiliary2]", "[Auxiliary3]"][live - 1];
+    property <bool> ready: Controls.value(Controls.resolve(input-group, "input_configured"), Controls.tick) > 0;
+    property <int> count: Controls.value(Controls.resolve("[Instrument1]", "num_parameters"), Controls.tick);
+    border-radius: 8px;
+    background: Theme.well;
+    if !ready: VerticalLayout {
+        alignment: center;
+        spacing: 6px;
+        padding: 8px;
+        Text {
+            text: live == 3 ? "Pick an instrument plugin to hear it." : "No input picked for it yet.";
+            color: #ff9f0a;
+            font-size: 12px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            alignment: center;
+            GrooveButton {
+                text: live == 3 ? "Settings › Plugins" : "Settings › Audio";
+                width: 140px;
+                clicked => {
+                    if live == 3 {
+                        InstrumentsUi.open-settings(7, 1);
+                    } else {
+                        InstrumentsUi.open-settings(0, 0);
+                    }
+                }
+            }
+        }
+    }
+    if ready: VerticalLayout {
+        padding: 6px;
+        spacing: 6px;
+        // The scope keeps its shape (see InstrumentScope), so it sits
+        // beside EDIT rather than across the strip.
+        if live == 3: HorizontalLayout {
+            spacing: 8px;
+            InstrumentScope { tint: tint; width: 128px; height: 32px; }
+            VerticalLayout {
+                alignment: center;
+                ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "EDIT"; tint: Theme.accent; height: 24px; font-size: 11px; outline-when-lit: true; }
+            }
+        }
+        if live != 3: Text {
+            vertical-stretch: 1;
+            text: InstrumentsUi.route(live) != "" ? InstrumentsUi.route(live) : "Live input";
+            color: Theme.text-dim;
+            font-size: 11px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        HorizontalLayout {
+            alignment: space-around;
+            if live == 3: HorizontalLayout {
+                spacing: 0px;
+                for k in 4: ParamKnob { index: k; count: root.count; tint: root.tint; width: 52px; }
+            }
+            VerticalLayout {
+                alignment: center;
+                ControlKnob { group: group; key: "live_trim"; label: "TRIM"; tint: tint; size: 24px; }
+            }
+            if live != 3: VerticalLayout {
+                alignment: center;
+                ControlKnob { group: group; key: "live_pan"; label: "PAN"; tint: tint; size: 24px; bipolar: true; }
+            }
+        }
+    }
+}
+
 export component Deck inherits Rectangle {
     in property <int> deck;
     in property <DeckInfo> info;
