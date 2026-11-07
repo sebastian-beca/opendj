@@ -16,18 +16,25 @@ use opendj_engine::Track;
 use opendj_plugins::inbox::safe_name;
 use opendj_plugins::source::{
     megabytes, DownloadUpdate, Found, Prefer, Progress, QueryKind, SearchSource, Snapshot,
-    SourceInfo, SourceQuery, DOWNLOAD_FOLDER,
+    SourceInfo, SourceQuery, StatusPage, DOWNLOAD_FOLDER,
 };
 use opendj_plugins::{Plugin, PluginConfig, PluginError, Setting, SettingKind};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
-use crate::{AppWindow, FoundRow, QueueLine, SearchItem, SetupField, SourceTab, SourceUi, StoreUi};
+use crate::{
+    AppWindow, FoundRow, QueueLine, SearchItem, SetupField, SourceTab, SourceUi, StatusLine,
+    StoreUi,
+};
 
 /// Where plugin sources start in the rail, after the built-in ones.
 pub const FIRST_SOURCE: i32 = crate::browser::SOURCE_NAMES.len() as i32;
 
 /// How often searches and downloads are asked how they're getting on.
 const TICK: Duration = Duration::from_millis(900);
+
+/// How often a source's own page (see [`SearchSource::status`]) is asked
+/// for.
+const STATUS_TICK: Duration = Duration::from_secs(3);
 
 /// A square picture's side length and RGBA pixels.
 type Thumbnail = (u32, Vec<u8>);
@@ -81,6 +88,8 @@ enum Event {
     Cached(usize, String, Vec<PathBuf>),
     /// A finished download joined the library.
     Imported(Box<Track>),
+    /// The source's own page, when it changed.
+    Status(usize, Option<StatusPage>),
 }
 
 /// One source's thread: searches by the app's own numbers, mapped to the
@@ -100,6 +109,9 @@ fn run(
     // Downloads going to the cache, by key: they don't join the library.
     let mut caching: HashSet<String> = HashSet::new();
     let mut last = Instant::now();
+    // Asked for at the first tick.
+    let mut last_status: Option<Instant> = None;
+    let mut status: Option<StatusPage> = None;
     loop {
         match rx.recv_timeout(TICK) {
             Ok(Request::Configure(config)) => plugin.configure(&config),
@@ -152,6 +164,16 @@ fn run(
         }
         last = Instant::now();
         let source = plugin.source().expect("a source");
+        if last_status.is_none_or(|t| t.elapsed() >= STATUS_TICK) {
+            last_status = Some(Instant::now());
+            let now = source.status();
+            if now != status {
+                status = now.clone();
+                if tx.send(Event::Status(index, now)).is_err() {
+                    return;
+                }
+            }
+        }
         for local in active.clone() {
             let Some(id) = ids.get(&local) else { continue };
             let event = match source.results(id) {
@@ -366,6 +388,9 @@ struct Source {
     cache: Option<PathBuf>,
     /// Its settings, for the set-up form shown until it is set up.
     settings: Vec<Setting>,
+    /// Its own page in the panel, e.g. Sharing (see
+    /// [`SearchSource::status`]).
+    status: Option<StatusPage>,
 }
 
 impl Source {
@@ -435,6 +460,8 @@ pub struct Sources {
     shown: Option<usize>,
     /// The search shown, or the Downloads list.
     search: Option<usize>,
+    /// The source's own page is shown instead (see [`Source::status`]).
+    page: bool,
     /// 0 = everything, 1 = single tracks, 2 = albums.
     filter: i32,
     lossless_only: bool,
@@ -488,6 +515,7 @@ impl Sources {
                     downloads: Vec::new(),
                     cache,
                     settings,
+                    status: None,
                 }
             })
             .collect();
@@ -516,6 +544,7 @@ impl Sources {
             next_local: 0,
             shown: None,
             search: None,
+            page: false,
             filter: 0,
             lossless_only: false,
             checked: HashSet::new(),
@@ -757,6 +786,12 @@ impl Sources {
                     }
                 }
                 Event::Imported(track) => imported.push(*track),
+                Event::Status(s, status) => {
+                    if status.is_none() && self.shown == Some(s) {
+                        self.page = false;
+                    }
+                    self.sources[s].status = status;
+                }
             }
         }
         if changed {
@@ -778,6 +813,7 @@ impl Sources {
                 self.search = shown
                     .filter(|&s| !self.sources[s].searches.is_empty())
                     .map(|_| 0);
+                self.page = false;
                 self.checked.clear();
                 changed = true;
             }
@@ -963,8 +999,11 @@ impl Sources {
     }
 
     /// The search at a row of the panel; -1 is Downloads.
+    /// Shows search `i`, the Downloads list (-1) or the source's own page
+    /// (-2).
     fn select(&mut self, i: i32) {
         self.search = usize::try_from(i).ok();
+        self.page = i == -2;
         self.checked.clear();
         self.anchor = None;
         self.refresh();
@@ -1331,7 +1370,17 @@ impl Sources {
             })
             .collect();
         ui.set_searches(ModelRc::new(VecModel::from(items)));
-        ui.set_current_search(self.search.map_or(-1, |i| i as i32));
+        ui.set_current_search(if self.page {
+            -2
+        } else {
+            self.search.map_or(-1, |i| i as i32)
+        });
+        let status = source.status.clone().unwrap_or_default();
+        ui.set_status_shown(source.status.is_some());
+        ui.set_status_title(status.title.as_str().into());
+        ui.set_status_line(status.line.as_str().into());
+        ui.set_status_note(status.note.as_str().into());
+        ui.set_status_lines(ModelRc::new(VecModel::from(status_lines(&status))));
         ui.set_plays(source.cache.is_some());
         let config = crate::settings::plugin_config(source.id);
         let fields: Vec<SetupField> = if needs_setup(&source.settings, &config) {
@@ -1370,7 +1419,6 @@ impl Sources {
         }
         ui.set_setup_intro(intro.into());
         ui.set_setup_status(self.setup_status.as_str().into());
-        ui.set_queue_shown(!source.downloads.is_empty());
         ui.set_grouped(
             self.current()
                 .is_some_and(|(_, search)| search.items.iter().any(|f| !f.group.is_empty())),
@@ -1387,7 +1435,7 @@ impl Sources {
         ui.set_failed_count(failed as i32);
         ui.set_downloads_line(
             match (active, failed) {
-                (0, 0) if done == 0 => String::new(),
+                (0, 0) if done == 0 => "Nothing yet".into(),
                 (0, 0) => format!("{done} done"),
                 (0, f) => format!("{f} failed"),
                 (n, _) => format!("{n} active"),
@@ -1408,10 +1456,10 @@ impl Sources {
             })
             .collect();
         ui.set_queue(ModelRc::new(VecModel::from(queue)));
-        ui.set_queue_title(format!("{done} of {}", source.downloads.len()).into());
 
         let (rows, list) = match self.current() {
             Some((_, search)) => self.result_rows(source, search),
+            None if self.page => (Vec::new(), Vec::new()),
             None => self.download_rows(source),
         };
         // Covers of what's listed are fetched once each, in the background.
@@ -1436,9 +1484,14 @@ impl Sources {
                     _ => String::new(),
                 },
             ),
+            None if self.page => (status.title.clone(), status.line.clone(), String::new()),
             None => (
                 "Downloads".into(),
-                ui.get_downloads_line().to_string(),
+                if source.downloads.is_empty() {
+                    String::new()
+                } else {
+                    ui.get_downloads_line().to_string()
+                },
                 if list.is_empty() {
                     "Nothing downloaded yet.".into()
                 } else {
@@ -1627,6 +1680,27 @@ impl Sources {
 /// Where a search added at `added` goes in a list kept newest first: after
 /// any added at the same time, so a list read back keeps its order.
 /// The playlist entries among results, in the order they're listed.
+/// A source's own page as the list on the right shows it: each section's
+/// heading, then its figures.
+fn status_lines(page: &StatusPage) -> Vec<StatusLine> {
+    let mut lines = Vec::new();
+    for section in &page.sections {
+        if !section.heading.is_empty() {
+            lines.push(StatusLine {
+                heading: true,
+                label: section.heading.as_str().into(),
+                value: SharedString::new(),
+            });
+        }
+        lines.extend(section.rows.iter().map(|(label, value)| StatusLine {
+            heading: false,
+            label: label.as_str().into(),
+            value: value.as_str().into(),
+        }));
+    }
+    lines
+}
+
 fn entries(items: &[Found]) -> Vec<&str> {
     let mut seen = HashSet::new();
     items
@@ -2218,6 +2292,7 @@ mod tests {
             downloads: Vec::new(),
             cache: None,
             settings: Vec::new(),
+            status: None,
         };
         let progress = |key: &str, progress| Download {
             key: key.into(),
