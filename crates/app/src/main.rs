@@ -975,6 +975,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let players_timer = slint::Timer::default();
     {
         let (weak, engine) = (app.as_weak(), engine.clone());
+        let mut param_names: Vec<String> = Vec::new();
         players_timer.start(
             slint::TimerMode::Repeated,
             Duration::from_millis(500),
@@ -994,6 +995,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let ui = app.global::<InstrumentsUi>();
                 if ui.get_playing_from().as_str() != name {
                     ui.set_playing_from(name.into());
+                }
+                let names = engine.instrument_parameters();
+                if names != param_names {
+                    let model: Vec<slint::SharedString> =
+                        names.iter().map(|n| n.as_str().into()).collect();
+                    ui.set_param_names(slint::ModelRc::from(model.as_slice()));
+                    param_names = names;
                 }
             },
         );

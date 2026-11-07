@@ -725,6 +725,8 @@ struct Vst3Main {
     frame: ComWrapper<Frame>,
     /// The editor, while it is open, and whether it can be resized.
     view: Option<(ComPtr<IPlugView>, bool)>,
+    /// The shared parameters' ids, for reading their values back.
+    param_ids: Vec<ParamID>,
     _module: Module,
 }
 
@@ -803,6 +805,28 @@ impl MainThread for Vst3Main {
             }
         }
         Ok(())
+    }
+
+    fn param_values(&mut self, out: &mut [f64]) -> bool {
+        let Some(c) = &self.controller else {
+            return false;
+        };
+        for (o, id) in out.iter_mut().zip(&self.param_ids) {
+            // SAFETY: a plain call into the controller, on the main thread.
+            *o = unsafe { c.getParamNormalized(*id) };
+        }
+        true
+    }
+
+    fn param_set(&mut self, index: usize, value: f64) {
+        // The processor got the change; the controller (and its window)
+        // keeps its own copy, so it is told too.
+        if let (Some(c), Some(id)) = (&self.controller, self.param_ids.get(index)) {
+            // SAFETY: as above.
+            unsafe {
+                c.setParamNormalized(*id, value);
+            }
+        }
     }
 
     fn idle(&mut self) {
@@ -1133,6 +1157,7 @@ pub fn load(
                     run_loop: Default::default(),
                 }),
                 view: None,
+                param_ids: params.iter().map(|(id, _)| *id).collect(),
                 _module: module,
             })),
             info: Info {
