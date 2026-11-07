@@ -57,6 +57,7 @@ mod inbox;
 mod instruments;
 mod list_picker;
 mod lookup;
+mod lrclib;
 #[cfg(target_os = "macos")]
 mod mac_menu;
 #[cfg(target_os = "macos")]

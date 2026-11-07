@@ -9,7 +9,7 @@ import { InstrumentsPanel } from "instruments.slint";
 import { InfoPanel, TrackInfo } from "info.slint";
 import { CuesPanel, CueList } from "cues.slint";
 import { ChecklistPanel } from "checklist.slint";
-import { LyricsPanel } from "lyrics.slint";
+import { LyricsPanel, PlayerLyrics } from "lyrics.slint";
 import { FilterBar, FilterUi } from "filters.slint";
 import { TourMark } from "tourmark.slint";
 
@@ -3016,7 +3016,7 @@ component FolderTree inherits Rectangle {
                         }
                         // The Crates and Playlists headings have no icon.
                         // Nor do the history tab's days.
-                        if f.kind != 18 && f.kind != 19: VerticalLayout { alignment: center; FolderIcon { kind: f.kind; tint: f.color; icon: f.icon; } }
+                        if f.kind != 18 && f.kind != 23: VerticalLayout { alignment: center; FolderIcon { kind: f.kind; tint: f.color; icon: f.icon; } }
                         // A new or renamed list is named right here.
                         if i == naming-row: VerticalLayout {
                             alignment: center;
@@ -3058,7 +3058,7 @@ component FolderTree inherits Rectangle {
                             text: f.name;
                             color: i == current ? Theme.on-row-selection : f.kind == 18 || f.dim ? Theme.text-dim : Theme.stage-labels ? Theme.stage-tint(f.kind) : Theme.text;
                             font-size: f.kind == 18 ? 13px : 15px;
-                            font-weight: f.kind == 18 ? 700 : f.kind == 19 ? 600 : 400;
+                            font-weight: f.kind == 18 ? 700 : f.kind == 23 ? 600 : 400;
                             vertical-alignment: center;
                             overflow: elide;
                             horizontal-stretch: 1;
@@ -5794,6 +5794,8 @@ export component Browser inherits HorizontalLayout {
     in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true, true, true, true, true];
     callback source-shown-changed(source: int, on: bool);
     in property <bool> side-visible: true;
+    // Player mode's large lyrics, in place of the track list.
+    in property <bool> lyrics-view;
     // Square panels split by thin black lines.
     spacing: 1px;
     // Sources with a list of their own: the collection, Files, the stores,
@@ -5861,7 +5863,7 @@ export component Browser inherits HorizontalLayout {
         }
         list := TrackList {
             focused: !folders-focused;
-            visible: !plugin-source && !instruments-source && !health-page && !cleanup-page && !(health-bar && HealthUi.reviewing);
+            visible: !plugin-source && !instruments-source && !health-page && !cleanup-page && !(health-bar && HealthUi.reviewing) && !lyrics-view;
             y: health-bar ? (HealthUi.chips.length > 0 ? 81px : 45px) : 0;
             width: 100%;
             height: parent.height - self.y;
@@ -5920,6 +5922,10 @@ export component Browser inherits HorizontalLayout {
             hint: plugin-index < SourceUi.sources.length ? SourceUi.sources[plugin-index].hint : "";
         }
         if instruments-source: InstrumentsPanel {
+            width: 100%;
+            height: 100%;
+        }
+        if lyrics-view: PlayerLyrics {
             width: 100%;
             height: 100%;
         }

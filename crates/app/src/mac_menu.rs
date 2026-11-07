@@ -33,23 +33,27 @@ define_class!(
     impl MenuTarget {
         #[unsafe(method(runMenuAction:))]
         fn run_menu_action(&self, sender: Option<&AnyObject>) {
-            // The shortcut also reaches the window, which does the work
-            // there (or lets a text field take ⌘Z for its typing), so only
-            // a click on the item counts.
-            if let Some(mtm) = MainThreadMarker::new() {
-                let key = NSApplication::sharedApplication(mtm)
-                    .currentEvent()
-                    .is_some_and(|e| e.r#type() == NSEventType::KeyDown);
-                if key {
-                    return;
-                }
-            }
             let Some(item) = sender.and_then(|s| s.downcast_ref::<NSMenuItem>()) else {
                 return;
             };
             let Some(action) = Action::from_id(item.tag() as i32) else {
                 return;
             };
+            // The window may not see a shortcut the menu takes, so the
+            // item does the work for it: Settings… only opens and Find only
+            // goes to the search, so doing either twice is harmless. ⌘Z is
+            // left to the window, which undoes there (or lets a text field
+            // take it for its typing), so only a click on Undo counts.
+            if action == Action::Undo {
+                if let Some(mtm) = MainThreadMarker::new() {
+                    let key = NSApplication::sharedApplication(mtm)
+                        .currentEvent()
+                        .is_some_and(|e| e.r#type() == NSEventType::KeyDown);
+                    if key {
+                        return;
+                    }
+                }
+            }
             RUN.with(|r| {
                 if let Some(run) = r.borrow().as_ref() {
                     run(action);

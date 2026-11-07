@@ -13,6 +13,7 @@ export { AppMenu, MenuEntry } from "appmenu.slint";
 import { PrepDeck, PrepUi } from "prep.slint";
 import { CueList } from "cues.slint";
 import { ChecklistUi } from "checklist.slint";
+import { LyricsUi } from "lyrics.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { FxBar } from "fxbar.slint";
 import { InstrumentsUi, LiveItem } from "instruments.slint";
@@ -34,7 +35,7 @@ export { MapMode }
 export { PrepUi }
 export { CueList, CueRow } from "cues.slint";
 export { ChecklistUi, CheckRow } from "checklist.slint";
-export { LyricsUi, LyricLine } from "lyrics.slint";
+export { LyricsUi, LyricLine, LyricMatch } from "lyrics.slint";
 export { RemoteUi, RemoteDevice }
 export { MixerMode, InputSettings, InputRow }
 export { BroadcastState, BroadcastStation }
@@ -73,7 +74,7 @@ component Waveform inherits Rectangle {
     TouchArea {
         mouse-cursor: Controls.value(duration-index, Controls.tick) > 0 ? ew-resize : default;
         pointer-event(e) => {
-            if e.button != PointerEventButton.left {
+            if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
                 return;
             }
             if e.kind == PointerEventKind.down {
@@ -826,6 +827,10 @@ export component AppWindow inherits Window {
     }
     changed player => {
         LibraryEdit.top-search = player;
+        // Player mode's large lyrics only show in Player mode.
+        if !player {
+            LyricsUi.big = false;
+        }
         // The list's search carries over into the top bar's box.
         if player {
             QuickSearch.text = StoreUi.search-text;
@@ -1322,6 +1327,7 @@ export component AppWindow inherits Window {
                 automix-repeat: automix-repeat;
                 automix-set-repeat(on) => { automix-set-repeat(on); }
                 side-visible: side-panel-visible;
+                lyrics-view: player && LyricsUi.big;
             }
 
             // Footer: on the left, expand the library, leaving just the

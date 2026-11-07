@@ -8,13 +8,20 @@
 //! the same state. It is kept in the system keychain; Mixcloud tokens don't
 //! expire, but the DJ can revoke one, which shows up as an OAuth error.
 //!
+//! The keychain is only read when an upload needs the token, and once per
+//! run: on macOS each read can ask for the login keychain password (always
+//! for a build whose code signature the item doesn't know yet). Whether the
+//! DJ is signed in, which the menus need at launch, comes from a marker
+//! file next to the settings instead, which holds no secret.
+//!
 //! The upload is one multipart POST to `https://api.mixcloud.com/upload/`,
 //! the MP3 streamed from disk.
 
 use std::fs::File;
 use std::io::{self, Cursor, Read};
 use std::net::TcpListener;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use opendj_broadcast::mixcloud::Show;
@@ -33,16 +40,61 @@ fn keychain() -> Result<keyring::Entry, String> {
     keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_USER).map_err(|e| e.to_string())
 }
 
-/// The token from the last sign-in, if any.
+/// The token as read from (or written to) the keychain this run: `None`
+/// until the first read, so the keychain is asked at most once.
+static TOKEN: Mutex<Option<Option<String>>> = Mutex::new(None);
+
+/// The marker saying a token is in the keychain.
+fn marker() -> Option<PathBuf> {
+    crate::settings::config_dir().map(|d| d.join("mixcloud-signed-in"))
+}
+
+fn set_marker(on: bool) {
+    let Some(path) = marker() else { return };
+    if on {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&path, b"");
+    } else {
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+/// Whether the DJ signed in to Mixcloud, without touching the keychain.
+pub fn signed_in() -> bool {
+    if let Some(known) = &*TOKEN.lock().unwrap_or_else(|e| e.into_inner()) {
+        return known.is_some();
+    }
+    marker().is_some_and(|p| p.exists())
+}
+
+/// The token from the last sign-in, if any. Reads the keychain the first
+/// time only; call it off the UI thread, since the read can wait on the
+/// DJ typing their password.
 pub fn saved_token() -> Option<String> {
-    keychain()
-        .ok()?
-        .get_password()
+    if let Some(known) = &*TOKEN.lock().unwrap_or_else(|e| e.into_inner()) {
+        return known.clone();
+    }
+    // Not holding the lock while the keychain may be waiting on the DJ.
+    let token = keychain()
         .ok()
-        .filter(|t| !t.is_empty())
+        .and_then(|k| k.get_password().ok())
+        .filter(|t| !t.is_empty());
+    let mut cached = TOKEN.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(known) = &*cached {
+        // Signed in or out meanwhile.
+        return known.clone();
+    }
+    // Signed in before the marker existed, or the item was deleted.
+    set_marker(token.is_some());
+    *cached = Some(token.clone());
+    token
 }
 
 fn save_token(token: &str) {
+    *TOKEN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Some(token.to_string()));
+    set_marker(true);
     if let Err(e) = keychain().and_then(|k| k.set_password(token).map_err(|e| e.to_string())) {
         eprintln!("can't keep the Mixcloud sign-in: {e}");
     }
@@ -50,6 +102,8 @@ fn save_token(token: &str) {
 
 /// Signs out: forgets the token.
 pub fn forget_token() {
+    *TOKEN.lock().unwrap_or_else(|e| e.into_inner()) = Some(None);
+    set_marker(false);
     if let Ok(k) = keychain() {
         let _ = k.delete_credential();
     }

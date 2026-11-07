@@ -11,7 +11,7 @@ The menu at the top left of the window switches layouts:
   happens. Point at the line and it turns lilac and shows the time there;
   click or drag to move through the track. The time played and the track's
   length are either side. On the right are the master volume, the mini
-  player button and the queue button, which shows or hides **Up Next**
+  player button, the lyrics button and the queue button, which shows or hides **Up Next**
   (the Automix list), and under them the file's quality: format, bit depth
   and sample rate in lilac for lossless files (**FLAC 16-BIT 44.1 KHZ**),
   or the bitrate in grey (**MP3 320 KBPS**). The **＋** beside the title

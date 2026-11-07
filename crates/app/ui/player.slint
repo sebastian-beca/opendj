@@ -9,6 +9,7 @@
 // PlayerBar, further down, is the Player layout itself.
 import { LibraryEdit, ListPanel, TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
+import { LyricsUi } from "lyrics.slint";
 import { LineEdit } from "std-widgets.slint";
 import { ControlButton, ControlFader, Controls, StereoMeter, SyncButton } from "controls.slint";
 import { Cover, DeckInfo, Header, Jog, PlayButton } from "deck.slint";
@@ -183,7 +184,7 @@ component BarButton inherits Rectangle {
 // The Player layout's one bar (104 px), along the bottom of the window as
 // in music players: what is playing on the left (album art, title, artist,
 // BPM, the key in its colour and Automix's next track), the transport over
-// a thin progress line in the middle, and the volume, mini player and queue
+// a thin progress line in the middle, and the volume, mini player, lyrics and queue
 // buttons on the right over the file's quality. Underneath, decks 1 and 2
 // keep alternating and Automix mixes from one to the other, so a song never
 // just stops and the next starts cold; the bar always shows the deck
@@ -449,7 +450,7 @@ export component PlayerBar inherits Rectangle {
                         enabled: info.loaded;
                         mouse-cursor: pointer;
                         pointer-event(e) => {
-                            if e.button != PointerEventButton.left {
+                            if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
                                 return;
                             }
                             if e.kind == PointerEventKind.down {
@@ -481,8 +482,8 @@ export component PlayerBar inherits Rectangle {
             }
         }
 
-        // The volume, mini player and queue buttons, over the file's
-        // quality.
+        // The volume, mini player, lyrics and queue buttons, over the
+        // file's quality.
         VerticalLayout {
             width: side - pad - gap;
             alignment: center;
@@ -521,6 +522,32 @@ export component PlayerBar inherits Rectangle {
                             stroke: mini.ink;
                             stroke-width: 1.6px;
                             commands: "M 2 4 L 18 4 L 18 16 L 2 16 Z M 10 10 L 16 10 L 16 14 L 10 14 Z";
+                        }
+                    }
+                }
+                // Shows the lyrics large, in place of the track list.
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 40px;
+                        height: 36px;
+                        border-radius: 9px;
+                        background: LyricsUi.big ? Theme.accent.with-alpha(0.18) : lyta.has-hover ? #3a3a3d : transparent;
+                        border-width: LyricsUi.big ? 1px : 0px;
+                        border-color: Theme.accent;
+                        // A speech bubble with lines of words.
+                        Path {
+                            width: 22px;
+                            height: 19px;
+                            viewbox-width: 18;
+                            viewbox-height: 16;
+                            stroke: LyricsUi.big ? Theme.accent : Theme.text;
+                            stroke-width: 1.6px;
+                            commands: "M 2 1.5 L 16 1.5 L 16 11 L 7 11 L 3.5 14.5 L 3.5 11 L 2 11 Z M 5 5 L 13 5 M 5 8 L 10.5 8";
+                        }
+                        lyta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { LyricsUi.big = !LyricsUi.big; }
                         }
                     }
                 }

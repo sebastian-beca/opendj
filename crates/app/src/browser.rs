@@ -464,8 +464,9 @@ const KIND_LIST: i32 = 2;
 const KIND_SMART: i32 = 3;
 const KIND_WANTED: i32 = 4;
 const KIND_HISTORY: i32 = 5;
-/// A day on the history tab, its sets under it.
-const KIND_HISTORY_DAY: i32 = 19;
+/// A day on the history tab, its sets under it. Its own number: 19 is
+/// Play Ready.
+const KIND_HISTORY_DAY: i32 = 23;
 /// Bandcamp in the stores list, shown with its logo.
 const KIND_BANDCAMP: i32 = 6;
 /// A drive, and a folder pinned to the top, in Files.

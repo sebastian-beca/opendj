@@ -8,12 +8,12 @@
 
 ## 2. Player mode
 
-- [ ] 2.1 Lyrics button on the Player bar; large lyrics in place of the browser, sung words lit when timed by word, dots counting down breaks, click a line to play from it
+- [x] 2.1 Lyrics button on the Player bar; large lyrics in place of the browser, sung words lit when timed by word, a ♪ for breaks in the singing, click a line to play from it
 
 ## 3. Find lyrics online
 
-- [ ] 3.1 Settings › Library › Lyrics: LRCLIB switch, off at first
-- [ ] 3.2 Find lyrics in the tab: LRCLIB `/api/get` then `/api/search`, matches ranked by length, saved as `.lrc` (library when the folder is read-only)
+- [x] 3.1 Settings › Collection › Health › Find lyrics online: LRCLIB switch, off at first
+- [x] 3.2 Find lyrics in the tab: LRCLIB `/api/get` then `/api/search`, matches ranked by length and timing, saved as `.lrc` beside the track (openDJ's own lyrics folder when that folder can't be written)
 - [ ] 3.3 Collection Health › Info: find lyrics for many tracks, one request at a time, honouring `Retry-After`
 
 ## 4. Fix lyrics
