@@ -1,0 +1,164 @@
+// The karaoke screen: a window of its own for a second display, a TV or a
+// projector, with the line to sing big in the middle. The word being sung
+// fills with lilac as it is sung; dots count the beats in before a line
+// after a break. Double-click or F toggles full screen; Esc leaves it.
+import { Theme } from "theme.slint";
+
+// Text of one size and weight, for the parts of the line being sung.
+component Part inherits Text {
+    vertical-alignment: center;
+    font-weight: 800;
+}
+
+export component KaraokeWindow inherits Window {
+    title: "openDJ Karaoke";
+    icon: @image-url("icons/opendj.svg");
+    preferred-width: 1280px;
+    preferred-height: 720px;
+    min-width: 480px;
+    min-height: 270px;
+    background: #08080a;
+    default-font-family: Theme.font-family;
+
+    // 0 nothing playing, 1 no lyrics, 2 lyrics not timed, 3 lyrics.
+    in property <int> state;
+    in property <string> song;
+    in property <string> artist;
+    // The line before, the line to sing (sung part, the word being sung and
+    // how far, the rest), and the two lines after it.
+    in property <string> before;
+    in property <string> sung;
+    in property <string> word;
+    in property <float> part;
+    in property <string> rest;
+    in property <string> next;
+    in property <string> after;
+    // Letters in the line to sing, so a long one is set smaller to fit.
+    in property <int> letters: 20;
+    // Beats to the line, 1 to 4, shown as dots; 0 for none.
+    in property <int> count-in;
+    callback toggle-full-screen();
+    callback leave-full-screen();
+
+    property <length> big: min(self.height * 0.1, self.width * 1.7 / max(letters, 14));
+    property <color> lilac: Theme.accent;
+
+    Rectangle {
+        background: @radial-gradient(circle, lilac.with-alpha(0.10) 0%, #08080a00 70%);
+    }
+
+    keys := FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.Escape {
+                root.leave-full-screen();
+                return accept;
+            }
+            if e.text == "f" || e.text == "F" {
+                root.toggle-full-screen();
+                return accept;
+            }
+            reject
+        }
+        TouchArea {
+            double-clicked => { root.toggle-full-screen(); }
+        }
+    }
+
+    // Title and artist, small along the top.
+    if state > 0: Text {
+        x: 32px;
+        y: 24px;
+        width: parent.width - 64px;
+        text: root.artist == "" ? root.song : root.song + "  ·  " + root.artist;
+        color: Theme.text-dim.with-alpha(0.8);
+        font-size: max(14px, root.height * 0.028);
+        font-weight: 600;
+        overflow: elide;
+    }
+
+    if state < 3: VerticalLayout {
+        alignment: center;
+        spacing: root.height * 0.03;
+        padding: 48px;
+        Text {
+            text: root.state == 0 ? "openDJ Karaoke" : root.song;
+            color: Theme.text;
+            font-size: root.height * 0.08;
+            font-weight: 800;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+        Text {
+            text: root.state == 0 ? "Lyrics show here for the track playing."
+                : root.state == 1 ? "No lyrics for this track"
+                : "These lyrics aren't timed, so they can't follow the song.";
+            color: root.state == 1 ? lilac : Theme.text-dim;
+            font-size: root.height * 0.04;
+            font-weight: 600;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+    }
+
+    if state == 3: VerticalLayout {
+        alignment: center;
+        padding-left: 48px;
+        padding-right: 48px;
+        spacing: root.height * 0.035;
+        Text {
+            text: root.before;
+            color: Theme.text-dim.with-alpha(0.45);
+            font-size: root.height * 0.045;
+            font-weight: 700;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+        // The count-in: a dot a beat, gone one by one.
+        HorizontalLayout {
+            alignment: center;
+            spacing: root.height * 0.025;
+            height: root.height * 0.03;
+            for i in root.count-in: Rectangle {
+                width: root.height * 0.03;
+                border-radius: self.width / 2;
+                background: lilac;
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            height: root.big * 1.4;
+            Part { text: root.sung; color: lilac; font-size: root.big; }
+            // The word being sung: white, with lilac drawn over it as far as
+            // it has been sung.
+            Rectangle {
+                width: word-text.preferred-width;
+                word-text := Part { x: 0; width: self.preferred-width; height: parent.height; text: root.word; color: Theme.text; font-size: root.big; }
+                Rectangle {
+                    x: 0;
+                    width: parent.width * root.part;
+                    clip: true;
+                    Part { x: 0; width: word-text.width; height: parent.height; text: root.word; color: lilac; font-size: root.big; }
+                }
+            }
+            Part { text: root.rest; color: Theme.text; font-size: root.big; }
+        }
+        Text {
+            text: root.next;
+            color: Theme.text.with-alpha(0.72);
+            font-size: root.big * 0.62;
+            font-weight: 700;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+        Text {
+            text: root.after;
+            color: Theme.text-dim.with-alpha(0.6);
+            font-size: root.big * 0.5;
+            font-weight: 700;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    init => { keys.focus(); }
+}
