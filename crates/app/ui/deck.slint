@@ -3787,30 +3787,110 @@ component InstrumentScope inherits Rectangle {
 }
 
 // Four octaves of keys, C2 to B5, lighting the notes held. Key `n` here
-// is MIDI note 36 + n.
+// is MIDI note 36 + n. In scale mode the scale's keys carry a line in the
+// deck color and the rest are dimmed.
 component InstrumentKeyboard inherits Rectangle {
     in property <color> tint;
     property <length> key-width: self.width / 28;
+    property <int> mask: Controls.value(Controls.resolve("[Instrument1]", "scale_mask"), Controls.tick);
     border-radius: 3px;
     clip: true;
     for w in 28: Rectangle {
         property <int> note: 12 * floor(w / 7) + [0, 2, 4, 5, 7, 9, 11][Math.mod(w, 7)];
+        property <bool> in-scale: Math.mod(floor(mask / Math.pow(2, Math.mod(note, 12))), 2) == 1;
         x: w * root.key-width;
         width: root.key-width - 1px;
         height: root.height;
         border-radius: 2px;
-        background: InstrumentsUi.held[note] ? root.tint : #d8d8dc;
+        background: InstrumentsUi.held[note] ? root.tint : mask == 0 || in-scale ? #d8d8dc : #6a6a70;
+        if mask != 0 && in-scale && !InstrumentsUi.held[note]: Rectangle {
+            x: 2px;
+            y: parent.height - 4px;
+            width: parent.width - 4px;
+            height: 2px;
+            background: root.tint;
+        }
     }
     // A black key after every white key but E and B.
     for w in 28: Rectangle {
         property <int> step: Math.mod(w, 7);
         property <int> note: 12 * floor(w / 7) + [1, 3, 0, 6, 8, 10, 0][step];
+        property <bool> in-scale: Math.mod(floor(mask / Math.pow(2, Math.mod(note, 12))), 2) == 1;
         visible: step != 2 && step != 6;
         x: (w + 1) * root.key-width - root.key-width * 0.3;
         width: root.key-width * 0.6;
         height: root.height * 0.6;
         border-radius: 2px;
-        background: InstrumentsUi.held[note] ? root.tint : #1a1a1c;
+        background: InstrumentsUi.held[note] ? root.tint : mask == 0 || in-scale ? #1a1a1c : #3c3c40;
+        if mask != 0 && in-scale && !InstrumentsUi.held[note]: Rectangle {
+            x: 2px;
+            y: parent.height - 4px;
+            width: parent.width - 4px;
+            height: 2px;
+            background: root.tint;
+        }
+    }
+}
+
+// Scale mode: Off, Auto (the master deck's key) or a root and scale
+// picked. Notes played move to the scale's nearest note.
+component ScaleButton inherits GrooveButton {
+    property <int> mode-index: Controls.resolve("[Instrument1]", "scale_mode");
+    property <int> root-index: Controls.resolve("[Instrument1]", "scale_root");
+    property <int> type-index: Controls.resolve("[Instrument1]", "scale_type");
+    property <int> mode: Controls.value(mode-index, Controls.tick);
+    property <int> picked-root: Controls.value(root-index, Controls.tick);
+    property <int> picked-type: Controls.value(type-index, Controls.tick);
+    property <int> now: Controls.value(Controls.resolve("[Instrument1]", "scale_now"), Controls.tick);
+    property <[string]> notes: ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    property <[string]> kinds: ["", "m", " pent", "m pent"];
+    property <string> now-name: now == 0 ? "" : notes[Math.mod(now - 1, 12)] + kinds[floor((now - 1) / 12)];
+    text: "SCALE: " + (mode == 0 ? "Off" : mode == 1 ? (now == 0 ? "Auto" : "Auto · " + now-name) : now-name) + " ▾";
+    lit: mode != 0 && now != 0;
+    clicked => { menu.show(); }
+    menu := PopupWindow {
+        y: - self.height - 2px;
+        width: 236px;
+        height: 3 * 24px + 2 * 26px + 4 * 24px + 40px;
+        GrooveMenuBackground { }
+        VerticalLayout {
+            padding: 4px;
+            GrooveMenuItem { text: "Off"; detail: ""; checked: mode == 0; clicked => { Controls.set-value(mode-index, 0); } }
+            GrooveMenuItem { text: "Auto: the master deck's key"; checked: mode == 1; clicked => { Controls.set-value(mode-index, 1); } }
+            Rectangle { height: 1px; background: Theme.border; }
+            for row in 2: HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                padding-top: 4px;
+                spacing: 3px;
+                height: 26px;
+                for k in 6: Rectangle {
+                    property <int> r: row * 6 + k;
+                    property <bool> on: mode == 2 && picked-root == r;
+                    border-radius: 4px;
+                    background: on ? Theme.accent.with-alpha(0.25) : rta.has-hover ? #3a3a3d : Theme.control;
+                    border-width: 1px;
+                    border-color: on ? Theme.accent : transparent;
+                    Text { text: notes[r]; color: Theme.text; font-size: 11px; }
+                    rta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            Controls.set-value(root-index, r);
+                            Controls.set-value(mode-index, 2);
+                        }
+                    }
+                }
+            }
+            Rectangle { height: 4px; }
+            for name[i] in ["Major", "Minor", "Major pentatonic", "Minor pentatonic"]: GrooveMenuItem {
+                text: name;
+                checked: mode == 2 && picked-type == i;
+                clicked => {
+                    Controls.set-value(type-index, i);
+                    Controls.set-value(mode-index, 2);
+                }
+            }
+        }
     }
 }
 
@@ -3986,19 +4066,27 @@ component LivePanel inherits Rectangle {
             ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "EDIT"; tint: Theme.accent; width: 120px; height: 22px; font-size: 11px; outline-when-lit: true; }
             ControlButton { group: "[Instrument1]"; key: "keyboard_pads"; text: "KEYBOARD PADS"; tint: Theme.accent; width: 120px; height: 22px; font-size: 11px; }
             MidiFrom { width: 120px; height: 22px; }
-            // The octave the KEYBOARD pads play the instrument in.
-            HorizontalLayout {
-                alignment: center;
-                spacing: 6px;
-                Caption { text: "OCTAVE"; vertical-alignment: center; }
-                OctaveStep { text: "−"; clicked => { Controls.set-value(octave-index, max(-3, octave - 1)); } }
-                Text { text: octave > 0 ? "+" + octave : "" + octave; color: Theme.text; font-size: 11px; vertical-alignment: center; horizontal-alignment: center; width: 18px; }
-                OctaveStep { text: "+"; clicked => { Controls.set-value(octave-index, min(3, octave + 1)); } }
-            }
         }
       }
-      // The notes it plays, on 2-Deck (4-Deck strips leave it out).
-      if live == 3: InstrumentKeyboard { tint: tint; height: 26px; }
+      // The notes it plays, on 2-Deck (4-Deck strips leave it out), beside
+      // its scale and the octave the KEYBOARD pads play in.
+      if live == 3: HorizontalLayout {
+        spacing: 8px;
+        height: 26px;
+        VerticalLayout {
+            alignment: center;
+            ScaleButton { width: 150px; height: 22px; }
+        }
+        HorizontalLayout {
+            alignment: center;
+            spacing: 4px;
+            Caption { text: "OCT"; vertical-alignment: center; }
+            VerticalLayout { alignment: center; OctaveStep { text: "−"; clicked => { Controls.set-value(octave-index, max(-3, octave - 1)); } } }
+            Text { text: octave > 0 ? "+" + octave : "" + octave; color: Theme.text; font-size: 11px; vertical-alignment: center; horizontal-alignment: center; width: 16px; }
+            VerticalLayout { alignment: center; OctaveStep { text: "+"; clicked => { Controls.set-value(octave-index, min(3, octave + 1)); } } }
+        }
+        InstrumentKeyboard { tint: tint; horizontal-stretch: 1; }
+      }
     }
 }
 

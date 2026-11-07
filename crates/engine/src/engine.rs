@@ -2892,7 +2892,11 @@ impl Engine {
                 0
             }
         });
+        let master_key = self
+            .link_master
+            .and_then(|k| Key::from_mixxx_number(self.decks[k].c.key.get()));
         for (i, input) in self.inputs.iter_mut().enumerate() {
+            input.set_master_key(master_key);
             let on_deck = live_on.contains(&(i + 1));
             input.render(frames, &mut self.fx, input_target(i), dt as f32, on_deck);
         }

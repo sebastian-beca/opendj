@@ -46,6 +46,7 @@ pub mod preview;
 pub mod process;
 pub mod recorder;
 pub mod sampler;
+pub mod scale;
 pub mod scan;
 pub mod separation;
 pub mod stems;
