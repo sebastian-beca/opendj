@@ -393,9 +393,12 @@ impl MainThread for AuMain {
             if data.is_null() {
                 return Err("its sound couldn't be written down".into());
             }
-            let bytes =
-                std::slice::from_raw_parts(CFDataGetBytePtr(data), CFDataGetLength(data) as usize)
-                    .to_vec();
+            let (ptr, len) = (CFDataGetBytePtr(data), CFDataGetLength(data));
+            let bytes = if ptr.is_null() || len <= 0 {
+                Vec::new()
+            } else {
+                std::slice::from_raw_parts(ptr, len as usize).to_vec()
+            };
             CFRelease(data);
             Ok(bytes)
         }
