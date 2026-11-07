@@ -2638,7 +2638,9 @@ component GrooveDice inherits GrooveButton {
     in property <string> g;
     property <bool> pending: Controls.value(Controls.resolve(g, "dice_pending"), Controls.tick) > 0;
     property <bool> can-undo: Controls.value(Controls.resolve(g, "can_undo"), Controls.tick) > 0;
+    property <bool> varying: Controls.value(Controls.resolve(g, "vary"), Controls.tick) > 0.01;
     text: "⚄";
+    lit: varying;
     font-size: 16px;
     blink: pending && Controls.blink;
     clicked => { dice-menu.show(); }
@@ -2648,6 +2650,13 @@ component GrooveDice inherits GrooveButton {
         GrooveMenuBackground { }
         VerticalLayout {
             padding: 4px;
+            HorizontalLayout {
+                padding: 4px;
+                spacing: 8px;
+                ControlKnob { group: g; key: "vary"; label: "VARY"; size: 26px; }
+                Text { text: "Lets the groove change by itself:\nweak hits drop out, ghost notes\ncome in, hits waver in loudness."; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+            }
+            Rectangle { height: 1px; background: Theme.border; }
             Text { x: 8px; height: 22px; text: "Every unlocked track, on the next bar"; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
             GrooveDiceItems { g: g; track: 0; }
             Rectangle { height: 1px; background: Theme.border; }
@@ -2679,6 +2688,8 @@ component GrooveTrack inherits HorizontalLayout {
     property <float> soft: Controls.value(soft-index, Controls.tick);
     property <int> accent-index: Controls.resolve(groove-group, "pattern" + (slot + 1) + "_" + rk + "_accent");
     property <float> accent: Controls.value(accent-index, Controls.tick);
+    property <int> maybe-index: Controls.resolve(groove-group, "pattern" + (slot + 1) + "_" + rk + "_maybe");
+    property <float> maybe: Controls.value(maybe-index, Controls.tick);
     property <bool> empty: bits < 1;
     property <int> sound: Controls.value(Controls.resolve(groove-group, rk + "_sound"), Controls.tick);
     property <string> sound-name: GrooveUi.kits[kit].sounds[sound];
@@ -2772,13 +2783,16 @@ component GrooveTrack inherits HorizontalLayout {
         property <bool> on: mod(floor(bits / pow(2, s)), 2) >= 1;
         property <bool> is-soft: mod(floor(soft / pow(2, s)), 2) >= 1;
         property <bool> is-accent: mod(floor(accent / pow(2, s)), 2) >= 1;
-        property <color> lit: is-accent ? tint.brighter(0.45) : is-soft ? tint.with-alpha(0.5) : tint;
+        property <bool> is-maybe: mod(floor(maybe / pow(2, s)), 2) >= 1;
+        property <color> lit: is-accent ? tint.brighter(0.45) : is-soft ? tint.with-alpha(0.5) : is-maybe ? tint.with-alpha(0.35) : tint;
         property <bool> here: position == s;
         border-radius: 2px;
         background: on ? (here ? lit.brighter(0.7) : lit)
             : tint.with-alpha((empty ? 0.07 : 0.15) + (here ? 0.12 : 0) + (mod(s, 4) == 0 ? 0.04 : 0) + (cta.has-hover ? 0.12 : 0));
-        border-width: on && is-accent ? 1px : 0px;
-        border-color: #ffffffa0;
+        border-width: on && (is-accent || is-maybe) ? 1px : 0px;
+        border-color: is-maybe ? tint : #ffffffa0;
+        // A step that plays half the time.
+        if on && is-maybe: Text { text: "50%"; color: Theme.text; font-size: 8px; font-weight: 700; }
         cta := TouchArea {
             mouse-cursor: pointer;
             clicked => {
@@ -2789,13 +2803,17 @@ component GrooveTrack inherits HorizontalLayout {
                 if on && is-accent {
                     Controls.set-value(accent-index, accent - pow(2, s));
                 }
+                if on && is-maybe {
+                    Controls.set-value(maybe-index, maybe - pow(2, s));
+                }
                 Controls.set-value(index, on ? bits - pow(2, s) : bits + pow(2, s));
                 // Stopped, a step added plays its sound so you hear what you add.
                 if !playing && !on {
                     Controls.set-value(preview-index, 1);
                 }
             }
-            // Right-click a hit: normal, then accented, then soft, then normal.
+            // Right-click a hit: normal, then accented, then soft, then
+            // half the time, then normal.
             pointer-event(e) => {
                 if e.button == PointerEventButton.right && e.kind == PointerEventKind.down && on {
                     if is-accent {
@@ -2803,6 +2821,9 @@ component GrooveTrack inherits HorizontalLayout {
                         Controls.set-value(soft-index, soft + pow(2, s));
                     } else if is-soft {
                         Controls.set-value(soft-index, soft - pow(2, s));
+                        Controls.set-value(maybe-index, maybe + pow(2, s));
+                    } else if is-maybe {
+                        Controls.set-value(maybe-index, maybe - pow(2, s));
                     } else {
                         Controls.set-value(accent-index, accent + pow(2, s));
                     }

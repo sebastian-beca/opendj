@@ -32,6 +32,7 @@ fn kept_keys() -> Vec<String> {
         "follow",
         "tempo_scale",
         "kick_key",
+        "vary",
         "swing",
         "duck_deck",
         "duck_amount",
@@ -44,6 +45,7 @@ fn kept_keys() -> Vec<String> {
             keys.push(format!("pattern{g}_row{r}"));
             keys.push(format!("pattern{g}_row{r}_soft"));
             keys.push(format!("pattern{g}_row{r}_accent"));
+            keys.push(format!("pattern{g}_row{r}_maybe"));
         }
     }
     for r in 1..=ROWS {
@@ -120,7 +122,7 @@ fn merge_ninth_row(values: &mut Map<String, Value>) {
                 values.insert(format!("{crash}{part}"), json!(v));
             }
         }
-        for part in ["", "_soft", "_accent"] {
+        for part in ["", "_soft", "_accent", "_maybe"] {
             values.remove(&format!("{ride}{part}"));
         }
     }

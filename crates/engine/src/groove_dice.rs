@@ -19,6 +19,8 @@ pub struct Track {
     pub hits: u32,
     pub soft: u32,
     pub accent: u32,
+    /// Hits that play only half the time.
+    pub maybe: u32,
 }
 
 impl Track {
@@ -36,6 +38,7 @@ impl Track {
         self.hits &= m;
         self.soft &= m;
         self.accent &= m;
+        self.maybe &= m;
     }
 
     /// Moves the hit on `from` (with its level) to `to`.
@@ -47,6 +50,7 @@ impl Track {
         };
         carry(&mut self.soft);
         carry(&mut self.accent);
+        carry(&mut self.maybe);
         self.hits = (self.hits & !(1 << from)) | 1 << to;
     }
 }
@@ -193,7 +197,7 @@ impl Habits {
 pub struct Rng(pub u32);
 
 impl Rng {
-    pub fn next(&mut self) -> u32 {
+    pub fn next_u32(&mut self) -> u32 {
         let mut x = self.0.max(1);
         x ^= x << 13;
         x ^= x >> 17;
@@ -204,7 +208,7 @@ impl Rng {
 
     /// 0 to 1.
     pub fn unit(&mut self) -> f32 {
-        (self.next() >> 8) as f32 / (1u32 << 24) as f32
+        (self.next_u32() >> 8) as f32 / (1u32 << 24) as f32
     }
 
     /// Picks an index with a chance in proportion to its weight; None when
@@ -324,7 +328,7 @@ fn mutate(t: &mut Track, habit: Option<&Habit>, role: usize, rng: &mut Rng) {
         *t = new_track(habit, role, rng);
         return;
     }
-    let moves = 1 + (rng.next() % 2) as usize;
+    let moves = 1 + (rng.next_u32() % 2) as usize;
     for _ in 0..moves {
         // A weak hit is likelier to move.
         let mut from = [0f32; STEPS];
@@ -347,7 +351,7 @@ fn mutate(t: &mut Track, habit: Option<&Habit>, role: usize, rng: &mut Rng) {
         }
     }
     // Now and then one more or one fewer.
-    match rng.next() % 4 {
+    match rng.next_u32() % 4 {
         0 => busier(t, habit, role, rng),
         1 if t.count() > 2 => calmer(t, habit, role, rng),
         _ => {}
@@ -414,7 +418,48 @@ fn rotate(t: &mut Track, by: usize) {
         hits: r(t.hits & 0xffff),
         soft: r(t.soft & 0xffff),
         accent: r(t.accent & 0xffff),
+        maybe: r(t.maybe & 0xffff),
     };
+}
+
+/// With Vary at `vary` (0-1), whether a hit on `step` of a track playing
+/// `role` plays this time: weak steps drop out more, the backbone never.
+pub fn keeps(
+    vary: f32,
+    role: usize,
+    step: usize,
+    genre: usize,
+    habits: &Habits,
+    rng: &mut Rng,
+) -> bool {
+    if vary <= 0.0 || anchored(role, step) {
+        return true;
+    }
+    let drop = vary * 0.45 * (1.0 - suits(habits.get(genre, role), role, step));
+    rng.unit() >= drop
+}
+
+/// With Vary at `vary`, whether an empty `step` of a track playing `role`
+/// gets a soft ghost hit this time: on steps the genre likes for the sound,
+/// for snares, hats and percussion only.
+pub fn ghost(
+    vary: f32,
+    role: usize,
+    step: usize,
+    genre: usize,
+    habits: &Habits,
+    rng: &mut Rng,
+) -> bool {
+    if vary <= 0.0 || !(1..=6).contains(&role) {
+        return false;
+    }
+    let likes = habits.get(genre, role).map_or(0.0, |h| h.chance(step));
+    rng.unit() < vary * 0.3 * likes
+}
+
+/// A hit's loudness with Vary at `vary`: up to a third louder or softer.
+pub fn humanize(velocity: f32, vary: f32, rng: &mut Rng) -> f32 {
+    velocity * (1.0 + (rng.unit() * 2.0 - 1.0) * 0.33 * vary)
 }
 
 /// Undo steps kept.
@@ -477,6 +522,32 @@ mod tests {
     }
 
     #[test]
+    fn vary_drops_weak_hits_more_and_never_the_backbone() {
+        let h = habits();
+        let mut rng = Rng(5);
+        let kept = |step: usize, rng: &mut Rng| {
+            (0..1000)
+                .filter(|_| keeps(1.0, 2, step, 0, &h, rng))
+                .count()
+        };
+        assert!(
+            kept(1, &mut rng) < kept(2, &mut rng),
+            "a 16th drops out more than an off-beat 8th"
+        );
+        assert!(
+            (0..1000).all(|_| keeps(1.0, 0, 0, 0, &h, &mut rng)),
+            "the kick's downbeat stays"
+        );
+        assert!(
+            (0..1000).all(|_| keeps(0.0, 2, 1, 0, &h, &mut rng)),
+            "no Vary, no change"
+        );
+        let v: Vec<f32> = (0..1000).map(|_| humanize(1.0, 1.0, &mut rng)).collect();
+        assert!(v.iter().all(|&x| (0.66..=1.34).contains(&x)));
+        assert!(v.iter().any(|&x| x < 0.9) && v.iter().any(|&x| x > 1.1));
+    }
+
+    #[test]
     fn euclid_spreads_hits_evenly() {
         assert_eq!(euclid(4), 0b0001_0001_0001_0001);
         assert_eq!(euclid(0), 0);
@@ -503,7 +574,7 @@ mod tests {
         let mut t = Track {
             hits: 1 | 1 << 15,
             accent: 1 << 15,
-            soft: 0,
+            ..Track::default()
         };
         rotate(&mut t, 1);
         assert_eq!(t.hits, 0b11);
@@ -573,7 +644,7 @@ mod tests {
         let mut t = Track {
             hits: 1 << 3,
             accent: 1 << 3,
-            soft: 0,
+            ..Track::default()
         };
         t.shift(3, 5);
         assert_eq!(t.hits, 1 << 5);

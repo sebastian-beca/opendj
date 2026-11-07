@@ -39,3 +39,10 @@ Setting `[GrooveN],dice` to a move (1 new, 2 mutate, 3 busier, 4 calmer, 5 even 
 #### Scenario: Locked kick
 - **WHEN** the kick is locked and Calmer is picked for every track
 - **THEN** the kick keeps its hits and the other tracks lose one each
+
+### Requirement: Living grooves
+A step in `patternG_rowR_maybe` SHALL play about half the times it comes round. With `[GrooveN],vary` above 0, each time round weak hits SHALL sometimes drop out (more the weaker the step and the higher `vary`), soft ghost hits SHALL sometimes play on empty steps the genre uses for that sound (snare, hats, clap, rim and cowbell only), and every hit's loudness SHALL vary by up to a third of `vary`; the kick's downbeat and the snare's backbeat SHALL always play.
+
+#### Scenario: Half-time hat
+- **WHEN** a closed hat step is set to 50% and the groove plays 40 bars
+- **THEN** that hat plays in roughly 20 of them

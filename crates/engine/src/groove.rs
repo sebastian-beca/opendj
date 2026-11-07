@@ -23,7 +23,11 @@
 //! **Patterns.** Four grooves (A to D), each eight rows (tracks) of 16 steps, kept in
 //! `[GrooveN],patternG_rowR` as 16-bit numbers (bit s on = step s+1 plays)
 //! with `patternG_rowR_soft` and `patternG_rowR_accent` marking the steps
-//! that play softly (half as loud) or accented (a quarter louder).
+//! that play softly (half as loud) or accented (a quarter louder), and
+//! `patternG_rowR_maybe` the ones that play only half the time. `vary`
+//! (0-1) lets the groove change by itself as it plays: weak hits drop out,
+//! soft ghost notes come in where the genre puts them, and hits waver in
+//! loudness (see [`crate::groove_dice`]).
 //! `[GrooveN],groove` picks the one playing (0-3); a change while playing
 //! waits for the next bar. Row N plays the kits' Nth sound
 //! ([`kits::ROLES`]: kick, snare, closed hat, open hat, clap, rim, cowbell)
@@ -124,6 +128,11 @@ pub struct GrooveControls {
     pub patterns: [[ControlHandle; ROWS]; GROOVES],
     pub soft: [[ControlHandle; ROWS]; GROOVES],
     pub accent: [[ControlHandle; ROWS]; GROOVES],
+    /// `patternG_rowR_maybe`: steps that play only half the time.
+    pub maybe: [[ControlHandle; ROWS]; GROOVES],
+    /// 0-1: how much the groove varies by itself as it plays (weak hits
+    /// drop out, ghost notes come in, loudness wavers).
+    pub vary: ControlHandle,
     pub mute: [ControlHandle; ROWS],
     pub solo: [ControlHandle; ROWS],
     pub level: [ControlHandle; ROWS],
@@ -221,6 +230,19 @@ impl GrooveControls {
                     )
                 })
             }),
+            maybe: std::array::from_fn(|p| {
+                rows(&|r| {
+                    reg.create(
+                        g,
+                        &format!("pattern{}_row{}_maybe", p + 1, r + 1),
+                        0.0,
+                        0.0,
+                        65535.0,
+                        Behavior::Free,
+                    )
+                })
+            }),
+            vary: reg.create(g, "vary", 0.0, 0.0, 1.0, Behavior::Linear),
             mute: rows(&|r| reg.toggle(g, &format!("row{}_mute", r + 1))),
             solo: rows(&|r| reg.toggle(g, &format!("row{}_solo", r + 1))),
             level: rows(&|r| {
@@ -320,6 +342,7 @@ impl GrooveControls {
             self.patterns[slot][row].set(steps.hits as f64);
             self.soft[slot][row].set(steps.soft as f64);
             self.accent[slot][row].set(steps.accent as f64);
+            self.maybe[slot][row].set(steps.maybe as f64);
         }
     }
 
@@ -329,6 +352,7 @@ impl GrooveControls {
             hits: self.patterns[slot][r].get() as u32,
             soft: self.soft[slot][r].get() as u32,
             accent: self.accent[slot][r].get() as u32,
+            maybe: self.maybe[slot][r].get() as u32,
         })
     }
 
@@ -337,6 +361,7 @@ impl GrooveControls {
         self.patterns[slot][row].set((t.hits & 0xffff) as f64);
         self.soft[slot][row].set((t.soft & t.hits & 0xffff) as f64);
         self.accent[slot][row].set((t.accent & t.hits & 0xffff) as f64);
+        self.maybe[slot][row].set((t.maybe & t.hits & 0xffff) as f64);
     }
 
     /// The kit sound (one of [`kits::ROLES`]) track `row` plays, for
@@ -619,7 +644,7 @@ impl GrooveBox {
             pads,
             skip: [None; ROWS],
             key: None,
-            dice: Dice::new(Habits::shared(), 0x9e37_79b9 ^ (deck as u32 + 1) * 7919),
+            dice: Dice::new(Habits::shared(), 0x9e37_79b9 ^ ((deck as u32 + 1) * 7919)),
         }
     }
 
@@ -632,7 +657,7 @@ impl GrooveBox {
         let before = self.c.tracks(slot);
         self.dice.remember(slot, before);
         let genre = self.c.genre.get().round() as usize;
-        for r in 0..ROWS {
+        for (r, &was) in before.iter().enumerate() {
             let chosen = match row {
                 Some(only) => only == r,
                 None => !self.c.lock[r].get_bool(),
@@ -640,7 +665,7 @@ impl GrooveBox {
             if !chosen {
                 continue;
             }
-            let mut t = before[r];
+            let mut t = was;
             groove_dice::apply(
                 mv,
                 &mut t,
@@ -760,6 +785,9 @@ impl GrooveBox {
             let c = &self.c;
             let hits = &mut self.hits;
             let skip = &mut self.skip;
+            let rng = &mut self.dice.rng;
+            let habits = &*self.dice.habits;
+            let vary = c.vary.get() as f32;
             span.steps(frames, swing, |frame, step, beat| {
                 if step == 0 {
                     if let Some(q) = queued.take() {
@@ -776,16 +804,32 @@ impl GrooveBox {
                 last_step = Some(step);
                 for (row, skip) in skip.iter_mut().enumerate() {
                     let bits = c.patterns[playing][row].get() as u32;
-                    if bits & (1 << step) == 0 {
-                        continue;
+                    let role = c.role(row);
+                    let mut velocity = if bits & (1 << step) == 0 {
+                        // Vary brings in ghost notes on the steps the genre likes.
+                        if bits == 0 || !groove_dice::ghost(vary, role, step, genre, habits, rng) {
+                            continue;
+                        }
+                        Level::Soft.gain() * 0.7
+                    } else {
+                        if *skip == Some(step) {
+                            *skip = None;
+                            continue;
+                        }
+                        let maybe = c.maybe[playing][row].get() as u32;
+                        if maybe & (1 << step) != 0 && rng.unit() >= 0.5 {
+                            continue;
+                        }
+                        if !groove_dice::keeps(vary, role, step, genre, habits, rng) {
+                            continue;
+                        }
+                        let soft = c.soft[playing][row].get() as u32;
+                        let accent = c.accent[playing][row].get() as u32;
+                        Level::of(step, soft, accent).gain()
+                    };
+                    if vary > 0.0 {
+                        velocity = groove_dice::humanize(velocity, vary, rng);
                     }
-                    if *skip == Some(step) {
-                        *skip = None;
-                        continue;
-                    }
-                    let soft = c.soft[playing][row].get() as u32;
-                    let accent = c.accent[playing][row].get() as u32;
-                    let velocity = Level::of(step, soft, accent).gain();
                     let audible = if any_solo {
                         c.solo[row].get_bool()
                     } else {
@@ -870,6 +914,7 @@ impl GrooveBox {
         if self.pads.take_clear() {
             self.c.patterns[chosen][row].set(0.0);
             self.c.soft[chosen][row].set(0.0);
+            self.c.maybe[chosen][row].set(0.0);
             self.c.accent[chosen][row].set(0.0);
         }
         let mode = self.pads.mode();
@@ -1339,6 +1384,22 @@ mod tests {
         g.render(true, own(120.0), &mut out, |_| {});
         assert_eq!(g.c.tracks(0), before);
         assert_eq!(g.c.can_undo.get(), 0.0);
+    }
+
+    #[test]
+    fn a_maybe_step_plays_about_half_the_bars() {
+        let (_reg, mut g) = groove_box();
+        for r in 0..ROWS {
+            g.c.patterns[0][r].set(0.0);
+        }
+        g.c.patterns[0][0].set(1.0);
+        g.c.maybe[0][0].set(1.0);
+        let mut kicks = 0;
+        let mut out = vec![[0.0; 2]; 6000];
+        for _ in 0..16 * 40 {
+            g.render(true, own(120.0), &mut out, |_| kicks += 1);
+        }
+        assert!((10..=30).contains(&kicks), "{kicks} kicks in 40 bars");
     }
 
     #[test]

@@ -32,7 +32,7 @@ to hear the sound, and hover over it to see its name. A lit square plays the
 sound on that step. Click a square to add or remove a hit; when the Groove
 Box is stopped, the click also plays the sound. Right-click a lit square to
 make the hit accented (brighter, a little louder), then soft (paler, half as
-loud), then normal again. A track with no hits stays
+loud), then **50%** (it plays about every other time round), then normal again. A track with no hits stays
 dimmed, and a track's icon lights up as it plays. The brighter column is the
 step that's playing. **M** mutes a track, **S** solos it.
 
@@ -50,6 +50,12 @@ while the Groove Box plays, so it always lands in time:
   weakest first.
 - **Even out**: the same number of hits spread as evenly as they go (a Euclidean rhythm).
 - **Shift later** and **Shift earlier**: every hit a step later or earlier.
+
+**VARY**, at the top of the ⚄ menu, lets the groove change by itself as it plays: turned
+up, weak hits sometimes drop out, soft ghost notes come in where the genre puts them, and
+every hit wavers a little in loudness. The kick's downbeat and the snare's backbeat always
+play. The ⚄ button is outlined while VARY is up. **Basics** has two grooves made to breathe
+this way: **Living house** and **Rolling breaks**.
 
 **Undo** in the ⚄ menu puts back the groove as it was, one change at a time.
 

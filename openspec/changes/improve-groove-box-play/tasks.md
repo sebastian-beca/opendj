@@ -12,7 +12,7 @@
 ## 3. Variation
 
 - [x] 3.1 New from genre, Mutate, Busier, Calmer, Even out (Euclid) and Shift, per track or all, with locks and undo, on the next bar
-- [ ] 3.2 Per-step chance and velocity spread, Vary knob, built-in grooves that use them
+- [x] 3.2 Steps that play half the time (`patternG_rowR_maybe`, `?` in groove files), VARY (drop-outs, ghost notes, loudness), built-in grooves that use them
 
 ## 4. Fills
 
