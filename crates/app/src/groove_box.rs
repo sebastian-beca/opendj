@@ -33,6 +33,7 @@ fn kept_keys() -> Vec<String> {
         "tempo_scale",
         "kick_key",
         "vary",
+        "auto_fill",
         "swing",
         "duck_deck",
         "duck_amount",
