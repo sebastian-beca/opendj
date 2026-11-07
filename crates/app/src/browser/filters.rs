@@ -663,7 +663,6 @@ impl Browser {
             &recent,
             self.camelot,
         );
-        drop(cx);
         self.filter.choices = choices;
     }
 
