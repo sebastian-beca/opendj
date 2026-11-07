@@ -156,7 +156,10 @@ struct Params {
     /// style only, and only when the end is past the start.
     mix_start_bin: f32,
     mix_end_bin: f32,
-    _pad: [u32; 3],
+    /// 1 for a live deck: the beat grid and bar numbers run on past the
+    /// last slice, which is the play line.
+    live: u32,
+    _pad: [u32; 2],
 }
 
 /// Levels the shader can address; the coarsest is 2^15 slices per texel pair,
@@ -313,35 +316,10 @@ impl GpuTrack {
             .find(|&b| texels(b) <= capacity)
             .unwrap_or(levels.len());
         let used = &levels[base..levels.len().min(base + MAX_LEVELS)];
-        let mut level_offset = [[0u32; 4]; 4];
-        let mut level_len = [[0u32; 4]; 4];
-        let mut data: Vec<[u8; 4]> = Vec::with_capacity(texels(base));
-        for (i, level) in used.iter().enumerate() {
-            level_offset[i / 4][i % 4] = data.len() as u32;
-            level_len[i / 4][i % 4] = level.len() as u32;
-            for b in level {
-                data.push([b[0], b[1], b[2], b[3]]);
-                data.push([b[4], b[5], b[6], b[7]]);
-            }
-        }
-        // Pad to whole rows so the upload is one rectangle.
-        let rows = data.len().div_ceil(BIN_ROW as usize).max(1);
-        data.resize(rows * BIN_ROW as usize, [0; 4]);
+        let (data, level_offset, level_len) = pack(used);
+        let rows = data.len() / BIN_ROW as usize;
         let texture = bins_texture(device, rows as u32);
-        queue.write_texture(
-            texture.as_image_copy(),
-            bytemuck::cast_slice(&data),
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(BIN_ROW * 4),
-                rows_per_image: Some(rows as u32),
-            },
-            wgpu::Extent3d {
-                width: BIN_ROW,
-                height: rows as u32,
-                depth_or_array_layers: 1,
-            },
-        );
+        write_bins(queue, &texture, &data);
         Self {
             id,
             texture,
@@ -350,6 +328,25 @@ impl GpuTrack {
             level_len,
             num_levels: used.len() as u32,
         }
+    }
+
+    /// Writes `levels` over the slices uploaded, in place, when they have
+    /// the same lengths (a live deck's waveform, a fixed window that moves
+    /// on every frame). Returns false, writing nothing, when they don't; a
+    /// new [`GpuTrack`] is needed then.
+    pub fn rewrite(&self, queue: &wgpu::Queue, levels: &[Vec<[u8; 8]>]) -> bool {
+        let used = &levels[..levels.len().min(MAX_LEVELS)];
+        let (data, level_offset, level_len) = pack(used);
+        let rows = (data.len() / BIN_ROW as usize) as u32;
+        if used.len() as u32 != self.num_levels
+            || level_len != self.level_len
+            || level_offset != self.level_offset
+            || rows != self.texture.height()
+        {
+            return false;
+        }
+        write_bins(queue, &self.texture, &data);
+        true
     }
 
     /// The id passed to [`GpuTrack::new`], to tell whether a track is already uploaded.
@@ -366,6 +363,46 @@ impl GpuTrack {
     }
 }
 
+/// Lays levels out as the shader reads them: two texels per slice, each
+/// level after the one before, padded to whole rows of [`BIN_ROW`].
+#[allow(clippy::type_complexity)]
+fn pack(used: &[Vec<[u8; 8]>]) -> (Vec<[u8; 4]>, [[u32; 4]; 4], [[u32; 4]; 4]) {
+    let mut level_offset = [[0u32; 4]; 4];
+    let mut level_len = [[0u32; 4]; 4];
+    let mut data: Vec<[u8; 4]> = Vec::with_capacity(used.iter().map(|l| 2 * l.len()).sum());
+    for (i, level) in used.iter().enumerate() {
+        level_offset[i / 4][i % 4] = data.len() as u32;
+        level_len[i / 4][i % 4] = level.len() as u32;
+        for b in level {
+            data.push([b[0], b[1], b[2], b[3]]);
+            data.push([b[4], b[5], b[6], b[7]]);
+        }
+    }
+    // Pad to whole rows so the upload is one rectangle.
+    let rows = data.len().div_ceil(BIN_ROW as usize).max(1);
+    data.resize(rows * BIN_ROW as usize, [0; 4]);
+    (data, level_offset, level_len)
+}
+
+/// Uploads packed slices (see [`pack`]) into a bins texture of their size.
+fn write_bins(queue: &wgpu::Queue, texture: &wgpu::Texture, data: &[[u8; 4]]) {
+    let rows = (data.len() / BIN_ROW as usize) as u32;
+    queue.write_texture(
+        texture.as_image_copy(),
+        bytemuck::cast_slice(data),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(BIN_ROW * 4),
+            rows_per_image: Some(rows),
+        },
+        wgpu::Extent3d {
+            width: BIN_ROW,
+            height: rows,
+            depth_or_array_layers: 1,
+        },
+    );
+}
+
 /// One on-screen waveform: a texture the UI shows, drawn from a [`GpuTrack`].
 pub struct WaveformView {
     mode: Mode,
@@ -378,6 +415,8 @@ pub struct WaveformView {
     params: wgpu::Buffer,
     track: Option<(Arc<GpuTrack>, wgpu::BindGroup)>,
     empty: wgpu::Texture,
+    /// Draws a live deck (see [`WaveformView::set_live`]).
+    live: bool,
 }
 
 impl WaveformView {
@@ -399,6 +438,7 @@ impl WaveformView {
             params,
             track: None,
             empty,
+            live: false,
         }
     }
 
@@ -410,6 +450,12 @@ impl WaveformView {
     /// from 0 to 1; the Mono style draws it in a dim accent.
     pub fn set_mix(&mut self, mix: Option<(f32, f32)>) {
         self.mix = mix;
+    }
+
+    /// Whether the view shows a live deck, whose waveform ends at the play
+    /// line: its beat grid and bar numbers then run on past the end.
+    pub fn set_live(&mut self, live: bool) {
+        self.live = live;
     }
 
     /// The colour behind the waveform, as RGBA from 0 to 1.
@@ -511,7 +557,8 @@ impl WaveformView {
             slip_bin: -1.0,
             mix_start_bin: 0.0,
             mix_end_bin: -1.0,
-            _pad: [0; 3],
+            live: self.live as u32,
+            _pad: [0; 2],
         };
         if let Some((a, b)) = self.mix.filter(|_| self.style == Style::Mono) {
             params.mix_start_bin = a * num_bins as f32;
