@@ -3,7 +3,7 @@
 //!
 //! A controller mapping only passes presses in and colours out:
 //!
-//! - `[GrooveN],padK` (K 1-16, read left to right, top to bottom): set it
+//! - `[GrooveN],padK` (K 1-16, as the controller numbers its pads): set it
 //!   to how hard the pad is pressed (0-1, 1 for a pad without pressure)
 //!   and back to 0 on release.
 //! - `[GrooveN],padK_color`: what pad K shows, one of the [`light`]
