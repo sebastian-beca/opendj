@@ -18,7 +18,7 @@ export struct PrefItem {
     // typing when `on`, for a password), 10 a controller: its outline (Path
     // commands in `value`), its mapping menu, an on/off switch (`on`) and a
     // cog pressing id + "#edit" ("Edit" in `action`) or id + "#quick"
-    // ("Map it"), 11 a keyboard shortcut: its key in `title` (none
+    // ("Map it"), and its Deck menu in `choices2`, 11 a keyboard shortcut: its key in `title` (none
     // for the row that adds one), its openDJscript line in `value`, the
     // verbs to pick from in `choices`, the button's label in `action`; `on`
     // shows `detail` as a mistake, 12 a tick box, 13 the inputs table, 14
@@ -55,6 +55,9 @@ export struct PrefItem {
     action: string,
     // A folder list's whole paths, one for each of `choices`.
     paths: [string],
+    // A second menu: a controller's Deck menu (picking presses id + "#deck").
+    choices2: [string],
+    chosen2: int,
     // While searching: the page the row is on.
     page-name: string,
 }
@@ -1165,10 +1168,23 @@ export component PrefRow inherits Rectangle {
             // Editor (or the mapping wizard when it has none).
             if item.kind == 10: HorizontalLayout {
                 spacing: 12px;
+                // Which deck it plays: Follow, as mapped or a deck.
+                if item.choices2.length > 0: VerticalLayout {
+                    alignment: center;
+                    MenuField {
+                        width: 128px;
+                        opacity: item.on ? 1 : 0.4;
+                        text: item.choices2[item.chosen2];
+                        choices: item.choices2;
+                        chosen: item.chosen2;
+                        menu-width: 190px;
+                        picked(i) => { Preferences.picked(item.id + "#deck", i); }
+                    }
+                }
                 VerticalLayout {
                     alignment: center;
                     MenuField {
-                        width: 260px;
+                        width: 240px;
                         opacity: item.on ? 1 : 0.4;
                         text: item.choices[item.chosen];
                         choices: item.choices;
