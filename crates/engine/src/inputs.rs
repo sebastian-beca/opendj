@@ -215,6 +215,20 @@ impl InputControls {
             reg.create(g, "scale_type", 0.0, 0.0, types, Behavior::Free);
             reg.indicator(g, "scale_mask", 4095.0);
             reg.indicator(g, "scale_now", (12 * crate::scale::SCALES.len()) as f64);
+            // Chord mode: off by default; Mine is a major triad until one
+            // is learned.
+            let chords = (crate::scale::CHORDS.len() - 1) as f64;
+            reg.create(g, "chord_mode", 0.0, 0.0, chords, Behavior::Free);
+            let shape = crate::scale::DEFAULT_SHAPE as f64;
+            reg.create(
+                g,
+                "chord_shape",
+                shape,
+                0.0,
+                u32::MAX as f64,
+                Behavior::Free,
+            );
+            reg.create(g, "chord_learn", 0.0, 0.0, 1.0, Behavior::Free);
         }
         let configured = reg.indicator(g, "input_configured", 1.0);
         alias(reg, g, "enabled", g, "input_configured");
@@ -254,6 +268,8 @@ pub(crate) struct Input {
     /// The instrument's scale mode, root, type and the mask shown (see
     /// `crate::scale`); none for the device inputs.
     scale: Option<[ControlHandle; 5]>,
+    /// Its chord mode, learned chord and learn switch.
+    chord: Option<[ControlHandle; 3]>,
     /// The master deck's key, for Auto.
     master_key: Option<crate::key::Key>,
     feed: Option<InputFeed>,
@@ -295,6 +311,12 @@ impl Input {
                 .map(|k| {
                     reg.get(input_group(input), k)
                         .expect("the instrument's scale controls exist")
+                })
+            }),
+            chord: (input == INSTRUMENT).then(|| {
+                ["chord_mode", "chord_shape", "chord_learn"].map(|k| {
+                    reg.get(input_group(input), k)
+                        .expect("the instrument's chord controls exist")
                 })
             }),
             master_key: None,
@@ -365,6 +387,18 @@ impl Input {
                 mask_shown.set(mask as f64);
                 now_shown.set(scale.map_or(0.0, |(r, s)| (1 + s * 12 + r as usize) as f64));
                 fx.set_scale(mask);
+            }
+            if let Some([mode, shape, learn]) = &self.chord {
+                if let Some(learned) = fx.take_learned_chord() {
+                    shape.set(learned as f64);
+                    learn.set(0.0);
+                    mode.set(crate::scale::MINE as f64);
+                }
+                fx.set_chord(
+                    mode.get().round() as u8,
+                    shape.get().max(0.0) as u32,
+                    learn.get() > 0.5,
+                );
             }
             if let Some(pads) = &mut self.pads {
                 pads.play(fx);

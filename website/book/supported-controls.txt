@@ -3357,6 +3357,9 @@
 [Instrument1],VuMeter
 [Instrument1],VuMeterL
 [Instrument1],VuMeterR
+[Instrument1],chord_learn
+[Instrument1],chord_mode
+[Instrument1],chord_shape
 [Instrument1],enabled
 [Instrument1],input_configured
 [Instrument1],instrument
