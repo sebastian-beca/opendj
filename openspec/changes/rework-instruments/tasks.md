@@ -34,5 +34,5 @@
 
 ## 5. Artwork
 
-- [ ] 5.1 Own image dropped on the deck's cover; generated fallback in one consistent style
+- [x] 5.1 Own image dropped on the deck's cover; generated fallback in one consistent style
 - [ ] 5.2 NKS artwork when installed, plugin window snapshot, plugin bundle icon

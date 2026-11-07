@@ -54,6 +54,7 @@ mod file_drop;
 mod files;
 mod groove_box;
 mod inbox;
+mod instrument_art;
 mod instrument_midi;
 mod instruments;
 mod list_picker;
@@ -601,6 +602,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Audio files dragged in from Finder or a file manager load on the
         // deck they're dropped on.
         let file_drop = file_drop::FileDrop::new(&app);
+        // An image dropped on a deck playing an instrument becomes its art.
+        let dropped = file_drop.files();
+        instrument_art::install(&app, move || std::mem::take(&mut *dropped.borrow_mut()));
         app.window().on_winit_window_event(move |window, event| {
             file_drop.window_event(window, event);
             // The traffic lights, centred in the top bar after anything that

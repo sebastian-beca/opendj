@@ -111,6 +111,34 @@ export global InstrumentsUi {
     // "" while it has none. Set by the app.
     in property <[string]> routes;
 
+    // Each ticked plugin's own image, in the picker's order, and each
+    // input's (microphone, aux 1, aux 2, aux 3), with whether there is one:
+    // dropped on a deck playing it, or chosen from its cover's menu.
+    in property <[image]> plugin-art;
+    in property <[bool]> plugin-has-art;
+    in property <[image]> input-art;
+    in property <[bool]> input-has-art;
+    // Files dropped on deck `deck` playing `live`: an image becomes its art,
+    // anything else loads like a track. `instrument` is the plugin picked.
+    callback drop-art(deck: int, live: int, instrument: int);
+    callback choose-art(live: int, instrument: int);
+    callback remove-art(live: int, instrument: int);
+
+    // Where `live` sits in the input-art list; -1 for the plugin.
+    pure function input-slot(live: int) -> int {
+        live == 1 ? 0 : live == 2 ? 1 : live == 4 ? 2 : live == 5 ? 3 : -1
+    }
+
+    // `live` (see `live`) has an image of its own.
+    public pure function has-art(live: int) -> bool {
+        live == 3 ? instrument() > 0 && instrument() <= plugin-has-art.length && plugin-has-art[instrument() - 1]
+            : input-slot(live) >= 0 && input-slot(live) < input-has-art.length && input-has-art[input-slot(live)]
+    }
+
+    public pure function art(live: int) -> image {
+        live == 3 ? plugin-art[instrument() - 1] : input-art[input-slot(live)]
+    }
+
     // The input deck `deck` plays: 0 none, 1 microphone, 2 aux, 3 instrument,
     // 4 aux 2, 5 aux 3 (1 + the engine's input).
     public pure function live(deck: int) -> int {

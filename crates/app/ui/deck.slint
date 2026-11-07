@@ -403,23 +403,93 @@ export component Jog inherits Rectangle {
     TourMark { id: plain ? "" : root.group + ",jog"; }
 }
 
+// A line in a Groove Box menu.
+component GrooveMenuItem inherits Rectangle {
+    in property <string> text;
+    in property <string> detail;
+    in property <bool> checked;
+    callback clicked();
+    height: detail == "" ? 24px : 36px;
+    border-radius: 5px;
+    background: gmta.has-hover ? #3a3a3d : transparent;
+    VerticalLayout {
+        x: 22px;
+        width: parent.width - 28px;
+        alignment: center;
+        Text { text: root.text; color: Theme.text; font-size: 12px; }
+        if detail != "": Text { text: root.detail; color: Theme.text-dim; font-size: 10px; overflow: elide; }
+    }
+    if checked: Text { x: 7px; text: "✓"; color: Theme.accent; font-size: 12px; vertical-alignment: center; }
+    gmta := TouchArea { clicked => { root.clicked(); } }
+}
+
+component GrooveMenuBackground inherits Rectangle {
+    background: Theme.panel-raised;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 16px;
+    drop-shadow-color: #000000b0;
+}
+
 // Album art, large; without any, the deck color with the
 // artist's initials. Picking it up drags the deck's track to another deck,
-// the side panel or one of the DJ's lists.
+// the side panel or one of the DJ's lists. A deck playing an instrument or
+// input shows that one's own image, or else the same deck-color square
+// with its icon; right-click to choose or remove the image.
 export component Cover inherits Rectangle {
     in property <int> deck;
     in property <color> tint;
     in property <DeckInfo> info;
     in property <length> size: 96px;
     in property <length> radius: 4px;
+    // What a live deck plays (see InstrumentsUi.live); 0 a track deck.
+    in property <int> live: 0;
+    // Its menu opens leftward, for a cover on the deck's right.
+    in property <bool> menu-left: false;
+    property <bool> live-art: live > 0 && InstrumentsUi.has-art(live);
     width: size;
     height: size;
     border-radius: radius;
     clip: true;
-    background: info.loaded ? @linear-gradient(135deg, tint 0%, tint.darker(0.6) 55%, #101012 100%) : Theme.control;
-    border-width: info.loaded ? 0px : 1px;
+    background: info.loaded || live > 0 ? @linear-gradient(135deg, tint 0%, tint.darker(0.6) 55%, #101012 100%) : Theme.control;
+    border-width: info.loaded || live > 0 ? 0px : 1px;
     border-color: Theme.border;
-    if !info.has-cover: Text { text: info.loaded ? info.initials : "♪"; color: info.loaded ? #ffffffe0 : Theme.text-dim; font-size: size / 3; font-weight: 700; }
+    if !info.has-cover && live == 0: Text { text: info.loaded ? info.initials : "♪"; color: info.loaded ? #ffffffe0 : Theme.text-dim; font-size: size / 3; font-weight: 700; }
+    if live > 0 && !live-art: LiveIcon { kind: InstrumentsUi.live-icon(live); tint: #ffffffe0; size: size * 0.5; }
+    if live-art: Image {
+        width: parent.width;
+        height: parent.height;
+        source: InstrumentsUi.art(live);
+        image-fit: cover;
+    }
+    if live > 0: TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.right {
+                art-menu.show();
+            }
+        }
+    }
+    art-menu := PopupWindow {
+        x: menu-left ? root.width - self.width : 0;
+        y: root.height + 2px;
+        width: 200px;
+        height: (live-art ? 2 : 1) * 36px + 8px;
+        GrooveMenuBackground { }
+        VerticalLayout {
+            padding: 4px;
+            GrooveMenuItem {
+                text: "Choose image…";
+                detail: "Or drop one on the deck";
+                clicked => { InstrumentsUi.choose-art(live, InstrumentsUi.instrument()); }
+            }
+            if live-art: GrooveMenuItem {
+                text: "Remove image";
+                detail: "Back to its icon";
+                clicked => { InstrumentsUi.remove-art(live, InstrumentsUi.instrument()); }
+            }
+        }
+    }
     if info.has-cover: Image {
         width: parent.width;
         height: parent.height;
@@ -681,35 +751,6 @@ export struct GrooveGenre {
 export global GrooveUi {
     in property <[GrooveKit]> kits;
     in property <[GrooveGenre]> genres;
-}
-
-// A line in a Groove Box menu.
-component GrooveMenuItem inherits Rectangle {
-    in property <string> text;
-    in property <string> detail;
-    in property <bool> checked;
-    callback clicked();
-    height: detail == "" ? 24px : 36px;
-    border-radius: 5px;
-    background: gmta.has-hover ? #3a3a3d : transparent;
-    VerticalLayout {
-        x: 22px;
-        width: parent.width - 28px;
-        alignment: center;
-        Text { text: root.text; color: Theme.text; font-size: 12px; }
-        if detail != "": Text { text: root.detail; color: Theme.text-dim; font-size: 10px; overflow: elide; }
-    }
-    if checked: Text { x: 7px; text: "✓"; color: Theme.accent; font-size: 12px; vertical-alignment: center; }
-    gmta := TouchArea { clicked => { root.clicked(); } }
-}
-
-component GrooveMenuBackground inherits Rectangle {
-    background: Theme.panel-raised;
-    border-radius: 10px;
-    border-width: 1px;
-    border-color: Theme.border;
-    drop-shadow-blur: 16px;
-    drop-shadow-color: #000000b0;
 }
 
 // Asks a name for a new preset (`asking` 0) or a new name for preset
@@ -1023,7 +1064,7 @@ export component Header inherits Rectangle {
         }
         if !mirrored: VerticalLayout {
             alignment: start;
-            Cover { deck: deck; tint: tint; info: info; size: compact ? 40px : 96px; }
+            Cover { deck: deck; tint: tint; info: info; live: live; menu-left: mirrored; size: compact ? 40px : 96px; }
         }
         VerticalLayout {
             spacing: 4px;
@@ -1208,7 +1249,7 @@ export component Header inherits Rectangle {
         }
         if mirrored: VerticalLayout {
             alignment: start;
-            Cover { deck: deck; tint: tint; info: info; size: compact ? 40px : 96px; }
+            Cover { deck: deck; tint: tint; info: info; live: live; menu-left: mirrored; size: compact ? 40px : 96px; }
         }
     }
 }
@@ -4265,7 +4306,9 @@ export component Deck inherits Rectangle {
     property <bool> files-here: TrackDrag.files-over && under-files;
     property <int> files-dropped: TrackDrag.files-dropped;
     changed files-dropped => {
-        if under-files {
+        if under-files && live > 0 {
+            InstrumentsUi.drop-art(deck, live, InstrumentsUi.instrument());
+        } else if under-files {
             TrackDrag.drop-files(deck);
         }
     }
