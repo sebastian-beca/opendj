@@ -5,7 +5,7 @@ Driving the Groove Box from a pad controller: entering steps, playing and record
 ## ADDED Requirements
 
 ### Requirement: One pad surface for every controller
-Each Groove Box SHALL have controls `[GrooveN],pad1` to `pad16` (pads read left to right, top to bottom; the value is how hard the pad is pressed, 0 when released) and `[GrooveN],pad1_color` to `pad16_color` (what the pad shows). A controller mapping SHALL only pass presses in and turn colours into the device's own. A press and release between two audio buffers SHALL still count as a press.
+Each Groove Box SHALL have controls `[GrooveN],pad1` to `pad16` (numbered as the controller prints them, on a Maschine left to right from the bottom row; the value is how hard the pad is pressed, 0 when released) and `[GrooveN],pad1_color` to `pad16_color` (what the pad shows). A controller mapping SHALL only pass presses in and turn colours into the device's own. A press and release between two audio buffers SHALL still count as a press.
 
 #### Scenario: Quick tap
 - **WHEN** a mapping sets `pad5` to 1 and back to 0 within a millisecond

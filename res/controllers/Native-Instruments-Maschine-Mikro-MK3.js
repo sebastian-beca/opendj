@@ -7,7 +7,9 @@
 //   in  0x01  buttons: 41 bits from byte 1, encoder 0-15 in byte 7,
 //             touch strip in byte 10 (0 = not touched, 1-200)
 //   in  0x02  pads: triples (pad, event | value >> 8, value & 0xff), pad
-//             0-15 left to right from the top, value 0-4095
+//             0-15 left to right from the top row, value 0-4095. The pads
+//             are printed 1-16 left to right from the bottom row, and
+//             [GrooveN],padK follows the print (see padNumber).
 //   out 0x80  80 bytes of lights: buttons 0-38, pads 39-54 (colour * 4 +
 //             brightness 1-3), touch strip 55-79
 //   out 0xe0  the 128 x 32 screen, one bit a pixel (clear = lit), in two
@@ -173,6 +175,13 @@ MikroMK3.say = function(text) {
     this.messageUntil = Date.now() + 1500;
 };
 
+// The printed pad (0-15: 1-16, left to right from the bottom row) for a
+// pad in the reports (0-15, left to right from the top row), and the other
+// way: flipping the rows twice gives back what it started with.
+MikroMK3.padNumber = function(raw) {
+    return (3 - (raw >> 2)) * 4 + (raw & 3);
+};
+
 MikroMK3.incomingData = function(data, _length) {
     if (data[0] === 0x01) {
         this.onButtons(data);
@@ -295,15 +304,16 @@ MikroMK3.release = function(b) {
 
 MikroMK3.onPads = function(data) {
     for (let i = 1; i + 2 < data.length; i += 3) {
-        const pad = data[i];
+        const raw = data[i];
         const event = data[i + 1] & 0xf0;
         const value = ((data[i + 1] & 0x0f) << 8) | data[i + 2];
-        if (i > 1 && pad === 0 && event === 0 && value === 0) {
+        if (i > 1 && raw === 0 && event === 0 && value === 0) {
             break;
         }
-        if (pad > 15) {
+        if (raw > 15) {
             continue;
         }
+        const pad = this.padNumber(raw);
         // 0x00 / 0x10 press, 0x20 / 0x30 release, 0x40 pressure.
         if (event === 0x00 || event === 0x10) {
             if (!this.pressed[pad]) {
@@ -388,7 +398,7 @@ MikroMK3.sendLights = function() {
     if (on) {
         for (let k = 0; k < 16; k++) {
             const [color, bright] = this.padLight(Math.round(engine.getValue(g, "pad" + (k + 1) + "_color")));
-            out[this.BUTTON_LIGHTS + k] = color === 0 ? 0 : color * 4 + bright;
+            out[this.BUTTON_LIGHTS + this.padNumber(k)] = color === 0 ? 0 : color * 4 + bright;
         }
         const mode = Math.round(engine.getValue(g, "pad_mode"));
         lit(B.STEP, mode === 0);
