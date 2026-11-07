@@ -46,7 +46,7 @@ impl Browser {
         ui: &FilesUi,
         with: &(impl Fn(&dyn Fn(&mut Browser)) + Clone + 'static),
     ) {
-        ui.set_mixcloud_signed_in(mixcloud_upload::saved_token().is_some());
+        ui.set_mixcloud_signed_in(mixcloud_upload::signed_in());
         let w = with.clone();
         ui.on_export_mixcloud(move |row| w(&|b| b.mix_job(row as usize, Job::Export)));
         let w = with.clone();
@@ -128,9 +128,7 @@ impl Browser {
         self.mix_export = Some(rx);
         self.set_mix_status(match job {
             Job::Export => "Making the Mixcloud MP3…",
-            Job::Upload if mixcloud_upload::saved_token().is_none() => {
-                "Sign in to Mixcloud in your browser…"
-            }
+            Job::Upload if !mixcloud_upload::signed_in() => "Sign in to Mixcloud in your browser…",
             Job::Upload => "Getting ready to upload…",
         });
         std::thread::Builder::new()
@@ -200,7 +198,10 @@ impl Browser {
 fn upload(path: &Path, title: &str, artist: &str, send: &dyn Fn(Progress)) {
     let status = |s: String| send(Progress::Status(s));
     let mut token = match mixcloud_upload::saved_token() {
-        Some(t) => t,
+        Some(t) => {
+            send(Progress::SignedIn(true));
+            t
+        }
         None => match mixcloud_upload::sign_in() {
             Ok(t) => {
                 send(Progress::SignedIn(true));
