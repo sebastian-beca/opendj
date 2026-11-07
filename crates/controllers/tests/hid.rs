@@ -159,12 +159,13 @@ fn maschine_mikro_mk3_drives_the_groove_box() {
     let lights = reports.iter().find(|r| r[0] == 0x80).expect("lights");
     assert_eq!(lights.len(), 81);
 
-    // Pad 4 (index 3) pressed fairly hard, then let go: the deck 2 Groove Box.
-    c.receive_report(&[0x02, 3, 0x10 | 0x0b, 0xb8, 0, 0, 0]);
+    // Pad 4 (bottom row, so report index 15) pressed fairly hard, then let
+    // go: the deck 2 Groove Box.
+    c.receive_report(&[0x02, 15, 0x10 | 0x0b, 0xb8, 0, 0, 0]);
     c.poll(Instant::now());
     let v = get(&reg, "[Groove2]", "pad4");
     assert!((v - 1.0).abs() < 1e-9, "3000 of 4095 is full: {v}");
-    c.receive_report(&[0x02, 3, 0x30, 0x00, 0, 0, 0]);
+    c.receive_report(&[0x02, 15, 0x30, 0x00, 0, 0, 0]);
     c.poll(Instant::now());
     assert_eq!(get(&reg, "[Groove2]", "pad4"), 0.0);
 
@@ -197,7 +198,8 @@ fn maschine_mikro_mk3_drives_the_groove_box() {
     c.receive_report(&idle);
     assert_eq!(get(&reg, "[Groove2]", "row2_mute"), 1.0);
 
-    // A pad colour from the engine lights that pad: row 1's colour.
+    // A pad colour from the engine lights that pad: row 1's colour on pad 1,
+    // bottom left (report index 12).
     reg.get("[Groove2]", "pad1_color").unwrap().set(1.0);
     // The first settle ran its clock 60 ms ahead; the timer is due after.
     settle(&mut c, 200);
@@ -207,7 +209,7 @@ fn maschine_mikro_mk3_drives_the_groove_box() {
         .rev()
         .find(|r| r[0] == 0x80)
         .expect("lights again");
-    assert_eq!(lights[1 + 39], 4 + 3, "red, bright");
+    assert_eq!(lights[1 + 39 + 12], 4 + 3, "red, bright");
     assert!(c.errors().is_empty(), "{:#?}", c.errors());
 }
 
