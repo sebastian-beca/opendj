@@ -1,4 +1,4 @@
-//! Playlist files from the tree: **Export as M3U8…** on a list, folder,
+//! Playlist files from the tree: File › Export › M3U8… on a list, folder,
 //! history session, album or mixed set, and **Import Playlist File…** in
 //! the Playlists + menu (M3U, M3U8, PLS and XSPF). The file reading and
 //! writing is in `opendj_library::playlist_files`.

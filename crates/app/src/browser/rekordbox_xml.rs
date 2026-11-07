@@ -1,5 +1,5 @@
-//! **Export as rekordbox XML…**: File › Export › rekordbox XML… and the
-//! sidebar's menu. On the Collection node it writes every track and the
+//! **Export as rekordbox XML…**: File › Export › rekordbox XML…, for the
+//! sidebar row picked. On the Collection node it writes every track and the
 //! whole list tree (Crates and Playlists as folders); on a list or folder
 //! just that list, or the folder with everything in it. The file itself is
 //! written by `opendj_plugins::rekordbox::xml_export`, on the save
