@@ -6606,15 +6606,17 @@ mod tests {
         }
         let mean = times.iter().sum::<f64>() / times.len() as f64;
         times.sort_by(f64::total_cmp);
+        let median = times[times.len() / 2];
         let p99 = times[times.len() * 99 / 100];
         let worst = times[times.len() - 1];
         let late = times.iter().filter(|&&t| t > 1.0).count();
         println!(
             "{FRAMES}-frame buffers ({:.1} ms), 4 decks key-locked, 60 effect \
-             instances, beatjumps: mean {:.0}%, p99 {:.0}%, worst {:.0}% of the \
-             buffer; {late} of {} over",
+             instances, beatjumps: mean {:.0}%, median {:.0}%, p99 {:.0}%, worst \
+             {:.0}% of the buffer; {late} of {} over",
             budget * 1000.0,
             mean * 100.0,
+            median * 100.0,
             p99 * 100.0,
             worst * 100.0,
             times.len()
@@ -6622,8 +6624,16 @@ mod tests {
         assert!(peak.is_finite() && peak > 0.01 && peak <= 1.0);
         // Loose, for shared CI machines running other tests alongside: it
         // catches the engine getting much slower, not a single slow buffer.
+        // The median, not the mean: other tests hogging the cores make whole
+        // runs of buffers late, which dragged a CI mean to 77% (p99 206%) once,
+        // while an engine that got slower moves every buffer, median included.
         // A 4-core cloud machine measured a mean of 40% (2026-11-01).
-        assert!(mean < 0.75, "mean {:.0}% of the buffer", mean * 100.0);
+        assert!(
+            median < 0.75,
+            "median {:.0}% of the buffer (mean {:.0}%)",
+            median * 100.0,
+            mean * 100.0
+        );
     }
 
     /// An input device for tests: the engine's feed, and the end to fill.
