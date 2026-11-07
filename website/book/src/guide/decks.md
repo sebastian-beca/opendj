@@ -79,6 +79,10 @@ of it. The beat lines and bar numbers are those of the track leading the mix
 (the sync leader, or else the first deck playing a track), so you can see
 your part land on its beats.
 
+On a deck playing an instrument plugin, the notes you play show as bars on
+a note roll over a faint copy of the sound: one row per note, fitted to the
+notes played in view, with the notes still held lit up to the play line.
+
 To go back to a track deck, load a track onto it, or press EJECT while it is
 stopped. openDJ remembers what each deck plays for next time.
 

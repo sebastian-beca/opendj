@@ -8,7 +8,7 @@ use std::time::Instant;
 use opendj_engine::live_wave::LiveSlice;
 use opendj_engine::track::{Track, Waveform, WaveformBin, WAVEFORM_RATE};
 use opendj_engine::NUM_DECKS;
-use opendj_waveform::{GridSection, GRID_SECTIONS};
+use opendj_waveform::{GridSection, Lanes, Mark, MarkKind, GRID_SECTIONS, MAX_MARKS};
 
 use crate::smooth::SmoothClock;
 
@@ -33,6 +33,16 @@ pub fn bin(s: &LiveSlice) -> WaveformBin {
     })
 }
 
+/// Seconds of the note roll on either side of the play line whose notes set
+/// the rows: half the scrolling waveform at normal speed.
+const ROLL_SECONDS: f64 = 5.0;
+/// The fewest rows the note roll shows, so a few notes don't fill the lane.
+const MIN_ROWS: u32 = 8;
+/// How opaque the sound is under the note roll.
+const UNDER_NOTES: f32 = 0.3;
+/// Held notes are outlined in Electric Lilac.
+const LILAC: [f32; 4] = [0.714, 0.612, 1.0, 1.0];
+
 /// One deck's sound so far.
 #[derive(Default)]
 struct Trace {
@@ -41,6 +51,93 @@ struct Trace {
     /// Slices received since the deck went live.
     received: u64,
     clock: SmoothClock,
+    notes: NoteRoll,
+}
+
+/// One note on the roll, in seconds on the deck's live clock.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Note {
+    note: u8,
+    start: f64,
+    /// None while it is held.
+    end: Option<f64>,
+}
+
+/// The notes an instrument deck plays, as they start and end.
+#[derive(Default)]
+struct NoteRoll {
+    held: u128,
+    notes: VecDeque<Note>,
+}
+
+impl NoteRoll {
+    /// Notes now held (bit `n` for MIDI note `n`) at `at` on the deck's clock.
+    fn update(&mut self, held: u128, at: f64) {
+        let released = self.held & !held;
+        let pressed = held & !self.held;
+        self.held = held;
+        for n in self.notes.iter_mut().filter(|n| n.end.is_none()) {
+            if released >> n.note & 1 == 1 {
+                n.end = Some(at);
+            }
+        }
+        for note in (0..128u8).filter(|&n| pressed >> n & 1 == 1) {
+            self.notes.push_back(Note {
+                note,
+                start: at,
+                end: None,
+            });
+        }
+        // Notes let go before the window are gone from it.
+        let keep = at - WINDOW as f64 / WAVEFORM_RATE;
+        while self
+            .notes
+            .front()
+            .is_some_and(|n| n.end.is_some_and(|e| e < keep))
+        {
+            self.notes.pop_front();
+        }
+    }
+
+    /// The notes as lanes over a window that starts at `start` on the
+    /// deck's clock, with the play line at `at`; none until a note shows.
+    fn lanes(&self, start: f64, at: f64, color: [f32; 4]) -> Option<Lanes> {
+        let shown = || {
+            self.notes
+                .iter()
+                .filter(move |n| n.end.unwrap_or(at) >= at - ROLL_SECONDS)
+        };
+        let lo = shown().map(|n| n.note).min()? as i32;
+        let hi = shown().map(|n| n.note).max()? as i32;
+        // Rows for the notes in view, centred in at least MIN_ROWS.
+        let count = ((hi - lo + 1) as u32).max(MIN_ROWS);
+        let bottom = lo - (count as i32 - (hi - lo + 1)) / 2;
+        let mut marks: Vec<Mark> = shown()
+            .filter(|n| n.note as i32 >= bottom && (n.note as i32) < bottom + count as i32)
+            .map(|n| Mark {
+                start: n.start - start,
+                end: n.end.unwrap_or(at) - start,
+                lane: (n.note as i32 - bottom) as u32,
+                kind: if n.end.is_some() {
+                    MarkKind::Played
+                } else {
+                    MarkKind::Held
+                },
+            })
+            .collect();
+        // The latest, if there are more than the shader draws.
+        if marks.len() > MAX_MARKS {
+            marks.drain(..marks.len() - MAX_MARKS);
+        }
+        Some(Lanes {
+            count,
+            tinted: 0,
+            marks,
+            trace: UNDER_NOTES,
+            color,
+            lit: LILAC,
+        })
+    }
 }
 
 /// What a live deck's scrolling waveform draws this frame.
@@ -50,6 +147,8 @@ pub struct Window {
     pub levels: Vec<Vec<WaveformBin>>,
     /// The play line, in seconds into the window.
     pub play_seconds: f64,
+    /// An instrument deck's note roll, once it has notes in view.
+    pub lanes: Option<Lanes>,
 }
 
 /// The decks' live sound, read from the engine on every frame.
@@ -85,8 +184,16 @@ impl LiveTraces {
     }
 
     /// Deck `d`'s waveform to draw at `now`, once anything has come in.
-    pub fn window(&mut self, d: usize, now: Instant) -> Option<Window> {
-        self.decks[d].window(now)
+    /// `held`: the notes an instrument deck holds now (bit `n` for MIDI
+    /// note `n`), for its note roll in `color`; None on other decks.
+    pub fn window(
+        &mut self,
+        d: usize,
+        now: Instant,
+        held: Option<u128>,
+        color: [f32; 4],
+    ) -> Option<Window> {
+        self.decks[d].window(now, held, color)
     }
 }
 
@@ -100,7 +207,7 @@ impl Trace {
         }
     }
 
-    fn window(&mut self, now: Instant) -> Option<Window> {
+    fn window(&mut self, now: Instant, held: Option<u128>, color: [f32; 4]) -> Option<Window> {
         if self.received == 0 {
             return None;
         }
@@ -110,8 +217,8 @@ impl Trace {
         let shown = self.clock.next(came, 1.0, now).min(came);
         let end = (shown * WAVEFORM_RATE).floor().max(0.0) as u64;
         // The bins up to the play line, the newest last.
-        let held = self.bins.len() as u64;
-        let first_held = self.received - held;
+        let kept = self.bins.len() as u64;
+        let first_held = self.received - kept;
         let upto = (end.max(first_held) - first_held) as usize;
         let mut finest = vec![[0u8; 8]; WINDOW];
         let take = upto.min(WINDOW);
@@ -119,9 +226,21 @@ impl Trace {
             finest[WINDOW - take + i] = *b;
         }
         let into = (shown * WAVEFORM_RATE - end as f64).max(0.0) / WAVEFORM_RATE;
+        let play_seconds = WINDOW as f64 / WAVEFORM_RATE + into;
+        let lanes = match held {
+            Some(held) => {
+                self.notes.update(held, shown);
+                self.notes.lanes(shown - play_seconds, shown, color)
+            }
+            None => {
+                self.notes = NoteRoll::default();
+                None
+            }
+        };
         Some(Window {
             levels: Waveform::from_finest(WAVEFORM_RATE, finest).levels,
-            play_seconds: WINDOW as f64 / WAVEFORM_RATE + into,
+            play_seconds,
+            lanes,
         })
     }
 }
@@ -208,14 +327,14 @@ mod tests {
             tx[1].push(loud()).unwrap();
         }
         live.poll([false, true, false, false]);
-        let w = live.window(1, Instant::now()).unwrap();
+        let w = live.window(1, Instant::now(), None, [1.0; 4]).unwrap();
         assert_eq!(w.levels[0].len(), WINDOW);
         assert!((w.play_seconds - WINDOW as f64 / WAVEFORM_RATE).abs() < 1e-9);
         // Half a second of sound at the end, silence before it.
         assert_ne!(w.levels[0][WINDOW - 1], [0; 8]);
         assert_ne!(w.levels[0][WINDOW - 500], [0; 8]);
         assert_eq!(w.levels[0][WINDOW - 501], [0; 8]);
-        assert!(live.window(0, Instant::now()).is_none());
+        assert!(live.window(0, Instant::now(), None, [1.0; 4]).is_none());
     }
 
     #[test]
@@ -223,10 +342,10 @@ mod tests {
         let (mut live, mut tx) = traces();
         tx[0].push(loud()).unwrap();
         live.poll([true, false, false, false]);
-        assert!(live.window(0, Instant::now()).is_some());
+        assert!(live.window(0, Instant::now(), None, [1.0; 4]).is_some());
         tx[0].push(loud()).unwrap();
         live.poll([false; NUM_DECKS]);
-        assert!(live.window(0, Instant::now()).is_none());
+        assert!(live.window(0, Instant::now(), None, [1.0; 4]).is_none());
     }
 
     #[test]
@@ -245,7 +364,7 @@ mod tests {
                 sent += 10;
             }
             live.poll([false, false, true, false]);
-            if let Some(w) = live.window(2, now) {
+            if let Some(w) = live.window(2, now, None, [1.0; 4]) {
                 // Whatever is drawn ends at the play line.
                 let into = w.play_seconds - WINDOW as f64 / WAVEFORM_RATE;
                 assert!((0.0..0.001).contains(&into), "frame {frame}: {into}");
@@ -268,5 +387,47 @@ mod tests {
         assert!((fast.bpm - 129.6).abs() < 1e-9);
         // No tempo, no grid.
         assert!(leader_grid(0.0, 20.0, 1.0, 8.192)[0].is_none());
+    }
+
+    #[test]
+    fn notes_play_on_rows_fitted_to_the_range() {
+        let mut roll = NoteRoll::default();
+        let bit = |n: u8| 1u128 << n;
+        // C4 at 1 s, E4 joins at 1.5 s, C4 let go at 2 s; drawn at 2.5 s.
+        roll.update(bit(60), 1.0);
+        roll.update(bit(60) | bit(64), 1.5);
+        roll.update(bit(64), 2.0);
+        let lanes = roll.lanes(0.0, 2.5, [1.0; 4]).unwrap();
+        // Five notes' range, centred in eight rows: C4 on row 1.
+        assert_eq!(lanes.count, MIN_ROWS);
+        assert_eq!(lanes.trace, UNDER_NOTES);
+        let c = lanes.marks[0];
+        assert_eq!(
+            (c.start, c.end, c.lane, c.kind),
+            (1.0, 2.0, 1, MarkKind::Played)
+        );
+        let e = lanes.marks[1];
+        assert_eq!(
+            (e.start, e.end, e.lane, e.kind),
+            (1.5, 2.5, 5, MarkKind::Held)
+        );
+        // Two octaves apart, a row each.
+        roll.update(bit(64) | bit(88), 3.0);
+        assert_eq!(roll.lanes(0.0, 3.0, [1.0; 4]).unwrap().count, 29);
+    }
+
+    #[test]
+    fn no_notes_in_view_shows_the_sound_alone() {
+        let mut roll = NoteRoll::default();
+        assert!(roll.lanes(0.0, 1.0, [1.0; 4]).is_none());
+        roll.update(1 << 60, 1.0);
+        roll.update(0, 1.2);
+        // Long gone from view.
+        assert!(roll
+            .lanes(0.0, 1.2 + ROLL_SECONDS + 1.0, [1.0; 4])
+            .is_none());
+        // And from memory once past the window.
+        roll.update(0, 20.0);
+        assert!(roll.notes.is_empty());
     }
 }

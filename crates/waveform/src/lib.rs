@@ -159,7 +159,64 @@ struct Params {
     /// 1 for a live deck: the beat grid and bar numbers run on past the
     /// last slice, which is the play line.
     live: u32,
-    _pad: [u32; 2],
+    /// How opaque the waveform is: 1, or less under lanes of marks.
+    trace_alpha: f32,
+    /// Rows the lanes split the height into (0 for none), and the marks
+    /// drawn on them.
+    lane_count: u32,
+    mark_count: u32,
+    _pad: [u32; 3],
+    /// Bit `n` set: lane `n` (from the bottom) is tinted.
+    lane_tint: [u32; 4],
+    mark_color: [f32; 4],
+    lit_color: [f32; 4],
+    /// Each mark's start and end, in slices, its row, and its kind (as in
+    /// [`MarkKind`]).
+    marks: [[f32; 4]; MAX_MARKS],
+}
+
+/// Marks the shader draws at once (see [`Lanes`]).
+pub const MAX_MARKS: usize = 256;
+
+/// What a mark on a live deck's lanes is, which sets how it is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MarkKind {
+    /// Played and let go: filled.
+    Played = 0,
+    /// Still sounding: lit, and runs to the play line.
+    Held = 1,
+    /// Still to come (a Groove Box's next hits): outlined.
+    Coming = 2,
+    /// Part of a fill, played: in the lit colour.
+    Fill = 3,
+    /// Part of a fill still to come: outlined in the lit colour.
+    FillComing = 4,
+}
+
+/// One mark on a lane: a note or a hit, in seconds as the frame counts them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mark {
+    pub start: f64,
+    pub end: f64,
+    /// From the bottom, 0 first.
+    pub lane: u32,
+    pub kind: MarkKind,
+}
+
+/// Rows of marks over a live deck's waveform: a note roll or drum lanes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Lanes {
+    /// Rows the height is split into, from the bottom.
+    pub count: u32,
+    /// Bit `n` set: row `n` is tinted (a note of the scale).
+    pub tinted: u128,
+    /// Earliest first; at most [`MAX_MARKS`] are drawn.
+    pub marks: Vec<Mark>,
+    /// The waveform's opacity under the marks, from 0 to 1.
+    pub trace: f32,
+    /// The marks' colour, and the colour of held notes and fills, as RGBA.
+    pub color: [f32; 4],
+    pub lit: [f32; 4],
 }
 
 /// Levels the shader can address; the coarsest is 2^15 slices per texel pair,
@@ -417,6 +474,8 @@ pub struct WaveformView {
     empty: wgpu::Texture,
     /// Draws a live deck (see [`WaveformView::set_live`]).
     live: bool,
+    /// Lanes of marks over the waveform (see [`WaveformView::set_lanes`]).
+    lanes: Option<Lanes>,
 }
 
 impl WaveformView {
@@ -439,6 +498,7 @@ impl WaveformView {
             track: None,
             empty,
             live: false,
+            lanes: None,
         }
     }
 
@@ -456,6 +516,12 @@ impl WaveformView {
     /// line: its beat grid and bar numbers then run on past the end.
     pub fn set_live(&mut self, live: bool) {
         self.live = live;
+    }
+
+    /// Lanes of marks drawn over the waveform (a live deck's notes or drum
+    /// hits), or none.
+    pub fn set_lanes(&mut self, lanes: Option<Lanes>) {
+        self.lanes = lanes;
     }
 
     /// The colour behind the waveform, as RGBA from 0 to 1.
@@ -558,8 +624,22 @@ impl WaveformView {
             mix_start_bin: 0.0,
             mix_end_bin: -1.0,
             live: self.live as u32,
-            _pad: [0; 2],
+            trace_alpha: 1.0,
+            lane_count: 0,
+            mark_count: 0,
+            _pad: [0; 3],
+            lane_tint: [0; 4],
+            mark_color: [0.0; 4],
+            lit_color: [0.0; 4],
+            marks: [[0.0; 4]; MAX_MARKS],
         };
+        if let Some(l) = &self.lanes {
+            params.trace_alpha = l.trace;
+            params.lane_count = l.count.min(128);
+            params.lane_tint = std::array::from_fn(|i| (l.tinted >> (32 * i)) as u32);
+            params.mark_color = l.color;
+            params.lit_color = l.lit;
+        }
         if let Some((a, b)) = self.mix.filter(|_| self.style == Style::Mono) {
             params.mix_start_bin = a * num_bins as f32;
             params.mix_end_bin = b * num_bins as f32;
@@ -603,6 +683,17 @@ impl WaveformView {
                 params.phrase_start[i / 4][i % 4] = to_bin(*seconds);
                 params.phrase_kind[i / 4][i % 4] = *kind as u32;
                 params.phrase_count = i as u32 + 1;
+            }
+            if let Some(l) = &self.lanes {
+                for (i, m) in l.marks.iter().take(MAX_MARKS).enumerate() {
+                    params.marks[i] = [
+                        to_bin(m.start),
+                        to_bin(m.end),
+                        m.lane as f32,
+                        m.kind as u32 as f32,
+                    ];
+                    params.mark_count = i as u32 + 1;
+                }
             }
             if f.duration > 60.0 && self.style != Style::Mono {
                 params.minute_bins = to_bin(60.0);
