@@ -147,6 +147,8 @@ pub struct Window {
     pub levels: Vec<Vec<WaveformBin>>,
     /// The play line, in seconds into the window.
     pub play_seconds: f64,
+    /// The play line on the deck's live clock: seconds since it went live.
+    pub clock: f64,
     /// An instrument deck's note roll, once it has notes in view.
     pub lanes: Option<Lanes>,
 }
@@ -240,6 +242,7 @@ impl Trace {
         Some(Window {
             levels: Waveform::from_finest(WAVEFORM_RATE, finest).levels,
             play_seconds,
+            clock: shown,
             lanes,
         })
     }

@@ -84,6 +84,7 @@ mod smooth;
 mod soundcloud;
 mod sources;
 mod spotify;
+mod step_lanes;
 mod storage;
 mod stores;
 mod stream_cache;
@@ -1164,6 +1165,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let loaded = loaded.clone();
         let mut live = engine.take_live_waves().map(live_trace::LiveTraces::new);
         let instrument = engine.instrument_view();
+        let mut steps = engine.take_groove_hits().map(step_lanes::StepLanes::new);
+        let mut grooves = Some(std::array::from_fn(|d| {
+            step_lanes::GrooveHandles::new(&registry, d)
+        }));
         let style = match std::env::var("OPENDJ_WAVEFORM").as_deref() {
             Ok("bands") => Style::Bands,
             _ => Style::Rgb,
@@ -1191,6 +1196,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         clocks: Default::default(),
                         live: live.take(),
                         instrument: instrument.clone(),
+                        steps: steps.take(),
+                        grooves: grooves.take().expect("groove handles"),
                         live_tracks: Default::default(),
                         moving: false,
                         images_set: false,
@@ -2383,6 +2390,9 @@ struct Gpu {
     live: Option<live_trace::LiveTraces>,
     /// The notes the Instrument input holds, for its deck's note roll.
     instrument: Arc<opendj_engine::InstrumentView>,
+    /// The Groove Box decks' step lanes, and their Groove Boxes' controls.
+    steps: Option<step_lanes::StepLanes>,
+    grooves: [step_lanes::GrooveHandles; NUM_DECKS],
     live_tracks: [Option<Arc<GpuTrack>>; NUM_DECKS],
     /// Whether a deck was moving in the last frame drawn.
     moving: bool,
@@ -2490,6 +2500,14 @@ impl Gpu {
         if let Some(traces) = self.live.as_mut() {
             traces.poll(live);
         }
+        // Decks playing their Groove Box, for the step lanes.
+        let groove: [bool; NUM_DECKS] = std::array::from_fn(|d| {
+            let h = &decks.0[d];
+            live[d] && h.groove.get_bool() && h.live_input.get() <= 0.0
+        });
+        if let Some(steps) = self.steps.as_mut() {
+            steps.poll(groove);
+        }
         // The leading deck: the sync leader if it plays, else the first
         // playing deck with a tempo.
         let playing = (0..NUM_DECKS).filter(|&d| {
@@ -2567,6 +2585,16 @@ impl Gpu {
                         .and_then(|t| t.window(d, now, held, color))
                 })
                 .flatten();
+            // A Groove Box deck's step lanes, in place of a note roll.
+            let window = window.map(|mut w| {
+                if let (true, Some(steps)) = (groove[d], self.steps.as_mut()) {
+                    let state = self.grooves[d].state();
+                    let start = w.clock - w.play_seconds;
+                    let ahead = VISIBLE_SECONDS / 2.0;
+                    w.lanes = Some(steps.lanes(d, &state, start, w.clock, ahead, DECK_COLORS[d]));
+                }
+                w
+            });
             self.scrolling[d].set_live(window.is_some());
             if window.is_none() {
                 self.scrolling[d].set_lanes(None);
