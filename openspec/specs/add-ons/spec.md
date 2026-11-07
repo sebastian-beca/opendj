@@ -27,7 +27,7 @@ Each plugin SHALL run on its own thread in the app, so a slow or failing add-on 
 - **THEN** the decks and the UI keep working
 
 ### Requirement: Search sources
-An add-on source SHALL show its saved searches down the left (newest first, named as the add-on names them, kept across restarts, Clear all), results as they arrive, and a download per result; finished downloads SHALL join the collection. The Downloading bar SHALL open the downloads list with cancel, retry failed and clear finished.
+An add-on source SHALL show its saved searches down the left (newest first, named as the add-on names them, kept across restarts, Clear all), results as they arrive, and a download per result; finished downloads SHALL join the collection. Below the searches, Downloads SHALL be a place of its own in the panel, opening the downloads list with cancel, retry failed and clear finished, followed by a status page of the add-on's own when it offers one (e.g. Sharing), refreshed every few seconds.
 
 #### Scenario: Download joins library
 - **WHEN** a download from an add-on source finishes

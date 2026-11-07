@@ -59,6 +59,11 @@ the Wanted list stay off. **Stop Adding to Wanted** leaves what's there.
 With a download add-on such as the Soulseek add-on installed, **Add to
 Downloads** sits beside it and searches the add-on for each track.
 
+A download add-on's panel lists your **Searches**, then **Downloads**
+(everything it is fetching and has fetched, with cancel, retry and clear),
+then any page of the add-on's own, such as the Soulseek add-on's
+**Sharing**: what you share, and uploads now, waiting and done lately.
+
 Under the playlists, **Signed in as** shows your account; click it to
 **Sign out**.
 
