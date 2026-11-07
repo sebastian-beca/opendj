@@ -79,10 +79,7 @@ when a track loads, and the slider works once they are ready.
 ## Find lyrics online
 
 openDJ can look a track up on [LRCLIB](https://lrclib.net), a free
-community database of synced lyrics. It is off until you turn on
-**Find lyrics online** in Settings › Collection › Health.
-
-Then press **Find…** in the Lyrics tab. openDJ asks LRCLIB for the track by
+community database of synced lyrics. Press **Find…** in the Lyrics tab. openDJ asks LRCLIB for the track by
 its artist, title, album and length, and lists what it has, best first:
 synced lyrics of the same length at the top. **Other length** marks lyrics
 for another version of the track (a radio edit, say), whose timing won't
@@ -93,4 +90,5 @@ keeps them in its own settings folder instead.
 ![Find lyrics](../images/find-lyrics.png)
 
 Only the track's names and length are sent to LRCLIB, and only when you
-press Find.
+press Find. To stop openDJ asking LRCLIB at all, turn off **Find lyrics
+online** in Settings › Collection › Health.
