@@ -122,7 +122,11 @@ fn main() {
         ));
     }
     let mut main = loaded.main;
-    let mut no_main = NoMain::default();
+    let mut no_main = NoMain {
+        state: Vec::new(),
+        value: info.params.first().map(|p| p.value),
+    };
+    let mut params = ParamSync::new(info.params.iter().map(|p| p.value as f32).collect());
     // A saved sound to start from, before the first block.
     if let Some(data) = state.as_ref().and_then(|p| std::fs::read(p).ok()) {
         let m: &mut dyn MainThread = match main.as_mut() {
@@ -153,7 +157,10 @@ fn main() {
             None => &mut no_main,
         };
         m.idle();
-        serve_state(m, h, state.as_deref());
+        if serve_state(m, h, state.as_deref()) {
+            params.loaded(h);
+        }
+        params.step(m, h);
         let wait = m
             .next_idle()
             .map_or(IDLE, |d| d.min(IDLE))
@@ -178,7 +185,10 @@ fn main() {
             None => &mut no_main,
         };
         m.idle();
-        serve_state(m, h, state.as_deref());
+        if serve_state(m, h, state.as_deref()) {
+            params.loaded(h);
+        }
+        params.step(m, h);
         win.step_in(m, &h.editor, &h.editor_shown, el);
         m.next_idle()
             .map_or(IDLE, |d| d.min(IDLE))
@@ -191,13 +201,14 @@ const IDLE: Duration = Duration::from_millis(10);
 
 /// Does what openDJ asked about the plugin's state, if anything: saves it
 /// to the state file (through a temporary file, so a reader never sees half
-/// of it) or loads it from there.
-fn serve_state(m: &mut dyn MainThread, h: &shm::Header, path: Option<&std::path::Path>) {
+/// of it) or loads it from there. True when it loaded one.
+fn serve_state(m: &mut dyn MainThread, h: &shm::Header, path: Option<&std::path::Path>) -> bool {
     let asked = h.state_asked.load(Ordering::Acquire);
     if asked == h.state_done.load(Ordering::Relaxed) {
-        return;
+        return false;
     }
-    let result = match (h.state_cmd.load(Ordering::Relaxed), path) {
+    let cmd = h.state_cmd.load(Ordering::Relaxed);
+    let result = match (cmd, path) {
         (shm::STATE_SAVE, Some(path)) => m.save_state().and_then(|data| {
             let tmp = path.with_extension("tmp");
             std::fs::write(&tmp, data)
@@ -214,13 +225,68 @@ fn serve_state(m: &mut dyn MainThread, h: &shm::Header, path: Option<&std::path:
     }
     h.state_ok.store(result.is_ok() as u32, Ordering::Relaxed);
     h.state_done.store(asked, Ordering::Release);
+    cmd == shm::STATE_LOAD && result.is_ok()
+}
+
+/// How often the plugin's parameter values are read back for openDJ.
+const READ_PARAMS: Duration = Duration::from_millis(50);
+
+/// Keeps the plugin's parameters and openDJ's knobs in step, on the main
+/// thread: tells the plugin's main side what openDJ set, and hands back
+/// what the plugin has now (see `shm::Header::values`).
+struct ParamSync {
+    /// The shared values openDJ last set.
+    set: Vec<f32>,
+    now: Vec<f64>,
+    next: std::time::Instant,
+}
+
+impl ParamSync {
+    fn new(set: Vec<f32>) -> Self {
+        Self {
+            now: vec![0.0; set.len()],
+            set,
+            next: std::time::Instant::now(),
+        }
+    }
+
+    /// A sound was loaded: it set the plugin's values, so knob moves not
+    /// passed on yet are dropped rather than undoing it.
+    fn loaded(&mut self, h: &shm::Header) {
+        for (i, set) in self.set.iter_mut().enumerate() {
+            *set = shm::load_f32(&h.params[i]);
+        }
+        self.next = std::time::Instant::now();
+    }
+
+    fn step(&mut self, m: &mut dyn MainThread, h: &shm::Header) {
+        if self.set.is_empty() || std::time::Instant::now() < self.next {
+            return;
+        }
+        self.next = std::time::Instant::now() + READ_PARAMS;
+        for (i, set) in self.set.iter_mut().enumerate() {
+            let v = shm::load_f32(&h.params[i]);
+            if v != *set {
+                *set = v;
+                m.param_set(i, v as f64);
+            }
+        }
+        if m.param_values(&mut self.now) {
+            for (i, v) in self.now.iter().enumerate() {
+                shm::store_f32(&h.values[i], *v as f32);
+            }
+            h.values_seq.fetch_add(1, Ordering::Release);
+        }
+    }
 }
 
 /// The main thread of an effect that needs none (the test effects). Its
-/// state is whatever was last loaded, so saving and loading can be tested.
-#[derive(Default)]
+/// state is whatever was last loaded, so saving and loading can be tested;
+/// a 4-byte state is also its first parameter's value (an `f32`), so a
+/// sound changing the plugin's knobs can be tested too.
 struct NoMain {
     state: Vec<u8>,
+    value: Option<f64>,
 }
 
 impl MainThread for NoMain {
@@ -232,7 +298,26 @@ impl MainThread for NoMain {
 
     fn load_state(&mut self, data: &[u8]) -> Result<(), String> {
         self.state = data.to_vec();
+        if let (Some(v), Ok(bytes)) = (&mut self.value, <[u8; 4]>::try_from(data)) {
+            *v = f32::from_le_bytes(bytes) as f64;
+        }
         Ok(())
+    }
+
+    fn param_values(&mut self, out: &mut [f64]) -> bool {
+        match (self.value, out.first_mut()) {
+            (Some(v), Some(o)) => {
+                *o = v;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn param_set(&mut self, index: usize, value: f64) {
+        if let (0, Some(v)) = (index, &mut self.value) {
+            *v = value;
+        }
     }
 }
 

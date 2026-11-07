@@ -186,6 +186,8 @@ struct ClapMain {
     gui: Option<PluginGui>,
     /// Whether the open editor can be resized.
     resizable: bool,
+    /// The shared parameters' ids, for reading their values back.
+    param_ids: Vec<ClapId>,
 }
 
 impl ClapMain {
@@ -286,6 +288,19 @@ impl MainThread for ClapMain {
         state
             .load(&handle, &mut &data[..])
             .map_err(|e| format!("loading the sound failed: {e}"))
+    }
+
+    fn param_values(&mut self, out: &mut [f64]) -> bool {
+        let handle = self.instance.plugin_handle();
+        let Some(ext) = handle.get_extension::<PluginParams>() else {
+            return false;
+        };
+        for (o, id) in out.iter_mut().zip(&self.param_ids) {
+            if let Some(v) = ext.get_value(&handle, *id) {
+                *o = v;
+            }
+        }
+        true
     }
 
     fn idle(&mut self) {
@@ -527,6 +542,7 @@ pub fn load(file: &Path, id: &str, sample_rate: u32, max_frames: usize) -> Resul
             _entry: entry,
             gui: None,
             resizable: false,
+            param_ids: params.iter().map(|(id, _)| *id).collect(),
         })),
         info: Info {
             name,

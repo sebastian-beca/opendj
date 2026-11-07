@@ -90,6 +90,9 @@ export global InstrumentsUi {
     // The MIDI keyboard that played the instrument last, set by the app;
     // empty before any has.
     in property <string> playing-from;
+    // The instrument's parameter names, for its knobs
+    // (`[Instrument1],parameterN` is the N-th). Set by the app.
+    in property <[string]> param-names;
 
     // Each input's device and channels as Settings › Audio shows them, in
     // the engine's input order (microphone, aux, instrument, aux 2, aux 3);

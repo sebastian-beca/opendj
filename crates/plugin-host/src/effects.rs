@@ -34,6 +34,20 @@ pub trait MainThread {
         Err("it can't load a saved sound".into())
     }
 
+    /// The parameters' values now, in [`Info::params`] order and their own
+    /// ranges, into `out` (as long as the list). False when it can't tell.
+    fn param_values(&mut self, out: &mut [f64]) -> bool {
+        let _ = out;
+        false
+    }
+
+    /// openDJ set parameter `index` to `value` (its own range), for a
+    /// plugin whose editor keeps its own copy of the values, as a VST3
+    /// controller does.
+    fn param_set(&mut self, index: usize, value: f64) {
+        let _ = (index, value);
+    }
+
     /// Puts the plugin's own window (its editor) inside `parent` and returns
     /// its size, in the units `parent` uses (points on macOS, pixels
     /// elsewhere). Errors when the plugin has none.
