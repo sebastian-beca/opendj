@@ -42,6 +42,25 @@ export { MixerMode, InputSettings, InputRow }
 export { BroadcastState, BroadcastStation }
 export { InstrumentsUi, LiveItem, PresetItem, PresetUi, Theme, Controls, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit, GrooveGenre, GrooveName, AudioSettings, OutputRow, EffectList, FxRow, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, MenuTag, StoreUi, StreamMatch, WantedUi, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, HealthStage, HealthLine, HealthArea, HealthChip, HealthReview, CleanupUi, CleanupRow, FixNamesUi, GenreRow, BuyUi, BuyGroup, BuyRow, Preferences, PrefItem, ImportWizard, PluginErrors, StorageUi, StoragePart, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, EditorSetting, UsbExport }
 
+// Macro lanes: an instrument or Groove Box deck's knobs drawn as lines on
+// its scrolling waveform instead of its notes or steps (2-Deck only).
+export global MacroLanes {
+    // `shown[d]`: deck d shows them. Set by the app; `toggle` flips one.
+    in property <[bool]> shown: [false, false, false, false];
+    callback toggle(deck: int);
+}
+
+// One macro lane's name and value, beside the play line.
+component MacroLabel inherits Text {
+    in property <string> name;
+    in property <float> value;
+    text: name == "" ? "" : name + "  " + round(value * 100) + "%";
+    color: Theme.text;
+    font-size: clamp(self.height - 1px, 7px, 10px);
+    vertical-alignment: center;
+    overflow: elide;
+}
+
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
 // the track under the pointer, like a hand on a record, and drag left or
 // right to move through it, hearing what passes, to set cues and grids by
@@ -49,6 +68,9 @@ export { InstrumentsUi, LiveItem, PresetItem, PresetUi, Theme, Controls, DeckAct
 component Waveform inherits Rectangle {
     in property <image> source;
     in property <string> group;
+    // The deck it shows (0 up), where it can switch to macro lanes; -1 where
+    // it can't (4-Deck, Prep).
+    in property <int> deck: -1;
     // Prep's waveform: dragging it moves an unlocked grid with the audio,
     // and it shows `zoom-seconds` across its width (set from the app).
     in property <bool> drag-grid;
@@ -69,6 +91,14 @@ component Waveform inherits Rectangle {
     // While the grid is dragged: whether it is, and how far it has moved.
     property <bool> moving-grid;
     property <float> grid-moved;
+    // An instrument or Groove Box deck: its knobs can show as macro lanes.
+    property <string> groove-group: "[Groove" + (deck + 1) + "]";
+    property <bool> groove: deck >= 0 && Controls.value(Controls.resolve(groove-group, "enabled"), Controls.tick) > 0;
+    property <bool> live-knobs: deck >= 0 && Controls.value(duration-index, Controls.tick) <= 0
+        && (groove || InstrumentsUi.live(deck) == 3);
+    property <bool> macros: live-knobs && MacroLanes.shown[deck];
+    property <int> kit: Controls.value(Controls.resolve(groove-group, "kit"), Controls.tick);
+    property <int> page: InstrumentsUi.knob-page;
     background: Theme.well;
     clip: true;
     Image { width: parent.width; height: parent.height; source: source; image-fit: fill; }
@@ -106,6 +136,50 @@ component Waveform inherits Rectangle {
                     grid-moved = moved;
                 }
             }
+        }
+    }
+    // Each lane's knob and value, top first, just past the play line: the
+    // instrument's knobs on the page its deck shows, or the Groove Box's
+    // tracks' levels.
+    if macros: Rectangle {
+        x: parent.width / 2 + 6px;
+        width: parent.width / 2 - 40px;
+        for i in 8: MacroLabel {
+            y: i * parent.height / 8;
+            height: parent.height / 8;
+            width: parent.width;
+            name: groove
+                ? GrooveUi.kits[kit].sounds[Controls.value(Controls.resolve(groove-group, "row" + (i + 1) + "_sound"), Controls.tick)]
+                : InstrumentsUi.param-names[page * 8 + i];
+            value: groove
+                ? Controls.value(Controls.resolve(groove-group, "row" + (i + 1) + "_level"), Controls.tick) / 1.5
+                : Controls.value(Controls.resolve("[Instrument1]", "parameter" + (page * 8 + i + 1)), Controls.tick);
+        }
+    }
+    // The switch between the notes or steps and the macro lanes.
+    if live-knobs: Rectangle {
+        x: parent.width - self.width - 6px;
+        y: 4px;
+        width: 24px;
+        height: 18px;
+        border-radius: 4px;
+        background: kta.pressed ? Theme.control-pressed : kta.has-hover ? #2a2b2e : #000000a0;
+        border-width: 1px;
+        border-color: macros ? Theme.accent : transparent;
+        // Three sliders: knobs as lines.
+        Path {
+            width: 14px;
+            height: 12px;
+            viewbox-width: 14;
+            viewbox-height: 12;
+            stroke: macros ? Theme.accent : kta.has-hover ? Theme.text : Theme.text-dim;
+            stroke-width: 1.3px;
+            fill: transparent;
+            commands: "M 0 2 L 14 2 M 0 6 L 14 6 M 0 10 L 14 10 M 4 0.5 L 4 3.5 M 10 4.5 L 10 7.5 M 6 8.5 L 6 11.5";
+        }
+        kta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { MacroLanes.toggle(deck); }
         }
     }
 }
@@ -1197,9 +1271,9 @@ export component AppWindow inherits Window {
                 if !four && !prep: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; deck: 0; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-2; group: "[Channel2]"; vertical-stretch: 1; }
+                    Waveform { source: waveform-2; group: "[Channel2]"; deck: 1; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
                 }
                 if four: VerticalLayout {

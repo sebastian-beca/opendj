@@ -9,7 +9,7 @@
 ## 2. Note roll
 
 - [x] 2.1 Instrument decks: notes played as bars, fitted to the range in view, held notes lit; faint trace under it
-- [ ] 2.2 Rows of the current scale tinted, once Scale mode exists (`rework-instruments` 4.x)
+- [x] 2.2 Rows of the current scale tinted, once Scale mode exists (`rework-instruments` 4.x)
 
 ## 3. Step lanes
 
@@ -17,4 +17,4 @@
 
 ## 4. Macro lanes
 
-- [ ] 4.1 A switch on instrument and Groove Box decks' waveform for the knobs as automation lines; 2-Deck only
+- [x] 4.1 A switch on instrument and Groove Box decks' waveform for the knobs as automation lines; 2-Deck only (an instrument's page of eight knobs; the Groove Box's track levels)

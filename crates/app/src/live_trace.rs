@@ -68,6 +68,9 @@ struct Note {
 struct NoteRoll {
     held: u128,
     notes: VecDeque<Note>,
+    /// The scale now, a bit per pitch class from C (0 for none): its rows
+    /// are tinted.
+    scale: u16,
 }
 
 impl NoteRoll {
@@ -129,9 +132,12 @@ impl NoteRoll {
         if marks.len() > MAX_MARKS {
             marks.drain(..marks.len() - MAX_MARKS);
         }
+        let tinted = (0..count.min(128))
+            .filter(|&r| self.scale >> (bottom + r as i32).rem_euclid(12) & 1 == 1)
+            .fold(0u128, |t, r| t | 1 << r);
         Some(Lanes {
             count,
-            tinted: 0,
+            tinted,
             marks,
             trace: UNDER_NOTES,
             color,
@@ -188,6 +194,12 @@ impl LiveTraces {
     /// Deck `d`'s waveform to draw at `now`, once anything has come in.
     /// `held`: the notes an instrument deck holds now (bit `n` for MIDI
     /// note `n`), for its note roll in `color`; None on other decks.
+    /// The scale an instrument deck's note roll tints, a bit per pitch
+    /// class from C (0 for none).
+    pub fn set_scale(&mut self, d: usize, scale: u16) {
+        self.decks[d].notes.scale = scale;
+    }
+
     pub fn window(
         &mut self,
         d: usize,
@@ -417,6 +429,17 @@ mod tests {
         // Two octaves apart, a row each.
         roll.update(bit(64) | bit(88), 3.0);
         assert_eq!(roll.lanes(0.0, 3.0, [1.0; 4]).unwrap().count, 29);
+    }
+
+    #[test]
+    fn the_scale_rows_are_tinted() {
+        let mut roll = NoteRoll::default();
+        roll.update(1 << 60 | 1 << 64, 1.0);
+        assert_eq!(roll.lanes(0.0, 2.0, [1.0; 4]).unwrap().tinted, 0);
+        // C major; rows from B3 (C4 on row 1): B C . D . E F .
+        roll.scale = 0b1010_1011_0101;
+        let lanes = roll.lanes(0.0, 2.0, [1.0; 4]).unwrap();
+        assert_eq!(lanes.tinted, 0b0110_1011);
     }
 
     #[test]
