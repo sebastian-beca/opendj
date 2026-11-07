@@ -4248,7 +4248,7 @@ component LivePanel inherits Rectangle {
             ControlKnob { group: group; key: "live_trim"; label: "TRIM"; tint: tint; size: 30px; }
             ControlKnob { group: group; key: "live_pan"; label: "PAN"; tint: tint; size: 30px; bipolar: true; }
         }
-        if live == 3: InstrumentKnobs { tint: tint; }
+        if live == 3: InstrumentKnobs { tint: tint; page <=> InstrumentsUi.knob-page; }
         if live == 3: VerticalLayout {
             alignment: center;
             spacing: 4px;

@@ -179,18 +179,38 @@ struct Params {
 pub const MAX_MARKS: usize = 256;
 
 /// What a mark on a live deck's lanes is, which sets how it is drawn.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MarkKind {
     /// Played and let go: filled.
-    Played = 0,
+    Played,
     /// Still sounding: lit, and runs to the play line.
-    Held = 1,
+    Held,
     /// Still to come (a Groove Box's next hits): outlined.
-    Coming = 2,
+    Coming,
     /// Part of a fill, played: in the lit colour.
-    Fill = 3,
+    Fill,
     /// Part of a fill still to come: outlined in the lit colour.
-    FillComing = 4,
+    FillComing,
+    /// A knob's value over the mark's span, from 0 at the row's foot to 1
+    /// at its top, going from the first value to the second: a line with
+    /// a faint fill under it.
+    Level(f32, f32),
+}
+
+impl MarkKind {
+    /// How the shader reads it: 0 to 4 for the shapes, 8 and up for a
+    /// level, its two values in steps of 1/1023 packed into one number.
+    fn code(self) -> f32 {
+        let step = |v: f32| (v.clamp(0.0, 1.0) * 1023.0).round();
+        match self {
+            MarkKind::Played => 0.0,
+            MarkKind::Held => 1.0,
+            MarkKind::Coming => 2.0,
+            MarkKind::Fill => 3.0,
+            MarkKind::FillComing => 4.0,
+            MarkKind::Level(from, to) => 8.0 + step(from) * 1024.0 + step(to),
+        }
+    }
 }
 
 /// One mark on a lane: a note or a hit, in seconds as the frame counts them.
@@ -686,12 +706,8 @@ impl WaveformView {
             }
             if let Some(l) = &self.lanes {
                 for (i, m) in l.marks.iter().take(MAX_MARKS).enumerate() {
-                    params.marks[i] = [
-                        to_bin(m.start),
-                        to_bin(m.end),
-                        m.lane as f32,
-                        m.kind as u32 as f32,
-                    ];
+                    params.marks[i] =
+                        [to_bin(m.start), to_bin(m.end), m.lane as f32, m.kind.code()];
                     params.mark_count = i as u32 + 1;
                 }
             }

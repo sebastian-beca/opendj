@@ -82,12 +82,22 @@ your part land on its beats.
 On a deck playing an instrument plugin, the notes you play show as bars on
 a note roll over a faint copy of the sound: one row per note, fitted to the
 notes played in view, with the notes still held lit up to the play line.
+The rows of the scale the instrument plays in (its Scale setting, Auto or a
+picked scale) are tinted.
 
 On a Groove Box deck, the scrolling waveform shows eight step lanes, kick
 on top, over a faint copy of the sound. The hits it played scroll away to
 the left, and the hits still to come are drawn ahead of the play line as
 outlines, so you can see the next bars before they play. Fills are drawn in
 lilac, and a groove you queue shows from the next bar on.
+
+On an instrument or Groove Box deck, the small sliders button at the
+waveform's top right switches to macro lanes: the deck's knobs drawn as
+lines up to the play line, one lane each, so you can see the filter ride you
+did a few bars back. An instrument shows the page of eight knobs its deck
+shows; the Groove Box shows its eight tracks' levels. Each lane's name and
+value sit just past the play line. Click the button again to go back to the
+notes or steps. Macro lanes are in 2-Deck only.
 
 To go back to a track deck, load a track onto it, or press EJECT while it is
 stopped. openDJ remembers what each deck plays for next time.
