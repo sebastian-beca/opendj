@@ -10,6 +10,7 @@
 //! then decode and analyse them while they play.
 
 pub mod analysis;
+pub mod arp;
 pub mod beats;
 pub mod beatthis;
 pub mod cache;

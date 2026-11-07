@@ -3357,6 +3357,12 @@
 [Instrument1],VuMeter
 [Instrument1],VuMeterL
 [Instrument1],VuMeterR
+[Instrument1],arp
+[Instrument1],arp_gate
+[Instrument1],arp_hold
+[Instrument1],arp_mode
+[Instrument1],arp_octaves
+[Instrument1],arp_rate
 [Instrument1],chord_learn
 [Instrument1],chord_mode
 [Instrument1],chord_shape

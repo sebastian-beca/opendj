@@ -229,6 +229,29 @@ impl InputControls {
                 Behavior::Free,
             );
             reg.create(g, "chord_learn", 0.0, 0.0, 1.0, Behavior::Free);
+            // The arpeggiator (see `crate::arp`): off, Up, 1/16, half gate.
+            use crate::arp::{DEFAULT_RATE, MODES, RATES};
+            reg.create(g, "arp", 0.0, 0.0, 1.0, Behavior::Free);
+            reg.create(
+                g,
+                "arp_mode",
+                0.0,
+                0.0,
+                (MODES.len() - 1) as f64,
+                Behavior::Free,
+            );
+            let rate = DEFAULT_RATE as f64;
+            reg.create(
+                g,
+                "arp_rate",
+                rate,
+                0.0,
+                (RATES.len() - 1) as f64,
+                Behavior::Free,
+            );
+            reg.create(g, "arp_gate", 0.5, 0.05, 1.0, Behavior::Linear);
+            reg.create(g, "arp_octaves", 1.0, 1.0, 4.0, Behavior::Free);
+            reg.create(g, "arp_hold", 0.0, 0.0, 1.0, Behavior::Free);
         }
         let configured = reg.indicator(g, "input_configured", 1.0);
         alias(reg, g, "enabled", g, "input_configured");
@@ -270,6 +293,8 @@ pub(crate) struct Input {
     scale: Option<[ControlHandle; 5]>,
     /// Its chord mode, learned chord and learn switch.
     chord: Option<[ControlHandle; 3]>,
+    /// Its arpeggiator: on, mode, rate, gate, octaves and hold.
+    arp: Option<[ControlHandle; 6]>,
     /// The master deck's key, for Auto.
     master_key: Option<crate::key::Key>,
     feed: Option<InputFeed>,
@@ -317,6 +342,20 @@ impl Input {
                 ["chord_mode", "chord_shape", "chord_learn"].map(|k| {
                     reg.get(input_group(input), k)
                         .expect("the instrument's chord controls exist")
+                })
+            }),
+            arp: (input == INSTRUMENT).then(|| {
+                [
+                    "arp",
+                    "arp_mode",
+                    "arp_rate",
+                    "arp_gate",
+                    "arp_octaves",
+                    "arp_hold",
+                ]
+                .map(|k| {
+                    reg.get(input_group(input), k)
+                        .expect("the instrument's arpeggiator controls exist")
                 })
             }),
             master_key: None,
@@ -399,6 +438,16 @@ impl Input {
                     shape.get().max(0.0) as u32,
                     learn.get() > 0.5,
                 );
+            }
+            if let Some([on, mode, rate, gate, octaves, hold]) = &self.arp {
+                fx.set_arp(crate::arp::ArpSettings {
+                    on: on.get() > 0.5,
+                    mode: mode.get().round() as u8,
+                    rate: rate.get().round().max(0.0) as usize,
+                    gate: gate.get(),
+                    octaves: octaves.get().round() as u8,
+                    hold: hold.get() > 0.5,
+                });
             }
             if let Some(pads) = &mut self.pads {
                 pads.play(fx);
