@@ -24,5 +24,5 @@
 
 ## 5. Finder
 
-- [ ] 5.1 Search bar suggests values across fields; ↓ then Return adds a chip, Return alone searches
-- [ ] 5.2 The same finder in the "+" menu
+- [x] 5.1 Search bar suggests values across fields; ↓ then Return adds a chip, Return alone searches
+- [x] 5.2 The same finder in the "+" menu
