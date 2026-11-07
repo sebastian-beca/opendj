@@ -972,6 +972,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // deck, and said once when a keyboard plays it for the first time, so a
     // device that shouldn't is easy to spot (Settings › Controllers turns it
     // off or gives it a deck).
+    // The instrument's notes and scope, for the deck playing it.
+    let instrument_timer = slint::Timer::default();
+    {
+        let (weak, view) = (app.as_weak(), engine.instrument_view());
+        let mut last_held = u128::MAX;
+        let mut quiet = false;
+        instrument_timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(40),
+            move || {
+                let Some(app) = weak.upgrade() else {
+                    return;
+                };
+                let ui = app.global::<InstrumentsUi>();
+                let held = view.held();
+                if held != last_held {
+                    last_held = held;
+                    let keys: Vec<bool> = (36..84).map(|n| held >> n & 1 == 1).collect();
+                    ui.set_held(slint::ModelRc::from(keys.as_slice()));
+                }
+                let scope = view.scope();
+                let silent = scope.iter().all(|&(lo, hi)| lo == 0.0 && hi == 0.0);
+                if silent && quiet {
+                    return;
+                }
+                quiet = silent;
+                ui.set_scope(scope_path(&scope).into());
+            },
+        );
+    }
     let players_timer = slint::Timer::default();
     {
         let (weak, engine) = (app.as_weak(), engine.clone());
@@ -2571,4 +2601,28 @@ fn loop_label(beats: f64) -> SharedString {
 pub(crate) fn export_mixcloud(app: &AppWindow) {
     app.global::<FilesUi>()
         .invoke_export_mixcloud(app.get_current_track());
+}
+
+/// Path commands for the instrument's scope in a 128 by 32 box: its
+/// outline, along each bin's highest sample and back along the lowest.
+fn scope_path(bins: &[(f32, f32)]) -> String {
+    use std::fmt::Write;
+    let y = |v: f32| 16.0 - 15.0 * v.clamp(-1.0, 1.0);
+    let last = bins.len().saturating_sub(1).max(1) as f32;
+    let x = |i: usize| i as f32 * 128.0 / last;
+    let mut out = String::with_capacity(bins.len() * 28);
+    for (i, &(_, hi)) in bins.iter().enumerate() {
+        let _ = write!(
+            out,
+            "{} {:.1} {:.1} ",
+            if i == 0 { 'M' } else { 'L' },
+            x(i),
+            y(hi)
+        );
+    }
+    for (i, &(lo, _)) in bins.iter().enumerate().rev() {
+        let _ = write!(out, "L {:.1} {:.1} ", x(i), y(lo));
+    }
+    out.push('Z');
+    out
 }
