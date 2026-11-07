@@ -13,7 +13,7 @@ use opendj_library::query::{self, and_text, keyword, quoted, FieldNames, Query, 
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::Browser;
-use crate::{settings, AppWindow, FilterChip, FilterChoice, FilterUi};
+use crate::{settings, AppWindow, FilterChip, FilterChoice, FilterSuggestion, FilterUi};
 
 /// How close a tempo must be to the playing track's, when BPM follows it.
 pub const TOLERANCES: [f64; 5] = [0.02, 0.04, 0.06, 0.08, 0.10];
@@ -382,6 +382,8 @@ pub(super) struct FilterState {
     find: String,
     /// The popup lists every value, not just the first few with tracks.
     show_all: bool,
+    /// What the finder offers for the text typed: (field, value).
+    suggestions: Vec<(String, Choice)>,
     /// Each chip's left edge and width along the bar, as last laid out.
     placed: Vec<(f32, f32)>,
     /// Values picked lately, newest first, as (field, search): they come
@@ -405,6 +407,7 @@ impl FilterState {
             find: String::new(),
             show_all: false,
             placed: Vec::new(),
+            suggestions: Vec::new(),
             recent: Vec::new(),
         }
     }
@@ -544,6 +547,10 @@ impl Browser {
                 b.filters_changed();
             })
         });
+        let w = with.clone();
+        ui.on_find(move |text| w(&|b| b.find_values(&text)));
+        let w = with.clone();
+        ui.on_pick_suggestion(move |i| w(&|b| b.pick_suggestion(i.max(0) as usize)));
         let w = with.clone();
         ui.on_show_more(move || {
             w(&|b| {
@@ -781,6 +788,37 @@ impl Browser {
         self.filter.choices = choices;
     }
 
+    /// Values of any field that match `text`, for the finder: counted over
+    /// the tracks the bar leaves (the typed search aside, since that's what
+    /// is being typed), best first.
+    pub(super) fn find_values(&mut self, text: &str) {
+        let tracks: Vec<usize> = self.row_data().iter().filter_map(|r| r.local).collect();
+        let f = &self.filter;
+        let q = Query::parse(&f.filters.text(&f.fields, self.deck_ref));
+        let cx = self.context();
+        let left: Vec<&opendj_engine::Track> = tracks
+            .iter()
+            .filter(|&&id| q.is_empty() || q.matches(&self.library[id], &self.indexed[id], &cx))
+            .map(|&id| &*self.library[id])
+            .collect();
+        self.filter.suggestions = suggestions(&f.fields, &left, &f.filters, text, self.camelot);
+        self.refresh_filter_ui();
+    }
+
+    /// Adds the finder's suggestion `i` to the bar.
+    pub(super) fn pick_suggestion(&mut self, i: usize) {
+        let Some((id, choice)) = self.filter.suggestions.get(i).cloned() else {
+            return;
+        };
+        let f = &mut self.filter;
+        if !f.filters.is_picked(&id, &choice.term) {
+            f.filters.toggle(&id, &choice);
+            f.picked_now(&id, &choice.term);
+        }
+        f.suggestions.clear();
+        self.filters_changed();
+    }
+
     /// The search and the bar together, as one search.
     pub(super) fn full_search(&self) -> String {
         let f = &self.filter;
@@ -952,7 +990,61 @@ impl Browser {
         ui.set_bpm_high(f.filters.bpm_high.clone().into());
         ui.set_tolerance(f.filters.tolerance as i32);
         ui.set_key_match(f.filters.key_match as i32);
+        let suggestions: Vec<FilterSuggestion> = f
+            .suggestions
+            .iter()
+            .map(|(id, c)| FilterSuggestion {
+                field: f
+                    .field(id)
+                    .map_or_else(String::new, |x| x.label.clone())
+                    .into(),
+                value: c.label.clone().into(),
+                count: c.count as i32,
+            })
+            .collect();
+        ui.set_suggestions(ModelRc::new(VecModel::from(suggestions)));
     }
+}
+
+/// How many values the finder offers at most.
+pub const SUGGESTIONS: usize = 8;
+
+/// Values of names and tag fields that match `text` (folded, so accents
+/// and case don't matter), not picked yet, with how many of `tracks` have
+/// them: words that start with it first, then most tracks.
+pub fn suggestions(
+    fields: &[Field],
+    tracks: &[&Track],
+    filters: &Filters,
+    text: &str,
+    camelot: bool,
+) -> Vec<(String, Choice)> {
+    let find = query::fold(text.trim());
+    if find.chars().count() < 2 {
+        return Vec::new();
+    }
+    let mut out: Vec<(bool, String, Choice)> = Vec::new();
+    for field in fields {
+        if !matches!(field.kind, Kind::Text | Kind::Tags(_)) {
+            continue;
+        }
+        for c in choices(field, tracks.iter().copied(), filters, camelot) {
+            if c.count == 0 || c.label == "(none)" || filters.is_picked(&field.id, &c.term) {
+                continue;
+            }
+            let label = query::fold(&c.label);
+            if !label.contains(&find) {
+                continue;
+            }
+            let starts = label.split_whitespace().any(|w| w.starts_with(&find));
+            out.push((starts, field.id.clone(), c));
+        }
+    }
+    out.sort_by(|a, b| b.0.cmp(&a.0).then(b.2.count.cmp(&a.2.count)));
+    out.into_iter()
+        .take(SUGGESTIONS)
+        .map(|(_, id, c)| (id, c))
+        .collect()
 }
 
 /// The values `field` can be set to: those `list` has, counted over the
@@ -1294,6 +1386,29 @@ mod tests {
         let f = Filters::new(DEFAULT_PINNED.iter().map(|s| s.to_string()).collect(), 4);
         let shown: Vec<_> = f.shown(&fields).iter().map(|x| x.id.as_str()).collect();
         assert_eq!(shown, ["genre", "tag1", "bpm", "key"]);
+    }
+
+    #[test]
+    fn the_finder_offers_values_from_any_field() {
+        let lib = library();
+        let tracks: Vec<&Track> = lib.iter().collect();
+        let fields = fields(&FieldNames::default());
+        let mut f = Filters::default();
+        let found = |f: &Filters, text: &str| -> Vec<(String, String, usize)> {
+            suggestions(&fields, &tracks, f, text, true)
+                .into_iter()
+                .map(|(id, c)| (id, c.label, c.count))
+                .collect()
+        };
+        // "up" starts a tag; "ambient" is a genre on two tracks.
+        assert_eq!(found(&f, "up"), [("tag1".into(), "uplifting".into(), 2)]);
+        assert_eq!(found(&f, "AMBI"), [("genre".into(), "Ambient".into(), 2)]);
+        // One letter is too little to suggest anything.
+        assert!(found(&f, "a").is_empty());
+        // A value already on the bar isn't offered again.
+        let pick = suggestions(&fields, &tracks, &f, "ambi", true).remove(0);
+        f.toggle(&pick.0, &pick.1);
+        assert!(found(&f, "ambi").is_empty());
     }
 
     #[test]
