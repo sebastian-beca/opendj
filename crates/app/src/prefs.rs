@@ -4073,7 +4073,8 @@ fn system_dialog(prompt: &str, folder: bool) -> Option<PathBuf> {
         std::process::Command::new("osascript")
             .arg("-e")
             .arg(format!(
-                "POSIX path of (choose {what} with prompt \"{prompt}\")"
+                "POSIX path of (choose {what} with prompt {})",
+                applescript_string(prompt)
             ))
             .output()
     } else {
@@ -4089,12 +4090,35 @@ fn system_dialog(prompt: &str, folder: bool) -> Option<PathBuf> {
             let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
             (!path.is_empty()).then(|| PathBuf::from(path))
         }
-        Ok(_) => None, // Cancelled.
+        // Cancelled (error -128), or the script failed: say which.
+        Ok(out) => {
+            let err = String::from_utf8_lossy(&out.stderr);
+            if !err.contains("-128") && !err.trim().is_empty() {
+                eprintln!("file dialog failed: {}", err.trim());
+            }
+            None
+        }
         Err(e) => {
             eprintln!("can't open a file dialog: {e}");
             None
         }
     }
+}
+
+/// `text` as an AppleScript string literal: quotes and backslashes
+/// escaped, so a prompt naming "a list" doesn't end the string early.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn applescript_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        if c == '"' || c == '\\' {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out.push('"');
+    out
 }
 
 /// The channels an input can take from a device with `channels` of them:
@@ -4125,6 +4149,14 @@ fn capitalized(s: &str) -> String {
 mod tests {
     use super::*;
     use opendj_engine::plugins::Plugin;
+
+    #[test]
+    fn applescript_prompt_keeps_quotes_inside() {
+        assert_eq!(
+            applescript_string(r#"Choose where to save "Late \ Set""#),
+            r#""Choose where to save \"Late \\ Set\"""#
+        );
+    }
 
     #[test]
     fn auxiliary_inputs_offer_pairs_then_mono_channels() {

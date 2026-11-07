@@ -115,6 +115,11 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'merge_group'
     runs-on: macos-15
+    # GitHub is short of Apple Silicon runners at times, and a job no runner
+    # picks up within 15 minutes is cancelled ("not acquired by Runner"),
+    # which failed the whole run on main. The job still shows red when it
+    # fails, but no longer fails the run; release.yml builds the shipped app.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable

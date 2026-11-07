@@ -1,5 +1,5 @@
 //! Finding lyrics on LRCLIB (lrclib.net), a free community database of
-//! synced lyrics with no key. Off until the DJ turns it on in Settings ›
+//! synced lyrics with no key. On by default, and switched off in Settings ›
 //! Collection › Health; asked only when the DJ presses Find in the Lyrics
 //! tab, one request at a time, with openDJ's User-Agent as LRCLIB asks.
 //! Nothing is ever sent to LRCLIB but the track's names and length.
@@ -10,7 +10,7 @@ use serde_json::Value;
 use crate::coverart::{try_json, Failed};
 use crate::settings;
 
-/// The switch in Settings › Collection › Health: off at first.
+/// The switch in Settings › Collection › Health: on at first.
 pub const ENABLED: &str = "lyrics_lookup";
 
 /// Lengths within this many seconds match; LRCLIB matches the same way.
@@ -19,7 +19,7 @@ const SAME_LENGTH: f64 = 2.0;
 const API: &str = "https://lrclib.net/api";
 
 pub fn enabled() -> bool {
-    settings::flag(ENABLED, false)
+    settings::flag(ENABLED, true)
 }
 
 /// One record LRCLIB has.

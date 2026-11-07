@@ -64,12 +64,14 @@ mod mac_menu;
 mod mac_titlebar;
 mod map_mode;
 mod midi_clock;
+mod mini_player;
 mod mixcloud;
 mod mixcloud_upload;
 mod now_playing;
 mod osc;
 mod osc_events;
 mod prefs;
+mod quality;
 mod quick_search;
 mod remote;
 mod sampler;
@@ -993,6 +995,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Duration::from_secs(3600),
         backup::run_if_due,
     );
+    instruments::show_routes(&app, &engine.input_status());
     let prefs = prefs::Prefs::install(
         &app,
         registry.clone(),
@@ -1010,7 +1013,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         prefs::InputHooks {
             changed: {
                 let engine = engine.clone();
-                Box::new(move || engine.set_inputs(&settings::audio_setup()))
+                let weak = app.as_weak();
+                Box::new(move || {
+                    engine.set_inputs(&settings::audio_setup());
+                    if let Some(app) = weak.upgrade() {
+                        instruments::show_routes(&app, &engine.input_status());
+                    }
+                })
             },
             status: {
                 let engine = engine.clone();
@@ -1201,6 +1210,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
     let timer = slint::Timer::default();
     let covers: RefCell<[CoverImage; NUM_DECKS]> = Default::default();
+    let qualities: RefCell<quality::Qualities> = Default::default();
     let last_tick = Cell::new(Instant::now());
     // When the alert on screen goes away.
     let alert_until: Cell<Option<Instant>> = Cell::new(None);
@@ -1438,6 +1448,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         info.cover = image;
                         info.has_cover = true;
                     }
+                    let (tag, lossless) = qualities.borrow_mut().get(d, track);
+                    info.quality = tag.into();
+                    info.lossless = lossless;
                     // Automix's next mix, shaded on the overview. Rounded so
                     // small tempo changes don't lay the deck out again.
                     if let Some((from, to)) = automix_spans[d] {
@@ -1484,6 +1497,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // bar on macOS, which only exists once the event loop runs, so keep
     // trying until it's there.
     app_menu::install(&app);
+    mini_player::install(&app);
     #[cfg(target_os = "macos")]
     let _mac_menu = {
         let weak = app.as_weak();
@@ -2132,6 +2146,9 @@ impl Decks {
             automix_from: 0.0,
             automix_to: 0.0,
             effects,
+            // Filled in by the caller, which reads each file once.
+            quality: Default::default(),
+            lossless: false,
         }
     }
 
@@ -2281,26 +2298,15 @@ impl Gpu {
         // The Player bar shows the waveform alone, without the phrase bar.
         let show_phrases =
             app.global::<PhraseView>().get_visible() && app.get_layout() != PLAYER_LAYOUT;
-        let player = app.get_layout() == PLAYER_LAYOUT;
-        let overview_background = if player {
+        let overview_background = if app.get_layout() == PLAYER_LAYOUT {
             PLAYER_OVERVIEW_BACKGROUND
         } else {
             Palette::default().background
         };
-        // The Player bar's scrubber: one lilac and grey shape, with
-        // Automix's next mix in a dim lilac.
-        let overview_style = if player { Style::Mono } else { Style::Rgb };
-        let deck_rows = app.get_decks();
         for (d, track) in tracks.iter().enumerate() {
             changed |= self.scrolling[d].resize(&self.device, ww, wh);
             changed |= self.overview[d].resize(&self.device, ow, oh);
             self.overview[d].set_background(overview_background);
-            self.overview[d].set_style(overview_style);
-            let mix = deck_rows
-                .row_data(d)
-                .filter(|i| player && i.automix_to > i.automix_from)
-                .map(|i| (i.automix_from, i.automix_to));
-            self.overview[d].set_mix(mix);
             let track = track.as_ref().filter(|t| !t.waveform.is_empty());
             let gpu_track = match (track, &self.tracks[d]) {
                 (None, _) => None,

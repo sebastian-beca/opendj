@@ -33,9 +33,9 @@ The side panel SHALL have a Lyrics tab that follows the track playing (or, as pi
 - **WHEN** the track has no `.lrc` file and no lyrics in its tags
 - **THEN** the tab says it has no lyrics and how to add them
 
-### Requirement: Online lookup off at first
-openDJ SHALL NOT fetch lyrics from the internet until the DJ turns on the lyrics lookup, and SHALL never send lyrics anywhere.
+### Requirement: Online lookup only when asked
+openDJ SHALL fetch lyrics from the internet only when the DJ presses Find, SHALL let the DJ turn the lookup off (it is on at first), and SHALL never send lyrics anywhere.
 
 #### Scenario: First launch
 - **WHEN** a track with no lyrics is shown in the Lyrics tab on a new install
-- **THEN** no request is made to any lyrics service
+- **THEN** no request is made to any lyrics service until the DJ presses Find

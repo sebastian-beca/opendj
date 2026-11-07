@@ -77,12 +77,14 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-phrase-aware-automix](changes/add-phrase-aware-automix/proposal.md) (Automix mixes intro over outro on phrase changes, imported automix points win, bass swap on a phrase, deck phrase countdown, start on the leader's next phrase; moved from v1.x 2026-11-06 after the gap review; issue #425)
 - [add-groove-pads](changes/add-groove-pads/proposal.md) (the Groove Box on pad controllers: one pad surface for steps, live play with recording, grooves and kits; Maschine Mikro MK3 first, then Launchpad and Akai; issue #420, 2026-11-06)
 - [add-midi-device-routing](changes/add-midi-device-routing/proposal.md) (DJ controllers never play instruments, Play instruments per device, a Deck menu with Follow instrument; from a user report, issue #470, 2026-11-07)
+- [rework-instruments](changes/rework-instruments/proposal.md) (Instruments as a browser like Collection with presets, an instrument deck with knobs, trim, pan, safety limiter, scale, chord and arp, and artwork; clips assessed and left out; 2026-11-07)
 
 ## v0.7 · Your library, everywhere
 
 - [add-prepare-list](changes/add-prepare-list/proposal.md)
 - [add-pipewire-audio](changes/add-pipewire-audio/proposal.md) (native PipeWire outputs by name, shared devices, one clock for every device; parked from v0.6 2026-11-06, issue #402)
 - [add-synced-lyrics](changes/add-synced-lyrics/proposal.md) (lyrics from .lrc files and tags in a Lyrics tab and Player mode, LRCLIB lookup off at first, fixing and syncing; moved from v1.x 2026-11-06 after the lyrics and karaoke research)
+- [add-karaoke-screen](changes/add-karaoke-screen/proposal.md) (the words of the track playing on a second display with the word being sung filling, a count-in and a guide vocal slider, then a /karaoke page on the local web server; split from the lyrics and karaoke research 2026-11-06)
 
 ## v0.8 · From the booth to the studio
 
