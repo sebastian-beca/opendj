@@ -54,6 +54,7 @@ mod file_drop;
 mod files;
 mod groove_box;
 mod inbox;
+mod instrument_midi;
 mod instruments;
 mod list_picker;
 mod lookup;
@@ -972,6 +973,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // deck, and said once when a keyboard plays it for the first time, so a
     // device that shouldn't is easy to spot (Settings › Controllers turns it
     // off or gives it a deck).
+    let _midi_from = instrument_midi::install(&app, controllers.clone());
     // The instrument's notes and scope, for the deck playing it.
     let instrument_timer = slint::Timer::default();
     {

@@ -3814,6 +3814,73 @@ component InstrumentKeyboard inherits Rectangle {
     }
 }
 
+// One channel to pick in MidiFrom's menu; 0 is Any.
+component MidiChannel inherits Rectangle {
+    in property <int> channel;
+    property <bool> picked: InstrumentsUi.midi-channel == channel;
+    height: 22px;
+    border-radius: 4px;
+    background: picked ? Theme.accent.with-alpha(0.25) : mcta.has-hover ? #3a3a3d : Theme.control;
+    border-width: 1px;
+    border-color: picked ? Theme.accent : transparent;
+    Text { text: channel == 0 ? "Any channel" : channel; color: Theme.text; font-size: 11px; }
+    mcta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { InstrumentsUi.set-midi-from(InstrumentsUi.midi-device, channel); }
+    }
+}
+
+// Which MIDI keyboard, and which of its channels, plays the instrument:
+// any by default. One keyboard among several, or one track of a
+// sequencer sending several channels, then plays it.
+component MidiFrom inherits GrooveButton {
+    property <string> device: InstrumentsUi.midi-device == 0 ? "Any" : InstrumentsUi.keyboards[InstrumentsUi.midi-device - 1];
+    text: "MIDI: " + device + (InstrumentsUi.midi-channel == 0 ? "" : " · Ch " + InstrumentsUi.midi-channel) + " ▾";
+    clicked => { menu.show(); }
+    menu := PopupWindow {
+        y: root.height + 2px;
+        x: root.width - self.width;
+        width: 220px;
+        height: (InstrumentsUi.keyboards.length + 2) * 24px + 16px + 4 * 26px + 30px;
+        GrooveMenuBackground { }
+        VerticalLayout {
+            padding: 4px;
+            HorizontalLayout {
+                padding-left: 8px;
+                Text { text: "KEYBOARD"; color: Theme.text-dim; font-size: 10px; height: 16px; }
+            }
+            GrooveMenuItem {
+                text: "Any keyboard";
+                checked: InstrumentsUi.midi-device == 0;
+                clicked => { InstrumentsUi.set-midi-from(0, InstrumentsUi.midi-channel); }
+            }
+            for k[i] in InstrumentsUi.keyboards: GrooveMenuItem {
+                text: k;
+                checked: InstrumentsUi.midi-device == i + 1;
+                clicked => { InstrumentsUi.set-midi-from(i + 1, InstrumentsUi.midi-channel); }
+            }
+            Rectangle { height: 1px; background: Theme.border; }
+            HorizontalLayout {
+                padding-left: 8px;
+                Text { text: "CHANNEL"; color: Theme.text-dim; font-size: 10px; height: 18px; vertical-alignment: bottom; }
+            }
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                height: 26px;
+                MidiChannel { channel: 0; }
+            }
+            for row in 4: HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                spacing: 4px;
+                height: 26px;
+                for c in 4: MidiChannel { channel: row * 4 + c + 1; }
+            }
+        }
+    }
+}
+
 // A deck playing a live input: what it plays, its level, and for an
 // instrument plugin its window, the KEYBOARD pads switch and their octave.
 component LivePanel inherits Rectangle {
@@ -3915,9 +3982,10 @@ component LivePanel inherits Rectangle {
         if live == 3: InstrumentKnobs { tint: tint; }
         if live == 3: VerticalLayout {
             alignment: center;
-            spacing: 6px;
-            ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "EDIT"; tint: Theme.accent; width: 110px; height: 24px; font-size: 11px; outline-when-lit: true; }
-            ControlButton { group: "[Instrument1]"; key: "keyboard_pads"; text: "KEYBOARD PADS"; tint: Theme.accent; width: 110px; height: 24px; font-size: 11px; }
+            spacing: 4px;
+            ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "EDIT"; tint: Theme.accent; width: 120px; height: 22px; font-size: 11px; outline-when-lit: true; }
+            ControlButton { group: "[Instrument1]"; key: "keyboard_pads"; text: "KEYBOARD PADS"; tint: Theme.accent; width: 120px; height: 22px; font-size: 11px; }
+            MidiFrom { width: 120px; height: 22px; }
             // The octave the KEYBOARD pads play the instrument in.
             HorizontalLayout {
                 alignment: center;

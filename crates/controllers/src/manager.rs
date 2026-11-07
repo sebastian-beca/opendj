@@ -813,7 +813,8 @@ fn plays_instruments(
 
 /// Channel messages (notes, controllers, pitch bend) from `port` go to the
 /// note sink until `stop`, while the deck it is set to holds the instrument
-/// (see [`crate::routing`]).
+/// and it is the keyboard and channel chosen to play it (see
+/// [`crate::routing`]).
 fn run_keyboard(
     port: &str,
     stop: &AtomicBool,
@@ -833,6 +834,7 @@ fn run_keyboard(
     };
     let (name, shared_in) = (port.to_string(), shared.clone());
     let route = crate::routing::route(port);
+    let device = crate::routing::device_hash(port);
     let conn = input.connect(
         &in_port,
         "openDJ keys",
@@ -849,7 +851,7 @@ fn run_keyboard(
             // but note offs still do so no note is left hanging.
             let choice = crate::routing::DeckChoice::from_u8(route.load(Ordering::Relaxed));
             let note_off = data[0] & 0xF0 == 0x80 || data[0] & 0xF0 == 0x90 && data[2] == 0;
-            if !watch.plays(choice) && !note_off {
+            if !(watch.plays(choice) && crate::routing::from_source(device, data[0])) && !note_off {
                 return;
             }
             if let Some(sink) = shared_in.notes.lock().unwrap().as_ref() {
