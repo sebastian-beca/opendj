@@ -32,6 +32,7 @@ pub mod kits;
 pub mod link;
 pub mod loader;
 pub mod loudness;
+pub mod lyrics;
 pub mod meter;
 pub mod midi_clock;
 mod output;

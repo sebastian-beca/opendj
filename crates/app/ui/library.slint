@@ -9,6 +9,7 @@ import { InstrumentsPanel } from "instruments.slint";
 import { InfoPanel, TrackInfo } from "info.slint";
 import { CuesPanel, CueList } from "cues.slint";
 import { ChecklistPanel } from "checklist.slint";
+import { LyricsPanel } from "lyrics.slint";
 import { FilterBar, FilterUi } from "filters.slint";
 import { TourMark } from "tourmark.slint";
 
@@ -5249,7 +5250,8 @@ component SidePanel inherits Rectangle {
     in property <string> total;
     // 0 Automix, 1 Sidelist, 2 Related, 3 Info (the selected track's
     // details, see info.slint), 4 Cues (a deck's cues, see cues.slint),
-    // 5 Checklist (what makes the deck's track ready, see checklist.slint).
+    // 5 Checklist (what makes the deck's track ready, see checklist.slint),
+    // 6 Lyrics (the playing track's lyrics, see lyrics.slint).
     in-out property <int> tab: 0;
     callback activate(row: int);
     // Takes out the rows `first` to `last`.
@@ -5321,10 +5323,16 @@ component SidePanel inherits Rectangle {
         HorizontalLayout {
             // Each tab as wide as its word, with the room left shared out.
             // Cues and Checklist only in the Prep layout.
-            for name[i] in CueList.prep ? ["Automix", "Sidelist", "Related", "Info", "Cues", "Checklist"] : ["Automix", "Sidelist", "Related", "Info"]: Rectangle {
+            // Each tab with its number, as `tab` has it: Lyrics is 6
+            // wherever it sits.
+            for t in CueList.prep
+                ? [{ name: "Automix", i: 0 }, { name: "Sidelist", i: 1 }, { name: "Related", i: 2 }, { name: "Info", i: 3 }, { name: "Lyrics", i: 6 }, { name: "Cues", i: 4 }, { name: "Checklist", i: 5 }]
+                : [{ name: "Automix", i: 0 }, { name: "Sidelist", i: 1 }, { name: "Related", i: 2 }, { name: "Info", i: 3 }, { name: "Lyrics", i: 6 }]: Rectangle {
                 horizontal-stretch: 1;
                 preferred-width: tab-word.preferred-width + 8px;
                 min-width: tab-word.preferred-width + 4px;
+                property <string> name: t.name;
+                property <int> i: t.i;
                 property <bool> on: i == tab;
                 background: tta.has-hover && !on ? #ffffff08 : transparent;
                 tab-word := Text {
@@ -5351,6 +5359,10 @@ component SidePanel inherits Rectangle {
         }
     }
     if tab == 3: InfoPanel {
+        y: tab-bar.height;
+        height: parent.height - tab-bar.height;
+    }
+    if tab == 6: LyricsPanel {
         y: tab-bar.height;
         height: parent.height - tab-bar.height;
     }

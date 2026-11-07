@@ -41,6 +41,7 @@ mod health;
 mod history;
 mod inbox_albums;
 mod info;
+mod lyrics;
 mod mix_export;
 mod picks;
 mod playlist_files;
@@ -658,6 +659,8 @@ pub struct Browser {
     review: checklist::Review,
     /// The side panel's Info tab.
     info: info::InfoState,
+    /// The side panel's Lyrics tab.
+    lyrics: lyrics::LyricsState,
     /// The filter bar.
     filter: filters::FilterState,
     /// The track list's columns.
@@ -1293,6 +1296,7 @@ impl Browser {
             checklist_shown: None,
             review: Default::default(),
             info: info::InfoState::new(registry),
+            lyrics: lyrics::LyricsState::new(registry),
             filter: filters::FilterState::new(),
             columns: columns::ColumnState::new(&crate::settings::field_names()),
             folders: crate::settings::stage_folders(),
@@ -1902,6 +1906,7 @@ impl Browser {
         Self::install_prep(app, &with);
         Self::install_cues(app, &with);
         Self::install_checklist(app, &with);
+        Self::install_lyrics(app, &with);
         Self::install_track_menu(&edit, &with);
         Self::install_mix_export(&app.global::<FilesUi>(), &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
@@ -4332,8 +4337,10 @@ impl Browser {
     /// Called every frame with what is on the decks; refreshes the A/B markers
     /// and the side panel when they change.
     pub fn set_loaded(&mut self, app: &AppWindow, loaded: [Option<usize>; NUM_DECKS]) {
-        let tab = app.get_side_tab().clamp(0, info::INFO_TAB as i32) as usize;
-        self.poll_info(app, tab);
+        let shown = app.get_side_tab().max(0) as usize;
+        self.poll_info(app, shown);
+        self.poll_lyrics(app, shown);
+        let tab = shown.min(info::INFO_TAB);
         // The Linked tab follows the track selected in the list.
         let selected = usize::try_from(app.get_current_track())
             .ok()
