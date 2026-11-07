@@ -1702,6 +1702,11 @@ fn short_port_name(port: &str) -> &str {
 /// lines. The website's controller pages use this list to mark mapping lines
 /// that don't do anything in openDJ yet (website/book/supported-controls.txt).
 fn list_controls() {
+    print!("{}", control_list());
+}
+
+/// The lines `--list-controls` prints, one `[Group],key` per line.
+fn control_list() -> String {
     let registry = ControlRegistry::new();
     opendj_engine::create_controls(&registry);
     broadcast::create_controls(&registry);
@@ -1710,9 +1715,9 @@ fn list_controls() {
     let mut keys = registry.keys();
     keys.extend(registry.alias_keys());
     keys.sort();
-    for k in keys {
-        println!("{},{}", k.group, k.item);
-    }
+    keys.iter()
+        .map(|k| format!("{},{}\n", k.group, k.item))
+        .collect()
 }
 
 /// Connects the `Controls` global used by every skin widget to the registry.
@@ -1797,6 +1802,26 @@ fn bind_controls(app: &AppWindow, registry: Arc<ControlRegistry>) -> impl Fn() -
         h.handles.iter().map(|c| c.version() as u64).sum::<u64>()
             + h.handles.len() as u64
             + opendj_controllers::pickup::version()
+    }
+}
+
+#[cfg(test)]
+mod control_list_tests {
+    /// The website marks mapping lines openDJ doesn't support from this
+    /// file. A test rather than a CI step running `--list-controls`, so CI
+    /// doesn't build the whole app a second time just for this.
+    #[test]
+    fn website_list_is_up_to_date() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../website/book/supported-controls.txt"
+        );
+        let saved = std::fs::read_to_string(path).unwrap().replace("\r\n", "\n");
+        assert!(
+            saved == super::control_list(),
+            "website/book/supported-controls.txt is out of date; regenerate it with \
+             `cargo run -q -p opendj -- --list-controls > website/book/supported-controls.txt`"
+        );
     }
 }
 
