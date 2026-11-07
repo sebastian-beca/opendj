@@ -6,7 +6,10 @@
 //! on (see [`crate::lrclib`]) and saves the pick as an `.lrc` beside it.
 //!
 //! The same lyrics show large in Player mode when the Player bar's Lyrics
-//! button is on; that view always follows the track playing.
+//! button is on, and on the karaoke screen (see [`karaoke`]); both always
+//! follow the track playing.
+
+mod karaoke;
 
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
@@ -58,6 +61,7 @@ pub(super) struct LyricsState {
     /// A look-up on LRCLIB running, by generation, and what it found.
     finding: Option<(u64, Receiver<Looked>)>,
     found: Vec<Found>,
+    karaoke: karaoke::Karaoke,
 }
 
 impl LyricsState {
@@ -86,6 +90,7 @@ impl LyricsState {
             sung: Default::default(),
             finding: None,
             found: Vec::new(),
+            karaoke: karaoke::Karaoke::new(registry),
         }
     }
 }
@@ -168,6 +173,12 @@ impl Browser {
         ui.on_use_found(move |i| w(&|b| b.use_found(i)));
         let w = with.clone();
         ui.on_close_found(move || w(&|b| b.close_found()));
+        let w = with.clone();
+        ui.on_enable_lookup(move || {
+            crate::settings::set(lrclib::ENABLED, serde_json::json!(true));
+            w(&|b| b.find_lyrics())
+        });
+        Self::install_karaoke(app, with);
     }
 
     /// The deck `index` (in `library`) is loaded on, the first if several.
@@ -178,8 +189,10 @@ impl Browser {
 
     /// The track the tab is to show, and the deck it is on.
     fn lyrics_subject(&mut self, app: &AppWindow) -> (Option<usize>, Option<usize>) {
-        // Player mode's large lyrics follow the track playing.
-        let subject = if app.global::<LyricsUi>().get_big() {
+        // Player mode's large lyrics and the karaoke screen follow the
+        // track playing.
+        let ui = app.global::<LyricsUi>();
+        let subject = if ui.get_big() || ui.get_karaoke() {
             PLAYING
         } else {
             self.lyrics.subject
@@ -217,7 +230,8 @@ impl Browser {
 
     /// Keeps the Lyrics tab up to date; called every frame.
     pub(super) fn poll_lyrics(&mut self, app: &AppWindow, tab: usize) {
-        if tab != LYRICS_TAB && !app.global::<LyricsUi>().get_big() {
+        let ui = app.global::<LyricsUi>();
+        if tab != LYRICS_TAB && !ui.get_big() && !ui.get_karaoke() {
             return;
         }
         let (index, deck) = self.lyrics_subject(app);
@@ -227,7 +241,6 @@ impl Browser {
             (None, None) => false,
             _ => true,
         };
-        let ui = app.global::<LyricsUi>();
         if other {
             self.lyrics.shown = now.clone();
             self.lyrics.lyrics = None;
@@ -311,6 +324,7 @@ impl Browser {
             ui.set_to_come(sung.1.as_str().into());
             self.lyrics.sung = sung;
         }
+        self.poll_karaoke(app);
         self.poll_find(&ui);
     }
 
@@ -323,10 +337,14 @@ impl Browser {
         ui.set_finding(true);
         ui.set_found(ModelRc::default());
         self.lyrics.found.clear();
+        // Off: the list opens to say so, with a button that turns it on.
+        ui.set_lookup_off(!lrclib::enabled());
         if !lrclib::enabled() {
-            ui.set_finding(false);
             ui.set_find_note(
-                "Turn on Find lyrics online in Settings › Collection › Health.".into(),
+                "Finding lyrics online is off. Turning it on sends the track's title, artist, \
+                 album and length to LRCLIB (lrclib.net) when you press Find. It's also in \
+                 Settings › Collection › Health."
+                    .into(),
             );
             return;
         }
@@ -416,6 +434,7 @@ impl Browser {
         self.lyrics.finding = None;
         self.lyrics.found.clear();
         ui.set_finding(false);
+        ui.set_lookup_off(false);
         ui.set_find_note(SharedString::new());
         ui.set_found(ModelRc::default());
     }
