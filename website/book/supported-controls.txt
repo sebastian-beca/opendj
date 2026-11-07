@@ -3418,6 +3418,11 @@
 [Instrument1],peak_indicator
 [Instrument1],pfl
 [Instrument1],pregain
+[Instrument1],scale_mask
+[Instrument1],scale_mode
+[Instrument1],scale_now
+[Instrument1],scale_root
+[Instrument1],scale_type
 [Instrument1],show_editor
 [Instrument1],volume
 [Instrument1],vu_meter
