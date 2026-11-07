@@ -1035,6 +1035,10 @@ pub(crate) struct EffectRack {
     /// The scale notes move to, and the chords they play, on their way to
     /// the instrument (see [`crate::scale`]), and the scale now.
     scale: Box<crate::scale::NoteMapper>,
+    /// The arpeggiator after them, and this buffer's notes on their way
+    /// to it.
+    arp: Box<crate::arp::Arp>,
+    arp_in: Vec<Midi>,
     scale_mask: u16,
     /// What the instrument plays, for its deck to show.
     view: Arc<InstrumentView>,
@@ -1293,6 +1297,8 @@ impl EffectRack {
             notes_waiting: Vec::with_capacity(opendj_plugin_host::shm::MAX_EVENTS),
             note_input: Some(NoteInput { tx: notes_tx }),
             scale: Box::default(),
+            arp: Box::default(),
+            arp_in: Vec::with_capacity(opendj_plugin_host::shm::MAX_EVENTS),
             scale_mask: 0,
             view: Arc::default(),
             scope_ring: vec![0.0; SCOPE_SAMPLES],
@@ -1387,6 +1393,11 @@ impl EffectRack {
         self.scale.set_chord(mode, shape, learn);
     }
 
+    /// The arpeggiator's settings from now on.
+    pub(crate) fn set_arp(&mut self, settings: crate::arp::ArpSettings) {
+        self.arp.set(settings, &mut self.notes_waiting);
+    }
+
     /// The chord just learned, once.
     pub(crate) fn take_learned_chord(&mut self) -> Option<u32> {
         self.scale.take_learned()
@@ -1406,12 +1417,28 @@ impl EffectRack {
         params: &[f32],
     ) -> bool {
         let frames = buf.len();
-        let cap = self.notes_waiting.capacity();
+        let cap = self.arp_in.capacity();
         while let Ok(n) = self.notes.pop() {
-            if self.notes_waiting.len() < cap {
-                self.scale.map(n, self.scale_mask, &mut self.notes_waiting);
+            if self.arp_in.len() < cap {
+                self.scale.map(n, self.scale_mask, &mut self.arp_in);
             }
         }
+        if self.arp.is_on() {
+            self.arp.process(
+                &self.arp_in,
+                frames,
+                self.sample_rate,
+                self.transport[target],
+                &mut self.notes_waiting,
+            );
+        } else {
+            for &m in &self.arp_in {
+                if self.notes_waiting.len() < self.notes_waiting.capacity() {
+                    self.notes_waiting.push(m);
+                }
+            }
+        }
+        self.arp_in.clear();
         let Some(a) = self.instrument.as_deref_mut() else {
             self.notes_waiting.clear();
             buf.fill([0.0; 2]);

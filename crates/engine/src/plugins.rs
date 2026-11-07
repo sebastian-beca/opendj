@@ -1469,6 +1469,24 @@ mod tests {
         assert_eq!(view.held(), 0);
         rig.reg.get(group, "chord_mode").unwrap().set(0.0);
         rig.reg.get(group, "scale_mode").unwrap().set(0.0);
+        // With the arpeggiator on, a key held plays on its steps, and stops
+        // when let go.
+        rig.reg.get(group, "arp").unwrap().set(1.0);
+        rig.instrument_buffer();
+        assert!(rig.notes.send([0x90, 64, 100]));
+        let mut played = false;
+        for _ in 0..200 {
+            if (rig.instrument_buffer() - 64.0 / 127.0).abs() < 1e-3 {
+                played = true;
+                break;
+            }
+        }
+        assert!(played, "the arpeggiator plays the key held");
+        assert!(rig.notes.send([0x80, 64, 0]));
+        rig.instrument_buffer();
+        assert!(rig.instrument_buffer().abs() < 1e-3);
+        rig.reg.get(group, "arp").unwrap().set(0.0);
+        rig.instrument_buffer();
         // The pads play from middle C; a pad let go after the octave moved
         // still stops its note.
         let pad = rig.reg.get(group, "pad_1").unwrap();
