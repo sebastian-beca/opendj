@@ -69,9 +69,9 @@ pub use controls::{
     NUM_EFFECT_UNITS, NUM_HOTCUES, XFADER_CUT_IN,
 };
 pub use effects::{
-    color_fx_name, effect_name, parameter_names, plugin_index, NoteInput, PluginLink,
-    AVAILABLE_EFFECTS, COLOR_FX, DEFAULT_EFFECTS, MAX_BUTTON_PARAMETERS, MAX_PARAMETERS,
-    MAX_PLUGINS, PLUGIN_BASE,
+    color_fx_name, effect_name, parameter_names, plugin_index, InstrumentView, NoteInput,
+    PluginLink, AVAILABLE_EFFECTS, COLOR_FX, DEFAULT_EFFECTS, MAX_BUTTON_PARAMETERS,
+    MAX_PARAMETERS, MAX_PLUGINS, PLUGIN_BASE, SCOPE_BINS,
 };
 pub use output::{
     channel_names, deck_outputs_split, default_output_device, input_devices, output_devices,
@@ -131,6 +131,8 @@ pub struct AudioEngine {
     plugins: Option<plugins::PluginHost>,
     /// Notes for the Instrument input.
     notes: Arc<Mutex<NoteInput>>,
+    /// What the Instrument input plays: notes held and a scope.
+    instrument_view: Arc<InstrumentView>,
     /// The master for broadcasting, until the broadcaster takes it.
     broadcast_feed: Mutex<Option<recorder::Feed>>,
     /// Picks the outputs MIDI clock goes to.
@@ -196,6 +198,7 @@ impl AudioEngine {
         let visual = engine.visual_positions();
         let plugin_link = engine.take_plugin_link().expect("plugin link");
         let notes = Arc::new(Mutex::new(engine.take_note_input().expect("note input")));
+        let instrument_view = engine.instrument_view();
         let plugins = plugin_helper().map(|helper| {
             plugins::PluginHost::start(
                 &registry,
@@ -238,6 +241,7 @@ impl AudioEngine {
             rate,
             plugins,
             notes,
+            instrument_view,
             broadcast_feed: Mutex::new(broadcast_feed),
             midi_clock,
         }
@@ -312,6 +316,12 @@ impl AudioEngine {
     /// Where notes for the Instrument input go in, from any thread.
     pub fn note_input(&self) -> Arc<Mutex<NoteInput>> {
         self.notes.clone()
+    }
+
+    /// What the Instrument input plays: the notes held and a scope of its
+    /// sound, for the deck playing it to show.
+    pub fn instrument_view(&self) -> Arc<InstrumentView> {
+        self.instrument_view.clone()
     }
 
     /// Whether audio plugins can run: the helper is installed.

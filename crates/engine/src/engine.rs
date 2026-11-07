@@ -2623,6 +2623,11 @@ impl Engine {
         self.fx.take_plugin_link()
     }
 
+    /// What the Instrument input plays, for its deck to show.
+    pub fn instrument_view(&self) -> std::sync::Arc<crate::effects::InstrumentView> {
+        self.fx.instrument_view()
+    }
+
     /// Where notes for the Instrument input come in; there is one, taken once.
     pub fn take_note_input(&mut self) -> Option<crate::effects::NoteInput> {
         self.fx.take_note_input()
