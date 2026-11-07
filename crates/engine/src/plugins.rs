@@ -1439,11 +1439,16 @@ mod tests {
             std::thread::sleep(Duration::from_millis(1));
         }
         assert!(rig.instrument_buffer().abs() < 1e-3, "silent until a note");
+        let view = rig.rack.instrument_view();
         assert!(rig.notes.send([0x90, 127, 100]));
         assert!((rig.instrument_buffer() - 1.0).abs() < 1e-3);
         assert!((rig.instrument_buffer() - 1.0).abs() < 1e-3, "held");
+        // Its deck sees the note held and the sound in the scope.
+        assert_eq!(view.held(), 1 << 127);
+        assert!((view.scope().last().unwrap().1 - 1.0).abs() < 1e-3);
         assert!(rig.notes.send([0x80, 127, 0]));
         assert!(rig.instrument_buffer().abs() < 1e-3);
+        assert_eq!(view.held(), 0);
         // The pads play from middle C; a pad let go after the octave moved
         // still stops its note.
         let pad = rig.reg.get(group, "pad_1").unwrap();
@@ -1473,6 +1478,8 @@ mod tests {
         }
         assert!(rig.notes.send([0x90, 127, 100]));
         assert!(rig.instrument_buffer().abs() < 1e-3);
+        assert_eq!(view.held(), 0, "nothing shows held without it");
+        assert!(view.scope().iter().all(|&(lo, hi)| lo == 0.0 && hi == 0.0));
     }
     #[test]
     fn an_instruments_sound_is_kept_for_next_time() {

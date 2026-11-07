@@ -13,6 +13,8 @@
 //! on or off.
 
 use std::f32::consts::{PI, TAU};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::Arc;
 
 use opendj_control::{Behavior, ControlHandle, ControlRegistry};
 use opendj_plugin_host::{Connection, Midi, Transport};
@@ -1030,6 +1032,74 @@ pub(crate) struct EffectRack {
     notes: rtrb::Consumer<Midi>,
     notes_waiting: Vec<Midi>,
     note_input: Option<NoteInput>,
+    /// What the instrument plays, for its deck to show.
+    view: Arc<InstrumentView>,
+    /// Its last [`SCOPE_SAMPLES`] samples (mono), and where the next goes.
+    scope_ring: Vec<f32>,
+    scope_pos: usize,
+    /// The view shows nothing playing.
+    view_clear: bool,
+}
+
+/// Bins the instrument's scope shows, each its lowest and highest sample.
+pub const SCOPE_BINS: usize = 128;
+/// Samples the scope spans: about 43 ms at 48 kHz.
+const SCOPE_SAMPLES: usize = SCOPE_BINS * 16;
+
+/// What the instrument plays, written on the audio thread each buffer for
+/// the app to show: the notes held and a scope of its sound.
+pub struct InstrumentView {
+    held: [AtomicU64; 2],
+    /// Each bin's lowest then highest sample, as `f32` bits.
+    scope: [AtomicU32; 2 * SCOPE_BINS],
+}
+
+impl Default for InstrumentView {
+    fn default() -> Self {
+        Self {
+            held: std::array::from_fn(|_| AtomicU64::new(0)),
+            scope: std::array::from_fn(|_| AtomicU32::new(0)),
+        }
+    }
+}
+
+impl InstrumentView {
+    /// The notes held, bit `n` for MIDI note `n`.
+    pub fn held(&self) -> u128 {
+        let lo = self.held[0].load(Ordering::Relaxed) as u128;
+        let hi = self.held[1].load(Ordering::Relaxed) as u128;
+        lo | hi << 64
+    }
+
+    /// The scope, oldest first: each bin's (lowest, highest) sample.
+    pub fn scope(&self) -> Vec<(f32, f32)> {
+        (0..SCOPE_BINS)
+            .map(|b| {
+                let v = |i: usize| f32::from_bits(self.scope[i].load(Ordering::Relaxed));
+                (v(2 * b), v(2 * b + 1))
+            })
+            .collect()
+    }
+
+    fn set_held(&self, held: u128) {
+        self.held[0].store(held as u64, Ordering::Relaxed);
+        self.held[1].store((held >> 64) as u64, Ordering::Relaxed);
+    }
+}
+
+/// `held` after the note messages in `notes` (any channel); All Notes Off
+/// and All Sound Off let go of every one.
+fn held_after(mut held: u128, notes: &[Midi]) -> u128 {
+    for n in notes {
+        if let Some((_, key, _)) = n.as_note_on() {
+            held |= 1 << (key & 127);
+        } else if let Some((_, key)) = n.as_note_off() {
+            held &= !(1 << (key & 127));
+        } else if n.data[0] & 0xf0 == 0xb0 && matches!(n.data[1], 120 | 123) {
+            held = 0;
+        }
+    }
+    held
 }
 
 /// `loaded_effect` for the Flanger.
@@ -1218,6 +1288,48 @@ impl EffectRack {
             notes,
             notes_waiting: Vec::with_capacity(opendj_plugin_host::shm::MAX_EVENTS),
             note_input: Some(NoteInput { tx: notes_tx }),
+            view: Arc::default(),
+            scope_ring: vec![0.0; SCOPE_SAMPLES],
+            scope_pos: 0,
+            view_clear: true,
+        }
+    }
+
+    /// What the instrument plays, for its deck to show.
+    pub(crate) fn instrument_view(&self) -> Arc<InstrumentView> {
+        self.view.clone()
+    }
+
+    /// Shows `buf` (what the instrument just played) and the notes it
+    /// took in the instrument's view; nothing when `buf` is none.
+    fn show_instrument(&mut self, buf: Option<&[[f32; 2]]>, held: u128) {
+        let Some(buf) = buf else {
+            if !self.view_clear {
+                self.view_clear = true;
+                self.view.set_held(0);
+                self.scope_ring.fill(0.0);
+                for v in &self.view.scope {
+                    v.store(0, Ordering::Relaxed);
+                }
+            }
+            return;
+        };
+        self.view_clear = false;
+        self.view.set_held(held);
+        for s in buf {
+            self.scope_ring[self.scope_pos] = 0.5 * (s[0] + s[1]);
+            self.scope_pos = (self.scope_pos + 1) % SCOPE_SAMPLES;
+        }
+        let per = SCOPE_SAMPLES / SCOPE_BINS;
+        for b in 0..SCOPE_BINS {
+            let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+            for k in 0..per {
+                let v = self.scope_ring[(self.scope_pos + b * per + k) % SCOPE_SAMPLES];
+                lo = lo.min(v);
+                hi = hi.max(v);
+            }
+            self.view.scope[2 * b].store(lo.to_bits(), Ordering::Relaxed);
+            self.view.scope[2 * b + 1].store(hi.to_bits(), Ordering::Relaxed);
         }
     }
 
@@ -1278,6 +1390,7 @@ impl EffectRack {
         let Some(a) = self.instrument.as_deref_mut() else {
             self.notes_waiting.clear();
             buf.fill([0.0; 2]);
+            self.show_instrument(None, 0);
             return false;
         };
         a.send_params(params);
@@ -1295,10 +1408,12 @@ impl EffectRack {
             deadline,
         );
         if out.is_wet() {
+            let held = held_after(self.view.held(), &self.notes_waiting);
             self.notes_waiting.clear();
             for (f, s) in buf.iter_mut().enumerate() {
                 *s = [out_l[f], out_r[f]];
             }
+            self.show_instrument(Some(buf), held);
         } else {
             buf.fill([0.0; 2]);
         }
@@ -2930,6 +3045,23 @@ mod bench;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn held_notes_follow_note_ons_offs_and_all_notes_off() {
+        let on = |k| Midi::note_on(0, 0, k, 100);
+        let held = held_after(0, &[on(60), on(64), Midi::note_off(0, 3, 60)]);
+        assert_eq!(held, 1 << 64, "any channel's note-off ends it");
+        let zero_velocity = Midi {
+            frame: 0,
+            data: [0x90, 64, 0],
+        };
+        assert_eq!(held_after(held, &[zero_velocity]), 0);
+        let all_off = Midi {
+            frame: 0,
+            data: [0xb2, 123, 0],
+        };
+        assert_eq!(held_after(held | 1 << 36, &[all_off]), 0);
+    }
 
     const SR: f32 = 48_000.0;
     const CTX: Ctx = Ctx {

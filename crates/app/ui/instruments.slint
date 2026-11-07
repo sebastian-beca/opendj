@@ -93,6 +93,11 @@ export global InstrumentsUi {
     // The instrument's parameter names, for its knobs
     // (`[Instrument1],parameterN` is the N-th). Set by the app.
     in property <[string]> param-names;
+    // What the instrument plays, set by the app while a deck shows it: the
+    // notes held (`held[n]` is MIDI note 36 + n, C2 up) and its scope as
+    // path commands in a 128 by 32 box.
+    in property <[bool]> held;
+    in property <string> scope;
 
     // Each input's device and channels as Settings › Audio shows them, in
     // the engine's input order (microphone, aux, instrument, aux 2, aux 3);
