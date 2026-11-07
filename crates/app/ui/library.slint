@@ -9,7 +9,7 @@ import { InstrumentsPanel } from "instruments.slint";
 import { InfoPanel, TrackInfo } from "info.slint";
 import { CuesPanel, CueList } from "cues.slint";
 import { ChecklistPanel } from "checklist.slint";
-import { LyricsPanel } from "lyrics.slint";
+import { LyricsPanel, PlayerLyrics } from "lyrics.slint";
 import { FilterBar, FilterUi } from "filters.slint";
 import { TourMark } from "tourmark.slint";
 
@@ -5778,6 +5778,8 @@ export component Browser inherits HorizontalLayout {
     in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true, true, true, true, true];
     callback source-shown-changed(source: int, on: bool);
     in property <bool> side-visible: true;
+    // Player mode's large lyrics, in place of the track list.
+    in property <bool> lyrics-view;
     // Square panels split by thin black lines.
     spacing: 1px;
     // Sources with a list of their own: the collection, Files, the stores,
@@ -5845,7 +5847,7 @@ export component Browser inherits HorizontalLayout {
         }
         list := TrackList {
             focused: !folders-focused;
-            visible: !plugin-source && !instruments-source && !health-page && !cleanup-page && !(health-bar && HealthUi.reviewing);
+            visible: !plugin-source && !instruments-source && !health-page && !cleanup-page && !(health-bar && HealthUi.reviewing) && !lyrics-view;
             y: health-bar ? (HealthUi.chips.length > 0 ? 81px : 45px) : 0;
             width: 100%;
             height: parent.height - self.y;
@@ -5904,6 +5906,10 @@ export component Browser inherits HorizontalLayout {
             hint: plugin-index < SourceUi.sources.length ? SourceUi.sources[plugin-index].hint : "";
         }
         if instruments-source: InstrumentsPanel {
+            width: 100%;
+            height: 100%;
+        }
+        if lyrics-view: PlayerLyrics {
             width: 100%;
             height: 100%;
         }
