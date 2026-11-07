@@ -36,9 +36,6 @@ export struct Folder {
     count: int,
     // Holds library tracks, so its menu offers Analyze All.
     analysable: bool,
-    // The Collection node or one of the DJ's lists or folders in it: its
-    // menu offers Export as rekordbox XML.
-    rekordbox: bool,
     // A crate's color, an index into LibraryEdit.list-colors; -1 for none.
     color: int,
     // A crate's icon: 0 = crate, then star, heart, flame, bolt, moon, sun,
@@ -2462,7 +2459,6 @@ component FolderTree inherits Rectangle {
     property <bool> menu-locked;
     property <bool> menu-adoptable;
     property <bool> menu-bundle;
-    property <bool> menu-rekordbox;
     property <int> menu-color;
     property <int> menu-icon;
     property <length> menu-y;
@@ -2638,35 +2634,6 @@ component FolderTree inherits Rectangle {
                     folder-menu.close();
                 }
             }
-            if menu-analysable || (source == 0 && menu-kind == 5): MenuLine {
-                text: "Export as M3U8…";
-                clicked => {
-                    LibraryEdit.export-m3u(menu-index);
-                    folder-menu.close();
-                }
-            }
-            if menu-analysable: MenuLine {
-                text: "Export to USB…";
-                clicked => {
-                    LibraryEdit.export-usb(menu-index);
-                    folder-menu.close();
-                }
-            }
-            if menu-rekordbox: MenuLine {
-                text: "Export as rekordbox XML…";
-                clicked => {
-                    LibraryEdit.export-rekordbox(menu-index);
-                    folder-menu.close();
-                }
-            }
-            // One of the DJ's lists, a crate or a history session.
-            if source == 0 && StoreUi.streaming && (menu-kind == 2 || menu-kind == 5 || menu-kind == 17): MenuLine {
-                text: "Export to Spotify Playlist";
-                clicked => {
-                    LibraryEdit.export-spotify(menu-index);
-                    folder-menu.close();
-                }
-            }
             if menu-editable && menu-kind == 1: MenuLine {
                 text: "New Crate";
                 clicked => {
@@ -2761,11 +2728,11 @@ component FolderTree inherits Rectangle {
             }
             if menu-editable && menu-kind == 17: MenuSeparator {}
             // A crate keeps no order and each track once; a playlist keeps
-            // an order.
-            if menu-editable && (menu-kind == 2 || menu-kind == 17): MenuLine {
-                text: menu-kind == 2 ? "Make It a Crate" : "Make It a Playlist";
+            // an order. (Playlists no longer offer the way back.)
+            if menu-editable && menu-kind == 17: MenuLine {
+                text: "Make It a Playlist";
                 clicked => {
-                    LibraryEdit.set-crate(menu-index, menu-kind == 2);
+                    LibraryEdit.set-crate(menu-index, false);
                     folder-menu.close();
                 }
             }
@@ -2985,7 +2952,6 @@ component FolderTree inherits Rectangle {
                                     menu-color = f.color;
                                     menu-icon = f.icon;
                                     menu-analysable = f.analysable && (source == 0 || source == 9 || source == 10);
-                                    menu-rekordbox = f.rekordbox && source == 0;
                                     menu-y = self.absolute-position.y - root.absolute-position.y + self.height;
                                     if source == 1 { files-menu.show(); } else { folder-menu.show(); }
                                 }
@@ -5960,6 +5926,7 @@ export component Browser inherits HorizontalLayout {
         if instruments-source: InstrumentsPanel {
             width: 100%;
             height: 100%;
+            decks: LibraryEdit.decks;
         }
         if lyrics-view: PlayerLyrics {
             width: 100%;

@@ -4522,7 +4522,6 @@ impl Browser {
                     locked: n.locked,
                     adoptable: n.import_root.is_some(),
                     analysable: !n.history && Self::analysable(&n.contents),
-                    rekordbox: self.rekordbox_exportable(i),
                     stage: matches!(n.contents, Contents::Stage(..)),
                     bundle: matches!(n.contents, Contents::InboxAlbum(_)),
                     separator: n.separator,
