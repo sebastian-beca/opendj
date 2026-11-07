@@ -25,6 +25,10 @@ pub enum Style {
     Rgb,
     /// Low, mid and high drawn as separate stacked shapes.
     Bands,
+    /// One shape in two flat colours, for a music player's scrubber: the
+    /// played part in the accent, the rest grey, the mix zone (see
+    /// [`WaveformView::set_mix`]) in a dim accent. No cues or minute dots.
+    Mono,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -148,7 +152,11 @@ struct Params {
     minute_bins: f32,
     /// The silent playhead while slipping, in slices; < 0 for none.
     slip_bin: f32,
-    _pad: u32,
+    /// Where the next mix starts and ends, in slices; drawn by the Mono
+    /// style only, and only when the end is past the start.
+    mix_start_bin: f32,
+    mix_end_bin: f32,
+    _pad: [u32; 3],
 }
 
 /// Levels the shader can address; the coarsest is 2^15 slices per texel pair,
@@ -363,6 +371,8 @@ pub struct WaveformView {
     mode: Mode,
     style: Style,
     palette: Palette,
+    /// The next mix, as fractions of the track (Mono style).
+    mix: Option<(f32, f32)>,
     texture: wgpu::Texture,
     size: (u32, u32),
     params: wgpu::Buffer,
@@ -383,6 +393,7 @@ impl WaveformView {
             mode,
             style: Style::default(),
             palette: Palette::default(),
+            mix: None,
             texture: create_texture(device, width, height),
             size: (width.max(1), height.max(1)),
             params,
@@ -393,6 +404,12 @@ impl WaveformView {
 
     pub fn set_style(&mut self, style: Style) {
         self.style = style;
+    }
+
+    /// The stretch where the next mix happens, as fractions of the track
+    /// from 0 to 1; the Mono style draws it in a dim accent.
+    pub fn set_mix(&mut self, mix: Option<(f32, f32)>) {
+        self.mix = mix;
     }
 
     /// The colour behind the waveform, as RGBA from 0 to 1.
@@ -471,6 +488,7 @@ impl WaveformView {
             style: match self.style {
                 Style::Rgb => 0,
                 Style::Bands => 1,
+                Style::Mono => 2,
             },
             scale,
             spread: DIGIT_SPREAD,
@@ -491,8 +509,14 @@ impl WaveformView {
             phrase_count: 0,
             minute_bins: 0.0,
             slip_bin: -1.0,
-            _pad: 0,
+            mix_start_bin: 0.0,
+            mix_end_bin: -1.0,
+            _pad: [0; 3],
         };
+        if let Some((a, b)) = self.mix.filter(|_| self.style == Style::Mono) {
+            params.mix_start_bin = a * num_bins as f32;
+            params.mix_end_bin = b * num_bins as f32;
+        }
         if let (Some(f), true) = (frame, num_bins > 0) {
             let bins_per_pixel = match self.mode {
                 Mode::Scrolling => f.visible_seconds * bins_per_second / w as f64,
@@ -533,7 +557,7 @@ impl WaveformView {
                 params.phrase_kind[i / 4][i % 4] = *kind as u32;
                 params.phrase_count = i as u32 + 1;
             }
-            if f.duration > 60.0 {
+            if f.duration > 60.0 && self.style != Style::Mono {
                 params.minute_bins = to_bin(60.0);
             }
         }

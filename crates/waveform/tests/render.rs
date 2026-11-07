@@ -356,3 +356,69 @@ fn draws_phrase_bars() {
     let dot = (0..4).map(|dx| px(x60 - 2 + dx, h - 9)[0]).max().unwrap();
     assert!(dot > 120, "minute dot above the bar: {dot}");
 }
+
+/// The Mono style, the Player's scrubber: lilac up to the play position,
+/// grey after it, and a dim lilac across the next mix.
+#[test]
+fn draws_mono_played_rest_and_mix() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let renderer = WaveformRenderer::new(&device, &queue);
+    let track = Arc::new(GpuTrack::new(
+        &device,
+        &queue,
+        &renderer,
+        1,
+        &levels(vec![[200, 200, 200, 230, 200, 200, 200, 230]; 200_000]),
+        1000.0,
+    ));
+    // 512 wide: rows read back must be a multiple of 256 bytes.
+    let (w, h) = (512u32, 28u32);
+    let mut view = WaveformView::new(&device, Mode::Overview, w, h);
+    view.set_style(Style::Mono);
+    view.set_mix(Some((0.8, 0.95)));
+    view.set_track(&device, &renderer, Some(&track));
+    let frame = Frame {
+        play_seconds: 50.0,
+        visible_seconds: 0.0,
+        duration: 200.0,
+        first_bar_beat: 0.0,
+        grid: steady_grid(120.0, 0.0),
+        cue: Some(10.0),
+        loop_range: None,
+        loop_marking: None,
+        hotcues: [None; 8],
+        slip: None,
+        gain: 1.0,
+        phrases: Vec::new(),
+    };
+    view.render(&device, &queue, &renderer, Some(&frame), 1.0);
+    let data = read_back(&device, &queue, &view);
+    let px = |x: u32| {
+        let i = (((h / 2) * w + x) * 4) as usize;
+        [data[i], data[i + 1], data[i + 2]]
+    };
+    // Played (the first quarter): lilac, blue well above red-ish grey.
+    let played = px(64);
+    assert!(
+        played[2] > 220 && played[0] > 160,
+        "played not lilac: {played:?}"
+    );
+    // The rest: grey, the three channels close together.
+    let rest = px(256);
+    assert!(
+        rest[0].abs_diff(rest[2]) < 16 && rest[0] < 130,
+        "rest not grey: {rest:?}"
+    );
+    // The mix zone, at 85 %: dim lilac, blue above red.
+    let mix = px(435);
+    assert!(
+        mix[2] > mix[0] + 30 && mix[2] < 180,
+        "mix not dim lilac: {mix:?}"
+    );
+    // No cue line in Mono: the column at 10 s matches one beside it.
+    let cue_x = 512 * 10 / 200;
+    assert_eq!(px(cue_x), px(cue_x + 8));
+}

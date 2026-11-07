@@ -484,6 +484,9 @@ component LayoutItem inherits Rectangle {
 // Player is the Automix layout.
 component LayoutPill inherits Rectangle {
     in-out property <int> layout;
+    // In Player, the MIC button shows in the top bar (it always does in the
+    // other layouts, and while the mic is on).
+    in-out property <bool> player-mic;
     callback changed-to(layout: int);
     background: ta.has-hover ? #3a3a3d : Theme.panel-raised;
     border-radius: 10px;
@@ -520,6 +523,25 @@ component LayoutPill inherits Rectangle {
             LayoutItem { kind: 0; text: "2-Deck"; current: layout == 0; picked => { layout = 0; changed-to(0); } }
             LayoutItem { kind: 2; text: "4-Deck"; current: layout == 2; picked => { layout = 2; changed-to(2); } }
             if PrepUi.offered: LayoutItem { kind: 4; text: "Prep"; current: layout == 3; picked => { layout = 3; changed-to(3); } }
+            if layout == 1: Rectangle { height: 1px; background: Theme.border; }
+            if layout == 1: Rectangle {
+                height: 32px;
+                border-radius: 6px;
+                background: mta.has-hover ? Theme.panel-raised.brighter(0.3) : transparent;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    Text { text: "Show MIC"; color: Theme.text; font-size: 13px; font-weight: 500; vertical-alignment: center; horizontal-stretch: 1; }
+                    if player-mic: Text { text: "✓"; color: Theme.accent; font-size: 13px; vertical-alignment: center; }
+                }
+                mta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        player-mic = !player-mic;
+                        menu.close();
+                    }
+                }
+            }
         }
     }
 }
@@ -735,6 +757,10 @@ export component AppWindow inherits Window {
     property <bool> prep: layout == 3 && !library-expanded;
     // The Player layout: one bar, no waveforms or FX bar.
     property <bool> player: layout == 1;
+    // Player shows the MIC button in its top bar (window state, as the layout).
+    in-out property <bool> player-mic;
+    property <bool> mic-on: Controls.value(Controls.resolve("[Microphone]", "talkover"), Controls.tick) > 0;
+    property <bool> recording: Controls.value(Controls.resolve("[Recording]", "status"), Controls.tick) > 1;
     // The compact row shows in 2-Deck, 4-Deck and Prep while the footer
     // button has the library expanded (then with no waveforms).
     property <bool> compact: library-expanded && !player;
@@ -1081,7 +1107,7 @@ export component AppWindow inherits Window {
                     // File and Edit, on Windows and Linux (macOS has its
                     // menu bar).
                     if AppMenu.shown: AppMenuButton { }
-                    LayoutPill { layout <=> root.layout; changed-to(l) => { layout-changed(l); } }
+                    LayoutPill { layout <=> root.layout; player-mic <=> root.player-mic; changed-to(l) => { layout-changed(l); } }
                     if !player: WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
                     if !player: FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
                     if !player: Rectangle { horizontal-stretch: 1; }
@@ -1092,17 +1118,21 @@ export component AppWindow inherits Window {
                         horizontal-stretch: 1;
                         property <length> room: self.width - 20px;
                         TopSearch {
-                            width: min(440px, room);
+                            width: min(560px, room);
                             x: 10px + clamp(root.width / 2 - search-area.absolute-position.x - 10px - self.width / 2, 0px, room - self.width);
                         }
                     }
                     RemoteButton { }
-                    MicButton { }
+                    // Player keeps the top bar for search: the MIC button only
+                    // when picked in the layout menu or while the mic is on,
+                    // REC (File › Record Mix) only while recording, and no
+                    // MASTER, as the bar's volume is the master volume.
+                    if !player || player-mic || mic-on: MicButton { }
                     // Only for DJs who broadcast; on air from a controller
                     // shows it too.
                     if BroadcastState.shown || Controls.value(Controls.resolve("[Shoutcast]", "enabled"), Controls.tick) > 0: OnAirButton { }
-                    RecordButton { }
-                    MasterPill { clock: clock; }
+                    if !player || recording: RecordButton { }
+                    if !player: MasterPill { clock: clock; }
                 }
             }
 
@@ -1200,36 +1230,6 @@ export component AppWindow inherits Window {
                 DeckStrip { deck: 3; info: decks[3]; overview: overview-4; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
             }
 
-            // Player: one bar, what is playing, the transport and the queue button.
-            player-bar := PlayerBar {
-                height: player ? 176px : 0px;
-                visible: player;
-                decks: decks;
-                overview-1: overview-1;
-                overview-2: overview-2;
-                live: automix-live >= 0 ? automix-live : master-deck;
-                mixing-into: automix-into;
-                automix-on: automix-on;
-                automix-status: automix-status;
-                automix-next: automix-next;
-                automix-next-in: automix-next-in;
-                queue-has-tracks: automix-queued > 0;
-                queue-shown: side-panel-visible && side-tab == 0;
-                automix-repeat: automix-repeat;
-                automix-set-repeat(on) => { automix-set-repeat(on); }
-                automix-toggle => { automix-toggle(); }
-                automix-mix-now => { automix-mix-now(); }
-                automix-order(i) => { automix-order(i); }
-                toggle-queue => {
-                    if side-panel-visible && side-tab != 0 {
-                        side-tab = 0;
-                    } else {
-                        side-panel-visible = !side-panel-visible;
-                        side-tab = 0;
-                    }
-                }
-            }
-
             // Over the expanded library: the deck headers either side of
             // the basics, in one short row.
             HorizontalLayout {
@@ -1309,13 +1309,17 @@ export component AppWindow inherits Window {
                 automix-order-note <=> automix-order-note;
                 automix-set-length(i) => { automix-set-length(i); }
                 automix-set-style(i) => { automix-set-style(i); }
+                automix-repeat: automix-repeat;
+                automix-set-repeat(on) => { automix-set-repeat(on); }
                 side-visible: side-panel-visible;
             }
 
             // Footer: on the left, expand the library, leaving just the
             // Player row above it; on the right, show or hide the side panel.
+            // Player has its bar instead, so only while analysis runs.
             Rectangle {
-                height: 36px;
+                height: !player || LibraryEdit.analysis-status != "" ? 36px : 0px;
+                visible: !player || LibraryEdit.analysis-status != "";
                 background: Theme.panel;
                 HorizontalLayout {
                     padding-left: 8px;
@@ -1352,6 +1356,34 @@ export component AppWindow inherits Window {
                         // A list.
                         icon: "M 6 5 L 18 5 M 6 10 L 18 10 M 6 15 L 18 15 M 2 5 L 3 5 M 2 10 L 3 10 M 2 15 L 3 15";
                         clicked => { side-panel-visible = !side-panel-visible; }
+                    }
+                }
+            }
+
+            // Player: one bar along the bottom, as in music players: what is
+            // playing, the transport and the queue button.
+            player-bar := PlayerBar {
+                height: player ? 120px : 0px;
+                visible: player;
+                decks: decks;
+                overview-1: overview-1;
+                overview-2: overview-2;
+                live: automix-live >= 0 ? automix-live : master-deck;
+                mixing-into: automix-into;
+                automix-on: automix-on;
+                automix-status: automix-status;
+                automix-next: automix-next;
+                automix-next-in: automix-next-in;
+                queue-has-tracks: automix-queued > 0;
+                queue-shown: side-panel-visible && side-tab == 0;
+                automix-toggle => { automix-toggle(); }
+                automix-mix-now => { automix-mix-now(); }
+                toggle-queue => {
+                    if side-panel-visible && side-tab != 0 {
+                        side-tab = 0;
+                    } else {
+                        side-panel-visible = !side-panel-visible;
+                        side-tab = 0;
                     }
                 }
             }
