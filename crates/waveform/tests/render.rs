@@ -509,3 +509,84 @@ fn draws_live_lanes() {
     let p = px(256 + 34, 25);
     assert!(p[2] > 150 && p[0] < 80, "fill: {p:?}");
 }
+
+#[test]
+fn draws_knob_levels() {
+    use opendj_waveform::{Lanes, Mark, MarkKind};
+    let Some((device, queue)) = gpu() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let renderer = WaveformRenderer::new(&device, &queue);
+    let track = Arc::new(GpuTrack::new(
+        &device,
+        &queue,
+        &renderer,
+        1,
+        &levels(vec![[0; 8]; 8192]),
+        1000.0,
+    ));
+    let (w, h) = (512u32, 40u32);
+    let mut view = WaveformView::new(&device, Mode::Scrolling, w, h);
+    view.set_track(&device, &renderer, Some(&track));
+    view.set_live(true);
+    // One lane: a knob at half way up to the play line, then rising.
+    view.set_lanes(Some(Lanes {
+        count: 1,
+        tinted: 0,
+        marks: vec![
+            Mark {
+                start: 6.0,
+                end: 7.5,
+                lane: 0,
+                kind: MarkKind::Level(0.5, 0.5),
+            },
+            Mark {
+                start: 7.5,
+                end: 8.192,
+                lane: 0,
+                kind: MarkKind::Level(0.5, 1.0),
+            },
+        ],
+        trace: 0.25,
+        color: [1.0, 0.0, 0.0, 1.0],
+        lit: [0.0, 0.0, 1.0, 1.0],
+    }));
+    let frame = Frame {
+        play_seconds: 8.192,
+        visible_seconds: 12.8,
+        duration: 8.192,
+        first_bar_beat: 0.0,
+        grid: steady_grid(120.0, 0.0),
+        cue: None,
+        loop_range: None,
+        loop_marking: None,
+        hotcues: [None; 8],
+        slip: None,
+        gain: 1.0,
+        phrases: Vec::new(),
+    };
+    view.render(&device, &queue, &renderer, Some(&frame), 1.0);
+    let data = read_back(&device, &queue, &view);
+    // How red a pixel is (bar numbers along the top are grey).
+    let red = |x: u32, y: u32| {
+        let i = ((y * w + x) * 4) as usize;
+        data[i].saturating_sub(data[i + 1])
+    };
+    // 2 s back (clear of the beat lines): the line half way up, a faint
+    // fill under it, nothing over it.
+    let line = (0..h).max_by_key(|&y| red(176, y)).unwrap();
+    assert!((18..=22).contains(&line), "line at y {line}");
+    let (on, under, over) = (red(176, line), red(176, 32), red(176, 14));
+    assert!(on > 150, "line: {on}");
+    assert!(under > over + 20 && under < on, "fill {under} over {over}");
+    // Rising after 7.5 s: higher up near the play line.
+    let rising = (0..h).max_by_key(|&y| red(250, y)).unwrap();
+    assert!(rising < line - 5, "rising line at y {rising}");
+    // Nothing past the play line.
+    assert!(
+        red(300, line) < 20,
+        "past the play line: {}",
+        red(300, line)
+    );
+}

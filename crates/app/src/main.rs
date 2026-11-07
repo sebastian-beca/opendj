@@ -65,6 +65,7 @@ mod lrclib;
 mod mac_menu;
 #[cfg(target_os = "macos")]
 mod mac_titlebar;
+mod macro_lanes;
 mod map_mode;
 mod midi_clock;
 mod mini_player;
@@ -1158,6 +1159,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let loaded = engine.loaded_tracks();
     let visual = engine.visual_positions();
 
+    // The switch on an instrument or Groove Box deck's waveform between its
+    // notes or steps and its knobs as macro lanes.
+    {
+        let app_weak = app.as_weak();
+        app.global::<MacroLanes>().on_toggle(move |deck| {
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
+            let ui = app.global::<MacroLanes>();
+            let mut shown: Vec<bool> = ui.get_shown().iter().collect();
+            if let Some(s) = shown.get_mut(deck.max(0) as usize) {
+                *s = !*s;
+            }
+            ui.set_shown(ModelRc::new(VecModel::from(shown)));
+            app.window().request_redraw();
+        });
+    }
+
     // Capture Slint's wgpu device once it exists; all waveform rendering uses
     // it. Waveforms are drawn just before Slint renders each frame, so their
     // play position is as close as possible to when the frame is shown.
@@ -1173,6 +1192,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut grooves = Some(std::array::from_fn(|d| {
             step_lanes::GrooveHandles::new(&registry, d)
         }));
+        let mut knobs = Some(macro_lanes::KnobHandles::new(&registry));
+        let scale_mask = registry
+            .get("[Instrument1]", "scale_mask")
+            .expect("the instrument's scale mask");
         let style = match std::env::var("OPENDJ_WAVEFORM").as_deref() {
             Ok("bands") => Style::Bands,
             _ => Style::Rgb,
@@ -1202,6 +1225,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         instrument: instrument.clone(),
                         steps: steps.take(),
                         grooves: grooves.take().expect("groove handles"),
+                        knobs: knobs.take().expect("knob handles"),
+                        scale_mask: scale_mask.clone(),
+                        macros: Default::default(),
                         live_tracks: Default::default(),
                         moving: false,
                         images_set: false,
@@ -2397,6 +2423,11 @@ struct Gpu {
     /// The Groove Box decks' step lanes, and their Groove Boxes' controls.
     steps: Option<step_lanes::StepLanes>,
     grooves: [step_lanes::GrooveHandles; NUM_DECKS],
+    /// The knobs the macro lanes follow, and their values so far.
+    knobs: macro_lanes::KnobHandles,
+    /// The instrument's scale now, whose rows its note roll tints.
+    scale_mask: ControlHandle,
+    macros: macro_lanes::MacroLanes,
     live_tracks: [Option<Arc<GpuTrack>>; NUM_DECKS],
     /// Whether a deck was moving in the last frame drawn.
     moving: bool,
@@ -2479,6 +2510,7 @@ impl Gpu {
         let mut changed = !self.images_set;
         self.moving = false;
         let four = app.get_layout() == FOUR_DECK_LAYOUT;
+        let macros_shown = app.global::<MacroLanes>().get_shown();
         // Prep zooms deck 1's waveform to a number of bars.
         let prep_bars = (app.get_layout() == PREP_LAYOUT && !app.get_library_expanded())
             .then(|| app.global::<PrepUi>().get_bars().max(1) as f64);
@@ -2581,6 +2613,9 @@ impl Gpu {
             // An instrument deck's notes, for its note roll.
             let held = (decks.0[d].live_input.get().round() == INSTRUMENT_INPUT)
                 .then(|| self.instrument.held());
+            if let (Some(_), Some(traces)) = (held, self.live.as_mut()) {
+                traces.set_scale(d, self.scale_mask.get().round() as u16);
+            }
             let window = live[d]
                 .then(|| {
                     let color = DECK_COLORS[d];
@@ -2599,6 +2634,30 @@ impl Gpu {
                 }
                 w
             });
+            // Or the deck's knobs as macro lanes, where its switch is on
+            // (2-Deck only).
+            let source = match (groove[d], held.is_some()) {
+                (true, _) => Some(macro_lanes::Source::Groove),
+                (false, true) => Some(macro_lanes::Source::Instrument {
+                    page: app.global::<InstrumentsUi>().get_knob_page().max(0) as usize,
+                }),
+                _ => None,
+            };
+            let source = source.filter(|_| !four && macros_shown.row_data(d).unwrap_or(false));
+            let window = match (window, source) {
+                (Some(mut w), Some(source)) => {
+                    let values = self.knobs.values(d, source);
+                    self.macros.note(d, source, w.clock, values);
+                    let start = w.clock - w.play_seconds;
+                    let back = VISIBLE_SECONDS / 2.0;
+                    w.lanes = Some(self.macros.lanes(d, start, w.clock, back, DECK_COLORS[d]));
+                    Some(w)
+                }
+                (window, _) => {
+                    self.macros.clear(d);
+                    window
+                }
+            };
             self.scrolling[d].set_live(window.is_some());
             if window.is_none() {
                 self.scrolling[d].set_lanes(None);

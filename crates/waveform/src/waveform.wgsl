@@ -51,7 +51,7 @@ struct Params {
     lane_tint: vec4<u32>,              // bit n: row n tinted (a scale note)
     mark_color: vec4<f32>,
     lit_color: vec4<f32>,
-    marks: array<vec4<f32>, 256>,      // start and end slice, row, kind (0 played, 1 held, 2 coming, 3 fill)
+    marks: array<vec4<f32>, 256>,      // start and end slice, row, kind (0 played, 1 held, 2 coming, 3 fill, 4 coming fill, 8+ level)
 };
 
 @group(0) @binding(0) var<uniform> p: Params;
@@ -426,6 +426,24 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
                 let x0 = bin_x(m.x);
                 let x1 = max(bin_x(m.y), x0 + 2.0 * k);
                 if (x < x0 || x > x1) { continue; }
+                // A knob's level: a line from one value to the other, with
+                // a faint fill under it.
+                if (m.w >= 8.0) {
+                    let code = u32(m.w - 8.0);
+                    let v0 = f32(code / 1024u) / 1023.0;
+                    let v1 = f32(code % 1024u) / 1023.0;
+                    let span = max(bin_x(m.y) - x0, 1.0);
+                    // Half open, so neighbours don't draw their shared pixel twice.
+                    if (x >= x0 + span) { continue; }
+                    let v = mix(v0, v1, clamp((x - x0) / span, 0.0, 1.0));
+                    let pad = min(1.5 * k, 0.2 * (y1 - y0));
+                    let ly = y1 - pad - v * (y1 - y0 - 2.0 * pad);
+                    let slope = (v1 - v0) * (y1 - y0 - 2.0 * pad) / span;
+                    let dist = abs(y - ly) / sqrt(1.0 + slope * slope);
+                    if (y > ly) { color = over(color, p.mark_color.rgb, 0.18); }
+                    color = over(color, p.mark_color.rgb, clamp(1.25 * k - dist, 0.0, 1.0));
+                    continue;
+                }
                 let edge = min(min(x - x0, x1 - x), min(y - y0, y1 - y));
                 let outline = edge < 1.25 * k;
                 let kind = u32(m.w);
