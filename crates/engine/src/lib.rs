@@ -275,6 +275,24 @@ impl AudioEngine {
         }
     }
 
+    /// The Instrument input's plugin key and its whole sound now, for a
+    /// preset (see [`plugins::PluginHost::instrument_sound`]).
+    pub fn instrument_sound(&self) -> Result<(String, Vec<u8>), String> {
+        match &self.plugins {
+            Some(p) => p.instrument_sound(),
+            None => Err("this build hosts no plugins".into()),
+        }
+    }
+
+    /// Gives instrument plugin `key` a preset's sound (see
+    /// [`plugins::PluginHost::load_instrument_sound`]).
+    pub fn load_instrument_sound(&self, key: &str, data: Vec<u8>) -> Result<(), String> {
+        match &self.plugins {
+            Some(p) => p.load_instrument_sound(key, data),
+            None => Err("this build hosts no plugins".into()),
+        }
+    }
+
     /// Keeps every running plugin's sound and stops the plugins, waiting
     /// until done. Call when quitting.
     pub fn shut_down_plugins(&self) {

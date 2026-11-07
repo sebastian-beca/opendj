@@ -106,7 +106,19 @@ struct List {
     /// Where each plugin's last sound is kept (see
     /// [`PluginHost::set_sound_folder`]); none keeps nothing.
     sounds: Option<PathBuf>,
+    /// Asked of the instrument, served on the plugin host thread.
+    requests: Vec<SoundRequest>,
 }
+
+/// What the app asks of the instrument's sound (see
+/// [`PluginHost::instrument_sound`]).
+enum SoundRequest {
+    Save(Sender<Result<(String, Vec<u8>), String>>),
+    Load(String, Vec<u8>, Sender<Result<(), String>>),
+}
+
+/// How long the app waits for a plugin to hand over or take a sound.
+const SOUND_WAIT: Duration = Duration::from_secs(8);
 
 /// Runs the plugin host thread; dropping it stops the thread and every helper.
 pub struct PluginHost {
@@ -173,6 +185,33 @@ impl PluginHost {
     /// loaded when it starts again, so tweaks made in its window last.
     pub fn set_sound_folder(&self, folder: PathBuf) {
         self.list.lock().unwrap().sounds = Some(folder);
+    }
+
+    /// The Instrument input's plugin and its whole sound now, for a preset:
+    /// (its key, its state). Waits for the plugin, a few seconds at most.
+    pub fn instrument_sound(&self) -> Result<(String, Vec<u8>), String> {
+        let (tx, rx) = mpsc::channel();
+        self.list
+            .lock()
+            .unwrap()
+            .requests
+            .push(SoundRequest::Save(tx));
+        rx.recv_timeout(SOUND_WAIT)
+            .unwrap_or_else(|_| Err("the instrument didn't answer".into()))
+    }
+
+    /// Gives instrument plugin `key` the sound `data` (a preset's): now if
+    /// it is playing, else when it next starts. Waits for the plugin, a few
+    /// seconds at most.
+    pub fn load_instrument_sound(&self, key: &str, data: Vec<u8>) -> Result<(), String> {
+        let (tx, rx) = mpsc::channel();
+        self.list
+            .lock()
+            .unwrap()
+            .requests
+            .push(SoundRequest::Load(key.into(), data, tx));
+        rx.recv_timeout(SOUND_WAIT)
+            .unwrap_or_else(|_| Err("the instrument didn't answer".into()))
     }
 
     /// What happened since the last call.
@@ -446,6 +485,42 @@ impl Supervisor {
         self.follow_instrument();
         self.follow_editors();
         self.keep_open_sounds();
+        self.serve_sound_requests();
+    }
+
+    /// Hands over or loads the instrument's sound, as the app asked.
+    fn serve_sound_requests(&mut self) {
+        let requests = std::mem::take(&mut self.list.lock().unwrap().requests);
+        for r in requests {
+            let ins = &self.instrument;
+            match r {
+                SoundRequest::Save(tx) => {
+                    let result = match &ins.running {
+                        Some((_, helper)) if !helper.is_gone() => helper
+                            .save_state()
+                            .map(|data| (ins.running_key.clone(), data)),
+                        _ => Err("no instrument is playing".into()),
+                    };
+                    let _ = tx.send(result);
+                }
+                SoundRequest::Load(key, data, tx) => {
+                    // Kept as its last sound, so it starts from it too.
+                    let folder = self.list.lock().unwrap().sounds.clone();
+                    if let Some(folder) = folder {
+                        let file = sound_file(&folder, &key);
+                        let _ = std::fs::create_dir_all(&folder);
+                        let _ = std::fs::write(&file, &data);
+                    }
+                    let result = match &ins.running {
+                        Some((_, helper)) if ins.running_key == key && !helper.is_gone() => {
+                            helper.load_state(&data)
+                        }
+                        _ => Ok(()),
+                    };
+                    let _ = tx.send(result);
+                }
+            }
+        }
     }
 
     /// Opens and closes plugin windows as the `show_editor` controls ask.
@@ -1257,6 +1332,42 @@ mod tests {
             std::thread::sleep(Duration::from_millis(1));
         }
         assert_eq!(std::fs::read(&file).unwrap(), b"kept");
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+    #[test]
+    fn a_preset_sound_is_read_and_given_to_the_instrument() {
+        let mut rig = Rig::new("test-gain");
+        assert!(rig.host.instrument_sound().is_err(), "nothing playing");
+        let folder = std::env::temp_dir().join(format!("opendj-presets-{}", std::process::id()));
+        rig.host.set_sound_folder(folder.clone());
+        rig.host.set_instruments(vec![PluginEntry {
+            key: "test-synth".into(),
+            name: "Test Synth".into(),
+            plugin: Plugin::Test("test-synth".into()),
+        }]);
+        // Given before it plays, it starts with it.
+        rig.host
+            .load_instrument_sound("test-synth", b"bass".to_vec())
+            .unwrap();
+        let group = input_group(INSTRUMENT);
+        let configured = rig.reg.get(group, "input_configured").unwrap();
+        rig.reg.get(group, "instrument").unwrap().set(1.0);
+        let end = Instant::now() + Duration::from_secs(10);
+        while !configured.get_bool() {
+            rig.instrument_buffer();
+            assert!(Instant::now() < end, "the instrument starts");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let (key, data) = rig.host.instrument_sound().unwrap();
+        assert_eq!(
+            (key.as_str(), data.as_slice()),
+            ("test-synth", &b"bass"[..])
+        );
+        // Given while it plays, it takes it now.
+        rig.host
+            .load_instrument_sound("test-synth", b"pad".to_vec())
+            .unwrap();
+        assert_eq!(rig.host.instrument_sound().unwrap().1, b"pad");
         let _ = std::fs::remove_dir_all(&folder);
     }
 }

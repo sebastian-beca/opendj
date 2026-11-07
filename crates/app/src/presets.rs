@@ -1,0 +1,550 @@
+//! Instrument presets: a sound kept under a name, to find and play again.
+//! One JSON file per preset in `Instruments/Presets/<instrument>/` under
+//! the config folder. A plugin's preset holds its whole state (from the
+//! plugin host); a Groove Box's holds its kit, patterns, swing and tracks'
+//! sound settings (its controls).
+//!
+//! On a deck, ‹ › step through the playing instrument's presets in name
+//! order and SAVE keeps, saves as new or renames (`PresetUi`); the
+//! Instruments browser lists them (see `crate::instruments`).
+
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+use base64::Engine as _;
+use opendj_control::ControlRegistry;
+use opendj_engine::groove::groove_group;
+use opendj_engine::AudioEngine;
+use serde_json::{json, Map, Value};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+
+use crate::{groove_box, settings, AppWindow, PresetItem, PresetUi};
+
+/// The instrument key of the Groove Box's presets.
+pub const GROOVE: &str = "groove";
+
+/// The Groove Box's controls a preset leaves alone: whether it plays, its
+/// tempo and ducking belong to the mix, not the sound.
+const GROOVE_SKIPPED: [&str; 6] = [
+    "enabled",
+    "bpm",
+    "follow",
+    "tempo_scale",
+    "duck_deck",
+    "duck_amount",
+];
+
+/// A preset as listed: what the browser and ‹ › need, without its sound.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Preset {
+    pub name: String,
+    /// [`GROOVE`] or the plugin's key.
+    pub instrument: String,
+    /// The instrument's name when saved ("Jun-6 V", "Groove Box").
+    pub instrument_name: String,
+    pub path: PathBuf,
+}
+
+fn root() -> Option<PathBuf> {
+    settings::config_dir().map(|d| d.join("Instruments").join("Presets"))
+}
+
+/// A name made safe for a file or folder name.
+fn file_safe(name: &str) -> String {
+    let s: String = name
+        .trim()
+        .chars()
+        .map(|c| {
+            if r#"/\:*?"<>|"#.contains(c) || c.is_control() {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let s = s.trim_matches(['.', ' ']).to_string();
+    if s.is_empty() {
+        "Preset".into()
+    } else {
+        s
+    }
+}
+
+/// Every preset under `root`, by instrument then name.
+fn list_in(root: &Path) -> Vec<Preset> {
+    let mut out = Vec::new();
+    let Ok(folders) = std::fs::read_dir(root) else {
+        return out;
+    };
+    for folder in folders.flatten() {
+        let Ok(files) = std::fs::read_dir(folder.path()) else {
+            continue;
+        };
+        for f in files.flatten() {
+            let path = f.path();
+            if path.extension().is_none_or(|e| e != "json") {
+                continue;
+            }
+            let Some(v) = std::fs::read(&path)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            else {
+                continue;
+            };
+            let text = |k: &str| v[k].as_str().unwrap_or_default().to_string();
+            if text("instrument").is_empty() {
+                continue;
+            }
+            out.push(Preset {
+                name: text("name"),
+                instrument: text("instrument"),
+                instrument_name: text("instrument_name"),
+                path,
+            });
+        }
+    }
+    sort(&mut out);
+    out
+}
+
+fn sort(presets: &mut [Preset]) {
+    presets.sort_by_cached_key(|p| (p.instrument_name.to_lowercase(), p.name.to_lowercase()));
+}
+
+/// Writes a new preset file under `root` and returns its path; a name
+/// already taken for the instrument gets " 2", " 3"...
+fn write_new(root: &Path, mut body: Map<String, Value>, name: &str) -> Result<PathBuf, String> {
+    let instrument_name = body["instrument_name"].as_str().unwrap_or("Instrument");
+    let folder = root.join(file_safe(instrument_name));
+    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    let base = name.trim();
+    let base = if base.is_empty() { "Preset" } else { base };
+    let mut n = 1;
+    let (name, path) = loop {
+        let name = if n == 1 {
+            base.to_string()
+        } else {
+            format!("{base} {n}")
+        };
+        let path = folder.join(format!("{}.json", file_safe(&name)));
+        if !path.exists() {
+            break (name, path);
+        }
+        n += 1;
+    };
+    body.insert("name".into(), json!(name));
+    write(&path, &body)?;
+    Ok(path)
+}
+
+/// Writes `body` to `path` through a temporary file.
+fn write(path: &Path, body: &Map<String, Value>) -> Result<(), String> {
+    let tmp = path.with_extension("tmp");
+    let text = serde_json::to_vec_pretty(body).map_err(|e| e.to_string())?;
+    std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
+fn read(path: &Path) -> Result<Map<String, Value>, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    match serde_json::from_slice(&bytes) {
+        Ok(Value::Object(m)) => Ok(m),
+        _ => Err("the preset file is damaged".into()),
+    }
+}
+
+/// Renames the preset at `path`; returns its new path.
+fn rename_file(path: &Path, name: &str) -> Result<PathBuf, String> {
+    let mut body = read(path)?;
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("a preset needs a name".into());
+    }
+    let folder = path.parent().ok_or("no folder")?;
+    let new = folder.join(format!("{}.json", file_safe(name)));
+    if new != path && new.exists() {
+        return Err(format!("there is already a preset called {name}"));
+    }
+    body.insert("name".into(), json!(name));
+    write(&new, &body)?;
+    if new != path {
+        let _ = std::fs::remove_file(path);
+    }
+    Ok(new)
+}
+
+/// A preset's file body, before its name.
+fn body(instrument: &str, instrument_name: &str) -> Map<String, Value> {
+    let mut m = Map::new();
+    m.insert("format".into(), json!(1));
+    m.insert("instrument".into(), json!(instrument));
+    m.insert("instrument_name".into(), json!(instrument_name));
+    m.insert("tags".into(), json!([]));
+    m
+}
+
+/// The sound a plugin preset's body holds.
+fn plugin_state(body: &Map<String, Value>) -> Result<Vec<u8>, String> {
+    let text = body["state"].as_str().ok_or("the preset holds no sound")?;
+    base64::engine::general_purpose::STANDARD
+        .decode(text)
+        .map_err(|_| "the preset's sound is damaged".to_string())
+}
+
+/// What a deck plays that can have presets.
+#[derive(Clone, Debug, PartialEq)]
+enum Playing {
+    Groove,
+    /// The instrument plugin's place in the Instrument input's list.
+    Plugin(usize),
+    Nothing,
+}
+
+#[derive(Default)]
+struct State {
+    presets: Vec<Preset>,
+    /// The instrument plugins the Instrument input lists: (key, name).
+    plugins: Vec<(String, String)>,
+    /// Each deck's Groove Box preset.
+    groove: Vec<Option<PathBuf>>,
+    /// The Instrument input's preset.
+    instrument: Option<PathBuf>,
+    /// The names shown, by deck, to skip setting them when unchanged.
+    shown: Vec<String>,
+}
+
+thread_local! {
+    static STATE: RefCell<State> = RefCell::new(State::default());
+}
+
+/// The presets found, as last listed.
+pub fn all() -> Vec<Preset> {
+    STATE.with_borrow(|s| s.presets.clone())
+}
+
+/// Lists the presets again from the folder.
+fn rescan() {
+    let presets = root().map(|r| list_in(&r)).unwrap_or_default();
+    STATE.with_borrow_mut(|s| s.presets = presets);
+}
+
+/// The instrument plugins the Instrument input lists, in its order.
+pub fn set_plugins(plugins: Vec<(String, String)>) {
+    STATE.with_borrow_mut(|s| s.plugins = plugins);
+}
+
+struct Ctx {
+    engine: Rc<AudioEngine>,
+    registry: std::sync::Arc<ControlRegistry>,
+}
+
+impl Ctx {
+    fn value(&self, group: &str, key: &str) -> f64 {
+        self.registry.get(group, key).map_or(0.0, |c| c.get())
+    }
+
+    fn set(&self, group: &str, key: &str, v: f64) {
+        if let Some(c) = self.registry.get(group, key) {
+            c.set(v);
+        }
+    }
+
+    fn playing(&self, deck: usize) -> Playing {
+        if self.value(&groove_group(deck), "enabled") > 0.0 {
+            Playing::Groove
+        } else if self.value(&format!("[Channel{}]", deck + 1), "live_input") == 3.0 {
+            match self.value("[Instrument1]", "instrument").round() as usize {
+                0 => Playing::Nothing,
+                i => Playing::Plugin(i - 1),
+            }
+        } else {
+            Playing::Nothing
+        }
+    }
+
+    /// The instrument key and name of what deck `deck` plays.
+    fn instrument(&self, deck: usize) -> Option<(String, String)> {
+        match self.playing(deck) {
+            Playing::Groove => Some((GROOVE.into(), "Groove Box".into())),
+            Playing::Plugin(i) => STATE.with_borrow(|s| s.plugins.get(i).cloned()),
+            Playing::Nothing => None,
+        }
+    }
+
+    /// The preset deck `deck` plays, if it still matches what it plays.
+    fn current(&self, deck: usize) -> Option<Preset> {
+        let (key, _) = self.instrument(deck)?;
+        STATE.with_borrow(|s| {
+            let path = if key == GROOVE {
+                s.groove.get(deck).cloned().flatten()
+            } else {
+                s.instrument.clone()
+            }?;
+            s.presets
+                .iter()
+                .find(|p| p.path == path && p.instrument == key)
+                .cloned()
+        })
+    }
+
+    fn set_current(&self, deck: usize, key: &str, path: Option<PathBuf>) {
+        STATE.with_borrow_mut(|s| {
+            if key == GROOVE {
+                if s.groove.len() <= deck {
+                    s.groove.resize(deck + 1, None);
+                }
+                s.groove[deck] = path;
+            } else {
+                s.instrument = path;
+            }
+        });
+    }
+
+    /// Plays `preset` on deck `deck`: a Groove Box takes its controls; a
+    /// plugin its sound, on the Instrument input, which the deck then plays.
+    fn load(&self, deck: usize, preset: &Preset) -> Result<(), String> {
+        let body = read(&preset.path)?;
+        if preset.instrument == GROOVE {
+            let g = groove_group(deck);
+            let mut values = body["controls"]
+                .as_object()
+                .cloned()
+                .ok_or("the preset holds no groove")?;
+            groove_box::upgrade(&mut values);
+            for key in groove_box::kept_keys() {
+                if GROOVE_SKIPPED.contains(&key.as_str()) {
+                    continue;
+                }
+                if let Some(v) = values.get(&key).and_then(Value::as_f64) {
+                    self.set(&g, &key, v);
+                }
+            }
+            self.set(&g, "enabled", 1.0);
+        } else {
+            let index = STATE
+                .with_borrow(|s| s.plugins.iter().position(|(k, _)| *k == preset.instrument))
+                .ok_or_else(|| {
+                    format!(
+                        "{} isn't ticked in Settings › Plugins, so its preset can't play",
+                        preset.instrument_name
+                    )
+                })?;
+            self.engine
+                .load_instrument_sound(&preset.instrument, plugin_state(&body)?)?;
+            self.set("[Instrument1]", "instrument", (index + 1) as f64);
+            self.set(&format!("[Channel{}]", deck + 1), "live_input", 3.0);
+        }
+        self.set_current(deck, &preset.instrument, Some(preset.path.clone()));
+        Ok(())
+    }
+
+    /// A new preset of what deck `deck` plays now, named `name`.
+    fn save_new(&self, deck: usize, name: &str) -> Result<PathBuf, String> {
+        let (key, instrument_name) = self.instrument(deck).ok_or("nothing to save")?;
+        let mut body = body(&key, &instrument_name);
+        self.fill(deck, &key, &mut body)?;
+        let root = root().ok_or("no folder for presets")?;
+        let path = write_new(&root, body, name)?;
+        self.set_current(deck, &key, Some(path.clone()));
+        Ok(path)
+    }
+
+    /// Saves what deck `deck` plays over its preset.
+    fn save_over(&self, deck: usize) -> Result<(), String> {
+        let preset = self.current(deck).ok_or("no preset to save over")?;
+        let mut body = read(&preset.path)?;
+        self.fill(deck, &preset.instrument, &mut body)?;
+        write(&preset.path, &body)
+    }
+
+    /// Puts what deck `deck` plays now into a preset's body.
+    fn fill(&self, deck: usize, key: &str, body: &mut Map<String, Value>) -> Result<(), String> {
+        if key == GROOVE {
+            let g = groove_group(deck);
+            let mut controls = Map::new();
+            for k in groove_box::kept_keys() {
+                if !GROOVE_SKIPPED.contains(&k.as_str()) {
+                    controls.insert(k.clone(), json!(self.value(&g, &k)));
+                }
+            }
+            controls.insert("layout".into(), json!(groove_box::LAYOUT));
+            body.insert("controls".into(), Value::Object(controls));
+        } else {
+            let (playing, data) = self.engine.instrument_sound()?;
+            if playing != key {
+                return Err("the instrument changed while saving".into());
+            }
+            body.insert(
+                "state".into(),
+                json!(base64::engine::general_purpose::STANDARD.encode(data)),
+            );
+        }
+        Ok(())
+    }
+
+    /// Steps deck `deck` to the next (`by` 1) or previous (-1) preset of
+    /// what it plays, in name order, round the ends.
+    fn step(&self, deck: usize, by: i32) -> Result<(), String> {
+        let (key, name) = self.instrument(deck).ok_or("nothing to step through")?;
+        let mine: Vec<Preset> = all().into_iter().filter(|p| p.instrument == key).collect();
+        if mine.is_empty() {
+            return Err(format!("{name} has no presets yet: SAVE makes one"));
+        }
+        let n = mine.len() as i32;
+        let next = match self
+            .current(deck)
+            .and_then(|c| mine.iter().position(|p| *p == c))
+        {
+            Some(i) => (i as i32 + by).rem_euclid(n),
+            None if by > 0 => 0,
+            None => n - 1,
+        };
+        self.load(deck, &mine[next as usize])
+    }
+}
+
+thread_local! {
+    static CTX: RefCell<Option<Rc<Ctx>>> = const { RefCell::new(None) };
+}
+
+fn ctx() -> Option<Rc<Ctx>> {
+    CTX.with_borrow(|c| c.clone())
+}
+
+pub fn install(
+    app: &AppWindow,
+    engine: Rc<AudioEngine>,
+    registry: std::sync::Arc<ControlRegistry>,
+) {
+    CTX.with_borrow_mut(|c| *c = Some(Rc::new(Ctx { engine, registry })));
+    rescan();
+    let ui = app.global::<PresetUi>();
+    let weak = app.as_weak();
+    let act = move |what: &dyn Fn(&Ctx) -> Result<(), String>| {
+        let Some(ctx) = ctx() else {
+            return;
+        };
+        if let Err(e) = what(&ctx) {
+            ctx.engine.alert(format!("Preset: {e}."));
+        }
+        rescan();
+        if let Some(app) = weak.upgrade() {
+            show_list(&app);
+            show(&app);
+            crate::instruments::presets_changed(&app);
+        }
+    };
+    let a = act.clone();
+    ui.on_step(move |deck, by| a(&|c| c.step(deck as usize, by)));
+    let a = act.clone();
+    ui.on_save(move |deck| a(&|c| c.save_over(deck as usize)));
+    let a = act.clone();
+    ui.on_save_as(move |deck, name| a(&|c| c.save_new(deck as usize, &name).map(|_| ())));
+    let a = act.clone();
+    ui.on_rename(move |deck, name| {
+        a(&|c| {
+            let preset = c.current(deck as usize).ok_or("no preset to rename")?;
+            let path = rename_file(&preset.path, &name)?;
+            c.set_current(deck as usize, &preset.instrument, Some(path));
+            Ok(())
+        })
+    });
+    let a = act;
+    ui.on_load(move |deck, index| {
+        a(&|c| {
+            let preset = all().get(index as usize).cloned().ok_or("it's gone")?;
+            c.load(deck as usize, &preset)
+        })
+    });
+    show_list(app);
+    show(app);
+}
+
+/// Shows the Groove Box's presets in its menu.
+fn show_list(app: &AppWindow) {
+    let items: Vec<PresetItem> = all()
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.instrument == GROOVE)
+        .map(|(i, p)| PresetItem {
+            name: p.name.as_str().into(),
+            index: i as i32,
+        })
+        .collect();
+    app.global::<PresetUi>()
+        .set_groove(ModelRc::new(VecModel::from(items)));
+}
+
+/// Shows each deck's preset name ("" for none). Cheap when nothing
+/// changed: called often, as decks change what they play.
+pub fn show(app: &AppWindow) {
+    let Some(ctx) = ctx() else {
+        return;
+    };
+    let names: Vec<String> = (0..opendj_engine::NUM_DECKS)
+        .map(|d| ctx.current(d).map(|p| p.name).unwrap_or_default())
+        .collect();
+    let changed = STATE.with_borrow_mut(|s| {
+        let changed = s.shown != names;
+        s.shown = names.clone();
+        changed
+    });
+    if changed {
+        let names: Vec<SharedString> = names.iter().map(|n| n.as_str().into()).collect();
+        app.global::<PresetUi>()
+            .set_current(ModelRc::new(VecModel::from(names)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("opendj-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        d
+    }
+
+    #[test]
+    fn presets_are_written_listed_and_renamed() {
+        let root = temp("presets");
+        let mut b = body("clap:/x/Jun.clap:jun6", "Jun-6 V");
+        b.insert(
+            "state".into(),
+            json!(base64::engine::general_purpose::STANDARD.encode(b"abc")),
+        );
+        let first = write_new(&root, b.clone(), "Ambient Ebow").unwrap();
+        // The same name again gets a number.
+        let second = write_new(&root, b, "Ambient Ebow").unwrap();
+        assert_ne!(first, second);
+        write_new(&root, body(GROOVE, "Groove Box"), "house: 4/4").unwrap();
+        let names: Vec<(String, String)> = list_in(&root)
+            .into_iter()
+            .map(|p| (p.instrument_name, p.name))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("Groove Box".into(), "house: 4/4".into()),
+                ("Jun-6 V".into(), "Ambient Ebow".into()),
+                ("Jun-6 V".into(), "Ambient Ebow 2".into()),
+            ]
+        );
+        assert_eq!(plugin_state(&read(&first).unwrap()).unwrap(), b"abc");
+        // Renaming keeps the sound; a taken name is refused.
+        assert!(rename_file(&second, "Ambient Ebow").is_err());
+        let renamed = rename_file(&second, "Dark Strings").unwrap();
+        assert!(!second.exists());
+        assert_eq!(read(&renamed).unwrap()["name"], json!("Dark Strings"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn names_are_made_safe_for_files() {
+        assert_eq!(file_safe("house: 4/4"), "house- 4-4");
+        assert_eq!(file_safe("  ..  "), "Preset");
+        assert_eq!(file_safe("Jun-6 V"), "Jun-6 V");
+    }
+}
