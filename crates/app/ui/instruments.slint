@@ -439,7 +439,9 @@ component InstrumentList inherits Rectangle {
                 padding: 8px;
                 spacing: 8px;
                 Rectangle {
+                    min-width: 200px;
                     max-width: 420px;
+                    horizontal-stretch: 1;
                     border-radius: Theme.radius;
                     background: Theme.panel;
                     border-width: 1px;
@@ -457,6 +459,9 @@ component InstrumentList inherits Rectangle {
                     }
                     if query == "": Text { x: 10px; text: "Search instruments"; color: Theme.text-dim; font-size: 13px; vertical-alignment: center; }
                 }
+                // Takes the rest of the row, so the box's max-width doesn't
+                // cap the whole list's width.
+                Rectangle { horizontal-stretch: 1; }
             }
         }
         // Column headings.
