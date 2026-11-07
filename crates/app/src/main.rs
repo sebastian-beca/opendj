@@ -909,6 +909,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for key in settings::controllers_scaled() {
         opendj_controllers::pickup::set_scale(&key, true);
     }
+    opendj_controllers::routing::load_deck_choices(settings::controller_decks());
     let controllers = match opendj_controllers::default_mappings_dir() {
         Some(dir) => Some(Rc::new(opendj_controllers::Controllers::start(
             registry.clone(),
@@ -956,6 +957,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(note) = restored {
         engine.alert(note);
     }
+    // Which MIDI keyboard plays the instrument: shown on the instrument
+    // deck, and said once when a keyboard plays it for the first time, so a
+    // device that shouldn't is easy to spot (Settings › Controllers turns it
+    // off or gives it a deck).
+    let players_timer = slint::Timer::default();
+    {
+        let (weak, engine) = (app.as_weak(), engine.clone());
+        players_timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(500),
+            move || {
+                for port in opendj_controllers::routing::take_new_players() {
+                    engine.alert(format!(
+                        "{} plays the instrument. Settings › Controllers changes that.",
+                        short_port_name(&port)
+                    ));
+                }
+                let Some(app) = weak.upgrade() else {
+                    return;
+                };
+                let name = opendj_controllers::routing::last_player()
+                    .map(|(p, _)| short_port_name(&p).to_string())
+                    .unwrap_or_default();
+                let ui = app.global::<InstrumentsUi>();
+                if ui.get_playing_from().as_str() != name {
+                    ui.set_playing_from(name.into());
+                }
+            },
+        );
+    }
     // Automatic backups: at start, then checked every hour.
     backup::run_if_due();
     let backup_timer = slint::Timer::default();
@@ -964,6 +995,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Duration::from_secs(3600),
         backup::run_if_due,
     );
+    instruments::show_routes(&app, &engine.input_status());
     let prefs = prefs::Prefs::install(
         &app,
         registry.clone(),
@@ -981,7 +1013,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         prefs::InputHooks {
             changed: {
                 let engine = engine.clone();
-                Box::new(move || engine.set_inputs(&settings::audio_setup()))
+                let weak = app.as_weak();
+                Box::new(move || {
+                    engine.set_inputs(&settings::audio_setup());
+                    if let Some(app) = weak.upgrade() {
+                        instruments::show_routes(&app, &engine.input_status());
+                    }
+                })
             },
             status: {
                 let engine = engine.clone();
@@ -1702,6 +1740,11 @@ fn short_port_name(port: &str) -> &str {
 /// lines. The website's controller pages use this list to mark mapping lines
 /// that don't do anything in openDJ yet (website/book/supported-controls.txt).
 fn list_controls() {
+    print!("{}", control_list());
+}
+
+/// The lines `--list-controls` prints, one `[Group],key` per line.
+fn control_list() -> String {
     let registry = ControlRegistry::new();
     opendj_engine::create_controls(&registry);
     broadcast::create_controls(&registry);
@@ -1710,9 +1753,9 @@ fn list_controls() {
     let mut keys = registry.keys();
     keys.extend(registry.alias_keys());
     keys.sort();
-    for k in keys {
-        println!("{},{}", k.group, k.item);
-    }
+    keys.iter()
+        .map(|k| format!("{},{}\n", k.group, k.item))
+        .collect()
 }
 
 /// Connects the `Controls` global used by every skin widget to the registry.
@@ -1797,6 +1840,26 @@ fn bind_controls(app: &AppWindow, registry: Arc<ControlRegistry>) -> impl Fn() -
         h.handles.iter().map(|c| c.version() as u64).sum::<u64>()
             + h.handles.len() as u64
             + opendj_controllers::pickup::version()
+    }
+}
+
+#[cfg(test)]
+mod control_list_tests {
+    /// The website marks mapping lines openDJ doesn't support from this
+    /// file. A test rather than a CI step running `--list-controls`, so CI
+    /// doesn't build the whole app a second time just for this.
+    #[test]
+    fn website_list_is_up_to_date() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../website/book/supported-controls.txt"
+        );
+        let saved = std::fs::read_to_string(path).unwrap().replace("\r\n", "\n");
+        assert!(
+            saved == super::control_list(),
+            "website/book/supported-controls.txt is out of date; regenerate it with \
+             `cargo run -q -p opendj -- --list-controls > website/book/supported-controls.txt`"
+        );
     }
 }
 

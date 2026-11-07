@@ -25,6 +25,7 @@ pub mod own;
 pub mod pickup;
 pub mod probe;
 pub mod quick;
+pub mod routing;
 mod rows;
 mod script;
 pub mod support;

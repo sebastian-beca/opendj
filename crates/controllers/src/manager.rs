@@ -47,6 +47,9 @@ pub enum MappingChoice {
     /// One of the DJ's own mappings, by its file: one made with Quick map,
     /// standing alone (or put over the Mixxx mapping it names).
     Own(PathBuf),
+    /// No mapping: it plays instruments, even if a mapping matches its name
+    /// or it is a DAW port.
+    Instrument,
 }
 
 /// A MIDI device that is plugged in, whether or not it has a mapping.
@@ -63,6 +66,8 @@ pub struct Port {
     /// Why it isn't running, when openDJ knows: an HID device the system
     /// wouldn't open, say.
     pub problem: Option<String>,
+    /// It plays instruments: it has no mapping (see [`Controllers::keyboards`]).
+    pub keys: bool,
 }
 
 /// Running controller support. Dropping it stops every controller, which
@@ -159,6 +164,7 @@ impl Controllers {
         let connected = self.connected();
         let hid_ports = self.shared.hid_ports.lock().unwrap().clone();
         let problems = self.shared.problems.lock().unwrap().clone();
+        let keyboards = self.keyboards();
         let ports: Vec<Port> = self
             .shared
             .ports
@@ -177,6 +183,7 @@ impl Controllers {
                     .map(|c| c.mapping.clone()),
                 hid: hid_ports.contains_key(name),
                 problem: problems.get(name).cloned(),
+                keys: keyboards.contains(name),
             })
             .collect();
         ports
@@ -467,7 +474,7 @@ fn pick_mapping(
     choices: &HashMap<String, MappingChoice>,
 ) -> Option<PathBuf> {
     match choices.get(&device_key(port)) {
-        Some(MappingChoice::Off) => None,
+        Some(MappingChoice::Off | MappingChoice::Instrument) => None,
         Some(MappingChoice::File(f)) if dir.join(f).is_file() => Some(dir.join(f)),
         Some(MappingChoice::Own(p)) if p.is_file() => Some(p.clone()),
         _ => match_mapping(port, mappings).map(Path::to_path_buf),
@@ -598,7 +605,7 @@ fn watch_devices(
                 connected.lock().unwrap().retain(|c| c.port != port);
             }
             *shared.ports.lock().unwrap() = picked.clone();
-            follow_keyboards(&mut keyboards, &picked, &stand_ins, &shared);
+            follow_keyboards(&mut keyboards, &picked, &stand_ins, &shared, &registry);
             for (port, path) in picked {
                 if devices.contains_key(&port)
                     || connected.lock().unwrap().iter().any(|c| c.port == port)
@@ -738,15 +745,19 @@ fn follow_keyboards(
     picked: &[(String, Option<PathBuf>)],
     stand_ins: &[StandIn],
     shared: &Arc<Shared>,
+    registry: &Arc<ControlRegistry>,
 ) {
     let choices = shared.choices.lock().unwrap().clone();
+    let hid_ports = shared.hid_ports.lock().unwrap().clone();
     let wanted: Vec<&String> = picked
         .iter()
         .filter(|(port, path)| {
-            path.is_none()
-                && !crate::is_system_port(port)
-                && !stand_ins.iter().any(|s| &s.name == port)
-                && choices.get(&device_key(port)) != Some(&MappingChoice::Off)
+            plays_instruments(
+                port,
+                path.is_some(),
+                choices.get(&device_key(port)),
+                hid_ports.contains_key(port.as_str()),
+            ) && !stand_ins.iter().any(|s| &s.name == port)
         })
         .map(|(port, _)| port)
         .collect();
@@ -764,9 +775,11 @@ fn follow_keyboards(
         let stop = Arc::new(AtomicBool::new(false));
         let thread = {
             let (port, stop, shared) = (port.clone(), stop.clone(), shared.clone());
+            let watch = crate::routing::DeckWatch::new(registry);
+            eprintln!("{port}: plays instruments");
             std::thread::Builder::new()
                 .name(format!("midi keys {port}"))
-                .spawn(move || run_keyboard(&port, &stop, &shared))
+                .spawn(move || run_keyboard(&port, &stop, &shared, watch))
                 .expect("spawn MIDI keyboard thread")
         };
         keyboards.insert(port.clone(), Keyboard { stop, thread });
@@ -776,9 +789,37 @@ fn follow_keyboards(
     *shared.keyboards.lock().unwrap() = names;
 }
 
+/// Whether a device plays instruments: one with no mapping running, unless
+/// it is off, one of the computer's own ports, a keyboard's DAW port, or the
+/// MIDI side of an HID controller that runs its HID mapping (the Maschine
+/// Mikro MK3's). Picking "Play instruments" for it always does.
+fn plays_instruments(
+    port: &str,
+    mapped: bool,
+    choice: Option<&MappingChoice>,
+    hid_twin: bool,
+) -> bool {
+    match choice {
+        Some(MappingChoice::Instrument) => true,
+        Some(MappingChoice::Off) => false,
+        _ => {
+            !mapped
+                && !hid_twin
+                && !crate::is_system_port(port)
+                && !crate::routing::is_daw_port(port)
+        }
+    }
+}
+
 /// Channel messages (notes, controllers, pitch bend) from `port` go to the
-/// note sink until `stop`.
-fn run_keyboard(port: &str, stop: &AtomicBool, shared: &Arc<Shared>) {
+/// note sink until `stop`, while the deck it is set to holds the instrument
+/// (see [`crate::routing`]).
+fn run_keyboard(
+    port: &str,
+    stop: &AtomicBool,
+    shared: &Arc<Shared>,
+    watch: crate::routing::DeckWatch,
+) {
     let Ok(mut input) = MidiInput::new(CLIENT) else {
         return;
     };
@@ -791,6 +832,7 @@ fn run_keyboard(port: &str, stop: &AtomicBool, shared: &Arc<Shared>) {
         return;
     };
     let (name, shared_in) = (port.to_string(), shared.clone());
+    let route = crate::routing::route(port);
     let conn = input.connect(
         &in_port,
         "openDJ keys",
@@ -799,10 +841,22 @@ fn run_keyboard(port: &str, stop: &AtomicBool, shared: &Arc<Shared>) {
             if LEARNING.load(Ordering::Relaxed) {
                 return;
             }
-            if let Some(data) = channel_message(msg) {
-                if let Some(sink) = shared_in.notes.lock().unwrap().as_ref() {
-                    sink(data);
+            let Some(data) = channel_message(msg) else {
+                return;
+            };
+            let note_on = data[0] & 0xF0 == 0x90 && data[2] > 0;
+            // Pinned to a deck without the instrument: nothing reaches it,
+            // but note offs still do so no note is left hanging.
+            let choice = crate::routing::DeckChoice::from_u8(route.load(Ordering::Relaxed));
+            let note_off = data[0] & 0xF0 == 0x80 || data[0] & 0xF0 == 0x90 && data[2] == 0;
+            if !watch.plays(choice) && !note_off {
+                return;
+            }
+            if let Some(sink) = shared_in.notes.lock().unwrap().as_ref() {
+                if note_on {
+                    crate::routing::heard(&name);
                 }
+                sink(data);
             }
         },
         (),
@@ -950,6 +1004,7 @@ fn run_controller(
         }
     };
     controller.publish_positions();
+    controller.follow_deck_choice(port);
     eprintln!("{port}: using mapping {mapping_name}");
     connected.lock().unwrap().push(ConnectedController {
         port: port.to_string(),
@@ -1035,6 +1090,7 @@ fn run_hid(
             return;
         }
     };
+    controller.follow_deck_choice(port);
     eprintln!("{port}: using HID mapping {mapping_name}");
     connected.lock().unwrap().push(ConnectedController {
         port: port.to_string(),
@@ -1130,6 +1186,37 @@ fn stand_in_devices() -> Vec<StandIn> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_devices_with_nothing_else_to_do_play_instruments() {
+        let off = MappingChoice::Off;
+        let keys = MappingChoice::Instrument;
+        assert!(plays_instruments("Arturia MicroFreak", false, None, false));
+        // A DJ controller running its mapping never does.
+        assert!(!plays_instruments("XONE:K2", true, None, false));
+        assert!(!plays_instruments(
+            "Arturia MicroFreak",
+            false,
+            Some(&off),
+            false
+        ));
+        // DAW ports, the computer's own ports and an HID controller's MIDI
+        // side don't, unless picked.
+        assert!(!plays_instruments(
+            "Komplete Kontrol M DAW",
+            false,
+            None,
+            false
+        ));
+        assert!(!plays_instruments("Network Session 1", false, None, false));
+        assert!(!plays_instruments("Maschine Mikro MK3", false, None, true));
+        assert!(plays_instruments(
+            "Komplete Kontrol M DAW",
+            false,
+            Some(&keys),
+            false
+        ));
+    }
 
     #[test]
     fn keyboards_send_channel_messages_only() {

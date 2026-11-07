@@ -13,7 +13,7 @@ use std::sync::mpsc::{channel, Receiver};
 
 use opendj_plugins::buy::{self, BuyTrack, Offer};
 use opendj_plugins::musicbrainz::MusicBrainz;
-use slint::{ComponentHandle, ModelRc, VecModel};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::Browser;
 use crate::{AppWindow, BuyGroup, BuyRow, BuyUi, StoreUi};
@@ -61,9 +61,10 @@ impl Browser {
             }
         });
         let w = Rc::downgrade(b);
-        ui.on_switch_store(move |row| {
+        ui.on_pick_store(move |row, store| {
             if let Some(b) = w.upgrade() {
-                b.borrow_mut().switch_buy_store(row.max(0) as usize);
+                b.borrow_mut()
+                    .pick_buy_store(row.max(0) as usize, store.max(0) as usize);
             }
         });
         let w = Rc::downgrade(b);
@@ -242,7 +243,7 @@ impl Browser {
             .map(|(id, _)| *id)
             .collect();
         for url in &batch {
-            crate::spotify::open_in_browser(url);
+            open_page(url);
         }
         *opened += batch.len();
         if let Some(db) = &self.db {
@@ -263,7 +264,7 @@ impl Browser {
         else {
             return;
         };
-        crate::spotify::open_in_browser(&offer.url);
+        open_page(&offer.url);
         let (id, store) = (state.ids[row], offer.store);
         if let Some(db) = &self.db {
             if let Err(e) = db.mark_pending(&[id], store) {
@@ -272,12 +273,11 @@ impl Browser {
         }
     }
 
-    /// A click on a track's store: the next store it can be bought on.
-    fn switch_buy_store(&mut self, row: usize) {
+    /// A store picked from a track's store list.
+    fn pick_buy_store(&mut self, row: usize, store: usize) {
         let Some(state) = &mut self.buy else { return };
-        let n = state.offers.get(row).map_or(0, Vec::len);
-        if n > 1 {
-            state.choices[row] = (state.choices[row] + 1) % n;
+        if state.offers.get(row).is_some_and(|o| store < o.len()) {
+            state.choices[row] = store;
             self.show_buy();
         }
     }
@@ -322,9 +322,60 @@ impl Browser {
                     store: offer.map_or("", Offer::name).into(),
                     found: offer.is_some_and(|o| o.found),
                     others: state.offers[i].len().saturating_sub(1) as i32,
+                    price: offer.map_or("", |o| o.price.as_str()).into(),
+                    stores: ModelRc::new(VecModel::from(
+                        state.offers[i]
+                            .iter()
+                            .map(|o| SharedString::from(offer_label(o)))
+                            .collect::<Vec<_>>(),
+                    )),
+                    chosen: state.choices[i] as i32,
                 }
             })
             .collect();
         ui.set_rows(ModelRc::new(VecModel::from(rows)));
+    }
+}
+
+/// A store in a track's store list: "Bandcamp", "iTunes Store · $1.29", or
+/// "Try Beatport" when only its search can be opened.
+fn offer_label(o: &Offer) -> String {
+    let name = if o.found {
+        o.name().to_string()
+    } else {
+        format!("Try {}", o.name())
+    };
+    if o.price.is_empty() {
+        name
+    } else {
+        format!("{name} · {}", o.price)
+    }
+}
+
+/// Opens a store's page. On a Mac an iTunes Store page opens in the Music
+/// app's iTunes Store, where it's bought, not on the Apple Music website.
+pub(super) fn open_page(url: &str) {
+    let app_link = if cfg!(target_os = "macos") {
+        opendj_plugins::itunes::store_app_link(url)
+    } else {
+        None
+    };
+    crate::spotify::open_in_browser(app_link.as_deref().unwrap_or(url));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn labels_stores_with_prices() {
+        let offer = |found, price: &str| Offer {
+            store: "itunes",
+            url: String::new(),
+            found,
+            price: price.into(),
+        };
+        assert_eq!(offer_label(&offer(true, "$1.29")), "iTunes Store · $1.29");
+        assert_eq!(offer_label(&offer(false, "")), "Try iTunes Store");
     }
 }

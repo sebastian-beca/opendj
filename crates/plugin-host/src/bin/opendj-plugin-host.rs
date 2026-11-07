@@ -6,7 +6,10 @@
 //!   (`name`, `latency`, `param` lines, then `ready`) and runs a block each
 //!   time openDJ writes a byte to stdin. It exits when stdin closes, so a
 //!   helper never outlives openDJ. `--title <text>` names the window the
-//!   plugin's editor opens in, when openDJ asks for it.
+//!   plugin's editor opens in, when openDJ asks for it. `--state <file>`
+//!   names the file the plugin's state is saved to and loaded from when
+//!   openDJ asks (see `shm::Header::state_cmd`); if it exists at start, the
+//!   plugin starts from it.
 //! - `opendj-plugin-host --scan <file>` lists the plugins in a CLAP file or
 //!   VST3 bundle, and `--scan-au` lists the installed Audio Units (macOS)
 //!   (`plugin` lines, then `done`) and exits.
@@ -61,6 +64,7 @@ fn main() {
     let mut id = None;
     let mut scan = None;
     let mut title = None;
+    let mut state = None;
     let mut args = std::env::args_os().skip(1);
     while let Some(a) = args.next() {
         match a.to_str() {
@@ -73,6 +77,7 @@ fn main() {
             Some("--id") => id = args.next().and_then(|s| s.into_string().ok()),
             Some("--scan") => scan = args.next().map(PathBuf::from),
             Some("--title") => title = args.next().and_then(|s| s.into_string().ok()),
+            Some("--state") => state = args.next().map(PathBuf::from),
             _ => fail(&format!("unknown argument {a:?}")),
         }
     }
@@ -117,6 +122,17 @@ fn main() {
         ));
     }
     let mut main = loaded.main;
+    let mut no_main = NoMain::default();
+    // A saved sound to start from, before the first block.
+    if let Some(data) = state.as_ref().and_then(|p| std::fs::read(p).ok()) {
+        let m: &mut dyn MainThread = match main.as_mut() {
+            Some(m) => m.as_mut(),
+            None => &mut no_main,
+        };
+        if let Err(e) = m.load_state(&data) {
+            say(&format!("note\tthe saved sound didn't load: {}", clean(&e)));
+        }
+    }
     let effect = loaded.effect;
     let audio_shm = shm.clone();
     let audio = std::thread::Builder::new()
@@ -131,13 +147,13 @@ fn main() {
     // asked to clean up.
     let title = title.unwrap_or_else(|| info.name.clone());
     let mut editor = EditorWindow::new(title);
-    let mut no_main = NoMain;
     while !audio.is_finished() {
         let m: &mut dyn MainThread = match main.as_mut() {
             Some(m) => m.as_mut(),
             None => &mut no_main,
         };
         m.idle();
+        serve_state(m, h, state.as_deref());
         let wait = m
             .next_idle()
             .map_or(IDLE, |d| d.min(IDLE))
@@ -162,6 +178,7 @@ fn main() {
             None => &mut no_main,
         };
         m.idle();
+        serve_state(m, h, state.as_deref());
         win.step_in(m, &h.editor, &h.editor_shown, el);
         m.next_idle()
             .map_or(IDLE, |d| d.min(IDLE))
@@ -172,11 +189,51 @@ fn main() {
 /// How often the plugin's main thread is served, at the longest.
 const IDLE: Duration = Duration::from_millis(10);
 
-/// The main thread of an effect that needs none (the test effects).
-struct NoMain;
+/// Does what openDJ asked about the plugin's state, if anything: saves it
+/// to the state file (through a temporary file, so a reader never sees half
+/// of it) or loads it from there.
+fn serve_state(m: &mut dyn MainThread, h: &shm::Header, path: Option<&std::path::Path>) {
+    let asked = h.state_asked.load(Ordering::Acquire);
+    if asked == h.state_done.load(Ordering::Relaxed) {
+        return;
+    }
+    let result = match (h.state_cmd.load(Ordering::Relaxed), path) {
+        (shm::STATE_SAVE, Some(path)) => m.save_state().and_then(|data| {
+            let tmp = path.with_extension("tmp");
+            std::fs::write(&tmp, data)
+                .and_then(|_| std::fs::rename(&tmp, path))
+                .map_err(|e| e.to_string())
+        }),
+        (shm::STATE_LOAD, Some(path)) => std::fs::read(path)
+            .map_err(|e| e.to_string())
+            .and_then(|data| m.load_state(&data)),
+        _ => Err("no state file".into()),
+    };
+    if let Err(e) = &result {
+        say(&format!("note\tsound: {}", clean(e)));
+    }
+    h.state_ok.store(result.is_ok() as u32, Ordering::Relaxed);
+    h.state_done.store(asked, Ordering::Release);
+}
+
+/// The main thread of an effect that needs none (the test effects). Its
+/// state is whatever was last loaded, so saving and loading can be tested.
+#[derive(Default)]
+struct NoMain {
+    state: Vec<u8>,
+}
 
 impl MainThread for NoMain {
     fn idle(&mut self) {}
+
+    fn save_state(&mut self) -> Result<Vec<u8>, String> {
+        Ok(self.state.clone())
+    }
+
+    fn load_state(&mut self, data: &[u8]) -> Result<(), String> {
+        self.state = data.to_vec();
+        Ok(())
+    }
 }
 
 fn run_audio(shm: &Shm, mut fx: Box<dyn Effect>) {

@@ -2,6 +2,11 @@
 //! with a clear background at `/now-playing`, the track as JSON at
 //! `/now-playing.json` and its cover at `/now-playing/cover`.
 //!
+//! The same server shows the karaoke page at `/karaoke`, the words of the
+//! track playing for a TV or another screen: what is sung now at
+//! `/karaoke.json` and the lyrics, with each word's time, at
+//! `/karaoke/lines.json`. The page keeps time itself between requests.
+//!
 //! It is read-only and needs no pairing. It listens on this computer only
 //! (127.0.0.1) unless the DJ allows other devices on the network. The page
 //! asks for the JSON once a second, so nothing has to be pushed.
@@ -21,6 +26,34 @@ const PORT_TRIES: u16 = 10;
 
 /// The overlay page; `__STYLE__` in it is replaced by the style's name.
 pub const PAGE: &str = include_str!("overlay.html");
+
+/// The karaoke page.
+pub const KARAOKE_PAGE: &str = include_str!("karaoke.html");
+
+/// What the karaoke page shows, set with [`set_karaoke`]: the moment's
+/// JSON and the lyrics' JSON. Kept apart from any one server, so it
+/// survives the overlay being restarted.
+static KARAOKE: Mutex<(String, String)> = Mutex::new((String::new(), String::new()));
+
+/// What the karaoke page shows: `now`, the track and where it is, often;
+/// `lines`, the lyrics with their word times, when they change.
+pub fn set_karaoke(now: String, lines: Option<String>) {
+    let mut k = KARAOKE.lock().unwrap_or_else(|e| e.into_inner());
+    k.0 = now;
+    if let Some(lines) = lines {
+        k.1 = lines;
+    }
+}
+
+fn karaoke_json(lines: bool) -> String {
+    let k = KARAOKE.lock().unwrap_or_else(|e| e.into_inner());
+    let json = if lines { &k.1 } else { &k.0 };
+    if json.is_empty() {
+        "{}".into()
+    } else {
+        json.clone()
+    }
+}
 
 /// How the overlay looks.
 pub const STYLES: [&str; 3] = ["lower-third", "corner", "ticker"];
@@ -201,6 +234,18 @@ fn serve(mut stream: TcpStream, shown: &Mutex<Shown>) {
                 None => http::respond(&mut stream, "404 Not Found", "text/plain", b"No cover"),
             }
         }
+        "/karaoke" | "/karaoke/" => http::respond(
+            &mut stream,
+            "200 OK",
+            "text/html; charset=utf-8",
+            KARAOKE_PAGE.as_bytes(),
+        ),
+        "/karaoke.json" | "/karaoke/lines.json" => http::respond(
+            &mut stream,
+            "200 OK",
+            "application/json; charset=utf-8",
+            karaoke_json(path == "/karaoke/lines.json").as_bytes(),
+        ),
         _ => http::respond(&mut stream, "404 Not Found", "text/plain", b"Not found"),
     };
 }
@@ -233,5 +278,15 @@ mod tests {
         assert!(json.ends_with(r#"{"title":"Tune"}"#), "{json}");
         assert!(get(o.port(), "/now-playing/cover").starts_with("HTTP/1.1 404"));
         assert!(get(o.port(), "/ws").starts_with("HTTP/1.1 404"));
+    }
+
+    #[test]
+    fn serves_the_karaoke_page() {
+        let o = Overlay::start(DEFAULT_PORT + 60, false).unwrap();
+        assert!(get(o.port(), "/karaoke").contains("openDJ Karaoke"));
+        set_karaoke(r#"{"id":1}"#.into(), Some(r#"{"id":1,"lines":[]}"#.into()));
+        assert!(get(o.port(), "/karaoke.json").ends_with(r#"{"id":1}"#));
+        set_karaoke(r#"{"id":2}"#.into(), None);
+        assert!(get(o.port(), "/karaoke/lines.json").ends_with(r#"{"id":1,"lines":[]}"#));
     }
 }

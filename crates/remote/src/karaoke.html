@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>openDJ Karaoke</title>
+<style>
+  :root { --lilac: #B69CFF; --text: #f5f5f7; --dim: #8e8e93; }
+  html, body { margin: 0; height: 100%; background: #08080a; overflow: hidden; }
+  body { font-family: Inter, "Helvetica Neue", Arial, sans-serif; color: var(--text);
+    background: radial-gradient(circle at 50% 50%, rgba(182,156,255,.10) 0%, rgba(8,8,10,0) 70%), #08080a; }
+  #top { position: fixed; left: 32px; top: 24px; right: 32px; font-size: max(14px, 2.8vh); font-weight: 600;
+    color: rgba(142,142,147,.8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #main { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 3.5vh; padding: 0 48px; text-align: center; }
+  .line { font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  #before { font-size: 4.5vh; font-weight: 700; color: rgba(142,142,147,.45); min-height: 1.2em; }
+  #dots { display: flex; gap: 2.5vh; height: 3vh; }
+  #dots i { width: 3vh; height: 3vh; border-radius: 50%; background: var(--lilac); }
+  #now { min-height: 1.3em; }
+  #now .sung { color: var(--lilac); }
+  #now .word { color: transparent; -webkit-background-clip: text; background-clip: text; }
+  #next { color: rgba(245,245,247,.72); font-weight: 700; min-height: 1.2em; }
+  #after { color: rgba(142,142,147,.6); font-weight: 700; min-height: 1.2em; }
+  #message { display: none; }
+  body.message #message { display: block; }
+  body.message #lyrics { display: none; }
+  #message h1 { font-size: 8vh; font-weight: 800; margin: 0 0 3vh; }
+  #message p { font-size: 4vh; font-weight: 600; color: var(--dim); margin: 0; }
+  #message p.lit { color: var(--lilac); }
+  #lyrics { display: contents; }
+</style>
+</head>
+<body class="message">
+<div id="top"></div>
+<div id="main">
+  <div id="message"><h1>openDJ Karaoke</h1><p>Lyrics show here for the track playing.</p></div>
+  <div id="lyrics">
+    <div id="before" class="line"></div>
+    <div id="dots"></div>
+    <div id="now" class="line"><span class="sung"></span><span class="word"></span><span class="rest"></span></div>
+    <div id="next" class="line"></div>
+    <div id="after" class="line"></div>
+  </div>
+</div>
+<script>
+  // The same screen as openDJ's karaoke window: the line being sung, its
+  // word filling as it is sung, or else the next line with a count-in.
+  const LINGER = 1.5, COUNT_IN = 4;
+  let now = {}, lines = [], linesId = null, base = 0, baseWall = 0;
+  const $ = id => document.getElementById(id);
+  const sung = l => l.start !== null && l.text.trim() !== '';
+
+  function lineAt(t) {
+    let found = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const s = lines[i].start;
+      if (s === null || s > t) break;
+      found = i;
+    }
+    return found;
+  }
+  function nextSung(from) {
+    for (let i = from; i < lines.length; i++) if (sung(lines[i])) return i;
+    return -1;
+  }
+  function fill(line, t) {
+    const w = line.words;
+    let k = -1;
+    for (let i = 0; i < w.length; i++) if (w[i][0] <= t) k = i;
+    const join = ws => ws.map(x => x[2]).join('');
+    if (k < 0) return { sung: '', word: '', part: 0, rest: line.text.trim() };
+    if (k === w.length - 1 && t >= w[k][1]) return { sung: join(w).trim(), word: '', part: 0, rest: '' };
+    const text = w[k][2], word = text.trimEnd();
+    const length = w[k][1] - w[k][0];
+    return {
+      sung: join(w.slice(0, k)).trimStart(),
+      word: word.trimStart(),
+      part: length > 0 ? Math.min(1, Math.max(0, (t - w[k][0]) / length)) : 1,
+      rest: (text.slice(word.length) + join(w.slice(k + 1))).trimEnd(),
+    };
+  }
+  function screen(t, beat) {
+    const s = { before: '', sung: '', word: '', part: 0, rest: '', next: '', after: '', count: 0 };
+    const current = lineAt(t);
+    let singing = -1;
+    if (current >= 0 && sung(lines[current])) {
+      const w = lines[current].words;
+      const end = w.length ? w[w.length - 1][1] : t;
+      const until = current + 1 < lines.length ? lines[current + 1].start : null;
+      if (t < end + LINGER || (until !== null && until - t < LINGER)) singing = current;
+    }
+    const focus = singing >= 0 ? singing : nextSung(current + 1);
+    const prevSung = upTo => { for (let j = upTo; j >= 0; j--) if (sung(lines[j])) return lines[j].text.trim(); return ''; };
+    if (focus < 0) { s.before = prevSung(current); return s; }
+    s.before = prevSung(focus - 1);
+    const next = nextSung(focus + 1);
+    if (next >= 0) {
+      s.next = lines[next].text.trim();
+      const after = nextSung(next + 1);
+      if (after >= 0) s.after = lines[after].text.trim();
+    }
+    if (singing >= 0) {
+      Object.assign(s, fill(lines[focus], t));
+    } else {
+      s.rest = lines[focus].text.trim();
+      const toGo = lines[focus].start - t, beats = toGo / Math.max(beat, 0.1);
+      if (toGo > 0 && beats <= COUNT_IN) s.count = Math.ceil(beats);
+    }
+    return s;
+  }
+
+  let shown = '';
+  function draw() {
+    requestAnimationFrame(draw);
+    const message = now.state !== 3;
+    document.body.classList.toggle('message', message);
+    $('top').textContent = now.state > 0 ? (now.artist ? now.title + '  ·  ' + now.artist : now.title) : '';
+    if (message) {
+      const m = now.state === 1 ? 'No lyrics for this track' : now.state === 2
+        ? "These lyrics aren't timed, so they can't follow the song." : 'Lyrics show here for the track playing.';
+      $('message').querySelector('h1').textContent = now.state > 0 ? now.title : 'openDJ Karaoke';
+      const p = $('message').querySelector('p');
+      p.textContent = m;
+      p.classList.toggle('lit', now.state === 1);
+      return;
+    }
+    if (linesId !== now.id) return;
+    const t = base + (now.playing ? (performance.now() - baseWall) / 1000 : 0);
+    const s = screen(t, now.bpm > 0 ? 60 / now.bpm : 0.5);
+    const key = JSON.stringify(s);
+    if (key === shown) return;
+    shown = key;
+    const letters = (s.sung + s.word + s.rest).length;
+    const big = 'min(10vh, calc(170vw / ' + Math.max(letters, 14) + '))';
+    const line = $('now');
+    line.style.fontSize = big;
+    $('next').style.fontSize = 'calc(' + big + ' * 0.62)';
+    $('after').style.fontSize = 'calc(' + big + ' * 0.5)';
+    line.querySelector('.sung').textContent = s.sung;
+    const word = line.querySelector('.word');
+    word.textContent = s.word;
+    const p = (s.part * 100).toFixed(1) + '%';
+    word.style.backgroundImage = 'linear-gradient(90deg, var(--lilac) ' + p + ', var(--text) ' + p + ')';
+    line.querySelector('.rest').textContent = s.rest;
+    $('before').textContent = s.before;
+    $('next').textContent = s.next;
+    $('after').textContent = s.after;
+    $('dots').innerHTML = '<i></i>'.repeat(s.count);
+  }
+
+  async function poll() {
+    try {
+      const r = await fetch('/karaoke.json', { cache: 'no-store' });
+      const j = await r.json();
+      now = j;
+      base = j.t || 0;
+      baseWall = performance.now();
+      if (j.id !== undefined && j.id !== linesId) {
+        const l = await (await fetch('/karaoke/lines.json', { cache: 'no-store' })).json();
+        if (l.id === j.id) { lines = l.lines || []; linesId = l.id; shown = ''; }
+      }
+    } catch (e) { /* openDJ closed or the karaoke screen was closed */ }
+  }
+  poll();
+  setInterval(poll, 250);
+  requestAnimationFrame(draw);
+</script>
+</body>
+</html>

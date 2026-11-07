@@ -65,6 +65,11 @@ export global LyricsUi {
     // follows, 0 gone to 1 full; -1 with nothing playing.
     in property <float> vocals: -1;
     callback set-vocals(level: float);
+    // The karaoke page for a TV or another device's browser, served while
+    // the karaoke screen is open and this is on; its address once it runs.
+    in property <bool> page;
+    in property <string> page-url;
+    callback set-page(on: bool);
 }
 
 component SmallButton inherits Rectangle {
@@ -276,6 +281,24 @@ export component LyricsPanel inherits Rectangle {
                 color: Theme.label;
                 font-size: 12px;
                 vertical-alignment: center;
+            }
+        }
+        // The same screen as a web page, for a TV or a tablet on the network.
+        if LyricsUi.karaoke: HorizontalLayout {
+            height: 26px;
+            spacing: 8px;
+            Text { text: "Web page"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+            Text {
+                horizontal-stretch: 1;
+                text: !LyricsUi.page ? "Off" : LyricsUi.page-url != "" ? LyricsUi.page-url : "Starting…";
+                color: LyricsUi.page && LyricsUi.page-url != "" ? Theme.accent : Theme.label;
+                font-size: 12px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            VerticalLayout {
+                alignment: center;
+                SmallButton { text: LyricsUi.page ? "Stop" : "Share"; clicked => { LyricsUi.set-page(!LyricsUi.page); } }
             }
         }
         if LyricsUi.has-track: VerticalLayout {

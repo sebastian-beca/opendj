@@ -38,8 +38,9 @@ pub struct Controller {
     resend_at: Option<Instant>,
     /// `OPENDJ_MIDI_DEBUG` set: log messages both ways.
     debug: bool,
-    /// The deck 3 and 4 switches as the outputs last resolved them.
-    layers: [bool; 2],
+    /// The deck 3 and 4 switches and deck shift as the outputs last
+    /// resolved them.
+    layers: crate::host::RouteState,
     /// openDJ mappings: openDJscript rows and lights.
     rows: ScriptRows,
     /// HID: the last input report, to skip repeats.
@@ -252,7 +253,7 @@ impl Controller {
             outputs,
             resend_at: Some(Instant::now() + RESEND_AFTER),
             debug: std::env::var_os("OPENDJ_MIDI_DEBUG").is_some(),
-            layers: [false; 2],
+            layers: ([false; 2], 0),
             rows,
             repeats: Repeats::default(),
         };
@@ -461,8 +462,19 @@ impl Controller {
         target.set_from_midi(note_off, new_value);
     }
 
+    /// Lets the device's deck choice in Settings (see [`crate::routing`])
+    /// move it to other decks: `port` is the device's port name.
+    pub fn follow_deck_choice(&mut self, port: &str) {
+        self.host
+            .borrow_mut()
+            .set_route(crate::routing::route(port));
+        self.rows.shift = self.host.borrow().shift;
+    }
+
     /// Runs timers, scratching, connection callbacks and LED outputs.
     pub fn poll(&mut self, now: Instant) {
+        self.host.borrow_mut().refresh_shift();
+        self.rows.shift = self.host.borrow().shift;
         self.host.borrow_mut().process_scratch(now);
         let due = self.host.borrow_mut().due_timers(now);
         for id in due {
@@ -494,8 +506,9 @@ impl Controller {
             self.host.borrow_mut().sent.extend(sent);
         }
         let mut h = self.host.borrow_mut();
-        // A side switched decks: the LEDs follow the other deck.
-        let layers = h.layer_state();
+        // A side switched decks, or the instrument the device follows
+        // moved: the LEDs follow the other deck.
+        let layers = h.route_state();
         if layers != self.layers {
             self.layers = layers;
             h.layers_moved();

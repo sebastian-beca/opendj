@@ -104,6 +104,10 @@ impl AudioPlugins {
             scan: None,
             note: String::new(),
         };
+        // Tweaks made in a plugin's window last between sessions.
+        if let Some(dir) = settings::config_dir() {
+            p.engine.set_plugin_sound_folder(dir.join("plugin-sounds"));
+        }
         p.publish();
         p
     }

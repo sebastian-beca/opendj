@@ -985,3 +985,60 @@ fn xdj_rx3_decks_mixer_and_pads() {
         "mixer handed back: {out:x?}"
     );
 }
+
+#[test]
+fn a_controller_follows_the_instrument_to_its_deck() {
+    use opendj_controllers::routing::{set_deck_choice, DeckChoice};
+    // Deck choices are kept by device name, process-wide: one of its own.
+    const PORT: &str = "Follow Test K2";
+    const K2: &str = "Allen and Heath Xone K2 - 2 Decks.opendj-mapping";
+    let (reg, mut c) = load(K2);
+    c.follow_deck_choice(PORT);
+    let press = |c: &mut Controller| {
+        c.receive(&[0x9E, 0x19, 0x7F]);
+        c.receive(&[0x8E, 0x19, 0x7F]);
+    };
+    let playing = |d: usize| get(&reg, &format!("[Channel{d}]"), "play") > 0.0;
+
+    // As mapped: PLAY 1 plays deck 1.
+    press(&mut c);
+    assert!(playing(1));
+    press(&mut c);
+    assert!(!playing(1));
+
+    // Following, with the instrument on deck 3: PLAY 1 plays deck 3.
+    set_deck_choice(PORT, DeckChoice::Follow);
+    reg.get("[Channel3]", "live_input").unwrap().set(3.0);
+    c.poll(Instant::now());
+    press(&mut c);
+    assert!(playing(3) && !playing(1));
+    press(&mut c);
+
+    // The instrument dragged to deck 4: the controller goes with it.
+    reg.get("[Channel3]", "live_input").unwrap().set(0.0);
+    reg.get("[Channel4]", "live_input").unwrap().set(3.0);
+    c.poll(Instant::now());
+    press(&mut c);
+    assert!(playing(4) && !playing(3));
+    press(&mut c);
+
+    // Pinned to deck 2.
+    set_deck_choice(PORT, DeckChoice::Deck(2));
+    c.poll(Instant::now());
+    press(&mut c);
+    assert!(playing(2));
+}
+
+#[test]
+fn a_mixxx_mapping_follows_too() {
+    use opendj_controllers::routing::{set_deck_choice, DeckChoice};
+    const PORT: &str = "Follow Test FLX4";
+    let (reg, mut c) = load("Pioneer-DDJ-FLX4.midi.xml");
+    c.follow_deck_choice(PORT);
+    set_deck_choice(PORT, DeckChoice::Deck(3));
+    c.poll(Instant::now());
+    c.receive(&[0x90, 0x0B, 0x7F]);
+    c.receive(&[0x90, 0x0B, 0x00]);
+    assert_eq!(get(&reg, "[Channel3]", "play"), 1.0);
+    assert_eq!(get(&reg, "[Channel1]", "play"), 0.0);
+}

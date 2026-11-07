@@ -44,6 +44,10 @@ const RECENT: usize = 10;
 
 /// Set when a setting changes, so the next tick reads them again.
 static CHANGED: AtomicBool = AtomicBool::new(true);
+/// Whether the karaoke page is wanted (see [`set_karaoke_page`]).
+static KARAOKE: AtomicBool = AtomicBool::new(false);
+/// The karaoke page's address on the network while it is served.
+static KARAOKE_URL: Mutex<String> = Mutex::new(String::new());
 /// What Settings shows under the switch: the overlay's address, or why it
 /// couldn't start.
 static STATUS: Mutex<String> = Mutex::new(String::new());
@@ -56,6 +60,24 @@ pub fn status() -> String {
 /// Tells the feed its settings changed.
 pub fn settings_changed() {
     CHANGED.store(true, Ordering::Release);
+}
+
+/// Serves the karaoke page (`/karaoke`) on the overlay's server, open to
+/// other devices on the network, or stops it. The server runs while the
+/// feed or the page needs it.
+pub fn set_karaoke_page(on: bool) {
+    if KARAOKE.swap(on, Ordering::AcqRel) != on {
+        CHANGED.store(true, Ordering::Release);
+    }
+    if !on {
+        opendj_remote::overlay::set_karaoke(r#"{"state":0}"#.into(), None);
+    }
+}
+
+/// Where other devices open the karaoke page while it is served; empty
+/// otherwise (or until the server has started).
+pub fn karaoke_url() -> String {
+    KARAOKE_URL.lock().map(|s| s.clone()).unwrap_or_default()
 }
 
 /// The folder the files are written to.
@@ -186,26 +208,56 @@ impl NowPlaying {
     fn reconfigure(&mut self) {
         let config = Config::read();
         self.config = Some(config.clone());
+        let karaoke = KARAOKE.load(Ordering::Acquire);
         if !config.enabled {
-            self.overlay = None;
             self.playing = None;
             self.candidate = None;
             set_status(String::new());
+        }
+        if !config.enabled && !karaoke {
+            self.overlay = None;
+            set_karaoke_url(String::new());
             return;
         }
+        // The karaoke page is for a TV or another screen, so it needs the
+        // network.
+        let network = config.network || karaoke;
         let restart = match &self.overlay {
             None => true,
-            Some(o) => o.network() != config.network,
+            Some(o) => o.network() != network,
         };
         if restart {
             self.overlay = None;
-            match Overlay::start(overlay::DEFAULT_PORT, config.network) {
+            match Overlay::start(overlay::DEFAULT_PORT, network) {
                 Ok(o) => {
-                    set_status(o.url());
+                    if config.enabled {
+                        set_status(o.url());
+                    }
                     self.overlay = Some(o);
                 }
-                Err(e) => set_status(format!("The overlay page can't start: {e}")),
+                Err(e) => {
+                    if config.enabled {
+                        set_status(format!("The overlay page can't start: {e}"));
+                    }
+                }
             }
+        }
+        set_karaoke_url(match (&self.overlay, karaoke) {
+            (Some(o), true) => {
+                let ip = opendj_remote::local_addresses()
+                    .first()
+                    .map(|(_, ip)| ip.to_string())
+                    .unwrap_or_else(|| "127.0.0.1".into());
+                format!("http://{ip}:{}/karaoke", o.port())
+            }
+            _ => String::new(),
+        });
+        if !config.enabled {
+            // Only the karaoke page: the overlay shows nothing.
+            if let Some(o) = &self.overlay {
+                o.set("{}".into(), None, config.style);
+            }
+            return;
         }
         // Everything is sent again: the folder, line or style may differ.
         self.publish(&config);
@@ -239,6 +291,12 @@ impl NowPlaying {
                 config.style,
             );
         }
+    }
+}
+
+fn set_karaoke_url(s: String) {
+    if let Ok(mut url) = KARAOKE_URL.lock() {
+        *url = s;
     }
 }
 
