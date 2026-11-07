@@ -1449,6 +1449,17 @@ mod tests {
         assert!(rig.notes.send([0x80, 127, 0]));
         assert!(rig.instrument_buffer().abs() < 1e-3);
         assert_eq!(view.held(), 0);
+        // In a picked scale, C major, C# plays C, and the view shows the
+        // scale and the note that sounds.
+        rig.reg.get(group, "scale_mode").unwrap().set(2.0);
+        assert!(rig.notes.send([0x90, 61, 100]));
+        assert!((rig.instrument_buffer() - 60.0 / 127.0).abs() < 1e-3);
+        assert_eq!(view.held(), 1 << 60);
+        let mask = rig.reg.get(group, "scale_mask").unwrap().get();
+        assert_eq!(mask as u16, crate::scale::mask(0, 0));
+        assert!(rig.notes.send([0x80, 61, 0]));
+        assert!(rig.instrument_buffer().abs() < 1e-3);
+        rig.reg.get(group, "scale_mode").unwrap().set(0.0);
         // The pads play from middle C; a pad let go after the octave moved
         // still stops its note.
         let pad = rig.reg.get(group, "pad_1").unwrap();

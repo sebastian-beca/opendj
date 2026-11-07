@@ -208,6 +208,13 @@ impl InputControls {
                 reg.create(g, &format!("parameter{k}"), 0.0, 0.0, 1.0, Behavior::Linear);
             }
             reg.indicator(g, "num_parameters", INSTRUMENT_PARAMETERS as f64);
+            // Scale mode (see `crate::scale`): Auto by default.
+            reg.create(g, "scale_mode", 1.0, 0.0, 2.0, Behavior::Free);
+            reg.create(g, "scale_root", 0.0, 0.0, 11.0, Behavior::Free);
+            let types = (crate::scale::SCALES.len() - 1) as f64;
+            reg.create(g, "scale_type", 0.0, 0.0, types, Behavior::Free);
+            reg.indicator(g, "scale_mask", 4095.0);
+            reg.indicator(g, "scale_now", (12 * crate::scale::SCALES.len()) as f64);
         }
         let configured = reg.indicator(g, "input_configured", 1.0);
         alias(reg, g, "enabled", g, "input_configured");
@@ -244,6 +251,11 @@ pub(crate) struct Input {
     pads: Option<Pads>,
     /// The instrument's `parameterN` knobs; empty for the device inputs.
     params: Vec<ControlHandle>,
+    /// The instrument's scale mode, root, type and the mask shown (see
+    /// `crate::scale`); none for the device inputs.
+    scale: Option<[ControlHandle; 5]>,
+    /// The master deck's key, for Auto.
+    master_key: Option<crate::key::Key>,
     feed: Option<InputFeed>,
     /// Waiting for the queue to fill before playing from it.
     filling: bool,
@@ -272,6 +284,20 @@ impl Input {
             c: InputControls::create(reg, input),
             index: input,
             pads: (input == INSTRUMENT).then(|| Pads::create(reg, input_group(input))),
+            scale: (input == INSTRUMENT).then(|| {
+                [
+                    "scale_mode",
+                    "scale_root",
+                    "scale_type",
+                    "scale_mask",
+                    "scale_now",
+                ]
+                .map(|k| {
+                    reg.get(input_group(input), k)
+                        .expect("the instrument's scale controls exist")
+                })
+            }),
+            master_key: None,
             params: if input == INSTRUMENT {
                 (1..=INSTRUMENT_PARAMETERS)
                     .filter_map(|k| reg.get(input_group(input), &format!("parameter{k}")))
@@ -293,6 +319,11 @@ impl Input {
             pfl: false,
             live: false,
         }
+    }
+
+    /// The master deck's key now, which scale mode Auto plays in.
+    pub(crate) fn set_master_key(&mut self, key: Option<crate::key::Key>) {
+        self.master_key = key;
     }
 
     /// Plays from `feed` from now on, or from nothing. Returns the old feed,
@@ -323,6 +354,18 @@ impl Input {
         }
         let buf = &mut self.buf[..frames];
         let source = if self.index == INSTRUMENT {
+            if let Some([mode, root, kind, mask_shown, now_shown]) = &self.scale {
+                let scale = crate::scale::scale_for(
+                    mode.get().round() as u8,
+                    root.get().round() as u8,
+                    kind.get().round() as usize,
+                    self.master_key,
+                );
+                let mask = scale.map_or(0, |(r, s)| crate::scale::mask(r, s));
+                mask_shown.set(mask as f64);
+                now_shown.set(scale.map_or(0.0, |(r, s)| (1 + s * 12 + r as usize) as f64));
+                fx.set_scale(mask);
+            }
             if let Some(pads) = &mut self.pads {
                 pads.play(fx);
             }

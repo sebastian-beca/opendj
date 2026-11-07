@@ -1032,6 +1032,10 @@ pub(crate) struct EffectRack {
     notes: rtrb::Consumer<Midi>,
     notes_waiting: Vec<Midi>,
     note_input: Option<NoteInput>,
+    /// The scale notes move to on their way to the instrument (see
+    /// [`crate::scale`]), and the scale now.
+    scale: Box<crate::scale::ScaleMapper>,
+    scale_mask: u16,
     /// What the instrument plays, for its deck to show.
     view: Arc<InstrumentView>,
     /// Its last [`SCOPE_SAMPLES`] samples (mono), and where the next goes.
@@ -1288,6 +1292,8 @@ impl EffectRack {
             notes,
             notes_waiting: Vec::with_capacity(opendj_plugin_host::shm::MAX_EVENTS),
             note_input: Some(NoteInput { tx: notes_tx }),
+            scale: Box::default(),
+            scale_mask: 0,
             view: Arc::default(),
             scope_ring: vec![0.0; SCOPE_SAMPLES],
             scope_pos: 0,
@@ -1363,8 +1369,16 @@ impl EffectRack {
     /// Instrument input's pads).
     pub(crate) fn queue_note(&mut self, data: [u8; 3]) {
         if self.notes_waiting.len() < self.notes_waiting.capacity() {
-            self.notes_waiting.push(Midi { frame: 0, data });
+            if let Some(m) = self.scale.map(Midi { frame: 0, data }, self.scale_mask) {
+                self.notes_waiting.push(m);
+            }
         }
+    }
+
+    /// The scale notes for the instrument move to from now on: a bit per
+    /// pitch class from C, 0 for none (see [`crate::scale`]).
+    pub(crate) fn set_scale(&mut self, mask: u16) {
+        self.scale_mask = mask;
     }
 
     pub(crate) fn has_instrument(&self) -> bool {
@@ -1384,7 +1398,9 @@ impl EffectRack {
         let cap = self.notes_waiting.capacity();
         while let Ok(n) = self.notes.pop() {
             if self.notes_waiting.len() < cap {
-                self.notes_waiting.push(n);
+                if let Some(n) = self.scale.map(n, self.scale_mask) {
+                    self.notes_waiting.push(n);
+                }
             }
         }
         let Some(a) = self.instrument.as_deref_mut() else {
