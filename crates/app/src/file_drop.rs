@@ -67,6 +67,12 @@ impl FileDrop {
     }
 
     /// Follows a window event from winit.
+    /// The files of the last drop, for a deck that takes them itself
+    /// (see `crate::instrument_art`).
+    pub fn files(&self) -> Rc<RefCell<Vec<PathBuf>>> {
+        self.paths.clone()
+    }
+
     pub fn window_event(&self, window: &slint::Window, event: &WindowEvent) {
         match event {
             WindowEvent::CursorMoved { position, .. } => {
