@@ -599,6 +599,24 @@ pub fn set_controller_decks(choices: &HashMap<String, DeckChoice>) {
     });
 }
 
+/// The MIDI keyboard (its port name) and channel (1 to 16) that play the
+/// instrument; none and 0 for any.
+pub fn instrument_midi_from() -> (Option<String>, u8) {
+    let v = &load()["instrument_midi_from"];
+    let device = v["device"]
+        .as_str()
+        .filter(|d| !d.is_empty())
+        .map(String::from);
+    let channel = v["channel"].as_u64().filter(|&c| c <= 16).unwrap_or(0) as u8;
+    (device, channel)
+}
+
+pub fn set_instrument_midi_from(device: Option<&str>, channel: u8) {
+    save(|v| {
+        v["instrument_midi_from"] = json!({ "device": device.unwrap_or(""), "channel": channel });
+    });
+}
+
 /// Where the DJ's own controller mappings are kept.
 pub fn own_mappings_dir() -> Option<PathBuf> {
     config_dir().map(|d| d.join("controller-mappings"))

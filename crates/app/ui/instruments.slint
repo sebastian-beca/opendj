@@ -98,6 +98,13 @@ export global InstrumentsUi {
     // path commands in a 128 by 32 box.
     in property <[bool]> held;
     in property <string> scope;
+    // Which MIDI keyboard and channel play the instrument: `midi-device` 0
+    // any, else 1 + its place in `keyboards`; `midi-channel` 0 any, else 1
+    // to 16. Set by the app; `set-midi-from` picks.
+    in property <[string]> keyboards;
+    in property <int> midi-device;
+    in property <int> midi-channel;
+    callback set-midi-from(device: int, channel: int);
 
     // Each input's device and channels as Settings › Audio shows them, in
     // the engine's input order (microphone, aux, instrument, aux 2, aux 3);

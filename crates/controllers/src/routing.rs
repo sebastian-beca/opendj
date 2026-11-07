@@ -10,7 +10,7 @@
 //! the threads running devices read them without asking the device watcher.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -229,6 +229,41 @@ pub(crate) fn shift_group(group: &str, shift: usize) -> std::borrow::Cow<'_, str
     std::borrow::Cow::Owned(out)
 }
 
+/// Which keyboard plays the instrument: the hash of its device key
+/// ([`device_hash`]), 0 for any.
+static SOURCE_DEVICE: AtomicU64 = AtomicU64::new(0);
+/// And on which MIDI channel, 1 to 16; 0 for any.
+static SOURCE_CHANNEL: AtomicU8 = AtomicU8::new(0);
+
+/// A short fingerprint of `port`'s device, the same for each of its ports'
+/// spellings (see [`device_key`]); never 0.
+pub fn device_hash(port: &str) -> u64 {
+    // FNV-1a, so it is the same on every run.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in device_key(port).bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100_0000_01b3);
+    }
+    h.max(1)
+}
+
+/// Lets only keyboard `device` (a port name, none for any) on `channel`
+/// (1 to 16, 0 for any) play the instrument. A setup with several
+/// keyboards, or one sending several channels (a sequencer's tracks), then
+/// plays it from one of them only.
+pub fn set_instrument_source(device: Option<&str>, channel: u8) {
+    SOURCE_DEVICE.store(device.map_or(0, device_hash), Ordering::Relaxed);
+    SOURCE_CHANNEL.store(if channel <= 16 { channel } else { 0 }, Ordering::Relaxed);
+}
+
+/// Whether a message with `status` from the device hashed `device` may
+/// play the instrument (see [`set_instrument_source`]).
+pub(crate) fn from_source(device: u64, status: u8) -> bool {
+    let want = SOURCE_DEVICE.load(Ordering::Relaxed);
+    let channel = SOURCE_CHANNEL.load(Ordering::Relaxed);
+    (want == 0 || want == device) && (channel == 0 || status & 15 == channel - 1)
+}
+
 /// The keyboards heard so far this run, and the last one heard.
 #[derive(Default)]
 struct Heard {
@@ -271,6 +306,22 @@ pub fn last_player() -> Option<(String, Instant)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_chosen_keyboard_and_channel_play_the_instrument() {
+        let (keys, pads) = (device_hash("KeyStep Pro"), device_hash("Maschine"));
+        assert_ne!(keys, pads);
+        assert_eq!(keys, device_hash("KeyStep Pro MIDI 1"), "any port of it");
+        assert!(from_source(pads, 0x92));
+        set_instrument_source(Some("KeyStep Pro"), 2);
+        assert!(from_source(keys, 0x91), "channel 2");
+        assert!(!from_source(keys, 0x90), "channel 1");
+        assert!(!from_source(pads, 0x91));
+        set_instrument_source(Some("KeyStep Pro"), 0);
+        assert!(from_source(keys, 0x9f));
+        set_instrument_source(None, 0);
+        assert!(from_source(pads, 0x90));
+    }
 
     #[test]
     fn groups_move_along_and_wrap() {
