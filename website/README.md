@@ -54,8 +54,8 @@ set, the sign-in pages say it isn't set up yet.
 `tools/controllers.py` writes a docs page for every mapping in
 `res/controllers` when the site builds, plus the docs' `SUMMARY.md` from
 `book/src/SUMMARY.in.md`. Lines that drive a control openDJ doesn't have yet
-are marked using `book/supported-controls.txt`. CI fails when that list is out
-of date; regenerate it from the repository root with:
+are marked using `book/supported-controls.txt`. `cargo test` fails when that list is
+out of date; regenerate it from the repository root with:
 
 ```sh
 cargo run -q -p opendj -- --list-controls > website/book/supported-controls.txt

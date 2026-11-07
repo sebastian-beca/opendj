@@ -73,13 +73,9 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # Includes the check that website/book/supported-controls.txt matches
+      # `opendj --list-controls` (control_list_tests in crates/app).
       - run: cargo test --workspace
-      - name: Website's list of supported controls is up to date
-        # The docs' controller pages mark the mapping lines openDJ doesn't
-        # support from this list. Regenerate it with the command below.
-        run: |
-          cargo run -q -p opendj -- --list-controls > /tmp/controls.txt
-          diff -u website/book/supported-controls.txt /tmp/controls.txt
 
   windows:
     if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
