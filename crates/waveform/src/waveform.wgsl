@@ -19,7 +19,7 @@ struct Params {
     loop_end_bin: f32,        // < loop_start = no loop
     gain: f32,
     num_levels: u32,
-    style: u32,               // 0 = RGB (colour by frequency), 1 = stacked bands
+    style: u32,               // 0 = RGB (colour by frequency), 1 = stacked bands, 2 = mono (player scrubber)
     scale: f32,               // physical pixels per logical pixel
     spread: f32,              // how far the digit atlas's distance field reaches, in atlas pixels
     low_color: vec4<f32>,
@@ -39,7 +39,11 @@ struct Params {
     phrase_count: u32,
     minute_bins: f32,                  // slices per minute, for the overview's minute dots (0 = none)
     slip_bin: f32,                     // the silent playhead while slipping, in slices (< 0 = none)
+    mix_start_bin: f32,                // the next mix, in slices (Mono style; none unless end > start)
+    mix_end_bin: f32,
     pad0: u32,
+    pad1: u32,
+    pad2: u32,
 };
 
 @group(0) @binding(0) var<uniform> p: Params;
@@ -65,6 +69,10 @@ const AMBER = vec3<f32>(0.91, 0.70, 0.23);
 const LOOP_LILAC = vec3<f32>(0.714, 0.612, 1.0);
 const LOOP_MARKING = vec3<f32>(0.82, 0.82, 0.84);
 const CUE_ORANGE = vec3<f32>(1.0, 0.6, 0.1);
+// Mono style (the Player's scrubber): played, the next mix, the rest.
+const MONO_LILAC = vec3<f32>(0.714, 0.612, 1.0);
+const MONO_MIX = vec3<f32>(0.357, 0.298, 0.541);
+const MONO_GREY = vec3<f32>(0.40, 0.40, 0.44);
 // Phrase colours, in PhraseKind order: intro, build (up), drop (peak),
 // breakdown (break or bridge), outro, chorus (main), verse.
 const PHRASE_COLORS = array<vec3<f32>, 7>(
@@ -344,7 +352,20 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     // The waveform.
     if (has_track) {
         let s = column(bin);
-        if (p.style == 0u) {
+        if (p.style == 2u) {
+            // Mono: played in lilac, the mix zone in a dim lilac, the rest
+            // grey, as one solid shape (peaks slightly translucent).
+            var c = MONO_GREY;
+            if (bin < p.play_bin) {
+                c = MONO_LILAC;
+            } else if (p.mix_end_bin > p.mix_start_bin && bin >= p.mix_start_bin && bin <= p.mix_end_bin) {
+                c = MONO_MIX;
+            }
+            let peak_h = height(s.peak.w) * span;
+            let rms_h = height(s.rms.w) * span;
+            color = over(color, c, fill(peak_h, d) * 0.45);
+            color = over(color, c, fill(rms_h, d));
+        } else if (p.style == 0u) {
             let c = band_color(s);
             let peak_h = height(s.peak.w) * span;
             let rms_h = height(s.rms.w) * span;
@@ -414,8 +435,8 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     }
 
     if (p.mode == 1u) {
-        // Overview: darken what has been played.
-        if (bin < p.play_bin) {
+        // Overview: darken what has been played (Mono colours it instead).
+        if (bin < p.play_bin && p.style != 2u) {
             color = color * 0.45;
         }
         // A dot at every minute, between the waveform and the phrase bar,
@@ -433,7 +454,7 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
 
     // Cue point: a line with flags at both edges (of the waveform, clear of
     // the overview's dots and phrase bar).
-    if (p.cue_bin >= 0.0 && y < wave_h) {
+    if (p.cue_bin >= 0.0 && y < wave_h && p.style != 2u) {
         let cx = bin_x(p.cue_bin);
         let edge = half_h - d;
         let flag = clamp(5.0 * k - abs(x - cx) - edge * 0.8 + 0.5, 0.0, 1.0);
@@ -443,7 +464,7 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     // Hotcues: a coloured line with a flag at the top.
     for (var h = 0; h < 8; h = h + 1) {
         let pos = p.hotcues[h / 4][h % 4];
-        if (pos >= 0.0 && y < wave_h) {
+        if (pos >= 0.0 && y < wave_h && p.style != 2u) {
             let hx = bin_x(pos);
             let in_flag = x >= hx - 0.5 && x <= hx + 7.0 * k && y <= 7.0 * k;
             let a = max(line(x, hx, 0.5 * k), select(0.0, 1.0, in_flag));
