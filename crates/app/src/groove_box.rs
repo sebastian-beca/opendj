@@ -156,9 +156,13 @@ impl Keeper {
                     // The input the deck plays instead (see
                     // `crate::instruments`), kept beside its Groove Box.
                     .chain(
-                        registry
-                            .get(&format!("[Channel{}]", d + 1), "live_input")
-                            .map(|c| ("live_input".to_string(), c)),
+                        ["live_input", "live_trim", "live_pan"]
+                            .into_iter()
+                            .filter_map(|k| {
+                                registry
+                                    .get(&format!("[Channel{}]", d + 1), k)
+                                    .map(|c| (k.to_string(), c))
+                            }),
                     )
                     .collect()
             })

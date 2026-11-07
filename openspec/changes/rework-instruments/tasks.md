@@ -16,11 +16,12 @@
 
 ## 3. Instrument deck
 
-- [ ] 3.1 Live channels: TRIM (−12 to +24 dB, set on first play), PAN and an always-on true-peak safety limiter at −1 dBTP for every deck playing an instrument or input; Thru on the crossfader by default
+- [x] 3.1 Live channels: TRIM (−12 to +24 dB), PAN and an always-on true-peak safety limiter at −1 dBTP for every deck playing an instrument or input; Thru on the crossfader by default
 - [ ] 3.2 2-Deck instrument deck: art header, preset ‹ ›, scope, EDIT, SAVE, 8 knobs in pages, TRIM, PAN, meter, keyboard lighting played notes
 - [ ] 3.3 Knob pages from the plugin (CLAP remote controls), else its first 8 automatable parameters, else the user's picks (right-click Assign…); saved in the preset
 - [ ] 3.4 4-Deck instrument strip: art, preset ‹ ›, thin scope, 4 knobs, TRIM, meter, EDIT; no keyboard
 - [ ] 3.5 Input decks (mic, aux): header with the interface input, TRIM, PAN, meter
+- [ ] 3.7 TRIM set on first play from the input's level
 - [ ] 3.6 MIDI from: each instrument deck takes notes from a chosen device and channel (Any by default), so one controller's tracks can play different decks; built on the MIDI device roles' deck choice
 
 ## 4. Scale, chord and arpeggiator

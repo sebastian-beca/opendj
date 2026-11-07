@@ -259,6 +259,11 @@ pub(crate) struct DeckControls {
     /// own): 0 none, else 1 + the input (see [`crate::inputs`]), so 1 the
     /// microphone, 2 the auxiliary input, 3 the instrument.
     pub(crate) live_input: ControlHandle,
+    /// The live input's trim before the channel, in dB (-12 to +24), for
+    /// gear that comes in quiet (openDJ's own).
+    pub(crate) live_trim: ControlHandle,
+    /// The live input's balance, -1 left to 1 right (openDJ's own).
+    pub(crate) live_pan: ControlHandle,
     /// Key shift in semitones on top of the file's key (Mixxx's `pitch`;
     /// `pitch_adjust` is the same control here).
     pub(crate) pitch: ControlHandle,
@@ -533,6 +538,8 @@ impl DeckControls {
                 crate::inputs::NUM_INPUTS as f64,
                 Behavior::Free,
             ),
+            live_trim: reg.create(g, "live_trim", 0.0, -12.0, 24.0, Behavior::Linear),
+            live_pan: reg.create(g, "live_pan", 0.0, -1.0, 1.0, Behavior::Linear),
             pitch: reg.create(g, "pitch", 0.0, -6.0, 6.0, Behavior::Linear),
             key: reg.indicator(g, "key", 24.0),
             file_key: reg.indicator(g, "file_key", 24.0),
