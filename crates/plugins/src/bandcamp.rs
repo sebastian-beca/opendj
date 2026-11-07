@@ -137,6 +137,7 @@ pub fn parse(answer: &Value) -> Result<Vec<StoreItem>, PluginError> {
                     .map(str::to_string),
                 page_url: Some(url),
                 download: None,
+                price: String::new(),
             })
         })
         .collect();

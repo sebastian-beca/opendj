@@ -14,7 +14,7 @@ use std::rc::Rc;
 use opendj_library::ListEntry;
 use slint::ComponentHandle;
 
-use super::{Browser, Contents, StoreRow};
+use super::{columns, Browser, Contents, StoreRow};
 use crate::{AppWindow, WantedUi};
 
 /// A track to want: its service or store, artist, title and page.
@@ -509,11 +509,103 @@ impl Browser {
         self.refresh_tree();
     }
 
+    /// Lists the Wanted rows again in the new sort, with the selected track
+    /// still selected at its new place (the list then scrolls to it).
+    pub(super) fn resort_wanted(&mut self, app: &AppWindow) {
+        let id = usize::try_from(app.get_current_track())
+            .ok()
+            .and_then(|row| match self.store.rows.get(row) {
+                Some(StoreRow::Wanted(w)) => Some(w.id),
+                _ => None,
+            });
+        self.refresh_rows();
+        let Some(id) = id else { return };
+        let at = self
+            .store
+            .rows
+            .iter()
+            .position(|r| matches!(r, StoreRow::Wanted(w) if w.id == id));
+        app.set_current_track(at.map_or(-1, |i| i as i32));
+    }
+
     /// "Open Page" on a row of the Wanted list.
     fn open_wanted(&mut self, row: usize) {
         if let Some(StoreRow::Wanted(w)) = self.store.rows.get(row) {
             crate::spotify::open_in_browser(&w.page_url);
         }
+    }
+}
+
+/// What the Wanted list shows in the store column: where the track is
+/// being bought, or the service or store it came from.
+pub(super) fn detail(w: &opendj_library::Wanted) -> String {
+    match opendj_plugins::buy::store_traits(&w.pending_store) {
+        Some(t) => format!("Buying on {}…", t.name),
+        None => w.store.clone(),
+    }
+}
+
+/// Whether a click on column `id` sorts the Wanted list: the columns it
+/// fills, and when each track was added.
+pub(super) fn sorts_by(id: i32) -> bool {
+    matches!(
+        id,
+        columns::ARTIST | columns::TITLE_ID | columns::GENRE | columns::LENGTH | columns::ADDED
+    )
+}
+
+/// Sorts Wanted rows, which come newest first, by column `id`; -1 (or a
+/// column it can't sort by) keeps them newest first. Ties stay newest
+/// first, and tracks of unknown length go last.
+pub(super) fn sort(rows: &mut [opendj_library::Wanted], id: i32, ascending: bool) {
+    use std::cmp::Ordering;
+    if !sorts_by(id) {
+        return;
+    }
+    if id == columns::ADDED {
+        // Oldest first going up.
+        if ascending {
+            rows.reverse();
+        }
+        return;
+    }
+    let text = |s: &str| opendj_library::query::fold(s);
+    let mut keyed: Vec<(String, opendj_library::Wanted)> = rows
+        .iter()
+        .map(|w| {
+            let key = match id {
+                columns::ARTIST => text(&w.artist),
+                columns::TITLE_ID => text(&w.title),
+                columns::GENRE => text(&detail(w)),
+                _ => String::new(),
+            };
+            (key, w.clone())
+        })
+        .collect();
+    keyed.sort_by(|(ka, a), (kb, b)| {
+        let o = if id == columns::LENGTH {
+            match (a.duration > 0.0, b.duration > 0.0) {
+                (true, true) => a.duration.total_cmp(&b.duration),
+                (true, false) => return Ordering::Less,
+                (false, true) => return Ordering::Greater,
+                (false, false) => Ordering::Equal,
+            }
+        } else {
+            // Blank names go last too.
+            match (ka.is_empty(), kb.is_empty()) {
+                (false, true) => return Ordering::Less,
+                (true, false) => return Ordering::Greater,
+                _ => ka.cmp(kb),
+            }
+        };
+        if ascending {
+            o
+        } else {
+            o.reverse()
+        }
+    });
+    for (slot, (_, w)) in rows.iter_mut().zip(keyed) {
+        *slot = w;
     }
 }
 
@@ -544,6 +636,49 @@ mod tests {
             added_text(3, 5),
             "Added 3 tracks to Wanted; 2 were there already."
         );
+    }
+
+    fn wanted(id: i64, artist: &str, title: &str, duration: f64) -> opendj_library::Wanted {
+        opendj_library::Wanted {
+            id,
+            store: "TIDAL".into(),
+            artist: artist.into(),
+            title: title.into(),
+            page_url: String::new(),
+            isrc: String::new(),
+            duration,
+            pending_store: String::new(),
+        }
+    }
+
+    fn ids(rows: &[opendj_library::Wanted]) -> Vec<i64> {
+        rows.iter().map(|w| w.id).collect()
+    }
+
+    #[test]
+    fn sorts_by_the_clicked_column() {
+        // Newest first, as the library gives them.
+        let list = vec![
+            wanted(3, "bonobo", "Kerala", 245.0),
+            wanted(2, "Ólafur Arnalds", "Saman", 0.0),
+            wanted(1, "Burial", "Archangel", 238.0),
+        ];
+        let sorted = |id, up| {
+            let mut rows = list.clone();
+            sort(&mut rows, id, up);
+            ids(&rows)
+        };
+        assert_eq!(sorted(-1, true), [3, 2, 1]);
+        assert_eq!(sorted(columns::ARTIST, true), [3, 1, 2]);
+        assert_eq!(sorted(columns::ARTIST, false), [2, 1, 3]);
+        assert_eq!(sorted(columns::TITLE_ID, true), [1, 3, 2]);
+        // Unknown length last, either way.
+        assert_eq!(sorted(columns::LENGTH, true), [1, 3, 2]);
+        assert_eq!(sorted(columns::LENGTH, false), [3, 1, 2]);
+        assert_eq!(sorted(columns::ADDED, true), [1, 2, 3]);
+        assert_eq!(sorted(columns::ADDED, false), [3, 2, 1]);
+        // Not a column the Wanted list fills.
+        assert_eq!(sorted(columns::BPM, true), [3, 2, 1]);
     }
 
     #[test]

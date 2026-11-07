@@ -93,6 +93,9 @@ pub struct Offer {
     /// The store has this track (its page); false for a search page to
     /// try ("Try on …").
     pub found: bool,
+    /// What the store asks for the track ("$1.29"), when its search says;
+    /// empty when not.
+    pub price: String,
 }
 
 impl Offer {
@@ -198,6 +201,8 @@ pub fn rank(mut offers: Vec<Offer>) -> Vec<Offer> {
 
 /// Where a track is sold: pages MusicBrainz knows for its ISRC, then each
 /// store's search. A store that can't say gets its search page, to try.
+/// A store's search still runs when MusicBrainz knew its page, for the
+/// price it gives.
 pub fn find(
     track: &BuyTrack,
     stores: &mut [Box<dyn Plugin>],
@@ -210,6 +215,7 @@ pub fn find(
                 store: s.store,
                 url: s.url,
                 found: true,
+                price: String::new(),
             })),
             Err(e) => eprintln!("buy: {e}"),
         }
@@ -222,22 +228,29 @@ pub fn find(
         let Some(store) = plugin.store() else {
             continue;
         };
-        if offers.iter().any(|o| o.found && o.store == t.id) {
-            continue;
-        }
+        let known = offers.iter().position(|o| o.found && o.store == t.id);
         let found = match store.search(&query) {
-            Ok(items) => find_in(track, &items).and_then(|i| i.page_url.clone()),
+            Ok(items) => {
+                find_in(track, &items).and_then(|i| Some((i.page_url.clone()?, i.price.clone())))
+            }
             Err(PluginError::NotSupported) => None,
             Err(e) => {
                 eprintln!("buy: {}: {e}", t.name);
                 None
             }
         };
+        if let Some(k) = known {
+            if let Some((_, price)) = found {
+                offers[k].price = price;
+            }
+            continue;
+        }
         match found {
-            Some(url) => offers.push(Offer {
+            Some((url, price)) => offers.push(Offer {
                 store: t.id,
                 url,
                 found: true,
+                price,
             }),
             None => {
                 if let Some(url) = store.search_url(&query) {
@@ -245,6 +258,7 @@ pub fn find(
                         store: t.id,
                         url,
                         found: false,
+                        price: String::new(),
                     });
                 }
             }
@@ -303,6 +317,7 @@ mod tests {
             store,
             url: format!("https://{store}.example/{found}"),
             found,
+            price: String::new(),
         }
     }
 
@@ -419,6 +434,7 @@ mod tests {
             artwork_url: None,
             page_url: Some("https://satorio.bandcamp.com/track/crystal-bowls".into()),
             download: None,
+            price: "€1.00".into(),
         };
         let mut stores = vec![
             fake("beatport", Vec::new()),
@@ -430,6 +446,7 @@ mod tests {
         assert_eq!(offers.len(), 2);
         assert_eq!(offers[0].store, "bandcamp");
         assert!(offers[0].found);
+        assert_eq!(offers[0].price, "€1.00");
         assert_eq!(offers[1].store, "beatport");
         assert_eq!(
             offers[1].url,

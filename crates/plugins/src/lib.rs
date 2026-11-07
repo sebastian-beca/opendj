@@ -202,6 +202,9 @@ pub struct StoreItem {
     pub page_url: Option<String>,
     /// For a download add-on: what to pass back to [`StoreSearch::download`].
     pub download: Option<String>,
+    /// What the store asks for it, ready to show ("$1.29"), when its search
+    /// says; empty when not.
+    pub price: String,
 }
 
 #[derive(Debug, PartialEq)]
