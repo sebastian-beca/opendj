@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 
 use crate::source::{
     DownloadUpdate, Found, Prefer, Progress, QueryKind, SearchSource, Snapshot, SourceInfo,
-    SourceQuery,
+    SourceQuery, StatusPage, StatusSection,
 };
 use crate::{Manifest, Plugin, PluginConfig, PluginError, Setting, SettingKind};
 
@@ -118,6 +118,7 @@ fn answer(plugin: &mut dyn Plugin, method: &str, p: &Value) -> Result<Value, Plu
                     source.cancel(str_of(&p["key"]))?;
                     Ok(Value::Null)
                 }
+                "source.status" => Ok(source.status().map_or(Value::Null, |s| status_json(&s))),
                 _ => Err(unsupported()),
             }
         }
@@ -377,6 +378,13 @@ impl SearchSource for RemotePlugin {
     fn cancel(&mut self, key: &str) -> Result<(), PluginError> {
         self.call("source.cancel", json!({ "key": key })).map(drop)
     }
+    fn status(&mut self) -> Option<StatusPage> {
+        // An add-on from before pages answers "not supported": none.
+        self.call("source.status", Value::Null)
+            .ok()
+            .filter(|v| v.is_object())
+            .map(|v| status_from(&v))
+    }
 }
 
 /// The add-on programs to load: each one named in `OPENDJ_ADDONS` (paths
@@ -623,6 +631,36 @@ fn snapshot_from(v: &Value) -> Snapshot {
     }
 }
 
+fn status_json(s: &StatusPage) -> Value {
+    json!({
+        "title": s.title,
+        "line": s.line,
+        "note": s.note,
+        "sections": s.sections.iter().map(|sec| json!({
+            "heading": sec.heading,
+            "rows": sec.rows.iter().map(|(l, v)| json!([l, v])).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn status_from(v: &Value) -> StatusPage {
+    StatusPage {
+        title: string(&v["title"]),
+        line: string(&v["line"]),
+        note: string(&v["note"]),
+        sections: list(&v["sections"])
+            .iter()
+            .map(|sec| StatusSection {
+                heading: string(&sec["heading"]),
+                rows: list(&sec["rows"])
+                    .iter()
+                    .map(|r| (string(&r[0]), string(&r[1])))
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
 fn update_json(u: &DownloadUpdate) -> Value {
     let progress = match &u.progress {
         Progress::Queued => json!({ "state": "queued" }),
@@ -723,6 +761,20 @@ mod tests {
             };
             assert_eq!(update_from(&update_json(&u)), u);
         }
+    }
+
+    #[test]
+    fn status_pages_round_trip() {
+        let page = StatusPage {
+            title: "Sharing".into(),
+            line: "Online · 2 uploading".into(),
+            note: "".into(),
+            sections: vec![StatusSection {
+                heading: "Uploads".into(),
+                rows: vec![("Now".into(), "2".into()), ("Today".into(), "14".into())],
+            }],
+        };
+        assert_eq!(status_from(&status_json(&page)), page);
     }
 
     #[test]
