@@ -11,7 +11,7 @@ With lyrics read and timed (`add-synced-lyrics`) and stems separated on load, op
 - **Karaoke screen**: a window of its own, opened from the Lyrics tab or from Player mode's large lyrics, that opens full screen on another display when there is one. It shows the line to sing big, the word being sung filling with lilac as it is sung, the line before faded, and the next two lines under it. Lyrics timed only by line have their words spread over the line by length. Before a line that follows a break, dots count in the last four beats at the deck's tempo. Double-click or F toggles full screen, Esc leaves it.
 - It follows the track playing, as the Player's large lyrics do, so it moves over with Automix.
 - **Guide vocal**: while the screen is open the Lyrics tab has a Vocals slider, the vocal stem's level on the deck followed (none to full). The level set there is held on the next track the screen follows, so a whole night can run with the voice down.
-- **Karaoke page** (next step): the same screen as a page on openDJ's local web server (the now-playing overlay's, port 7487), for a TV's browser, a tablet or a laptop on the network.
+- **Karaoke page**: the same screen as a page on openDJ's local web server (the now-playing overlay's, port 7487), for a TV's browser, a tablet or a laptop on the network. Share in the Lyrics tab serves it on the network while the karaoke screen is open and shows its address.
 
 ## Capabilities
 

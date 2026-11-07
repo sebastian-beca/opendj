@@ -9,8 +9,8 @@
 
 ## 2. Karaoke page
 
-- [ ] 2.1 `/karaoke` page and its JSON on the local web server, timed in the browser between polls
-- [ ] 2.2 Settings and guide for opening it on another device
+- [x] 2.1 `/karaoke` page and its JSON on the local web server, timed in the browser between polls
+- [x] 2.2 Share switch and address in the Lyrics tab, and the guide for opening it on another device
 
 ## Workflow follow-up
 

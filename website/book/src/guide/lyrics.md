@@ -67,6 +67,19 @@ Like Player mode's lyrics, the screen follows the track playing, so it
 moves over with Automix. While it is open, the Lyrics tab follows the
 track playing too.
 
+### On a TV or another device
+
+The karaoke screen can also be a web page, for a smart TV's browser, a
+tablet, or a laptop plugged into a projector. With the karaoke screen open,
+press **Share** beside **Web page** in the Lyrics tab. The tab shows the
+page's address, such as `http://192.168.1.20:7487/karaoke`: open it in a
+browser on any device on the same network. The page shows the same lines,
+word fill and count-in as the window, and keeps time itself between
+updates. **Stop** takes it off the network; closing the karaoke screen
+stops it too. openDJ remembers whether you shared it.
+
+![The karaoke web page address in the Lyrics tab](../images/karaoke-page.png)
+
 ### Turning the voice down
 
 While the karaoke screen is open, the Lyrics tab has a **Vocals** slider:
