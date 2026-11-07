@@ -132,7 +132,7 @@ fn this_install() -> Option<Install> {
         // .../openDJ.app/Contents/MacOS/opendj
         let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
         let app = exe.parent()?.parent()?.parent()?;
-        (app.extension()? == "app").then(|| Install::MacApp(app.to_path_buf()))
+        (app.extension()? == "app").then(|| Install::MacApp(untranslocated(app)))
     } else if cfg!(windows) {
         let exe = std::env::current_exe().ok()?;
         exe.with_file_name("unins000.exe")
@@ -140,6 +140,100 @@ fn this_install() -> Option<Install> {
             .then_some(Install::WindowsSetup(exe))
     } else {
         std::env::var_os("APPIMAGE").map(|p| Install::AppImage(p.into()))
+    }
+}
+
+/// Where the app really is. macOS runs a quarantined app that wasn't moved
+/// by the Finder (still in Downloads, say) from a read-only copy under
+/// AppTranslocation, which can't be replaced; the update goes to the
+/// original instead. If that can't be found, it goes to /Applications.
+fn untranslocated(app: &Path) -> PathBuf {
+    if !is_translocated(app) {
+        return app.to_path_buf();
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(original) = mac::original_path(app) {
+        return original;
+    }
+    PathBuf::from("/Applications").join(
+        app.file_name()
+            .unwrap_or(std::ffi::OsStr::new("openDJ.app")),
+    )
+}
+
+fn is_translocated(app: &Path) -> bool {
+    app.components()
+        .any(|c| c.as_os_str() == "AppTranslocation")
+}
+
+#[cfg(target_os = "macos")]
+mod mac {
+    use std::ffi::{c_void, CString, OsStr};
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::{Path, PathBuf};
+
+    type CFURLRef = *const c_void;
+    type Original = unsafe extern "C" fn(CFURLRef, *mut *const c_void) -> CFURLRef;
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFURLCreateFromFileSystemRepresentation(
+            allocator: *const c_void,
+            buffer: *const u8,
+            length: isize,
+            is_directory: u8,
+        ) -> CFURLRef;
+        fn CFURLGetFileSystemRepresentation(
+            url: CFURLRef,
+            resolve_against_base: u8,
+            buffer: *mut u8,
+            max_length: isize,
+        ) -> u8;
+        fn CFRelease(cf: *const c_void);
+    }
+
+    /// The path a translocated app was opened from, from the Security
+    /// framework's SecTranslocateCreateOriginalPathForURL (looked up at
+    /// run time, as it isn't in the public headers).
+    pub(super) fn original_path(app: &Path) -> Option<PathBuf> {
+        let lib = CString::new("/System/Library/Frameworks/Security.framework/Security").ok()?;
+        let name = CString::new("SecTranslocateCreateOriginalPathForURL").ok()?;
+        let bytes = app.as_os_str().as_bytes();
+        // SAFETY: plain C calls; every CF object created here is released.
+        unsafe {
+            let handle = libc::dlopen(lib.as_ptr(), libc::RTLD_LAZY);
+            if handle.is_null() {
+                return None;
+            }
+            let sym = libc::dlsym(handle, name.as_ptr());
+            if sym.is_null() {
+                return None;
+            }
+            let original: Original = std::mem::transmute(sym);
+            let url = CFURLCreateFromFileSystemRepresentation(
+                std::ptr::null(),
+                bytes.as_ptr(),
+                bytes.len() as isize,
+                1,
+            );
+            if url.is_null() {
+                return None;
+            }
+            let out = original(url, std::ptr::null_mut());
+            CFRelease(url);
+            if out.is_null() {
+                return None;
+            }
+            let mut buf = vec![0u8; libc::PATH_MAX as usize * 4];
+            let ok = CFURLGetFileSystemRepresentation(out, 1, buf.as_mut_ptr(), buf.len() as isize);
+            CFRelease(out);
+            if ok == 0 {
+                return None;
+            }
+            let len = buf.iter().position(|&b| b == 0)?;
+            let path = PathBuf::from(OsStr::from_bytes(&buf[..len]));
+            (path != app && !super::is_translocated(&path)).then_some(path)
+        }
     }
 }
 
@@ -447,13 +541,20 @@ fn swap_app(app: &Path, new_app: &Path) -> Result<(), String> {
     let parent = app.parent().ok_or("no folder")?;
     let old = parent.join(".openDJ-previous.app");
     let _ = std::fs::remove_dir_all(&old);
-    std::fs::rename(app, &old).map_err(|e| format!("can't replace {} ({e})", app.display()))?;
+    // The app may not be there when a translocated copy is running and its
+    // original couldn't be found: the update then goes in fresh.
+    let existed = app.exists();
+    if existed {
+        std::fs::rename(app, &old).map_err(|e| format!("can't replace {} ({e})", app.display()))?;
+    }
     // A rename where it can, a copy across disks.
     let placed = std::fs::rename(new_app, app).is_ok()
         || command(Command::new("ditto").arg(new_app).arg(app)).is_ok();
     if !placed {
         let _ = std::fs::remove_dir_all(app);
-        let _ = std::fs::rename(&old, app);
+        if existed {
+            let _ = std::fs::rename(&old, app);
+        }
         return Err(format!("can't write to {}", parent.display()));
     }
     let _ = std::fs::remove_dir_all(&old);
@@ -679,6 +780,21 @@ mod tests {
         let signed = "Executable=/A/openDJ.app/Contents/MacOS/opendj\nAuthority=Developer ID Application: Seba (AB12CD34EF)\nTeamIdentifier=AB12CD34EF\n";
         assert_eq!(team_in(signed).as_deref(), Some("AB12CD34EF"));
         assert_eq!(team_in("Signature=adhoc\nTeamIdentifier=not set\n"), None);
+    }
+
+    #[test]
+    fn spots_a_translocated_app() {
+        let moved =
+            Path::new("/private/var/folders/q2/x/T/AppTranslocation/2C83-7F26/d/openDJ.app");
+        assert!(is_translocated(moved));
+        assert!(!is_translocated(Path::new("/Applications/openDJ.app")));
+        assert_eq!(
+            untranslocated(Path::new("/Applications/openDJ.app")),
+            Path::new("/Applications/openDJ.app")
+        );
+        if !cfg!(target_os = "macos") {
+            assert_eq!(untranslocated(moved), Path::new("/Applications/openDJ.app"));
+        }
     }
 
     #[test]
