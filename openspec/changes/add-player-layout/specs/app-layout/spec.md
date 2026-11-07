@@ -33,11 +33,19 @@ The layout menu at the top left SHALL offer Player (one bar that plays music lik
 
 #### Scenario: Bar at the bottom
 - **WHEN** Player is chosen
-- **THEN** the Player bar runs along the bottom of the window under the library, 120 px tall, with Play/Pause on the left of a scrubber and Previous and Next under it; the scrubber shows the played part in lilac, the rest in grey and the next mix in a dim lilac
+- **THEN** the Player bar runs along the bottom of the window under the library, 104 px tall, with Previous, Play/Pause and Next centred over a thin progress line; the line shows the played part in white (lilac under the pointer), the rest in grey and the next mix in a dim lilac, with the time played and the track's length either side, and the file's quality at the bottom right
 
 #### Scenario: Search-first top bar
 - **WHEN** Player is chosen
 - **THEN** the top bar shows the layout menu, the search box and the remote button; the MASTER button is hidden, REC shows only while recording and MIC only while the mic is on or Show MIC is ticked in the layout menu
+
+#### Scenario: Add the playing track to a crate
+- **WHEN** the DJ clicks ＋ beside the title on the Player bar and picks a crate or playlist
+- **THEN** the track playing is added to it
+
+#### Scenario: Mini player
+- **WHEN** the DJ presses ⇧⌘M, picks View › Mini Player or clicks the mini player button on the Player bar
+- **THEN** a small window on top of the others shows the track's album art, and under the pointer dims it and shows the title, artist, progress, Previous, Play/Pause and Next, and the main window hides until the mini player's expand button is clicked or the mini player is closed
 
 #### Scenario: Repeat
 - **WHEN** Repeat is on in Up Next's header and Automix has played a track for long enough to count as played
