@@ -2217,6 +2217,7 @@
 [Flanger],lfoDelay
 [Flanger],lfoDepth
 [Flanger],lfoPeriod
+[Groove1],auto_fill
 [Groove1],bpm
 [Groove1],can_undo
 [Groove1],chain
@@ -2227,6 +2228,8 @@
 [Groove1],duck_amount
 [Groove1],duck_deck
 [Groove1],enabled
+[Groove1],fill
+[Groove1],fill_playing
 [Groove1],follow
 [Groove1],following
 [Groove1],genre
@@ -2402,6 +2405,7 @@
 [Groove1],pattern4_row8_soft
 [Groove1],position
 [Groove1],record
+[Groove1],remix
 [Groove1],row1_decay
 [Groove1],row1_level
 [Groove1],row1_lock
@@ -2495,6 +2499,7 @@
 [Groove1],swing
 [Groove1],tempo_scale
 [Groove1],vary
+[Groove2],auto_fill
 [Groove2],bpm
 [Groove2],can_undo
 [Groove2],chain
@@ -2505,6 +2510,8 @@
 [Groove2],duck_amount
 [Groove2],duck_deck
 [Groove2],enabled
+[Groove2],fill
+[Groove2],fill_playing
 [Groove2],follow
 [Groove2],following
 [Groove2],genre
@@ -2680,6 +2687,7 @@
 [Groove2],pattern4_row8_soft
 [Groove2],position
 [Groove2],record
+[Groove2],remix
 [Groove2],row1_decay
 [Groove2],row1_level
 [Groove2],row1_lock
@@ -2773,6 +2781,7 @@
 [Groove2],swing
 [Groove2],tempo_scale
 [Groove2],vary
+[Groove3],auto_fill
 [Groove3],bpm
 [Groove3],can_undo
 [Groove3],chain
@@ -2783,6 +2792,8 @@
 [Groove3],duck_amount
 [Groove3],duck_deck
 [Groove3],enabled
+[Groove3],fill
+[Groove3],fill_playing
 [Groove3],follow
 [Groove3],following
 [Groove3],genre
@@ -2958,6 +2969,7 @@
 [Groove3],pattern4_row8_soft
 [Groove3],position
 [Groove3],record
+[Groove3],remix
 [Groove3],row1_decay
 [Groove3],row1_level
 [Groove3],row1_lock
@@ -3051,6 +3063,7 @@
 [Groove3],swing
 [Groove3],tempo_scale
 [Groove3],vary
+[Groove4],auto_fill
 [Groove4],bpm
 [Groove4],can_undo
 [Groove4],chain
@@ -3061,6 +3074,8 @@
 [Groove4],duck_amount
 [Groove4],duck_deck
 [Groove4],enabled
+[Groove4],fill
+[Groove4],fill_playing
 [Groove4],follow
 [Groove4],following
 [Groove4],genre
@@ -3236,6 +3251,7 @@
 [Groove4],pattern4_row8_soft
 [Groove4],position
 [Groove4],record
+[Groove4],remix
 [Groove4],row1_decay
 [Groove4],row1_level
 [Groove4],row1_lock

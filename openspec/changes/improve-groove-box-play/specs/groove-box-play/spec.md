@@ -46,3 +46,21 @@ A step in `patternG_rowR_maybe` SHALL play about half the times it comes round. 
 #### Scenario: Half-time hat
 - **WHEN** a closed hat step is set to 50% and the groove plays 40 bars
 - **THEN** that hat plays in roughly 20 of them
+
+### Requirement: Fills and Remix
+With `[GrooveN],auto_fill` at 1, a fill SHALL play over the last beat of every 4th bar, the last two beats of every 8th and the whole of every 16th, counted on the groove's beat (which follows the leading deck); at 2, every 2nd, 4th and 8th bar. While `fill` is 1 a fill SHALL play over the whole bar. After a fill of two beats or more the cymbal track SHALL play on the next downbeat. While `remix` is above 0 the groove SHALL play the Remix figure for that position (16 along the strip: hat rolls, rolls over two or three sounds, the tracks' patterns swapped between sounds with the kick's kept, 16th rolls over everything), and from the step after it returns to 0 SHALL play as written. `fill_playing` SHALL be 1 while a fill or Remix sounds.
+
+#### Scenario: Auto 1 on bar 8
+- **WHEN** Auto 1 is on and the groove reaches the 8th bar
+- **THEN** the first two beats play as written and the last two beats play a fill
+
+#### Scenario: Let go of Remix
+- **WHEN** the Remix strip is let go mid-bar
+- **THEN** the next step plays as written
+
+### Requirement: 4x4 view
+The Sequencer SHALL offer a 4x4 view: the 16 steps of the track picked by `[GrooveN],row_selected` as square pads, step 1 at the bottom left and step 16 at the top right, four to a row, with the step playing marked; clicking a pad SHALL add or remove its hit and right-clicking SHALL change its level, as in the rows view.
+
+#### Scenario: Same track as the controller
+- **WHEN** the Maschine Mikro MK3 selects the snare track and the 4x4 view is open
+- **THEN** the pads show the snare's steps, and a hit added with the Mikro's pad 5 lights the first pad of the screen's second row from the bottom
