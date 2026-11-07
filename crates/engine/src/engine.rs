@@ -134,6 +134,16 @@ const RATE_TEMP: [f64; 4] = [0.04, -0.04, 0.02, -0.02];
 /// normal speed per second (0.005 = 0.5% a second).
 const RATE_RESET_SPEED: f64 = 0.005;
 
+/// A live input's safety ceiling: -1 dBTP.
+const LIVE_CEILING: f32 = 0.891_250_9;
+
+/// Left and right gains for balance `pan` (-1 left, 1 right): the side
+/// moved away from fades, the other stays, so the middle is unchanged.
+fn live_balance(pan: f32) -> [f32; 2] {
+    let pan = pan.clamp(-1.0, 1.0);
+    [(1.0 - pan).min(1.0), (1.0 + pan).min(1.0)]
+}
+
 /// Left and right deck gains for crossfader position `x` (-1 left, +1
 /// right). Shapes: 0 smooth, constant power as in Mixxx's default curve; 1
 /// linear, dipping in the middle; 2 scratch, both full until the last
@@ -266,6 +276,16 @@ struct Deck {
     /// The filter knob's Color FX.
     filter: ColorFx,
     sculpt: Sculpt,
+    /// Keeps a live input's true peaks under -1 dBTP, always on while the
+    /// deck plays one: gear and plugins can come in hot.
+    live_limiter: Limiter,
+    /// The live input's trim (linear) and balance reached at the end of the
+    /// last buffer.
+    live_trim: f32,
+    live_pan: f32,
+    /// The deck's crossfader side before it took a live input, put back
+    /// when it goes back to tracks (a live input starts on Thru).
+    side_before_live: Option<f64>,
     /// Gains reached at the end of the last buffer; each buffer ramps from these.
     eq_gains: [f32; 3],
     /// The pregain knob times the auto gain, reached at the end of the last buffer.
@@ -1767,6 +1787,10 @@ impl Engine {
             eq: Isolator::new(sample_rate),
             filter: ColorFx::new(sample_rate),
             sculpt: Sculpt::new(sample_rate),
+            live_limiter: Limiter::new(sample_rate, LIVE_CEILING),
+            live_trim: 1.0,
+            live_pan: 0.0,
+            side_before_live: None,
             eq_gains: [1.0; 3],
             pregain: 1.0,
             track_gain: false,
@@ -2136,8 +2160,20 @@ impl Engine {
                 if let Some(track) = d.unload() {
                     let _ = self.returned.push(Returned::Ejected { deck, track });
                 }
+                // Off the crossfader (Thru) while it plays live; its side
+                // comes back with tracks.
+                if self.live_seen[deck] == 0 {
+                    d.side_before_live = Some(d.c.orientation.get());
+                    d.c.orientation.set(1.0);
+                }
             } else if live > 0 && groove && !self.groove_seen[deck] {
                 self.decks[deck].c.live_input.set(0.0);
+            }
+            let d = &mut self.decks[deck];
+            if d.live_input() == 0 {
+                if let Some(side) = d.side_before_live.take() {
+                    d.c.orientation.set(side);
+                }
             }
             self.live_seen[deck] = self.decks[deck].live_input();
             self.groove_seen[deck] = self.grooves[deck].enabled();
@@ -2931,6 +2967,9 @@ impl Engine {
             eq_from: [f32; 3],
             eq_to: [f32; 3],
             pre: (f32, f32),
+            /// The live input's trim (linear) and balance.
+            live_trim: (f32, f32),
+            live_pan: (f32, f32),
             quick: (f32, f32),
             vol: (f32, f32),
             xf: (f32, f32),
@@ -3220,6 +3259,8 @@ impl Engine {
                         pregain * auto_gain
                     },
                 ),
+                live_trim: (d.live_trim, 10f32.powf(d.c.live_trim.get() as f32 / 20.0)),
+                live_pan: (d.live_pan, d.c.live_pan.get() as f32),
                 quick: (
                     d.quick,
                     if d.c.quick_enabled.get_bool() && !external {
@@ -3419,7 +3460,10 @@ impl Engine {
                     s = groove_buf[i][f];
                 }
                 if live_on[i] > 0 {
-                    s = self.inputs[live_on[i] - 1].raw[f];
+                    let x = self.inputs[live_on[i] - 1].raw[f];
+                    let [l, r] = live_balance(lerp(p.live_pan));
+                    let t = lerp(p.live_trim);
+                    s = [x[0] * t * l, x[1] * t * r];
                 }
                 let gains = std::array::from_fn(|k| p.eq_from[k] + (p.eq_to[k] - p.eq_from[k]) * r);
                 let pre = lerp(p.pre);
@@ -3435,6 +3479,9 @@ impl Engine {
                 }
                 if !external {
                     s = d.sculpt.process(s);
+                }
+                if live_on[i] > 0 {
+                    s = d.live_limiter.process(s);
                 }
                 deck_buf[i][f] = s;
                 click_buf[i][f] = 0.0;
@@ -3666,6 +3713,8 @@ impl Engine {
             let p = &plans[i];
             d.eq_gains = p.eq_to;
             d.pregain = p.pre.1;
+            d.live_trim = p.live_trim.1;
+            d.live_pan = p.live_pan.1;
             d.quick = p.quick.1;
             d.volume = p.vol.1;
             self.xfade[i] = p.xf.1;
@@ -6911,6 +6960,54 @@ mod tests {
         load(&mut input, 1, short_track(120.0, 4.0));
         talk(&mut engine, &mut tx, 0.05, sine(500.0, 0.4));
         assert_eq!(ch(2, "live_input").get(), 0.0);
+    }
+
+    #[test]
+    fn a_live_deck_has_trim_pan_a_safety_limiter_and_starts_on_thru() {
+        let (reg, mut engine, mut input) = setup();
+        let ch = |d: usize, k: &str| reg.get(&format!("[Channel{d}]"), k).unwrap();
+        let (feed, mut tx) = mic_feed();
+        engine.set_input(AUXILIARY, Some(feed));
+        load(&mut input, 1, short_track(120.0, 4.0));
+        run(&mut engine, 0.05);
+        // On the right of the crossfader with a track; Thru while live.
+        ch(2, "orientation").set(2.0);
+        ch(2, "live_input").set(2.0);
+        let out = talk(&mut engine, &mut tx, 0.4, sine(500.0, 0.2));
+        assert_eq!(ch(2, "orientation").get(), 1.0);
+        let level = level_at(&out[out.len() / 2..], 500.0);
+        assert!(level > 0.05, "{level}");
+        // +12 dB of trim brings a quiet input up, 4 times as loud.
+        ch(2, "live_trim").set(12.0);
+        talk(&mut engine, &mut tx, 0.1, sine(500.0, 0.2));
+        let out = talk(&mut engine, &mut tx, 0.4, sine(500.0, 0.2));
+        let louder = level_at(&out[out.len() / 2..], 500.0);
+        assert!((louder / level - 3.98).abs() < 0.3, "{level} {louder}");
+        // Pushed far over, the safety limiter keeps it under -1 dBTP.
+        ch(2, "live_trim").set(24.0);
+        talk(&mut engine, &mut tx, 0.2, sine(500.0, 0.4));
+        let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
+        let top = peak(&out[out.len() / 2..]);
+        assert!(top <= LIVE_CEILING + 1e-3 && top > 0.8, "{top}");
+        // Panned hard left, the right side goes quiet.
+        ch(2, "live_trim").set(0.0);
+        ch(2, "live_pan").set(-1.0);
+        talk(&mut engine, &mut tx, 0.1, sine(500.0, 0.2));
+        let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.2));
+        let right: Vec<f32> = out[out.len() / 2..]
+            .iter()
+            .skip(1)
+            .step_by(2)
+            .copied()
+            .collect();
+        let left: Vec<f32> = out[out.len() / 2..].iter().step_by(2).copied().collect();
+        assert!(peak(&right) < 1e-3, "{}", peak(&right));
+        assert!(peak(&left) > 0.05);
+        // Back to a track, its side comes back.
+        load(&mut input, 1, short_track(120.0, 4.0));
+        talk(&mut engine, &mut tx, 0.05, sine(500.0, 0.2));
+        assert_eq!(ch(2, "live_input").get(), 0.0);
+        assert_eq!(ch(2, "orientation").get(), 2.0);
     }
 
     /// The largest jump in slope between neighbouring samples of the left
