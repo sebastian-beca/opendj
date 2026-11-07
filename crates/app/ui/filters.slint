@@ -35,6 +35,8 @@ export global FilterUi {
     // Fields not on the bar, for "+": names and ids.
     in property <[string]> addable;
     in property <[string]> addable-ids;
+    // Where each is listed: 0 core, 1 the DJ's tag groups, 2 more.
+    in property <[int]> addable-sections;
     // The chip whose popup is open, and what it offers.
     in property <int> editing: -1;
     in property <[FilterChoice]> choices;
@@ -266,6 +268,8 @@ export component FilterBar inherits Rectangle {
     height: 34px;
     // Where the open popup hangs from.
     property <length> popup-x;
+    // "+" shows the fields beyond the core ones and the DJ's tags.
+    property <bool> more-fields;
     property <FilterChip> chip: FilterUi.editing >= 0 && FilterUi.editing < FilterUi.chips.length ? FilterUi.chips[FilterUi.editing] : { kind: -1 };
 
     Timer {
@@ -351,18 +355,48 @@ export component FilterBar inherits Rectangle {
                         spacing: 1px;
                         Text { text: "Add Filter"; color: Theme.text; font-size: 15px; font-weight: 700; height: 30px; vertical-alignment: center; x: 8px; }
                         ScrollView {
-                            height: min(FilterUi.addable.length * 28px, 360px);
-                            VerticalLayout {
-                                for name[i] in FilterUi.addable: Rectangle {
-                                    height: 28px;
-                                    border-radius: 5px;
-                                    background: ata.has-hover ? #3a3a3d : transparent;
-                                    Text { x: 10px; text: name; color: Theme.text; font-size: 13px; vertical-alignment: center; }
-                                    ata := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            open(FilterUi.add(FilterUi.addable-ids[i]), plus.absolute-position.x - root.absolute-position.x);
-                                            add-menu.close();
+                            height: min(fields-list.preferred-height, 360px);
+                            fields-list := VerticalLayout {
+                                for name[i] in FilterUi.addable: VerticalLayout {
+                                    property <int> section: FilterUi.addable-sections[i];
+                                    property <bool> first: i == 0 || FilterUi.addable-sections[i - 1] != section;
+                                    // A heading over core fields and the DJ's tags; the
+                                    // rest wait behind "More fields".
+                                    if first && section < 2: Text {
+                                        x: 10px;
+                                        height: 22px;
+                                        text: section == 0 ? "CORE" : "YOUR TAGS";
+                                        color: Theme.text-dim;
+                                        font-size: 10px;
+                                        font-weight: 600;
+                                        letter-spacing: 0.8px;
+                                        vertical-alignment: bottom;
+                                    }
+                                    if first && section == 2: Rectangle {
+                                        height: 28px;
+                                        border-radius: 5px;
+                                        background: mfta.has-hover ? #3a3a3d : transparent;
+                                        Text {
+                                            x: 10px;
+                                            text: (more-fields ? "▾ " : "▸ ") + "More fields";
+                                            color: Theme.accent;
+                                            font-size: 13px;
+                                            font-weight: 600;
+                                            vertical-alignment: center;
+                                        }
+                                        mfta := TouchArea { mouse-cursor: pointer; clicked => { more-fields = !more-fields; } }
+                                    }
+                                    if section < 2 || more-fields: Rectangle {
+                                        height: 28px;
+                                        border-radius: 5px;
+                                        background: ata.has-hover ? #3a3a3d : transparent;
+                                        Text { x: section == 2 ? 22px : 10px; text: name; color: Theme.text; font-size: 13px; vertical-alignment: center; }
+                                        ata := TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => {
+                                                open(FilterUi.add(FilterUi.addable-ids[i]), plus.absolute-position.x - root.absolute-position.x);
+                                                add-menu.close();
+                                            }
                                         }
                                     }
                                 }

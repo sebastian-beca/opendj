@@ -18,8 +18,9 @@
 
 ## 4. Core and More
 
-- [ ] 4.1 One field catalog with Core and More (Track info, Play history, Prep, File) for "+" and the column header menu
-- [ ] 4.2 Default bar: Genre, BPM, Key and tag groups marked "Show on bar" (on for new groups); Grouping leaves the default bar
+- [x] 4.1 "+" lists Core fields, then the DJ's tag groups, then "More fields" (A–Z, folded)
+- [ ] 4.2 The column header menu: Core and the DJ's tag groups, the rest under "More columns" grouped (Track info, Play history, Prep, File)
+- [x] 4.3 Default bar: Genre, the DJ's tag groups, BPM, Key; Grouping leaves the default bar (still under "+" › More fields)
 
 ## 5. Finder
 
