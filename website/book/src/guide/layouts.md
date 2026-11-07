@@ -21,16 +21,18 @@ The menu at the top left of the window switches layouts:
   others. Point at it and the art dims and shows the title, artist, a
   progress line (click it to move through the track), **Previous**,
   **Play/Pause** and **Next**; **✕** brings back the main window, which
-  hides while the mini player shows, and the pin keeps it on top or lets
-  other windows cover it. Drag it low and wide for a strip with the art,
-  title and buttons always showing. **Order** and **Repeat** are at the
+  hides while the mini player shows. It has no title bar: drag the art to
+  move it, and the grip in its bottom right corner to resize it (it stays
+  square). **Order** and **Repeat** are at the
   top of Up Next. With Repeat on, a played track goes back to the end of Up
   Next instead of leaving it, so the list keeps going round.
   The top bar keeps to search. The search box (**⌘F**) is Player's only
-  search box: it filters the track list and shows the best matching tracks
-  as you type. Point at one, or move with **↑** and **↓**, and pick **Play
-  next**, **Add to queue** (the end of Up Next) or **Play now**, which mixes
-  into it straight away. The keys are **↵**, **⇧↵** and **⌘↵**; **Esc**
+  search box: it filters the track list and shows the best matches as you
+  type: artists and albums first, then tracks (tracks first when a title is
+  the better match). Point at one, or move with **↑** and **↓**, and pick
+  **Play next**, **Add to queue** (the end of Up Next) or **Play now**,
+  which mixes into it straight away; on an album these take the whole
+  album in order, and on an artist **Show tracks** searches for them. The keys are **↵**, **⇧↵** and **⌘↵**; **Esc**
   clears the box and the list's search. There is no MASTER button (the
   bar's volume is the master volume); **REC** shows only while recording
   (start it from **File › Record Mix**), and **MIC** only while the mic is
