@@ -240,7 +240,7 @@ component SamplerPadCell inherits Rectangle {
                 menu.show();
                 return;
             }
-            if e.button != PointerEventButton.left {
+            if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
                 return;
             }
             if e.kind == PointerEventKind.down {

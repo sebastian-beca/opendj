@@ -566,7 +566,8 @@ impl Controller {
         self.host.borrow_mut().publish = true;
     }
 
-    /// Calls the scripts' `shutdown` functions (they usually turn LEDs off).
+    /// Calls the scripts' `shutdown` functions (they usually turn LEDs off)
+    /// and lets go of any deck this controller still holds by its jog.
     pub fn shutdown(&mut self) {
         crate::pickup::forget_port(&self.name);
         for p in self.prefixes.clone() {
@@ -574,6 +575,7 @@ impl Controller {
                 self.script.eval(&format!("{p}.shutdown()"));
             }
         }
+        self.host.borrow_mut().release_decks();
     }
 }
 

@@ -740,13 +740,25 @@ impl Outputs {
             name.clone()
         };
         if find(&name).is_none() {
-            // Decks stop where they are, as the callback no longer runs.
-            return (!std::mem::replace(&mut self.lost_reported, true)).then(|| {
-                format!(
-                    "{label} went away. openDJ plays on there once it is back, \
-                     or pick another in Settings › Audio."
-                )
-            });
+            if std::mem::replace(&mut self.lost_reported, true) {
+                return None;
+            }
+            // The engine ran in the lost stream's callback. Run it on the
+            // timer instead, so the app keeps answering (load, seek, cue)
+            // while the decks stand still: frozen, a playing deck's
+            // waveform jumps back and forth as the screen guesses ahead.
+            self.streams.clear();
+            if let Ok(mut engine) = self.engine.lock() {
+                engine.pause_decks();
+            }
+            if self.timer.is_none() {
+                self.timer = Some(self.start_timer());
+            }
+            self.main_status = format!("{label} went away");
+            return Some(format!(
+                "{label} went away, so the decks stopped. openDJ plays there again \
+                 once it is back, or pick another in Settings › Audio."
+            ));
         }
         self.health.lost.store(false, Ordering::Release);
         let setup = self.setup.clone();
