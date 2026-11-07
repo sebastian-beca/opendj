@@ -10,7 +10,7 @@ import { InfoPanel, TrackInfo } from "info.slint";
 import { CuesPanel, CueList } from "cues.slint";
 import { ChecklistPanel } from "checklist.slint";
 import { LyricsPanel, PlayerLyrics } from "lyrics.slint";
-import { FilterBar, FilterUi } from "filters.slint";
+import { FilterBar, FilterUi, SuggestionList } from "filters.slint";
 import { TourMark } from "tourmark.slint";
 
 export struct Folder {
@@ -4347,10 +4347,33 @@ component TrackList inherits Rectangle {
                 // Short: the list's name is already on the left.
                 placeholder-text: AlbumsUi.opened ? "Search album" : folder-name != "" && folder-name.character-count <= 20 ? "Search " + folder-name : "Search";
                 text <=> search-text;
-                edited(t) => { search(t); }
+                edited(t) => {
+                    search(t);
+                    FilterUi.highlight = -1;
+                    FilterUi.find(t);
+                }
                 // Esc clears the search, or with nothing typed hands the
-                // keys back to the list; ↓ goes down into the list.
+                // keys back to the list; ↓ goes down into the list. While
+                // values that match show under the field, ↓ and ↑ move
+                // through them and Return adds the one picked as a filter.
                 key-pressed(e) => {
+                    if FilterUi.suggestions.length > 0 && search-text != "" {
+                        if e.text == Key.DownArrow && FilterUi.highlight < FilterUi.suggestions.length - 1 {
+                            FilterUi.highlight += 1;
+                            return accept;
+                        }
+                        if e.text == Key.UpArrow && FilterUi.highlight >= 0 {
+                            FilterUi.highlight -= 1;
+                            return accept;
+                        }
+                        if e.text == Key.Return && FilterUi.highlight >= 0 {
+                            FilterUi.pick-suggestion(FilterUi.highlight);
+                            FilterUi.highlight = -1;
+                            search-text = "";
+                            search("");
+                            return accept;
+                        }
+                    }
                     if e.text == Key.Escape {
                         if search-text != "" {
                             search-text = "";
@@ -4361,6 +4384,7 @@ component TrackList inherits Rectangle {
                         return accept;
                     }
                     if e.text == Key.DownArrow && rows.length > 0 {
+                        FilterUi.find("");
                         took-focus();
                         if current < 0 {
                             current = 0;
@@ -4368,6 +4392,35 @@ component TrackList inherits Rectangle {
                         return accept;
                     }
                     reject
+                }
+            }
+            // Values of any field that match what's typed, to add as filters.
+            // Shown while there's text, not only with focus, so a click on
+            // a value lands before the field lets go of the keys.
+            if search-text != "" && FilterUi.suggestions.length > 0: Rectangle {
+                x: search-x;
+                y: parent.height + 4px;
+                z: 100;
+                width: max(search-w, 280px);
+                height: suggestions.preferred-height + 12px;
+                background: #232326;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: Theme.border;
+                drop-shadow-blur: 16px;
+                drop-shadow-color: #00000080;
+                suggestions := SuggestionList {
+                    x: 6px;
+                    y: 6px;
+                    width: parent.width - 12px;
+                    items: FilterUi.suggestions;
+                    highlight: FilterUi.highlight;
+                    picked(i) => {
+                        FilterUi.pick-suggestion(i);
+                        FilterUi.highlight = -1;
+                        search-text = "";
+                        search("");
+                    }
                 }
             }
             buttons := HorizontalLayout {
