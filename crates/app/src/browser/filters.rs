@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use opendj_engine::key::Key;
 use opendj_engine::Track;
-use opendj_library::query::{self, and_text, keyword, quoted, FieldNames, COLOR_NAMES};
+use opendj_library::query::{self, and_text, keyword, quoted, FieldNames, Query, COLOR_NAMES};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::Browser;
@@ -79,6 +79,12 @@ pub fn fields(names: &FieldNames) -> Vec<Field> {
     ]);
     out
 }
+
+/// How many values with tracks a long list shows before "Show N more".
+pub const SHORT_LIST: usize = 8;
+
+/// How many picks are remembered to order values with as many tracks.
+const RECENT: usize = 64;
 
 /// The chips on the bar when the DJ hasn't chosen.
 pub const DEFAULT_PINNED: [&str; 6] = ["grouping", "genre", "tag1", "tag2", "bpm", "key"];
@@ -247,8 +253,20 @@ impl Filters {
     /// The search the bar stands for, given the playing track's tempo and
     /// key; empty when nothing is filtered.
     pub fn text(&self, fields: &[Field], deck: Option<(f64, Option<Key>)>) -> String {
+        self.text_except(fields, deck, "")
+    }
+
+    /// The bar's search without one field's chip: what that chip's values
+    /// are counted over, so the other chips narrow it but its own picks
+    /// don't.
+    pub fn text_except(
+        &self,
+        fields: &[Field],
+        deck: Option<(f64, Option<Key>)>,
+        skip: &str,
+    ) -> String {
         let mut text = String::new();
-        for f in fields {
+        for f in fields.iter().filter(|f| f.id != skip) {
             text = and_text(&text, &self.field_text(f, deck));
         }
         text
@@ -306,6 +324,11 @@ pub(super) struct FilterState {
     editing: Option<String>,
     choices: Vec<Choice>,
     find: String,
+    /// The popup lists every value, not just the first few with tracks.
+    show_all: bool,
+    /// Values picked lately, newest first, as (field, search): they come
+    /// first among values with as many tracks.
+    recent: Vec<(String, String)>,
 }
 
 impl FilterState {
@@ -319,6 +342,8 @@ impl FilterState {
             editing: None,
             choices: Vec::new(),
             find: String::new(),
+            show_all: false,
+            recent: Vec::new(),
         }
     }
 
@@ -342,13 +367,58 @@ impl FilterState {
         self.fields.iter().find(|f| f.id == id)
     }
 
-    /// The values the popup lists, narrowed by what was typed to find one.
-    fn shown_choices(&self) -> Vec<&Choice> {
+    /// The values the popup lists, narrowed by what was typed to find one
+    /// (words that start with it first), and how many more "Show N more"
+    /// reveals.
+    fn shown_choices(&self) -> (Vec<&Choice>, usize) {
         let find = self.find.trim().to_lowercase();
-        self.choices
+        if !find.is_empty() {
+            let mut found: Vec<&Choice> = self
+                .choices
+                .iter()
+                .filter(|c| c.label.to_lowercase().contains(&find))
+                .collect();
+            found.sort_by_key(|c| !c.label.to_lowercase().starts_with(&find));
+            return (found, 0);
+        }
+        // Names and tags show the first few with tracks; keys and years
+        // all of theirs; the rest of each behind "Show N more". Short
+        // fixed lists (ratings, colors) show everything.
+        let cap = match self
+            .editing
+            .as_deref()
+            .and_then(|id| self.field(id))
+            .map(|f| f.kind)
+        {
+            Some(Kind::Text | Kind::Tags(_)) => SHORT_LIST,
+            Some(Kind::Key | Kind::Year) => usize::MAX,
+            _ => return (self.choices.iter().collect(), 0),
+        };
+        if self.show_all {
+            return (self.choices.iter().collect(), 0);
+        }
+        let id = self.editing.as_deref().unwrap_or_default();
+        let mut shown = 0;
+        let list: Vec<&Choice> = self
+            .choices
             .iter()
-            .filter(|c| find.is_empty() || c.label.to_lowercase().contains(&find))
-            .collect()
+            .filter(|c| {
+                let keep = self.filters.is_picked(id, &c.term) || (c.count > 0 && shown < cap);
+                if keep && c.count > 0 {
+                    shown += 1;
+                }
+                keep
+            })
+            .collect();
+        let more = self.choices.len() - list.len();
+        (list, more)
+    }
+
+    /// Notes a value as picked just now.
+    fn picked_now(&mut self, field: &str, term: &str) {
+        self.recent.retain(|(f, t)| !(f == field && t == term));
+        self.recent.insert(0, (field.to_string(), term.to_string()));
+        self.recent.truncate(RECENT);
     }
 }
 
@@ -399,13 +469,24 @@ impl Browser {
                 let (Some(id), Some(c)) = (
                     f.editing.clone(),
                     f.shown_choices()
+                        .0
                         .get(i.max(0) as usize)
                         .map(|c| (*c).clone()),
                 ) else {
                     return;
                 };
                 f.filters.toggle(&id, &c);
+                if f.filters.is_picked(&id, &c.term) {
+                    f.picked_now(&id, &c.term);
+                }
                 b.filters_changed();
+            })
+        });
+        let w = with.clone();
+        ui.on_show_more(move || {
+            w(&|b| {
+                b.filter.show_all = true;
+                b.refresh_filter_ui();
             })
         });
         let w = with.clone();
@@ -535,13 +616,15 @@ impl Browser {
     fn edit_filter(&mut self, chip: i32) {
         self.filter.editing = self.chip_field(chip);
         self.filter.find.clear();
+        self.filter.show_all = false;
         self.update_reference();
         self.refresh_choices();
         self.refresh_filter_ui();
     }
 
-    /// The values the open popup offers, counted over the list (before
-    /// filtering, so picking one doesn't hide the rest).
+    /// The values the open popup offers: every value the list has, each
+    /// counted over the tracks the search and the other chips leave (its
+    /// own picks don't narrow it, so picking one doesn't hide the rest).
     fn refresh_choices(&mut self) {
         let Some(field) = self
             .filter
@@ -554,12 +637,34 @@ impl Browser {
         };
         let field = field.clone();
         let tracks: Vec<usize> = self.row_data().iter().filter_map(|r| r.local).collect();
-        self.filter.choices = choices(
+        let f = &self.filter;
+        let others = and_text(
+            &self.search,
+            &f.filters.text_except(&f.fields, self.deck_ref, &field.id),
+        );
+        let q = Query::parse(&others);
+        let cx = self.context();
+        let left: Vec<usize> = tracks
+            .iter()
+            .copied()
+            .filter(|&id| q.is_empty() || q.matches(&self.library[id], &self.indexed[id], &cx))
+            .collect();
+        let recent: Vec<&str> = f
+            .recent
+            .iter()
+            .filter(|(id, _)| *id == field.id)
+            .map(|(_, t)| t.as_str())
+            .collect();
+        let choices = linked_choices(
             &field,
             tracks.iter().map(|&i| &*self.library[i]),
-            &self.filter.filters,
+            left.iter().map(|&i| &*self.library[i]),
+            &f.filters,
+            &recent,
             self.camelot,
         );
+        drop(cx);
+        self.filter.choices = choices;
     }
 
     /// The search and the bar together, as one search.
@@ -664,8 +769,9 @@ impl Browser {
         ui.set_chips(ModelRc::new(VecModel::from(chips)));
         ui.set_any_active(f.filters.any_active(&f.fields));
         let editing = f.editing.as_deref().and_then(|id| f.field(id));
-        let choices: Vec<FilterChoice> = f
-            .shown_choices()
+        let (shown_choices, more) = f.shown_choices();
+        ui.set_more(more as i32);
+        let choices: Vec<FilterChoice> = shown_choices
             .into_iter()
             .map(|c| FilterChoice {
                 label: c.label.clone().into(),
@@ -708,6 +814,45 @@ impl Browser {
         ui.set_bpm_high(f.filters.bpm_high.clone().into());
         ui.set_tolerance(f.filters.tolerance as i32);
     }
+}
+
+/// The values `field` can be set to: those `list` has, counted over the
+/// tracks `left` by the other filters. Lists of names (genres, tags...)
+/// go picked first, then by tracks, then by `recent` picks (newest
+/// first), then in their own order; sequences (keys, ratings, years)
+/// keep their order. Values `left` has none of stay, with no tracks.
+pub fn linked_choices<'a>(
+    field: &Field,
+    list: impl Iterator<Item = &'a Track>,
+    left: impl Iterator<Item = &'a Track>,
+    filters: &Filters,
+    recent: &[&str],
+    camelot: bool,
+) -> Vec<Choice> {
+    let mut out = choices(field, list, filters, camelot);
+    let counted = choices(field, left, filters, camelot);
+    for c in out.iter_mut() {
+        c.count = counted
+            .iter()
+            .find(|x| x.term == c.term)
+            .map_or(0, |x| x.count);
+    }
+    if matches!(field.kind, Kind::Text | Kind::Tags(_)) {
+        let rank = |c: &Choice| {
+            (
+                c.label == "(none)",
+                !filters.is_picked(&field.id, &c.term),
+                std::cmp::Reverse(c.count),
+                recent
+                    .iter()
+                    .position(|t| *t == c.term)
+                    .unwrap_or(usize::MAX),
+            )
+        };
+        // Stable: values level on all of these keep their own order.
+        out.sort_by_key(rank);
+    }
+    out
 }
 
 /// The values `field` can be set to, counted over `tracks`, with those
@@ -931,6 +1076,47 @@ mod tests {
 
     fn field<'a>(fields: &'a [Field], id: &str) -> &'a Field {
         fields.iter().find(|f| f.id == id).unwrap()
+    }
+
+    #[test]
+    fn other_chips_narrow_the_counts_and_order() {
+        let lib = library();
+        let fields = fields(&FieldNames::default());
+        let mut f = Filters::default();
+        let tags = field(&fields, "tag1");
+        // Uplifting is on two tracks, so it goes first.
+        let all = linked_choices(tags, lib.iter(), lib.iter(), &f, &[], true);
+        let labels: Vec<_> = all.iter().map(|c| (c.label.as_str(), c.count)).collect();
+        assert_eq!(labels, [("uplifting", 2), ("bright", 1), ("lullaby", 1)]);
+        // A recent pick goes first among values with as many tracks.
+        let lullaby = all
+            .iter()
+            .find(|c| c.label == "lullaby")
+            .unwrap()
+            .term
+            .clone();
+        let again = linked_choices(tags, lib.iter(), lib.iter(), &f, &[&lullaby], true);
+        assert_eq!(again[1].label, "lullaby");
+        // Genre Ambient leaves tracks 1 and 2: lullaby and bright have one
+        // each, uplifting one; nothing is dropped.
+        let genre = field(&fields, "genre");
+        let ambient = choices(genre, lib.iter(), &f, true)
+            .into_iter()
+            .find(|c| c.label == "Ambient")
+            .unwrap();
+        f.toggle("genre", &ambient);
+        let left: Vec<_> = lib
+            .iter()
+            .filter(|t| find(&lib, &f.text_except(&fields, None, "tag1")).contains(&t.id))
+            .collect();
+        let narrowed = linked_choices(tags, lib.iter(), left.into_iter(), &f, &[], true);
+        let labels: Vec<_> = narrowed
+            .iter()
+            .map(|c| (c.label.as_str(), c.count))
+            .collect();
+        assert_eq!(labels, [("bright", 1), ("lullaby", 1), ("uplifting", 1)]);
+        // The genre chip itself still counts every genre.
+        assert_eq!(f.text_except(&fields, None, "genre"), "");
     }
 
     #[test]

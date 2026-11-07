@@ -38,6 +38,8 @@ export global FilterUi {
     // The chip whose popup is open, and what it offers.
     in property <int> editing: -1;
     in property <[FilterChoice]> choices;
+    // Values left out of the list until "Show N more".
+    in property <int> more;
     in-out property <string> choice-search;
     in property <bool> match-all;
     // Tempo or key follows the playing track, and what that is now.
@@ -58,6 +60,7 @@ export global FilterUi {
     callback quick(chip: int);
     callback toggle(choice: int);
     callback search-choices(text: string);
+    callback show-more();
     callback set-match-all(on: bool);
     callback set-follow(on: bool);
     callback set-bpm(low: string, high: string);
@@ -399,13 +402,13 @@ export component FilterBar inherits Rectangle {
                     picked(i) => { FilterUi.set-match-all(i == 1); }
                 }
             }
-            if chip.kind != 2 && (FilterUi.choices.length > 12 || FilterUi.choice-search != ""): LineEdit {
+            if chip.kind != 2 && (FilterUi.choices.length + FilterUi.more > 12 || FilterUi.choice-search != ""): LineEdit {
                 placeholder-text: "Find " + chip.label;
                 text <=> FilterUi.choice-search;
                 edited(t) => { FilterUi.search-choices(t); }
             }
             if chip.kind != 2: ScrollView {
-                height: min(max(FilterUi.choices.length, 1) * 28px, 308px);
+                height: min(max(FilterUi.choices.length + (FilterUi.more > 0 ? 1 : 0), 1) * 28px, 308px);
                 VerticalLayout {
                     for c[i] in FilterUi.choices: Rectangle {
                         height: 28px;
@@ -432,7 +435,21 @@ export component FilterBar inherits Rectangle {
                         }
                         ota := TouchArea { mouse-cursor: pointer; clicked => { FilterUi.toggle(i); } }
                     }
-                    if FilterUi.choices.length == 0: Text {
+                    if FilterUi.more > 0: Rectangle {
+                        height: 28px;
+                        border-radius: 5px;
+                        background: mta.has-hover ? #3a3a3d : transparent;
+                        Text {
+                            x: 6px;
+                            text: "Show " + FilterUi.more + " more";
+                            color: Theme.accent;
+                            font-size: 12px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                        mta := TouchArea { mouse-cursor: pointer; clicked => { FilterUi.show-more(); } }
+                    }
+                    if FilterUi.choices.length == 0 && FilterUi.more == 0: Text {
                         height: 28px;
                         x: 6px;
                         text: FilterUi.choice-search != "" ? "Nothing matches." : "Nothing in this list to pick.";
