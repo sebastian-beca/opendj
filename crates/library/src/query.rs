@@ -20,7 +20,8 @@
 //!   `>`, `>=`, `<`, `<=` or a range `a-b`; durations as `3:30`, `5m` or seconds.
 //!   `added:` takes days or weeks ago (`added:<7d`, `added:<2w`) or a date
 //!   (`added:>=2026-01-31`); `lastplayed:` the same for the last play.
-//! - `~key:8A` finds keys that mix with 8A, `~bpm:124` tempos within 6%
+//! - `~key:8A` finds keys that mix with 8A (`~harmonic:8A` and
+//!   `~fuzzy:8A` by that rule, whatever the setting), `~bpm:124` tempos within 6%
 //!   (also at half or double tempo). `~deck` finds tracks that mix with the
 //!   track playing now, by key and tempo.
 //! - `color:red` (or orange, yellow, green, cyan, blue, purple, pink),
@@ -41,7 +42,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::RwLock;
 
-use opendj_engine::key::Key;
+use opendj_engine::key::{Key, Mixing};
 use opendj_engine::{Source, Track};
 
 pub use crate::tags::TagGroup;
@@ -226,6 +227,8 @@ enum Test {
     Number(NumberField, Compare),
     KeyIs(Key),
     KeyMixes(Key),
+    /// Mixes by a given rule, not the app's setting.
+    KeyMixesBy(Key, Mixing),
     BpmNear(f64),
     MixesWithDeck,
     Color(Option<u32>),
@@ -506,6 +509,10 @@ fn parse_test(word: &str) -> Option<Test> {
             None => Test::Contains(TextField::Key, v.to_lowercase()),
         },
         "~key" => Key::parse(&v).map_or(Test::Never, Test::KeyMixes),
+        "~harmonic" => {
+            Key::parse(&v).map_or(Test::Never, |k| Test::KeyMixesBy(k, Mixing::Harmonic))
+        }
+        "~fuzzy" => Key::parse(&v).map_or(Test::Never, |k| Test::KeyMixesBy(k, Mixing::Fuzzy)),
         "~bpm" => v
             .parse::<f64>()
             .ok()
@@ -808,6 +815,7 @@ impl Term {
             }
             Test::KeyIs(k) => key() == Some(*k),
             Test::KeyMixes(k) => key().is_some_and(|own| own.compatible(*k)),
+            Test::KeyMixesBy(k, m) => key().is_some_and(|own| own.mixes(*k, *m)),
             Test::BpmNear(b) => tempos_mix(t.bpm, *b),
             Test::MixesWithDeck => match cx.deck {
                 _ if cx.deck_track == Some(t.id) => false,

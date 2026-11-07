@@ -13,8 +13,8 @@
 
 ## 3. Per-chip options
 
-- [ ] 3.1 Key chip: Exact / Harmonic / Fuzzy, ±1/±2 semitone, compare with Master or a deck; overrides the app setting and stays until changed
-- [ ] 3.2 BPM chip: tolerance and half/double time; tag chips: Any / All / Not
+- [x] 3.1 Key chip: Setting / Exact / Harmonic / Fuzzy; overrides the app setting and stays until changed
+- [ ] 3.2 Key chip: ±1/±2 semitone, compare with Master or a deck; BPM chip: half/double time; tag chips: Any / All / Not
 
 ## 4. Core and More
 

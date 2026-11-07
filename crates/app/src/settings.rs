@@ -930,6 +930,16 @@ pub fn set_filter_tolerance(i: usize) {
     save(|v| v["filter_tolerance"] = json!(i));
 }
 
+/// How the Key chip matches the playing track: 0 by the key mixing
+/// setting, 1 the same key, 2 Harmonic, 3 Fuzzy.
+pub fn filter_key_match() -> usize {
+    load()["filter_key_match"].as_u64().unwrap_or(0).min(3) as usize
+}
+
+pub fn set_filter_key_match(i: usize) {
+    save(|v| v["filter_key_match"] = json!(i));
+}
+
 /// How track colours show in the track list: 0 a dot in the Colour
 /// column (the default), 1 a strip at the row's edge, 2 the row tinted,
 /// 3 not at all. `None` before it was ever set.

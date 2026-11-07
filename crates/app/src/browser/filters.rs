@@ -80,6 +80,10 @@ pub fn fields(names: &FieldNames) -> Vec<Field> {
     out
 }
 
+/// The Key chip's ways to match the playing track, as the popup names
+/// them: the app's setting first.
+pub const KEY_MATCHES: [&str; 4] = ["Setting", "Exact", "Harmonic", "Fuzzy"];
+
 /// How many values with tracks a long list shows before "Show N more".
 pub const SHORT_LIST: usize = 8;
 
@@ -118,6 +122,9 @@ pub struct Filters {
     pub tolerance: usize,
     /// Only keys that mix with the playing track's.
     pub key_follow: bool,
+    /// How keys must match the playing track's: 0 by the app's key
+    /// mixing setting, 1 the same key, 2 Harmonic, 3 Fuzzy.
+    pub key_match: usize,
 }
 
 impl Filters {
@@ -329,7 +336,10 @@ impl Filters {
             }
             Kind::Key => {
                 let follow = match deck.and_then(|(_, k)| k) {
-                    Some(k) if self.key_follow => format!("~key:{}", k.camelot()),
+                    Some(k) if self.key_follow => {
+                        let rule = ["~key", "key", "~harmonic", "~fuzzy"][self.key_match.min(3)];
+                        format!("{rule}:{}", k.camelot())
+                    }
                     _ => String::new(),
                 };
                 and_text(&follow, &any())
@@ -373,7 +383,10 @@ impl FilterState {
         FilterState {
             fields: fields(&names),
             names,
-            filters: Filters::new(settings::filter_pinned(), settings::filter_tolerance()),
+            filters: Filters {
+                key_match: settings::filter_key_match(),
+                ..Filters::new(settings::filter_pinned(), settings::filter_tolerance())
+            },
             editing: None,
             choices: Vec::new(),
             find: String::new(),
@@ -570,6 +583,15 @@ impl Browser {
             w(&|b| {
                 b.filter.filters.bpm_low = low.to_string();
                 b.filter.filters.bpm_high = high.to_string();
+                b.filters_changed();
+            })
+        });
+        let w = with.clone();
+        ui.on_set_key_match(move |i| {
+            w(&|b| {
+                let i = (i.max(0) as usize).min(KEY_MATCHES.len() - 1);
+                b.filter.filters.key_match = i;
+                settings::set_filter_key_match(i);
                 b.filters_changed();
             })
         });
@@ -881,10 +903,21 @@ impl Browser {
                         bpm * (1.0 + t)
                     )
                 }
-                (Some(Kind::Key), Some((_, Some(k)))) => format!(
-                    "Playing in {}: keys that mix with it.",
-                    k.label(self.camelot)
-                ),
+                (Some(Kind::Key), Some((_, Some(k)))) => match f.filters.key_match {
+                    1 => format!("Playing in {}: the same key only.", k.label(self.camelot)),
+                    2 => format!(
+                        "Playing in {}: keys that mix with it (Harmonic).",
+                        k.label(self.camelot)
+                    ),
+                    3 => format!(
+                        "Playing in {}: keys that mix with it (Fuzzy).",
+                        k.label(self.camelot)
+                    ),
+                    _ => format!(
+                        "Playing in {}: keys that mix with it, as set in Settings.",
+                        k.label(self.camelot)
+                    ),
+                },
                 _ => "The playing track has no tempo or key yet.".to_string(),
             }
             .into(),
@@ -892,6 +925,7 @@ impl Browser {
         ui.set_bpm_low(f.filters.bpm_low.clone().into());
         ui.set_bpm_high(f.filters.bpm_high.clone().into());
         ui.set_tolerance(f.filters.tolerance as i32);
+        ui.set_key_match(f.filters.key_match as i32);
     }
 }
 
@@ -1196,6 +1230,27 @@ mod tests {
         assert_eq!(labels, [("bright", 1), ("lullaby", 1), ("uplifting", 1)]);
         // The genre chip itself still counts every genre.
         assert_eq!(f.text_except(&fields, None, "genre"), "");
+    }
+
+    #[test]
+    fn the_key_chip_can_match_its_own_way() {
+        let fields = fields(&FieldNames::default());
+        let mut f = Filters {
+            key_follow: true,
+            ..Default::default()
+        };
+        let deck = Some((120.0, Key::parse("8A")));
+        let text = |f: &Filters| f.text(&fields, deck);
+        assert_eq!(text(&f), "~key:8A");
+        f.key_match = 1;
+        assert_eq!(text(&f), "key:8A");
+        f.key_match = 3;
+        assert_eq!(text(&f), "~fuzzy:8A");
+        // Fuzzy lets 9B in; Harmonic doesn't.
+        let lib = vec![track(1, "", "", "", 120.0, "9B")];
+        assert_eq!(find(&lib, &text(&f)), [1]);
+        f.key_match = 2;
+        assert!(find(&lib, &text(&f)).is_empty());
     }
 
     #[test]
