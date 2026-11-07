@@ -25,7 +25,33 @@ use opendj_plugin_host::shm::{self, Midi, Shm, CHANNELS, MAX_EVENTS, MAX_PARAMS}
 use opendj_plugin_host::window::EditorWindow;
 use opendj_plugin_host::Transport;
 
+/// macOS: makes this helper a background (accessory) app before any plugin
+/// code runs. The helper sits inside openDJ.app, so once a plugin touches
+/// AppKit on load (many instruments do) macOS would otherwise show it as a
+/// second "openDJ" in the Dock and the ⌘-Tab switcher. Quitting that one
+/// would kill the plugin.
+#[cfg(target_os = "macos")]
+fn stay_in_background() {
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    // NSApplicationActivationPolicyAccessory: windows, but no Dock icon or
+    // menu bar, and not in the app switcher.
+    const ACCESSORY: isize = 1;
+    // SAFETY: the shared NSApplication, on the main thread (main's first
+    // line). AppKit is linked through winit.
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        if !app.is_null() {
+            let _: bool = msg_send![app, setActivationPolicy: ACCESSORY];
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn stay_in_background() {}
+
 fn main() {
+    stay_in_background();
     let mut shm_path = None;
     let mut test = None;
     let mut clap = None;
