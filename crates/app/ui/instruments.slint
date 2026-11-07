@@ -33,7 +33,13 @@ export global InstrumentsUi {
     // Opens Settings on page `page`, tab `tab` (Plugins or Audio).
     callback open-settings(page: int, tab: int);
 
-    // The input deck `deck` plays: 0 none, 1 microphone, 2 aux, 3 instrument.
+    // Each input's device and channels as Settings › Audio shows them, in
+    // the engine's input order (microphone, aux, instrument, aux 2, aux 3);
+    // "" while it has none. Set by the app.
+    in property <[string]> routes;
+
+    // The input deck `deck` plays: 0 none, 1 microphone, 2 aux, 3 instrument,
+    // 4 aux 2, 5 aux 3 (1 + the engine's input).
     public pure function live(deck: int) -> int {
         Controls.value(Controls.resolve("[Channel" + (deck + 1) + "]", "live_input"), Controls.tick)
     }
@@ -51,7 +57,29 @@ export global InstrumentsUi {
     public pure function on-deck(deck: int, kind: int, index: int) -> bool {
         kind == 1 ? groove(deck) && Controls.value(Controls.resolve("[Groove" + (deck + 1) + "]", "kit"), Controls.tick) == index
             : kind == 2 ? live(deck) == 3 && instrument() == index + 1
-            : live(deck) == kind - 2
+            : kind == 3 ? live(deck) == 1
+            : live(deck) == aux-live(index)
+    }
+
+    // The `live` value of aux input `index` (0 to 2).
+    public pure function aux-live(index: int) -> int {
+        index == 0 ? 2 : index + 3
+    }
+
+    // The LiveIcon kind for a deck playing `live`.
+    public pure function live-icon(live: int) -> int {
+        live == 1 ? 3 : live == 3 ? 2 : 4
+    }
+
+    // The name of what a deck playing `live` plays; `instrument` is the
+    // plugin's name.
+    public pure function live-name(live: int, instrument: string) -> string {
+        live == 1 ? "Microphone" : live == 2 ? "Aux input" : live == 3 ? instrument : "Aux " + (live - 2)
+    }
+
+    // Where input `live` comes from, "M4 · In 3", or "" when not set up.
+    public pure function route(live: int) -> string {
+        live > 0 && live <= routes.length ? routes[live - 1] : ""
     }
 
     // "Deck 2", "Decks 1 and 3", or "" while on no deck.
@@ -252,6 +280,14 @@ export component InstrumentsPanel inherits Rectangle {
     property <bool> aux-ready: Controls.value(Controls.resolve("[Auxiliary1]", "input_configured"), Controls.tick) > 0;
     property <bool> aux2-ready: Controls.value(Controls.resolve("[Auxiliary2]", "input_configured"), Controls.tick) > 0;
     property <bool> aux3-ready: Controls.value(Controls.resolve("[Auxiliary3]", "input_configured"), Controls.tick) > 0;
+    // Each input names the interface input it records from, once set up.
+    property <LiveItem> mic-item: { kind: 3, index: 0, name: "Microphone", detail: detail(1, "The mic input, with the deck's FX") };
+    property <LiveItem> aux-item: { kind: 4, index: 0, name: "Aux input", detail: detail(2, "Line in from other gear") };
+    property <LiveItem> aux2-item: { kind: 4, index: 1, name: "Aux 2", detail: detail(4, "Line in from other gear") };
+    property <LiveItem> aux3-item: { kind: 4, index: 2, name: "Aux 3", detail: detail(5, "Line in from other gear") };
+    pure function detail(live: int, otherwise: string) -> string {
+        InstrumentsUi.route(live) != "" ? InstrumentsUi.route(live) : otherwise
+    }
     ScrollView {
         VerticalLayout {
             padding: 16px;
@@ -286,19 +322,9 @@ export component InstrumentsPanel inherits Rectangle {
                 title: "INPUTS";
                 about: "Turntables, a drum machine, a singer: anything plugged into your audio interface.";
                 // Auxiliary inputs 2 and 3 once they are set up.
-                items: aux3-ready ? [
-                    { kind: 3, index: 0, name: "Microphone", detail: "The mic input, with the deck's FX" },
-                    { kind: 4, index: 0, name: "Aux input", detail: "Line in from other gear" },
-                    { kind: 4, index: 1, name: "Aux 2", detail: "Line in from other gear" },
-                    { kind: 4, index: 2, name: "Aux 3", detail: "Line in from other gear" },
-                ] : aux2-ready ? [
-                    { kind: 3, index: 0, name: "Microphone", detail: "The mic input, with the deck's FX" },
-                    { kind: 4, index: 0, name: "Aux input", detail: "Line in from other gear" },
-                    { kind: 4, index: 1, name: "Aux 2", detail: "Line in from other gear" },
-                ] : [
-                    { kind: 3, index: 0, name: "Microphone", detail: "The mic input, with the deck's FX" },
-                    { kind: 4, index: 0, name: "Aux input", detail: "Line in from other gear" },
-                ];
+                items: aux3-ready ? [mic-item, aux-item, aux2-item, aux3-item]
+                    : aux2-ready ? [mic-item, aux-item, aux2-item]
+                    : [mic-item, aux-item];
                 statuses: [mic-ready ? "" : "No input picked yet", aux-ready ? "" : "No input picked yet"];
                 if !mic-ready || !aux-ready: SettingsLink {
                     text: "Pick the inputs in Settings › Audio…";

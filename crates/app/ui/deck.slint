@@ -758,11 +758,12 @@ export component Header inherits Rectangle {
     property <bool> playing: Controls.value(Controls.resolve(group, "play"), Controls.tick) > 0;
     property <bool> groove-following: Controls.value(Controls.resolve(groove-group, "following"), Controls.tick) > 0;
     // A live input played through the deck instead of a track: 1 the
-    // microphone, 2 the aux input, 3 the instrument plugin.
+    // microphone, 2 the aux input, 3 the instrument plugin, 4 and 5 aux
+    // inputs 2 and 3.
     property <int> live: info.loaded || groove ? 0 : InstrumentsUi.live(deck);
     property <int> instrument: InstrumentsUi.instrument();
-    property <string> live-name: live == 1 ? "Microphone" : live == 2 ? "Aux input"
-        : instrument > 0 && instrument <= EffectList.instruments.length ? EffectList.instruments[instrument - 1] : "Instrument";
+    property <string> live-name: InstrumentsUi.live-name(live,
+        instrument > 0 && instrument <= EffectList.instruments.length ? EffectList.instruments[instrument - 1] : "Instrument");
     property <int> hold-index: Controls.resolve(group, "seek_hold");
     property <int> position-index: Controls.resolve(group, "playposition");
     // Where a press on the overview started, and whether it became a drag.
@@ -845,7 +846,7 @@ export component Header inherits Rectangle {
                     Text { text: groove ? "Groove Box" : live > 0 ? live-name : info.loaded ? info.title : "Empty deck"; color: Theme.text; font-size: compact ? 14px : 18px; font-weight: 500; overflow: elide; }
                     Text {
                         text: groove ? GrooveUi.kits[groove-kit].name + " kit   |   " + round(groove-bpm * 10) / 10 + (groove-following ? " BPM, in time with the mix" : " BPM")
-                            : live > 0 ? (live == 3 ? "Instrument plugin, live" : "Live input")
+                            : live > 0 ? (live == 3 ? "Instrument plugin, live" : InstrumentsUi.route(live) != "" ? InstrumentsUi.route(live) : "Live input")
                             : info.loaded ? (compact ? info.artist : info.artist + "   |   " + info.bpm) : compact ? "Drop a track here" : "Drop a track here or double-click one in the browser";
                         color: Theme.text-dim;
                         font-size: compact ? 11px : 13px;
@@ -859,7 +860,7 @@ export component Header inherits Rectangle {
                 }
                 if live > 0: VerticalLayout {
                     alignment: center;
-                    LiveIcon { kind: live + 2; tint: tint; size: compact ? 24px : 30px; }
+                    LiveIcon { kind: InstrumentsUi.live-icon(live); tint: tint; size: compact ? 24px : 30px; }
                 }
                 if !groove && live == 0: TimeKey { group: group; info: info; tint: tint; show-time: !compact; }
             }
@@ -3085,7 +3086,7 @@ component LivePanel inherits Rectangle {
         padding: 10px;
         HorizontalLayout {
             alignment: center;
-            LiveIcon { kind: live + 2; tint: tint; size: 40px; }
+            LiveIcon { kind: InstrumentsUi.live-icon(live); tint: tint; size: 40px; }
         }
         Text {
             text: !ready ? (live == 3 ? "Pick an instrument plugin to hear it." : "No input picked for it yet.")

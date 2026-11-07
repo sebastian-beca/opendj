@@ -962,6 +962,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Duration::from_secs(3600),
         backup::run_if_due,
     );
+    instruments::show_routes(&app, &engine.input_status());
     let prefs = prefs::Prefs::install(
         &app,
         registry.clone(),
@@ -979,7 +980,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         prefs::InputHooks {
             changed: {
                 let engine = engine.clone();
-                Box::new(move || engine.set_inputs(&settings::audio_setup()))
+                let weak = app.as_weak();
+                Box::new(move || {
+                    engine.set_inputs(&settings::audio_setup());
+                    if let Some(app) = weak.upgrade() {
+                        instruments::show_routes(&app, &engine.input_status());
+                    }
+                })
             },
             status: {
                 let engine = engine.clone();

@@ -74,6 +74,25 @@ pub fn show_plugins(app: &AppWindow, instruments: &[Found], names: &[String]) {
         .set_plugins(ModelRc::new(VecModel::from(items)));
 }
 
+/// Shows on the inputs' tiles and live decks where each input comes from,
+/// from the engine's input states ("M4 · In 3 · 44.1 kHz"): the device and
+/// channels only, or nothing for an input that isn't recording.
+pub fn show_routes(app: &AppWindow, status: &[String]) {
+    let routes: Vec<SharedString> = status.iter().map(|s| route(s).into()).collect();
+    app.global::<InstrumentsUi>()
+        .set_routes(ModelRc::new(VecModel::from(routes)));
+}
+
+/// "M4 · In 3" from an open input's state; "" from anything else (not set
+/// up, or an error).
+fn route(status: &str) -> String {
+    let parts: Vec<&str> = status.split(" · ").collect();
+    match parts.iter().position(|p| p.ends_with(" kHz")) {
+        Some(k) if k > 0 => parts[..k].join(" · "),
+        _ => String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,5 +105,14 @@ mod tests {
         assert_eq!(parse("opendj-row:3"), None);
         assert_eq!(parse("opendj-live:9:0"), None);
         assert_eq!(parse("opendj-live:1:x"), None);
+    }
+
+    #[test]
+    fn routes_keep_the_device_and_channels() {
+        assert_eq!(route("M4 · In 3 · 44.1 kHz"), "M4 · In 3");
+        assert_eq!(route("M4 · In 1 & 2 · 48 kHz · silent so far"), "M4 · In 1 & 2");
+        assert_eq!(route(""), "");
+        assert_eq!(route("M4 unavailable"), "");
+        assert_eq!(route("M4 can't record In 3 at 44.1 kHz"), "");
     }
 }
