@@ -4,7 +4,7 @@
 
 - [x] 1.1 Instruments tree (All instruments, Groove Box, Plugins by maker, Inputs) and a track-style list with search; rows drag to a deck, double-click loads on a free deck
 - [x] 1.2 One Groove Box entry; kit picked on the deck
-- [ ] 1.3 Type and Character tag chips over the list; tags on presets (SAVE › Tags)
+- [x] 1.3 Type and Character tag chips over the list; tags on presets (SAVE › Tags)
 
 ## 2. Presets
 

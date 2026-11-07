@@ -9,7 +9,7 @@ import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
 import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, MasterBadge, PitchReset, SyncButton } from "controls.slint";
 import { TourMark } from "tourmark.slint";
 import { MapMark } from "mapmark.slint";
-import { InstrumentsUi, LiveIcon, PresetUi } from "instruments.slint";
+import { InstrumentsUi, LiveIcon, PresetUi, TagChip } from "instruments.slint";
 import { LineEdit } from "std-widgets.slint";
 import { ListView, ScrollView } from "scroll.slint";
 
@@ -753,6 +753,38 @@ export global GrooveUi {
     in property <[GrooveGenre]> genres;
 }
 
+// A preset's tags, for the browser's chips: what it is (TYPE) and how it
+// sounds (CHARACTER), switched on and off.
+component PresetTagger inherits PopupWindow {
+    in property <int> deck;
+    width: 300px;
+    height: 2 * 18px + 4 * 28px + 16px;
+    close-policy: close-on-click-outside;
+    GrooveMenuBackground { }
+    VerticalLayout {
+        padding: 8px;
+        spacing: 0px;
+        for group[g] in ["TYPE", "CHARACTER"]: VerticalLayout {
+            property <int> from: g == 0 ? 0 : PresetUi.type-count;
+            property <int> to: g == 0 ? PresetUi.type-count : PresetUi.tag-names.length;
+            Text { text: group; color: Theme.text-dim; font-size: 10px; height: 18px; vertical-alignment: center; }
+            for row in 2: HorizontalLayout {
+                spacing: 4px;
+                padding-top: 3px;
+                padding-bottom: 3px;
+                height: 28px;
+                alignment: start;
+                for k in max(0, min(5, to - from - row * 5)): TagChip {
+                    property <int> tag: from + row * 5 + k;
+                    text: PresetUi.tag-names[tag];
+                    on: PresetUi.has-tag(deck, tag);
+                    clicked => { PresetUi.toggle-tag(deck, tag); }
+                }
+            }
+        }
+    }
+}
+
 // Asks a name for a new preset (`asking` 0) or a new name for preset
 // `name` (1), then saves or renames.
 component PresetNamer inherits PopupWindow {
@@ -868,7 +900,17 @@ component PresetBar inherits Rectangle {
                     namer.show();
                 }
             }
+            if name != "": GrooveMenuItem {
+                text: "Tags…";
+                detail: "What it is and how it sounds";
+                clicked => { tagger.show(); }
+            }
         }
+    }
+    tagger := PresetTagger {
+        x: root.width - 300px;
+        y: root.height + 2px;
+        deck: deck;
     }
     namer := PresetNamer {
         x: root.width - 280px;
@@ -916,9 +958,9 @@ component GroovePreset inherits GrooveButton {
     menu := PopupWindow {
         y: root.height + 2px;
         width: 230px;
-        // Previous, Next, the presets, then Save as new (and Save and
-        // Rename with a preset playing), with their lines between.
-        height: min((PresetUi.groove.length + (name != "" ? 5 : 3)) * 24px + (PresetUi.groove.length > 0 ? 18px : 16px), 420px);
+        // Previous, Next, the presets, then Save as new (and Save, Rename
+        // and Tags with a preset playing), with their lines between.
+        height: min(PresetUi.groove.length * 24px + (name != "" ? 180px : 84px), 440px);
         GrooveMenuBackground { }
         ScrollView {
             x: 4px;
@@ -954,8 +996,17 @@ component GroovePreset inherits GrooveButton {
                         namer.show();
                     }
                 }
+                if name != "": GrooveMenuItem {
+                    text: "Tags…";
+                    detail: "What it is and how it sounds";
+                    clicked => { tagger.show(); }
+                }
             }
         }
+    }
+    tagger := PresetTagger {
+        y: root.height + 2px;
+        deck: deck;
     }
     namer := PresetNamer {
         y: root.height + 2px;

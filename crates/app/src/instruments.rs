@@ -54,6 +54,9 @@ struct State {
     keys: Vec<String>,
     /// The presets, as `crate::presets::all` lists them.
     presets: Vec<Preset>,
+    /// The tag chips on, as `crate::presets::tags` numbers them: the list
+    /// then shows only presets with every one.
+    chips: Vec<bool>,
 }
 
 struct Plugin {
@@ -109,6 +112,19 @@ pub fn install(app: &AppWindow) {
                 if !s.open.remove(&key) {
                     s.open.insert(key);
                 }
+            }
+        });
+        if let Some(app) = weak.upgrade() {
+            refresh(&app);
+        }
+    });
+    let weak = app.as_weak();
+    ui.on_toggle_chip(move |tag| {
+        STATE.with_borrow_mut(|s| {
+            let n = presets::tags().count();
+            s.chips.resize(n, false);
+            if let Some(on) = s.chips.get_mut(tag as usize) {
+                *on = !*on;
             }
         });
         if let Some(app) = weak.upgrade() {
@@ -354,6 +370,35 @@ fn rows(s: &State) -> Vec<LiveItem> {
             }
         }
     };
+    // With tag chips on, only presets that have every one.
+    let wanted: Vec<&str> = presets::tags()
+        .zip(&s.chips)
+        .filter(|(_, on)| **on)
+        .map(|(t, _)| t)
+        .collect();
+    if !wanted.is_empty() {
+        // The presets of the instruments listed, and those listed.
+        let listed: HashSet<&str> = rows
+            .iter()
+            .filter_map(|r| match r.kind {
+                KIT => Some(GROOVE),
+                PLUGIN => s.plugins.get(r.index as usize).map(|p| p.key.as_str()),
+                PRESET => s
+                    .presets
+                    .get(r.index as usize)
+                    .map(|p| p.instrument.as_str()),
+                _ => None,
+            })
+            .collect();
+        rows = s
+            .presets
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| listed.contains(p.instrument.as_str()))
+            .filter(|(_, p)| wanted.iter().all(|w| p.tags.iter().any(|t| t == w)))
+            .map(|(i, p)| preset(i, p))
+            .collect();
+    }
     let words: Vec<String> = s.search.split_whitespace().map(str::to_lowercase).collect();
     if !words.is_empty() {
         rows.retain(|r| {
@@ -383,6 +428,12 @@ fn refresh(app: &AppWindow) {
         let rows = rows(s);
         let (empty, page, tab) = if !rows.is_empty() {
             ("", -1, 0)
+        } else if s.chips.iter().any(|on| *on) {
+            (
+                "No presets have all the tags picked. Tag a preset with SAVE › Tags on its deck.",
+                -1,
+                0,
+            )
         } else if !s.search.is_empty() {
             ("Nothing matches the search.", -1, 0)
         } else if s.current.starts_with("plugin") || s.current.starts_with("maker") {
@@ -398,6 +449,9 @@ fn refresh(app: &AppWindow) {
         ui.set_empty_text(empty.into());
         ui.set_empty_page(page);
         ui.set_empty_tab(tab);
+        let mut chips = s.chips.clone();
+        chips.resize(presets::tags().count(), false);
+        ui.set_chips(ModelRc::new(VecModel::from(chips)));
     });
 }
 
@@ -503,6 +557,11 @@ mod tests {
             instrument: instrument.into(),
             instrument_name: instrument_name.into(),
             path: format!("/p/{name}.json").into(),
+            tags: if name == "Ambient Ebow" {
+                vec!["Pad".into(), "Evolving".into()]
+            } else {
+                vec!["Drums".into()]
+            },
         };
         let mut s = state("groove");
         s.presets = vec![
@@ -533,6 +592,14 @@ mod tests {
         s.current = "presets".into();
         assert_eq!(names(&s).len(), 2);
         assert_eq!(parse(&payload(PRESET, 1)), Some(5001));
+        // The Pad chip leaves the presets tagged Pad; Pad and Drums, none.
+        let chip = |t: &str| presets::tags().position(|x| x == t).unwrap();
+        s.chips = vec![false; presets::tags().count()];
+        s.chips[chip("Pad")] = true;
+        s.current = "all".into();
+        assert_eq!(names(&s), [(PRESET, 1, "Ambient Ebow".into())]);
+        s.chips[chip("Drums")] = true;
+        assert!(names(&s).is_empty());
     }
 
     #[test]
