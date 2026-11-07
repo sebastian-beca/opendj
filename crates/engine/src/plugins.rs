@@ -11,7 +11,7 @@
 //! by itself in the middle of a set.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -103,6 +103,9 @@ struct List {
     /// [`PluginHost::set_instruments`]).
     instruments: Vec<PluginEntry>,
     version: u64,
+    /// Where each plugin's last sound is kept (see
+    /// [`PluginHost::set_sound_folder`]); none keeps nothing.
+    sounds: Option<PathBuf>,
 }
 
 /// Runs the plugin host thread; dropping it stops the thread and every helper.
@@ -165,6 +168,13 @@ impl PluginHost {
         list.version += 1;
     }
 
+    /// Keeps each plugin's sound (its whole state) in `folder`: saved when
+    /// it stops, is swapped out, its window closes or openDJ quits, and
+    /// loaded when it starts again, so tweaks made in its window last.
+    pub fn set_sound_folder(&self, folder: PathBuf) {
+        self.list.lock().unwrap().sounds = Some(folder);
+    }
+
     /// What happened since the last call.
     pub fn events(&self) -> Vec<PluginEvent> {
         self.events.try_iter().collect()
@@ -191,6 +201,8 @@ struct SlotHandles {
 /// A helper running for one instance.
 struct Running {
     plugin: u16,
+    /// The plugin's key, for its sound file.
+    key: String,
     helper: Helper,
     unit: usize,
     slot: usize,
@@ -270,11 +282,49 @@ struct InstrumentState {
     /// `[Instrument1],main_mix`, switched off after a crash.
     on: ControlHandle,
     running: Option<(u16, Helper)>,
+    /// The running plugin's key, for its sound file.
+    running_key: String,
     /// `[Instrument1],show_editor`, and whether its editor was asked for.
     show_editor: ControlHandle,
     editor: bool,
     policies: HashMap<u16, Policy>,
     disabled: HashSet<u16>,
+}
+
+/// The file plugin `key`'s last sound is kept in: the key's hash, since
+/// keys hold paths.
+fn sound_file(folder: &Path, key: &str) -> PathBuf {
+    // FNV-1a: the same file for the same key on every run and version.
+    let hash = key.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ b as u64).wrapping_mul(0x0100_0000_01b3)
+    });
+    folder.join(format!("{hash:016x}.sound"))
+}
+
+/// The sound plugin `key` last had, if one was kept.
+fn kept_sound(list: &Mutex<List>, key: &str) -> Option<Vec<u8>> {
+    let folder = list.lock().unwrap().sounds.clone()?;
+    std::fs::read(sound_file(&folder, key)).ok()
+}
+
+/// Keeps a running plugin's sound for next time. A helper that crashed or
+/// hung is left alone: its last kept sound stays.
+fn keep_sound(list: &Mutex<List>, key: &str, helper: &Helper) {
+    let Some(folder) = list.lock().unwrap().sounds.clone() else {
+        return;
+    };
+    if key.is_empty() || helper.is_gone() || helper.missed_in_row() > 0 {
+        return;
+    }
+    let Ok(data) = helper.save_state() else {
+        return;
+    };
+    let file = sound_file(&folder, key);
+    let tmp = file.with_extension("tmp");
+    let _ = std::fs::create_dir_all(&folder);
+    if std::fs::write(&tmp, data).is_ok() {
+        let _ = std::fs::rename(&tmp, &file);
+    }
 }
 
 fn get(reg: &ControlRegistry, group: &str, item: &str) -> ControlHandle {
@@ -332,6 +382,7 @@ impl Supervisor {
                 choice: get(reg, INSTRUMENT_GROUP, "instrument"),
                 on: get(reg, INSTRUMENT_GROUP, "main_mix"),
                 running: None,
+                running_key: String::new(),
                 show_editor: get(reg, INSTRUMENT_GROUP, "show_editor"),
                 editor: false,
                 policies: HashMap::new(),
@@ -366,7 +417,12 @@ impl Supervisor {
                         continue;
                     };
                     any = true;
-                    if let Some(reason) = follow_editor(&r.helper, &mut r.editor, control, want) {
+                    let was_open = r.editor;
+                    let reason = follow_editor(&r.helper, &mut r.editor, control, want);
+                    if was_open && !r.editor {
+                        keep_sound(&self.list, &r.key, &r.helper);
+                    }
+                    if let Some(reason) = reason {
                         let name = self
                             .entries
                             .get(r.plugin as usize)
@@ -396,10 +452,15 @@ impl Supervisor {
         match ins.running.as_ref() {
             Some((plugin, helper)) => {
                 let want = ins.show_editor.get_bool();
+                let was_open = ins.editor;
                 if let Some(reason) = follow_editor(helper, &mut ins.editor, &ins.show_editor, want)
                 {
                     let name = ins.entries[*plugin as usize].name.clone();
                     let _ = self.events.send(PluginEvent::NoWindow { name, reason });
+                }
+                // Its window just closed: keep what the DJ did there.
+                if was_open && !ins.editor {
+                    keep_sound(&self.list, &ins.running_key, helper);
                 }
             }
             None => {
@@ -422,6 +483,9 @@ impl Supervisor {
         let ins = &mut self.instrument;
         ins.policies.clear();
         ins.disabled.clear();
+        if let Some((_, helper)) = &ins.running {
+            keep_sound(&self.list, &ins.running_key, helper);
+        }
         if ins.running.take().is_some() {
             let _ = self.link.to_engine.push(PluginMsg::Instrument(None));
         }
@@ -556,6 +620,7 @@ impl Supervisor {
                 target_name(target),
                 slot + 1
             )),
+            state: kept_sound(&self.list, &entry.key),
         };
         match spawn(&opts) {
             Ok((conn, helper)) => {
@@ -595,6 +660,7 @@ impl Supervisor {
                     self.knobs[unit][slot] = Some(plugin);
                     self.running[i] = Some(Running {
                         plugin,
+                        key: self.entries[plugin as usize].key.clone(),
                         helper,
                         unit,
                         slot,
@@ -615,6 +681,9 @@ impl Supervisor {
 
     /// Detaches instance `i`'s helper and ends it.
     fn stop(&mut self, i: usize) {
+        if let Some(r) = &self.running[i] {
+            keep_sound(&self.list, &r.key, &r.helper);
+        }
         if self.running[i].take().is_some() {
             // The engine hands the connection back; the helper itself ends
             // as it drops here, and its connection then plays dry until then.
@@ -704,6 +773,9 @@ impl Supervisor {
             return;
         }
         if have.is_some() {
+            if let Some((_, helper)) = &ins.running {
+                keep_sound(&self.list, &ins.running_key, helper);
+            }
             ins.running = None;
             let _ = self.link.to_engine.push(PluginMsg::Instrument(None));
         }
@@ -717,6 +789,7 @@ impl Supervisor {
             sample_rate: self.opts.sample_rate,
             max_frames: BLOCK,
             title: Some(format!("{} · Instrument", entry.name)),
+            state: kept_sound(&self.list, &entry.key),
         };
         match spawn(&opts) {
             Ok((conn, helper)) => {
@@ -733,6 +806,7 @@ impl Supervisor {
                     .is_ok()
                 {
                     ins.running = Some((plugin, helper));
+                    ins.running_key = entry.key.clone();
                     ins.editor = false;
                 }
             }
@@ -751,6 +825,9 @@ impl Supervisor {
     fn shut_down(&mut self) {
         for i in 0..self.running.len() {
             self.stop(i);
+        }
+        if let Some((_, helper)) = &self.instrument.running {
+            keep_sound(&self.list, &self.instrument.running_key, helper);
         }
         if self.instrument.running.take().is_some() {
             let _ = self.link.to_engine.push(PluginMsg::Instrument(None));
@@ -1097,5 +1174,42 @@ mod tests {
         }
         assert!(rig.notes.send([0x90, 127, 100]));
         assert!(rig.instrument_buffer().abs() < 1e-3);
+    }
+    #[test]
+    fn an_instruments_sound_is_kept_for_next_time() {
+        let mut rig = Rig::new("test-gain");
+        let folder = std::env::temp_dir().join(format!("opendj-sounds-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        let file = sound_file(&folder, "test-synth");
+        std::fs::write(&file, b"kept").unwrap();
+        rig.host.set_sound_folder(folder.clone());
+        rig.host.set_instruments(vec![PluginEntry {
+            key: "test-synth".into(),
+            name: "Test Synth".into(),
+            plugin: Plugin::Test("test-synth".into()),
+        }]);
+        let group = input_group(INSTRUMENT);
+        let configured = rig.reg.get(group, "input_configured").unwrap();
+        rig.reg.get(group, "instrument").unwrap().set(1.0);
+        let end = Instant::now() + Duration::from_secs(10);
+        while !configured.get_bool() {
+            rig.instrument_buffer();
+            assert!(Instant::now() < end, "the instrument starts");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        // It started with the kept sound; taken off, it keeps it again.
+        std::fs::remove_file(&file).unwrap();
+        rig.reg.get(group, "instrument").unwrap().set(0.0);
+        while !file.exists() {
+            rig.instrument_buffer();
+            assert!(
+                Instant::now() < end + Duration::from_secs(10),
+                "the sound is kept"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(std::fs::read(&file).unwrap(), b"kept");
+        let _ = std::fs::remove_dir_all(&folder);
     }
 }

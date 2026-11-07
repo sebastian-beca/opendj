@@ -19,8 +19,9 @@ use clack_extensions::gui::{
 };
 use clack_extensions::latency::PluginLatency;
 use clack_extensions::params::{ParamInfoBuffer, ParamInfoFlags, PluginParams};
-#[cfg(all(unix, not(target_os = "macos")))]
 use clack_extensions::posix_fd::{FdFlags, HostPosixFd, HostPosixFdImpl, PluginPosixFd};
+#[cfg(all(unix, not(target_os = "macos")))]
+use clack_extensions::state::PluginState;
 use clack_extensions::timer::{HostTimer, HostTimerImpl, PluginTimer, TimerId};
 use clack_host::events::event_types::{
     MidiEvent, NoteOffEvent, NoteOnEvent, ParamValueEvent, TransportEvent, TransportFlags,
@@ -265,6 +266,28 @@ impl ClapMain {
 }
 
 impl MainThread for ClapMain {
+    fn save_state(&mut self) -> Result<Vec<u8>, String> {
+        let handle = self.instance.plugin_handle();
+        let state = handle
+            .get_extension::<PluginState>()
+            .ok_or("it can't save its sound")?;
+        let mut data = Vec::new();
+        state
+            .save(&handle, &mut data)
+            .map_err(|e| format!("saving its sound failed: {e}"))?;
+        Ok(data)
+    }
+
+    fn load_state(&mut self, data: &[u8]) -> Result<(), String> {
+        let handle = self.instance.plugin_handle();
+        let state = handle
+            .get_extension::<PluginState>()
+            .ok_or("it can't load a saved sound")?;
+        state
+            .load(&handle, &mut &data[..])
+            .map_err(|e| format!("loading the sound failed: {e}"))
+    }
+
     fn idle(&mut self) {
         let asked = self
             .instance

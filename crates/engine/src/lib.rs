@@ -265,6 +265,14 @@ impl AudioEngine {
         }
     }
 
+    /// Keeps each plugin's sound in `folder` between uses and sessions (see
+    /// [`plugins::PluginHost::set_sound_folder`]).
+    pub fn set_plugin_sound_folder(&self, folder: std::path::PathBuf) {
+        if let Some(p) = &self.plugins {
+            p.set_sound_folder(folder);
+        }
+    }
+
     /// Where notes for the Instrument input go in, from any thread.
     pub fn note_input(&self) -> Arc<Mutex<NoteInput>> {
         self.notes.clone()

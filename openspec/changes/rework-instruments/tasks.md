@@ -8,7 +8,7 @@
 
 ## 2. Presets
 
-- [ ] 2.1 Plugin state save and restore (CLAP state, VST3 component and controller state, AU full state) in the plugin host; kept across restarts
+- [x] 2.1 Plugin state save and restore (CLAP state, VST3 component and controller state, AU full state) in the plugin host; kept across restarts
 - [ ] 2.2 openDJ preset files (`Instruments/Presets/<instrument>/`) for plugins and the Groove Box; SAVE menu on the deck (Save, Save as new, Rename, Tags)
 - [ ] 2.3 Plugin presets listed from the formats: CLAP preset discovery, `.vstpreset`, AU factory presets and `.aupreset`
 - [ ] 2.5 Recently played and My presets in the tree; an instrument's presets listed under it, default sound first; column sort
@@ -21,6 +21,7 @@
 - [ ] 3.3 Knob pages from the plugin (CLAP remote controls), else its first 8 automatable parameters, else the user's picks (right-click Assign…); saved in the preset
 - [ ] 3.4 4-Deck instrument strip: art, preset ‹ ›, thin scope, 4 knobs, TRIM, meter, EDIT; no keyboard
 - [ ] 3.5 Input decks (mic, aux): header with the interface input, TRIM, PAN, meter
+- [ ] 3.6 MIDI from: each instrument deck takes notes from a chosen device and channel (Any by default), so one controller's tracks can play different decks; built on the MIDI device roles' deck choice
 
 ## 4. Scale, chord and arpeggiator
 

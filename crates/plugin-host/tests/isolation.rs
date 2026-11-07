@@ -10,14 +10,32 @@ const FRAMES: usize = 256;
 const DEADLINE: Duration = Duration::from_millis(500);
 
 fn start(effect: &str) -> (Connection, Helper) {
+    start_from(effect, None)
+}
+
+fn start_from(effect: &str, state: Option<Vec<u8>>) -> (Connection, Helper) {
     spawn(&Options {
         helper: env!("CARGO_BIN_EXE_opendj-plugin-host").into(),
         plugin: opendj_plugin_host::Plugin::Test(effect.into()),
         sample_rate: 48_000,
         max_frames: 1024,
         title: None,
+        state,
     })
     .expect("helper starts")
+}
+
+#[test]
+fn the_plugins_sound_is_saved_and_brought_back() {
+    // A new helper starts from a saved sound, and hands it back.
+    let (_conn, helper) = start_from("test-gain", Some(b"warm pad".to_vec()));
+    assert_eq!(helper.save_state().unwrap(), b"warm pad");
+    // A sound loaded while it runs replaces it.
+    helper.load_state(b"acid bass").unwrap();
+    assert_eq!(helper.save_state().unwrap(), b"acid bass");
+    // With nothing saved it starts empty.
+    let (_conn, helper) = start("test-gain");
+    assert_eq!(helper.save_state().unwrap(), b"");
 }
 
 fn block(conn: &mut Connection, deadline: Duration) -> (Outcome, Vec<f32>, Vec<f32>) {
@@ -129,6 +147,7 @@ fn an_unknown_effect_fails_to_start() {
         sample_rate: 48_000,
         max_frames: 1024,
         title: None,
+        state: None,
     })
     .err()
     .expect("refused");

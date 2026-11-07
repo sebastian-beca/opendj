@@ -22,7 +22,7 @@ use memmap2::MmapMut;
 /// "openDJ P" in ASCII, so a helper can tell it was handed the right file.
 pub const MAGIC: u64 = 0x6f70_656e_444a_2050;
 /// Bumped whenever the layout below changes.
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 4;
 /// Two channels: decks and the main mix are stereo.
 pub const CHANNELS: usize = 2;
 /// Parameters a slot can set without a round trip.
@@ -62,7 +62,20 @@ pub struct Header {
     /// What the helper did about it: 0 closed, 1 open, 2 the plugin has no
     /// window of its own (or it failed to open). Closing the window sets 0.
     pub editor_shown: AtomicU32,
+    /// openDJ asks for the plugin's state: [`STATE_SAVE`] (write it to the
+    /// helper's state file) or [`STATE_LOAD`] (read it from there), then
+    /// bumps `state_asked`. The helper's main thread does it, stores
+    /// `state_ok` (1 done, 0 failed) and sets `state_done` to `state_asked`.
+    pub state_cmd: AtomicU32,
+    pub state_asked: AtomicU32,
+    pub state_done: AtomicU32,
+    pub state_ok: AtomicU32,
 }
+
+/// `Header::state_cmd`: write the plugin's state to the state file.
+pub const STATE_SAVE: u32 = 1;
+/// `Header::state_cmd`: bring the plugin back to the state in the state file.
+pub const STATE_LOAD: u32 = 2;
 
 /// One MIDI message at a frame of the block (a note for an instrument).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

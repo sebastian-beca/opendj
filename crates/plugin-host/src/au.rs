@@ -205,7 +205,29 @@ extern "C" {
     fn CFRelease(cf: *const c_void);
     fn CFRunLoopRunInMode(mode: CFStringRef, seconds: f64, return_after: u8) -> i32;
     static kCFRunLoopDefaultMode: CFStringRef;
+    fn CFPropertyListCreateData(
+        allocator: *const c_void,
+        list: *const c_void,
+        format: isize,
+        options: usize,
+        error: *mut *const c_void,
+    ) -> *const c_void;
+    fn CFPropertyListCreateWithData(
+        allocator: *const c_void,
+        data: *const c_void,
+        options: usize,
+        format: *mut isize,
+        error: *mut *const c_void,
+    ) -> *const c_void;
+    fn CFDataCreate(allocator: *const c_void, bytes: *const u8, length: isize) -> *const c_void;
+    fn CFDataGetLength(data: *const c_void) -> isize;
+    fn CFDataGetBytePtr(data: *const c_void) -> *const u8;
 }
+
+/// `kCFPropertyListBinaryFormat_v1_0`.
+const kCFPropertyListBinaryFormat_v1_0: isize = 200;
+/// The unit's whole state, as a property list (what `.aupreset` files hold).
+const kAudioUnitProperty_ClassInfo: u32 = 0;
 
 const kCFStringEncodingUTF8: u32 = 0x0800_0100;
 
@@ -343,6 +365,76 @@ struct AuMain {
 }
 
 impl MainThread for AuMain {
+    fn save_state(&mut self) -> Result<Vec<u8>, String> {
+        // SAFETY: the unit lives as long as the helper; every object made
+        // here is released before returning.
+        unsafe {
+            let mut list: *const c_void = std::ptr::null();
+            let mut size = std::mem::size_of::<*const c_void>() as u32;
+            let r = AudioUnitGetProperty(
+                self.unit,
+                kAudioUnitProperty_ClassInfo,
+                kAudioUnitScope_Global,
+                0,
+                &mut list as *mut _ as *mut c_void,
+                &mut size,
+            );
+            if r != 0 || list.is_null() {
+                return Err(format!("it can't save its sound ({r})"));
+            }
+            let data = CFPropertyListCreateData(
+                std::ptr::null(),
+                list,
+                kCFPropertyListBinaryFormat_v1_0,
+                0,
+                std::ptr::null_mut(),
+            );
+            CFRelease(list);
+            if data.is_null() {
+                return Err("its sound couldn't be written down".into());
+            }
+            let bytes =
+                std::slice::from_raw_parts(CFDataGetBytePtr(data), CFDataGetLength(data) as usize)
+                    .to_vec();
+            CFRelease(data);
+            Ok(bytes)
+        }
+    }
+
+    fn load_state(&mut self, bytes: &[u8]) -> Result<(), String> {
+        // SAFETY: as in `save_state`.
+        unsafe {
+            let data = CFDataCreate(std::ptr::null(), bytes.as_ptr(), bytes.len() as isize);
+            if data.is_null() {
+                return Err("out of memory".into());
+            }
+            let list = CFPropertyListCreateWithData(
+                std::ptr::null(),
+                data,
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+            CFRelease(data);
+            if list.is_null() {
+                return Err("the saved sound is damaged".into());
+            }
+            let r = AudioUnitSetProperty(
+                self.unit,
+                kAudioUnitProperty_ClassInfo,
+                kAudioUnitScope_Global,
+                0,
+                &list as *const _ as *const c_void,
+                std::mem::size_of::<*const c_void>() as u32,
+            );
+            CFRelease(list);
+            if r != 0 {
+                return Err(format!("it didn't take the saved sound ({r})"));
+            }
+            Ok(())
+        }
+    }
+
     fn idle(&mut self) {
         // SAFETY: runs the main thread's run loop briefly; called on it.
         unsafe {
