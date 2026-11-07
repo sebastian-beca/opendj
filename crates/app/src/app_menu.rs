@@ -1,4 +1,4 @@
-//! The app's menus, written once: [`MENUS`] lists File and Edit with their
+//! The app's menus, written once: [`MENUS`] lists File, Edit and View with their
 //! items, shortcuts and submenus. macOS shows them in the native menu bar
 //! (see [`crate::mac_menu`]); Windows and Linux open the same items from
 //! the ☰ button at the left of the top bar, so the window spends no height
@@ -28,10 +28,11 @@ pub enum Action {
     ExportRekordboxXml,
     ExportMixcloud,
     RecordMix,
+    MiniPlayer,
 }
 
 impl Action {
-    const ALL: [Action; 10] = [
+    const ALL: [Action; 11] = [
         Action::Settings,
         Action::Quit,
         Action::Undo,
@@ -42,6 +43,7 @@ impl Action {
         Action::ExportMixcloud,
         Action::ExportRekordboxXml,
         Action::RecordMix,
+        Action::MiniPlayer,
     ];
 
     /// Its number, as the ☰ menu and the macOS menu items carry it.
@@ -60,7 +62,7 @@ impl Action {
     pub fn starts_enabled(self) -> bool {
         matches!(
             self,
-            Action::Settings | Action::Quit | Action::Find | Action::RecordMix
+            Action::Settings | Action::Quit | Action::Find | Action::RecordMix | Action::MiniPlayer
         )
     }
 }
@@ -143,6 +145,18 @@ pub const MENUS: &[Menu] = &[
                 action: Action::Find,
                 title: "Find",
                 key: Some("f"),
+            },
+        ],
+    },
+    Menu {
+        title: "View",
+        entries: &[
+            // ⇧⌘M (Ctrl+Shift+M), handled by the window's keys; the
+            // shortcut text here has no Shift.
+            Entry::Item {
+                action: Action::MiniPlayer,
+                title: "Mini Player",
+                key: None,
             },
         ],
     },
@@ -337,6 +351,7 @@ pub fn run(app: &AppWindow, action: Action) {
         // The mixed set picked in Recordings.
         Action::ExportMixcloud => crate::export_mixcloud(app),
         // [Recording],toggle_recording, as the REC button and controllers.
+        Action::MiniPlayer => app.invoke_mini_player(),
         Action::RecordMix => {
             let controls = app.global::<crate::Controls>();
             let index = controls.invoke_resolve("[Recording]".into(), "toggle_recording".into());

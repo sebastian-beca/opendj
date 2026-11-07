@@ -1,0 +1,271 @@
+// The mini player: a small window, on top of the others by default, for
+// when openDJ plays in the background. One window in two shapes, as in
+// other music players: a square of album art by default, with nothing
+// over it until the pointer comes in, when the art dims and the title,
+// progress and transport show over it; or drag it low and wide for a strip
+// (art, title, artist, the transport and a progress line).
+//
+// It is its own window, so it shares no globals with the main one:
+// mini_player.rs copies what is playing into its properties and runs its
+// buttons on the main window.
+import { Theme } from "theme.slint";
+
+component MiniButton inherits Rectangle {
+    in property <bool> enabled: true;
+    in property <string> icon;
+    in property <bool> filled: true;
+    in property <length> glyph: 16px;
+    callback clicked();
+    width: 30px;
+    height: 30px;
+    border-radius: 15px;
+    background: enabled && ta.has-hover ? #ffffff1c : transparent;
+    Path {
+        width: glyph;
+        height: glyph;
+        viewbox-width: 18;
+        viewbox-height: 18;
+        fill: filled ? (enabled ? #ffffffe6 : #ffffff55) : transparent;
+        stroke: filled ? transparent : (enabled ? #ffffffe6 : #ffffff55);
+        stroke-width: filled ? 0px : 1.6px;
+        commands: icon;
+    }
+    ta := TouchArea {
+        mouse-cursor: enabled ? pointer : default;
+        clicked => {
+            if enabled {
+                root.clicked();
+            }
+        }
+    }
+}
+
+component MiniPlay inherits Rectangle {
+    in property <bool> playing;
+    in property <length> size: 34px;
+    callback clicked();
+    width: size;
+    height: size;
+    border-radius: size / 2;
+    background: ta.pressed ? #d0d0d4 : #ffffff;
+    if playing: Path {
+        width: size * 0.4;
+        height: size * 0.4;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        fill: #111113;
+        commands: "M 3 2 L 6 2 L 6 14 L 3 14 Z M 10 2 L 13 2 L 13 14 L 10 14 Z";
+    }
+    if !playing: Path {
+        x: size * 0.33;
+        width: size * 0.4;
+        height: size * 0.4;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        fill: #111113;
+        commands: "M 2 1 L 15 8 L 2 15 Z";
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component MiniPlayer inherits Window {
+    in property <string> track-title: "Nothing playing";
+    in property <string> artist;
+    in property <image> art-image;
+    in property <bool> has-cover;
+    in property <string> initials;
+    in property <color> tint: #1d7bff;
+    in property <bool> loaded;
+    in property <bool> playing;
+    // How far through the track, 0 to 1, and Automix's next mix (both 0
+    // when none), as fractions of the track.
+    in property <float> progress;
+    in property <float> mix-from;
+    in property <float> mix-to;
+    // "NEXT IN 0:42" and the track after this one, when Automix has one.
+    in property <string> next-in;
+    in property <string> next-title;
+    in property <bool> can-next;
+    in-out property <bool> pinned: true;
+    callback play-pause();
+    callback previous();
+    callback next();
+    callback seek(float);
+    // Back to the main window.
+    callback expand();
+    callback pin-changed(bool);
+    title: "openDJ";
+    always-on-top: pinned;
+    background: #161819;
+    min-width: 240px;
+    min-height: 76px;
+    preferred-width: 300px;
+    preferred-height: 300px;
+    // Tall enough for the art to lead: the square shape.
+    property <bool> square: root.height >= 160px;
+    property <string> prev-icon: "M 2 3 L 4 3 L 4 15 L 2 15 Z M 15 3 L 6 9 L 15 15 Z";
+    property <string> next-icon: "M 14 3 L 16 3 L 16 15 L 14 15 Z M 3 3 L 12 9 L 3 15 Z";
+    // A pin, and four arrows out of a box (back to the full window).
+    property <string> pin-icon: "M 6 2 L 12 2 L 11 8 L 14 11 L 4 11 L 7 8 Z M 9 11 L 9 16";
+    property <string> expand-icon: "M 3 7 L 3 3 L 7 3 M 11 3 L 15 3 L 15 7 M 15 11 L 15 15 L 11 15 M 7 15 L 3 15 L 3 11";
+    property <string> close-icon: "M 4 4 L 14 14 M 14 4 L 4 14";
+    property <bool> show-controls: hover.has-hover;
+
+    hover := TouchArea { }
+
+    // The art: a square on the left of the strip, or the whole window.
+    art := Rectangle {
+        x: 0;
+        y: 0;
+        width: square ? root.width : root.height - 3px;
+        height: square ? root.height : root.height - 3px;
+        clip: true;
+        background: loaded ? @linear-gradient(135deg, tint 0%, tint.darker(0.6) 55%, #101012 100%) : #232428;
+        if !has-cover: Text {
+            text: loaded ? initials : "♪";
+            color: #ffffffd0;
+            font-size: min(parent.width, parent.height) / 3;
+            font-weight: 700;
+        }
+        if has-cover: Image { width: parent.width; height: parent.height; source: art-image; image-fit: cover; }
+    }
+
+    if !square: HorizontalLayout {
+        x: art.width;
+        width: root.width - art.width;
+        height: root.height - 3px;
+        padding-left: 12px;
+        padding-right: 8px;
+        spacing: 6px;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            alignment: center;
+            spacing: 1px;
+            Text { text: root.track-title; color: #ffffff; font-size: 13px; font-weight: 700; overflow: elide; }
+            Text { text: root.artist; color: Theme.text-dim; font-size: 12px; overflow: elide; }
+            if next-in != "": Text {
+                text: next-in + (next-title != "" ? " · " + next-title : "");
+                color: Theme.accent;
+                font-size: 10px;
+                font-weight: 600;
+                overflow: elide;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                spacing: 4px;
+                VerticalLayout { alignment: center; MiniButton { icon: prev-icon; enabled: loaded; clicked => { previous(); } } }
+                MiniPlay { playing: playing; clicked => { play-pause(); } }
+                VerticalLayout { alignment: center; MiniButton { icon: next-icon; enabled: can-next; clicked => { next(); } } }
+            }
+        }
+        VerticalLayout {
+            alignment: space-between;
+            padding-top: 4px;
+            padding-bottom: 4px;
+            MiniButton { width: 22px; height: 22px; icon: expand-icon; filled: false; glyph: 12px; clicked => { expand(); } }
+            MiniButton {
+                width: 22px;
+                height: 22px;
+                icon: pin-icon;
+                filled: pinned;
+                glyph: 12px;
+                clicked => {
+                    pinned = !pinned;
+                    pin-changed(pinned);
+                }
+            }
+        }
+    }
+
+    // Square: only the art until the pointer comes in; then the art dims
+    // and, as in other players' mini players, ✕ (back to the main window)
+    // and the pin show at the top, and the title, artist, progress and
+    // transport at the bottom.
+    if square && show-controls: Rectangle {
+        background: #0000008c;
+        HorizontalLayout {
+            y: 8px;
+            height: 28px;
+            padding-left: 8px;
+            padding-right: 8px;
+            alignment: space-between;
+            MiniButton { width: 28px; height: 28px; icon: close-icon; filled: false; glyph: 13px; clicked => { expand(); } }
+            MiniButton {
+                width: 28px;
+                height: 28px;
+                icon: pin-icon;
+                filled: pinned;
+                glyph: 13px;
+                clicked => {
+                    pinned = !pinned;
+                    pin-changed(pinned);
+                }
+            }
+        }
+        VerticalLayout {
+            y: root.height - self.height - 12px;
+            height: self.preferred-height;
+            padding-left: 16px;
+            padding-right: 16px;
+            spacing: 2px;
+            Text { text: root.track-title; color: #ffffff; font-size: max(16px, root.width / 15); font-weight: 700; overflow: elide; }
+            Text { text: root.artist; color: #e2e0ea; font-size: max(13px, root.width / 21); overflow: elide; }
+            if next-in != "": Text { text: next-in; color: Theme.accent; font-size: 11px; font-weight: 600; }
+            // The progress line: white, lilac under the pointer; a click
+            // jumps there.
+            Rectangle {
+                height: 18px;
+                Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    height: 4px;
+                    border-radius: 2px;
+                    background: #ffffff40;
+                    clip: true;
+                    if mix-to > mix-from: Rectangle { x: parent.width * mix-from; width: parent.width * (mix-to - mix-from); background: #8a78c8; }
+                    Rectangle { x: 0; width: parent.width * clamp(progress, 0, 1); background: line-ta.has-hover ? Theme.accent : #ffffff; }
+                }
+                line-ta := TouchArea {
+                    enabled: loaded;
+                    mouse-cursor: pointer;
+                    clicked => { seek(clamp(self.mouse-x / self.width, 0, 1)); }
+                }
+            }
+            HorizontalLayout {
+                alignment: center;
+                spacing: 22px;
+                VerticalLayout { alignment: center; MiniButton { icon: prev-icon; enabled: loaded; clicked => { previous(); } } }
+                MiniPlay { size: 44px; playing: playing; clicked => { play-pause(); } }
+                VerticalLayout { alignment: center; MiniButton { icon: next-icon; enabled: can-next; clicked => { next(); } } }
+            }
+        }
+    }
+
+    // The strip's progress along the bottom: played lilac, the next mix dim
+    // lilac; a click jumps there.
+    if !square: Rectangle {
+        x: art.width;
+        y: root.height - 3px;
+        width: root.width - self.x;
+        height: 3px;
+        background: #3a3b40;
+        if mix-to > mix-from: Rectangle { x: parent.width * mix-from; width: parent.width * (mix-to - mix-from); background: #5b4c8a; }
+        Rectangle { x: 0; width: parent.width * clamp(progress, 0, 1); background: Theme.accent; }
+    }
+    if !square: Rectangle {
+        x: art.width;
+        y: root.height - 10px;
+        width: root.width - self.x;
+        height: 10px;
+        TouchArea {
+            enabled: loaded;
+            mouse-cursor: pointer;
+            clicked => { seek(clamp(self.mouse-x / self.width, 0, 1)); }
+        }
+    }
+}

@@ -7,7 +7,7 @@
 // crossfader.
 //
 // PlayerBar, further down, is the Player layout itself.
-import { TrackDrag } from "library.slint";
+import { LibraryEdit, ListPanel, TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
 import { LyricsUi } from "lyrics.slint";
 import { LineEdit } from "std-widgets.slint";
@@ -160,8 +160,9 @@ component BarButton inherits Rectangle {
     out property <color> ink: !enabled ? Theme.text-dim.with-alpha(0.5) : lit ? Theme.accent : ta.has-hover ? Theme.text : Theme.text.with-alpha(0.85);
     @children
     if tip != "" && ta.has-hover: Rectangle {
+        // Above: the bar sits at the bottom of the window.
         x: (parent.width - self.width) / 2;
-        y: parent.height + 4px;
+        y: -self.height - 4px;
         width: tip-text.preferred-width + 16px;
         height: 22px;
         border-radius: 5px;
@@ -180,18 +181,17 @@ component BarButton inherits Rectangle {
     }
 }
 
-// The Player layout's one bar (120 px), along the bottom of the window as in music
-// players: what is playing on the left (album art, title, artist, BPM and
-// the key in its colour), the transport over the track's scrubber in the
-// middle, and Automix's next step, the master volume and the queue button
-// on the right. Underneath, decks 1 and 2 keep alternating and Automix
-// mixes from one to the other, so a song never just stops and the next
-// starts cold; the bar always shows the deck playing. Order and Repeat are
-// in Up Next's header, with the rest of what acts on the queue.
+// The Player layout's one bar (104 px), along the bottom of the window as
+// in music players: what is playing on the left (album art, title, artist,
+// BPM, the key in its colour and Automix's next track), the transport over
+// a thin progress line in the middle, and the volume, mini player, lyrics and queue
+// buttons on the right over the file's quality. Underneath, decks 1 and 2
+// keep alternating and Automix mixes from one to the other, so a song never
+// just stops and the next starts cold; the bar always shows the deck
+// playing. Order and Repeat are in Up Next's header, with the rest of what
+// acts on the queue.
 export component PlayerBar inherits Rectangle {
     in property <[DeckInfo]> decks;
-    in property <image> overview-1;
-    in property <image> overview-2;
     // The deck to show: Automix's live deck, else the master deck.
     in property <int> live;
     // The deck Automix is mixing into, -1 when not mixing.
@@ -207,8 +207,7 @@ export component PlayerBar inherits Rectangle {
     callback automix-toggle();
     callback automix-mix-now();
     callback toggle-queue();
-    out property <length> overview-width: ov.width;
-    out property <length> overview-height: ov.height;
+    callback mini-player();
     property <int> d: live == 1 ? 1 : 0;
     property <DeckInfo> info: decks[d];
     property <string> group: "[Channel" + (d + 1) + "]";
@@ -218,309 +217,409 @@ export component PlayerBar inherits Rectangle {
     property <int> hold-index: Controls.resolve(group, "seek_hold");
     property <length> press-x;
     property <bool> scrubbing;
-    // Elapsed and remaining time as a player shows them, "1:23" and "-2:49".
-    property <int> elapsed-s: info.loaded ? floor(info.progress * info.duration) : 0;
-    property <int> remaining-s: info.loaded ? max(0, floor(info.duration) - elapsed-s) : 0;
+    // While dragging, where the pointer is (0 to 1), drawn at once rather
+    // than when the deck catches up.
+    property <float> drag-at;
+    property <float> shown-progress: scrubbing ? drag-at : clamp(info.progress, 0, 1);
+    // Time played and the track's length, "1:23" and "4:12".
+    property <int> elapsed-s: info.loaded ? floor(shown-progress * info.duration) : 0;
+    property <int> total-s: info.loaded ? floor(info.duration) : 0;
     property <string> elapsed: floor(elapsed-s / 60) + ":" + (mod(elapsed-s, 60) < 10 ? "0" : "") + mod(elapsed-s, 60);
-    property <string> remaining: "-" + floor(remaining-s / 60) + ":" + (mod(remaining-s, 60) < 10 ? "0" : "") + mod(remaining-s, 60);
+    property <string> total: floor(total-s / 60) + ":" + (mod(total-s, 60) < 10 ? "0" : "") + mod(total-s, 60);
+    // The time under the pointer, for the tip over the line.
+    property <int> hover-s: info.loaded ? floor(clamp(line-ta.mouse-x / line-ta.width, 0, 1) * info.duration) : 0;
+    property <string> hover-time: floor(hover-s / 60) + ":" + (mod(hover-s, 60) < 10 ? "0" : "") + mod(hover-s, 60);
     // BPM to one decimal, without a trailing ".0".
     property <string> bpm: info.bpm.is-float() ? "" + round(info.bpm.to-float() * 10) / 10 : "";
     // Both sides of the transport are this wide, so it sits in the middle
     // of the window.
     property <length> side: clamp(root.width * 0.28, 340px, 480px);
     property <length> pad: 18px;
-    property <length> gap: 24px;
+    property <length> gap: 28px;
+    // Under the pointer the line turns lilac and shows its knob.
+    property <bool> line-hot: info.loaded && (line-ta.has-hover || line-ta.pressed);
+    // Sized by the window, not by what is in it: the sides follow the
+    // bar's width.
+    min-width: 0px;
+    preferred-width: 0px;
     background: Theme.panel;
 
     HorizontalLayout {
         padding-left: pad;
         padding-right: pad;
-        padding-top: 14px;
-        padding-bottom: 14px;
+        padding-top: 12px;
+        padding-bottom: 12px;
         spacing: gap;
 
-        // The album art, then title and artist, BPM and the key in its
-        // wheel colour.
+        // The album art, then title, artist, BPM and the key in its wheel
+        // colour, and what Automix plays next.
         HorizontalLayout {
             width: side - pad - gap;
-            spacing: 16px;
+            spacing: 14px;
             VerticalLayout {
                 alignment: center;
-                Cover { deck: d; tint: Theme.deck-color(d); info: info; size: 88px; radius: 6px; }
+                Cover { deck: d; tint: Theme.deck-color(d); info: info; size: 76px; radius: 6px; }
             }
             VerticalLayout {
                 horizontal-stretch: 1;
                 min-width: 0px;
                 alignment: center;
-                spacing: 4px;
-                Text { text: info.loaded ? info.title : "Nothing playing"; color: Theme.text; font-size: 19px; font-weight: 700; overflow: elide; }
+                spacing: 3px;
+                Text { text: info.loaded ? info.title : "Nothing playing"; color: Theme.text; font-size: 17px; font-weight: 700; overflow: elide; }
                 HorizontalLayout {
                     alignment: start;
                     Text {
                         min-width: 0px;
                         text: info.loaded ? info.artist : queue-has-tracks ? "Press play to start Up Next" : "Add tracks to Up Next";
                         color: Theme.text-dim;
-                        font-size: 15px;
+                        font-size: 14px;
                         overflow: elide;
                     }
-                    if info.loaded && bpm != "": Text { text: " · " + bpm; color: Theme.text-dim; font-size: 15px; }
-                    if info.loaded && info.key != "": Text { text: " · "; color: Theme.text-dim; font-size: 15px; }
-                    if info.loaded && info.key != "": Text { text: info.key; color: Theme.key-wheel-color(info.key-wheel); font-size: 15px; font-weight: 700; }
+                    if info.loaded && bpm != "": Text { text: " · " + bpm; color: Theme.text-dim; font-size: 14px; }
+                    if info.loaded && info.key != "": Text { text: " · "; color: Theme.text-dim; font-size: 14px; }
+                    if info.loaded && info.key != "": Text { text: info.key; color: Theme.key-wheel-color(info.key-wheel); font-size: 14px; font-weight: 700; }
+                }
+                // Automix's next step, as other players show where the
+                // music comes from.
+                Text {
+                    property <string> what: automix-next != "" ? automix-next : automix-status;
+                    text: mixing-into >= 0 ? "MIXING" + (what != "" ? " · " + what : "")
+                        : automix-next-in != "" ? "NEXT IN " + automix-next-in + (what != "" ? " · " + what : "")
+                        : automix-on ? (what != "" ? "NEXT · " + what : "AUTOMIX")
+                        : "AUTOMIX OFF";
+                    color: automix-on ? Theme.accent : Theme.text-dim;
+                    font-size: 11px;
+                    font-weight: 600;
+                    overflow: elide;
+                }
+            }
+            // ＋: the track playing goes into a crate or playlist, as the
+            // heart or ＋ of other music players.
+            if info.loaded && LibraryEdit.has-lists: VerticalLayout {
+                alignment: center;
+                add := BarButton {
+                    tip: "Add to a crate or playlist";
+                    clicked => {
+                        list-find = "";
+                        LibraryEdit.find-lists("");
+                        list-popup.show();
+                    }
+                    Path {
+                        width: 22px;
+                        height: 22px;
+                        viewbox-width: 20;
+                        viewbox-height: 20;
+                        stroke: add.ink;
+                        stroke-width: 1.6px;
+                        commands: "M 10 1.5 A 8.5 8.5 0 1 1 9.99 1.5 Z M 10 6 L 10 14 M 6 10 L 14 10";
+                    }
                 }
             }
         }
 
-        // Play/Pause on the waveform's left edge, as on a track page;
-        // Previous and Next under it, between the time played and the
-        // time left.
+        // Previous, Play/Pause and Next over the progress line, between
+        // the time played and the track's length.
         VerticalLayout {
             horizontal-stretch: 1;
             alignment: center;
-            spacing: 6px;
+            spacing: 8px;
             HorizontalLayout {
-                spacing: 14px;
-                height: 52px;
-                // Play or pause. Starting also switches Automix on, so the
-                // next track in Up Next mixes in when this one ends.
+                alignment: center;
+                spacing: 26px;
+                // Previous: back to the start of the track.
                 VerticalLayout {
                     alignment: center;
-                    Rectangle {
-                        width: 52px;
-                        height: 52px;
-                        border-radius: 26px;
-                        background: pta.pressed ? Theme.text.darker(0.2) : Theme.text;
-                        if playing: Path {
-                            width: 20px;
-                            height: 20px;
-                            viewbox-width: 16;
-                            viewbox-height: 16;
-                            fill: Theme.background;
-                            commands: "M 3 2 L 6.5 2 L 6.5 14 L 3 14 Z M 9.5 2 L 13 2 L 13 14 L 9.5 14 Z";
+                    prev := BarButton {
+                        enabled: info.loaded;
+                        clicked => { Controls.set-value(Controls.resolve(group, "start"), 1); }
+                        Path {
+                            width: 18px;
+                            height: 18px;
+                            viewbox-width: 18;
+                            viewbox-height: 18;
+                            fill: prev.ink;
+                            commands: "M 2 3 L 4 3 L 4 15 L 2 15 Z M 15 3 L 6 9 L 15 15 Z";
                         }
-                        if !playing: Path {
-                            x: 18px;
-                            width: 20px;
-                            height: 20px;
-                            viewbox-width: 16;
-                            viewbox-height: 16;
-                            fill: Theme.background;
-                            commands: "M 2 1 L 15 8 L 2 15 Z";
-                        }
-                        pta := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                if playing {
-                                    Controls.set-value(play-index, 0);
-                                } else {
-                                    if info.loaded {
-                                        Controls.set-value(play-index, 1);
-                                    }
-                                    if !automix-on && (queue-has-tracks || !info.loaded) {
-                                        automix-toggle();
-                                    }
+                    }
+                }
+                // Play or pause. Starting also switches Automix on, so the
+                // next track in Up Next mixes in when this one ends.
+                Rectangle {
+                    width: 44px;
+                    height: 44px;
+                    border-radius: 22px;
+                    background: pta.pressed ? Theme.text.darker(0.2) : Theme.text;
+                    if playing: Path {
+                        width: 18px;
+                        height: 18px;
+                        viewbox-width: 16;
+                        viewbox-height: 16;
+                        fill: Theme.background;
+                        commands: "M 3 2 L 6.5 2 L 6.5 14 L 3 14 Z M 9.5 2 L 13 2 L 13 14 L 9.5 14 Z";
+                    }
+                    if !playing: Path {
+                        x: 15px;
+                        width: 18px;
+                        height: 18px;
+                        viewbox-width: 16;
+                        viewbox-height: 16;
+                        fill: Theme.background;
+                        commands: "M 2 1 L 15 8 L 2 15 Z";
+                    }
+                    pta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            if playing {
+                                Controls.set-value(play-index, 0);
+                            } else {
+                                if info.loaded {
+                                    Controls.set-value(play-index, 1);
+                                }
+                                if !automix-on && (queue-has-tracks || !info.loaded) {
+                                    automix-toggle();
                                 }
                             }
                         }
                     }
                 }
-                // The track as one lilac and grey shape (played and to
-                // come), Automix's next mix in a dim lilac; drawn on the
-                // bar's own colour.
-                ov := Rectangle {
-                    horizontal-stretch: 1;
-                    // Not rounded: a rounded clip renders into a cached
-                    // layer, which would freeze the GPU-updated image.
-                    clip: true;
-                    if d == 0: Image { width: parent.width; height: parent.height; source: overview-1; image-fit: fill; }
-                    if d == 1: Image { width: parent.width; height: parent.height; source: overview-2; image-fit: fill; }
-                // A click jumps there; a drag holds the deck silent
-                // under the pointer and carries on from where it is let go.
-                ota := TouchArea {
-                    enabled: info.loaded;
-                    mouse-cursor: ew-resize;
-                    pointer-event(e) => {
-                        if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
-                            return;
-                        }
-                        if e.kind == PointerEventKind.down {
-                            press-x = self.mouse-x;
-                            scrubbing = false;
-                            Controls.set-value(position-index, clamp(self.mouse-x / self.width, 0, 1));
-                        } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
-                            if scrubbing {
-                                Controls.set-value(hold-index, 0);
-                            }
-                            scrubbing = false;
+                // Next: mix into the next track now.
+                VerticalLayout {
+                    alignment: center;
+                    next := BarButton {
+                        enabled: automix-on && queue-has-tracks;
+                        clicked => { automix-mix-now(); }
+                        Path {
+                            width: 18px;
+                            height: 18px;
+                            viewbox-width: 18;
+                            viewbox-height: 18;
+                            fill: next.ink;
+                            commands: "M 14 3 L 16 3 L 16 15 L 14 15 Z M 3 3 L 12 9 L 3 15 Z";
                         }
                     }
-                    moved => {
-                        if self.pressed {
-                            if !scrubbing && abs(self.mouse-x - press-x) > 4px {
-                                scrubbing = true;
-                                Controls.set-value(hold-index, 1);
-                            }
-                            if scrubbing {
-                                Controls.set-value(position-index, clamp(self.mouse-x / self.width, 0, 1));
-                            }
-                        }
-                    }
-                }
                 }
             }
             HorizontalLayout {
-                height: 30px;
-                // Under the waveform: lined up with it, not the play button.
-                padding-left: 66px;
-                Text { text: elapsed; color: Theme.text-dim; font-size: 13px; vertical-alignment: center; min-width: 48px; }
-                HorizontalLayout {
+                height: 16px;
+                spacing: 12px;
+                Text { text: elapsed; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; horizontal-alignment: right; min-width: 40px; }
+                // The line: played in white (lilac under the pointer), the
+                // rest grey, Automix's next mix a dim lilac. A click jumps
+                // there; a drag holds the deck silent under the pointer and
+                // carries on from where it is let go.
+                line := Rectangle {
                     horizontal-stretch: 1;
-                    alignment: center;
-                    spacing: 22px;
-                    // Previous: back to the start of the track.
-                    VerticalLayout {
-                        alignment: center;
-                        prev := BarButton {
-                            width: 30px;
-                            height: 30px;
-                            enabled: info.loaded;
-                            clicked => { Controls.set-value(Controls.resolve(group, "start"), 1); }
-                            Path {
-                                width: 18px;
-                                height: 18px;
-                                viewbox-width: 18;
-                                viewbox-height: 18;
-                                fill: prev.ink;
-                                commands: "M 2 3 L 4 3 L 4 15 L 2 15 Z M 15 3 L 6 9 L 15 15 Z";
-                            }
+                    Rectangle {
+                        y: (parent.height - self.height) / 2;
+                        height: line-hot ? 5px : 4px;
+                        border-radius: self.height / 2;
+                        background: #ffffff2e;
+                        clip: true;
+                        if info.loaded && info.automix-to > info.automix-from: Rectangle {
+                            x: parent.width * info.automix-from;
+                            width: parent.width * (info.automix-to - info.automix-from);
+                            background: Theme.accent.with-alpha(0.4);
+                        }
+                        Rectangle {
+                            x: 0;
+                            width: parent.width * shown-progress;
+                            border-radius: parent.border-radius;
+                            background: line-hot ? Theme.accent : #ffffff;
                         }
                     }
-                    // Next: mix into the next track now.
-                    VerticalLayout {
-                        alignment: center;
-                        next := BarButton {
-                            width: 30px;
-                            height: 30px;
-                            enabled: automix-on && queue-has-tracks;
-                            clicked => { automix-mix-now(); }
-                            Path {
-                                width: 18px;
-                                height: 18px;
-                                viewbox-width: 18;
-                                viewbox-height: 18;
-                                fill: next.ink;
-                                commands: "M 14 3 L 16 3 L 16 15 L 14 15 Z M 3 3 L 12 9 L 3 15 Z";
+                    if line-hot: Rectangle {
+                        x: parent.width * shown-progress - 6px;
+                        y: (parent.height - 12px) / 2;
+                        width: 12px;
+                        height: 12px;
+                        border-radius: 6px;
+                        background: #ffffff;
+                    }
+                    if line-ta.has-hover && info.loaded: Rectangle {
+                        x: clamp(line-ta.mouse-x, 0, parent.width) - self.width / 2;
+                        y: -self.height - 8px;
+                        width: hover-text.preferred-width + 14px;
+                        height: 22px;
+                        border-radius: 5px;
+                        background: Theme.panel-raised;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        hover-text := Text { text: scrubbing ? elapsed : hover-time; color: Theme.text; font-size: 12px; }
+                    }
+                    line-ta := TouchArea {
+                        enabled: info.loaded;
+                        mouse-cursor: pointer;
+                        pointer-event(e) => {
+                            if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
+                                return;
+                            }
+                            if e.kind == PointerEventKind.down {
+                                press-x = self.mouse-x;
+                                scrubbing = false;
+                                Controls.set-value(position-index, clamp(self.mouse-x / self.width, 0, 1));
+                            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                                if scrubbing {
+                                    Controls.set-value(hold-index, 0);
+                                }
+                                scrubbing = false;
+                            }
+                        }
+                        moved => {
+                            if self.pressed {
+                                if !scrubbing && abs(self.mouse-x - press-x) > 4px {
+                                    scrubbing = true;
+                                    Controls.set-value(hold-index, 1);
+                                }
+                                if scrubbing {
+                                    drag-at = clamp(self.mouse-x / self.width, 0, 1);
+                                    Controls.set-value(position-index, drag-at);
+                                }
                             }
                         }
                     }
                 }
-                Text { text: info.loaded ? remaining : "0:00"; color: Theme.text-dim; font-size: 13px; vertical-alignment: center; horizontal-alignment: right; min-width: 48px; }
+                Text { text: info.loaded ? total : "0:00"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; min-width: 40px; }
             }
         }
 
-        // Automix's next step, the volume and the queue.
-        HorizontalLayout {
+        // The volume, mini player, lyrics and queue buttons, over the
+        // file's quality.
+        VerticalLayout {
             width: side - pad - gap;
-            spacing: 12px;
-            alignment: end;
-            VerticalLayout {
-                alignment: center;
-                horizontal-stretch: 1;
-                min-width: 0px;
-                spacing: 1px;
-                Text {
-                    text: mixing-into >= 0 ? "MIXING" : automix-next-in != "" ? "NEXT IN " + automix-next-in : automix-on ? "AUTOMIX" : "AUTOMIX OFF";
-                    color: automix-on ? Theme.accent : Theme.text-dim;
-                    font-size: 12px;
-                    font-weight: 700;
-                    letter-spacing: 0.5px;
-                    horizontal-alignment: right;
-                }
-                Text {
-                    text: automix-next != "" ? automix-next
-                        : automix-status != "" ? automix-status
-                        : automix-on ? "" : queue-has-tracks ? "Press play to mix through Up Next" : "Up Next is empty";
-                    color: Theme.text-dim;
-                    font-size: 14px;
-                    overflow: elide;
-                    horizontal-alignment: right;
-                }
-            }
-            // The master level, as in the MASTER panel.
-            VerticalLayout {
-                alignment: center;
-                HorizontalLayout {
-                    spacing: 6px;
-                    Path {
-                        width: 20px;
-                        height: 18px;
-                        y: 4px;
-                        viewbox-width: 16;
-                        viewbox-height: 14;
-                        fill: Theme.text-dim;
-                        commands: "M 1 5 L 4 5 L 8 2 L 8 12 L 4 9 L 1 9 Z";
+            alignment: center;
+            spacing: 6px;
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: end;
+                // The master level, as in the MASTER panel.
+                VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Path {
+                            width: 20px;
+                            height: 18px;
+                            y: 4px;
+                            viewbox-width: 16;
+                            viewbox-height: 14;
+                            fill: Theme.text-dim;
+                            commands: "M 1 5 L 4 5 L 8 2 L 8 12 L 4 9 L 1 9 Z";
+                        }
+                        LevelSlider { group: "[Master]"; key: "gain"; width: 110px; horizontal-stretch: 0; tint: Theme.text; }
                     }
-                    LevelSlider { group: "[Master]"; key: "gain"; width: 120px; horizontal-stretch: 0; tint: Theme.text; }
+                }
+                // The mini player: a small window on top of the others.
+                VerticalLayout {
+                    alignment: center;
+                    mini := BarButton {
+                        tip: "Mini player  (⇧⌘M)";
+                        clicked => { mini-player(); }
+                        Path {
+                            width: 20px;
+                            height: 20px;
+                            viewbox-width: 20;
+                            viewbox-height: 20;
+                            stroke: mini.ink;
+                            stroke-width: 1.6px;
+                            commands: "M 2 4 L 18 4 L 18 16 L 2 16 Z M 10 10 L 16 10 L 16 14 L 10 14 Z";
+                        }
+                    }
+                }
+                // Shows the lyrics large, in place of the track list.
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 40px;
+                        height: 36px;
+                        border-radius: 9px;
+                        background: LyricsUi.big ? Theme.accent.with-alpha(0.18) : lyta.has-hover ? #3a3a3d : transparent;
+                        border-width: LyricsUi.big ? 1px : 0px;
+                        border-color: Theme.accent;
+                        // A speech bubble with lines of words.
+                        Path {
+                            width: 22px;
+                            height: 19px;
+                            viewbox-width: 18;
+                            viewbox-height: 16;
+                            stroke: LyricsUi.big ? Theme.accent : Theme.text;
+                            stroke-width: 1.6px;
+                            commands: "M 2 1.5 L 16 1.5 L 16 11 L 7 11 L 3.5 14.5 L 3.5 11 L 2 11 Z M 5 5 L 13 5 M 5 8 L 10.5 8";
+                        }
+                        lyta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { LyricsUi.big = !LyricsUi.big; }
+                        }
+                    }
+                }
+                // Shows or hides Up Next (the Automix list) on the right.
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 40px;
+                        height: 36px;
+                        border-radius: 9px;
+                        background: queue-shown ? Theme.accent.with-alpha(0.18) : qta.has-hover ? #3a3a3d : transparent;
+                        border-width: queue-shown ? 1px : 0px;
+                        border-color: Theme.accent;
+                        Path {
+                            width: 22px;
+                            height: 19px;
+                            viewbox-width: 18;
+                            viewbox-height: 16;
+                            stroke: queue-shown ? Theme.accent : Theme.text;
+                            stroke-width: 1.7px;
+                            commands: "M 1 2 L 13 2 M 1 7 L 13 7 M 1 12 L 8 12";
+                        }
+                        Path {
+                            width: 22px;
+                            height: 19px;
+                            viewbox-width: 18;
+                            viewbox-height: 16;
+                            fill: queue-shown ? Theme.accent : Theme.text;
+                            commands: "M 11 10 L 16 12.5 L 11 15 Z";
+                        }
+                        qta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { toggle-queue(); }
+                        }
+                    }
                 }
             }
-            // Shows the lyrics large, in place of the track list.
-            VerticalLayout {
-                alignment: center;
+            // The file's quality, as music players tag theirs: lilac for
+            // lossless, grey otherwise.
+            if info.loaded && info.quality != "": HorizontalLayout {
+                alignment: end;
                 Rectangle {
-                    width: 44px;
-                    height: 40px;
-                    border-radius: 9px;
-                    background: LyricsUi.big ? Theme.accent.with-alpha(0.18) : lyta.has-hover ? #3a3a3d : transparent;
-                    border-width: LyricsUi.big ? 1px : 0px;
-                    border-color: Theme.accent;
-                    // A speech bubble with lines of words.
-                    Path {
-                        width: 24px;
-                        height: 21px;
-                        viewbox-width: 18;
-                        viewbox-height: 16;
-                        stroke: LyricsUi.big ? Theme.accent : Theme.text;
-                        stroke-width: 1.6px;
-                        commands: "M 2 1.5 L 16 1.5 L 16 11 L 7 11 L 3.5 14.5 L 3.5 11 L 2 11 Z M 5 5 L 13 5 M 5 8 L 10.5 8";
-                    }
-                    lyta := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => { LyricsUi.big = !LyricsUi.big; }
+                    height: 20px;
+                    width: q-text.preferred-width + 14px;
+                    border-radius: 4px;
+                    background: info.lossless ? Theme.accent.with-alpha(0.16) : #ffffff12;
+                    q-text := Text {
+                        text: info.quality;
+                        color: info.lossless ? Theme.accent : Theme.text-dim;
+                        font-size: 10px;
+                        font-weight: 700;
+                        letter-spacing: 0.4px;
                     }
                 }
             }
-            // Shows or hides Up Next (the Automix list) on the right.
-            VerticalLayout {
-                alignment: center;
-                Rectangle {
-                    width: 44px;
-                    height: 40px;
-                    border-radius: 9px;
-                    background: queue-shown ? Theme.accent.with-alpha(0.18) : qta.has-hover ? #3a3a3d : transparent;
-                    border-width: queue-shown ? 1px : 0px;
-                    border-color: Theme.accent;
-                    Path {
-                        width: 24px;
-                        height: 21px;
-                        viewbox-width: 18;
-                        viewbox-height: 16;
-                        stroke: queue-shown ? Theme.accent : Theme.text;
-                        stroke-width: 1.7px;
-                        commands: "M 1 2 L 13 2 M 1 7 L 13 7 M 1 12 L 8 12";
-                    }
-                    Path {
-                        width: 24px;
-                        height: 21px;
-                        viewbox-width: 18;
-                        viewbox-height: 16;
-                        fill: queue-shown ? Theme.accent : Theme.text;
-                        commands: "M 11 10 L 16 12.5 L 11 15 Z";
-                    }
-                    qta := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => { toggle-queue(); }
-                    }
-                }
-            }
+        }
+    }
+
+    property <string> list-find;
+    // The lists to add the playing track to, opening upwards from the bar.
+    list-popup := PopupWindow {
+        x: min(root.width - 296px, side - 280px);
+        y: -self.height - 6px;
+        width: 290px;
+        height: panel.preferred-height;
+        close-policy: close-on-click-outside;
+        panel := ListPanel {
+            width: parent.width;
+            mode: 1;
+            deck: d;
+            find <=> list-find;
+            done => { list-popup.close(); }
         }
     }
 

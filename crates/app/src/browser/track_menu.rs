@@ -81,6 +81,14 @@ impl Browser {
         let w = with.clone();
         edit.on_find_lists(move |text| w(&|b| b.find_menu_lists(&text)));
         let w = with.clone();
+        edit.on_add_deck_to_list(move |deck, list| {
+            w(&|b| b.add_deck_to_list(deck.max(0) as usize, list.max(0) as usize))
+        });
+        let w = with.clone();
+        edit.on_new_list_with_deck(move |deck, name| {
+            w(&|b| b.new_list_with_deck(deck.max(0) as usize, &name))
+        });
+        let w = with.clone();
         edit.on_find_tags(move |text| w(&|b| b.find_menu_tags(&text)));
         let w = with.clone();
         edit.on_add_tag(move |first, last, id, tag| {
@@ -175,7 +183,36 @@ impl Browser {
     /// "New crate" in the panel: a crate named what was typed to find a
     /// list (or "New crate", to be named in the tree), with the tracks in it.
     fn new_list_with(&mut self, first: usize, last: usize, name: &str) {
-        if !self.saved() {
+        let indices = self.chosen_tracks(first, last);
+        self.new_list_of(&indices, name);
+    }
+
+    /// The library index of the track on `deck`, if it is in the library.
+    fn deck_index(&self, deck: usize) -> Option<usize> {
+        let id = (*self.loaded.get(deck)?)?;
+        self.index_of.get(&id).copied()
+    }
+
+    /// The Player bar's ＋: the track on `deck` goes on list `list` of the panel.
+    fn add_deck_to_list(&mut self, deck: usize, list: usize) {
+        let (Some(index), Some(id)) = (
+            self.deck_index(deck),
+            self.menu_lists.get(list).map(|l| l.id),
+        ) else {
+            return;
+        };
+        self.add_to_playlist(&[index], id);
+    }
+
+    /// The Player bar's ＋, New crate: one with the track on `deck` in it.
+    fn new_list_with_deck(&mut self, deck: usize, name: &str) {
+        if let Some(index) = self.deck_index(deck) {
+            self.new_list_of(&[index], name);
+        }
+    }
+
+    fn new_list_of(&mut self, indices: &[usize], name: &str) {
+        if !self.saved() || indices.is_empty() {
             return;
         }
         let typed = name.trim();
@@ -187,7 +224,7 @@ impl Browser {
                 return;
             }
         };
-        self.add_rows_to_playlist(first, last, id);
+        self.add_to_playlist(indices, id);
         if self.tree == COLLECTION && !self.health_view {
             self.reload_tree(None);
         } else {
