@@ -33,7 +33,12 @@ pub struct Options {
     /// The title of the plugin's editor window, when it opens (the
     /// plugin's name when None).
     pub title: Option<String>,
+    /// A sound to start from: bytes [`Helper::save_state`] gave.
+    pub state: Option<Vec<u8>>,
 }
+
+/// How long the helper has to save or load the plugin's state.
+pub const STATE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The routed deck's tempo and position, for beat-synced plugins.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -95,6 +100,8 @@ pub struct Helper {
     health: Arc<Health>,
     child: Child,
     shm_path: PathBuf,
+    /// Where the helper saves the plugin's state and loads it from.
+    state_path: PathBuf,
     messages: Receiver<String>,
     shm: Arc<Shm>,
     info: Info,
@@ -290,14 +297,28 @@ fn shm_path() -> PathBuf {
     dir.join(format!("opendj-plugin-{}-{id}", std::process::id()))
 }
 
+/// The state file beside a helper's shared block, in the temp folder (the
+/// plugin's state can be large, so not in `/dev/shm`).
+fn state_path(shm: &Path) -> PathBuf {
+    let name = shm.file_name().unwrap_or_default().to_string_lossy();
+    std::env::temp_dir().join(format!("{name}.state"))
+}
+
 /// Starts a helper for `opts.plugin` and waits (up to [`READY_TIMEOUT`]) for
 /// it to load. Call this off the audio thread.
 pub fn spawn(opts: &Options) -> io::Result<(Connection, Helper)> {
     let path = shm_path();
+    let state_path = state_path(&path);
+    let _ = std::fs::remove_file(&state_path);
+    if let Some(state) = &opts.state {
+        std::fs::write(&state_path, state)?;
+    }
     let shm = Arc::new(Shm::create(&path, opts.max_frames, opts.sample_rate)?);
     let child = Command::new(&opts.helper)
         .arg("--shm")
         .arg(&path)
+        .arg("--state")
+        .arg(&state_path)
         .args(plugin_args(&opts.plugin))
         .args(
             opts.title
@@ -312,6 +333,7 @@ pub fn spawn(opts: &Options) -> io::Result<(Connection, Helper)> {
         Ok(c) => c,
         Err(e) => {
             let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_file(&state_path);
             return Err(e);
         }
     };
@@ -332,6 +354,7 @@ pub fn spawn(opts: &Options) -> io::Result<(Connection, Helper)> {
         health: Arc::default(),
         child,
         shm_path: path,
+        state_path,
         messages,
         shm: shm.clone(),
         info: Info::default(),
@@ -584,6 +607,43 @@ impl Helper {
         }
     }
 
+    /// The plugin's whole state (its sound and settings), to start a later
+    /// helper from ([`Options::state`]) or load with [`Helper::load_state`].
+    /// Waits up to [`STATE_TIMEOUT`]; call it off the audio thread.
+    pub fn save_state(&self) -> Result<Vec<u8>, String> {
+        self.state(shm::STATE_SAVE)?;
+        std::fs::read(&self.state_path).map_err(|e| e.to_string())
+    }
+
+    /// Brings the plugin back to a state [`Helper::save_state`] gave, while
+    /// it plays. Waits up to [`STATE_TIMEOUT`]; call it off the audio thread.
+    pub fn load_state(&self, data: &[u8]) -> Result<(), String> {
+        std::fs::write(&self.state_path, data).map_err(|e| e.to_string())?;
+        self.state(shm::STATE_LOAD)
+    }
+
+    fn state(&self, cmd: u32) -> Result<(), String> {
+        let h = self.shm.header();
+        if h.state_asked.load(Ordering::Relaxed) != h.state_done.load(Ordering::Acquire) {
+            return Err("the plugin is still busy with its last sound".into());
+        }
+        h.state_cmd.store(cmd, Ordering::Relaxed);
+        let asked = h.state_asked.load(Ordering::Relaxed).wrapping_add(1);
+        h.state_asked.store(asked, Ordering::Release);
+        let end = Instant::now() + STATE_TIMEOUT;
+        while h.state_done.load(Ordering::Acquire) != asked {
+            if Instant::now() >= end || self.is_gone() {
+                return Err("the plugin didn't answer".into());
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        if h.state_ok.load(Ordering::Relaxed) == 1 {
+            Ok(())
+        } else {
+            Err("the plugin couldn't do it".into())
+        }
+    }
+
     /// The plugin's name, parameters and latency, as it reported them.
     pub fn info(&self) -> &Info {
         &self.info
@@ -598,5 +658,6 @@ impl Drop for Helper {
     fn drop(&mut self) {
         self.kill();
         let _ = std::fs::remove_file(&self.shm_path);
+        let _ = std::fs::remove_file(&self.state_path);
     }
 }

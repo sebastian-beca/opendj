@@ -50,6 +50,7 @@ fn start() -> (opendj_plugin_host::Connection, opendj_plugin_host::Helper) {
         sample_rate: 48_000,
         max_frames: 1024,
         title: None,
+        state: None,
     })
     .expect("the CLAP plugin loads")
 }
@@ -144,6 +145,7 @@ fn a_missing_plugin_id_fails_to_start() {
         sample_rate: 48_000,
         max_frames: 1024,
         title: None,
+        state: None,
     })
     .err()
     .expect("refused");

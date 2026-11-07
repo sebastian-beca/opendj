@@ -14,6 +14,10 @@ openDJ SHALL save an instrument's sound as a preset file holding the instrument,
 - **WHEN** the user changes Jun-6 V's sound in its window, presses SAVE › Save as new and names it "Ambient Ebow", then restarts openDJ and loads "Ambient Ebow"
 - **THEN** Jun-6 V sounds as it did when saved
 
+#### Scenario: Tweaks survive a restart
+- **WHEN** the user changes a plugin's sound in its window, closes the window and restarts openDJ
+- **THEN** the plugin loads with the changed sound
+
 #### Scenario: Step through presets on the deck
 - **WHEN** a deck plays Acid V with its 4th preset and › is pressed
 - **THEN** the 5th preset in the browser's order loads on that deck
@@ -24,6 +28,13 @@ A deck playing an instrument plugin SHALL replace pads, loop, PLAY and CUE with 
 #### Scenario: Knob pages from the plugin
 - **WHEN** a CLAP plugin that publishes remote-control pages is loaded on a deck
 - **THEN** the deck's 8 knobs show the plugin's first page, named as the plugin names them
+
+### Requirement: MIDI from
+Each instrument deck SHALL take notes from a chosen MIDI device and channel, Any by default.
+
+#### Scenario: One controller, two instruments
+- **WHEN** deck 3 plays a bass taking MIDI from KeyStep Pro channel 1 and deck 4 plays a pad taking channel 2
+- **THEN** the KeyStep Pro's track 1 plays only the bass and track 2 only the pad
 
 ### Requirement: Level and clip protection
 Every deck playing an instrument or input SHALL have TRIM from −12 to +24 dB, set on first play so peaks sit near −12 dBFS, and an always-on true-peak limiter at −1 dBTP before the channel's EQ and effects.
