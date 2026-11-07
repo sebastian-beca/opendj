@@ -55,6 +55,7 @@ use std::sync::Arc;
 
 use opendj_control::{Behavior, ControlHandle, ControlRegistry};
 
+use crate::groove_dice::{self, Dice, Habits, Move, Track};
 use crate::groove_pads::{self, mode, PadSurface};
 use crate::kits::{self, Kit};
 use crate::patterns::{self, Level};
@@ -105,6 +106,19 @@ pub struct GrooveControls {
     pub kick_key: ControlHandle,
     /// The note the kick is tuned to, 1-12 from C (0 untuned), to show.
     pub kick_note: ControlHandle,
+    /// A variation to make on the next bar ([`groove_dice::Move`] by
+    /// number, 1-7); back to 0 once it is waiting.
+    pub dice: ControlHandle,
+    /// Which track `dice` changes: 1-8, or 0 for every unlocked track.
+    pub dice_row: ControlHandle,
+    /// A variation is waiting for the bar (1) or not (0).
+    pub dice_pending: ControlHandle,
+    /// Puts back the groove as it was before the last variation.
+    pub dice_undo: ControlHandle,
+    /// 1 while there is a variation to undo.
+    pub can_undo: ControlHandle,
+    /// A locked track keeps its steps when every track is varied.
+    pub lock: [ControlHandle; ROWS],
     pub duck_deck: ControlHandle,
     pub duck_amount: ControlHandle,
     pub patterns: [[ControlHandle; ROWS]; GROOVES],
@@ -163,6 +177,12 @@ impl GrooveControls {
             tempo_scale: reg.create(g, "tempo_scale", 1.0, 0.5, 2.0, Behavior::Free),
             kick_key: reg.create(g, "kick_key", 0.0, 0.0, 2.0, Behavior::Free),
             kick_note: reg.indicator(g, "kick_note", 12.0),
+            dice: reg.create(g, "dice", 0.0, 0.0, 7.0, Behavior::Free),
+            dice_row: reg.create(g, "dice_row", 0.0, 0.0, ROWS as f64, Behavior::Free),
+            dice_pending: reg.indicator(g, "dice_pending", 1.0),
+            dice_undo: reg.push(g, "dice_undo"),
+            can_undo: reg.indicator(g, "can_undo", 1.0),
+            lock: rows(&|r| reg.toggle(g, &format!("row{}_lock", r + 1))),
             duck_deck: reg.create(g, "duck_deck", 0.0, 0.0, NUM_DECKS as f64, Behavior::Free),
             duck_amount: reg.create(g, "duck_amount", 6.0, 0.0, 24.0, Behavior::Linear),
             patterns: std::array::from_fn(|p| {
@@ -300,6 +320,36 @@ impl GrooveControls {
             self.patterns[slot][row].set(steps.hits as f64);
             self.soft[slot][row].set(steps.soft as f64);
             self.accent[slot][row].set(steps.accent as f64);
+        }
+    }
+
+    /// Groove `slot`'s tracks as they are now.
+    pub fn tracks(&self, slot: usize) -> [Track; ROWS] {
+        std::array::from_fn(|r| Track {
+            hits: self.patterns[slot][r].get() as u32,
+            soft: self.soft[slot][r].get() as u32,
+            accent: self.accent[slot][r].get() as u32,
+        })
+    }
+
+    /// Writes track `row` of groove `slot`.
+    pub fn set_track(&self, slot: usize, row: usize, t: Track) {
+        self.patterns[slot][row].set((t.hits & 0xffff) as f64);
+        self.soft[slot][row].set((t.soft & t.hits & 0xffff) as f64);
+        self.accent[slot][row].set((t.accent & t.hits & 0xffff) as f64);
+    }
+
+    /// The kit sound (one of [`kits::ROLES`]) track `row` plays, for
+    /// variations in its style.
+    fn role(&self, row: usize) -> usize {
+        if row == ROWS - 1 {
+            if self.sound[row].get().round() as usize == RIDE {
+                RIDE
+            } else {
+                CRASH
+            }
+        } else {
+            row
         }
     }
 
@@ -546,6 +596,8 @@ pub struct GrooveBox {
     skip: [Option<usize>; ROWS],
     /// The leading deck's key's tonic (0-11 from C), for the kick's KEY.
     pub key: Option<u8>,
+    /// Variations waiting for the bar, and their undo steps.
+    pub dice: Dice,
 }
 
 impl GrooveBox {
@@ -567,6 +619,66 @@ impl GrooveBox {
             pads,
             skip: [None; ROWS],
             key: None,
+            dice: Dice::new(Habits::shared(), 0x9e37_79b9 ^ (deck as u32 + 1) * 7919),
+        }
+    }
+
+    /// Makes the variation waiting, on groove `slot`, keeping an undo step.
+    fn roll(&mut self, slot: usize) {
+        let Some((mv, row)) = self.dice.pending.take() else {
+            return;
+        };
+        self.c.dice_pending.set(0.0);
+        let before = self.c.tracks(slot);
+        self.dice.remember(slot, before);
+        let genre = self.c.genre.get().round() as usize;
+        for r in 0..ROWS {
+            let chosen = match row {
+                Some(only) => only == r,
+                None => !self.c.lock[r].get_bool(),
+            };
+            if !chosen {
+                continue;
+            }
+            let mut t = before[r];
+            groove_dice::apply(
+                mv,
+                &mut t,
+                self.c.role(r),
+                genre,
+                &self.dice.habits,
+                &mut self.dice.rng,
+            );
+            self.c.set_track(slot, r, t);
+        }
+        self.c.can_undo.set(1.0);
+    }
+
+    /// Takes a new variation or an undo from the controls. A variation
+    /// waits for the next bar while playing; stopped, it happens now.
+    fn take_dice(&mut self, chosen: usize) {
+        let n = self.c.dice.get().round() as u8;
+        if n > 0 {
+            self.c.dice.set(0.0);
+            if let Some(mv) = Move::from_number(n) {
+                let row = (self.c.dice_row.get().round() as usize).min(ROWS);
+                self.dice.pending = Some((mv, row.checked_sub(1)));
+                self.c.dice_pending.set(1.0);
+            }
+        }
+        if self.c.dice_undo.get_bool() {
+            self.c.dice_undo.set(0.0);
+            self.dice.pending = None;
+            self.c.dice_pending.set(0.0);
+            if let Some((slot, tracks)) = self.dice.take_undo() {
+                for (r, t) in tracks.into_iter().enumerate() {
+                    self.c.set_track(slot, r, t);
+                }
+            }
+            self.c.can_undo.set(self.dice.can_undo() as u8 as f64);
+        }
+        if !self.clock.running {
+            self.roll(chosen);
         }
     }
 
@@ -624,8 +736,20 @@ impl GrooveBox {
             .set(self.queued.unwrap_or(self.playing) as f64);
         self.last_bpm = source.bpm;
         let mut n = self.take_pads(chosen);
+        self.take_dice(chosen);
         if self.clock.running {
             let span = self.clock.advance(frames, self.rate, source);
+            // A variation waiting is made just before the bar line that
+            // falls in this buffer, so the new bar plays it.
+            if self.dice.pending.is_some() {
+                let mut bar = false;
+                span.steps(frames, 0.0, |_, step, beat| {
+                    bar |= step == 0 && self.clock.plays(beat);
+                });
+                if bar {
+                    self.roll(chosen);
+                }
+            }
             let swing = self.c.swing.get();
             let any_solo = self.c.solo.iter().any(|s| s.get_bool());
             let mut queued = self.queued;
@@ -1192,6 +1316,51 @@ mod tests {
             g.render(true, own(120.0), &mut out, |_| {});
         }
         assert_eq!(g.playing, 1);
+    }
+
+    #[test]
+    fn a_variation_waits_for_the_bar_and_undoes() {
+        let (_reg, mut g) = groove_box();
+        let before = g.c.tracks(0);
+        let mut out = vec![[0.0; 2]; 6000];
+        g.render(true, own(120.0), &mut out, |_| {});
+        g.render(true, own(120.0), &mut out, |_| {});
+        g.c.dice.set(1.0);
+        g.render(true, own(120.0), &mut out, |_| {});
+        assert_eq!(g.c.dice_pending.get(), 1.0);
+        assert_eq!(g.c.tracks(0), before, "nothing changes mid-bar");
+        for _ in 0..14 {
+            g.render(true, own(120.0), &mut out, |_| {});
+        }
+        assert_eq!(g.c.dice_pending.get(), 0.0);
+        assert_ne!(g.c.tracks(0), before, "a new groove from the bar");
+        assert_eq!(g.c.can_undo.get(), 1.0);
+        g.c.dice_undo.set(1.0);
+        g.render(true, own(120.0), &mut out, |_| {});
+        assert_eq!(g.c.tracks(0), before);
+        assert_eq!(g.c.can_undo.get(), 0.0);
+    }
+
+    #[test]
+    fn a_locked_track_keeps_its_steps_and_one_track_can_change_alone() {
+        let (_reg, mut g) = groove_box();
+        let before = g.c.tracks(0);
+        let mut out = vec![[0.0; 2]; 64];
+        g.c.lock[0].set_bool(true);
+        g.c.dice.set(4.0);
+        g.render(false, own(120.0), &mut out, |_| {});
+        let after = g.c.tracks(0);
+        assert_eq!(after[0], before[0], "the locked kick");
+        assert!(
+            after[2].hits.count_ones() < before[2].hits.count_ones(),
+            "calmer hats"
+        );
+        g.c.dice_row.set(1.0);
+        g.c.dice.set(3.0);
+        g.render(false, own(120.0), &mut out, |_| {});
+        let only = g.c.tracks(0);
+        assert_eq!(only[0].hits.count_ones(), before[0].hits.count_ones() + 1);
+        assert_eq!(only[2], after[2]);
     }
 
     #[test]

@@ -22,6 +22,7 @@ mod effects;
 pub mod engine;
 mod gridfit;
 pub mod groove;
+pub mod groove_dice;
 pub mod groove_pads;
 pub mod import;
 pub mod inputs;

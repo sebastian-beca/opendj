@@ -11,7 +11,7 @@
 
 ## 3. Variation
 
-- [ ] 3.1 Busy, Mutate, New from genre and Euclid, per track or all, with locks and undo, on the next bar
+- [x] 3.1 New from genre, Mutate, Busier, Calmer, Even out (Euclid) and Shift, per track or all, with locks and undo, on the next bar
 - [ ] 3.2 Per-step chance and velocity spread, Vary knob, built-in grooves that use them
 
 ## 4. Fills

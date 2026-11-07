@@ -28,3 +28,14 @@ The Groove Box SHALL have eight tracks: kick, snare, closed hat, open hat, clap,
 #### Scenario: A groove with a ride
 - **WHEN** a groove whose ride plays on the off-beats is loaded
 - **THEN** track 8 plays the ride on the off-beats
+
+### Requirement: Dice
+Setting `[GrooveN],dice` to a move (1 new, 2 mutate, 3 busier, 4 calmer, 5 even out, 6 shift later, 7 shift earlier) SHALL change track `dice_row` (1-8), or every track whose `rowR_lock` is off when `dice_row` is 0, of the groove on screen, at the next bar while playing and at once while stopped. New tracks SHALL follow how the genre picked uses that sound; Mutate, Busier and Calmer SHALL weigh each step by its strength in the bar and the genre's use of it, and SHALL keep the kick's downbeat and the snare's backbeat. `dice_undo` SHALL put back the groove as it was before the last change, up to 16 changes back.
+
+#### Scenario: Vary on the bar
+- **WHEN** the Groove Box plays mid-bar and New groove is picked
+- **THEN** nothing changes until the next bar line, where every unlocked track plays new hits
+
+#### Scenario: Locked kick
+- **WHEN** the kick is locked and Calmer is picked for every track
+- **THEN** the kick keeps its hits and the other tracks lose one each

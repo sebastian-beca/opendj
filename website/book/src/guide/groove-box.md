@@ -36,6 +36,23 @@ loud), then normal again. A track with no hits stays
 dimmed, and a track's icon lights up as it plays. The brighter column is the
 step that's playing. **M** mutes a track, **S** solos it.
 
+### Dice: new ideas from the groove
+
+The **⚄** button in the top bar varies every track that isn't locked; right-click a
+track's icon to vary only that track, or to lock it. Each change waits for the next bar
+while the Groove Box plays, so it always lands in time:
+
+- **New groove** (or **New track**): fresh hits in the style of the genre picked, learnt
+  from how that genre's grooves use each sound step by step.
+- **Mutate**: moves a hit or two to a nearby step, and now and then adds or drops one.
+  The kick's downbeat and the snare's backbeat stay put.
+- **Busier** and **Calmer**: one hit more on the strongest free step, or one fewer, the
+  weakest first.
+- **Even out**: the same number of hits spread as evenly as they go (a Euclidean rhythm).
+- **Shift later** and **Shift earlier**: every hit a step later or earlier.
+
+**Undo** in the ⚄ menu puts back the groove as it was, one change at a time.
+
 **SYNTH** shows each track's sound. Click the sound's name to pick another
 from the kit. **PITCH** tunes it up or down by up to an octave, **DECAY**
 makes it shorter, and **TONE** darkens it (turned left) or thins it (turned

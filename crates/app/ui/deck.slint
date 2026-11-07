@@ -2605,6 +2605,60 @@ component GrooveToggle inherits Rectangle {
     gtta := TouchArea { mouse-cursor: pointer; clicked => { Controls.toggle(index); } }
 }
 
+// Variations: what the Dice menu offers, for every unlocked track or for
+// one (`row` 1-8). Each waits for the next bar while the groove plays.
+component GrooveDiceItems inherits VerticalLayout {
+    in property <string> g;
+    in property <int> track;
+    callback picked();
+    property <int> dice-index: Controls.resolve(g, "dice");
+    property <int> row-index: Controls.resolve(g, "dice_row");
+    for item[i] in [
+        { name: "New groove", detail: "Fresh hits in the genre's style" },
+        { name: "Mutate", detail: "Move a hit or two, keep the feel" },
+        { name: "Busier", detail: "One more hit, on the strongest free step" },
+        { name: "Calmer", detail: "One hit fewer, the weakest goes" },
+        { name: "Even out", detail: "Same hits, spread evenly (Euclid)" },
+        { name: "Shift later", detail: "Every hit a step later" },
+        { name: "Shift earlier", detail: "Every hit a step earlier" },
+    ]: GrooveMenuItem {
+        text: track > 0 && i == 0 ? "New track" : item.name;
+        detail: item.detail;
+        clicked => {
+            Controls.set-value(row-index, track);
+            Controls.set-value(dice-index, i + 1);
+            root.picked();
+        }
+    }
+}
+
+// The top bar's Dice: varies every unlocked track on the next bar, with
+// Undo. It blinks while a variation waits for the bar.
+component GrooveDice inherits GrooveButton {
+    in property <string> g;
+    property <bool> pending: Controls.value(Controls.resolve(g, "dice_pending"), Controls.tick) > 0;
+    property <bool> can-undo: Controls.value(Controls.resolve(g, "can_undo"), Controls.tick) > 0;
+    text: "⚄";
+    font-size: 16px;
+    blink: pending && Controls.blink;
+    clicked => { dice-menu.show(); }
+    dice-menu := PopupWindow {
+        y: root.height + 2px;
+        width: 250px;
+        GrooveMenuBackground { }
+        VerticalLayout {
+            padding: 4px;
+            Text { x: 8px; height: 22px; text: "Every unlocked track, on the next bar"; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+            GrooveDiceItems { g: g; track: 0; }
+            Rectangle { height: 1px; background: Theme.border; }
+            GrooveMenuItem {
+                text: can-undo ? "Undo" : "Nothing to undo";
+                clicked => { Controls.set-value(Controls.resolve(g, "dice_undo"), 1); }
+            }
+        }
+    }
+}
+
 // One track in the Sequencer: its sound's icon (click to hear it) with M
 // and S, then 16 steps in the track's color. A track with no steps sits
 // dimmed; one with steps is brighter, its hits lit and the icon glowing as
@@ -2631,9 +2685,36 @@ component GrooveTrack inherits HorizontalLayout {
     property <float> meter: Controls.value(Controls.resolve(groove-group, rk + "_meter"), Controls.tick);
     property <bool> playing: Controls.value(Controls.resolve(group, "play"), Controls.tick) > 0;
     property <int> preview-index: Controls.resolve(groove-group, rk + "_preview");
+    property <int> lock-index: Controls.resolve(groove-group, rk + "_lock");
+    property <bool> locked: Controls.value(lock-index, Controls.tick) > 0;
     spacing: 2px;
     Rectangle {
         width: 74px;
+        // Right-click the track for its own variations and its lock.
+        TouchArea {
+            pointer-event(e) => {
+                if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                    track-menu.show();
+                }
+            }
+        }
+        track-menu := PopupWindow {
+            x: parent.width;
+            width: 250px;
+            GrooveMenuBackground { }
+            VerticalLayout {
+                padding: 4px;
+                Text { x: 8px; height: 22px; text: "This track, on the next bar"; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+                GrooveDiceItems { g: groove-group; track: row-index + 1; }
+                Rectangle { height: 1px; background: Theme.border; }
+                GrooveMenuItem {
+                    text: "Lock";
+                    detail: "Keep this track when the Dice varies the others";
+                    checked: locked;
+                    clicked => { Controls.set-value(lock-index, locked ? 0 : 1); }
+                }
+            }
+        }
         border-radius: 3px;
         background: tint.with-alpha(empty ? 0.08 : 0.16 + 0.5 * min(1, meter * 2));
         HorizontalLayout {
@@ -2646,7 +2727,24 @@ component GrooveTrack inherits HorizontalLayout {
                     width: 24px;
                     height: 18px;
                     DrumIcon { sound: sound-name; tint: empty ? tint.with-alpha(0.55) : meter > 0.05 ? tint.brighter(0.6) : tint; size: 18px; }
-                    ita := TouchArea { mouse-cursor: pointer; clicked => { Controls.set-value(preview-index, 1); } }
+                    // A small padlock while locked.
+                    if locked: Rectangle {
+                        x: 17px;
+                        y: 9px;
+                        width: 8px;
+                        height: 10px;
+                        Rectangle { x: 1px; y: 0px; width: 6px; height: 6px; border-radius: 3px; border-width: 1.5px; border-color: Theme.text; }
+                        Rectangle { y: 4px; width: 8px; height: 6px; border-radius: 1px; background: Theme.text; }
+                    }
+                    ita := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { Controls.set-value(preview-index, 1); }
+                        pointer-event(e) => {
+                            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                                track-menu.show();
+                            }
+                        }
+                    }
                 }
             }
             Rectangle { horizontal-stretch: 1; }
@@ -2667,7 +2765,7 @@ component GrooveTrack inherits HorizontalLayout {
             height: 18px;
             border-radius: 4px;
             background: Theme.panel-raised;
-            tip := Text { text: sound-name; color: Theme.text; font-size: 10px; }
+            tip := Text { text: sound-name + (locked ? " (locked)" : "") + " · right-click for variations"; color: Theme.text; font-size: 10px; }
         }
     }
     for s in 16: Rectangle {
@@ -3030,7 +3128,7 @@ component GrooveBox inherits Rectangle {
             }
             // The groove's name takes the room left over.
             GrooveButton {
-                min-width: 64px;
+                min-width: 48px;
                 horizontal-stretch: 1;
                 height: 30px;
                 text: (pattern > 0 && pattern <= grooves.length ? grooves[pattern - 1].name : "Groove") + " ▾";
@@ -3103,7 +3201,8 @@ component GrooveBox inherits Rectangle {
                 blink: i == queued && queued != sounding && blink;
                 clicked => { Controls.set-value(Controls.resolve(g, "groove"), i); }
             }
-            GrooveTempo { g: g; width: 66px; height: 30px; tint: tint; }
+            GrooveDice { g: g; width: 30px; height: 30px; tint: tint; }
+            GrooveTempo { g: g; width: 60px; height: 30px; tint: tint; }
             Rectangle { width: 2px; }
             Rectangle {
                 width: 172px;

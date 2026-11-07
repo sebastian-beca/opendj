@@ -48,7 +48,7 @@ fn kept_keys() -> Vec<String> {
     }
     for r in 1..=ROWS {
         for k in [
-            "mute", "solo", "level", "pitch", "decay", "tone", "pan", "sound",
+            "mute", "solo", "level", "pitch", "decay", "tone", "pan", "sound", "lock",
         ] {
             keys.push(format!("row{r}_{k}"));
         }
