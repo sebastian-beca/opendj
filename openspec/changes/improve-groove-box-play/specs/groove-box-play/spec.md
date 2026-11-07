@@ -21,3 +21,10 @@ With `[GrooveN],kick_key` at 1 (root) or 2 (fifth) and a leading deck with a key
 #### Scenario: Root of C
 - **WHEN** the kick rings at A and the leading deck plays in C minor with KEY on Root
 - **THEN** the kick plays three semitones higher, at C
+
+### Requirement: Eight tracks
+The Groove Box SHALL have eight tracks: kick, snare, closed hat, open hat, clap, rim, cowbell and cymbal. Loading a library groove SHALL put its ride into the cymbal track and set that track to the kit's ride when the groove has a ride, else its crash with the kit's crash. A Groove Box saved with nine rows SHALL move its ninth row into the eighth wherever the eighth has no hits.
+
+#### Scenario: A groove with a ride
+- **WHEN** a groove whose ride plays on the off-beats is loaded
+- **THEN** track 8 plays the ride on the off-beats

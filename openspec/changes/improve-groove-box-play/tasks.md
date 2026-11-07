@@ -7,7 +7,7 @@
 
 ## 2. Eight tracks
 
-- [ ] 2.1 Crash and ride share track 8 (Cymbal), picked when a groove loads; settings layout 3 moves track 9 into 8; pads, Mikro script and docs follow
+- [x] 2.1 Crash and ride share track 8 (Cymbal), picked when a groove loads; settings layout 3 moves track 9 into 8; pads, Mikro script and docs follow
 
 ## 3. Variation
 

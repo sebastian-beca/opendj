@@ -2517,7 +2517,7 @@ component JogSection inherits VerticalLayout {
 
 // The Groove Box's nine track colors, a rainbow from the kick down.
 global GrooveColors {
-    out property <[color]> track: [#ef3e6e, #f5824a, #f2cf45, #33d17a, #1fd6c1, #5cb3f7, #8d7ff5, #d16be0, #f27fb2];
+    out property <[color]> track: [#ef3e6e, #f5824a, #f2cf45, #33d17a, #1fd6c1, #5cb3f7, #8d7ff5, #d16be0];
 }
 
 // A drum sound's icon, picked by its name in the kit (Kick, Snare, Closed hat,
@@ -2949,7 +2949,7 @@ component GrooveTab inherits Rectangle {
 
 // The Groove Box, over the whole deck: a top bar with PLAY, the kit, the
 // library's genre, groove and chain, A to D, the tempo (with SWING) and the three tabs,
-// then the tab: SEQUENCER (nine tracks of 16 steps), SYNTH (each track's sound, PITCH,
+// then the tab: SEQUENCER (eight tracks of 16 steps), SYNTH (each track's sound, PITCH,
 // DECAY and TONE) or MIXER (each track's PAN, level, meter, M and S).
 component GrooveBox inherits Rectangle {
     in property <int> deck;
@@ -3125,7 +3125,7 @@ component GrooveBox inherits Rectangle {
             vertical-stretch: 1;
             if tab == 0: VerticalLayout {
                 spacing: 2px;
-                for r in 9: GrooveTrack {
+                for r in 8: GrooveTrack {
                     vertical-stretch: 1;
                     groove-group: g;
                     group: group;
@@ -3138,7 +3138,7 @@ component GrooveBox inherits Rectangle {
             }
             if tab == 1: HorizontalLayout {
                 spacing: 6px;
-                for r in 9: GrooveVoice {
+                for r in 8: GrooveVoice {
                     horizontal-stretch: 1;
                     groove-group: g;
                     row-index: r;
@@ -3148,7 +3148,7 @@ component GrooveBox inherits Rectangle {
             }
             if tab == 2: HorizontalLayout {
                 spacing: 6px;
-                for r in 9: GrooveStrip {
+                for r in 8: GrooveStrip {
                     horizontal-stretch: 1;
                     groove-group: g;
                     row-index: r;

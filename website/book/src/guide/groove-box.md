@@ -24,9 +24,10 @@ The Groove Box fills the whole deck. Along the top are PLAY, the kit menu,
 the genre, the groove, **Chain ▾**, **A** to **D**, the tempo and three
 tabs.
 
-**SEQUENCER** shows nine tracks, each in its own color, with 16 squares
+**SEQUENCER** shows eight tracks, each in its own color, with 16 squares
 for the 16 steps of a bar: kick, snare, closed hat, open hat, clap, rim,
-cowbell, crash and ride. The icon on the left shows the track's sound; click it
+cowbell and cymbal. The cymbal track plays the crash or the ride, whichever
+the groove you load uses. The icon on the left shows the track's sound; click it
 to hear the sound, and hover over it to see its name. A lit square plays the
 sound on that step. Click a square to add or remove a hit; when the Groove
 Box is stopped, the click also plays the sound. Right-click a lit square to
@@ -62,7 +63,7 @@ free to use anywhere:
 - **Tin**: small, ticking rhythm-box drums, 606-style.
 - **Dub**: a soft kick, a rimshot and a chord stab, for dub techno.
 
-Every kit plays the same nine tracks, so any groove sounds right on any kit.
+Every kit plays the same eight tracks, so any groove sounds right on any kit.
 Kits with more sounds (toms, shaker, chord) offer them in each track's sound
 menu in **SYNTH**.
 

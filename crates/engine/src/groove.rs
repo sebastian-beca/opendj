@@ -20,14 +20,15 @@
 //! every step inside it starts its sounds on the frame it falls on, so the
 //! timing is exact to the sample whatever the buffer size.
 //!
-//! **Patterns.** Four grooves (A to D), each nine rows (tracks) of 16 steps, kept in
+//! **Patterns.** Four grooves (A to D), each eight rows (tracks) of 16 steps, kept in
 //! `[GrooveN],patternG_rowR` as 16-bit numbers (bit s on = step s+1 plays)
 //! with `patternG_rowR_soft` and `patternG_rowR_accent` marking the steps
 //! that play softly (half as loud) or accented (a quarter louder).
 //! `[GrooveN],groove` picks the one playing (0-3); a change while playing
 //! waits for the next bar. Row N plays the kits' Nth sound
-//! ([`kits::ROLES`]: kick, snare, closed hat, open hat, clap, rim, cowbell, crash,
-//! ride) unless `rowR_sound` picks another.
+//! ([`kits::ROLES`]: kick, snare, closed hat, open hat, clap, rim, cowbell)
+//! unless `rowR_sound` picks another; row 8, Cymbal, plays the crash or the
+//! ride, whichever the groove loaded last uses (no library groove has both).
 //!
 //! **Library.** `genre` and `pattern` (1-based, 0 none) name a groove of
 //! the library ([`crate::patterns`]); `load` puts it into the groove picked.
@@ -60,7 +61,12 @@ use crate::patterns::{self, Level};
 use crate::sampler::Sample;
 use crate::NUM_DECKS;
 
-pub const ROWS: usize = kits::ROLES.len();
+/// Tracks: the first seven of [`kits::ROLES`], then Cymbal, which plays the
+/// kit's crash or ride (its sound picked when a groove loads).
+pub const ROWS: usize = 8;
+/// The kit sounds track 8 switches between.
+const CRASH: usize = 7;
+const RIDE: usize = 8;
 pub const STEPS: usize = 16;
 pub const GROOVES: usize = 4;
 
@@ -283,7 +289,14 @@ impl GrooveControls {
             return;
         };
         let slot = slot.min(GROOVES - 1);
-        for (row, steps) in p.rows.iter().enumerate() {
+        // Cymbal plays the ride when the groove has one, else the crash.
+        let ride = p.rows[RIDE].hits != 0;
+        let cymbal = if ride { RIDE } else { CRASH };
+        if ride || p.rows[CRASH].hits != 0 {
+            self.sound[ROWS - 1].set(cymbal as f64);
+        }
+        for row in 0..ROWS {
+            let steps = p.rows[if row == ROWS - 1 { cymbal } else { row }];
             self.patterns[slot][row].set(steps.hits as f64);
             self.soft[slot][row].set(steps.soft as f64);
             self.accent[slot][row].set(steps.accent as f64);
@@ -1311,6 +1324,42 @@ mod tests {
         assert!((heard - heard.round()).abs() < 0.5);
         assert_eq!((heard.round() as i32).rem_euclid(12), 0, "a C");
         assert_eq!(g.c.kick_note.get(), 1.0);
+    }
+
+    #[test]
+    fn the_cymbal_track_plays_the_grooves_ride_or_crash() {
+        let (_reg, g) = groove_box();
+        let lib = patterns::library();
+        let find = |role: usize| {
+            lib.iter().enumerate().find_map(|(gi, genre)| {
+                genre
+                    .grooves
+                    .iter()
+                    .position(|p| p.rows[role].hits != 0)
+                    .map(|i| (gi, i + 1, genre.grooves[i].rows[role].hits))
+            })
+        };
+        let (genre, index, hits) = find(RIDE).expect("a groove with a ride");
+        g.c.load_groove(0, genre, index);
+        assert_eq!(g.c.sound[7].get(), RIDE as f64);
+        assert_eq!(g.c.patterns[0][7].get(), hits as f64);
+        let (genre, index, hits) = find(CRASH).expect("a groove with a crash");
+        g.c.load_groove(0, genre, index);
+        assert_eq!(g.c.sound[7].get(), CRASH as f64);
+        assert_eq!(g.c.patterns[0][7].get(), hits as f64);
+    }
+
+    #[test]
+    fn no_library_groove_needs_more_than_eight_tracks() {
+        for genre in patterns::library() {
+            for p in &genre.grooves {
+                assert!(
+                    p.rows[CRASH].hits == 0 || p.rows[RIDE].hits == 0,
+                    "{} has both a crash and a ride",
+                    p.name
+                );
+            }
+        }
     }
 
     #[test]
