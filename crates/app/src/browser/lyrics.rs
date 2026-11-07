@@ -173,6 +173,11 @@ impl Browser {
         ui.on_use_found(move |i| w(&|b| b.use_found(i)));
         let w = with.clone();
         ui.on_close_found(move || w(&|b| b.close_found()));
+        let w = with.clone();
+        ui.on_enable_lookup(move || {
+            crate::settings::set(lrclib::ENABLED, serde_json::json!(true));
+            w(&|b| b.find_lyrics())
+        });
         Self::install_karaoke(app, with);
     }
 
@@ -332,10 +337,14 @@ impl Browser {
         ui.set_finding(true);
         ui.set_found(ModelRc::default());
         self.lyrics.found.clear();
+        // Off: the list opens to say so, with a button that turns it on.
+        ui.set_lookup_off(!lrclib::enabled());
         if !lrclib::enabled() {
-            ui.set_finding(false);
             ui.set_find_note(
-                "Turn on Find lyrics online in Settings › Collection › Health.".into(),
+                "Finding lyrics online is off. Turning it on sends the track's title, artist, \
+                 album and length to LRCLIB (lrclib.net) when you press Find. It's also in \
+                 Settings › Collection › Health."
+                    .into(),
             );
             return;
         }
@@ -425,6 +434,7 @@ impl Browser {
         self.lyrics.finding = None;
         self.lyrics.found.clear();
         ui.set_finding(false);
+        ui.set_lookup_off(false);
         ui.set_find_note(SharedString::new());
         ui.set_found(ModelRc::default());
     }
