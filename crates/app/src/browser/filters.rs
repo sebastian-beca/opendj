@@ -159,6 +159,39 @@ impl Filters {
         out
     }
 
+    /// Takes a field off the bar, clearing what it was set to.
+    pub fn remove(&mut self, field: &Field) {
+        self.clear(field);
+        self.pinned.retain(|p| *p != field.id);
+        self.added.retain(|p| *p != field.id);
+    }
+
+    /// Moves the chip at `from` among the chips shown to just before the
+    /// one at `to` (the end when `to` is past the last). Every chip shown
+    /// is kept on the bar in the new order.
+    pub fn move_chip(&mut self, fields: &[Field], from: usize, to: usize) {
+        let mut ids: Vec<String> = self.shown(fields).iter().map(|f| f.id.clone()).collect();
+        if from >= ids.len() {
+            return;
+        }
+        let id = ids.remove(from);
+        let to = if to > from { to - 1 } else { to }.min(ids.len());
+        ids.insert(to, id);
+        self.added.retain(|a| !ids.contains(a));
+        self.pinned = ids;
+    }
+
+    /// Where a chip dragged to `x` along the bar lands, given each chip's
+    /// left edge and width: the place before the first chip whose middle
+    /// is past `x`. None when it would land where it is.
+    pub fn drop_place(from: usize, x: f32, placed: &[(f32, f32)]) -> Option<usize> {
+        let to = placed
+            .iter()
+            .position(|(left, width)| x < left + width / 2.0)
+            .unwrap_or(placed.len());
+        (to != from && to != from + 1).then_some(to)
+    }
+
     /// Clears a field's chip.
     pub fn clear(&mut self, field: &Field) {
         self.picked.remove(&field.id);
@@ -326,6 +359,8 @@ pub(super) struct FilterState {
     find: String,
     /// The popup lists every value, not just the first few with tracks.
     show_all: bool,
+    /// Each chip's left edge and width along the bar, as last laid out.
+    placed: Vec<(f32, f32)>,
     /// Values picked lately, newest first, as (field, search): they come
     /// first among values with as many tracks.
     recent: Vec<(String, String)>,
@@ -343,6 +378,7 @@ impl FilterState {
             choices: Vec::new(),
             find: String::new(),
             show_all: false,
+            placed: Vec::new(),
             recent: Vec::new(),
         }
     }
@@ -547,20 +583,61 @@ impl Browser {
             })
         });
         let w = with.clone();
-        ui.on_set_pinned(move |chip, on| {
+        ui.on_remove(move |chip| {
             w(&|b| {
                 let Some(id) = b.chip_field(chip) else { return };
-                let f = &mut b.filter.filters;
-                f.pinned.retain(|p| *p != id);
-                f.added.retain(|p| *p != id);
-                if on {
-                    f.pinned.push(id);
-                } else {
-                    // Stays on the bar until the list is filtered afresh.
-                    f.added.push(id);
+                let Some(field) = b.filter.field(&id).cloned() else {
+                    return;
+                };
+                b.filter.filters.remove(&field);
+                b.filter.editing = None;
+                settings::set_filter_pinned(&b.filter.filters.pinned);
+                b.filters_changed();
+            })
+        });
+        let w = with.clone();
+        ui.on_placed(move |chip, x, width| {
+            w(&|b| {
+                let (Ok(i), placed) = (usize::try_from(chip), &mut b.filter.placed) else {
+                    return;
+                };
+                if placed.len() <= i {
+                    placed.resize(i + 1, (0.0, 0.0));
                 }
-                settings::set_filter_pinned(&f.pinned);
-                b.refresh_filter_ui();
+                placed[i] = (x, width);
+            })
+        });
+        let weak = app.as_weak();
+        let w = with.clone();
+        ui.on_drag(move |chip, x| {
+            let line = std::cell::Cell::new(-1.0);
+            w(&|b| {
+                let n = b.filter.filters.shown(&b.filter.fields).len();
+                let placed = &b.filter.placed[..b.filter.placed.len().min(n)];
+                if let Some(to) = Filters::drop_place(chip.max(0) as usize, x, placed) {
+                    line.set(match placed.get(to) {
+                        Some((left, _)) => left - 4.0,
+                        None => placed.last().map_or(0.0, |(l, w)| l + w + 4.0),
+                    });
+                }
+            });
+            if let Some(app) = weak.upgrade() {
+                app.global::<FilterUi>().set_drop_x(line.get());
+            }
+        });
+        let w = with.clone();
+        ui.on_drop(move |chip, x| {
+            w(&|b| {
+                let n = b.filter.filters.shown(&b.filter.fields).len();
+                let placed = &b.filter.placed[..b.filter.placed.len().min(n)];
+                let from = chip.max(0) as usize;
+                if let Some(to) = Filters::drop_place(from, x, placed) {
+                    let fields = b.filter.fields.clone();
+                    b.filter.filters.move_chip(&fields, from, to);
+                    b.filter.editing = None;
+                    settings::set_filter_pinned(&b.filter.filters.pinned);
+                    b.refresh_filter_ui();
+                }
             })
         });
         let w = with.clone();
@@ -600,8 +677,11 @@ impl Browser {
     /// Puts a field on the bar for now; returns its chip.
     fn add_filter(&mut self, id: &str) -> i32 {
         let f = &mut self.filter;
-        if !f.filters.pinned.iter().any(|p| p == id) && !f.filters.added.iter().any(|p| p == id) {
-            f.filters.added.push(id.to_string());
+        // A field added stays on the bar until it is taken off.
+        f.filters.added.retain(|p| p != id);
+        if !f.filters.pinned.iter().any(|p| p == id) {
+            f.filters.pinned.push(id.to_string());
+            settings::set_filter_pinned(&f.filters.pinned);
         }
         self.refresh_filter_ui();
         let f = &self.filter;
@@ -1116,6 +1196,31 @@ mod tests {
         assert_eq!(labels, [("bright", 1), ("lullaby", 1), ("uplifting", 1)]);
         // The genre chip itself still counts every genre.
         assert_eq!(f.text_except(&fields, None, "genre"), "");
+    }
+
+    #[test]
+    fn chips_move_and_come_off_the_bar() {
+        let fields = fields(&FieldNames::default());
+        let mut f = Filters::new(vec!["genre".into(), "bpm".into(), "key".into()], 4);
+        // Key dragged before Genre.
+        f.move_chip(&fields, 2, 0);
+        assert_eq!(f.pinned, ["key", "genre", "bpm"]);
+        // Key dragged past the end.
+        f.move_chip(&fields, 0, 3);
+        assert_eq!(f.pinned, ["genre", "bpm", "key"]);
+        // Taking a chip off clears it too, so it doesn't come back.
+        f.key_follow = true;
+        f.remove(field(&fields, "key"));
+        assert_eq!(f.pinned, ["genre", "bpm"]);
+        assert!(!f.active(field(&fields, "key")));
+        // Three chips at 0, 60 and 120, 50 wide: x = 100 lands before the
+        // third, past the last middle at the end; next to where a chip already is, it stays.
+        let placed = [(0.0, 50.0), (60.0, 50.0), (120.0, 50.0)];
+        assert_eq!(Filters::drop_place(0, 100.0, &placed), Some(2));
+        assert_eq!(Filters::drop_place(0, 150.0, &placed), Some(3));
+        assert_eq!(Filters::drop_place(0, 300.0, &placed), Some(3));
+        assert_eq!(Filters::drop_place(1, 70.0, &placed), None);
+        assert_eq!(Filters::drop_place(1, 100.0, &placed), None);
     }
 
     #[test]
