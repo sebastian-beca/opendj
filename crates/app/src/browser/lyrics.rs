@@ -2,7 +2,11 @@
 //! one selected, or a deck's), read from an `.lrc` file beside it or from
 //! its tags (see [`opendj_engine::lyrics`]). Timed lyrics follow the deck
 //! the track is on: the line sung now is lit, and a click on a line plays
-//! from it.
+//! from it. Find looks the track up on LRCLIB when the DJ has turned that
+//! on (see [`crate::lrclib`]) and saves the pick as an `.lrc` beside it.
+//!
+//! The same lyrics show large in Player mode when the Player bar's Lyrics
+//! button is on; that view always follows the track playing.
 
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
@@ -13,7 +17,8 @@ use opendj_engine::{deck_group, Source, Track, NUM_DECKS};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::Browser;
-use crate::{AppWindow, LyricLine, LyricsUi};
+use crate::lrclib::{self, Found, Miss, Query};
+use crate::{settings, AppWindow, LyricLine, LyricMatch, LyricsUi};
 
 /// The side panel's Lyrics tab. Past Prep's Cues (4) and Checklist (5),
 /// which come and go with the layout.
@@ -24,6 +29,9 @@ const PLAYING: i32 = 0;
 const SELECTED: i32 = 1;
 /// 2 and 3 are decks A and B.
 const FIRST_DECK: i32 = 2;
+
+/// What a look-up on LRCLIB gives back.
+type Looked = Result<Vec<Found>, Miss>;
 
 /// A deck's controls the tab reads and sets.
 struct DeckPlay {
@@ -45,6 +53,11 @@ pub(super) struct LyricsState {
     generation: u64,
     lyrics: Option<Lyrics>,
     current: i32,
+    /// The current line split into sung and to come, as last shown.
+    sung: (String, String),
+    /// A look-up on LRCLIB running, by generation, and what it found.
+    finding: Option<(u64, Receiver<Looked>)>,
+    found: Vec<Found>,
 }
 
 impl LyricsState {
@@ -70,6 +83,9 @@ impl LyricsState {
             generation: 0,
             lyrics: None,
             current: -1,
+            sung: Default::default(),
+            finding: None,
+            found: Vec::new(),
         }
     }
 }
@@ -93,8 +109,39 @@ fn describe(l: &Lyrics) -> String {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "an .lrc file".into()),
         Origin::Tag => "the file's tags".into(),
+        Origin::Saved(_) => "saved by openDJ".into(),
     };
     format!("{timing} · {from}")
+}
+
+/// Where openDJ keeps lyrics for tracks whose folder can't be written.
+fn store() -> Option<std::path::PathBuf> {
+    settings::config_dir().map(|d| d.join("lyrics"))
+}
+
+/// A row of the Find list.
+fn match_row(f: &Found, duration: f64) -> LyricMatch {
+    let mut detail = f.artist.clone();
+    if !f.album.is_empty() {
+        detail.push_str(" · ");
+        detail.push_str(&f.album);
+    }
+    if f.duration > 0.0 {
+        detail.push_str(" · ");
+        detail.push_str(&clock(f.duration));
+    }
+    LyricMatch {
+        title: f.title.clone().into(),
+        detail: detail.into(),
+        kind: if f.instrumental {
+            2
+        } else if f.is_synced() {
+            0
+        } else {
+            1
+        },
+        fits: f.fits(duration),
+    }
 }
 
 impl Browser {
@@ -115,6 +162,12 @@ impl Browser {
         });
         let w = with.clone();
         ui.on_seek(move |line| w(&|b| b.seek_to_line(line)));
+        let w = with.clone();
+        ui.on_find(move || w(&|b| b.find_lyrics()));
+        let w = with.clone();
+        ui.on_use_found(move |i| w(&|b| b.use_found(i)));
+        let w = with.clone();
+        ui.on_close_found(move || w(&|b| b.close_found()));
     }
 
     /// The deck `index` (in `library`) is loaded on, the first if several.
@@ -125,17 +178,24 @@ impl Browser {
 
     /// The track the tab is to show, and the deck it is on.
     fn lyrics_subject(&mut self, app: &AppWindow) -> (Option<usize>, Option<usize>) {
-        match self.lyrics.subject {
+        // Player mode's large lyrics follow the track playing.
+        let subject = if app.global::<LyricsUi>().get_big() {
+            PLAYING
+        } else {
+            self.lyrics.subject
+        };
+        match subject {
             PLAYING => {
                 let playing =
                     |d: usize| self.loaded[d].is_some() && self.lyrics.decks[d].play.get_bool();
-                // Stay with the deck followed while it plays; else the first
-                // deck playing; else the last one followed, paused; else the
-                // first deck with a track.
-                let deck = self
-                    .lyrics
-                    .playing
-                    .filter(|&d| playing(d))
+                // Automix's live deck; else stay with the deck followed while
+                // it plays; else the first deck playing; else the last one
+                // followed, paused; else the first deck with a track.
+                let live = usize::try_from(app.get_automix_live())
+                    .ok()
+                    .filter(|&d| d < NUM_DECKS && playing(d));
+                let deck = live
+                    .or(self.lyrics.playing.filter(|&d| playing(d)))
                     .or_else(|| (0..NUM_DECKS).find(|&d| playing(d)))
                     .or(self.lyrics.playing.filter(|&d| self.loaded[d].is_some()))
                     .or_else(|| (0..NUM_DECKS).find(|&d| self.loaded[d].is_some()));
@@ -157,7 +217,7 @@ impl Browser {
 
     /// Keeps the Lyrics tab up to date; called every frame.
     pub(super) fn poll_lyrics(&mut self, app: &AppWindow, tab: usize) {
-        if tab != LYRICS_TAB {
+        if tab != LYRICS_TAB && !app.global::<LyricsUi>().get_big() {
             return;
         }
         let (index, deck) = self.lyrics_subject(app);
@@ -174,7 +234,12 @@ impl Browser {
             self.lyrics.current = -1;
             self.lyrics.generation += 1;
             self.lyrics.job = None;
+            self.close_found_ui(&ui);
             ui.set_has_track(now.is_some());
+            ui.set_can_find(
+                now.as_ref()
+                    .is_some_and(|(_, t)| matches!(t.source, Source::File(_))),
+            );
             ui.set_title(
                 now.as_ref()
                     .map(|(_, t)| {
@@ -195,7 +260,7 @@ impl Browser {
                     let (tx, rx) = mpsc::channel();
                     let path = path.clone();
                     std::thread::spawn(move || {
-                        let _ = tx.send(lyrics::find(&path));
+                        let _ = tx.send(lyrics::find_with(&path, store().as_deref()));
                     });
                     self.lyrics.job = Some((self.lyrics.generation, rx));
                 }
@@ -233,6 +298,126 @@ impl Browser {
             self.lyrics.current = current;
             ui.set_current(current);
         }
+        // The current line, sung and to come, for the large view.
+        let sung = match (&self.lyrics.lyrics, deck, usize::try_from(current)) {
+            (Some(l), Some(d), Ok(i)) => {
+                let p = &self.lyrics.decks[d];
+                l.lines[i].sung_at(p.playposition.get() * p.duration.get())
+            }
+            _ => Default::default(),
+        };
+        if sung != self.lyrics.sung {
+            ui.set_sung(sung.0.as_str().into());
+            ui.set_to_come(sung.1.as_str().into());
+            self.lyrics.sung = sung;
+        }
+        self.poll_find(&ui);
+    }
+
+    /// Looks the track shown up on LRCLIB, when the DJ has turned that on.
+    fn find_lyrics(&mut self) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let ui = app.global::<LyricsUi>();
+        ui.set_finding(true);
+        ui.set_found(ModelRc::default());
+        self.lyrics.found.clear();
+        if !lrclib::enabled() {
+            ui.set_finding(false);
+            ui.set_find_note(
+                "Turn on Find lyrics online in Settings › Collection › Health.".into(),
+            );
+            return;
+        }
+        let Some((_, t)) = &self.lyrics.shown else {
+            ui.set_finding(false);
+            return;
+        };
+        let q = Query {
+            title: t.title.clone(),
+            artist: t.artist.clone(),
+            album: t.album.clone(),
+            duration: t.duration,
+        };
+        ui.set_find_note("Looking on LRCLIB…".into());
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(lrclib::find(&q));
+        });
+        self.lyrics.finding = Some((self.lyrics.generation, rx));
+    }
+
+    fn poll_find(&mut self, ui: &LyricsUi) {
+        let Some((generation, rx)) = &self.lyrics.finding else {
+            return;
+        };
+        let Ok(result) = rx.try_recv() else {
+            return;
+        };
+        let current = *generation == self.lyrics.generation;
+        self.lyrics.finding = None;
+        if !current {
+            return;
+        }
+        let duration = self.lyrics.shown.as_ref().map_or(0.0, |(_, t)| t.duration);
+        match result {
+            Ok(found) => {
+                let rows: Vec<LyricMatch> = found.iter().map(|f| match_row(f, duration)).collect();
+                ui.set_find_note(SharedString::new());
+                ui.set_found(ModelRc::new(VecModel::from(rows)));
+                self.lyrics.found = found;
+            }
+            Err(Miss::None) => ui.set_find_note("LRCLIB has no lyrics for this track.".into()),
+            Err(Miss::Offline) => ui
+                .set_find_note("Couldn't reach LRCLIB. Check the connection and try again.".into()),
+        }
+    }
+
+    /// Saves the picked lyrics beside the track and shows them.
+    fn use_found(&mut self, i: i32) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        let ui = app.global::<LyricsUi>();
+        let Some(f) = usize::try_from(i)
+            .ok()
+            .and_then(|i| self.lyrics.found.get(i))
+            .cloned()
+        else {
+            return;
+        };
+        let Some(Source::File(path)) = self.lyrics.shown.as_ref().map(|(_, t)| t.source.clone())
+        else {
+            return;
+        };
+        if f.instrumental || f.text().trim().is_empty() {
+            ui.set_find_note("That one is marked instrumental: no words to save.".into());
+            return;
+        }
+        match lyrics::save(&path, store().as_deref(), f.text()) {
+            Ok(_) => {
+                self.close_found_ui(&ui);
+                // Read again, from the file just written.
+                self.lyrics.shown = None;
+                self.poll_lyrics(&app, LYRICS_TAB);
+            }
+            Err(e) => ui.set_find_note(format!("Couldn't save the lyrics: {e}").into()),
+        }
+    }
+
+    fn close_found(&mut self) {
+        if let Some(app) = self.app.upgrade() {
+            self.close_found_ui(&app.global::<LyricsUi>());
+        }
+    }
+
+    fn close_found_ui(&mut self, ui: &LyricsUi) {
+        self.lyrics.finding = None;
+        self.lyrics.found.clear();
+        ui.set_finding(false);
+        ui.set_find_note(SharedString::new());
+        ui.set_found(ModelRc::default());
     }
 
     fn show_lyrics(&mut self, ui: &LyricsUi, found: Option<Lyrics>) {

@@ -49,6 +49,9 @@ pub enum Origin {
     Lrc(PathBuf),
     /// The track's own tags.
     Tag,
+    /// Lyrics openDJ saved in its own folder, for a track whose folder
+    /// can't be written (see [`save`]).
+    Saved(PathBuf),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -71,6 +74,37 @@ impl Lyrics {
     /// The lyrics as LRC text: enhanced LRC when they are timed by word.
     pub fn to_lrc(&self) -> String {
         to_lrc(&self.lines)
+    }
+}
+
+impl Line {
+    /// The line split at `seconds`: the words sung by then, and the rest.
+    /// All of it is still to come when the line has no word times.
+    pub fn sung_at(&self, seconds: f64) -> (String, String) {
+        if self.words.is_empty() {
+            return (String::new(), self.text.clone());
+        }
+        let sung = self.words.partition_point(|w| w.start <= seconds);
+        let join = |ws: &[Word]| ws.iter().map(|w| w.text.as_str()).collect::<String>();
+        let done = join(&self.words[..sung]);
+        let rest = join(&self.words[sung..]);
+        // Text before the first word goes with it.
+        let lead = self
+            .text
+            .len()
+            .saturating_sub((done.clone() + &rest).trim().len());
+        let lead = self.text.get(..lead).unwrap_or_default();
+        if sung == 0 {
+            (String::new(), format!("{lead}{}", rest.trim()))
+        } else {
+            let done = format!("{lead}{}", done.trim_start());
+            let done = if rest.trim().is_empty() {
+                done.trim_end().to_string()
+            } else {
+                done
+            };
+            (done, rest.trim_end().to_string())
+        }
     }
 }
 
@@ -525,6 +559,55 @@ pub fn find(path: &Path) -> Option<Lyrics> {
     from_sidecar(path).or_else(|| from_tags(path))
 }
 
+/// Like [`find`], then lyrics openDJ saved for the track in `store`.
+pub fn find_with(path: &Path, store: Option<&Path>) -> Option<Lyrics> {
+    find(path).or_else(|| {
+        let saved = stored_path(store?, path);
+        let lines = parse(&decode_text(&fs::read(&saved).ok()?))?;
+        Some(Lyrics {
+            lines,
+            origin: Origin::Saved(saved),
+        })
+    })
+}
+
+/// Where in `store` openDJ keeps lyrics for `track`: named by a hash of
+/// the track's path (FNV-1a, the same on every run and platform).
+pub fn stored_path(store: &Path, track: &Path) -> PathBuf {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in track.to_string_lossy().bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    store.join(format!("{h:016x}.lrc"))
+}
+
+/// Writes `text` (LRC or plain lyrics) as an `.lrc` beside `track`, or,
+/// when its folder can't be written, into `store`. A file is written whole
+/// to a temporary name and then renamed, so a reader never sees half of it.
+pub fn save(track: &Path, store: Option<&Path>, text: &str) -> std::io::Result<Origin> {
+    fn write(path: &Path, text: &str) -> std::io::Result<()> {
+        let tmp = path.with_extension("lrc.part");
+        fs::write(&tmp, text)?;
+        fs::rename(&tmp, path).inspect_err(|_| {
+            let _ = fs::remove_file(&tmp);
+        })
+    }
+    let beside = track.with_extension("lrc");
+    match write(&beside, text) {
+        Ok(()) => Ok(Origin::Lrc(beside)),
+        Err(e) => {
+            let Some(store) = store else {
+                return Err(e);
+            };
+            fs::create_dir_all(store)?;
+            let saved = stored_path(store, track);
+            write(&saved, text)?;
+            Ok(Origin::Saved(saved))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -641,6 +724,49 @@ mod tests {
         assert_eq!(decode_text(b"\xEF\xBB\xBFhi"), "hi");
         assert_eq!(decode_text(b"caf\xE9"), "café");
         assert_eq!(decode_text(&[0xFF, 0xFE, b'h', 0, b'i', 0]), "hi");
+    }
+
+    #[test]
+    fn splits_a_line_at_a_time() {
+        let lines =
+            parse("[00:10.00]<00:10.00>Hold <00:10.40>the <00:10.70>line<00:11.50>").unwrap();
+        let l = &lines[0];
+        assert_eq!(l.sung_at(9.0), (String::new(), "Hold the line".to_string()));
+        assert_eq!(
+            l.sung_at(10.5),
+            ("Hold the ".to_string(), "line".to_string())
+        );
+        assert_eq!(
+            l.sung_at(12.0),
+            ("Hold the line".to_string(), String::new())
+        );
+        let plain = parse("[00:01.00]No words").unwrap();
+        assert_eq!(
+            plain[0].sung_at(5.0),
+            (String::new(), "No words".to_string())
+        );
+    }
+
+    #[test]
+    fn saves_beside_or_in_the_store() {
+        let dir = std::env::temp_dir().join(format!("opendj-lyrics-save-{}", std::process::id()));
+        let store = dir.join("store");
+        fs::create_dir_all(&dir).unwrap();
+        let track = dir.join("Tune.mp3");
+        assert_eq!(
+            save(&track, Some(&store), "[00:01.00]Hi\n").unwrap(),
+            Origin::Lrc(dir.join("Tune.lrc"))
+        );
+        assert_eq!(find_with(&track, Some(&store)).unwrap().lines[0].text, "Hi");
+        // A folder that isn't there can't be written: the store takes it.
+        let gone = dir.join("missing").join("Other.mp3");
+        let origin = save(&gone, Some(&store), "Words").unwrap();
+        assert_eq!(origin, Origin::Saved(stored_path(&store, &gone)));
+        let l = find_with(&gone, Some(&store)).unwrap();
+        assert_eq!(l.origin, origin);
+        assert!(find_with(&gone, None).is_none());
+        assert_eq!(stored_path(&store, &gone), stored_path(&store, &gone));
+        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
