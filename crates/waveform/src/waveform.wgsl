@@ -42,8 +42,16 @@ struct Params {
     mix_start_bin: f32,                // the next mix, in slices (Mono style; none unless end > start)
     mix_end_bin: f32,
     live: u32,                         // 1: a live deck; the grid runs on past the last slice
+    trace_alpha: f32,                  // the waveform's opacity (less under lanes of marks)
+    lane_count: u32,                   // rows of marks from the bottom (0 = none)
+    mark_count: u32,
     pad1: u32,
     pad2: u32,
+    pad3: u32,
+    lane_tint: vec4<u32>,              // bit n: row n tinted (a scale note)
+    mark_color: vec4<f32>,
+    lit_color: vec4<f32>,
+    marks: array<vec4<f32>, 256>,      // start and end slice, row, kind (0 played, 1 held, 2 coming, 3 fill)
 };
 
 @group(0) @binding(0) var<uniform> p: Params;
@@ -352,7 +360,8 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         color = over(color, vec3<f32>(1.0), fill(0.5 * k, d) * 0.12);
     }
 
-    // The waveform.
+    // The waveform; fainter under lanes of marks.
+    let under_wave = color;
     if (has_track) {
         let s = column(bin);
         if (p.style == 2u) {
@@ -392,6 +401,47 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
             color = over(color, p.mid_color.rgb, fill(mr, d) * 0.9);
             color = over(color, p.high_color.rgb, fill(hp, d) * 0.5);
             color = over(color, p.high_color.rgb, fill(hr, d) * 0.9);
+        }
+    }
+
+    color = mix(under_wave, color, p.trace_alpha);
+
+    // Lanes of marks (a live deck's notes or drum hits), in rows from the
+    // bottom: tinted rows, then each mark on this pixel's row.
+    if (p.lane_count > 0u) {
+        let lh = wave_h / f32(p.lane_count);
+        let row = u32(clamp(floor((wave_h - y) / lh), 0.0, f32(p.lane_count - 1u)));
+        let top = wave_h - (f32(row) + 1.0) * lh;
+        if (((p.lane_tint[row / 32u] >> (row % 32u)) & 1u) == 1u) {
+            color = over(color, p.lit_color.rgb, 0.08);
+        }
+        // A pixel's gap between rows, where they are tall enough.
+        let gap = select(0.0, 0.5 * k, lh > 4.0 * k);
+        let y0 = top + gap;
+        let y1 = top + lh - gap;
+        if (y >= y0 && y <= y1) {
+            for (var i = 0u; i < p.mark_count; i = i + 1u) {
+                let m = p.marks[i];
+                if (u32(m.z) != row) { continue; }
+                let x0 = bin_x(m.x);
+                let x1 = max(bin_x(m.y), x0 + 2.0 * k);
+                if (x < x0 || x > x1) { continue; }
+                let edge = min(min(x - x0, x1 - x), min(y - y0, y1 - y));
+                let outline = edge < 1.25 * k;
+                let kind = u32(m.w);
+                if (kind == 0u) {
+                    color = over(color, p.mark_color.rgb, 0.85);
+                } else if (kind == 1u) {
+                    color = over(color, mix(p.mark_color.rgb, vec3<f32>(1.0), 0.35), 1.0);
+                    if (outline) { color = over(color, p.lit_color.rgb, 1.0); }
+                } else if (kind == 2u) {
+                    if (outline) { color = over(color, p.mark_color.rgb, 0.9); }
+                } else if (kind == 3u) {
+                    color = over(color, p.lit_color.rgb, 0.85);
+                } else if (outline) {
+                    color = over(color, p.lit_color.rgb, 0.9);
+                }
+            }
         }
     }
 
