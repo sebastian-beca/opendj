@@ -3000,7 +3000,7 @@ component FolderTree inherits Rectangle {
                         }
                         // The Crates and Playlists headings have no icon.
                         // Nor do the history tab's days.
-                        if f.kind != 18 && f.kind != 19: VerticalLayout { alignment: center; FolderIcon { kind: f.kind; tint: f.color; icon: f.icon; } }
+                        if f.kind != 18 && f.kind != 23: VerticalLayout { alignment: center; FolderIcon { kind: f.kind; tint: f.color; icon: f.icon; } }
                         // A new or renamed list is named right here.
                         if i == naming-row: VerticalLayout {
                             alignment: center;
@@ -3042,7 +3042,7 @@ component FolderTree inherits Rectangle {
                             text: f.name;
                             color: i == current ? Theme.on-row-selection : f.kind == 18 || f.dim ? Theme.text-dim : Theme.stage-labels ? Theme.stage-tint(f.kind) : Theme.text;
                             font-size: f.kind == 18 ? 13px : 15px;
-                            font-weight: f.kind == 18 ? 700 : f.kind == 19 ? 600 : 400;
+                            font-weight: f.kind == 18 ? 700 : f.kind == 23 ? 600 : 400;
                             vertical-alignment: center;
                             overflow: elide;
                             horizontal-stretch: 1;
