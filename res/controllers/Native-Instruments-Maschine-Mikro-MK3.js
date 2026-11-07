@@ -21,7 +21,7 @@
 //
 //   STEP / PAD MODE / PATTERN   pads edit steps / play the sounds / pick
 //                               grooves, kits and the genre's grooves
-//   LEFT / RIGHT                row before / after (SELECT + pad 1-9 too)
+//   LEFT / RIGHT                row before / after (SELECT + pad 1-8 too)
 //   SHIFT + LEFT / RIGHT        the Groove Box on another deck
 //   PLAY / STOP / RESTART       start / stop / start again from the bar
 //   REC                         record what the pads play (Play mode)
@@ -55,7 +55,7 @@ MikroMK3.KITS = [
     {name: "Dub", sounds: ["Kick", "Snare", "Closed hat", "Open hat", "Clap", "Rim", "Cowbell", "Crash", "Ride", "Chord", "Shaker", "Tom"]},
 ];
 // Rows to pick from, and the rows the pads play in Play mode (twice over).
-MikroMK3.ROWS = 9;
+MikroMK3.ROWS = 8;
 MikroMK3.PLAY_ROWS = 8;
 MikroMK3.DECKS = 4;
 
@@ -78,8 +78,6 @@ MikroMK3.padLight = function(v) {
     case 10: return [C.VIOLET, 3];
     case 11: return [C.WHITE, 1];
     case 12: return [C.VIOLET, 1];
-    case 21: return [C.FUCHSIA, 3];
-    case 22: return [C.FUCHSIA, 1];
     default: return [C.OFF, 0];
     }
 };
@@ -96,7 +94,8 @@ MikroMK3.TARGETS = {
     pitch: {row: true, key: "pitch", step: 1, label: "PITCH", show: v => (v > 0 ? "+" : "") + Math.round(v)},
     decay: {row: true, key: "decay", step: 0.02, label: "DECAY", show: v => Math.round(v * 100) + "%"},
     swing: {row: false, key: "swing", step: 0.025, label: "SWING", show: v => Math.round(v * 100) + "%"},
-    bpm: {row: false, key: "bpm", step: 1, label: "TEMPO", show: v => (Math.round(v * 10) / 10) + " BPM"},
+    // Changing the tempo stops it following the mix, as on screen.
+    bpm: {row: false, key: "bpm", step: 1, label: "TEMPO", show: v => (Math.round(v * 10) / 10) + " BPM", unfollow: true},
 };
 MikroMK3.TARGET_BUTTONS = [
     ["level", MikroMK3.B.VOLUME], ["pitch", MikroMK3.B.PITCH], ["decay", MikroMK3.B.MOD],
@@ -368,6 +367,9 @@ MikroMK3.turn = function(delta) {
     const t = this.TARGETS[this.target];
     const [group, key] = this.targetGroupKey();
     const step = this.held(this.B.SHIFT) ? t.step / 10 : t.step;
+    if (t.unfollow) {
+        engine.setValue(group, "follow", 0);
+    }
     engine.setValue(group, key, engine.getValue(group, key) + delta * step);
     this.say(t.label + " " + t.show(engine.getValue(group, key)));
 };
@@ -375,6 +377,9 @@ MikroMK3.turn = function(delta) {
 MikroMK3.slide = function(position) {
     const t = this.TARGETS[this.target];
     const [group, key] = this.targetGroupKey();
+    if (t.unfollow) {
+        engine.setValue(group, "follow", 0);
+    }
     engine.setParameter(group, key, position);
     this.say(t.label + " " + t.show(engine.getValue(group, key)));
 };

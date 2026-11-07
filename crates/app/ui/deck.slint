@@ -2517,7 +2517,7 @@ component JogSection inherits VerticalLayout {
 
 // The Groove Box's nine track colors, a rainbow from the kick down.
 global GrooveColors {
-    out property <[color]> track: [#ef3e6e, #f5824a, #f2cf45, #33d17a, #1fd6c1, #5cb3f7, #8d7ff5, #d16be0, #f27fb2];
+    out property <[color]> track: [#ef3e6e, #f5824a, #f2cf45, #33d17a, #1fd6c1, #5cb3f7, #8d7ff5, #d16be0];
 }
 
 // A drum sound's icon, picked by its name in the kit (Kick, Snare, Closed hat,
@@ -2605,6 +2605,69 @@ component GrooveToggle inherits Rectangle {
     gtta := TouchArea { mouse-cursor: pointer; clicked => { Controls.toggle(index); } }
 }
 
+// Variations: what the Dice menu offers, for every unlocked track or for
+// one (`row` 1-8). Each waits for the next bar while the groove plays.
+component GrooveDiceItems inherits VerticalLayout {
+    in property <string> g;
+    in property <int> track;
+    callback picked();
+    property <int> dice-index: Controls.resolve(g, "dice");
+    property <int> row-index: Controls.resolve(g, "dice_row");
+    for item[i] in [
+        { name: "New groove", detail: "Fresh hits in the genre's style" },
+        { name: "Mutate", detail: "Move a hit or two, keep the feel" },
+        { name: "Busier", detail: "One more hit, on the strongest free step" },
+        { name: "Calmer", detail: "One hit fewer, the weakest goes" },
+        { name: "Even out", detail: "Same hits, spread evenly (Euclid)" },
+        { name: "Shift later", detail: "Every hit a step later" },
+        { name: "Shift earlier", detail: "Every hit a step earlier" },
+    ]: GrooveMenuItem {
+        text: track > 0 && i == 0 ? "New track" : item.name;
+        detail: item.detail;
+        clicked => {
+            Controls.set-value(row-index, track);
+            Controls.set-value(dice-index, i + 1);
+            root.picked();
+        }
+    }
+}
+
+// The top bar's Dice: varies every unlocked track on the next bar, with
+// Undo. It blinks while a variation waits for the bar.
+component GrooveDice inherits GrooveButton {
+    in property <string> g;
+    property <bool> pending: Controls.value(Controls.resolve(g, "dice_pending"), Controls.tick) > 0;
+    property <bool> can-undo: Controls.value(Controls.resolve(g, "can_undo"), Controls.tick) > 0;
+    property <bool> varying: Controls.value(Controls.resolve(g, "vary"), Controls.tick) > 0.01;
+    text: "⚄";
+    lit: varying;
+    font-size: 16px;
+    blink: pending && Controls.blink;
+    clicked => { dice-menu.show(); }
+    dice-menu := PopupWindow {
+        y: root.height + 2px;
+        width: 250px;
+        GrooveMenuBackground { }
+        VerticalLayout {
+            padding: 4px;
+            HorizontalLayout {
+                padding: 4px;
+                spacing: 8px;
+                ControlKnob { group: g; key: "vary"; label: "VARY"; size: 26px; }
+                Text { text: "Lets the groove change by itself:\nweak hits drop out, ghost notes\ncome in, hits waver in loudness."; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+            }
+            Rectangle { height: 1px; background: Theme.border; }
+            Text { x: 8px; height: 22px; text: "Every unlocked track, on the next bar"; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+            GrooveDiceItems { g: g; track: 0; }
+            Rectangle { height: 1px; background: Theme.border; }
+            GrooveMenuItem {
+                text: can-undo ? "Undo" : "Nothing to undo";
+                clicked => { Controls.set-value(Controls.resolve(g, "dice_undo"), 1); }
+            }
+        }
+    }
+}
+
 // One track in the Sequencer: its sound's icon (click to hear it) with M
 // and S, then 16 steps in the track's color. A track with no steps sits
 // dimmed; one with steps is brighter, its hits lit and the icon glowing as
@@ -2625,15 +2688,44 @@ component GrooveTrack inherits HorizontalLayout {
     property <float> soft: Controls.value(soft-index, Controls.tick);
     property <int> accent-index: Controls.resolve(groove-group, "pattern" + (slot + 1) + "_" + rk + "_accent");
     property <float> accent: Controls.value(accent-index, Controls.tick);
+    property <int> maybe-index: Controls.resolve(groove-group, "pattern" + (slot + 1) + "_" + rk + "_maybe");
+    property <float> maybe: Controls.value(maybe-index, Controls.tick);
     property <bool> empty: bits < 1;
     property <int> sound: Controls.value(Controls.resolve(groove-group, rk + "_sound"), Controls.tick);
     property <string> sound-name: GrooveUi.kits[kit].sounds[sound];
     property <float> meter: Controls.value(Controls.resolve(groove-group, rk + "_meter"), Controls.tick);
     property <bool> playing: Controls.value(Controls.resolve(group, "play"), Controls.tick) > 0;
     property <int> preview-index: Controls.resolve(groove-group, rk + "_preview");
+    property <int> lock-index: Controls.resolve(groove-group, rk + "_lock");
+    property <bool> locked: Controls.value(lock-index, Controls.tick) > 0;
     spacing: 2px;
     Rectangle {
         width: 74px;
+        // Right-click the track for its own variations and its lock.
+        TouchArea {
+            pointer-event(e) => {
+                if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                    track-menu.show();
+                }
+            }
+        }
+        track-menu := PopupWindow {
+            x: parent.width;
+            width: 250px;
+            GrooveMenuBackground { }
+            VerticalLayout {
+                padding: 4px;
+                Text { x: 8px; height: 22px; text: "This track, on the next bar"; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+                GrooveDiceItems { g: groove-group; track: row-index + 1; }
+                Rectangle { height: 1px; background: Theme.border; }
+                GrooveMenuItem {
+                    text: "Lock";
+                    detail: "Keep this track when the Dice varies the others";
+                    checked: locked;
+                    clicked => { Controls.set-value(lock-index, locked ? 0 : 1); }
+                }
+            }
+        }
         border-radius: 3px;
         background: tint.with-alpha(empty ? 0.08 : 0.16 + 0.5 * min(1, meter * 2));
         HorizontalLayout {
@@ -2646,7 +2738,24 @@ component GrooveTrack inherits HorizontalLayout {
                     width: 24px;
                     height: 18px;
                     DrumIcon { sound: sound-name; tint: empty ? tint.with-alpha(0.55) : meter > 0.05 ? tint.brighter(0.6) : tint; size: 18px; }
-                    ita := TouchArea { mouse-cursor: pointer; clicked => { Controls.set-value(preview-index, 1); } }
+                    // A small padlock while locked.
+                    if locked: Rectangle {
+                        x: 17px;
+                        y: 9px;
+                        width: 8px;
+                        height: 10px;
+                        Rectangle { x: 1px; y: 0px; width: 6px; height: 6px; border-radius: 3px; border-width: 1.5px; border-color: Theme.text; }
+                        Rectangle { y: 4px; width: 8px; height: 6px; border-radius: 1px; background: Theme.text; }
+                    }
+                    ita := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { Controls.set-value(preview-index, 1); }
+                        pointer-event(e) => {
+                            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                                track-menu.show();
+                            }
+                        }
+                    }
                 }
             }
             Rectangle { horizontal-stretch: 1; }
@@ -2667,20 +2776,23 @@ component GrooveTrack inherits HorizontalLayout {
             height: 18px;
             border-radius: 4px;
             background: Theme.panel-raised;
-            tip := Text { text: sound-name; color: Theme.text; font-size: 10px; }
+            tip := Text { text: sound-name + (locked ? " (locked)" : "") + " · right-click for variations"; color: Theme.text; font-size: 10px; }
         }
     }
     for s in 16: Rectangle {
         property <bool> on: mod(floor(bits / pow(2, s)), 2) >= 1;
         property <bool> is-soft: mod(floor(soft / pow(2, s)), 2) >= 1;
         property <bool> is-accent: mod(floor(accent / pow(2, s)), 2) >= 1;
-        property <color> lit: is-accent ? tint.brighter(0.45) : is-soft ? tint.with-alpha(0.5) : tint;
+        property <bool> is-maybe: mod(floor(maybe / pow(2, s)), 2) >= 1;
+        property <color> lit: is-accent ? tint.brighter(0.45) : is-soft ? tint.with-alpha(0.5) : is-maybe ? tint.with-alpha(0.35) : tint;
         property <bool> here: position == s;
         border-radius: 2px;
         background: on ? (here ? lit.brighter(0.7) : lit)
             : tint.with-alpha((empty ? 0.07 : 0.15) + (here ? 0.12 : 0) + (mod(s, 4) == 0 ? 0.04 : 0) + (cta.has-hover ? 0.12 : 0));
-        border-width: on && is-accent ? 1px : 0px;
-        border-color: #ffffffa0;
+        border-width: on && (is-accent || is-maybe) ? 1px : 0px;
+        border-color: is-maybe ? tint : #ffffffa0;
+        // A step that plays half the time.
+        if on && is-maybe: Text { text: "50%"; color: Theme.text; font-size: 8px; font-weight: 700; }
         cta := TouchArea {
             mouse-cursor: pointer;
             clicked => {
@@ -2691,13 +2803,17 @@ component GrooveTrack inherits HorizontalLayout {
                 if on && is-accent {
                     Controls.set-value(accent-index, accent - pow(2, s));
                 }
+                if on && is-maybe {
+                    Controls.set-value(maybe-index, maybe - pow(2, s));
+                }
                 Controls.set-value(index, on ? bits - pow(2, s) : bits + pow(2, s));
                 // Stopped, a step added plays its sound so you hear what you add.
                 if !playing && !on {
                     Controls.set-value(preview-index, 1);
                 }
             }
-            // Right-click a hit: normal, then accented, then soft, then normal.
+            // Right-click a hit: normal, then accented, then soft, then
+            // half the time, then normal.
             pointer-event(e) => {
                 if e.button == PointerEventButton.right && e.kind == PointerEventKind.down && on {
                     if is-accent {
@@ -2705,10 +2821,112 @@ component GrooveTrack inherits HorizontalLayout {
                         Controls.set-value(soft-index, soft + pow(2, s));
                     } else if is-soft {
                         Controls.set-value(soft-index, soft - pow(2, s));
+                        Controls.set-value(maybe-index, maybe + pow(2, s));
+                    } else if is-maybe {
+                        Controls.set-value(maybe-index, maybe - pow(2, s));
                     } else {
                         Controls.set-value(accent-index, accent + pow(2, s));
                     }
                 }
+            }
+        }
+    }
+}
+
+// The kick's KEY button: click for Off, Root (the leading track's key)
+// or 5th; it shows the note the kick plays.
+component GrooveKickKey inherits Rectangle {
+    in property <string> groove-group;
+    in property <color> tint;
+    property <int> index: Controls.resolve(groove-group, "kick_key");
+    property <int> choice: Controls.value(index, Controls.tick);
+    property <int> note: Controls.value(Controls.resolve(groove-group, "kick_note"), Controls.tick);
+    property <[string]> names: ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+    height: 22px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: choice > 0 ? tint : Theme.border;
+    background: kkta.has-hover ? #ffffff1c : #00000040;
+    Text {
+        text: "KEY " + (choice == 1 ? "ROOT" : choice == 2 ? "5TH" : "OFF") + (choice > 0 && note > 0 ? " · " + names[note - 1] : "");
+        color: choice > 0 ? tint : Theme.text-dim;
+        font-size: 9px;
+        font-weight: 700;
+        overflow: elide;
+        width: parent.width - 6px;
+        horizontal-alignment: center;
+    }
+    kkta := TouchArea { mouse-cursor: pointer; clicked => { Controls.set-value(index, mod(choice + 1, 3)); } }
+    if kkta.has-hover: Rectangle {
+        y: -self.height - 2px;
+        width: 210px;
+        height: 30px;
+        border-radius: 4px;
+        background: Theme.panel-raised;
+        Text { text: "Tune the kick to the playing track's key\n(its root or fifth). Click to change."; color: Theme.text; font-size: 10px; horizontal-alignment: center; }
+    }
+}
+
+// The Groove Box's tempo in the top bar: lit while it follows the mix.
+// Its menu turns following off and on, changes the BPM (which stops
+// following), plays at half or double the mix's tempo, and has SWING.
+component GrooveTempo inherits GrooveButton {
+    in property <string> g;
+    property <int> bpm-index: Controls.resolve(g, "bpm");
+    property <float> bpm: Controls.value(bpm-index, Controls.tick);
+    property <int> follow-index: Controls.resolve(g, "follow");
+    property <bool> follow: Controls.value(follow-index, Controls.tick) > 0;
+    property <bool> following: Controls.value(Controls.resolve(g, "following"), Controls.tick) > 0;
+    property <int> scale-index: Controls.resolve(g, "tempo_scale");
+    property <float> scale: Controls.value(scale-index, Controls.tick);
+    function nudge(by: float) {
+        Controls.set-value(follow-index, 0);
+        Controls.set-value(bpm-index, max(40, min(220, round((bpm + by) * 10) / 10)));
+    }
+    text: round(bpm * 10) / 10 + (scale < 0.75 && follow ? " ½×" : scale > 1.5 && follow ? " 2×" : "") + " ▾";
+    lit: following;
+    clicked => { tempo-menu.show(); }
+    tempo-menu := PopupWindow {
+        y: root.height + 2px;
+        x: root.width - 220px;
+        width: 220px;
+        close-policy: close-on-click-outside;
+        GrooveMenuBackground { }
+        VerticalLayout {
+            padding: 6px;
+            spacing: 6px;
+            GrooveMenuItem {
+                text: "Follow the mix";
+                detail: "The playing track's tempo, else Link's";
+                checked: follow;
+                clicked => { Controls.set-value(follow-index, follow ? 0 : 1); }
+            }
+            HorizontalLayout {
+                spacing: 4px;
+                height: 26px;
+                for step in [-1, -0.1]: GrooveButton { width: 36px; height: 26px; text: step < -0.5 ? "−1" : "−.1"; clicked => { nudge(step); } }
+                Text { horizontal-stretch: 1; text: round(bpm * 10) / 10 + " BPM"; color: Theme.text; font-size: 13px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                for step in [0.1, 1]: GrooveButton { width: 36px; height: 26px; text: step > 0.5 ? "+1" : "+.1"; clicked => { nudge(step); } }
+            }
+            HorizontalLayout {
+                spacing: 4px;
+                height: 26px;
+                for s[i] in [0.5, 1, 2]: GrooveButton {
+                    horizontal-stretch: 1;
+                    height: 26px;
+                    text: i == 0 ? "Half time" : i == 1 ? "Normal" : "Double";
+                    lit: follow && abs(scale - s) < 0.01;
+                    clicked => {
+                        Controls.set-value(scale-index, s);
+                        Controls.set-value(follow-index, 1);
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                ControlKnob { group: g; key: "swing"; label: "SWING"; size: 24px; }
+                Text { text: "Every second 16th plays late,\nfor a shuffle."; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
             }
         }
     }
@@ -2772,6 +2990,8 @@ component GrooveVoice inherits VerticalLayout {
         alignment: center;
         ControlKnob { group: groove-group; key: rk + "_tone"; label: "TONE"; size: 26px; bipolar: true; tint: tint; }
     }
+    // The kick only: KEY tunes it to the playing track's root or fifth.
+    if row-index == 0: GrooveKickKey { groove-group: groove-group; tint: tint; }
 }
 
 // A track's strip in the Mixer tab: icon and sound, PAN, a level fader
@@ -2847,8 +3067,8 @@ component GrooveTab inherits Rectangle {
 }
 
 // The Groove Box, over the whole deck: a top bar with PLAY, the kit, the
-// library's genre, groove and chain, A to D, SWING and the three tabs,
-// then the tab: SEQUENCER (nine tracks of 16 steps), SYNTH (each track's sound, PITCH,
+// library's genre, groove and chain, A to D, the tempo (with SWING) and the three tabs,
+// then the tab: SEQUENCER (eight tracks of 16 steps), SYNTH (each track's sound, PITCH,
 // DECAY and TONE) or MIXER (each track's PAN, level, meter, M and S).
 component GrooveBox inherits Rectangle {
     in property <int> deck;
@@ -2929,7 +3149,7 @@ component GrooveBox inherits Rectangle {
             }
             // The groove's name takes the room left over.
             GrooveButton {
-                min-width: 64px;
+                min-width: 48px;
                 horizontal-stretch: 1;
                 height: 30px;
                 text: (pattern > 0 && pattern <= grooves.length ? grooves[pattern - 1].name : "Groove") + " ▾";
@@ -3002,9 +3222,9 @@ component GrooveBox inherits Rectangle {
                 blink: i == queued && queued != sounding && blink;
                 clicked => { Controls.set-value(Controls.resolve(g, "groove"), i); }
             }
-            Caption { text: "SWING"; vertical-alignment: center; }
-            ControlKnob { group: g; key: "swing"; size: 22px; y: 0px; }
-            Rectangle { width: 4px; }
+            GrooveDice { g: g; width: 30px; height: 30px; tint: tint; }
+            GrooveTempo { g: g; width: 60px; height: 30px; tint: tint; }
+            Rectangle { width: 2px; }
             Rectangle {
                 width: 172px;
                 border-radius: 6px;
@@ -3025,7 +3245,7 @@ component GrooveBox inherits Rectangle {
             vertical-stretch: 1;
             if tab == 0: VerticalLayout {
                 spacing: 2px;
-                for r in 9: GrooveTrack {
+                for r in 8: GrooveTrack {
                     vertical-stretch: 1;
                     groove-group: g;
                     group: group;
@@ -3038,7 +3258,7 @@ component GrooveBox inherits Rectangle {
             }
             if tab == 1: HorizontalLayout {
                 spacing: 6px;
-                for r in 9: GrooveVoice {
+                for r in 8: GrooveVoice {
                     horizontal-stretch: 1;
                     groove-group: g;
                     row-index: r;
@@ -3048,7 +3268,7 @@ component GrooveBox inherits Rectangle {
             }
             if tab == 2: HorizontalLayout {
                 spacing: 6px;
-                for r in 9: GrooveStrip {
+                for r in 8: GrooveStrip {
                     horizontal-stretch: 1;
                     groove-group: g;
                     row-index: r;
