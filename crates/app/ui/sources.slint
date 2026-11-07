@@ -57,6 +57,14 @@ export struct FoundRow {
     to-cache: bool,
 }
 
+// A line of a source's own page (Sharing): a section's heading, or a
+// figure and its value.
+export struct StatusLine {
+    heading: bool,
+    label: string,
+    value: string,
+}
+
 export struct QueueLine {
     text: string,
     progress: float,
@@ -87,10 +95,17 @@ export global SourceUi {
     // Opens Settings › Sources.
     callback open-settings();
     in property <[SearchItem]> searches;
-    // The search shown; -1 is the Downloads list.
+    // The search shown; -1 is the Downloads list, -2 the source's own page.
     in property <int> current-search: -1;
     // Under Downloads in the panel: "3 active".
     in property <string> downloads-line;
+    // The source's own page, after Downloads in the panel (Sharing): its
+    // name, a line under it, a sentence over its figures, and the figures.
+    in property <bool> status-shown;
+    in property <string> status-title;
+    in property <string> status-line;
+    in property <string> status-note;
+    in property <[StatusLine]> status-lines;
     in property <[FoundRow]> rows;
     in property <string> title;
     in property <string> summary;
@@ -101,12 +116,10 @@ export global SourceUi {
     in property <bool> lossless-only;
     in property <int> selected-count;
     in property <string> selected-summary;
+    // What's downloading now, first few: under Downloads in the panel.
     in property <[QueueLine]> queue;
-    // Anything was downloaded this session.
-    in property <bool> queue-shown;
     // The search is a playlist's: its results come in a group per song.
     in property <bool> grouped;
-    in property <string> queue-title;
     // Downloads queued or running, finished or failed, and failed.
     in property <int> active-count;
     in property <int> finished-count;
@@ -212,8 +225,65 @@ component Bar inherits Rectangle {
     }
 }
 
+// A place in the panel below the searches: Downloads, or the source's own
+// page. Its icon goes inside.
+component NavRow inherits Rectangle {
+    in property <string> title;
+    in property <string> sub;
+    in property <bool> selected;
+    // 0..1 while something is going; below 0 for no bar.
+    in property <float> progress: -1;
+    callback clicked();
+    height: 46px;
+    border-radius: Theme.radius;
+    background: selected ? #3a3a3d : (ta.has-hover ? #232326 : transparent);
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 8px;
+        spacing: 10px;
+        Rectangle {
+            width: 16px;
+            @children
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            Text { text: root.title; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
+            if root.sub != "": Text { text: root.sub; color: Theme.text-dim; font-size: 11px; overflow: elide; }
+            if root.progress >= 0: Bar { progress: root.progress; }
+        }
+    }
+}
+
+// An arrow into a tray.
+component DownloadIcon inherits Path {
+    width: 16px;
+    height: 16px;
+    viewbox-width: 16;
+    viewbox-height: 16;
+    stroke: Theme.text-dim;
+    stroke-width: 1.5px;
+    stroke-line-cap: round;
+    fill: transparent;
+    commands: "M 8 2 L 8 10 M 4.5 6.5 L 8 10 L 11.5 6.5 M 2.5 11 L 2.5 13.5 L 13.5 13.5 L 13.5 11";
+}
+
+// An arrow out of a tray: sharing.
+component ShareIcon inherits Path {
+    width: 16px;
+    height: 16px;
+    viewbox-width: 16;
+    viewbox-height: 16;
+    stroke: Theme.text-dim;
+    stroke-width: 1.5px;
+    stroke-line-cap: round;
+    fill: transparent;
+    commands: "M 8 10 L 8 2 M 4.5 5.5 L 8 2 L 11.5 5.5 M 2.5 11 L 2.5 13.5 L 13.5 13.5 L 13.5 11";
+}
+
 // Left of the results: the source's saved searches, a + for a new one,
-// everything downloaded, and what's downloading now.
+// then Downloads and the source's own page (Sharing).
 export component SearchesPanel inherits Rectangle {
     in property <string> source-name;
     property <int> menu-index;
@@ -330,33 +400,25 @@ export component SearchesPanel inherits Rectangle {
                 }
             }
         }
-        // What's downloading. Clicking anywhere on it opens the whole
-        // Downloads list in the browser.
-        if SourceUi.queue-shown: Rectangle {
-            border-radius: Theme.radius;
-            background: SourceUi.current-search == -1 ? #3a3a3d : (qta.has-hover ? #2a2a2e : #232326);
-            height: q.preferred-height;
-            qta := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.select-search(-1); } }
-            q := VerticalLayout {
-                padding: 10px;
-                spacing: 4px;
-                HorizontalLayout {
-                    spacing: 6px;
-                    Text { text: SourceUi.queue.length > 0 ? "Downloading" : "Downloaded"; color: Theme.text; font-size: 13px; font-weight: 600; horizontal-stretch: 1; vertical-alignment: center; }
-                    Text { text: SourceUi.queue-title; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
-                }
-                for line in SourceUi.queue: VerticalLayout {
-                    spacing: 3px;
-                    padding-top: 3px;
-                    Text {
-                        text: line.text + (line.progress > 0 ? " · " + round(line.progress * 100) + "%" : "");
-                        color: Theme.text-dim;
-                        font-size: 11px;
-                        overflow: elide;
-                    }
-                    Bar { progress: line.progress; }
-                }
-            }
+        EdgeLine { left: 8px; right: 8px; }
+        // Downloads, then the source's own page (Sharing), each a place of
+        // its own like a search.
+        NavRow {
+            title: "Downloads";
+            sub: SourceUi.queue.length > 0
+                ? SourceUi.downloads-line + " · " + SourceUi.queue[0].text
+                : SourceUi.downloads-line;
+            selected: SourceUi.current-search == -1;
+            progress: SourceUi.queue.length > 0 ? SourceUi.queue[0].progress : -1;
+            clicked => { SourceUi.select-search(-1); }
+            DownloadIcon {}
+        }
+        if SourceUi.status-shown: NavRow {
+            title: SourceUi.status-title;
+            sub: SourceUi.status-line;
+            selected: SourceUi.current-search == -2;
+            clicked => { SourceUi.select-search(-2); }
+            ShareIcon {}
         }
     }
 }
@@ -658,7 +720,7 @@ export component SourceResults inherits Rectangle {
                 Pill { text: "+ New search"; clicked => { SourceUi.dialog-open = true; } }
             }
         }
-        HorizontalLayout {
+        if SourceUi.current-search != -2: HorizontalLayout {
             height: 24px;
             spacing: 8px;
             padding-left: 6px;
@@ -679,7 +741,36 @@ export component SourceResults inherits Rectangle {
             vertical-stretch: 1;
             Text { text: SourceUi.notice; color: Theme.text-dim; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; width: min(parent.width - 40px, 460px); }
         }
-        ListView {
+        // The source's own page: a sentence, then its figures.
+        if SourceUi.current-search == -2 && SourceUi.status-note != "": HorizontalLayout {
+            padding: 12px;
+            Text { text: SourceUi.status-note; color: Theme.text-dim; font-size: 14px; wrap: word-wrap; }
+        }
+        if SourceUi.current-search == -2: ListView {
+            vertical-stretch: 1;
+            for l[i] in SourceUi.status-lines: Rectangle {
+                height: l.heading ? 40px : 32px;
+                border-radius: 4px;
+                background: l.heading ? transparent : mod(i, 2) == 1 ? Theme.row-alt : Theme.row;
+                if l.heading: Text {
+                    x: 12px;
+                    y: parent.height - self.height - 6px;
+                    text: l.label;
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    font-weight: 600;
+                    letter-spacing: 0.5px;
+                }
+                if !l.heading: HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 12px;
+                    Text { width: 220px; text: l.label; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
+                    Text { horizontal-stretch: 1; text: l.value; color: Theme.text; font-size: 14px; vertical-alignment: center; overflow: elide; }
+                }
+            }
+        }
+        if SourceUi.current-search != -2: ListView {
             vertical-stretch: SourceUi.notice != "" ? 0 : 1;
             visible: SourceUi.notice == "";
             for r[i] in SourceUi.rows: Rectangle {

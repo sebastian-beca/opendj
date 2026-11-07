@@ -176,6 +176,29 @@ pub struct DownloadUpdate {
     pub progress: Progress,
 }
 
+/// A page of the source's own in its panel, listed after Searches and
+/// Downloads: how something it runs alongside is going, e.g. sharing.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StatusPage {
+    /// Its name in the panel and over the page, e.g. "Sharing".
+    pub title: String,
+    /// One short line under the name in the panel, e.g. "Online · 2 uploading".
+    pub line: String,
+    /// A sentence over the figures, e.g. why it's paused. May be empty.
+    pub note: String,
+    /// The figures, in groups.
+    pub sections: Vec<StatusSection>,
+}
+
+/// A group of figures on a [`StatusPage`].
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StatusSection {
+    /// E.g. "Uploads". May be empty.
+    pub heading: String,
+    /// Label and value, e.g. ("Files shared", "12,408").
+    pub rows: Vec<(String, String)>,
+}
+
 /// Searches and downloads for a source in the rail. Runs on a thread of
 /// its own; every call may block on the network.
 pub trait SearchSource: Send {
@@ -227,6 +250,12 @@ pub trait SearchSource: Send {
     /// Tries a failed download again, from another copy if there is one.
     fn retry(&mut self, _key: &str) -> Result<(), PluginError> {
         Err(PluginError::NotSupported)
+    }
+
+    /// The source's own page in its panel, if it has one. Asked every few
+    /// seconds, so it must answer quickly.
+    fn status(&mut self) -> Option<StatusPage> {
+        None
     }
 
     /// Stops a download that's queued or running. Files it already wrote
