@@ -241,7 +241,7 @@ export component Jog inherits Rectangle {
     rim := TouchArea {
         mouse-cursor: bending ? MouseCursor.grabbing : MouseCursor.default;
         pointer-event(e) => {
-            if e.button != PointerEventButton.left {
+            if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
                 return;
             }
             if e.kind == PointerEventKind.down {
@@ -923,7 +923,7 @@ export component Header inherits Rectangle {
                             phrase-menu.show();
                             return;
                         }
-                        if e.button != PointerEventButton.left {
+                        if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
                             return;
                         }
                         // A click jumps straight there; dragging holds the
@@ -1322,7 +1322,7 @@ component PadFxButton inherits Rectangle {
     Text { text: fx.text; color: held ? tint : Theme.text; font-size: 12px; font-weight: 700; }
     touch := TouchArea {
         pointer-event(e) => {
-            if e.button != PointerEventButton.left {
+            if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
                 return;
             }
             if e.kind == PointerEventKind.down {
@@ -1595,7 +1595,7 @@ component PadCell inherits Rectangle {
     Text { text: root.text; color: lit ? tint : Theme.text; font-size: 12px; font-weight: 700; overflow: elide; }
     touch := TouchArea {
         pointer-event(e) => {
-            if e.button != PointerEventButton.left {
+            if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
                 return;
             }
             if e.kind == PointerEventKind.down {
@@ -1635,7 +1635,7 @@ component KeyPad inherits Rectangle {
     }
     touch := TouchArea {
         pointer-event(e) => {
-            if e.button != PointerEventButton.left {
+            if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
                 return;
             }
             if keyboard {
@@ -1707,7 +1707,7 @@ component HotcueCell inherits Rectangle {
     if !set: Text { text: "+"; color: Theme.text-dim; font-size: 15px; font-weight: 400; }
     touch := TouchArea {
         pointer-event(e) => {
-            if e.button != PointerEventButton.left {
+            if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
                 return;
             }
             if e.kind == PointerEventKind.down {
@@ -2138,7 +2138,7 @@ component StepperPart inherits Rectangle {
     ta := TouchArea {
         mouse-cursor: pointer;
         pointer-event(e) => {
-            if e.button != PointerEventButton.left {
+            if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
                 return;
             }
             if e.kind == PointerEventKind.down {
@@ -2236,7 +2236,7 @@ export component TempoStep inherits Rectangle {
     touch := TouchArea {
         mouse-cursor: pointer;
         pointer-event(e) => {
-            if e.button != PointerEventButton.left {
+            if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
                 return;
             }
             if e.kind == PointerEventKind.down {
@@ -2327,7 +2327,7 @@ export component PlayButton inherits Rectangle {
     touch := TouchArea {
         mouse-cursor: pointer;
         pointer-event(e) => {
-            if e.button != PointerEventButton.left {
+            if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
                 return;
             }
             if e.kind == PointerEventKind.down && e.modifiers.shift && playing {
@@ -2396,7 +2396,7 @@ component BendButton inherits Rectangle {
     touch := TouchArea {
         mouse-cursor: pointer;
         pointer-event(e) => {
-            if e.button != PointerEventButton.left {
+            if e.button != PointerEventButton.left && e.kind != PointerEventKind.cancel {
                 return;
             }
             if e.kind == PointerEventKind.down {

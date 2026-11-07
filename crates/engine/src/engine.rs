@@ -2592,6 +2592,13 @@ impl Engine {
         self.fx.take_note_input()
     }
 
+    /// Stops every playing deck, where it is.
+    pub(crate) fn pause_decks(&mut self) {
+        for d in &self.decks {
+            d.c.play.set_bool(false);
+        }
+    }
+
     pub fn visual_positions(&self) -> Arc<VisualPositions> {
         self.visual.clone()
     }

@@ -11,6 +11,12 @@ it in the new row; the computer's own ports (macOS's Network Session and IAC
 Driver) come last. **×** takes a controller off the list and stops using it
 until you add it again.
 
+If a controller is missing or stops answering (after the computer slept, or a
+USB hub was unplugged), press **Reconnect controllers · Refresh** at the
+bottom of the list: openDJ closes every controller and connects them again.
+When a controller goes away, openDJ lets go of whatever it held on a deck: a
+touched jog, a brake or spinback, reverse, or a pitch bend button.
+
 USB HID controllers work too: Native Instruments' Traktor Kontrol S2 (MK1,
 MK2 and MK3), S3, S4 (MK2 and MK3), F1, Z1 and MX2 run Mixxx's HID mappings,
 picked by the device itself rather than its name. They're listed with the

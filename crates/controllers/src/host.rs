@@ -335,11 +335,24 @@ const SCRATCH_QUICK_NOISE: f64 = 16.0;
 const SCRATCH_TRUST: f64 = 2.0;
 const BRAKE_RAMP_TO: f64 = 0.01;
 const MAX_DECKS: usize = 8;
+/// Deck controls a controller holds on while a button is down, let go of
+/// when the controller goes away (see [`Host::release_decks`]).
+const HELD_KEYS: [&str; 6] = [
+    "reverse",
+    "reverseroll",
+    "rate_temp_up",
+    "rate_temp_down",
+    "rate_temp_up_small",
+    "rate_temp_down_small",
+];
 
 #[derive(Default)]
 struct Scratch {
     /// Running at 1 kHz (Mixxx's scratch timer).
     active: bool,
+    /// This controller turned the deck's `scratch2_enable` on and hasn't
+    /// turned it off yet (see [`Host::release_decks`]).
+    held: bool,
     dx: f64,
     accumulator: f64,
     ramp: bool,
@@ -931,6 +944,7 @@ impl Host {
             (beta * SCRATCH_QUICK * SCRATCH_QUICK).min(0.5),
         );
         s.trust = SCRATCH_TRUST * SCRATCH_QUICK_NOISE / per_second;
+        s.held = true;
         self.start_scratch_timer(d);
         enable.set_bool(true);
     }
@@ -954,6 +968,7 @@ impl Host {
         let mut ramp_to = 0.0;
         if !ramp {
             self.control(d, "scratch2_enable").set_bool(false);
+            self.scratch[d].held = false;
         } else if self.control(d, "play").get_bool() {
             ramp_to = self.deck_rate(d);
         }
@@ -977,6 +992,7 @@ impl Host {
         }
         let (alpha, beta) = (1.0 / 512.0, (1.0 / 512.0) / 1024.0 * factor);
         let enable = self.control(d, "scratch2_enable");
+        self.scratch[d].held = activate;
         if kind == "softStart" {
             enable.set_bool(activate);
             let mut v0 = 0.0;
@@ -1126,6 +1142,38 @@ impl Host {
         }
         if done {
             self.control(d, "scratch2_enable").set_bool(false);
+            self.scratch[d].held = false;
+        }
+    }
+
+    /// Lets go of every deck this controller is scratching, ramping, braking
+    /// or holding, as if the hand came off the wheel at once. Called when the
+    /// controller goes away (unplugged, the computer slept, Refresh): the
+    /// touch-release it would have sent never comes, and a deck left with
+    /// `scratch2_enable` on stops playing and only follows `scratch2`.
+    pub(crate) fn release_decks(&mut self) {
+        for d in 1..=MAX_DECKS {
+            // Held by a button: the button's release never comes either.
+            // Which controller pressed it isn't known, so a deck playing
+            // backwards loses its reverse whichever controller goes away.
+            for key in HELD_KEYS {
+                if let Some(h) = self.registry.get(&format!("[Channel{d}]"), key) {
+                    if h.get_bool() {
+                        h.set(0.0);
+                    }
+                }
+            }
+            let s = &mut self.scratch[d];
+            let busy = s.held || s.active || s.ramp || s.brake || s.spinback || s.soft_start;
+            if !busy {
+                continue;
+            }
+            *s = Scratch::default();
+            let enable = self.control(d, "scratch2_enable");
+            if enable.get_bool() {
+                enable.set_bool(false);
+                self.control(d, "scratch2").set(0.0);
+            }
         }
     }
 }
@@ -1220,6 +1268,7 @@ mod tests {
         reg.toggle("[Channel1]", "play");
         reg.indicator("[Channel1]", "track_loaded", 1.0).set(1.0);
         reg.toggle("[Channel1]", "scratch2_enable");
+        reg.toggle("[Channel1]", "reverse");
         reg.create(
             "[Channel1]",
             "scratch2",
@@ -1269,6 +1318,40 @@ mod tests {
         assert!(h.resolve("[Channel1]", "pregain").get() < 1.0);
         h.set_parameter("[Channel1]", "pregain", 0.7);
         assert!(h.resolve("[Channel1]", "pregain").get() > 1.0);
+    }
+
+    #[test]
+    fn a_controller_that_goes_away_lets_go_of_the_deck() {
+        let mut h = host();
+        h.control(1, "play").set_bool(true);
+        h.scratch_enable(1.0, 720.0, 100.0 / 3.0, 1.0 / 8.0, 1.0 / 256.0, false);
+        h.scratch_tick(1.0, 3.0);
+        h.process_scratch(Instant::now() + Duration::from_millis(5));
+        assert!(h.is_scratching(1.0));
+        // Unplugged with the hand on the wheel: no touch-release comes.
+        h.release_decks();
+        assert!(!h.is_scratching(1.0));
+        assert_eq!(h.resolve("[Channel1]", "scratch2").get(), 0.0);
+        assert!(h.control(1, "play").get_bool());
+        // Nothing left running for the timer.
+        assert!(h.scratch.iter().all(|s| !s.active));
+    }
+
+    #[test]
+    fn a_controller_that_goes_away_lets_go_of_reverse() {
+        let mut h = host();
+        h.set_value("[Channel1]", "reverse", 1.0);
+        h.release_decks();
+        assert_eq!(h.resolve("[Channel1]", "reverse").get(), 0.0);
+    }
+
+    #[test]
+    fn releasing_leaves_decks_other_controllers_hold_alone() {
+        let mut h = host();
+        // Another controller (or the screen) is scratching deck 1.
+        h.control(1, "scratch2_enable").set_bool(true);
+        h.release_decks();
+        assert!(h.is_scratching(1.0));
     }
 
     /// The latency probe: a hand on a DDJ-FLX4-like wheel (720 ticks a

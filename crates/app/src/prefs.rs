@@ -2025,6 +2025,17 @@ impl Prefs {
                 "Plug in a MIDI or HID controller and it shows up here within a second or so.",
             ));
         }
+        // When one doesn't show up or stops answering (after the computer
+        // slept, or a hub was unplugged): close them all and connect again.
+        items.push(PrefItem {
+            action: "Refresh".into(),
+            ..item(
+                "controllers_refresh",
+                BUTTON,
+                "Reconnect controllers",
+                "When a controller is missing or stops answering.",
+            )
+        });
         items
     }
 
@@ -3139,6 +3150,13 @@ impl Prefs {
             return;
         }
         if self.broadcast_pressed(id) || self.backup_pressed(id) {
+            return;
+        }
+        if id == "controllers_refresh" {
+            if let Some(c) = &self.controllers {
+                c.refresh();
+            }
+            self.refresh();
             return;
         }
         if self.tag_pressed(id) || self.tag_group_pressed(id) {
