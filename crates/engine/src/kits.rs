@@ -47,6 +47,9 @@ pub const MAX_SOUNDS: usize = 12;
 pub struct KitSound {
     pub name: &'static str,
     pub sample: Arc<Sample>,
+    /// The note the sound rings at, in Hz, for a kick (0 when it has no
+    /// clear pitch or isn't a kick): what tuning it to a key starts from.
+    pub pitch: f32,
 }
 
 pub struct Kit {
@@ -121,13 +124,56 @@ pub fn build(rate: f64) -> Vec<Kit> {
             sounds: info
                 .sounds()
                 .enumerate()
-                .map(|(n, name)| KitSound {
-                    name,
-                    sample: Arc::new(Sample::from_mono(&sound(k, n, name, sr), rate)),
+                .map(|(n, name)| {
+                    let mono = sound(k, n, name, sr);
+                    KitSound {
+                        name,
+                        pitch: if name == "Kick" {
+                            pitch_of(&mono, sr)
+                        } else {
+                            0.0
+                        },
+                        sample: Arc::new(Sample::from_mono(&mono, rate)),
+                    }
                 })
                 .collect(),
         })
         .collect()
+}
+
+/// The pitch a drum rings at once its attack has passed, in Hz (30-250),
+/// by autocorrelation over the body of the sound; 0 when there is none.
+pub fn pitch_of(sound: &[f32], sr: f32) -> f32 {
+    let from = (0.03 * sr) as usize;
+    let to = ((0.25 * sr) as usize).min(sound.len());
+    if to <= from + (sr / 30.0) as usize {
+        return 0.0;
+    }
+    let body = &sound[from..to];
+    let energy: f32 = body.iter().map(|v| v * v).sum();
+    if energy < 1e-6 {
+        return 0.0;
+    }
+    let corr = |lag: usize| -> f32 {
+        body.iter()
+            .zip(&body[lag..])
+            .map(|(a, b)| a * b)
+            .sum::<f32>()
+            / (body.len() - lag) as f32
+    };
+    let (min_lag, max_lag) = ((sr / 250.0) as usize, (sr / 30.0) as usize);
+    let mut best = (0, 0.0f32);
+    for lag in min_lag..=max_lag {
+        let c = corr(lag);
+        if c > best.1 {
+            best = (lag, c);
+        }
+    }
+    let zero = energy / body.len() as f32;
+    if best.0 == 0 || best.1 < 0.3 * zero {
+        return 0.0;
+    }
+    sr / best.0 as f32
 }
 
 /// Kit `k`'s sound `n`, called `name`.
@@ -576,6 +622,14 @@ mod tests {
                     s.name
                 );
             }
+        }
+    }
+
+    #[test]
+    fn every_kick_rings_at_a_low_note() {
+        for kit in build(48_000.0) {
+            let hz = kit.sounds[0].pitch;
+            assert!((30.0..120.0).contains(&hz), "{} kick at {hz} Hz", kit.name);
         }
     }
 

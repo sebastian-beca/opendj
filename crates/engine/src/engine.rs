@@ -3266,18 +3266,32 @@ impl Engine {
         if groove_on.iter().any(|&on| on) {
             let playing =
                 |d: &Deck| d.c.play.get_bool() && d.track.as_ref().is_some_and(|t| t.bpm > 0.0);
-            let leader = self
+            let leading = self
                 .sync_leader
                 .filter(|&k| playing(&self.decks[k]))
-                .or_else(|| (0..NUM_DECKS).find(|&k| playing(&self.decks[k])))
-                .and_then(|k| {
-                    let d = &self.decks[k];
-                    Some((d.effective_bpm(), d.track.as_ref()?.beat_at(d.seconds())))
-                });
+                .or_else(|| (0..NUM_DECKS).find(|&k| playing(&self.decks[k])));
+            let leader = leading.and_then(|k| {
+                let d = &self.decks[k];
+                Some((d.effective_bpm(), d.track.as_ref()?.beat_at(d.seconds())))
+            });
+            let leader_key = leading
+                .and_then(|k| Key::from_mixxx_number(self.decks[k].c.key.get()))
+                .map(|k| k.tonic);
             let link_beat = link.map(|m| (m.tempo, m.beat));
             for i in (0..NUM_DECKS).filter(|&i| groove_on[i]) {
                 let g = &mut self.grooves[i];
-                let source = pick_source(leader, link_beat, g.c.bpm.get());
+                if leader_key.is_some() {
+                    g.key = leader_key;
+                }
+                // Unfollowed, it keeps its own tempo; half or double time
+                // counts the mix's beats at half or twice the rate.
+                let follow = g.c.follow.get_bool();
+                let scale = g.c.tempo_scale.get().clamp(0.5, 2.0);
+                let scaled = |s: Option<(f64, f64)>| {
+                    s.filter(|_| follow)
+                        .map(|(bpm, beat)| (bpm * scale, beat * scale))
+                };
+                let source = pick_source(scaled(leader), scaled(link_beat), g.c.bpm.get());
                 if source.beat.is_some() {
                     // Shown, and kept for when the leader stops.
                     g.c.bpm.set(source.bpm);
@@ -7113,5 +7127,26 @@ mod tests {
             (shown - step).abs() <= 1.0 || (shown - step).abs() >= 15.0,
             "{shown} vs {step}"
         );
+    }
+
+    #[test]
+    fn a_groove_box_can_keep_its_own_tempo_or_halve_the_mixs() {
+        let (reg, mut engine, mut input) = setup();
+        load(&mut input, 0, short_track(126.0, 20.0));
+        run(&mut engine, 0.05);
+        reg.get("[Channel1]", "play").unwrap().set_bool(true);
+        run(&mut engine, 0.3);
+        let g = |k: &str| reg.get("[Groove2]", k).unwrap();
+        g("enabled").set_bool(true);
+        g("tempo_scale").set(0.5);
+        reg.get("[Channel2]", "play").unwrap().set_bool(true);
+        run(&mut engine, 0.5);
+        assert!((g("bpm").get() - 63.0).abs() < 0.01, "{}", g("bpm").get());
+        assert!(g("following").get_bool());
+        g("follow").set(0.0);
+        g("bpm").set(100.0);
+        run(&mut engine, 0.5);
+        assert!(!g("following").get_bool());
+        assert_eq!(g("bpm").get(), 100.0);
     }
 }

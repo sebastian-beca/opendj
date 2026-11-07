@@ -21,7 +21,7 @@ on the stopped Groove Box.
 ## Sequencer, Synth and Mixer
 
 The Groove Box fills the whole deck. Along the top are PLAY, the kit menu,
-the genre, the groove, **Chain ▾**, **A** to **D**, **SWING** and three
+the genre, the groove, **Chain ▾**, **A** to **D**, the tempo and three
 tabs.
 
 **SEQUENCER** shows nine tracks, each in its own color, with 16 squares
@@ -33,13 +33,18 @@ Box is stopped, the click also plays the sound. Right-click a lit square to
 make the hit accented (brighter, a little louder), then soft (paler, half as
 loud), then normal again. A track with no hits stays
 dimmed, and a track's icon lights up as it plays. The brighter column is the
-step that's playing. **M** mutes a track, **S** solos it. **SWING** delays
-every other step for a looser feel.
+step that's playing. **M** mutes a track, **S** solos it.
 
 **SYNTH** shows each track's sound. Click the sound's name to pick another
 from the kit. **PITCH** tunes it up or down by up to an octave, **DECAY**
 makes it shorter, and **TONE** darkens it (turned left) or thins it (turned
 right).
+
+Under the kick, **KEY** tunes the kick to the playing track's key. Click it
+to go from **OFF** to **ROOT** (the key's root note) to **5TH** (its fifth)
+and back. The kick moves to the nearest such note, never more than half an
+octave, and the button shows the note it plays. This suits long, boomy
+kicks most (Boom, Analog); a short, punchy kick has little pitch to tune.
 
 **MIXER** has a strip for each track: **PAN** places it left or right, the
 fader sets its level beside a meter, and **M** and **S** mute and solo it.
@@ -84,7 +89,18 @@ The Groove Box follows, in this order:
 2. Ableton Link, when it is on (see [Ableton Link](link.md)).
 3. Its own tempo, 120 BPM, when nothing else is playing.
 
-The deck header shows the tempo, with **in time with the mix** while it follows a deck or Link. If
+The tempo button in the top bar shows the BPM, outlined while it follows the
+mix. Click it for:
+
+- **Follow the mix**: on by default. Turn it off to keep the Groove Box at
+  its own tempo whatever plays.
+- **−1**, **−.1**, **+.1** and **+1**: change the BPM. This turns following
+  off, so the tempo stays where you put it.
+- **Half time**, **Normal** and **Double**: follow the mix at half or twice
+  its tempo (and turn following back on).
+- **SWING**: delays every other step for a looser feel.
+
+If
 the leading deck jumps (a hot cue or beat jump), the Groove Box moves to the
 new beat at its next bar rather than mid-bar.
 

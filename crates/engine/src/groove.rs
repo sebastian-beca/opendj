@@ -91,6 +91,14 @@ pub struct GrooveControls {
     pub position: ControlHandle,
     /// On while the groove follows a playing deck or Link.
     pub following: ControlHandle,
+    /// 1 (the default): follow the mix's tempo; 0: keep `bpm`.
+    pub follow: ControlHandle,
+    /// While following: 0.5 half time, 1, or 2 double time.
+    pub tempo_scale: ControlHandle,
+    /// The kick in the leading deck's key: 0 off, 1 its root, 2 its fifth.
+    pub kick_key: ControlHandle,
+    /// The note the kick is tuned to, 1-12 from C (0 untuned), to show.
+    pub kick_note: ControlHandle,
     pub duck_deck: ControlHandle,
     pub duck_amount: ControlHandle,
     pub patterns: [[ControlHandle; ROWS]; GROOVES],
@@ -145,6 +153,10 @@ impl GrooveControls {
                 Behavior::Indicator,
             ),
             following: reg.indicator(g, "following", 1.0),
+            follow: reg.create(g, "follow", 1.0, 0.0, 1.0, Behavior::Free),
+            tempo_scale: reg.create(g, "tempo_scale", 1.0, 0.5, 2.0, Behavior::Free),
+            kick_key: reg.create(g, "kick_key", 0.0, 0.0, 2.0, Behavior::Free),
+            kick_note: reg.indicator(g, "kick_note", 12.0),
             duck_deck: reg.create(g, "duck_deck", 0.0, 0.0, NUM_DECKS as f64, Behavior::Free),
             duck_amount: reg.create(g, "duck_amount", 6.0, 0.0, 24.0, Behavior::Linear),
             patterns: std::array::from_fn(|p| {
@@ -519,6 +531,8 @@ pub struct GrooveBox {
     /// A live hit recorded into a step still to come: that step skips the
     /// row once, so the hit isn't heard twice.
     skip: [Option<usize>; ROWS],
+    /// The leading deck's key's tonic (0-11 from C), for the kick's KEY.
+    pub key: Option<u8>,
 }
 
 impl GrooveBox {
@@ -539,6 +553,7 @@ impl GrooveBox {
             hits: [Hit::default(); MAX_HITS],
             pads,
             skip: [None; ROWS],
+            key: None,
         }
     }
 
@@ -836,6 +851,18 @@ impl GrooveBox {
             std::mem::swap(now, tail);
             tail.fade = CHOKE_FRAMES;
         }
+        let mut semitones = self.c.pitch[row].get();
+        if row == 0 {
+            let shift = kick_shift(
+                kit.sounds[sound].pitch,
+                self.key,
+                self.c.kick_key.get().round() as u8,
+            );
+            self.c
+                .kick_note
+                .set(shift.map_or(0.0, |(_, note)| note as f64 + 1.0));
+            semitones += shift.map_or(0.0, |(s, _)| s as f64);
+        }
         let level = self.c.level[row].get() as f32;
         let pan = self.c.pan[row].get().clamp(-1.0, 1.0) as f32;
         // Equal power, so a sound panned to one side is as loud as centred.
@@ -844,7 +871,7 @@ impl GrooveBox {
         *now = Voice {
             sample: Some(sample),
             pos: 0.0,
-            rate: 2f64.powf(self.c.pitch[row].get() / 12.0),
+            rate: 2f64.powf(semitones / 12.0),
             gain: [
                 level * velocity * angle.cos() * std::f32::consts::SQRT_2,
                 level * velocity * angle.sin() * std::f32::consts::SQRT_2,
@@ -857,6 +884,23 @@ impl GrooveBox {
             fade: 0,
         };
     }
+}
+
+/// How far to tune a kick that rings at `hz` so it plays the root
+/// (`choice` 1) or fifth (2) of the key whose tonic is `key`: the nearest
+/// such note, never more than half an octave away, as (semitones, note
+/// 0-11 from C). None when off, keyless or the kick has no clear pitch.
+pub fn kick_shift(hz: f32, key: Option<u8>, choice: u8) -> Option<(i32, u8)> {
+    let key = key?;
+    if hz <= 0.0 || !(1..=2).contains(&choice) {
+        return None;
+    }
+    let target = (key as i32 + if choice == 2 { 7 } else { 0 }).rem_euclid(12);
+    let midi = 69.0 + 12.0 * (hz as f64 / 440.0).log2();
+    let natural = midi.round() as i32;
+    // -6..=5 semitones to the target's pitch class.
+    let shift = (target - natural + 6).rem_euclid(12) - 6;
+    Some((shift, target as u8))
 }
 
 /// The tone knob's filter: centre off, left a low-pass from 20 kHz down to
@@ -1240,6 +1284,33 @@ mod tests {
         assert!(heard[17..31].iter().all(|&p| p == 1), "then B: {heard:?}");
         assert!(heard[33..47].iter().all(|&p| p == 0), "then A again");
         assert_ne!(g.c.patterns[1][0].get(), 0.0, "B holds the chained groove");
+    }
+
+    #[test]
+    fn the_kick_tunes_to_the_nearest_root_or_fifth() {
+        // 55 Hz is A1: in A it stays, in C it goes up 3, in F down 4.
+        assert_eq!(kick_shift(55.0, Some(9), 1), Some((0, 9)));
+        assert_eq!(kick_shift(55.0, Some(0), 1), Some((3, 0)));
+        assert_eq!(kick_shift(55.0, Some(5), 1), Some((-4, 5)));
+        // The fifth of D is A.
+        assert_eq!(kick_shift(55.0, Some(2), 2), Some((0, 9)));
+        assert_eq!(kick_shift(55.0, None, 1), None);
+        assert_eq!(kick_shift(55.0, Some(0), 0), None);
+        assert_eq!(kick_shift(0.0, Some(0), 1), None);
+    }
+
+    #[test]
+    fn the_kick_plays_in_the_leaders_key() {
+        let (_reg, mut g) = groove_box();
+        g.c.kick_key.set(1.0);
+        g.key = Some(0);
+        g.trigger(0, 0, 1.0);
+        let hz = g.kits[0].sounds[0].pitch as f64;
+        let midi = 69.0 + 12.0 * (hz / 440.0).log2();
+        let heard = midi + 12.0 * g.voices[0][0].rate.log2();
+        assert!((heard - heard.round()).abs() < 0.5);
+        assert_eq!((heard.round() as i32).rem_euclid(12), 0, "a C");
+        assert_eq!(g.c.kick_note.get(), 1.0);
     }
 
     #[test]
