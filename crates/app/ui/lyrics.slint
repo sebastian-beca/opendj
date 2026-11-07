@@ -1,0 +1,166 @@
+// The side panel's Lyrics tab: the lyrics of the playing track (or the
+// selected one, or a deck's), from an .lrc file beside it or its tags.
+// Timed lyrics follow the deck: the line sung now is lit and kept in view,
+// and a click on a line plays from there.
+import { Theme } from "theme.slint";
+import { ListView } from "scroll.slint";
+
+export struct LyricLine {
+    // m:ss, empty for plain lyrics.
+    time: string,
+    text: string,
+}
+
+export global LyricsUi {
+    // What the tab follows: 0 the deck playing, 1 the selected track,
+    // 2 deck A, 3 deck B.
+    in-out property <int> subject;
+    callback set-subject(subject: int);
+    in property <bool> has-track;
+    // "Artist · Title".
+    in property <string> title;
+    // Where the lyrics are from and how they are timed, e.g.
+    // "Timed by word · Song.lrc". Empty when there are none.
+    in property <string> source;
+    in property <[LyricLine]> lines;
+    // The line sung now, -1 for none.
+    in property <int> current: -1;
+    // Whether the track is on a deck, so a line click plays from it.
+    in property <bool> can-seek;
+    callback seek(line: int);
+}
+
+export component LyricsPanel inherits Rectangle {
+    property <length> row-height: 26px;
+    background: Theme.browser;
+    // Keeps the line sung now a third of the way down.
+    function follow() {
+        if LyricsUi.current >= 0 {
+            list.content-y = min(0px, max(list.visible-height - LyricsUi.lines.length * row-height, -(LyricsUi.current * row-height - list.visible-height / 3)));
+        }
+    }
+    changed width => { follow(); }
+    VerticalLayout {
+        padding: 6px;
+        padding-top: 2px;
+        spacing: 4px;
+        HorizontalLayout {
+            height: 30px;
+            spacing: 6px;
+            Text { text: "Lyrics"; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; }
+            Rectangle {
+                width: subject-text.preferred-width + 26px;
+                border-radius: 4px;
+                background: subject-ta.has-hover ? #ffffff10 : transparent;
+                subject-text := Text {
+                    x: 6px;
+                    text: ["Playing", "Selected", "Deck A", "Deck B"][LyricsUi.subject] + "  ▾";
+                    color: Theme.text-dim;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+                subject-ta := TouchArea { clicked => { subject-menu.show(); } }
+                subject-menu := PopupWindow {
+                    y: parent.height + 2px;
+                    width: 150px;
+                    Rectangle {
+                        background: Theme.panel-raised;
+                        border-radius: Theme.radius;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        drop-shadow-blur: 12px;
+                        drop-shadow-color: #000000a0;
+                    }
+                    VerticalLayout {
+                        padding: 6px;
+                        for s[i] in ["Playing track", "Selected track", "Deck A", "Deck B"]: Rectangle {
+                            height: 26px;
+                            border-radius: 4px;
+                            background: sta.has-hover ? #3a3a3d : transparent;
+                            Text {
+                                x: 10px;
+                                text: s;
+                                color: i == LyricsUi.subject ? Theme.accent : Theme.text;
+                                font-size: 13px;
+                                vertical-alignment: center;
+                            }
+                            sta := TouchArea { clicked => { LyricsUi.set-subject(i); } }
+                        }
+                    }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if LyricsUi.has-track: VerticalLayout {
+            spacing: 1px;
+            Text { text: LyricsUi.title; color: Theme.text; font-size: 12px; font-weight: 600; overflow: elide; }
+            if LyricsUi.source != "": Text { text: LyricsUi.source; color: Theme.label; font-size: 11px; overflow: elide; }
+        }
+        if !LyricsUi.has-track || LyricsUi.lines.length == 0: VerticalLayout {
+            vertical-stretch: 1;
+            alignment: center;
+            padding: 20px;
+            spacing: 6px;
+            Text {
+                text: !LyricsUi.has-track ? (LyricsUi.subject == 0 ? "Nothing playing" : "No track") : "No lyrics";
+                color: Theme.text;
+                font-size: 15px;
+                font-weight: 600;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: !LyricsUi.has-track
+                    ? (LyricsUi.subject == 0 ? "Lyrics show here for the track playing." : LyricsUi.subject == 1 ? "Click a track in the browser to see its lyrics." : "Nothing is loaded on that deck.")
+                    : "Put an .lrc file with the same name next to the track, or add lyrics to its tags.";
+                color: Theme.text-dim;
+                font-size: 12px;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+        }
+        list := ListView {
+            vertical-stretch: 1;
+            visible: LyricsUi.has-track && LyricsUi.lines.length > 0;
+            for line[i] in LyricsUi.lines: Rectangle {
+                height: row-height;
+                property <bool> now: i == LyricsUi.current;
+                property <bool> sung: LyricsUi.current >= 0 && i < LyricsUi.current;
+                property <bool> seekable: LyricsUi.can-seek && line.time != "";
+                border-radius: Theme.radius;
+                background: now ? Theme.accent.with-alpha(0.14) : ta.has-hover && seekable ? #ffffff08 : transparent;
+                ta := TouchArea {
+                    mouse-cursor: seekable ? pointer : default;
+                    clicked => {
+                        if seekable { LyricsUi.seek(i); }
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    spacing: 8px;
+                    if line.time != "": Text {
+                        width: 34px;
+                        text: line.time;
+                        color: now ? Theme.accent : Theme.text-dim.with-alpha(0.7);
+                        font-family: "Inter Tabular";
+                        font-size: 11px;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        // A timed line with no words is a break in the singing.
+                        text: line.text == "" && line.time != "" ? "♪" : line.text;
+                        color: now ? Theme.text : sung ? Theme.text-dim.with-alpha(0.75) : line.text == "" ? Theme.text-dim : Theme.text.with-alpha(0.88);
+                        font-size: 13px;
+                        font-weight: now ? 700 : 400;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+    property <int> sung-now: LyricsUi.current;
+    changed sung-now => { follow(); }
+}

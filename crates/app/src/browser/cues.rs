@@ -223,7 +223,8 @@ impl Browser {
         let deck = self.cue_deck();
         let prep = app.get_layout() == PREP_LAYOUT;
         // Cues and Checklist are Prep's tabs: out of Prep, back to Automix.
-        if !prep && app.get_side_tab() > super::info::INFO_TAB as i32 {
+        let tab = app.get_side_tab();
+        if !prep && tab > super::info::INFO_TAB as i32 && tab != super::lyrics::LYRICS_TAB as i32 {
             app.set_side_tab(0);
         }
         let cues = self.deck_cues(deck);
