@@ -8,8 +8,8 @@
 
 ## 2. Chips
 
-- [ ] 2.1 Drag a chip to reorder it, with a lilac drop line; the order is saved
-- [ ] 2.2 Drag off the bar or use "Remove from bar" to remove; × clears the value only
+- [x] 2.1 Drag a chip to reorder it, with a lilac drop line; the order is saved
+- [x] 2.2 Drag off the bar or use "Remove from bar" to remove; × clears the value only
 
 ## 3. Per-chip options
 
