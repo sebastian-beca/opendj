@@ -106,6 +106,9 @@ pub struct GrooveControls {
     pub bpm: ControlHandle,
     pub swing: ControlHandle,
     pub position: ControlHandle,
+    /// The groove's beat at the end of the last buffer while it runs (beat 0
+    /// a bar line), for the scrolling waveform's step lanes.
+    pub beat: ControlHandle,
     /// On while the groove follows a playing deck or Link.
     pub following: ControlHandle,
     /// 1 (the default): follow the mix's tempo; 0: keep `bpm`.
@@ -195,6 +198,7 @@ impl GrooveControls {
                 (STEPS - 1) as f64,
                 Behavior::Indicator,
             ),
+            beat: reg.create(g, "beat", 0.0, f64::MIN, f64::MAX, Behavior::Indicator),
             following: reg.indicator(g, "following", 1.0),
             follow: reg.create(g, "follow", 1.0, 0.0, 1.0, Behavior::Free),
             tempo_scale: reg.create(g, "tempo_scale", 1.0, 0.5, 2.0, Behavior::Free),
@@ -612,6 +616,25 @@ struct Hit {
     row: usize,
     /// How loud: the step's level, or how hard a pad was hit.
     velocity: f32,
+    /// Part of a fill or Remix.
+    fill: bool,
+}
+
+/// A hit the Groove Box played, for the deck's scrolling waveform.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GrooveHit {
+    /// The groove's beat it played on.
+    pub beat: f64,
+    pub row: u8,
+    pub velocity: f32,
+    /// Part of a fill or Remix.
+    pub fill: bool,
+}
+
+/// The seed that varies deck `deck`'s fills (see [`groove_fills`]), so the
+/// app can show the fills to come.
+pub fn fill_seed(deck: usize) -> u32 {
+    (deck as u32 + 1).wrapping_mul(0x85eb_ca6b)
 }
 
 const MAX_HITS: usize = 64;
@@ -649,6 +672,8 @@ pub struct GrooveBox {
     in_fill: bool,
     /// Hits per track in the last buffer.
     pub played: [u32; ROWS],
+    /// Where the hits played go, for the app's waveform.
+    pub(crate) hit_tx: Option<rtrb::Producer<GrooveHit>>,
 }
 
 impl GrooveBox {
@@ -671,10 +696,11 @@ impl GrooveBox {
             skip: [None; ROWS],
             key: None,
             dice: Dice::new(Habits::shared(), 0x9e37_79b9 ^ ((deck as u32 + 1) * 7919)),
-            fill_seed: (deck as u32 + 1).wrapping_mul(0x85eb_ca6b),
+            fill_seed: fill_seed(deck),
             crash_next: false,
             in_fill: false,
             played: [0; ROWS],
+            hit_tx: None,
         }
     }
 
@@ -792,8 +818,11 @@ impl GrooveBox {
         self.last_bpm = source.bpm;
         let mut n = self.take_pads(chosen);
         self.take_dice(chosen);
+        let mut span_now = None;
         if self.clock.running {
             let span = self.clock.advance(frames, self.rate, source);
+            span_now = Some(span);
+            self.c.beat.set(span.beat_at(frames));
             // A variation waiting is made just before the bar line that
             // falls in this buffer, so the new bar plays it.
             if self.dice.pending.is_some() {
@@ -906,6 +935,7 @@ impl GrooveBox {
                             frame,
                             row,
                             velocity,
+                            fill: fill.is_some() || remix > 0,
                         };
                         n += 1;
                     }
@@ -945,8 +975,22 @@ impl GrooveBox {
         }
         for (f, frame) in out.iter_mut().enumerate() {
             while next_hit < n && self.hits[next_hit].frame == f {
-                let Hit { row, velocity, .. } = self.hits[next_hit];
+                let Hit {
+                    row,
+                    velocity,
+                    fill,
+                    ..
+                } = self.hits[next_hit];
                 next_hit += 1;
+                if let (Some(tx), Some(span)) = (self.hit_tx.as_mut(), span_now) {
+                    // A full queue means the app isn't reading: dropped.
+                    let _ = tx.push(GrooveHit {
+                        beat: span.beat_at(f),
+                        row: row as u8,
+                        velocity,
+                        fill,
+                    });
+                }
                 if row == 0 {
                     kick(f);
                 }
@@ -1008,6 +1052,7 @@ impl GrooveBox {
                             frame: 0,
                             row,
                             velocity: 0.25 + 0.75 * p.velocity.clamp(0.0, 1.0),
+                            fill: false,
                         };
                         n += 1;
                     }
@@ -1045,6 +1090,7 @@ impl GrooveBox {
                             frame: 0,
                             row,
                             velocity: 1.0,
+                            fill: false,
                         };
                         n += 1;
                     }

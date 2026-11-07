@@ -138,6 +138,8 @@ pub struct AudioEngine {
     instrument_view: Arc<InstrumentView>,
     /// Each deck's live sound as waveform slices, until the app takes them.
     live_waves: Mutex<Option<[rtrb::Consumer<live_wave::LiveSlice>; NUM_DECKS]>>,
+    /// Each Groove Box's hits as played, until the app takes them.
+    groove_hits: Mutex<Option<[rtrb::Consumer<groove::GrooveHit>; NUM_DECKS]>>,
     /// The master for broadcasting, until the broadcaster takes it.
     broadcast_feed: Mutex<Option<recorder::Feed>>,
     /// Picks the outputs MIDI clock goes to.
@@ -205,6 +207,7 @@ impl AudioEngine {
         let notes = Arc::new(Mutex::new(engine.take_note_input().expect("note input")));
         let instrument_view = engine.instrument_view();
         let live_waves = engine.take_live_waves().expect("live waves");
+        let groove_hits = engine.take_groove_hits().expect("groove hits");
         let plugins = plugin_helper().map(|helper| {
             plugins::PluginHost::start(
                 &registry,
@@ -249,6 +252,7 @@ impl AudioEngine {
             notes,
             instrument_view,
             live_waves: Mutex::new(Some(live_waves)),
+            groove_hits: Mutex::new(Some(groove_hits)),
             broadcast_feed: Mutex::new(broadcast_feed),
             midi_clock,
         }
@@ -336,6 +340,12 @@ impl AudioEngine {
     /// scrolling waveform. There is one set; later calls get `None`.
     pub fn take_live_waves(&self) -> Option<[rtrb::Consumer<live_wave::LiveSlice>; NUM_DECKS]> {
         self.live_waves.lock().ok()?.take()
+    }
+
+    /// Each Groove Box's hits as it plays them, with the beat each fell on,
+    /// for its deck's step lanes. There is one set; later calls get `None`.
+    pub fn take_groove_hits(&self) -> Option<[rtrb::Consumer<groove::GrooveHit>; NUM_DECKS]> {
+        self.groove_hits.lock().ok()?.take()
     }
 
     /// Whether audio plugins can run: the helper is installed.
