@@ -4,6 +4,8 @@
 //! left channel's first sample, and the key of the block's first note-on
 //! into its second, so tests can check the transport and notes arrive.
 //!
+//! Its state (what a host saves and loads) is the gain, as 8 bytes.
+//!
 //! It is a real `.clap` binary, loaded through the same path as third-party
 //! plugins.
 
@@ -18,9 +20,11 @@ use clack_extensions::params::{
     ParamDisplayWriter, ParamInfo, ParamInfoFlags, ParamInfoWriter, PluginAudioProcessorParams,
     PluginMainThreadParams, PluginParams,
 };
+use clack_extensions::state::{PluginState, PluginStateImpl};
 use clack_plugin::events::event_types::{NoteOnEvent, ParamValueEvent, TransportEvent};
 use clack_plugin::events::Match;
 use clack_plugin::prelude::*;
+use clack_plugin::stream::{InputStream, OutputStream};
 use clack_plugin::utils::Cookie;
 
 const GAIN: u32 = 1;
@@ -72,7 +76,8 @@ impl Plugin for TestGain {
         builder
             .register::<PluginAudioPorts>()
             .register::<PluginParams>()
-            .register::<PluginLatency>();
+            .register::<PluginLatency>()
+            .register::<PluginState>();
     }
 }
 
@@ -242,3 +247,25 @@ impl PluginLatencyImpl for MainThread<'_> {
 }
 
 clack_export_entry!(SinglePluginEntry<TestGain>);
+
+impl PluginStateImpl for MainThread<'_> {
+    fn save(&self, output: &mut OutputStream) -> Result<(), PluginError> {
+        use std::io::Write;
+        let gain = self.shared.gain.load(Ordering::Relaxed);
+        output
+            .write_all(&gain.to_le_bytes())
+            .map_err(|_| PluginError::Message("can't write the state"))
+    }
+
+    fn load(&self, input: &mut InputStream) -> Result<(), PluginError> {
+        use std::io::Read;
+        let mut bytes = [0; 8];
+        input
+            .read_exact(&mut bytes)
+            .map_err(|_| PluginError::Message("the state is too short"))?;
+        self.shared
+            .gain
+            .store(u64::from_le_bytes(bytes), Ordering::Relaxed);
+        Ok(())
+    }
+}

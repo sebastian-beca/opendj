@@ -1243,6 +1243,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Recordings finished so far, to add the next one's files to Mixed Sets.
     let recordings_seen = Cell::new(recorder.finished().0);
     let finished_recorder = recorder.clone();
+    let quitting_engine = engine.clone();
     {
         let app_weak = app.as_weak();
         timer.start(
@@ -1524,6 +1525,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.show()?;
     fit_to_screen(&app);
     app.run()?;
+    // Keeps each plugin's sound (tweaks made in its window) for next time:
+    // the engine isn't always dropped on the way out.
+    quitting_engine.shut_down_plugins();
     // Finishes the files, with the cue sheet, if the DJ quits mid-recording.
     recorder.stop();
     if let Some(b) = &broadcast {

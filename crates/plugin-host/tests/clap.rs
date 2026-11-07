@@ -41,6 +41,12 @@ fn test_plugin() -> PathBuf {
 }
 
 fn start() -> (opendj_plugin_host::Connection, opendj_plugin_host::Helper) {
+    start_from(None)
+}
+
+fn start_from(
+    state: Option<Vec<u8>>,
+) -> (opendj_plugin_host::Connection, opendj_plugin_host::Helper) {
     spawn(&Options {
         helper: helper(),
         plugin: Plugin::Clap {
@@ -50,7 +56,7 @@ fn start() -> (opendj_plugin_host::Connection, opendj_plugin_host::Helper) {
         sample_rate: 48_000,
         max_frames: 1024,
         title: None,
-        state: None,
+        state,
     })
     .expect("the CLAP plugin loads")
 }
@@ -118,6 +124,32 @@ fn audio_and_parameters_go_through_the_plugin() {
         .iter()
         .zip(&input)
         .all(|(y, x)| (y - x * 0.5).abs() < 1e-6));
+}
+
+#[test]
+fn the_plugins_sound_is_saved_and_brought_back() {
+    let (mut conn, helper) = start();
+    conn.set_param(0, 0.5);
+    run(&mut conn, Transport::default());
+    let state = helper.save_state().expect("the plugin saves its state");
+    assert_eq!(state, 0.5f64.to_bits().to_le_bytes());
+    drop((conn, helper));
+    // A new instance starts with the saved gain, without being told it.
+    let (mut conn, helper) = start_from(Some(state));
+    let half = |conn: &mut _| {
+        let (out, got, input) = run(conn, Transport::default());
+        assert_eq!(out, Outcome::Wet);
+        got.iter()
+            .zip(&input)
+            .all(|(y, x)| (y - x * 0.5).abs() < 1e-6)
+    };
+    assert!(half(&mut conn), "starts at the saved gain");
+    // And a sound loaded while it plays takes over.
+    helper
+        .load_state(&1.0f64.to_bits().to_le_bytes())
+        .expect("the plugin loads a state");
+    let (_, got, input) = run(&mut conn, Transport::default());
+    assert_eq!(got, input);
 }
 
 #[test]
