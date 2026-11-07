@@ -73,6 +73,12 @@ kicks most (Boom, Analog); a short, punchy kick has little pitch to tune.
 **MIXER** has a strip for each track: **PAN** places it left or right, the
 fader sets its level beside a meter, and **M** and **S** mute and solo it.
 
+**4x4**, at the bottom left, shows the Sequencer as 16 square pads laid out like a pad
+controller: step 1 at the bottom left, step 16 at the top right, four steps to a row. The
+tracks down the left pick which track the pads show, the same track a pad controller
+edits. Click a pad to add or remove a hit, right-click it to change its level. Click
+**4x4** again for the eight rows of 16.
+
 ### Fills and Remix
 
 The bar under the tracks plays fills:

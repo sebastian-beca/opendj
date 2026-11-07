@@ -21,7 +21,7 @@
 
 ## 5. 4x4
 
-- [ ] 5.1 4x4 view of the Sequencer in controller pad order
+- [x] 5.1 4x4 view of the Sequencer in controller pad order, track picked with `row_selected`
 
 ## 6. Docs
 

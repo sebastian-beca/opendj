@@ -57,3 +57,10 @@ With `[GrooveN],auto_fill` at 1, a fill SHALL play over the last beat of every 4
 #### Scenario: Let go of Remix
 - **WHEN** the Remix strip is let go mid-bar
 - **THEN** the next step plays as written
+
+### Requirement: 4x4 view
+The Sequencer SHALL offer a 4x4 view: the 16 steps of the track picked by `[GrooveN],row_selected` as square pads, step 1 at the bottom left and step 16 at the top right, four to a row, with the step playing marked; clicking a pad SHALL add or remove its hit and right-clicking SHALL change its level, as in the rows view.
+
+#### Scenario: Same track as the controller
+- **WHEN** the Maschine Mikro MK3 selects the snare track and the 4x4 view is open
+- **THEN** the pads show the snare's steps, and a hit added with the Mikro's pad 5 lights the first pad of the screen's second row from the bottom
