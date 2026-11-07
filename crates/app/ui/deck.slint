@@ -3845,7 +3845,7 @@ component ScaleButton inherits GrooveButton {
     property <[string]> notes: ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
     property <[string]> kinds: ["", "m", " pent", "m pent"];
     property <string> now-name: now == 0 ? "" : notes[Math.mod(now - 1, 12)] + kinds[floor((now - 1) / 12)];
-    text: "SCALE: " + (mode == 0 ? "Off" : mode == 1 ? (now == 0 ? "Auto" : "Auto · " + now-name) : now-name) + " ▾";
+    text: (mode == 1 && now != 0 ? "AUTO: " + now-name : "SCALE: " + (mode == 0 ? "Off" : mode == 1 ? "Auto" : now-name)) + " ▾";
     lit: mode != 0 && now != 0;
     clicked => { menu.show(); }
     menu := PopupWindow {
@@ -3936,6 +3936,108 @@ component ChordButton inherits GrooveButton {
                 checked: learning;
                 clicked => { Controls.set-value(learn-index, learning ? 0 : 1); }
             }
+        }
+    }
+}
+
+// A row of small choices in a GrooveMenu: one picked.
+component ChoiceChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> picked;
+    callback clicked();
+    height: 22px;
+    border-radius: 4px;
+    background: picked ? Theme.accent.with-alpha(0.25) : ccta.has-hover ? #3a3a3d : Theme.control;
+    border-width: 1px;
+    border-color: picked ? Theme.accent : transparent;
+    Text { text: root.text; color: Theme.text; font-size: 11px; }
+    ccta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// The arpeggiator: the notes held play one at a time on the mix's beat.
+component ArpButton inherits GrooveButton {
+    property <int> on-index: Controls.resolve("[Instrument1]", "arp");
+    property <int> mode-index: Controls.resolve("[Instrument1]", "arp_mode");
+    property <int> rate-index: Controls.resolve("[Instrument1]", "arp_rate");
+    property <int> gate-index: Controls.resolve("[Instrument1]", "arp_gate");
+    property <int> octaves-index: Controls.resolve("[Instrument1]", "arp_octaves");
+    property <int> hold-index: Controls.resolve("[Instrument1]", "arp_hold");
+    property <bool> on: Controls.value(on-index, Controls.tick) > 0;
+    property <int> mode: Controls.value(mode-index, Controls.tick);
+    property <int> rate: Controls.value(rate-index, Controls.tick);
+    property <float> gate: Controls.value(gate-index, Controls.tick);
+    property <int> octaves: Controls.value(octaves-index, Controls.tick);
+    property <bool> hold: Controls.value(hold-index, Controls.tick) > 0;
+    property <[string]> rates: ["1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"];
+    text: "ARP: " + (on ? ["Up", "Down", "Up/Dn", "Rand", "Order"][mode] + " " + rates[rate] : "Off") + " ▾";
+    lit: on;
+    clicked => { menu.show(); }
+    menu := PopupWindow {
+        y: - self.height - 2px;
+        width: 236px;
+        height: 2 * 24px + 5 * 24px + 4 * 18px + 3 * 26px + 3px + 8px;
+        close-policy: close-on-click-outside;
+        GrooveMenuBackground { }
+        VerticalLayout {
+            padding: 4px;
+            GrooveMenuItem { text: "Arpeggiator on"; checked: on; clicked => { Controls.set-value(on-index, on ? 0 : 1); } }
+            Rectangle { height: 1px; background: Theme.border; }
+            for name[i] in ["Up", "Down", "Up and down", "Random", "Order played"]: GrooveMenuItem {
+                text: name;
+                checked: mode == i;
+                clicked => {
+                    Controls.set-value(mode-index, i);
+                    Controls.set-value(on-index, 1);
+                }
+            }
+            Rectangle { height: 1px; background: Theme.border; }
+            HorizontalLayout {
+                padding-left: 8px;
+                Text { text: "RATE"; color: Theme.text-dim; font-size: 10px; height: 18px; vertical-alignment: bottom; }
+            }
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                spacing: 3px;
+                height: 26px;
+                for r[i] in rates: ChoiceChip {
+                    text: r;
+                    picked: rate == i;
+                    clicked => { Controls.set-value(rate-index, i); }
+                }
+            }
+            HorizontalLayout {
+                padding-left: 8px;
+                Text { text: "GATE"; color: Theme.text-dim; font-size: 10px; height: 18px; vertical-alignment: bottom; }
+            }
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                spacing: 3px;
+                height: 26px;
+                for g in [0.25, 0.5, 0.75, 1.0]: ChoiceChip {
+                    text: round(g * 100) + "%";
+                    picked: abs(gate - g) < 0.01;
+                    clicked => { Controls.set-value(gate-index, g); }
+                }
+            }
+            HorizontalLayout {
+                padding-left: 8px;
+                Text { text: "OCTAVES"; color: Theme.text-dim; font-size: 10px; height: 18px; vertical-alignment: bottom; }
+            }
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                spacing: 3px;
+                height: 26px;
+                for o in 4: ChoiceChip {
+                    text: o + 1;
+                    picked: octaves == o + 1;
+                    clicked => { Controls.set-value(octaves-index, o + 1); }
+                }
+            }
+            Rectangle { height: 1px; background: Theme.border; }
+            GrooveMenuItem { text: "Hold: keep playing after letting go"; checked: hold; clicked => { Controls.set-value(hold-index, hold ? 0 : 1); } }
         }
     }
 }
@@ -4115,17 +4217,21 @@ component LivePanel inherits Rectangle {
         }
       }
       // The notes it plays, on 2-Deck (4-Deck strips leave it out), beside
-      // its scale, chord mode and the octave the KEYBOARD pads play in.
+      // its scale, chord mode, arpeggiator and the octave the KEYBOARD pads play in.
       if live == 3: HorizontalLayout {
-        spacing: 8px;
+        spacing: 6px;
         height: 26px;
         VerticalLayout {
             alignment: center;
-            ScaleButton { width: 150px; height: 22px; }
+            ScaleButton { width: 120px; height: 22px; }
         }
         VerticalLayout {
             alignment: center;
-            ChordButton { width: 118px; height: 22px; }
+            ChordButton { width: 102px; height: 22px; }
+        }
+        VerticalLayout {
+            alignment: center;
+            ArpButton { width: 112px; height: 22px; }
         }
         HorizontalLayout {
             alignment: center;
