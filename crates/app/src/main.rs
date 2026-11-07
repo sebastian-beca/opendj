@@ -482,6 +482,17 @@ pub(crate) const PREP_OFFERED: bool = false;
 /// The last layout the menu and controllers can pick.
 const LAST_LAYOUT: i32 = if PREP_OFFERED { PREP_LAYOUT } else { 2 };
 
+/// `[ChannelN],live_input` for a deck playing the instrument plugin.
+const INSTRUMENT_INPUT: f64 = 3.0;
+/// Each deck's colour (Theme.deck1 to deck4 in theme.slint), as RGBA, for
+/// the marks on a live deck's waveform.
+const DECK_COLORS: [[f32; 4]; NUM_DECKS] = [
+    [0.039, 0.518, 1.0, 1.0],
+    [1.0, 0.271, 0.227, 1.0],
+    [0.188, 0.820, 0.345, 1.0],
+    [1.0, 0.839, 0.039, 1.0],
+];
+
 /// Seconds of audio shown across the scrolling waveform at normal speed.
 /// Dragging the waveform (`Waveform` in main.slint) uses the same figure.
 const VISIBLE_SECONDS: f64 = 10.0;
@@ -1152,6 +1163,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let decks = decks.clone();
         let loaded = loaded.clone();
         let mut live = engine.take_live_waves().map(live_trace::LiveTraces::new);
+        let instrument = engine.instrument_view();
         let style = match std::env::var("OPENDJ_WAVEFORM").as_deref() {
             Ok("bands") => Style::Bands,
             _ => Style::Rgb,
@@ -1178,6 +1190,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         phrases: Default::default(),
                         clocks: Default::default(),
                         live: live.take(),
+                        instrument: instrument.clone(),
                         live_tracks: Default::default(),
                         moving: false,
                         images_set: false,
@@ -2368,6 +2381,8 @@ struct Gpu {
     clocks: [SmoothClock; NUM_DECKS],
     /// The sound of decks playing live, and each one's waveform on the GPU.
     live: Option<live_trace::LiveTraces>,
+    /// The notes the Instrument input holds, for its deck's note roll.
+    instrument: Arc<opendj_engine::InstrumentView>,
     live_tracks: [Option<Arc<GpuTrack>>; NUM_DECKS],
     /// Whether a deck was moving in the last frame drawn.
     moving: bool,
@@ -2421,6 +2436,7 @@ impl Gpu {
             gain: 1.0,
             phrases: Vec::new(),
         };
+        self.scrolling[d].set_lanes(w.lanes);
         self.scrolling[d].set_track(&self.device, &self.renderer, Some(&gpu));
         self.scrolling[d].render(
             &self.device,
@@ -2540,10 +2556,21 @@ impl Gpu {
             if d >= 2 && !four {
                 continue;
             }
+            // An instrument deck's notes, for its note roll.
+            let held = (decks.0[d].live_input.get().round() == INSTRUMENT_INPUT)
+                .then(|| self.instrument.held());
             let window = live[d]
-                .then(|| self.live.as_mut().and_then(|t| t.window(d, now)))
+                .then(|| {
+                    let color = DECK_COLORS[d];
+                    self.live
+                        .as_mut()
+                        .and_then(|t| t.window(d, now, held, color))
+                })
                 .flatten();
             self.scrolling[d].set_live(window.is_some());
+            if window.is_none() {
+                self.scrolling[d].set_lanes(None);
+            }
             if let Some(w) = window {
                 self.draw_live(d, w, leader.map(|l| (l, clocks[l].0)), tracks, decks, scale);
                 continue;

@@ -422,3 +422,90 @@ fn draws_mono_played_rest_and_mix() {
     let cue_x = 512 * 10 / 200;
     assert_eq!(px(cue_x), px(cue_x + 8));
 }
+
+/// A live deck: the grid runs on past the play line, and lanes of marks are
+/// drawn over a fainter waveform.
+#[test]
+fn draws_live_lanes() {
+    use opendj_waveform::{Lanes, Mark, MarkKind};
+    let Some((device, queue)) = gpu() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let renderer = WaveformRenderer::new(&device, &queue);
+    // 8 s of silence ending at the play line.
+    let track = Arc::new(GpuTrack::new(
+        &device,
+        &queue,
+        &renderer,
+        1,
+        &levels(vec![[0; 8]; 8192]),
+        1000.0,
+    ));
+    // A fixed window rewrites in place; a different length doesn't fit.
+    assert!(track.rewrite(&queue, &levels(vec![[9; 8]; 8192])));
+    assert!(!track.rewrite(&queue, &levels(vec![[9; 8]; 4096])));
+    let (w, h) = (512u32, 40u32);
+    let mut view = WaveformView::new(&device, Mode::Scrolling, w, h);
+    view.set_track(&device, &renderer, Some(&track));
+    view.set_live(true);
+    view.set_lanes(Some(Lanes {
+        count: 4,
+        tinted: 0,
+        // One note let go on the bottom row, one held on the top row up to
+        // the play line, one coming hit past it.
+        marks: vec![
+            Mark {
+                start: 6.0,
+                end: 7.0,
+                lane: 0,
+                kind: MarkKind::Played,
+            },
+            Mark {
+                start: 7.5,
+                end: 8.192,
+                lane: 3,
+                kind: MarkKind::Held,
+            },
+            Mark {
+                start: 9.0,
+                end: 9.1,
+                lane: 1,
+                kind: MarkKind::Fill,
+            },
+        ],
+        trace: 0.25,
+        color: [1.0, 0.0, 0.0, 1.0],
+        lit: [0.0, 0.0, 1.0, 1.0],
+    }));
+    let frame = Frame {
+        play_seconds: 8.192,
+        visible_seconds: 12.8,
+        duration: 8.192,
+        first_bar_beat: 0.0,
+        grid: steady_grid(120.0, 0.0),
+        cue: None,
+        loop_range: None,
+        loop_marking: None,
+        hotcues: [None; 8],
+        slip: None,
+        gain: 1.0,
+        phrases: Vec::new(),
+    };
+    view.render(&device, &queue, &renderer, Some(&frame), 1.0);
+    let data = read_back(&device, &queue, &view);
+    // 40 px per second; the play line at x 256.
+    let px = |x: u32, y: u32| {
+        let i = ((y * w + x) * 4) as usize;
+        [data[i], data[i + 1], data[i + 2]]
+    };
+    // The played note, 1.8 s back (clear of the beat lines), on the bottom row (y 30..40): red.
+    let p = px(256 - 72, 35);
+    assert!(p[0] > 150 && p[2] < 80, "played note: {p:?}");
+    // The held note, 0.4 s back on the top row (y 0..10), is lit inside.
+    let p = px(256 - 16, 5);
+    assert!(p[0] > 150 && p[1] > 50, "held note: {p:?}");
+    // The fill, 0.85 s ahead on row 1 (y 20..30): blue.
+    let p = px(256 + 34, 25);
+    assert!(p[2] > 150 && p[0] < 80, "fill: {p:?}");
+}

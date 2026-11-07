@@ -8,7 +8,8 @@
 
 ## 2. Note roll
 
-- [ ] 2.1 Instrument decks: notes played as bars, fitted to the range in view, scale rows tinted, held notes lit; faint trace under it
+- [x] 2.1 Instrument decks: notes played as bars, fitted to the range in view, held notes lit; faint trace under it
+- [ ] 2.2 Rows of the current scale tinted, once Scale mode exists (`rework-instruments` 4.x)
 
 ## 3. Step lanes
 
