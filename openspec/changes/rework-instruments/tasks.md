@@ -22,7 +22,7 @@
 - [ ] 3.8 Knob pages from CLAP remote controls when the plugin has them; the user's picks (right-click Assign…), saved in the preset
 - [x] 3.4 4-Deck instrument strip: art, preset ‹ ›, thin scope, 4 knobs, TRIM, meter, EDIT; no keyboard
 - [x] 3.5 Input decks (mic, aux): header with the interface input, TRIM, PAN, meter
-- [ ] 3.7 TRIM set on first play from the input's level
+- [x] 3.7 TRIM set on first play from the input's level
 - [x] 3.6 MIDI from: the instrument takes notes from a chosen keyboard and channel (Any by default), so one track of a sequencer, or one keyboard of several, plays it; note-offs always pass so nothing hangs
 - [ ] 3.9 MIDI from per deck once several instruments play at once, so one controller's tracks play different decks
 
