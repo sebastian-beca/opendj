@@ -7,6 +7,11 @@
 //! On a deck, ‹ › step through the playing instrument's presets in name
 //! order and SAVE keeps, saves as new or renames (`PresetUi`); the
 //! Instruments browser lists them (see `crate::instruments`).
+//!
+//! A plugin's own presets are listed too, after the user's: VST3
+//! `.vstpreset` and AU `.aupreset` files from the folders those formats
+//! keep them in. They are read only: SAVE on one keeps a copy as the
+//! user's.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -15,6 +20,7 @@ use std::rc::Rc;
 use base64::Engine as _;
 use opendj_control::ControlRegistry;
 use opendj_engine::groove::groove_group;
+use opendj_engine::plugins::plugin_presets;
 use opendj_engine::AudioEngine;
 use serde_json::{json, Map, Value};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
@@ -60,6 +66,20 @@ pub struct Preset {
     pub path: PathBuf,
     /// Its tags, from [`TYPES`] and [`CHARACTERS`] (others kept as written).
     pub tags: Vec<String>,
+    /// One of the plugin's own, a `.vstpreset` or `.aupreset` file at
+    /// `path`, not one of the user's.
+    pub from_plugin: bool,
+}
+
+/// An instrument plugin the Instrument input lists.
+#[derive(Clone, Debug, Default)]
+pub struct Instrument {
+    pub key: String,
+    /// As its picker shows it.
+    pub name: String,
+    /// As the plugin names itself and its maker: its presets' folders.
+    pub plugin_name: String,
+    pub maker: String,
 }
 
 fn root() -> Option<PathBuf> {
@@ -125,6 +145,7 @@ fn list_in(root: &Path) -> Vec<Preset> {
                             .collect()
                     })
                     .unwrap_or_default(),
+                from_plugin: false,
             });
         }
     }
@@ -132,8 +153,60 @@ fn list_in(root: &Path) -> Vec<Preset> {
     out
 }
 
+/// The plugin's own presets of each of `plugins`, where its format keeps
+/// them as files.
+fn plugins_own(plugins: &[Instrument]) -> Vec<Preset> {
+    let mut out = Vec::new();
+    for p in plugins {
+        let Some((format, class)) = format_of(&p.key) else {
+            continue;
+        };
+        for f in plugin_presets::find(format, &p.maker, &p.plugin_name, class) {
+            out.push(Preset {
+                name: f.name,
+                instrument: p.key.clone(),
+                instrument_name: p.name.clone(),
+                path: f.path,
+                tags: Vec::new(),
+                from_plugin: true,
+            });
+        }
+    }
+    out
+}
+
+/// A plugin key's format ("vst3" or "au"), and its VST3 class id, for the
+/// formats whose presets are files.
+fn format_of(key: &str) -> Option<(&'static str, &str)> {
+    if let Some(rest) = key.strip_prefix("vst3:") {
+        Some(("vst3", rest.rsplit_once('#').map_or("", |(_, id)| id)))
+    } else if key.starts_with("au:") {
+        Some(("au", ""))
+    } else {
+        None
+    }
+}
+
+/// The sound a plugin's own preset file holds, as the plugin host takes it.
+fn file_state(preset: &Preset) -> Result<Vec<u8>, String> {
+    let bytes = std::fs::read(&preset.path).map_err(|e| format!("can't read it ({e})"))?;
+    match format_of(&preset.instrument) {
+        Some(("vst3", _)) => plugin_presets::vst3_state(&bytes),
+        // An `.aupreset` is the unit's class info, as the AU helper keeps it.
+        Some(("au", _)) => Ok(bytes),
+        _ => Err("its format has no preset files".into()),
+    }
+}
+
+/// By instrument, the user's before the plugin's own, then by name.
 fn sort(presets: &mut [Preset]) {
-    presets.sort_by_cached_key(|p| (p.instrument_name.to_lowercase(), p.name.to_lowercase()));
+    presets.sort_by_cached_key(|p| {
+        (
+            p.instrument_name.to_lowercase(),
+            p.from_plugin,
+            p.name.to_lowercase(),
+        )
+    });
 }
 
 /// Writes a new preset file under `root` and returns its path; a name
@@ -261,8 +334,8 @@ enum Playing {
 #[derive(Default)]
 struct State {
     presets: Vec<Preset>,
-    /// The instrument plugins the Instrument input lists: (key, name).
-    plugins: Vec<(String, String)>,
+    /// The instrument plugins the Instrument input lists.
+    plugins: Vec<Instrument>,
     /// Each deck's Groove Box preset.
     groove: Vec<Option<PathBuf>>,
     /// The Instrument input's preset.
@@ -284,13 +357,17 @@ pub fn all() -> Vec<Preset> {
 
 /// Lists the presets again from the folder.
 fn rescan() {
-    let presets = root().map(|r| list_in(&r)).unwrap_or_default();
+    let mut presets = root().map(|r| list_in(&r)).unwrap_or_default();
+    presets.extend(STATE.with_borrow(|s| plugins_own(&s.plugins)));
+    sort(&mut presets);
     STATE.with_borrow_mut(|s| s.presets = presets);
 }
 
-/// The instrument plugins the Instrument input lists, in its order.
-pub fn set_plugins(plugins: Vec<(String, String)>) {
+/// The instrument plugins the Instrument input lists, in its order; their
+/// own presets are listed again.
+pub fn set_plugins(plugins: Vec<Instrument>) {
     STATE.with_borrow_mut(|s| s.plugins = plugins);
+    rescan();
 }
 
 struct Ctx {
@@ -326,7 +403,9 @@ impl Ctx {
     fn instrument(&self, deck: usize) -> Option<(String, String)> {
         match self.playing(deck) {
             Playing::Groove => Some((GROOVE.into(), "Groove Box".into())),
-            Playing::Plugin(i) => STATE.with_borrow(|s| s.plugins.get(i).cloned()),
+            Playing::Plugin(i) => {
+                STATE.with_borrow(|s| s.plugins.get(i).map(|p| (p.key.clone(), p.name.clone())))
+            }
             Playing::Nothing => None,
         }
     }
@@ -363,6 +442,15 @@ impl Ctx {
     /// Plays `preset` on deck `deck`: a Groove Box takes its controls; a
     /// plugin its sound, on the Instrument input, which the deck then plays.
     fn load(&self, deck: usize, preset: &Preset) -> Result<(), String> {
+        if preset.from_plugin {
+            let index = self.plugin_index(preset)?;
+            self.engine
+                .load_instrument_sound(&preset.instrument, file_state(preset)?)?;
+            self.set("[Instrument1]", "instrument", (index + 1) as f64);
+            self.set(&format!("[Channel{}]", deck + 1), "live_input", 3.0);
+            self.set_current(deck, &preset.instrument, Some(preset.path.clone()));
+            return Ok(());
+        }
         let body = read(&preset.path)?;
         if preset.instrument == GROOVE {
             let g = groove_group(deck);
@@ -381,14 +469,7 @@ impl Ctx {
             }
             self.set(&g, "enabled", 1.0);
         } else {
-            let index = STATE
-                .with_borrow(|s| s.plugins.iter().position(|(k, _)| *k == preset.instrument))
-                .ok_or_else(|| {
-                    format!(
-                        "{} isn't ticked in Settings › Plugins, so its preset can't play",
-                        preset.instrument_name
-                    )
-                })?;
+            let index = self.plugin_index(preset)?;
             // Its knob picks first, so a restart to take them starts from
             // the sound below. A preset from before picks leaves them be.
             if let Some(picks) = knob_picks(&body) {
@@ -404,6 +485,18 @@ impl Ctx {
         Ok(())
     }
 
+    /// The place in the Instrument input's list of `preset`'s plugin.
+    fn plugin_index(&self, preset: &Preset) -> Result<usize, String> {
+        STATE
+            .with_borrow(|s| s.plugins.iter().position(|p| p.key == preset.instrument))
+            .ok_or_else(|| {
+                format!(
+                    "{} isn't ticked in Settings › Plugins, so its preset can't play",
+                    preset.instrument_name
+                )
+            })
+    }
+
     /// A new preset of what deck `deck` plays now, named `name`.
     fn save_new(&self, deck: usize, name: &str) -> Result<PathBuf, String> {
         let (key, instrument_name) = self.instrument(deck).ok_or("nothing to save")?;
@@ -416,8 +509,13 @@ impl Ctx {
     }
 
     /// Saves what deck `deck` plays over its preset.
+    /// The plugin's own presets stay as they are: a copy is kept as the
+    /// user's, under the same name.
     fn save_over(&self, deck: usize) -> Result<(), String> {
         let preset = self.current(deck).ok_or("no preset to save over")?;
+        if preset.from_plugin {
+            return self.save_new(deck, &preset.name).map(|_| ());
+        }
         let mut body = read(&preset.path)?;
         self.fill(deck, &preset.instrument, &mut body)?;
         write(&preset.path, &body)
@@ -514,6 +612,12 @@ pub fn install(
     ui.on_rename(move |deck, name| {
         a(&|c| {
             let preset = c.current(deck as usize).ok_or("no preset to rename")?;
+            if preset.from_plugin {
+                return Err(format!(
+                    "{} is {}'s own preset: SAVE keeps a copy you can rename",
+                    preset.name, preset.instrument_name
+                ));
+            }
             let path = rename_file(&preset.path, &name)?;
             c.set_current(deck as usize, &preset.instrument, Some(path));
             Ok(())
@@ -525,6 +629,12 @@ pub fn install(
             let preset = c
                 .current(deck as usize)
                 .ok_or("save a preset first, then tag it")?;
+            if preset.from_plugin {
+                return Err(format!(
+                    "{} is {}'s own preset: SAVE keeps a copy you can tag",
+                    preset.name, preset.instrument_name
+                ));
+            }
             let tag = tags().nth(tag as usize).ok_or("no such tag")?;
             toggle_tag(&preset.path, tag)
         })
@@ -641,6 +751,41 @@ mod tests {
         let renamed = rename_file(&second, "Dark Strings").unwrap();
         assert!(!second.exists());
         assert_eq!(read(&renamed).unwrap()["name"], json!("Dark Strings"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_plugins_own_presets_follow_the_users_and_read_by_format() {
+        let preset = |name: &str, from_plugin: bool| Preset {
+            name: name.into(),
+            instrument: "vst3:/x/Jun.vst3#ABC".into(),
+            instrument_name: "Jun-6 V".into(),
+            path: PathBuf::new(),
+            tags: Vec::new(),
+            from_plugin,
+        };
+        let mut list = vec![
+            preset("Airy", true),
+            preset("Zed", false),
+            preset("Bass", true),
+        ];
+        sort(&mut list);
+        let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["Zed", "Airy", "Bass"]);
+        assert_eq!(format_of("vst3:/x/Jun.vst3#ABC"), Some(("vst3", "ABC")));
+        assert_eq!(format_of("au:aumu:jun6:Artu"), Some(("au", "")));
+        assert_eq!(format_of("clap:/x/Jun.clap#jun6"), None);
+        // An AU preset file is the sound as it is.
+        let root = temp("aupreset");
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("Warm.aupreset");
+        std::fs::write(&path, b"<plist/>").unwrap();
+        let au = Preset {
+            instrument: "au:aumu:jun6:Artu".into(),
+            path,
+            ..preset("Warm", true)
+        };
+        assert_eq!(file_state(&au).unwrap(), b"<plist/>");
         let _ = std::fs::remove_dir_all(&root);
     }
 
