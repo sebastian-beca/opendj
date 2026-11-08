@@ -47,6 +47,7 @@ use vst3::{Class, ComPtr, ComWrapper, Interface};
 use crate::client::Transport;
 use crate::descriptor::{features, Descriptor, AUDIO_MODULE};
 use crate::effects::{arrange, EditorSize, Effect, Info, Loaded, MainThread, Param, ParentWindow};
+use crate::presets::{pack_states, unpack_states};
 use crate::shm::{Midi, CHANNELS, MAX_EVENTS, MAX_PARAMS};
 
 fn cstr(buf: &[c_char]) -> String {
@@ -741,27 +742,6 @@ impl Vst3Main {
 
 /// A VST3 sound as saved: the component's state, then the controller's,
 /// each after its length (little-endian `u32`).
-fn pack_states(component: &[u8], controller: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(8 + component.len() + controller.len());
-    for part in [component, controller] {
-        out.extend_from_slice(&(part.len() as u32).to_le_bytes());
-        out.extend_from_slice(part);
-    }
-    out
-}
-
-fn unpack_states(data: &[u8]) -> Option<(&[u8], &[u8])> {
-    let part = |d: &[u8]| -> Option<(usize, usize)> {
-        let n = u32::from_le_bytes(d.get(..4)?.try_into().ok()?) as usize;
-        (d.len() >= 4 + n).then_some((4, 4 + n))
-    };
-    let (a, b) = part(data)?;
-    let component = &data[a..b];
-    let rest = &data[b..];
-    let (c, d) = part(rest)?;
-    Some((component, &rest[c..d]))
-}
-
 impl MainThread for Vst3Main {
     fn save_state(&mut self) -> Result<Vec<u8>, String> {
         let component = Self::stream(Vec::new());

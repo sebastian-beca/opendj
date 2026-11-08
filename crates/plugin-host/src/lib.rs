@@ -21,6 +21,7 @@ pub mod client;
 pub mod descriptor;
 pub mod effects;
 pub mod policy;
+pub mod presets;
 pub mod shm;
 #[cfg(feature = "formats")]
 pub mod vst3;
