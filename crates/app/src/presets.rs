@@ -10,17 +10,20 @@
 //!
 //! A plugin's own presets are listed too, after the user's: VST3
 //! `.vstpreset` and AU `.aupreset` files from the folders those formats
-//! keep them in. They are read only: SAVE on one keeps a copy as the
-//! user's.
+//! keep them in, and what a CLAP plugin's preset discovery lists (asked in
+//! a throwaway helper in the background, and kept in
+//! `Instruments/Plugin presets.json` to show at once next time). They are
+//! read only: SAVE on one keeps a copy as the user's.
 
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use base64::Engine as _;
 use opendj_control::ControlRegistry;
 use opendj_engine::groove::groove_group;
-use opendj_engine::plugins::plugin_presets;
+use opendj_engine::plugins::{own_presets, plugin_presets};
 use opendj_engine::AudioEngine;
 use serde_json::{json, Map, Value};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
@@ -66,9 +69,12 @@ pub struct Preset {
     pub path: PathBuf,
     /// Its tags, from [`TYPES`] and [`CHARACTERS`] (others kept as written).
     pub tags: Vec<String>,
-    /// One of the plugin's own, a `.vstpreset` or `.aupreset` file at
-    /// `path`, not one of the user's.
+    /// One of the plugin's own, not one of the user's: a `.vstpreset` or
+    /// `.aupreset` file at `path`, or one a CLAP plugin listed.
     pub from_plugin: bool,
+    /// A CLAP plugin's preset, as its list gave it (`path` is then this
+    /// too, to tell presets apart); empty for a file.
+    pub reference: String,
 }
 
 /// An instrument plugin the Instrument input lists.
@@ -146,6 +152,7 @@ fn list_in(root: &Path) -> Vec<Preset> {
                     })
                     .unwrap_or_default(),
                 from_plugin: false,
+                reference: String::new(),
             });
         }
     }
@@ -153,11 +160,25 @@ fn list_in(root: &Path) -> Vec<Preset> {
     out
 }
 
-/// The plugin's own presets of each of `plugins`, where its format keeps
-/// them as files.
-fn plugins_own(plugins: &[Instrument]) -> Vec<Preset> {
+/// The plugin's own presets of each of `plugins`: files where its format
+/// keeps them, or what it listed itself (`listed`, by key).
+fn plugins_own(
+    plugins: &[Instrument],
+    listed: &HashMap<String, Vec<(String, String)>>,
+) -> Vec<Preset> {
     let mut out = Vec::new();
     for p in plugins {
+        for (name, reference) in listed.get(&p.key).into_iter().flatten() {
+            out.push(Preset {
+                name: name.clone(),
+                instrument: p.key.clone(),
+                instrument_name: p.name.clone(),
+                path: PathBuf::from(reference),
+                tags: Vec::new(),
+                from_plugin: true,
+                reference: reference.clone(),
+            });
+        }
         let Some((format, class)) = format_of(&p.key) else {
             continue;
         };
@@ -169,10 +190,96 @@ fn plugins_own(plugins: &[Instrument]) -> Vec<Preset> {
                 path: f.path,
                 tags: Vec::new(),
                 from_plugin: true,
+                reference: String::new(),
             });
         }
     }
     out
+}
+
+/// A CLAP plugin key's file and plugin id.
+fn clap_of(key: &str) -> Option<(PathBuf, String)> {
+    let (file, id) = key.strip_prefix("clap:")?.rsplit_once('#')?;
+    Some((PathBuf::from(file), id.to_string()))
+}
+
+/// Where the CLAP plugins' lists are kept between runs.
+fn listed_file() -> Option<PathBuf> {
+    settings::config_dir().map(|d| d.join("Instruments").join("Plugin presets.json"))
+}
+
+fn read_listed() -> HashMap<String, Vec<(String, String)>> {
+    listed_file()
+        .and_then(|f| std::fs::read(f).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+fn write_listed(listed: &HashMap<String, Vec<(String, String)>>) {
+    let Some(file) = listed_file() else {
+        return;
+    };
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(text) = serde_json::to_vec_pretty(listed) {
+        let _ = std::fs::write(file, text);
+    }
+}
+
+/// How long one CLAP plugin may take to list its presets.
+const LIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Asks each CLAP plugin of `plugins` not asked yet this run for its own
+/// presets, one after another in the background; each answer is kept and
+/// shown as it comes.
+fn ask_plugins(app: &AppWindow, plugins: &[Instrument]) {
+    let Some(helper) = opendj_engine::plugin_helper() else {
+        return;
+    };
+    let todo: Vec<(String, PathBuf, String)> = STATE.with_borrow_mut(|s| {
+        plugins
+            .iter()
+            .filter(|p| s.asked.insert(p.key.clone()))
+            .filter_map(|p| clap_of(&p.key).map(|(file, id)| (p.key.clone(), file, id)))
+            .collect()
+    });
+    if todo.is_empty() {
+        return;
+    }
+    let weak = app.as_weak();
+    let _ = std::thread::Builder::new()
+        .name("plugin presets".into())
+        .spawn(move || {
+            for (key, file, id) in todo {
+                let found = match own_presets(&helper, &file, &id, LIST_TIMEOUT) {
+                    Ok(found) => found,
+                    Err(e) => {
+                        eprintln!("presets of {key}: {e}");
+                        continue;
+                    }
+                };
+                let weak = weak.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    let changed = STATE.with_borrow_mut(|s| {
+                        let changed = s.listed.get(&key) != Some(&found);
+                        if found.is_empty() {
+                            s.listed.remove(&key);
+                        } else {
+                            s.listed.insert(key, found);
+                        }
+                        if changed {
+                            write_listed(&s.listed);
+                        }
+                        changed
+                    });
+                    if let (true, Some(app)) = (changed, weak.upgrade()) {
+                        rescan();
+                        crate::instruments::presets_changed(&app);
+                    }
+                });
+            }
+        });
 }
 
 /// A plugin key's format ("vst3" or "au"), and its VST3 class id, for the
@@ -336,6 +443,10 @@ struct State {
     presets: Vec<Preset>,
     /// The instrument plugins the Instrument input lists.
     plugins: Vec<Instrument>,
+    /// The CLAP plugins' own presets, by key, as they listed them.
+    listed: HashMap<String, Vec<(String, String)>>,
+    /// The plugins asked for their list this run.
+    asked: HashSet<String>,
     /// Each deck's Groove Box preset.
     groove: Vec<Option<PathBuf>>,
     /// The Instrument input's preset.
@@ -358,14 +469,15 @@ pub fn all() -> Vec<Preset> {
 /// Lists the presets again from the folder.
 fn rescan() {
     let mut presets = root().map(|r| list_in(&r)).unwrap_or_default();
-    presets.extend(STATE.with_borrow(|s| plugins_own(&s.plugins)));
+    presets.extend(STATE.with_borrow(|s| plugins_own(&s.plugins, &s.listed)));
     sort(&mut presets);
     STATE.with_borrow_mut(|s| s.presets = presets);
 }
 
 /// The instrument plugins the Instrument input lists, in its order; their
-/// own presets are listed again.
-pub fn set_plugins(plugins: Vec<Instrument>) {
+/// own presets are listed again, and CLAP plugins asked for theirs.
+pub fn set_plugins(app: &AppWindow, plugins: Vec<Instrument>) {
+    ask_plugins(app, &plugins);
     STATE.with_borrow_mut(|s| s.plugins = plugins);
     rescan();
 }
@@ -444,8 +556,13 @@ impl Ctx {
     fn load(&self, deck: usize, preset: &Preset) -> Result<(), String> {
         if preset.from_plugin {
             let index = self.plugin_index(preset)?;
-            self.engine
-                .load_instrument_sound(&preset.instrument, file_state(preset)?)?;
+            if preset.reference.is_empty() {
+                self.engine
+                    .load_instrument_sound(&preset.instrument, file_state(preset)?)?;
+            } else {
+                self.engine
+                    .load_instrument_preset(&preset.instrument, &preset.reference)?;
+            }
             self.set("[Instrument1]", "instrument", (index + 1) as f64);
             self.set(&format!("[Channel{}]", deck + 1), "live_input", 3.0);
             self.set_current(deck, &preset.instrument, Some(preset.path.clone()));
@@ -582,6 +699,7 @@ pub fn install(
     registry: std::sync::Arc<ControlRegistry>,
 ) {
     CTX.with_borrow_mut(|c| *c = Some(Rc::new(Ctx { engine, registry })));
+    STATE.with_borrow_mut(|s| s.listed = read_listed());
     rescan();
     let ui = app.global::<PresetUi>();
     let names: Vec<SharedString> = tags().map(SharedString::from).collect();
@@ -763,6 +881,7 @@ mod tests {
             path: PathBuf::new(),
             tags: Vec::new(),
             from_plugin,
+            reference: String::new(),
         };
         let mut list = vec![
             preset("Airy", true),
@@ -775,6 +894,11 @@ mod tests {
         assert_eq!(format_of("vst3:/x/Jun.vst3#ABC"), Some(("vst3", "ABC")));
         assert_eq!(format_of("au:aumu:jun6:Artu"), Some(("au", "")));
         assert_eq!(format_of("clap:/x/Jun.clap#jun6"), None);
+        assert_eq!(
+            clap_of("clap:/x/Jun 6.clap#com.x.jun6"),
+            Some((PathBuf::from("/x/Jun 6.clap"), "com.x.jun6".to_string()))
+        );
+        assert_eq!(clap_of("vst3:/x/Jun.vst3#ABC"), None);
         // An AU preset file is the sound as it is.
         let root = temp("aupreset");
         std::fs::create_dir_all(&root).unwrap();

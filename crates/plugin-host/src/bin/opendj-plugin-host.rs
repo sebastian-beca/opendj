@@ -13,6 +13,9 @@
 //! - `opendj-plugin-host --scan <file>` lists the plugins in a CLAP file or
 //!   VST3 bundle, and `--scan-au` lists the installed Audio Units (macOS)
 //!   (`plugin` lines, then `done`) and exits.
+//! - `opendj-plugin-host --presets --clap <file> --id <id>` lists the
+//!   plugin's own presets (`preset` lines, name then reference, then `done`)
+//!   and exits.
 //!
 //! The plugin's main-thread half stays on this process's main thread; the
 //! audio runs on a second thread.
@@ -61,6 +64,7 @@ fn main() {
     let mut vst3 = None;
     let mut au = None;
     let mut scan_au = false;
+    let mut list_presets = false;
     let mut id = None;
     let mut scan = None;
     let mut title = None;
@@ -75,6 +79,7 @@ fn main() {
             Some("--vst3") => vst3 = args.next().map(PathBuf::from),
             Some("--au") => au = args.next().and_then(|s| s.into_string().ok()),
             Some("--scan-au") => scan_au = true,
+            Some("--presets") => list_presets = true,
             Some("--id") => id = args.next().and_then(|s| s.into_string().ok()),
             Some("--scan") => scan = args.next().map(PathBuf::from),
             Some("--title") => title = args.next().and_then(|s| s.into_string().ok()),
@@ -98,6 +103,12 @@ fn main() {
     }
     if scan_au {
         return run_scan_au();
+    }
+    if list_presets {
+        let (Some(file), Some(id)) = (clap, id) else {
+            fail("usage: opendj-plugin-host --presets --clap <file> --id <id>");
+        };
+        return run_presets(&file, &id);
     }
     let plugin = match (test, clap, vst3, au, id) {
         (Some(t), None, None, None, _) => Plugin::Test(t),
@@ -235,6 +246,9 @@ fn serve_state(m: &mut dyn MainThread, h: &shm::Header, path: Option<&std::path:
         (shm::STATE_LOAD, Some(path)) => std::fs::read(path)
             .map_err(|e| e.to_string())
             .and_then(|data| m.load_state(&data)),
+        (shm::STATE_PRESET, Some(path)) => std::fs::read_to_string(path)
+            .map_err(|e| e.to_string())
+            .and_then(|reference| m.load_preset(&reference)),
         _ => Err("no state file".into()),
     };
     if let Err(e) = &result {
@@ -242,7 +256,7 @@ fn serve_state(m: &mut dyn MainThread, h: &shm::Header, path: Option<&std::path:
     }
     h.state_ok.store(result.is_ok() as u32, Ordering::Relaxed);
     h.state_done.store(asked, Ordering::Release);
-    cmd == shm::STATE_LOAD && result.is_ok()
+    (cmd == shm::STATE_LOAD || cmd == shm::STATE_PRESET) && result.is_ok()
 }
 
 /// How often the plugin's parameter values are read back for openDJ.
@@ -440,6 +454,22 @@ fn run_scan(file: &std::path::Path) {
     match found {
         Ok(found) => {
             print_found(&found);
+            say("done");
+        }
+        Err(e) => fail(&e),
+    }
+}
+
+fn run_presets(file: &std::path::Path, id: &str) {
+    match opendj_plugin_host::clap::presets(file, id) {
+        Ok(found) => {
+            for (name, reference) in found {
+                // A reference is read back whole, so one that the line
+                // format would change is left out.
+                if !reference.contains(['\t', '\n', '\r']) {
+                    say(&format!("preset\t{}\t{reference}", clean(&name)));
+                }
+            }
             say("done");
         }
         Err(e) => fail(&e),

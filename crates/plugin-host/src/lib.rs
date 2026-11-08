@@ -29,8 +29,8 @@ pub mod vst3;
 pub mod window;
 
 pub use client::{
-    scan, scan_audio_units, spawn, Connection, Editor, Helper, Options, Outcome, ScanError, Status,
-    Transport,
+    presets, scan, scan_audio_units, spawn, Connection, Editor, Helper, Options, Outcome,
+    ScanError, Status, Transport,
 };
 pub use descriptor::Descriptor;
 pub use effects::{Info, Param, Plugin};

@@ -221,6 +221,7 @@ pub fn show_plugins(app: &AppWindow, instruments: &[Found], names: &[String]) {
     });
     crate::instrument_art::show_plugins(app, instruments.iter().map(|f| f.key.clone()).collect());
     presets::set_plugins(
+        app,
         instruments
             .iter()
             .zip(names)
@@ -721,6 +722,7 @@ mod tests {
                 vec!["Drums".into()]
             },
             from_plugin: false,
+            reference: String::new(),
         };
         let mut s = state("groove");
         s.presets = vec![

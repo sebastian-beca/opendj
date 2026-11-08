@@ -6,9 +6,15 @@
 //!
 //! Its state (what a host saves and loads) is the gain, as 8 bytes.
 //!
+//! Its own presets, through CLAP preset discovery and preset load: "Loud"
+//! (gain 1.5) and "Quiet" (0.25) inside the plugin, a preset for another
+//! plugin a host should leave out, and any `.gain` file (the gain as text)
+//! in the folder `OPENDJ_TEST_PRESETS` names.
+//!
 //! It is a real `.clap` binary, loaded through the same path as third-party
 //! plugins.
 
+use std::ffi::{CStr, CString};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use clack_extensions::audio_ports::{
@@ -20,10 +26,17 @@ use clack_extensions::params::{
     ParamDisplayWriter, ParamInfo, ParamInfoFlags, ParamInfoWriter, PluginAudioProcessorParams,
     PluginMainThreadParams, PluginParams,
 };
+use clack_extensions::preset_discovery::prelude::{
+    FileType, Flags, Indexer, IndexerInfo, Location, LocationInfo, MetadataReceiver,
+    PluginPresetLoad, PluginPresetLoadImpl, PresetDiscoveryFactoryImpl,
+    PresetDiscoveryFactoryWrapper, ProviderDescriptor, ProviderImpl, ProviderInstance,
+    UniversalPluginId,
+};
 use clack_extensions::remote_controls::{
     PluginRemoteControls, PluginRemoteControlsImpl, RemoteControlsPage, RemoteControlsPageWriter,
 };
 use clack_extensions::state::{PluginState, PluginStateImpl};
+use clack_plugin::entry::prelude::*;
 use clack_plugin::events::event_types::{NoteOnEvent, ParamValueEvent, TransportEvent};
 use clack_plugin::events::Match;
 use clack_plugin::prelude::*;
@@ -85,7 +98,8 @@ impl Plugin for TestGain {
             .register::<PluginParams>()
             .register::<PluginLatency>()
             .register::<PluginState>()
-            .register::<PluginRemoteControls>();
+            .register::<PluginRemoteControls>()
+            .register::<PluginPresetLoad>();
     }
 }
 
@@ -255,7 +269,156 @@ impl PluginLatencyImpl for MainThread<'_> {
     }
 }
 
-clack_export_entry!(SinglePluginEntry<TestGain>);
+/// The plugin factory and the preset discovery factory.
+pub struct TestEntry {
+    plugins: PluginFactoryWrapper<Plugins>,
+    presets: PresetDiscoveryFactoryWrapper<Presets>,
+}
+
+impl Entry for TestEntry {
+    fn new(_path: Option<&CStr>) -> Result<Self, EntryLoadError> {
+        Ok(Self {
+            plugins: PluginFactoryWrapper::new(Plugins(TestGain::get_descriptor())),
+            presets: PresetDiscoveryFactoryWrapper::new(Presets(ProviderDescriptor::new(
+                "app.opendj.test-gain.presets",
+                "openDJ Test Gain presets",
+            ))),
+        })
+    }
+
+    fn declare_factories<'a>(&'a self, builder: &mut EntryFactories<'a>) {
+        builder
+            .register_factory(&self.plugins)
+            .register_factory(&self.presets);
+    }
+}
+
+pub struct Plugins(PluginDescriptor);
+
+impl PluginFactoryImpl for Plugins {
+    fn plugin_count(&self) -> u32 {
+        1
+    }
+
+    fn plugin_descriptor(&self, index: u32) -> Option<&PluginDescriptor> {
+        (index == 0).then_some(&self.0)
+    }
+
+    fn create_plugin<'a>(
+        &'a self,
+        host_info: HostInfo<'a>,
+        plugin_id: &CStr,
+    ) -> Option<PluginInstance<'a>> {
+        (plugin_id == self.0.id().unwrap_or_default()).then(|| {
+            PluginInstance::new::<TestGain>(
+                host_info,
+                &self.0,
+                TestGain::new_shared,
+                TestGain::new_main_thread,
+            )
+        })
+    }
+}
+
+pub struct Presets(ProviderDescriptor);
+
+impl PresetDiscoveryFactoryImpl for Presets {
+    fn provider_count(&self) -> u32 {
+        1
+    }
+
+    fn provider_descriptor(&self, index: u32) -> Option<&ProviderDescriptor> {
+        (index == 0).then_some(&self.0)
+    }
+
+    fn create_provider<'a>(
+        &'a self,
+        host_info: IndexerInfo<'a>,
+        provider_id: &CStr,
+    ) -> Option<ProviderInstance<'a>> {
+        (Some(provider_id) == self.0.id()).then(|| {
+            ProviderInstance::new(host_info, &self.0, |mut indexer: Indexer<'a>| {
+                let _ = indexer.declare_location(LocationInfo {
+                    name: c"Built in",
+                    flags: Flags::IS_FACTORY_CONTENT,
+                    location: Location::Plugin,
+                });
+                if let Some(dir) = std::env::var_os("OPENDJ_TEST_PRESETS") {
+                    let dir = CString::new(dir.to_string_lossy().into_owned()).unwrap_or_default();
+                    let _ = indexer.declare_filetype(FileType {
+                        name: c"Gain",
+                        description: None,
+                        file_extension: Some(c"gain"),
+                    });
+                    let _ = indexer.declare_location(LocationInfo {
+                        name: c"Mine",
+                        flags: Flags::IS_USER_CONTENT,
+                        location: Location::File { path: &dir },
+                    });
+                }
+                Ok(Provider)
+            })
+        })
+    }
+}
+
+pub struct Provider;
+
+impl ProviderImpl<'_> for Provider {
+    fn get_metadata(
+        &mut self,
+        location: Location,
+        receiver: &mut MetadataReceiver,
+    ) -> Result<(), PluginError> {
+        let me = UniversalPluginId::clap(c"app.opendj.test-gain");
+        let fail = |_| PluginError::Message("the host refused a preset");
+        match location {
+            Location::Plugin => {
+                for (name, key) in [(c"Loud", c"loud"), (c"Quiet", c"quiet")] {
+                    receiver
+                        .begin_preset(Some(name), Some(key))
+                        .map_err(fail)?
+                        .add_plugin_id(me);
+                }
+                receiver
+                    .begin_preset(Some(c"Not mine"), Some(c"other"))
+                    .map_err(fail)?
+                    .add_plugin_id(UniversalPluginId::clap(c"app.opendj.else"));
+            }
+            Location::File { .. } => {
+                receiver
+                    .begin_preset(None, None)
+                    .map_err(fail)?
+                    .add_plugin_id(me);
+            }
+        }
+        Ok(())
+    }
+}
+
+clack_export_entry!(TestEntry);
+
+impl PluginPresetLoadImpl for MainThread<'_> {
+    fn load_from_location(
+        &self,
+        location: Location,
+        load_key: Option<&CStr>,
+    ) -> Result<(), PluginError> {
+        let gain: f64 = match location {
+            Location::Plugin => match load_key.map(CStr::to_bytes) {
+                Some(b"loud") => 1.5,
+                Some(b"quiet") => 0.25,
+                _ => return Err(PluginError::Message("no such preset")),
+            },
+            Location::File { path } => std::fs::read_to_string(&*path.to_string_lossy())
+                .ok()
+                .and_then(|t| t.trim().parse().ok())
+                .ok_or(PluginError::Message("a bad preset file"))?,
+        };
+        self.shared.gain.store(gain.to_bits(), Ordering::Relaxed);
+        Ok(())
+    }
+}
 
 impl PluginStateImpl for MainThread<'_> {
     fn save(&self, output: &mut OutputStream) -> Result<(), PluginError> {

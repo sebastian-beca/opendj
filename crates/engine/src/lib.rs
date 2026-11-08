@@ -309,6 +309,15 @@ impl AudioEngine {
         }
     }
 
+    /// Loads one of instrument plugin `key`'s own presets (see
+    /// [`plugins::PluginHost::load_instrument_preset`]).
+    pub fn load_instrument_preset(&self, key: &str, reference: &str) -> Result<(), String> {
+        match &self.plugins {
+            Some(p) => p.load_instrument_preset(key, reference),
+            None => Err("this build hosts no plugins".into()),
+        }
+    }
+
     /// The playing instrument's parameter names, for its knobs
     /// (`[Instrument1],parameterN` is the N-th); empty while none plays.
     pub fn instrument_parameters(&self) -> Vec<String> {
