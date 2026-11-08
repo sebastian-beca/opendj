@@ -224,7 +224,12 @@ pub fn show_plugins(app: &AppWindow, instruments: &[Found], names: &[String]) {
         instruments
             .iter()
             .zip(names)
-            .map(|(f, name)| (f.key.clone(), name.clone()))
+            .map(|(f, name)| presets::Instrument {
+                key: f.key.clone(),
+                name: name.clone(),
+                plugin_name: f.name.clone(),
+                maker: f.vendor.clone(),
+            })
             .collect(),
     );
     refresh(app);
@@ -294,7 +299,13 @@ fn nodes(s: &State) -> Vec<(String, InstrumentNode)> {
         ("all".to_string(), node("All instruments", 0, 0, 6, total)),
         (
             "presets".to_string(),
-            node("My presets", 0, 0, 7, s.presets.len() as i32),
+            node(
+                "My presets",
+                0,
+                0,
+                7,
+                s.presets.iter().filter(|p| !p.from_plugin).count() as i32,
+            ),
         ),
         ("groove".to_string(), node("Groove Box", 0, 0, 1, -1)),
         (
@@ -379,7 +390,12 @@ fn rows(s: &State) -> Vec<LiveItem> {
         kind: PRESET,
         index: i as i32,
         name: p.name.as_str().into(),
-        r#type: "Preset".into(),
+        r#type: if p.from_plugin {
+            "Plugin preset"
+        } else {
+            "Preset"
+        }
+        .into(),
         maker: p.instrument_name.as_str().into(),
         format: "".into(),
         problem: "".into(),
@@ -411,6 +427,7 @@ fn rows(s: &State) -> Vec<LiveItem> {
             .presets
             .iter()
             .enumerate()
+            .filter(|(_, p)| !p.from_plugin)
             .map(|(i, p)| preset(i, p))
             .collect(),
         "plugins" => plugins(&|_| true),
@@ -703,11 +720,17 @@ mod tests {
             } else {
                 vec!["Drums".into()]
             },
+            from_plugin: false,
         };
         let mut s = state("groove");
         s.presets = vec![
             preset("Four Floor", GROOVE, "Groove Box"),
             preset("Ambient Ebow", "clap:Jun-6 V", "Jun-6 V"),
+            Preset {
+                tags: Vec::new(),
+                from_plugin: true,
+                ..preset("Factory Brass", "clap:Jun-6 V", "Jun-6 V")
+            },
         ];
         let names = |s: &State| {
             rows(s)
@@ -727,11 +750,15 @@ mod tests {
             names(&s),
             [
                 (PLUGIN, 2, "Jun-6 V".into()),
-                (PRESET, 1, "Ambient Ebow".into())
+                (PRESET, 1, "Ambient Ebow".into()),
+                (PRESET, 2, "Factory Brass".into())
             ]
         );
+        // My presets are the user's: the plugin's own list under it only.
         s.current = "presets".into();
         assert_eq!(names(&s).len(), 2);
+        let mine = nodes(&s).into_iter().find(|(k, _)| k == "presets").unwrap();
+        assert_eq!(mine.1.count, 2);
         assert_eq!(parse(&payload(PRESET, 1)), Some(5001));
         // The Pad chip leaves the presets tagged Pad; Pad and Drums, none.
         let chip = |t: &str| presets::tags().position(|x| x == t).unwrap();
