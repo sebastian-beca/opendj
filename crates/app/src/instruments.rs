@@ -219,7 +219,17 @@ pub fn show_plugins(app: &AppWindow, instruments: &[Found], names: &[String]) {
             })
             .collect();
     });
-    crate::instrument_art::show_plugins(app, instruments.iter().map(|f| f.key.clone()).collect());
+    crate::instrument_art::show_plugins(
+        app,
+        instruments
+            .iter()
+            .map(|f| crate::instrument_art::Plugin {
+                key: f.key.clone(),
+                name: f.name.clone(),
+                maker: f.vendor.clone(),
+            })
+            .collect(),
+    );
     presets::set_plugins(
         app,
         instruments
