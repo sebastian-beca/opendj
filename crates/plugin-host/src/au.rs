@@ -222,7 +222,21 @@ extern "C" {
     fn CFDataCreate(allocator: *const c_void, bytes: *const u8, length: isize) -> *const c_void;
     fn CFDataGetLength(data: *const c_void) -> isize;
     fn CFDataGetBytePtr(data: *const c_void) -> *const u8;
+    fn CFArrayGetCount(array: *const c_void) -> isize;
+    fn CFArrayGetValueAtIndex(array: *const c_void, index: isize) -> *const c_void;
 }
+
+/// One of a unit's factory presets, as `kAudioUnitProperty_FactoryPresets`
+/// lists them and `kAudioUnitProperty_PresentPreset` takes one.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct AUPreset {
+    presetNumber: i32,
+    presetName: CFStringRef,
+}
+
+/// How a factory preset's reference starts (see [`presets`]).
+const FACTORY: &str = "au-factory:";
 
 /// `kCFPropertyListBinaryFormat_v1_0`.
 const kCFPropertyListBinaryFormat_v1_0: isize = 200;
@@ -253,7 +267,9 @@ const kAudioUnitProperty_StreamFormat: u32 = 8;
 const kAudioUnitProperty_Latency: u32 = 12;
 const kAudioUnitProperty_MaximumFramesPerSlice: u32 = 14;
 const kAudioUnitProperty_SetRenderCallback: u32 = 23;
+const kAudioUnitProperty_FactoryPresets: u32 = 24;
 const kAudioUnitProperty_HostCallbacks: u32 = 27;
+const kAudioUnitProperty_PresentPreset: u32 = 36;
 
 const kAudioUnitParameterFlag_HasCFNameString: u32 = 1 << 27;
 const kAudioUnitParameterFlag_IsReadable: u32 = 1 << 30;
@@ -367,6 +383,33 @@ struct AuMain {
 }
 
 impl MainThread for AuMain {
+    fn load_preset(&mut self, reference: &str) -> Result<(), String> {
+        let number: i32 = reference
+            .strip_prefix(FACTORY)
+            .and_then(|n| n.parse().ok())
+            .ok_or("not one of its presets")?;
+        let mut result = Err("it no longer has that preset".to_string());
+        // SAFETY: the unit lives as long as the helper; the preset (and its
+        // name) is the unit's own, alive while it is set.
+        unsafe {
+            let unit = self.unit;
+            each_factory_preset(unit, |p| {
+                if p.presetNumber == number {
+                    let r = AudioUnitSetProperty(
+                        unit,
+                        kAudioUnitProperty_PresentPreset,
+                        kAudioUnitScope_Global,
+                        0,
+                        p as *const AUPreset as *const c_void,
+                        std::mem::size_of::<AUPreset>() as u32,
+                    );
+                    result = check(r, "loading the preset");
+                }
+            });
+        }
+        result
+    }
+
     fn param_values(&mut self, out: &mut [f64]) -> bool {
         for (o, id) in out.iter_mut().zip(&self.param_ids) {
             let mut v = 0.0f32;
@@ -786,6 +829,60 @@ unsafe extern "C" fn beat_and_tempo(
         *tempo = f64::from_bits(feed.bpm.load(Ordering::Relaxed));
     }
     0
+}
+
+/// Calls `f` with each of `unit`'s factory presets, while the list the unit
+/// gave is alive (the names belong to it).
+///
+/// # Safety
+/// `unit` must be a live unit.
+unsafe fn each_factory_preset(unit: AudioUnit, mut f: impl FnMut(&AUPreset)) {
+    let mut list: *const c_void = ptr::null();
+    let mut size = std::mem::size_of::<*const c_void>() as u32;
+    let r = AudioUnitGetProperty(
+        unit,
+        kAudioUnitProperty_FactoryPresets,
+        kAudioUnitScope_Global,
+        0,
+        &mut list as *mut _ as *mut c_void,
+        &mut size,
+    );
+    if r != 0 || list.is_null() {
+        return;
+    }
+    for i in 0..CFArrayGetCount(list) {
+        let p = CFArrayGetValueAtIndex(list, i) as *const AUPreset;
+        if !p.is_null() {
+            f(&*p);
+        }
+    }
+    // The caller owns the list it is given.
+    CFRelease(list);
+}
+
+/// Unit `id`'s factory presets, as (name, reference for
+/// [`MainThread::load_preset`]). Runs in a throwaway helper
+/// (`opendj-plugin-host --presets --au`), never in openDJ.
+pub fn presets(id: &str) -> Result<Vec<(String, String)>, String> {
+    let want = parse_id(id).ok_or_else(|| format!("bad Audio Unit id {id:?}"))?;
+    // SAFETY: AudioToolbox calls with valid pointers; the unit lives until
+    // the helper exits.
+    unsafe {
+        let comp = AudioComponentFindNext(ptr::null_mut(), &want);
+        if comp.is_null() {
+            return Err(format!("no Audio Unit {id:?} is installed"));
+        }
+        let mut unit: AudioUnit = ptr::null_mut();
+        check(AudioComponentInstanceNew(comp, &mut unit), "starting it")?;
+        let mut found = Vec::new();
+        each_factory_preset(unit, |p| {
+            found.push((
+                cf_string(p.presetName),
+                format!("{FACTORY}{}", p.presetNumber),
+            ));
+        });
+        Ok(found)
+    }
 }
 
 fn check(r: OSStatus, what: &str) -> Result<(), String> {
