@@ -157,8 +157,11 @@ export global InstrumentsUi {
     // Each ticked plugin's own image, in the picker's order, and each
     // input's (microphone, aux 1, aux 2, aux 3), with whether there is one:
     // dropped on a deck playing it, or chosen from its cover's menu.
+    // A plugin without one of the DJ's shows the art it brings, if any
+    // (NKS artwork, its bundle's icon): plugin-own-art tells them apart.
     in property <[image]> plugin-art;
     in property <[bool]> plugin-has-art;
+    in property <[bool]> plugin-own-art;
     in property <[image]> input-art;
     in property <[bool]> input-has-art;
     // Files dropped on deck `deck` playing `live`: an image becomes its art,
@@ -176,6 +179,12 @@ export global InstrumentsUi {
     public pure function has-art(live: int) -> bool {
         live == 3 ? instrument() > 0 && instrument() <= plugin-has-art.length && plugin-has-art[instrument() - 1]
             : input-slot(live) >= 0 && input-slot(live) < input-has-art.length && input-has-art[input-slot(live)]
+    }
+
+    // `live`'s image is one the DJ gave, so it can be removed.
+    public pure function own-art(live: int) -> bool {
+        live == 3 ? instrument() > 0 && instrument() <= plugin-own-art.length && plugin-own-art[instrument() - 1]
+            : has-art(live)
     }
 
     public pure function art(live: int) -> image {
