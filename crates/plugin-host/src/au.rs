@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::client::Transport;
 use crate::descriptor::Descriptor;
 use crate::effects::{arrange, EditorSize, Effect, Info, Loaded, MainThread, Param, ParentWindow};
-use crate::shm::{Midi, CHANNELS, MAX_PARAMS};
+use crate::shm::{Midi, CHANNELS};
 
 type OSStatus = i32;
 type AudioComponent = *mut c_void;
@@ -1107,6 +1107,7 @@ impl Effect for AuEffect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shm::MAX_PARAMS;
 
     #[test]
     fn ids_round_trip() {
