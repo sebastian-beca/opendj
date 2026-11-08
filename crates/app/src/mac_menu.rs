@@ -2,7 +2,9 @@
 //! Settings… (⌘,) in the app menu, then File, Edit… after it.
 //! Slint builds the app menu itself (About, Services, Hide, Quit) with no
 //! way to add to it, so the items are added to the native menu once it
-//! exists.
+//! exists. Slint gives each window a menu bar of its own and swaps it in
+//! when that window comes to the front, so [`install`] runs on a timer and
+//! fills each new menu bar it finds.
 
 use std::cell::RefCell;
 
@@ -20,6 +22,8 @@ thread_local! {
     static TARGET: RefCell<Option<Retained<MenuTarget>>> = const { RefCell::new(None) };
     /// Every item, by what it does, to rename or grey out.
     static ITEMS: RefCell<Vec<(Action, Retained<NSMenuItem>)>> = const { RefCell::new(Vec::new()) };
+    /// The menu bars already filled.
+    static FILLED: RefCell<Vec<Retained<NSMenu>>> = const { RefCell::new(Vec::new()) };
 }
 
 define_class!(
@@ -111,26 +115,42 @@ fn fill(mtm: MainThreadMarker, target: &MenuTarget, menu: &NSMenu, entries: &'st
     }
 }
 
+/// Sets what a picked item does. Call once, before [`install`].
+pub fn on_action(run: impl Fn(Action) + 'static) {
+    RUN.with(|r| *r.borrow_mut() = Some(Box::new(run)));
+}
+
 /// Adds Settings… under About in the app menu and the File, Edit… menus
-/// after it, each item calling `run`. Returns false if the menu bar isn't
-/// there yet, to try again later.
-pub fn install(run: impl Fn(Action) + 'static) -> bool {
+/// after it, to the menu bar showing now, unless it has them already.
+/// Cheap when there's nothing to do, so call it often: the menu bar only
+/// exists once the event loop runs, and each window brings its own.
+pub fn install() {
     let Some(mtm) = MainThreadMarker::new() else {
-        return false;
+        return;
     };
     let app = NSApplication::sharedApplication(mtm);
     let Some(main) = app.mainMenu() else {
-        return false;
+        return;
     };
+    if FILLED.with(|f| {
+        f.borrow()
+            .iter()
+            .any(|m| Retained::as_ptr(m) == Retained::as_ptr(&main))
+    }) {
+        return;
+    }
     let Some(app_menu) = main.itemAtIndex(0).and_then(|i| i.submenu()) else {
-        return false;
+        return;
     };
-    RUN.with(|r| *r.borrow_mut() = Some(Box::new(run)));
-    let target: Retained<MenuTarget> = {
-        let this = MenuTarget::alloc(mtm).set_ivars(());
-        // SAFETY: NSObject's init, on a freshly allocated object.
-        unsafe { msg_send![super(this), init] }
-    };
+    let target = TARGET.with(|t| {
+        t.borrow_mut()
+            .get_or_insert_with(|| {
+                let this = MenuTarget::alloc(mtm).set_ivars(());
+                // SAFETY: NSObject's init, on a freshly allocated object.
+                unsafe { msg_send![super(this), init] }
+            })
+            .clone()
+    });
     // About, then a line, then Settings… and a line, as in other Mac apps.
     let settings = new_item(mtm, &target, Action::Settings, "Settings…", ",");
     let at = 2.min(app_menu.numberOfItems());
@@ -150,8 +170,7 @@ pub fn install(run: impl Fn(Action) + 'static) -> bool {
         main.insertItem_atIndex(&holder, at);
         at += 1;
     }
-    TARGET.with(|t| *t.borrow_mut() = Some(target));
-    true
+    FILLED.with(|f| f.borrow_mut().push(main));
 }
 
 /// Renames an item and greys it out or back in.

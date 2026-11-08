@@ -1604,29 +1604,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // File and Edit: the ☰ menu on Windows and Linux, and the native menu
-    // bar on macOS, which only exists once the event loop runs, so keep
-    // trying until it's there.
+    // bar on macOS. That one only exists once the event loop runs, and
+    // Slint swaps in a fresh one for each window that comes to the front,
+    // so keep filling whichever is showing.
     app_menu::install(&app);
     mini_player::install(&app);
     #[cfg(target_os = "macos")]
     let _mac_menu = {
         let weak = app.as_weak();
+        mac_menu::on_action(move |action| {
+            if let Some(app) = weak.upgrade() {
+                app_menu::run(&app, action);
+            }
+        });
         let timer = slint::Timer::default();
-        let added = std::rc::Rc::new(std::cell::Cell::new(false));
         timer.start(
             slint::TimerMode::Repeated,
             std::time::Duration::from_millis(100),
-            move || {
-                if added.get() {
-                    return;
-                }
-                let weak = weak.clone();
-                added.set(mac_menu::install(move |action| {
-                    if let Some(app) = weak.upgrade() {
-                        app_menu::run(&app, action);
-                    }
-                }));
-            },
+            mac_menu::install,
         );
         timer
     };
