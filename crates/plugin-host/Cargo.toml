@@ -9,7 +9,7 @@ license.workspace = true
 memmap2 = "0.9"
 serde_json = "1"
 clack-host = { version = "0.2", optional = true }
-clack-extensions = { version = "0.2", optional = true, features = ["clack-host", "params", "state", "latency", "audio-ports", "gui", "timer", "posix-fd"] }
+clack-extensions = { version = "0.2", optional = true, features = ["clack-host", "params", "state", "latency", "audio-ports", "gui", "timer", "posix-fd", "remote-controls"] }
 # VST3: Steinberg's interfaces as Rust bindings (the SDK is MIT since 3.8).
 vst3 = { version = "0.3", optional = true }
 libloading = { version = "0.8", optional = true }

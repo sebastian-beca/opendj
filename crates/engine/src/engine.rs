@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use opendj_control::{ControlHandle, ControlRegistry};
 
+use crate::auto_trim::AutoTrim;
 use crate::beats::GridEdit;
 use crate::controls::{
     create_global_controls, Action, DeckControls, Edge, MasterControls, HOTCUE_CUE, HOTCUE_LOOP,
@@ -283,6 +284,8 @@ struct Deck {
     /// last buffer.
     live_trim: f32,
     live_pan: f32,
+    /// Sets the trim from the input's first seconds (see `auto_trim`).
+    auto_trim: AutoTrim,
     /// The deck's crossfader side before it took a live input, put back
     /// when it goes back to tracks (a live input starts on Thru).
     side_before_live: Option<f64>,
@@ -1799,6 +1802,7 @@ impl Engine {
             live_trim: 1.0,
             live_pan: 0.0,
             side_before_live: None,
+            auto_trim: AutoTrim::default(),
             eq_gains: [1.0; 3],
             pregain: 1.0,
             track_gain: false,
@@ -2206,6 +2210,12 @@ impl Engine {
                     d.side_before_live = Some(d.c.orientation.get());
                     d.c.orientation.set(1.0);
                 }
+                // An untouched trim is set from what it first plays.
+                if d.c.live_trim.get() == 0.0 {
+                    d.auto_trim.arm();
+                } else {
+                    d.auto_trim.disarm();
+                }
             } else if live > 0 && groove && !self.groove_seen[deck] {
                 self.decks[deck].c.live_input.set(0.0);
             }
@@ -2213,6 +2223,14 @@ impl Engine {
             if d.live_input() == 0 {
                 if let Some(side) = d.side_before_live.take() {
                     d.c.orientation.set(side);
+                }
+                d.auto_trim.disarm();
+            } else if d.auto_trim.armed() {
+                // Turned by the DJ: theirs from now on.
+                if d.c.live_trim.get() != 0.0 {
+                    d.auto_trim.disarm();
+                } else if let Some(db) = d.auto_trim.finish(self.sample_rate) {
+                    d.c.live_trim.set(db);
                 }
             }
             self.live_seen[deck] = self.decks[deck].live_input();
@@ -3515,6 +3533,7 @@ impl Engine {
                 }
                 if live_on[i] > 0 {
                     let x = self.inputs[live_on[i] - 1].raw[f];
+                    d.auto_trim.listen(x);
                     let [l, r] = live_balance(lerp(p.live_pan));
                     let t = lerp(p.live_trim);
                     s = [x[0] * t * l, x[1] * t * r];
@@ -7019,6 +7038,33 @@ mod tests {
         load(&mut input, 1, short_track(120.0, 4.0));
         talk(&mut engine, &mut tx, 0.05, sine(500.0, 0.4));
         assert_eq!(ch(2, "live_input").get(), 0.0);
+    }
+
+    #[test]
+    fn an_untouched_trim_is_set_from_the_inputs_first_seconds() {
+        let (reg, mut engine, _input) = setup();
+        let ch = |d: usize, k: &str| reg.get(&format!("[Channel{d}]"), k).unwrap();
+        let (feed, mut tx) = mic_feed();
+        engine.set_input(AUXILIARY, Some(feed));
+        ch(2, "live_input").set(2.0);
+        // Quiet gear, peaking at -20 dBFS, comes up to -6.
+        talk(&mut engine, &mut tx, 2.0, sine(500.0, 0.1));
+        assert_eq!(ch(2, "live_trim").get(), 0.0);
+        talk(&mut engine, &mut tx, 1.5, sine(500.0, 0.1));
+        let trim = ch(2, "live_trim").get();
+        assert!((trim - 14.0).abs() <= 0.5, "{trim}");
+        // Once set, it is left alone.
+        talk(&mut engine, &mut tx, 3.5, sine(500.0, 0.4));
+        assert_eq!(ch(2, "live_trim").get(), trim);
+        // Turned by hand before it is done, it stays where it was put.
+        ch(2, "live_input").set(0.0);
+        ch(2, "live_trim").set(0.0);
+        run(&mut engine, 0.05);
+        ch(2, "live_input").set(2.0);
+        talk(&mut engine, &mut tx, 1.0, sine(500.0, 0.1));
+        ch(2, "live_trim").set(3.0);
+        talk(&mut engine, &mut tx, 3.0, sine(500.0, 0.1));
+        assert_eq!(ch(2, "live_trim").get(), 3.0);
     }
 
     #[test]
