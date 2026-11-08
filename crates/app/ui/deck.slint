@@ -4401,6 +4401,7 @@ export component LiveStrip inherits Rectangle {
                 ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "EDIT"; tint: Theme.accent; height: 24px; font-size: 11px; outline-when-lit: true; }
             }
         }
+<<<<<<< HEAD
         // The interface input it comes in on; a click picks another.
         if live != 3: HorizontalLayout {
             alignment: center;
@@ -4414,6 +4415,19 @@ export component LiveStrip inherits Rectangle {
         HorizontalLayout {
             alignment: live == 3 ? LayoutAlignment.space-around : LayoutAlignment.center;
             spacing: live == 3 ? 0px : 40px;
+=======
+        if live != 3: Text {
+            vertical-stretch: 1;
+            text: InstrumentsUi.route(live) != "" ? InstrumentsUi.route(live) : "Live input";
+            color: Theme.text-dim;
+            font-size: 11px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        HorizontalLayout {
+            alignment: space-around;
+>>>>>>> origin/main
             if live == 3: HorizontalLayout {
                 spacing: 0px;
                 for k in 4: ParamKnob { index: k; count: root.count; tint: root.tint; width: 52px; }
