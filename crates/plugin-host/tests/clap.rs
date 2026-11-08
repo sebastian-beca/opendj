@@ -188,8 +188,12 @@ fn the_plugins_own_presets_are_listed_and_load() {
     std::fs::write(dir.join("notes.txt"), "not a preset").unwrap();
     // Only this test's listing reads it.
     std::env::set_var("OPENDJ_TEST_PRESETS", &dir);
-    let found = presets(&helper(), &test_plugin(), ID, Duration::from_secs(20))
-        .expect("the presets are listed");
+    let plugin = Plugin::Clap {
+        file: test_plugin(),
+        id: ID.into(),
+    };
+    let found =
+        presets(&helper(), &plugin, Duration::from_secs(20)).expect("the presets are listed");
     let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
     // Another plugin's preset is left out; a file's is named after it.
     assert_eq!(names, ["Loud", "Quiet", "Half"]);

@@ -209,22 +209,26 @@ pub fn scan_audio_units(helper: &Path, timeout: Duration) -> Result<Vec<Descript
     scan_with(helper, &["--scan-au".into()], timeout)
 }
 
-/// A CLAP plugin's own presets, as (name, reference for
-/// [`Helper::load_preset`]), from its preset discovery providers, read in
-/// a throwaway helper like [`scan`].
+/// A plugin's own presets, as (name, reference for
+/// [`Helper::load_preset`]), read in a throwaway helper like [`scan`]: a
+/// CLAP plugin's from its preset discovery providers, an Audio Unit's
+/// factory presets. Other plugins list none.
 pub fn presets(
     helper: &Path,
-    file: &Path,
-    id: &str,
+    plugin: &Plugin,
     timeout: Duration,
 ) -> Result<Vec<(String, String)>, ScanError> {
-    let args = [
-        "--presets".into(),
-        "--clap".into(),
-        file.as_os_str().to_owned(),
-        "--id".into(),
-        id.into(),
-    ];
+    let args: Vec<std::ffi::OsString> = match plugin {
+        Plugin::Clap { file, id } => vec![
+            "--presets".into(),
+            "--clap".into(),
+            file.as_os_str().to_owned(),
+            "--id".into(),
+            id.into(),
+        ],
+        Plugin::Au { id } => vec!["--presets".into(), "--au".into(), id.into()],
+        _ => return Ok(Vec::new()),
+    };
     Ok(lines(helper, &args, timeout)?
         .iter()
         .filter_map(|line| {
