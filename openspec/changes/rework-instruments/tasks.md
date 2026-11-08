@@ -19,7 +19,7 @@
 - [x] 3.1 Live channels: TRIM (−12 to +24 dB), PAN and an always-on true-peak safety limiter at −1 dBTP for every deck playing an instrument or input; Thru on the crossfader by default
 - [x] 3.2 2-Deck instrument deck: header with the art box (artwork itself in 5), preset ‹ ›, scope, EDIT, SAVE, 8 knobs in pages, TRIM, PAN, meter, keyboard lighting played notes
 - [x] 3.3 Knob pages from the plugin's first 32 parameters, eight to a page; the knobs follow the plugin's own changes (its window, a loaded preset)
-- [ ] 3.8 Knob pages from CLAP remote controls when the plugin has them; the user's picks (right-click Assign…), saved in the preset
+- [x] 3.8 Knob pages from CLAP remote controls when the plugin has them; the user's picks (right-click Assign…), saved in the preset
 - [x] 3.4 4-Deck instrument strip: art, preset ‹ ›, thin scope, 4 knobs, TRIM, meter, EDIT; no keyboard
 - [x] 3.5 Input decks (mic, aux): header with the interface input, TRIM, PAN, meter
 - [x] 3.7 TRIM set on first play from the input's level

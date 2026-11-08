@@ -46,7 +46,7 @@ use vst3::{Class, ComPtr, ComWrapper, Interface};
 
 use crate::client::Transport;
 use crate::descriptor::{features, Descriptor, AUDIO_MODULE};
-use crate::effects::{EditorSize, Effect, Info, Loaded, MainThread, Param, ParentWindow};
+use crate::effects::{arrange, EditorSize, Effect, Info, Loaded, MainThread, Param, ParentWindow};
 use crate::shm::{Midi, CHANNELS, MAX_EVENTS, MAX_PARAMS};
 
 fn cstr(buf: &[c_char]) -> String {
@@ -969,6 +969,7 @@ pub fn load(
     id: &str,
     sample_rate: u32,
     max_frames: usize,
+    picks: &[(usize, u32)],
 ) -> Result<Loaded, String> {
     let module = load_module(bundle)?;
     let cid = hex_to_cid(id).ok_or_else(|| format!("bad VST3 class id {id:?}"))?;
@@ -1097,13 +1098,11 @@ pub fn load(
         }
         let latency = processor.getLatencySamples();
 
-        // The first parameters a DJ could turn.
+        // The parameters a DJ could turn: the DJ's picks first, then the
+        // plugin's own order.
         let mut params = Vec::new();
         if let Some(c) = &controller {
             for i in 0..c.getParameterCount() {
-                if params.len() == MAX_PARAMS {
-                    break;
-                }
                 let mut p: ParameterInfo = std::mem::zeroed();
                 if !ok(c.getParameterInfo(i, &mut p)) {
                     continue;
@@ -1118,6 +1117,7 @@ pub fn load(
                 params.push((
                     p.id,
                     Param {
+                        id: p.id,
                         name: wstr(&p.title),
                         min: 0.0,
                         max: 1.0,
@@ -1127,6 +1127,8 @@ pub fn load(
                 ));
             }
         }
+
+        let listed = arrange(&mut params, &[], picks);
 
         let effect = Vst3Effect {
             processor: Send2(processor),
@@ -1163,6 +1165,7 @@ pub fn load(
             info: Info {
                 name,
                 params: params.into_iter().map(|(_, p)| p).collect(),
+                all: listed,
                 latency,
             },
         })

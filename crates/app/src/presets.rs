@@ -234,6 +234,21 @@ fn plugin_state(body: &Map<String, Value>) -> Result<Vec<u8>, String> {
         .map_err(|_| "the preset's sound is damaged".to_string())
 }
 
+/// A plugin preset's knob picks, (knob, parameter id); none in a preset
+/// saved before knobs could be picked.
+fn knob_picks(body: &Map<String, Value>) -> Option<Vec<(usize, u32)>> {
+    let list = body.get("knobs")?.as_array()?;
+    Some(
+        list.iter()
+            .filter_map(|p| {
+                let knob = p.get(0)?.as_u64()?;
+                let id = p.get(1)?.as_u64()?;
+                Some((usize::try_from(knob).ok()?, u32::try_from(id).ok()?))
+            })
+            .collect(),
+    )
+}
+
 /// What a deck plays that can have presets.
 #[derive(Clone, Debug, PartialEq)]
 enum Playing {
@@ -374,6 +389,12 @@ impl Ctx {
                         preset.instrument_name
                     )
                 })?;
+            // Its knob picks first, so a restart to take them starts from
+            // the sound below. A preset from before picks leaves them be.
+            if let Some(picks) = knob_picks(&body) {
+                self.engine
+                    .set_instrument_picks(&preset.instrument, picks)?;
+            }
             self.engine
                 .load_instrument_sound(&preset.instrument, plugin_state(&body)?)?;
             self.set("[Instrument1]", "instrument", (index + 1) as f64);
@@ -423,6 +444,7 @@ impl Ctx {
                 "state".into(),
                 json!(base64::engine::general_purpose::STANDARD.encode(data)),
             );
+            body.insert("knobs".into(), json!(self.engine.instrument_picks()));
         }
         Ok(())
     }
@@ -575,6 +597,17 @@ mod tests {
         let d = std::env::temp_dir().join(format!("opendj-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
+    }
+
+    #[test]
+    fn a_presets_knob_picks_read_back() {
+        let body = |v: Value| v.as_object().unwrap().clone();
+        assert_eq!(
+            knob_picks(&body(json!({"knobs": [[0, 42], [3, 7]]}))),
+            Some(vec![(0, 42), (3, 7)])
+        );
+        assert_eq!(knob_picks(&body(json!({"knobs": []}))), Some(vec![]));
+        assert_eq!(knob_picks(&body(json!({"state": ""}))), None);
     }
 
     #[test]

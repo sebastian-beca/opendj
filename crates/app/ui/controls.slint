@@ -127,6 +127,8 @@ export component ControlKnob inherits Rectangle {
     in property <length> size: 34px;
     // Centre detent (EQs, filter): marks the default position above the knob.
     in property <bool> bipolar: false;
+    // A right click on it, for a knob with a menu of its own.
+    callback right-clicked();
     property <int> index: Controls.resolve(group, key);
     property <float> param: Controls.parameter(index, Controls.tick);
     property <float> drag-start;
@@ -222,7 +224,9 @@ export component ControlKnob inherits Rectangle {
     touch := TouchArea {
         mouse-cursor: ns-resize;
         pointer-event(e) => {
-            if e.kind == PointerEventKind.down {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.right {
+                root.right-clicked();
+            } else if e.kind == PointerEventKind.down {
                 drag-start = param;
             }
         }

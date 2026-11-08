@@ -79,6 +79,12 @@ export global PresetUi {
     }
 }
 
+// A parameter of the playing instrument, to put on a knob.
+export struct ParamMatch {
+    id: int,
+    name: string,
+}
+
 export global InstrumentsUi {
     // The tree, the line selected in it and the rows it lists, set by the app.
     in property <[InstrumentNode]> nodes;
@@ -118,6 +124,15 @@ export global InstrumentsUi {
     // The instrument's parameter names, for its knobs
     // (`[Instrument1],parameterN` is the N-th). Set by the app.
     in property <[string]> param-names;
+    // The instrument's knobs the DJ picked a parameter for (knob order),
+    // and the parameters to pick from that match `search-params`' text.
+    in property <[bool]> knob-picked;
+    in property <[int]> knob-ids;
+    in property <[ParamMatch]> param-matches;
+    callback search-params(text: string);
+    // Puts parameter `id` on knob `knob` (from 0); -1 gives the knob back
+    // to the plugin's own choice.
+    callback pick-knob(knob: int, id: int);
     // The page of eight knobs the instrument deck shows, from 0; the macro
     // lanes follow the same page.
     in-out property <int> knob-page;

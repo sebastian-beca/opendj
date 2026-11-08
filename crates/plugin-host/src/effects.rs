@@ -113,6 +113,9 @@ pub struct EditorSize {
 /// One parameter, in the plugin's own (plain) units.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Param {
+    /// The plugin's own id for it (CLAP param id, VST3 `ParamID`, AU
+    /// parameter id; a test effect's index).
+    pub id: u32,
     pub name: String,
     pub min: f64,
     pub max: f64,
@@ -127,6 +130,9 @@ pub struct Info {
     pub name: String,
     /// Up to [`crate::shm::MAX_PARAMS`]; index `i` is shared parameter `i`.
     pub params: Vec<Param>,
+    /// Every parameter a DJ could turn, (id, name) in the plugin's order,
+    /// to pick from for a knob (up to [`ALL_PARAMS`]).
+    pub all: Vec<(u32, String)>,
     /// Frames the plugin delays its output by.
     pub latency: u32,
 }
@@ -185,6 +191,53 @@ impl MainThread for TestEditor {
     }
 }
 
+/// The most parameters listed to pick from (see [`Info::all`]).
+pub const ALL_PARAMS: usize = 4096;
+
+/// Puts a plugin's parameters in knob order and keeps the first
+/// [`MAX_PARAMS`](crate::shm::MAX_PARAMS): each picked one (knob slot,
+/// param id) in its slot, then those in `preferred` (its maker's remote
+/// controls pages) in that order, then the rest in its own order. Returns
+/// every parameter as (id, name), in its own order, for [`Info::all`].
+pub fn arrange<T>(
+    params: &mut Vec<(T, Param)>,
+    preferred: &[u32],
+    picks: &[(usize, u32)],
+) -> Vec<(u32, String)> {
+    use crate::shm::MAX_PARAMS;
+    let all = params
+        .iter()
+        .take(ALL_PARAMS)
+        .map(|(_, p)| (p.id, p.name.clone()))
+        .collect();
+    params.sort_by_key(|(_, p)| {
+        preferred
+            .iter()
+            .position(|&id| id == p.id)
+            .unwrap_or(usize::MAX)
+    });
+    let mut slots: Vec<Option<(T, Param)>> = (0..MAX_PARAMS).map(|_| None).collect();
+    let mut rest = Vec::with_capacity(params.len());
+    for (t, p) in params.drain(..) {
+        match picks
+            .iter()
+            .find(|&&(slot, id)| id == p.id && slot < MAX_PARAMS)
+        {
+            Some(&(slot, _)) if slots[slot].is_none() => slots[slot] = Some((t, p)),
+            _ => rest.push((t, p)),
+        }
+    }
+    let mut rest = rest.into_iter();
+    for slot in &mut slots {
+        if slot.is_none() {
+            *slot = rest.next();
+        }
+    }
+    // A pick past the plugin's last knob leaves gaps: close them up.
+    params.extend(slots.into_iter().flatten());
+    all
+}
+
 /// Ids of the test effects.
 pub const TEST_EFFECTS: [&str; 5] = [
     "test-gain",
@@ -195,7 +248,14 @@ pub const TEST_EFFECTS: [&str; 5] = [
 ];
 
 /// Loads `plugin`, or says why not.
-pub fn load(plugin: &Plugin, sample_rate: u32, max_frames: usize) -> Result<Loaded, String> {
+pub fn load(
+    plugin: &Plugin,
+    sample_rate: u32,
+    max_frames: usize,
+    picks: &[(usize, u32)],
+) -> Result<Loaded, String> {
+    #[cfg(not(feature = "formats"))]
+    let _ = picks;
     // Each test effect has one parameter, the one it acts on.
     let test = |effect: Box<dyn Effect>, name: &str, param: &str, max: f64, value: f64| Loaded {
         effect,
@@ -203,12 +263,14 @@ pub fn load(plugin: &Plugin, sample_rate: u32, max_frames: usize) -> Result<Load
         info: Info {
             name: name.into(),
             params: vec![Param {
+                id: 0,
                 name: param.into(),
                 min: 0.0,
                 max,
                 default: value,
                 value,
             }],
+            all: vec![(0, param.into())],
             ..Info::default()
         },
     };
@@ -231,11 +293,11 @@ pub fn load(plugin: &Plugin, sample_rate: u32, max_frames: usize) -> Result<Load
             _ => Err(format!("unknown effect {id:?}")),
         },
         #[cfg(feature = "formats")]
-        Plugin::Clap { file, id } => crate::clap::load(file, id, sample_rate, max_frames),
+        Plugin::Clap { file, id } => crate::clap::load(file, id, sample_rate, max_frames, picks),
         #[cfg(feature = "formats")]
-        Plugin::Vst3 { file, id } => crate::vst3::load(file, id, sample_rate, max_frames),
+        Plugin::Vst3 { file, id } => crate::vst3::load(file, id, sample_rate, max_frames, picks),
         #[cfg(all(feature = "formats", target_os = "macos"))]
-        Plugin::Au { id } => crate::au::load(id, sample_rate, max_frames),
+        Plugin::Au { id } => crate::au::load(id, sample_rate, max_frames, picks),
         #[cfg(all(feature = "formats", not(target_os = "macos")))]
         Plugin::Au { .. } => Err("Audio Units only run on macOS".into()),
         #[cfg(not(feature = "formats"))]
@@ -363,5 +425,59 @@ impl Effect for Synth {
             l[f] = v;
             r[f] = v;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn params(names: &[&str]) -> Vec<((), Param)> {
+        names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                (
+                    (),
+                    Param {
+                        id: i as u32 * 10,
+                        name: n.to_string(),
+                        min: 0.0,
+                        max: 1.0,
+                        default: 0.0,
+                        value: 0.0,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    fn names(p: &[((), Param)]) -> Vec<&str> {
+        p.iter().map(|(_, p)| p.name.as_str()).collect()
+    }
+
+    #[test]
+    fn picks_take_their_knobs_then_the_makers_pages_then_the_rest() {
+        let mut p = params(&["a", "b", "c", "d", "e"]);
+        let all = arrange(&mut p, &[], &[]);
+        assert_eq!(names(&p), ["a", "b", "c", "d", "e"]);
+        assert_eq!(all[2], (20, "c".to_string()));
+        // The maker's pages put d and b first.
+        let mut p = params(&["a", "b", "c", "d", "e"]);
+        arrange(&mut p, &[30, 10], &[]);
+        assert_eq!(names(&p), ["d", "b", "a", "c", "e"]);
+        // The DJ put e on knob 1 and a on knob 4.
+        let mut p = params(&["a", "b", "c", "d", "e"]);
+        let all = arrange(&mut p, &[30, 10], &[(0, 40), (3, 0)]);
+        assert_eq!(names(&p), ["e", "d", "b", "a", "c"]);
+        // Listed in the plugin's own order, whatever the knobs.
+        assert_eq!(
+            all.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            [0, 10, 20, 30, 40]
+        );
+        // A pick past the last knob, or of a parameter gone, closes up.
+        let mut p = params(&["a", "b"]);
+        arrange(&mut p, &[], &[(5, 0), (0, 99)]);
+        assert_eq!(names(&p), ["b", "a"]);
     }
 }

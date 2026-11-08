@@ -317,6 +317,47 @@ impl AudioEngine {
             .map_or_else(Vec::new, |p| p.instrument_parameters())
     }
 
+    /// Every parameter of the playing instrument, (id, name), to pick
+    /// from for a knob; empty while none plays.
+    pub fn instrument_all_parameters(&self) -> Vec<(u32, String)> {
+        self.plugins
+            .as_ref()
+            .map_or_else(Vec::new, |p| p.instrument_all_parameters())
+    }
+
+    /// The parameter id each of the playing instrument's knobs turns.
+    pub fn instrument_knob_ids(&self) -> Vec<u32> {
+        self.plugins
+            .as_ref()
+            .map_or_else(Vec::new, |p| p.instrument_knob_ids())
+    }
+
+    /// The playing instrument's knobs the DJ picked a parameter for:
+    /// (knob from 0, parameter id).
+    pub fn instrument_picks(&self) -> Vec<(usize, u32)> {
+        self.plugins
+            .as_ref()
+            .map_or_else(Vec::new, |p| p.instrument_picks())
+    }
+
+    /// Puts parameter `id` on the playing instrument's knob `knob` (from
+    /// 0), or (none) gives it back to the plugin's own choice; the
+    /// instrument restarts with its sound to take it.
+    pub fn pick_instrument_knob(&self, knob: usize, id: Option<u32>) -> Result<(), String> {
+        match &self.plugins {
+            Some(p) => p.pick_instrument_knob(knob, id),
+            None => Err("this build hosts no plugins".into()),
+        }
+    }
+
+    /// Sets all of instrument plugin `key`'s knob picks, as a preset has them.
+    pub fn set_instrument_picks(&self, key: &str, picks: Vec<(usize, u32)>) -> Result<(), String> {
+        match &self.plugins {
+            Some(p) => p.set_instrument_picks(key, picks),
+            None => Err("this build hosts no plugins".into()),
+        }
+    }
+
     /// Keeps every running plugin's sound and stops the plugins, waiting
     /// until done. Call when quitting.
     pub fn shut_down_plugins(&self) {
