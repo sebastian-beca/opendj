@@ -82,6 +82,9 @@ pub struct Header {
 pub const STATE_SAVE: u32 = 1;
 /// `Header::state_cmd`: bring the plugin back to the state in the state file.
 pub const STATE_LOAD: u32 = 2;
+/// `Header::state_cmd`: load the plugin's own preset the state file names
+/// (a reference from a preset list, see `client::presets`).
+pub const STATE_PRESET: u32 = 3;
 
 /// One MIDI message at a frame of the block (a note for an instrument).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use opendj_plugin_host::{scan, spawn, Options, Outcome, Plugin, ScanError, Transport};
+use opendj_plugin_host::{presets, scan, spawn, Options, Outcome, Plugin, ScanError, Transport};
 
 const FRAMES: usize = 256;
 const DEADLINE: Duration = Duration::from_millis(500);
@@ -178,6 +178,37 @@ fn the_plugins_sound_is_saved_and_brought_back() {
         .expect("the plugin loads a state");
     let (_, got, input) = run(&mut conn, Transport::default());
     assert_eq!(got, input);
+}
+
+#[test]
+fn the_plugins_own_presets_are_listed_and_load() {
+    let dir = std::env::temp_dir().join(format!("opendj-clap-presets-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("Sub")).unwrap();
+    std::fs::write(dir.join("Sub/Half.gain"), "0.5").unwrap();
+    std::fs::write(dir.join("notes.txt"), "not a preset").unwrap();
+    // Only this test's listing reads it.
+    std::env::set_var("OPENDJ_TEST_PRESETS", &dir);
+    let found = presets(&helper(), &test_plugin(), ID, Duration::from_secs(20))
+        .expect("the presets are listed");
+    let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
+    // Another plugin's preset is left out; a file's is named after it.
+    assert_eq!(names, ["Loud", "Quiet", "Half"]);
+    let (mut conn, helper) = start();
+    let gain = |helper: &opendj_plugin_host::Helper| {
+        let state = helper.save_state().expect("the plugin saves its state");
+        f64::from_bits(u64::from_le_bytes(state.try_into().unwrap()))
+    };
+    helper
+        .load_preset(&found[0].1)
+        .expect("a preset in the plugin loads");
+    assert_eq!(gain(&helper), 1.5);
+    helper
+        .load_preset(&found[2].1)
+        .expect("a preset file loads");
+    assert_eq!(gain(&helper), 0.5);
+    assert!(helper.load_preset("nothing").is_err());
+    run(&mut conn, Transport::default());
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

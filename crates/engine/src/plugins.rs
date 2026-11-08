@@ -20,7 +20,9 @@ use std::time::{Duration, Instant};
 
 use opendj_control::{ControlHandle, ControlRegistry};
 pub use opendj_plugin_host::presets as plugin_presets;
-pub use opendj_plugin_host::{scan, scan_audio_units, Descriptor, Limits, Plugin, ScanError};
+pub use opendj_plugin_host::{
+    presets as own_presets, scan, scan_audio_units, Descriptor, Limits, Plugin, ScanError,
+};
 use opendj_plugin_host::{spawn, Action, Editor, Helper, Options, Policy, Status};
 
 use crate::controls::{effect_group, effect_unit_group, EFFECTS_PER_UNIT, NUM_EFFECT_UNITS};
@@ -131,6 +133,9 @@ enum SoundRequest {
     Pick(usize, Option<u32>, Sender<Result<(), String>>),
     /// All of plugin `key`'s knob picks, as a preset has them.
     Picks(String, Vec<(usize, u32)>, Sender<Result<(), String>>),
+    /// One of plugin `key`'s own presets, by the reference its preset list
+    /// gave (see `opendj_plugin_host::presets`).
+    Preset(String, String, Sender<Result<(), String>>),
 }
 
 /// How long the app waits for a plugin to hand over or take a sound.
@@ -226,6 +231,21 @@ impl PluginHost {
             .unwrap()
             .requests
             .push(SoundRequest::Load(key.into(), data, tx));
+        rx.recv_timeout(SOUND_WAIT)
+            .unwrap_or_else(|_| Err("the instrument didn't answer".into()))
+    }
+
+    /// Loads one of instrument plugin `key`'s own presets, by the
+    /// reference its preset list gave: now if it is playing, else as soon as
+    /// it starts. The sound it makes is kept as the plugin's. Waits for the
+    /// plugin, a few seconds at most.
+    pub fn load_instrument_preset(&self, key: &str, reference: &str) -> Result<(), String> {
+        let (tx, rx) = mpsc::channel();
+        self.list
+            .lock()
+            .unwrap()
+            .requests
+            .push(SoundRequest::Preset(key.into(), reference.into(), tx));
         rx.recv_timeout(SOUND_WAIT)
             .unwrap_or_else(|_| Err("the instrument didn't answer".into()))
     }
@@ -406,6 +426,8 @@ struct InstrumentState {
     follow: ParamFollow,
     policies: HashMap<u16, Policy>,
     disabled: HashSet<u16>,
+    /// A plugin's own preset to load once it starts: (key, reference).
+    pending_preset: Option<(String, String)>,
 }
 
 /// Where `value` sits in `min..max`, 0 to 1.
@@ -647,6 +669,7 @@ impl Supervisor {
                 follow: ParamFollow::default(),
                 policies: HashMap::new(),
                 disabled: HashSet::new(),
+                pending_preset: None,
             },
             next_keep: Instant::now() + KEEP_EVERY,
         }
@@ -714,7 +737,33 @@ impl Supervisor {
                     }
                     let _ = tx.send(Ok(()));
                 }
+                SoundRequest::Preset(key, reference, tx) => {
+                    let result = match &ins.running {
+                        Some((_, helper)) if ins.running_key == key && !helper.is_gone() => {
+                            let r = helper.load_preset(&reference);
+                            if r.is_ok() {
+                                keep_sound(&self.list, &key, helper);
+                            }
+                            r
+                        }
+                        _ => {
+                            self.instrument.pending_preset = Some((key, reference));
+                            Ok(())
+                        }
+                    };
+                    let _ = tx.send(result);
+                }
                 SoundRequest::Load(key, data, tx) => {
+                    // A sound given now replaces a preset still to load.
+                    if self
+                        .instrument
+                        .pending_preset
+                        .as_ref()
+                        .is_some_and(|(k, _)| *k == key)
+                    {
+                        self.instrument.pending_preset = None;
+                    }
+                    let ins = &self.instrument;
                     // Kept as its last sound, so it starts from it too.
                     let folder = self.list.lock().unwrap().sounds.clone();
                     if let Some(folder) = folder {
@@ -1204,9 +1253,19 @@ impl Supervisor {
                     .push(PluginMsg::Instrument(Some(attached)))
                     .is_ok()
                 {
-                    ins.running = Some((plugin, helper));
                     ins.running_key = entry.key.clone();
                     ins.editor = false;
+                    if let Some((_, reference)) =
+                        ins.pending_preset.take_if(|(k, _)| *k == entry.key)
+                    {
+                        match helper.load_preset(&reference) {
+                            Ok(()) => keep_sound(&self.list, &entry.key, &helper),
+                            Err(e) => {
+                                eprintln!("plugin {}: its preset didn't load: {e}", entry.key)
+                            }
+                        }
+                    }
+                    ins.running = Some((plugin, helper));
                 }
             }
             Err(e) => {
