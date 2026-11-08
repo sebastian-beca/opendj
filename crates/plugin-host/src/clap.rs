@@ -21,6 +21,12 @@ use clack_extensions::latency::PluginLatency;
 use clack_extensions::params::{ParamInfoBuffer, ParamInfoFlags, PluginParams};
 #[cfg(all(unix, not(target_os = "macos")))]
 use clack_extensions::posix_fd::{FdFlags, HostPosixFd, HostPosixFdImpl, PluginPosixFd};
+use clack_extensions::preset_discovery::indexer::IndexerImpl;
+use clack_extensions::preset_discovery::metadata_receiver::MetadataReceiverImpl;
+use clack_extensions::preset_discovery::prelude::{
+    FileType, Flags, Location, LocationInfo, PluginPresetLoad, Provider, Soundpack, Timestamp,
+    UniversalPluginId,
+};
 use clack_extensions::remote_controls::{PluginRemoteControls, RemoteControlsPageBuffer};
 use clack_extensions::state::PluginState;
 use clack_extensions::timer::{HostTimer, HostTimerImpl, PluginTimer, TimerId};
@@ -68,6 +74,218 @@ pub fn scan(file: &Path) -> Result<Vec<Descriptor>, String> {
                 .collect(),
         })
         .collect())
+}
+
+/// How deep under a declared preset folder files are looked for.
+const PRESET_DEPTH: usize = 4;
+/// At most this many presets for one plugin.
+const MOST_PRESETS: usize = 2000;
+/// Splits a preset reference's parts: (kind, path, load key).
+const SEP: char = '\u{1f}';
+
+/// What a preset provider declares: its preset files' types and where it
+/// keeps presets.
+#[derive(Default)]
+struct Declared {
+    /// Extensions, lower case; an empty one matches every file.
+    types: Vec<String>,
+    /// `None` for presets inside the plugin itself, else a file or folder.
+    locations: Vec<Option<std::path::PathBuf>>,
+}
+
+impl IndexerImpl for Declared {
+    fn declare_filetype(&mut self, file_type: FileType) -> Result<(), HostError> {
+        self.types.push(
+            file_type
+                .file_extension
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_default(),
+        );
+        Ok(())
+    }
+
+    fn declare_location(&mut self, location: LocationInfo) -> Result<(), HostError> {
+        self.locations.push(
+            location
+                .location
+                .file_path()
+                .map(|p| std::path::PathBuf::from(p.to_string_lossy().into_owned())),
+        );
+        Ok(())
+    }
+
+    fn declare_soundpack(&mut self, _soundpack: Soundpack) -> Result<(), HostError> {
+        Ok(())
+    }
+}
+
+/// The presets a provider describes at one location, for plugin `id`.
+struct Receiver<'a> {
+    id: &'a str,
+    /// The location's reference, before the load key.
+    at: String,
+    /// A name for a preset without one: the file's.
+    fallback: String,
+    /// The preset being described: (name, load key, plugin ids).
+    current: Option<(String, String, Vec<String>)>,
+    found: Vec<(String, String)>,
+}
+
+impl Receiver<'_> {
+    fn finish(&mut self) {
+        if let Some((name, key, ids)) = self.current.take() {
+            if ids.is_empty() || ids.iter().any(|i| i == self.id) {
+                let name = if name.is_empty() {
+                    self.fallback.clone()
+                } else {
+                    name
+                };
+                self.found.push((name, format!("{}{SEP}{key}", self.at)));
+            }
+        }
+    }
+}
+
+impl MetadataReceiverImpl for Receiver<'_> {
+    fn on_error(&mut self, _code: i32, _message: Option<&CStr>) {}
+
+    fn begin_preset(
+        &mut self,
+        name: Option<&CStr>,
+        load_key: Option<&CStr>,
+    ) -> Result<(), HostError> {
+        self.finish();
+        self.current = Some((
+            text(name),
+            load_key
+                .map(|k| k.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            Vec::new(),
+        ));
+        Ok(())
+    }
+
+    fn add_plugin_id(&mut self, plugin_id: UniversalPluginId) {
+        if plugin_id.abi.to_bytes() == b"clap" {
+            if let Some((_, _, ids)) = &mut self.current {
+                ids.push(plugin_id.id.to_string_lossy().into_owned());
+            }
+        }
+    }
+
+    fn set_soundpack_id(&mut self, _soundpack_id: &CStr) {}
+    fn set_flags(&mut self, _flags: Flags) {}
+    fn add_creator(&mut self, _creator: &CStr) {}
+    fn set_description(&mut self, _description: &CStr) {}
+    fn set_timestamps(&mut self, _created: Option<Timestamp>, _modified: Option<Timestamp>) {}
+    fn add_feature(&mut self, _feature: &CStr) {}
+    fn add_extra_info(&mut self, _key: &CStr, _value: &CStr) {}
+}
+
+/// The files under `dir` (or `dir` itself, a file) of the `types` given.
+fn preset_files(dir: &Path, types: &[String], depth: usize, out: &mut Vec<std::path::PathBuf>) {
+    if dir.is_file() {
+        out.push(dir.to_path_buf());
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut entries: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+    entries.sort();
+    for path in entries {
+        if out.len() >= MOST_PRESETS {
+            return;
+        }
+        if path.is_dir() {
+            if depth > 0 {
+                preset_files(&path, types, depth - 1, out);
+            }
+            continue;
+        }
+        let ext = path
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if types.is_empty() || types.iter().any(|t| t.is_empty() || *t == ext) {
+            out.push(path);
+        }
+    }
+}
+
+/// Plugin `id`'s presets, from the file's preset discovery providers, as
+/// (name, reference for [`MainThread::load_preset`]). Runs in a throwaway
+/// helper (`opendj-plugin-host --presets`), never in openDJ.
+pub fn presets(file: &Path, id: &str) -> Result<Vec<(String, String)>, String> {
+    let entry = load_entry(file)?;
+    let host = host_info()?;
+    let ids: Vec<CString> = entry
+        .get_factory::<clack_extensions::preset_discovery::prelude::PresetDiscoveryFactory>()
+        .map(|f| {
+            f.provider_descriptors()
+                .filter_map(|d| d.id().map(CStr::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut found = Vec::new();
+    for provider_id in ids {
+        let Ok(mut provider) =
+            Provider::instantiate(Declared::default(), &entry, &provider_id, &host)
+        else {
+            continue;
+        };
+        let types = provider.indexer().types.clone();
+        let locations = provider.indexer().locations.clone();
+        for location in locations {
+            let receiver = |at: String, fallback: String| Receiver {
+                id,
+                at,
+                fallback,
+                current: None,
+                found: Vec::new(),
+            };
+            match location {
+                None => {
+                    let mut r = receiver(format!("plugin{SEP}"), String::new());
+                    provider.get_metadata(Location::Plugin, &mut r);
+                    r.finish();
+                    found.extend(r.found);
+                }
+                Some(dir) => {
+                    let mut files = Vec::new();
+                    preset_files(&dir, &types, PRESET_DEPTH, &mut files);
+                    for f in files {
+                        let Ok(path) = CString::new(f.to_string_lossy().into_owned()) else {
+                            continue;
+                        };
+                        let name = f
+                            .file_stem()
+                            .map(|s| s.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        let mut r = receiver(format!("file{SEP}{}", f.display()), name);
+                        provider.get_metadata(Location::File { path: &path }, &mut r);
+                        r.finish();
+                        found.extend(r.found);
+                    }
+                }
+            }
+            if found.len() >= MOST_PRESETS {
+                break;
+            }
+        }
+    }
+    found.truncate(MOST_PRESETS);
+    Ok(found)
+}
+
+fn host_info() -> Result<HostInfo, String> {
+    HostInfo::new(
+        "openDJ",
+        "openDJ",
+        "https://opendj.app",
+        env!("CARGO_PKG_VERSION"),
+    )
+    .map_err(|e| e.to_string())
 }
 
 struct Host;
@@ -291,6 +509,25 @@ impl MainThread for ClapMain {
             .map_err(|e| format!("loading the sound failed: {e}"))
     }
 
+    fn load_preset(&mut self, reference: &str) -> Result<(), String> {
+        let mut parts = reference.splitn(3, SEP);
+        let (kind, path, key) = (parts.next(), parts.next(), parts.next());
+        let path = CString::new(path.unwrap_or_default()).map_err(|_| "a bad preset path")?;
+        let key = CString::new(key.unwrap_or_default()).map_err(|_| "a bad preset key")?;
+        let location = match kind {
+            Some("plugin") => Location::Plugin,
+            Some("file") => Location::File { path: &path },
+            _ => return Err("not one of its presets".into()),
+        };
+        let handle = self.instance.plugin_handle();
+        let ext = handle
+            .get_extension::<PluginPresetLoad>()
+            .ok_or("it can't load its own presets")?;
+        let key = (!key.is_empty()).then_some(key.as_c_str());
+        ext.load_from_location(&handle, location, key)
+            .map_err(|_| "it couldn't load that preset".to_string())
+    }
+
     fn param_values(&mut self, out: &mut [f64]) -> bool {
         let handle = self.instance.plugin_handle();
         let Some(ext) = handle.get_extension::<PluginParams>() else {
@@ -465,13 +702,7 @@ pub fn load(
         .ok_or_else(|| format!("{} has no plugin {id:?}", file.display()))?;
     let name = text(desc.name());
     let cid = CString::new(id).map_err(|_| "bad plugin id")?;
-    let host = HostInfo::new(
-        "openDJ",
-        "openDJ",
-        "https://opendj.app",
-        env!("CARGO_PKG_VERSION"),
-    )
-    .map_err(|e| e.to_string())?;
+    let host = host_info()?;
     let mut instance = PluginInstance::<Host>::new(
         |_| HostShared::default(),
         |_| HostMain::default(),

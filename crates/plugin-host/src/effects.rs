@@ -34,6 +34,13 @@ pub trait MainThread {
         Err("it can't load a saved sound".into())
     }
 
+    /// Loads one of the plugin's own presets, as a preset list gave it
+    /// (see `crate::client::presets`).
+    fn load_preset(&mut self, reference: &str) -> Result<(), String> {
+        let _ = reference;
+        Err("it can't load its own presets".into())
+    }
+
     /// The parameters' values now, in [`Info::params`] order and their own
     /// ranges, into `out` (as long as the list). False when it can't tell.
     fn param_values(&mut self, out: &mut [f64]) -> bool {

@@ -209,11 +209,70 @@ pub fn scan_audio_units(helper: &Path, timeout: Duration) -> Result<Vec<Descript
     scan_with(helper, &["--scan-au".into()], timeout)
 }
 
+/// A CLAP plugin's own presets, as (name, reference for
+/// [`Helper::load_preset`]), from its preset discovery providers, read in
+/// a throwaway helper like [`scan`].
+pub fn presets(
+    helper: &Path,
+    file: &Path,
+    id: &str,
+    timeout: Duration,
+) -> Result<Vec<(String, String)>, ScanError> {
+    let args = [
+        "--presets".into(),
+        "--clap".into(),
+        file.as_os_str().to_owned(),
+        "--id".into(),
+        id.into(),
+    ];
+    Ok(lines(helper, &args, timeout)?
+        .iter()
+        .filter_map(|line| {
+            let mut f = line.splitn(3, '\t');
+            match (f.next(), f.next(), f.next()) {
+                (Some("preset"), Some(name), Some(reference)) => {
+                    Some((name.to_string(), reference.to_string()))
+                }
+                _ => None,
+            }
+        })
+        .collect())
+}
+
 fn scan_with(
     helper: &Path,
     args: &[std::ffi::OsString],
     timeout: Duration,
 ) -> Result<Vec<Descriptor>, ScanError> {
+    Ok(lines(helper, args, timeout)?
+        .iter()
+        .filter_map(|line| {
+            let f: Vec<&str> = line.split('\t').collect();
+            match f[..] {
+                ["plugin", id, name, vendor, version, features] => Some(Descriptor {
+                    id: id.into(),
+                    name: name.into(),
+                    vendor: vendor.into(),
+                    version: version.into(),
+                    features: features
+                        .split(',')
+                        .filter(|s| !s.is_empty())
+                        .map(String::from)
+                        .collect(),
+                }),
+                _ => None,
+            }
+        })
+        .collect())
+}
+
+/// Runs a throwaway helper with `args` and gives the lines it wrote before
+/// `done`, killing it after `timeout`.
+fn lines(
+    helper: &Path,
+    args: &[std::ffi::OsString],
+    timeout: Duration,
+) -> Result<Vec<String>, ScanError> {
     let mut child = Command::new(helper)
         .args(args)
         .stdin(Stdio::null())
@@ -241,20 +300,7 @@ fn scan_with(
                     stop(&mut child);
                     return Err(ScanError::Failed(msg.to_string()));
                 }
-                let f: Vec<&str> = line.split('\t').collect();
-                if let ["plugin", id, name, vendor, version, features] = f[..] {
-                    found.push(Descriptor {
-                        id: id.into(),
-                        name: name.into(),
-                        vendor: vendor.into(),
-                        version: version.into(),
-                        features: features
-                            .split(',')
-                            .filter(|s| !s.is_empty())
-                            .map(String::from)
-                            .collect(),
-                    });
-                }
+                found.push(line);
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 stop(&mut child);
@@ -635,6 +681,14 @@ impl Helper {
     pub fn load_state(&self, data: &[u8]) -> Result<(), String> {
         std::fs::write(&self.state_path, data).map_err(|e| e.to_string())?;
         self.state(shm::STATE_LOAD)
+    }
+
+    /// Loads one of the plugin's own presets, by the reference [`presets`]
+    /// gave, while it plays. Waits up to [`STATE_TIMEOUT`]; call it off the
+    /// audio thread.
+    pub fn load_preset(&self, reference: &str) -> Result<(), String> {
+        std::fs::write(&self.state_path, reference).map_err(|e| e.to_string())?;
+        self.state(shm::STATE_PRESET)
     }
 
     fn state(&self, cmd: u32) -> Result<(), String> {
