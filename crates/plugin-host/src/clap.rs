@@ -19,8 +19,8 @@ use clack_extensions::gui::{
 };
 use clack_extensions::latency::PluginLatency;
 use clack_extensions::params::{ParamInfoBuffer, ParamInfoFlags, PluginParams};
-use clack_extensions::posix_fd::{FdFlags, HostPosixFd, HostPosixFdImpl, PluginPosixFd};
 #[cfg(all(unix, not(target_os = "macos")))]
+use clack_extensions::posix_fd::{FdFlags, HostPosixFd, HostPosixFdImpl, PluginPosixFd};
 use clack_extensions::remote_controls::{PluginRemoteControls, RemoteControlsPageBuffer};
 use clack_extensions::state::PluginState;
 use clack_extensions::timer::{HostTimer, HostTimerImpl, PluginTimer, TimerId};
