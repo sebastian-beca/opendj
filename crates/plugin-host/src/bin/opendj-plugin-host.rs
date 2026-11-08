@@ -13,8 +13,8 @@
 //! - `opendj-plugin-host --scan <file>` lists the plugins in a CLAP file or
 //!   VST3 bundle, and `--scan-au` lists the installed Audio Units (macOS)
 //!   (`plugin` lines, then `done`) and exits.
-//! - `opendj-plugin-host --presets --clap <file> --id <id>` lists the
-//!   plugin's own presets (`preset` lines, name then reference, then `done`)
+//! - `opendj-plugin-host --presets (--clap <file> --id <id> | --au <id>)`
+//!   lists the plugin's own presets (`preset` lines, name then reference, then `done`)
 //!   and exits.
 //!
 //! The plugin's main-thread half stays on this process's main thread; the
@@ -105,10 +105,13 @@ fn main() {
         return run_scan_au();
     }
     if list_presets {
-        let (Some(file), Some(id)) = (clap, id) else {
-            fail("usage: opendj-plugin-host --presets --clap <file> --id <id>");
+        let found = match (clap, id, au) {
+            (Some(file), Some(id), None) => opendj_plugin_host::clap::presets(&file, &id),
+            #[cfg(target_os = "macos")]
+            (None, _, Some(au)) => opendj_plugin_host::au::presets(&au),
+            _ => fail("usage: opendj-plugin-host --presets (--clap <file> --id <id> | --au <id>)"),
         };
-        return run_presets(&file, &id);
+        return run_presets(found);
     }
     let plugin = match (test, clap, vst3, au, id) {
         (Some(t), None, None, None, _) => Plugin::Test(t),
@@ -460,8 +463,8 @@ fn run_scan(file: &std::path::Path) {
     }
 }
 
-fn run_presets(file: &std::path::Path, id: &str) {
-    match opendj_plugin_host::clap::presets(file, id) {
+fn run_presets(found: Result<Vec<(String, String)>, String>) {
+    match found {
         Ok(found) => {
             for (name, reference) in found {
                 // A reference is read back whole, so one that the line
