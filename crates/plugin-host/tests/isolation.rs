@@ -15,6 +15,7 @@ fn start(effect: &str) -> (Connection, Helper) {
 
 fn start_from(effect: &str, state: Option<Vec<u8>>) -> (Connection, Helper) {
     spawn(&Options {
+        picks: Vec::new(),
         helper: env!("CARGO_BIN_EXE_opendj-plugin-host").into(),
         plugin: opendj_plugin_host::Plugin::Test(effect.into()),
         sample_rate: 48_000,
@@ -142,6 +143,7 @@ fn the_helper_quits_when_opendj_lets_go() {
 #[test]
 fn an_unknown_effect_fails_to_start() {
     let err = spawn(&Options {
+        picks: Vec::new(),
         helper: env!("CARGO_BIN_EXE_opendj-plugin-host").into(),
         plugin: opendj_plugin_host::Plugin::Test("no-such-plugin".into()),
         sample_rate: 48_000,

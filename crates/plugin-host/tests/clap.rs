@@ -48,6 +48,7 @@ fn start_from(
     state: Option<Vec<u8>>,
 ) -> (opendj_plugin_host::Connection, opendj_plugin_host::Helper) {
     spawn(&Options {
+        picks: Vec::new(),
         helper: helper(),
         plugin: Plugin::Clap {
             file: test_plugin(),
@@ -95,6 +96,31 @@ fn scanning_a_broken_file_fails_cleanly() {
     let err = scan(&helper(), &bad, Duration::from_secs(10)).unwrap_err();
     assert!(matches!(err, ScanError::Failed(_)), "{err:?}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_knob_takes_the_parameter_picked_for_it() {
+    let (_conn, helper) = spawn(&Options {
+        helper: helper(),
+        plugin: Plugin::Clap {
+            file: test_plugin(),
+            id: ID.into(),
+        },
+        sample_rate: 48_000,
+        max_frames: 1024,
+        title: None,
+        state: None,
+        // Tone (id 3) on the first knob.
+        picks: vec![(0, 3)],
+    })
+    .expect("the CLAP plugin loads");
+    let info = helper.info();
+    let names: Vec<&str> = info.params.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["Tone", "Gain", "Tempo out"]);
+    assert_eq!(info.params[0].id, 3);
+    // Every parameter, to pick from, in the plugin's own order.
+    let all: Vec<&str> = info.all.iter().map(|(_, n)| n.as_str()).collect();
+    assert_eq!(all, ["Tone", "Gain", "Tempo out"]);
 }
 
 #[test]
@@ -171,6 +197,7 @@ fn the_deck_tempo_reaches_the_plugin() {
 #[test]
 fn a_missing_plugin_id_fails_to_start() {
     let err = spawn(&Options {
+        picks: Vec::new(),
         helper: helper(),
         plugin: Plugin::Clap {
             file: test_plugin(),

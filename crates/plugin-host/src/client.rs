@@ -35,6 +35,9 @@ pub struct Options {
     pub title: Option<String>,
     /// A sound to start from: bytes [`Helper::save_state`] gave.
     pub state: Option<Vec<u8>>,
+    /// Knobs the DJ picked a parameter for: (slot, the parameter's id, as
+    /// [`Param::id`] and [`Info::all`] give it).
+    pub picks: Vec<(usize, u32)>,
 }
 
 /// How long the helper has to save or load the plugin's state.
@@ -136,14 +139,21 @@ fn read_info(info: &mut Info, line: &str) {
         Some("param") => {
             let mut num = || f.next().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
             let (min, max, default, value) = (num(), num(), num(), num());
+            let id = f.next().and_then(|v| v.parse().ok()).unwrap_or(0);
             let name = f.next().unwrap_or_default().to_string();
             info.params.push(Param {
+                id,
                 name,
                 min,
                 max,
                 default,
                 value,
             });
+        }
+        Some("all") => {
+            if let (Some(id), Some(name)) = (f.next().and_then(|v| v.parse().ok()), f.next()) {
+                info.all.push((id, name.to_string()));
+            }
         }
         _ => {}
     }
@@ -320,6 +330,11 @@ pub fn spawn(opts: &Options) -> io::Result<(Connection, Helper)> {
         .arg("--state")
         .arg(&state_path)
         .args(plugin_args(&opts.plugin))
+        .args(
+            opts.picks
+                .iter()
+                .flat_map(|(slot, id)| ["--pick".into(), format!("{slot}:{id}")]),
+        )
         .args(
             opts.title
                 .iter()

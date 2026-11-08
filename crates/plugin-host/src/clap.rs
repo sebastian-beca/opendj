@@ -34,7 +34,7 @@ use clack_host::utils::{BeatTime, SecondsTime};
 
 use crate::client::Transport;
 use crate::descriptor::Descriptor;
-use crate::effects::{EditorSize, Effect, Info, Loaded, MainThread, Param, ParentWindow};
+use crate::effects::{arrange, EditorSize, Effect, Info, Loaded, MainThread, Param, ParentWindow};
 use crate::shm::{Midi, CHANNELS, MAX_EVENTS, MAX_PARAMS};
 
 fn text(s: Option<&CStr>) -> String {
@@ -448,7 +448,13 @@ fn remote_controls(handle: &PluginMainThreadHandle) -> Vec<ClapId> {
     ids
 }
 
-pub fn load(file: &Path, id: &str, sample_rate: u32, max_frames: usize) -> Result<Loaded, String> {
+pub fn load(
+    file: &Path,
+    id: &str,
+    sample_rate: u32,
+    max_frames: usize,
+    picks: &[(usize, u32)],
+) -> Result<Loaded, String> {
     let entry = load_entry(file)?;
     let factory = entry
         .get_plugin_factory()
@@ -496,10 +502,11 @@ pub fn load(file: &Path, id: &str, sample_rate: u32, max_frames: usize) -> Resul
         }
     }
 
-    // Its first parameters, as the slot's parameters: those on its remote
-    // controls pages first, in the pages' order (what its maker picked for
-    // hardware knobs), then the rest in its own order.
+    // Its first parameters, as the slot's parameters: the DJ's picks, then
+    // those on its remote controls pages, in the pages' order (what its
+    // maker picked for hardware knobs), then the rest in its own order.
     let mut params = Vec::new();
+    let mut listed = Vec::new();
     if let Some(ext) = handle.get_extension::<PluginParams>() {
         let mut all = Vec::new();
         let mut buf = ParamInfoBuffer::new();
@@ -516,6 +523,7 @@ pub fn load(file: &Path, id: &str, sample_rate: u32, max_frames: usize) -> Resul
             all.push((
                 p.id,
                 Param {
+                    id: p.id.get(),
                     name: String::from_utf8_lossy(p.name).into_owned(),
                     min: p.min_value,
                     max: p.max_value,
@@ -524,9 +532,8 @@ pub fn load(file: &Path, id: &str, sample_rate: u32, max_frames: usize) -> Resul
                 },
             ));
         }
-        let first = remote_controls(&handle);
-        all.sort_by_key(|(id, _)| first.iter().position(|f| f == id).unwrap_or(usize::MAX));
-        all.truncate(MAX_PARAMS);
+        let pages: Vec<u32> = remote_controls(&handle).iter().map(|id| id.get()).collect();
+        listed = arrange(&mut all, &pages, picks);
         params = all;
     }
 
@@ -571,6 +578,7 @@ pub fn load(file: &Path, id: &str, sample_rate: u32, max_frames: usize) -> Resul
         info: Info {
             name,
             params: params.into_iter().map(|(_, p)| p).collect(),
+            all: listed,
             latency,
         },
     })

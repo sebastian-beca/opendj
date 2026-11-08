@@ -63,6 +63,7 @@ fn id() -> String {
 
 fn start() -> (Connection, Helper) {
     spawn(&Options {
+        picks: Vec::new(),
         helper: helper(),
         plugin: Plugin::Vst3 {
             file: bundle(),
@@ -142,6 +143,7 @@ fn the_deck_tempo_reaches_the_plugin() {
 #[test]
 fn a_missing_class_fails_to_start() {
     let err = spawn(&Options {
+        picks: Vec::new(),
         helper: helper(),
         plugin: Plugin::Vst3 {
             file: bundle(),

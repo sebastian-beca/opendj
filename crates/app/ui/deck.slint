@@ -3794,14 +3794,63 @@ component OctaveStep inherits Rectangle {
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
+// Picks the parameter knob `knob` (from 0) turns: a search over all of the
+// instrument's parameters, and the plugin's own choice back.
+component KnobPicker inherits PopupWindow {
+    in property <int> knob;
+    width: 260px;
+    height: 320px;
+    close-policy: close-on-click-outside;
+    GrooveMenuBackground { }
+    VerticalLayout {
+        padding: 8px;
+        spacing: 6px;
+        Text { text: "Knob " + (knob + 1) + " turns"; color: Theme.text; font-size: 12px; font-weight: 600; }
+        LineEdit {
+            placeholder-text: "Search parameters";
+            init => {
+                self.focus();
+                InstrumentsUi.search-params("");
+            }
+            edited(text) => { InstrumentsUi.search-params(text); }
+        }
+        if InstrumentsUi.knob-picked[knob]: GrooveMenuItem {
+            text: "The plugin's own choice";
+            clicked => {
+                InstrumentsUi.pick-knob(knob, -1);
+                root.close();
+            }
+        }
+        ListView {
+            vertical-stretch: 1;
+            for p in InstrumentsUi.param-matches: GrooveMenuItem {
+                text: p.name;
+                checked: p.id == InstrumentsUi.knob-ids[knob];
+                clicked => {
+                    InstrumentsUi.pick-knob(knob, p.id);
+                    root.close();
+                }
+            }
+        }
+    }
+}
+
 // One of the instrument's knobs: its parameter `index` (from 0), named
-// under it; an empty cell past its last one.
+// under it; an empty cell past its last one. A right click picks another
+// parameter for it; a picked one's name is in the deck color.
 component ParamKnob inherits Rectangle {
     in property <int> index;
     in property <int> count;
     in property <color> tint;
     width: 62px;
     height: 42px;
+    if index < count: TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.right {
+                picker.show();
+            }
+        }
+    }
     if index < count: ControlKnob {
         x: (parent.width - self.width) / 2;
         y: 0;
@@ -3809,16 +3858,18 @@ component ParamKnob inherits Rectangle {
         key: "parameter" + (index + 1);
         tint: root.tint;
         size: 24px;
+        right-clicked => { picker.show(); }
     }
     if index < count: Text {
         y: 30px;
         width: parent.width;
         text: InstrumentsUi.param-names[index];
-        color: Theme.text-dim;
+        color: InstrumentsUi.knob-picked[index] ? root.tint : Theme.text-dim;
         font-size: 10px;
         horizontal-alignment: center;
         overflow: elide;
     }
+    picker := KnobPicker { knob: index; x: 0; y: root.height; }
 }
 
 // The instrument's knobs, eight to a page: its first parameters, in the

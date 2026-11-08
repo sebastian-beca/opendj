@@ -55,6 +55,7 @@ mod files;
 mod groove_box;
 mod inbox;
 mod instrument_art;
+mod instrument_knobs;
 mod instrument_midi;
 mod instruments;
 mod list_picker;
@@ -671,6 +672,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     groove_box::install(&app);
     instruments::install(&app);
     presets::install(&app, engine.clone(), registry.clone());
+    instrument_knobs::install(&app, engine.clone());
     let groove_keeper = RefCell::new(groove_box::Keeper::new(&registry));
     let groove_timer = slint::Timer::default();
     {
@@ -1026,6 +1028,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let (weak, engine) = (app.as_weak(), engine.clone());
         let mut param_names: Vec<String> = Vec::new();
+        let mut knobs = Default::default();
         players_timer.start(
             slint::TimerMode::Repeated,
             Duration::from_millis(500),
@@ -1053,6 +1056,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ui.set_param_names(slint::ModelRc::from(model.as_slice()));
                     param_names = names;
                 }
+                instrument_knobs::show(&app, &engine, &mut knobs);
             },
         );
     }
