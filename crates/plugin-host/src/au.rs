@@ -18,8 +18,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::client::Transport;
 use crate::descriptor::Descriptor;
-use crate::effects::{EditorSize, Effect, Info, Loaded, MainThread, Param, ParentWindow};
-use crate::shm::{Midi, CHANNELS, MAX_PARAMS};
+use crate::effects::{arrange, EditorSize, Effect, Info, Loaded, MainThread, Param, ParentWindow};
+use crate::shm::{Midi, CHANNELS};
 
 type OSStatus = i32;
 type AudioComponent = *mut c_void;
@@ -797,7 +797,12 @@ fn check(r: OSStatus, what: &str) -> Result<(), String> {
 }
 
 /// Loads the effect `id` (`type:subtype:manufacturer`).
-pub fn load(id: &str, sample_rate: u32, max_frames: usize) -> Result<Loaded, String> {
+pub fn load(
+    id: &str,
+    sample_rate: u32,
+    max_frames: usize,
+    picks: &[(usize, u32)],
+) -> Result<Loaded, String> {
     let want = parse_id(id).ok_or_else(|| format!("bad Audio Unit id {id:?}"))?;
     let name = scan()
         .into_iter()
@@ -933,9 +938,6 @@ pub fn load(id: &str, sample_rate: u32, max_frames: usize) -> Result<Loaded, Str
                 &mut psize,
             );
             for pid in ids {
-                if params.len() == MAX_PARAMS {
-                    break;
-                }
                 let mut info: AudioUnitParameterInfo = std::mem::zeroed();
                 let mut isize_ = std::mem::size_of::<AudioUnitParameterInfo>() as u32;
                 if AudioUnitGetProperty(
@@ -971,6 +973,7 @@ pub fn load(id: &str, sample_rate: u32, max_frames: usize) -> Result<Loaded, Str
                 params.push((
                     pid,
                     Param {
+                        id: pid,
                         name: pname,
                         min: info.minValue as f64,
                         max: info.maxValue as f64,
@@ -980,6 +983,9 @@ pub fn load(id: &str, sample_rate: u32, max_frames: usize) -> Result<Loaded, Str
                 ));
             }
         }
+
+        // The DJ's picks first, then the plugin's own order.
+        let listed = arrange(&mut params, &[], picks);
 
         let effect = AuEffect {
             unit: Unit(unit),
@@ -999,6 +1005,7 @@ pub fn load(id: &str, sample_rate: u32, max_frames: usize) -> Result<Loaded, Str
             info: Info {
                 name,
                 params: params.into_iter().map(|(_, p)| p).collect(),
+                all: listed,
                 latency: (latency * sample_rate as f64).round() as u32,
             },
         })
@@ -1100,6 +1107,7 @@ impl Effect for AuEffect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shm::MAX_PARAMS;
 
     #[test]
     fn ids_round_trip() {
@@ -1117,7 +1125,7 @@ mod tests {
 
     #[test]
     fn apples_delay_loads_and_processes() {
-        let mut loaded = load("aufx:dely:appl", 48_000, 512).expect("AUDelay loads");
+        let mut loaded = load("aufx:dely:appl", 48_000, 512, &[]).expect("AUDelay loads");
         assert!(!loaded.info.params.is_empty());
         let l = vec![0.25f32; 256];
         let r = vec![-0.25f32; 256];
@@ -1139,7 +1147,7 @@ mod tests {
     #[test]
     fn apples_synth_plays_a_note() {
         // Apple's DLS synth comes with every Mac.
-        let mut loaded = load("aumu:dls :appl", 48_000, 512).expect("DLSMusicDevice loads");
+        let mut loaded = load("aumu:dls :appl", 48_000, 512, &[]).expect("DLSMusicDevice loads");
         let silent = vec![0.0f32; 512];
         let mut ol = vec![0.0; 512];
         let mut or = vec![0.0; 512];

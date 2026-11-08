@@ -110,6 +110,14 @@ struct List {
     requests: Vec<SoundRequest>,
     /// The playing instrument's parameter names, as its knobs show them.
     instrument_params: Vec<String>,
+    /// Every parameter of the playing instrument, (id, name), to pick from
+    /// for a knob.
+    instrument_all: Vec<(u32, String)>,
+    /// The knobs the DJ picked a parameter for on the playing instrument:
+    /// (knob, parameter id).
+    instrument_picks: Vec<(usize, u32)>,
+    /// The parameter id each of the playing instrument's knobs turns.
+    instrument_ids: Vec<u32>,
 }
 
 /// What the app asks of the instrument's sound (see
@@ -117,6 +125,11 @@ struct List {
 enum SoundRequest {
     Save(Sender<Result<(String, Vec<u8>), String>>),
     Load(String, Vec<u8>, Sender<Result<(), String>>),
+    /// Puts parameter id (none: the plugin's own choice) on a knob of the
+    /// playing instrument.
+    Pick(usize, Option<u32>, Sender<Result<(), String>>),
+    /// All of plugin `key`'s knob picks, as a preset has them.
+    Picks(String, Vec<(usize, u32)>, Sender<Result<(), String>>),
 }
 
 /// How long the app waits for a plugin to hand over or take a sound.
@@ -220,6 +233,46 @@ impl PluginHost {
     /// is the N-th. Empty while none plays.
     pub fn instrument_parameters(&self) -> Vec<String> {
         self.list.lock().unwrap().instrument_params.clone()
+    }
+
+    /// Every parameter of the playing instrument, (id, name) in its own
+    /// order, to pick from for a knob. Empty while none plays.
+    pub fn instrument_all_parameters(&self) -> Vec<(u32, String)> {
+        self.list.lock().unwrap().instrument_all.clone()
+    }
+
+    /// The knobs the DJ picked a parameter for on the playing instrument:
+    /// (knob from 0, parameter id), for a preset.
+    pub fn instrument_picks(&self) -> Vec<(usize, u32)> {
+        self.list.lock().unwrap().instrument_picks.clone()
+    }
+
+    /// The parameter id each of the playing instrument's knobs turns.
+    pub fn instrument_knob_ids(&self) -> Vec<u32> {
+        self.list.lock().unwrap().instrument_ids.clone()
+    }
+
+    /// Puts the playing instrument's parameter `id` on knob `knob` (from
+    /// 0), or gives the knob back to the plugin's own choice. The plugin
+    /// restarts with its sound to take it, and keeps the pick from then on.
+    pub fn pick_instrument_knob(&self, knob: usize, id: Option<u32>) -> Result<(), String> {
+        self.ask(|tx| SoundRequest::Pick(knob, id, tx))
+    }
+
+    /// Sets all of instrument plugin `key`'s knob picks (a preset's),
+    /// restarting it if it plays and they changed.
+    pub fn set_instrument_picks(&self, key: &str, picks: Vec<(usize, u32)>) -> Result<(), String> {
+        self.ask(|tx| SoundRequest::Picks(key.into(), picks, tx))
+    }
+
+    fn ask(
+        &self,
+        request: impl FnOnce(Sender<Result<(), String>>) -> SoundRequest,
+    ) -> Result<(), String> {
+        let (tx, rx) = mpsc::channel();
+        self.list.lock().unwrap().requests.push(request(tx));
+        rx.recv_timeout(SOUND_WAIT)
+            .unwrap_or_else(|_| Err("the instrument didn't answer".into()))
     }
 
     /// What happened since the last call.
@@ -440,6 +493,53 @@ fn sound_file(folder: &Path, key: &str) -> PathBuf {
     folder.join(format!("{hash:016x}.sound"))
 }
 
+/// The file plugin `key`'s knob picks are kept in, beside its sound: one
+/// `knob id` pair a line.
+fn picks_file(folder: &Path, key: &str) -> PathBuf {
+    sound_file(folder, key).with_extension("knobs")
+}
+
+fn kept_picks(list: &Mutex<List>, key: &str) -> Vec<(usize, u32)> {
+    let Some(folder) = list.lock().unwrap().sounds.clone() else {
+        return Vec::new();
+    };
+    std::fs::read_to_string(picks_file(&folder, key))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| {
+            let (knob, id) = l.split_once(' ')?;
+            Some((knob.parse().ok()?, id.parse().ok()?))
+        })
+        .collect()
+}
+
+fn keep_picks(list: &Mutex<List>, key: &str, picks: &[(usize, u32)]) {
+    let Some(folder) = list.lock().unwrap().sounds.clone() else {
+        return;
+    };
+    let file = picks_file(&folder, key);
+    if picks.is_empty() {
+        let _ = std::fs::remove_file(file);
+        return;
+    }
+    let text: String = picks.iter().map(|(k, id)| format!("{k} {id}\n")).collect();
+    let _ = std::fs::create_dir_all(&folder);
+    if let Err(e) = std::fs::write(&file, text) {
+        eprintln!("plugin {key}: its knob picks weren't kept: {e}");
+    }
+}
+
+/// `picks` with knob `knob` given parameter `id` (none: back to the
+/// plugin's own choice). A parameter sits on one knob at a time.
+fn with_pick(mut picks: Vec<(usize, u32)>, knob: usize, id: Option<u32>) -> Vec<(usize, u32)> {
+    picks.retain(|&(k, i)| k != knob && Some(i) != id);
+    if let Some(id) = id {
+        picks.push((knob, id));
+    }
+    picks.sort_unstable();
+    picks
+}
+
 /// The sound plugin `key` last had, if one was kept.
 fn kept_sound(list: &Mutex<List>, key: &str) -> Option<Vec<u8>> {
     let folder = list.lock().unwrap().sounds.clone()?;
@@ -595,6 +695,24 @@ impl Supervisor {
                     };
                     let _ = tx.send(result);
                 }
+                SoundRequest::Pick(knob, id, tx) => {
+                    let result = if ins.running.is_some() {
+                        let key = ins.running_key.clone();
+                        let picks = with_pick(kept_picks(&self.list, &key), knob, id);
+                        self.repick(&key, picks);
+                        Ok(())
+                    } else {
+                        Err("no instrument is playing".into())
+                    };
+                    let _ = tx.send(result);
+                }
+                SoundRequest::Picks(key, mut picks, tx) => {
+                    picks.sort_unstable();
+                    if kept_picks(&self.list, &key) != picks {
+                        self.repick(&key, picks);
+                    }
+                    let _ = tx.send(Ok(()));
+                }
                 SoundRequest::Load(key, data, tx) => {
                     // Kept as its last sound, so it starts from it too.
                     let folder = self.list.lock().unwrap().sounds.clone();
@@ -612,6 +730,21 @@ impl Supervisor {
                     let _ = tx.send(result);
                 }
             }
+        }
+    }
+
+    /// Keeps `picks` as plugin `key`'s and, if it plays, restarts it with
+    /// its sound so its knobs take them.
+    fn repick(&mut self, key: &str, picks: Vec<(usize, u32)>) {
+        keep_picks(&self.list, key, &picks);
+        let ins = &mut self.instrument;
+        if ins.running.is_some() && ins.running_key == key {
+            if let Some((_, helper)) = &ins.running {
+                keep_sound(&self.list, key, helper);
+            }
+            ins.running = None;
+            let _ = self.link.to_engine.push(PluginMsg::Instrument(None));
+            // `follow_instrument` starts it again on its next round.
         }
     }
 
@@ -824,6 +957,7 @@ impl Supervisor {
     fn start(&mut self, i: usize, unit: usize, slot: usize, plugin: u16, target: usize) {
         let entry = &self.entries[plugin as usize];
         let opts = Options {
+            picks: Vec::new(),
             helper: self.opts.helper.clone(),
             plugin: entry.plugin.clone(),
             sample_rate: self.opts.sample_rate,
@@ -943,7 +1077,11 @@ impl Supervisor {
             None if ins.num_parameters.get() != 0.0 => {
                 ins.num_parameters.set(0.0);
                 ins.follow = ParamFollow::default();
-                self.list.lock().unwrap().instrument_params.clear();
+                let mut list = self.list.lock().unwrap();
+                list.instrument_params.clear();
+                list.instrument_all.clear();
+                list.instrument_picks.clear();
+                list.instrument_ids.clear();
             }
             None => {}
         }
@@ -1016,7 +1154,9 @@ impl Supervisor {
             return;
         };
         let entry = &ins.entries[plugin as usize];
+        let picks = kept_picks(&self.list, &entry.key);
         let opts = Options {
+            picks: picks.clone(),
             helper: self.opts.helper.clone(),
             plugin: entry.plugin.clone(),
             sample_rate: self.opts.sample_rate,
@@ -1043,8 +1183,14 @@ impl Supervisor {
                     &ins.params[..shown],
                     params.iter().take(shown).map(|p| (p.min, p.max)).collect(),
                 );
-                self.list.lock().unwrap().instrument_params =
-                    params.iter().take(shown).map(|p| p.name.clone()).collect();
+                {
+                    let mut list = self.list.lock().unwrap();
+                    list.instrument_params =
+                        params.iter().take(shown).map(|p| p.name.clone()).collect();
+                    list.instrument_all = helper.info().all.clone();
+                    list.instrument_ids = params.iter().take(shown).map(|p| p.id).collect();
+                    list.instrument_picks = picks;
+                }
                 let attached = Box::new(Attached {
                     conn,
                     plugin,
@@ -1556,6 +1702,69 @@ mod tests {
         assert_eq!(std::fs::read(&file).unwrap(), b"kept");
         let _ = std::fs::remove_dir_all(&folder);
     }
+    #[test]
+    fn a_parameter_sits_on_one_knob_at_a_time() {
+        let picks = with_pick(Vec::new(), 2, Some(40));
+        assert_eq!(picks, [(2, 40)]);
+        let picks = with_pick(picks, 0, Some(7));
+        assert_eq!(picks, [(0, 7), (2, 40)]);
+        // Moved to another knob, it leaves the first.
+        let picks = with_pick(picks, 5, Some(40));
+        assert_eq!(picks, [(0, 7), (5, 40)]);
+        // Back to the plugin's own choice.
+        assert_eq!(with_pick(picks, 0, None), [(5, 40)]);
+    }
+
+    #[test]
+    fn a_knob_pick_is_kept_and_the_instrument_restarts_with_it() {
+        let mut rig = Rig::new("test-gain");
+        let folder = std::env::temp_dir().join(format!("opendj-picks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        rig.host.set_sound_folder(folder.clone());
+        rig.host.set_instruments(vec![PluginEntry {
+            key: "test-synth".into(),
+            name: "Test Synth".into(),
+            plugin: Plugin::Test("test-synth".into()),
+        }]);
+        let group = input_group(INSTRUMENT);
+        let configured = rig.reg.get(group, "input_configured").unwrap();
+        assert!(
+            rig.host.pick_instrument_knob(0, Some(0)).is_err(),
+            "nothing playing"
+        );
+        rig.reg.get(group, "instrument").unwrap().set(1.0);
+        let end = Instant::now() + Duration::from_secs(10);
+        while !configured.get_bool() {
+            rig.instrument_buffer();
+            assert!(Instant::now() < end, "the instrument starts");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(rig.host.instrument_all_parameters(), [(0, "Volume".into())]);
+        assert!(rig.host.instrument_picks().is_empty());
+        rig.host.pick_instrument_knob(0, Some(0)).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(picks_file(&folder, "test-synth")).unwrap(),
+            "0 0\n"
+        );
+        // It comes back with the pick.
+        while rig.host.instrument_picks() != [(0, 0)] {
+            rig.instrument_buffer();
+            assert!(Instant::now() < end, "the instrument restarts");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        // A preset without picks gives the knobs back.
+        rig.host
+            .set_instrument_picks("test-synth", Vec::new())
+            .unwrap();
+        assert!(!picks_file(&folder, "test-synth").exists());
+        while !rig.host.instrument_picks().is_empty() {
+            rig.instrument_buffer();
+            assert!(Instant::now() < end, "the instrument restarts");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
     #[test]
     fn a_preset_sound_is_read_and_given_to_the_instrument() {
         let mut rig = Rig::new("test-gain");

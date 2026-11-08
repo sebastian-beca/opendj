@@ -65,6 +65,7 @@ fn main() {
     let mut scan = None;
     let mut title = None;
     let mut state = None;
+    let mut picks = Vec::new();
     let mut args = std::env::args_os().skip(1);
     while let Some(a) = args.next() {
         match a.to_str() {
@@ -78,6 +79,17 @@ fn main() {
             Some("--scan") => scan = args.next().map(PathBuf::from),
             Some("--title") => title = args.next().and_then(|s| s.into_string().ok()),
             Some("--state") => state = args.next().map(PathBuf::from),
+            // A knob the DJ picked a parameter for: `slot:id`.
+            Some("--pick") => {
+                let pick = args.next().and_then(|s| s.into_string().ok());
+                match pick.as_deref().and_then(|p| p.split_once(':')) {
+                    Some((slot, id)) => match (slot.parse(), id.parse()) {
+                        (Ok(slot), Ok(id)) => picks.push((slot, id)),
+                        _ => fail(&format!("bad --pick {pick:?}")),
+                    },
+                    None => fail(&format!("bad --pick {pick:?}")),
+                }
+            }
             _ => fail(&format!("unknown argument {a:?}")),
         }
     }
@@ -103,7 +115,8 @@ fn main() {
         Arc::new(Shm::open(&shm_path).unwrap_or_else(|e| fail(&format!("shared memory: {e}"))));
     let h = shm.header();
     let sample_rate = h.sample_rate.load(Ordering::Relaxed);
-    let loaded = effects::load(&plugin, sample_rate, shm.max_frames()).unwrap_or_else(|e| fail(&e));
+    let loaded =
+        effects::load(&plugin, sample_rate, shm.max_frames(), &picks).unwrap_or_else(|e| fail(&e));
 
     // Describe it, and start the shared parameters at its current values,
     // so openDJ changes only what the DJ touches.
@@ -113,13 +126,17 @@ fn main() {
     for (i, p) in info.params.iter().enumerate() {
         shm::store_f32(&h.params[i], p.value as f32);
         say(&format!(
-            "param\t{}\t{}\t{}\t{}\t{}",
+            "param\t{}\t{}\t{}\t{}\t{}\t{}",
             p.min,
             p.max,
             p.default,
             p.value,
+            p.id,
             clean(&p.name)
         ));
+    }
+    for (id, name) in &info.all {
+        say(&format!("all\t{id}\t{}", clean(name)));
     }
     let mut main = loaded.main;
     let mut no_main = NoMain {
