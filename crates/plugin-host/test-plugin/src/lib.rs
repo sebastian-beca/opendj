@@ -20,6 +20,9 @@ use clack_extensions::params::{
     ParamDisplayWriter, ParamInfo, ParamInfoFlags, ParamInfoWriter, PluginAudioProcessorParams,
     PluginMainThreadParams, PluginParams,
 };
+use clack_extensions::remote_controls::{
+    PluginRemoteControls, PluginRemoteControlsImpl, RemoteControlsPage, RemoteControlsPageWriter,
+};
 use clack_extensions::state::{PluginState, PluginStateImpl};
 use clack_plugin::events::event_types::{NoteOnEvent, ParamValueEvent, TransportEvent};
 use clack_plugin::events::Match;
@@ -29,6 +32,9 @@ use clack_plugin::utils::Cookie;
 
 const GAIN: u32 = 1;
 const TEMPO_OUT: u32 = 2;
+/// Does nothing: listed first, but last on its remote controls page, so a
+/// host that follows the page puts it after the others.
+const TONE: u32 = 3;
 
 pub struct TestGain;
 
@@ -54,6 +60,7 @@ impl Shared {
         match id {
             GAIN => Some(f64::from_bits(self.gain.load(Ordering::Relaxed))),
             TEMPO_OUT => Some(f64::from_bits(self.tempo_out.load(Ordering::Relaxed))),
+            TONE => Some(0.5),
             _ => None,
         }
     }
@@ -77,7 +84,8 @@ impl Plugin for TestGain {
             .register::<PluginAudioPorts>()
             .register::<PluginParams>()
             .register::<PluginLatency>()
-            .register::<PluginState>();
+            .register::<PluginState>()
+            .register::<PluginRemoteControls>();
     }
 }
 
@@ -196,13 +204,14 @@ impl PluginAudioPortsImpl for MainThread<'_> {
 
 impl PluginMainThreadParams for MainThread<'_> {
     fn count(&self) -> u32 {
-        2
+        3
     }
 
     fn get_info(&self, index: u32, info: &mut ParamInfoWriter) {
         let (id, name, max, default): (u32, &[u8], f64, f64) = match index {
-            0 => (GAIN, b"Gain", 2.0, 1.0),
-            1 => (TEMPO_OUT, b"Tempo out", 1.0, 0.0),
+            0 => (TONE, b"Tone", 1.0, 0.5),
+            1 => (GAIN, b"Gain", 2.0, 1.0),
+            2 => (TEMPO_OUT, b"Tempo out", 1.0, 0.0),
             _ => return,
         };
         info.set(&ParamInfo {
@@ -267,5 +276,24 @@ impl PluginStateImpl for MainThread<'_> {
             .gain
             .store(u64::from_le_bytes(bytes), Ordering::Relaxed);
         Ok(())
+    }
+}
+
+impl PluginRemoteControlsImpl for MainThread<'_> {
+    fn count(&self) -> u32 {
+        1
+    }
+
+    fn get(&self, index: u32, writer: &mut RemoteControlsPageWriter) {
+        if index == 0 {
+            writer.set(&RemoteControlsPage {
+                section_name: b"",
+                page_id: ClapId::new(1),
+                page_name: b"Main",
+                param_ids: [GAIN, TEMPO_OUT, TONE, 0, 0, 0, 0, 0]
+                    .map(|id| (id > 0).then(|| ClapId::new(id))),
+                is_for_preset: false,
+            });
+        }
     }
 }

@@ -19,8 +19,9 @@ use clack_extensions::gui::{
 };
 use clack_extensions::latency::PluginLatency;
 use clack_extensions::params::{ParamInfoBuffer, ParamInfoFlags, PluginParams};
-#[cfg(all(unix, not(target_os = "macos")))]
 use clack_extensions::posix_fd::{FdFlags, HostPosixFd, HostPosixFdImpl, PluginPosixFd};
+#[cfg(all(unix, not(target_os = "macos")))]
+use clack_extensions::remote_controls::{PluginRemoteControls, RemoteControlsPageBuffer};
 use clack_extensions::state::PluginState;
 use clack_extensions::timer::{HostTimer, HostTimerImpl, PluginTimer, TimerId};
 use clack_host::events::event_types::{
@@ -428,6 +429,25 @@ impl MainThread for ClapMain {
 
 /// Loads plugin `id` from `file` and activates it for blocks of up to
 /// `max_frames`.
+/// The parameters on the plugin's remote controls pages, page by page,
+/// each once; none if it has no pages.
+fn remote_controls(handle: &PluginMainThreadHandle) -> Vec<ClapId> {
+    let mut ids = Vec::new();
+    if let Some(ext) = handle.get_extension::<PluginRemoteControls>() {
+        let mut buf = RemoteControlsPageBuffer::new();
+        for i in 0..ext.count(handle) {
+            if let Some(page) = ext.get(handle, i, &mut buf) {
+                for id in page.param_ids.into_iter().flatten() {
+                    if !ids.contains(&id) {
+                        ids.push(id);
+                    }
+                }
+            }
+        }
+    }
+    ids
+}
+
 pub fn load(file: &Path, id: &str, sample_rate: u32, max_frames: usize) -> Result<Loaded, String> {
     let entry = load_entry(file)?;
     let factory = entry
@@ -476,14 +496,14 @@ pub fn load(file: &Path, id: &str, sample_rate: u32, max_frames: usize) -> Resul
         }
     }
 
-    // Its first parameters, as the slot's parameters.
+    // Its first parameters, as the slot's parameters: those on its remote
+    // controls pages first, in the pages' order (what its maker picked for
+    // hardware knobs), then the rest in its own order.
     let mut params = Vec::new();
     if let Some(ext) = handle.get_extension::<PluginParams>() {
+        let mut all = Vec::new();
         let mut buf = ParamInfoBuffer::new();
         for i in 0..ext.count(&handle) {
-            if params.len() == MAX_PARAMS {
-                break;
-            }
             let Some(p) = ext.get_info(&handle, i, &mut buf) else {
                 continue;
             };
@@ -493,7 +513,7 @@ pub fn load(file: &Path, id: &str, sample_rate: u32, max_frames: usize) -> Resul
                 continue;
             }
             let value = ext.get_value(&handle, p.id).unwrap_or(p.default_value);
-            params.push((
+            all.push((
                 p.id,
                 Param {
                     name: String::from_utf8_lossy(p.name).into_owned(),
@@ -504,6 +524,10 @@ pub fn load(file: &Path, id: &str, sample_rate: u32, max_frames: usize) -> Resul
                 },
             ));
         }
+        let first = remote_controls(&handle);
+        all.sort_by_key(|(id, _)| first.iter().position(|f| f == id).unwrap_or(usize::MAX));
+        all.truncate(MAX_PARAMS);
+        params = all;
     }
 
     let processor = instance
