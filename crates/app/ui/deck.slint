@@ -1464,6 +1464,13 @@ export global PhraseView {
 }
 
 // Deck actions that aren't controls.
+// Whether the pad grid shows in the decks (the PADS button in the top
+// bar). Hidden, 2-Deck keeps its tempo, loop and jog, and 4-Deck strips
+// get shorter.
+export global PadsUi {
+    in-out property <bool> visible: true;
+}
+
 export global DeckActions {
     // Prepares high-quality stems for the track on `deck` in the
     // background; they take over from the quick ones when ready.
@@ -4620,11 +4627,12 @@ export component Deck inherits Rectangle {
                 if mirrored: JogSection { group: group; info: info; tint: tint; spin: spin; mirrored: true; }
                 if mirrored: Rectangle { width: 10px; }
                 if mirrored: LoopSection { group: group; info: info; tint: tint; mirrored: true; }
-                if mirrored: VDivider { }
+                if mirrored && PadsUi.visible: VDivider { }
                 if !mirrored: Pitch { group: group; info: info; tint: tint; }
                 if !mirrored: Rectangle { width: 12px; }
-                Pads { deck: deck; group: group; info: info; horizontal-stretch: 1; }
-                if !mirrored: VDivider { }
+                if PadsUi.visible: Pads { deck: deck; group: group; info: info; horizontal-stretch: 1; }
+                if !PadsUi.visible: Rectangle { horizontal-stretch: 1; }
+                if !mirrored && PadsUi.visible: VDivider { }
                 if !mirrored: LoopSection { group: group; info: info; tint: tint; }
                 if !mirrored: Rectangle { width: 10px; }
                 if !mirrored: JogSection { group: group; info: info; tint: tint; spin: spin; }
