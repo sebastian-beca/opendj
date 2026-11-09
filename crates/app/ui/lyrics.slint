@@ -70,6 +70,12 @@ export global LyricsUi {
     in property <bool> page;
     in property <string> page-url;
     callback set-page(on: bool);
+    // Time words: Whisper listens to the vocals and gives each word of the
+    // lyrics shown its time. Offered for lyrics not timed by word yet;
+    // what it is doing (downloading, separating, listening) or why it failed.
+    in property <bool> can-time;
+    in property <string> time-note;
+    callback time-words();
 }
 
 // A line of a deck's lyrics on its big waveform: seconds into the track.
@@ -375,7 +381,29 @@ export component LyricsPanel inherits Rectangle {
         if LyricsUi.has-track: VerticalLayout {
             spacing: 1px;
             Text { text: LyricsUi.title; color: Theme.text; font-size: 12px; font-weight: 600; overflow: elide; }
-            if LyricsUi.source != "": Text { text: LyricsUi.source; color: Theme.label; font-size: 11px; overflow: elide; }
+            if LyricsUi.source != "" || LyricsUi.can-time: HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    horizontal-stretch: 1;
+                    text: LyricsUi.source;
+                    color: Theme.label;
+                    font-size: 11px;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                // Whisper gives each word its time, so the words fill as
+                // they are sung.
+                if LyricsUi.can-time && !LyricsUi.finding: SmallButton {
+                    text: "Time Words";
+                    clicked => { LyricsUi.time-words(); }
+                }
+            }
+            if LyricsUi.time-note != "": Text {
+                text: LyricsUi.time-note;
+                color: Theme.accent;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
         }
         if LyricsUi.finding: FindList { vertical-stretch: 1; }
         if !LyricsUi.finding && (!LyricsUi.has-track || LyricsUi.lines.length == 0): VerticalLayout {

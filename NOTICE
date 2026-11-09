@@ -44,6 +44,12 @@ Computational Perception, JKU Linz, through its Rust port beat-this
 (https://github.com/danigb/beat-this-rs); code and model weights under the
 MIT licence. The weights are downloaded the first time they are needed.
 
+Word timing for lyrics uses whisper.cpp (https://github.com/ggml-org/whisper.cpp),
+Copyright (c) 2023-2026 The ggml authors, under the MIT licence, through
+whisper-rs (Unlicense), with OpenAI's Whisper large-v3-turbo weights
+(https://github.com/openai/whisper), Copyright (c) 2022 OpenAI, under the
+MIT licence. The weights are downloaded the first time they are needed.
+
 The neural key detector's weights (crates/engine/models/keynet.bin) come
 from openkeyscan-analyzer, Copyright (c) 2025 Alexander Sommer, under the
 MIT licence; see crates/engine/models/README.md.
