@@ -42,6 +42,13 @@ impl Prefs {
                      Click a key to change it, type the action, or pick one from Actions. {fixed}"
                 ),
             ),
+            item("", HEADING, "MEDIA KEYS", ""),
+            switch(
+                crate::media_controls::EVERYWHERE,
+                "Media keys in every layout",
+                "Play/pause, next and previous keys, headphone buttons and the system's Now Playing always work Player. On, they also play and pause the master deck in the DJ layouts, where a headphone button could stop a deck mid-set.",
+                settings::flag(crate::media_controls::EVERYWHERE, false),
+            ),
             item("", HEADING, "SET", ""),
         ];
         let sets = settings::keyboard_sets();

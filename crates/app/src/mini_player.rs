@@ -6,7 +6,7 @@
 //!
 //! The two windows share no globals, so a timer copies what is playing
 //! from the main window into the mini player while it shows, and its
-//! buttons act through the main window's controls.
+//! buttons act as the Player bar's (see [`crate::transport`]).
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -16,7 +16,7 @@ use slint::winit_030::winit::window::ResizeDirection;
 use slint::winit_030::WinitWindowAccessor;
 use slint::{ComponentHandle, LogicalSize, Model, Timer, TimerMode};
 
-use crate::{AppWindow, Controls, MiniPlayer, Theme};
+use crate::{transport, AppWindow, MiniPlayer, Theme};
 
 /// Opens the mini player from the main window's `mini-player` callback.
 pub fn install(app: &AppWindow) {
@@ -56,58 +56,29 @@ pub fn install(app: &AppWindow) {
     });
 }
 
-/// The deck shown and its play control's index.
-fn deck(app: &AppWindow) -> (usize, i32) {
-    let d = app.get_player_deck().clamp(0, 1) as usize;
-    let controls = app.global::<Controls>();
-    let play = controls.invoke_resolve(format!("[Channel{}]", d + 1).into(), "play".into());
-    (d, play)
-}
-
-fn set(app: &AppWindow, deck: usize, key: &str, value: f32) {
-    let controls = app.global::<Controls>();
-    let index = controls.invoke_resolve(format!("[Channel{}]", deck + 1).into(), key.into());
-    controls.invoke_set_value(index, value);
-}
-
 fn wire(app: &AppWindow, m: &MiniPlayer) {
     let a = app.as_weak();
     m.on_play_pause(move || {
-        let Some(app) = a.upgrade() else { return };
-        let (d, play) = deck(&app);
-        let controls = app.global::<Controls>();
-        let playing = controls.invoke_value(play, controls.get_tick()) > 0.0;
-        let loaded = app.get_decks().row_data(d).is_some_and(|i| i.loaded);
-        // As the Player bar: starting also switches Automix on.
-        if playing {
-            controls.invoke_set_value(play, 0.0);
-        } else {
-            if loaded {
-                controls.invoke_set_value(play, 1.0);
-            }
-            if !app.get_automix_on() && (app.get_automix_queued() > 0 || !loaded) {
-                app.invoke_automix_toggle();
-            }
+        if let Some(app) = a.upgrade() {
+            transport::play_pause(&app);
         }
     });
     let a = app.as_weak();
     m.on_previous(move || {
         if let Some(app) = a.upgrade() {
-            set(&app, deck(&app).0, "start", 1.0);
+            transport::previous(&app);
         }
     });
     let a = app.as_weak();
     m.on_next(move || {
         if let Some(app) = a.upgrade() {
-            if app.get_automix_on() && app.get_automix_queued() > 0 {
-                app.invoke_automix_mix_now();
-            }
+            transport::next(&app);
         }
     });
     let a = app.as_weak();
     m.on_seek(move |f| {
         if let Some(app) = a.upgrade() {
-            set(&app, deck(&app).0, "playposition", f);
+            transport::seek(&app, f);
         }
     });
     let (a, w) = (app.as_weak(), m.as_weak());
@@ -142,11 +113,10 @@ fn wire(app: &AppWindow, m: &MiniPlayer) {
 }
 
 fn update(app: &AppWindow, m: &MiniPlayer) {
-    let (d, play) = deck(app);
+    let (d, _) = transport::deck(app);
     let Some(info) = app.get_decks().row_data(d) else {
         return;
     };
-    let controls = app.global::<Controls>();
     m.set_loaded(info.loaded);
     m.set_track_title(if info.loaded {
         info.title.clone()
@@ -162,7 +132,7 @@ fn update(app: &AppWindow, m: &MiniPlayer) {
     m.set_has_cover(info.has_cover);
     m.set_initials(info.initials.clone());
     m.set_tint(app.global::<Theme>().invoke_deck_color(d as i32));
-    m.set_playing(controls.invoke_value(play, controls.get_tick()) > 0.0);
+    m.set_playing(transport::playing(app));
     m.set_progress(info.progress);
     m.set_mix_from(info.automix_from);
     m.set_mix_to(info.automix_to);
@@ -172,7 +142,7 @@ fn update(app: &AppWindow, m: &MiniPlayer) {
     } else {
         format!("NEXT IN {next_in}").into()
     });
-    m.set_can_next(app.get_automix_on() && app.get_automix_queued() > 0);
+    m.set_can_next(transport::can_next(app));
 }
 
 /// Brings the window back to a square after a resize: the side the DJ

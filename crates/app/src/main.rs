@@ -68,6 +68,7 @@ mod mac_menu;
 mod mac_titlebar;
 mod macro_lanes;
 mod map_mode;
+mod media_controls;
 mod midi_clock;
 mod mini_player;
 mod mixcloud;
@@ -94,6 +95,7 @@ mod stream_cache;
 mod tidal;
 mod tour;
 mod track_end;
+mod transport;
 mod tutorials;
 mod ui_font;
 mod update;
@@ -1142,6 +1144,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         timer
     };
+    // For the system's Now Playing (installed with the mini player below).
+    let media_tracks = engine.loaded_tracks();
     // The now-playing files and overlay follow the mix a few times a second.
     let _now_playing_timer = {
         let mut feed = now_playing::NowPlaying::new(registry.clone(), engine.loaded_tracks());
@@ -1630,6 +1634,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // so keep filling whichever is showing.
     app_menu::install(&app);
     mini_player::install(&app);
+    // Media keys and the system's Now Playing follow the Player bar.
+    let _media_controls = media_controls::install(&app, media_tracks);
     #[cfg(target_os = "macos")]
     let _mac_menu = {
         let weak = app.as_weak();

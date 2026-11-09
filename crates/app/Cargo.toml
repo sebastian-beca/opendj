@@ -10,6 +10,9 @@ base64 = "0.22"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 getrandom = "0.4"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+# Media keys and the system's Now Playing: MPNowPlayingInfoCenter on macOS,
+# SystemMediaTransportControls on Windows, MPRIS over pure-Rust zbus on Linux.
+souvlaki = { version = "0.9", default-features = false, features = ["use_zbus"] }
 opendj-broadcast = { path = "../broadcast" }
 opendj-control = { path = "../control" }
 opendj-controllers = { path = "../controllers" }
