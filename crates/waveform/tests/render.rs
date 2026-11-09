@@ -590,3 +590,92 @@ fn draws_knob_levels() {
         red(300, line)
     );
 }
+
+/// The scrolling waveform flags each phrase start: a line in its colour
+/// down the waveform and a tab with its name under the bar numbers; a live
+/// deck adds a strip along the top. Too short for tabs, only the lines.
+#[test]
+fn draws_phrase_flags() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let renderer = WaveformRenderer::new(&device, &queue);
+    let track = Arc::new(GpuTrack::new(
+        &device,
+        &queue,
+        &renderer,
+        1,
+        &levels(vec![[0; 8]; 100_000]),
+        1000.0,
+    ));
+    let (w, h) = (1024u32, 120u32);
+    let frame = Frame {
+        play_seconds: 50.0,
+        visible_seconds: 8.0,
+        duration: 100.0,
+        first_bar_beat: 0.0,
+        grid: [None; opendj_waveform::GRID_SECTIONS],
+        cue: None,
+        loop_range: None,
+        loop_marking: None,
+        hotcues: [None; 8],
+        slip: None,
+        gain: 1.0,
+        // The drop starts at x = 768 (2 s right of the middle, 128 px a second).
+        phrases: vec![(40.0, PhraseKind::Build), (52.0, PhraseKind::Drop)],
+    };
+    let draw = |view: &mut WaveformView, frame: &Frame| {
+        view.set_track(&device, &renderer, Some(&track));
+        view.render(&device, &queue, &renderer, Some(frame), 1.0);
+        let data = read_back(&device, &queue, view);
+        let w = view.size().0;
+        move |x: u32, y: u32| {
+            let i = ((y * w + x) * 4) as usize;
+            [data[i], data[i + 1], data[i + 2]]
+        }
+    };
+    let mut view = WaveformView::new(&device, Mode::Scrolling, w, h);
+    let px = draw(&mut view, &frame);
+    // The line, rose, from top to bottom.
+    for y in [2, 60, 117] {
+        let c = px(768, y);
+        assert!(c[0] > 120 && c[0] > c[2] + 40, "drop line at y {y}: {c:?}");
+    }
+    // The tab: rose behind white letters, rows 15 to 28.
+    let tab: Vec<[u8; 3]> = (768..808).map(|x| px(x, 21)).collect();
+    assert!(
+        tab.iter().any(|c| c[0] > 150 && c[1] < 120),
+        "rose tab: {tab:?}"
+    );
+    assert!(
+        tab.iter().any(|c| c.iter().all(|&v| v > 200)),
+        "white letters on the tab: {tab:?}"
+    );
+    // Nothing between flags: below the tab, past the line, the background
+    // (off the silent track's centre line).
+    let empty = px(820, 40);
+    assert!(empty.iter().all(|&v| v < 40), "no band: {empty:?}");
+    // No strip along the top of a track's waveform.
+    let top = px(600, 1);
+    assert!(top.iter().all(|&v| v < 40), "no strip on a track: {top:?}");
+
+    // A live deck: the build's colour along the top before the drop, the
+    // drop's after it.
+    view.set_live(true);
+    let px = draw(&mut view, &frame);
+    let build = px(600, 1);
+    let drop = px(900, 1);
+    assert!(
+        build[2] > 150 && build[0] < build[2],
+        "build strip: {build:?}"
+    );
+    assert!(drop[0] > 150 && drop[2] < drop[0], "drop strip: {drop:?}");
+
+    // Too short for tabs (4-Deck): the line, no tab.
+    let mut thin = WaveformView::new(&device, Mode::Scrolling, w, 36);
+    let px = draw(&mut thin, &frame);
+    assert!(px(768, 18)[0] > 120, "line on a thin waveform");
+    let beside = px(790, 20);
+    assert!(beside.iter().all(|&v| v < 40), "no tab: {beside:?}");
+}
