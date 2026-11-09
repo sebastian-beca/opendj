@@ -9,7 +9,7 @@ use symphonia::core::codecs::CodecParameters;
 use symphonia::core::errors::Error;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
-use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
+use symphonia::core::io::{MediaSource, MediaSourceStream, MediaSourceStreamOptions};
 use symphonia::core::meta::MetadataOptions;
 
 use crate::track::{Audio, AudioWriter};
@@ -42,9 +42,26 @@ pub struct Decoder {
 impl Decoder {
     /// Opens `path` and reads its headers; doesn't decode any audio yet.
     pub fn open(path: &Path) -> Result<Decoder, String> {
-        let err = |e: Error| format!("{}: {e}", path.display());
         let file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let mss = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
+        Decoder::open_source(path, Box::new(file))
+    }
+
+    /// Opens `path` while it's still arriving: it will hold `size` bytes,
+    /// and reads wait for them while `wanted` says so.
+    pub fn open_growing(
+        path: &Path,
+        size: u64,
+        wanted: Arc<dyn Fn() -> bool + Send + Sync>,
+    ) -> Result<Decoder, String> {
+        let file = crate::growing::GrowingFile::open(path, size, wanted)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        Decoder::open_source(path, Box::new(file))
+    }
+
+    /// Reads the headers of `source`, the bytes of `path`.
+    fn open_source(path: &Path, source: Box<dyn MediaSource>) -> Result<Decoder, String> {
+        let err = |e: Error| format!("{}: {e}", path.display());
+        let mss = MediaSourceStream::new(source, MediaSourceStreamOptions::default());
         let mut hint = Hint::new();
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             hint.with_extension(ext);

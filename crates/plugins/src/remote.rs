@@ -70,6 +70,7 @@ fn answer(plugin: &mut dyn Plugin, method: &str, p: &Value) -> Result<Value, Plu
             let source = plugin.source().map(|s| {
                 let mut info = info_json(&s.info());
                 info["sites"] = json!(s.sites());
+                info["previews"] = json!(s.previews());
                 info
             });
             Ok(json!({
@@ -126,6 +127,17 @@ fn answer(plugin: &mut dyn Plugin, method: &str, p: &Value) -> Result<Value, Plu
                         .map(|(key, note)| json!({ "key": key, "note": note }))
                         .collect(),
                 )),
+                "source.preview" => {
+                    source.preview(id, &found_from(&p["item"]))?;
+                    Ok(Value::Null)
+                }
+                "source.preview_file" => Ok(source
+                    .preview_file()?
+                    .map_or(Value::Null, |f| json!(f.to_string_lossy()))),
+                "source.stop_preview" => {
+                    source.stop_preview();
+                    Ok(Value::Null)
+                }
                 _ => Err(unsupported()),
             }
         }
@@ -141,6 +153,7 @@ struct Described {
     manifest: Manifest,
     source: Option<SourceInfo>,
     sites: &'static [&'static str],
+    previews: bool,
 }
 
 fn described() -> &'static Mutex<HashMap<PathBuf, Described>> {
@@ -399,6 +412,25 @@ impl SearchSource for RemotePlugin {
             })
             .unwrap_or_default()
     }
+    fn previews(&self) -> bool {
+        self.described.previews
+    }
+    fn preview(&mut self, id: &str, item: &Found) -> Result<(), PluginError> {
+        self.call(
+            "source.preview",
+            json!({ "id": id, "item": found_json(item) }),
+        )
+        .map(drop)
+    }
+    fn preview_file(&mut self) -> Result<Option<PathBuf>, PluginError> {
+        let v = self.call("source.preview_file", Value::Null)?;
+        Ok(v.as_str().filter(|s| !s.is_empty()).map(PathBuf::from))
+    }
+    fn stop_preview(&mut self) {
+        if self.running() {
+            let _ = self.call("source.stop_preview", Value::Null);
+        }
+    }
     fn status(&mut self) -> Option<StatusPage> {
         // An add-on from before pages answers "not supported": none.
         self.call("source.status", Value::Null)
@@ -503,6 +535,8 @@ fn described_from(hello: &Value) -> Result<Described, PluginError> {
         manifest,
         source,
         sites: Box::leak(sites.into_boxed_slice()),
+        // An add-on from before previews says nothing: none.
+        previews: hello["source"]["previews"].as_bool().unwrap_or(false),
     })
 }
 
@@ -750,6 +784,10 @@ mod tests {
         // An add-on from before sites takes none.
         let old = json!({ "manifest": { "id": "x" }, "source": { "name": "X" } });
         assert!(described_from(&old).unwrap().sites.is_empty());
+        assert!(!described_from(&old).unwrap().previews);
+        let mut hello = hello;
+        hello["source"]["previews"] = json!(true);
+        assert!(described_from(&hello).unwrap().previews);
     }
 
     #[test]

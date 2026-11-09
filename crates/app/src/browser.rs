@@ -2641,6 +2641,17 @@ impl Browser {
         }
     }
 
+    /// Plays a file in the preview player while a source downloads it, or
+    /// stops it.
+    pub fn preview_download(&self, action: crate::sources::PreviewAction) {
+        match action {
+            crate::sources::PreviewAction::Play(path, size) => {
+                self.engine.preview_download(path, size)
+            }
+            crate::sources::PreviewAction::Stop => self.engine.preview(None, false),
+        }
+    }
+
     /// Loads a file from a music server's cache onto a deck that isn't
     /// playing (deck A first), without it joining the collection: it stays
     /// a file shown, as in Files, until the DJ adds it.
