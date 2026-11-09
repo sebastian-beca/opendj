@@ -1,59 +1,69 @@
-openDJ 0.5.1 brings a big batch of work done since 0.5.0, early from the 0.6 plans. Decks can go to their own outputs for a DAW or an external mixer, openDJ speaks MIDI clock and OSC to other gear, apps and lights, Automix mixes intro over outro on the phrases it finds, and the Groove Box grows to eight tracks with new kits. You can back up your collection, buy Wanted tracks from stores, export rekordbox XML, and the decks get SLICER, FREEZE, Stem FX, quicker scratching and a track end warning.
+openDJ 0.6.0 turns openDJ into an instrument as much as a DJ app. Plugin instruments and the Groove Box get a deck of their own with scale, chord and arpeggiator, a looper layers them over the mix, and live decks draw what they play on the waveforms. Player mode becomes a full music player with Home, artist and album pages, Now Playing, Keep going and scrobbling. Lyrics arrive everywhere: a Lyrics tab, on the waveforms, a karaoke screen, and Whisper to time or write down the words.
 
 ## What's new
 
-**Playing with other gear and apps**
+**Instruments**
 
-- **Deck outputs.** Settings › Audio › Outputs can send Deck 1–4 and the Sampler to their own outputs, for recording or processing each deck in a DAW such as Ableton. Pick Clean, Pre-fader or Post-fader. Settings › Audio › Mixer has an **external mixer** mode for playing through a hardware mixer.
-- **MIDI clock out** follows the master deck, so drum machines and other apps stay in time. **MIDI clock in**: the sync leader can be a deck, Ableton Link or an incoming clock, and synced decks follow it on the beat.
-- **OSC control.** Every control has an Open Sound Control address, with feedback, plus beat, phrase, track and hot cue events for visuals and lights. openDJ advertises itself over Bonjour.
-- **App menus.** File, Edit and the rest are native menus on macOS and sit behind the ☰ button on Windows and Linux. **File › Export** holds M3U8, rekordbox XML, USB, Spotify Playlist and Mixcloud.
-- **rekordbox XML export** of the collection, a list or a folder, with beat grids, hot cues, loops and colours, for rekordbox and library tools.
+- **Instruments browser**, like Collection: a tree with Recently played, Type and Character tag chips, presets and column sort.
+- **Presets**: save, step through and load presets for plugins and the Groove Box, and list a plugin's own presets (VST3 `.vstpreset`, Audio Unit factory presets, CLAP presets).
+- **Instrument deck**: eight knobs to a page that follow the plugin's own window (right-click a knob to pick the parameter it turns), a scope, and a keyboard lighting the notes played.
+- **Scale** (Off, Auto from the master deck's key, or a picked scale), **chord** (Triad, Seventh, Power or a learned chord) and an **arpeggiator** synced to the mix's beat.
+- **MIDI from**: pick the keyboard and channel that play an instrument. DJ controllers no longer play instruments unless you choose **Play instruments**, and each device has a Deck menu.
+- **Live decks** (instruments, inputs, Groove Box): TRIM, PAN, a safety limiter, auto trim, and Thru while live. 4-Deck gets a live strip for them.
+- **Instrument art**: a plugin's NKS artwork or bundle icon, or an image of your own.
+- Plugins keep their sound across restarts and when quitting, run side by side, and sleep when idle.
 
-**Automix and phrases**
+**Looper**
 
-- **Intro over outro (Phrases)** mix length: the mix starts where the outgoing track's outro starts and brings the next track in over its intro, synced, so the next track's first big change lands as the mix ends. New installs start with it.
-- **Better phrase detection**, using harmony, repeats and energy, with Verse sections.
-- **Gapless tracks join on the exact sample**, so live albums and DJ mixes split into tracks play without a click.
-- The Automix list drops the key-fit lines and tempo % between rows.
+- A **Looper** on a deck: four layers, record and overdub on the beat from the bar, and **CAPTURE** the last bars of the mix.
 
-**Decks**
+**Live decks on the waveforms**
 
-- **SLICER and FREEZE** pad pages: slice the next 8 beats across the pads, or freeze one beat into eighths.
-- **Stem FX**: echo out a single stem (or send it to reverb), with a Stems FX pad layer.
-- **Scratching** responds about twice as fast to quick changes on the jog, and the crossfader has a Scratch cut-in curve.
-- **Track end warning**: the big remaining time in the deck header blinks red near the end of a playing track, or the jog ring blinks in the deck colour. Set the time and type in Settings › Decks.
-- **Key lock** is on by default. The tempo fader shows a lilac line when it's on, and a right-click on the fader toggles it.
-- Only PLAY blinks on a paused deck.
+- Live decks draw what they play on the scrolling waveform: a note roll for instruments, step lanes with the hits to come for the Groove Box, and a macro lanes view.
+- **Phrase flags** on the scrolling waveforms, and the leading deck's phrases on live decks.
 
 **Groove Box**
 
-- **Eight tracks** with Sequencer, Synth and Mixer tabs: per-track sound, pitch, decay, tone, pan and level.
-- New **Analog** and **Synthetic** kits, nine rows, soft and accent steps, and a groove library.
-- **Pad controllers** can play it, starting with a Native Instruments Maschine Mikro MK3 mapping.
+- Its own tempo (or follow the mix, half or double), kick in key, eight tracks, Dice and living grooves.
+- **Auto fills**, a held **FILL**, the **REMIX** strip and a 4x4 view. Maschine Mikro MK3 pads follow their printed numbers.
 
-**Collection**
+**Player mode**
 
-- **Back up and restore** the collection and settings to one `.opendjbackup` file, daily by default. Sign-ins aren't included.
-- **Buy… on Wanted tracks** looks them up in stores (Bandcamp, Qobuz, Beatport, Bleep, Boomkat, Juno and more), opens one store page at a time, and brings purchases into the Inbox.
-- **Imported lists** from VirtualDJ, rekordbox, Traktor and Mixxx sit read-only under **Imported**. **Make These Lists Mine** moves them to your Playlists.
-- **Drag lists and folders** in the sidebar to move them, and new lists are named in place again.
-- **History** groups sets by day (Today, Yesterday, then dates).
-- **Look up online** from the Info tab's header for the track shown, and load a cover picture from a file in the Cover Art dialog.
-- **⌘I (Ctrl+I)** opens Show Info. Hide from Inbox is gone, and hidden tracks are back in the Inbox; unwanted tracks go to Quarantine.
-- **Albums downloaded whole** show as one item in the Inbox, and Move to Albums takes them in.
-- **VirtualDJ 2024+ playlists** in MyLists are imported.
-- **Add to Downloads** sends a list's songs to a download add-on, so it no longer needs its own Spotify access.
-- Mixed Sets is now **Recordings**. The sources menu has Built-in and External sections, streaming sources refresh from the side panel header, and the Mixcloud track menu keeps just **Upload to Mixcloud**.
+- **Home** with recently played and added albums, your crates and playlists, and Genre, Decade and Key mixes.
+- **Artist and album pages** with Play, Shuffle and Mix.
+- **Now Playing** view with large lyrics, and a **Favorites** heart.
+- **Up Next** shows the track playing, and each track can have its own mix length and style.
+- **Keep going** tops up Up Next with tracks that mix, and **Start Radio** from a track, artist or list.
+- A bar along the bottom with a quality tag, a square frameless mini player, ＋ Add to crate, and a **sleep timer**.
+- **Media keys**, headphone buttons and the system's Now Playing on macOS, Windows and Linux.
+- **Scrobbling** to ListenBrainz and Last.fm (Settings › Broadcast, off at first; Last.fm uses your own API key).
 
-**Player layout**
+**Lyrics and karaoke**
 
-- Drop a track anywhere on the Player bar to play it now. The overview, transport and search sit on the window's centre.
+- **Lyrics tab** reading `.lrc` files and lyric tags, and **Find lyrics** on LRCLIB.
+- **Lyrics on the waveforms**: each deck's timed lyrics along its big waveform.
+- **Karaoke screen** on a second display with word fill, count-in and a Vocals slider, also as a `/karaoke` web page for a TV or another device.
+- **Time Words**: Whisper gives each word its time, and **Transcribe** writes down the words of a track with no lyrics.
+
+**Layouts and browsing**
+
+- A lighter **2-Deck** layout; the previous one is now **2-Deck Pro**. A **PADS** button shows or hides the pad grid.
+- **Filter bar**: chips narrow each other's counts, drag to reorder, a Key chip that matches by Setting, Exact, Harmonic or Fuzzy, a + menu with core fields, your tags and more, and a finder in the search bar.
+- **Wanted** sorts by column; the Buy sheet shows prices, a store picker and iTunes Store links on macOS.
+- Add-on downloads show their queue place and speed, can be previewed while they download, and Downloads is a place in the side panel.
+- Funkwhale works as a Subsonic source.
 
 **Fixes**
 
-- Saved searches run again at launch no longer open sign-in windows.
-- Media server tests pass on Windows.
+- Decks stay usable when the audio device or a controller goes away (Settings › Controllers › Reconnect controllers).
+- The UI stays smooth during batch analysis.
+- macOS: ⌘, opens Settings, File, Edit, View and Settings… stay in every menu bar, the plugin helper stays out of the app switcher, the updater updates the real app when macOS runs it translocated, and the Mixcloud token is read from the keychain only when uploading.
+- M3U8 and rekordbox XML export work on macOS again. Exports live in File › Export.
+- Long names in the browser header no longer run under the search box.
+
+**Moved home**
+
+- openDJ now lives at github.com/openwave-studio/opendj. Old links redirect. On macOS the app has a new bundle ID, so macOS asks once more for microphone and keychain access after this update.
 
 ## Install
 
@@ -82,7 +92,7 @@ Add your music folders in Settings › Collection, or let the guided tour do it 
 - Streaming services are browse only. Buying from stores opens the store's page; openDJ doesn't check out for you.
 - Automix uses decks 1 and 2 only.
 - Controllers marked Beta, including the Xone K2 and Maschine Mikro MK3 mappings, the Traktor Kontrol controllers and the XDJ-RX3 and Numark V7 mappings, haven't all been tried on the hardware yet.
-- Plugins: their latency isn't compensated, and changes made in a plugin's own window aren't kept when openDJ restarts it or quits. On Linux, plugin windows need X11 (XWayland on Wayland).
+- Plugins: their latency isn't compensated. On Linux, plugin windows need X11 (XWayland on Wayland).
 - The phone remote works on your local network only.
 - Broadcasting: Icecast and Shoutcast only for now. Twitch, YouTube and Mixcloud Live streaming come later.
 - Some Settings descriptions are still cut short with "…".
