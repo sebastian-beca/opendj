@@ -58,6 +58,17 @@ pub enum Origin {
 pub struct Lyrics {
     pub lines: Vec<Line>,
     pub origin: Origin,
+    /// Written down by openDJ from the audio (see [`AUTO`]), not by a person.
+    pub auto: bool,
+}
+
+/// The LRC tag openDJ writes at the top of lyrics it transcribed from the
+/// audio with Whisper, so they read as made by a program.
+pub const AUTO: &str = "[re:openDJ Whisper transcription]";
+
+/// Whether LRC `text` is lyrics openDJ transcribed (it has the [`AUTO`] tag).
+pub fn is_auto(text: &str) -> bool {
+    text.lines().take(20).any(|l| l.trim() == AUTO)
 }
 
 impl Lyrics {
@@ -571,10 +582,12 @@ fn from_sidecar(track: &Path) -> Option<Lyrics> {
         let upper = path.with_extension("LRC");
         for p in [path, upper] {
             if let Ok(bytes) = fs::read(&p) {
-                if let Some(lines) = parse(&decode_text(&bytes)) {
+                let text = decode_text(&bytes);
+                if let Some(lines) = parse(&text) {
                     return Some(Lyrics {
                         lines,
                         origin: Origin::Lrc(p),
+                        auto: is_auto(&text),
                     });
                 }
             }
@@ -610,6 +623,7 @@ fn from_tags(track: &Path) -> Option<Lyrics> {
     Some(Lyrics {
         lines,
         origin: Origin::Tag,
+        auto: false,
     })
 }
 
@@ -663,9 +677,12 @@ pub fn find(path: &Path) -> Option<Lyrics> {
 pub fn find_with(path: &Path, store: Option<&Path>) -> Option<Lyrics> {
     find(path).or_else(|| {
         let saved = stored_path(store?, path);
-        let lines = parse(&decode_text(&fs::read(&saved).ok()?))?;
+        let bytes = fs::read(&saved).ok()?;
+        let text = decode_text(&bytes);
+        let lines = parse(&text)?;
         Some(Lyrics {
             lines,
+            auto: is_auto(&text),
             origin: Origin::Saved(saved),
         })
     })
@@ -711,6 +728,14 @@ pub fn save(track: &Path, store: Option<&Path>, text: &str) -> std::io::Result<O
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn knows_lyrics_it_transcribed() {
+        let text = format!("{AUTO}\n[00:01.00]<00:01.00>Hi <00:01.50>there<00:02.00>\n");
+        assert!(is_auto(&text));
+        assert_eq!(parse(&text).unwrap()[0].text, "Hi there");
+        assert!(!is_auto("[re:LRCGET]\n[00:01.00]Hi there"));
+    }
 
     fn starts(lines: &[Line]) -> Vec<Option<f64>> {
         lines.iter().map(|l| l.start).collect()

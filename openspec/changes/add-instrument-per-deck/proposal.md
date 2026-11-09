@@ -13,7 +13,7 @@ The engine cost of several instruments is small in itself: each plugin runs in i
 - **Plugins side by side.** At each effect slot, every deck's plugin gets its block before the rack waits for any of them, with the built-in effects running meanwhile. The instrument gets its block before the decks are worked out (key lock, stems) and is collected just before the mix. Plugins on different decks, and the instrument, now work at the same time.
 - **Sleeping instruments.** An instrument that has played silence for a second, holds no notes, gets none and is on no deck gets no blocks until a note, a knob turn or a deck wakes it; it plays in the very buffer that wakes it.
 - **One instrument per deck.** `[InstrumentN]` for each deck, each with its own plugin helper, notes, scale, chord, arpeggiator, knobs, presets, art and view. Loading a plugin on a deck no longer replaces the one on another deck.
-- **MIDI from per deck.** Each instrument deck takes notes from its own device and channel (takes over `rework-instruments` 3.9).
+- **MIDI from per deck.** Each instrument deck takes notes from its own device and channel (left out of `rework-instruments`).
 - **App.** The instrument deck, 4-Deck strip, presets, knob pages, art, macro lanes, note roll and the Instruments browser's "On deck N" follow the deck's own instrument.
 
 ## Out of scope
