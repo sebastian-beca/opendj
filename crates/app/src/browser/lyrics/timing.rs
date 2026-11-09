@@ -1,6 +1,8 @@
 //! Time words: Whisper listens to the track's vocals and the lyrics shown
 //! get a time for each word (see [`opendj_engine::word_timing`]), saved as
-//! an enhanced `.lrc` beside the track. One track at a time, on a thread
+//! an enhanced `.lrc` beside the track. Transcribe does the same for a
+//! track with no lyrics, writing down the words heard, marked as made by
+//! openDJ ([`lyrics::AUTO`]). One track at a time, on a thread
 //! of its own: the first time downloads the model (about 550 MB), and a
 //! track without stems has its vocals separated first.
 
@@ -19,7 +21,7 @@ use crate::{AppWindow, LyricsUi};
 
 enum Message {
     Stage(Stage),
-    Done(Result<Vec<Line>, String>),
+    Done(Result<String, String>),
 }
 
 /// Words being timed for one track.
@@ -28,6 +30,8 @@ pub(super) struct Job {
     path: PathBuf,
     rx: Receiver<Message>,
     stage: Stage,
+    /// Writing down a track's words, not timing ones it has.
+    transcribing: bool,
 }
 
 /// What the Lyrics tab says while words are timed.
@@ -35,31 +39,38 @@ fn describe(stage: Stage) -> String {
     match stage {
         Stage::Downloading => "Downloading the Whisper model (550 MB)…".into(),
         Stage::Separating => "Separating the vocals…".into(),
-        Stage::Listening(p) => format!("Timing words… {}%", p.clamp(0, 100)),
+        Stage::Listening(p) => format!("Listening… {}%", p.clamp(0, 100)),
     }
 }
 
 impl Browser {
-    /// Starts timing the words of the lyrics shown.
+    /// Starts timing the words of the lyrics shown, or, for a track with
+    /// none, writing them down.
     pub(super) fn time_words(&mut self) {
         if self.lyrics.timing.is_some() {
             return;
         }
-        let (Some((_, track)), Some(shown)) = (&self.lyrics.shown, &self.lyrics.lyrics) else {
+        let Some((_, track)) = &self.lyrics.shown else {
             return;
         };
         let Source::File(path) = &track.source else {
             return;
         };
         let (tx, rx) = mpsc::channel();
-        let lines = shown.lines.clone();
+        let lines: Option<Vec<Line>> = self.lyrics.lyrics.as_ref().map(|l| l.lines.clone());
+        let transcribing = lines.is_none();
         let file = path.clone();
         let progress = tx.clone();
         std::thread::spawn(move || {
             let report: word_timing::Report = Arc::new(move |s| {
                 let _ = progress.send(Message::Stage(s));
             });
-            let done = word_timing::time_words(&file, &lines, report);
+            let done = match lines {
+                Some(lines) => word_timing::time_words(&file, &lines, report)
+                    .map(|timed| lyrics::to_lrc(&timed)),
+                None => word_timing::transcribe(&file, report)
+                    .map(|heard| format!("{}\n{}", lyrics::AUTO, lyrics::to_lrc(&heard))),
+            };
             let _ = tx.send(Message::Done(done));
         });
         self.lyrics.timing = Some(Job {
@@ -67,6 +78,7 @@ impl Browser {
             path: path.clone(),
             rx,
             stage: Stage::Listening(0),
+            transcribing,
         });
         if let Some(app) = self.app.upgrade() {
             self.show_timing(&app.global::<LyricsUi>());
@@ -92,6 +104,16 @@ impl Browser {
     /// The Time words button and what timing says, for the track shown.
     pub(super) fn show_timing(&self, ui: &LyricsUi) {
         ui.set_can_time(self.can_time_words());
+        ui.set_can_transcribe(
+            self.lyrics.timing.is_none()
+                && self.lyrics.job.is_none()
+                && self.lyrics.lyrics.is_none()
+                && self
+                    .lyrics
+                    .shown
+                    .as_ref()
+                    .is_some_and(|(_, t)| matches!(t.source, Source::File(_))),
+        );
         let here = self.lyrics.timing.as_ref().filter(|j| {
             self.lyrics
                 .shown
@@ -131,8 +153,8 @@ impl Browser {
             .shown
             .as_ref()
             .is_some_and(|(_, t)| t.id == job.id);
-        let saved = done.and_then(|lines| {
-            lyrics::save(&job.path, store().as_deref(), &lyrics::to_lrc(&lines))
+        let saved = done.and_then(|text| {
+            lyrics::save(&job.path, store().as_deref(), &text)
                 .map_err(|e| format!("couldn't save them: {e}"))
         });
         match saved {
@@ -145,7 +167,14 @@ impl Browser {
                     self.poll_lyrics(app, LYRICS_TAB);
                 }
             }
-            Err(e) if here => ui.set_time_note(format!("Couldn't time the words: {e}").into()),
+            Err(e) if here => {
+                let what = if job.transcribing {
+                    "Couldn't transcribe the track"
+                } else {
+                    "Couldn't time the words"
+                };
+                ui.set_time_note(format!("{what}: {e}").into())
+            }
             Err(_) => ui.set_time_note(SharedString::new()),
         }
         self.show_timing(&ui);
@@ -158,8 +187,8 @@ mod tests {
 
     #[test]
     fn says_what_it_is_doing() {
-        assert_eq!(describe(Stage::Listening(42)), "Timing words… 42%");
-        assert_eq!(describe(Stage::Listening(140)), "Timing words… 100%");
+        assert_eq!(describe(Stage::Listening(42)), "Listening… 42%");
+        assert_eq!(describe(Stage::Listening(140)), "Listening… 100%");
         assert!(describe(Stage::Downloading).contains("550 MB"));
     }
 }
