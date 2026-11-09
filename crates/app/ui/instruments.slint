@@ -163,6 +163,8 @@ export global InstrumentsUi {
     in property <[image]> plugin-art;
     in property <[bool]> plugin-has-art;
     in property <[bool]> plugin-own-art;
+    // Each ticked plugin's format, in the picker's order: CLAP, VST3 or AU.
+    in property <[string]> plugin-formats;
     in property <[image]> input-art;
     in property <[bool]> input-has-art;
     // Files dropped on deck `deck` playing `live`: an image becomes its art,
@@ -209,6 +211,11 @@ export global InstrumentsUi {
     // The instrument plugin picked, from 1; 0 none.
     public pure function instrument() -> int {
         Controls.value(Controls.resolve("[Instrument1]", "instrument"), Controls.tick)
+    }
+
+    // The picked instrument's format (CLAP, VST3, AU); empty for none.
+    public pure function format() -> string {
+        instrument() > 0 && instrument() <= plugin-formats.length ? plugin-formats[instrument() - 1] : ""
     }
 
     // The item is playing on deck `deck`.

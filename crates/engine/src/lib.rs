@@ -58,6 +58,7 @@ pub mod synth;
 pub mod tags;
 pub mod track;
 mod visual;
+pub mod word_timing;
 
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};

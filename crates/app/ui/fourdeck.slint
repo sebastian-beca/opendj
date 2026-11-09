@@ -9,7 +9,7 @@ import { TrackDrag } from "library.slint";
 import { InstrumentsUi } from "instruments.slint";
 import { Theme } from "theme.slint";
 import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, StereoMeter, SyncButton } from "controls.slint";
-import { DeckInfo, Header, LiveStrip, LoopStepper, Pads, PlayButton, TempoStep } from "deck.slint";
+import { DeckInfo, Header, LiveStrip, LoopStepper, Pads, PadsUi, PlayButton, TempoStep } from "deck.slint";
 import { AudioSettings, Knob, ModeMenu, SideKnob } from "mixer.slint";
 
 // Which side of the crossfader a deck is on, as Mixxx's `orientation`:
@@ -195,7 +195,7 @@ export component DeckStrip inherits Rectangle {
                         Text { text: "LOOP"; color: Theme.text-dim; font-size: 9px; font-weight: 600; letter-spacing: 0.5px; horizontal-alignment: center; }
                     }
                 }
-                if live == 0: Pads { deck: deck; group: group; info: info; vertical-stretch: 1; min-height: 77px; }
+                if live == 0 && PadsUi.visible: Pads { deck: deck; group: group; info: info; vertical-stretch: 1; min-height: 77px; }
             }
         }
     }
@@ -209,7 +209,7 @@ export component DeckStrip inherits Rectangle {
 }
 
 // The tempo under its BPM: a click opens key lock, quantize and a reset.
-component TempoMenu inherits Rectangle {
+export component TempoMenu inherits Rectangle {
     in property <string> group;
     in property <string> rate;
     in property <color> tint;

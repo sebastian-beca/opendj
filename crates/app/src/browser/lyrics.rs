@@ -10,6 +10,7 @@
 //! follow the track playing.
 
 mod karaoke;
+mod timing;
 pub(super) mod wave;
 
 use std::sync::mpsc::{self, Receiver};
@@ -64,6 +65,8 @@ pub(super) struct LyricsState {
     found: Vec<Found>,
     karaoke: karaoke::Karaoke,
     wave: wave::WaveState,
+    /// Words being timed with Whisper (Time words).
+    timing: Option<timing::Job>,
 }
 
 impl LyricsState {
@@ -94,6 +97,7 @@ impl LyricsState {
             found: Vec::new(),
             karaoke: karaoke::Karaoke::new(registry),
             wave: Default::default(),
+            timing: None,
         }
     }
 }
@@ -119,7 +123,11 @@ fn describe(l: &Lyrics) -> String {
         Origin::Tag => "the file's tags".into(),
         Origin::Saved(_) => "saved by openDJ".into(),
     };
-    format!("{timing} · {from}")
+    if l.auto {
+        format!("Transcribed by openDJ · {from}")
+    } else {
+        format!("{timing} · {from}")
+    }
 }
 
 /// Where openDJ keeps lyrics for tracks whose folder can't be written.
@@ -181,6 +189,8 @@ impl Browser {
             crate::settings::set(lrclib::ENABLED, serde_json::json!(true));
             w(&|b| b.find_lyrics())
         });
+        let w = with.clone();
+        ui.on_time_words(move || w(&|b| b.time_words()));
         Self::install_karaoke(app, with);
     }
 
@@ -233,6 +243,7 @@ impl Browser {
 
     /// Keeps the Lyrics tab up to date; called every frame.
     pub(super) fn poll_lyrics(&mut self, app: &AppWindow, tab: usize) {
+        self.poll_timing(app);
         let ui = app.global::<LyricsUi>();
         if tab != LYRICS_TAB && !ui.get_big() && !ui.get_karaoke() {
             return;
@@ -251,6 +262,9 @@ impl Browser {
             self.lyrics.generation += 1;
             self.lyrics.job = None;
             self.close_found_ui(&ui);
+            ui.set_time_note(SharedString::new());
+            ui.set_can_time(false);
+            ui.set_can_transcribe(false);
             ui.set_has_track(now.is_some());
             ui.set_can_find(
                 now.as_ref()
@@ -465,6 +479,7 @@ impl Browser {
         self.lyrics.current = -1;
         ui.set_current(-1);
         self.lyrics.lyrics = found;
+        self.show_timing(ui);
     }
 
     /// Plays the deck the track is on from the start of `line`.
@@ -505,12 +520,20 @@ mod tests {
         let l = Lyrics {
             lines,
             origin: Origin::Lrc(PathBuf::from("/music/Song.lrc")),
+            auto: false,
         };
         assert_eq!(describe(&l), "Timed by word · Song.lrc");
         let l = Lyrics {
             lines: lyrics::parse("Just words").unwrap(),
             origin: Origin::Tag,
+            auto: false,
         };
         assert_eq!(describe(&l), "Not timed · the file's tags");
+        let l = Lyrics {
+            lines: lyrics::parse("[00:01.00]<00:01.00>Hi <00:01.50>there").unwrap(),
+            origin: Origin::Lrc(PathBuf::from("/music/Song.lrc")),
+            auto: true,
+        };
+        assert_eq!(describe(&l), "Transcribed by openDJ · Song.lrc");
     }
 }

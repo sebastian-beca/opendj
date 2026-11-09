@@ -70,6 +70,15 @@ export global LyricsUi {
     in property <bool> page;
     in property <string> page-url;
     callback set-page(on: bool);
+    // Time words: Whisper listens to the vocals and gives each word of the
+    // lyrics shown its time. Offered for lyrics not timed by word yet;
+    // what it is doing (downloading, separating, listening) or why it failed.
+    in property <bool> can-time;
+    in property <string> time-note;
+    callback time-words();
+    // Transcribe: the same for a track with no lyrics, writing down the
+    // words heard (time-words does it when there are no lyrics).
+    in property <bool> can-transcribe;
 }
 
 // A line of a deck's lyrics on its big waveform: seconds into the track.
@@ -375,7 +384,29 @@ export component LyricsPanel inherits Rectangle {
         if LyricsUi.has-track: VerticalLayout {
             spacing: 1px;
             Text { text: LyricsUi.title; color: Theme.text; font-size: 12px; font-weight: 600; overflow: elide; }
-            if LyricsUi.source != "": Text { text: LyricsUi.source; color: Theme.label; font-size: 11px; overflow: elide; }
+            if LyricsUi.source != "" || LyricsUi.can-time: HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    horizontal-stretch: 1;
+                    text: LyricsUi.source;
+                    color: Theme.label;
+                    font-size: 11px;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                // Whisper gives each word its time, so the words fill as
+                // they are sung.
+                if LyricsUi.can-time && !LyricsUi.finding: SmallButton {
+                    text: "Time Words";
+                    clicked => { LyricsUi.time-words(); }
+                }
+            }
+            if LyricsUi.time-note != "": Text {
+                text: LyricsUi.time-note;
+                color: Theme.accent;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
         }
         if LyricsUi.finding: FindList { vertical-stretch: 1; }
         if !LyricsUi.finding && (!LyricsUi.has-track || LyricsUi.lines.length == 0): VerticalLayout {
@@ -393,11 +424,18 @@ export component LyricsPanel inherits Rectangle {
             Text {
                 text: !LyricsUi.has-track
                     ? (LyricsUi.subject == 0 ? "Lyrics show here for the track playing." : LyricsUi.subject == 1 ? "Click a track in the browser to see its lyrics." : "Nothing is loaded on that deck.")
+                    : LyricsUi.can-transcribe
+                    ? "Put an .lrc file with the same name next to the track, add lyrics to its tags, press Find, or let openDJ write down the words it hears."
                     : "Put an .lrc file with the same name next to the track, add lyrics to its tags, or press Find.";
                 color: Theme.text-dim;
                 font-size: 12px;
                 horizontal-alignment: center;
                 wrap: word-wrap;
+            }
+            if LyricsUi.has-track && LyricsUi.can-transcribe: HorizontalLayout {
+                alignment: center;
+                padding-top: 6px;
+                SmallButton { text: "Transcribe"; clicked => { LyricsUi.time-words(); } }
             }
         }
         list := ListView {

@@ -2,7 +2,7 @@ import { Palette } from "std-widgets.slint";
 import { Theme, KeyNotation, CloseIcon } from "theme.slint";
 import { TourMark } from "tourmark.slint";
 import { Controls, VuMeter, ControlKnob, HoverTipView, HoverTip } from "controls.slint";
-import { Deck, DeckInfo, KeyItem, EffectList, FxRow, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit, GrooveGenre, GrooveName } from "deck.slint";
+import { Deck, DeckInfo, PadsUi, KeyItem, EffectList, FxRow, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit, GrooveGenre, GrooveName } from "deck.slint";
 import { Mixer, ExternalMixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } from "mixer.slint";
 import { MasterPanel, MicPanel, OnAirPanel, BroadcastState, BroadcastStation, AirTime } from "toppanels.slint";
 import { PlayerBar, PlayerDeck, PlayerMixer, TopSearch, QuickResults, QuickSearch, QuickRow } from "player.slint";
@@ -15,6 +15,7 @@ import { CueList } from "cues.slint";
 import { ChecklistUi } from "checklist.slint";
 import { LyricsUi, WaveLyrics, LyricsLane, WaveLine } from "lyrics.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
+import { LiteDeck, LiteMixer, LiteUi, PadBar } from "lite.slint";
 import { FxBar } from "fxbar.slint";
 import { InstrumentsUi, LiveItem, ParamMatch, PresetItem, PresetUi } from "instruments.slint";
 import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, MenuListRow, MenuTag, StoreUi, StreamMatch, WantedUi, FilesUi, AlbumsUi, AlbumTile, ColumnUi, ListColumn, HealthUi, HealthCard, HealthStage, HealthLine, HealthArea, HealthChip, HealthReview, CleanupUi, CleanupRow, FixNamesUi, GenreRow, BuyUi, BuyGroup, BuyRow } from "library.slint";
@@ -505,6 +506,18 @@ component LayoutIcon inherits Rectangle {
             Rectangle { height: 1.5px; width: 60%; background: tint; }
         }
     }
+    // 2-Deck: two short decks over the pad bar.
+    if kind == 5: VerticalLayout {
+        padding: 3.5px;
+        spacing: 2px;
+        HorizontalLayout {
+            spacing: 2px;
+            vertical-stretch: 1;
+            Rectangle { background: tint; border-radius: 1px; }
+            Rectangle { background: tint; border-radius: 1px; }
+        }
+        Rectangle { height: 1.5px; background: tint; }
+    }
     if kind == 2: HorizontalLayout {
         padding: 3.5px;
         spacing: 1.5px;
@@ -586,8 +599,8 @@ component LayoutPill inherits Rectangle {
         padding-left: 12px;
         padding-right: 14px;
         spacing: 8px;
-        VerticalLayout { alignment: center; LayoutIcon { kind: layout == 3 ? 4 : layout; } }
-        Text { text: layout == 1 ? "Player" : layout == 2 ? "4-Deck" : layout == 3 ? "Prep" : "2-Deck"; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+        VerticalLayout { alignment: center; LayoutIcon { kind: layout == 3 ? 4 : layout == 4 ? 5 : layout; } }
+        Text { text: layout == 1 ? "Player" : layout == 2 ? "4-Deck" : layout == 3 ? "Prep" : layout == 4 ? "2-Deck" : "2-Deck Pro"; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
     }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -609,7 +622,8 @@ component LayoutPill inherits Rectangle {
             spacing: 2px;
             Text { text: "LAYOUT"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; x: 10px; height: 22px; vertical-alignment: center; }
             LayoutItem { kind: 1; text: "Player"; current: layout == 1; picked => { layout = 1; changed-to(1); } }
-            LayoutItem { kind: 0; text: "2-Deck"; current: layout == 0; picked => { layout = 0; changed-to(0); } }
+            LayoutItem { kind: 5; text: "2-Deck"; current: layout == 4; picked => { layout = 4; changed-to(4); } }
+            LayoutItem { kind: 0; text: "2-Deck Pro"; current: layout == 0; picked => { layout = 0; changed-to(0); } }
             LayoutItem { kind: 2; text: "4-Deck"; current: layout == 2; picked => { layout = 2; changed-to(2); } }
             if PrepUi.offered: LayoutItem { kind: 4; text: "Prep"; current: layout == 3; picked => { layout = 3; changed-to(3); } }
             if layout == 1: Rectangle { height: 1px; background: Theme.border; }
@@ -696,6 +710,47 @@ component FxButton inherits Rectangle {
         }
     }
     TourMark { id: "ui,fx_button"; }
+}
+
+// Shows or hides the pad grid in the decks: a small grid of eight pads,
+// two rows of four as on most controllers, lit while they show. Hidden,
+// 4-Deck strips get shorter and the browser gets the room.
+component PadsButton inherits Rectangle {
+    in-out property <bool> on;
+    callback changed-to(on: bool);
+    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: on ? Theme.accent : transparent;
+    height: 36px;
+    y: 8px;
+    horizontal-stretch: 0;
+    HorizontalLayout {
+        padding-left: 11px;
+        padding-right: 11px;
+        // Eight small pads in two rows of four.
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            for row in 2: HorizontalLayout {
+                spacing: 2px;
+                for pad in 4: Rectangle {
+                    width: 4px;
+                    height: 4px;
+                    border-radius: 1px;
+                    background: on ? Theme.accent : Theme.text-dim;
+                }
+            }
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            on = !on;
+            changed-to(on);
+        }
+    }
+    TourMark { id: "ui,pads_button"; }
 }
 
 // MASTER: the main meters and the clock. A click opens the MASTER panel
@@ -826,6 +881,9 @@ export component AppWindow inherits Window {
     // The FX bar under the waveforms, from the top bar's FX button.
     in-out property <bool> fx-bar-visible: true;
     callback fx-bar-visible-changed(on: bool);
+    // The pad grid in the decks: the PADS button beside FX.
+    in-out property <bool> pads-visible <=> PadsUi.visible;
+    callback pads-visible-changed(on: bool);
 
     // Physical sizes the GPU textures should be rendered at.
     // Room on the left of the top bar for macOS's window buttons.
@@ -837,9 +895,15 @@ export component AppWindow inherits Window {
     out property <length> waveform-height: max(1px, (waveforms.height - (wave-rows + 1) * 1px - (prep ? 24px : 0px)) / wave-rows);
     property <int> wave-rows: four ? 4 : prep ? 1 : 2;
     // From whichever layout's deck A is showing.
-    out property <length> overview-width: player ? 1px : four ? strip-1.overview-width : compact ? player-a.overview-width : prep ? prep-deck.overview-width : deck-a.overview-width;
-    out property <length> overview-height: player ? 1px : four ? strip-1.overview-height : compact ? player-a.overview-height : prep ? prep-deck.overview-height : deck-a.overview-height;
+    out property <length> overview-width: player ? 1px : four ? strip-1.overview-width : compact ? player-a.overview-width : prep ? prep-deck.overview-width : lite ? lite-a.overview-width : deck-a.overview-width;
+    out property <length> overview-height: player ? 1px : four ? strip-1.overview-height : compact ? player-a.overview-height : prep ? prep-deck.overview-height : lite ? lite-a.overview-height : deck-a.overview-height;
     property <bool> four: layout == 2 && !library-expanded;
+    // 2-Deck, the lighter two-deck layout (lite.slint). A deck there holding
+    // a Groove Box or an instrument shows the full deck, and the row is as
+    // tall as 2-Deck Pro's.
+    property <bool> lite: layout == 4 && !library-expanded;
+    property <bool> lite-full-a: Controls.value(Controls.resolve("[Groove1]", "enabled"), Controls.tick) > 0 || (!decks[0].loaded && InstrumentsUi.live(0) > 0);
+    property <bool> lite-full-b: Controls.value(Controls.resolve("[Groove2]", "enabled"), Controls.tick) > 0 || (!decks[1].loaded && InstrumentsUi.live(1) > 0);
     // A hardware mixer does the mixing (`[Master],external_mixer`): no
     // on-screen mixer, only each deck's level.
     property <bool> external-mixer: Controls.value(Controls.resolve("[Master]", "external_mixer"), Controls.tick) > 0;
@@ -1212,6 +1276,7 @@ export component AppWindow inherits Window {
                     LayoutPill { layout <=> root.layout; player-mic <=> root.player-mic; changed-to(l) => { layout-changed(l); } }
                     if !player: WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
                     if !player: FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
+                    if !player && !prep: PadsButton { on <=> root.pads-visible; changed-to(on) => { pads-visible-changed(on); } }
                     if !player: Rectangle { horizontal-stretch: 1; }
                     // Between the pills, centred on the window (as the
                     // Player bar below is) while there is room, else
@@ -1319,12 +1384,43 @@ export component AppWindow inherits Window {
                 Deck { deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
             }
 
+            // 2-Deck: the lighter decks and the slim mixer, then the pad bar
+            // (with PADS). A deck with a Groove Box or an instrument shows
+            // the full deck, and then the row and mixer are 2-Deck Pro's.
+            HorizontalLayout {
+                spacing: 1px;
+                height: lite ? (lite-full-a || lite-full-b ? 272px : LiteUi.deck-height) : 0px;
+                visible: lite;
+                Rectangle {
+                    horizontal-stretch: 1;
+                    min-width: 400px;
+                    preferred-width: 400px;
+                    lite-a := LiteDeck { width: parent.width; height: parent.height; visible: !lite-full-a; deck: 0; info: decks[0]; overview: overview-1; }
+                    if lite-full-a: Deck { width: parent.width; height: parent.height; deck: 0; info: decks[0]; spin: spin-1; overview: overview-1; }
+                }
+                if !external-mixer && !(lite-full-a || lite-full-b): LiteMixer { }
+                if !external-mixer && (lite-full-a || lite-full-b): Mixer { }
+                if external-mixer: ExternalMixer { }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    min-width: 400px;
+                    preferred-width: 400px;
+                    LiteDeck { width: parent.width; height: parent.height; visible: !lite-full-b; deck: 1; info: decks[1]; overview: overview-2; mirrored: true; }
+                    if lite-full-b: Deck { width: parent.width; height: parent.height; deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; }
+                }
+            }
+            PadBar {
+                height: lite && PadsUi.visible ? LiteUi.bar-height : 0px;
+                visible: lite && PadsUi.visible;
+                decks: decks;
+            }
+
             // 4-Deck: four strips, decks 3, 1, 2 and 4, then the bar with the
             // crossfader. Folded away, like the 2-Deck row, in the other
             // layouts.
             HorizontalLayout {
                 spacing: 1px;
-                height: four ? 330px : 0px;
+                height: four ? (PadsUi.visible ? 330px : 247px) : 0px;
                 visible: four;
                 DeckStrip { deck: 2; info: decks[2]; overview: overview-3; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
                 strip-1 := DeckStrip { deck: 0; info: decks[0]; overview: overview-1; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
