@@ -10,6 +10,7 @@
 //! follow the track playing.
 
 mod karaoke;
+pub(super) mod wave;
 
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
@@ -62,6 +63,7 @@ pub(super) struct LyricsState {
     finding: Option<(u64, Receiver<Looked>)>,
     found: Vec<Found>,
     karaoke: karaoke::Karaoke,
+    wave: wave::WaveState,
 }
 
 impl LyricsState {
@@ -91,6 +93,7 @@ impl LyricsState {
             finding: None,
             found: Vec::new(),
             karaoke: karaoke::Karaoke::new(registry),
+            wave: Default::default(),
         }
     }
 }
@@ -416,6 +419,7 @@ impl Browser {
         match lyrics::save(&path, store().as_deref(), f.text()) {
             Ok(_) => {
                 self.close_found_ui(&ui);
+                self.lyrics.wave.reload();
                 // Read again, from the file just written.
                 self.lyrics.shown = None;
                 self.poll_lyrics(&app, LYRICS_TAB);

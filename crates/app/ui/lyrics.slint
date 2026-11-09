@@ -72,6 +72,77 @@ export global LyricsUi {
     callback set-page(on: bool);
 }
 
+// A line of a deck's lyrics on its big waveform: seconds into the track.
+export struct WaveLine {
+    start: float,
+    end: float,
+    text: string,
+}
+
+export struct DeckLines {
+    lines: [WaveLine],
+}
+
+// The lyrics along the bottom of each deck's big waveform.
+export global WaveLyrics {
+    // Settings › Decks › Lyrics on waveforms.
+    in property <bool> shown: true;
+    // Deck 1 first; a deck with no timed lyrics has no lines.
+    in property <[DeckLines]> decks;
+}
+
+// The lyrics lane along the bottom of a big waveform: each line a strip
+// from when it is sung to when it ends, scrolling with the audio, its words
+// lilac as far as the playhead (the middle) has gone.
+export component LyricsLane inherits Rectangle {
+    in property <[WaveLine]> lines;
+    // Seconds into the track at the playhead, and seconds across the width.
+    in property <float> now;
+    in property <float> visible-seconds: 10;
+    property <length> per-second: self.width / max(visible-seconds, 0.1);
+    property <length> mid: self.width / 2;
+    height: 15px;
+    clip: true;
+    background: #000000a8;
+    for line in lines: strip := Rectangle {
+        x: mid + (line.start - now) * per-second;
+        width: max(4px, (line.end - line.start) * per-second);
+        y: 2px;
+        height: parent.height - 4px;
+        property <bool> singing: now >= line.start && now < line.end;
+        visible: self.x < parent.width && self.x + self.width > 0;
+        border-radius: 3px;
+        background: singing ? Theme.accent.with-alpha(0.22) : #ffffff12;
+        words := Text {
+            x: 4px;
+            width: parent.width - 6px;
+            text: line.text;
+            color: singing ? Theme.text : Theme.text-dim;
+            font-size: 10px;
+            font-weight: 600;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        // The part already sung, drawn over in lilac: the words fill in
+        // step with the line, as far as it has been sung.
+        Rectangle {
+            x: 0;
+            width: 4px + min(words.preferred-width, words.width) * clamp((now - line.start) / max(line.end - line.start, 0.01), 0, 1);
+            clip: true;
+            Text {
+                x: 4px;
+                width: strip.width - 6px;
+                text: line.text;
+                color: Theme.accent;
+                font-size: 10px;
+                font-weight: 600;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+}
+
 component SmallButton inherits Rectangle {
     in property <string> text;
     in property <bool> primary;
