@@ -11,7 +11,7 @@ just starting out and for more experienced DJs alike.
 ## Features
 
 - **Decks**: two or four, with hot cues, loops, beat jumps, slip, sync, key lock,
-  key shift and a beat and phrase counter; 2-Deck, 4-Deck and Player layouts
+  key shift and a beat and phrase counter; 2-Deck, 2-Deck Pro, 4-Deck and Player layouts
 - **Mixer and effects**: gain, 3-band EQ, Color FX on the filter knob, and an FX bar
   of beat-locked effects, plus your own CLAP, VST3 and Audio Unit plugins
 - **Stems** on every track: instant stems on load, high quality ones in the background
