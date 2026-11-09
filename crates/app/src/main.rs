@@ -526,6 +526,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     diagnostics::install();
+    // Before any thread starts: Beat This! takes a few cores, not all.
+    opendj_engine::background::configure();
     // Windows wakes sleeping threads only every 15.6 ms unless asked for
     // 1 ms: the controller threads' 1 kHz scratch filter and their timers
     // need it, or a jog is heard in 16 ms steps.
@@ -1441,6 +1443,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     None => {}
                 }
                 let playing = play_controls.iter().any(|c| c.get() > 0.5);
+                opendj_engine::background::set_playing(playing);
                 if update_ready.get() {
                     if playing {
                         app.set_update_status("Restarts when the decks stop".into());

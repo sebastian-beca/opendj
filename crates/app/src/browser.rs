@@ -4410,7 +4410,7 @@ impl Browser {
     /// track, or a grid the DJ edited, into the library and saves them, as
     /// Mixxx stores analysis results. The list shows them too.
     pub fn learn_analysis(&mut self, loaded: &[Option<Arc<Track>>]) {
-        let mut changed = false;
+        let mut changed = HashSet::new();
         let saved = self.saved();
         for t in loaded.iter().flatten() {
             // Its mini waveform, filling in as the deck analyses it, in its
@@ -4477,10 +4477,90 @@ impl Browser {
                 }
             }
             self.library[i] = Arc::new(e);
-            changed = true;
+            changed.insert(i);
         }
-        if changed {
+        if changed.is_empty() {
+            return;
+        }
+        if self.rows_stay_put() {
+            self.refresh_track_rows(&changed);
+        } else {
             self.refresh_rows();
+        }
+    }
+
+    /// Whether the list shown keeps the same rows, in the same order, when
+    /// tracks get a new tempo, key or grid: nothing searched or filtered,
+    /// sorted by something analysis doesn't change, and a view that
+    /// doesn't pick its tracks by what analysis finds.
+    fn rows_stay_put(&self) -> bool {
+        use columns::*;
+        !self.shows_store_rows()
+            && Query::parse(&self.full_search()).is_empty()
+            && (self.sort_column < 0
+                || [
+                    ARTIST, TITLE_ID, ALBUM, GENRE, LENGTH, RATING_ID, ORDER, PLAYED_AT, CRATES,
+                ]
+                .contains(&self.sort_column))
+            && !matches!(
+                self.current_shown(),
+                Some(
+                    Contents::Query(_)
+                        | Contents::Health(_)
+                        | Contents::Dupes(_)
+                        | Contents::Area(_)
+                        | Contents::Ignored
+                )
+            )
+    }
+
+    /// Shows the new tempo, key and other analysed cells of these library
+    /// tracks (indices into `library`) in the rows that list them, leaving
+    /// every other row as it is. Rebuilding the whole list (see
+    /// [`Self::refresh_rows`]) re-matches streamed tracks and lays every
+    /// row out again, which a batch of analysed tracks shouldn't pay for
+    /// each time one finishes.
+    fn refresh_track_rows(&mut self, changed: &HashSet<usize>) {
+        let ids = self.columns.ids();
+        let kept = |id: &i32| matches!(*id, columns::ORDER | columns::PLAYED_AT);
+        for (row, i) in self.rows.iter().enumerate() {
+            let Some(i) = i.filter(|i| changed.contains(i)) else {
+                continue;
+            };
+            let Some(mut r) = self.list.row_data(row) else {
+                continue;
+            };
+            let t = &self.library[i];
+            r.bpm = if t.bpm > 0.0 {
+                let sections = if t.grid.is_dynamic() { "~" } else { "" };
+                format!("{sections}{:.1}", t.bpm).into()
+            } else {
+                SharedString::new()
+            };
+            r.key = show_key(&t.key, self.camelot).into();
+            r.key_match = self.mixes_with_deck(&t.key);
+            r.key_shift = self.key_shift_to_deck(&t.key);
+            r.length = short_time(t.duration);
+            let old = r.cells.clone();
+            let crates = self.crates.get(&t.id);
+            let cells = columns::row_cells(
+                &ids,
+                &r,
+                Some(t),
+                crates.map(Vec::as_slice),
+                Default::default(),
+                self.prep_facts(t, &ids),
+            );
+            // The place in the list and the time played stay as they were.
+            for (c, id) in ids.iter().enumerate() {
+                if kept(id) {
+                    if let Some(cell) = old.row_data(c) {
+                        cells.set_row_data(c, cell);
+                    }
+                }
+            }
+            r.cells = cells;
+            self.list.set_row_data(row, r);
         }
     }
 
