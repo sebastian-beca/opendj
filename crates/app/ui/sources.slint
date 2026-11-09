@@ -55,6 +55,9 @@ export struct FoundRow {
     cache-progress: float,
     // On the Downloads list: a download into the cache.
     to-cache: bool,
+    // Heard before it's downloaded: 0 = not, 1 = waiting for the other
+    // user, 2 = playing, 3 = couldn't (why is in from).
+    preview: int,
 }
 
 // A line of a source's own page (Sharing): a section's heading, or a
@@ -131,6 +134,8 @@ export global SourceUi {
     // The source shown is the DJ's own music server: files play from a
     // cache, and Download keeps them there; Add to Collection keeps them.
     in property <bool> plays;
+    // The source shown lets the DJ hear a file before downloading it.
+    in property <bool> previews;
     callback describe(text: string, kind: int, prefer: int);
     // auto: download each playlist entry's best copy right away.
     callback search(text: string, kind: int, prefer: int, auto: bool);
@@ -146,6 +151,8 @@ export global SourceUi {
     // A source that plays: load a file onto a free deck (through the
     // cache), keep a row in the cache, or the ticked rows.
     callback play(row: int);
+    // Hear a file before downloading it, or stop hearing it.
+    callback preview-row(row: int);
     callback cache(row: int);
     callback cache-selected();
     // The Downloads list: take a row off (stopping it), try the failed
@@ -581,6 +588,29 @@ component Cloud inherits Path {
     commands: "M 4.5 11 L 12 11 A 3 3 0 0 0 12.3 5 A 4.2 4.2 0 0 0 4.3 4.6 A 3.2 3.2 0 0 0 4.5 11 Z";
 }
 
+// On a file a source can let the DJ hear before downloading: play it in
+// the headphones, or stop; dots while the other user starts sending.
+component PreviewButton inherits Rectangle {
+    in property <int> state;
+    callback clicked();
+    width: 26px;
+    height: 22px;
+    border-radius: 11px;
+    background: ta.has-hover ? #3a3a3d : transparent;
+    property <color> ink: state == 1 || state == 2 ? Theme.accent : ta.has-hover ? Theme.text : Theme.text-dim;
+    if state == 0 || state == 3: Path {
+        width: 9px;
+        height: 10px;
+        viewbox-width: 9;
+        viewbox-height: 10;
+        fill: ink;
+        commands: "M 0 0 L 9 5 L 0 10 Z";
+    }
+    if state == 1: Text { text: "···"; color: ink; font-size: 13px; font-weight: 800; }
+    if state == 2: Rectangle { width: 9px; height: 9px; background: ink; border-radius: 1px; }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { clicked(); } }
+}
+
 // On a music server's results: play a file, and keep it in the cache
 // (the cloud), with how far that's got.
 component CacheButtons inherits HorizontalLayout {
@@ -885,11 +915,19 @@ export component SourceResults inherits Rectangle {
                     Text { width: w-quality; text: r.quality; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
                     Text { width: w-size; text: r.size; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; horizontal-alignment: right; }
                     // Who shares it, or why its download failed.
-                    Text { width: w-from; text: r.state == 4 && r.note != "" ? r.note : r.from; color: r.state == 4 ? #ff6b5e : Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
+                    Text { width: w-from; text: r.state == 4 && r.note != "" ? r.note : r.from; color: r.state == 4 || r.preview == 3 ? #ff6b5e : Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
                     if SourceUi.plays && SourceUi.current-search >= 0: CacheButtons {
                         r: r;
                         play => { SourceUi.play(i); }
                         cache => { SourceUi.cache(i); }
+                    }
+                    if SourceUi.previews && SourceUi.current-search >= 0: Rectangle {
+                        width: 26px;
+                        if r.kind == 2: PreviewButton {
+                            y: (parent.height - self.height) / 2;
+                            state: r.preview;
+                            clicked => { SourceUi.preview-row(i); }
+                        }
                     }
                     RowButton { r: r; clicked => { SourceUi.download(i); } }
                     // On the Downloads list: take it off, stopping it if it's going.

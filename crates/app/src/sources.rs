@@ -34,6 +34,10 @@ const TICK: Duration = Duration::from_millis(900);
 
 /// How often a source's own page (see [`SearchSource::status`]) is asked
 /// for.
+/// How often a preview waiting for its first bytes asks for them.
+const PREVIEW_TICK: Duration = Duration::from_millis(400);
+/// How long a preview waits for the other user before giving up.
+const PREVIEW_WAIT: Duration = Duration::from_secs(45);
 const STATUS_TICK: Duration = Duration::from_secs(3);
 
 /// A square picture's side length and RGBA pixels.
@@ -72,6 +76,10 @@ enum Request {
     Keep(String, PathBuf, PathBuf),
     Retry(String),
     Cancel(String),
+    /// Starts hearing a file of search `local` before it's downloaded (see
+    /// [`SearchSource::preview`]).
+    Preview(u64, Box<Found>),
+    StopPreview,
     /// The DJ changed the plugin's settings.
     Configure(PluginConfig),
 }
@@ -92,6 +100,10 @@ enum Event {
     Status(usize, Option<StatusPage>),
     /// The lines under downloads still going, when they changed.
     Notes(usize, Vec<(String, String)>),
+    /// The preview's bytes started landing in this file.
+    PreviewFile(usize, PathBuf),
+    /// The preview couldn't start, and why.
+    PreviewFailed(usize, String),
 }
 
 /// One source's thread: searches by the app's own numbers, mapped to the
@@ -115,8 +127,15 @@ fn run(
     let mut last_status: Option<Instant> = None;
     let mut status: Option<StatusPage> = None;
     let mut notes: Vec<(String, String)> = Vec::new();
+    // A preview waiting for its first bytes, and since when.
+    let mut preview: Option<Instant> = None;
     loop {
-        match rx.recv_timeout(TICK) {
+        let wait = if preview.is_some() {
+            PREVIEW_TICK
+        } else {
+            TICK
+        };
+        match rx.recv_timeout(wait) {
             Ok(Request::Configure(config)) => plugin.configure(&config),
             Ok(Request::Keep(key, from, to)) => {
                 let progress = match keep(&from, &to) {
@@ -155,12 +174,54 @@ fn run(
                     _ => {}
                 }
                 let source = plugin.source().expect("a source");
-                if !handle(source, index, request, &mut ids, &mut active, &tx) {
-                    return;
+                match request {
+                    Request::Preview(local, item) => {
+                        let id = ids.get(&local).cloned().unwrap_or_default();
+                        preview = None;
+                        match source.preview(&id, &item) {
+                            Ok(()) => preview = Some(Instant::now()),
+                            Err(e) => {
+                                let why = match e {
+                                    PluginError::NotSupported => "Can't preview this.".into(),
+                                    e => e.to_string(),
+                                };
+                                if tx.send(Event::PreviewFailed(index, why)).is_err() {
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    Request::StopPreview => {
+                        preview = None;
+                        source.stop_preview();
+                    }
+                    request => {
+                        if !handle(source, index, request, &mut ids, &mut active, &tx) {
+                            return;
+                        }
+                    }
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
+        }
+        if let Some(since) = preview {
+            let source = plugin.source().expect("a source");
+            let event = match source.preview_file() {
+                Ok(Some(path)) => Some(Event::PreviewFile(index, path)),
+                Ok(None) if since.elapsed() >= PREVIEW_WAIT => Some(Event::PreviewFailed(
+                    index,
+                    "Nobody sent it in time.".into(),
+                )),
+                Ok(None) => None,
+                Err(e) => Some(Event::PreviewFailed(index, e.to_string())),
+            };
+            if let Some(event) = event {
+                preview = None;
+                if tx.send(event).is_err() {
+                    return;
+                }
+            }
         }
         if last.elapsed() < TICK {
             continue;
@@ -288,6 +349,7 @@ fn handle(
             }
         }
         Request::Configure(_) | Request::Keep(..) => None,
+        Request::Preview(..) | Request::StopPreview => None,
         Request::Cancel(key) => {
             if let Err(e) = source.cancel(&key) {
                 eprintln!("can't cancel {key}: {e}");
@@ -404,6 +466,9 @@ struct Source {
     /// Its own page in the panel, e.g. Sharing (see
     /// [`SearchSource::status`]).
     status: Option<StatusPage>,
+    /// Its files can be heard before they're downloaded (see
+    /// [`SearchSource::previews`]).
+    previews: bool,
 }
 
 impl Source {
@@ -498,6 +563,34 @@ pub struct Sources {
     loads: Vec<PathBuf>,
     /// Files to load once they're in the cache, by source and key.
     play_after: HashSet<(usize, String)>,
+    /// The file being heard before it's downloaded, if any.
+    preview: Option<Preview>,
+    /// What the frame loop should tell the preview player.
+    preview_actions: Vec<PreviewAction>,
+}
+
+/// A file of a search being heard before it's downloaded.
+struct Preview {
+    source: usize,
+    key: String,
+    size: u64,
+    state: PreviewState,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum PreviewState {
+    /// Waiting for the other user to start sending.
+    Waiting,
+    Playing,
+    Failed(String),
+}
+
+/// What the preview player should do, for the frame loop.
+#[derive(Debug, PartialEq)]
+pub enum PreviewAction {
+    /// Play this file while it downloads, which will hold this many bytes.
+    Play(PathBuf, u64),
+    Stop,
 }
 
 impl Sources {
@@ -511,6 +604,7 @@ impl Sources {
                 let id = plugin.manifest().id;
                 let sites = plugin.source().map(|s| s.sites()).unwrap_or_default();
                 let plays = plugin.source().is_some_and(|s| s.plays());
+                let previews = plugin.source().is_some_and(|s| s.previews());
                 let cache = plays.then(|| cache_dir(info.name)).flatten();
                 let settings = plugin.settings();
                 let (requests, rx) = channel();
@@ -529,6 +623,7 @@ impl Sources {
                     cache,
                     settings,
                     status: None,
+                    previews,
                 }
             })
             .collect();
@@ -570,6 +665,8 @@ impl Sources {
             setup_status: String::new(),
             loads: Vec::new(),
             play_after: HashSet::new(),
+            preview: None,
+            preview_actions: Vec::new(),
         };
         // Saved searches run again when the app starts.
         for s in 0..me.sources.len() {
@@ -657,6 +754,8 @@ impl Sources {
         ui.on_download_selected(move || w(Box::new(|s| s.download_selected())));
         let w = with.clone();
         ui.on_play(move |row| w(Box::new(move |s| s.play_row(row as usize))));
+        let w = with.clone();
+        ui.on_preview_row(move |row| w(Box::new(move |s| s.preview_row(row as usize))));
         let w = with.clone();
         ui.on_cache(move |row| w(Box::new(move |s| s.cache_row(row as usize))));
         let w = with.clone();
@@ -805,6 +904,19 @@ impl Sources {
                     }
                     self.sources[s].status = status;
                 }
+                Event::PreviewFile(s, path) => {
+                    if let Some(p) = self.preview.as_mut().filter(|p| p.source == s) {
+                        if p.state == PreviewState::Waiting {
+                            p.state = PreviewState::Playing;
+                            self.preview_actions.push(PreviewAction::Play(path, p.size));
+                        }
+                    }
+                }
+                Event::PreviewFailed(s, why) => {
+                    if let Some(p) = self.preview.as_mut().filter(|p| p.source == s) {
+                        p.state = PreviewState::Failed(why);
+                    }
+                }
                 Event::Notes(s, notes) => {
                     for d in &mut self.sources[s].downloads {
                         d.note = notes
@@ -844,6 +956,55 @@ impl Sources {
             self.refresh();
         }
         imported
+    }
+
+    /// What the preview player should do since last asked.
+    pub fn take_preview_actions(&mut self) -> Vec<PreviewAction> {
+        std::mem::take(&mut self.preview_actions)
+    }
+
+    /// A file row's preview button: starts hearing it, or stops if it's
+    /// the one being heard.
+    fn preview_row(&mut self, row: usize) {
+        let (Some(s), Some(i)) = (self.shown, self.search) else {
+            return;
+        };
+        let Some(Row::Item(key)) = self.rows.get(row).cloned() else {
+            return;
+        };
+        let same = self
+            .preview
+            .as_ref()
+            .is_some_and(|p| p.source == s && p.key == key);
+        self.stop_preview();
+        if same {
+            self.refresh();
+            return;
+        }
+        let search = &self.sources[s].searches[i];
+        let Some(found) = search.find(&key).filter(|f| !f.folder).cloned() else {
+            return;
+        };
+        let _ = self.sources[s]
+            .requests
+            .send(Request::Preview(search.local, Box::new(found.clone())));
+        self.preview = Some(Preview {
+            source: s,
+            key,
+            size: found.size,
+            state: PreviewState::Waiting,
+        });
+        self.refresh();
+    }
+
+    /// Stops any preview, in the player and at its source.
+    fn stop_preview(&mut self) {
+        if let Some(p) = self.preview.take() {
+            let _ = self.sources[p.source].requests.send(Request::StopPreview);
+            if p.state == PreviewState::Playing {
+                self.preview_actions.push(PreviewAction::Stop);
+            }
+        }
     }
 
     /// Files from a source's cache to load onto a deck.
@@ -1406,6 +1567,7 @@ impl Sources {
         ui.set_status_note(status.note.as_str().into());
         ui.set_status_lines(ModelRc::new(VecModel::from(status_lines(&status))));
         ui.set_plays(source.cache.is_some());
+        ui.set_previews(source.previews);
         let config = crate::settings::plugin_config(source.id);
         let fields: Vec<SetupField> = if needs_setup(&source.settings, &config) {
             source
@@ -1569,6 +1731,18 @@ impl Sources {
                 search.open.contains(&f.key),
                 own.or_else(inherited).map(|d| &d.progress),
             );
+            if let Some(p) = self.preview.as_ref().filter(|p| p.key == f.key) {
+                if self.shown == Some(p.source) {
+                    row.preview = match &p.state {
+                        PreviewState::Waiting => 1,
+                        PreviewState::Playing => 2,
+                        PreviewState::Failed(why) => {
+                            row.from = why.as_str().into();
+                            3
+                        }
+                    };
+                }
+            }
             if source.cache.is_some() {
                 row.cached = !f.folder && source.cached(f).is_some();
                 let caching = source
@@ -2338,6 +2512,7 @@ mod tests {
             cache: None,
             settings: Vec::new(),
             status: None,
+            previews: false,
         };
         let progress = |key: &str, progress| Download {
             key: key.into(),
@@ -2483,5 +2658,93 @@ mod tests {
         assert_eq!(q.kind, QueryKind::Album);
         assert_eq!(q.prefer, Prefer::Mp3);
         assert_eq!(query("x", 99, -1).kind, QueryKind::Auto);
+    }
+
+    /// A source whose previews start sending after a few asks.
+    struct Previewer {
+        asks: usize,
+    }
+
+    impl Plugin for Previewer {
+        fn manifest(&self) -> &opendj_plugins::Manifest {
+            static M: opendj_plugins::Manifest = opendj_plugins::Manifest {
+                id: "previewer",
+                name: "Previewer",
+                hosts: &[],
+                downloads: true,
+            };
+            &M
+        }
+        fn source(&mut self) -> Option<&mut dyn SearchSource> {
+            Some(self)
+        }
+    }
+
+    impl SearchSource for Previewer {
+        fn info(&self) -> SourceInfo {
+            SourceInfo {
+                name: "Previewer",
+                icon_svg: b"",
+                hint: "",
+            }
+        }
+        fn describe(&self, _: &SourceQuery) -> Vec<String> {
+            Vec::new()
+        }
+        fn start(&mut self, _: &SourceQuery) -> Result<String, PluginError> {
+            Ok("1".into())
+        }
+        fn results(&mut self, _: &str) -> Result<Snapshot, PluginError> {
+            Ok(Snapshot::default())
+        }
+        fn download(&mut self, _: &str, _: &[Found], _: &Path) -> Result<(), PluginError> {
+            Ok(())
+        }
+        fn progress(&mut self) -> Vec<DownloadUpdate> {
+            Vec::new()
+        }
+        fn previews(&self) -> bool {
+            true
+        }
+        fn preview(&mut self, _: &str, item: &Found) -> Result<(), PluginError> {
+            if item.key == "bad" {
+                return Err(PluginError::NotSupported);
+            }
+            self.asks = 0;
+            Ok(())
+        }
+        fn preview_file(&mut self) -> Result<Option<PathBuf>, PluginError> {
+            self.asks += 1;
+            Ok((self.asks >= 2).then(|| PathBuf::from("/incoming/kerala.mp3")))
+        }
+    }
+
+    #[test]
+    fn previews_wait_for_the_first_bytes() {
+        let (requests, rx) = channel();
+        let (tx, events) = channel();
+        std::thread::spawn(move || run(Box::new(Previewer { asks: 0 }), 0, None, rx, tx));
+        let file = |key: &str| {
+            Box::new(Found {
+                key: key.into(),
+                size: 1000,
+                ..Default::default()
+            })
+        };
+        let next = || loop {
+            let e = events
+                .recv_timeout(Duration::from_secs(5))
+                .expect("an event");
+            if matches!(e, Event::PreviewFile(..) | Event::PreviewFailed(..)) {
+                return e;
+            }
+        };
+        requests.send(Request::Preview(1, file("bad"))).unwrap();
+        assert!(matches!(next(), Event::PreviewFailed(0, why) if why == "Can't preview this."));
+        requests.send(Request::Preview(1, file("good"))).unwrap();
+        assert!(matches!(
+            next(),
+            Event::PreviewFile(0, path) if path == Path::new("/incoming/kerala.mp3")
+        ));
     }
 }
