@@ -1565,14 +1565,17 @@ mod tests {
         /// One buffer of the Instrument input, before its fader: its last
         /// frame's level.
         fn instrument_buffer(&mut self) -> f32 {
+            self.instrument_buffer_on(false)
+        }
+
+        /// [`Rig::instrument_buffer`], with the input on a deck or not.
+        fn instrument_buffer_on(&mut self, on_deck: bool) -> f32 {
             self.rack.prepare([0.5; TARGETS], self.now);
-            self.instrument.render(
-                FRAMES,
-                &mut self.rack,
-                input_target(INSTRUMENT),
-                0.01,
-                false,
-            );
+            let target = input_target(INSTRUMENT);
+            self.instrument
+                .start(FRAMES, &mut self.rack, target, on_deck);
+            self.instrument
+                .render(FRAMES, &mut self.rack, target, 0.01, on_deck);
             self.rack.finish();
             self.now += FRAMES as f64 / SR as f64;
             self.instrument.buf[FRAMES - 1][0]
@@ -1725,6 +1728,55 @@ mod tests {
         assert_eq!(view.held(), 0, "nothing shows held without it");
         assert!(view.scope().iter().all(|&(lo, hi)| lo == 0.0 && hi == 0.0));
     }
+    #[test]
+    fn a_silent_instrument_off_its_deck_sleeps_until_a_note() {
+        let mut rig = Rig::new("test-gain");
+        rig.host.set_instruments(vec![PluginEntry {
+            key: "test-synth".into(),
+            name: "Test Synth".into(),
+            plugin: Plugin::Test("test-synth".into()),
+        }]);
+        let group = input_group(INSTRUMENT);
+        let configured = rig.reg.get(group, "input_configured").unwrap();
+        rig.reg.get(group, "instrument").unwrap().set(1.0);
+        let end = Instant::now() + Duration::from_secs(10);
+        while !configured.get_bool() {
+            rig.instrument_buffer();
+            assert!(Instant::now() < end, "the instrument starts");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        // A second of silence, a buffer at a time.
+        let second = SR as usize / FRAMES + 1;
+        // On a deck it keeps playing (getting its blocks) however quiet.
+        for _ in 0..2 * second {
+            rig.instrument_buffer_on(true);
+        }
+        assert!(!rig.rack.instrument_asleep());
+        // Off it, it sleeps after a second of silence.
+        for _ in 0..second {
+            rig.instrument_buffer();
+        }
+        assert!(rig.rack.instrument_asleep());
+        // A note wakes it at once: it plays in the very next buffer.
+        assert!(rig.notes.send([0x90, 127, 100]));
+        assert!((rig.instrument_buffer() - 1.0).abs() < 1e-3);
+        assert!(!rig.rack.instrument_asleep());
+        // Held, it never sleeps, even off its deck.
+        for _ in 0..2 * second {
+            rig.instrument_buffer();
+        }
+        assert!(!rig.rack.instrument_asleep());
+        assert!(rig.notes.send([0x80, 127, 0]));
+        assert!(rig.instrument_buffer().abs() < 1e-3);
+        // Put on a deck, it wakes too.
+        for _ in 0..2 * second {
+            rig.instrument_buffer();
+        }
+        assert!(rig.rack.instrument_asleep());
+        rig.instrument_buffer_on(true);
+        assert!(!rig.rack.instrument_asleep());
+    }
+
     #[test]
     fn an_instruments_sound_is_kept_for_next_time() {
         let mut rig = Rig::new("test-gain");
