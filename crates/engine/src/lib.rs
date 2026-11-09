@@ -36,6 +36,7 @@ pub mod kits;
 pub mod link;
 pub mod live_wave;
 pub mod loader;
+pub mod looper;
 pub mod loudness;
 pub mod lyrics;
 pub mod meter;
@@ -217,6 +218,12 @@ impl AudioEngine {
             )
         });
         link::watch(engine.link_handle(), Arc::downgrade(&registry));
+        looper::supply(
+            engine.take_looper_supply().expect("looper supply"),
+            Arc::downgrade(&registry),
+            NUM_DECKS,
+            rate,
+        );
         let midi_clock = midi_clock::start(
             engine.beat_clock(),
             engine.clock_in(),

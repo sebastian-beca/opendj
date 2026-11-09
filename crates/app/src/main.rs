@@ -2028,6 +2028,8 @@ struct DeckHandles {
     /// deck is a Groove Box: either way it plays live.
     live_input: ControlHandle,
     groove: ControlHandle,
+    /// The deck plays its Looper.
+    looper: ControlHandle,
     /// Non-zero on the sync leader.
     sync_leader: ControlHandle,
     playposition: ControlHandle,
@@ -2084,6 +2086,9 @@ impl Decks {
                 groove: reg
                     .get(&format!("[Groove{}]", d + 1), "enabled")
                     .expect("groove box control"),
+                looper: reg
+                    .get(&opendj_engine::looper::looper_group(d), "enabled")
+                    .expect("looper control"),
                 sync_leader: c("sync_leader"),
                 playposition: c("playposition"),
                 rate: c("rate"),
@@ -2530,7 +2535,8 @@ impl Gpu {
         // Decks playing an input, an instrument or the Groove Box.
         let live: [bool; NUM_DECKS] = std::array::from_fn(|d| {
             let h = &decks.0[d];
-            tracks[d].is_none() && (h.live_input.get() > 0.0 || h.groove.get_bool())
+            tracks[d].is_none()
+                && (h.live_input.get() > 0.0 || h.groove.get_bool() || h.looper.get_bool())
         });
         if let Some(traces) = self.live.as_mut() {
             traces.poll(live);
@@ -2538,7 +2544,7 @@ impl Gpu {
         // Decks playing their Groove Box, for the step lanes.
         let groove: [bool; NUM_DECKS] = std::array::from_fn(|d| {
             let h = &decks.0[d];
-            live[d] && h.groove.get_bool() && h.live_input.get() <= 0.0
+            live[d] && h.groove.get_bool() && h.live_input.get() <= 0.0 && !h.looper.get_bool()
         });
         if let Some(steps) = self.steps.as_mut() {
             steps.poll(groove);
