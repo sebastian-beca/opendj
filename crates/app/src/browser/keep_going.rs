@@ -178,6 +178,10 @@ impl Browser {
         if player != self.keep_going.player {
             self.keep_going.player = player;
             self.refresh_side();
+            // Player opens on Home.
+            if player && !self.pages_open() {
+                self.go_home();
+            }
         }
         self.show_keep_going();
         if !self.keeps_going() {

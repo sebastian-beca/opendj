@@ -1,8 +1,9 @@
-// Player mode's artist and album pages, in the middle pane over the track
-// list as streaming players show them: a header with the art, the name,
-// what it holds and Play, Shuffle and Mix; then the tracks, and on an
-// artist's page their albums. A back arrow returns to where it was opened
-// from. The app fills PageUi (crate::browser::pages).
+// Player mode's Home and its artist, album and mix pages, in the middle
+// pane over the track list as streaming players show them. Home has
+// shelves of albums, crates and mixes; a page has a header with the art,
+// the name, what it holds and Play, Shuffle and Mix, then the tracks, and
+// on an artist's page their albums. A back arrow returns to where it was
+// opened from. The app fills PageUi (crate::browser::pages and ::home).
 import { Theme } from "theme.slint";
 import { ScrollView } from "scroll.slint";
 
@@ -28,9 +29,31 @@ export struct PageAlbum {
     has-cover: bool,
 }
 
+// A tile on Home: an album, an artist (round), a crate or a mix (its
+// label on its colour, without a cover).
+export struct HomeTile {
+    name: string,
+    detail: string,
+    cover: image,
+    has-cover: bool,
+    round: bool,
+    label: string,
+    tint: color,
+}
+
+export struct HomeShelf {
+    title: string,
+    tiles: [HomeTile],
+}
+
 export global PageUi {
-    // 0 no page, 1 an artist, 2 an album.
+    // 0 no page, 1 an artist, 2 an album, 3 Home, 4 a mix.
     in property <int> kind;
+    // Home: "Good evening", and its shelves.
+    in property <string> greeting;
+    in property <[HomeShelf]> shelves;
+    callback open-tile(shelf: int, tile: int);
+    callback go-home();
     in property <string> title;
     // An album's artist, a link to their page; empty on an artist's page.
     in property <string> artist;
@@ -102,8 +125,87 @@ export component PageView inherits Rectangle {
             spacing: 14px;
             alignment: start;
 
+            if PageUi.kind == 3: Text {
+                text: PageUi.greeting;
+                color: Theme.text;
+                font-size: 30px;
+                font-weight: 800;
+            }
+            if PageUi.kind == 3 && PageUi.shelves.length == 0: Text {
+                text: "Home fills in as you add and play music.";
+                color: Theme.text-dim;
+                font-size: 14px;
+            }
+            for shelf[s] in PageUi.shelves: VerticalLayout {
+                spacing: 10px;
+                Text {
+                    height: 36px;
+                    vertical-alignment: bottom;
+                    text: shelf.title;
+                    color: Theme.text;
+                    font-size: 18px;
+                    font-weight: 700;
+                }
+                Rectangle {
+                    height: tile-width + 56px;
+                    clip: true;
+                    for tile[i] in shelf.tiles: Rectangle {
+                        visible: i < columns;
+                        x: i * (tile-width + gap);
+                        y: 0;
+                        width: tile-width;
+                        height: tile-width + 56px;
+                        border-radius: 6px;
+                        background: hta.has-hover ? #ffffff10 : transparent;
+                        Rectangle {
+                            x: 0;
+                            y: 0;
+                            width: parent.width;
+                            height: parent.width;
+                            border-radius: tile.round ? parent.width / 2 : 6px;
+                            clip: true;
+                            background: @linear-gradient(135deg, tile.tint 0%, tile.tint.darker(0.6) 60%, #101012 100%);
+                            if tile.has-cover: Image { width: 100%; height: 100%; source: tile.cover; image-fit: cover; }
+                            if !tile.has-cover: Text {
+                                width: parent.width - 20px;
+                                text: tile.label;
+                                color: #ffffffe0;
+                                font-size: min(parent.width * 0.22, 40px);
+                                font-weight: 800;
+                                wrap: word-wrap;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                        Text {
+                            x: 2px;
+                            y: parent.width + 8px;
+                            width: parent.width - 4px;
+                            text: tile.name;
+                            color: Theme.text;
+                            font-size: 14px;
+                            font-weight: 600;
+                            overflow: elide;
+                        }
+                        Text {
+                            x: 2px;
+                            y: parent.width + 28px;
+                            width: parent.width - 4px;
+                            text: tile.detail;
+                            color: Theme.text-dim;
+                            font-size: 12px;
+                            overflow: elide;
+                        }
+                        hta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { PageUi.open-tile(s, i); }
+                        }
+                    }
+                }
+            }
+
             // The art, then what it is and the buttons.
-            HorizontalLayout {
+            if PageUi.kind != 3: HorizontalLayout {
                 spacing: 26px;
                 alignment: start;
                 Rectangle {
@@ -121,17 +223,21 @@ export component PageView inherits Rectangle {
                         image-fit: cover;
                     }
                     if !PageUi.has-cover: Text {
+                        width: parent.width - 24px;
                         text: PageUi.initials;
                         color: #ffffffd8;
-                        font-size: 56px;
-                        font-weight: 700;
+                        font-size: PageUi.kind == 4 ? 40px : 56px;
+                        font-weight: PageUi.kind == 4 ? 800 : 700;
+                        wrap: word-wrap;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
                     }
                 }
                 VerticalLayout {
                     alignment: end;
                     spacing: 6px;
                     Text {
-                        text: PageUi.kind == 1 ? "ARTIST" : "ALBUM";
+                        text: PageUi.kind == 1 ? "ARTIST" : PageUi.kind == 4 ? "MIX" : "ALBUM";
                         color: Theme.text-dim;
                         font-size: 11px;
                         font-weight: 700;
@@ -171,7 +277,7 @@ export component PageView inherits Rectangle {
                 }
             }
 
-            Rectangle { height: 8px; }
+            if PageUi.kind != 3: Rectangle { height: 8px; }
             Text {
                 text: PageUi.kind == 1 ? "Tracks" : "";
                 visible: PageUi.kind == 1;
@@ -198,7 +304,7 @@ export component PageView inherits Rectangle {
                             horizontal-alignment: right;
                             vertical-alignment: center;
                         }
-                        if PageUi.kind == 1: Rectangle {
+                        if PageUi.kind == 1 || PageUi.kind == 4: Rectangle {
                             width: 40px;
                             height: 40px;
                             y: 6px;
@@ -283,8 +389,8 @@ export component PageView inherits Rectangle {
         }
     }
 
-    // Back: to the page before, or the list.
-    Rectangle {
+    // Back: to the page before, or the list. Home has nothing behind it.
+    if PageUi.kind != 3: Rectangle {
         x: 14px;
         y: 12px;
         width: 34px;
@@ -303,6 +409,32 @@ export component PageView inherits Rectangle {
         bta := TouchArea {
             mouse-cursor: pointer;
             clicked => { PageUi.back(); }
+        }
+    }
+}
+
+// Player's Home button, beside the search box.
+export component HomeButton inherits Rectangle {
+    width: 34px;
+    property <bool> on: PageUi.kind == 3;
+    Rectangle {
+        width: 34px;
+        height: 34px;
+        border-radius: 17px;
+        background: hta.has-hover ? #ffffff24 : #ffffff12;
+        Path {
+            width: 18px;
+            height: 18px;
+            viewbox-width: 18;
+            viewbox-height: 18;
+            stroke: on ? Theme.accent : Theme.text;
+            stroke-width: 1.7px;
+            fill: on ? Theme.accent.with-alpha(0.25) : transparent;
+            commands: "M 2.5 8.5 L 9 2.8 L 15.5 8.5 L 15.5 15.5 L 11 15.5 L 11 11 L 7 11 L 7 15.5 L 2.5 15.5 Z";
+        }
+        hta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { PageUi.go-home(); }
         }
     }
 }

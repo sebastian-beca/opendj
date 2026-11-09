@@ -164,10 +164,16 @@ impl Browser {
 
     /// Shows one of the menu's lists in the tree, with the folders above it open.
     fn show_menu_list(&mut self, list: usize) {
-        let Some(id) = self.menu_lists.get(list).map(|l| l.id) else {
-            return;
-        };
+        if let Some(id) = self.menu_lists.get(list).map(|l| l.id) {
+            self.show_list(id);
+        }
+    }
+
+    /// Shows list `id` in the collection's tree, with the folders above it
+    /// open, and lists its tracks.
+    pub(super) fn show_list(&mut self, id: i64) {
         self.leave_for_collection();
+        self.close_page();
         let Some(n) = self.nodes.iter().position(|n| n.playlist == Some(id)) else {
             return;
         };
@@ -247,7 +253,7 @@ impl Browser {
 
     /// Back to the collection's tree from another source, Health or the
     /// history, for a jump from the track menu.
-    fn leave_for_collection(&mut self) {
+    pub(super) fn leave_for_collection(&mut self) {
         if self.tree != COLLECTION {
             self.select_source(COLLECTION);
         }

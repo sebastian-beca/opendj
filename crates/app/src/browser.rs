@@ -40,6 +40,7 @@ mod favorites;
 mod filters;
 mod health;
 mod history;
+mod home;
 mod inbox_albums;
 mod info;
 mod keep_going;
@@ -3155,6 +3156,10 @@ impl Browser {
         self.refresh_tree();
         self.refresh_rows();
         self.refresh_side();
+        // A page's tracks are library indices, so it is made again.
+        if self.pages_open() {
+            self.refresh_page();
+        }
     }
 
     /// The track at `index` on the Automix list.
