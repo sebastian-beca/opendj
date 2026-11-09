@@ -24,7 +24,7 @@
 - [x] 3.5 Input decks (mic, aux): header with the interface input, TRIM, PAN, meter
 - [x] 3.7 TRIM set on first play from the input's level
 - [x] 3.6 MIDI from: the instrument takes notes from a chosen keyboard and channel (Any by default), so one track of a sequencer, or one keyboard of several, plays it; note-offs always pass so nothing hangs
-- [ ] 3.9 MIDI from per deck once several instruments play at once, so one controller's tracks play different decks
+- 3.9 MIDI from per deck: moved to add-instrument-per-deck (v0.7)
 
 ## 4. Scale, chord and arpeggiator
 
