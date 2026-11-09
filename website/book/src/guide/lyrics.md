@@ -37,11 +37,11 @@ line, or not timed) and where they came from.
 
 ## In Player mode
 
-The speech bubble button on the Player bar shows the lyrics of the track
-playing large, in place of the track list. The line being sung is big and
+The speech bubble button on the Player bar opens **Now Playing** on its
+**Lyrics**: the lyrics of the track playing large, beside its album art. The line being sung is big and
 white, and when the lyrics are timed by word, the words already sung turn
 lilac. Lines gone by fade, and a ♪ marks a break in the singing. Click a
-line to play from it. Press the button again to go back to the list.
+line to play from it. Press the button again, or the ⌄ at the top left, to go back to the list.
 
 ![Lyrics in Player mode](../images/player-lyrics.png)
 
