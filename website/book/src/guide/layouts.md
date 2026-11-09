@@ -26,6 +26,13 @@ The menu at the top left of the window switches layouts:
   square). **Order** and **Repeat** are at the
   top of Up Next. With Repeat on, a played track goes back to the end of Up
   Next instead of leaving it, so the list keeps going round.
+  The keyboard's **play/pause**, **next** and **previous** keys, the
+  buttons on headphones, and the system's Now Playing (Control Center on
+  macOS, the media overlay on Windows, the desktop's media controls on
+  Linux) work Player as its buttons do, and show the track with its art.
+  The DJ layouts leave them alone unless **Media keys in every layout** is
+  on in **Settings › Keyboard**, so a headphone button can't stop a deck
+  in the middle of a set.
   The top bar keeps to search. The search box (**⌘F**) is Player's only
   search box: it filters the track list and shows the best matches as you
   type: artists and albums first, then tracks (tracks first when a title is
