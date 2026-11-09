@@ -10,6 +10,7 @@
 import { LibraryEdit, ListPanel, TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
 import { NowPlayingUi } from "nowplaying.slint";
+import { PageUi } from "pages.slint";
 import { LineEdit } from "std-widgets.slint";
 import { ControlButton, ControlFader, Controls, StereoMeter, SyncButton } from "controls.slint";
 import { Cover, DeckInfo, Header, Jog, PlayButton } from "deck.slint";
@@ -289,9 +290,15 @@ export component PlayerBar inherits Rectangle {
                     Text {
                         min-width: 0px;
                         text: info.loaded ? info.artist : queue-has-tracks ? "Press play to start Up Next" : "Add tracks to Up Next";
-                        color: Theme.text-dim;
+                        color: info.loaded && arta.has-hover ? Theme.text : Theme.text-dim;
                         font-size: 14px;
                         overflow: elide;
+                        // The artist's page.
+                        arta := TouchArea {
+                            enabled: info.loaded;
+                            mouse-cursor: pointer;
+                            clicked => { PageUi.open-deck-artist(d); }
+                        }
                     }
                     if info.loaded && bpm != "": Text { text: " · " + bpm; color: Theme.text-dim; font-size: 14px; }
                     if info.loaded && info.key != "": Text { text: " · "; color: Theme.text-dim; font-size: 14px; }

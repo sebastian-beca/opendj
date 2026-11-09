@@ -78,6 +78,11 @@ impl Browser {
         ui.on_start_list_radio(move |node| w(&|b| b.start_list_radio(node)));
     }
 
+    /// Whether the app is in Player mode.
+    pub(super) fn keep_going_player(&self) -> bool {
+        self.keep_going.player
+    }
+
     /// Whether Keep going adds tracks now: on, and in Player mode.
     pub(super) fn keeps_going(&self) -> bool {
         self.keep_going.on && self.keep_going.player
