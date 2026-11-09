@@ -1,7 +1,7 @@
 schema: spec-driven
 
 # Project context: constraints that should guide every OpenSpec artifact.
-# Decisions here are Seba's (the project owner) and are not visible in the code.
+# Decisions here are the project owner's and are not visible in the code.
 context: |
   openDJ is a free, open-source DJ app (GPL-2.0-or-later source, GPL-3.0 builds
   because of Slint), written in Rust, that started as a rewrite of Mixxx.

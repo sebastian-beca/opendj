@@ -4,7 +4,7 @@ Planned for: **v0.6 · Buy it from the artist**
 
 ## Why
 
-Seba has about 1,700 rated or played streamed tracks with no local copy, and Spotify playlists he'd like to own. Finding where to buy each track should be one action, artist-direct stores first.
+A DJ can have well over a thousand rated or played streamed tracks with no local copy, and streaming playlists they'd like to own. Finding where to buy each track should be one action, artist-direct stores first.
 
 ## What Changes
 

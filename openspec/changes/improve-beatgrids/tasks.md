@@ -2,7 +2,7 @@
 
 ## 1. Research
 
-- [ ] 1.1 Compare djay Pro, rekordbox, Serato, Traktor and VirtualDJ grids and editing; compare open detectors (licence, accuracy, speed, size) on a labelled benchmark from Seba's collection; write the recommendation for Seba
+- [ ] 1.1 Compare djay Pro, rekordbox, Serato, Traktor and VirtualDJ grids and editing; compare open detectors (licence, accuracy, speed, size) on a labelled benchmark from a test collection; write the recommendation
 
 ## 2. Detection
 

@@ -6,7 +6,7 @@
 
 ## 2. UI
 
-- [ ] 2.1 Add the cloud mark, `is:offloaded` and the warning; verify on Seba's Mac
+- [ ] 2.1 Add the cloud mark, `is:offloaded` and the warning; verify on a test Mac
 - [ ] 2.2 Update the user guide page it touches in website/book/src/guide and check it reads right in the built book
 
 ## Workflow follow-up

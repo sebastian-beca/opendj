@@ -3,7 +3,7 @@
 ## 1. Benchmark spike (no app changes)
 
 - [x] 1.1 Spleeter 4stems in Rust (`crates/separation`): weights converted to safetensors (`scripts/models/convert_spleeter.py`), STFT/iSTFT and masking in Rust; burn and CPU versions match a TensorFlow reference built from the original checkpoint to 69–78 dB SDR. HTDemucs through demucs-rs's burn port (vendored as `third_party/demucs-core`); no ONNX export needed
-- [ ] 1.2 Time both with `stem-bench` (burn GPU: Metal and Vulkan; CPU) on Seba's Mac and on CI (Linux and Apple Silicon runners, `.github/workflows/stems-bench.yml`); `ort` + CoreML only if burn misses the bars
+- [ ] 1.2 Time both with `stem-bench` (burn GPU: Metal and Vulkan; CPU) on a test Mac and on CI (Linux and Apple Silicon runners, `.github/workflows/stems-bench.yml`); `ort` + CoreML only if burn misses the bars
 - [ ] 1.3 Pick the runtime; record the numbers in this design.md
 
 ## 2. Separation crate
@@ -25,7 +25,7 @@
 ## 4. App
 
 - [x] 4.1 Settings > Stems (under Analysis): Stems on load, Stems cache limit and usage, Clear, model download state. Background quality waits for a "Best" tier
-- [x] 4.2 (v0.4) STEMS pad page: VirtualDJ's 8 pads (Vocal, Instru, Bass, Acapella / Kick, HiHat, Stems FX, Instrumental), no level bars (levels on the stems knobs), right-click Prepare High Quality Stems; SEPARATE STEMS removed (Seba, 2026-10-28)
+- [x] 4.2 (v0.4) STEMS pad page: VirtualDJ's 8 pads (Vocal, Instru, Bass, Acapella / Kick, HiHat, Stems FX, Instrumental), no level bars (levels on the stems knobs), right-click Prepare High Quality Stems; SEPARATE STEMS removed (2026-10-28)
 - [x] 4.2b Quality badge on the STEMS page: INSTANT, HQ… while preparing, HQ (top-right pad's corner)
 - [ ] 4.3 Browser: stems mark for tracks with cached high-quality stems; Separate stems on a list, crate or set (v0.4 has Prepare High Quality Stems in the track menu, for one or several picked tracks)
 - [x] 4.4 Update the user guide page website/book/src/guide/stems.md (v0.4, and v0.5 for the badge and Settings › Analysis › Stems)

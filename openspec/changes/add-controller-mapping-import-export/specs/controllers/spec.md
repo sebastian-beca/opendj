@@ -11,7 +11,7 @@ openDJ SHALL read and write controller mappings in the documented `.opendj-mappi
 The Controller Editor SHALL import VirtualDJ, Traktor, rekordbox and djay Pro mappings, each file as a mapping of the DJ's own based on the controller's original. Rows it can't translate SHALL be kept greyed with the reason, the original binding SHALL keep working underneath, and a report SHALL say what came across.
 
 #### Scenario: Xone K2 from VirtualDJ
-- **WHEN** Seba imports his VirtualDJ Xone K2 mapping
+- **WHEN** a DJ imports their VirtualDJ Xone K2 mapping
 - **THEN** a new mapping lists its rows, its centre LEDs show the deck levels as in VirtualDJ, and the report lists the greyed rows
 
 ### Requirement: Export for Mixxx
@@ -32,5 +32,5 @@ Settings › Keyboard SHALL pick the shortcut set in use from a menu, make a new
 A mapping with a layout for two decks and one for four SHALL be set to one of them per controller in Settings › Controllers, with a deck order for four decks, and only the rows for that use SHALL run and be listed.
 
 #### Scenario: K2 with four decks
-- **WHEN** Seba sets his imported Xone K2 mapping to 4 decks with deck order 3 1 2 4
+- **WHEN** the DJ sets their imported Xone K2 mapping to 4 decks with deck order 3 1 2 4
 - **THEN** the first column works deck 3 and the second deck 1, and the two-deck rows are gone from the editor

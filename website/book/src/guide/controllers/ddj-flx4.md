@@ -98,4 +98,4 @@ openDJ shows the same with a picture of the controller: press a control and
 the list jumps to it.
 
 Something not right on your FLX4?
-[Tell us](https://github.com/sebastian-beca/opendj/issues/new?template=controller.yml).
+[Tell us](https://github.com/openwave-studio/opendj/issues/new?template=controller.yml).

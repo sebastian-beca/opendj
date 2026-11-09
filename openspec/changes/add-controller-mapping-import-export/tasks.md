@@ -8,7 +8,7 @@
 ## 2. Import
 
 - [x] 2.1 rekordbox and djay Pro
-- [x] 2.2 Traktor `.tsi`, tried on Seba's FLX4, FLX2, Reloop, Xone 1D/2D/4D files
+- [x] 2.2 Traktor `.tsi`, tried on a real DDJ-FLX4, FLX2, Reloop, Xone 1D/2D/4D files
 - [x] 2.3 VirtualDJ controllers (Xone K2, Twister, FLX4) and keyboard
 - [x] 2.4 Import… in the Controller Editor with greyed rows and a report
 
@@ -21,7 +21,7 @@
 - [x] 4.1 Sets in Settings › Keyboard: new, rename, delete, Import…
 - [x] 4.2 Update website/book/src/guide (controllers.md, shortcuts.md)
 
-## 5. VirtualDJ K2 follow-up (Seba, 2026-10-30)
+## 5. VirtualDJ K2 follow-up (2026-10-30)
 
 - [x] 5.1 Imported rows replace the base mapping's bindings on every layer (the K2's Mixxx script ran underneath)
 - [x] 5.2 Pitch bend while held, loop move by its length, song position, browser folders and focus, Expand Browser

@@ -44,5 +44,5 @@ The engine is told the channel count (`process(out, channels)` already takes it)
 ## Testing
 
 - Unit: tap points against known signals (EQ kill shows in Pre-fader but not Clean; crossfader at one side zeroes the other deck's Post-fader); Post-fader taps sum to master within float rounding.
-- Engine benchmark (stem-bench style) comparing buffer render time with no routes, four deck routes, and external mode, on the CI runner and Seba's Mac. Merge only if the no-route case is unchanged and four routes add under 1%.
+- Engine benchmark (stem-bench style) comparing buffer render time with no routes, four deck routes, and external mode, on the CI runner and a test Mac. Merge only if the no-route case is unchanged and four routes add under 1%.
 - Manual: Ableton Live with BlackHole 16ch, four decks on four stereo tracks; DDJ-FLX4's audio interface with two deck outputs (it has four output channels).

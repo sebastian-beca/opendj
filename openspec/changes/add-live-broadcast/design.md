@@ -66,7 +66,7 @@ Default for Icecast: MP3 128 kb/s, because it plays everywhere and Icecast shows
 ### Now-playing metadata
 
 - The track counted as audible is the one the recorder's cue sheet already uses (fader up past the audible threshold), and the title changes when the incoming track becomes the louder one in a blend, not at load.
-- The text is "Artist – Title" by default, with a template (`{artist} – {title}`, `{dj}`), and a fixed text option for privacy ("Live with DJ Seba").
+- The text is "Artist – Title" by default, with a template (`{artist} – {title}`, `{dj}`), and a fixed text option for privacy ("Live with DJ Example").
 - MP3 and AAC: Icecast's metadata update. Opus/Ogg: see Open questions.
 - The same now-playing goes to the step-5 feed and into the recording's cue sheet, so all three agree.
 

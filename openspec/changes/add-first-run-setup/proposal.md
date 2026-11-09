@@ -1,10 +1,10 @@
 # Proposal
 
-Planned for: **v0.5 · Stems, performance and switching over** (moved from v1.0 by Seba, 2026-10-29)
+Planned for: **v0.5 · Stems, performance and switching over** (moved from v1.0, 2026-10-29)
 
 ## Why
 
-Settings are found by exploring, and a DJ switching over should be playing within minutes. Seba (2026-10-29) wants a guided tour the first time openDJ opens.
+Settings are found by exploring, and a DJ switching over should be playing within minutes. A user request (2026-10-29) asks for a guided tour the first time openDJ opens.
 
 ## What Changes
 

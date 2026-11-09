@@ -352,7 +352,7 @@ pub fn importers() -> Vec<Box<dyn LibraryImport>> {
 pub const USER_AGENT: &str = concat!(
     "openDJ/",
     env!("CARGO_PKG_VERSION"),
-    " (+https://github.com/sebastian-beca/opendj)"
+    " (+https://github.com/openwave-studio/opendj)"
 );
 
 /// Percent-encodes text for a URL query.

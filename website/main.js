@@ -2,7 +2,7 @@
 // the visitor's platform. Without JS (or if GitHub's API is unreachable)
 // every button still goes to the latest release page.
 (function () {
-  var REPO = "sebastian-beca/opendj";
+  var REPO = "openwave-studio/opendj";
   var ua = navigator.userAgent;
   var os = /Mac/.test(ua) && !/iPhone|iPad/.test(ua) ? "mac" : /Linux/.test(ua) && !/Android/.test(ua) ? "linux" : /Windows/.test(ua) ? "windows" : null;
 

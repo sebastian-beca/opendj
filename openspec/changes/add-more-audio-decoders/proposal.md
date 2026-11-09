@@ -4,7 +4,7 @@ Planned for: **v0.4 · Your collection, cleaned up**
 
 ## Why
 
-Some of Seba's M4A files and common formats (Opus, WavPack, HE-AAC) don't load with the current decoder set.
+Some M4A files and common formats (Opus, WavPack, HE-AAC) don't load with the current decoder set.
 
 ## What Changes
 

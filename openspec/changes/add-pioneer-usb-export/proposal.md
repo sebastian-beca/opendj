@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.4 · Your collection, cleaned up** (built early, Seba 2026-10-28; experimental until it has been tried on a player)
+Planned for: **v0.4 · Your collection, cleaned up** (built early, 2026-10-28; experimental until it has been tried on a player)
 
 ## Why
 

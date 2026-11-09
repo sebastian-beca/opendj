@@ -18,7 +18,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 MIXXX_MANUAL = "https://manual.mixxx.org/2.4/en/hardware/controllers/{}"
-ISSUE_URL = "https://github.com/sebastian-beca/opendj/issues/new?template=controller.yml"
+ISSUE_URL = "https://github.com/openwave-studio/opendj/issues/new?template=controller.yml"
 STATUS = {
     "supported": "**Supported.** Tried on the hardware, and the mapping is settled.",
     "beta": ("**Beta.** This mapping works on paper and has a picture in the Controller "

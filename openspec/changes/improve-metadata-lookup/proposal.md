@@ -1,10 +1,10 @@
 # Proposal
 
-Planned for: **v0.5 · Stems, performance and switching over** (follow-up to collection maintenance PRs 4 and 5; Seba 2026-11-01)
+Planned for: **v0.5 · Stems, performance and switching over** (follow-up to collection maintenance PRs 4 and 5; 2026-11-01)
 
 ## Why
 
-Seba had 107 tracks under "Missing or poor metadata" and found that Look up online matched few of them, and that Fill from file name wrote to his files without showing what it would do. Reading the code showed why the look-up missed: it searched MusicBrainz for the exact tagged title, so "(Original Mix)", "[Label]" and "feat." killed the match; "Unknown Artist" was searched as a name; genres only came from Discogs; a busy MusicBrainz (503) counted as "not found"; and the page didn't say which field each track lacked.
+A real library had 107 tracks under "Missing or poor metadata" and found that Look up online matched few of them, and that Fill from file name wrote to the files without showing what it would do. Reading the code showed why the look-up missed: it searched MusicBrainz for the exact tagged title, so "(Original Mix)", "[Label]" and "feat." killed the match; "Unknown Artist" was searched as a name; genres only came from Discogs; a busy MusicBrainz (503) counted as "not found"; and the page didn't say which field each track lacked.
 
 ## What Changes
 
@@ -24,7 +24,7 @@ Seba had 107 tracks under "Missing or poor metadata" and found that Look up onli
 ## Out of Scope
 
 - Paid metadata services; Beatport or store look-ups (v0.6 stores).
-- Moving or renaming files (stays off while Seba still uses VirtualDJ).
+- Moving or renaming files (stays off while another DJ app may still use the same files).
 
 ## Impact
 

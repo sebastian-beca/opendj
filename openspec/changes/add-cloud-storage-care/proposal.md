@@ -4,7 +4,7 @@ Planned for: **v0.4 · Your collection, cleaned up (collection maintenance PR 7)
 
 ## Why
 
-Seba's collection (about 53 GB) stays in iCloud Drive with only 18 GB free locally. macOS can offload files at any time, which is dangerous before a gig.
+a test collection (about 53 GB) stays in iCloud Drive with only 18 GB free locally. macOS can offload files at any time, which is dangerous before a gig.
 
 ## What Changes
 
@@ -24,7 +24,7 @@ None.
 
 ## Out of Scope
 
-- Moving the collection off iCloud (Seba keeps it there).
+- Moving the collection off iCloud (many DJs keep it there).
 - Other cloud drives beyond detection.
 
 ## Impact

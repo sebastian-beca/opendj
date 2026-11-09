@@ -1,10 +1,10 @@
 # Proposal
 
-Planned for: **v0.5 · Stems, performance and switching over** (moved from v1.0 by Seba, 2026-10-29; the view-only editor shipped first as `add-controller-viewer`)
+Planned for: **v0.5 · Stems, performance and switching over** (moved from v1.0, 2026-10-29; the view-only editor shipped first as `add-controller-viewer`)
 
 ## Why
 
-Every DJ app lets you change what a control does. openDJ runs Mixxx's mappings but a DJ can't change one or map an unsupported controller. Seba (2026-10-29): the editor should be easier to use and quick to map with.
+Every DJ app lets you change what a control does. openDJ runs Mixxx's mappings but a DJ can't change one or map an unsupported controller. A user request (2026-10-29): the editor should be easier to use and quick to map with.
 
 ## What Changes
 
@@ -29,7 +29,7 @@ None.
 
 ## Out of Scope
 
-- Saving back to Mixxx's format (Seba, 2026-10-27: Mixxx mappings are read in; openDJ mappings are their own format so they can do more).
+- Saving back to Mixxx's format (2026-10-27: Mixxx mappings are read in; openDJ mappings are their own format so they can do more).
 - Editing JavaScript.
 - HID controllers (much later).
 

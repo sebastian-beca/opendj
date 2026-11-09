@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.6 · Buy it from the artist** (moved from v0.5 at the 0.5.0 release) (Seba 2026-11-02, from the ecosystem standards review)
+Planned for: **v0.6 · Buy it from the artist** (moved from v0.5 at the 0.5.0 release) (2026-11-02, from the ecosystem standards review)
 
 ## Why
 

@@ -26,7 +26,7 @@ use serde_json::Value;
 use crate::diagnostics::VERSION;
 use crate::settings;
 
-const LATEST: &str = "https://api.github.com/repos/sebastian-beca/opendj/releases/latest";
+const LATEST: &str = "https://api.github.com/repos/openwave-studio/opendj/releases/latest";
 
 /// A release newer than this build.
 #[derive(Debug, Clone, PartialEq)]
@@ -641,7 +641,7 @@ fn is_newer(candidate: &str, current: &str) -> bool {
 /// Where the stem separation and beat detection models are published:
 /// assets of the `stem-models` pre-release (so the updater and the website,
 /// which look at the latest release, skip it).
-const MODELS_URL: &str = "https://github.com/sebastian-beca/opendj/releases/download/stem-models";
+const MODELS_URL: &str = "https://github.com/openwave-studio/opendj/releases/download/stem-models";
 
 /// Lets the engine download a model (stem separation, Beat This!, Whisper)
 /// the first time it is needed, checked against the hash the engine knows
@@ -675,7 +675,7 @@ mod tests {
     fn reads_githubs_answer() {
         let release = json!({
             "tag_name": "v0.3.0",
-            "html_url": "https://github.com/sebastian-beca/opendj/releases/tag/v0.3.0",
+            "html_url": "https://github.com/openwave-studio/opendj/releases/tag/v0.3.0",
             "draft": false,
             "prerelease": false,
         });
@@ -683,7 +683,7 @@ mod tests {
             newer(&release, "0.2.0", None, None),
             Some(Release {
                 version: "0.3.0".into(),
-                url: "https://github.com/sebastian-beca/opendj/releases/tag/v0.3.0".into(),
+                url: "https://github.com/openwave-studio/opendj/releases/tag/v0.3.0".into(),
                 asset: None,
                 package: None,
             })
@@ -794,7 +794,7 @@ mod tests {
 
     #[test]
     fn reads_the_team() {
-        let signed = "Executable=/A/openDJ.app/Contents/MacOS/opendj\nAuthority=Developer ID Application: Seba (AB12CD34EF)\nTeamIdentifier=AB12CD34EF\n";
+        let signed = "Executable=/A/openDJ.app/Contents/MacOS/opendj\nAuthority=Developer ID Application: Example (AB12CD34EF)\nTeamIdentifier=AB12CD34EF\n";
         assert_eq!(team_in(signed).as_deref(), Some("AB12CD34EF"));
         assert_eq!(team_in("Signature=adhoc\nTeamIdentifier=not set\n"), None);
     }

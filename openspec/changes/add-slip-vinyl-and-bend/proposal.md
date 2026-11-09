@@ -4,7 +4,7 @@ Planned for: **v0.5 · Stems, performance and switching over**
 
 ## Why
 
-Slip mode only brought the track back when slip was switched off, not when each trick ended, so it worked like a hold button that nobody expects (and the deck-transport spec already said otherwise). Nothing on screen reached slip, the pitch bend buttons or censor, and the DDJ-FLX4's jog top always scratched, with no CDJ mode. rekordbox, djay Pro, VirtualDJ, Serato and Traktor all have a SLIP button with a ghost playhead, a VINYL switch and bend buttons. From the deck performance review (Seba, 2026-11-01).
+Slip mode only brought the track back when slip was switched off, not when each trick ended, so it worked like a hold button that nobody expects (and the deck-transport spec already said otherwise). Nothing on screen reached slip, the pitch bend buttons or censor, and the DDJ-FLX4's jog top always scratched, with no CDJ mode. rekordbox, djay Pro, VirtualDJ, Serato and Traktor all have a SLIP button with a ghost playhead, a VINYL switch and bend buttons. From the deck performance review (2026-11-01).
 
 ## What Changes
 

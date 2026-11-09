@@ -226,7 +226,7 @@ mod tests {
         assert!(host_allowed("192.168.1.20:7477"));
         assert!(host_allowed("[fe80::1]:7477"));
         assert!(host_allowed("localhost:7477"));
-        assert!(host_allowed("Sebas-MacBook.local:7477"));
+        assert!(host_allowed("DJs-MacBook.local:7477"));
         assert!(!host_allowed("evil.example.com:7477"));
         assert!(!host_allowed(".local"));
         assert!(!host_allowed("a.local.evil.com"));

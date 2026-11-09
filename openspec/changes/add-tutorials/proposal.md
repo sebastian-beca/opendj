@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.5 · Stems, performance and switching over** (Seba, 2026-10-29)
+Planned for: **v0.5 · Stems, performance and switching over** (2026-10-29)
 
 ## Why
 
@@ -30,7 +30,7 @@ None.
 
 ## Out of Scope
 
-- A Clean Collection tutorial (stages, health, duplicates, clean-up, lookup, albums, mixed sets, crates and sets): skipped for now (Seba, 2026-10-29).
+- A Clean Collection tutorial (stages, health, duplicates, clean-up, lookup, albums, mixed sets, crates and sets): skipped for now (2026-10-29).
 - "Learn this" links on panels: Settings › Help only for now.
 - Tutorials for other controllers.
 - Video tutorials.

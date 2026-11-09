@@ -92,7 +92,7 @@ cat > "$debroot/DEBIAN/control" <<CONTROL
 Package: opendj
 Version: $pkgver
 Architecture: $debarch
-Maintainer: openDJ <https://github.com/sebastian-beca/opendj/issues>
+Maintainer: openDJ <https://github.com/openwave-studio/opendj/issues>
 Installed-Size: $(du -sk "$debroot/usr" | cut -f1)
 Depends: libc6 (>= 2.35), libstdc++6, libgcc-s1, libasound2t64 | libasound2, libfontconfig1, libudev1, libxkbcommon0
 Recommends: libxkbcommon-x11-0, libwayland-client0, libx11-xcb1, libvulkan1, mesa-vulkan-drivers

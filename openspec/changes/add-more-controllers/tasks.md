@@ -2,7 +2,7 @@
 
 ## 1. List
 
-- [ ] 1.1 Seba picks the controllers; find testers for each
+- [ ] 1.1 Pick the controllers; find testers for each
 
 ## 2. Controllers
 

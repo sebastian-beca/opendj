@@ -1,6 +1,6 @@
 # openDJ
 
-**[Download the latest release](https://github.com/sebastian-beca/opendj/releases/latest)** · [All releases](https://github.com/sebastian-beca/opendj/releases)
+**[Download the latest release](https://github.com/openwave-studio/opendj/releases/latest)** · [All releases](https://github.com/openwave-studio/opendj/releases)
 
 openDJ is a free, open-source DJ app for macOS, Linux and Windows (preview).
 It's built to be fast, pleasant to use, and to have a great automix, for DJs
@@ -52,7 +52,7 @@ openDJ is in beta, and feedback of any kind helps: bugs, ideas, or just how
 it felt to use. In the app, **Settings › Help** has links to report a
 problem or suggest a feature, with your version already filled in, and opens
 the folder with your logs to attach. You can also
-[open an issue](https://github.com/sebastian-beca/opendj/issues/new/choose)
+[open an issue](https://github.com/openwave-studio/opendj/issues/new/choose)
 directly.
 
 What testers get:
@@ -60,13 +60,13 @@ What testers get:
 - **Credit.** Everyone whose report or idea makes it into a release is thanked
   by name in its release notes and listed below.
 - **A vote.** Give a 👍 to the
-  [feature requests](https://github.com/sebastian-beca/opendj/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement+sort%3Areactions-%2B1-desc)
+  [feature requests](https://github.com/openwave-studio/opendj/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement+sort%3Areactions-%2B1-desc)
   you want most; the most wanted are built first.
 - **Your controller first.** If your controller doesn't work right,
-  [tell us which one](https://github.com/sebastian-beca/opendj/issues/new?template=controller.yml)
+  [tell us which one](https://github.com/openwave-studio/opendj/issues/new?template=controller.yml)
   and testers' controllers are fixed before anything else.
 - **Early builds.** Test builds come out as
-  [pre-releases](https://github.com/sebastian-beca/opendj/releases) before
+  [pre-releases](https://github.com/openwave-studio/opendj/releases) before
   each version. Watch the repository (Watch → Custom → Releases) to hear
   about them.
 

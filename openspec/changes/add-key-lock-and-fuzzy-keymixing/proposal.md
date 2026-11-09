@@ -4,7 +4,7 @@ Planned for: **v0.4 · Your collection, cleaned up (in progress: opendj PR #57)*
 
 ## Why
 
-Key lock existed in the engine with no button, and harmonic matching only knew one rule. Seba mixes by key and wants the looser fuzzy keymixing rules, near-miss hints, and decks that shift into key on load.
+Key lock existed in the engine with no button, and harmonic matching only knew one rule. DJs who mix by key want the looser fuzzy keymixing rules, near-miss hints, and decks that shift into key on load.
 
 ## What Changes
 

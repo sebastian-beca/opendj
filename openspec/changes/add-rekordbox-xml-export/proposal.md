@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.6 · Buy it from the artist** (moved from v0.5 at the 0.5.0 release) (Seba 2026-11-02, from the ecosystem standards review)
+Planned for: **v0.6 · Buy it from the artist** (moved from v0.5 at the 0.5.0 release) (2026-11-02, from the ecosystem standards review)
 
 ## Why
 
@@ -31,7 +31,7 @@ None.
 
 ## Difficulty
 
-**Small to medium: 2 to 3 days, one PR.** The writer is a straightforward XML tree. The fiddly part is timing: rekordbox measures MP3 positions from a different start than some decoders (the LAME/encoder delay), which tools like Lexicon correct with an offset. The task list includes a round trip through our own reader and a check against rekordbox 7 on Seba's Mac with a few MP3, AAC and FLAC files, so cues land on the same transient in both apps.
+**Small to medium: 2 to 3 days, one PR.** The writer is a straightforward XML tree. The fiddly part is timing: rekordbox measures MP3 positions from a different start than some decoders (the LAME/encoder delay), which tools like Lexicon correct with an offset. The task list includes a round trip through our own reader and a check against rekordbox 7 on a test Mac with a few MP3, AAC and FLAC files, so cues land on the same transient in both apps.
 
 ## Performance
 

@@ -1,12 +1,12 @@
 # Proposal
 
-Planned for: **v0.6 · Buy it from the artist** (moved from v0.5 at the 0.5.0 release) (Seba 2026-11-02: "I've used this to send separate decks to Ableton in the past using 4 channels; it was nice to record decks separately and apply FX in Ableton separately")
+Planned for: **v0.6 · Buy it from the artist** (moved from v0.5 at the 0.5.0 release) (2026-11-02: "I've used this to send separate decks to Ableton in the past using 4 channels; it was nice to record decks separately and apply FX in Ableton separately")
 
 ## Why
 
 Two kinds of DJ need each deck on its own outputs:
 
-1. **Into a DAW.** Sending each deck to its own channels (on a multi-output interface, or a virtual device such as BlackHole 16ch or Loopback) lets Ableton Live, Bitwig or Logic record every deck on its own track and put its own effects on each one, live or afterwards. Seba has worked this way before with two decks on four channels.
+1. **Into a DAW.** Sending each deck to its own channels (on a multi-output interface, or a virtual device such as BlackHole 16ch or Loopback) lets Ableton Live, Bitwig or Logic record every deck on its own track and put its own effects on each one, live or afterwards. DJs have worked this way before with two decks on four channels.
 2. **Into a club mixer.** With an external mixer (Pioneer DJM, Allen & Heath Xone, Rane), the hardware does the EQ, faders, crossfader and headphone cue; the software only plays the decks, each into its own mixer channel. Serato, Traktor, rekordbox and VirtualDJ all have this "external mixer" mode; it is also how DVS rigs are wired, so add-dvs builds on it.
 
 openDJ renders only master, headphones and booth today (`MIX_CHANNELS = 6` in `crates/engine/src/output.rs`). Research: notes/ecosystem-standards-review.md in the project files.
@@ -53,7 +53,7 @@ None.
 
 ## Performance
 
-Seba's rule: none of this may cost performance. Design (details in design.md):
+Rule: none of this may cost performance. Design (details in design.md):
 
 - **Zero cost when unused.** No deck route → the render buffer stays six channels and the frame loop is unchanged; the "are deck taps on" check happens once per buffer, not per frame.
 - **When used**, each deck tap copies two floats per frame into channels the engine already has in cache: a few hundred extra float copies per 256-frame buffer, well under 1% of what a playing deck already costs (resampling, key lock, EQ, FX). External mixer mode does *less* work than now (no EQ, crossfader, master FX or limiter).
