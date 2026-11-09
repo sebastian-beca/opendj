@@ -13,7 +13,7 @@ export { AppMenu, MenuEntry } from "appmenu.slint";
 import { PrepDeck, PrepUi } from "prep.slint";
 import { CueList } from "cues.slint";
 import { ChecklistUi } from "checklist.slint";
-import { LyricsUi } from "lyrics.slint";
+import { LyricsUi, WaveLyrics, LyricsLane, WaveLine } from "lyrics.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { FxBar } from "fxbar.slint";
 import { InstrumentsUi, LiveItem, ParamMatch, PresetItem, PresetUi } from "instruments.slint";
@@ -35,7 +35,7 @@ export { MapMode }
 export { PrepUi }
 export { CueList, CueRow } from "cues.slint";
 export { ChecklistUi, CheckRow } from "checklist.slint";
-export { LyricsUi, LyricLine, LyricMatch } from "lyrics.slint";
+export { LyricsUi, LyricLine, LyricMatch, WaveLyrics, WaveLine, DeckLines } from "lyrics.slint";
 export { KaraokeWindow } from "karaoke.slint";
 export { RemoteUi, RemoteDevice }
 export { MixerMode, InputSettings, InputRow }
@@ -71,6 +71,8 @@ component Waveform inherits Rectangle {
     // The deck it shows (0 up), where it can switch to macro lanes; -1 where
     // it can't (4-Deck, Prep).
     in property <int> deck: -1;
+    // The deck whose lyrics run along the bottom (0 up), in every layout.
+    in property <int> lyrics-deck: deck;
     // Prep's waveform: dragging it moves an unlocked grid with the audio,
     // and it shows `zoom-seconds` across its width (set from the app).
     in property <bool> drag-grid;
@@ -155,6 +157,16 @@ component Waveform inherits Rectangle {
                 ? Controls.value(Controls.resolve(groove-group, "row" + (i + 1) + "_level"), Controls.tick) / 1.5
                 : Controls.value(Controls.resolve("[Instrument1]", "parameter" + (page * 8 + i + 1)), Controls.tick);
         }
+    }
+    // The track's timed lyrics along the bottom, under the play line.
+    property <[WaveLine]> lyric-lines: lyrics-deck >= 0 && lyrics-deck < WaveLyrics.decks.length ? WaveLyrics.decks[lyrics-deck].lines : [];
+    if WaveLyrics.shown && lyric-lines.length > 0 && !macros: LyricsLane {
+        x: 0;
+        y: parent.height - self.height;
+        width: parent.width;
+        lines: lyric-lines;
+        now: Controls.value(position-index, Controls.tick) * Controls.value(duration-index, Controls.tick);
+        visible-seconds: root.visible-seconds;
     }
     // The switch between the notes or steps and the macro lanes.
     if live-knobs: Rectangle {
@@ -1239,7 +1251,7 @@ export component AppWindow inherits Window {
                 if prep: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; drag-grid: true; zoom-seconds: PrepUi.seconds; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; lyrics-deck: 0; drag-grid: true; zoom-seconds: PrepUi.seconds; }
                     // The quick review keys, and how long this track has taken.
                     Rectangle {
                         height: 24px;
@@ -1279,13 +1291,13 @@ export component AppWindow inherits Window {
                 if four: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-3; group: "[Channel3]"; vertical-stretch: 1; }
+                    Waveform { source: waveform-3; group: "[Channel3]"; vertical-stretch: 1; lyrics-deck: 2; }
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; lyrics-deck: 0; }
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-2; group: "[Channel2]"; vertical-stretch: 1; }
+                    Waveform { source: waveform-2; group: "[Channel2]"; vertical-stretch: 1; lyrics-deck: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-4; group: "[Channel4]"; vertical-stretch: 1; }
+                    Waveform { source: waveform-4; group: "[Channel4]"; vertical-stretch: 1; lyrics-deck: 3; }
                     Rectangle { height: 1px; background: Theme.border; }
                 }
             }
