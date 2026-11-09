@@ -133,6 +133,42 @@ pub(super) fn now_playing_items() -> Vec<PrefItem> {
     items
 }
 
+/// Settings › Broadcast › SCROBBLING: the tracks heard, sent to the DJ's
+/// ListenBrainz profile.
+pub(super) fn scrobble_items() -> Vec<PrefItem> {
+    use crate::scrobble as sc;
+    let on = settings::flag(sc::ENABLED, false);
+    let mut items = vec![
+        item("", HEADING, "SCROBBLING", ""),
+        switch(
+            sc::ENABLED,
+            "Send plays to ListenBrainz",
+            "Each track the audience hears goes to your ListenBrainz profile once half of it \
+             (or four minutes) has played, from any layout. Tracks cued in the headphones \
+             don't count.",
+            on,
+        ),
+    ];
+    if !on {
+        return items;
+    }
+    items.push(PrefItem {
+        value: settings::string(sc::TOKEN).into(),
+        on: true,
+        ..item(
+            sc::TOKEN,
+            TEXT,
+            "ListenBrainz token",
+            "Your user token, from listenbrainz.org under Settings.",
+        )
+    });
+    let status = sc::status();
+    if !status.is_empty() {
+        items.push(item("", NOTE, "", &status));
+    }
+    items
+}
+
 impl Prefs {
     /// Settings › Broadcast: the stations to stream to, the now-playing
     /// text, and what a public station needs.
@@ -346,6 +382,7 @@ impl Prefs {
             )
         });
         items.extend(now_playing_items());
+        items.extend(scrobble_items());
         items.push(item("", HEADING, "BEFORE YOU GO ON AIR", ""));
         items.push(item(
             "",
