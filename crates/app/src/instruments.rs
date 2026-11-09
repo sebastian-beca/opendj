@@ -24,7 +24,9 @@ const MIC: i32 = 3;
 const AUX: i32 = 4;
 /// A preset, by its place in `crate::presets::all`.
 const PRESET: i32 = 5;
-const LAST_KIND: i32 = 5;
+/// The Looper (`[LooperN],enabled`).
+const LOOPER: i32 = 6;
+const LAST_KIND: i32 = 6;
 
 fn payload(kind: i32, index: i32) -> String {
     format!("{LIVE_PAYLOAD}{kind}:{index}")
@@ -73,6 +75,7 @@ fn recent_key(s: &State, kind: i32, index: i32) -> Option<String> {
     let i = usize::try_from(index).ok()?;
     match kind {
         KIT => Some("groove".into()),
+        LOOPER => Some("looper".into()),
         PLUGIN => s.plugins.get(i).map(|p| format!("plugin:{}", p.key)),
         PRESET => s
             .presets
@@ -308,7 +311,7 @@ fn nodes(s: &State) -> Vec<(String, InstrumentNode)> {
     };
     let open = |key: &str| if s.open.contains(key) { 2 } else { 1 };
     let inputs = inputs(&s.routes).len() as i32;
-    let total = 1 + s.plugins.len() as i32 + inputs;
+    let total = 2 + s.plugins.len() as i32 + inputs;
     let mut out = vec![
         (
             "recent".to_string(),
@@ -326,6 +329,7 @@ fn nodes(s: &State) -> Vec<(String, InstrumentNode)> {
             ),
         ),
         ("groove".to_string(), node("Groove Box", 0, 0, 1, -1)),
+        ("looper".to_string(), node("Looper", 0, 0, 9, -1)),
         (
             "plugins".to_string(),
             node(
@@ -369,6 +373,15 @@ fn rows(s: &State) -> Vec<LiveItem> {
         index: 0,
         name: "Groove Box".into(),
         r#type: "Drum machine".into(),
+        maker: "openDJ".into(),
+        format: "Built in".into(),
+        problem: "".into(),
+    };
+    let looper = || LiveItem {
+        kind: LOOPER,
+        index: 0,
+        name: "Looper".into(),
+        r#type: "Looper".into(),
         maker: "openDJ".into(),
         format: "Built in".into(),
         problem: "".into(),
@@ -441,6 +454,7 @@ fn rows(s: &State) -> Vec<LiveItem> {
             rows.extend(presets_of(GROOVE));
             rows
         }
+        "looper" => vec![looper()],
         "presets" => s
             .presets
             .iter()
@@ -456,6 +470,7 @@ fn rows(s: &State) -> Vec<LiveItem> {
                 let i = index as usize;
                 match kind {
                     KIT => Some(groove()),
+                    LOOPER => Some(looper()),
                     PLUGIN => s.plugins.get(i).map(|p| plugin(i, p)),
                     PRESET => s.presets.get(i).map(|p| preset(i, p)),
                     _ => INPUTS
@@ -479,7 +494,7 @@ fn rows(s: &State) -> Vec<LiveItem> {
                 }
                 rows
             } else {
-                let mut all = vec![groove()];
+                let mut all = vec![groove(), looper()];
                 all.extend(plugins(&|_| true));
                 all.extend(inputs(&s.routes).into_iter().map(input));
                 all
@@ -544,7 +559,8 @@ fn rows(s: &State) -> Vec<LiveItem> {
 /// Recently played, newest first, as (kind, index): what is still there
 /// of it.
 fn recent_items(s: &State) -> Vec<(i32, i32)> {
-    let all: Vec<(i32, i32)> = std::iter::once((KIT, 0))
+    let all: Vec<(i32, i32)> = [(KIT, 0), (LOOPER, 0)]
+        .into_iter()
         .chain((0..s.plugins.len()).map(|i| (PLUGIN, i as i32)))
         .chain((0..s.presets.len()).map(|i| (PRESET, i as i32)))
         .chain(INPUTS.iter().map(|(k, i, _, _)| (*k, *i)))
@@ -680,6 +696,7 @@ mod tests {
                 "all",
                 "presets",
                 "groove",
+                "looper",
                 "plugins",
                 "maker:Arturia",
                 "plugin:0",

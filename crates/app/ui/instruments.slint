@@ -34,7 +34,8 @@ export struct InstrumentNode {
     // 0 no children, 1 closed, 2 open.
     children: int,
     // The icon: 0 a folder, 1 the Groove Box, 2 a plugin, 3 the microphone,
-    // 4 the inputs, 5 a maker, 6 everything, 7 presets, 8 recently played.
+    // 4 the inputs, 5 a maker, 6 everything, 7 presets, 8 recently played,
+    // 9 the Looper.
     kind: int,
     // How many instruments it holds; -1 to show none.
     count: int,
@@ -203,6 +204,10 @@ export global InstrumentsUi {
         Controls.value(Controls.resolve("[Groove" + (deck + 1) + "]", "enabled"), Controls.tick) > 0
     }
 
+    public pure function looper(deck: int) -> bool {
+        Controls.value(Controls.resolve("[Looper" + (deck + 1) + "]", "enabled"), Controls.tick) > 0
+    }
+
     // The instrument plugin picked, from 1; 0 none.
     public pure function instrument() -> int {
         Controls.value(Controls.resolve("[Instrument1]", "instrument"), Controls.tick)
@@ -219,6 +224,7 @@ export global InstrumentsUi {
             : kind == 2 ? live(deck) == 3 && instrument() == index + 1
             : kind == 3 ? live(deck) == 1
             : kind == 4 ? live(deck) == aux-live(index)
+            : kind == 6 ? looper(deck)
             : false
     }
 
@@ -259,7 +265,7 @@ export global InstrumentsUi {
 
     pure function free(deck: int) -> bool {
         Controls.value(Controls.resolve("[Channel" + (deck + 1) + "]", "play"), Controls.tick) == 0
-            && live(deck) == 0 && !groove(deck)
+            && live(deck) == 0 && !groove(deck) && !looper(deck)
     }
 
     // Puts the dragged item (see `item`) on deck `deck`. The engine stops
@@ -276,6 +282,10 @@ export global InstrumentsUi {
             Controls.set-value(Controls.resolve("[Channel" + (deck + 1) + "]", "live_input"), 3);
         } else if item >= 5000 && item < 6000 {
             PresetUi.load(deck, Math.mod(item, 1000));
+        } else if item >= 6000 && item < 7000 {
+            // The Looper records what it hears (the mix, until an input is
+            // picked on the deck) and plays its layers through the deck.
+            Controls.set-value(Controls.resolve("[Looper" + (deck + 1) + "]", "enabled"), 1);
         } else if item >= 3000 && item < 5000 {
             // The microphone is input 0, the auxiliary inputs 1, 3 and 4
             // (see the engine's inputs); live_input is 1 + the input.
@@ -332,6 +342,27 @@ export component LiveIcon inherits Rectangle {
         fill: tint;
         commands: "M 7 7 L 11 7 L 11 11 L 7 11 Z M 19 19 L 23 19 L 23 23 L 19 23 Z";
     }
+    // The Looper: a loop going round, with its play head.
+    if kind == 6: Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 30;
+        viewbox-height: 30;
+        stroke: tint;
+        stroke-width: 1.5px;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+        fill: transparent;
+        commands: "M 22.5 9 A 9 9 0 1 0 24 15 M 22.5 4.5 L 22.5 9 L 18 9";
+    }
+    if kind == 6: Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 30;
+        viewbox-height: 30;
+        fill: tint;
+        commands: "M 12 11 L 19 15 L 12 19 Z";
+    }
     // The microphone.
     if kind == 3: Path {
         width: parent.width;
@@ -366,8 +397,8 @@ component NodeIcon inherits Rectangle {
     in property <color> tint;
     width: 18px;
     height: 18px;
-    if kind == 1 || kind == 2 || kind == 3 || kind == 4: LiveIcon {
-        kind: kind;
+    if kind == 1 || kind == 2 || kind == 3 || kind == 4 || kind == 9: LiveIcon {
+        kind: kind == 9 ? 6 : kind;
         tint: tint;
         size: 18px;
     }
