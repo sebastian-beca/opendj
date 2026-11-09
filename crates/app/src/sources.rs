@@ -90,6 +90,8 @@ enum Event {
     Imported(Box<Track>),
     /// The source's own page, when it changed.
     Status(usize, Option<StatusPage>),
+    /// The lines under downloads still going, when they changed.
+    Notes(usize, Vec<(String, String)>),
 }
 
 /// One source's thread: searches by the app's own numbers, mapped to the
@@ -112,6 +114,7 @@ fn run(
     // Asked for at the first tick.
     let mut last_status: Option<Instant> = None;
     let mut status: Option<StatusPage> = None;
+    let mut notes: Vec<(String, String)> = Vec::new();
     loop {
         match rx.recv_timeout(TICK) {
             Ok(Request::Configure(config)) => plugin.configure(&config),
@@ -216,6 +219,13 @@ fn run(
                 update.progress = Progress::Done(paths.clone());
             }
             if tx.send(Event::Download(index, update)).is_err() {
+                return;
+            }
+        }
+        let now = source.notes();
+        if now != notes {
+            notes = now.clone();
+            if tx.send(Event::Notes(index, now)).is_err() {
                 return;
             }
         }
@@ -364,6 +374,9 @@ struct Download {
     progress: Progress,
     /// Into the cache rather than the collection.
     cache: bool,
+    /// Where it is in the other user's queue, or how fast it comes
+    /// ([`SearchSource::notes`]).
+    note: String,
 }
 
 /// Now, in Unix milliseconds.
@@ -792,6 +805,15 @@ impl Sources {
                     }
                     self.sources[s].status = status;
                 }
+                Event::Notes(s, notes) => {
+                    for d in &mut self.sources[s].downloads {
+                        d.note = notes
+                            .iter()
+                            .find(|(k, _)| *k == d.key)
+                            .map(|(_, n)| n.clone())
+                            .unwrap_or_default();
+                    }
+                }
             }
         }
         if changed {
@@ -903,6 +925,7 @@ impl Sources {
                 label: label(f),
                 progress: Progress::Queued,
                 cache: true,
+                note: String::new(),
             });
         }
         let room = cache_bytes();
@@ -1314,6 +1337,7 @@ impl Sources {
                 label: label(f),
                 progress: Progress::Queued,
                 cache: false,
+                note: String::new(),
             });
         }
         // Files already in the cache move into the collection from there.
@@ -1671,6 +1695,9 @@ impl Sources {
                 Some(&d.progress),
             );
             row.to_cache = d.cache;
+            if is_active(&d.progress) && !d.note.is_empty() {
+                row.from = downloading_from(&found.from, &d.note).into();
+            }
             list.push(row);
         }
         (rows, list)
@@ -2037,6 +2064,15 @@ fn plural(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
 
+/// Who a download comes from, with how it's going: "dj_k · 4th in line".
+fn downloading_from(from: &str, note: &str) -> String {
+    if from.is_empty() {
+        note.to_string()
+    } else {
+        format!("{from} · {note}")
+    }
+}
+
 fn found_row(
     f: &Found,
     cover: Option<&slint::Image>,
@@ -2277,6 +2313,15 @@ mod tests {
     }
 
     #[test]
+    fn downloads_say_how_they_are_going() {
+        assert_eq!(
+            downloading_from("dj_k", "4th in line"),
+            "dj_k · 4th in line"
+        );
+        assert_eq!(downloading_from("", "1.2 MB/s"), "1.2 MB/s");
+    }
+
+    #[test]
     fn found_or_downloaded_entries_are_not_searched_again() {
         let (requests, _rx) = channel();
         let mut source = Source {
@@ -2300,6 +2345,7 @@ mod tests {
             label: String::new(),
             progress,
             cache: false,
+            note: String::new(),
         };
         source.downloads = vec![
             progress("a", Progress::Done(Vec::new())),
