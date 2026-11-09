@@ -58,6 +58,7 @@ mod instrument_art;
 mod instrument_knobs;
 mod instrument_midi;
 mod instruments;
+mod keep_going;
 mod list_picker;
 mod live_trace;
 mod lookup;
@@ -1562,6 +1563,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let dt = now.duration_since(last_tick.replace(now)).as_secs_f64();
                 if host.browser.take_album_request() {
                     automix.borrow_mut().play_album();
+                }
+                let player = app.get_layout() == PLAYER_LAYOUT;
+                let shown = app.get_player_deck().clamp(0, NUM_DECKS as i32 - 1) as usize;
+                let playing = tracks[shown].as_ref().map(|t| t.id);
+                host.browser
+                    .keep_going_tick(player, &automix.borrow(), playing);
+                if host.browser.take_keep_going_automix() {
+                    automix.borrow_mut().set_enabled(true);
                 }
                 automix.borrow_mut().tick(&mut host, &tracks, dt.min(0.1));
                 remote.borrow_mut().tick(

@@ -36,6 +36,18 @@ The menu at the top left of the window switches layouts:
   square). **Order** and **Repeat** are at the
   top of Up Next. With Repeat on, a played track goes back to the end of Up
   Next instead of leaving it, so the list keeps going round.
+  **Keep going**, under them, is Player's cruise control, off at first:
+  while it is on, Up Next never runs dry. When fewer than two tracks wait,
+  a track that mixes with the last one goes on the list (close on the
+  Camelot wheel, close in tempo, not played in the last 3 hours, not the
+  same artist twice in a row), and the next three picks show greyed at the
+  end of Up Next, so you can drag in something else first. **From** picks
+  where they come from: **Everything**, or the list the browser shows.
+  Switching it on also switches Automix on. Right-click a track and pick
+  **Start Radio** (the track plays next, then picks from everything) or
+  **Start Artist Radio** (the artist's tracks and those sharing their
+  genres), or right-click a crate or playlist and pick **Start Radio** to
+  keep going from it.
   The keyboard's **play/pause**, **next** and **previous** keys, the
   buttons on headphones, and the system's Now Playing (Control Center on
   macOS, the media overlay on Windows, the desktop's media controls on
