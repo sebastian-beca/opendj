@@ -267,3 +267,54 @@ fn the_editor_opens_and_closes_when_asked() {
     assert_eq!(wait_for(&helper, Editor::Missing), Editor::Missing);
     assert!(!helper.editor_asked());
 }
+
+#[test]
+fn helpers_handed_their_blocks_together_work_side_by_side() {
+    // Two plugins that each take 30 ms a block: one after the other they
+    // need 60 ms, side by side about 30.
+    let mut conns: Vec<_> = (0..2).map(|_| start("test-slow")).collect();
+    for (conn, _) in &conns {
+        conn.set_param(0, 30.0);
+    }
+    let input: Vec<f32> = (0..FRAMES).map(|i| (i as f32 / 10.0).sin()).collect();
+    // The first block of each brings in the parameter; the timed one follows.
+    for _ in 0..2 {
+        let t = Instant::now();
+        for (conn, _) in &mut conns {
+            conn.send([&input, &input], Default::default(), &[])
+                .unwrap();
+        }
+        for (conn, _) in &mut conns {
+            let (mut l, mut r) = (vec![0.0; FRAMES], vec![0.0; FRAMES]);
+            assert_eq!(conn.collect([&mut l, &mut r], DEADLINE), Outcome::Wet);
+            assert_eq!(l, input);
+        }
+        let took = t.elapsed();
+        assert!(took < Duration::from_millis(55), "took {took:?}");
+    }
+}
+
+#[test]
+fn a_block_that_could_not_go_collects_nothing() {
+    let (mut conn, _helper) = start("test-slow");
+    conn.set_param(0, 100.0);
+    let input = vec![0.5f32; FRAMES];
+    conn.send([&input, &input], Default::default(), &[])
+        .unwrap();
+    let (mut l, mut r) = (vec![9.0; FRAMES], vec![9.0; FRAMES]);
+    assert_eq!(
+        conn.collect([&mut l, &mut r], Duration::from_millis(5)),
+        Outcome::Late
+    );
+    // Still busy with that block: the next one can't go, and collecting it
+    // gives nothing, not the late block's output.
+    assert_eq!(
+        conn.send([&input, &input], Default::default(), &[]),
+        Err(Outcome::Busy)
+    );
+    assert_eq!(
+        conn.collect([&mut l, &mut r], Duration::from_millis(200)),
+        Outcome::Busy
+    );
+    assert!(l.iter().chain(&r).all(|&x| x == 9.0), "output untouched");
+}

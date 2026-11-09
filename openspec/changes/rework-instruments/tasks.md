@@ -26,7 +26,7 @@
 - [x] 3.6 MIDI from: the instrument takes notes from a chosen keyboard and channel (Any by default), so one track of a sequencer, or one keyboard of several, plays it; note-offs always pass so nothing hangs
 - [x] 3.9 Deck clean-up: real piano keys, MIDI from behind the keyboard button in the deck's top bar, the plugin's format as a chip there, a smaller scope, same-size knobs with white markers, icons on Scale, Chord and Arp, a small OPEN
 
-MIDI from per deck (one controller's tracks playing different decks) waits until several instruments play at once; it is left out of this change.
+MIDI from per deck (one controller's tracks playing different decks) waits until several instruments play at once; it moved to add-instrument-per-deck (v0.7).
 
 ## 4. Scale, chord and arpeggiator
 
