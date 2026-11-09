@@ -535,6 +535,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     diagnostics::install();
+    // Before any thread starts: Beat This! takes a few cores, not all.
+    opendj_engine::background::configure();
     // Windows wakes sleeping threads only every 15.6 ms unless asked for
     // 1 ms: the controller threads' 1 kHz scratch filter and their timers
     // need it, or a jog is heard in 16 ms steps.
@@ -709,14 +711,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             NUM_DECKS
         ])));
     }
-    // Phrase bars on the deck overviews, shown or hidden from an
-    // overview's right-click menu.
+    // Phrase bars on the deck overviews and phrase flags on the scrolling
+    // waveforms, each shown or hidden from its own right-click menu.
     let phrase_view = app.global::<PhraseView>();
     phrase_view.set_visible(settings::flag("phrases_visible", true));
+    phrase_view.set_waveform_visible(settings::flag("phrase_flags_visible", true));
     {
         let app_weak = app.as_weak();
         phrase_view.on_changed(move |on| {
             settings::set("phrases_visible", serde_json::json!(on));
+            if let Some(app) = app_weak.upgrade() {
+                app.window().request_redraw();
+            }
+        });
+        let app_weak = app.as_weak();
+        phrase_view.on_waveform_changed(move |on| {
+            settings::set("phrase_flags_visible", serde_json::json!(on));
             if let Some(app) = app_weak.upgrade() {
                 app.window().request_redraw();
             }
@@ -1448,6 +1458,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     None => {}
                 }
                 let playing = play_controls.iter().any(|c| c.get() > 0.5);
+                opendj_engine::background::set_playing(playing);
                 if update_ready.get() {
                     if playing {
                         app.set_update_status("Restarts when the decks stop".into());
@@ -2450,12 +2461,15 @@ struct Gpu {
 
 impl Gpu {
     /// Draws live deck `d`'s sound up to its play line on its scrolling
-    /// waveform, on the beats of `leader` (a deck and its drawn position).
+    /// waveform, on the beats of `leader` (a deck and its drawn position),
+    /// with the leader's phrases where `flags` is set.
+    #[allow(clippy::too_many_arguments)]
     fn draw_live(
         &mut self,
         d: usize,
         w: live_trace::Window,
         leader: Option<(usize, f64)>,
+        flags: bool,
         tracks: &[Option<Arc<Track>>; NUM_DECKS],
         decks: &Decks,
         scale: f32,
@@ -2476,11 +2490,20 @@ impl Gpu {
             }
         };
         let lead = leader.and_then(|(l, seconds)| Some((tracks[l].as_ref()?, l, seconds)));
-        let grid = lead.map_or([None; GRID_SECTIONS], |(t, l, seconds)| {
+        let lead_speed = |l: usize| {
             let h = &decks.0[l];
-            let speed = speed(&h.rate, &h.rate_range, &h.rate_dir);
-            live_trace::track_grid(t, seconds, speed, w.play_seconds)
+            speed(&h.rate, &h.rate_range, &h.rate_dir)
+        };
+        let grid = lead.map_or([None; GRID_SECTIONS], |(t, l, seconds)| {
+            live_trace::track_grid(t, seconds, lead_speed(l), w.play_seconds)
         });
+        let phrases = match lead {
+            Some((t, l, seconds)) if flags => {
+                let found = self.phrases(l, t);
+                live_trace::track_phrases(t, seconds, lead_speed(l), w.play_seconds, &found)
+            }
+            _ => Vec::new(),
+        };
         let frame = Frame {
             play_seconds: w.play_seconds,
             visible_seconds: VISIBLE_SECONDS,
@@ -2493,7 +2516,7 @@ impl Gpu {
             hotcues: [None; 8],
             slip: None,
             gain: 1.0,
-            phrases: Vec::new(),
+            phrases,
         };
         self.scrolling[d].set_lanes(w.lanes);
         self.scrolling[d].set_track(&self.device, &self.renderer, Some(&gpu));
@@ -2531,6 +2554,8 @@ impl Gpu {
         // The Player bar shows the waveform alone, without the phrase bar.
         let show_phrases =
             app.global::<PhraseView>().get_visible() && app.get_layout() != PLAYER_LAYOUT;
+        // Phrase flags on the scrolling waveforms, live decks' included.
+        let show_flags = app.global::<PhraseView>().get_waveform_visible();
         let overview_background = if app.get_layout() == PLAYER_LAYOUT {
             PLAYER_OVERVIEW_BACKGROUND
         } else {
@@ -2598,10 +2623,16 @@ impl Gpu {
             // A slip's silent playhead runs on even while the deck is paused.
             self.moving |= track.is_some() && decks.0[d].slip_position.get() >= 0.0;
             let phrases = match track {
-                Some(t) if show_phrases => self.phrases(d, t),
+                Some(t) if show_phrases || show_flags => self.phrases(d, t),
                 _ => Vec::new(),
             };
             self.beat_count(app, d, track, play_seconds, speed != 0.0, &phrases);
+            let flags = if show_flags {
+                phrases.clone()
+            } else {
+                Vec::new()
+            };
+            let phrases = if show_phrases { phrases } else { Vec::new() };
             let bars = prep_bars.filter(|_| d == 0);
             if let Some(bars) = bars {
                 let bpm = track.map_or(0.0, |t| t.bpm);
@@ -2678,12 +2709,13 @@ impl Gpu {
                 self.scrolling[d].set_lanes(None);
             }
             if let Some(w) = window {
-                self.draw_live(d, w, leader.map(|l| (l, clocks[l].0)), tracks, decks, scale);
+                let leader = leader.map(|l| (l, clocks[l].0));
+                self.draw_live(d, w, leader, show_flags, tracks, decks, scale);
                 continue;
             }
-            // Phrases show only on the deck's overview.
+            // The overview's phrase bar, or the scrolling waveform's flags.
             let scrolling_frame = frame.as_ref().map(|f| Frame {
-                phrases: Vec::new(),
+                phrases: flags,
                 ..f.clone()
             });
             for (view, frame) in [

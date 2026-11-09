@@ -301,15 +301,22 @@ impl Conv {
         let (h, w, k, pad) = (x.h, x.w, self.k, self.k / 2);
         let depth = self.inp * k * k;
         let mut out = vec![0.0f32; self.out * h * w];
-        let threads = std::thread::available_parallelism()
-            .map_or(1, |n| n.get() / 2)
-            .clamp(1, 4)
-            .min(h);
+        let threads = crate::background::threads(
+            std::thread::available_parallelism()
+                .map_or(1, |n| n.get() / 2)
+                .clamp(1, 4),
+        )
+        .min(h);
+        // Background analysis keeps its helpers at its own low priority.
+        let low = crate::background::is_low();
         let target = SendPtr(out.as_mut_ptr());
         std::thread::scope(|scope| {
             for part in 0..threads {
                 let target = &target;
                 scope.spawn(move || {
+                    if low {
+                        crate::background::lower_priority();
+                    }
                     let mut patches = vec![0.0f32; depth * w];
                     for row in (part..h).step_by(threads) {
                         for ci in 0..self.inp {

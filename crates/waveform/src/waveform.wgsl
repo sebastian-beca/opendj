@@ -21,7 +21,7 @@ struct Params {
     num_levels: u32,
     style: u32,               // 0 = RGB (colour by frequency), 1 = stacked bands, 2 = mono (player scrubber)
     scale: f32,               // physical pixels per logical pixel
-    spread: f32,              // how far the digit atlas's distance field reaches, in atlas pixels
+    spread: f32,              // how far the text atlas's distance field reaches, in atlas pixels
     low_color: vec4<f32>,
     mid_color: vec4<f32>,
     high_color: vec4<f32>,
@@ -31,7 +31,7 @@ struct Params {
     grid_beat: vec4<f32>,              // its beat length in slices
     grid_index: vec4<f32>,             // its first beat's place in the bar (0 = bar line)
     grid_bar: vec4<f32>,               // the number of the bar its first beat is in (1 = the first)
-    digit: vec4<f32>,                  // digit atlas: cell width, cell height, advance, digit height
+    digit: vec4<f32>,                  // text atlas: cell width, cell height, the digits' advance and height
     level_offset: array<vec4<u32>, 4>, // first texel of each level
     level_len: array<vec4<u32>, 4>,    // slices in each level
     phrase_start: array<vec4<f32>, 8>, // where each phrase starts, in slices
@@ -45,18 +45,20 @@ struct Params {
     trace_alpha: f32,                  // the waveform's opacity (less under lanes of marks)
     lane_count: u32,                   // rows of marks from the bottom (0 = none)
     mark_count: u32,
-    pad1: u32,
-    pad2: u32,
+    atlas_w: f32,                      // the text atlas's width and height
+    atlas_h: f32,
     pad3: u32,
     lane_tint: vec4<u32>,              // bit n: row n tinted (a scale note)
     mark_color: vec4<f32>,
     lit_color: vec4<f32>,
+    word_width: array<vec4<f32>, 2>,   // each phrase name's width in the text atlas, by kind
     marks: array<vec4<f32>, 256>,      // start and end slice, row, kind (0 played, 1 held, 2 coming, 3 fill, 4 coming fill, 8+ level)
 };
 
 @group(0) @binding(0) var<uniform> p: Params;
 @group(0) @binding(1) var bins: texture_2d<f32>;
-// Digits 0 to 9 side by side as a signed distance field (0.5 on the edge).
+// Text as a signed distance field (0.5 on the edge): digits 0 to 9 side by
+// side in the first row of cells, then a row for each phrase name, by kind.
 @group(0) @binding(2) var digits_atlas: texture_2d<f32>;
 @group(0) @binding(3) var digits_sampler: sampler;
 const ROW: u32 = 2048u;
@@ -293,11 +295,32 @@ fn bar_number(x: f32, y: f32, k: f32, sec: u32) -> f32 {
     }
     let digit = (bar / place) % 10;
     let gx = ax - f32(which) * p.digit.z + p.spread;
-    let uv = vec2<f32>((f32(digit) * p.digit.x + gx) / (10.0 * p.digit.x), ay / p.digit.y);
+    let uv = vec2<f32>((f32(digit) * p.digit.x + gx) / p.atlas_w, ay / p.atlas_h);
     let field = textureSampleLevel(digits_atlas, digits_sampler, uv, 0.0).r;
     // The field's distance from the edge, in screen pixels.
     let dist = (field - 0.5) * 2.0 * p.spread / s;
     return clamp(dist + 0.5, 0.0, 1.0);
+}
+
+// Coverage of pixel (x, y) by the name of phrase kind `kind`, 8 points
+// tall, its pen starting at `left` and its top at `top`.
+fn phrase_name(x: f32, y: f32, k: f32, kind: u32, left: f32, top: f32) -> f32 {
+    let s = p.digit.w / (8.0 * k);
+    let ay = (y - top) * s + p.spread;
+    let ax = (x - left) * s + p.spread;
+    let w = p.word_width[kind / 4u][kind % 4u];
+    if (ay < 0.0 || ay > p.digit.y || ax < 0.0 || ax > w + 2.0 * p.spread) {
+        return 0.0;
+    }
+    let uv = vec2<f32>(ax / p.atlas_w, (f32(kind + 1u) * p.digit.y + ay) / p.atlas_h);
+    let field = textureSampleLevel(digits_atlas, digits_sampler, uv, 0.0).r;
+    let dist = (field - 0.5) * 2.0 * p.spread / s;
+    return clamp(dist + 0.5, 0.0, 1.0);
+}
+
+// A phrase kind's colour.
+fn phrase_color(kind: u32) -> vec3<f32> {
+    return PHRASE_COLORS[min(kind, 6u)];
 }
 
 @fragment
@@ -491,9 +514,53 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         let from_bottom = p.size.y - y;
         if (ph >= 0 && from_bottom <= bar_h + 0.5) {
             let i = u32(ph);
-            let c = PHRASE_COLORS[min(p.phrase_kind[i / 4u][i % 4u], 5u)];
+            let c = phrase_color(p.phrase_kind[i / 4u][i % 4u]);
             let a = clamp(bar_h - from_bottom + 0.5, 0.0, 1.0);
             color = over(color, c, a * 0.9 * (1.0 - edge));
+        }
+    }
+
+    // Phrases (scrolling): a flag at each start, a line in the phrase's
+    // colour down the waveform and its name in a tab just under the bar
+    // numbers, clear of the hotcue flags at the top and the lyrics at the
+    // foot. Where the waveform is too short for tabs, the lines alone.
+    if (p.mode == 0u && p.phrase_count > 0u) {
+        let tab_top = 15.0 * k;
+        let tab_h = 13.0 * k;
+        let tabs = p.size.y >= 40.0 * k;
+        let s = p.digit.w / (8.0 * k);
+        for (var i = 0u; i < p.phrase_count; i = i + 1u) {
+            let sx = bin_x(p.phrase_start[i / 4u][i % 4u]);
+            if (x < sx - 2.0 * k || x > sx + 80.0 * k) { continue; }
+            let kind = min(p.phrase_kind[i / 4u][i % 4u], 6u);
+            let c = phrase_color(kind);
+            color = over(color, c, line(x, sx, 0.75 * k) * 0.9);
+            if (tabs && x >= sx && y >= tab_top && y <= tab_top + tab_h) {
+                let text_w = p.word_width[kind / 4u][kind % 4u] / s;
+                let tab_w = text_w + 8.0 * k;
+                if (x <= sx + tab_w) {
+                    color = over(color, c, 0.92);
+                    // Dark letters on the light colours, white on the others.
+                    let lum = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+                    let ink = select(vec3<f32>(1.0), vec3<f32>(0.08, 0.07, 0.16), lum > 0.55);
+                    color = over(color, ink, phrase_name(x, y, k, kind, sx + 4.0 * k, tab_top + 2.5 * k));
+                }
+            }
+        }
+        // A live deck shows the leading deck's phrases: a thin strip along
+        // the top as well, so the coming one shows ahead of the play line.
+        if (p.live == 1u && y < 3.0 * k) {
+            let ph = phrase_at(bin);
+            if (ph >= 0) {
+                let i = u32(ph);
+                var edge = 0.0;
+                let next = i + 1u;
+                if (next < p.phrase_count) {
+                    edge = gap_before(x, bin_x(p.phrase_start[next / 4u][next % 4u]), 2.0 * k);
+                }
+                let c = phrase_color(p.phrase_kind[i / 4u][i % 4u]);
+                color = over(color, c, 0.9 * (1.0 - edge));
+            }
         }
     }
 

@@ -5,14 +5,19 @@
 //! and handed back to the browser to save. Tracks the DJ asks to analyse
 //! that have no cover also get the first one found online, on a thread of
 //! its own so the next track's analysis doesn't wait for it.
+//!
+//! Both threads run at low priority, so the UI and the audio come first,
+//! and while a deck plays the analysis takes one core and rests between
+//! tracks (see [`opendj_engine::background`]).
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use opendj_engine::loader::analyse_file;
-use opendj_engine::{cover, Source, Track};
+use opendj_engine::{background, cover, Source, Track};
 
 use crate::coverart;
 
@@ -58,6 +63,7 @@ impl AnalysisQueue {
         std::thread::Builder::new()
             .name("cover-lookup".into())
             .spawn(move || {
+                background::lower_priority();
                 for (id, w) in wanted {
                     let Some(path) = &w.path else { continue };
                     if cover::has_cover(path, &w.album) {
@@ -74,12 +80,15 @@ impl AnalysisQueue {
         std::thread::Builder::new()
             .name("background-analysis".into())
             .spawn(move || {
+                background::lower_priority();
                 for r in rx {
                     if r.generation != current.load(Ordering::Relaxed) {
                         continue;
                     }
                     now.store(r.track.id, Ordering::Relaxed);
+                    let started = Instant::now();
                     let result = analyse_file(&r.track, r.fresh);
+                    rest(started.elapsed(), &current, r.generation);
                     now.store(IDLE, Ordering::Relaxed);
                     let t = match result {
                         Ok(t) => {
@@ -204,6 +213,23 @@ impl AnalysisQueue {
     /// in all; None when the queue is empty.
     pub fn progress(&self) -> Option<(usize, usize)> {
         (!self.queued.is_empty()).then(|| ((self.finished + 1).min(self.total), self.total))
+    }
+}
+
+/// The longest the queue rests between two tracks while a deck plays.
+const MOST_REST: Duration = Duration::from_secs(10);
+
+/// While a deck plays, rests about as long as the last track took (up to
+/// [`MOST_REST`]), so analysis takes at most half of one core's time and
+/// the set always comes first. Stops resting when the decks stop or the
+/// queue is cancelled.
+fn rest(worked: Duration, generation: &AtomicU64, sent: u64) {
+    let until = Instant::now() + worked.min(MOST_REST);
+    while background::playing()
+        && generation.load(Ordering::Relaxed) == sent
+        && Instant::now() < until
+    {
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 

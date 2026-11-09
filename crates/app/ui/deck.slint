@@ -1473,6 +1473,10 @@ export component Header inherits Rectangle {
 export global PhraseView {
     in-out property <bool> visible: true;
     callback changed(on: bool);
+    // Phrase flags on the scrolling waveforms (a line and a name at each
+    // phrase start), switched from a scrolling waveform's right-click menu.
+    in-out property <bool> waveform-visible: true;
+    callback waveform-changed(on: bool);
     // The phrase at `seconds` into the track on `deck`, for the overview's
     // tooltip; an empty title where there is none.
     pure callback describe(deck: int, seconds: float) -> PhraseTip;

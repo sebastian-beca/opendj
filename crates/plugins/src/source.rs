@@ -258,6 +258,14 @@ pub trait SearchSource: Send {
         None
     }
 
+    /// A short line for each download still queued or running, by key:
+    /// where it is in the other user's queue, or how fast it comes ("4th in
+    /// line", "1.2 MB/s"). Asked with [`Self::progress`], so it must answer
+    /// quickly.
+    fn notes(&mut self) -> Vec<(String, String)> {
+        Vec::new()
+    }
+
     /// Stops a download that's queued or running. Files it already wrote
     /// stay.
     fn cancel(&mut self, _key: &str) -> Result<(), PluginError> {

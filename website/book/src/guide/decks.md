@@ -77,7 +77,10 @@ The deck's scrolling waveform draws what it plays as it plays: the sound
 comes in at the play line and scrolls away to the left, with nothing ahead
 of it. The beat lines and bar numbers are those of the track leading the mix
 (the sync leader, or else the first deck playing a track), so you can see
-your part land on its beats.
+your part land on its beats. The leading track's phrases show too: a thin
+strip along the top in each phrase's color, running on ahead of the play
+line, and a flag at each new phrase, so you can see the drop coming and
+bring your part in on it.
 
 On a deck playing an instrument plugin, the notes you play show as bars on
 a note roll over a faint copy of the sound: one row per note, fitted to the

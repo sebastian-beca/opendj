@@ -119,6 +119,13 @@ fn answer(plugin: &mut dyn Plugin, method: &str, p: &Value) -> Result<Value, Plu
                     Ok(Value::Null)
                 }
                 "source.status" => Ok(source.status().map_or(Value::Null, |s| status_json(&s))),
+                "source.notes" => Ok(Value::Array(
+                    source
+                        .notes()
+                        .iter()
+                        .map(|(key, note)| json!({ "key": key, "note": note }))
+                        .collect(),
+                )),
                 _ => Err(unsupported()),
             }
         }
@@ -377,6 +384,20 @@ impl SearchSource for RemotePlugin {
     }
     fn cancel(&mut self, key: &str) -> Result<(), PluginError> {
         self.call("source.cancel", json!({ "key": key })).map(drop)
+    }
+    fn notes(&mut self) -> Vec<(String, String)> {
+        if !self.running() {
+            return Vec::new();
+        }
+        // An add-on from before notes answers "not supported": none.
+        self.call("source.notes", Value::Null)
+            .map(|v| {
+                list(&v)
+                    .iter()
+                    .map(|n| (string(&n["key"]), string(&n["note"])))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
     fn status(&mut self) -> Option<StatusPage> {
         // An add-on from before pages answers "not supported": none.
