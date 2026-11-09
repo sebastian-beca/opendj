@@ -1507,6 +1507,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 for path in sources.borrow_mut().take_loads() {
                     browser.borrow_mut().load_cached(&path);
                 }
+                for action in sources.borrow_mut().take_preview_actions() {
+                    browser.borrow().preview_download(action);
+                }
                 browser.borrow_mut().poll_art();
                 browser.borrow_mut().poll_waves();
                 browser.borrow_mut().poll_analysis();
