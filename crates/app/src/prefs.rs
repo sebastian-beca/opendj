@@ -2721,6 +2721,9 @@ impl Prefs {
         if id == crate::now_playing::ENABLED || id == crate::now_playing::NETWORK {
             crate::now_playing::settings_changed();
         }
+        if id == crate::scrobble::ENABLED {
+            crate::scrobble::settings_changed();
+        }
         if id == settings::MOVE_FILES && on {
             // The library update makes the moves that were waiting.
             (self.rescan)();
@@ -3179,6 +3182,11 @@ impl Prefs {
         }
         if id == "discogs_token" {
             settings::set_discogs_token(text);
+            return;
+        }
+        if id == crate::scrobble::TOKEN {
+            settings::set(id, json!(text.trim()));
+            crate::scrobble::settings_changed();
             return;
         }
         if id == "acoustid_key" {

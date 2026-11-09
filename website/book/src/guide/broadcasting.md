@@ -84,6 +84,18 @@ station.
   start time, and the ten tracks before it, for chat bots and other tools.
   The same JSON is at `/now-playing.json` on the overlay's address.
 
+### Scrobbling to ListenBrainz
+
+Switch on **Settings › Broadcast › Send plays to ListenBrainz** and paste
+your user token (from listenbrainz.org, under Settings) into **ListenBrainz
+token**. Each track the audience hears then goes to your ListenBrainz
+profile, from any layout, as a music player's plays do: it shows as playing
+now after a few seconds, and counts as a listen once half of it, or four
+minutes, has played (tracks under 30 seconds never count). Tracks you only
+cue in the headphones are left out. Without a connection, plays wait and
+go once ListenBrainz answers again. Under the token it says who you are
+signed in as and how many plays were sent.
+
 ### Licences
 
 Playing other people's music to the public needs licences in most countries,
