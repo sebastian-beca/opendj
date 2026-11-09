@@ -36,6 +36,11 @@ The menu at the top left of the window switches layouts:
   square). **Order** and **Repeat** are at the
   top of Up Next. With Repeat on, a played track goes back to the end of Up
   Next instead of leaving it, so the list keeps going round.
+  Up Next shows the track playing on top, under **Now playing**. Each
+  mix follows the panel's **Length** and **Style**, unless you pick one
+  for a single track: right-click it in Up Next and choose under **Mix
+  into it** (**Panel** goes back to the panel's). A row with its own mix
+  shows it in lilac, such as **⤵ 32 bars · Cut**.
   **Keep going**, under them, is Player's cruise control, off at first:
   while it is on, Up Next never runs dry. When fewer than two tracks wait,
   a track that mixes with the last one goes on the list (close on the

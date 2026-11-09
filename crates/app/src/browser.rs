@@ -55,6 +55,7 @@ mod staging;
 mod streamed;
 mod tag_chips;
 mod track_menu;
+mod up_next;
 mod usb;
 mod wanted;
 
@@ -680,6 +681,9 @@ pub struct Browser {
     /// Play Album was picked, for Automix to play the list gaplessly.
     album_request: bool,
     keep_going: keep_going::KeepGoing,
+    /// Up Next's own mixes, by the id of the track mixed into.
+    mixes: HashMap<usize, up_next::Picks>,
+    mixes_changed: bool,
     /// The Albums source's covers, bigger than the list's thumbnails.
     album_art: Art,
     /// The album folders the covers view shows, in its order, and the
@@ -1312,6 +1316,8 @@ impl Browser {
             mix_export: None,
             album_request: false,
             keep_going: Default::default(),
+            mixes: HashMap::new(),
+            mixes_changed: false,
             album_art: Art::sized(albums::COVER_SIZE),
             album_tiles: Vec::new(),
             album_back: None,
@@ -1928,6 +1934,7 @@ impl Browser {
         Self::install_lyrics(app, &with);
         Self::install_track_menu(&edit, &with);
         Self::install_keep_going(&app.global::<crate::KeepGoingUi>(), &with);
+        Self::install_up_next(&app.global::<crate::UpNextUi>(), &with);
         Self::install_mix_export(&app.global::<FilesUi>(), &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
         Self::install_cleanup(&app.global::<crate::CleanupUi>(), &with);
@@ -5703,6 +5710,12 @@ impl Browser {
         let row = |id: usize, suggested: bool| {
             let t = &self.library[id];
             let cover = self.art.get(t);
+            let picks = if tab == 0 && !suggested {
+                self.mix_into(id)
+            } else {
+                (None, None)
+            };
+            let pick = |p: Option<usize>| p.map_or(0, |p| p as i32 + 1);
             SideRow {
                 heading: SharedString::new(),
                 title: t.title.clone().into(),
@@ -5719,6 +5732,9 @@ impl Browser {
                 has_cover: cover.is_some(),
                 cover: cover.unwrap_or_default(),
                 suggested,
+                mix: up_next::label(picks).into(),
+                mix_length: pick(picks.0),
+                mix_style: pick(picks.1),
             }
         };
         let mut rows: Vec<SideRow> = ids.iter().map(|&id| row(id, false)).collect();
@@ -5810,6 +5826,7 @@ impl Browser {
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
                     suggested: false,
+                    ..Default::default()
                 });
             }
         }
