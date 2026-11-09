@@ -38,5 +38,5 @@
 ## 5. Now Playing
 
 - [x] 5.1 Full-window Now Playing view: large cover with title, artist, album, BPM, key and quality under it; Lyrics and Details on the right; Up Next beside it; opened from the bar's art and lyrics button (the bar keeps the scrubber and transport)
-- [ ] 5.2 Up Next restyled with covers, Now playing row and the mix length and style
-- [ ] 5.3 Update the user guide
+- [x] 5.2 Up Next restyled with covers, Now playing row and the mix length and style
+- [x] 5.3 Update the user guide

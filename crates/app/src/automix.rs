@@ -12,6 +12,7 @@
 //! Times are measured on the outgoing track, in its own seconds, so a mix
 //! follows the deck's tempo and pauses when the deck does.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use opendj_control::{ControlHandle, ControlRegistry};
@@ -271,6 +272,11 @@ pub struct AutoMix {
     /// The Phrases length's plan for the playing track and the one
     /// waiting, by the tracks' addresses, so phrases are found once.
     plan: Option<((usize, usize), Option<Plan>)>,
+    /// The mix length and style picked for the mix into a track, by its
+    /// id, over the panel's (indices into [`LENGTHS`] and [`STYLES`]).
+    overrides: HashMap<usize, (Option<usize>, Option<usize>)>,
+    /// The track the next (or current) mix goes into, by id.
+    into: Option<usize>,
 }
 
 /// Automix mixes between decks 1 and 2, whatever the layout.
@@ -343,6 +349,8 @@ impl AutoMix {
             plan: None,
             left: 0,
             repeat: crate::settings::automix_repeat(),
+            overrides: HashMap::new(),
+            into: None,
         }
     }
 
@@ -362,13 +370,39 @@ impl AutoMix {
         self.enabled.set_bool(true);
     }
 
-    /// The mix length in use: none while playing an album.
+    /// The mix length in use: none while playing an album, else the one
+    /// picked for the mix into the next track, else the panel's.
     fn mix_length(&self) -> Length {
         if self.album {
             Length::Seconds(0.0)
         } else {
-            LENGTHS[self.length]
+            LENGTHS[self.picked().0.unwrap_or(self.length)]
         }
+    }
+
+    /// The mix style in use: the one picked for the mix into the next
+    /// track, else the panel's.
+    fn mix_style(&self) -> Style {
+        STYLES[self.picked().1.unwrap_or(self.style)]
+    }
+
+    /// The length and style picked for the mix into the next track.
+    fn picked(&self) -> (Option<usize>, Option<usize>) {
+        self.into
+            .and_then(|id| self.overrides.get(&id))
+            .map(|&(l, s)| {
+                (
+                    l.filter(|&l| l < LENGTHS.len()),
+                    s.filter(|&s| s < STYLES.len()),
+                )
+            })
+            .unwrap_or((None, None))
+    }
+
+    /// The mix lengths and styles picked for single mixes, by the id of the
+    /// track mixed into (Up Next's rows).
+    pub fn set_overrides(&mut self, overrides: HashMap<usize, (Option<usize>, Option<usize>)>) {
+        self.overrides = overrides;
     }
 
     pub fn mix_now(&mut self) {
@@ -401,6 +435,13 @@ impl AutoMix {
 
     /// Runs Automix for one UI frame, `dt` seconds after the last one.
     pub fn tick(&mut self, host: &mut dyn Host, tracks: &[Option<Arc<Track>>; NUM_DECKS], dt: f64) {
+        self.into = match &self.phase {
+            Phase::Playing { next: Some(n), .. } | Phase::Opening { next: Some(n), .. } => {
+                Some(n.id)
+            }
+            Phase::Mixing(m) => tracks[m.to].as_ref().map(|t| t.id),
+            _ => None,
+        };
         if self.external.get_bool() {
             if self.enabled.get_bool() || !matches!(self.phase, Phase::Off) {
                 self.stop(NEEDS_MIXER);
@@ -703,6 +744,7 @@ impl AutoMix {
         if !self.decks[other].play.get_bool() {
             next = self.prepare(other, next, host, tracks);
         }
+        self.into = next.as_ref().map(|n| n.id);
         let Some(n) = next else {
             self.phase = Phase::Playing { live, next };
             return;
@@ -714,7 +756,7 @@ impl AutoMix {
         let style = if gapless {
             Style::Smooth
         } else {
-            STYLES[self.style]
+            self.mix_style()
         };
         // Gapless, the engine is told a little ahead which deck follows.
         let lead = if gapless {
@@ -825,7 +867,7 @@ impl AutoMix {
                 let len = self.length_on(*live, tracks);
                 let start = self.planned_start(*live, end - len, tracks);
                 let start = start.max(self.position(*live, tracks).min(end));
-                let end = if STYLES[self.style] == Style::Cut {
+                let end = if self.mix_style() == Style::Cut {
                     (start + t.beat_length()).min(end)
                 } else {
                     (start + len).min(end)
@@ -1525,6 +1567,22 @@ mod tests {
         r.run(12.0);
         assert!(!r.ctl("[AutoDJ]", "enabled").get_bool());
         assert_eq!(r.automix.mix_length(), LENGTHS[1]);
+    }
+
+    #[test]
+    fn a_mix_picked_on_a_row_beats_the_panel() {
+        let mut r = Rig::new(vec![track(0, 20.0), track(1, 20.0)]);
+        // 12 s mixes on the panel, gapless into track 1 alone, in Cut.
+        r.automix.length = 1;
+        r.automix
+            .set_overrides(HashMap::from([(1001, (Some(0), Some(3)))]));
+        r.ctl("[AutoDJ]", "enabled").set(1.0);
+        r.run(2.0);
+        assert_eq!(r.automix.mix_length(), LENGTHS[0]);
+        assert_eq!(r.automix.mix_style(), Style::Cut);
+        r.automix.set_overrides(HashMap::new());
+        r.run(0.1);
+        assert_eq!(r.automix.mix_length(), LENGTHS[1], "the panel's again");
     }
 
     #[test]

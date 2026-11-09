@@ -7,7 +7,7 @@ use std::time::Duration;
 use opendj_engine::{LoadedTracks, Track};
 use slint::{ComponentHandle, Model, ModelRc, Timer, TimerMode, VecModel};
 
-use crate::{AppWindow, NowDetail, NowPlayingUi, Theme};
+use crate::{AppWindow, NowDetail, NowPlayingUi, Theme, UpNextUi};
 
 /// Starts filling the view. Keep the timer for as long as the app runs.
 pub fn install(app: &AppWindow, loaded: LoadedTracks) -> Timer {
@@ -15,9 +15,12 @@ pub fn install(app: &AppWindow, loaded: LoadedTracks) -> Timer {
     // The track and cover last shown, so the view is only set again when
     // they change.
     let mut shown = String::new();
+    // The same for Up Next's Now playing row.
+    let mut up_shown = String::new();
     let timer = Timer::default();
     timer.start(TimerMode::Repeated, Duration::from_millis(250), move || {
         let Some(app) = weak.upgrade() else { return };
+        show_up_next(&app, &mut up_shown);
         let ui = app.global::<NowPlayingUi>();
         if !ui.get_open() {
             shown.clear();
@@ -80,6 +83,31 @@ pub fn install(app: &AppWindow, loaded: LoadedTracks) -> Timer {
         ui.set_details(ModelRc::new(VecModel::from(rows)));
     });
     timer
+}
+
+/// Fills Up Next's Now playing row with the track the Player bar shows,
+/// when it changed since `shown`.
+fn show_up_next(app: &AppWindow, shown: &mut String) {
+    let d = app.get_player_deck().clamp(0, 1) as usize;
+    let Some(info) = app.get_decks().row_data(d) else {
+        return;
+    };
+    let key = format!(
+        "{}\u{1}{}\u{1}{}\u{1}{}",
+        info.loaded, info.title, info.artist, info.has_cover
+    );
+    if key == *shown {
+        return;
+    }
+    *shown = key;
+    let ui = app.global::<UpNextUi>();
+    ui.set_now_loaded(info.loaded);
+    ui.set_now_title(info.title.clone());
+    ui.set_now_artist(info.artist.clone());
+    ui.set_now_cover(info.cover.clone());
+    ui.set_now_has_cover(info.has_cover);
+    ui.set_now_initials(info.initials.clone());
+    ui.set_now_tint(app.global::<Theme>().invoke_deck_color(d as i32));
 }
 
 /// "Night Shift · 2024": the album and its year, either alone, or nothing.
