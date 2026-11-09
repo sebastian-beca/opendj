@@ -84,6 +84,7 @@ mod quality;
 mod quick_search;
 mod remote;
 mod sampler;
+mod scrobble;
 mod settings;
 mod shortcuts;
 mod smooth;
@@ -1158,6 +1159,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             slint::TimerMode::Repeated,
             std::time::Duration::from_millis(250),
             move || feed.tick(),
+        );
+        timer
+    };
+    // Scrobbling follows the mix once a second.
+    let _scrobble_timer = {
+        let mut scrobbler = scrobble::Scrobbler::new(registry.clone(), engine.loaded_tracks());
+        let timer = slint::Timer::default();
+        timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_secs(1),
+            move || scrobbler.tick(),
         );
         timer
     };
