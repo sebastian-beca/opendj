@@ -922,8 +922,25 @@ component PresetBar inherits Rectangle {
 }
 
 // A small button with a label and an optional ▾.
+// The small icons on the instrument deck's play buttons: 1 scale (steps),
+// 2 chord (stacked notes), 3 arpeggiator (notes climbing).
+component ModeIcon inherits Path {
+    in property <int> kind;
+    in property <color> tint;
+    viewbox-width: 16;
+    viewbox-height: 16;
+    stroke: kind == 2 ? transparent : tint;
+    stroke-width: 1.8px;
+    fill: kind == 2 ? tint : transparent;
+    commands: kind == 1 ? "M 2 13 L 6 13 L 6 9 L 10 9 L 10 5 L 14 5 L 14 3"
+        : kind == 2 ? "M 3.5 12.5 a 2.2 1.8 0 1 0 4.4 0 a 2.2 1.8 0 1 0 -4.4 0 M 8.1 8 a 2.2 1.8 0 1 0 4.4 0 a 2.2 1.8 0 1 0 -4.4 0 M 3.5 3.5 a 2.2 1.8 0 1 0 4.4 0 a 2.2 1.8 0 1 0 -4.4 0"
+        : "M 2 13 L 5 10 L 7 12 L 10 7 L 12 9 L 14 3 M 11 3 L 14 3 L 14 6";
+}
+
 component GrooveButton inherits Rectangle {
     in property <string> text;
+    // A ModeIcon kind shown before the text; 0 none.
+    in property <int> icon;
     in property <bool> lit;
     in property <color> tint: Theme.accent;
     in property <bool> blink;
@@ -934,7 +951,7 @@ component GrooveButton inherits Rectangle {
     border-width: lit || blink ? 2px : 1px;
     border-color: lit ? tint : blink ? tint.with-alpha(0.5) : Theme.border;
     background: gbta.pressed ? Theme.control-pressed : Theme.control;
-    Text {
+    if icon == 0: Text {
         text: root.text;
         color: lit ? tint : Theme.text;
         font-size: root.font-size;
@@ -944,7 +961,126 @@ component GrooveButton inherits Rectangle {
         vertical-alignment: center;
         width: parent.width - 8px;
     }
+    if icon != 0: HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 4px;
+        spacing: 4px;
+        VerticalLayout {
+            alignment: center;
+            ModeIcon { kind: root.icon; tint: lit ? root.tint : Theme.text; width: 16px; height: 16px; }
+        }
+        Text {
+            text: root.text;
+            color: lit ? root.tint : Theme.text;
+            font-size: root.font-size;
+            font-weight: 600;
+            overflow: elide;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+    }
     gbta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// One channel to pick in the MIDI-from menu; 0 is Any.
+component MidiChannel inherits Rectangle {
+    in property <int> channel;
+    property <bool> picked: InstrumentsUi.midi-channel == channel;
+    height: 22px;
+    border-radius: 4px;
+    background: picked ? Theme.accent.with-alpha(0.25) : mcta.has-hover ? #3a3a3d : Theme.control;
+    border-width: 1px;
+    border-color: picked ? Theme.accent : transparent;
+    Text { text: channel == 0 ? "Any channel" : channel; color: Theme.text; font-size: 11px; }
+    mcta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { InstrumentsUi.set-midi-from(InstrumentsUi.midi-device, channel); }
+    }
+}
+
+// Which MIDI keyboard, and which of its channels, plays the instrument:
+// any by default. One keyboard among several, or one track of a
+// sequencer sending several channels, then plays it. A keyboard button
+// in the deck's header, lit in the deck color once one is picked.
+component MidiFromButton inherits Rectangle {
+    in property <color> tint;
+    in property <length> size: 30px;
+    property <bool> picked: InstrumentsUi.midi-device != 0 || InstrumentsUi.midi-channel != 0;
+    width: size + 18px;
+    height: size;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: picked ? tint : Theme.border;
+    background: mfta.pressed ? Theme.control-pressed : mfta.has-hover ? #2a2b2e : Theme.control;
+    HorizontalLayout {
+        padding-left: 3px;
+        padding-right: 4px;
+        alignment: center;
+        LiveIcon { kind: 2; tint: picked ? root.tint : Theme.text; size: root.size - 4px; y: 2px; }
+        Text { text: "▾"; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+    }
+    mfta := TouchArea { mouse-cursor: pointer; clicked => { menu.show(); } }
+    menu := PopupWindow {
+        y: root.height + 2px;
+        x: root.width - self.width;
+        width: 220px;
+        height: (InstrumentsUi.keyboards.length + 2) * 24px + 16px + 4 * 26px + 30px + 20px;
+        GrooveMenuBackground { }
+        VerticalLayout {
+            padding: 4px;
+            HorizontalLayout {
+                padding-left: 8px;
+                Text { text: "PLAY IT FROM"; color: Theme.text-dim; font-size: 10px; height: 16px; }
+            }
+            if InstrumentsUi.playing-from != "": HorizontalLayout {
+                padding-left: 8px;
+                Text { text: "Now: " + InstrumentsUi.playing-from; color: Theme.text-dim; font-size: 10px; height: 20px; overflow: elide; }
+            }
+            GrooveMenuItem {
+                text: "Any keyboard";
+                checked: InstrumentsUi.midi-device == 0;
+                clicked => { InstrumentsUi.set-midi-from(0, InstrumentsUi.midi-channel); }
+            }
+            for k[i] in InstrumentsUi.keyboards: GrooveMenuItem {
+                text: k;
+                checked: InstrumentsUi.midi-device == i + 1;
+                clicked => { InstrumentsUi.set-midi-from(i + 1, InstrumentsUi.midi-channel); }
+            }
+            Rectangle { height: 1px; background: Theme.border; }
+            HorizontalLayout {
+                padding-left: 8px;
+                Text { text: "CHANNEL"; color: Theme.text-dim; font-size: 10px; height: 18px; vertical-alignment: bottom; }
+            }
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                height: 26px;
+                MidiChannel { channel: 0; }
+            }
+            for row in 4: HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                spacing: 4px;
+                height: 26px;
+                for c in 4: MidiChannel { channel: row * 4 + c + 1; }
+            }
+        }
+    }
+}
+
+// The plugin's format (CLAP, VST3, AU) as a small square chip in the deck
+// color.
+component FormatChip inherits Rectangle {
+    in property <string> text;
+    in property <color> tint;
+    in property <bool> compact;
+    width: chip-text.preferred-width + 10px;
+    height: compact ? 15px : 18px;
+    border-radius: 3px;
+    border-width: 1px;
+    border-color: tint;
+    background: tint.with-alpha(0.15);
+    chip-text := Text { text: root.text; color: root.tint; font-size: compact ? 9px : 10px; font-weight: 700; }
 }
 
 // The Groove Box's preset, in its top bar: the name, with a menu to step
@@ -1129,9 +1265,14 @@ export component Header inherits Rectangle {
                     alignment: center;
                     spacing: 2px;
                     Text { text: groove ? "Groove Box" : live > 0 ? live-name : info.loaded ? info.title : "Empty deck"; color: Theme.text; font-size: compact ? 14px : 18px; font-weight: 500; overflow: elide; }
-                    Text {
+                    // An instrument plugin: its format, as a chip.
+                    if live == 3 && InstrumentsUi.format() != "": HorizontalLayout {
+                        alignment: start;
+                        FormatChip { text: InstrumentsUi.format(); tint: tint; compact: compact; }
+                    }
+                    if live != 3: Text {
                         text: groove ? GrooveUi.kits[groove-kit].name + " kit   |   " + round(groove-bpm * 10) / 10 + (groove-following ? " BPM, in time with the mix" : " BPM")
-                            : live > 0 ? (live == 3 ? "Instrument plugin, live" : InstrumentsUi.route(live) != "" ? InstrumentsUi.route(live) : "Live input")
+                            : live > 0 ? (InstrumentsUi.route(live) != "" ? InstrumentsUi.route(live) : "Live input")
                             : info.loaded ? (compact ? info.artist : info.artist + "   |   " + info.bpm) : compact ? "Drop a track here" : "Drop a track here or double-click one in the browser";
                         color: Theme.text-dim;
                         font-size: compact ? 11px : 13px;
@@ -1143,7 +1284,12 @@ export component Header inherits Rectangle {
                     tint: tint;
                     compact: compact || BeatCounter.mode == 1;
                 }
-                if live > 0: VerticalLayout {
+                // An instrument: which keyboard plays it, picked here.
+                if live == 3: VerticalLayout {
+                    alignment: center;
+                    MidiFromButton { tint: tint; size: compact ? 22px : 28px; }
+                }
+                if live > 0 && live != 3: VerticalLayout {
                     alignment: center;
                     LiveIcon { kind: InstrumentsUi.live-icon(live); tint: tint; size: compact ? 24px : 30px; }
                 }
@@ -3842,8 +3988,8 @@ component ParamKnob inherits Rectangle {
     in property <int> index;
     in property <int> count;
     in property <color> tint;
-    width: 62px;
-    height: 42px;
+    width: 64px;
+    height: 52px;
     if index < count: TouchArea {
         pointer-event(e) => {
             if e.kind == PointerEventKind.down && e.button == PointerEventButton.right {
@@ -3856,12 +4002,11 @@ component ParamKnob inherits Rectangle {
         y: 0;
         group: "[Instrument1]";
         key: "parameter" + (index + 1);
-        tint: root.tint;
-        size: 24px;
+        size: 28px;
         right-clicked => { picker.show(); }
     }
     if index < count: Text {
-        y: 30px;
+        y: 38px;
         width: parent.width;
         text: InstrumentsUi.param-names[index];
         color: InstrumentsUi.knob-picked[index] ? root.tint : Theme.text-dim;
@@ -3961,8 +4106,9 @@ component InstrumentKeyboard inherits Rectangle {
         property <bool> in-scale: Math.mod(floor(mask / Math.pow(2, Math.mod(note, 12))), 2) == 1;
         visible: step != 2 && step != 6;
         x: (w + 1) * root.key-width - root.key-width * 0.3;
+        y: 0;
         width: root.key-width * 0.6;
-        height: root.height * 0.6;
+        height: root.height * 0.62;
         border-radius: 2px;
         background: InstrumentsUi.held[note] ? root.tint : mask == 0 || in-scale ? #1a1a1c : #3c3c40;
         if mask != 0 && in-scale && !InstrumentsUi.held[note]: Rectangle {
@@ -3988,7 +4134,8 @@ component ScaleButton inherits GrooveButton {
     property <[string]> notes: ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
     property <[string]> kinds: ["", "m", " pent", "m pent"];
     property <string> now-name: now == 0 ? "" : notes[Math.mod(now - 1, 12)] + kinds[floor((now - 1) / 12)];
-    text: (mode == 1 && now != 0 ? "AUTO: " + now-name : "SCALE: " + (mode == 0 ? "Off" : mode == 1 ? "Auto" : now-name)) + " ▾";
+    icon: 1;
+    text: (mode == 0 ? "Off" : mode == 1 ? (now != 0 ? "Auto " + now-name : "Auto") : now-name) + " ▾";
     lit: mode != 0 && now != 0;
     clicked => { menu.show(); }
     menu := PopupWindow {
@@ -4045,7 +4192,8 @@ component ChordButton inherits GrooveButton {
     property <int> mode: Controls.value(mode-index, Controls.tick);
     property <bool> learning: Controls.value(learn-index, Controls.tick) > 0;
     property <[string]> names: ["Off", "Triad", "7th", "Power", "Mine"];
-    text: "CHORD: " + (learning ? "play one" : names[mode]) + " ▾";
+    icon: 2;
+    text: (learning ? "Play one" : names[mode]) + " ▾";
     lit: mode != 0 || learning;
     clicked => { menu.show(); }
     menu := PopupWindow {
@@ -4112,7 +4260,8 @@ component ArpButton inherits GrooveButton {
     property <int> octaves: Controls.value(octaves-index, Controls.tick);
     property <bool> hold: Controls.value(hold-index, Controls.tick) > 0;
     property <[string]> rates: ["1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"];
-    text: "ARP: " + (on ? ["Up", "Down", "Up/Dn", "Rand", "Order"][mode] + " " + rates[rate] : "Off") + " ▾";
+    icon: 3;
+    text: (on ? ["Up", "Down", "Up/Dn", "Rand", "Order"][mode] + " " + rates[rate] : "Off") + " ▾";
     lit: on;
     clicked => { menu.show(); }
     menu := PopupWindow {
@@ -4185,73 +4334,6 @@ component ArpButton inherits GrooveButton {
     }
 }
 
-// One channel to pick in MidiFrom's menu; 0 is Any.
-component MidiChannel inherits Rectangle {
-    in property <int> channel;
-    property <bool> picked: InstrumentsUi.midi-channel == channel;
-    height: 22px;
-    border-radius: 4px;
-    background: picked ? Theme.accent.with-alpha(0.25) : mcta.has-hover ? #3a3a3d : Theme.control;
-    border-width: 1px;
-    border-color: picked ? Theme.accent : transparent;
-    Text { text: channel == 0 ? "Any channel" : channel; color: Theme.text; font-size: 11px; }
-    mcta := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { InstrumentsUi.set-midi-from(InstrumentsUi.midi-device, channel); }
-    }
-}
-
-// Which MIDI keyboard, and which of its channels, plays the instrument:
-// any by default. One keyboard among several, or one track of a
-// sequencer sending several channels, then plays it.
-component MidiFrom inherits GrooveButton {
-    property <string> device: InstrumentsUi.midi-device == 0 ? "Any" : InstrumentsUi.keyboards[InstrumentsUi.midi-device - 1];
-    text: "MIDI: " + device + (InstrumentsUi.midi-channel == 0 ? "" : " · Ch " + InstrumentsUi.midi-channel) + " ▾";
-    clicked => { menu.show(); }
-    menu := PopupWindow {
-        y: root.height + 2px;
-        x: root.width - self.width;
-        width: 220px;
-        height: (InstrumentsUi.keyboards.length + 2) * 24px + 16px + 4 * 26px + 30px;
-        GrooveMenuBackground { }
-        VerticalLayout {
-            padding: 4px;
-            HorizontalLayout {
-                padding-left: 8px;
-                Text { text: "KEYBOARD"; color: Theme.text-dim; font-size: 10px; height: 16px; }
-            }
-            GrooveMenuItem {
-                text: "Any keyboard";
-                checked: InstrumentsUi.midi-device == 0;
-                clicked => { InstrumentsUi.set-midi-from(0, InstrumentsUi.midi-channel); }
-            }
-            for k[i] in InstrumentsUi.keyboards: GrooveMenuItem {
-                text: k;
-                checked: InstrumentsUi.midi-device == i + 1;
-                clicked => { InstrumentsUi.set-midi-from(i + 1, InstrumentsUi.midi-channel); }
-            }
-            Rectangle { height: 1px; background: Theme.border; }
-            HorizontalLayout {
-                padding-left: 8px;
-                Text { text: "CHANNEL"; color: Theme.text-dim; font-size: 10px; height: 18px; vertical-alignment: bottom; }
-            }
-            HorizontalLayout {
-                padding-left: 8px;
-                padding-right: 8px;
-                height: 26px;
-                MidiChannel { channel: 0; }
-            }
-            for row in 4: HorizontalLayout {
-                padding-left: 8px;
-                padding-right: 8px;
-                spacing: 4px;
-                height: 26px;
-                for c in 4: MidiChannel { channel: row * 4 + c + 1; }
-            }
-        }
-    }
-}
-
 // A deck playing a live input: what it plays, its level, and for an
 // instrument plugin its window, the KEYBOARD pads switch and their octave.
 component LivePanel inherits Rectangle {
@@ -4309,10 +4391,10 @@ component LivePanel inherits Rectangle {
         VerticalLayout {
             alignment: center;
             spacing: 6px;
-            width: 170px;
+            width: live == 3 ? 84px : 170px;
             if live == 3: HorizontalLayout {
                 alignment: center;
-                InstrumentScope { tint: tint; width: 160px; height: 40px; }
+                InstrumentScope { tint: tint; width: 80px; height: 20px; }
             }
             if live != 3: HorizontalLayout {
                 alignment: center;
@@ -4328,9 +4410,8 @@ component LivePanel inherits Rectangle {
                     clicked => { InstrumentsUi.open-settings(0, 0); }
                 }
             }
-            Text {
-                text: live == 3 ? (InstrumentsUi.playing-from != "" ? "Playing from " + InstrumentsUi.playing-from + "." : "Play it with a MIDI keyboard or the KEYBOARD pads.")
-                    : "Live through this deck's EQ, filter, effects and fader.";
+            if live != 3: Text {
+                text: "Live through this deck's EQ, filter, effects and fader.";
                 color: Theme.text-dim;
                 font-size: 11px;
                 horizontal-alignment: center;
@@ -4340,7 +4421,7 @@ component LivePanel inherits Rectangle {
             HorizontalLayout {
                 alignment: center;
                 Rectangle {
-                    width: 150px;
+                    width: live == 3 ? 80px : 150px;
                     height: 6px;
                     border-radius: 3px;
                     background: #2a2a2d;
@@ -4357,16 +4438,15 @@ component LivePanel inherits Rectangle {
         VerticalLayout {
             alignment: center;
             spacing: 4px;
-            ControlKnob { group: group; key: "live_trim"; label: "TRIM"; tint: tint; size: 30px; }
-            ControlKnob { group: group; key: "live_pan"; label: "PAN"; tint: tint; size: 30px; bipolar: true; }
+            ControlKnob { group: group; key: "live_trim"; label: "TRIM"; size: 28px; }
+            ControlKnob { group: group; key: "live_pan"; label: "PAN"; size: 28px; bipolar: true; }
         }
         if live == 3: InstrumentKnobs { tint: tint; page <=> InstrumentsUi.knob-page; }
         if live == 3: VerticalLayout {
             alignment: center;
             spacing: 4px;
-            ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "EDIT"; tint: Theme.accent; width: 120px; height: 22px; font-size: 11px; outline-when-lit: true; }
-            ControlButton { group: "[Instrument1]"; key: "keyboard_pads"; text: "KEYBOARD PADS"; tint: Theme.accent; width: 120px; height: 22px; font-size: 11px; }
-            MidiFrom { width: 120px; height: 22px; }
+            ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "OPEN"; tint: Theme.accent; width: 80px; height: 20px; font-size: 10px; outline-when-lit: true; }
+            ControlButton { group: "[Instrument1]"; key: "keyboard_pads"; text: "KEYS ON PADS"; tint: Theme.accent; width: 80px; height: 20px; font-size: 10px; }
         }
       }
       // The notes it plays, on 2-Deck (4-Deck strips leave it out), beside
@@ -4376,15 +4456,15 @@ component LivePanel inherits Rectangle {
         height: 26px;
         VerticalLayout {
             alignment: center;
-            ScaleButton { width: 120px; height: 22px; }
+            ScaleButton { width: 92px; height: 22px; }
         }
         VerticalLayout {
             alignment: center;
-            ChordButton { width: 102px; height: 22px; }
+            ChordButton { width: 78px; height: 22px; }
         }
         VerticalLayout {
             alignment: center;
-            ArpButton { width: 112px; height: 22px; }
+            ArpButton { width: 96px; height: 22px; }
         }
         HorizontalLayout {
             alignment: center;
@@ -4401,7 +4481,7 @@ component LivePanel inherits Rectangle {
 
 // A 4-Deck strip's live input, in place of PLAY, the loop and the pads
 // (`DeckStrip` in fourdeck.slint): what it needs if it is not set up yet;
-// otherwise for an instrument a small scope, EDIT, its first four knobs and
+// otherwise for an instrument a small scope, OPEN, its first four knobs and
 // TRIM, and for an input where it comes in, TRIM and PAN. The strip's header carries its
 // image and presets, and its channel the meter. No keyboard here.
 export component LiveStrip inherits Rectangle {
@@ -4443,13 +4523,13 @@ export component LiveStrip inherits Rectangle {
         padding: 6px;
         spacing: 6px;
         // The scope keeps its shape (see InstrumentScope), so it sits
-        // beside EDIT rather than across the strip.
+        // beside OPEN rather than across the strip.
         if live == 3: HorizontalLayout {
             spacing: 8px;
             InstrumentScope { tint: tint; width: 128px; height: 32px; }
             VerticalLayout {
                 alignment: center;
-                ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "EDIT"; tint: Theme.accent; height: 24px; font-size: 11px; outline-when-lit: true; }
+                ControlButton { group: "[Instrument1]"; key: "show_editor"; text: "OPEN"; tint: Theme.accent; height: 20px; font-size: 10px; outline-when-lit: true; }
             }
         }
         // The interface input it comes in on; a click picks another.
@@ -4471,11 +4551,11 @@ export component LiveStrip inherits Rectangle {
             }
             VerticalLayout {
                 alignment: center;
-                ControlKnob { group: group; key: "live_trim"; label: "TRIM"; tint: tint; size: 24px; }
+                ControlKnob { group: group; key: "live_trim"; label: "TRIM"; size: 28px; }
             }
             if live != 3: VerticalLayout {
                 alignment: center;
-                ControlKnob { group: group; key: "live_pan"; label: "PAN"; tint: tint; size: 24px; bipolar: true; }
+                ControlKnob { group: group; key: "live_pan"; label: "PAN"; size: 28px; bipolar: true; }
             }
         }
     }
