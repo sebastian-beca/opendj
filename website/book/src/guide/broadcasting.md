@@ -96,6 +96,15 @@ cue in the headphones are left out. Without a connection, plays wait and
 go once ListenBrainz answers again. Under the token it says who you are
 signed in as and how many plays were sent.
 
+### Scrobbling to Last.fm
+
+The same plays can go to Last.fm. It needs a free API account of your own:
+make one at last.fm/api/account/create (any name and description; leave the
+callback empty), then switch on **Send plays to Last.fm**, paste the **API
+key** and **shared secret**, and press **Sign in**. Last.fm opens in the
+browser; allow openDJ there, and Settings says who you are signed in as.
+**Sign out** forgets the session. Both services can be on at once.
+
 ### Licences
 
 Playing other people's music to the public needs licences in most countries,

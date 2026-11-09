@@ -59,6 +59,7 @@ mod instrument_knobs;
 mod instrument_midi;
 mod instruments;
 mod keep_going;
+mod lastfm;
 mod list_picker;
 mod live_trace;
 mod lookup;

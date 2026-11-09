@@ -9,9 +9,9 @@
 
 ## 2. Last.fm
 
-- [ ] 2.1 The DJ's own API key and secret, browser sign-in, session key in the keychain
-- [ ] 2.2 Now playing and scrobbles by the same rule, waiting when offline
-- [ ] 2.3 User guide
+- [x] 2.1 The DJ's own API key and secret, browser sign-in, session key kept out of backups
+- [x] 2.2 Now playing and scrobbles by the same rule, waiting when offline
+- [x] 2.3 User guide
 
 ## Workflow follow-up
 
