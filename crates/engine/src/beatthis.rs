@@ -82,6 +82,9 @@ fn detect(audio: &Audio) -> Result<(Vec<f64>, Vec<f64>), String> {
             }
         }
     }
+    if crate::background::is_low() {
+        crate::background::lower_rten_priority();
+    }
     let bt = tracker.as_mut().unwrap();
     let mut stream = bt.stream(audio.sample_rate).map_err(|e| e.to_string())?;
     let mut mono = Vec::new();

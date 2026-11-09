@@ -428,8 +428,15 @@ impl Browser {
 
     /// Saves what background analysis found since last time, then the
     /// covers found online for the tracks analysed.
+    ///
+    /// Tracks that finish close together are saved and shown together, at
+    /// most every [`super::analysis::APPLY_EVERY`], so a long batch doesn't
+    /// keep the UI busy.
     pub fn poll_analysis(&mut self) {
-        let done = self.analysis.take();
+        let finished = self.analysis.take();
+        let done = self
+            .analysis_shown
+            .due(finished, self.analysis.progress().is_none());
         if !done.is_empty() {
             for t in &done {
                 self.learn_background(t);
