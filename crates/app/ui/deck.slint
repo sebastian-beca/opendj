@@ -4322,23 +4322,36 @@ component LooperLayer inherits Rectangle {
     // Empty, armed, recording, playing, overdubbing.
     property <color> state-color: state == 1 || state == 2 ? #ff453a : state == 4 ? #ff9f0a : state == 3 ? tint : Theme.text-dim;
     property <bool> blink: Controls.blink;
-    height: 40px;
+    height: 36px;
+    horizontal-stretch: 1;
     border-radius: Theme.radius;
     background: #0000002a;
     HorizontalLayout {
-        padding: 4px;
-        spacing: 6px;
+        padding: 3px;
+        spacing: 5px;
+        // The tap: records, overdubs and plays; filled as the loop goes round.
         Rectangle {
-            width: 92px;
+            horizontal-stretch: 1;
             border-radius: Theme.radius;
             border-width: 2px;
             border-color: state == 1 && blink ? transparent : state-color;
             background: tta.pressed ? Theme.control-pressed : state == 2 ? #ff453a30 : state == 4 ? #ff9f0a30 : Theme.control;
+            clip: true;
+            if state >= 3: Rectangle {
+                x: 0;
+                width: parent.width * position;
+                height: parent.height;
+                background: (muted ? Theme.text-dim : state-color).with-alpha(0.25);
+            }
             Text {
-                text: state == 0 ? "● REC" : state == 1 ? "NEXT BAR" : state == 2 ? "RECORDING" : state == 3 ? "▶ PLAY" : "OVERDUB";
+                text: (state == 0 ? "● REC" : state == 1 ? "NEXT BAR" : state == 2 ? "RECORDING" : state == 3 ? "▶ PLAY" : "OVERDUB")
+                    + (state >= 3 ? (bars == 1 ? "   1 bar" : "   " + bars + " bars") : "");
+                width: parent.width - 8px;
+                horizontal-alignment: center;
                 color: state-color;
                 font-size: 11px;
                 font-weight: 700;
+                overflow: elide;
             }
             tta := TouchArea {
                 mouse-cursor: pointer;
@@ -4348,37 +4361,11 @@ component LooperLayer inherits Rectangle {
                 }
             }
         }
-        // Where the layer is in its loop, its bars marked.
-        Rectangle {
-            horizontal-stretch: 1;
-            border-radius: 3px;
-            background: Theme.well;
-            clip: true;
-            if state >= 3: Rectangle {
-                x: 0;
-                width: parent.width * position;
-                height: parent.height;
-                background: (muted ? Theme.text-dim : state-color).with-alpha(0.35);
-            }
-            if state >= 3 && bars > 1: HorizontalLayout {
-                for b in bars - 1: Rectangle {
-                    width: parent.width / bars;
-                    Rectangle { x: parent.width - 1px; width: 1px; background: #ffffff30; }
-                }
-            }
-            Text {
-                x: 8px;
-                text: state == 0 ? "Layer " + (layer + 1) : (bars == 1 ? "1 bar" : bars + " bars") + (muted ? ", muted" : "");
-                color: state == 0 ? Theme.text-dim : Theme.text;
-                font-size: 11px;
-                vertical-alignment: center;
-            }
-        }
         VerticalLayout {
             alignment: center;
             GrooveToggle { group: g; key: n + "_mute"; text: "M"; tint: #ff9f0a; width: 22px; height: 22px; }
         }
-        ControlKnob { group: g; key: n + "_volume"; size: 24px; tint: tint; }
+        ControlKnob { group: g; key: n + "_volume"; size: 20px; tint: tint; }
         VerticalLayout {
             alignment: center;
             Rectangle {
@@ -4414,29 +4401,38 @@ component LooperPanel inherits Rectangle {
     border-radius: 10px;
     background: Theme.well;
     HorizontalLayout {
-        padding: 10px;
-        spacing: 14px;
+        padding: 8px;
+        spacing: 12px;
+        // The layers, two by two, with PLAY and the beat of the bar under them.
         VerticalLayout {
             horizontal-stretch: 1;
-            spacing: 6px;
-            for layer in 4: LooperLayer { g: g; layer: layer; tint: tint; }
+            spacing: 5px;
+            HorizontalLayout {
+                spacing: 5px;
+                LooperLayer { g: g; layer: 0; tint: tint; }
+                LooperLayer { g: g; layer: 1; tint: tint; }
+            }
+            HorizontalLayout {
+                spacing: 5px;
+                LooperLayer { g: g; layer: 2; tint: tint; }
+                LooperLayer { g: g; layer: 3; tint: tint; }
+            }
             HorizontalLayout {
                 spacing: 6px;
-                height: 26px;
+                height: 24px;
                 GrooveButton {
                     text: playing ? "■ STOP" : "▶ PLAY";
-                    width: 80px;
+                    width: 76px;
                     lit: playing;
                     tint: tint;
                     clicked => { Controls.toggle(play-index); }
                 }
-                // The beat of the bar.
                 for beat in 4: VerticalLayout {
                     alignment: center;
                     Rectangle {
-                        width: 12px;
-                        height: 12px;
-                        border-radius: 6px;
+                        width: 10px;
+                        height: 10px;
+                        border-radius: 5px;
                         background: playing && floor(bar-beat) == beat ? (beat == 0 ? tint : Theme.text) : #ffffff1a;
                     }
                 }
@@ -4450,16 +4446,24 @@ component LooperPanel inherits Rectangle {
                 }
             }
         }
+        // What it records from, how long a new layer is, CAPTURE, UNDO, REDO.
         VerticalLayout {
-            width: 260px;
+            width: 300px;
             spacing: 5px;
-            Text { text: "RECORDS FROM"; color: Theme.text-dim; font-size: 10px; font-weight: 600; }
-            LooperChoice { g: g; key: "input"; tint: tint; names: ["Mix", "Mic", "Aux", "Instr.", "Aux 2", "Aux 3"]; values: [0, 1, 2, 3, 4, 5]; }
-            Text { text: "NEW LAYER"; color: Theme.text-dim; font-size: 10px; font-weight: 600; }
-            LooperChoice { g: g; key: "length"; tint: tint; names: ["1", "2", "4", "8", "16 bars"]; values: [1, 2, 4, 8, 16]; }
-            Text { text: "CAPTURE THE LAST"; color: Theme.text-dim; font-size: 10px; font-weight: 600; }
+            alignment: center;
             HorizontalLayout {
                 spacing: 6px;
+                Text { text: "FROM"; width: 40px; color: Theme.text-dim; font-size: 10px; font-weight: 600; vertical-alignment: center; }
+                LooperChoice { g: g; key: "input"; tint: tint; names: ["Mix", "Mic", "Aux", "Instr.", "Aux 2", "Aux 3"]; values: [0, 1, 2, 3, 4, 5]; }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "BARS"; width: 40px; color: Theme.text-dim; font-size: 10px; font-weight: 600; vertical-alignment: center; }
+                LooperChoice { g: g; key: "length"; tint: tint; names: ["1", "2", "4", "8", "16"]; values: [1, 2, 4, 8, 16]; }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "LAST"; width: 40px; color: Theme.text-dim; font-size: 10px; font-weight: 600; vertical-alignment: center; }
                 LooperChoice { g: g; key: "capture_bars"; tint: tint; names: ["1", "2", "4", "8"]; values: [1, 2, 4, 8]; horizontal-stretch: 1; }
                 LooperButton { g: g; key: "capture"; text: "CAPTURE"; tint: tint; width: 76px; }
             }
@@ -4467,7 +4471,7 @@ component LooperPanel inherits Rectangle {
                 spacing: 6px;
                 LooperButton { g: g; key: "undo"; text: "UNDO"; }
                 LooperButton { g: g; key: "redo"; text: "REDO"; }
-                GrooveToggleButton { g: g; key: "after"; text: "THEN OVERDUB"; tint: tint; }
+                GrooveToggleButton { g: g; key: "after"; text: "THEN OVERDUB"; tint: tint; width: 110px; }
             }
         }
     }
