@@ -493,8 +493,12 @@ export component LyricsPanel inherits Rectangle {
 // next ones under it. A click on a line plays from it.
 export component PlayerLyrics inherits Rectangle {
     property <length> row-height: 54px;
-    background: Theme.browser;
-    Rectangle { background: @linear-gradient(180deg, Theme.accent.with-alpha(0.12) 0%, Theme.browser.with-alpha(0) 70%); }
+    // Inside Now Playing: no background of its own, and the lines start at
+    // its left edge.
+    in property <bool> back: true;
+    in property <length> inset: 48px;
+    background: back ? Theme.browser : transparent;
+    if back: Rectangle { background: @linear-gradient(180deg, Theme.accent.with-alpha(0.12) 0%, Theme.browser.with-alpha(0) 70%); }
     function follow() {
         if LyricsUi.current >= 0 {
             list.content-y = min(0px, max(list.visible-height - LyricsUi.lines.length * row-height, -(LyricsUi.current * row-height - list.visible-height * 0.38)));
@@ -541,8 +545,8 @@ export component PlayerLyrics inherits Rectangle {
                 }
             }
             HorizontalLayout {
-                padding-left: 48px;
-                padding-right: 48px;
+                padding-left: inset;
+                padding-right: inset;
                 alignment: start;
                 if now && LyricsUi.sung != "": Text {
                     text: LyricsUi.sung;
