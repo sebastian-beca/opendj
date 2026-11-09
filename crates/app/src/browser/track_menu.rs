@@ -89,6 +89,8 @@ impl Browser {
             w(&|b| b.new_list_with_deck(deck.max(0) as usize, &name))
         });
         let w = with.clone();
+        edit.on_favorite_deck(move |deck| w(&|b| b.toggle_favorite(deck.max(0) as usize)));
+        let w = with.clone();
         edit.on_find_tags(move |text| w(&|b| b.find_menu_tags(&text)));
         let w = with.clone();
         edit.on_add_tag(move |first, last, id, tag| {
@@ -188,7 +190,7 @@ impl Browser {
     }
 
     /// The library index of the track on `deck`, if it is in the library.
-    fn deck_index(&self, deck: usize) -> Option<usize> {
+    pub(super) fn deck_index(&self, deck: usize) -> Option<usize> {
         let id = (*self.loaded.get(deck)?)?;
         self.index_of.get(&id).copied()
     }

@@ -36,6 +36,7 @@ mod checklist;
 mod cleanup;
 pub(crate) mod columns;
 mod cues;
+mod favorites;
 mod filters;
 mod health;
 mod history;
@@ -4389,6 +4390,7 @@ impl Browser {
         }
         if loaded != self.loaded {
             self.loaded = loaded;
+            self.show_favorites();
             self.update_reference();
             self.refresh_rows();
             self.refresh_side();
