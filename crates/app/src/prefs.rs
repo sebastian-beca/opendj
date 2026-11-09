@@ -1396,6 +1396,13 @@ impl Prefs {
                              the shift they'd get.",
                         )
                     },
+                    switch(
+                        crate::browser::WAVE_LYRICS,
+                        "Lyrics on waveforms",
+                        "A track's timed lyrics run along the bottom of its big waveform, \
+                         lilac as far as they have been sung.",
+                        settings::flag(crate::browser::WAVE_LYRICS, true),
+                    ),
                     PrefItem {
                         choices: strings(&["Off", "Beats", "Beats and phrases"]),
                         chosen: beat_counter_mode(),
@@ -2736,6 +2743,7 @@ impl Prefs {
             "pfl_on_load" => self.set("[Controls]", "pfl_on_load", f(on)),
             "auto_gain" => self.set("[ReplayGain]", "ReplayGainEnabled", f(on)),
             "stems_on_load" => separation::set_on_load(on),
+            crate::browser::WAVE_LYRICS => crate::browser::set_wave_lyrics(on),
             "auto_reset_fx" | "auto_reset_eq" | "auto_reset_gain" => {
                 self.set("[Controls]", id, f(on))
             }

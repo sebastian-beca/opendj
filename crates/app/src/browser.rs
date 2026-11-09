@@ -57,6 +57,7 @@ mod usb;
 mod wanted;
 
 pub use filters::DEFAULT_PINNED;
+pub use lyrics::wave::{set_shown as set_wave_lyrics, SHOWN as WAVE_LYRICS};
 
 use crate::analysis_queue::AnalysisQueue;
 use crate::art::Art;
@@ -4358,6 +4359,7 @@ impl Browser {
         let shown = app.get_side_tab().max(0) as usize;
         self.poll_info(app, shown);
         self.poll_lyrics(app, shown);
+        self.poll_wave_lyrics(app);
         let tab = shown.min(info::INFO_TAB);
         // The Linked tab follows the track selected in the list.
         let selected = usize::try_from(app.get_current_track())
