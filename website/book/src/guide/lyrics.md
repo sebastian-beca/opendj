@@ -74,6 +74,15 @@ takes a minute or so on a recent Mac. If Whisper can't make out enough of
 the words, say for a track sung in a heavy mix or lyrics for another
 version, the lyrics are left as they were and the tab says so.
 
+### Transcribe
+
+A track with no lyrics at all shows **Transcribe** in the Lyrics tab.
+openDJ listens the same way and writes down the words it hears, timed by
+word and split into lines at the pauses. They are saved as an `.lrc`
+beside the track, and the tab says **Transcribed by openDJ**, since words
+heard by ear can be wrong. Find or your own `.lrc` can replace them at
+any time.
+
 ## Karaoke screen
 
 **Karaoke** in the Lyrics tab (or **Karaoke Screen** at the top right of

@@ -2,7 +2,8 @@
 //! (whisper.cpp, through whisper-rs) hears the vocals, word by word with
 //! times, and the lyrics the DJ has are lined up with what it heard. Words
 //! it heard well take its times; the words between are spread over the gap
-//! by their length.
+//! by their length. A track with no lyrics can be transcribed instead:
+//! the words heard, grouped into lines.
 //!
 //! The model (OpenAI Whisper large-v3-turbo, quantized, MIT) is downloaded
 //! the first time it is needed, like the stem separation models.
@@ -337,6 +338,78 @@ pub fn align(lines: &[Line], heard: &[Heard]) -> Result<Vec<Line>, String> {
     Ok(out)
 }
 
+/// Writes down the words sung in the track at `path`, as [`time_words`]
+/// hears them, timed by word.
+pub fn transcribe(path: &Path, report: Report) -> Result<Vec<Line>, String> {
+    let heard = hear(path, report)?;
+    let lines = lines_from(&heard);
+    if lines.is_empty() {
+        return Err("Whisper didn't hear any singing".into());
+    }
+    Ok(lines)
+}
+
+/// A pause this long starts a new line.
+const LINE_GAP: f64 = 0.8;
+/// A pause this long leaves a break between verses.
+const VERSE_GAP: f64 = 5.0;
+/// A line this long breaks at its next word.
+const LINE_CHARS: usize = 42;
+
+/// Groups heard words into lines: at a pause, after a sentence ends, or
+/// when a line runs long; a long pause leaves an empty line between verses.
+pub fn lines_from(heard: &[Heard]) -> Vec<Line> {
+    let mut lines: Vec<Line> = Vec::new();
+    let mut words: Vec<Word> = Vec::new();
+    let mut chars = 0;
+    let mut end = 0.0;
+    let close = |lines: &mut Vec<Line>, words: &mut Vec<Word>, end: f64| {
+        if words.is_empty() {
+            return;
+        }
+        let text: String = words.iter().map(|w| w.text.as_str()).collect();
+        lines.push(Line {
+            start: Some(words[0].start),
+            text: text.trim().to_owned(),
+            words: std::mem::take(words),
+            end: Some(end),
+        });
+    };
+    for h in heard {
+        let text = h.text.trim();
+        if plain(text).is_empty() {
+            continue;
+        }
+        if !words.is_empty() {
+            let gap = h.start - end;
+            let sentence = words
+                .last()
+                .is_some_and(|w| w.text.trim_end().ends_with(['.', '?', '!']));
+            if gap >= LINE_GAP || sentence || chars >= LINE_CHARS {
+                close(&mut lines, &mut words, end);
+                chars = 0;
+                if gap >= VERSE_GAP {
+                    lines.push(Line {
+                        start: Some(end),
+                        ..Line::default()
+                    });
+                }
+            }
+        }
+        if let Some(last) = words.last_mut() {
+            last.text.push(' ');
+        }
+        words.push(Word {
+            start: h.start.max(end),
+            text: text.to_owned(),
+        });
+        chars += text.chars().count() + 1;
+        end = h.end.max(h.start).max(end);
+    }
+    close(&mut lines, &mut words, end);
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,6 +518,45 @@ mod tests {
         let lines = vec![line("Hold the line, love isn't always on time")];
         let heard = heard(&[("something", 3.0), ("else", 4.0)]);
         assert!(align(&lines, &heard).is_err());
+    }
+
+    #[test]
+    fn groups_heard_words_into_lines() {
+        let heard = heard(&[
+            ("Hold", 10.0),
+            ("the", 10.5),
+            ("line.", 11.0),
+            ("Love", 11.6),
+            ("isn't", 12.0),
+            ("always", 12.5),
+            ("on", 13.0),
+            ("time", 13.5),
+            // A pause between verses.
+            ("Oh", 25.0),
+            ("-", 25.2),
+            ("no", 25.5),
+        ]);
+        let lines = lines_from(&heard);
+        let texts: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec!["Hold the line.", "Love isn't always on time", "", "Oh no"]
+        );
+        assert_eq!(lines[1].start, Some(11.6));
+        assert_eq!(lines[1].end, Some(13.9));
+        assert_eq!(lines[2].start, Some(13.9));
+        assert_eq!(lines[3].words[1].start, 25.5);
+        let back = crate::lyrics::parse(&crate::lyrics::to_lrc(&lines)).unwrap();
+        assert_eq!(back[1].words.len(), 5);
+        assert_eq!(back[1].text, "Love isn't always on time");
+    }
+
+    #[test]
+    fn breaks_a_long_line() {
+        let words: Vec<(&str, f64)> = (0..20).map(|i| ("singing", 1.0 + i as f64 * 0.5)).collect();
+        let lines = lines_from(&heard(&words));
+        assert!(lines.len() > 1);
+        assert!(lines.iter().all(|l| l.text.len() <= LINE_CHARS + 8));
     }
 
     #[test]

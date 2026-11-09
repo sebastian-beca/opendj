@@ -14,3 +14,14 @@ For lyrics not timed by word, the Lyrics tab SHALL offer Time Words, which liste
 #### Scenario: Nothing heard
 - **WHEN** Whisper hears less than a third of the words of the lyrics
 - **THEN** the lyrics are left as they were and the tab says the words couldn't be made out
+
+### Requirement: Transcription of tracks without lyrics
+For a track with no lyrics, the Lyrics tab SHALL offer Transcribe, which writes down the words Whisper hears in the vocals as lyrics timed by word, grouped into lines at pauses and sentence ends, and saves them as an `.lrc` beside the track marked as transcribed by openDJ. The tab SHALL show such lyrics as transcribed by openDJ.
+
+#### Scenario: A track with no lyrics
+- **WHEN** the DJ presses Transcribe for a track with no lyrics and Whisper hears "Hold the line." then "Love isn't always on time"
+- **THEN** the track gets two lines timed by word, and the tab says "Transcribed by openDJ"
+
+#### Scenario: Nothing sung
+- **WHEN** Whisper hears no words in an instrumental track
+- **THEN** nothing is saved and the tab says no singing was heard
