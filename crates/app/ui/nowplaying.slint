@@ -1,0 +1,263 @@
+// Player mode's Now Playing: the track playing over the whole library, as
+// TIDAL shows it. Its album art large on the left with the title, artist,
+// album and what the file is under it; on the right, its Lyrics (the large
+// lyrics, see PlayerLyrics) or its Details. Up Next stays in the side
+// panel beside it. The bar's art opens and closes it, the bar's lyrics
+// button opens it on Lyrics; the app fills NowPlayingUi with the track the
+// Player bar shows (crate::now_playing_view).
+import { Theme } from "theme.slint";
+import { LyricsUi, PlayerLyrics } from "lyrics.slint";
+import { ScrollView } from "scroll.slint";
+
+// A row of Details: "Album", "Night Shift".
+export struct NowDetail {
+    label: string,
+    value: string,
+}
+
+export global NowPlayingUi {
+    in-out property <bool> open;
+    // 0 Lyrics, 1 Details.
+    in-out property <int> tab;
+    in property <bool> loaded;
+    in property <string> title;
+    in property <string> artist;
+    // "Night Shift · 2024", empty for neither.
+    in property <string> album;
+    in property <image> cover;
+    in property <bool> has-cover;
+    in property <string> initials;
+    in property <color> tint: #5b3fd1;
+    // "126 BPM", "8A" and its wheel colour, the file's quality.
+    in property <string> bpm;
+    in property <string> key;
+    in property <color> key-color;
+    in property <string> quality;
+    in property <bool> lossless;
+    in property <[NowDetail]> details;
+    // Opens on a tab; the lyrics follow the track playing while Lyrics shows.
+    public function show(t: int) {
+        open = true;
+        tab = t;
+        LyricsUi.big = t == 0;
+    }
+    public function close() {
+        open = false;
+        LyricsUi.big = false;
+    }
+    // The bar's art: opens on the tab last shown, or closes.
+    public function toggle() {
+        if open {
+            close();
+        } else {
+            show(tab);
+        }
+    }
+}
+
+component Tab inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked();
+    width: label.preferred-width + 4px;
+    height: 34px;
+    label := Text {
+        y: 4px;
+        text: root.text;
+        color: on ? Theme.text : ta.has-hover ? Theme.text.with-alpha(0.8) : Theme.text-dim;
+        font-size: 15px;
+        font-weight: on ? 700 : 600;
+    }
+    Rectangle {
+        y: parent.height - 3px;
+        height: 2px;
+        background: on ? Theme.accent : transparent;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component NowPlayingView inherits Rectangle {
+    background: Theme.browser;
+    clip: true;
+    // The art's side: as large as the room allows, beside the lyrics.
+    property <length> art: max(160px, min(root.height - 220px, root.width * 0.4, 560px));
+
+    // The art again, faint and filling the view, under a darkening wash:
+    // the colours of the cover tint the whole page.
+    if NowPlayingUi.has-cover: Image {
+        width: parent.width;
+        height: parent.height;
+        source: NowPlayingUi.cover;
+        image-fit: cover;
+        opacity: 0.22;
+    }
+    Rectangle {
+        background: NowPlayingUi.has-cover
+            ? @linear-gradient(180deg, Theme.browser.with-alpha(0.35) 0%, Theme.browser.with-alpha(0.9) 70%, Theme.browser 100%)
+            : @linear-gradient(160deg, NowPlayingUi.tint.with-alpha(0.28) 0%, Theme.browser.with-alpha(0) 65%);
+    }
+
+    HorizontalLayout {
+        padding-left: 44px;
+        padding-right: 36px;
+        padding-top: 52px;
+        padding-bottom: 28px;
+        spacing: 44px;
+
+        // The art, then what the track is.
+        VerticalLayout {
+            width: art;
+            alignment: center;
+            spacing: 6px;
+            Rectangle {
+                width: art;
+                height: art;
+                border-radius: 10px;
+                clip: true;
+                drop-shadow-blur: 30px;
+                drop-shadow-color: #000000a0;
+                background: NowPlayingUi.loaded ? @linear-gradient(135deg, NowPlayingUi.tint 0%, NowPlayingUi.tint.darker(0.6) 55%, #101012 100%) : Theme.control;
+                if NowPlayingUi.has-cover: Image {
+                    width: parent.width;
+                    height: parent.height;
+                    source: NowPlayingUi.cover;
+                    image-fit: cover;
+                }
+                if !NowPlayingUi.has-cover: Text {
+                    text: NowPlayingUi.loaded ? NowPlayingUi.initials : "♪";
+                    color: #ffffffd8;
+                    font-size: art / 3;
+                    font-weight: 700;
+                }
+            }
+            Rectangle { height: 14px; }
+            Text {
+                text: NowPlayingUi.loaded ? NowPlayingUi.title : "Nothing playing";
+                color: Theme.text;
+                font-size: 28px;
+                font-weight: 800;
+                overflow: elide;
+            }
+            if NowPlayingUi.loaded: Text {
+                text: NowPlayingUi.artist;
+                color: Theme.text.with-alpha(0.78);
+                font-size: 17px;
+                font-weight: 600;
+                overflow: elide;
+            }
+            if NowPlayingUi.loaded && NowPlayingUi.album != "": Text {
+                text: NowPlayingUi.album;
+                color: Theme.text-dim;
+                font-size: 14px;
+                overflow: elide;
+            }
+            if NowPlayingUi.loaded: HorizontalLayout {
+                alignment: start;
+                spacing: 10px;
+                padding-top: 6px;
+                if NowPlayingUi.bpm != "": Text { text: NowPlayingUi.bpm; color: Theme.text-dim; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+                if NowPlayingUi.key != "": Text { text: NowPlayingUi.key; color: NowPlayingUi.key-color; font-size: 13px; font-weight: 700; vertical-alignment: center; }
+                if NowPlayingUi.quality != "": Rectangle {
+                    width: q.preferred-width + 12px;
+                    height: 20px;
+                    border-radius: 4px;
+                    background: NowPlayingUi.lossless ? Theme.accent.with-alpha(0.16) : #ffffff12;
+                    q := Text {
+                        text: NowPlayingUi.quality;
+                        color: NowPlayingUi.lossless ? Theme.accent : Theme.text-dim;
+                        font-size: 10.5px;
+                        font-weight: 700;
+                    }
+                }
+            }
+            if !NowPlayingUi.loaded: Text {
+                text: "Pick a track and press play: it shows here, with its lyrics.";
+                color: Theme.text-dim;
+                font-size: 14px;
+                wrap: word-wrap;
+            }
+        }
+
+        // Lyrics or Details.
+        VerticalLayout {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            spacing: 10px;
+            HorizontalLayout {
+                alignment: start;
+                spacing: 26px;
+                Tab { text: "Lyrics"; on: NowPlayingUi.tab == 0; clicked => { NowPlayingUi.show(0); } }
+                Tab { text: "Details"; on: NowPlayingUi.tab == 1; clicked => { NowPlayingUi.show(1); } }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                if NowPlayingUi.tab == 0: PlayerLyrics {
+                    width: 100%;
+                    height: 100%;
+                    back: false;
+                    inset: 0px;
+                }
+                if NowPlayingUi.tab == 1: ScrollView {
+                    width: 100%;
+                    height: 100%;
+                    VerticalLayout {
+                        padding-top: 8px;
+                        spacing: 0px;
+                        alignment: start;
+                        for d in NowPlayingUi.details: HorizontalLayout {
+                            height: 38px;
+                            spacing: 18px;
+                            Text {
+                                width: 130px;
+                                text: d.label;
+                                color: Theme.text-dim;
+                                font-size: 14px;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                horizontal-stretch: 1;
+                                text: d.value;
+                                color: Theme.text;
+                                font-size: 14px;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                        if NowPlayingUi.details.length == 0: Text {
+                            text: "Nothing playing.";
+                            color: Theme.text-dim;
+                            font-size: 14px;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Closes, back to the library: a chevron, as in other players.
+    Rectangle {
+        x: 14px;
+        y: 12px;
+        width: 34px;
+        height: 34px;
+        border-radius: 17px;
+        background: cta.has-hover ? #ffffff1a : transparent;
+        Path {
+            width: 16px;
+            height: 16px;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            stroke: Theme.text;
+            stroke-width: 1.8px;
+            commands: "M 3 6 L 8 11 L 13 6";
+        }
+        cta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { NowPlayingUi.close(); }
+        }
+    }
+}

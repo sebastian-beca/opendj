@@ -9,7 +9,7 @@
 // PlayerBar, further down, is the Player layout itself.
 import { LibraryEdit, ListPanel, TrackDrag } from "library.slint";
 import { Theme } from "theme.slint";
-import { LyricsUi } from "lyrics.slint";
+import { NowPlayingUi } from "nowplaying.slint";
 import { LineEdit } from "std-widgets.slint";
 import { ControlButton, ControlFader, Controls, StereoMeter, SyncButton } from "controls.slint";
 import { Cover, DeckInfo, Header, Jog, PlayButton } from "deck.slint";
@@ -258,7 +258,18 @@ export component PlayerBar inherits Rectangle {
             spacing: 14px;
             VerticalLayout {
                 alignment: center;
-                Cover { deck: d; tint: Theme.deck-color(d); info: info; size: 76px; radius: 6px; }
+                // A click opens Now Playing over the library, or closes it.
+                Cover {
+                    deck: d;
+                    tint: Theme.deck-color(d);
+                    info: info;
+                    size: 76px;
+                    radius: 6px;
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { NowPlayingUi.toggle(); }
+                    }
+                }
             }
             VerticalLayout {
                 horizontal-stretch: 1;
@@ -525,15 +536,16 @@ export component PlayerBar inherits Rectangle {
                         }
                     }
                 }
-                // Shows the lyrics large, in place of the track list.
+                // Opens Now Playing on its Lyrics, or closes it.
                 VerticalLayout {
                     alignment: center;
                     Rectangle {
                         width: 40px;
                         height: 36px;
                         border-radius: 9px;
-                        background: LyricsUi.big ? Theme.accent.with-alpha(0.18) : lyta.has-hover ? #3a3a3d : transparent;
-                        border-width: LyricsUi.big ? 1px : 0px;
+                        property <bool> lit: NowPlayingUi.open && NowPlayingUi.tab == 0;
+                        background: lit ? Theme.accent.with-alpha(0.18) : lyta.has-hover ? #3a3a3d : transparent;
+                        border-width: lit ? 1px : 0px;
                         border-color: Theme.accent;
                         // A speech bubble with lines of words.
                         Path {
@@ -541,13 +553,19 @@ export component PlayerBar inherits Rectangle {
                             height: 19px;
                             viewbox-width: 18;
                             viewbox-height: 16;
-                            stroke: LyricsUi.big ? Theme.accent : Theme.text;
+                            stroke: lit ? Theme.accent : Theme.text;
                             stroke-width: 1.6px;
                             commands: "M 2 1.5 L 16 1.5 L 16 11 L 7 11 L 3.5 14.5 L 3.5 11 L 2 11 Z M 5 5 L 13 5 M 5 8 L 10.5 8";
                         }
                         lyta := TouchArea {
                             mouse-cursor: pointer;
-                            clicked => { LyricsUi.big = !LyricsUi.big; }
+                            clicked => {
+                                if lit {
+                                    NowPlayingUi.close();
+                                } else {
+                                    NowPlayingUi.show(0);
+                                }
+                            }
                         }
                     }
                 }
