@@ -49,6 +49,10 @@ The menu at the top left of the window switches layouts:
   random order, and **Mix** in the order that mixes best by key and
   tempo; clicking a track plays it now (on an album, with the rest after
   it). The arrow at the top left goes back; picking a list closes the page.
+  Player opens on **Home**: what you played and added lately, your
+  crates and playlists, and mixes made from your collection by genre, decade and key
+  (each a page of up to 50 tracks in the order that mixes best). The
+  house button beside the search box comes back to it.
   **Keep going**, under them, is Player's cruise control, off at first:
   while it is on, Up Next never runs dry. When fewer than two tracks wait,
   a track that mixes with the last one goes on the list (close on the

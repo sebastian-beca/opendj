@@ -9,9 +9,9 @@
 
 ## 2. Home
 
-- [ ] 2.1 Player opens on Home: recently played, recently added, crates
-- [ ] 2.2 Mixes from the collection by key, genre and decade
-- [ ] 2.3 User guide
+- [x] 2.1 Player opens on Home: recently played, recently added, crates
+- [x] 2.2 Mixes from the collection by key, genre and decade
+- [x] 2.3 User guide
 
 ## Workflow follow-up
 

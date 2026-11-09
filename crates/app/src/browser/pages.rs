@@ -12,6 +12,7 @@ use opendj_engine::key::Key;
 use opendj_engine::Track;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
+use super::home::{Mix, Tile};
 use super::track_menu::main_artist;
 use super::{file_path, is_browsed, short_time, Browser};
 use crate::automix_order::{self as o, Item};
@@ -22,8 +23,11 @@ use crate::{PageAlbum, PageTrack, PageUi};
 /// its artist's).
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Page {
+    /// What Player opens on (see `home`).
+    Home,
     Artist(String),
     Album(String, String),
+    Mix(Mix),
 }
 
 /// The pages open, the last showing, and what the one showing holds.
@@ -37,6 +41,8 @@ pub(super) struct Pages {
     /// What to play from the page, taken by the Player's search box tick:
     /// track ids in order.
     plays: Vec<Vec<usize>>,
+    /// What each tile on Home opens, shelf by shelf.
+    pub(super) home: Vec<Vec<Tile>>,
 }
 
 /// The artists a track's artist field names: "Bicep, Hammer" is Bicep and
@@ -66,11 +72,11 @@ fn total_time(seconds: f64) -> String {
     }
 }
 
-fn plural(n: usize, one: &str) -> String {
+pub(super) fn plural(n: usize, one: &str) -> String {
     format!("{n} {one}{}", if n == 1 { "" } else { "s" })
 }
 
-fn initials(name: &str) -> String {
+pub(super) fn initials(name: &str) -> String {
     name.split_whitespace()
         .filter_map(|w| w.chars().next())
         .take(2)
@@ -79,7 +85,7 @@ fn initials(name: &str) -> String {
 }
 
 /// The year in a year tag ("2024-03-01" is 2024).
-fn year(tag: &str) -> Option<u32> {
+pub(super) fn year(tag: &str) -> Option<u32> {
     tag.trim()
         .get(..4)
         .and_then(|y| y.parse().ok())
@@ -129,6 +135,10 @@ impl Browser {
             })
         });
         let w = with.clone();
+        ui.on_open_tile(move |s, t| w(&|b| b.open_tile(s.max(0) as usize, t.max(0) as usize)));
+        let w = with.clone();
+        ui.on_go_home(move || w(&|b| b.go_home()));
+        let w = with.clone();
         ui.on_open_artist_named(move |name| {
             let name = name.to_string();
             w(&|b| b.open_page(Page::Artist(name.clone())));
@@ -146,6 +156,12 @@ impl Browser {
             return;
         }
         self.pages.stack.push(page);
+        self.refresh_page();
+    }
+
+    /// Home, with nothing behind it.
+    pub(super) fn show_home(&mut self) {
+        self.pages.stack = vec![Page::Home];
         self.refresh_page();
     }
 
@@ -228,13 +244,32 @@ impl Browser {
         let Some(page) = self.pages.stack.last().cloned() else {
             self.pages.tracks.clear();
             self.pages.albums.clear();
+            self.pages.home.clear();
             ui.set_kind(0);
+            ui.set_shelves(ModelRc::default());
             return;
         };
         ui.set_can_back(self.pages.stack.len() > 1);
+        if page == Page::Home {
+            self.pages.tracks.clear();
+            self.pages.albums.clear();
+            ui.set_kind(3);
+            ui.set_tint(super::home::tint(""));
+            ui.set_tracks(ModelRc::default());
+            ui.set_albums(ModelRc::default());
+            self.refresh_home();
+            return;
+        }
+        self.pages.home.clear();
+        ui.set_shelves(ModelRc::default());
+        let mix = match &page {
+            Page::Mix(m) => Some(self.mix_name(m)),
+            _ => None,
+        };
         let (kind, title, artist) = match &page {
             Page::Artist(a) => (1, a.clone(), String::new()),
             Page::Album(album, a) => (2, album.clone(), a.clone()),
+            _ => (4, mix.clone().unwrap_or_default().0, String::new()),
         };
         let tracks = match &page {
             Page::Artist(a) => {
@@ -250,6 +285,8 @@ impl Browser {
                 t
             }
             Page::Album(album, a) => self.album_tracks_of(album, a),
+            Page::Mix(m) => self.mix_tracks(m),
+            Page::Home => Vec::new(),
         };
         let albums: Vec<(String, Vec<usize>)> = match &page {
             Page::Artist(_) => {
@@ -275,7 +312,7 @@ impl Browser {
                 });
                 albums
             }
-            Page::Album(..) => Vec::new(),
+            _ => Vec::new(),
         };
         let seconds: f64 = tracks.iter().map(|&i| self.library[i].duration).sum();
         let detail = match &page {
@@ -297,15 +334,36 @@ impl Browser {
                 parts.push(total_time(seconds));
                 parts.join(" · ")
             }
+            _ => {
+                let what = mix.as_ref().map_or("Mix", |m| m.2);
+                format!(
+                    "{what} · {} · {}",
+                    plural(tracks.len(), "track"),
+                    total_time(seconds)
+                )
+            }
         };
-        let cover = tracks
-            .iter()
-            .find_map(|&i| self.album_art.get(&self.library[i]));
+        let cover = if kind == 4 {
+            None
+        } else {
+            tracks
+                .iter()
+                .find_map(|&i| self.album_art.get(&self.library[i]))
+        };
         ui.set_kind(kind);
         ui.set_title(title.as_str().into());
         ui.set_artist(artist.into());
         ui.set_detail(detail.into());
-        ui.set_initials(initials(&title).into());
+        match &mix {
+            Some((name, label, _)) => {
+                ui.set_initials(label.as_str().into());
+                ui.set_tint(super::home::tint(name));
+            }
+            None => {
+                ui.set_initials(initials(&title).into());
+                ui.set_tint(super::home::tint(""));
+            }
+        }
         ui.set_has_cover(cover.is_some());
         ui.set_cover(cover.unwrap_or_default());
         let several_discs = tracks.iter().any(|&i| self.library[i].info.disc_number > 1);
@@ -313,7 +371,7 @@ impl Browser {
             .iter()
             .map(|&i| {
                 let t = &self.library[i];
-                let cover = if kind == 1 { self.art.get(t) } else { None };
+                let cover = if kind != 2 { self.art.get(t) } else { None };
                 let number = match (kind, t.info.track_number) {
                     (2, n) if n > 0 && several_discs => {
                         format!("{}-{n}", t.info.disc_number.max(1))
@@ -399,7 +457,9 @@ impl Browser {
     /// artist's alone.
     fn play_page_track(&mut self, index: usize) {
         let ids: Vec<usize> = match self.pages.stack.last() {
-            Some(Page::Album(..)) => self.pages.tracks.iter().skip(index).copied().collect(),
+            Some(Page::Album(..) | Page::Mix(_)) => {
+                self.pages.tracks.iter().skip(index).copied().collect()
+            }
             _ => self.pages.tracks.get(index).copied().into_iter().collect(),
         };
         self.queue_page_play(ids);
