@@ -29,6 +29,7 @@ use crate::inputs::{
 use crate::key::{self, Key};
 use crate::keyshift::{transpose_factor, KeyShifter, MAX_RATE};
 use crate::link::{phase_error, Link, Moment};
+use crate::looper::{Heard, LooperIntake, Loopers};
 use crate::midi_clock::LeaderSource;
 use crate::preview::{Preview, PreviewInput};
 use crate::recorder::{self, Feed, RecordTap};
@@ -1611,6 +1612,15 @@ pub struct Engine {
     /// which one the DJ picked last.
     live_seen: [usize; NUM_DECKS],
     groove_seen: [bool; NUM_DECKS],
+    /// Each deck's Looper (playing only while `[LooperN],enabled` and it
+    /// has its memory), its sound for this buffer, whether it was on last
+    /// buffer, and the main mix of the last buffer, which it can record.
+    loopers: Loopers,
+    looper_buf: Vec<Vec<[f32; 2]>>,
+    looper_seen: [bool; NUM_DECKS],
+    last_main: Vec<[f32; 2]>,
+    last_main_len: usize,
+    looper_supply: Option<crate::looper::LooperSupply>,
     commands: rtrb::Consumer<Command>,
     returned: rtrb::Producer<Returned>,
     master_vu: [f32; 2],
@@ -1844,6 +1854,8 @@ impl Engine {
             })
             .collect();
         let groove_hit_rx = groove_hit_rx.try_into().ok();
+        let (looper_supply, looper_intake): (_, LooperIntake) = crate::looper::channel(NUM_DECKS);
+        let loopers = Loopers::new(registry, NUM_DECKS, sample_rate, looper_intake);
         let (preview, preview_input) = Preview::new(registry, sample_rate);
         let (commands_tx, commands) = rtrb::RingBuffer::new(QUEUE);
         let (returned, returned_rx) = rtrb::RingBuffer::new(QUEUE * 2);
@@ -1910,6 +1922,12 @@ impl Engine {
                 duck_env: [0.0; NUM_DECKS],
                 live_seen: [0; NUM_DECKS],
                 groove_seen: [false; NUM_DECKS],
+                loopers,
+                looper_buf: vec![vec![[0.0; 2]; BLOCK]; NUM_DECKS],
+                looper_seen: [false; NUM_DECKS],
+                last_main: vec![[0.0; 2]; BLOCK],
+                last_main_len: 0,
+                looper_supply: Some(looper_supply),
                 commands,
                 returned,
                 master_vu: [0.0; 2],
@@ -1930,6 +1948,11 @@ impl Engine {
 
     pub fn sample_rate(&self) -> f64 {
         self.sample_rate
+    }
+
+    /// The app's end of the loopers' memory; there is one.
+    pub(crate) fn take_looper_supply(&mut self) -> Option<crate::looper::LooperSupply> {
+        self.looper_supply.take()
     }
 
     /// The other end of the recording tap; there is only one.
@@ -1994,6 +2017,8 @@ impl Engine {
                     // A track loaded on a Groove Box or a live input makes
                     // it a track deck again.
                     self.grooves[deck].c.enabled.set_bool(false);
+                    self.loopers.loopers[deck].c.enabled.set_bool(false);
+                    self.looper_seen[deck] = false;
                     self.decks[deck].c.live_input.set(0.0);
                     self.live_seen[deck] = 0;
                     let d = &mut self.decks[deck];
@@ -2171,6 +2196,7 @@ impl Engine {
             // empty track deck.
             if pressed && d.track.is_none() {
                 self.grooves[deck].c.enabled.set_bool(false);
+                self.loopers.loopers[deck].c.enabled.set_bool(false);
                 d.c.live_input.set(0.0);
             }
             if pressed || groove {
@@ -2189,6 +2215,33 @@ impl Engine {
     /// (its deck stopped) when an input takes it over.
     fn live_inputs(&mut self) {
         for deck in 0..NUM_DECKS {
+            // A Looper picked takes the deck from its track, input or
+            // Groove Box; picking one of those takes it from the Looper.
+            let looper = self.loopers.loopers[deck].enabled();
+            if looper && !self.looper_seen[deck] {
+                self.grooves[deck].c.enabled.set_bool(false);
+                self.groove_seen[deck] = false;
+                let d = &mut self.decks[deck];
+                d.c.live_input.set(0.0);
+                self.live_seen[deck] = 0;
+                d.c.play.set_bool(false);
+                if let Some(track) = d.unload() {
+                    let _ = self.returned.push(Returned::Ejected { deck, track });
+                }
+                if d.side_before_live.is_none() {
+                    d.side_before_live = Some(d.c.orientation.get());
+                    d.c.orientation.set(1.0);
+                }
+            } else if looper {
+                let live = self.decks[deck].live_input();
+                let picked_live = live > 0 && live != self.live_seen[deck];
+                let picked_groove = self.grooves[deck].enabled() && !self.groove_seen[deck];
+                if picked_live || picked_groove {
+                    self.loopers.loopers[deck].c.enabled.set_bool(false);
+                }
+            }
+            let looper = self.loopers.loopers[deck].enabled();
+            self.looper_seen[deck] = looper;
             let live = self.decks[deck].live_input();
             let groove = self.grooves[deck].enabled();
             if live > 0 && live != self.live_seen[deck] {
@@ -2206,7 +2259,7 @@ impl Engine {
                 }
                 // Off the crossfader (Thru) while it plays live; its side
                 // comes back with tracks.
-                if self.live_seen[deck] == 0 {
+                if d.side_before_live.is_none() {
                     d.side_before_live = Some(d.c.orientation.get());
                     d.c.orientation.set(1.0);
                 }
@@ -2220,7 +2273,7 @@ impl Engine {
                 self.decks[deck].c.live_input.set(0.0);
             }
             let d = &mut self.decks[deck];
-            if d.live_input() == 0 {
+            if d.live_input() == 0 && !looper {
                 if let Some(side) = d.side_before_live.take() {
                     d.c.orientation.set(side);
                 }
@@ -2236,6 +2289,22 @@ impl Engine {
             self.live_seen[deck] = self.decks[deck].live_input();
             self.groove_seen[deck] = self.grooves[deck].enabled();
         }
+    }
+
+    /// The leading deck's tempo and beat as heard (the deck SYNC follows,
+    /// else the first playing deck with a tempo), and which deck it is.
+    fn leading_beat(&self) -> (Option<(f64, f64)>, Option<usize>) {
+        let playing =
+            |d: &Deck| d.c.play.get_bool() && d.track.as_ref().is_some_and(|t| t.bpm > 0.0);
+        let leading = self
+            .sync_leader
+            .filter(|&k| playing(&self.decks[k]))
+            .or_else(|| (0..NUM_DECKS).find(|&k| playing(&self.decks[k])));
+        let leader = leading.and_then(|k| {
+            let d = &self.decks[k];
+            Some((d.effective_bpm(), d.track.as_ref()?.beat_at(d.seconds())))
+        });
+        (leader, leading)
     }
 
     /// The Link instance, to turn on and off off the audio thread (see
@@ -2896,6 +2965,7 @@ impl Engine {
         });
         self.update_color_fx();
         self.samplers.update();
+        self.loopers.update();
         self.preview.update();
         // Tempo-synced effects on the main mix follow the first playing deck.
         let main_deck = self
@@ -2944,8 +3014,21 @@ impl Engine {
         // own channel is quiet meanwhile.
         let live_on: [usize; NUM_DECKS] = std::array::from_fn(|i| {
             let d = &self.decks[i];
-            if d.track.is_none() && !self.grooves[i].enabled() {
+            if d.track.is_none() && !self.grooves[i].enabled() && !self.loopers.loopers[i].enabled()
+            {
                 d.live_input()
+            } else {
+                0
+            }
+        });
+        // Decks playing their Looper, and the input each plays through
+        // (0 for the main mix, which it only records).
+        let looper_on: [bool; NUM_DECKS] = std::array::from_fn(|i| {
+            self.loopers.loopers[i].active() && self.decks[i].track.is_none()
+        });
+        let looper_in: [usize; NUM_DECKS] = std::array::from_fn(|i| {
+            if looper_on[i] {
+                self.loopers.loopers[i].input()
             } else {
                 0
             }
@@ -2957,7 +3040,7 @@ impl Engine {
         // are worked out below; the inputs render once that is done.
         for (i, input) in self.inputs.iter_mut().enumerate() {
             input.set_master_key(master_key);
-            let on_deck = live_on.contains(&(i + 1));
+            let on_deck = live_on.contains(&(i + 1)) || looper_in.contains(&(i + 1));
             input.start(frames, &mut self.fx, input_target(i), on_deck);
         }
         let duck = self.ducker.settings();
@@ -3347,7 +3430,7 @@ impl Engine {
             }
         });
         for (i, input) in self.inputs.iter_mut().enumerate() {
-            let on_deck = live_on.contains(&(i + 1));
+            let on_deck = live_on.contains(&(i + 1)) || looper_in.contains(&(i + 1));
             input.render(frames, &mut self.fx, input_target(i), dt as f32, on_deck);
         }
         let master = (self.master_gain, master_target);
@@ -3378,16 +3461,7 @@ impl Engine {
             g[..frames].fill(1.0);
         }
         if groove_on.iter().any(|&on| on) {
-            let playing =
-                |d: &Deck| d.c.play.get_bool() && d.track.as_ref().is_some_and(|t| t.bpm > 0.0);
-            let leading = self
-                .sync_leader
-                .filter(|&k| playing(&self.decks[k]))
-                .or_else(|| (0..NUM_DECKS).find(|&k| playing(&self.decks[k])));
-            let leader = leading.and_then(|k| {
-                let d = &self.decks[k];
-                Some((d.effective_bpm(), d.track.as_ref()?.beat_at(d.seconds())))
-            });
+            let (leader, leading) = self.leading_beat();
             let leader_key = leading
                 .and_then(|k| Key::from_mixxx_number(self.decks[k].c.key.get()))
                 .map(|k| k.tonic);
@@ -3440,8 +3514,29 @@ impl Engine {
                 }
             }
         }
+        // Loopers play and record on the same beat as the Groove Boxes.
+        let mut looper_buf = std::mem::take(&mut self.looper_buf);
+        if looper_on.iter().any(|&on| on) {
+            let (leader, _) = self.leading_beat();
+            let link_beat = link.map(|m| (m.tempo, m.beat));
+            for i in (0..NUM_DECKS).filter(|&i| looper_on[i]) {
+                let l = &mut self.loopers.loopers[i];
+                let source = pick_source(leader, link_beat, l.c.bpm.get());
+                let input = looper_in[i]
+                    .checked_sub(1)
+                    .and_then(|k| self.inputs.get(k))
+                    .map(|inp| &inp.raw[..frames]);
+                let mix = (input.is_none() && self.last_main_len > 0)
+                    .then(|| &self.last_main[..self.last_main_len]);
+                let play = self.decks[i].c.play.get_bool();
+                let heard = Heard { input, mix };
+                if l.render(play, source, heard, &mut looper_buf[i][..frames]) {
+                    self.decks[i].c.play.set_bool(true);
+                }
+            }
+        }
         for (i, wave) in self.live_waves.iter_mut().enumerate() {
-            if live_on[i] == 0 && !groove_on[i] {
+            if live_on[i] == 0 && !groove_on[i] && !looper_on[i] {
                 wave.idle();
             }
         }
@@ -3537,6 +3632,9 @@ impl Engine {
                 if groove_on[i] {
                     s = groove_buf[i][f];
                 }
+                if looper_on[i] {
+                    s = looper_buf[i][f];
+                }
                 if live_on[i] > 0 {
                     let x = self.inputs[live_on[i] - 1].raw[f];
                     d.auto_trim.listen(x);
@@ -3549,7 +3647,7 @@ impl Engine {
                 s = [s[0] * pre, s[1] * pre];
                 // A live deck's sound for its waveform, after the trim and
                 // before the EQ, as a track's waveform shows the track.
-                if live_on[i] > 0 || groove_on[i] {
+                if live_on[i] > 0 || groove_on[i] || looper_on[i] {
                     self.live_waves[i].push(s);
                 }
                 if tap == Some(DeckTap::Clean) {
@@ -3564,7 +3662,7 @@ impl Engine {
                 if !external {
                     s = d.sculpt.process(s);
                 }
-                if live_on[i] > 0 {
+                if live_on[i] > 0 || looper_on[i] {
                     s = d.live_limiter.process(s);
                 }
                 deck_buf[i][f] = s;
@@ -3782,6 +3880,7 @@ impl Engine {
         self.deck_buf = deck_buf;
         self.click_buf = click_buf;
         self.groove_buf = groove_buf;
+        self.looper_buf = looper_buf;
         self.duck_buf = duck_buf;
         self.main_buf = main_buf;
         self.cue_buf = cue_buf;
@@ -3878,6 +3977,14 @@ impl Engine {
         self.master
             .vu
             .set(self.master_vu[0].max(self.master_vu[1]) as f64);
+        // The main mix as heard, for loopers recording it next buffer.
+        for f in 0..frames {
+            self.last_main[f] = [
+                out[f * channels],
+                out[(f * channels + 1).min(out.len() - 1)],
+            ];
+        }
+        self.last_main_len = frames;
         // What is recorded and sent on air: one Auxiliary input as it comes
         // in (a hardware mixer's record out), or else the main mix, which
         // with an external mixer is only the inputs (see above).
@@ -7049,6 +7156,46 @@ mod tests {
         load(&mut input, 1, short_track(120.0, 4.0));
         talk(&mut engine, &mut tx, 0.05, sine(500.0, 0.4));
         assert_eq!(ch(2, "live_input").get(), 0.0);
+    }
+
+    #[test]
+    fn a_looper_deck_records_its_input_and_plays_it_back() {
+        let (reg, mut engine, mut input) = setup();
+        let ch = |d: usize, k: &str| reg.get(&format!("[Channel{d}]"), k).unwrap();
+        let lp = |k: &str| reg.get("[Looper2]", k).unwrap();
+        let (feed, mut tx) = mic_feed();
+        engine.set_input(AUXILIARY, Some(feed));
+        load(&mut input, 1, short_track(120.0, 4.0));
+        run(&mut engine, 0.05);
+        // Picked, it takes the deck from its track and gets its memory.
+        lp("enabled").set_bool(true);
+        let mut supply = engine.take_looper_supply().unwrap();
+        supply
+            .to_engine
+            .push((1, crate::looper::LooperMemory::new(SR)))
+            .ok()
+            .unwrap();
+        lp("input").set(2.0);
+        lp("length").set(1.0);
+        talk(&mut engine, &mut tx, 0.05, |_| 0.0);
+        assert!(!ch(2, "track_loaded").get_bool());
+        assert!(lp("ready").get_bool());
+        // A layer tapped records the aux from the next bar, for a bar.
+        ch(2, "play").set_bool(true);
+        lp("layer1_tap").set_bool(true);
+        talk(&mut engine, &mut tx, 0.05, sine(500.0, 0.4));
+        lp("layer1_tap").set_bool(false);
+        assert_eq!(lp("layer1_state").get() as u8, crate::looper::ARMED);
+        talk(&mut engine, &mut tx, 4.2, sine(500.0, 0.4));
+        assert_eq!(lp("layer1_state").get() as u8, crate::looper::PLAYING);
+        // With the aux quiet, the deck plays the loop.
+        let out = talk(&mut engine, &mut tx, 0.5, |_| 0.0);
+        let level = level_at(&out, 500.0);
+        assert!(level > 0.1, "{level}");
+        // A track loaded makes it a track deck again.
+        load(&mut input, 1, short_track(120.0, 4.0));
+        talk(&mut engine, &mut tx, 0.05, |_| 0.0);
+        assert!(!lp("enabled").get_bool());
     }
 
     #[test]

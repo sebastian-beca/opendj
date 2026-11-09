@@ -2,19 +2,20 @@
 
 ## 1. Engine
 
-- [ ] 1.1 Looper source on a deck (`[ChannelN],live_input` gets a looper): four layers, tap cycle (arm on next bar, record, play or overdub, hold to clear), mute and level per layer, deck PLAY and CUE start and stop all layers
+- [x] 1.1 Looper source on a deck (`[LooperN],enabled`): four layers, tap cycle (arm on next bar, record, play or overdub), clear, mute and level per layer, deck PLAY starts and stops all layers
 - [ ] 1.2 Lengths 1, 2, 4, 8, 16 bars locked to the sync leader; free first layer sets the tempo and makes the looper the leader; layers are whole multiples and phase-locked
-- [ ] 1.3 UNDO and REDO per pass, buffers made and freed off the audio thread
+- [x] 1.3 UNDO and REDO per pass, buffers made and freed off the audio thread
 - [ ] 1.4 Input picker per layer: Aux 1-3, Mic, instrument deck, Groove Box, any deck, main mix (resample); input heard through while recording
-- [ ] 1.5 Capture rings fed off the audio thread; CAPTURE puts the last 1, 2, 4 or 8 bars into the next free layer
+- [x] 1.5 Capture rings fed off the audio thread; CAPTURE puts the last 1, 2, 4 or 8 bars into the next free layer
 - [ ] 1.6 Loops keep their BPM and follow tempo changes through the key-lock stretcher
 - [ ] 1.7 Latency compensation: round-trip measure in Settings › Audio, recorded audio moved back by it
 - [ ] 1.8 Input queue stretches instead of dropping or padding while a looper records from it
+- [ ] 1.9 Hold a layer to clear it; CUE stops all layers
 
 ## 2. App
 
-- [ ] 2.1 Looper row in the Instruments browser, dragged onto a deck like the Groove Box
-- [ ] 2.2 2-Deck looper deck: four layer rows (state light, level, mute, input), length, CAPTURE, UNDO, REDO
+- [x] 2.1 Looper row in the Instruments browser, dragged onto a deck like the Groove Box
+- [x] 2.2 2-Deck looper deck: four layer rows (state light, level, mute, input), length, CAPTURE, UNDO, REDO
 - [ ] 2.3 4-Deck looper strip: four layer lights and CAPTURE
 - [ ] 2.4 Settings: After recording (Play or Overdub), capture length kept (memory)
 - [ ] 2.5 Save loop: a layer or all four mixed to the Inbox as WAV with BPM and key

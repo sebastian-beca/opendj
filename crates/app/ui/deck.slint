@@ -5,7 +5,7 @@
 // Large artwork, flat dark controls, white pointers.
 import { TrackDrag } from "library.slint";
 import { SamplerPanel } from "sampler.slint";
-import { Theme, KeyNotation, EdgeLine, EdgeVLine } from "theme.slint";
+import { Theme, KeyNotation, EdgeLine, EdgeVLine, CloseIcon } from "theme.slint";
 import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, MasterBadge, PitchReset, SyncButton } from "controls.slint";
 import { TourMark } from "tourmark.slint";
 import { MapMark } from "mapmark.slint";
@@ -1177,10 +1177,14 @@ export component Header inherits Rectangle {
     property <float> groove-bpm: Controls.value(Controls.resolve(groove-group, "bpm"), Controls.tick);
     property <bool> playing: Controls.value(Controls.resolve(group, "play"), Controls.tick) > 0;
     property <bool> groove-following: Controls.value(Controls.resolve(groove-group, "following"), Controls.tick) > 0;
+    property <string> looper-group: "[Looper" + (deck + 1) + "]";
+    property <bool> looper: Controls.value(Controls.resolve(looper-group, "enabled"), Controls.tick) > 0;
+    property <float> looper-bpm: Controls.value(Controls.resolve(looper-group, "bpm"), Controls.tick);
+    property <bool> looper-following: Controls.value(Controls.resolve(looper-group, "following"), Controls.tick) > 0;
     // A live input played through the deck instead of a track: 1 the
     // microphone, 2 the aux input, 3 the instrument plugin, 4 and 5 aux
     // inputs 2 and 3.
-    property <int> live: info.loaded || groove ? 0 : InstrumentsUi.live(deck);
+    property <int> live: info.loaded || groove || looper ? 0 : InstrumentsUi.live(deck);
     property <int> instrument: InstrumentsUi.instrument();
     property <bool> instrument-ready: Controls.value(Controls.resolve("[Instrument1]", "input_configured"), Controls.tick) > 0;
     property <string> live-name: InstrumentsUi.live-name(live,
@@ -1264,7 +1268,7 @@ export component Header inherits Rectangle {
                     horizontal-stretch: 1;
                     alignment: center;
                     spacing: 2px;
-                    Text { text: groove ? "Groove Box" : live > 0 ? live-name : info.loaded ? info.title : "Empty deck"; color: Theme.text; font-size: compact ? 14px : 18px; font-weight: 500; overflow: elide; }
+                    Text { text: groove ? "Groove Box" : looper ? "Looper" : live > 0 ? live-name : info.loaded ? info.title : "Empty deck"; color: Theme.text; font-size: compact ? 14px : 18px; font-weight: 500; overflow: elide; }
                     // An instrument plugin: its format, as a chip.
                     if live == 3 && InstrumentsUi.format() != "": HorizontalLayout {
                         alignment: start;
@@ -1272,6 +1276,7 @@ export component Header inherits Rectangle {
                     }
                     if live != 3: Text {
                         text: groove ? GrooveUi.kits[groove-kit].name + " kit   |   " + round(groove-bpm * 10) / 10 + (groove-following ? " BPM, in time with the mix" : " BPM")
+                            : looper ? round(looper-bpm * 10) / 10 + (looper-following ? " BPM, in time with the mix" : " BPM, its own tempo")
                             : live > 0 ? (InstrumentsUi.route(live) != "" ? InstrumentsUi.route(live) : "Live input")
                             : info.loaded ? (compact ? info.artist : info.artist + "   |   " + info.bpm) : compact ? "Drop a track here" : "Drop a track here or double-click one in the browser";
                         color: Theme.text-dim;
@@ -1289,11 +1294,11 @@ export component Header inherits Rectangle {
                     alignment: center;
                     MidiFromButton { tint: tint; size: compact ? 22px : 28px; }
                 }
-                if live > 0 && live != 3: VerticalLayout {
+                if (live > 0 && live != 3) || looper: VerticalLayout {
                     alignment: center;
-                    LiveIcon { kind: InstrumentsUi.live-icon(live); tint: tint; size: compact ? 24px : 30px; }
+                    LiveIcon { kind: looper ? 6 : InstrumentsUi.live-icon(live); tint: tint; size: compact ? 24px : 30px; }
                 }
-                if !groove && live == 0: TimeKey { group: group; info: info; tint: tint; show-time: !compact; }
+                if !groove && !looper && live == 0: TimeKey { group: group; info: info; tint: tint; show-time: !compact; }
             }
             // Out to the header's edge on the side away from the cover.
             EdgeLine { left: mirrored ? 6px : 0px; right: mirrored ? 0px : 6px; line-color: #2c2c2f; }
@@ -1322,6 +1327,16 @@ export component Header inherits Rectangle {
                     x: 10px;
                     width: parent.width - 20px;
                     text: compact ? "Live through this channel" : "Playing live through this deck's channel: EQ, filter, effects and fader. Drop a track here to go back.";
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                // A Looper's first steps.
+                if looper: Text {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    text: compact ? "Tap a layer to record from the next bar" : "Tap a layer to record from the next bar, or CAPTURE the bars just heard. Drop a track here to go back.";
                     color: Theme.text-dim;
                     font-size: 12px;
                     vertical-alignment: center;
@@ -4345,6 +4360,216 @@ component ArpButton inherits GrooveButton {
     }
 }
 
+// A toggle control as a GrooveButton.
+component GrooveToggleButton inherits GrooveButton {
+    in property <string> g;
+    in property <string> key;
+    property <int> index: Controls.resolve(g, key);
+    lit: Controls.value(index, Controls.tick) > 0;
+    clicked => { Controls.toggle(index); }
+}
+
+// Presses a push control (`[LooperN],layer1_tap` and the like) once.
+component LooperButton inherits GrooveButton {
+    in property <string> g;
+    in property <string> key;
+    property <int> index: Controls.resolve(g, key);
+    clicked => {
+        Controls.set-value(index, 1);
+        Controls.set-value(index, 0);
+    }
+}
+
+// Picks one value of a control from a row of small buttons.
+component LooperChoice inherits HorizontalLayout {
+    in property <string> g;
+    in property <string> key;
+    in property <[string]> names;
+    in property <[int]> values;
+    in property <color> tint;
+    property <int> index: Controls.resolve(g, key);
+    property <int> value: Controls.value(index, Controls.tick);
+    spacing: 3px;
+    for name[i] in names: GrooveButton {
+        text: name;
+        tint: tint;
+        lit: value == values[i];
+        font-size: 10px;
+        clicked => { Controls.set-value(index, values[i]); }
+    }
+}
+
+// One of the Looper's four layers: a big button that records, overdubs
+// and plays it, where it is in its loop, its level, mute and clear.
+component LooperLayer inherits Rectangle {
+    in property <string> g;
+    in property <int> layer;
+    in property <color> tint;
+    property <string> n: "layer" + (layer + 1);
+    property <int> state: Controls.value(Controls.resolve(g, n + "_state"), Controls.tick);
+    property <float> bars: Controls.value(Controls.resolve(g, n + "_bars"), Controls.tick);
+    property <float> position: Controls.value(Controls.resolve(g, n + "_position"), Controls.tick);
+    property <bool> muted: Controls.value(Controls.resolve(g, n + "_mute"), Controls.tick) > 0;
+    property <int> tap-index: Controls.resolve(g, n + "_tap");
+    property <int> clear-index: Controls.resolve(g, n + "_clear");
+    // Empty, armed, recording, playing, overdubbing.
+    property <color> state-color: state == 1 || state == 2 ? #ff453a : state == 4 ? #ff9f0a : state == 3 ? tint : Theme.text-dim;
+    property <bool> blink: Controls.blink;
+    height: 36px;
+    horizontal-stretch: 1;
+    border-radius: Theme.radius;
+    background: #0000002a;
+    HorizontalLayout {
+        padding: 3px;
+        spacing: 5px;
+        // The tap: records, overdubs and plays; filled as the loop goes round.
+        Rectangle {
+            horizontal-stretch: 1;
+            border-radius: Theme.radius;
+            border-width: 2px;
+            border-color: state == 1 && blink ? transparent : state-color;
+            background: tta.pressed ? Theme.control-pressed : state == 2 ? #ff453a30 : state == 4 ? #ff9f0a30 : Theme.control;
+            clip: true;
+            if state >= 3: Rectangle {
+                x: 0;
+                width: parent.width * position;
+                height: parent.height;
+                background: (muted ? Theme.text-dim : state-color).with-alpha(0.25);
+            }
+            Text {
+                text: (state == 0 ? "● REC" : state == 1 ? "NEXT BAR" : state == 2 ? "RECORDING" : state == 3 ? "▶ PLAY" : "OVERDUB")
+                    + (state >= 3 ? (bars == 1 ? "   1 bar" : "   " + bars + " bars") : "");
+                width: parent.width - 8px;
+                horizontal-alignment: center;
+                color: state-color;
+                font-size: 11px;
+                font-weight: 700;
+                overflow: elide;
+            }
+            tta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    Controls.set-value(tap-index, 1);
+                    Controls.set-value(tap-index, 0);
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            GrooveToggle { group: g; key: n + "_mute"; text: "M"; tint: #ff9f0a; width: 22px; height: 22px; }
+        }
+        ControlKnob { group: g; key: n + "_volume"; size: 20px; tint: tint; }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 22px;
+                height: 22px;
+                border-radius: 3px;
+                background: cta.has-hover ? #ffffff1c : #00000040;
+                CloseIcon { size: 9px; color: Theme.text-dim; }
+                cta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        Controls.set-value(clear-index, 1);
+                        Controls.set-value(clear-index, 0);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A deck playing its Looper: four layers, what it records from, how long a
+// new layer is, CAPTURE of the bars just heard, UNDO and REDO.
+component LooperPanel inherits Rectangle {
+    in property <int> deck;
+    in property <string> group;
+    in property <color> tint;
+    property <string> g: "[Looper" + (deck + 1) + "]";
+    property <bool> ready: Controls.value(Controls.resolve(g, "ready"), Controls.tick) > 0;
+    property <bool> too-long: Controls.value(Controls.resolve(g, "too_long"), Controls.tick) > 0;
+    property <float> bar-beat: Controls.value(Controls.resolve(g, "bar_beat"), Controls.tick);
+    property <bool> playing: Controls.value(Controls.resolve(group, "play"), Controls.tick) > 0;
+    property <int> play-index: Controls.resolve(group, "play");
+    border-radius: 10px;
+    background: Theme.well;
+    HorizontalLayout {
+        padding: 8px;
+        spacing: 12px;
+        // The layers, two by two, with PLAY and the beat of the bar under them.
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 5px;
+            HorizontalLayout {
+                spacing: 5px;
+                LooperLayer { g: g; layer: 0; tint: tint; }
+                LooperLayer { g: g; layer: 1; tint: tint; }
+            }
+            HorizontalLayout {
+                spacing: 5px;
+                LooperLayer { g: g; layer: 2; tint: tint; }
+                LooperLayer { g: g; layer: 3; tint: tint; }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                height: 24px;
+                GrooveButton {
+                    text: playing ? "■ STOP" : "▶ PLAY";
+                    width: 76px;
+                    lit: playing;
+                    tint: tint;
+                    clicked => { Controls.toggle(play-index); }
+                }
+                for beat in 4: VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 10px;
+                        height: 10px;
+                        border-radius: 5px;
+                        background: playing && floor(bar-beat) == beat ? (beat == 0 ? tint : Theme.text) : #ffffff1a;
+                    }
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: !ready ? "Getting ready…" : too-long ? "Too long to fit: pick fewer bars." : "";
+                    color: too-long ? #ff9f0a : Theme.text-dim;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+        // What it records from, how long a new layer is, CAPTURE, UNDO, REDO.
+        VerticalLayout {
+            width: 300px;
+            spacing: 5px;
+            alignment: center;
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "FROM"; width: 40px; color: Theme.text-dim; font-size: 10px; font-weight: 600; vertical-alignment: center; }
+                LooperChoice { g: g; key: "input"; tint: tint; names: ["Mix", "Mic", "Aux", "Instr.", "Aux 2", "Aux 3"]; values: [0, 1, 2, 3, 4, 5]; }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "BARS"; width: 40px; color: Theme.text-dim; font-size: 10px; font-weight: 600; vertical-alignment: center; }
+                LooperChoice { g: g; key: "length"; tint: tint; names: ["1", "2", "4", "8", "16"]; values: [1, 2, 4, 8, 16]; }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "LAST"; width: 40px; color: Theme.text-dim; font-size: 10px; font-weight: 600; vertical-alignment: center; }
+                LooperChoice { g: g; key: "capture_bars"; tint: tint; names: ["1", "2", "4", "8"]; values: [1, 2, 4, 8]; horizontal-stretch: 1; }
+                LooperButton { g: g; key: "capture"; text: "CAPTURE"; tint: tint; width: 76px; }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                LooperButton { g: g; key: "undo"; text: "UNDO"; }
+                LooperButton { g: g; key: "redo"; text: "REDO"; }
+                GrooveToggleButton { g: g; key: "after"; text: "THEN OVERDUB"; tint: tint; width: 110px; }
+            }
+        }
+    }
+}
+
 // A deck playing a live input: what it plays, its level, and for an
 // instrument plugin its window, the KEYBOARD pads switch and their octave.
 component LivePanel inherits Rectangle {
@@ -4584,7 +4809,8 @@ export component Deck inherits Rectangle {
     property <string> group: "[Channel" + (deck + 1) + "]";
     property <color> tint: Theme.deck-color(deck);
     property <bool> groove: Controls.value(Controls.resolve("[Groove" + (deck + 1) + "]", "enabled"), Controls.tick) > 0;
-    property <int> live: info.loaded || groove ? 0 : InstrumentsUi.live(deck);
+    property <bool> looper: !info.loaded && Controls.value(Controls.resolve("[Looper" + (deck + 1) + "]", "enabled"), Controls.tick) > 0;
+    property <int> live: info.loaded || groove || looper ? 0 : InstrumentsUi.live(deck);
     // Files dragged in from Finder or a file manager (see TrackDrag.files-over).
     property <bool> under-files: TrackDrag.files-x >= self.absolute-position.x && TrackDrag.files-x < self.absolute-position.x + self.width
         && TrackDrag.files-y >= self.absolute-position.y && TrackDrag.files-y < self.absolute-position.y + self.height;
@@ -4625,7 +4851,8 @@ export component Deck inherits Rectangle {
             // Outside in: the tempo column, the pads, the loop, and the jog
             // with play and CUE under it beside the mixer. Deck B is the mirror image.
             if live > 0: LivePanel { x: 8px; y: 8px; width: parent.width - 16px; height: parent.height - 16px; live: live; group: group; tint: tint; }
-            if !groove && live == 0: HorizontalLayout {
+            if looper: LooperPanel { x: 8px; y: 8px; width: parent.width - 16px; height: parent.height - 16px; deck: deck; group: group; tint: tint; }
+            if !groove && !looper && live == 0: HorizontalLayout {
                 padding: 8px;
                 spacing: 0px;
                 if mirrored: JogSection { group: group; info: info; tint: tint; spin: spin; mirrored: true; }
