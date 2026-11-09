@@ -8,7 +8,9 @@ use std::time::Instant;
 use opendj_engine::live_wave::LiveSlice;
 use opendj_engine::track::{Track, Waveform, WaveformBin, WAVEFORM_RATE};
 use opendj_engine::NUM_DECKS;
-use opendj_waveform::{GridSection, Lanes, Mark, MarkKind, GRID_SECTIONS, MAX_MARKS};
+use opendj_waveform::{
+    GridSection, Lanes, Mark, MarkKind, PhraseKind, GRID_SECTIONS, MAX_MARKS, MAX_PHRASES,
+};
 
 use crate::smooth::SmoothClock;
 
@@ -297,6 +299,36 @@ pub fn track_grid(
     )
 }
 
+/// The leading track's phrases moved onto a live deck's window, as
+/// [`track_grid`] moves its beats: each phrase starts as many beats from the
+/// live play line as it is from the leader's position, at the leader's
+/// tempo now. Phrases over before the window's left edge are left out, so
+/// the ones in view are among the first [`MAX_PHRASES`] the shader draws.
+pub fn track_phrases(
+    leader: &Track,
+    seconds: f64,
+    speed: f64,
+    play_seconds: f64,
+    phrases: &[(f64, PhraseKind)],
+) -> Vec<(f64, PhraseKind)> {
+    let bpm = leader.bpm_at(seconds) * speed;
+    if bpm <= 0.0 || speed <= 0.0 {
+        return Vec::new();
+    }
+    let now = leader.beat_at(seconds);
+    let moved: Vec<_> = phrases
+        .iter()
+        .map(|&(start, kind)| {
+            let beats = leader.beat_at(start) - now;
+            (play_seconds + beats * 60.0 / bpm, kind)
+        })
+        .collect();
+    // The phrase under the window's left edge, and every one after it.
+    let left = play_seconds - crate::VISIBLE_SECONDS;
+    let first = moved.iter().rposition(|&(s, _)| s <= left).unwrap_or(0);
+    moved.into_iter().skip(first).take(MAX_PHRASES).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,5 +487,32 @@ mod tests {
         // And from memory once past the window.
         roll.update(0, 20.0);
         assert!(roll.notes.is_empty());
+    }
+
+    /// The leader's phrases land on the live deck the same beats away from
+    /// its play line, at the leader's speed; long-gone ones are left out.
+    #[test]
+    fn moves_the_leaders_phrases_onto_the_live_window() {
+        let mut t = (*opendj_engine::sample_library()[0]).clone();
+        t.bpm = 120.0;
+        t.first_beat = 0.0;
+        t.grid = Default::default();
+        t.duration = 600.0;
+        let phrases = [
+            (0.0, PhraseKind::Intro),
+            (32.0, PhraseKind::Build),
+            (64.0, PhraseKind::Drop),
+            (96.0, PhraseKind::Outro),
+        ];
+        // The leader is 4 s (8 beats) before its drop; the live play line
+        // is 8 s into its window.
+        let moved = track_phrases(&t, 60.0, 1.0, 8.0, &phrases);
+        assert_eq!(moved[0], (-20.0, PhraseKind::Build));
+        assert_eq!(moved[1], (12.0, PhraseKind::Drop));
+        assert_eq!(moved.len(), 3, "the intro, long over, is left out");
+        // Played 10% faster, the 8 beats pass sooner.
+        let fast = track_phrases(&t, 60.0, 1.1, 8.0, &phrases);
+        assert!((fast[1].0 - (8.0 + 4.0 / 1.1)).abs() < 1e-9);
+        assert!(track_phrases(&t, 60.0, 0.0, 8.0, &phrases).is_empty());
     }
 }
