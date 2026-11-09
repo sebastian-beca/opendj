@@ -240,6 +240,30 @@ pub trait SearchSource: Send {
         false
     }
 
+    /// Whether the DJ can hear a file from its searches before downloading
+    /// it, with [`Self::preview`].
+    fn previews(&self) -> bool {
+        false
+    }
+
+    /// Starts fetching file `item` of search `id` to hear it, in place of
+    /// any earlier preview. Where its bytes land comes from
+    /// [`Self::preview_file`].
+    fn preview(&mut self, _id: &str, _item: &Found) -> Result<(), PluginError> {
+        Err(PluginError::NotSupported)
+    }
+
+    /// The file the preview's bytes are landing in, once they've started
+    /// coming: it grows to [`Found::size`] as they arrive, front to back.
+    /// `None` while it waits for the other user. Asked twice a second while
+    /// a preview waits, so it must answer quickly.
+    fn preview_file(&mut self) -> Result<Option<PathBuf>, PluginError> {
+        Ok(None)
+    }
+
+    /// The DJ stopped listening: stop fetching, and forget what came.
+    fn stop_preview(&mut self) {}
+
     /// Downloads files and folders from search `id` into `dir`. Each is
     /// then reported by its key from [`Self::progress`].
     fn download(&mut self, id: &str, items: &[Found], dir: &Path) -> Result<(), PluginError>;

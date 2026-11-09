@@ -28,6 +28,7 @@ pub mod groove;
 pub mod groove_dice;
 pub mod groove_fills;
 pub mod groove_pads;
+pub mod growing;
 pub mod import;
 pub mod inputs;
 pub mod key;
@@ -461,6 +462,40 @@ impl AudioEngine {
                         }
                         Err(e) => eprintln!("can't preview {}: {e}", path.display()),
                     },
+                }
+            });
+        if let Err(e) = spawned {
+            eprintln!("could not start the preview: {e}");
+        }
+    }
+
+    /// Puts the file at `path` in the preview player, playing, while it's
+    /// still being downloaded: it will hold `size` bytes, and plays as far
+    /// as they've come. Reading stops once something else is previewed.
+    pub fn preview_download(&self, path: std::path::PathBuf, size: u64) {
+        let generation = self.preview_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let input = self.preview.clone();
+        let current = self.preview_generation.clone();
+        let spawned = std::thread::Builder::new()
+            .name("preview".into())
+            .spawn(move || {
+                let latest = {
+                    let current = current.clone();
+                    move || current.load(Ordering::Acquire) == generation
+                };
+                let wanted: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(latest.clone());
+                match decode::Decoder::open_growing(&path, size, wanted) {
+                    // Plays at once, even with no length yet: it's only a
+                    // taste, and waiting for the whole file would defeat it.
+                    Ok(d) => {
+                        if latest() {
+                            if let Ok(mut p) = input.lock() {
+                                p.send(Some(d.audio().clone()), true);
+                            }
+                        }
+                        let _ = d.run(|_| latest());
+                    }
+                    Err(e) => eprintln!("can't preview {}: {e}", path.display()),
                 }
             });
         if let Err(e) = spawned {
