@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use opendj_engine::{phrases, Source, Track, NUM_DECKS};
 use slint::{ComponentHandle, Model};
@@ -20,6 +21,30 @@ pub(super) struct Shown {
     footer: String,
     /// The queue as it was then (see [`crate::analysis_queue::AnalysisQueue::signature`]).
     signature: (usize, usize, usize),
+    /// Tracks analysed and not yet saved and shown.
+    waiting: Vec<Track>,
+    /// When analysed tracks were last saved and shown.
+    applied: Option<Instant>,
+}
+
+/// How often tracks analysed in the background are saved and shown, at
+/// most: each time means work on the UI thread (saving, the rows, the
+/// sidebar's counts).
+pub(super) const APPLY_EVERY: Duration = Duration::from_secs(2);
+
+impl Shown {
+    /// Takes in tracks just analysed, and gives back those to save and
+    /// show now: all that are waiting, once [`APPLY_EVERY`] has passed
+    /// since last time or the queue is `empty`.
+    pub(super) fn due(&mut self, finished: Vec<Track>, empty: bool) -> Vec<Track> {
+        self.waiting.extend(finished);
+        let due = empty || self.applied.is_none_or(|at| at.elapsed() >= APPLY_EVERY);
+        if self.waiting.is_empty() || !due {
+            return Vec::new();
+        }
+        self.applied = Some(Instant::now());
+        std::mem::take(&mut self.waiting)
+    }
 }
 
 /// The deck tracks whose phrases were last looked at, by address, so each
@@ -223,5 +248,43 @@ impl Browser {
             }
         }
         self.analysis_shown.marks = marks;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn analysed_tracks_are_shown_in_batches() {
+        let mut shown = Shown::default();
+        let track = |id| Track {
+            id,
+            artist: String::new(),
+            title: String::new(),
+            album: String::new(),
+            genre: String::new(),
+            rating: 0,
+            bpm: 0.0,
+            key: String::new(),
+            duration: 0.0,
+            first_beat: 0.0,
+            source: Source::Synth { seed: 1 },
+            waveform: Default::default(),
+            audio: None,
+            cover: None,
+            grid: Default::default(),
+            info: Default::default(),
+        };
+        // The first is shown at once.
+        assert_eq!(shown.due(vec![track(1)], false).len(), 1);
+        // The next ones wait while the queue runs...
+        assert!(shown.due(vec![track(2)], false).is_empty());
+        assert!(shown.due(vec![track(3)], false).is_empty());
+        assert!(shown.due(Vec::new(), false).is_empty());
+        // ...and come together once it's done.
+        let ids: Vec<usize> = shown.due(Vec::new(), true).iter().map(|t| t.id).collect();
+        assert_eq!(ids, [2, 3]);
+        assert!(shown.due(Vec::new(), true).is_empty());
     }
 }
