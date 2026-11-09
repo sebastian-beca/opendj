@@ -14,8 +14,11 @@ The menu at the top left of the window switches layouts:
   player button, the lyrics button and the queue button, which shows or hides **Up Next**
   (the Automix list), and under them the file's quality: format, bit depth
   and sample rate in lilac for lossless files (**FLAC 16-BIT 44.1 KHZ**),
-  or the bitrate in grey (**MP3 320 KBPS**). The **＋** beside the title
-  adds the track playing to a crate or playlist, or to a new crate.
+  or the bitrate in grey (**MP3 320 KBPS**). The **heart** beside the title
+  puts the track playing in **Favorites** (a playlist made at the top of
+  Playlists the first time), or takes it out; it is filled lilac while the
+  track is there. Right-click it to add the track to a crate or playlist,
+  or to a new crate.
   Click the album art on the bar for **Now Playing**: the art large over
   the whole library, with the title, artist, album, BPM, key and the file's
   quality under it, and on the right the track's **Lyrics** (large, the line

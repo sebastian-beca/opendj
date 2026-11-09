@@ -241,6 +241,10 @@ export global LibraryEdit {
     // The same for the track on deck `deck` (the Player bar's ＋).
     callback add-deck-to-list(deck: int, list: int);
     callback new-list-with-deck(deck: int, name: string);
+    // The Player bar's heart: whether the track on each deck is in
+    // Favorites, and putting it in or taking it out.
+    in property <[bool]> deck-favorites: [false, false, false, false];
+    callback favorite-deck(deck: int);
     // The collection narrowed to the row's artist (or album) with the filter bar.
     callback go-to(row: int, album: bool);
     // The row's main artist and its album, for the menu's "Go to" lines.
