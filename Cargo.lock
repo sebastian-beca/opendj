@@ -6706,6 +6706,7 @@ dependencies = [
  "flacenc",
  "flate2",
  "image",
+ "libc",
  "lofty",
  "matrixmultiply",
  "mi-plaits-dsp",
@@ -6713,6 +6714,8 @@ dependencies = [
  "opendj-control",
  "opendj-plugin-host",
  "opendj-separation",
+ "rayon",
+ "rten",
  "rtrb",
  "rustfft",
  "rusty_link",
@@ -6720,6 +6723,7 @@ dependencies = [
  "signalsmith-stretch",
  "symphonia",
  "whisper-rs",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

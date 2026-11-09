@@ -295,8 +295,14 @@ collection with the track, and move with the grid when you edit it.
 Rest the pointer on a deck's overview to see the phrase under it: its
 kind, how many bars it runs and where it starts and ends.
 
+The scrolling waveforms flag where each phrase starts: a line in the
+phrase's color and a small tab with its name (INTRO, BUILD, DROP and so on)
+just under the bar numbers. Between flags the waveform is left as it is. In
+4-Deck, where the waveforms are thin, only the lines show.
+
 Right-click a deck's overview and choose **Hide phrases** (or **Show
-phrases**) to turn the bars off or on for every deck.
+phrases**) to turn the bars off or on for every deck. Right-click a
+scrolling waveform to do the same for the flags; the two are separate.
 
 ## Bringing in a VirtualDJ library
 

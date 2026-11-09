@@ -1008,8 +1008,9 @@ pub(crate) struct EffectRack {
     /// Each target's beat-grid position at the start of this buffer (see
     /// [`EffectRack::set_beats`]).
     beats: [Option<f64>; TARGETS],
-    /// Scratch for [`EffectRack::process_block`]: a unit's wet signal and
-    /// released tails, [`BLOCK`] frames each, made up front.
+    /// Scratch for [`EffectRack::process_blocks`]: a unit's wet signal and
+    /// released tails, [`BLOCK`] frames for each of up to [`PARALLEL`]
+    /// blocks, made up front.
     wet: Vec<[f32; 2]>,
     tails: Vec<[f32; 2]>,
     /// Plugin helpers, by instance, as the plugin host attached them.
@@ -1047,7 +1048,20 @@ pub(crate) struct EffectRack {
     scope_pos: usize,
     /// The view shows nothing playing.
     view_clear: bool,
+    /// The instrument's block for this buffer went to its helper (see
+    /// [`EffectRack::start_instrument`]).
+    instrument_sent: bool,
+    /// Frames in a row the instrument has played silence, untouched: past
+    /// [`SLEEP_AFTER`] seconds it sleeps (no blocks go to it) until a note,
+    /// a knob or a deck wakes it.
+    instrument_quiet: usize,
 }
+
+/// Seconds of silence, with no notes held and off any deck, before the
+/// instrument sleeps.
+const SLEEP_AFTER: f32 = 1.0;
+/// Quieter than this (about -100 dBFS) counts as silence.
+const SILENCE: f32 = 1e-5;
 
 /// Bins the instrument's scope shows, each its lowest and highest sample.
 pub const SCOPE_BINS: usize = 128;
@@ -1248,6 +1262,10 @@ pub struct PluginLink {
 /// in blocks no longer than this.
 pub(crate) const BLOCK: usize = 4096;
 
+/// The most blocks [`EffectRack::process_blocks`] takes at once: one per
+/// deck.
+pub(crate) const PARALLEL: usize = NUM_DECKS;
+
 impl EffectRack {
     pub(crate) fn new(reg: &ControlRegistry, sample_rate: f64) -> Self {
         Self::with_pool(reg, sample_rate, LONG_BUFFERS, SHORT_BUFFERS)
@@ -1279,8 +1297,8 @@ impl EffectRack {
             index,
             active: [[false; TARGETS]; NUM_EFFECT_UNITS],
             beats: [None; TARGETS],
-            wet: vec![[0.0; 2]; BLOCK],
-            tails: vec![[0.0; 2]; BLOCK],
+            wet: vec![[0.0; 2]; BLOCK * PARALLEL],
+            tails: vec![[0.0; 2]; BLOCK * PARALLEL],
             attached: (0..n).map(|_| None).collect(),
             transport: [Transport::default(); TARGETS],
             planar: std::array::from_fn(|_| vec![0.0; BLOCK]),
@@ -1304,6 +1322,8 @@ impl EffectRack {
             scope_ring: vec![0.0; SCOPE_SAMPLES],
             scope_pos: 0,
             view_clear: true,
+            instrument_sent: false,
+            instrument_quiet: 0,
         }
     }
 
@@ -1407,16 +1427,22 @@ impl EffectRack {
         self.instrument.is_some()
     }
 
-    /// Plays the instrument into `buf` with the notes that came in, at the
-    /// tempo of `target`; silence without one. True when it is attached.
-    /// `params` are its knobs (see [`crate::inputs::INSTRUMENT_PARAMETERS`]).
-    pub(crate) fn play_instrument(
+    /// The first half of playing the instrument: takes the notes that came
+    /// in and hands the plugin its block of `frames`, at the tempo of
+    /// `target`, without waiting for it. [`EffectRack::finish_instrument`]
+    /// picks the sound up later in the buffer, so the plugin works while
+    /// the decks are worked out. `params` are its knobs (see
+    /// [`crate::inputs::INSTRUMENT_PARAMETERS`]). While it is silent, holds
+    /// no notes, gets none and is on no deck (`on_deck`) it sleeps: no block
+    /// goes to it at all.
+    pub(crate) fn start_instrument(
         &mut self,
-        buf: &mut [[f32; 2]],
+        frames: usize,
         target: usize,
         params: &[f32],
-    ) -> bool {
-        let frames = buf.len();
+        on_deck: bool,
+    ) {
+        self.instrument_sent = false;
         let cap = self.arp_in.capacity();
         while let Ok(n) = self.notes.pop() {
             if self.arp_in.len() < cap {
@@ -1441,30 +1467,73 @@ impl EffectRack {
         self.arp_in.clear();
         let Some(a) = self.instrument.as_deref_mut() else {
             self.notes_waiting.clear();
+            return;
+        };
+        let turned = a.send_params(params);
+        let busy = on_deck || turned || !self.notes_waiting.is_empty() || self.view.held() != 0;
+        if busy {
+            self.instrument_quiet = 0;
+        }
+        let asleep = self.instrument_quiet as f32 >= SLEEP_AFTER * self.sample_rate;
+        if asleep || plugin_deadline(self.block_start, frames, self.sample_rate).is_none() {
+            return;
+        }
+        let [silent, ..] = &mut self.planar;
+        silent[..frames].fill(0.0);
+        self.instrument_sent = a
+            .conn
+            .send(
+                [&silent[..frames], &silent[..frames]],
+                self.transport[target],
+                &self.notes_waiting,
+            )
+            .is_ok();
+    }
+
+    /// Whether the instrument sleeps: no blocks go to it.
+    #[cfg(test)]
+    pub(crate) fn instrument_asleep(&self) -> bool {
+        self.instrument.is_some()
+            && !self.instrument_sent
+            && self.instrument_quiet as f32 >= SLEEP_AFTER * self.sample_rate
+    }
+
+    /// The second half: the instrument's sound for this buffer into `buf`,
+    /// silence without one, while it sleeps or when it is late. True when
+    /// it is attached.
+    pub(crate) fn finish_instrument(&mut self, buf: &mut [[f32; 2]]) -> bool {
+        let frames = buf.len();
+        if self.instrument.is_none() {
             buf.fill([0.0; 2]);
             self.show_instrument(None, 0);
             return false;
-        };
-        a.send_params(params);
-        let [silent, _, out_l, out_r] = &mut self.planar;
-        silent[..frames].fill(0.0);
-        let Some(deadline) = plugin_deadline(self.block_start, frames, self.sample_rate) else {
+        }
+        if !std::mem::take(&mut self.instrument_sent) {
             buf.fill([0.0; 2]);
             return true;
+        }
+        let Some(a) = self.instrument.as_deref_mut() else {
+            return false;
         };
-        let out = a.conn.process_events(
-            [&silent[..frames], &silent[..frames]],
-            [&mut out_l[..frames], &mut out_r[..frames]],
-            self.transport[target],
-            &self.notes_waiting,
-            deadline,
-        );
+        let deadline =
+            plugin_deadline(self.block_start, frames, self.sample_rate).unwrap_or_default();
+        let [_, _, out_l, out_r] = &mut self.planar;
+        let out = a
+            .conn
+            .collect([&mut out_l[..frames], &mut out_r[..frames]], deadline);
         if out.is_wet() {
             let held = held_after(self.view.held(), &self.notes_waiting);
             self.notes_waiting.clear();
+            let mut peak = 0.0f32;
             for (f, s) in buf.iter_mut().enumerate() {
                 *s = [out_l[f], out_r[f]];
+                peak = peak.max(s[0].abs()).max(s[1].abs());
             }
+            self.instrument_quiet = if peak < SILENCE {
+                self.instrument_quiet.saturating_add(frames)
+            } else {
+                0
+            };
             self.show_instrument(Some(buf), held);
         } else {
             buf.fill([0.0; 2]);
@@ -1490,6 +1559,8 @@ impl EffectRack {
                 PluginMsg::Attach(i, a) => (i, Some(a)),
                 PluginMsg::Detach(i) => (i, None),
                 PluginMsg::Instrument(a) => {
+                    self.instrument_quiet = 0;
+                    self.instrument_sent = false;
                     if let Some(old) = std::mem::replace(&mut self.instrument, a) {
                         let _ = self.to_host.push(old);
                     }
@@ -1641,82 +1712,141 @@ impl EffectRack {
         }
     }
 
-    /// Runs a block of `target` through the units routed to it, in place:
+    /// Runs a block of `target` through the units routed to it, in place
+    /// (see [`EffectRack::process_blocks`]).
+    pub(crate) fn process_block(&mut self, target: usize, buf: &mut [[f32; 2]]) {
+        self.process_blocks(&mut [(target, buf)]);
+    }
+
+    /// Runs each block through the units routed to its target, in place:
     /// unit by unit and slot by slot, a whole block at a time, which is
     /// where plugin slots can join in. Each instance sees the same samples in
     /// the same order as frame by frame, so the result is the same. Frame `f`
-    /// of the block is `(f + 1) / frames` of the way through the buffer, for
+    /// of a block is `(f + 1) / frames` of the way through the buffer, for
     /// ramps.
-    pub(crate) fn process_block(&mut self, target: usize, buf: &mut [[f32; 2]]) {
-        let frames = buf.len();
+    ///
+    /// The blocks go through side by side: at each slot every target's
+    /// plugin gets its block first, the built-in effects run meanwhile, and
+    /// only then does the rack wait for the plugins. So plugins on different
+    /// decks work at the same time, each in its own helper, instead of one
+    /// after another. At most [`PARALLEL`] blocks, all the same length.
+    pub(crate) fn process_blocks(&mut self, blocks: &mut [(usize, &mut [[f32; 2]])]) {
+        let Some(frames) = blocks.first().map(|(_, b)| b.len()) else {
+            return;
+        };
         assert!(frames <= BLOCK, "blocks are at most BLOCK frames");
+        assert!(blocks.len() <= PARALLEL, "at most PARALLEL blocks at once");
+        assert!(blocks.iter().all(|(_, b)| b.len() == frames));
         let ramp = |f: usize| (f + 1) as f32 / frames as f32;
         let mut wet = std::mem::take(&mut self.wet);
         let mut tails = std::mem::take(&mut self.tails);
+        let span = |k: usize| k * BLOCK..k * BLOCK + frames;
         for u in 0..NUM_EFFECT_UNITS {
-            if !self.active[u][target] {
+            let mut live = [false; PARALLEL];
+            for (k, (target, buf)) in blocks.iter().enumerate() {
+                live[k] = self.active[u][*target];
+                if live[k] {
+                    wet[span(k)].copy_from_slice(buf);
+                    tails[span(k)].fill([0.0; 2]);
+                }
+            }
+            if !live.contains(&true) {
                 continue;
             }
-            wet[..frames].copy_from_slice(buf);
-            tails[..frames].fill([0.0; 2]);
             for s in 0..EFFECTS_PER_UNIT {
-                let Some(i) = self.index[u][s][target] else {
-                    continue;
-                };
-                let inst = &mut self.instances[i as usize];
-                if !inst.active() {
-                    continue;
-                }
-                if let Some(plugin) = inst.plugin {
+                // Each block's plugin in this slot gets its block.
+                let mut sent = [false; PARALLEL];
+                for (k, (target, _)) in blocks.iter().enumerate() {
+                    if !live[k] {
+                        continue;
+                    }
+                    let Some(i) = self.index[u][s][*target] else {
+                        continue;
+                    };
+                    let inst = &self.instances[i as usize];
+                    let Some(plugin) = inst.plugin.filter(|_| inst.active()) else {
+                        continue;
+                    };
                     // Through the helper, or dry while it isn't attached,
                     // is late or is gone.
                     let Some(a) = self.attached[i as usize].as_deref_mut() else {
                         continue;
                     };
-                    if a.plugin != plugin {
+                    if a.plugin != plugin
+                        || plugin_deadline(self.block_start, frames, self.sample_rate).is_none()
+                    {
                         continue;
                     }
-                    let [in_l, in_r, out_l, out_r] = &mut self.planar;
-                    for (f, w) in wet[..frames].iter().enumerate() {
+                    let [in_l, in_r, ..] = &mut self.planar;
+                    for (f, w) in wet[span(k)].iter().enumerate() {
                         in_l[f] = w[0];
                         in_r[f] = w[1];
                     }
-                    let Some(deadline) =
-                        plugin_deadline(self.block_start, frames, self.sample_rate)
-                    else {
+                    sent[k] = a
+                        .conn
+                        .send(
+                            [&in_l[..frames], &in_r[..frames]],
+                            self.transport[*target],
+                            &[],
+                        )
+                        .is_ok();
+                }
+                // The built-in effects run while the plugins work.
+                for (k, (target, _)) in blocks.iter().enumerate() {
+                    if !live[k] {
+                        continue;
+                    }
+                    let Some(i) = self.index[u][s][*target] else {
                         continue;
                     };
-                    let out = a.conn.process(
-                        [&in_l[..frames], &in_r[..frames]],
-                        [&mut out_l[..frames], &mut out_r[..frames]],
-                        self.transport[target],
-                        deadline,
-                    );
-                    if !out.is_wet() {
+                    let inst = &mut self.instances[i as usize];
+                    if !inst.active() || inst.plugin.is_some() {
+                        continue;
+                    }
+                    if inst.release > 0.0 {
+                        for t in &mut tails[span(k)] {
+                            let y = inst.tail();
+                            t[0] += y[0];
+                            t[1] += y[1];
+                        }
                         continue;
                     }
                     let (g0, g1) = (inst.gain, inst.target);
-                    for (f, w) in wet[..frames].iter_mut().enumerate() {
+                    for (f, w) in wet[span(k)].iter_mut().enumerate() {
+                        let g = g0 + (g1 - g0) * ramp(f);
+                        let y = inst.process(*w);
+                        for c in 0..2 {
+                            w[c] += (y[c] - w[c]) * g;
+                        }
+                    }
+                }
+                // Then the plugins' blocks come back, each within what is
+                // left of the buffer's plugin time.
+                for (k, (target, _)) in blocks.iter().enumerate() {
+                    if !sent[k] {
+                        continue;
+                    }
+                    let Some(i) = self.index[u][s][*target] else {
+                        continue;
+                    };
+                    let Some(a) = self.attached[i as usize].as_deref_mut() else {
+                        continue;
+                    };
+                    let deadline = plugin_deadline(self.block_start, frames, self.sample_rate)
+                        .unwrap_or_default();
+                    let [_, _, out_l, out_r] = &mut self.planar;
+                    let out = a
+                        .conn
+                        .collect([&mut out_l[..frames], &mut out_r[..frames]], deadline);
+                    if !out.is_wet() {
+                        continue;
+                    }
+                    let inst = &self.instances[i as usize];
+                    let (g0, g1) = (inst.gain, inst.target);
+                    for (f, w) in wet[span(k)].iter_mut().enumerate() {
                         let g = g0 + (g1 - g0) * ramp(f);
                         w[0] += (out_l[f] - w[0]) * g;
                         w[1] += (out_r[f] - w[1]) * g;
-                    }
-                    continue;
-                }
-                if inst.release > 0.0 {
-                    for t in &mut tails[..frames] {
-                        let y = inst.tail();
-                        t[0] += y[0];
-                        t[1] += y[1];
-                    }
-                    continue;
-                }
-                let (g0, g1) = (inst.gain, inst.target);
-                for (f, w) in wet[..frames].iter_mut().enumerate() {
-                    let g = g0 + (g1 - g0) * ramp(f);
-                    let y = inst.process(*w);
-                    for c in 0..2 {
-                        w[c] += (y[c] - w[c]) * g;
                     }
                 }
             }
@@ -1724,10 +1854,16 @@ impl EffectRack {
             // where it musically belongs (an echo plays over the original), so
             // Mixxx's Dry+Wet mode would sound the same and is not separate.
             let (a, b) = self.mix[u];
-            for (f, x) in buf.iter_mut().enumerate() {
-                let m = a + (b - a) * ramp(f);
-                for c in 0..2 {
-                    x[c] += (wet[f][c] - x[c]) * m + tails[f][c] * m;
+            for (k, (_, buf)) in blocks.iter_mut().enumerate() {
+                if !live[k] {
+                    continue;
+                }
+                let (wet, tails) = (&wet[span(k)], &tails[span(k)]);
+                for (f, x) in buf.iter_mut().enumerate() {
+                    let m = a + (b - a) * ramp(f);
+                    for c in 0..2 {
+                        x[c] += (wet[f][c] - x[c]) * m + tails[f][c] * m;
+                    }
                 }
             }
         }
@@ -1817,13 +1953,17 @@ fn cubic(y0: f32, y1: f32, y2: f32, y3: f32, t: f32) -> f32 {
 
 impl Attached {
     /// Sends the knobs that moved, scaled to the plugin's own ranges.
-    fn send_params(&mut self, params: &[f32]) {
+    /// Sends the knobs that moved; true when any did.
+    fn send_params(&mut self, params: &[f32]) -> bool {
+        let mut moved = false;
         for (k, (&(lo, hi), &v)) in self.ranges.iter().zip(params).enumerate() {
             if v != self.sent[k] {
                 self.sent[k] = v;
                 self.conn.set_param(k, lo + v * (hi - lo));
+                moved = true;
             }
         }
+        moved
     }
 }
 

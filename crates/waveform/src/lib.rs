@@ -62,7 +62,11 @@ pub struct Frame {
     pub slip: Option<f64>,
     pub gain: f32,
     /// Where each phrase starts and its kind, earliest first; empty to
-    /// draw none. Drawn on the overview only, at most [`MAX_PHRASES`].
+    /// draw none, at most [`MAX_PHRASES`]. The overview draws them as a
+    /// bar along its foot; the scrolling waveform as a flag at each start,
+    /// a line in the phrase's colour with its name in a tab (and on a live
+    /// deck, which shows the leading deck's phrases, a thin strip along
+    /// the top as well).
     pub phrases: Vec<(f64, PhraseKind)>,
 }
 
@@ -80,6 +84,32 @@ pub enum PhraseKind {
     Outro,
     Chorus,
     Verse,
+}
+
+impl PhraseKind {
+    /// Every kind, in order.
+    pub const ALL: [PhraseKind; 7] = [
+        PhraseKind::Intro,
+        PhraseKind::Build,
+        PhraseKind::Drop,
+        PhraseKind::Breakdown,
+        PhraseKind::Outro,
+        PhraseKind::Chorus,
+        PhraseKind::Verse,
+    ];
+
+    /// The name on its flag on the scrolling waveform.
+    pub fn name(self) -> &'static str {
+        match self {
+            PhraseKind::Intro => "INTRO",
+            PhraseKind::Build => "BUILD",
+            PhraseKind::Drop => "DROP",
+            PhraseKind::Breakdown => "BREAK",
+            PhraseKind::Outro => "OUTRO",
+            PhraseKind::Chorus => "CHORUS",
+            PhraseKind::Verse => "VERSE",
+        }
+    }
 }
 
 /// Tempo sections the shader draws at once: enough for any view, since a
@@ -128,7 +158,7 @@ struct Params {
     num_levels: u32,
     style: u32,
     scale: f32,
-    /// How far the digit atlas's distance field reaches, in atlas pixels.
+    /// How far the text atlas's distance field reaches, in atlas pixels.
     spread: f32,
     low_color: [f32; 4],
     mid_color: [f32; 4],
@@ -139,7 +169,8 @@ struct Params {
     grid_beat: [f32; 4],
     grid_index: [f32; 4],
     grid_bar: [f32; 4],
-    /// The digit atlas: cell width and height, advance and digit height, in atlas pixels.
+    /// The text atlas: cell width and height, the digits' advance and
+    /// height, in atlas pixels.
     digit: [f32; 4],
     level_offset: [[u32; 4]; 4],
     level_len: [[u32; 4]; 4],
@@ -165,11 +196,15 @@ struct Params {
     /// drawn on them.
     lane_count: u32,
     mark_count: u32,
-    _pad: [u32; 3],
+    /// The text atlas's width and height, in atlas pixels.
+    atlas: [f32; 2],
+    _pad: u32,
     /// Bit `n` set: lane `n` (from the bottom) is tinted.
     lane_tint: [u32; 4],
     mark_color: [f32; 4],
     lit_color: [f32; 4],
+    /// Each phrase name's width in the text atlas, in [`PhraseKind`] order.
+    word_width: [[f32; 4]; 2],
     /// Each mark's start and end, in slices, its row, and its kind (as in
     /// [`MarkKind`]).
     marks: [[f32; 4]; MAX_MARKS],
@@ -647,10 +682,12 @@ impl WaveformView {
             trace_alpha: 1.0,
             lane_count: 0,
             mark_count: 0,
-            _pad: [0; 3],
+            atlas: renderer.digits.size,
+            _pad: 0,
             lane_tint: [0; 4],
             mark_color: [0.0; 4],
             lit_color: [0.0; 4],
+            word_width: renderer.digits.words,
             marks: [[0.0; 4]; MAX_MARKS],
         };
         if let Some(l) = &self.lanes {
@@ -827,32 +864,40 @@ fn bind_group(
     })
 }
 
-/// The font the bar numbers are drawn in (tabular, so every digit is as wide).
+/// The font the bar numbers and phrase names are drawn in (tabular, so
+/// every digit is as wide).
 const DIGIT_FONT: &[u8] = include_bytes!("../../app/ui/fonts/InterTabular-SemiBold.otf");
-/// The size the digits are rasterized at; the distance field keeps their
-/// edges sharp at any size and position on screen.
+/// The size the text is rasterized at; the distance field keeps its edges
+/// sharp at any size and position on screen.
 const DIGIT_PX: f32 = 64.0;
 /// How far the distance field reaches either side of an edge, in atlas pixels.
 const DIGIT_SPREAD: f32 = 6.0;
 
-/// The digits 0 to 9 side by side in one texture, as a signed distance
-/// field: 0.5 on a glyph's edge, more inside, less outside.
+/// The text the shader draws, as a signed distance field (0.5 on a glyph's
+/// edge, more inside, less outside): the digits 0 to 9 side by side in the
+/// first row of cells, then each phrase name (see [`PhraseKind::name`]) on
+/// a row of its own, in [`PhraseKind`] order.
 struct DigitAtlas {
     view: wgpu::TextureView,
     sampler: wgpu::Sampler,
-    /// Cell width and height, advance and digit height, in atlas pixels.
+    /// Cell width and height, the digits' advance and their height, in
+    /// atlas pixels.
     metrics: [f32; 4],
+    /// The atlas's width and height.
+    size: [f32; 2],
+    /// Each phrase name's width, from its row's left edge plus the spread.
+    words: [[f32; 4]; 2],
 }
 
 impl DigitAtlas {
     fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
-        let (cell_w, cell_h, data, advance, height) = digit_field();
-        let width = cell_w * 10;
+        let atlas = text_field();
+        let (width, height) = (atlas.width, atlas.height);
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("waveform digits"),
+            label: Some("waveform text"),
             size: wgpu::Extent3d {
                 width: width as u32,
-                height: cell_h as u32,
+                height: height as u32,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -864,9 +909,10 @@ impl DigitAtlas {
         });
         // Rows padded to the 256 bytes a texture upload needs.
         let row = width.next_multiple_of(256);
-        let mut padded = vec![0u8; row * cell_h];
-        for y in 0..cell_h {
-            padded[y * row..y * row + width].copy_from_slice(&data[y * width..(y + 1) * width]);
+        let mut padded = vec![0u8; row * height];
+        for y in 0..height {
+            padded[y * row..y * row + width]
+                .copy_from_slice(&atlas.field[y * width..(y + 1) * width]);
         }
         queue.write_texture(
             texture.as_image_copy(),
@@ -874,79 +920,139 @@ impl DigitAtlas {
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(row as u32),
-                rows_per_image: Some(cell_h as u32),
+                rows_per_image: Some(height as u32),
             },
             wgpu::Extent3d {
                 width: width as u32,
-                height: cell_h as u32,
+                height: height as u32,
                 depth_or_array_layers: 1,
             },
         );
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("waveform digits"),
+            label: Some("waveform text"),
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        let mut words = [[0.0; 4]; 2];
+        for (i, w) in atlas.words.iter().enumerate() {
+            words[i / 4][i % 4] = *w;
+        }
         Self {
             view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
             sampler,
-            metrics: [cell_w as f32, cell_h as f32, advance, height],
+            metrics: [
+                atlas.cell_w as f32,
+                atlas.cell_h as f32,
+                atlas.advance,
+                atlas.digit_h,
+            ],
+            size: [width as f32, height as f32],
+            words,
         }
     }
 }
 
-/// Rasterizes the digits and turns them into a distance field: the cell
-/// size, the field (rows of `10 * cell_w` bytes), the advance and the digit
-/// height. Each cell has the digit's pen position `DIGIT_SPREAD` pixels in
-/// from its left and its top `DIGIT_SPREAD` pixels down.
-fn digit_field() -> (usize, usize, Vec<u8>, f32, f32) {
-    use ab_glyph::{Font, FontRef, PxScale, ScaleFont};
+/// The text atlas as [`text_field`] builds it.
+struct TextField {
+    cell_w: usize,
+    cell_h: usize,
+    width: usize,
+    height: usize,
+    /// `width * height` bytes, row by row.
+    field: Vec<u8>,
+    advance: f32,
+    digit_h: f32,
+    words: [f32; 7],
+}
+
+/// Rasterizes the digits and the phrase names and turns them into a
+/// distance field. Each cell has its pen position `DIGIT_SPREAD` pixels in
+/// from its left and the digits' top `DIGIT_SPREAD` pixels down; the names
+/// start `DIGIT_SPREAD` pixels in and sit on the same baseline in their rows.
+fn text_field() -> TextField {
+    use ab_glyph::{Font, FontRef, OutlinedGlyph, PxScale, ScaleFont};
     let font = FontRef::try_from_slice(DIGIT_FONT).expect("digit font");
     let scaled = font.as_scaled(PxScale::from(DIGIT_PX));
-    let glyphs: Vec<_> = ('0'..='9')
-        .map(|c| {
-            scaled.outline_glyph(
-                scaled
-                    .glyph_id(c)
-                    .with_scale_and_position(DIGIT_PX, ab_glyph::point(0.0, scaled.ascent())),
-            )
-        })
-        .collect();
+    let glyph = |c: char, x: f32| {
+        scaled.outline_glyph(
+            scaled
+                .glyph_id(c)
+                .with_scale_and_position(DIGIT_PX, ab_glyph::point(x, scaled.ascent())),
+        )
+    };
+    let digits: Vec<Option<OutlinedGlyph>> = ('0'..='9').map(|c| glyph(c, 0.0)).collect();
+    // Each name laid out with its advances and kerning.
+    let mut words: Vec<(Vec<OutlinedGlyph>, f32)> = Vec::new();
+    for kind in PhraseKind::ALL {
+        let mut x = 0.0;
+        let mut prev = None;
+        let mut glyphs = Vec::new();
+        for c in kind.name().chars() {
+            let id = scaled.glyph_id(c);
+            if let Some(p) = prev {
+                x += scaled.kern(p, id);
+            }
+            glyphs.extend(glyph(c, x));
+            x += scaled.h_advance(id);
+            prev = Some(id);
+        }
+        words.push((glyphs, x));
+    }
     let advance = scaled.h_advance(scaled.glyph_id('0'));
-    let bounds = glyphs.iter().flatten().map(|g| g.px_bounds());
-    let (top, bottom) = bounds.fold((f32::MAX, f32::MIN), |(t, b), r| {
+    let digit_bounds = digits.iter().flatten().map(|g| g.px_bounds());
+    let (top, bottom) = digit_bounds.fold((f32::MAX, f32::MIN), |(t, b), r| {
         (t.min(r.min.y), b.max(r.max.y))
     });
+    let digit_h = bottom - top;
+    // Round letters overshoot the digits by a pixel or so, into the
+    // spread above and below them; the cells grow for any more below.
+    let wbottom = words
+        .iter()
+        .flat_map(|(g, _)| g.iter().map(|g| g.px_bounds().max.y))
+        .fold(bottom, f32::max);
     let pad = DIGIT_SPREAD as usize;
     let cell_w = advance.ceil() as usize + 2 * pad;
-    let cell_h = (bottom - top).ceil() as usize + 2 * pad;
-    // Coverage first, digit by digit.
-    let width = cell_w * 10;
-    let mut cover = vec![0f32; width * cell_h];
-    for (d, g) in glyphs.iter().enumerate() {
-        let Some(g) = g else { continue };
+    let cell_h = (wbottom - top).ceil() as usize + 2 * pad;
+    let widest = words.iter().map(|(_, w)| *w).fold(0.0, f32::max);
+    let width = (cell_w * 10).max(widest.ceil() as usize + 2 * pad);
+    let height = cell_h * (1 + words.len());
+    let mut cover = vec![0f32; width * height];
+    let mut draw = |g: &OutlinedGlyph, left: f32, row: usize| {
         let r = g.px_bounds();
         g.draw(|x, y, c| {
-            let cx = r.min.x + x as f32 + DIGIT_SPREAD;
+            let cx = r.min.x + x as f32 + left;
             let cy = r.min.y - top + y as f32 + DIGIT_SPREAD;
-            if cx >= 0.0 && (cx as usize) < cell_w && cy >= 0.0 && (cy as usize) < cell_h {
-                cover[cy as usize * width + d * cell_w + cx as usize] = c;
+            if cx >= 0.0 && (cx as usize) < width && cy >= 0.0 && (cy as usize) < cell_h {
+                cover[(row * cell_h + cy as usize) * width + cx as usize] = c;
             }
         });
+    };
+    for (d, g) in digits.iter().enumerate() {
+        if let Some(g) = g {
+            draw(g, (d * cell_w) as f32 + DIGIT_SPREAD, 0);
+        }
+    }
+    for (i, (glyphs, _)) in words.iter().enumerate() {
+        for g in glyphs {
+            draw(g, DIGIT_SPREAD, i + 1);
+        }
     }
     // Then the distance to the nearest pixel on the other side of the edge,
-    // within the spread, signed (inside positive) and mapped to 0..1.
+    // within the spread, signed (inside positive) and mapped to 0..1. Rows
+    // are fields of their own, so names never reach into each other.
     let reach = pad as i64;
-    let mut field = vec![0u8; width * cell_h];
-    for y in 0..cell_h as i64 {
+    let mut field = vec![0u8; width * height];
+    for y in 0..height as i64 {
+        let row = y / cell_h as i64;
+        let (r0, r1) = (row * cell_h as i64, (row + 1) * cell_h as i64);
         for x in 0..width as i64 {
             let inside = cover[y as usize * width + x as usize] >= 0.5;
             let mut best = DIGIT_SPREAD;
             for dy in -reach..=reach {
                 for dx in -reach..=reach {
                     let (nx, ny) = (x + dx, y + dy);
-                    if nx < 0 || ny < 0 || nx >= width as i64 || ny >= cell_h as i64 {
+                    if nx < 0 || ny < r0 || nx >= width as i64 || ny >= r1 {
                         continue;
                     }
                     if (cover[ny as usize * width + nx as usize] >= 0.5) != inside {
@@ -960,5 +1066,42 @@ fn digit_field() -> (usize, usize, Vec<u8>, f32, f32) {
             field[y as usize * width + x as usize] = (v.clamp(0.0, 1.0) * 255.0).round() as u8;
         }
     }
-    (cell_w, cell_h, field, advance, bottom - top)
+    let mut widths = [0.0; 7];
+    for (i, (_, w)) in words.iter().enumerate() {
+        widths[i] = *w;
+    }
+    TextField {
+        cell_w,
+        cell_h,
+        width,
+        height,
+        field,
+        advance,
+        digit_h,
+        words: widths,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_atlas_holds_the_digits_and_every_phrase_name() {
+        let t = text_field();
+        assert_eq!(t.height, t.cell_h * 8);
+        assert!(t.width >= t.cell_w * 10);
+        // Every row has some ink, and each name fits the atlas.
+        for row in 0..8 {
+            let ink = (row * t.cell_h..(row + 1) * t.cell_h)
+                .flat_map(|y| t.field[y * t.width..(y + 1) * t.width].iter())
+                .any(|&v| v > 128);
+            assert!(ink, "row {row} is blank");
+        }
+        for w in t.words {
+            assert!(w > t.advance && w + 2.0 * DIGIT_SPREAD <= t.width as f32);
+        }
+        // CHORUS is the widest name, DROP the narrowest.
+        assert!(t.words[5] > t.words[2]);
+    }
 }
