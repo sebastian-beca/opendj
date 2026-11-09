@@ -10,7 +10,8 @@
 
 ## 2. Transcribe
 
-- [ ] 2.1 Transcribe a track with no lyrics into timed lyrics, marked as made by openDJ
+- [x] 2.1 Transcribe a track with no lyrics into timed lyrics, marked as made by openDJ
+- [x] 2.2 User guide: Transcribe in website/book/src/guide/lyrics.md
 
 ## Workflow follow-up
 
