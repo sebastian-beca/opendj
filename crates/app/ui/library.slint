@@ -157,6 +157,27 @@ export struct SideRow {
     key-match: bool,
     // Or would, shifted by this many semitones (0: no shift within reach).
     key-shift: int,
+    // One of Keep going's next picks, shown greyed after Up Next's tracks.
+    suggested: bool,
+}
+
+// Keep going in Player mode (browser/keep_going.rs): Up Next tops itself
+// up with tracks that mix, from a pool; Start Radio sets the pool.
+export global KeepGoingUi {
+    in property <bool> on;
+    // Player mode, where Keep going and Start Radio are offered.
+    in property <bool> player;
+    // What picks come from: "Everything", a list's or an artist's name.
+    in property <string> pool;
+    // The list the browser shows, offered as a pool; empty for none.
+    in property <string> list-name;
+    callback set-on(bool);
+    // 0 everything, 1 the list the browser shows.
+    callback pick-pool(int);
+    // From the track menu: the row's track, or its artist.
+    callback start-radio(row: int, artist: bool);
+    // From the list menu: a crate or playlist, by its place in the tree.
+    callback start-list-radio(node: int);
 }
 
 // Dragging tracks between the list, the side panel, the decks and the
@@ -1420,6 +1441,25 @@ component TrackMenu inherits PopupWindow {
                     root.close();
                 }
             }
+            if one && KeepGoingUi.player && StoreUi.source == 0: MenuLine {
+                icon: "automix";
+                text: "Start Radio";
+                entered => { panel = 0; }
+                clicked => {
+                    KeepGoingUi.start-radio(track-row, false);
+                    root.close();
+                }
+            }
+            if one && KeepGoingUi.player && StoreUi.source == 0 && go-text[0] != "": MenuLine {
+                icon: "artist";
+                text: "Start Artist Radio";
+                hint: go-text[0];
+                entered => { panel = 0; }
+                clicked => {
+                    KeepGoingUi.start-radio(track-row, true);
+                    root.close();
+                }
+            }
             if LibraryEdit.has-lists: MenuLine {
                 icon: "plus";
                 text: "Add to playlist";
@@ -2632,6 +2672,13 @@ component FolderTree inherits Rectangle {
                 }
             }
             if source == 0 && menu-locked: MenuSeparator {}
+            if source == 0 && KeepGoingUi.player && (menu-kind == 17 || menu-kind == 2): MenuLine {
+                text: "Start Radio";
+                clicked => {
+                    KeepGoingUi.start-list-radio(menu-index);
+                    folder-menu.close();
+                }
+            }
             if menu-analysable: MenuLine {
                 text: "Analyze All";
                 clicked => {
@@ -5576,6 +5623,26 @@ component SidePanel inherits Rectangle {
                     if automix-on: SmallButton { text: "Mix now"; tour-id: "ui,automix_mix_now"; clicked => { automix-mix-now(); } }
                     if automix-on: SmallButton { text: "Skip"; clicked => { automix-skip(); } }
                 }
+                // Player mode's cruise control: when the list runs out, tracks
+                // that mix follow, from the pool picked here.
+                if KeepGoingUi.player: HorizontalLayout {
+                    spacing: 6px;
+                    SmallButton {
+                        text: "Keep going";
+                        lit: KeepGoingUi.on;
+                        clicked => { KeepGoingUi.set-on(!KeepGoingUi.on); }
+                    }
+                    Dropdown {
+                        horizontal-stretch: 1;
+                        label: "FROM";
+                        text: KeepGoingUi.pool;
+                        current: -1;
+                        choices: KeepGoingUi.list-name != ""
+                            ? [{ text: "Everything", value: 0 }, { text: KeepGoingUi.list-name, value: 1 }]
+                            : [{ text: "Everything", value: 0 }];
+                        picked(i) => { KeepGoingUi.pick-pool(i); }
+                    }
+                }
             }
             EdgeLine { left: 6px; right: 6px; }
             order-menu := PopupWindow {
@@ -5629,6 +5696,7 @@ component SidePanel inherits Rectangle {
                 lv := ListView {
                     for r[i] in rows: Rectangle {
                         height: r.heading != "" ? 30px : row-height;
+                        opacity: r.suggested ? 0.45 : 1;
                         // A section heading in the Linked tab.
                         if r.heading != "": Text {
                             x: 8px;
@@ -5653,7 +5721,7 @@ component SidePanel inherits Rectangle {
                                 if self.dragging && !picked { pick(i); }
                             }
                             sta := TouchArea {
-                                enabled: r.heading == "";
+                                enabled: r.heading == "" && !r.suggested;
                                 clicked => {
                                     if shift-held {
                                         extend(i);

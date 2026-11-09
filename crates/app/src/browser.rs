@@ -42,6 +42,7 @@ mod health;
 mod history;
 mod inbox_albums;
 mod info;
+mod keep_going;
 mod lyrics;
 mod mix_export;
 mod picks;
@@ -678,6 +679,7 @@ pub struct Browser {
     mix_export: Option<std::sync::mpsc::Receiver<mix_export::Progress>>,
     /// Play Album was picked, for Automix to play the list gaplessly.
     album_request: bool,
+    keep_going: keep_going::KeepGoing,
     /// The Albums source's covers, bigger than the list's thumbnails.
     album_art: Art,
     /// The album folders the covers view shows, in its order, and the
@@ -1309,6 +1311,7 @@ impl Browser {
             mixed_sets: crate::settings::mixed_sets_folder(),
             mix_export: None,
             album_request: false,
+            keep_going: Default::default(),
             album_art: Art::sized(albums::COVER_SIZE),
             album_tiles: Vec::new(),
             album_back: None,
@@ -1924,6 +1927,7 @@ impl Browser {
         Self::install_checklist(app, &with);
         Self::install_lyrics(app, &with);
         Self::install_track_menu(&edit, &with);
+        Self::install_keep_going(&app.global::<crate::KeepGoingUi>(), &with);
         Self::install_mix_export(&app.global::<FilesUi>(), &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
         Self::install_cleanup(&app.global::<crate::CleanupUi>(), &with);
@@ -5685,29 +5689,36 @@ impl Browser {
             return;
         }
         let ids = &self.side[tab];
-        let rows: Vec<SideRow> = ids
-            .iter()
-            .map(|&id| {
-                let t = &self.library[id];
-                let cover = self.art.get(t);
-                SideRow {
-                    heading: SharedString::new(),
-                    title: t.title.clone().into(),
-                    artist: t.artist.clone().into(),
-                    bpm: if t.bpm > 0.0 {
-                        format!("{:.0}", t.bpm).into()
-                    } else {
-                        SharedString::new()
-                    },
-                    key: show_key(&t.key, self.camelot).into(),
-                    key_match: self.mixes_with_deck(&t.key),
-                    key_shift: self.key_shift_to_deck(&t.key),
-                    length: short_time(t.duration),
-                    has_cover: cover.is_some(),
-                    cover: cover.unwrap_or_default(),
-                }
-            })
-            .collect();
+        let row = |id: usize, suggested: bool| {
+            let t = &self.library[id];
+            let cover = self.art.get(t);
+            SideRow {
+                heading: SharedString::new(),
+                title: t.title.clone().into(),
+                artist: t.artist.clone().into(),
+                bpm: if t.bpm > 0.0 {
+                    format!("{:.0}", t.bpm).into()
+                } else {
+                    SharedString::new()
+                },
+                key: show_key(&t.key, self.camelot).into(),
+                key_match: self.mixes_with_deck(&t.key),
+                key_shift: self.key_shift_to_deck(&t.key),
+                length: short_time(t.duration),
+                has_cover: cover.is_some(),
+                cover: cover.unwrap_or_default(),
+                suggested,
+            }
+        };
+        let mut rows: Vec<SideRow> = ids.iter().map(|&id| row(id, false)).collect();
+        if tab == 0 && self.keeps_going() && !self.keep_going.picks.is_empty() {
+            rows.push(SideRow {
+                heading: self.keep_going_heading().into(),
+                suggested: true,
+                ..Default::default()
+            });
+            rows.extend(self.keep_going.picks.iter().map(|&id| row(id, true)));
+        }
         let total: f64 = ids.iter().map(|&id| self.library[id].duration).sum();
         app.set_side_total(
             format!(
@@ -5787,6 +5798,7 @@ impl Browser {
                     length: short_time(t.duration),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
+                    suggested: false,
                 });
             }
         }
