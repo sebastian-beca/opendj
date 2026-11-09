@@ -2953,10 +2953,12 @@ impl Engine {
         let master_key = self
             .link_master
             .and_then(|k| Key::from_mixxx_number(self.decks[k].c.key.get()));
+        // The instrument plugin gets its block now and plays while the decks
+        // are worked out below; the inputs render once that is done.
         for (i, input) in self.inputs.iter_mut().enumerate() {
             input.set_master_key(master_key);
             let on_deck = live_on.contains(&(i + 1));
-            input.render(frames, &mut self.fx, input_target(i), dt as f32, on_deck);
+            input.start(frames, &mut self.fx, input_target(i), on_deck);
         }
         let duck = self.ducker.settings();
 
@@ -3344,6 +3346,10 @@ impl Engine {
                 .then_some(sr),
             }
         });
+        for (i, input) in self.inputs.iter_mut().enumerate() {
+            let on_deck = live_on.contains(&(i + 1));
+            input.render(frames, &mut self.fx, input_target(i), dt as f32, on_deck);
+        }
         let master = (self.master_gain, master_target);
         let balance = (self.balance, balance_target);
 
@@ -3569,8 +3575,13 @@ impl Engine {
                 }
             }
         }
-        for (i, buf) in deck_buf.iter_mut().enumerate() {
-            self.fx.process_block(i, &mut buf[..frames]);
+        {
+            // All decks at once, so their plugins work side by side.
+            let mut blocks: [(usize, &mut [[f32; 2]]); NUM_DECKS] = {
+                let mut bufs = deck_buf.iter_mut();
+                std::array::from_fn(|i| (i, &mut bufs.next().expect("a buffer per deck")[..frames]))
+            };
+            self.fx.process_blocks(&mut blocks);
         }
         for f in 0..frames {
             let r = (f + 1) as f32 / frames as f32;

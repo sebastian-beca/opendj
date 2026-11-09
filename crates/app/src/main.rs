@@ -470,7 +470,7 @@ fn update_rows(model: &VecModel<OutputRow>, rows: Vec<OutputRow>) {
 #[cfg(target_os = "macos")]
 const TOP_BAR_HEIGHT: f64 = 52.0;
 
-/// The 4-Deck layout's value of `layout` (0 is 2-Deck, 1 Player).
+/// The 4-Deck layout's value of `layout` (0 is 2-Deck Pro, 1 Player).
 const FOUR_DECK_LAYOUT: i32 = 2;
 /// Deck 1 alone, for preparing tracks (prep.slint).
 const PREP_LAYOUT: i32 = 3;
@@ -483,8 +483,17 @@ const PLAYER_OVERVIEW_BACKGROUND: [f32; 4] = [0.102, 0.102, 0.110, 1.0];
 /// VIEW, the Cues and Checklist tabs, the checklist settings). Off until
 /// v0.6: the code stays and is built and tested, only hidden.
 pub(crate) const PREP_OFFERED: bool = false;
+/// 2-Deck, the lighter two-deck layout (lite.slint): no jogs or tempo
+/// faders, the pads and loop in a bar under the decks.
+const LITE_LAYOUT: i32 = 4;
 /// The last layout the menu and controllers can pick.
-const LAST_LAYOUT: i32 = if PREP_OFFERED { PREP_LAYOUT } else { 2 };
+const LAST_LAYOUT: i32 = LITE_LAYOUT;
+
+/// Whether `layout` is one the menu and controllers offer: Prep only
+/// while it is offered.
+fn layout_offered(layout: i32) -> bool {
+    (0..=LAST_LAYOUT).contains(&layout) && (layout != PREP_LAYOUT || PREP_OFFERED)
+}
 
 /// `[ChannelN],live_input` for a deck playing the instrument plugin.
 const INSTRUMENT_INPUT: f64 = 3.0;
@@ -629,18 +638,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             EventResult::Propagate
         });
     }
-    // 2-Deck, Player, 4-Deck or Prep, as last picked.
+    // 2-Deck Pro, Player, 4-Deck, Prep or 2-Deck, as last picked.
     app.global::<PrepUi>().set_offered(PREP_OFFERED);
-    // A layout no longer offered (Prep, while hidden) opens 2-Deck.
+    // A layout no longer offered (Prep, while hidden) opens 2-Deck Pro.
     let layout = settings::number("layout", 0.0) as i32;
-    app.set_layout(if (0..=LAST_LAYOUT).contains(&layout) {
-        layout
-    } else {
-        0
-    });
+    app.set_layout(if layout_offered(layout) { layout } else { 0 });
     // `[Skin],layout` lets controllers switch it too (the DDJ-FLX4's
-    // SHIFT + right LOAD, VIEW): 0 2-Deck, 1 Player, 2 4-Deck, 3 Prep. VIEW
-    // toggles, so from 4-Deck or Prep it goes to 2-Deck.
+    // SHIFT + right LOAD, VIEW): 0 2-Deck Pro, 1 Player, 2 4-Deck, 3 Prep,
+    // 4 2-Deck. VIEW toggles, so from 4-Deck, Prep or 2-Deck it goes to
+    // 2-Deck Pro.
     let layout_control = registry.create(
         "[Skin]",
         "layout",
@@ -1381,6 +1387,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let layout = layout_control.get() as i32;
                 if layout_version.replace(layout_control.version()) != layout_control.version()
                     && layout != app.get_layout()
+                    && layout_offered(layout)
                 {
                     app.set_layout(layout);
                     settings::set("layout", serde_json::json!(layout));
