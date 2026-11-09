@@ -1,5 +1,5 @@
 //! Scrobbling: the tracks the audience hears go to the DJ's ListenBrainz
-//! profile, as a music player's do.
+//! and Last.fm profiles (see `lastfm`), as a music player's do.
 //!
 //! Off until switched on in Settings › Broadcast with the DJ's own user
 //! token. The track is the deck heard most in the master mix (as for the
@@ -123,10 +123,13 @@ enum Job {
 pub struct Scrobbler {
     registry: Arc<ControlRegistry>,
     loaded: LoadedTracks,
+    /// Sending to ListenBrainz, and to Last.fm.
     on: bool,
+    lastfm_on: bool,
     heard: Option<Heard>,
     last: Instant,
     jobs: Sender<Job>,
+    lastfm: Sender<crate::lastfm::Job>,
 }
 
 impl Scrobbler {
@@ -139,9 +142,11 @@ impl Scrobbler {
             registry,
             loaded,
             on: false,
+            lastfm_on: false,
             heard: None,
             last: Instant::now(),
             jobs,
+            lastfm: crate::lastfm::start(),
         }
     }
 
@@ -155,11 +160,20 @@ impl Scrobbler {
             let _ = self
                 .jobs
                 .send(Job::Token(if self.on { token } else { String::new() }));
-            if !self.on {
+            let account = crate::lastfm::Account::read();
+            self.lastfm_on = settings::flag(crate::lastfm::ENABLED, false) && account.ready();
+            let _ = self
+                .lastfm
+                .send(crate::lastfm::Job::Account(if self.lastfm_on {
+                    account
+                } else {
+                    Default::default()
+                }));
+            if !self.on && !self.lastfm_on {
                 self.heard = None;
             }
         }
-        if !self.on {
+        if !self.on && !self.lastfm_on {
             return;
         }
         let Some((_, track)) = broadcast::audible_deck(&self.registry, &self.loaded) else {
@@ -182,13 +196,32 @@ impl Scrobbler {
         h.seconds += dt;
         if !h.sent_now && h.seconds >= NOW_AFTER {
             h.sent_now = true;
-            let _ = self.jobs.send(Job::PlayingNow(listen(&h.track, None)));
+            if self.on {
+                let _ = self.jobs.send(Job::PlayingNow(listen(&h.track, None)));
+            }
+            if self.lastfm_on {
+                let _ = self
+                    .lastfm
+                    .send(crate::lastfm::Job::PlayingNow(crate::lastfm::play(
+                        &h.track, None,
+                    )));
+            }
         }
         if !h.sent && counts(h.seconds, h.track.duration) {
             h.sent = true;
-            let _ = self
-                .jobs
-                .send(Job::Listen(listen(&h.track, Some(h.started))));
+            if self.on {
+                let _ = self
+                    .jobs
+                    .send(Job::Listen(listen(&h.track, Some(h.started))));
+            }
+            if self.lastfm_on {
+                let _ = self
+                    .lastfm
+                    .send(crate::lastfm::Job::Scrobble(crate::lastfm::play(
+                        &h.track,
+                        Some(h.started),
+                    )));
+            }
         }
     }
 }

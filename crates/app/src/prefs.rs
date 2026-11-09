@@ -697,7 +697,7 @@ impl Prefs {
 
     /// Called every frame: picks up chosen paths and plugged-in devices.
     pub fn poll(&mut self) {
-        let mut tested = crate::storage::take_fresh();
+        let mut tested = crate::storage::take_fresh() | crate::lastfm::take_fresh();
         while let Ok((id, note)) = self.tested_rx.try_recv() {
             self.station_notes.insert(id, note);
             tested = true;
@@ -2721,7 +2721,7 @@ impl Prefs {
         if id == crate::now_playing::ENABLED || id == crate::now_playing::NETWORK {
             crate::now_playing::settings_changed();
         }
-        if id == crate::scrobble::ENABLED {
+        if id == crate::scrobble::ENABLED || id == crate::lastfm::ENABLED {
             crate::scrobble::settings_changed();
         }
         if id == settings::MOVE_FILES && on {
@@ -3184,6 +3184,11 @@ impl Prefs {
             settings::set_discogs_token(text);
             return;
         }
+        if id == crate::lastfm::API_KEY || id == crate::lastfm::SECRET {
+            settings::set(id, json!(text.trim()));
+            crate::scrobble::settings_changed();
+            return;
+        }
         if id == crate::scrobble::TOKEN {
             settings::set(id, json!(text.trim()));
             crate::scrobble::settings_changed();
@@ -3411,6 +3416,14 @@ impl Prefs {
                 true,
                 self.chosen_tx.clone(),
             ),
+            "lastfm_sign_in" => {
+                crate::lastfm::sign_in();
+                self.refresh();
+            }
+            "lastfm_sign_out" => {
+                crate::lastfm::sign_out();
+                self.refresh();
+            }
             "now_playing_open" => {
                 let url = crate::now_playing::status();
                 if url.starts_with("http") {

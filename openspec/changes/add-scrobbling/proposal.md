@@ -30,7 +30,7 @@ None.
 
 ## Difficulty
 
-**Small: two PRs.** ListenBrainz needs one POST with a token; Last.fm needs the signed auth flow and a session key in the keychain.
+**Small: two PRs.** ListenBrainz needs one POST with a token; Last.fm needs the signed auth flow and a session key, kept in the settings and out of backups.
 
 ## Performance
 

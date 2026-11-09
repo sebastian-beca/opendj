@@ -25,6 +25,7 @@ opendj-plugins = { path = "../plugins" }
 opendj-remote = { path = "../remote" }
 opendj-osc = { path = "../osc" }
 # Bonjour: tablets find the OSC port on the network.
+md5 = "0.8"
 mdns-sd = "0.21"
 opendj-waveform = { path = "../waveform" }
 serde_json = "1"

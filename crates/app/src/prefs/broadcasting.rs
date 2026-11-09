@@ -169,6 +169,62 @@ pub(super) fn scrobble_items() -> Vec<PrefItem> {
     items
 }
 
+/// Settings › Broadcast › SCROBBLING, Last.fm: the DJ's own API account
+/// and signing in.
+pub(super) fn lastfm_items() -> Vec<PrefItem> {
+    use crate::lastfm as fm;
+    let on = settings::flag(fm::ENABLED, false);
+    let mut items = vec![switch(
+        fm::ENABLED,
+        "Send plays to Last.fm",
+        "The same plays go to Last.fm. It needs an API account of your own (free, at \
+         last.fm/api/account/create): paste its key and shared secret, then sign in.",
+        on,
+    )];
+    if !on {
+        return items;
+    }
+    items.push(PrefItem {
+        value: settings::string(fm::API_KEY).into(),
+        ..item(fm::API_KEY, TEXT, "Last.fm API key", "")
+    });
+    items.push(PrefItem {
+        value: settings::string(fm::SECRET).into(),
+        on: true,
+        ..item(fm::SECRET, TEXT, "Last.fm shared secret", "")
+    });
+    let user = settings::string(fm::USER);
+    let signed_in = !settings::string(fm::SESSION).is_empty() && !user.is_empty();
+    let status = fm::status();
+    let detail = if !status.is_empty() {
+        status
+    } else if signed_in {
+        format!("Signed in as {user}")
+    } else {
+        "Opens Last.fm in the browser to allow openDJ.".to_string()
+    };
+    items.push(PrefItem {
+        action: if fm::signing_in() {
+            "Waiting…".into()
+        } else if signed_in {
+            "Sign out".into()
+        } else {
+            "Sign in".into()
+        },
+        ..item(
+            if signed_in {
+                "lastfm_sign_out"
+            } else {
+                "lastfm_sign_in"
+            },
+            BUTTON,
+            "Last.fm account",
+            &detail,
+        )
+    });
+    items
+}
+
 impl Prefs {
     /// Settings › Broadcast: the stations to stream to, the now-playing
     /// text, and what a public station needs.
@@ -383,6 +439,7 @@ impl Prefs {
         });
         items.extend(now_playing_items());
         items.extend(scrobble_items());
+        items.extend(lastfm_items());
         items.push(item("", HEADING, "BEFORE YOU GO ON AIR", ""));
         items.push(item(
             "",
