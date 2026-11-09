@@ -87,6 +87,7 @@ mod sampler;
 mod scrobble;
 mod settings;
 mod shortcuts;
+mod sleep_timer;
 mod smooth;
 mod soundcloud;
 mod sources;
@@ -1151,6 +1152,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let media_tracks = engine.loaded_tracks();
     // For Player's Now Playing view (installed with the mini player below).
     let view_tracks = engine.loaded_tracks();
+    // For the Player bar's sleep timer (installed with the mini player below).
+    let sleep_tracks = engine.loaded_tracks();
     // The now-playing files and overlay follow the mix a few times a second.
     let _now_playing_timer = {
         let mut feed = now_playing::NowPlaying::new(registry.clone(), engine.loaded_tracks());
@@ -1664,6 +1667,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // so keep filling whichever is showing.
     app_menu::install(&app);
     mini_player::install(&app);
+    let _sleep_timer = sleep_timer::install(&app, registry.clone(), sleep_tracks);
     // Media keys and the system's Now Playing follow the Player bar.
     let _media_controls = media_controls::install(&app, media_tracks);
     let _now_playing_view = now_playing_view::install(&app, view_tracks);

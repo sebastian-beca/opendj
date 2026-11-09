@@ -145,6 +145,36 @@ export component PlayerMixer inherits Rectangle {
     }
 }
 
+// Player's sleep timer (crate::sleep_timer): the music fades out and stops
+// after a time, or after the track playing now.
+export global SleepUi {
+    // A timer is set, and what the moon's tip says ("Stops in 23 min").
+    in property <bool> on;
+    in property <string> left;
+    // 0 off, 1 to 4: 15, 30, 45 or 60 minutes, 5 at the end of the track.
+    callback set(choice: int);
+}
+
+// One choice in the sleep menu.
+component SleepChoice inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+    height: 28px;
+    border-radius: 5px;
+    background: sta.has-hover ? Theme.panel-raised.brighter(0.3) : transparent;
+    Text {
+        x: 12px;
+        text: root.text;
+        color: Theme.text;
+        font-size: 13px;
+        vertical-alignment: center;
+    }
+    sta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 // A plain transport icon button for the Player bar: no box, the glyph
 // brightens on hover and dims when there is nothing to do.
 component BarButton inherits Rectangle {
@@ -538,6 +568,59 @@ export component PlayerBar inherits Rectangle {
                             commands: "M 1 5 L 4 5 L 8 2 L 8 12 L 4 9 L 1 9 Z";
                         }
                         LevelSlider { group: "[Master]"; key: "gain"; width: 110px; horizontal-stretch: 0; tint: Theme.text; }
+                    }
+                }
+                // The sleep timer: a moon, lit while set, with its menu
+                // above it.
+                VerticalLayout {
+                    alignment: center;
+                    moon := BarButton {
+                        lit: SleepUi.on;
+                        tip: SleepUi.on ? SleepUi.left : "Sleep timer";
+                        clicked => { sleep-menu.show(); }
+                        Path {
+                            width: 18px;
+                            height: 18px;
+                            viewbox-width: 18;
+                            viewbox-height: 18;
+                            stroke: moon.ink;
+                            stroke-width: 1.6px;
+                            fill: SleepUi.on ? Theme.accent.with-alpha(0.25) : transparent;
+                            commands: "M 14.5 11.5 A 6.5 6.5 0 1 1 7 2.5 A 5.2 5.2 0 0 0 14.5 11.5 Z";
+                        }
+                        sleep-menu := PopupWindow {
+                            x: (moon.width - 190px) / 2;
+                            y: -self.height - 8px;
+                            width: 190px;
+                            Rectangle {
+                                background: Theme.panel-raised;
+                                border-radius: 8px;
+                                border-width: 1px;
+                                border-color: Theme.border;
+                                drop-shadow-blur: 10px;
+                                drop-shadow-color: #00000090;
+                            }
+                            VerticalLayout {
+                                padding: 5px;
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    Text {
+                                        height: 26px;
+                                        text: SleepUi.on ? SleepUi.left : "Stop the music after";
+                                        color: Theme.text-dim;
+                                        font-size: 11px;
+                                        font-weight: 700;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                SleepChoice { text: "15 minutes"; clicked => { SleepUi.set(1); } }
+                                SleepChoice { text: "30 minutes"; clicked => { SleepUi.set(2); } }
+                                SleepChoice { text: "45 minutes"; clicked => { SleepUi.set(3); } }
+                                SleepChoice { text: "1 hour"; clicked => { SleepUi.set(4); } }
+                                SleepChoice { text: "End of track"; clicked => { SleepUi.set(5); } }
+                                if SleepUi.on: SleepChoice { text: "Turn off timer"; clicked => { SleepUi.set(0); } }
+                            }
+                        }
                     }
                 }
                 // The mini player: a small window on top of the others.

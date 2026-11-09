@@ -33,7 +33,11 @@ The menu at the top left of the window switches layouts:
   **Play/Pause** and **Next**; **✕** brings back the main window, which
   hides while the mini player shows. It has no title bar: drag the art to
   move it, and the grip in its bottom right corner to resize it (it stays
-  square). **Order** and **Repeat** are at the
+  square). The **moon** on the bar is a sleep timer: after 15, 30 or 45
+  minutes or an hour the music fades out over ten seconds and stops, or
+  pick **End of track** to stop when the track playing now ends (Automix
+  switches off so nothing mixes in). Point at the moon to see the time
+  left; **Turn off timer** in its menu cancels it. **Order** and **Repeat** are at the
   top of Up Next. With Repeat on, a played track goes back to the end of Up
   Next instead of leaving it, so the list keeps going round.
   Up Next shows the track playing on top, under **Now playing**. Each
