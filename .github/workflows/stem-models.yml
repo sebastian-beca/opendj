@@ -2,8 +2,10 @@ name: Publish stem models
 
 # Builds the stem separation models openDJ downloads the first time it needs
 # them (Spleeter converted from Deezer's checkpoint, HTDemucs as safetensors),
-# and fetches the Beat This! beat detection models (ONNX, from beat-this-rs),
-# checks them against scripts/models/SHA256SUMS, which the app pins too, and
+# and fetches the Beat This! beat detection models (ONNX, from beat-this-rs)
+# and the Whisper model for word timing (whisper.cpp's large-v3-turbo-q5_0),
+# checks them against scripts/models/SHA256SUMS and SHA1SUMS (Whisper's,
+# as whisper.cpp publishes them), which the app pins too, and
 # attaches them to the `stem-models` pre-release. Run it by hand from the
 # Actions tab once, and again when a model is added. Models already on the
 # release are kept as they are: the Spleeter conversion isn't byte-for-byte
@@ -45,9 +47,16 @@ jobs:
           base=https://raw.githubusercontent.com/danigb/beat-this-rs/1ae768e78f1ad83b0ed3886241dc29ffde853c40/models
           curl -sSfL -o models/beat-this-mel.onnx "$base/mel_spectrogram.onnx"
           curl -sSfL -o models/beat-this-small.onnx "$base/beat_this_small.onnx"
+      - name: Fetch Whisper
+        if: hashFiles('models/ggml-large-v3-turbo-q5_0.bin') == ''
+        run: |
+          curl -sSfL -o models/ggml-large-v3-turbo-q5_0.bin \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
       - name: Check them against the pinned checksums
         working-directory: models
-        run: sha256sum -c ../scripts/models/SHA256SUMS
+        run: |
+          sha256sum -c ../scripts/models/SHA256SUMS
+          sha1sum -c ../scripts/models/SHA1SUMS
       - name: Attach them to the stem-models pre-release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -55,6 +64,6 @@ jobs:
           if ! gh release view stem-models >/dev/null 2>&1; then
             gh release create stem-models --prerelease --target "$GITHUB_SHA" \
               --title "Stem separation models" \
-              --notes "Models openDJ downloads the first time it needs them: Spleeter 4stems (MIT, Deezer) for stems on load, HTDemucs (MIT, Meta) for high-quality stems, and Beat This! (MIT, JKU Linz) for beats and downbeats. Not an app release."
+              --notes "Models openDJ downloads the first time it needs them: Spleeter 4stems (MIT, Deezer) for stems on load, HTDemucs (MIT, Meta) for high-quality stems, Beat This! (MIT, JKU Linz) for beats and downbeats, and Whisper large-v3-turbo (MIT, OpenAI; ggml from whisper.cpp) for word timing. Not an app release."
           fi
-          gh release upload stem-models models/*.safetensors models/*.onnx --clobber
+          gh release upload stem-models models/*.safetensors models/*.onnx models/*.bin --clobber

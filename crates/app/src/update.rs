@@ -436,12 +436,10 @@ pub(crate) fn download(url: &str, to: &Path) -> Result<(), String> {
 
 /// The file must match the checksum GitHub published; a release without
 /// one isn't installed.
-pub(crate) fn check_digest(file: &Path, digest: Option<&str>) -> Result<(), String> {
-    let want = digest
-        .and_then(|d| d.strip_prefix("sha256:"))
-        .ok_or("the release has no checksum")?;
+/// The file's digest with hash `D`, in lowercase hex.
+fn hash_file<D: Digest>(file: &Path) -> Result<String, String> {
     let mut f = std::fs::File::open(file).map_err(|e| e.to_string())?;
-    let mut hasher = Sha256::new();
+    let mut hasher = D::new();
     let mut buf = vec![0; 1 << 16];
     loop {
         let n = f.read(&mut buf).map_err(|e| e.to_string())?;
@@ -450,11 +448,24 @@ pub(crate) fn check_digest(file: &Path, digest: Option<&str>) -> Result<(), Stri
         }
         hasher.update(&buf[..n]);
     }
-    let got: String = hasher
+    Ok(hasher
         .finalize()
         .iter()
         .map(|b| format!("{b:02x}"))
-        .collect();
+        .collect())
+}
+
+pub(crate) fn check_digest(file: &Path, digest: Option<&str>) -> Result<(), String> {
+    let digest = digest.ok_or("the release has no checksum")?;
+    // SHA-256 as GitHub gives it; SHA-1 for a model pinned by its maker's
+    // SHA-1 (Whisper's, as whisper.cpp publishes them).
+    let (want, got) = if let Some(want) = digest.strip_prefix("sha256:") {
+        (want, hash_file::<Sha256>(file)?)
+    } else if let Some(want) = digest.strip_prefix("sha1:") {
+        (want, hash_file::<sha1::Sha1>(file)?)
+    } else {
+        return Err("the release has no checksum".into());
+    };
     if got.eq_ignore_ascii_case(want) {
         Ok(())
     } else {
@@ -632,12 +643,14 @@ fn is_newer(candidate: &str, current: &str) -> bool {
 /// which look at the latest release, skip it).
 const MODELS_URL: &str = "https://github.com/sebastian-beca/opendj/releases/download/stem-models";
 
-/// Lets the engine download a model (stem separation, Beat This!) the first
-/// time it is needed, checked against the SHA-256 the engine knows it by.
+/// Lets the engine download a model (stem separation, Beat This!, Whisper)
+/// the first time it is needed, checked against the hash the engine knows
+/// it by: SHA-256, or SHA-1 for the 40-digit hashes of Whisper models.
 pub fn install_model_fetch() {
-    opendj_engine::separation::set_fetch(Box::new(|name, sha, to| {
+    opendj_engine::separation::set_fetch(Box::new(|name, hash, to| {
         download(&format!("{MODELS_URL}/{name}"), to)?;
-        check_digest(to, Some(&format!("sha256:{sha}")))
+        let kind = if hash.len() == 40 { "sha1" } else { "sha256" };
+        check_digest(to, Some(&format!("{kind}:{hash}")))
     }));
 }
 
@@ -772,6 +785,10 @@ mod tests {
         assert!(check_digest(&file, Some(abc)).is_ok());
         assert!(check_digest(&file, Some("sha256:00")).is_err());
         assert!(check_digest(&file, None).is_err());
+        let sha1 = "sha1:a9993e364706816aba3e25717850c26c9cd0d89d";
+        assert!(check_digest(&file, Some(sha1)).is_ok());
+        assert!(check_digest(&file, Some("sha1:00")).is_err());
+        assert!(check_digest(&file, Some("md5:900150983cd24fb0d6963f7d28e17f72")).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -30,11 +30,19 @@ beat-this = { version = "1.1", default-features = false }
 # The Groove Box's Analog and Synthetic kits: Mutable Instruments Plaits'
 # drum models (MIT). Not on crates.io, so pinned to a commit.
 mi-plaits-dsp = { git = "https://github.com/sourcebox/mi-plaits-dsp-rs", rev = "effe9864bb67d23aaf5724722ac1ce165d4e7c9f" }
+# Word timing for lyrics: whisper.cpp (MIT) through whisper-rs, built with
+# cmake. The model (OpenAI Whisper large-v3-turbo, MIT) is downloaded the
+# first time it is needed.
+whisper-rs = "0.16"
 
 # Real-time priority for the audio thread, which cpal only asks for with
 # this feature (Core Audio's callbacks on macOS already run real-time).
 [target.'cfg(target_os = "linux")'.dependencies]
 cpal = { version = "0.18", features = ["realtime"] }
+
+# Whisper on the Mac's GPU.
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "0.16", features = ["metal"] }
 
 [target.'cfg(windows)'.dependencies]
 # ASIO drivers next to Windows Audio. The build downloads Steinberg's ASIO
