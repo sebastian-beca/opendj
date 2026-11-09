@@ -56,6 +56,24 @@ waveforms**.
 
 ![Lyrics on a deck's waveform](../images/waveform-lyrics.png)
 
+## Time words
+
+Lyrics timed only by line (most of what LRCLIB has) light a whole line at
+once. **Time Words**, under the track's name in the Lyrics tab, gives each
+word its own time, so words fill as they are sung on the karaoke screen,
+in Player mode and on the waveforms.
+
+openDJ listens to the track's vocals with Whisper, on your computer:
+nothing is sent anywhere. It separates the vocals first if the track has
+no stems yet, then lines up the lyrics you have with the words it hears.
+Words it can't make out are placed between those it can. The lyrics are
+saved as an `.lrc` beside the track, timed by word.
+
+The first time, openDJ downloads the Whisper model (about 550 MB). A track
+takes a minute or so on a recent Mac. If Whisper can't make out enough of
+the words, say for a track sung in a heavy mix or lyrics for another
+version, the lyrics are left as they were and the tab says so.
+
 ## Karaoke screen
 
 **Karaoke** in the Lyrics tab (or **Karaoke Screen** at the top right of
