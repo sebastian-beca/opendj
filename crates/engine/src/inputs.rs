@@ -395,6 +395,64 @@ impl Input {
         std::mem::replace(&mut self.feed, feed)
     }
 
+    /// The Instrument input's first half of a buffer of `frames`: takes the
+    /// scale, chord, arpeggiator, pads and knobs and hands the plugin its
+    /// block, so it plays while the decks are worked out; [`Input::render`]
+    /// picks the sound up. Nothing for the other inputs.
+    pub(crate) fn start(
+        &mut self,
+        frames: usize,
+        fx: &mut EffectRack,
+        target: usize,
+        on_deck: bool,
+    ) {
+        if self.index != INSTRUMENT {
+            return;
+        }
+        if let Some([mode, root, kind, mask_shown, now_shown]) = &self.scale {
+            let scale = crate::scale::scale_for(
+                mode.get().round() as u8,
+                root.get().round() as u8,
+                kind.get().round() as usize,
+                self.master_key,
+            );
+            let mask = scale.map_or(0, |(r, s)| crate::scale::mask(r, s));
+            mask_shown.set(mask as f64);
+            now_shown.set(scale.map_or(0.0, |(r, s)| (1 + s * 12 + r as usize) as f64));
+            fx.set_scale(mask);
+        }
+        if let Some([mode, shape, learn]) = &self.chord {
+            if let Some(learned) = fx.take_learned_chord() {
+                shape.set(learned as f64);
+                learn.set(0.0);
+                mode.set(crate::scale::MINE as f64);
+            }
+            fx.set_chord(
+                mode.get().round() as u8,
+                shape.get().max(0.0) as u32,
+                learn.get() > 0.5,
+            );
+        }
+        if let Some([on, mode, rate, gate, octaves, hold]) = &self.arp {
+            fx.set_arp(crate::arp::ArpSettings {
+                on: on.get() > 0.5,
+                mode: mode.get().round() as u8,
+                rate: rate.get().round().max(0.0) as usize,
+                gate: gate.get(),
+                octaves: octaves.get().round() as u8,
+                hold: hold.get() > 0.5,
+            });
+        }
+        if let Some(pads) = &mut self.pads {
+            pads.play(fx);
+        }
+        let mut params = [0.0f32; INSTRUMENT_PARAMETERS];
+        for (p, c) in params.iter_mut().zip(&self.params) {
+            *p = c.get() as f32;
+        }
+        fx.start_instrument(frames, target, &params, on_deck);
+    }
+
     /// Takes in `frames` from the device and runs them through the gain,
     /// the EQ and the effects routed to `target`; the result is in `buf`.
     /// `dt` is the buffer's length in seconds. While `on_deck`, a deck
@@ -415,48 +473,7 @@ impl Input {
         }
         let buf = &mut self.buf[..frames];
         let source = if self.index == INSTRUMENT {
-            if let Some([mode, root, kind, mask_shown, now_shown]) = &self.scale {
-                let scale = crate::scale::scale_for(
-                    mode.get().round() as u8,
-                    root.get().round() as u8,
-                    kind.get().round() as usize,
-                    self.master_key,
-                );
-                let mask = scale.map_or(0, |(r, s)| crate::scale::mask(r, s));
-                mask_shown.set(mask as f64);
-                now_shown.set(scale.map_or(0.0, |(r, s)| (1 + s * 12 + r as usize) as f64));
-                fx.set_scale(mask);
-            }
-            if let Some([mode, shape, learn]) = &self.chord {
-                if let Some(learned) = fx.take_learned_chord() {
-                    shape.set(learned as f64);
-                    learn.set(0.0);
-                    mode.set(crate::scale::MINE as f64);
-                }
-                fx.set_chord(
-                    mode.get().round() as u8,
-                    shape.get().max(0.0) as u32,
-                    learn.get() > 0.5,
-                );
-            }
-            if let Some([on, mode, rate, gate, octaves, hold]) = &self.arp {
-                fx.set_arp(crate::arp::ArpSettings {
-                    on: on.get() > 0.5,
-                    mode: mode.get().round() as u8,
-                    rate: rate.get().round().max(0.0) as usize,
-                    gate: gate.get(),
-                    octaves: octaves.get().round() as u8,
-                    hold: hold.get() > 0.5,
-                });
-            }
-            if let Some(pads) = &mut self.pads {
-                pads.play(fx);
-            }
-            let mut params = [0.0f32; INSTRUMENT_PARAMETERS];
-            for (p, c) in params.iter_mut().zip(&self.params) {
-                *p = c.get() as f32;
-            }
-            let playing = fx.play_instrument(buf, target, &params);
+            let playing = fx.finish_instrument(buf);
             self.c.configured.set_bool(fx.has_instrument());
             playing
         } else {

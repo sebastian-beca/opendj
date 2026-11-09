@@ -86,6 +86,8 @@ pub struct Connection {
     seq: u64,
     /// A handed-over block the helper hasn't finished.
     pending: bool,
+    /// The block [`Connection::send`] just handed over, not yet collected.
+    awaiting: bool,
     gone: bool,
     missed_in_row: u32,
     health: Arc<Health>,
@@ -455,6 +457,7 @@ pub fn spawn(opts: &Options) -> io::Result<(Connection, Helper)> {
         wake,
         seq: 0,
         pending: false,
+        awaiting: false,
         gone: false,
         missed_in_row: 0,
         health: helper.health.clone(),
@@ -492,19 +495,38 @@ impl Connection {
         events: &[Midi],
         deadline: Duration,
     ) -> Outcome {
+        let start = Instant::now();
+        let out = match self.send(input, transport, events) {
+            Ok(()) => self.collect_until(&mut output, start + deadline),
+            Err(out) => out,
+        };
+        if !out.is_wet() {
+            copy_dry(input, &mut output);
+        }
+        out
+    }
+
+    /// The first half of [`Connection::process_events`]: hands the block to
+    /// the helper and returns at once, so several helpers can work on their
+    /// blocks side by side. [`Connection::collect`] picks the result up.
+    /// `Err` when the block can't go (the helper is still on a late block,
+    /// or gone): it plays dry and there is nothing to collect. Real-time
+    /// safe.
+    pub fn send(
+        &mut self,
+        input: [&[f32]; CHANNELS],
+        transport: Transport,
+        events: &[Midi],
+    ) -> Result<(), Outcome> {
         let frames = input[0].len();
         assert!(
             frames <= self.shm.max_frames(),
             "block longer than max_frames"
         );
-        assert!(
-            input.iter().all(|c| c.len() == frames) && output.iter().all(|c| c.len() == frames)
-        );
-        let start = Instant::now();
+        assert!(input.iter().all(|c| c.len() == frames));
         let h = self.shm.header();
         if self.gone {
-            copy_dry(input, &mut output);
-            return Outcome::Gone;
+            return Err(Outcome::Gone);
         }
         if self.pending {
             if h.seq_out.load(Ordering::Acquire) == self.seq {
@@ -512,8 +534,7 @@ impl Connection {
                 self.pending = false;
             } else {
                 self.missed(1);
-                copy_dry(input, &mut output);
-                return Outcome::Busy;
+                return Err(Outcome::Busy);
             }
         }
         for (ch, data) in input.iter().enumerate() {
@@ -535,13 +556,37 @@ impl Connection {
         if self.wake.write_all(&[1]).is_err() {
             self.gone = true;
             self.health.gone.store(true, Ordering::Relaxed);
-            copy_dry(input, &mut output);
+            return Err(Outcome::Gone);
+        }
+        self.pending = true;
+        self.awaiting = true;
+        Ok(())
+    }
+
+    /// The second half: waits up to `deadline` for the block
+    /// [`Connection::send`] handed over and writes the plugin's output.
+    /// Anything but [`Outcome::Wet`] leaves `output` as it was (the caller
+    /// plays the block dry). Real-time safe.
+    pub fn collect(&mut self, mut output: [&mut [f32]; CHANNELS], deadline: Duration) -> Outcome {
+        self.collect_until(&mut output, Instant::now() + deadline)
+    }
+
+    fn collect_until(&mut self, output: &mut [&mut [f32]; CHANNELS], end: Instant) -> Outcome {
+        if self.gone {
+            self.awaiting = false;
             return Outcome::Gone;
         }
-        let end = start + deadline;
+        if !std::mem::take(&mut self.awaiting) {
+            // Nothing was sent: send refused the block.
+            return Outcome::Busy;
+        }
+        let frames = self.shm.header().frames.load(Ordering::Relaxed) as usize;
+        assert!(output.iter().all(|c| c.len() == frames));
+        let h = self.shm.header();
         let mut spins = 0u32;
         loop {
             if h.seq_out.load(Ordering::Acquire) == self.seq {
+                self.pending = false;
                 for (ch, data) in output.iter_mut().enumerate() {
                     self.shm.read(true, ch, data);
                 }
@@ -557,9 +602,8 @@ impl Connection {
             }
             std::hint::spin_loop();
         }
-        self.pending = true;
+        // Still pending: the next send drops its output once it is done.
         self.missed(1);
-        copy_dry(input, &mut output);
         Outcome::Late
     }
 
