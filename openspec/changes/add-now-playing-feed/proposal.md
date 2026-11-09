@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.5 · Stems, performance and switching over** (Seba 2026-11-02, from the ecosystem standards review)
+Planned for: **v0.5 · Stems, performance and switching over** (2026-11-02, from the ecosystem standards review)
 
 ## Why
 

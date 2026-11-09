@@ -1,10 +1,10 @@
 # Proposal
 
-Planned for: **v0.5 · Stems, performance and switching over** (moved from v1.x by Seba, 2026-11-02, after the pattern player review in the project notes, `notes/pattern-player-review.md`)
+Planned for: **v0.5 · Stems, performance and switching over** (moved from v1.x, 2026-11-02, after the pattern player review in the project notes, `notes/pattern-player-review.md`)
 
 ## Why
 
-Traktor Pro 4 has a Pattern Player, rekordbox a sampler sequencer, and hardware like Novation Circuit Tracks and Ableton Move make it easy to lay a beat under a mix. openDJ has a sampler with packs but nothing that plays a rhythm by itself. Seba wants a simple groove box that can take the place of a deck, that a beginner can start in one press and stay in time with the mix without thinking about it.
+Traktor Pro 4 has a Pattern Player, rekordbox a sampler sequencer, and hardware like Novation Circuit Tracks and Ableton Move make it easy to lay a beat under a mix. openDJ has a sampler with packs but nothing that plays a rhythm by itself. The goal is a simple groove box that can take the place of a deck, that a beginner can start in one press and stay in time with the mix without thinking about it.
 
 ## What Changes
 

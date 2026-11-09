@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.5 · Stems, performance and switching over** for steps 1 and 2 (Broadcast meter, Icecast radio), **v0.6** for steps 3 to 5 (Go live to video platforms, WebRTC, radio show tools). Moved from v1.x by Seba, 2026-11-02, after the radio and livestream research in the project notes (`notes/radio-livestream-review.md`).
+Planned for: **v0.5 · Stems, performance and switching over** for steps 1 and 2 (Broadcast meter, Icecast radio), **v0.6** for steps 3 to 5 (Go live to video platforms, WebRTC, radio show tools). Moved from v1.x, 2026-11-02, after the radio and livestream research in the project notes (`notes/radio-livestream-review.md`).
 
 ## Why
 

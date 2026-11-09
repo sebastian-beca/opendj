@@ -17,7 +17,7 @@ press, LED scripts with colors, variables). A mapping can stand alone or be
   "format": "opendj-mapping",
   "version": 1,
   "name": "DDJ-FLX4 Nahuel 2026",
-  "author": "Seba",
+  "author": "Your Name",
   "controller": { "name": "Pioneer DDJ-FLX4", "ports": ["DDJ-FLX4"], "layout": "flx4" },
   "based_on": "Pioneer-DDJ-FLX4.midi.xml",
   "imported": { "app": "VirtualDJ", "file": "Pioneer DDJ-FLX4 - DDJ-FLX4 Nahuel 2026.xml", "date": "2026-10-29" },

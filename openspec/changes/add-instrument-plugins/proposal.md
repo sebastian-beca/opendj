@@ -4,7 +4,7 @@ Planned for: **v2.0**, after `add-audio-plugin-hosting`
 
 ## Why
 
-Seba (2026-11-01): loading instrument plugins could make sense, so a DJ can play a synth, drum machine or sampler instrument live over the mix. This fits the project's aim of bringing live music and groove boxes into a DJ set.
+A user request (2026-11-01): loading instrument plugins could make sense, so a DJ can play a synth, drum machine or sampler instrument live over the mix. This fits the project's aim of bringing live music and groove boxes into a DJ set.
 
 ## What Changes
 

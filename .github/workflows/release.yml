@@ -41,7 +41,7 @@ jobs:
 
   macos:
     # One app for both Apple Silicon and Intel Macs.
-    # Signed with Seba's Developer ID and notarized when the secrets below
+    # Signed with the project's Developer ID and notarized when the secrets below
     # are set (see docs/macos-signing.md); otherwise ad-hoc signed as before.
     needs: version
     runs-on: macos-15

@@ -4,7 +4,7 @@ Planned for: **v0.5 · Stems and performance** (the first part, Spleeter on load
 
 ## Why
 
-Seba uses stems a lot. Today a track only has stems after SEPARATE STEMS runs Demucs, which has to be installed by hand with Python and takes minutes per track, so stems are something to prepare, not something to reach for mid-set. djay, rekordbox and VirtualDJ all have stems the moment a track loads.
+DJs use stems a lot. Today a track only has stems after SEPARATE STEMS runs Demucs, which has to be installed by hand with Python and takes minutes per track, so stems are something to prepare, not something to reach for mid-set. djay, rekordbox and VirtualDJ all have stems the moment a track loads.
 
 ## What Changes
 

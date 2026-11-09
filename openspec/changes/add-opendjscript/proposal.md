@@ -4,7 +4,7 @@ Planned for: **v0.4**
 
 ## Why
 
-Keyboard shortcuts, and later controller rows, pads, OSC and the MCP server, all need a way to say what a key or button does. VirtualDJ users know VDJscript's one-liners; Seba asked for a basic openDJ equivalent (2026-10-28), with ⌘1 to ⌘5 rating tracks as its first use.
+Keyboard shortcuts, and later controller rows, pads, OSC and the MCP server, all need a way to say what a key or button does. VirtualDJ users know VDJscript's one-liners; a user request asked for a basic openDJ equivalent (2026-10-28), with ⌘1 to ⌘5 rating tracks as its first use.
 
 ## What Changes
 

@@ -11,7 +11,7 @@ use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-const REPOSITORY: &str = "https://github.com/sebastian-beca/opendj";
+const REPOSITORY: &str = "https://github.com/openwave-studio/opendj";
 
 pub fn logs_dir() -> Option<PathBuf> {
     crate::settings::config_dir().map(|d| d.join("logs"))
@@ -131,7 +131,7 @@ mod tests {
     fn issue_links_carry_the_version() {
         let url = issue_url("bug_report.yml");
         assert!(url.starts_with(
-            "https://github.com/sebastian-beca/opendj/issues/new?template=bug_report.yml&version="
+            "https://github.com/openwave-studio/opendj/issues/new?template=bug_report.yml&version="
         ));
         assert!(url.contains(VERSION));
         assert!(!url.contains(' '));

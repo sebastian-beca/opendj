@@ -4,7 +4,7 @@ Planned for: **v0.4 · Your collection, cleaned up (collection maintenance PR 4)
 
 ## Why
 
-601 of Seba's tracks had no artist or title and names are inconsistent. Fill-from-file-name fixes one case; a clean-up pass should propose consistent names and write them to the files.
+In one real library, 601 tracks had no artist or title and names are inconsistent. Fill-from-file-name fixes one case; a clean-up pass should propose consistent names and write them to the files.
 
 ## What Changes
 

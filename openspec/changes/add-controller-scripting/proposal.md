@@ -4,7 +4,7 @@ Planned for: **v0.5** (with the controller mapper, #133)
 
 ## Why
 
-Seba (2026-11-01): the Controller Editor should support openDJscript, so a
+A user request (2026-11-01): the Controller Editor should support openDJscript, so a
 mapping can do things like conditional logic based on the controller's
 modes, modifiers and SHIFT. The mapping format and the runtime already have
 it (openDJscript rows, `layer` conditions on variables, `set_var` /

@@ -31,7 +31,7 @@ without its brackets (spaces become `_`), then the key.
 | `[EqualizerRack1_[Channel1]_Effect1],parameter1` | `/equalizerrack1_channel1_effect1/parameter1` |
 | `[QuickEffectRack1_[Channel1]],super1` | `/quickeffectrack1_channel1/super1` |
 
-Every name in the [list of supported controls](https://github.com/sebastian-beca/opendj/blob/main/website/book/supported-controls.txt)
+Every name in the [list of supported controls](https://github.com/openwave-studio/opendj/blob/main/website/book/supported-controls.txt)
 works. Addresses ignore upper and lower case.
 
 - **Set a control:** send the address with one number (float, int or

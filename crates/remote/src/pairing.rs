@@ -277,8 +277,8 @@ mod tests {
         let now = Instant::now();
         let mut p = Pairing::new(Vec::new());
         let (code, generation) = p.code(now);
-        let (device, token) = p.pair_with_code(&code, "Seba's iPhone", now).unwrap();
-        assert_eq!(device.name, "Seba's iPhone");
+        let (device, token) = p.pair_with_code(&code, "DJ's iPhone", now).unwrap();
+        assert_eq!(device.name, "DJ's iPhone");
         assert!(p.take_changed());
         // Used up: the same code fails, and a new one is out.
         assert_eq!(p.pair_with_code(&code, "x", now), Err(PairError::Wrong));

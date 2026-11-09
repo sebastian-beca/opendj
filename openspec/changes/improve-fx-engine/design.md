@@ -2,7 +2,7 @@
 
 ## Context
 
-openDJ's effects are its own Rust code (`crates/engine/src/effects.rs` and `dsp.rs`). The FX library review (`notes/fx-engine-review.md`, 2026-10-27) decided to keep that engine and port MIT-licensed algorithms into it by hand, rather than depend on fundsp, bosai-dsp, Airwindows or Signalsmith DSP. Seba's goal for v0.5 (2026-11-01): high sound quality and low CPU, on four decks at once.
+openDJ's effects are its own Rust code (`crates/engine/src/effects.rs` and `dsp.rs`). The FX library review (`notes/fx-engine-review.md`, 2026-10-27) decided to keep that engine and port MIT-licensed algorithms into it by hand, rather than depend on fundsp, bosai-dsp, Airwindows or Signalsmith DSP. The goal for v0.5 (2026-11-01): high sound quality and low CPU, on four decks at once.
 
 The engine runs everything frame by frame inside the audio callback: each deck's sample goes through EQ, Color FX, Sculpt and the effect rack, then into the main mix, whose effects run before the limiter. Effects read their controls once per buffer in `EffectRack::prepare` and run per frame in `EffectRack::process`.
 

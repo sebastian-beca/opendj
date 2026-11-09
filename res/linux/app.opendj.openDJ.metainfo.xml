@@ -29,13 +29,13 @@
   <launchable type="desktop-id">app.opendj.openDJ.desktop</launchable>
   <icon type="stock">app.opendj.openDJ</icon>
   <url type="homepage">https://opendj.app</url>
-  <url type="bugtracker">https://github.com/sebastian-beca/opendj/issues</url>
-  <url type="vcs-browser">https://github.com/sebastian-beca/opendj</url>
+  <url type="bugtracker">https://github.com/openwave-studio/opendj/issues</url>
+  <url type="vcs-browser">https://github.com/openwave-studio/opendj</url>
   <url type="donation">https://buymeacoffee.com/opendj</url>
   <screenshots>
     <screenshot type="default">
       <caption>Two decks, the mixer and the collection</caption>
-      <image>https://raw.githubusercontent.com/sebastian-beca/opendj/main/docs/screenshot.jpg</image>
+      <image>https://raw.githubusercontent.com/openwave-studio/opendj/main/docs/screenshot.jpg</image>
     </screenshot>
   </screenshots>
   <categories>
@@ -58,7 +58,7 @@
   <content_rating type="oars-1.1"/>
   <releases>
     <release version="@VERSION@" date="@DATE@">
-      <url type="details">https://github.com/sebastian-beca/opendj/releases/tag/v@VERSION@</url>
+      <url type="details">https://github.com/openwave-studio/opendj/releases/tag/v@VERSION@</url>
     </release>
   </releases>
 </component>

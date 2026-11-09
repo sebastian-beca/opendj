@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.5 · Stems, performance and switching over** (step 1; Seba 2026-11-01, main use is Automix control)
+Planned for: **v0.5 · Stems, performance and switching over** (step 1; 2026-11-01, main use is Automix control)
 
 ## Why
 

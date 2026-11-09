@@ -154,11 +154,11 @@ They're marked **Beta** in **Settings › Controllers** and the editor until
 someone has tried the mapping in openDJ on the real controller, and
 **Supported** once that's done and the mapping is settled. If you have one
 of them, try it and
-[tell us how it goes](https://github.com/sebastian-beca/opendj/issues/new?template=controller.yml).
+[tell us how it goes](https://github.com/openwave-studio/opendj/issues/new?template=controller.yml).
 
 [Supported controllers](../controllers/index.html) lists every controller with
 a mapping, and what each control does where the mapping describes it.
 
 If your controller doesn't work right,
-[tell us which one](https://github.com/sebastian-beca/opendj/issues/new?template=controller.yml).
+[tell us which one](https://github.com/openwave-studio/opendj/issues/new?template=controller.yml).
 Beta testers' controllers are fixed first.

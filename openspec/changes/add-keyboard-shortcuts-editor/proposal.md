@@ -4,7 +4,7 @@ Planned for: **v0.4**
 
 ## Why
 
-Seba asked for a keyboard shortcuts editor (v0.4 list, 2026-10-28). Since add-opendjscript, every shortcut is a key plus an openDJscript line, but the only way to change one was editing settings.json.
+A user request asked for a keyboard shortcuts editor (v0.4 list, 2026-10-28). Since add-opendjscript, every shortcut is a key plus an openDJscript line, but the only way to change one was editing settings.json.
 
 ## What Changes
 
@@ -27,7 +27,7 @@ None.
 
 ## Out of Scope
 
-- Presets (rekordbox, VirtualDJ or Mixxx style), and more default keys. Both wait on Seba's answers in the thread.
+- Presets (rekordbox, VirtualDJ or Mixxx style), and more default keys. Both wait on a decision.
 - Recording a shortcut's key while the app plays: the editor only lives in Settings.
 
 ## Impact

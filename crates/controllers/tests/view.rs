@@ -1,4 +1,4 @@
-//! The Controller Editor's view of Seba's three controllers: script-driven
+//! The Controller Editor's view of three common controllers: script-driven
 //! controls get their meaning from the sandbox probe.
 
 use opendj_control::ControlRegistry;

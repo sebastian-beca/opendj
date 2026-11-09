@@ -7,7 +7,7 @@ sudo apt install cmake libfontconfig-dev libxkbcommon-dev libasound2-dev libudev
 ```
 
 Then, from a clone of the
-[repository](https://github.com/sebastian-beca/opendj):
+[repository](https://github.com/openwave-studio/opendj):
 
 ```sh
 cargo run --release

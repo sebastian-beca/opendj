@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn keeps_playlists_and_tracks() {
         let mut kept = Kept {
-            user: "Seba".into(),
+            user: "dj".into(),
             playlists: vec![
                 Playlist {
                     key: "liked".into(),

@@ -1,7 +1,7 @@
 # Install
 
 Download openDJ from the [download page](https://opendj.app/#download) or the
-[latest release on GitHub](https://github.com/sebastian-beca/opendj/releases/latest).
+[latest release on GitHub](https://github.com/openwave-studio/opendj/releases/latest).
 
 ## macOS
 

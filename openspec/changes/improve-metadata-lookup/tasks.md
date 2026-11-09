@@ -13,7 +13,7 @@
 - [x] 2.2 File-name suggestions join the look-up results where the match gave no name
 - [x] 2.3 Missing or poor metadata says what the flagged tracks lack
 - [x] 2.4 Update website/book/src/guide/collection-health.md
-- [ ] 2.5 Try a batch on Seba's library with and without an AcoustID key (online APIs are blocked in the cloud container)
+- [ ] 2.5 Try a batch on a test library with and without an AcoustID key (online APIs are blocked in the cloud container)
 
 ## Workflow follow-up
 

@@ -13,7 +13,7 @@ The full research (other apps, UI sketches, engine, controllers) is in the proje
 
 ## Decisions
 
-### Beginners first (Seba, 2026-11-02)
+### Beginners first (2026-11-02)
 
 - **One press.** A kit always has a groove loaded; PLAY starts it on the next bar at the right tempo. No tempo, clock source or quantize setting to understand.
 - **Names, not numbers.** Rows are named after their sound, grooves after their style (*Four to the floor*, *Off-beat hats*, *Breakbeat*, *Half time*), kits after their character (*Boom*, *Punch*, *Tin*, *Dub*).
@@ -69,7 +69,7 @@ Cells about 22 px; on screens too narrow for 16 the row shows 8 with the 1/2 pag
 
 `x` is a hit, `.` a rest; `X` hard and `o` soft come with velocity. Edits are overrides in `settings.json`, as pad edits are.
 
-### Classic drum machine sounds and licences (Seba asked for CC sounds from classic groove boxes, 2026-11-02)
+### Classic drum machine sounds and licences (a user request for CC sounds from classic groove boxes, 2026-11-02)
 
 openDJ's builds are GPL-3.0 and published on GitHub, so anything bundled must allow redistribution, commercial use included. What was found:
 

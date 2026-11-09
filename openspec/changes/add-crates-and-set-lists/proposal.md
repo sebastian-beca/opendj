@@ -4,7 +4,7 @@ Planned for: **v0.4 · Your collection, cleaned up (collection maintenance PR 6)
 
 ## Why
 
-Seba organises music as crates (Yoga, Journeys, Dance) and per-gig set folders (Staging, Set, Live set, sometimes Openers, Closers, Transitions). Lists today are one kind, and building a Live set from History is manual.
+Many DJs organise music as crates (Yoga, Journeys, Dance) and per-gig set folders (Staging, Set, Live set, sometimes Openers, Closers, Transitions). Lists today are one kind, and building a Live set from History is manual.
 
 ## What Changes
 

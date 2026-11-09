@@ -10,7 +10,7 @@ The headline use of stems in 2026 is echoing out a vocal, playing an acapella or
 
 - Per-stem quick effect (echo out, filter) as Mixxx's `[QuickEffectRack1_[ChannelN_StemM]]`.
 - Acapella and Instrumental one-press pads.
-- STEMS knob mode fully mapped on Seba's controllers.
+- STEMS knob mode fully mapped on the test controllers.
 
 ## Capabilities
 

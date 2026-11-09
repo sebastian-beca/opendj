@@ -2,7 +2,7 @@
 
 ## Why
 
-Tracks are only analysed when they load on a deck, when they enter Triage, or from Collection Health. The DJ has no way to analyse a chosen track or list ahead of a set, or to redo a track whose analysis came from an older version or another key detector. Seba asked (2026-10-28) for a right-click "Analyze Track" that finds everything at once: BPM, beat grid, key, loudness, mini waveform and phrases. He also asked for the Colour row to leave the track menu.
+Tracks are only analysed when they load on a deck, when they enter Triage, or from Collection Health. The DJ has no way to analyse a chosen track or list ahead of a set, or to redo a track whose analysis came from an older version or another key detector. A user request (2026-10-28) asked for a right-click "Analyze Track" that finds everything at once: BPM, beat grid, key, loudness, mini waveform and phrases. He also asked for the Colour row to leave the track menu.
 
 ## What changes
 
@@ -13,7 +13,7 @@ Tracks are only analysed when they load on a deck, when they enter Triage, or fr
 - While analysis runs, a track's row shows a dot (dim while waiting, pulsing lilac while being analysed), and the footer shows "Analyzing 3 of 12" with a ✕ that stops the rest.
 - The track menu no longer offers a colour. Colours already given to tracks stay and still show.
 
-The label uses Seba's spelling, "Analyze".
+The label uses US spelling, "Analyze".
 
 ## Out of scope
 

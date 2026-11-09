@@ -40,7 +40,7 @@ cat > "$app/Info.plist" <<PLIST
 <dict>
   <key>CFBundleName</key><string>openDJ</string>
   <key>CFBundleDisplayName</key><string>openDJ</string>
-  <key>CFBundleIdentifier</key><string>io.github.sebastian-beca.opendj</string>
+  <key>CFBundleIdentifier</key><string>app.opendj.openDJ</string>
   <key>CFBundleExecutable</key><string>opendj</string>
   <key>CFBundleIconFile</key><string>openDJ</string>
   <key>CFBundlePackageType</key><string>APPL</string>

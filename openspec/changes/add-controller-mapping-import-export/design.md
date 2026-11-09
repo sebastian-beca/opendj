@@ -1,8 +1,8 @@
 # Design
 
-## Decisions (Seba, 2026-10-29)
+## Decisions (2026-10-29)
 
-- Bring Seba's own mappings across first: the Xone K2 with its VU-meter LEDs, the Midi Fighter Twister, the DDJ-FLX4, his Traktor and rekordbox files.
+- Bring real-world mappings across first: the Xone K2 with its VU-meter LEDs, the Midi Fighter Twister, the DDJ-FLX4, Traktor and rekordbox files.
 - openDJ mappings are a superset of Mixxx's, so a Mixxx mapping reads in with nothing lost; going back, rows that are one control become bindings and the rest are reported.
 - Anything that can't come across is a greyed `off` row with `original` and `note`. An `off` row never replaces a base binding, so an import can't make a working control go dead.
 - Each imported file is a mapping of its own; several devices on one port in a Traktor file merge into one.

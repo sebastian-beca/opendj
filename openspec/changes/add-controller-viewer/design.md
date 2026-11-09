@@ -1,11 +1,11 @@
 # Design
 
-## Decisions (Seba, 2026-10-27)
+## Decisions (2026-10-27)
 
 - Organise by function first, not by MIDI message.
 - View only first; editing follows in `add-controller-mapper`.
 - A large window, since mapping is not done during playback.
-- Pictures for the three controllers Seba owns; others get the list.
+- Pictures for the three controllers on hand for testing; others get the list.
 - Show MIDI output (LEDs) too, in its own tab so the main list stays clean.
 
 ## How script rows get a meaning

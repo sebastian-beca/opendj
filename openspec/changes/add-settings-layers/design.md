@@ -187,13 +187,13 @@ Layer: **1** = no setting, **2** = Settings page, **3** = Advanced, **–** = no
 Video, karaoke, VDJ login and DRM, iRemote, OS2L/OSC
 (belong to a lights add-on), AI prompt, skins.
 
-## Decisions (Seba, 2026-10-31)
+## Decisions (2026-10-31)
 
 - Match key on load stays at ±1 by default.
 - Effect tails default to post-fader: they ring out after the fader closes.
 - Planned for v0.5 at first; moved to v0.6 at the 0.5.0 release, then split (below).
 
-## Decisions (Seba, 2026-11-05)
+## Decisions (2026-11-05)
 
 - Grey help lines under row names move into the ⓘ popover where the name is clear enough.
 - Show modified and the option table come first; Advanced later.

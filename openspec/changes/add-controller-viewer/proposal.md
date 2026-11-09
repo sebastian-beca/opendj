@@ -1,10 +1,10 @@
 # Proposal
 
-Planned for: **v0.4 · Your collection, cleaned up** (pulled forward by Seba, 2026-10-27; the editing half stays in `add-controller-mapper`)
+Planned for: **v0.4 · Your collection, cleaned up** (pulled forward, 2026-10-27; the editing half stays in `add-controller-mapper`)
 
 ## Why
 
-A controller can expose hundreds of functions across SHIFT, pad modes and banks, and openDJ runs Mixxx's mappings without showing what they do. Most of each mapping is JavaScript: 214 of the DDJ-FLX4's 319 MIDI rows and every row of the Xone K2 and Midi Fighter Twister are script bindings, so a table of MIDI rows (Mixxx's) cannot say what a control does. Design: the "Simple Controller Editor: design proposal" doc, answered by Seba on 2026-10-27.
+A controller can expose hundreds of functions across SHIFT, pad modes and banks, and openDJ runs Mixxx's mappings without showing what they do. Most of each mapping is JavaScript: 214 of the DDJ-FLX4's 319 MIDI rows and every row of the Xone K2 and Midi Fighter Twister are script bindings, so a table of MIDI rows (Mixxx's) cannot say what a control does. Design: the "Simple Controller Editor: design proposal" doc, answered on 2026-10-27.
 
 ## What Changes
 

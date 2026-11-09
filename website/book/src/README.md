@@ -30,4 +30,4 @@ openDJ also has short tutorials on the [website](https://opendj.app/tutorials/).
 
 openDJ is in beta. If something here is wrong or missing, use **Suggest an
 edit** at the top of any page, or
-[open an issue](https://github.com/sebastian-beca/opendj/issues/new/choose).
+[open an issue](https://github.com/openwave-studio/opendj/issues/new/choose).

@@ -207,8 +207,8 @@ fn title_text_fills_in_the_template() {
         "Porcelain (Moby)"
     );
     assert_eq!(
-        title_text("Live with {dj}", "Seba", "Moby", "Porcelain"),
-        "Live with Seba"
+        title_text("Live with {dj}", "DJ Example", "Moby", "Porcelain"),
+        "Live with DJ Example"
     );
     assert_eq!(title_text("", "", "", "Porcelain"), "Porcelain");
 }

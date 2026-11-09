@@ -4,7 +4,7 @@ Planned for: **v0.4 · Your collection, cleaned up (collection maintenance PR 3)
 
 ## Why
 
-Collection Health already counts duplicates but can only list them. Seba's VirtualDJ scan found about 320 duplicate groups; he wants them grouped by case and fixed in batches, with the safe, lossless choices one click away.
+Collection Health already counts duplicates but can only list them. A real library scan found about 320 duplicate groups; they should be grouped by case and fixed in batches, with the safe, lossless choices one click away.
 
 ## What Changes
 

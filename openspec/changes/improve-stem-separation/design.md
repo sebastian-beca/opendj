@@ -4,7 +4,7 @@
 
 openDJ separates today by running Python Demucs (`htdemucs`) as a subprocess (`crates/engine/src/stems.rs`, `run_demucs`), writing four FLAC files to the cache, and loading them through the same path as NI stem files. `Stems` already fills progressively (chunks of 65,536 frames, `OnceLock` per chunk, 16-bit), and the engine plays `Σ gain × stem`.
 
-Seba's ask (2026-10-27): run Spleeter, which is old but very fast, when a track loads so there is always *something*, then run HTDemucs or BS-RoFormer in the background and swap it in. Use the GPU where it helps.
+A user request (2026-10-27): run Spleeter, which is old but very fast, when a track loads so there is always *something*, then run HTDemucs or BS-RoFormer in the background and swap it in. Use the GPU where it helps.
 
 ## Research: models
 
@@ -56,7 +56,7 @@ HTDemucs runs on a single background worker for all decks, in 7.8-second segment
 The deck plays `original − Σ (1 − gainᵢ) × stemᵢ` instead of `Σ gainᵢ × stemᵢ`. With every stem at full level that is the original track bit for bit, so loading a track never makes it sound worse, and a weaker fast stem only colours the part being removed. Muting all stems still gives silence when the stems add up to the original (Spleeter exactly, HTDemucs within its small residual). NI stem files keep the sum, since their main mix is mastered separately.
 
 ### Caching and disk space
-Only high-quality stems are cached, keyed as today (`cache::stems_dir`), and only three are stored: Other is derived as original − drums − bass − vocals, saving a quarter. FLAC 16-bit, so roughly 3 × the size of a lossless source (about 100 MB for a 6-minute track). A *Stems cache* limit (default 10 GB; Seba has about 18 GB free) evicts the least recently loaded tracks; tracks in a prepared list are kept. Existing Demucs-made caches stay valid.
+Only high-quality stems are cached, keyed as today (`cache::stems_dir`), and only three are stored: Other is derived as original − drums − bass − vocals, saving a quarter. FLAC 16-bit, so roughly 3 × the size of a lossless source (about 100 MB for a 6-minute track). A *Stems cache* limit (default 10 GB; a typical laptop has little free space) evicts the least recently loaded tracks; tracks in a prepared list are kept. Existing Demucs-made caches stay valid.
 
 ### GPU and the audio thread
 Models never run on the audio thread. The worker uses its own wgpu device and submits small batches so the waveform renderer stays smooth; it pauses while the app reports dropped frames or audio underruns, and drops to the CPU backend when no GPU adapter is found. One deck's fast tier always has priority over background work.
@@ -66,14 +66,14 @@ Downloaded on first use from a GitHub release asset of openDJ, checked by SHA-25
 
 ## Risks / Trade-offs
 
-- **burn's speed is unproven for these models** → task 1 benchmarks burn-wgpu, burn-CPU, `ort` CPU and `ort` CoreML on Seba's Mac and on a Linux box before anything else is built. Pass bars: Spleeter first window < 1 s, full 6-min track < 10 s; HTDemucs full 6-min track < 60 s on M1-class (the existing spec's bar).
+- **burn's speed is unproven for these models** → task 1 benchmarks burn-wgpu, burn-CPU, `ort` CPU and `ort` CoreML on a test Mac and on a Linux box before anything else is built. Pass bars: Spleeter first window < 1 s, full 6-min track < 10 s; HTDemucs full 6-min track < 60 s on M1-class (the existing spec's bar).
 - **Memory**: fast and high-quality layers for a deck are about 2 × 250 MB for a 6-minute track at 16-bit. The fast layer is freed chunk by chunk as the high-quality one replaces it; four decks stay under about 1.5 GB.
 - **GPU contention with waveforms** → separate device, small batches, pause on dropped frames; measure frame times during separation.
 - **Intel Macs** have weak GPUs → Intel gets the fast tier on load and HTDemucs only in the background when idle or for prepared lists; SCNet-small is the fallback model if needed.
 - **Licences**: Spleeter MIT (one open question upstream), HTDemucs MIT. All MUSDB-trained weights carry the dataset's research terms in their history; openDJ is free and non-commercial, and the *Best* tier's community weights get a separate check before shipping.
 - **Two wgpu versions** (Slint's wgpu 30 and burn's) may both end up in the binary → acceptable size cost; check in task 1.
 
-## Open Questions (for Seba)
+## Open questions
 
 1. HTDemucs as the background model now, with BS-RoFormer / SCNet-XL as an optional *Best* download later? (Recommended.) Or go straight to BS-RoFormer?
 2. Stems on load for every track by default, or only when the STEMS page or a stem control is touched? (Recommended: every track; it costs a second of CPU/GPU.)
