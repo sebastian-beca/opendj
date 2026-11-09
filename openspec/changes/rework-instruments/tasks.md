@@ -24,7 +24,9 @@
 - [x] 3.5 Input decks (mic, aux): header with the interface input, TRIM, PAN, meter
 - [x] 3.7 TRIM set on first play from the input's level
 - [x] 3.6 MIDI from: the instrument takes notes from a chosen keyboard and channel (Any by default), so one track of a sequencer, or one keyboard of several, plays it; note-offs always pass so nothing hangs
-- [ ] 3.9 MIDI from per deck once several instruments play at once, so one controller's tracks play different decks
+- [x] 3.9 Deck clean-up: real piano keys, MIDI from behind the keyboard button in the deck's top bar, the plugin's format as a chip there, a smaller scope, same-size knobs with white markers, icons on Scale, Chord and Arp, a small OPEN
+
+MIDI from per deck (one controller's tracks playing different decks) waits until several instruments play at once; it is left out of this change.
 
 ## 4. Scale, chord and arpeggiator
 
@@ -35,4 +37,4 @@
 ## 5. Artwork
 
 - [x] 5.1 Own image dropped on the deck's cover; generated fallback in one consistent style
-- [ ] 5.2 NKS artwork when installed, plugin window snapshot, plugin bundle icon
+- [x] 5.2 NKS artwork when installed, plugin bundle icon (a snapshot of the plugin's window was dropped)
