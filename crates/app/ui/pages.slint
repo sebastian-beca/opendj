@@ -1,0 +1,308 @@
+// Player mode's artist and album pages, in the middle pane over the track
+// list as streaming players show them: a header with the art, the name,
+// what it holds and Play, Shuffle and Mix; then the tracks, and on an
+// artist's page their albums. A back arrow returns to where it was opened
+// from. The app fills PageUi (crate::browser::pages).
+import { Theme } from "theme.slint";
+import { ScrollView } from "scroll.slint";
+
+export struct PageTrack {
+    title: string,
+    artist: string,
+    // "3:20".
+    length: string,
+    bpm: string,
+    key: string,
+    key-match: bool,
+    cover: image,
+    has-cover: bool,
+    // "1", or "2-1" on a second disc; empty on an artist's page.
+    number: string,
+}
+
+export struct PageAlbum {
+    name: string,
+    // "2024 · 9 tracks".
+    detail: string,
+    cover: image,
+    has-cover: bool,
+}
+
+export global PageUi {
+    // 0 no page, 1 an artist, 2 an album.
+    in property <int> kind;
+    in property <string> title;
+    // An album's artist, a link to their page; empty on an artist's page.
+    in property <string> artist;
+    // "12 tracks · 3 albums · 48 min".
+    in property <string> detail;
+    in property <image> cover;
+    in property <bool> has-cover;
+    in property <string> initials;
+    in property <color> tint: #5b3fd1;
+    in property <[PageTrack]> tracks;
+    in property <[PageAlbum]> albums;
+    // Somewhere to go back to (another page), rather than the list.
+    in property <bool> can-back;
+    callback back();
+    // 0 Play in order, 1 Shuffle, 2 Mix (in the smoothest order by key and tempo).
+    callback play(mode: int);
+    // Plays from this track on (an album), or this track (an artist).
+    callback play-track(index: int);
+    callback open-album(index: int);
+    callback open-artist();
+    // From elsewhere in Player: the artist of the track on a deck (the
+    // bar's artist), or an artist by name (the search box's artists).
+    callback open-deck-artist(deck: int);
+    callback open-artist-named(name: string);
+}
+
+component PageButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    callback clicked();
+    width: t.preferred-width + 36px;
+    height: 38px;
+    border-radius: 19px;
+    background: primary ? (ta.has-hover ? Theme.accent.brighter(0.15) : Theme.accent) : ta.has-hover ? #ffffff24 : #ffffff14;
+    t := Text {
+        text: root.text;
+        color: primary ? #151329 : Theme.text;
+        font-size: 14px;
+        font-weight: 700;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component PageView inherits Rectangle {
+    background: Theme.browser;
+    clip: true;
+    property <length> gap: 16px;
+    property <int> columns: max(1, floor((root.width - 56px + gap) / (170px + gap)));
+    property <length> tile-width: (root.width - 56px - gap * (columns - 1)) / columns;
+
+    // The art's colours, faint behind the header.
+    Rectangle {
+        height: 320px;
+        y: 0;
+        background: @linear-gradient(180deg, PageUi.tint.with-alpha(0.35) 0%, Theme.browser.with-alpha(0) 100%);
+    }
+
+    ScrollView {
+        width: 100%;
+        height: 100%;
+        VerticalLayout {
+            padding-left: 28px;
+            padding-right: 28px;
+            padding-top: 52px;
+            padding-bottom: 28px;
+            spacing: 14px;
+            alignment: start;
+
+            // The art, then what it is and the buttons.
+            HorizontalLayout {
+                spacing: 26px;
+                alignment: start;
+                Rectangle {
+                    width: 180px;
+                    height: 180px;
+                    border-radius: PageUi.kind == 1 ? 90px : 8px;
+                    clip: true;
+                    drop-shadow-blur: 24px;
+                    drop-shadow-color: #00000090;
+                    background: @linear-gradient(135deg, PageUi.tint 0%, PageUi.tint.darker(0.6) 60%, #101012 100%);
+                    if PageUi.has-cover: Image {
+                        width: parent.width;
+                        height: parent.height;
+                        source: PageUi.cover;
+                        image-fit: cover;
+                    }
+                    if !PageUi.has-cover: Text {
+                        text: PageUi.initials;
+                        color: #ffffffd8;
+                        font-size: 56px;
+                        font-weight: 700;
+                    }
+                }
+                VerticalLayout {
+                    alignment: end;
+                    spacing: 6px;
+                    Text {
+                        text: PageUi.kind == 1 ? "ARTIST" : "ALBUM";
+                        color: Theme.text-dim;
+                        font-size: 11px;
+                        font-weight: 700;
+                        letter-spacing: 0.6px;
+                    }
+                    Text {
+                        text: PageUi.title;
+                        color: Theme.text;
+                        font-size: 34px;
+                        font-weight: 800;
+                        overflow: elide;
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 6px;
+                        if PageUi.artist != "": Text {
+                            text: PageUi.artist;
+                            color: ata.has-hover ? Theme.accent : Theme.text;
+                            font-size: 14px;
+                            font-weight: 700;
+                            ata := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { PageUi.open-artist(); }
+                            }
+                        }
+                        if PageUi.artist != "": Text { text: "·"; color: Theme.text-dim; font-size: 14px; }
+                        Text { text: PageUi.detail; color: Theme.text-dim; font-size: 14px; }
+                    }
+                    Rectangle { height: 8px; }
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 10px;
+                        PageButton { text: "▶  Play"; primary: true; clicked => { PageUi.play(0); } }
+                        PageButton { text: "Shuffle"; clicked => { PageUi.play(1); } }
+                        PageButton { text: "Mix"; clicked => { PageUi.play(2); } }
+                    }
+                }
+            }
+
+            Rectangle { height: 8px; }
+            Text {
+                text: PageUi.kind == 1 ? "Tracks" : "";
+                visible: PageUi.kind == 1;
+                height: PageUi.kind == 1 ? 26px : 0px;
+                color: Theme.text;
+                font-size: 18px;
+                font-weight: 700;
+            }
+            VerticalLayout {
+                spacing: 0px;
+                for t[i] in PageUi.tracks: Rectangle {
+                    height: 52px;
+                    border-radius: 6px;
+                    background: tta.has-hover ? #ffffff10 : transparent;
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 12px;
+                        spacing: 12px;
+                        Text {
+                            width: 26px;
+                            text: tta.has-hover ? "▶" : t.number != "" ? t.number : i + 1;
+                            color: Theme.text-dim;
+                            font-size: 13px;
+                            horizontal-alignment: right;
+                            vertical-alignment: center;
+                        }
+                        if PageUi.kind == 1: Rectangle {
+                            width: 40px;
+                            height: 40px;
+                            y: 6px;
+                            border-radius: 3px;
+                            clip: true;
+                            background: #2a2a2e;
+                            if t.has-cover: Image { width: parent.width; height: parent.height; source: t.cover; image-fit: cover; }
+                            if !t.has-cover: Text { text: "♪"; color: Theme.text-dim; font-size: 16px; }
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 2px;
+                            Text { text: t.title; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
+                            Text { text: t.artist; color: Theme.text-dim; font-size: 12px; overflow: elide; }
+                        }
+                        Text { width: 70px; text: t.bpm == "" ? "" : t.bpm + " BPM"; color: Theme.text-dim; font-size: 13px; vertical-alignment: center; horizontal-alignment: right; }
+                        Text { width: 40px; text: t.key; color: t.key-match ? Theme.lilac : Theme.text-dim; font-size: 13px; font-weight: 600; vertical-alignment: center; horizontal-alignment: right; }
+                        Text { width: 46px; text: t.length; color: Theme.text-dim; font-size: 13px; vertical-alignment: center; horizontal-alignment: right; }
+                    }
+                    tta := TouchArea {
+                        mouse-cursor: pointer;
+                        double-clicked => { PageUi.play-track(i); }
+                        clicked => { PageUi.play-track(i); }
+                    }
+                }
+            }
+
+            if PageUi.kind == 1 && PageUi.albums.length > 0: Text {
+                height: 40px;
+                vertical-alignment: bottom;
+                text: "Albums";
+                color: Theme.text;
+                font-size: 18px;
+                font-weight: 700;
+            }
+            if PageUi.kind == 1 && PageUi.albums.length > 0: Rectangle {
+                height: ceil(PageUi.albums.length / columns) * (tile-width + 56px + gap);
+                for a[i] in PageUi.albums: Rectangle {
+                    x: mod(i, columns) * (tile-width + gap);
+                    y: floor(i / columns) * (tile-width + 56px + gap);
+                    width: tile-width;
+                    height: tile-width + 56px;
+                    border-radius: 6px;
+                    background: ala.has-hover ? #ffffff10 : transparent;
+                    Rectangle {
+                        x: 0;
+                        y: 0;
+                        width: parent.width;
+                        height: parent.width;
+                        border-radius: 6px;
+                        clip: true;
+                        background: #2a2a2d;
+                        if a.has-cover: Image { width: 100%; height: 100%; source: a.cover; image-fit: cover; }
+                        if !a.has-cover: Text { text: "♪"; color: #4a4a4d; font-size: parent.width * 0.4; }
+                    }
+                    Text {
+                        x: 2px;
+                        y: parent.width + 8px;
+                        width: parent.width - 4px;
+                        text: a.name;
+                        color: Theme.text;
+                        font-size: 14px;
+                        font-weight: 600;
+                        overflow: elide;
+                    }
+                    Text {
+                        x: 2px;
+                        y: parent.width + 28px;
+                        width: parent.width - 4px;
+                        text: a.detail;
+                        color: Theme.text-dim;
+                        font-size: 12px;
+                        overflow: elide;
+                    }
+                    ala := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { PageUi.open-album(i); }
+                    }
+                }
+            }
+        }
+    }
+
+    // Back: to the page before, or the list.
+    Rectangle {
+        x: 14px;
+        y: 12px;
+        width: 34px;
+        height: 34px;
+        border-radius: 17px;
+        background: bta.has-hover ? #ffffff1a : #00000040;
+        Path {
+            width: 16px;
+            height: 16px;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            stroke: Theme.text;
+            stroke-width: 1.8px;
+            commands: "M 10 3 L 5 8 L 10 13";
+        }
+        bta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { PageUi.back(); }
+        }
+    }
+}

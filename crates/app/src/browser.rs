@@ -45,6 +45,7 @@ mod info;
 mod keep_going;
 mod lyrics;
 mod mix_export;
+mod pages;
 mod picks;
 mod playlist_files;
 mod prep;
@@ -681,6 +682,7 @@ pub struct Browser {
     /// Play Album was picked, for Automix to play the list gaplessly.
     album_request: bool,
     keep_going: keep_going::KeepGoing,
+    pages: pages::Pages,
     /// Up Next's own mixes, by the id of the track mixed into.
     mixes: HashMap<usize, up_next::Picks>,
     mixes_changed: bool,
@@ -1316,6 +1318,7 @@ impl Browser {
             mix_export: None,
             album_request: false,
             keep_going: Default::default(),
+            pages: Default::default(),
             mixes: HashMap::new(),
             mixes_changed: false,
             album_art: Art::sized(albums::COVER_SIZE),
@@ -1380,6 +1383,7 @@ impl Browser {
                     }
                     b.health_status.clear();
                     b.close_cleanup();
+                    b.close_page();
                     if let Some(app) = b.app.upgrade() {
                         app.set_current_track(-1);
                     }
@@ -1935,6 +1939,7 @@ impl Browser {
         Self::install_track_menu(&edit, &with);
         Self::install_keep_going(&app.global::<crate::KeepGoingUi>(), &with);
         Self::install_up_next(&app.global::<crate::UpNextUi>(), &with);
+        Self::install_pages(&app.global::<crate::PageUi>(), &with);
         Self::install_mix_export(&app.global::<FilesUi>(), &with);
         Self::install_health(&app.global::<HealthUi>(), &with);
         Self::install_cleanup(&app.global::<crate::CleanupUi>(), &with);
@@ -2882,6 +2887,9 @@ impl Browser {
     pub fn poll_art(&mut self) {
         if self.album_art.poll() {
             self.refresh_album_ui();
+            if self.pages_open() {
+                self.refresh_page();
+            }
         }
         if !self.art.poll() {
             return;

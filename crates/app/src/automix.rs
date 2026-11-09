@@ -906,7 +906,11 @@ impl AutoMix {
             Some(n) if n.id == top.id => n,
             _ => {
                 let t = top;
-                host.load(deck, t.clone());
+                // A track already waiting on the deck stays: loading it
+                // again would stop it and cue against the old load.
+                if tracks[deck].as_ref().map(|x| x.id) != Some(t.id) {
+                    host.load(deck, t.clone());
+                }
                 Next {
                     id: t.id,
                     cued: false,
@@ -1567,6 +1571,19 @@ mod tests {
         r.run(12.0);
         assert!(!r.ctl("[AutoDJ]", "enabled").get_bool());
         assert_eq!(r.automix.mix_length(), LENGTHS[1]);
+    }
+
+    #[test]
+    fn starts_the_track_already_waiting_on_the_deck() {
+        // Loaded and paused, then put first on the list (an artist's
+        // page's Play, say): Automix plays it rather than stopping.
+        let mut r = Rig::new(vec![track(0, 20.0), track(1, 20.0)]);
+        r.host.load(0, track(0, 20.0));
+        r.run(0.5);
+        r.ctl("[AutoDJ]", "enabled").set(1.0);
+        r.run(3.0);
+        assert!(r.deck(0, "play").get_bool(), "{}", r.automix.note);
+        assert!(r.ctl("[AutoDJ]", "enabled").get_bool());
     }
 
     #[test]

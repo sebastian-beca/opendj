@@ -93,6 +93,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-live-looper](changes/add-live-looper/proposal.md) (a four-layer looper on a deck: grab the last bars of the mix, layer instruments and inputs on top, record and overdub locked to the beat, save loops to the Inbox; a clip grid assessed and left out; 2026-11-07)
 - [add-system-media-controls](changes/add-system-media-controls/proposal.md) (media keys, headphone buttons and the system's Now Playing for Player mode on macOS, Windows and Linux; from the Player gap review, 2026-11-09)
 - [add-keep-going](changes/add-keep-going/proposal.md) (Keep going in Player mode: Up Next tops itself up with tracks that mix, from everything, a list or an artist, with the next picks shown greyed; Start Radio from a track, artist or list; from the Player gap review, issue #536, 2026-11-09)
+- [add-player-pages](changes/add-player-pages/proposal.md) (artist and album pages over the list in Player mode with Play, Shuffle and Mix, then a Home page; from the Player gap review, issue #536, 2026-11-09)
 - [add-instrument-per-deck](changes/add-instrument-per-deck/proposal.md) (several instrument plugins at once, one per deck, with plugins processed side by side and idle instruments sleeping; issue #523, 2026-11-09)
 
 ## v0.8 · From the booth to the studio

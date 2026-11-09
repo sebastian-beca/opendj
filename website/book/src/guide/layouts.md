@@ -41,6 +41,14 @@ The menu at the top left of the window switches layouts:
   for a single track: right-click it in Up Next and choose under **Mix
   into it** (**Panel** goes back to the panel's). A row with its own mix
   shows it in lilac, such as **⤵ 32 bars · Cut**.
+  Click the artist on the bar, an artist in the search box's results, or
+  **Go to Artist** in a track's menu, and their **page** opens over the
+  list: their tracks in your collection, most played first, and their
+  albums, newest first. Click an album (or **Go to Album**) for its page,
+  with its tracks in order. **Play** plays the page now, **Shuffle** in a
+  random order, and **Mix** in the order that mixes best by key and
+  tempo; clicking a track plays it now (on an album, with the rest after
+  it). The arrow at the top left goes back; picking a list closes the page.
   **Keep going**, under them, is Player's cruise control, off at first:
   while it is on, Up Next never runs dry. When fewer than two tracks wait,
   a track that mixes with the last one goes on the list (close on the
