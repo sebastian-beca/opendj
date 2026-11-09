@@ -11,6 +11,7 @@ import { CuesPanel, CueList } from "cues.slint";
 import { ChecklistPanel } from "checklist.slint";
 import { LyricsPanel } from "lyrics.slint";
 import { NowPlayingView } from "nowplaying.slint";
+import { PageView, PageUi } from "pages.slint";
 import { FilterBar, FilterUi, SuggestionList } from "filters.slint";
 import { TourMark } from "tourmark.slint";
 
@@ -6061,6 +6062,8 @@ export component Browser inherits HorizontalLayout {
     }
     // The Collection Health page, or the bar over one check's tracks.
     property <bool> cleanup-page: source == 0 && (CleanupUi.open || CleanupUi.genres-open);
+    // Player's artist and album pages, over the list.
+    property <bool> page-open: KeepGoingUi.player && PageUi.kind != 0 && !now-playing && source == 0;
     property <bool> health-page: source == 0 && HealthUi.overview && !cleanup-page;
     property <bool> health-bar: source == 0 && HealthUi.check >= 0 && HealthUi.check < HealthUi.cards.length;
     Rectangle {
@@ -6072,7 +6075,7 @@ export component Browser inherits HorizontalLayout {
         }
         list := TrackList {
             focused: !folders-focused;
-            visible: !plugin-source && !instruments-source && !health-page && !cleanup-page && !(health-bar && HealthUi.reviewing) && !now-playing;
+            visible: !plugin-source && !instruments-source && !health-page && !cleanup-page && !(health-bar && HealthUi.reviewing) && !now-playing && !page-open;
             y: health-bar ? (HealthUi.chips.length > 0 ? 81px : 45px) : 0;
             width: 100%;
             height: parent.height - self.y;
@@ -6136,6 +6139,10 @@ export component Browser inherits HorizontalLayout {
             decks: LibraryEdit.decks;
         }
         if now-playing: NowPlayingView {
+            width: 100%;
+            height: 100%;
+        }
+        if page-open: PageView {
             width: 100%;
             height: 100%;
         }

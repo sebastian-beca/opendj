@@ -126,6 +126,9 @@ impl Quick {
                 // An artist: their tracks, in the dropdown and the list.
                 Some(Group::Artist(name)) => {
                     if let Some(app) = weak.upgrade() {
+                        // The artist's page over the list.
+                        app.global::<crate::PageUi>()
+                            .invoke_open_artist_named(name.as_str().into());
                         let g = app.global::<QuickSearch>();
                         g.set_text(name.as_str().into());
                         g.set_current(0);
@@ -171,6 +174,12 @@ impl Quick {
         browser: &mut Browser,
         tracks: &[Option<Arc<Track>>; NUM_DECKS],
     ) {
+        // Play, Shuffle and Mix on an artist's or album's page.
+        for ids in browser.take_page_plays() {
+            self.jobs
+                .borrow_mut()
+                .extend(album_jobs(&ids, Action::PlayNow));
+        }
         let jobs = std::mem::take(&mut *self.jobs.borrow_mut());
         for (id, action) in jobs {
             let at = match action {

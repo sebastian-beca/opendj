@@ -278,7 +278,14 @@ impl Browser {
     /// track's artist or album by the filter bar's chip, so one click on the
     /// chip's clear button goes back to everything.
     fn go_to(&mut self, row: usize, album: bool) {
-        let Some(t) = self.row_track(row) else { return };
+        let Some(t) = self.row_track(row).cloned() else {
+            return;
+        };
+        // Player opens the artist's or album's page instead.
+        if self.go_to_page(&t, album) {
+            return;
+        }
+        let t = &t;
         let (field, value, term) = if album {
             let v = t.album.trim().to_string();
             let term = format!("{}:={}", keyword("album"), quoted(&v));

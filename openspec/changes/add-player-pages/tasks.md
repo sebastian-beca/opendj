@@ -1,0 +1,18 @@
+# Tasks
+
+## 1. Pages
+
+- [x] 1.1 Artist page: tracks (any credit), albums newest first, Play, Shuffle, Mix
+- [x] 1.2 Album page: tracks in order, artist link, play from a track on
+- [x] 1.3 Opened from the bar's artist, the search box's artists and Go to Artist / Album in Player; back stack; a list in the tree closes them
+- [x] 1.4 User guide: layouts.md
+
+## 2. Home
+
+- [ ] 2.1 Player opens on Home: recently played, recently added, crates
+- [ ] 2.2 Mixes from the collection by key, genre and decade
+- [ ] 2.3 User guide
+
+## Workflow follow-up
+
+- Archive the change once its last PR is merged, so the main specs take its requirements.
