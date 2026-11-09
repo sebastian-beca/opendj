@@ -1,5 +1,5 @@
 //! Navidrome, and any other server that speaks the Subsonic API (Gonic,
-//! Airsonic, Ampache, LMS), as a source in the rail: the DJ's own music
+//! Airsonic, Ampache, LMS, Funkwhale), as a source in the rail: the DJ's own music
 //! searched by album, artist, song or playlist, and the original files
 //! downloaded into the collection.
 //!
@@ -7,6 +7,7 @@
 //! password never travels, only md5(password + salt) with the salt. See
 //! <https://www.subsonic.org/pages/api.jsp> and <https://opensubsonic.netlify.app>.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
@@ -67,7 +68,7 @@ impl Plugin for Navidrome {
                 SettingKind::Note,
                 "Your own music server",
                 "Navidrome, or any server that speaks the Subsonic API (Gonic, Airsonic, \
-                 Ampache, LMS). Searches open its albums, artists and playlists, and \
+                 Ampache, LMS, Funkwhale). Searches open its albums, artists and playlists, and \
                  downloads bring the original files into your collection.",
             ),
             Setting::new(
@@ -104,6 +105,10 @@ pub(crate) struct Subsonic {
     user: String,
     password: String,
     salt: String,
+    /// The server has no `download` call (Funkwhale), so files come
+    /// through `stream`, which sends the original when nothing asks for
+    /// a smaller copy.
+    stream_only: AtomicBool,
 }
 
 fn salt() -> String {
@@ -142,6 +147,9 @@ impl Subsonic {
             .body_mut()
             .read_json()
             .map_err(|_| format!("The server answered {status}, not as a Subsonic server."))?;
+        if lacks_download(&v["subsonic-response"]) {
+            self.stream_only.store(true, Ordering::Relaxed);
+        }
         answer(v)
     }
 
@@ -166,10 +174,19 @@ impl Subsonic {
             suffix: text(&v["suffix"]),
             bitrate: v["bitRate"].as_u64().unwrap_or(0),
             size: v["size"].as_u64().unwrap_or(0),
-            file_url: self.url("download", &[("id", &id)]),
+            file_url: self.file_url(&id),
             cover_url: self.cover(&cover, None),
             thumb_url: self.cover(&cover, Some(THUMB)),
         })
+    }
+
+    /// Where the original file comes from.
+    fn file_url(&self, id: &str) -> String {
+        if self.stream_only.load(Ordering::Relaxed) {
+            self.url("stream", &[("id", id)])
+        } else {
+            self.url("download", &[("id", id)])
+        }
     }
 
     fn cover(&self, id: &str, size: Option<u32>) -> String {
@@ -329,6 +346,15 @@ impl Server for Subsonic {
     }
 }
 
+/// Whether the server that sent this answer has no `download` call.
+/// Funkwhale names itself in `type`, both the OpenSubsonic field and its
+/// older one of the same name.
+fn lacks_download(r: &Value) -> bool {
+    r["type"]
+        .as_str()
+        .is_some_and(|t| t.eq_ignore_ascii_case("funkwhale"))
+}
+
 /// The body of a Subsonic answer, or why it failed.
 fn answer(v: Value) -> Result<Value, String> {
     let r = &v["subsonic-response"];
@@ -382,6 +408,7 @@ mod tests {
             user: "dj".into(),
             password: "sesame".into(),
             salt: "c19b2d".into(),
+            ..Default::default()
         }
     }
 
@@ -451,7 +478,8 @@ mod tests {
     }
 
     /// A stand-in Subsonic server on a local port: one album with one song.
-    fn mock_server() -> String {
+    /// `funkwhale`: answers name Funkwhale, and only `stream` sends files.
+    fn mock(funkwhale: bool) -> String {
         use std::io::{BufRead, BufReader, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -470,10 +498,11 @@ mod tests {
                 let song = json!({ "id": "s1", "title": "Kerala", "artist": "Bonobo",
                     "album": "Migration", "track": 3, "suffix": "flac", "size": 5,
                     "coverArt": "al-1", "duration": 251 });
+                let kind_of = if funkwhale { "funkwhale" } else { "navidrome" };
                 let (kind, body): (&str, Vec<u8>) = if path.starts_with("/rest/search3") {
                     (
                         "application/json",
-                        json!({ "subsonic-response": { "status": "ok",
+                        json!({ "subsonic-response": { "status": "ok", "type": kind_of,
                         "searchResult3": { "album": [{ "id": "al-1", "name": "Migration",
                             "artist": "Bonobo", "songCount": 1 }], "song": [song] } } })
                         .to_string()
@@ -482,12 +511,16 @@ mod tests {
                 } else if path.starts_with("/rest/getAlbum") {
                     (
                         "application/json",
-                        json!({ "subsonic-response": { "status": "ok",
+                        json!({ "subsonic-response": { "status": "ok", "type": kind_of,
                         "album": { "id": "al-1", "song": [song] } } })
                         .to_string()
                         .into_bytes(),
                     )
-                } else if path.starts_with("/rest/download") {
+                } else if path.starts_with(if funkwhale {
+                    "/rest/stream"
+                } else {
+                    "/rest/download"
+                }) {
                     ("audio/flac", b"fLaC!".to_vec())
                 } else if path.starts_with("/rest/getCoverArt") {
                     ("image/jpeg", b"jpeg".to_vec())
@@ -508,10 +541,19 @@ mod tests {
 
     #[test]
     fn searches_and_downloads_from_a_server() {
+        searches_and_downloads(false);
+    }
+
+    #[test]
+    fn streams_files_from_funkwhale() {
+        searches_and_downloads(true);
+    }
+
+    fn searches_and_downloads(funkwhale: bool) {
         use crate::source::Progress;
         let mut nd = Navidrome::new();
         let mut config = PluginConfig::default();
-        config.values.insert("server".into(), mock_server());
+        config.values.insert("server".into(), mock(funkwhale));
         config.values.insert("user".into(), "dj".into());
         config.values.insert("password".into(), "sesame".into());
         nd.configure(&config);
@@ -535,7 +577,8 @@ mod tests {
         let tracks = source.open_folder(&id, &album).unwrap();
         assert_eq!(tracks.len(), 1);
 
-        let dir = std::env::temp_dir().join(format!("opendj-nd-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("opendj-nd-test-{}-{funkwhale}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         source
             .download(&id, std::slice::from_ref(&song), &dir)
@@ -559,6 +602,13 @@ mod tests {
         assert_eq!(std::fs::read(&paths[0]).unwrap(), b"fLaC!");
         assert!(dir.join("Bonobo/Migration/cover.jpg").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn knows_funkwhale_has_no_download() {
+        assert!(lacks_download(&json!({ "type": "funkwhale" })));
+        assert!(!lacks_download(&json!({ "type": "navidrome" })));
+        assert!(!lacks_download(&json!({})));
     }
 
     #[test]
