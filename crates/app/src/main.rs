@@ -1572,6 +1572,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let playing = tracks[shown].as_ref().map(|t| t.id);
                 host.browser
                     .keep_going_tick(player, &automix.borrow(), playing);
+                if let Some(mixes) = host.browser.take_mixes() {
+                    automix.borrow_mut().set_overrides(mixes);
+                }
                 if host.browser.take_keep_going_automix() {
                     automix.borrow_mut().set_enabled(true);
                 }

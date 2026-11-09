@@ -159,6 +159,26 @@ export struct SideRow {
     key-shift: int,
     // One of Keep going's next picks, shown greyed after Up Next's tracks.
     suggested: bool,
+    // The mix into this track when picked on its row ("32 bars · Cut"),
+    // empty when it follows the panel's LENGTH and STYLE; the picks as
+    // 0 for the panel's, else 1 + the index into the panel's menus.
+    mix: string,
+    mix-length: int,
+    mix-style: int,
+}
+
+// Up Next in Player mode (browser/up_next.rs, now_playing_view.rs): the
+// track playing on top, and the mix into each row.
+export global UpNextUi {
+    in property <bool> now-loaded;
+    in property <string> now-title;
+    in property <string> now-artist;
+    in property <image> now-cover;
+    in property <bool> now-has-cover;
+    in property <string> now-initials;
+    in property <color> now-tint: #5b3fd1;
+    // Picks the mix into Up Next's row: 0 for the panel's, else 1 + the index.
+    callback set-mix(row: int, length: int, style: int);
 }
 
 // Keep going in Player mode (browser/keep_going.rs): Up Next tops itself
@@ -5372,6 +5392,27 @@ component BuyDialog inherits Rectangle {
     }
 }
 
+// A row of small choices, one lit: Up Next's mix length or style.
+component MixChips inherits HorizontalLayout {
+    in property <[string]> names;
+    in property <int> current;
+    callback picked(value: int);
+    spacing: 3px;
+    padding-left: 4px;
+    padding-right: 4px;
+    for n[i] in names: Rectangle {
+        height: 22px;
+        horizontal-stretch: 1;
+        min-width: t.preferred-width + 8px;
+        border-radius: 4px;
+        border-width: 1px;
+        border-color: i == current ? Theme.accent : Theme.border;
+        background: i == current ? Theme.accent.with-alpha(0.2) : ta.has-hover ? #ffffff14 : transparent;
+        t := Text { text: n; color: i == current ? Theme.text : Theme.text-dim; font-size: 11px; font-weight: 600; }
+        ta := TouchArea { mouse-cursor: pointer; clicked => { root.picked(i); } }
+    }
+}
+
 component SidePanel inherits Rectangle {
     in property <[SideRow]> rows;
     in property <string> total;
@@ -5644,6 +5685,27 @@ component SidePanel inherits Rectangle {
                     }
                 }
             }
+            if tab == 0 && KeepGoingUi.player && UpNextUi.now-loaded: HorizontalLayout {
+                height: 64px;
+                padding: 4px;
+                spacing: 10px;
+                Rectangle {
+                    width: 56px;
+                    border-radius: 4px;
+                    clip: true;
+                    background: @linear-gradient(135deg, UpNextUi.now-tint 0%, UpNextUi.now-tint.darker(0.6) 100%);
+                    if !UpNextUi.now-has-cover: Text { text: UpNextUi.now-initials; color: #ffffffd8; font-size: 18px; font-weight: 700; }
+                    if UpNextUi.now-has-cover: Image { width: parent.width; height: parent.height; source: UpNextUi.now-cover; image-fit: cover; }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 2px;
+                    Text { text: "NOW PLAYING"; color: Theme.accent; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
+                    Text { text: UpNextUi.now-title; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
+                    Text { text: UpNextUi.now-artist; color: Theme.text-dim; font-size: 13px; overflow: elide; }
+                }
+            }
+            if tab == 0 && KeepGoingUi.player && UpNextUi.now-loaded: Text { x: 8px; height: 20px; text: "UP NEXT"; color: Theme.label; font-size: 12px; font-weight: 700; letter-spacing: 0.4px; vertical-alignment: center; }
             EdgeLine { left: 6px; right: 6px; }
             order-menu := PopupWindow {
                 x: root.width - self.width - 6px;
@@ -5780,6 +5842,7 @@ component SidePanel inherits Rectangle {
                                             vertical-alignment: center;
                                         }
                                     }
+                                    if r.mix != "": Text { text: "⤵ " + r.mix; color: (i >= first-picked && i <= last-picked) ? dim : Theme.lilac; font-size: 11px; font-weight: 600; vertical-alignment: center; }
                                     Text { text: r.length; color: dim; font-size: 13px; }
                                 }
                             }
@@ -5821,14 +5884,31 @@ component SidePanel inherits Rectangle {
         }
     }
     row-menu := PopupWindow {
-        x: 20px;
-        y: min(menu-y, root.height - 70px);
-        width: 180px;
+        x: tab == 0 ? max(4px, root.width - self.width - 8px) : 20px;
+        y: min(menu-y, root.height - (tab == 0 ? 200px : 70px));
+        width: tab == 0 ? 300px : 180px;
         close-policy: close-on-click-outside;
         MenuBackground {}
         VerticalLayout {
             padding: 6px;
             spacing: 2px;
+            // The mix into this track, over the panel's LENGTH and STYLE.
+            if tab == 0 && selected >= 0 && selected < rows.length && rows[selected].heading == "" && !rows[selected].suggested: VerticalLayout {
+                spacing: 4px;
+                padding-bottom: 4px;
+                Text { x: 6px; height: 20px; text: "MIX INTO IT"; color: Theme.text-dim; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; vertical-alignment: center; }
+                MixChips {
+                    names: ["Panel", "0 s", "12 s", "15 s", "30 s", "16 b", "32 b", "Phr"];
+                    current: rows[selected].mix-length;
+                    picked(v) => { UpNextUi.set-mix(selected, v, rows[selected].mix-style); row-menu.close(); }
+                }
+                MixChips {
+                    names: ["Panel", "Smooth", "Bass", "Filter", "Cut"];
+                    current: rows[selected].mix-style;
+                    picked(v) => { UpNextUi.set-mix(selected, rows[selected].mix-length, v); row-menu.close(); }
+                }
+                MenuSeparator {}
+            }
             MenuLine {
                 text: "Load on a free deck";
                 clicked => {
