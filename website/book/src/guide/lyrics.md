@@ -45,6 +45,17 @@ line to play from it. Press the button again to go back to the list.
 
 ![Lyrics in Player mode](../images/player-lyrics.png)
 
+## On the waveforms
+
+When a track on a deck has timed lyrics, they run along the bottom of its
+big waveform, scrolling with the audio: each line is a strip from when it
+is sung to when it ends, so you can see where the singing is and what
+comes next while you mix. The line being sung is lit, and its words turn
+lilac as it is sung. Turn this off in Settings › Decks › **Lyrics on
+waveforms**.
+
+![Lyrics on a deck's waveform](../images/waveform-lyrics.png)
+
 ## Karaoke screen
 
 **Karaoke** in the Lyrics tab (or **Karaoke Screen** at the top right of
