@@ -667,6 +667,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The FX bar, likewise.
     app.set_fx_bar_visible(settings::flag("fx_bar_visible", true));
     app.on_fx_bar_visible_changed(|on| settings::set("fx_bar_visible", serde_json::json!(on)));
+    // The pad grid in the decks (the PADS button), likewise.
+    app.set_pads_visible(settings::flag("pads_visible", true));
+    app.on_pads_visible_changed(|on| settings::set("pads_visible", serde_json::json!(on)));
     // The Groove Boxes: their kits' names, and what they held last time,
     // saved again as it changes.
     groove_box::install(&app);

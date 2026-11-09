@@ -2,7 +2,7 @@ import { Palette } from "std-widgets.slint";
 import { Theme, KeyNotation, CloseIcon } from "theme.slint";
 import { TourMark } from "tourmark.slint";
 import { Controls, VuMeter, ControlKnob, HoverTipView, HoverTip } from "controls.slint";
-import { Deck, DeckInfo, KeyItem, EffectList, FxRow, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit, GrooveGenre, GrooveName } from "deck.slint";
+import { Deck, DeckInfo, PadsUi, KeyItem, EffectList, FxRow, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit, GrooveGenre, GrooveName } from "deck.slint";
 import { Mixer, ExternalMixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } from "mixer.slint";
 import { MasterPanel, MicPanel, OnAirPanel, BroadcastState, BroadcastStation, AirTime } from "toppanels.slint";
 import { PlayerBar, PlayerDeck, PlayerMixer, TopSearch, QuickResults, QuickSearch, QuickRow } from "player.slint";
@@ -686,6 +686,47 @@ component FxButton inherits Rectangle {
     TourMark { id: "ui,fx_button"; }
 }
 
+// Shows or hides the pad grid in the decks: a small grid of eight pads,
+// two rows of four as on most controllers, lit while they show. Hidden,
+// 4-Deck strips get shorter and the browser gets the room.
+component PadsButton inherits Rectangle {
+    in-out property <bool> on;
+    callback changed-to(on: bool);
+    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: on ? Theme.accent : transparent;
+    height: 36px;
+    y: 8px;
+    horizontal-stretch: 0;
+    HorizontalLayout {
+        padding-left: 11px;
+        padding-right: 11px;
+        // Eight small pads in two rows of four.
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            for row in 2: HorizontalLayout {
+                spacing: 2px;
+                for pad in 4: Rectangle {
+                    width: 4px;
+                    height: 4px;
+                    border-radius: 1px;
+                    background: on ? Theme.accent : Theme.text-dim;
+                }
+            }
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            on = !on;
+            changed-to(on);
+        }
+    }
+    TourMark { id: "ui,pads_button"; }
+}
+
 // MASTER: the main meters and the clock. A click opens the MASTER panel
 // with the output levels, Ableton Link and MIDI clock; LINK and CLOCK
 // show while they are on.
@@ -814,6 +855,9 @@ export component AppWindow inherits Window {
     // The FX bar under the waveforms, from the top bar's FX button.
     in-out property <bool> fx-bar-visible: true;
     callback fx-bar-visible-changed(on: bool);
+    // The pad grid in the decks: the PADS button beside FX.
+    in-out property <bool> pads-visible <=> PadsUi.visible;
+    callback pads-visible-changed(on: bool);
 
     // Physical sizes the GPU textures should be rendered at.
     // Room on the left of the top bar for macOS's window buttons.
@@ -1200,6 +1244,7 @@ export component AppWindow inherits Window {
                     LayoutPill { layout <=> root.layout; player-mic <=> root.player-mic; changed-to(l) => { layout-changed(l); } }
                     if !player: WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
                     if !player: FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
+                    if !player && !prep: PadsButton { on <=> root.pads-visible; changed-to(on) => { pads-visible-changed(on); } }
                     if !player: Rectangle { horizontal-stretch: 1; }
                     // Between the pills, centred on the window (as the
                     // Player bar below is) while there is room, else
@@ -1312,7 +1357,7 @@ export component AppWindow inherits Window {
             // layouts.
             HorizontalLayout {
                 spacing: 1px;
-                height: four ? 330px : 0px;
+                height: four ? (PadsUi.visible ? 330px : 247px) : 0px;
                 visible: four;
                 DeckStrip { deck: 2; info: decks[2]; overview: overview-3; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
                 strip-1 := DeckStrip { deck: 0; info: decks[0]; overview: overview-1; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
