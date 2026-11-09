@@ -219,6 +219,13 @@ pub fn show_plugins(app: &AppWindow, instruments: &[Found], names: &[String]) {
             })
             .collect();
     });
+    app.global::<InstrumentsUi>()
+        .set_plugin_formats(ModelRc::new(VecModel::from(
+            instruments
+                .iter()
+                .map(|f| SharedString::from(f.format))
+                .collect::<Vec<_>>(),
+        )));
     crate::instrument_art::show_plugins(
         app,
         instruments
