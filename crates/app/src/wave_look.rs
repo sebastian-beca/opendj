@@ -14,6 +14,8 @@ use crate::settings;
 pub const COLOR_KEY: &str = "waveform_color";
 pub const PALETTE_KEY: &str = "waveform_palette";
 pub const HALF_KEY: &str = "waveform_overview_half";
+/// Settings › Decks › Size follows gain, off at first.
+pub const GAIN_KEY: &str = "waveform_follows_gain";
 
 /// The color schemes, in Settings order.
 pub const COLOR_LABELS: [&str; 3] = ["RGB", "3-Band", "Blue"];
@@ -25,6 +27,7 @@ static COLOR: AtomicU32 = AtomicU32::new(0);
 static PALETTE: AtomicU32 = AtomicU32::new(0);
 static HALF: AtomicU32 = AtomicU32::new(0);
 static VERSION: AtomicU32 = AtomicU32::new(1);
+static GAIN: AtomicU32 = AtomicU32::new(0);
 
 /// Reads the saved choices; called once at start.
 pub fn load() {
@@ -32,6 +35,7 @@ pub fn load() {
     COLOR.store(read(COLOR_KEY, COLOR_LABELS.len()), Ordering::Relaxed);
     PALETTE.store(read(PALETTE_KEY, PALETTE_LABELS.len()), Ordering::Relaxed);
     HALF.store(read(HALF_KEY, SHAPE_LABELS.len()), Ordering::Relaxed);
+    GAIN.store(settings::flag(GAIN_KEY, false) as u32, Ordering::Relaxed);
     VERSION.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -52,6 +56,26 @@ pub fn choose_palette(index: usize) {
 
 pub fn choose_half(index: usize) {
     pick(&HALF, HALF_KEY, index, SHAPE_LABELS.len());
+}
+
+/// Size follows gain was switched; saved by the caller.
+pub fn set_follows_gain(on: bool) {
+    GAIN.store(on as u32, Ordering::Relaxed);
+}
+
+pub fn follows_gain() -> bool {
+    GAIN.load(Ordering::Relaxed) == 1
+}
+
+/// How tall a deck's waveforms are drawn for its gain knob (1 at the
+/// middle, 0 to 4): unchanged unless Size follows gain is on, and then kept
+/// between a quarter and twice the height so a waveform never vanishes.
+pub fn gain_scale(pregain: f64) -> f32 {
+    if follows_gain() {
+        pregain.clamp(0.25, 2.0) as f32
+    } else {
+        1.0
+    }
 }
 
 /// Which of [`COLOR_LABELS`] is in use.
@@ -105,5 +129,16 @@ mod tests {
         COLOR.store(0, Ordering::Relaxed);
         assert_eq!(style(), Style::Rgb);
         assert_eq!(palette(), Palette::default());
+    }
+
+    #[test]
+    fn gain_sizes_only_when_on() {
+        set_follows_gain(false);
+        assert_eq!(gain_scale(2.0), 1.0);
+        set_follows_gain(true);
+        assert_eq!(gain_scale(1.5), 1.5);
+        assert_eq!(gain_scale(0.0), 0.25);
+        assert_eq!(gain_scale(4.0), 2.0);
+        set_follows_gain(false);
     }
 }

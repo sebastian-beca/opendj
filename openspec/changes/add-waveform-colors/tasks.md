@@ -20,7 +20,7 @@
 
 ## 4. Gain (try out)
 
-- [ ] 4.1 Size follows gain switch, off at first; drop it if it doesn't feel right
+- [x] 4.1 Size follows gain switch, off at first; drop it if it doesn't feel right
 
 ## Workflow follow-up
 

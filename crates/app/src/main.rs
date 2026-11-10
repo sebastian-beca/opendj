@@ -2139,6 +2139,8 @@ struct DeckHandles {
     /// The silent playhead while slipping, in seconds (-1 for none).
     slip_position: ControlHandle,
     beatloop_size: ControlHandle,
+    /// The gain knob, which sizes the waveforms when Size follows gain is on.
+    pregain: ControlHandle,
     keylock: ControlHandle,
     /// Key shift in semitones, the key being played and the file's key.
     pitch: ControlHandle,
@@ -2196,6 +2198,7 @@ impl Decks {
                 loop_in_pending: c("loop_in_pending"),
                 slip_position: c("slip_position"),
                 beatloop_size: c("beatloop_size"),
+                pregain: c("pregain"),
                 keylock: c("keylock"),
                 pitch: c("pitch"),
                 key: c("key"),
@@ -2436,7 +2439,7 @@ impl Decks {
                 enabled.get_bool().then(|| position.get())
             }),
             slip: Some(h.slip_position.get()).filter(|&s| s >= 0.0),
-            gain: 1.0,
+            gain: wave_look::gain_scale(h.pregain.get()),
             phrases,
         }
     }
