@@ -52,7 +52,7 @@ struct Params {
     mark_color: vec4<f32>,
     lit_color: vec4<f32>,
     word_width: array<vec4<f32>, 2>,   // each phrase name's width in the text atlas, by kind
-    marks: array<vec4<f32>, 256>,      // start and end slice, row, kind (0 played, 1 held, 2 coming, 3 fill, 4 coming fill, 8+ level)
+    marks: array<vec4<f32>, 256>,      // start and end slice, row, kind (0 played, 1 held, 2 coming, 3 fill, 4 coming fill, 8+ level: 8 + colour * 2^20 + from * 1024 + to)
 };
 
 @group(0) @binding(0) var<uniform> p: Params;
@@ -93,6 +93,18 @@ const PHRASE_COLORS = array<vec3<f32>, 7>(
     vec3<f32>(0.141, 0.353, 0.471), // #245A78
     vec3<f32>(0.282, 0.773, 0.631), // #48C5A1
     vec3<f32>(0.788, 0.663, 0.306), // #C9A94E
+);
+
+// The colours knobs' levels can be drawn in (MarkKind::Level's colour 1 to 8).
+const LEVEL_COLORS = array<vec3<f32>, 8>(
+    vec3<f32>(1.000, 0.420, 0.420), // #FF6B6B
+    vec3<f32>(1.000, 0.702, 0.278), // #FFB347
+    vec3<f32>(1.000, 0.878, 0.400), // #FFE066
+    vec3<f32>(0.482, 0.894, 0.584), // #7BE495
+    vec3<f32>(0.310, 0.820, 0.773), // #4FD1C5
+    vec3<f32>(0.388, 0.702, 0.929), // #63B3ED
+    vec3<f32>(0.714, 0.612, 1.000), // #B69CFF
+    vec3<f32>(0.969, 0.561, 0.702), // #F78FB3
 );
 
 struct Slice {
@@ -452,9 +464,19 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
                 // A knob's level: a line from one value to the other, with
                 // a faint fill under it.
                 if (m.w >= 8.0) {
-                    let code = u32(m.w - 8.0);
+                    let packed = u32(m.w - 8.0);
+                    let hue = packed / 1048576u;
+                    let code = packed % 1048576u;
                     let v0 = f32(code / 1024u) / 1023.0;
                     let v1 = f32(code % 1024u) / 1023.0;
+                    // Colour 0 is the marks' colour; 1 to 8 a colour each,
+                    // for lines sharing one lane, with a fainter fill.
+                    var ink = p.mark_color.rgb;
+                    var under = 0.18;
+                    if (hue > 0u) {
+                        ink = LEVEL_COLORS[min(hue, 8u) - 1u];
+                        under = 0.08;
+                    }
                     let span = max(bin_x(m.y) - x0, 1.0);
                     // Half open, so neighbours don't draw their shared pixel twice.
                     if (x >= x0 + span) { continue; }
@@ -463,8 +485,8 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
                     let ly = y1 - pad - v * (y1 - y0 - 2.0 * pad);
                     let slope = (v1 - v0) * (y1 - y0 - 2.0 * pad) / span;
                     let dist = abs(y - ly) / sqrt(1.0 + slope * slope);
-                    if (y > ly) { color = over(color, p.mark_color.rgb, 0.18); }
-                    color = over(color, p.mark_color.rgb, clamp(1.25 * k - dist, 0.0, 1.0));
+                    if (y > ly) { color = over(color, ink, under); }
+                    color = over(color, ink, clamp(1.25 * k - dist, 0.0, 1.0));
                     continue;
                 }
                 let edge = min(min(x - x0, x1 - x), min(y - y0, y1 - y));

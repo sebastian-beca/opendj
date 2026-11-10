@@ -210,6 +210,12 @@ struct Params {
     marks: [[f32; 4]; MAX_MARKS],
 }
 
+/// The colours [`MarkKind::Level`]'s `color` 1 to 8 picks, as sRGB hex.
+/// The shader keeps the same list.
+pub const LEVEL_COLORS: [u32; 8] = [
+    0xFF6B6B, 0xFFB347, 0xFFE066, 0x7BE495, 0x4FD1C5, 0x63B3ED, 0xB69CFF, 0xF78FB3,
+];
+
 /// Marks the shader draws at once (see [`Lanes`]).
 pub const MAX_MARKS: usize = 256;
 
@@ -227,14 +233,17 @@ pub enum MarkKind {
     /// Part of a fill still to come: outlined in the lit colour.
     FillComing,
     /// A knob's value over the mark's span, from 0 at the row's foot to 1
-    /// at its top, going from the first value to the second: a line with
-    /// a faint fill under it.
-    Level(f32, f32),
+    /// at its top, going from `from` to `to`: a line with a faint fill
+    /// under it. `color` 0 draws it in the marks' colour; 1 to 8 in one of
+    /// eight colours each (see [`LEVEL_COLORS`]), for several knobs on one
+    /// lane.
+    Level { from: f32, to: f32, color: u8 },
 }
 
 impl MarkKind {
     /// How the shader reads it: 0 to 4 for the shapes, 8 and up for a
-    /// level, its two values in steps of 1/1023 packed into one number.
+    /// level: its colour, then its two values in steps of 1/1023, packed
+    /// into one number (exact in an `f32`).
     fn code(self) -> f32 {
         let step = |v: f32| (v.clamp(0.0, 1.0) * 1023.0).round();
         match self {
@@ -243,7 +252,9 @@ impl MarkKind {
             MarkKind::Coming => 2.0,
             MarkKind::Fill => 3.0,
             MarkKind::FillComing => 4.0,
-            MarkKind::Level(from, to) => 8.0 + step(from) * 1024.0 + step(to),
+            MarkKind::Level { from, to, color } => {
+                8.0 + f32::from(color.min(8)) * 1_048_576.0 + step(from) * 1024.0 + step(to)
+            }
         }
     }
 }
