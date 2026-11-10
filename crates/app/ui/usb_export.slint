@@ -1,5 +1,6 @@
 // Export to USB: writes a list or folder to a stick that Pioneer DJ
-// players read (rekordbox's Device Library and OneLibrary).
+// players read (rekordbox's Device Library and OneLibrary), or that Engine
+// DJ players read (Denon DJ, Numark, Rane), or both.
 import { Theme } from "theme.slint";
 
 export global UsbExport {
@@ -10,7 +11,8 @@ export global UsbExport {
     // Mounted drives, by name, and the one picked (-1 none).
     in property <[string]> drives;
     in-out property <int> drive: -1;
-    // 0 both, 1 Device Library only, 2 OneLibrary only.
+    // 0 both Pioneer libraries, 1 Device Library only, 2 OneLibrary only,
+    // 3 Engine DJ only, 4 every library.
     in-out property <int> format;
     in property <bool> running;
     // 0..1 while running.
@@ -188,8 +190,8 @@ export component UsbExportDialog inherits Rectangle {
                 VerticalLayout {
                     spacing: 2px;
                     Choice {
-                        text: "All players";
-                        detail: "Writes both libraries below.";
+                        text: "All Pioneer DJ players";
+                        detail: "Writes both Pioneer libraries below.";
                         picked: UsbExport.format == 0;
                         clicked => { UsbExport.format = 0; }
                     }
@@ -205,9 +207,21 @@ export component UsbExportDialog inherits Rectangle {
                         picked: UsbExport.format == 2;
                         clicked => { UsbExport.format = 2; }
                     }
+                    Choice {
+                        text: "Denon DJ Prime and SC, Numark, Rane";
+                        detail: "Engine DJ library (Engine Library/Database2/m.db).";
+                        picked: UsbExport.format == 3;
+                        clicked => { UsbExport.format = 3; }
+                    }
+                    Choice {
+                        text: "Pioneer DJ and Engine DJ players";
+                        detail: "Writes all three libraries. The music is on the stick once.";
+                        picked: UsbExport.format == 4;
+                        clicked => { UsbExport.format = 4; }
+                    }
                 }
                 Text {
-                    text: "The stick's playlists are replaced by these. Music already on it stays, and isn't copied again. This hasn't been tried on a Pioneer player yet, so check the stick before a gig.";
+                    text: "The stick's playlists are replaced by these. Music already on it stays, and isn't copied again. This hasn't been tried on a player yet, so check the stick before a gig.";
                     color: Theme.text-dim;
                     font-size: 11px;
                     wrap: word-wrap;
