@@ -88,3 +88,15 @@ licence, anyone who uses openDJ over a network (such as its phone remote or
 now-playing overlay) can get the source at
 https://github.com/openwave-studio/opendj. "mpump" is its author's name for
 their project; openDJ is not affiliated with or endorsed by it.
+
+The djay Pro library import (crates/plugins/src/djay) is openDJ's own code.
+How djay keeps its library follows djay-pro-autohotcue
+(https://github.com/dip-proto/djay-pro-autohotcue), Copyright (c) 2026 payne0420,
+tsaf-parser (https://github.com/ArloL/tsaf-parser), Copyright (c) 2026 Arlo O'Keeffe,
+and the djay Pro input of whats-now-playing
+(https://github.com/whatsnowplaying/whats-now-playing), Copyright (c)
+2021-2026 Allen Wittenauer, all under the MIT licence; what to bring across
+follows EngineX-OS's djay reader (https://github.com/Cd1s/EngineX-OS),
+Copyright (c) 2026 EngineX OS Contributors, under the MIT licence. "djay" is
+Algoriddim's trademark; openDJ is not affiliated with or endorsed by
+Algoriddim.
