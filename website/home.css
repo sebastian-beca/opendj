@@ -155,3 +155,9 @@
 .feature-wide .points { grid-row: 3; margin-top: 0; }
 .feature-wide .frame { margin-top: 48px; }
 @media (max-width: 900px) { .feature-wide .feature-text { display: block; } .feature-wide .points { margin-top: 22px; } }
+
+/* Two screenshots side by side (stems) */
+.duo { display: grid; grid-template-columns: 1.9fr 1fr; gap: 18px; align-items: center; }
+.frame-tall { max-width: 360px; justify-self: center; }
+.duo-tall { grid-template-columns: 1fr 1fr; align-items: start; max-width: 620px; justify-self: center; }
+.duo-tall .frame:last-child { margin-top: 48px; }
