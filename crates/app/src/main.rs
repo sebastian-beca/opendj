@@ -60,6 +60,7 @@ mod instrument_midi;
 mod instruments;
 mod keep_going;
 mod lastfm;
+mod layouts;
 mod list_picker;
 mod live_trace;
 mod lookup;
@@ -480,16 +481,16 @@ const TOP_BAR_HEIGHT: f64 = 52.0;
 /// The 4-Deck layout's value of `layout` (0 is 2-Deck Pro, 1 Player).
 const FOUR_DECK_LAYOUT: i32 = 2;
 /// Deck 1 alone, for preparing tracks (prep.slint).
-const PREP_LAYOUT: i32 = 3;
+pub(crate) const PREP_LAYOUT: i32 = 3;
 /// The Player layout's value of `layout`: one bar over Automix.
 const PLAYER_LAYOUT: i32 = 1;
 /// Behind the Player bar's overview: the bar's own colour (Theme.panel),
 /// so the waveform sits on the bar rather than in a black box.
 const PLAYER_OVERVIEW_BACKGROUND: [f32; 4] = [0.102, 0.102, 0.110, 1.0];
-/// Whether the Prep layout is offered (the layout menu, a controller's
-/// VIEW, the Cues and Checklist tabs, the checklist settings). Off until
-/// v0.6: the code stays and is built and tested, only hidden.
-pub(crate) const PREP_OFFERED: bool = false;
+/// Whether the Prep layout is offered (Settings › Layouts, the Cues and
+/// Checklist tabs, the checklist settings). Offered from v0.6, under More
+/// layouts: the DJ adds it to the layout menu.
+pub(crate) const PREP_OFFERED: bool = true;
 /// 2-Deck, the lighter two-deck layout (lite.slint): no jogs or tempo
 /// faders, the pads and loop in a bar under the decks.
 const LITE_LAYOUT: i32 = 4;
@@ -650,10 +651,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // A layout no longer offered (Prep, while hidden) opens 2-Deck Pro.
     let layout = settings::number("layout", 0.0) as i32;
     app.set_layout(if layout_offered(layout) { layout } else { 0 });
-    // `[Skin],layout` lets controllers switch it too (the DDJ-FLX4's
-    // SHIFT + right LOAD, VIEW): 0 2-Deck Pro, 1 Player, 2 4-Deck, 3 Prep,
-    // 4 2-Deck. VIEW toggles, so from 4-Deck, Prep or 2-Deck it goes to
-    // 2-Deck Pro.
+    // `[Skin],layout` lets controllers and the tour set it by number: 0
+    // 2-Deck Pro, 1 Player, 2 4-Deck, 3 Prep, 4 2-Deck. Pressed as a
+    // toggle, it goes between 2-Deck Pro and Player.
     let layout_control = registry.create(
         "[Skin]",
         "layout",
@@ -662,6 +662,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         LAST_LAYOUT as f64,
         opendj_control::Behavior::Toggle,
     );
+    // VIEW (the DDJ-FLX4's SHIFT + right LOAD): the next of the DJ's
+    // layouts (layouts.rs), round to the first.
+    let layout_next = registry.push("[Skin]", "layout_next");
     // The deck 3 and 4 switches for two-deck controllers (see
     // opendj_controllers::LAYER_KEYS): clicking a strip's deck number in
     // 4-Deck moves that side over. Outside 4-Deck they go back to decks 1
@@ -809,6 +812,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let layout_control = layout_control.clone();
         let reset_layers = reset_layers.clone();
         let browser = browser.clone();
+        let app_weak = app.as_weak();
         app.on_layout_changed(move |layout| {
             layout_control.set(layout as f64);
             settings::set("layout", serde_json::json!(layout));
@@ -816,7 +820,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if layout == PREP_LAYOUT {
                 browser.borrow_mut().show_in_prep();
             }
+            if let Some(app) = app_weak.upgrade() {
+                layouts::refresh(&app);
+            }
         });
+    }
+    // Settings › Layouts switches layout as the menu does.
+    {
+        let app_weak = app.as_weak();
+        layouts::install(
+            &app,
+            move |layout| {
+                if let Some(app) = app_weak.upgrade() {
+                    if app.get_layout() != layout && layout_offered(layout) {
+                        app.set_layout(layout);
+                        app.invoke_layout_changed(layout);
+                    }
+                }
+            },
+            prefs::LAYOUTS_PAGE,
+        );
     }
     let sources = sources::Sources::install(&app, library_path.clone());
     {
@@ -1368,6 +1391,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let alert_until: Cell<Option<Instant>> = Cell::new(None);
     let alert_engine = engine.clone();
     let layout_version = Cell::new(layout_control.version());
+    let layout_next_version = Cell::new(layout_next.version());
     // Whether the In Prep list was shown for a start in the Prep layout.
     let prep_shown = Cell::new(false);
     // Switched off or on from the crossfader's menu, a controller or a
@@ -1415,6 +1439,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 app.global::<Controls>()
                     .set_blink(start.elapsed().as_millis() / 500 % 2 == 1);
+                // VIEW: on to the next of the DJ's layouts, applied below.
+                if layout_next_version.replace(layout_next.version()) != layout_next.version()
+                    && layout_next.get_bool()
+                {
+                    layout_control.set(layouts::next(app.get_layout()) as f64);
+                }
                 // Only when a controller moved it since the last look.
                 let layout = layout_control.get() as i32;
                 if layout_version.replace(layout_control.version()) != layout_control.version()
@@ -1427,6 +1457,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if layout == PREP_LAYOUT {
                         browser.borrow_mut().show_in_prep();
                     }
+                    layouts::refresh(&app);
                 }
                 if big_browser_version.get() != big_browser.version() {
                     app.set_library_expanded(big_browser.get_bool());

@@ -102,12 +102,29 @@ The menu at the top left of the window switches layouts:
   **WAVEFORMS** lit in the top bar, the four large waveforms are stacked above
   the decks in the same order.
   A [Groove Box](groove-box.md) deck shows its step grid only in 2-Deck.
+- **Prep** shows deck 1 alone, for getting tracks ready (see [Prep](#prep)).
+  It isn't in the menu at first: add it in **Settings › Layouts**.
 
 The button at the bottom left of the window hides the decks for a compact
 view in 2-Deck and 4-Deck.
 
-<!-- The Prep layout is hidden until v0.6 (PREP_OFFERED in crates/app/src/main.rs).
-   Put this section and its line in the list above back with it.
+## Your layouts
+
+The layout menu offers only **your layouts**. At first that's Player,
+2-Deck, 2-Deck Pro and 4-Deck. To change them, click the small cog at the
+top right of the layout menu, or open **Settings › Layouts**:
+
+- **Your layouts** lists the layouts the menu offers, in its order, each
+  with a small drawing of it. **↑** and **↓** move one up or down; **−**
+  takes it out of the menu. The layout you're on can't be taken out.
+- **More layouts** shows the others as cards, each with a drawing and a
+  line on what it's for. **+ Add** puts one at the end of your layouts.
+
+Click any row or card to switch to that layout straight away. A
+controller's VIEW button (on the DDJ-FLX4, **SHIFT** + right **LOAD**)
+goes to the next of your layouts, and from the last back to the first.
+Prep, and layouts added to openDJ in later versions, start under More
+layouts.
 
 ## Prep
 
@@ -164,7 +181,6 @@ previous phrase (8 bars at a time when the track has no phrases); **←** and
 (Shift clears it); **B** Bar 1 here; **T** tap; **M** the click; **[** and **]**
 move the grid; **−** and **=** tempo; **L** lock; **C** memory cue. Space plays and pauses, as
 everywhere.
--->
 
 ## Crossfader assignment
 

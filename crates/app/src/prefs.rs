@@ -78,7 +78,11 @@ const PLUGIN_TABS: [&str; 3] = ["Effects", "Instruments", "Folders"];
 const FOLDERS_TAB: usize = 2;
 const BROADCAST: i32 = 8;
 const KEYBOARD: i32 = 9;
-const FEEDBACK: i32 = 10;
+/// Your layouts and the others (layouts.rs).
+const LAYOUTS: i32 = 10;
+/// Settings › Layouts, for the layout menu's cog.
+pub const LAYOUTS_PAGE: i32 = LAYOUTS;
+const FEEDBACK: i32 = 11;
 
 /// Bitrates offered for a broadcast, in kb/s.
 const BITRATES: [u32; 7] = [64, 96, 128, 160, 192, 256, 320];
@@ -120,6 +124,8 @@ const TAG_ROW: i32 = 19;
 const FOLDER_LIST: i32 = 21;
 /// How track colors show: segmented buttons with a preview beside them.
 const TRACK_COLOR: i32 = 22;
+/// The whole of Settings › Layouts, drawn from LayoutsUi.
+const LAYOUTS_ROW: i32 = 24;
 /// The storage bar with its Manage menu (see StorageUi in preferences.slint).
 const STORAGE: i32 = 23;
 /// The Manage menu's clean-ups, in its order.
@@ -1481,6 +1487,12 @@ impl Prefs {
                 items
             }
             KEYBOARD => self.keyboard_page(),
+            LAYOUTS => vec![item(
+                "layouts",
+                LAYOUTS_ROW,
+                "Your layouts",
+                "The layouts the layout menu offers: add, remove and reorder them.",
+            )],
             FEEDBACK => vec![
                 item("", HEADING, "GUIDED TOUR", ""),
                 PrefItem {

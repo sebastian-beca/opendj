@@ -620,6 +620,7 @@ pub fn describe(group: &str, key: &str) -> Function {
         Group::Skin => {
             let n = match key {
                 "layout" => "Switch layout".into(),
+                "layout_next" => "Next layout".into(),
                 "show_maximized_library" => "Big browser".into(),
                 _ => humanize(key),
             };

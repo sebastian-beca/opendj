@@ -108,9 +108,9 @@
                 </options>
             </control>
             <control>
-                <description>LOAD (DECK2) +SHIFT - press - VIEW: switch between the Pro and Player layouts (openDJ)</description>
+                <description>LOAD (DECK2) +SHIFT - press - VIEW: the next of your layouts (Settings › Layouts) (openDJ)</description>
                 <group>[Skin]</group>
-                <key>layout</key>
+                <key>layout_next</key>
                 <status>0x96</status>
                 <midino>0x59</midino>
                 <options>
