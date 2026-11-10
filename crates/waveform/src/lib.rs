@@ -29,6 +29,9 @@ pub enum Style {
     /// played part in the accent, the rest grey, the mix zone (see
     /// [`WaveformView::set_mix`]) in a dim accent. No cues or minute dots.
     Mono,
+    /// One shape in blue, lighter where the highs are loud (rekordbox's
+    /// Blue).
+    Blue,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -198,7 +201,8 @@ struct Params {
     mark_count: u32,
     /// The text atlas's width and height, in atlas pixels.
     atlas: [f32; 2],
-    _pad: u32,
+    /// 1: drawn from the bottom edge up (overview only).
+    half: u32,
     /// Bit `n` set: lane `n` (from the bottom) is tinted.
     lane_tint: [u32; 4],
     mark_color: [f32; 4],
@@ -289,8 +293,8 @@ pub struct Lanes {
 /// far more than any overview needs.
 const MAX_LEVELS: usize = 16;
 
-/// Band colours: bass red, mids amber, highs blue.
-#[derive(Clone, Copy, Debug)]
+/// Band colours; by default bass red, mids amber, highs blue.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Palette {
     pub low: [f32; 4],
     pub mid: [f32; 4],
@@ -305,6 +309,42 @@ impl Default for Palette {
             mid: [1.0, 0.72, 0.12, 1.0],
             high: [0.30, 0.62, 1.0, 1.0],
             background: [0.05, 0.05, 0.055, 1.0],
+        }
+    }
+}
+
+/// An sRGB colour as `0xRRGGBB`, for a [`Palette`].
+const fn rgb(hex: u32) -> [f32; 4] {
+    [
+        ((hex >> 16) & 0xFF) as f32 / 255.0,
+        ((hex >> 8) & 0xFF) as f32 / 255.0,
+        (hex & 0xFF) as f32 / 255.0,
+        1.0,
+    ]
+}
+
+/// The palettes the stacked bands ([`Style::Bands`]) come in, as low, mid
+/// and high: blue, orange and white as on rekordbox; and lilac (openDJ's
+/// accent), cyan and white.
+pub const BAND_PALETTES: [[[f32; 4]; 3]; 2] = [
+    [rgb(0x1F6BFF), rgb(0xE8902A), rgb(0xF5EEDD)],
+    [rgb(0xB69CFF), rgb(0x22C7E0), rgb(0xF4FBFF)],
+];
+
+impl Palette {
+    /// The default background with one of [`BAND_PALETTES`] (the first if
+    /// out of range).
+    pub fn bands(index: usize) -> Self {
+        let [low, mid, high] = BAND_PALETTES[if index < BAND_PALETTES.len() {
+            index
+        } else {
+            0
+        }];
+        Self {
+            low,
+            mid,
+            high,
+            ..Self::default()
         }
     }
 }
@@ -531,6 +571,8 @@ pub struct WaveformView {
     mode: Mode,
     style: Style,
     palette: Palette,
+    /// Drawn from the bottom up (see [`WaveformView::set_half`]).
+    half: bool,
     /// The next mix, as fractions of the track (Mono style).
     mix: Option<(f32, f32)>,
     texture: wgpu::Texture,
@@ -557,6 +599,7 @@ impl WaveformView {
             mode,
             style: Style::default(),
             palette: Palette::default(),
+            half: false,
             mix: None,
             texture: create_texture(device, width, height),
             size: (width.max(1), height.max(1)),
@@ -570,6 +613,20 @@ impl WaveformView {
 
     pub fn set_style(&mut self, style: Style) {
         self.style = style;
+    }
+
+    /// The band colours, keeping the background.
+    pub fn set_palette(&mut self, palette: Palette) {
+        self.palette = Palette {
+            background: self.palette.background,
+            ..palette
+        };
+    }
+
+    /// Draws the waveform from the bottom edge up instead of mirrored about
+    /// the middle, as rekordbox's half overview does. Overviews only.
+    pub fn set_half(&mut self, half: bool) {
+        self.half = half;
     }
 
     /// The stretch where the next mix happens, as fractions of the track
@@ -667,6 +724,7 @@ impl WaveformView {
                 Style::Rgb => 0,
                 Style::Bands => 1,
                 Style::Mono => 2,
+                Style::Blue => 3,
             },
             scale,
             spread: DIGIT_SPREAD,
@@ -694,7 +752,7 @@ impl WaveformView {
             lane_count: 0,
             mark_count: 0,
             atlas: renderer.digits.size,
-            _pad: 0,
+            half: (self.half && self.mode == Mode::Overview) as u32,
             lane_tint: [0; 4],
             mark_color: [0.0; 4],
             lit_color: [0.0; 4],

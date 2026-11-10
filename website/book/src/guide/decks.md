@@ -27,6 +27,21 @@ left and the track's tempo and key, with the overview waveform of the whole
 track. Click the overview to jump; dragging it moves without playing what it
 passes.
 
+### Waveform colors
+
+**Settings › Decks › Waveform color** picks how the waveforms are colored:
+
+- **RGB** (the default): one shape, red where the bass is loudest, amber for
+  the mids and blue for the highs.
+- **3-Band**: the bass, mids and highs stacked in their own colors, the bass
+  widest, as on rekordbox. **Palette** picks **Blue-Orange-White** (rekordbox's
+  colors) or **Lilac-Cyan-White**.
+- **Blue**: one blue shape, lighter where the highs are loud.
+
+**Overview** draws the overview under each deck **Full**, mirrored about its
+middle, or **Half**, growing from the bottom edge as on rekordbox. The big
+scrolling waveform is always whole.
+
 ### Beat counter
 
 Beside the title, four squares light up one beat at a time, so you can see

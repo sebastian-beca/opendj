@@ -97,6 +97,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-player-pages](changes/add-player-pages/proposal.md) (artist and album pages over the list in Player mode with Play, Shuffle and Mix, then a Home page; from the Player gap review, issue #536, 2026-11-09)
 - [add-scrobbling](changes/add-scrobbling/proposal.md) (scrobbling: the tracks heard go to ListenBrainz, then Last.fm with the DJ's own key; from the Player gap review, issue #536, 2026-11-09)
 - [add-instrument-per-deck](changes/add-instrument-per-deck/proposal.md) (several instrument plugins at once, one per deck, with plugins processed side by side and idle instruments sleeping; issue #523, 2026-11-09)
+- [add-waveform-colors](changes/add-waveform-colors/proposal.md) (Waveform color dropdown with RGB, 3-Band with Blue-Orange-White and Lilac-Cyan-White palettes, Blue and Stems, a Full or Half overview, and Show vocals from a vocal pass at analysis; user request, issue #570, 2026-11-10)
 
 ## v0.8 · From the booth to the studio
 

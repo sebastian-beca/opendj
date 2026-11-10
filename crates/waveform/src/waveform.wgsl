@@ -19,7 +19,7 @@ struct Params {
     loop_end_bin: f32,        // < loop_start = no loop
     gain: f32,
     num_levels: u32,
-    style: u32,               // 0 = RGB (colour by frequency), 1 = stacked bands, 2 = mono (player scrubber)
+    style: u32,               // 0 = RGB (colour by frequency), 1 = stacked bands, 2 = mono (player scrubber), 3 = blue
     scale: f32,               // physical pixels per logical pixel
     spread: f32,              // how far the text atlas's distance field reaches, in atlas pixels
     low_color: vec4<f32>,
@@ -47,7 +47,7 @@ struct Params {
     mark_count: u32,
     atlas_w: f32,                      // the text atlas's width and height
     atlas_h: f32,
-    pad3: u32,
+    half: u32,                         // 1: drawn from the bottom edge up (overview only)
     lane_tint: vec4<u32>,              // bit n: row n tinted (a scale note)
     mark_color: vec4<f32>,
     lit_color: vec4<f32>,
@@ -83,6 +83,9 @@ const CUE_ORANGE = vec3<f32>(1.0, 0.6, 0.1);
 const MONO_LILAC = vec3<f32>(0.714, 0.612, 1.0);
 const MONO_MIX = vec3<f32>(0.357, 0.298, 0.541);
 const MONO_GREY = vec3<f32>(0.40, 0.40, 0.44);
+// Blue style: the body, and what it lightens towards where the highs are loud.
+const BLUE_BODY = vec3<f32>(0.173, 0.482, 0.898);   // #2C7BE5
+const BLUE_HIGHS = vec3<f32>(0.863, 0.922, 1.0);    // #DCEBFF
 // Phrase colours, in PhraseKind order: intro, build (up), drop (peak),
 // breakdown (break or bridge), outro, chorus (main), verse.
 const PHRASE_COLORS = array<vec3<f32>, 7>(
@@ -360,6 +363,14 @@ fn wave(base: vec3<f32>, s: Slice, bin: f32, d: f32, span: f32) -> vec3<f32> {
         let rms_h = height(s.rms.w) * span;
         color = over(color, c, fill(peak_h, d) * 0.45);
         color = over(color, c, fill(rms_h, d));
+    } else if (p.style == 3u) {
+        // Blue: one shape, lighter where the highs are loud.
+        let highs = clamp(s.rms.z / max(s.rms.w, 0.05) * 1.2, 0.0, 1.0);
+        let c = mix(BLUE_BODY, BLUE_HIGHS, highs * 0.8);
+        let peak_h = height(s.peak.w) * span;
+        let rms_h = height(s.rms.w) * span;
+        color = over(color, c * 0.8, fill(peak_h, d) * 0.45);
+        color = over(color, c, fill(rms_h, d));
     } else if (p.style == 0u) {
         let c = band_color(s);
         let peak_h = height(s.peak.w) * span;
@@ -404,8 +415,17 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     }
     let wave_h = p.size.y - bar_h - dots_h;
     let half_h = wave_h * 0.5;
-    let d = abs(y - half_h) - 0.5;            // pixels from the centre line
-    let span = half_h - 1.0;                  // tallest a peak can reach
+    // Pixels from the line the waveform grows from, and the tallest a peak
+    // can reach: the centre line, or for a half waveform the bottom edge.
+    var d = abs(y - half_h) - 0.5;
+    var span = half_h - 1.0;
+    // Pixels from the nearer edge marks hang from: both, or only the top.
+    var edge_dist = half_h - d;
+    if (p.half == 1u) {
+        d = select(1e6, wave_h - 0.5 - y, y < wave_h);
+        span = wave_h - 2.0;
+        edge_dist = y;
+    }
     var color = p.background.rgb;
 
     // Loop region tint.
@@ -526,7 +546,7 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
 
     // Beat ticks along the top and bottom edges, over the waveform.
     if (beats_visible && in_grid) {
-        let edge = half_h - d;                // pixels from the nearer edge
+        let edge = edge_dist;
         let tick = clamp(6.0 * k - edge + 0.5, 0.0, 1.0);
         color = over(color, vec3<f32>(0.85), beat_a * tick * 0.8);
         color = over(color, AMBER, bar_a * clamp(10.0 * k - edge + 0.5, 0.0, 1.0));
@@ -637,7 +657,7 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     // the overview's dots and phrase bar).
     if (p.cue_bin >= 0.0 && y < wave_h && p.style != 2u) {
         let cx = bin_x(p.cue_bin);
-        let edge = half_h - d;
+        let edge = edge_dist;
         let flag = clamp(5.0 * k - abs(x - cx) - edge * 0.8 + 0.5, 0.0, 1.0);
         color = over(color, CUE_ORANGE, max(line(x, cx, 0.5 * k) * 0.8, flag));
     }

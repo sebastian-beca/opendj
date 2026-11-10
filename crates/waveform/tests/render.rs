@@ -4,7 +4,8 @@
 use std::sync::Arc;
 
 use opendj_waveform::{
-    steady_grid, wgpu, Frame, GpuTrack, Mode, PhraseKind, Style, WaveformRenderer, WaveformView,
+    steady_grid, wgpu, Frame, GpuTrack, Mode, Palette, PhraseKind, Style, WaveformRenderer,
+    WaveformView,
 };
 
 /// Builds the coarser levels the way the analyser does (peaks by maximum;
@@ -90,7 +91,7 @@ fn renders_scrolling_and_overview() {
         1000.0,
     ));
     for mode in [Mode::Scrolling, Mode::Overview] {
-        for style in [Style::Rgb, Style::Bands] {
+        for style in [Style::Rgb, Style::Bands, Style::Blue] {
             let mut view = WaveformView::new(&device, mode, 640, 96);
             view.set_style(style);
             view.set_track(&device, &renderer, Some(&track));
@@ -760,5 +761,58 @@ fn peaks_keep_their_height_between_pixels() {
             between.abs_diff(on_pixel) <= 1,
             "peak top at row {between} {offset} s on, row {on_pixel} on a pixel"
         );
+    }
+}
+
+/// A half overview grows from the bottom edge: the top rows stay empty for a
+/// quiet track that a full overview draws round the middle, and the band
+/// palettes and the Blue style draw.
+#[test]
+fn draws_half_overview_from_the_bottom() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let renderer = WaveformRenderer::new(&device, &queue);
+    // Quiet: about a third of the height.
+    let base = (0..10_000)
+        .map(|_| [40, 40, 40, 40, 30, 30, 30, 30])
+        .collect();
+    let track = Arc::new(GpuTrack::new(
+        &device,
+        &queue,
+        &renderer,
+        1,
+        &levels(base),
+        1000.0,
+    ));
+    let (w, h) = (256u32, 60u32); // rows of 256 px meet the copy alignment
+    let lit = |px: &[u8], y: u32| -> bool {
+        let row = &px[(y * w * 4) as usize..((y + 1) * w * 4) as usize];
+        row.chunks(4)
+            .filter(|c| c[0] as u32 + c[1] as u32 + c[2] as u32 > 120)
+            .count()
+            > w as usize / 2
+    };
+    for style in [Style::Bands, Style::Blue] {
+        let mut full = WaveformView::new(&device, Mode::Overview, w, h);
+        full.set_style(style);
+        full.set_palette(Palette::bands(1));
+        full.set_track(&device, &renderer, Some(&track));
+        full.render(&device, &queue, &renderer, None, 1.0);
+        let mut half = WaveformView::new(&device, Mode::Overview, w, h);
+        half.set_style(style);
+        half.set_palette(Palette::bands(1));
+        half.set_half(true);
+        half.set_track(&device, &renderer, Some(&track));
+        half.render(&device, &queue, &renderer, None, 1.0);
+        let full_px = read_back(&device, &queue, &full);
+        let half_px = read_back(&device, &queue, &half);
+        // Full: the middle is drawn, the bottom edge is not.
+        assert!(lit(&full_px, h / 2), "{style:?} full middle");
+        assert!(!lit(&full_px, h - 2), "{style:?} full bottom");
+        // Half: the bottom is drawn, the middle and top are not.
+        assert!(lit(&half_px, h - 3), "{style:?} half bottom");
+        assert!(!lit(&half_px, 3), "{style:?} half top");
     }
 }
