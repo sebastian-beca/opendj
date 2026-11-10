@@ -6740,6 +6740,7 @@ dependencies = [
  "rbox-db",
  "rbox-devlib",
  "rbox-onelib",
+ "rusqlite",
  "tempfile",
  "unicode-normalization",
 ]
