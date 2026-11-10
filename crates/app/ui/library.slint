@@ -2915,8 +2915,10 @@ component FolderTree inherits Rectangle {
         padding-top: 0px;
         spacing: 6px;
         // Lists and History tabs, in words like the side panel's and
-        // underlined in the accent when selected; not over Collection Health.
-        if !HealthUi.view: HorizontalLayout {
+        // underlined in the accent when selected. Only over the collection:
+        // the history is the collection's, not Files', a store's or
+        // Collection Health's.
+        if !HealthUi.view && source == 0: HorizontalLayout {
             height: 38px;
             for name[i] in ["Lists", "History"]: Rectangle {
                 property <bool> on: i == tab;
@@ -2945,8 +2947,8 @@ component FolderTree inherits Rectangle {
                 }
             }
         }
-        if !HealthUi.view: EdgeLine { left: 8px; right: 8px; }
-        if HealthUi.view: Rectangle { height: 8px; }
+        if !HealthUi.view && source == 0: EdgeLine { left: 8px; right: 8px; }
+        if HealthUi.view || source != 0: Rectangle { height: 8px; }
         if tab == 1 && folders.length == 0: Placeholder {
             vertical-stretch: 1;
             title: "History";
@@ -4618,6 +4620,7 @@ component TrackList inherits Rectangle {
         }
         if AlbumsUi.grid && empty-title == "": AlbumGrid { vertical-stretch: 1; }
         lv := ListView {
+            gutter: true;
             vertical-stretch: empty-title != "" || AlbumsUi.grid ? 0 : 1;
             visible: empty-title == "" && !AlbumsUi.grid;
             content-width: list-width;
@@ -5757,6 +5760,7 @@ component SidePanel inherits Rectangle {
                 border-width: drop.has-drag ? 2px : TrackDrag.active ? 1px : 0px;
                 border-color: drop.has-drag ? #30c158 : #30c15880;
                 lv := ListView {
+                    gutter: true;
                     for r[i] in rows: Rectangle {
                         height: r.heading != "" ? 30px : row-height;
                         opacity: r.suggested ? 0.45 : 1;
@@ -6014,7 +6018,16 @@ export component Browser inherits HorizontalLayout {
     if !now-playing: SourceRail {
         source <=> source;
         shown <=> sources-shown;
-        picked(s) => { select-source(s); }
+        picked(s) => {
+            // History lives under the collection: other sources open on
+            // their lists.
+            if s != 0 && library-tab == 1 {
+                library-tab = 0;
+                LibraryEdit.history-tab = false;
+                LibraryEdit.show-history(false);
+            }
+            select-source(s);
+        }
         health-picked => {
             library-tab = 0;
             LibraryEdit.history-tab = false;

@@ -2,8 +2,10 @@
 // hugging the right (or bottom) edge, drawn over the content, that widens
 // under the pointer. Stands in for the std-widgets ScrollView and
 // ListView, whose Fluent bars sit inset with room for arrow buttons.
-// Sidebars set `gutter` so the vertical bar gets its own strip on the
-// right instead of covering row highlights, counts and + buttons.
+// Sidebars and lists set `gutter` so the vertical bar gets its own strip
+// on the right instead of covering row highlights, counts and + buttons.
+// While the content scrolls, the bar runs in a faint lighter lane, so it is
+// easy to see where the thumb is and how far there is to go.
 import { Theme } from "theme.slint";
 
 component Bar inherits Rectangle {
@@ -15,12 +17,23 @@ component Bar inherits Rectangle {
 
     property <bool> active: ta.has-hover || ta.pressed;
     property <length> inset: 2px;
-    property <length> thickness: active ? 8px : 6px;
+    property <length> thickness: active ? 9px : 7px;
     property <length> track: (horizontal ? root.width : root.height) - 2 * inset;
     property <length> thumb-size: maximum <= 0px ? 0px : max(28px, track * page-size / (maximum + page-size));
     property <length> thumb-pos: maximum <= 0px ? inset : inset + (track - thumb-size) * (-value / maximum);
 
     visible: maximum > 0px;
+
+    // The lane the thumb runs in.
+    Rectangle {
+        x: horizontal ? inset : parent.width - inset - self.width;
+        y: horizontal ? parent.height - inset - self.height : inset;
+        width: horizontal ? track : thickness;
+        height: horizontal ? thickness : track;
+        border-radius: thickness / 2;
+        background: Theme.scroll-lane;
+        animate width, height { duration: 120ms; easing: ease-out; }
+    }
 
     thumb := Rectangle {
         x: horizontal ? thumb-pos : parent.width - inset - self.width;
