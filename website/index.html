@@ -179,19 +179,27 @@
     </div>
   </section>
 
-  <!-- More built in -->
-  <section class="more" id="more">
+  <!-- Full feature list -->
+  <section class="specs" id="all-features">
     <div class="wrap">
-      <p class="eyebrow">More built in</p>
-      <h2>The small things add up.</h2>
-      <ul class="more-grid">
-        <li><h3>Switch in minutes</h3><p>Bring your library, cues and playlists from rekordbox, VirtualDJ or Mixxx.</p></li>
-        <li><h3>18 effects</h3><p>Beat-synced effects, Color FX on every filter, and your own plugins.</p></li>
-        <li><h3>Record your mix</h3><p>WAV or FLAC, with a tracklist saved next to it.</p></li>
-        <li><h3>Ableton Link</h3><p>Play in time with other apps and devices on your network.</p></li>
-        <li><h3>Phrases</h3><p>Intro, build, drop and outro marked on every track.</p></li>
-        <li><h3>Sampler</h3><p>16 pads with sample packs, on every deck.</p></li>
-      </ul>
+      <p class="eyebrow">Full feature list</p>
+      <h2>Everything in openDJ.</h2>
+      <p class="sub">Everything openDJ does today, for the details people. A few items arrive with the next release.</p>
+      <div class="spec-grid">
+        <div class="spec"><h3>Decks and performance</h3><ul><li>2 or 4 decks; 2-Deck, 2-Deck Pro, 4-Deck, Simple and Player layouts</li><li>Hot cues in 8 colours, saved loops, beat jump, loop roll, slip mode</li><li>Pad pages: hot cues, pad FX, beat jump, sampler, stems, beat loop, keyboard, key shift, SLICER, FREEZE</li><li>Sync with quantize, master deck, tempo ranges, pitch bend and nudge</li><li>Key lock (time-stretch), key shift and key match on load</li><li>Beat and bar counter, phrase markers, track end warning</li><li>Vinyl mode, fast-response scratching, Scratch crossfader curve</li></ul></div>
+        <div class="spec"><h3>Mixer and effects</h3><ul><li>Gain with auto-gain, 3-band EQ, Color FX on the filter knob</li><li>FX bar: Beat FX plus 3 FX slots per deck, beat-locked to the grid</li><li>18 built-in effects: echo, reverb, gate, roll, flanger, phaser, bitcrusher and more</li><li>CLAP, VST3 and Audio Unit effects, each in its own crash-safe helper process</li><li>Mic and Aux inputs with their own FX, booth and headphone outputs</li><li>Look-ahead master limiter and headphone cue mix</li></ul></div>
+        <div class="spec"><h3>Stems</h3><ul><li>Instant stems on load (vocals, drums, bass, other)</li><li>High-quality stems with HTDemucs, prepared in the background</li><li>Stem pads: acapella, instrumental, kick, hi-hat and more</li><li>Stem FX: echo out or reverb a single stem</li><li>Runs fully on your computer; reads NI STEM files</li></ul></div>
+        <div class="spec"><h3>Analysis</h3><ul><li>Neural beat detection (Beat This!) with downbeats</li><li>Straight or dynamic grids for real tempo changes; grid lock</li><li>Key detection with Harmonic or Fuzzy key mixing and ±1 semitone marks</li><li>Phrase detection: intro, verse, build, drop, break, outro</li><li>Colour GPU waveforms, mini waveforms in the browser</li><li>Analyze Track or All, with cover art lookup</li></ul></div>
+        <div class="spec"><h3>Automix and remote</h3><ul><li>Beatmatched blends in seconds, bars or Intro over outro (phrases)</li><li>Smooth or quick styles, and an Order menu with harmonic order</li><li>Gapless joins for live albums and DJ mixes</li><li>Phone remote over Wi-Fi: QR or PIN pairing, queue, search, sleep timer</li><li>Now-playing feed and OBS overlay</li></ul></div>
+        <div class="spec"><h3>Collection</h3><ul><li>Your music folders, with stages: Inbox, In Prep, Play Ready</li><li>Crates, playlists, smart lists, sets, history by day</li><li>Tag groups, batch editing, ratings, colours, forgiving search syntax</li><li>Albums and Recordings views</li><li>Backups to one .opendjbackup file, daily by default</li></ul></div>
+        <div class="spec"><h3>Collection Health</h3><ul><li>Dashboard with how ready your collection is, in five areas</li><li>Missing files relinked, duplicates merged, strays and non-music found</li><li>Names, tags, genres and covers fixed from MusicBrainz and Discogs</li><li>Auto-fix the sure ones, review the rest one card at a time</li><li>Quarantine instead of delete; every fix can be undone</li></ul></div>
+        <div class="spec"><h3>Imports and exports</h3><ul><li>Import rekordbox (6/7 database or XML), VirtualDJ, Traktor and Mixxx</li><li>Keeps hot cues, loops, grids, keys, playlists and history</li><li>M3U8, PLS and XSPF playlists in; M3U8 out</li><li>rekordbox XML export with grids, cues and colours</li><li>Experimental Pioneer USB export</li></ul></div>
+        <div class="spec"><h3>Sources</h3><ul><li>Browse Spotify, TIDAL, Apple Music, SoundCloud and Mixcloud (read only)</li><li>Tracks you own as files play from your collection</li><li>Play from your Plex, Navidrome or Jellyfin server</li><li>Buy Wanted tracks from Bandcamp, Beatport, Qobuz and more</li><li>Export your history to a Spotify playlist</li></ul></div>
+        <div class="spec"><h3>Instruments</h3><ul><li>CLAP, VST3 and Audio Unit instruments on a deck</li><li>Groove Box: 8-track drum machine with classic analog kits</li><li>Play from the pads, a MIDI keyboard or the sequencer</li><li>Scale, chord and arpeggiator modes, in key with the track</li><li>Plugin presets, input trim and a safety limiter</li></ul></div>
+        <div class="spec"><h3>Controllers</h3><ul><li>140+ MIDI controllers via Mixxx mappings, unchanged</li><li>openDJ's own mappings for DDJ-FLX6, XDJ-RX3, Xone:K2 and Maschine Mikro MK3</li><li>USB HID: Traktor Kontrol S2, S3, S4, F1, Z1, MX2</li><li>Controller Editor, MIDI map (learn), Quick map and a mapping wizard</li><li>Import mappings from VirtualDJ, Traktor, rekordbox and djay</li></ul></div>
+        <div class="spec"><h3>Recording and sync</h3><ul><li>Record to WAV or FLAC with a .cue tracklist</li><li>Stream to Icecast or Shoutcast with a LUFS loudness meter</li><li>Mixcloud export with the tracklist</li><li>Ableton Link, MIDI clock in and out, OSC with feedback</li><li>Per-deck outputs for a DAW or an external mixer</li></ul></div>
+        <div class="spec"><h3>Under the hood</h3><ul><li>Written in Rust; Slint interface, wgpu waveforms</li><li>macOS (Apple Silicon and Intel), Windows, Linux</li><li>CoreAudio, WASAPI, ASIO, ALSA; buffer and sample rate settings</li><li>Audio health meter for dropouts</li><li>Signed, notarized macOS app that updates itself</li><li>Free software under the GPL 2.0 or later</li></ul></div>
+      </div>
     </div>
   </section>
 
@@ -277,7 +285,7 @@
     <div class="footer-col">
       <h4>Product</h4>
       <a href="#features">Features</a>
-      <a href="#automix">Phone remote</a>
+      <a href="#all-features">Full feature list</a>
       <a href="#faq">FAQ</a>
       <a href="#steward">Become a Steward</a>
       <a href="#download">Download</a>

@@ -136,3 +136,12 @@
 .h-hero h1 { font-size: clamp(40px, 6.2vw, 76px); max-width: 1100px; }
 @media (max-width: 900px) { .feature-rev .feature-inner { grid-template-columns: 1fr; } }
 .support { text-align: left; }
+
+/* Full feature list */
+.specs { padding: 120px 0 40px; }
+.specs h2 { font-size: clamp(32px, 4.6vw, 54px); letter-spacing: -0.03em; }
+.spec-grid { margin-top: 44px; columns: 3 300px; column-gap: 40px; }
+.spec { break-inside: avoid; padding: 0 0 32px; }
+.spec h3 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--lilac); padding-bottom: 12px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.spec ul { list-style: none; padding: 0; margin: 0; }
+.spec li { padding: 9px 0; border-bottom: 1px solid rgba(42, 39, 64, 0.6); color: var(--text-2); font-size: 15px; line-height: 1.45; }
