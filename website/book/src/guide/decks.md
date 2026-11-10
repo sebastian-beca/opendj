@@ -94,13 +94,14 @@ the left, and the hits still to come are drawn ahead of the play line as
 outlines, so you can see the next bars before they play. Fills are drawn in
 lilac, and a groove you queue shows from the next bar on.
 
-On an instrument or Groove Box deck, the small sliders button at the
-waveform's top right switches to macro lanes: the deck's knobs drawn as
-lines up to the play line, one lane each, so you can see the filter ride you
-did a few bars back. An instrument shows the page of eight knobs its deck
-shows; the Groove Box shows its eight tracks' levels. Each lane's name and
-value sit just past the play line. Click the button again to go back to the
-notes or steps. Macro lanes are in 2-Deck only.
+On an instrument deck, the small sliders button at the waveform's top
+right switches to macro lanes: the knobs on the page the deck shows, drawn
+as lines up to the play line across the waveform's full height, each in its
+own colour, so you can see the filter ride you did a few bars back. Only the
+knobs that moved in view get a line. The list just past the play line names
+all eight with their values and colours, dimming the ones left alone. Click
+the button again to go back to the note roll. Macro lanes are in 2-Deck
+only; a Groove Box deck always shows its step lanes.
 
 To go back to a track deck, load a track onto it, or press EJECT while it is
 stopped. openDJ remembers what each deck plays for next time.

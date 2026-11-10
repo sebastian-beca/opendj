@@ -1302,6 +1302,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         knobs: knobs.take().expect("knob handles"),
                         scale_mask: scale_mask.clone(),
                         macros: Default::default(),
+                        knobs_moved: Default::default(),
                         live_tracks: Default::default(),
                         moving: false,
                         images_set: false,
@@ -2530,6 +2531,8 @@ struct Gpu {
     /// The instrument's scale now, whose rows its note roll tints.
     scale_mask: ControlHandle,
     macros: macro_lanes::MacroLanes,
+    /// Which of the knobs drew a line last, as the list beside them shows.
+    knobs_moved: [bool; macro_lanes::KNOBS],
     live_tracks: [Option<Arc<GpuTrack>>; NUM_DECKS],
     /// Whether a deck was moving in the last frame drawn.
     moving: bool,
@@ -2757,23 +2760,24 @@ impl Gpu {
                 }
                 w
             });
-            // Or the deck's knobs as macro lanes, where its switch is on
-            // (2-Deck only).
-            let source = match (groove[d], held.is_some()) {
-                (true, _) => Some(macro_lanes::Source::Groove),
-                (false, true) => Some(macro_lanes::Source::Instrument {
-                    page: app.global::<InstrumentsUi>().get_knob_page().max(0) as usize,
-                }),
-                _ => None,
-            };
-            let source = source.filter(|_| !four && macros_shown.row_data(d).unwrap_or(false));
-            let window = match (window, source) {
-                (Some(mut w), Some(source)) => {
-                    let values = self.knobs.values(d, source);
-                    self.macros.note(d, source, w.clock, values);
+            // Or an instrument deck's knobs as macro lanes, where its switch
+            // is on (2-Deck only).
+            let page = (held.is_some() && !groove[d] && !four)
+                .then(|| app.global::<InstrumentsUi>().get_knob_page().max(0) as usize)
+                .filter(|_| macros_shown.row_data(d).unwrap_or(false));
+            let window = match (window, page) {
+                (Some(mut w), Some(page)) => {
+                    let values = self.knobs.values(page);
+                    self.macros.note(d, page, w.clock, values);
                     let start = w.clock - w.play_seconds;
                     let back = VISIBLE_SECONDS / 2.0;
-                    w.lanes = Some(self.macros.lanes(d, start, w.clock, back, DECK_COLORS[d]));
+                    let (lanes, moved) = self.macros.lanes(d, start, w.clock, back, DECK_COLORS[d]);
+                    if moved != self.knobs_moved {
+                        self.knobs_moved = moved;
+                        let model = VecModel::from(moved.to_vec());
+                        app.global::<MacroLanes>().set_moved(ModelRc::new(model));
+                    }
+                    w.lanes = Some(lanes);
                     Some(w)
                 }
                 (window, _) => {

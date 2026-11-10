@@ -12,7 +12,7 @@ A deck can play a live source instead of a track: the mic or an aux input, an in
 - **Leading deck's grid.** The live lane draws the beat grid and bar numbers of the leading deck (the sync leader, else the first playing deck with a tempo), at that deck's playing tempo, so the live part lines up with the track it plays against.
 - **Note roll** on instrument decks: the notes played as bars on a piano roll, fitted to the range of notes in view, rows of the current scale tinted, held notes lit at the play line; a faint trace under it.
 - **Step lanes** on Groove Box decks: eight lanes with the hits played behind the play line and the coming hits ahead of it, fills marked, and the bar where the next groove starts. Track names only where the lane has room (2-Deck).
-- **Macro lanes** as a second view on instrument and Groove Box decks: the deck's knobs as automation lines, behind a small switch on the waveform; 2-Deck only.
+- **Macro lanes** as a second view on instrument decks: the knobs as automation lines at full height, a colour each, only the knobs that moved drawn, behind a small switch on the waveform; 2-Deck only. Groove Box decks keep their step lanes.
 
 ## Out of scope
 

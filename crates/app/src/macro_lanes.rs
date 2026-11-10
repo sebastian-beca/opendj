@@ -1,46 +1,35 @@
-//! Macro lanes: a second view of an instrument or Groove Box deck's
-//! scrolling waveform, its knobs drawn as automation lines up to the play
-//! line, one lane each.
+//! Macro lanes: a second view of an instrument deck's scrolling waveform,
+//! its knobs drawn as automation lines up to the play line.
 //!
-//! An instrument deck shows the eight knobs of the page its deck shows; a
-//! Groove Box deck its eight tracks' levels, kick on top as in the step
-//! lanes. The values are noted each frame on the deck's live clock and
-//! kept for a few seconds.
+//! The deck shows the eight knobs of the page its deck shows, each line in
+//! its own colour across the full height. Only the knobs that moved in view
+//! get a line, so knobs left alone (often at the same value) don't pile up
+//! on one another; the list beside the play line names all eight. The
+//! values are noted each frame on the deck's live clock and kept for a few
+//! seconds.
 
 use std::collections::VecDeque;
 
 use opendj_control::{ControlHandle, ControlRegistry};
-use opendj_engine::groove::{groove_group, ROWS};
 use opendj_engine::NUM_DECKS;
 use opendj_waveform::{Lanes, Mark, MarkKind, MAX_MARKS};
 
-/// Lanes on the waveform, top first.
-pub const LANES: usize = 8;
-/// How opaque the sound is under the lanes.
+/// Knobs a page shows, each a colour (`MarkKind::Level`'s 1 to 8).
+pub const KNOBS: usize = 8;
+/// How opaque the sound is under the lines.
 const UNDER_LINES: f32 = 0.25;
 /// Values are kept this long behind the play line, in seconds.
 const KEEP_SECONDS: f64 = 10.0;
 /// A value is noted at most this often, in seconds.
 const STEP_SECONDS: f64 = 0.05;
-/// A Groove Box track's level at its fader's top.
-const LEVEL_TOP: f64 = 1.5;
+/// A knob counts as moved when it spans more than this in view.
+const MOVED: f32 = 0.005;
 /// The lit colour, Electric Lilac.
 const LILAC: [f32; 4] = [0.714, 0.612, 1.0, 1.0];
 
-/// The knobs a deck's lanes follow.
+/// The instrument's knobs, `[Instrument1],parameterN`, all of them.
 pub struct KnobHandles {
-    /// `[Instrument1],parameterN`, all of them.
     instrument: Vec<ControlHandle>,
-    /// Each deck's Groove Box tracks' levels.
-    levels: [[ControlHandle; ROWS]; NUM_DECKS],
-}
-
-/// What a deck's lanes show: the instrument's knobs from `page` (eight to
-/// a page), or the Groove Box's levels.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Source {
-    Instrument { page: usize },
-    Groove,
 }
 
 impl KnobHandles {
@@ -48,39 +37,25 @@ impl KnobHandles {
         let instrument = (1..)
             .map_while(|k| reg.get("[Instrument1]", &format!("parameter{k}")))
             .collect();
-        let levels = std::array::from_fn(|d| {
-            let g = groove_group(d);
-            std::array::from_fn(|r| {
-                reg.get(&g, &format!("row{}_level", r + 1))
-                    .unwrap_or_else(|| panic!("missing control {g},row{}_level", r + 1))
-            })
-        });
-        Self { instrument, levels }
+        Self { instrument }
     }
 
-    /// The knobs' values now, from 0 to 1, top lane first. Past the
-    /// instrument's last parameter, 0.
-    pub fn values(&self, d: usize, source: Source) -> [f32; LANES] {
-        match source {
-            Source::Instrument { page } => std::array::from_fn(|i| {
-                self.instrument
-                    .get(page * LANES + i)
-                    .map_or(0.0, |c| c.get().clamp(0.0, 1.0) as f32)
-            }),
-            Source::Groove => std::array::from_fn(|i| {
-                self.levels[d]
-                    .get(i)
-                    .map_or(0.0, |c| (c.get() / LEVEL_TOP).clamp(0.0, 1.0) as f32)
-            }),
-        }
+    /// The values now, from 0 to 1, of the knobs on `page` (eight to a
+    /// page). Past the instrument's last parameter, 0.
+    pub fn values(&self, page: usize) -> [f32; KNOBS] {
+        std::array::from_fn(|i| {
+            self.instrument
+                .get(page * KNOBS + i)
+                .map_or(0.0, |c| c.get().clamp(0.0, 1.0) as f32)
+        })
     }
 }
 
 #[derive(Default)]
 struct Deck {
-    source: Option<Source>,
+    page: Option<usize>,
     /// (clock, values), oldest first.
-    seen: VecDeque<(f64, [f32; LANES])>,
+    seen: VecDeque<(f64, [f32; KNOBS])>,
 }
 
 #[derive(Default)]
@@ -89,18 +64,18 @@ pub struct MacroLanes {
 }
 
 impl MacroLanes {
-    /// Forgets a deck's values, as when its lanes are hidden.
+    /// Forgets a deck's values, as when its lines are hidden.
     pub fn clear(&mut self, d: usize) {
         self.decks[d] = Deck::default();
     }
 
-    /// Notes the deck's knobs at `at` on its live clock. Values from
-    /// another source, or from before the clock went back, are dropped.
-    pub fn note(&mut self, d: usize, source: Source, at: f64, values: [f32; LANES]) {
+    /// Notes the deck's knobs on `page` at `at` on its live clock. Values
+    /// from another page, or from before the clock went back, are dropped.
+    pub fn note(&mut self, d: usize, page: usize, at: f64, values: [f32; KNOBS]) {
         let deck = &mut self.decks[d];
-        if deck.source != Some(source) || deck.seen.back().is_some_and(|&(t, _)| t > at) {
+        if deck.page != Some(page) || deck.seen.back().is_some_and(|&(t, _)| t > at) {
             *deck = Deck {
-                source: Some(source),
+                page: Some(page),
                 seen: VecDeque::new(),
             };
         }
@@ -117,15 +92,22 @@ impl MacroLanes {
         }
     }
 
-    /// The deck's lanes for a window starting at `start` on its clock and
-    /// ending at the play line `at`, over `back` seconds to its left.
-    pub fn lanes(&self, d: usize, start: f64, at: f64, back: f64, color: [f32; 4]) -> Lanes {
+    /// The deck's lines for a window starting at `start` on its clock and
+    /// ending at the play line `at`, over `back` seconds to its left, and
+    /// which knobs moved in that time (only those are drawn).
+    pub fn lanes(
+        &self,
+        d: usize,
+        start: f64,
+        at: f64,
+        back: f64,
+        color: [f32; 4],
+    ) -> (Lanes, [bool; KNOBS]) {
         let deck = &self.decks[d];
         let from = at - back;
         // The last value before the view, then each one in it.
         let first = deck.seen.iter().rposition(|&(t, _)| t <= from).unwrap_or(0);
-        let mut marks = Vec::new();
-        for i in 0..LANES {
+        let points: [Vec<(f64, f32)>; KNOBS] = std::array::from_fn(|i| {
             let mut points: Vec<(f64, f32)> = deck
                 .seen
                 .iter()
@@ -137,26 +119,45 @@ impl MacroLanes {
                     points.push((at, v));
                 }
             }
-            for w in simplify(&points, MAX_MARKS / LANES).windows(2) {
+            points
+        });
+        let moved: [bool; KNOBS] = std::array::from_fn(|i| {
+            let (lo, hi) = points[i]
+                .iter()
+                .fold((f32::MAX, f32::MIN), |(lo, hi), &(_, v)| {
+                    (lo.min(v), hi.max(v))
+                });
+            hi - lo > MOVED
+        });
+        // The marks the shader draws, shared by the knobs that moved.
+        let budget = MAX_MARKS / moved.iter().filter(|&&m| m).count().max(1);
+        let mut marks = Vec::new();
+        for i in (0..KNOBS).filter(|&i| moved[i]) {
+            for w in simplify(&points[i], budget).windows(2) {
                 let ((t0, v0), (t1, v1)) = (w[0], w[1]);
                 if t1 > t0 {
                     marks.push(Mark {
                         start: t0 - start,
                         end: t1 - start,
-                        lane: (LANES - 1 - i) as u32,
-                        kind: MarkKind::Level(v0, v1),
+                        lane: 0,
+                        kind: MarkKind::Level {
+                            from: v0,
+                            to: v1,
+                            color: i as u8 + 1,
+                        },
                     });
                 }
             }
         }
-        Lanes {
-            count: LANES as u32,
+        let lanes = Lanes {
+            count: 1,
             tinted: 0,
             marks,
             trace: UNDER_LINES,
             color,
             lit: LILAC,
-        }
+        };
+        (lanes, moved)
     }
 }
 
@@ -202,57 +203,55 @@ mod tests {
 
     const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 
-    fn levels(lanes: &Lanes, lane: u32) -> Vec<(f64, f64, f32, f32)> {
+    /// Each piece of knob `knob`'s line (colour knob + 1).
+    fn levels(lanes: &Lanes, knob: u8) -> Vec<(f64, f64, f32, f32)> {
         lanes
             .marks
             .iter()
-            .filter(|m| m.lane == lane)
-            .map(|m| match m.kind {
-                MarkKind::Level(a, b) => (m.start, m.end, a, b),
+            .filter_map(|m| match m.kind {
+                MarkKind::Level { from, to, color } if color == knob + 1 => {
+                    assert_eq!(m.lane, 0);
+                    Some((m.start, m.end, from, to))
+                }
+                MarkKind::Level { .. } => None,
                 k => panic!("not a level: {k:?}"),
             })
             .collect()
     }
 
     #[test]
-    fn a_knob_left_alone_is_one_line_to_the_play_line() {
+    fn knobs_left_alone_draw_no_line() {
         let mut m = MacroLanes::default();
-        let source = Source::Instrument { page: 0 };
         for f in 0..300 {
-            m.note(0, source, 10.0 + f as f64 / 60.0, [0.25; LANES]);
+            m.note(0, 0, 10.0 + f as f64 / 60.0, [0.25; KNOBS]);
         }
-        let at = 15.0;
-        let l = m.lanes(0, 7.0, at, 4.0, RED);
-        assert_eq!(l.count, LANES as u32);
-        // Top lane (knob 1) is row 7; one piece from 4 s back to the play line.
-        let top = levels(&l, 7);
-        assert_eq!(top.len(), 1, "{top:?}");
-        let (s, e, a, b) = top[0];
-        assert!((s - 4.0).abs() < 1e-9 && (e - 8.0).abs() < 1e-9, "{s} {e}");
-        assert_eq!((a, b), (0.25, 0.25));
-        assert_eq!(l.marks.len(), LANES);
+        let (l, moved) = m.lanes(0, 7.0, 15.0, 4.0, RED);
+        assert_eq!(l.count, 1);
+        assert_eq!(moved, [false; KNOBS]);
+        assert!(l.marks.is_empty());
     }
 
     #[test]
-    fn a_sweep_keeps_its_shape_within_the_budget() {
+    fn a_sweep_keeps_its_shape_in_its_colour() {
         let mut m = MacroLanes::default();
-        let source = Source::Groove;
         // Knob 3 sweeps up and down over 4 s; the rest stay put.
         for f in 0..240 {
             let t = f as f64 / 60.0;
-            let mut v = [0.5; LANES];
+            let mut v = [0.5; KNOBS];
             v[2] = (0.5 + 0.5 * (t * 3.0).sin()) as f32;
-            m.note(1, source, t, v);
+            m.note(1, 0, t, v);
         }
-        let l = m.lanes(1, 0.0, 4.0, 4.0, RED);
-        assert!(l.marks.len() <= MAX_MARKS);
-        let sweep = levels(&l, (LANES - 3) as u32);
+        let (l, moved) = m.lanes(1, 0.0, 4.0, 4.0, RED);
+        assert_eq!(moved.iter().filter(|&&m| m).count(), 1);
+        assert!(moved[2]);
+        let sweep = levels(&l, 2);
+        assert_eq!(sweep.len(), l.marks.len());
         assert!(
-            sweep.len() > 8 && sweep.len() <= MAX_MARKS / LANES,
+            sweep.len() > 8 && sweep.len() <= MAX_MARKS,
             "{}",
             sweep.len()
         );
-        // The pieces join up and follow the sine closely.
+        // The pieces join up, follow the sine closely and end at the play line.
         for w in sweep.windows(2) {
             assert!((w[0].1 - w[1].0).abs() < 1e-9 && (w[0].3 - w[1].2).abs() < 1e-6);
         }
@@ -260,26 +259,45 @@ mod tests {
             let want = 0.5 + 0.5 * (s * 3.0).sin();
             assert!((a as f64 - want).abs() < 0.05, "at {s}: {a} vs {want}");
         }
+        assert!((sweep.last().unwrap().1 - 4.0).abs() < 1e-9);
     }
 
     #[test]
-    fn another_source_or_a_clock_going_back_starts_over() {
+    fn a_knob_moved_then_left_still_draws_while_in_view() {
         let mut m = MacroLanes::default();
-        m.note(0, Source::Instrument { page: 0 }, 1.0, [0.1; LANES]);
-        m.note(0, Source::Instrument { page: 0 }, 2.0, [0.1; LANES]);
-        m.note(0, Source::Instrument { page: 1 }, 3.0, [0.9; LANES]);
-        let l = m.lanes(0, 0.0, 4.0, 4.0, RED);
-        assert_eq!(levels(&l, 7), vec![(3.0, 4.0, 0.9, 0.9)]);
-        m.note(0, Source::Instrument { page: 1 }, 0.5, [0.3; LANES]);
-        let l = m.lanes(0, 0.0, 1.0, 4.0, RED);
-        assert_eq!(levels(&l, 7), vec![(0.5, 1.0, 0.3, 0.3)]);
+        m.note(0, 0, 1.0, [0.1; KNOBS]);
+        let mut v = [0.1; KNOBS];
+        v[7] = 0.8;
+        m.note(0, 0, 2.0, v);
+        m.note(0, 0, 3.0, v);
+        let (l, moved) = m.lanes(0, 0.0, 4.0, 4.0, RED);
+        assert!(moved[7] && !moved[0]);
+        let line = levels(&l, 7);
+        assert_eq!(line.first().map(|p| p.2), Some(0.1));
+        assert_eq!(line.last().map(|p| (p.1, p.3)), Some((4.0, 0.8)));
+        // Once the move scrolls out of view, it is left alone again.
+        let (_, moved) = m.lanes(0, 0.0, 4.0, 1.5, RED);
+        assert!(!moved[7]);
+    }
+
+    #[test]
+    fn another_page_or_a_clock_going_back_starts_over() {
+        let mut m = MacroLanes::default();
+        let mut v = [0.1; KNOBS];
+        m.note(0, 0, 1.0, v);
+        v[0] = 0.5;
+        m.note(0, 0, 2.0, v);
+        m.note(0, 1, 3.0, [0.9; KNOBS]);
+        assert_eq!(m.lanes(0, 0.0, 4.0, 4.0, RED).1, [false; KNOBS]);
+        m.note(0, 1, 0.5, [0.3; KNOBS]);
+        assert_eq!(m.decks[0].seen.len(), 1);
     }
 
     #[test]
     fn old_values_are_dropped() {
         let mut m = MacroLanes::default();
         for f in 0..(30 * 60) {
-            m.note(2, Source::Groove, f as f64 / 60.0, [0.0; LANES]);
+            m.note(2, 0, f as f64 / 60.0, [0.0; KNOBS]);
         }
         let kept = m.decks[2].seen.len() as f64;
         assert!(kept < 2.0 * (KEEP_SECONDS + 1.0) / STEP_SECONDS, "{kept}");

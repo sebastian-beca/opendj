@@ -17,4 +17,5 @@
 
 ## 4. Macro lanes
 
-- [x] 4.1 A switch on instrument and Groove Box decks' waveform for the knobs as automation lines; 2-Deck only (an instrument's page of eight knobs; the Groove Box's track levels)
+- [x] 4.1 A switch on instrument decks' waveform for the knobs as automation lines; 2-Deck only (the page of eight knobs the deck shows)
+- [x] 4.2 Macro lanes at full height, a colour per knob, only the knobs that moved in view drawn; Groove Box decks keep their step lanes, without the switch

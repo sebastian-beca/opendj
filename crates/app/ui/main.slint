@@ -49,23 +49,41 @@ export { MixerMode, InputSettings, InputRow }
 export { BroadcastState, BroadcastStation }
 export { InstrumentsUi, LiveItem, ParamMatch, PresetItem, PresetUi, Theme, Controls, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit, GrooveGenre, GrooveName, AudioSettings, OutputRow, EffectList, FxRow, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, KeepGoingUi, UpNextUi, MenuListRow, MenuTag, StoreUi, StreamMatch, WantedUi, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, HealthStage, HealthLine, HealthArea, HealthChip, HealthReview, CleanupUi, CleanupRow, FixNamesUi, GenreRow, BuyUi, BuyGroup, BuyRow, Preferences, PrefItem, ImportWizard, PluginErrors, StorageUi, StoragePart, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, EditorSetting, UsbExport }
 
-// Macro lanes: an instrument or Groove Box deck's knobs drawn as lines on
-// its scrolling waveform instead of its notes or steps (2-Deck only).
+// Macro lanes: an instrument deck's knobs drawn as lines on its scrolling
+// waveform instead of its note roll (2-Deck only), a colour each.
 export global MacroLanes {
     // `shown[d]`: deck d shows them. Set by the app; `toggle` flips one.
     in property <[bool]> shown: [false, false, false, false];
+    // Which of the page's eight knobs moved in view and so draw a line.
+    // Set by the app.
+    in property <[bool]> moved: [false, false, false, false, false, false, false, false];
+    // Each knob's line colour, as the waveform draws it (LEVEL_COLORS).
+    out property <[color]> colors: [#FF6B6B, #FFB347, #FFE066, #7BE495, #4FD1C5, #63B3ED, #B69CFF, #F78FB3];
     callback toggle(deck: int);
 }
 
-// One macro lane's name and value, beside the play line.
-component MacroLabel inherits Text {
+// One knob's colour, name and value, beside the play line; dimmed while
+// it draws no line.
+component MacroLabel inherits HorizontalLayout {
     in property <string> name;
     in property <float> value;
-    text: name == "" ? "" : name + "  " + round(value * 100) + "%";
-    color: Theme.text;
-    font-size: clamp(self.height - 1px, 7px, 10px);
-    vertical-alignment: center;
-    overflow: elide;
+    in property <color> tint;
+    in property <bool> moved;
+    spacing: 5px;
+    if name != "": Rectangle {
+        width: 7px;
+        height: 7px;
+        y: (parent.height - self.height) / 2;
+        border-radius: 1px;
+        background: moved ? tint : tint.with-alpha(0.35);
+    }
+    if name != "": Text {
+        text: name + "  " + round(value * 100) + "%";
+        color: moved ? Theme.text : Theme.text-dim;
+        font-size: clamp(root.height - 1px, 7px, 10px);
+        vertical-alignment: center;
+        overflow: elide;
+    }
 }
 
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
@@ -100,13 +118,12 @@ component Waveform inherits Rectangle {
     // While the grid is dragged: whether it is, and how far it has moved.
     property <bool> moving-grid;
     property <float> grid-moved;
-    // An instrument or Groove Box deck: its knobs can show as macro lanes.
-    property <string> groove-group: "[Groove" + (deck + 1) + "]";
-    property <bool> groove: deck >= 0 && Controls.value(Controls.resolve(groove-group, "enabled"), Controls.tick) > 0;
-    property <bool> live-knobs: deck >= 0 && Controls.value(duration-index, Controls.tick) <= 0
-        && (groove || InstrumentsUi.live(deck) == 3);
+    // An instrument deck: its knobs can show as macro lanes. (A Groove Box
+    // deck keeps its step lanes.)
+    property <bool> groove: deck >= 0 && Controls.value(Controls.resolve("[Groove" + (deck + 1) + "]", "enabled"), Controls.tick) > 0;
+    property <bool> live-knobs: deck >= 0 && !groove && Controls.value(duration-index, Controls.tick) <= 0
+        && InstrumentsUi.live(deck) == 3;
     property <bool> macros: live-knobs && MacroLanes.shown[deck];
-    property <int> kit: Controls.value(Controls.resolve(groove-group, "kit"), Controls.tick);
     property <int> page: InstrumentsUi.knob-page;
     background: Theme.well;
     clip: true;
@@ -166,12 +183,10 @@ component Waveform inherits Rectangle {
             y: i * parent.height / 8;
             height: parent.height / 8;
             width: parent.width;
-            name: groove
-                ? GrooveUi.kits[kit].sounds[Controls.value(Controls.resolve(groove-group, "row" + (i + 1) + "_sound"), Controls.tick)]
-                : InstrumentsUi.param-names[page * 8 + i];
-            value: groove
-                ? Controls.value(Controls.resolve(groove-group, "row" + (i + 1) + "_level"), Controls.tick) / 1.5
-                : Controls.value(Controls.resolve("[Instrument1]", "parameter" + (page * 8 + i + 1)), Controls.tick);
+            name: InstrumentsUi.param-names[page * 8 + i];
+            value: Controls.value(Controls.resolve("[Instrument1]", "parameter" + (page * 8 + i + 1)), Controls.tick);
+            tint: MacroLanes.colors[i];
+            moved: MacroLanes.moved[i];
         }
     }
     // The track's timed lyrics along the bottom, under the play line.
@@ -220,7 +235,7 @@ component Waveform inherits Rectangle {
             }
         }
     }
-    // The switch between the notes or steps and the macro lanes.
+    // The switch between the note roll and the macro lanes.
     if live-knobs: Rectangle {
         x: parent.width - self.width - 6px;
         y: 4px;

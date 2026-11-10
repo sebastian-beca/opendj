@@ -530,7 +530,8 @@ fn draws_knob_levels() {
     let mut view = WaveformView::new(&device, Mode::Scrolling, w, h);
     view.set_track(&device, &renderer, Some(&track));
     view.set_live(true);
-    // One lane: a knob at half way up to the play line, then rising.
+    // One lane: a knob at half way up in the marks' colour, then rising in
+    // colour 4 (green, #7BE495).
     view.set_lanes(Some(Lanes {
         count: 1,
         tinted: 0,
@@ -539,13 +540,21 @@ fn draws_knob_levels() {
                 start: 6.0,
                 end: 7.5,
                 lane: 0,
-                kind: MarkKind::Level(0.5, 0.5),
+                kind: MarkKind::Level {
+                    from: 0.5,
+                    to: 0.5,
+                    color: 0,
+                },
             },
             Mark {
                 start: 7.5,
                 end: 8.192,
                 lane: 0,
-                kind: MarkKind::Level(0.5, 1.0),
+                kind: MarkKind::Level {
+                    from: 0.5,
+                    to: 1.0,
+                    color: 4,
+                },
             },
         ],
         trace: 0.25,
@@ -580,8 +589,17 @@ fn draws_knob_levels() {
     let (on, under, over) = (red(176, line), red(176, 32), red(176, 14));
     assert!(on > 150, "line: {on}");
     assert!(under > over + 20 && under < on, "fill {under} over {over}");
-    // Rising after 7.5 s: higher up near the play line.
-    let rising = (0..h).max_by_key(|&y| red(250, y)).unwrap();
+    // Rising after 7.5 s: higher up near the play line, in green.
+    let green = |x: u32, y: u32| {
+        let i = ((y * w + x) * 4) as usize;
+        data[i + 1].saturating_sub(data[i + 2] / 2 + data[i] / 2)
+    };
+    let rising = (0..h).max_by_key(|&y| green(250, y)).unwrap();
+    assert!(
+        green(250, rising) > 50,
+        "green line: {:?}",
+        &data[((rising * w + 250) * 4) as usize..][..3]
+    );
     assert!(rising < line - 5, "rising line at y {rising}");
     // Nothing past the play line.
     assert!(
