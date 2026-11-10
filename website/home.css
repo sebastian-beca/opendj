@@ -145,3 +145,4 @@
 .spec h3 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--lilac); padding-bottom: 12px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
 .spec ul { list-style: none; padding: 0; margin: 0; }
 .spec li { padding: 9px 0; border-bottom: 1px solid rgba(42, 39, 64, 0.6); color: var(--text-2); font-size: 15px; line-height: 1.45; }
+.headshot { width: 160px; height: 160px; border-radius: 50%; object-fit: cover; border: 2px solid var(--lilac); box-shadow: 0 20px 60px -20px rgba(182, 156, 255, 0.5); margin-bottom: 28px; }
