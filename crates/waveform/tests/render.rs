@@ -721,7 +721,7 @@ fn draws_half_overview_from_the_bottom() {
         &levels(base),
         1000.0,
     ));
-    let (w, h) = (200u32, 60u32);
+    let (w, h) = (256u32, 60u32); // rows of 256 px meet the copy alignment
     let lit = |px: &[u8], y: u32| -> bool {
         let row = &px[(y * w * 4) as usize..((y + 1) * w * 4) as usize];
         row.chunks(4)
