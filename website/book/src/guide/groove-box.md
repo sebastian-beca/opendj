@@ -7,7 +7,7 @@ track.
 
 ## Start a groove
 
-1. Click **Instruments** in the rail at the far left (the keyboard icon)
+1. Click **Jam** in the rail at the far left (the keyboard icon)
    and drag a kit from **Groove Box** onto a deck. A track on that deck is
    stopped and ejected first.
 2. Press **PLAY** in the Groove Box. It starts on the next downbeat of the

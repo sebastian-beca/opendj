@@ -185,7 +185,7 @@ pub const SOURCE_NAMES: [&str; 13] = [
     "Albums",
     "Recordings",
     "Mixcloud",
-    "Instruments",
+    "Jam",
 ];
 
 /// Every source in the rail: the built-in ones, then add-ons' own (see

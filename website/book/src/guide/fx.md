@@ -163,5 +163,5 @@ then open the **MIC** panel. Under **Mic** and **Aux** is the
   your controller, play the instrument instead of the deck's hot cue.
 
 To play an instrument through a deck instead, with that deck's EQ, filter,
-effects and fader, drag it from the **Instruments** source onto the deck
-(see [Instruments on a deck](decks.md#instruments-on-a-deck)).
+effects and fader, drag it from the **Jam** source onto the deck
+(see [Jam on a deck](decks.md#jam-on-a-deck)).

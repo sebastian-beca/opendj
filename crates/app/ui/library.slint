@@ -1962,7 +1962,7 @@ component SourceIcon inherits Rectangle {
     }
     // Mixed sets, where recordings go too: a record button, in red.
     if kind == 10: Image { width: 22px; height: 22px; source: @image-url("icons/rail-recordings.svg"); }
-    // Instruments: a grid of pads, in teal.
+    // Jam: a grid of pads, in teal.
     if kind == 12: Image { width: 22px; height: 22px; source: @image-url("icons/rail-instruments.svg"); }
 }
 
@@ -2132,9 +2132,9 @@ component SourceRail inherits Rectangle {
     callback picked(source: int);
     callback health-picked();
     callback shown-changed(source: int, on: bool);
-    property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Recordings", "Mixcloud", "Instruments"];
+    property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Recordings", "Mixcloud", "Jam"];
     // The order the rail shows them in: the built-in sources (Albums,
-    // Recordings and Instruments after Files), then the external ones. OneLibrary (7) isn't a source: openDJ writes it when
+    // Recordings and Jam after Files), then the external ones. OneLibrary (7) isn't a source: openDJ writes it when
     // exporting to a USB stick. Bandcamp (5) and Beatport (6) wait for the
     // stores, later.
     property <[int]> order: [0, 1, 9, 10, 12, 2, 3, 4, 8, 11];
@@ -6002,7 +6002,7 @@ export component Browser inherits HorizontalLayout {
     // "Go to" lines).
     property <bool> history-tab: LibraryEdit.history-tab;
     changed history-tab => { library-tab = history-tab ? 1 : 0; }
-    property <[string]> source-names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Recordings", "Mixcloud", "Instruments"];
+    property <[string]> source-names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Recordings", "Mixcloud", "Jam"];
     // Which sources the rail shows, by index; picked under its "...".
     in-out property <[bool]> sources-shown: [true, true, true, true, true, true, true, true, true, true, true, true, true, true];
     callback source-shown-changed(source: int, on: bool);
@@ -6052,7 +6052,7 @@ export component Browser inherits HorizontalLayout {
     if plugin-source && !now-playing: SearchesPanel {
         source-name: plugin-index < SourceUi.sources.length ? SourceUi.sources[plugin-index].name : "";
     }
-    // The Instruments source: its page over the tree and the list.
+    // The Jam source: its page over the tree and the list.
     property <bool> instruments-source: source == 12;
     if !plugin-source && !instruments-source && !now-playing: FolderTree {
         folders: folders;
