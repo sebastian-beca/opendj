@@ -823,7 +823,8 @@ struct Instance {
     /// A plugin instead, by its place in the plugin list; it plays through
     /// whichever helper the plugin host attached (see [`Attached`]).
     plugin: Option<u16>,
-    /// Output level reached at the end of the last buffer, and this buffer's goal.
+    /// Output level reached at the end of the last buffer, and the level it
+    /// fades towards (see [`FX_FADE_SECONDS`]).
     gain: f32,
     target: f32,
     /// Samples left of a released tail (see `release`), and its full length.
@@ -1723,7 +1724,7 @@ impl EffectRack {
     /// where plugin slots can join in. Each instance sees the same samples in
     /// the same order as frame by frame, so the result is the same. Frame `f`
     /// of a block is `(f + 1) / frames` of the way through the buffer, for
-    /// ramps.
+    /// the dry/wet ramp; effects fade on and off at a fixed rate.
     ///
     /// The blocks go through side by side: at each slot every target's
     /// plugin gets its block first, the built-in effects run meanwhile, and
@@ -1738,6 +1739,8 @@ impl EffectRack {
         assert!(blocks.len() <= PARALLEL, "at most PARALLEL blocks at once");
         assert!(blocks.iter().all(|(_, b)| b.len() == frames));
         let ramp = |f: usize| (f + 1) as f32 / frames as f32;
+        let step = fade_step(self.sample_rate);
+        let faded = |f: usize| (f + 1) as f32 * step;
         let mut wet = std::mem::take(&mut self.wet);
         let mut tails = std::mem::take(&mut self.tails);
         let span = |k: usize| k * BLOCK..k * BLOCK + frames;
@@ -1813,7 +1816,7 @@ impl EffectRack {
                     }
                     let (g0, g1) = (inst.gain, inst.target);
                     for (f, w) in wet[span(k)].iter_mut().enumerate() {
-                        let g = g0 + (g1 - g0) * ramp(f);
+                        let g = fade(g0, g1, faded(f));
                         let y = inst.process(*w);
                         for c in 0..2 {
                             w[c] += (y[c] - w[c]) * g;
@@ -1844,7 +1847,7 @@ impl EffectRack {
                     let inst = &self.instances[i as usize];
                     let (g0, g1) = (inst.gain, inst.target);
                     for (f, w) in wet[span(k)].iter_mut().enumerate() {
-                        let g = g0 + (g1 - g0) * ramp(f);
+                        let g = fade(g0, g1, faded(f));
                         w[0] += (out_l[f] - w[0]) * g;
                         w[1] += (out_r[f] - w[1]) * g;
                     }
@@ -1871,10 +1874,18 @@ impl EffectRack {
         self.tails = tails;
     }
 
-    /// Runs one frame of `target` through the units routed to it. `r` is how
-    /// far through the buffer this frame is (0..1], for ramps.
+    /// Runs frame `f` of a buffer `frames` long of `target` through the units
+    /// routed to it.
     #[cfg(test)]
-    pub(crate) fn process(&mut self, target: usize, mut x: [f32; 2], r: f32) -> [f32; 2] {
+    pub(crate) fn process(
+        &mut self,
+        target: usize,
+        mut x: [f32; 2],
+        f: usize,
+        frames: usize,
+    ) -> [f32; 2] {
+        let r = (f + 1) as f32 / frames as f32;
+        let by = (f + 1) as f32 * fade_step(self.sample_rate);
         for u in 0..NUM_EFFECT_UNITS {
             if !self.active[u][target] {
                 continue;
@@ -1894,7 +1905,7 @@ impl EffectRack {
                     tails[1] += y[1];
                     continue;
                 }
-                let g = inst.gain + (inst.target - inst.gain) * r;
+                let g = fade(inst.gain, inst.target, by);
                 let y = inst.process(wet);
                 for c in 0..2 {
                     wet[c] += (y[c] - wet[c]) * g;
@@ -1912,11 +1923,33 @@ impl EffectRack {
         x
     }
 
-    /// Ends the buffer: the next one ramps on from where this one finished.
-    pub(crate) fn finish(&mut self) {
+    /// Ends a buffer `frames` long: the next one fades on from where this
+    /// one finished.
+    pub(crate) fn finish(&mut self, frames: usize) {
+        let by = frames as f32 * fade_step(self.sample_rate);
         for inst in &mut self.instances {
-            inst.gain = inst.target;
+            inst.gain = fade(inst.gain, inst.target, by);
         }
+    }
+}
+
+/// How long an effect takes to fade in or out when it is switched, in
+/// seconds: at least 128 samples at any rate, whatever the buffer size, so
+/// switching never clicks (a 32-frame buffer used to switch in 0.7 ms).
+pub(crate) const FX_FADE_SECONDS: f32 = 0.005;
+
+/// How far an on/off fade moves in one sample at `sample_rate`.
+pub(crate) fn fade_step(sample_rate: f32) -> f32 {
+    1.0 / (FX_FADE_SECONDS * sample_rate).max(1.0)
+}
+
+/// `from` moved by `by` towards `to`, stopping there.
+#[inline]
+pub(crate) fn fade(from: f32, to: f32, by: f32) -> f32 {
+    if to > from {
+        (from + by).min(to)
+    } else {
+        (from - by).max(to)
     }
 }
 
@@ -2382,12 +2415,13 @@ struct Flanger {
     write: usize,
     phase: f32,
     step: f32,
-    /// Centre delay in samples, depth and feedback, gliding towards
-    /// `targets` (in that order).
+    /// Centre delay in samples, depth, feedback and level makeup, gliding
+    /// towards `targets` (in that order).
     centre: f32,
     depth: f32,
     feedback: f32,
-    targets: [f32; 3],
+    makeup: f32,
+    targets: [f32; 4],
     fresh: bool,
     /// The LFO hasn't locked to the beat since the reset.
     unlocked: bool,
@@ -2403,7 +2437,8 @@ impl Flanger {
             centre: 1.0,
             depth: 0.0,
             feedback: 0.0,
-            targets: [1.0, 0.0, 0.0],
+            makeup: 1.0,
+            targets: [1.0, 0.0, 0.0, 1.0],
             fresh: true,
             unlocked: true,
         }
@@ -2430,10 +2465,15 @@ impl Flanger {
             ctx.beat,
             cycle,
         );
-        self.targets = [(0.0005 + 0.0075 * p[2]) * ctx.sample_rate, p[1], 0.9 * p[3]];
+        self.targets = [
+            (0.0005 + 0.0075 * p[2]) * ctx.sample_rate,
+            p[1],
+            0.9 * p[3],
+            flanger_makeup(p[1], p[2], p[3]),
+        ];
         if self.fresh {
             self.fresh = false;
-            [self.centre, self.depth, self.feedback] = self.targets;
+            [self.centre, self.depth, self.feedback, self.makeup] = self.targets;
         }
     }
 
@@ -2443,17 +2483,18 @@ impl Flanger {
         if self.phase >= 1.0 {
             self.phase -= 1.0;
         }
-        let [centre, depth, feedback] = self.targets;
+        let [centre, depth, feedback, makeup] = self.targets;
         glide(&mut self.centre, centre);
         glide(&mut self.depth, depth);
         glide(&mut self.feedback, feedback);
+        glide(&mut self.makeup, makeup);
         let lfo = (self.phase * TAU).sin_cos();
         let (l, r) = mem[..2 * self.len].split_at_mut(self.len);
         let mut y = [0.0; 2];
         for (c, (buf, sweep)) in [(l, lfo.0), (r, lfo.1)].into_iter().enumerate() {
             let d = tap(buf, self.write, self.centre * (1.0 + 0.9 * sweep));
             buf[self.write] = x[c] + soft(d * self.feedback);
-            y[c] = x[c] * (1.0 - 0.5 * self.depth) + d * 0.5 * self.depth;
+            y[c] = (x[c] * (1.0 - 0.5 * self.depth) + d * 0.5 * self.depth) * self.makeup;
         }
         self.write += 1;
         if self.write == self.len {
@@ -2461,6 +2502,20 @@ impl Flanger {
         }
         y
     }
+}
+
+/// The flanger's level makeup for its depth, manual and feedback knobs
+/// (0..1 each). Mixing the swept copy in at depth `d` takes the dry signal
+/// down to `1 - d/2` and adds the copy at `d/2`; where the two don't line
+/// up the sum is quieter, by 3 dB at full depth, so switching it on sounded
+/// like a drop. This puts that back, less where it isn't lost: at the
+/// shortest delays the bass stays in phase, and feedback's resonance makes
+/// up the rest on its own.
+fn flanger_makeup(depth: f32, manual: f32, feedback: f32) -> f32 {
+    let (dry, wet) = (1.0 - 0.5 * depth, 0.5 * depth);
+    let loss = dry * dry + wet * wet;
+    let share = (manual / 0.4).min(1.0) * (1.0 - feedback * feedback);
+    loss.powf(-0.5 * share)
 }
 
 /// Reduces bit depth and sample rate.
@@ -3443,10 +3498,10 @@ mod tests {
             let out: Vec<f32> = (0..480)
                 .map(|i| {
                     let v = input * tone(i);
-                    rack.process(0, [v, v], (i + 1) as f32 / 480.0)[0]
+                    rack.process(0, [v, v], i, 480)[0]
                 })
                 .collect();
-            rack.finish();
+            rack.finish(480);
             out
         };
         slot("meta").set(0.8);
@@ -3469,6 +3524,58 @@ mod tests {
             end = buffer(&mut rack, 0.0, 6.0 + i as f64 * 0.01);
         }
         assert!(rms(&end) < 1e-6, "the tail ends: {}", rms(&end));
+    }
+
+    #[test]
+    fn switching_an_effect_fades_over_a_fixed_time_even_in_short_buffers() {
+        // A 2-bit Bitcrusher turns a steady 0.3 into 0.5, so the output
+        // shows how far the effect has faded in.
+        let reg = ControlRegistry::new();
+        let mut rack = EffectRack::new(&reg, SR as f64);
+        let unit = |k: &str| reg.get("[EffectRack1_EffectUnit1]", k).unwrap();
+        let slot = |s: usize, k: &str| {
+            reg.get(&format!("[EffectRack1_EffectUnit1_Effect{s}]"), k)
+                .unwrap()
+        };
+        unit("group_[Channel1]_enable").set(1.0);
+        unit("enabled").set(1.0);
+        unit("mix").set(1.0);
+        slot(1, "loaded_effect").set(5.0);
+        for s in 1..=3 {
+            slot(s, "enabled").set(0.0);
+        }
+        let beats = [0.5; TARGETS];
+        // Loading sets the slot's knobs to the effect's defaults.
+        rack.prepare(beats, 0.0);
+        slot(1, "parameter1").set(0.0);
+        slot(1, "parameter2").set(1.0);
+        const FRAMES: usize = 32;
+        let run = |rack: &mut EffectRack, buffers: usize| {
+            let mut level = Vec::new();
+            for n in 0..buffers {
+                rack.prepare(beats, n as f64 * 0.001);
+                let mut buf = [[0.3f32; 2]; FRAMES];
+                rack.process_block(0, &mut buf);
+                rack.finish(FRAMES);
+                level.extend(buf.iter().map(|x| (x[0] - 0.3) / 0.2));
+            }
+            level
+        };
+        rack.prepare(beats, 0.0);
+        slot(1, "enabled").set(1.0);
+        let on = run(&mut rack, 20);
+        let fade = (FX_FADE_SECONDS * SR) as usize;
+        assert!(fade >= 128);
+        // Not all the way on after one short buffer, but within the fade.
+        assert!(on[FRAMES - 1] < 0.5, "{}", on[FRAMES - 1]);
+        assert!((on[fade] - 1.0).abs() < 1e-3, "{}", on[fade]);
+        let largest = on.windows(2).map(|w| w[1] - w[0]).fold(0.0, f32::max);
+        assert!(largest <= 1.5 / fade as f32, "steps by {largest}");
+        // And off again just as smoothly.
+        slot(1, "enabled").set(0.0);
+        let off = run(&mut rack, 20);
+        assert!(off[FRAMES - 1] > 0.5, "{}", off[FRAMES - 1]);
+        assert!(off[fade].abs() < 1e-3, "{}", off[fade]);
     }
 
     #[test]
@@ -3514,13 +3621,13 @@ mod tests {
             let frame_by_frame: Vec<[f32; 2]> = input
                 .iter()
                 .enumerate()
-                .map(|(f, &x)| a.process(0, x, (f + 1) as f32 / frames as f32))
+                .map(|(f, &x)| a.process(0, x, f, frames))
                 .collect();
             let mut block = input.clone();
             b.process_block(0, &mut block);
             assert_eq!(frame_by_frame, block, "buffer {n}");
-            a.finish();
-            b.finish();
+            a.finish(frames);
+            b.finish(frames);
         }
     }
 

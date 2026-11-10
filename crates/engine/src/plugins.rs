@@ -1385,7 +1385,7 @@ mod tests {
             self.rack.prepare([0.5; TARGETS], self.now);
             let mut buf = vec![[0.5f32, 0.5]; FRAMES];
             self.rack.process_block(0, &mut buf);
-            self.rack.finish();
+            self.rack.finish(FRAMES);
             self.now += FRAMES as f64 / SR as f64;
             buf[FRAMES - 1][0]
         }
@@ -1576,7 +1576,7 @@ mod tests {
                 .start(FRAMES, &mut self.rack, target, on_deck);
             self.instrument
                 .render(FRAMES, &mut self.rack, target, 0.01, on_deck);
-            self.rack.finish();
+            self.rack.finish(FRAMES);
             self.now += FRAMES as f64 / SR as f64;
             self.instrument.buf[FRAMES - 1][0]
         }
