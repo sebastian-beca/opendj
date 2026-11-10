@@ -26,8 +26,8 @@ use opendj_engine::{
 use opendj_library::Library;
 use opendj_plugins::source::{QueryKind, SourceQuery};
 use opendj_waveform::{
-    steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, Palette, PhraseKind, Style,
-    WaveformRenderer, WaveformView, GRID_SECTIONS,
+    steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, Palette, PhraseKind, WaveformRenderer,
+    WaveformView, GRID_SECTIONS,
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use smooth::SmoothClock;
@@ -105,6 +105,7 @@ mod transport;
 mod tutorials;
 mod ui_font;
 mod update;
+mod wave_look;
 mod waves;
 
 /// Fills the master and headphone output menus and switches devices when
@@ -718,6 +719,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let counter = app.global::<BeatCounter>();
         counter.set_mode(beat_counter_mode());
         track_end::load();
+        wave_look::load();
         counter.set_decks(ModelRc::new(VecModel::from(vec![
             BeatCount::default();
             NUM_DECKS
@@ -1270,10 +1272,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let scale_mask = registry
             .get("[Instrument1]", "scale_mask")
             .expect("the instrument's scale mask");
-        let style = match std::env::var("OPENDJ_WAVEFORM").as_deref() {
-            Ok("bands") => Style::Bands,
-            _ => Style::Rgb,
-        };
         app.window()
             .set_rendering_notifier(move |state, api| match (state, api) {
                 (
@@ -1281,11 +1279,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     slint::GraphicsAPI::WGPU30 { device, queue, .. },
                 ) => {
                     let renderer = WaveformRenderer::new(device, queue);
-                    let make = |mode| {
-                        let mut v = WaveformView::new(device, mode, 1, 1);
-                        v.set_style(style);
-                        v
-                    };
+                    let make = |mode| WaveformView::new(device, mode, 1, 1);
                     *gpu.borrow_mut() = Some(Gpu {
                         device: device.clone(),
                         queue: queue.clone(),
@@ -1306,6 +1300,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         live_tracks: Default::default(),
                         moving: false,
                         images_set: false,
+                        look: 0,
                     });
                 }
                 (slint::RenderingState::BeforeRendering, _) => {
@@ -2505,6 +2500,8 @@ fn same_deck_info(old: &DeckInfo, new: &DeckInfo) -> bool {
 type Phrases = Vec<(f64, PhraseKind)>;
 
 struct Gpu {
+    /// The [`wave_look::version`] the views were last set to.
+    look: u32,
     device: wgpu::Device,
     queue: wgpu::Queue,
     renderer: WaveformRenderer,
@@ -2619,6 +2616,17 @@ impl Gpu {
         tracks: &[Option<Arc<Track>>; NUM_DECKS],
         visual: &VisualPositions,
     ) {
+        // Settings › Decks › Waveform color and Overview, when they change.
+        if self.look != wave_look::version() {
+            self.look = wave_look::version();
+            let (style, palette, half) =
+                (wave_look::style(), wave_look::palette(), wave_look::half());
+            for v in self.scrolling.iter_mut().chain(self.overview.iter_mut()) {
+                v.set_style(style);
+                v.set_palette(palette);
+                v.set_half(half);
+            }
+        }
         let scale = app.window().scale_factor();
         let px = |l: f32| (l * scale).round().max(1.0) as u32;
         let (ww, wh) = (px(app.get_waveform_width()), px(app.get_waveform_height()));

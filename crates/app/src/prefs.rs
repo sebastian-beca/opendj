@@ -1410,6 +1410,44 @@ impl Prefs {
                         settings::flag(crate::browser::WAVE_LYRICS, true),
                     ),
                     PrefItem {
+                        choices: strings(&crate::wave_look::COLOR_LABELS),
+                        chosen: crate::wave_look::color() as i32,
+                        ..item(
+                            crate::wave_look::COLOR_KEY,
+                            MENU,
+                            "Waveform color",
+                            "How the decks' waveforms are colored. RGB: one shape, red where \
+                             the bass is loudest, amber for the mids, blue for the highs. \
+                             3-Band: bass, mids and highs stacked in their own colors, as on \
+                             rekordbox. Blue: one blue shape, lighter where the highs are loud.",
+                        )
+                    },
+                ]
+                .into_iter()
+                .chain((crate::wave_look::color() == 1).then(|| PrefItem {
+                    choices: strings(&crate::wave_look::PALETTE_LABELS),
+                    chosen: crate::wave_look::palette_index() as i32,
+                    ..item(
+                        crate::wave_look::PALETTE_KEY,
+                        MENU,
+                        "Palette",
+                        "3-Band's colors for the bass, mids and highs.",
+                    )
+                }))
+                .chain([
+                    PrefItem {
+                        choices: strings(&crate::wave_look::SHAPE_LABELS),
+                        chosen: crate::wave_look::half() as i32,
+                        ..item(
+                            crate::wave_look::HALF_KEY,
+                            SEGMENTED,
+                            "Overview",
+                            "The whole-track waveform under each deck: mirrored about its \
+                             middle, or half, growing from the bottom edge as on rekordbox. \
+                             The big scrolling waveform is always whole.",
+                        )
+                    },
+                    PrefItem {
                         choices: strings(&["Off", "Beats", "Beats and phrases"]),
                         chosen: beat_counter_mode(),
                         ..item(
@@ -1471,8 +1509,7 @@ impl Prefs {
                         settings::flag("pfl_on_load", true),
                     ),
                     item("auto_reset", HEADING, "AUTO RESET ON LOAD", ""),
-                ]
-                .into_iter()
+                ])
                 .chain(AUTO_RESETS.map(|(id, title, detail)| {
                     switch(id, title, detail, settings::flag(id, true))
                 }))
@@ -2982,6 +3019,18 @@ impl Prefs {
                 key::set_mixing(m);
             }
             crate::track_end::KEY => crate::track_end::choose(index),
+            crate::wave_look::COLOR_KEY
+            | crate::wave_look::PALETTE_KEY
+            | crate::wave_look::HALF_KEY => {
+                match id {
+                    crate::wave_look::COLOR_KEY => crate::wave_look::choose_color(index),
+                    crate::wave_look::PALETTE_KEY => crate::wave_look::choose_palette(index),
+                    _ => crate::wave_look::choose_half(index),
+                }
+                if let Some(app) = self.app.upgrade() {
+                    app.window().request_redraw();
+                }
+            }
             crate::track_end::STYLE_KEY => crate::track_end::choose_style(index),
             "beat_counter" => {
                 settings::set("beat_counter", json!(index.min(2)));
