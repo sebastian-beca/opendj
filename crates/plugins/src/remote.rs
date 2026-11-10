@@ -636,7 +636,8 @@ fn query_from(v: &Value) -> SourceQuery {
     }
 }
 
-fn found_json(f: &Found) -> Value {
+/// A result as JSON, as add-ons send it (also how the app keeps results).
+pub fn found_json(f: &Found) -> Value {
     json!({
         "key": f.key, "folder": f.folder, "artist": f.artist, "title": f.title,
         "album": f.album, "year": f.year, "number": f.number, "duration": f.duration,
@@ -646,7 +647,8 @@ fn found_json(f: &Found) -> Value {
     })
 }
 
-fn found_from(v: &Value) -> Found {
+/// A result read back from [`found_json`].
+pub fn found_from(v: &Value) -> Found {
     Found {
         key: string(&v["key"]),
         folder: v["folder"].as_bool().unwrap_or(false),
