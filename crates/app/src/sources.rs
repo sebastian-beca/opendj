@@ -394,6 +394,9 @@ struct Search {
     /// Each entry's results at the last looks, and how many looks in a
     /// row they've stayed the same.
     settling: HashMap<String, (Vec<String>, u32)>,
+    /// Playlist entries whose download the DJ took off the list: not
+    /// downloaded by themselves again. For this run only, like `auto`.
+    dropped: HashSet<String>,
     /// Entries kept from before "Search again", which isn't looking for
     /// them.
     kept: Vec<Found>,
@@ -1222,6 +1225,7 @@ impl Sources {
                 open: HashSet::new(),
                 auto,
                 settling: HashMap::new(),
+                dropped: HashSet::new(),
                 kept: Vec::new(),
             },
         );
@@ -1448,6 +1452,7 @@ impl Sources {
             return;
         }
         let gone = source.downloads.remove(d);
+        drop_entry(source, gone.local, &gone.key);
         if is_active(&gone.progress) {
             let _ = source.requests.send(Request::Cancel(gone.key));
         }
@@ -1478,8 +1483,15 @@ impl Sources {
     fn cancel_downloads(&mut self) {
         let Some(s) = self.shown else { return };
         let source = &mut self.sources[s];
-        for d in source.downloads.iter().filter(|d| is_active(&d.progress)) {
-            let _ = source.requests.send(Request::Cancel(d.key.clone()));
+        let going: Vec<(u64, String)> = source
+            .downloads
+            .iter()
+            .filter(|d| is_active(&d.progress))
+            .map(|d| (d.local, d.key.clone()))
+            .collect();
+        for (local, key) in going {
+            drop_entry(source, local, &key);
+            let _ = source.requests.send(Request::Cancel(key));
         }
         source.downloads.retain(|d| !is_active(&d.progress));
         self.refresh();
@@ -1501,40 +1513,14 @@ impl Sources {
         self.refresh();
     }
 
-    /// For a search set to download by itself: each playlist entry whose
-    /// results have settled and has no copy downloading or downloaded gets
-    /// its best copy not yet tried, so a failed copy makes way for the next.
+    /// For a search set to download by itself: see [`auto_picks`].
     fn auto_download(&mut self, s: usize, i: usize) {
         let source = &self.sources[s];
         let search = &source.searches[i];
         if !search.auto {
             return;
         }
-        let mut keys = Vec::new();
-        for group in wanted(&search.items, search.query.kind) {
-            let group = group.as_str();
-            let settled = search.done
-                || search
-                    .settling
-                    .get(group)
-                    .is_some_and(|(_, looks)| *looks >= SETTLED);
-            let copies: Vec<&Found> = search
-                .items
-                .iter()
-                .filter(|f| f.group == group && !f.folder)
-                .collect();
-            let going = copies.iter().any(|f| {
-                source
-                    .download(&f.key)
-                    .is_some_and(|d| !matches!(d.progress, Progress::Failed(_)))
-            });
-            if !settled || going {
-                continue;
-            }
-            if let Some(next) = copies.iter().find(|f| source.download(&f.key).is_none()) {
-                keys.push(next.key.clone());
-            }
-        }
+        let keys = auto_picks(source, search);
         if !keys.is_empty() {
             self.download_in(s, i, keys);
         }
@@ -1971,8 +1957,8 @@ impl Sources {
                 Some(&d.progress),
             );
             row.to_cache = d.cache;
-            if is_active(&d.progress) && !d.note.is_empty() {
-                row.from = downloading_from(&found.from, &d.note).into();
+            if is_active(&d.progress) {
+                row.going = d.note.clone().into();
             }
             list.push(row);
         }
@@ -2020,6 +2006,58 @@ fn song_key(group: &str) -> String {
 
 /// What a search set to download by itself gets one copy of: each
 /// playlist entry, or for a track search the track (results with no group).
+/// What a search set to download by itself downloads now: each playlist
+/// entry whose results have settled and has no copy downloading or
+/// downloaded gets its best copy not yet tried, so a failed copy makes way
+/// for the next. Entries whose download the DJ took off the list are left.
+fn auto_picks(source: &Source, search: &Search) -> Vec<String> {
+    let mut keys = Vec::new();
+    for group in wanted(&search.items, search.query.kind) {
+        if search.dropped.contains(&group) {
+            continue;
+        }
+        let group = group.as_str();
+        let settled = search.done
+            || search
+                .settling
+                .get(group)
+                .is_some_and(|(_, looks)| *looks >= SETTLED);
+        let copies: Vec<&Found> = search
+            .items
+            .iter()
+            .filter(|f| f.group == group && !f.folder)
+            .collect();
+        let going = copies.iter().any(|f| {
+            source
+                .download(&f.key)
+                .is_some_and(|d| !matches!(d.progress, Progress::Failed(_)))
+        });
+        if !settled || going {
+            continue;
+        }
+        if let Some(next) = copies.iter().find(|f| source.download(&f.key).is_none()) {
+            keys.push(next.key.clone());
+        }
+    }
+    keys
+}
+
+/// The DJ took the download of `key` (from search `local`) off the list:
+/// its playlist entry isn't downloaded by itself again ("Download each song
+/// right away").
+fn drop_entry(source: &mut Source, local: u64, key: &str) {
+    let Some(search) = source.searches.iter_mut().find(|x| x.local == local) else {
+        return;
+    };
+    if let Some(group) = search
+        .find(key)
+        .map(|f| f.group.clone())
+        .filter(|g| !g.is_empty())
+    {
+        search.dropped.insert(group);
+    }
+}
+
 fn wanted(items: &[Found], kind: QueryKind) -> Vec<String> {
     let groups = entries(items);
     if !groups.is_empty() {
@@ -2341,14 +2379,6 @@ fn plural(n: usize, one: &str, many: &str) -> String {
 }
 
 /// Who a download comes from, with how it's going: "dj_k · 4th in line".
-fn downloading_from(from: &str, note: &str) -> String {
-    if from.is_empty() {
-        note.to_string()
-    } else {
-        format!("{from} · {note}")
-    }
-}
-
 fn found_row(
     f: &Found,
     cover: Option<&slint::Image>,
@@ -2518,6 +2548,7 @@ mod tests {
             open: HashSet::new(),
             auto: false,
             settling: HashMap::new(),
+            dropped: HashSet::new(),
             kept: Vec::new(),
         }
     }
@@ -2589,15 +2620,6 @@ mod tests {
     }
 
     #[test]
-    fn downloads_say_how_they_are_going() {
-        assert_eq!(
-            downloading_from("dj_k", "4th in line"),
-            "dj_k · 4th in line"
-        );
-        assert_eq!(downloading_from("", "1.2 MB/s"), "1.2 MB/s");
-    }
-
-    #[test]
     fn found_or_downloaded_entries_are_not_searched_again() {
         let (requests, _rx) = channel();
         let mut source = Source {
@@ -2644,6 +2666,39 @@ mod tests {
         skip.sort();
         // Kong's only copy failed, so it's searched for again.
         assert_eq!(skip, ["1. Kerala", "3. Cirrus", "4. Grains"]);
+    }
+
+    #[test]
+    fn removed_downloads_are_not_picked_again() {
+        let (requests, _rx) = channel();
+        let mut source = Source {
+            id: "x",
+            info: SourceInfo {
+                name: "X",
+                icon_svg: b"",
+                hint: "",
+            },
+            sites: &[],
+            requests,
+            searches: vec![search(
+                vec![
+                    copy("a", "1. Kerala"),
+                    copy("b", "1. Kerala"),
+                    copy("c", "2. Kong"),
+                ],
+                true,
+            )],
+            downloads: Vec::new(),
+            cache: None,
+            settings: Vec::new(),
+            status: None,
+            previews: false,
+        };
+        assert_eq!(auto_picks(&source, &source.searches[0]), ["a", "c"]);
+        // The DJ took Kerala's download off the list: it stays off, and
+        // its other copy isn't tried either.
+        drop_entry(&mut source, 1, "a");
+        assert_eq!(auto_picks(&source, &source.searches[0]), ["c"]);
     }
 
     #[test]

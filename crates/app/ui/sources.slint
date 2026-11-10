@@ -55,6 +55,9 @@ export struct FoundRow {
     cache-progress: float,
     // On the Downloads list: a download into the cache.
     to-cache: bool,
+    // On the Downloads list: how a download goes, from its source: its
+    // place in line while queued ("4th in line"), its speed while coming.
+    going: string,
     // Heard before it's downloaded: 0 = not, 1 = waiting for the other
     // user, 2 = playing, 3 = couldn't (why is in from).
     preview: int,
@@ -547,7 +550,7 @@ component RowButton inherits Rectangle {
         alignment: center;
         if r.state == 2: VerticalLayout {
             spacing: 3px;
-            Text { text: round(r.progress * 100) + "%"; color: Theme.text-dim; font-size: 11px; horizontal-alignment: right; }
+            Text { text: round(r.progress * 100) + "%" + (r.going != "" ? " · " + r.going : ""); color: Theme.text-dim; font-size: 11px; horizontal-alignment: right; }
             Bar { progress: r.progress; }
         }
         if r.state != 2: HorizontalLayout {
@@ -561,7 +564,7 @@ component RowButton inherits Rectangle {
                 background: r.state == 0 ? (ta.has-hover ? Theme.accent.brighter(0.15) : Theme.accent) : transparent;
                 label := Text {
                     text: r.state == 0 ? (SourceUi.plays ? (r.kind == 1 ? "+ Album" : "+ Collection") : r.kind == 1 ? "↓ Album" : "↓")
-                        : r.state == 1 ? "Queued" : r.state == 3 ? (r.to-cache ? "✓ Cached" : "✓ Added") : "Retry";
+                        : r.state == 1 ? (r.going != "" ? r.going : "Queued") : r.state == 3 ? (r.to-cache ? "✓ Cached" : "✓ Added") : "Retry";
                     color: r.state == 0 ? Theme.on-selection : r.state == 3 ? #30d158 : r.state == 4 ? #ff6b5e : Theme.text-dim;
                     font-size: 11px;
                     font-weight: 700;
