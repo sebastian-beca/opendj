@@ -1,6 +1,7 @@
 //! Player mode's Home (ui/pages.slint): what Player opens on, with the
 //! collection's recently played and recently added albums, the DJ's
-//! crates, and mixes made from the collection by genre, decade and key.
+//! crates, and mixes made from the collection by genre and decade. Crates
+//! and mixes show four of their tracks' covers, with their name on a bar.
 //! A tile opens its album, artist or mix page, or lists its crate.
 
 use std::cmp::Reverse;
@@ -10,11 +11,12 @@ use std::path::Path;
 use opendj_engine::key::Key;
 use opendj_library::sets::is_imported;
 use opendj_library::PlaylistKind;
-use slint::{Color, ComponentHandle, ModelRc, VecModel};
+use slint::{Color, ComponentHandle, Image, ModelRc, VecModel};
 
 use super::pages::{year, Page};
 use super::track_menu::main_artist;
 use super::{file_path, is_browsed, Browser};
+use crate::art::Art;
 use crate::{HomeShelf, HomeTile, PageUi};
 
 /// Tiles on a shelf (the view shows as many as fit across).
@@ -23,14 +25,15 @@ const SHELF: usize = 12;
 const MIX_MIN: usize = 8;
 /// The most tracks in a mix.
 const MIX_TRACKS: usize = 50;
+/// How many tracks are looked at for a crate's or mix's covers.
+const COVER_LOOK: usize = 40;
 
-/// A mix made from the collection: tracks of a genre (lower case), of a
-/// decade (1990), or that mix with a key (its index).
+/// A mix made from the collection: tracks of a genre (lower case) or of a
+/// decade (1990).
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Mix {
     Genre(String),
     Decade(u32),
-    Key(u8),
 }
 
 /// What a tile on Home opens.
@@ -59,6 +62,18 @@ pub(super) fn tint(name: &str) -> Color {
     Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
 }
 
+/// A crate's or mix's tile art: its covers, and its name on a bar over
+/// them (without covers, its label shows big on its colour instead).
+pub(super) fn with_covers(covers: Vec<Image>) -> HomeTile {
+    HomeTile {
+        has_cover: !covers.is_empty(),
+        cover: covers.first().cloned().unwrap_or_default(),
+        bar: !covers.is_empty(),
+        covers: ModelRc::new(VecModel::from(covers)),
+        ..Default::default()
+    }
+}
+
 /// "Good morning" and so on, by the hour.
 fn greeting(hour: u32) -> &'static str {
     match hour {
@@ -85,6 +100,28 @@ impl Browser {
     fn home_track(&self, i: usize) -> bool {
         let t = &self.library[i];
         !is_browsed(t) && !t.info.missing
+    }
+
+    /// Up to four covers of different albums among `tracks`, for a crate's
+    /// or mix's art: four make a 2x2 grid, fewer show the first alone.
+    pub(super) fn covers(&self, tracks: &[usize]) -> Vec<Image> {
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for &i in tracks.iter().take(COVER_LOOK) {
+            let t = &self.library[i];
+            let Some(key) = Art::key(t) else { continue };
+            if seen.contains(&key) {
+                continue;
+            }
+            if let Some(image) = self.album_art.get(t) {
+                seen.insert(key);
+                out.push(image);
+                if out.len() == 4 {
+                    break;
+                }
+            }
+        }
+        out
     }
 
     /// Albums (or artists, for tracks without an album) in the order of
@@ -170,20 +207,15 @@ impl Browser {
             if ids.is_empty() {
                 continue;
             }
-            let cover = ids
-                .iter()
-                .take(20)
-                .find_map(|&i| self.album_art.get(&self.library[i]));
+            let covers = self.covers(&ids);
             out.push((
                 Tile::List(p.id),
                 HomeTile {
                     name: p.name.as_str().into(),
                     detail: super::pages::plural(ids.len(), "track").into(),
-                    has_cover: cover.is_some(),
-                    cover: cover.unwrap_or_default(),
                     tint: tint(&p.name),
                     label: super::pages::initials(&p.name).into(),
-                    round: false,
+                    ..with_covers(covers)
                 },
             ));
             if out.len() == SHELF {
@@ -194,15 +226,20 @@ impl Browser {
     }
 
     /// Whether track `i` belongs in `mix`.
-    fn in_mix(&self, i: usize, mix: &Mix, key: Option<Key>) -> bool {
+    fn in_mix(&self, i: usize, mix: &Mix) -> bool {
         let t = &self.library[i];
         match mix {
             Mix::Genre(g) => genres_of(&t.genre).any(|x| x.to_lowercase() == *g),
             Mix::Decade(d) => year(&t.info.year).is_some_and(|y| y / 10 * 10 == *d),
-            Mix::Key(k) => key
-                .zip(Key::from_index(*k))
-                .is_some_and(|(a, b)| a.compatible(b)),
         }
+    }
+
+    /// Most played first, then best rated.
+    fn by_plays(&self, ids: &mut [usize]) {
+        ids.sort_by_cached_key(|&i| {
+            let t = &self.library[i];
+            (Reverse(t.info.play_count), Reverse(t.rating), t.id)
+        });
     }
 
     /// What a mix is called, its big label, and what kind it is.
@@ -226,10 +263,6 @@ impl Browser {
                 };
                 (format!("{label} Mix"), label, "Decade mix")
             }
-            Mix::Key(k) => {
-                let label = Key::from_index(*k).map_or(String::new(), |k| k.label(self.camelot));
-                (format!("{label} Mix"), label, "Key mix")
-            }
         }
     }
 
@@ -237,14 +270,9 @@ impl Browser {
     /// in the smoothest order by key and tempo.
     pub(super) fn mix_tracks(&self, mix: &Mix) -> Vec<usize> {
         let mut ids: Vec<usize> = (0..self.library.len())
-            .filter(|&i| {
-                self.home_track(i) && self.in_mix(i, mix, Key::parse(&self.library[i].key))
-            })
+            .filter(|&i| self.home_track(i) && self.in_mix(i, mix))
             .collect();
-        ids.sort_by_cached_key(|&i| {
-            let t = &self.library[i];
-            (Reverse(t.info.play_count), Reverse(t.rating), t.id)
-        });
+        self.by_plays(&mut ids);
         ids.truncate(MIX_TRACKS);
         let items: Vec<crate::automix_order::Item> = ids
             .iter()
@@ -263,40 +291,37 @@ impl Browser {
         order.into_iter().map(|p| ids[p]).collect()
     }
 
-    /// The mixes worth making: the genres, decades and keys with the most
+    /// The mixes worth making: the genres and decades with the most
     /// tracks, each with enough to mix.
-    fn mix_tiles(&self, tracks: &[usize]) -> [Vec<(Tile, HomeTile)>; 3] {
-        let mut genres: HashMap<String, usize> = HashMap::new();
-        let mut decades: HashMap<u32, usize> = HashMap::new();
-        let mut keys = [0usize; 24];
+    fn mix_tiles(&self, tracks: &[usize]) -> [Vec<(Tile, HomeTile)>; 2] {
+        let mut genres: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut decades: HashMap<u32, Vec<usize>> = HashMap::new();
         for &i in tracks {
             let t = &self.library[i];
             let mut seen = HashSet::new();
             for g in genres_of(&t.genre) {
                 let g = g.to_lowercase();
                 if seen.insert(g.clone()) {
-                    *genres.entry(g).or_default() += 1;
+                    genres.entry(g).or_default().push(i);
                 }
             }
             if let Some(y) = year(&t.info.year).filter(|&y| y >= 1900) {
-                *decades.entry(y / 10 * 10).or_default() += 1;
-            }
-            if let Some(k) = Key::parse(&t.key) {
-                for (n, count) in keys.iter_mut().enumerate() {
-                    if Key::from_index(n as u8).is_some_and(|other| other.compatible(k)) {
-                        *count += 1;
-                    }
-                }
+                decades.entry(y / 10 * 10).or_default().push(i);
             }
         }
-        fn top<T: Clone + Ord>(counts: impl Iterator<Item = (T, usize)>, n: usize) -> Vec<T> {
-            let mut all: Vec<(T, usize)> = counts.filter(|(_, c)| *c >= MIX_MIN).collect();
+        fn top<T: Clone + Ord>(groups: &HashMap<T, Vec<usize>>) -> Vec<T> {
+            let mut all: Vec<(T, usize)> = groups
+                .iter()
+                .map(|(t, ids)| (t.clone(), ids.len()))
+                .filter(|(_, c)| *c >= MIX_MIN)
+                .collect();
             all.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-            all.into_iter().take(n).map(|(t, _)| t).collect()
+            all.into_iter().take(SHELF).map(|(t, _)| t).collect()
         }
-        let tile = |mix: Mix, count: usize| {
+        let tile = |mix: Mix, mut ids: Vec<usize>| {
             let (name, label, kind) = self.mix_name(&mix);
-            let n = count.min(MIX_TRACKS);
+            let n = ids.len().min(MIX_TRACKS);
+            self.by_plays(&mut ids);
             (
                 Tile::Mix(mix),
                 HomeTile {
@@ -304,28 +329,24 @@ impl Browser {
                     name: name.into(),
                     detail: format!("{kind} · {}", super::pages::plural(n, "track")).into(),
                     label: label.into(),
-                    ..Default::default()
+                    ..with_covers(self.covers(&ids))
                 },
             )
         };
-        let genre = top(genres.iter().map(|(g, c)| (g.clone(), *c)), SHELF)
+        let genre = top(&genres)
             .into_iter()
             .map(|g| {
-                let c = genres[&g];
-                tile(Mix::Genre(g), c)
+                let ids = genres[&g].clone();
+                tile(Mix::Genre(g), ids)
             })
             .collect();
-        let mut by_decade = top(decades.iter().map(|(d, c)| (*d, *c)), SHELF);
+        let mut by_decade = top(&decades);
         by_decade.sort_unstable_by(|a, b| b.cmp(a));
         let decade = by_decade
             .into_iter()
-            .map(|d| tile(Mix::Decade(d), decades[&d]))
+            .map(|d| tile(Mix::Decade(d), decades[&d].clone()))
             .collect();
-        let key = top(keys.iter().enumerate().map(|(k, c)| (k as u8, *c)), SHELF)
-            .into_iter()
-            .map(|k| tile(Mix::Key(k), keys[k as usize]))
-            .collect();
-        [genre, decade, key]
+        [genre, decade]
     }
 
     /// Fills Home: its shelves and what each tile opens.
@@ -348,14 +369,13 @@ impl Browser {
             .filter(|&i| self.library[i].info.added > 0)
             .collect();
         added.sort_by_key(|&i| Reverse(self.library[i].info.added));
-        let [genre, decade, key] = self.mix_tiles(&tracks);
+        let [genre, decade] = self.mix_tiles(&tracks);
         let shelves = [
             ("Recently played", self.release_tiles(&played)),
             ("Recently added", self.release_tiles(&added)),
             ("Your crates and playlists", self.list_tiles()),
             ("Genre mixes", genre),
             ("Decade mixes", decade),
-            ("Key mixes", key),
         ];
         let mut opens = Vec::new();
         let mut shown = Vec::new();

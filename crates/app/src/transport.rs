@@ -72,9 +72,15 @@ pub fn can_next(app: &AppWindow) -> bool {
     app.get_automix_on() && app.get_automix_queued() > 0
 }
 
-/// Next: mix into the next track in Up Next now.
+/// Next: on to the next track in Up Next now, with a cut in Player as on
+/// its bar, else mixing in as Automix's Mix now does.
 pub fn next(app: &AppWindow) {
-    if can_next(app) {
+    if !can_next(app) {
+        return;
+    }
+    if app.get_layout() == crate::PLAYER_LAYOUT {
+        app.invoke_automix_cut_now();
+    } else {
         app.invoke_automix_mix_now();
     }
 }

@@ -902,6 +902,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let a = automix.clone();
         app.on_automix_mix_now(move || a.borrow_mut().mix_now());
         let a = automix.clone();
+        app.on_automix_cut_now(move || a.borrow_mut().cut_now());
+        let a = automix.clone();
         app.on_automix_skip(move || a.borrow_mut().skip());
         let a = automix.clone();
         app.on_automix_set_repeat(move |on| a.borrow_mut().set_repeat(on));

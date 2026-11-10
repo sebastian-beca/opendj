@@ -343,13 +343,22 @@ impl Browser {
                 )
             }
         };
+        // A mix shows four of its tracks' covers, most played first.
+        let covers = if kind == 4 {
+            let mut ids = tracks.clone();
+            ids.sort_by_key(|&i| std::cmp::Reverse(self.library[i].info.play_count));
+            self.covers(&ids)
+        } else {
+            Vec::new()
+        };
         let cover = if kind == 4 {
-            None
+            covers.first().cloned()
         } else {
             tracks
                 .iter()
                 .find_map(|&i| self.album_art.get(&self.library[i]))
         };
+        ui.set_covers(ModelRc::new(VecModel::from(covers)));
         ui.set_kind(kind);
         ui.set_title(title.as_str().into());
         ui.set_artist(artist.into());
