@@ -47,6 +47,7 @@ openDJ 0.6.0 turns openDJ into an instrument as much as a DJ app. Plugin instrum
 
 **Layouts and browsing**
 
+- **Prep layout** for getting In Prep tracks ready on Deck 1: drag the grid, name hot cues and memory cues in a Cues tab, tick your own checklist, and review quickly with the keyboard (Enter marks a track Play Ready and loads the next). It's off at first: add it in the layout chooser.
 - A lighter **2-Deck** layout; the previous one is now **2-Deck Pro**. A **PADS** button shows or hides the pad grid.
 - **Filter bar**: chips narrow each other's counts, drag to reorder, a Key chip that matches by Setting, Exact, Harmonic or Fuzzy, a + menu with core fields, your tags and more, and a finder in the search bar.
 - **Wanted** sorts by column; the Buy sheet shows prices, a store picker and iTunes Store links on macOS.
