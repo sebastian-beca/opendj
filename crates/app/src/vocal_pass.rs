@@ -43,7 +43,7 @@ pub fn start(wake: impl Fn() + Send + Sync + 'static) {
         .spawn(move || {
             let pass = PASS.get().expect("set above");
             for path in receive {
-                let found = vocals::analyse(&path, None, || crate::wave_look::show_vocals())
+                let found = vocals::analyse(&path, None, crate::wave_look::show_vocals)
                     .map_err(|e| eprintln!("vocals {}: {e}", path.display()))
                     .ok()
                     .filter(|l| !l.is_empty())

@@ -2508,6 +2508,9 @@ fn same_deck_info(old: &DeckInfo, new: &DeckInfo) -> bool {
 /// Where each phrase starts and its kind, as the waveforms draw them.
 type Phrases = Vec<(f64, PhraseKind)>;
 
+/// A track on the GPU, with the waveform and vocal levels it came from.
+type Uploaded = (Arc<GpuTrack>, Arc<Waveform>, Option<Arc<Levels>>);
+
 struct Gpu {
     /// The [`wave_look::version`] the views were last set to.
     look: u32,
@@ -2520,7 +2523,7 @@ struct Gpu {
     /// waveform and vocal levels it was uploaded from. While a track is
     /// being analysed its waveform grows, and each new version is uploaded
     /// again, as it is once its vocals are found.
-    tracks: [Option<(Arc<GpuTrack>, Arc<Waveform>, Option<Arc<Levels>>)>; NUM_DECKS],
+    tracks: [Option<Uploaded>; NUM_DECKS],
     /// Each deck's phrases and the track they were found for, found again
     /// when the track changes (a new analysis or a grid edit replaces it).
     phrases: [Option<(Arc<Track>, Phrases)>; NUM_DECKS],
