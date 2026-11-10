@@ -131,7 +131,7 @@ pub struct Fill {
 }
 
 /// Seconds a word of `chars` letters is reckoned to last when nothing says.
-fn word_length(chars: usize) -> f64 {
+pub fn word_length(chars: usize) -> f64 {
     0.35 + chars as f64 * 0.08
 }
 
