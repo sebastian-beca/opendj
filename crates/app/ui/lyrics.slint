@@ -81,11 +81,19 @@ export global LyricsUi {
     in property <bool> can-transcribe;
 }
 
-// A line of a deck's lyrics on its big waveform: seconds into the track.
-export struct WaveLine {
+// A word of a line on a deck's big waveform: seconds into the track.
+export struct WaveWord {
     start: float,
     end: float,
     text: string,
+}
+
+// A line of a deck's lyrics on its big waveform: seconds into the track,
+// and each word at its own time.
+export struct WaveLine {
+    start: float,
+    end: float,
+    words: [WaveWord],
 }
 
 export struct DeckLines {
@@ -100,53 +108,60 @@ export global WaveLyrics {
     in property <[DeckLines]> decks;
 }
 
-// The lyrics lane along the bottom of a big waveform: each line a strip
-// from when it is sung to when it ends, scrolling with the audio, its words
-// lilac as far as the playhead (the middle) has gone.
+// The lyrics lane along the bottom of a big waveform, scrolling with the
+// audio: each line a faint strip from when it is sung to when it ends, and
+// each word a chip at its own time. Words already sung are lilac; the word
+// being sung is lit and fills with lilac as it is sung. Everything sits on
+// whole pixels, moved together by the playhead, so the words don't shimmer.
 export component LyricsLane inherits Rectangle {
     in property <[WaveLine]> lines;
     // Seconds into the track at the playhead, and seconds across the width.
     in property <float> now;
     in property <float> visible-seconds: 10;
-    property <length> per-second: self.width / max(visible-seconds, 0.1);
-    property <length> mid: self.width / 2;
-    height: 15px;
+    // Pixels per second, and where second 0 of the track is, in whole pixels.
+    property <float> per-second: self.width / 1px / max(visible-seconds, 0.1);
+    property <float> origin: round(self.width / 2px) - round(now * per-second);
+    height: 16px;
     clip: true;
     background: #000000a8;
-    for line in lines: strip := Rectangle {
-        x: mid + (line.start - now) * per-second;
-        width: max(4px, (line.end - line.start) * per-second);
+    for line in lines: Rectangle {
+        property <float> left: origin + round(line.start * per-second);
+        x: left * 1px;
+        width: max(4, round(line.end * per-second) - round(line.start * per-second)) * 1px;
         y: 2px;
         height: parent.height - 4px;
-        property <bool> singing: now >= line.start && now < line.end;
         visible: self.x < parent.width && self.x + self.width > 0;
         border-radius: 3px;
-        background: singing ? Theme.accent.with-alpha(0.22) : #ffffff12;
-        words := Text {
-            x: 4px;
-            width: parent.width - 6px;
-            text: line.text;
-            color: singing ? Theme.text : Theme.text-dim;
-            font-size: 10px;
-            font-weight: 600;
-            vertical-alignment: center;
-            overflow: elide;
-        }
-        // The part already sung, drawn over in lilac: the words fill in
-        // step with the line, as far as it has been sung.
-        Rectangle {
-            x: 0;
-            width: 4px + min(words.preferred-width, words.width) * clamp((now - line.start) / max(line.end - line.start, 0.01), 0, 1);
+        background: now >= line.start && now < line.end ? Theme.accent.with-alpha(0.10) : #ffffff08;
+        for word in line.words: chip := Rectangle {
+            property <bool> sung: now >= word.end;
+            property <bool> singing: now >= word.start && now < word.end;
+            x: (round(word.start * per-second) - round(line.start * per-second)) * 1px;
+            width: max(3, round(word.end * per-second) - round(word.start * per-second) - 1) * 1px;
+            border-radius: 2px;
             clip: true;
-            Text {
-                x: 4px;
-                width: strip.width - 6px;
-                text: line.text;
-                color: Theme.accent;
+            background: singing ? Theme.accent.with-alpha(0.38) : sung ? Theme.accent.with-alpha(0.14) : #ffffff1e;
+            label := Text {
+                x: 3px;
+                text: word.text;
+                color: sung ? Theme.accent : singing ? Theme.text : Theme.text-dim;
                 font-size: 10px;
                 font-weight: 600;
                 vertical-alignment: center;
-                overflow: elide;
+            }
+            // The part of the word being sung, drawn over in lilac.
+            if singing: Rectangle {
+                x: 0;
+                width: round(3 + label.preferred-width / 1px * clamp((now - word.start) / max(word.end - word.start, 0.01), 0, 1)) * 1px;
+                clip: true;
+                Text {
+                    x: 3px;
+                    text: word.text;
+                    color: Theme.accent;
+                    font-size: 10px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
             }
         }
     }

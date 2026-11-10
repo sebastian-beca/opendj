@@ -13,7 +13,7 @@ use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use super::super::Browser;
 use super::store;
-use crate::{settings, AppWindow, DeckLines, WaveLine, WaveLyrics};
+use crate::{settings, AppWindow, DeckLines, WaveLine, WaveLyrics, WaveWord};
 
 /// The setting: Settings › Decks › Lyrics on waveforms, on at first.
 pub const SHOWN: &str = "waveform_lyrics";
@@ -60,7 +60,12 @@ impl WaveState {
     }
 }
 
-/// The lines of timed lyrics that are sung, with when each ends.
+/// The longest a line's last word is shown held, past what singing it
+/// takes: a line timed to run on to a long gap shouldn't stretch across it.
+const HOLD: f64 = 1.5;
+
+/// The lines of timed lyrics that are sung, each word with when it starts
+/// and ends (spread over the line by length when only the line is timed).
 pub(super) fn wave_lines(lines: &[Line]) -> Vec<WaveLine> {
     lines
         .iter()
@@ -69,11 +74,25 @@ pub(super) fn wave_lines(lines: &[Line]) -> Vec<WaveLine> {
         .filter_map(|(i, l)| {
             let start = l.start?;
             let until = lines.get(i + 1).and_then(|n| n.start);
-            let end = l.word_times(until).last().map_or(start, |w| w.1);
+            let mut times = l.word_times(until);
+            if let Some(last) = times.last_mut() {
+                let sung = lyrics::word_length(last.2.trim().chars().count());
+                last.1 = last.1.min(last.0 + sung + HOLD);
+            }
+            let end = times.last().map_or(start, |w| w.1).max(start + 0.2);
+            let words: Vec<WaveWord> = times
+                .into_iter()
+                .filter(|w| !w.2.trim().is_empty())
+                .map(|(s, e, text)| WaveWord {
+                    start: s as f32,
+                    end: e.max(s + 0.05) as f32,
+                    text: text.trim().into(),
+                })
+                .collect();
             Some(WaveLine {
                 start: start as f32,
-                end: end.max(start + 0.2) as f32,
-                text: l.text.trim().into(),
+                end: end as f32,
+                words: ModelRc::new(VecModel::from(words)),
             })
         })
         .collect()
@@ -143,13 +162,30 @@ mod tests {
         let lines = lyrics::parse("[00:10.00]Hi there\n[00:11.00]\n[00:20.00]Next").unwrap();
         let w = wave_lines(&lines);
         assert_eq!(w.len(), 2, "breaks have no strip");
-        assert_eq!(w[0].text, "Hi there");
         assert_eq!(w[0].start, 10.0);
         // Ends by the next line's start.
         assert!(w[0].end <= 11.0 && w[0].end > 10.0);
+        let words: Vec<WaveWord> = w[0].words.iter().collect();
+        assert_eq!(words.len(), 2);
+        assert_eq!(words[0].text, "Hi");
+        assert_eq!(words[0].start, 10.0);
+        assert!(words[1].start > 10.0 && words[1].start < words[1].end);
         assert!(lyrics::parse("Plain")
             .map(|l| wave_lines(&l))
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn words_sit_at_their_own_times() {
+        let text = "[00:10.00]<00:10.00>Too <00:10.40>many <00:11.20>fathers<00:30.00>";
+        let w = wave_lines(&lyrics::parse(text).unwrap());
+        let words: Vec<WaveWord> = w[0].words.iter().collect();
+        let starts: Vec<f32> = words.iter().map(|w| w.start).collect();
+        assert_eq!(starts, vec![10.0, 10.4, 11.2]);
+        assert_eq!(words[0].end, 10.4);
+        // The last word isn't held across the long gap the line ends on.
+        assert!(words[2].end < 14.0, "{}", words[2].end);
+        assert_eq!(w[0].end, words[2].end);
     }
 }
