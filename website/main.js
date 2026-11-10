@@ -62,3 +62,38 @@
     })
     .catch(function () {});
 })();
+
+// Feature rows fade in, and screenshots zoom towards their focus point
+// (--fx/--fy) as they scroll up the screen.
+(function () {
+  if (!("IntersectionObserver" in window)) return;
+  document.documentElement.classList.add("js");
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+    });
+  }, { rootMargin: "0px 0px -10% 0px" });
+  document.querySelectorAll(".reveal").forEach(function (el) { io.observe(el); });
+
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  var frames = Array.prototype.slice.call(document.querySelectorAll("[data-zoom]"));
+  var queued = false;
+  function update() {
+    queued = false;
+    var vh = window.innerHeight;
+    frames.forEach(function (f) {
+      var r = f.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > vh) return;
+      // 0 while the frame's centre is low on the screen, 1 once it reaches
+      // the upper third, so the zoom has finished by the time it's read.
+      var centre = r.top + r.height / 2;
+      var p = Math.min(1, Math.max(0, (vh * 0.85 - centre) / (vh * 0.5)));
+      p = p * p * (3 - 2 * p);
+      f.style.setProperty("--z", (1 + (parseFloat(f.dataset.zoom) - 1) * p).toFixed(4));
+    });
+  }
+  function queue() { if (!queued) { queued = true; requestAnimationFrame(update); } }
+  window.addEventListener("scroll", queue, { passive: true });
+  window.addEventListener("resize", queue);
+  update();
+})();

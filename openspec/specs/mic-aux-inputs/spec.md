@@ -13,7 +13,7 @@ The microphone and auxiliary inputs: their channels, the microphone's own effect
 - **THEN** `[Microphone],input_configured` is 1 and the MIC panel is no longer dimmed
 
 ### Requirement: Talkover
-The microphone SHALL be heard while `talkover` is on, switched by the MIC button in the top bar. The arrow on the MIC button SHALL open the MIC panel with the microphone only: ON, cue, level slider, gain and EQ, and one Mic FX slot (no routing of the Mic FX to other inputs there); a click outside closes it. The aux and instrument inputs are played from the Instruments source on a deck. It SHALL join the master after the master's effects.
+The microphone SHALL be heard while `talkover` is on, switched by the MIC button in the top bar. The arrow on the MIC button SHALL open the MIC panel with the microphone only: ON, cue, level slider, gain and EQ, and one Mic FX slot (no routing of the Mic FX to other inputs there); a click outside closes it. The aux and instrument inputs are played from the Jam source on a deck. It SHALL join the master after the master's effects.
 
 #### Scenario: Master FX don't touch the voice
 - **WHEN** an echo is on the master and the DJ talks with talkover on

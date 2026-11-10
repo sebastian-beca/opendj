@@ -10,7 +10,8 @@
 ## 2. Home
 
 - [x] 2.1 Player opens on Home: recently played, recently added, crates
-- [x] 2.2 Mixes from the collection by key, genre and decade
+- [x] 2.2 Mixes from the collection by genre and decade
+- [x] 2.4 Crates and mixes show four covers in a grid with their name on a bar
 - [x] 2.3 User guide
 
 ## Workflow follow-up

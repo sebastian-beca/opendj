@@ -53,9 +53,9 @@ they're on. **Shift-click** and hold PLAY while the deck plays for
 
 The decks' effects are in the [FX bar](fx.md#the-fx-bar) under them.
 
-### Instruments on a deck
+### Jam on a deck
 
-A deck can play something live instead of a track. Click **Instruments** in
+A deck can play something live instead of a track. Click **Jam** in
 the rail at the far left (the keyboard icon) and drag one onto a deck:
 
 - A **Groove Box** kit: a drum machine in time with the mix (see
@@ -71,7 +71,7 @@ It plays through that deck's channel, so the EQ, filter, effects, fader and
 crossfader all work on it. A track on the deck is stopped and ejected
 first. An input plays on one deck at a time: dropping it on another deck
 moves it there, and while a deck has it, its own channel in the MIC panel
-stays quiet. The Instruments page shows which deck each one is on.
+stays quiet. The Jam page shows which deck each one is on.
 
 The deck's scrolling waveform draws what it plays as it plays: the sound
 comes in at the play line and scrolls away to the left, with nothing ahead
@@ -236,7 +236,7 @@ outputs in Settings. Levels are kept between runs.
 
 The arrow on the **MIC** button opens the microphone, with **ON**, a level
 and one **MIC FX** slot of its own, which the decks' effects never touch.
-Auxiliary inputs play on a deck from the **Instruments** source. Choose
+Auxiliary inputs play on a deck from the **Jam** source. Choose
 the inputs in **Settings › Audio**: **+** under the inputs adds a second
 and third auxiliary input, and each auxiliary input takes a pair of
 channels (stereo) or one (mono).

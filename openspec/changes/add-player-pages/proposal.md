@@ -12,7 +12,7 @@ In Spotify and TIDAL a click on an artist or album opens its page: the art, Play
 - **Album page**: the cover, the name, the artist (a link to their page), year, tracks and length; the same buttons; its tracks in disc and track order. A compilation shows whole when its tracks share a folder.
 - Clicking a track plays it now (on an album, with the rest of the album after it). Play, Shuffle and Mix put the tracks in Up Next and mix into the first now, as the search box's Play now does.
 - Opened from the bar's artist, the search box's artists, and Go to Artist / Go to Album in the track menu (Player only; the DJ layouts keep the filter chip). Pages stack: the back arrow goes to the page before, then the list; picking a list in the tree closes them.
-- Later in this change: **Home**, what Player opens on (recently played, recently added, crates, and mixes made from the collection by key, genre and decade).
+- Later in this change: **Home**, what Player opens on (recently played, recently added, crates, and mixes made from the collection by genre and decade).
 
 ## Capabilities
 

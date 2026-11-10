@@ -1166,6 +1166,8 @@ export component Header inherits Rectangle {
     in property <bool> compact: false;
     // The deck number lit: a two-deck controller's side is on this deck.
     in property <bool> number-lit: false;
+    // The beat and phrase counter; 2-Deck leaves it out.
+    in property <bool> beat-counter: true;
     callback number-clicked();
     out property <length> overview-width: ov.width;
     out property <length> overview-height: ov.height;
@@ -1284,7 +1286,7 @@ export component Header inherits Rectangle {
                         overflow: elide;
                     }
                 }
-                if info.loaded && BeatCounter.decks[deck].shown: BeatBox {
+                if beat-counter && info.loaded && BeatCounter.decks[deck].shown: BeatBox {
                     count: BeatCounter.decks[deck];
                     tint: tint;
                     compact: compact || BeatCounter.mode == 1;
@@ -4858,12 +4860,13 @@ export component Deck inherits Rectangle {
                 if mirrored: JogSection { group: group; info: info; tint: tint; spin: spin; mirrored: true; }
                 if mirrored: Rectangle { width: 10px; }
                 if mirrored: LoopSection { group: group; info: info; tint: tint; mirrored: true; }
-                if mirrored && PadsUi.visible: VDivider { }
+                if mirrored: VDivider { }
                 if !mirrored: Pitch { group: group; info: info; tint: tint; }
                 if !mirrored: Rectangle { width: 12px; }
-                if PadsUi.visible: Pads { deck: deck; group: group; info: info; horizontal-stretch: 1; }
-                if !PadsUi.visible: Rectangle { horizontal-stretch: 1; }
-                if !mirrored && PadsUi.visible: VDivider { }
+                // 2-Deck Pro always shows the pads (PADS is for 2-Deck and
+                // 4-Deck).
+                Pads { deck: deck; group: group; info: info; horizontal-stretch: 1; }
+                if !mirrored: VDivider { }
                 if !mirrored: LoopSection { group: group; info: info; tint: tint; }
                 if !mirrored: Rectangle { width: 10px; }
                 if !mirrored: JogSection { group: group; info: info; tint: tint; spin: spin; }

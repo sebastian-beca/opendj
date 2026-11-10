@@ -1,4 +1,4 @@
-// The Instruments source in the library rail: what a deck can play instead
+// The Jam source (formerly Instruments) in the library rail: what a deck can play instead
 // of a track. The Groove Box's kits, the instrument plugins ticked in
 // Settings › Plugins, and the microphone and aux inputs, each dragged onto
 // a deck to play through that deck's channel (its EQ, filter, effects,
@@ -302,7 +302,7 @@ export component LiveIcon inherits Rectangle {
     in property <length> size: 30px;
     width: size;
     height: size;
-    // A keyboard: the rail's Instruments button and instrument plugins.
+    // A keyboard: the rail's Jam button and instrument plugins.
     if kind == 0 || kind == 2: Path {
         width: parent.width;
         height: parent.height;
@@ -427,7 +427,7 @@ component InstrumentTree inherits Rectangle {
     VerticalLayout {
         padding: 8px;
         spacing: 6px;
-        Text { text: "Instruments"; color: Theme.text; font-size: 15px; font-weight: 600; height: 30px; vertical-alignment: center; x: 4px; }
+        Text { text: "Jam"; color: Theme.text; font-size: 15px; font-weight: 600; height: 30px; vertical-alignment: center; x: 4px; }
         ScrollView {
             gutter: true;
             VerticalLayout {

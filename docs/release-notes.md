@@ -4,7 +4,7 @@ openDJ 0.6.0 turns openDJ into an instrument as much as a DJ app. Plugin instrum
 
 **Instruments**
 
-- **Instruments browser**, like Collection: a tree with Recently played, Type and Character tag chips, presets and column sort.
+- **Jam** (the library rail's source for instruments, formerly Instruments) browses them like Collection: a tree with Recently played, Type and Character tag chips, presets and column sort.
 - **Presets**: save, step through and load presets for plugins and the Groove Box, and list a plugin's own presets (VST3 `.vstpreset`, Audio Unit factory presets, CLAP presets).
 - **Instrument deck**: eight knobs to a page that follow the plugin's own window (right-click a knob to pick the parameter it turns), a scope, and a keyboard lighting the notes played.
 - **Scale** (Off, Auto from the master deck's key, or a picked scale), **chord** (Triad, Seventh, Power or a learned chord) and an **arpeggiator** synced to the mix's beat.
@@ -29,7 +29,7 @@ openDJ 0.6.0 turns openDJ into an instrument as much as a DJ app. Plugin instrum
 
 **Player mode**
 
-- **Home** with recently played and added albums, your crates and playlists, and Genre, Decade and Key mixes.
+- **Home** with recently played and added albums, your crates and playlists, and Genre and Decade mixes, with covers from their tracks.
 - **Artist and album pages** with Play, Shuffle and Mix.
 - **Now Playing** view with large lyrics, and a **Favorites** heart.
 - **Up Next** shows the track playing, and each track can have its own mix length and style.
@@ -49,7 +49,7 @@ openDJ 0.6.0 turns openDJ into an instrument as much as a DJ app. Plugin instrum
 
 - **Prep layout** for getting In Prep tracks ready on Deck 1: drag the grid, name hot cues and memory cues in a Cues tab, tick your own checklist, and review quickly with the keyboard (Enter marks a track Play Ready and loads the next). It's off at first: add it in Settings › Layouts.
 - **Choose your layouts**: Settings › Layouts (or the cog in the layout menu) lists the layouts the menu offers, with previews. Reorder them, remove the ones you don't use, and add others from More layouts. A controller's VIEW button steps through them.
-- A lighter **2-Deck** layout; the previous one is now **2-Deck Pro**. A **PADS** button shows or hides the pad grid.
+- A lighter **2-Deck** layout with the mixer between the pads, a **JOG** button and a simpler tempo; the previous one is now **2-Deck Pro**, always with pads. A **PADS** button shows or hides the pad grid in 2-Deck and 4-Deck.
 - **Filter bar**: chips narrow each other's counts, drag to reorder, a Key chip that matches by Setting, Exact, Harmonic or Fuzzy, a + menu with core fields, your tags and more, and a finder in the search bar.
 - **Wanted** sorts by column; the Buy sheet shows prices, a store picker and iTunes Store links on macOS.
 - Add-on downloads show their queue place and speed, can be previewed while they download, and Downloads is a place in the side panel.

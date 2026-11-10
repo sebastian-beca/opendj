@@ -64,7 +64,7 @@ impl Prefs {
         // openDJ's own sources, then everything outside it, as in the
         // rail's "..." menu.
         items.push(item("", HEADING, "BUILT-IN", ""));
-        for name in ["Collection", "Files", "Albums", "Recordings", "Instruments"] {
+        for name in ["Collection", "Files", "Albums", "Recordings", "Jam"] {
             if let Some(i) = place(name) {
                 items.push(row(i, name, 0, "", ""));
             }

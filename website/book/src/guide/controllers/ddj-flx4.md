@@ -80,7 +80,8 @@ over the meters), the controller's EQ knobs follow it.
   waveforms.
 - **LOAD** loads the selected track onto that deck.
 - **SHIFT** + left **LOAD** shows the tracks linked to the selected one.
-- **SHIFT** + right **LOAD** switches layouts (VIEW).
+- **SHIFT** + right **LOAD** goes to the next of your layouts (VIEW; see
+  [Your layouts](../layouts.md#your-layouts)).
 
 ## Decks 3 and 4
 
