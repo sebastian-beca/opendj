@@ -81,6 +81,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-live-deck-waveforms](changes/add-live-deck-waveforms/proposal.md) (live decks draw what they play on the scrolling waveform: a live trace on the leading deck's grid, a note roll for instruments, step lanes for the Groove Box, macro lanes as a second view; issue #497, 2026-11-07)
 - [add-midi-device-routing](changes/add-midi-device-routing/proposal.md) (DJ controllers never play instruments, Play instruments per device, a Deck menu with Follow instrument; from a user report, issue #470, 2026-11-07)
 - [rework-instruments](changes/rework-instruments/proposal.md) (Instruments as a browser like Collection with presets, an instrument deck with knobs, trim, pan, safety limiter, scale, chord and arp, and artwork; clips assessed and left out; 2026-11-07)
+- [add-layout-picker](changes/add-layout-picker/proposal.md) (first step of openDJ Layouts: Your layouts in Settings › Layouts with previews, only those in the layout menu, VIEW steps through them; issue #554, a user request 2026-11-10)
 
 ## v0.7 · Your library, everywhere
 
