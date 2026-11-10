@@ -1,4 +1,4 @@
-//! The Instruments source in the library rail (`ui/instruments.slint`):
+//! The Jam source (formerly Instruments) in the library rail (`ui/instruments.slint`):
 //! a tree (everything, the Groove Box, plugins by maker, inputs) and a
 //! list of what the selected node holds, dragged onto a deck to play
 //! through its channel. Dropping is handled on

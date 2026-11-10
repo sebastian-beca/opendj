@@ -218,13 +218,15 @@ pub fn set_audio_setup(setup: &AudioSetup) {
 
 /// The sources hidden from the library rail, by name; `None` until the DJ
 /// (or openDJ, on first start) has saved a choice.
-/// Names saved before Mixed Sets was renamed Recordings read as the new name.
+/// Names saved before Mixed Sets was renamed Recordings, and Instruments
+/// Jam, read as the new names.
 pub fn hidden_sources() -> Option<Vec<String>> {
     load()["hidden_sources"].as_array().map(|a| {
         a.iter()
             .filter_map(|v| v.as_str())
             .map(|n| match n {
                 "Mixed Sets" => "Recordings".to_string(),
+                "Instruments" => "Jam".to_string(),
                 n => n.to_string(),
             })
             .collect()
