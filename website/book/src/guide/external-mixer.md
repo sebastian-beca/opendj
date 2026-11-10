@@ -34,7 +34,9 @@ interface.
   player.
 - Controllers keep working. EQ, fader and crossfader moves they send do
   nothing, so a deck-only controller pairs best.
-- Automix and the master limiter are off: they need openDJ's mixer.
+- Automix and the master limiter are off: they need openDJ's mixer. Each
+  deck's output still bends its loudest peaks (above −1.5 dBFS) under full
+  scale instead of clipping them.
 - The mic and Auxiliary inputs aren't mixed into anything (the mixer has its
   own). The sampler plays on its own output if it has one, else on Deck 1's.
 - Master and booth are not used, so their channels are free for the decks.
