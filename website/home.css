@@ -146,3 +146,12 @@
 .spec ul { list-style: none; padding: 0; margin: 0; }
 .spec li { padding: 9px 0; border-bottom: 1px solid rgba(42, 39, 64, 0.6); color: var(--text-2); font-size: 15px; line-height: 1.45; }
 .headshot { width: 160px; height: 160px; border-radius: 50%; object-fit: cover; border: 2px solid var(--lilac); box-shadow: 0 20px 60px -20px rgba(182, 156, 255, 0.5); margin-bottom: 28px; }
+
+/* Full-width feature row (waveforms) */
+.feature-wide .feature-text { display: grid; grid-template-columns: 1fr 1fr; column-gap: 72px; align-items: start; }
+.feature-wide .fnum, .feature-wide h2 { grid-column: 1; }
+.feature-wide .feature-text > p, .feature-wide .points { grid-column: 2; }
+.feature-wide .feature-text > p { grid-row: 1 / span 2; align-self: end; }
+.feature-wide .points { grid-row: 3; margin-top: 0; }
+.feature-wide .frame { margin-top: 48px; }
+@media (max-width: 900px) { .feature-wide .feature-text { display: block; } .feature-wide .points { margin-top: 22px; } }
