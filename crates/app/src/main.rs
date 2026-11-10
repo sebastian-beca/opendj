@@ -685,6 +685,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The pad grid in the decks (the PADS button), likewise.
     app.set_pads_visible(settings::flag("pads_visible", true));
     app.on_pads_visible_changed(|on| settings::set("pads_visible", serde_json::json!(on)));
+    app.set_jogs_visible(settings::flag("lite_jogs", false));
+    app.on_jogs_visible_changed(|on| settings::set("lite_jogs", serde_json::json!(on)));
     // The Groove Boxes: their kits' names, and what they held last time,
     // saved again as it changes.
     groove_box::install(&app);

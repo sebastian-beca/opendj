@@ -16,7 +16,7 @@ import { ChecklistUi } from "checklist.slint";
 import { LyricsUi, WaveLyrics, LyricsLane, WaveLine } from "lyrics.slint";
 import { NowPlayingUi } from "nowplaying.slint";
 import { DeckStrip, FourDeckBar } from "fourdeck.slint";
-import { LiteDeck, LiteMixer, LiteUi, PadBar } from "lite.slint";
+import { LiteDeck, LiteMixer, LiteUi, PadBarHalf } from "lite.slint";
 import { FxBar } from "fxbar.slint";
 import { InstrumentsUi, LiveItem, ParamMatch, PresetItem, PresetUi } from "instruments.slint";
 import { Browser, Folder, TrackRow, SideRow, TrackDrag, LibraryEdit, KeepGoingUi, UpNextUi, MenuListRow, MenuTag, StoreUi, StreamMatch, WantedUi, FilesUi, AlbumsUi, AlbumTile, ColumnUi, ListColumn, HealthUi, HealthCard, HealthStage, HealthLine, HealthArea, HealthChip, HealthReview, CleanupUi, CleanupRow, FixNamesUi, GenreRow, BuyUi, BuyGroup, BuyRow } from "library.slint";
@@ -802,6 +802,47 @@ component PadsButton inherits Rectangle {
     TourMark { id: "ui,pads_button"; }
 }
 
+// JOG, in 2-Deck: shows a jog on the mixer side of each deck.
+component JogsButton inherits Rectangle {
+    in-out property <bool> on;
+    callback changed-to(on: bool);
+    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: on ? Theme.accent : transparent;
+    height: 36px;
+    y: 8px;
+    horizontal-stretch: 0;
+    HorizontalLayout {
+        padding-left: 11px;
+        padding-right: 11px;
+        // A platter: a ring with a dot in the middle.
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                border-width: 1.5px;
+                border-color: on ? Theme.accent : Theme.text-dim;
+                Rectangle {
+                    width: 4px;
+                    height: 4px;
+                    border-radius: 2px;
+                    background: on ? Theme.accent : Theme.text-dim;
+                }
+            }
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            on = !on;
+            changed-to(on);
+        }
+    }
+}
+
 // MASTER: the main meters and the clock. A click opens the MASTER panel
 // with the output levels, Ableton Link and MIDI clock; LINK and CLOCK
 // show while they are on.
@@ -932,6 +973,8 @@ export component AppWindow inherits Window {
     callback fx-bar-visible-changed(on: bool);
     // The pad grid in the decks: the PADS button beside FX.
     in-out property <bool> pads-visible <=> PadsUi.visible;
+    in-out property <bool> jogs-visible <=> LiteUi.jogs;
+    callback jogs-visible-changed(on: bool);
     callback pads-visible-changed(on: bool);
 
     // Physical sizes the GPU textures should be rendered at.
@@ -952,6 +995,9 @@ export component AppWindow inherits Window {
     // tall as 2-Deck Pro's.
     property <bool> lite: layout == 4 && !library-expanded;
     property <bool> lite-full-a: Controls.value(Controls.resolve("[Groove1]", "enabled"), Controls.tick) > 0 || (!decks[0].loaded && InstrumentsUi.live(0) > 0);
+    // The 2-Deck deck row: the full deck's height when one holds a Groove
+    // Box or an instrument.
+    property <length> lite-row: lite-full-a || lite-full-b ? 272px : LiteUi.deck-height;
     property <bool> lite-full-b: Controls.value(Controls.resolve("[Groove2]", "enabled"), Controls.tick) > 0 || (!decks[1].loaded && InstrumentsUi.live(1) > 0);
     // A hardware mixer does the mixing (`[Master],external_mixer`): no
     // on-screen mixer, only each deck's level.
@@ -1287,8 +1333,10 @@ export component AppWindow inherits Window {
             reject
         }
         VerticalLayout {
-            // The window's black shows between the panels as thin lines.
-            spacing: 1px;
+            // The window's black shows between the panels as thin lines:
+            // one line under each panel that shows, so the panels folded to
+            // nothing add no gaps.
+            spacing: 0px;
 
             // Top bar: pill-shaped groups on a dark strip, app name in the middle.
             Rectangle {
@@ -1327,7 +1375,8 @@ export component AppWindow inherits Window {
                     LayoutPill { layout <=> root.layout; player-mic <=> root.player-mic; changed-to(l) => { layout-changed(l); } }
                     if !player: WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
                     if !player: FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
-                    if !player && !prep: PadsButton { on <=> root.pads-visible; changed-to(on) => { pads-visible-changed(on); } }
+                    if layout == 2 || layout == 4: PadsButton { on <=> root.pads-visible; changed-to(on) => { pads-visible-changed(on); } }
+                    if layout == 4: JogsButton { on <=> root.jogs-visible; changed-to(on) => { jogs-visible-changed(on); } }
                     if !player: Rectangle { horizontal-stretch: 1; }
                     // Between the pills, centred on the window (as the
                     // Player bar below is) while there is room, else
@@ -1354,6 +1403,10 @@ export component AppWindow inherits Window {
                     if !player: MasterPill { clock: clock; }
                 }
             }
+
+            // Under the top bar: a lighter grey line when the decks come
+            // next (the waveforms draw their own).
+            Rectangle { height: 1px; background: waveforms.visible ? transparent : Theme.border; }
 
             // Scrolling waveforms, deck A above deck B; in 4-Deck all four,
             // in the strips' order 3, 1, 2, 4.
@@ -1419,92 +1472,117 @@ export component AppWindow inherits Window {
                 }
             }
 
-            // Decks and mixer
-            // Split by thin black lines.
-            // In Player, folded away (rather than removed, so the overview
-            // sizes the renderer reads stay valid) for the compact row below.
-            HorizontalLayout {
-                spacing: 1px;
-                height: library-expanded || layout != 0 ? 0px : 272px;
-                visible: !library-expanded && layout == 0;
-                // The decks share the room equally whatever they show: sized by
-                // their contents, a changing time or title would nudge the
-                // mixer sideways every frame.
-                deck-a := Deck { deck: 0; info: decks[0]; spin: spin-1; overview: overview-1; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
-                if !external-mixer: Mixer { }
-                if external-mixer: ExternalMixer { }
-                Deck { deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
-            }
+            Rectangle { height: waveforms.visible ? 1px : 0px; }
 
-            // 2-Deck: the lighter decks and the slim mixer, then the pad bar
-            // (with PADS). A deck with a Groove Box or an instrument shows
-            // the full deck, and then the row and mixer are 2-Deck Pro's.
-            HorizontalLayout {
-                spacing: 1px;
-                height: lite ? (lite-full-a || lite-full-b ? 272px : LiteUi.deck-height) : 0px;
-                visible: lite;
-                Rectangle {
-                    horizontal-stretch: 1;
-                    min-width: 400px;
-                    preferred-width: 400px;
-                    lite-a := LiteDeck { width: parent.width; height: parent.height; visible: !lite-full-a; deck: 0; info: decks[0]; overview: overview-1; }
-                    if lite-full-a: Deck { width: parent.width; height: parent.height; deck: 0; info: decks[0]; spin: spin-1; overview: overview-1; }
+            // The deck area: whichever of the rows below the layout shows.
+            // Grouped, so the rows folded to nothing add no gaps.
+            VerticalLayout {
+                spacing: 0px;
+                // Decks and mixer
+                // Split by thin black lines.
+                // In Player, folded away (rather than removed, so the overview
+                // sizes the renderer reads stay valid) for the compact row below.
+                HorizontalLayout {
+                    spacing: 1px;
+                    // As tall as 2-Deck with its pad bar, so switching between
+                    // them leaves the library where it is.
+                    height: library-expanded || layout != 0 ? 0px : LiteUi.deck-height + 1px + LiteUi.bar-height;
+                    visible: !library-expanded && layout == 0;
+                    // The decks share the room equally whatever they show: sized by
+                    // their contents, a changing time or title would nudge the
+                    // mixer sideways every frame.
+                    deck-a := Deck { deck: 0; info: decks[0]; spin: spin-1; overview: overview-1; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
+                    if !external-mixer: Mixer { }
+                    if external-mixer: ExternalMixer { }
+                    Deck { deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
                 }
-                if !external-mixer && !(lite-full-a || lite-full-b): LiteMixer { }
-                if !external-mixer && (lite-full-a || lite-full-b): Mixer { }
-                if external-mixer: ExternalMixer { }
-                Rectangle {
-                    horizontal-stretch: 1;
-                    min-width: 400px;
-                    preferred-width: 400px;
-                    LiteDeck { width: parent.width; height: parent.height; visible: !lite-full-b; deck: 1; info: decks[1]; overview: overview-2; mirrored: true; }
-                    if lite-full-b: Deck { width: parent.width; height: parent.height; deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; }
+
+                // 2-Deck: the lighter decks either side of the slim mixer, each
+                // with its half of the pad bar (with PADS) under it. The mixer
+                // runs the full height of both, using the room between the pads.
+                // A deck with a Groove Box or an instrument shows the full deck,
+                // and then the deck row and mixer are 2-Deck Pro's.
+                HorizontalLayout {
+                    spacing: 1px;
+                    height: lite ? lite-row + (PadsUi.visible ? 1px + LiteUi.bar-height : 0px) : 0px;
+                    visible: lite;
+                    VerticalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        min-width: 400px;
+                        preferred-width: 400px;
+                        Rectangle {
+                            height: lite-row;
+                            lite-a := LiteDeck { width: parent.width; height: parent.height; visible: !lite-full-a; deck: 0; info: decks[0]; overview: overview-1; spin: spin-1; }
+                            if lite-full-a: Deck { width: parent.width; height: parent.height; deck: 0; info: decks[0]; spin: spin-1; overview: overview-1; }
+                        }
+                        if PadsUi.visible: PadBarHalf { height: LiteUi.bar-height; deck: 0; info: decks[0]; }
+                    }
+                    if !external-mixer && !(lite-full-a || lite-full-b): LiteMixer { tall: PadsUi.visible; }
+                    if !external-mixer && (lite-full-a || lite-full-b): VerticalLayout {
+                        Mixer { height: 272px; }
+                        Rectangle { background: Theme.panel; vertical-stretch: 1; }
+                    }
+                    if external-mixer: VerticalLayout {
+                        ExternalMixer { height: lite-row; }
+                        Rectangle { background: Theme.panel; vertical-stretch: 1; }
+                    }
+                    VerticalLayout {
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        min-width: 400px;
+                        preferred-width: 400px;
+                        Rectangle {
+                            height: lite-row;
+                            LiteDeck { width: parent.width; height: parent.height; visible: !lite-full-b; deck: 1; info: decks[1]; overview: overview-2; mirrored: true; spin: spin-2; }
+                            if lite-full-b: Deck { width: parent.width; height: parent.height; deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; }
+                        }
+                        if PadsUi.visible: PadBarHalf { height: LiteUi.bar-height; deck: 1; info: decks[1]; mirrored: true; }
+                    }
+                }
+
+                // 4-Deck: four strips, decks 3, 1, 2 and 4, then the bar with the
+                // crossfader. Folded away, like the 2-Deck row, in the other
+                // layouts.
+                HorizontalLayout {
+                    spacing: 1px;
+                    height: four ? (PadsUi.visible ? 330px : 247px) : 0px;
+                    visible: four;
+                    DeckStrip { deck: 2; info: decks[2]; overview: overview-3; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
+                    strip-1 := DeckStrip { deck: 0; info: decks[0]; overview: overview-1; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
+                    DeckStrip { deck: 1; info: decks[1]; overview: overview-2; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
+                    DeckStrip { deck: 3; info: decks[3]; overview: overview-4; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
+                }
+
+                // Over the expanded library: the deck headers either side of
+                // the basics, in one short row.
+                HorizontalLayout {
+                    spacing: 1px;
+                    height: compact ? 108px : 0px;
+                    visible: compact;
+                    player-a := PlayerDeck { deck: 0; info: decks[0]; overview: overview-1; horizontal-stretch: 1; min-width: 330px; }
+                    PlayerMixer { decks: decks; spin-1: spin-1; spin-2: spin-2; }
+                    PlayerDeck { deck: 1; info: decks[1]; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 330px; }
+                }
+
+                // Prep: deck 1's header over the grid tools, transport and hot
+                // cue pads.
+                prep-deck := PrepDeck {
+                    info: decks[0];
+                    overview: overview-1;
+                    height: prep ? 280px : 0px;
+                    visible: prep;
+                }
+
+                Rectangle { height: four ? 1px : 0px; }
+                FourDeckBar {
+                    decks: decks;
+                    height: four ? 48px : 0px;
+                    visible: four;
                 }
             }
-            PadBar {
-                height: lite && PadsUi.visible ? LiteUi.bar-height : 0px;
-                visible: lite && PadsUi.visible;
-                decks: decks;
-            }
 
-            // 4-Deck: four strips, decks 3, 1, 2 and 4, then the bar with the
-            // crossfader. Folded away, like the 2-Deck row, in the other
-            // layouts.
-            HorizontalLayout {
-                spacing: 1px;
-                height: four ? (PadsUi.visible ? 330px : 247px) : 0px;
-                visible: four;
-                DeckStrip { deck: 2; info: decks[2]; overview: overview-3; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
-                strip-1 := DeckStrip { deck: 0; info: decks[0]; overview: overview-1; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
-                DeckStrip { deck: 1; info: decks[1]; overview: overview-2; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
-                DeckStrip { deck: 3; info: decks[3]; overview: overview-4; horizontal-stretch: 1; min-width: 270px; preferred-width: 270px; }
-            }
-
-            // Over the expanded library: the deck headers either side of
-            // the basics, in one short row.
-            HorizontalLayout {
-                spacing: 1px;
-                height: compact ? 108px : 0px;
-                visible: compact;
-                player-a := PlayerDeck { deck: 0; info: decks[0]; overview: overview-1; horizontal-stretch: 1; min-width: 330px; }
-                PlayerMixer { decks: decks; spin-1: spin-1; spin-2: spin-2; }
-                PlayerDeck { deck: 1; info: decks[1]; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 330px; }
-            }
-
-            // Prep: deck 1's header over the grid tools, transport and hot
-            // cue pads.
-            prep-deck := PrepDeck {
-                info: decks[0];
-                overview: overview-1;
-                height: prep ? 280px : 0px;
-                visible: prep;
-            }
-
-            FourDeckBar {
-                decks: decks;
-                height: four ? 48px : 0px;
-                visible: four;
-            }
+            Rectangle { height: !player ? 1px : 0px; }
 
             // The FX bar under the decks: deck effects either side of the
             // Beat FX. Folded away while the library is expanded or the top
@@ -1514,6 +1592,8 @@ export component AppWindow inherits Window {
                 height: library-expanded || !fx-bar-visible || player || prep ? 0px : four ? 96px : 68px;
                 visible: !library-expanded && fx-bar-visible && !player && !prep;
             }
+
+            Rectangle { height: !library-expanded && fx-bar-visible && !player && !prep ? 1px : 0px; }
 
             browser := Browser {
                 vertical-stretch: 1;
@@ -1568,6 +1648,7 @@ export component AppWindow inherits Window {
             // Footer: on the left, expand the library, leaving just the
             // Player row above it; on the right, show or hide the side panel.
             // Player has its bar instead, so only while analysis runs.
+            Rectangle { height: !player || LibraryEdit.analysis-status != "" ? 1px : 0px; }
             Rectangle {
                 height: !player || LibraryEdit.analysis-status != "" ? 36px : 0px;
                 visible: !player || LibraryEdit.analysis-status != "";
@@ -1613,6 +1694,7 @@ export component AppWindow inherits Window {
 
             // Player: one bar along the bottom, as in music players: what is
             // playing, the transport and the queue button.
+            Rectangle { height: player ? 1px : 0px; }
             player-bar := PlayerBar {
                 height: player ? 104px : 0px;
                 visible: player;
