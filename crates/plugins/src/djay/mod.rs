@@ -543,8 +543,10 @@ fn page_rows(data: &[u8]) -> Vec<i64> {
     if data.starts_with(b"bplist") || !data.len().is_multiple_of(8) {
         return Vec::new();
     }
-    data.chunks_exact(8)
-        .map(|c| i64::from_le_bytes(c.try_into().expect("8 bytes")))
+    data.as_chunks::<8>()
+        .0
+        .iter()
+        .map(|c| i64::from_le_bytes(*c))
         .collect()
 }
 

@@ -54,8 +54,8 @@ pub fn path(bookmark: &[u8]) -> Option<PathBuf> {
                 return None;
             }
             let mut path = PathBuf::from("/");
-            for at in list.chunks_exact(4) {
-                let (kind, name) = item(data, u32::from_le_bytes(at.try_into().ok()?) as usize)?;
+            for at in list.as_chunks::<4>().0 {
+                let (kind, name) = item(data, u32::from_le_bytes(*at) as usize)?;
                 if kind != STRING {
                     return None;
                 }
