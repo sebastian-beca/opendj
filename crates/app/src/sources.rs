@@ -509,7 +509,77 @@ impl Source {
             })
             .collect();
         crate::settings::set_source_searches(self.info.name, &saved);
+        self.save_results();
     }
+
+    /// Keeps finished searches' results, so they show again after a
+    /// restart without searching again. Not for a source that plays: its
+    /// files download through what its own search found.
+    fn save_results(&self) {
+        if self.cache.is_some() {
+            return;
+        }
+        let Some(path) = results_path(self.info.name) else {
+            return;
+        };
+        let mut all = serde_json::Map::new();
+        for s in self
+            .searches
+            .iter()
+            .filter(|s| s.done && s.error.is_none() && !s.items.is_empty())
+        {
+            all.insert(
+                s.added.to_string(),
+                serde_json::json!({
+                    "items": s.items.iter().map(opendj_plugins::remote::found_json).collect::<Vec<_>>(),
+                    "note": s.note,
+                    "title": s.title,
+                }),
+            );
+        }
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&path, serde_json::Value::Object(all).to_string());
+    }
+}
+
+/// Where a source's finished searches' results are kept.
+fn results_path(source: &str) -> Option<PathBuf> {
+    crate::settings::config_dir().map(|d| {
+        d.join("source-results")
+            .join(format!("{}.json", safe_name(source, "Source")))
+    })
+}
+
+/// A finished search's kept results: what it found, its note and title.
+type Kept = (Vec<Found>, String, String);
+
+/// The results kept by [`Source::save_results`], by when each search was
+/// added.
+fn kept_results(source: &str) -> HashMap<u64, Kept> {
+    let Some(text) = results_path(source).and_then(|p| std::fs::read_to_string(p).ok()) else {
+        return HashMap::new();
+    };
+    read_kept(&text)
+}
+
+fn read_kept(text: &str) -> HashMap<u64, Kept> {
+    let Ok(serde_json::Value::Object(all)) = serde_json::from_str(text) else {
+        return HashMap::new();
+    };
+    all.into_iter()
+        .filter_map(|(added, v)| {
+            let items: Vec<Found> = v["items"]
+                .as_array()?
+                .iter()
+                .map(opendj_plugins::remote::found_from)
+                .collect();
+            let text = |k: &str| v[k].as_str().unwrap_or_default().to_string();
+            Some((added.parse().ok()?, (items, text("note"), text("title"))))
+        })
+        .filter(|(_, (items, _, _))| !items.is_empty())
+        .collect()
 }
 
 /// What a row of the list is.
@@ -668,9 +738,15 @@ impl Sources {
             preview: None,
             preview_actions: Vec::new(),
         };
-        // Saved searches run again when the app starts.
+        // Saved searches show what they found last time; those that hadn't
+        // finished, and a playing source's, run again.
         for s in 0..me.sources.len() {
             let saved = crate::settings::source_searches(me.sources[s].info.name);
+            let mut kept = if me.sources[s].cache.is_none() {
+                kept_results(me.sources[s].info.name)
+            } else {
+                HashMap::new()
+            };
             for (text, kind, prefer, added, songs) in saved {
                 let query = SourceQuery {
                     text,
@@ -680,7 +756,12 @@ impl Sources {
                     songs,
                     restored: true,
                 };
-                me.start(s, query, added, false);
+                match kept.remove(&added) {
+                    Some(found) => me.restore(s, query, added, found),
+                    None => {
+                        me.start(s, query, added, false);
+                    }
+                }
             }
         }
         let ui = app.global::<SourceUi>();
@@ -835,6 +916,8 @@ impl Sources {
                 changed = true;
             }
         }
+        // Sources with a search that just finished, to keep its results.
+        let mut finished: HashSet<usize> = HashSet::new();
         for event in self.events.try_iter().collect::<Vec<_>>() {
             changed = true;
             match event {
@@ -860,6 +943,9 @@ impl Sources {
                             settle(&mut search.settling, &items, &wanted);
                         }
                         search.items = items;
+                        if snap.done && !search.done {
+                            finished.insert(s);
+                        }
                         search.done = snap.done;
                         search.note = snap.note;
                         if !snap.title.is_empty() {
@@ -927,6 +1013,9 @@ impl Sources {
                     }
                 }
             }
+        }
+        for s in finished {
+            self.sources[s].save_results();
         }
         if changed {
             for s in 0..self.sources.len() {
@@ -1107,11 +1196,16 @@ impl Sources {
     /// Starts a search and lists it by when it was added, newest first;
     /// returns its place in the list.
     fn start(&mut self, s: usize, query: SourceQuery, added: u64, auto: bool) -> usize {
+        let at = self.start_listed(s, query.clone(), added, auto);
+        let local = self.sources[s].searches[at].local;
+        let _ = self.sources[s].requests.send(Request::Start(local, query));
+        at
+    }
+
+    /// Lists a new search, not started yet; returns its place in the list.
+    fn start_listed(&mut self, s: usize, query: SourceQuery, added: u64, auto: bool) -> usize {
         self.next_local += 1;
         let local = self.next_local;
-        let _ = self.sources[s]
-            .requests
-            .send(Request::Start(local, query.clone()));
         let searches = &mut self.sources[s].searches;
         let at = place(searches, added);
         searches.insert(
@@ -1132,6 +1226,14 @@ impl Sources {
             },
         );
         at
+    }
+
+    /// Lists a search with the results it found before the app last
+    /// closed, finished, without searching again ("Search again" does).
+    fn restore(&mut self, s: usize, query: SourceQuery, added: u64, (items, note, title): Kept) {
+        let at = self.start_listed(s, query, added, false);
+        let search = &mut self.sources[s].searches[at];
+        (search.items, search.note, search.title, search.done) = (items, note, title, true);
     }
 
     fn describe(&mut self, query: &SourceQuery) {
@@ -2746,5 +2848,30 @@ mod tests {
             next(),
             Event::PreviewFile(0, path) if path == Path::new("/incoming/kerala.mp3")
         ));
+    }
+
+    #[test]
+    fn kept_results_read_back() {
+        let found = Found {
+            key: "k1".into(),
+            artist: "Bonobo".into(),
+            title: "Kerala".into(),
+            size: 5,
+            ..Default::default()
+        };
+        let text = serde_json::json!({
+            "1700": {
+                "items": [opendj_plugins::remote::found_json(&found)],
+                "note": "1 found",
+                "title": "",
+            },
+            "1800": { "items": [], "note": "", "title": "" },
+            "x": { "items": [], "note": "", "title": "" },
+        })
+        .to_string();
+        let kept = read_kept(&text);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[&1700], (vec![found], "1 found".into(), String::new()));
+        assert!(read_kept("not json").is_empty());
     }
 }
