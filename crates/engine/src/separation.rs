@@ -140,7 +140,7 @@ const SPLIT_LEAD: usize = 8192;
 const FROM_SPLEETER: [usize; 4] = [1, 2, 3, 0];
 
 /// The Spleeter networks, loaded once.
-fn spleeter_net() -> Result<Arc<spleeter::cpu::Net>, String> {
+pub(crate) fn spleeter_net() -> Result<Arc<spleeter::cpu::Net>, String> {
     static NET: Mutex<Option<Arc<spleeter::cpu::Net>>> = Mutex::new(None);
     let mut net = NET.lock().unwrap();
     if let Some(n) = net.as_ref() {
@@ -157,7 +157,7 @@ fn spleeter_net() -> Result<Arc<spleeter::cpu::Net>, String> {
 }
 
 /// The track's channels, whole.
-fn channels(audio: &Audio) -> [Vec<f32>; 2] {
+pub(crate) fn channels(audio: &Audio) -> [Vec<f32>; 2] {
     let mut l = Vec::with_capacity(audio.len());
     let mut r = Vec::with_capacity(audio.len());
     for f in audio.decoded_chunks().flatten() {

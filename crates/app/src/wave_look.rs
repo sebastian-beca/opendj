@@ -16,6 +16,8 @@ pub const PALETTE_KEY: &str = "waveform_palette";
 pub const HALF_KEY: &str = "waveform_overview_half";
 /// Settings › Decks › Size follows gain, off at first.
 pub const GAIN_KEY: &str = "waveform_follows_gain";
+/// Settings › Decks › Show vocals, on at first.
+pub const VOCALS_KEY: &str = "waveform_show_vocals";
 
 /// The color schemes, in Settings order.
 pub const COLOR_LABELS: [&str; 3] = ["RGB", "3-Band", "Blue"];
@@ -28,6 +30,7 @@ static PALETTE: AtomicU32 = AtomicU32::new(0);
 static HALF: AtomicU32 = AtomicU32::new(0);
 static VERSION: AtomicU32 = AtomicU32::new(1);
 static GAIN: AtomicU32 = AtomicU32::new(0);
+static VOCALS: AtomicU32 = AtomicU32::new(1);
 
 /// Reads the saved choices; called once at start.
 pub fn load() {
@@ -36,6 +39,7 @@ pub fn load() {
     PALETTE.store(read(PALETTE_KEY, PALETTE_LABELS.len()), Ordering::Relaxed);
     HALF.store(read(HALF_KEY, SHAPE_LABELS.len()), Ordering::Relaxed);
     GAIN.store(settings::flag(GAIN_KEY, false) as u32, Ordering::Relaxed);
+    VOCALS.store(settings::flag(VOCALS_KEY, true) as u32, Ordering::Relaxed);
     VERSION.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -65,6 +69,17 @@ pub fn set_follows_gain(on: bool) {
 
 pub fn follows_gain() -> bool {
     GAIN.load(Ordering::Relaxed) == 1
+}
+
+/// Show vocals was switched; saved by the caller.
+pub fn set_show_vocals(on: bool) {
+    VOCALS.store(on as u32, Ordering::Relaxed);
+    VERSION.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Whether the waveforms tint the sung parts green.
+pub fn show_vocals() -> bool {
+    VOCALS.load(Ordering::Relaxed) == 1
 }
 
 /// How tall a deck's waveforms are drawn for its gain knob (1 at the

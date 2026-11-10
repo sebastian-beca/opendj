@@ -18,6 +18,7 @@ use opendj_engine::key::Key;
 use opendj_engine::scan::scan;
 use opendj_engine::stems;
 use opendj_engine::synth::SAMPLE_LIBRARY_SIZE;
+use opendj_engine::vocals::Levels;
 use opendj_engine::{
     deck_group, deck_outputs_split, default_output_device, effect_group, output_devices,
     sample_library, AudioEngine, AudioSetup, Role, Route, Source, Track, VisualPositions, Waveform,
@@ -105,6 +106,7 @@ mod transport;
 mod tutorials;
 mod ui_font;
 mod update;
+mod vocal_pass;
 mod wave_look;
 mod waves;
 
@@ -720,6 +722,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         counter.set_mode(beat_counter_mode());
         track_end::load();
         wave_look::load();
+        let app_weak = app.as_weak();
+        vocal_pass::start(move || {
+            let _ = app_weak.upgrade_in_event_loop(|app| app.window().request_redraw());
+        });
         counter.set_decks(ModelRc::new(VecModel::from(vec![
             BeatCount::default();
             NUM_DECKS
@@ -2511,9 +2517,10 @@ struct Gpu {
     scrolling: [WaveformView; NUM_DECKS],
     overview: [WaveformView; NUM_DECKS],
     /// Each deck's track on the GPU, shared by its two views, and the
-    /// waveform it was uploaded from. While a track is being analysed its
-    /// waveform grows, and each new version is uploaded again.
-    tracks: [Option<(Arc<GpuTrack>, Arc<Waveform>)>; NUM_DECKS],
+    /// waveform and vocal levels it was uploaded from. While a track is
+    /// being analysed its waveform grows, and each new version is uploaded
+    /// again, as it is once its vocals are found.
+    tracks: [Option<(Arc<GpuTrack>, Arc<Waveform>, Option<Arc<Levels>>)>; NUM_DECKS],
     /// Each deck's phrases and the track they were found for, found again
     /// when the track changes (a new analysis or a grid edit replaces it).
     phrases: [Option<(Arc<Track>, Phrases)>; NUM_DECKS],
@@ -2624,10 +2631,12 @@ impl Gpu {
             self.look = wave_look::version();
             let (style, palette, half) =
                 (wave_look::style(), wave_look::palette(), wave_look::half());
+            let vocals = wave_look::show_vocals();
             for v in self.scrolling.iter_mut().chain(self.overview.iter_mut()) {
                 v.set_style(style);
                 v.set_palette(palette);
                 v.set_half(half);
+                v.set_show_vocals(vocals);
             }
         }
         let scale = app.window().scale_factor();
@@ -2689,26 +2698,44 @@ impl Gpu {
             changed |= self.overview[d].resize(&self.device, ow, oh);
             self.overview[d].set_background(overview_background);
             let track = track.as_ref().filter(|t| !t.waveform.is_empty());
+            // Show vocals: the file's vocal levels once the pass has them.
+            let vocals = match track.map(|t| &t.source) {
+                Some(Source::File(path)) if wave_look::show_vocals() => vocal_pass::levels(path),
+                _ => None,
+            };
+            let same_vocals = |v: &Option<Arc<Levels>>| match (v, &vocals) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                // Kept on the GPU when Show vocals is off: the view hides them.
+                (Some(_), None) => !wave_look::show_vocals(),
+                _ => false,
+            };
             let gpu_track = match (track, &self.tracks[d]) {
                 (None, _) => None,
-                // Uploaded already, unless the waveform has grown since.
-                (Some(t), Some((g, w))) if g.id() == t.id && Arc::ptr_eq(w, &t.waveform) => {
-                    Some((g.clone(), w.clone()))
+                // Uploaded already, unless the waveform has grown since or
+                // its vocals have come.
+                (Some(t), Some((g, w, v)))
+                    if g.id() == t.id && Arc::ptr_eq(w, &t.waveform) && same_vocals(v) =>
+                {
+                    Some((g.clone(), w.clone(), v.clone()))
                 }
                 (Some(t), _) => Some((
-                    Arc::new(GpuTrack::new(
+                    Arc::new(GpuTrack::with_vocals(
                         &self.device,
                         &self.queue,
                         &self.renderer,
                         t.id,
                         &t.waveform.levels,
                         t.waveform.bins_per_second,
+                        vocals.as_deref().map_or(&[], |v| v.as_slice()),
+                        opendj_engine::vocals::RATE,
                     )),
                     t.waveform.clone(),
+                    vocals.clone(),
                 )),
             };
             self.tracks[d] = gpu_track.clone();
-            let gpu_track = gpu_track.map(|(g, _)| g);
+            let gpu_track = gpu_track.map(|(g, _, _)| g);
             let (play_seconds, speed) = clocks[d];
             self.moving |= track.is_some() && speed != 0.0;
             // A slip's silent playhead runs on even while the deck is paused.

@@ -53,6 +53,7 @@ struct Params {
     lit_color: vec4<f32>,
     word_width: array<vec4<f32>, 2>,   // each phrase name's width in the text atlas, by kind
     marks: array<vec4<f32>, 256>,      // start and end slice, row, kind (0 played, 1 held, 2 coming, 3 fill, 4 coming fill, 8+ level: 8 + colour * 2^20 + from * 1024 + to)
+    vocal: vec4<f32>,                  // vocal levels: first texel, count, finest slices per level, 1 = tint the sung parts
 };
 
 @group(0) @binding(0) var<uniform> p: Params;
@@ -86,6 +87,8 @@ const MONO_GREY = vec3<f32>(0.40, 0.40, 0.44);
 // Blue style: the body, and what it lightens towards where the highs are loud.
 const BLUE_BODY = vec3<f32>(0.173, 0.482, 0.898);   // #2C7BE5
 const BLUE_HIGHS = vec3<f32>(0.863, 0.922, 1.0);    // #DCEBFF
+// Show vocals: the sung parts lean towards this green.
+const VOCAL_GREEN = vec3<f32>(0.231, 0.890, 0.541); // #3BE38A
 // Phrase colours, in PhraseKind order: intro, build (up), drop (peak),
 // breakdown (break or bridge), outro, chorus (main), verse.
 const PHRASE_COLORS = array<vec3<f32>, 7>(
@@ -131,6 +134,33 @@ fn level_len(l: u32) -> u32 {
 
 fn texel(t: u32) -> vec4<f32> {
     return textureLoad(bins, vec2<u32>(t % ROW, t / ROW), 0);
+}
+
+// Vocal level `j` (0 to 1), four to a texel after the levels.
+fn vocal_level(j: u32) -> f32 {
+    let v = texel(u32(p.vocal.x) + j / 4u);
+    return v[j % 4u];
+}
+
+// How much of the track around `bin` is vocals, 0 to 1: interpolated
+// between levels, and on the overview the most over the column.
+fn vocal_at(bin: f32) -> f32 {
+    let count = u32(p.vocal.y);
+    if (count == 0u || p.vocal.z <= 0.0 || bin < 0.0) {
+        return 0.0;
+    }
+    let per = p.vocal.z;
+    let span = max(p.bins_per_pixel / per, 1.0);
+    var most = 0.0;
+    let steps = min(u32(ceil(span)), 16u);
+    for (var i = 0u; i < steps; i = i + 1u) {
+        let x = bin / per - 0.5 * span + (f32(i) + 0.5) * span / f32(steps);
+        let j = u32(clamp(floor(x), 0.0, f32(count - 1u)));
+        let k = min(j + 1u, count - 1u);
+        let v = mix(vocal_level(j), vocal_level(k), clamp(fract(x), 0.0, 1.0));
+        most = max(most, v);
+    }
+    return most;
 }
 
 // Levels are stored as square roots; this returns them as linear levels.
@@ -473,6 +503,14 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     if (has_track) {
         let cols = columns(bin);
         color = mix(wave(color, cols.a, bin, d, span), wave(color, cols.b, bin, d, span), cols.t);
+        // Show vocals: the shape leans green where someone sings.
+        if (p.vocal.w > 0.5 && p.style != 2u) {
+            let v = vocal_at(bin);
+            if (v > 0.0) {
+                let reach = height(mix(cols.a.peak.w, cols.b.peak.w, cols.t)) * span;
+                color = over(color, VOCAL_GREEN, v * 0.7 * fill(reach, d));
+            }
+        }
     }
 
     color = mix(under_wave, color, p.trace_alpha);
