@@ -70,3 +70,8 @@ USB export stands on the work of others:
 - **[rekordcrate](https://github.com/Holzhaus/rekordcrate)** (MPL-2.0) and
   the [Deep Symmetry](https://djl-analysis.deepsymmetry.org/) format notes
   were used to check openDJ's sticks.
+- **[EngineX OS](https://github.com/Cd1s/EngineX-OS)** (MIT) reads
+  rekordbox sticks for Denon, Numark and Rane players, and its
+  [OpenProLink](https://github.com/Cd1s/OpenProLink) CDJ-3000 simulator
+  loads them with the same reader. openDJ's tests read every export back
+  with a port of that reader, which shares no code with rbox.
